@@ -20,7 +20,14 @@ const adapterSchema = z.object({
     max_attempts: z.number().int().nonnegative(),
     retryable_exit_codes: z.array(z.number().int())
   }),
-  exit_code_map: z.record(z.string().min(1))
+  exit_code_map: z.record(z.string().min(1)),
+  command: z
+    .object({
+      executable: z.string().min(1),
+      args: z.array(z.string().min(1)).default([]),
+      input: z.literal("stdin-json").default("stdin-json")
+    })
+    .optional()
 });
 
 export type AdapterDefinition = z.infer<typeof adapterSchema> & {
@@ -42,6 +49,9 @@ export async function loadAdapterDefinition(
           message: parsed.error.issues[0]?.message ?? "invalid adapter definition",
           path: join(root, "adapter.yaml")
         });
+      }
+      if (parsed.data.kind === "mcp-agent") {
+        await requireFile(join(root, "SKILL.md"), "adapter.skill_md_missing");
       }
       return { ...parsed.data, root };
     }

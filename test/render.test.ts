@@ -59,6 +59,57 @@ describe("assembled media render", () => {
     expect(result.ok).toBe(false);
     expect(result.issues[0]?.code).toBe("render.backend_not_implemented");
   });
+
+  it("rejects a backend that exits successfully without output files", async () => {
+    const validation = await validateProject("fixtures/projects/render-local-media.yaml");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-render-"));
+    const gate1 = markGateAwaiting(createPlannedState("render-local-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const assembled = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/render-local.valid.json",
+      stateDir,
+      state: running
+    });
+    const rendering = recordGateDecision(assembled.state!, "gate_2", "approved");
+
+    const result = await renderAssembledMedia(
+      {
+        ...validation.project!,
+        edit: { backend: "no-output" }
+      },
+      { stateDir, state: rendering }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("render.output_missing");
+  });
+
+  it("preserves structured backend failure codes", async () => {
+    const validation = await validateProject("fixtures/projects/render-local-media.yaml");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-render-"));
+    const gate1 = markGateAwaiting(createPlannedState("render-local-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const assembled = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/render-local.valid.json",
+      stateDir,
+      state: running
+    });
+    const rendering = recordGateDecision(assembled.state!, "gate_2", "approved");
+
+    const result = await renderAssembledMedia(
+      {
+        ...validation.project!,
+        edit: { backend: "structured-failure" }
+      },
+      { stateDir, state: rendering }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]).toMatchObject({
+      code: "backend.fixture_failed",
+      message: "structured fixture failure"
+    });
+  });
 });
 
 function gate2ApprovedState(runId: string) {

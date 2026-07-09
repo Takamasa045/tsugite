@@ -71,7 +71,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return output(args, 0, {
       ok: true,
       command: "plan",
-      plan: createPlan(validation.project!, validation.manifest!, validation.adapter)
+      plan: createPlan(validation.project!, validation.manifest!, validation.adapter, validation.analysisAdapter)
     });
   }
 
@@ -79,7 +79,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return output(args, 0, {
       ok: true,
       command: "run",
-      dry_run: createDryRun(validation.project!, validation.manifest!, validation.adapter, validation.backend)
+      dry_run: createDryRun(
+        validation.project!,
+        validation.manifest!,
+        validation.adapter,
+        validation.analysisAdapter,
+        validation.backend
+      )
     });
   }
 
@@ -124,13 +130,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       manifestPath: resolve(dirname(resolve(args.config!)), validation.project!.manifest),
       stateDir: stateResult.stateDir,
       state: stateResult.state
-    });
+    }, validation.adapter);
     return output(args, runResult.ok ? 0 : 1, {
       ok: runResult.ok,
       command: "run",
       issues: runResult.issues,
       manifest_path: runResult.manifestPath,
+      qc_report_path: runResult.qcReportPath,
+      run_log_path: runResult.runLogPath,
       asset_count: runResult.assetCount,
+      actual_credits: runResult.actualCredits,
       already_assembled: runResult.alreadyAssembled,
       state: runResult.state,
       state_path: runResult.statePath

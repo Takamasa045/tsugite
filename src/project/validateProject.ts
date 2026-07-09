@@ -23,7 +23,15 @@ type ValidateOptions = {
 export async function validateProject(
   configPath: string,
   options: ValidateOptions = {}
-): Promise<Result<{ project: Project; manifest: Manifest; adapter?: AdapterDefinition; backend?: BackendCapabilities }>> {
+): Promise<
+  Result<{
+    project: Project;
+    manifest: Manifest;
+    adapter?: AdapterDefinition;
+    analysisAdapter?: AdapterDefinition;
+    backend?: BackendCapabilities;
+  }>
+> {
   const issues: Issue[] = [];
   let project: Project;
 
@@ -70,6 +78,7 @@ export async function validateProject(
   }
 
   let adapter: AdapterDefinition | undefined;
+  let analysisAdapter: AdapterDefinition | undefined;
   try {
     if (project.generation) {
       adapter = await loadAdapterDefinition(project.generation.adapter, options.adapterDirs);
@@ -85,16 +94,25 @@ export async function validateProject(
         });
       }
     }
+    if (project.analysis) {
+      analysisAdapter = await loadAdapterDefinition(project.analysis.adapter, options.adapterDirs);
+      if (analysisAdapter.class !== "analysis") {
+        issues.push({
+          code: "adapter.class_mismatch",
+          message: `adapter '${project.analysis.adapter}' cannot be used for analysis requests`
+        });
+      }
+    }
     issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
   } catch (error) {
     issues.push(...issuesFromError(error));
   }
 
   if (issues.length > 0 || !manifestResult.manifest) {
-    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, backend };
+    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, analysisAdapter, backend };
   }
 
-  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, backend };
+  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, analysisAdapter, backend };
 }
 
 function issuesFromError(error: unknown): Issue[] {

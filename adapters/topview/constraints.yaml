@@ -3,8 +3,8 @@ checks:
     scope: generation
     field: duration
     operator: in
-    values: [5, 10]
-    message: duration must be 5 or 10 seconds
+    values: [5, 10, 15]
+    message: duration must be 5, 10, or 15 seconds
   - id: aspect-supported
     scope: generation
     field: aspect

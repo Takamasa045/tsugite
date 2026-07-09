@@ -5,3 +5,23 @@ checks:
     operator: in
     values: [3, 5, 10]
     message: duration must be 3, 5, or 10 seconds
+  - id: aspect-supported
+    scope: generation
+    field: aspect
+    operator: in
+    values: ["16:9", "9:16"]
+    message: aspect must be 16:9 or 9:16
+  - id: seed-min
+    scope: generation
+    field: seed
+    operator: min
+    value: 0
+    optional: true
+    message: seed must be greater than or equal to 0
+  - id: seed-max
+    scope: generation
+    field: seed
+    operator: max
+    value: 2147483647
+    optional: true
+    message: seed must be less than or equal to 2147483647

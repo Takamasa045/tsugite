@@ -12,6 +12,17 @@ export type PlanStep = {
   status: "pending" | "gate";
 };
 
+export type AgentHandoff = {
+  phase: "generation" | "analysis";
+  adapter: string;
+  kind: AdapterDefinition["kind"];
+  class: AdapterDefinition["class"];
+  outputs: string[];
+  dry_run_estimate_available: boolean;
+  batch: boolean;
+  execution: "pipeline-cli" | "agent-handoff";
+};
+
 export type ExecutionPlan = {
   run_id: string;
   slug: string;
@@ -24,16 +35,19 @@ export type ExecutionPlan = {
     duration: number;
     src: string;
   }>;
+  agent_handoffs: AgentHandoff[];
   steps: PlanStep[];
 };
 
 export function createPlan(
   project: Project,
   manifest: Manifest,
-  adapter?: AdapterDefinition
+  adapter?: AdapterDefinition,
+  analysisAdapter?: AdapterDefinition
 ): ExecutionPlan {
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, adapter);
+  const agentHandoffs = createAgentHandoffs(project, adapter, analysisAdapter);
 
   return {
     run_id: project.run_id ?? project.slug,
@@ -47,8 +61,10 @@ export function createPlan(
       duration: clip.duration,
       src: clip.src
     })),
+    agent_handoffs: agentHandoffs,
     steps: [
       { name: "validate", status: "pending" },
+      ...(project.analysis ? [{ name: "analysis-handoff", status: "pending" as const }] : []),
       { name: "gate-1", status: "gate" },
       { name: "assemble-manifest", status: "pending" },
       { name: "gate-2", status: "gate" },
@@ -62,18 +78,22 @@ export function createDryRun(
   project: Project,
   manifest: Manifest,
   adapter?: AdapterDefinition,
+  analysisAdapter?: AdapterDefinition,
   backend?: BackendCapabilities
 ): {
   executed: false;
   plan: ExecutionPlan;
   estimated_credits: number;
   external_commands: BackendExternalCommand[];
+  agent_handoffs: AgentHandoff[];
 } {
+  const plan = createPlan(project, manifest, adapter, analysisAdapter);
   return {
     executed: false,
-    plan: createPlan(project, manifest, adapter),
+    plan,
     estimated_credits: estimateCredits(project, adapter),
-    external_commands: renderPreflightCommands(backend)
+    external_commands: renderPreflightCommands(backend),
+    agent_handoffs: plan.agent_handoffs
   };
 }
 
@@ -86,4 +106,40 @@ function estimateCredits(project: Project, adapter?: AdapterDefinition): number 
       request.duration * adapter.credit_estimate.per_second
     );
   }, 0);
+}
+
+function createAgentHandoffs(
+  project: Project,
+  adapter?: AdapterDefinition,
+  analysisAdapter?: AdapterDefinition
+): AgentHandoff[] {
+  const handoffs: AgentHandoff[] = [];
+
+  if (project.generation && adapter) {
+    handoffs.push({
+      phase: "generation",
+      adapter: adapter.name,
+      kind: adapter.kind,
+      class: adapter.class,
+      outputs: project.generation.requests.map((request) => request.id),
+      dry_run_estimate_available: adapter.dry_run_estimate,
+      batch: adapter.batch,
+      execution: adapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
+    });
+  }
+
+  if (project.analysis && analysisAdapter) {
+    handoffs.push({
+      phase: "analysis",
+      adapter: analysisAdapter.name,
+      kind: analysisAdapter.kind,
+      class: analysisAdapter.class,
+      outputs: project.analysis.requests.map((request) => request.output),
+      dry_run_estimate_available: analysisAdapter.dry_run_estimate,
+      batch: analysisAdapter.batch,
+      execution: analysisAdapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
+    });
+  }
+
+  return handoffs;
 }

@@ -197,6 +197,10 @@ manifest は生成側と編集側の**唯一の合意点**。
 
 - 昇格ルート: `mcp-agent` で試験導入 → 常用経路になったら `mcp-client` へ実装昇格
 - `validate` は kind を見て「dry-run 見積もり可能か」「バッチ可能か」を判定する
+- `cli` アダプタは `adapter.yaml` の `command` で `stdin-json` wrapper を宣言する。
+  wrapper は `{ request, run_id, run_dir }` を受け取り、外部 CLI の戻り値を
+  Tsugite 標準の `{ request_id, credits, clips[], metadata }` JSON に正規化する。
+  実 CLI の仕様差分は adapter 配下に閉じ込め、core へ漏らさない。
 
 **class 軸（kind と直交する分類）:**
 
@@ -223,7 +227,8 @@ manifest は生成側と編集側の**唯一の合意点**。
     実行前にチェックし、不一致なら拒否する
 - バックエンド固有の検証コマンドを組み込む:
   - remotion: TypeScript コンパイル + composition props 検証
-  - hyperframes: `npx hyperframes lint --json`
+  - hyperframes: manifest から最小 `index.html` を生成し、
+    `npx --no-install hyperframes lint --json` → `npx --no-install hyperframes render --output final.mp4`
 - バックエンド選択は `project.yaml` の `edit.backend: remotion | hyperframes`
 
 ### FR-5: Gate（人間承認ポイント）
@@ -353,13 +358,13 @@ manifest は生成側と編集側の**唯一の合意点**。
     （クレジット消費ゼロで manifest → Gate → render の全経路を検証できる）
   - 完了条件: AC-1、AC-4、AC-6
 - **Phase 2: adapters/kling（kind: cli）**
-  - kling アダプタ + constraints.md、Gate 2 QC、クレジット見積もり
+  - kling / pixverse アダプタ + constraints.md、stdin-json wrapper、Gate 2 QC、クレジット見積もり
   - 完了条件: AC-3、AC-5
 - **Phase 3: backends/hyperframes**
-  - hyperframes バックエンド（lint 統合、capabilities 宣言）
+  - hyperframes バックエンド（lint 統合、manifest 由来 HTML 生成、render CLI 呼び出し、capabilities 宣言）
   - 完了条件: AC-2
 - **Phase 4: MCP アダプタ**
-  - mcp-agent 型を 1 ベンダーで試験導入 → 必要になったら mcp-client 昇格
+  - Topview を mcp-agent 型で試験導入 → 必要になったら mcp-client 昇格
   - 完了条件: AC-9
 - **Phase 5: 学習ループの実証**
   - 実案件で出た失敗を LESSONS → validate 昇格まで 1 周

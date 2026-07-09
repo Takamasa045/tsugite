@@ -133,6 +133,7 @@ describe("pipeline main", () => {
     const payload = JSON.parse(run.stdout);
     const rerunPayload = JSON.parse(rerun.stdout);
     const assembledManifest = JSON.parse(await readFile(payload.manifest_path, "utf8"));
+    const qcReport = JSON.parse(await readFile(payload.qc_report_path, "utf8"));
     const copiedClip = join(stateDir, "local-media-only-run", assembledManifest.clips[0].src);
 
     expect(blocked.status).toBe(1);
@@ -144,15 +145,16 @@ describe("pipeline main", () => {
     expect(rerun.status).toBe(0);
     expect(rerunPayload.already_assembled).toBe(true);
     expect(rerunPayload.state.status).toBe("awaiting_gate_2");
+    expect(qcReport.asset_count).toBe(2);
     await expect(stat(copiedClip)).resolves.toMatchObject({ size: expect.any(Number) });
   });
 
-  it("keeps generation runs behind the later implementation boundary", async () => {
+  it("rejects mcp-agent generation handoffs during direct run execution", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     await capture([
       "gate",
       "--config",
-      "fixtures/projects/local-valid.yaml",
+      "fixtures/projects/topview-generation.yaml",
       "--gate",
       "gate-1",
       "--decision",
@@ -166,7 +168,7 @@ describe("pipeline main", () => {
     const run = await capture([
       "run",
       "--config",
-      "fixtures/projects/local-valid.yaml",
+      "fixtures/projects/topview-generation.yaml",
       "--actor",
       "coordinator",
       "--state-dir",
@@ -175,7 +177,7 @@ describe("pipeline main", () => {
     ]);
 
     expect(run.status).toBe(1);
-    expect(JSON.parse(run.stderr).issues[0].code).toBe("run.generation_not_implemented");
+    expect(JSON.parse(run.stderr).issues[0].code).toBe("run.adapter_kind_unsupported");
   });
 
   it("requires gate 2 approval before render", async () => {

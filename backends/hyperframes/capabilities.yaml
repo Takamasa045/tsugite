@@ -8,4 +8,4 @@ capabilities:
 checks:
   render_preflight:
     - name: lint
-      command: ["npx", "hyperframes", "lint", "--json"]
+      command: ["npx", "--no-install", "hyperframes", "lint", "--json"]

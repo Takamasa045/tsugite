@@ -1,0 +1,16 @@
+slug: cli-generation
+run_id: cli-generation-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: mock-cli
+  requests:
+    - id: generated-001
+      prompt: fixture prompt
+      model: fixture
+      duration: 1
+      aspect: "16:9"
+      seed: 1
+      params: {}

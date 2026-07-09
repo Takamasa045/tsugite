@@ -83,6 +83,12 @@ export async function renderAssembledMedia(
     reportPath
   });
   if (!backendResult.ok) return backendResult;
+  if (!(await isFile(outputPath)) || !(await isFile(reportPath))) {
+    return {
+      ok: false,
+      issues: [{ code: "render.output_missing", message: "backend completed without render output" }]
+    };
+  }
 
   const nextState = markGateAwaiting(options.state, "gate_3");
   const writtenStatePath = await writeState(options.stateDir, nextState);
@@ -127,7 +133,7 @@ async function runBackend(
   if (result.status !== 0) {
     return {
       ok: false,
-      issues: [{ code: "render.backend_failed", message: renderErrorMessage(result.stderr, result.stdout) }]
+      issues: [backendFailureIssue(result.stderr, result.stdout)]
     };
   }
 
@@ -137,6 +143,26 @@ async function runBackend(
 function renderErrorMessage(stderr: string, stdout: string): string {
   const text = `${stderr}\n${stdout}`.trim();
   return text.length > 0 ? text.slice(0, 2000) : "backend render failed";
+}
+
+function backendFailureIssue(stderr: string, stdout: string): Issue {
+  try {
+    const parsed = JSON.parse(stdout) as { code?: unknown; issue?: { code?: unknown; message?: unknown }; message?: unknown };
+    const code = typeof parsed.code === "string" ? parsed.code : parsed.issue?.code;
+    const message =
+      typeof parsed.message === "string"
+        ? parsed.message
+        : typeof parsed.issue?.message === "string"
+          ? parsed.issue.message
+          : renderErrorMessage(stderr, stdout);
+    if (typeof code === "string" && code.length > 0) {
+      return { code, message };
+    }
+  } catch {
+    // Fall through to the generic backend failure.
+  }
+
+  return { code: "render.backend_failed", message: renderErrorMessage(stderr, stdout) };
 }
 
 async function isFile(path: string): Promise<boolean> {

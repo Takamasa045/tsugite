@@ -1,0 +1,12 @@
+slug: analysis-metadata
+run_id: analysis-metadata-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: analysis-metadata
+  requests:
+    - id: captions-001
+      output: captions
+      params: {}

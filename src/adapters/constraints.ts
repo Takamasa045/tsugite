@@ -16,6 +16,7 @@ const constraintSchema = z.object({
         operator: z.union([z.literal("in"), z.literal("min"), z.literal("max")]),
         values: z.array(z.union([z.string(), z.number()])).optional(),
         value: z.union([z.string(), z.number()]).optional(),
+        optional: z.boolean().default(false),
         message: z.string().min(1)
       })
     )
@@ -69,7 +70,7 @@ function matchesConstraint(
   actual: Comparable,
   check: ConstraintFile["checks"][number]
 ): boolean {
-  if (actual === undefined) return false;
+  if (actual === undefined) return check.optional;
   if (check.operator === "in") return Boolean(check.values?.includes(actual));
   if (typeof actual !== "number" || typeof check.value !== "number") return false;
   if (check.operator === "min") return actual >= check.value;

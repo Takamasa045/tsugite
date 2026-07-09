@@ -1,0 +1,16 @@
+name: topview
+kind: mcp-agent
+class: generation
+dry_run_estimate: true
+batch: false
+credit_estimate:
+  per_request: 1
+  per_second: 0.2
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "20": transient
+  "21": rate_limited
+  "40": invalid_request

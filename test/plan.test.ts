@@ -45,7 +45,7 @@ describe("plan and dry run", () => {
 
   it("includes backend render preflight checks in dry-run output", async () => {
     const validation = await validateProject("fixtures/projects/hyperframes-local-media.yaml");
-    const dryRun = createDryRun(validation.project!, validation.manifest!, undefined, validation.backend);
+    const dryRun = createDryRun(validation.project!, validation.manifest!, undefined, undefined, validation.backend);
 
     expect(validation.ok).toBe(true);
     expect(dryRun.external_commands).toEqual([
@@ -53,7 +53,64 @@ describe("plan and dry run", () => {
         phase: "render_preflight",
         backend: "hyperframes",
         name: "lint",
-        command: ["npx", "hyperframes", "lint", "--json"]
+        command: ["npx", "--no-install", "hyperframes", "lint", "--json"]
+      }
+    ]);
+  });
+
+  it("surfaces mcp-agent analysis handoffs in plan and dry-run output", async () => {
+    const validation = await validateProject("fixtures/projects/analysis-metadata.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const dryRun = createDryRun(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.backend
+    );
+
+    expect(validation.ok).toBe(true);
+    expect(dryRun.plan.steps.map((step) => step.name)).toContain("analysis-handoff");
+    expect(dryRun.agent_handoffs).toEqual([
+      {
+        phase: "analysis",
+        adapter: "analysis-metadata",
+        kind: "mcp-agent",
+        class: "analysis",
+        outputs: ["captions"],
+        dry_run_estimate_available: false,
+        batch: false,
+        execution: "agent-handoff"
+      }
+    ]);
+  });
+
+  it("surfaces Topview generation handoffs without executing external work", async () => {
+    const validation = await validateProject("fixtures/projects/topview-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const dryRun = createDryRun(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.backend
+    );
+
+    expect(validation.ok).toBe(true);
+    expect(dryRun.executed).toBe(false);
+    expect(dryRun.estimated_credits).toBe(2);
+    expect(dryRun.agent_handoffs).toEqual([
+      {
+        phase: "generation",
+        adapter: "topview",
+        kind: "mcp-agent",
+        class: "generation",
+        outputs: ["topview-001"],
+        dry_run_estimate_available: true,
+        batch: false,
+        execution: "agent-handoff"
       }
     ]);
   });

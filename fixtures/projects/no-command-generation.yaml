@@ -1,0 +1,15 @@
+slug: no-command-generation
+run_id: no-command-generation-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: no-command
+  requests:
+    - id: no-command-001
+      prompt: fixture prompt
+      model: fixture
+      duration: 1
+      aspect: "16:9"
+      params: {}

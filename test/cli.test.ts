@@ -42,7 +42,7 @@ describe("pipeline CLI", () => {
       phase: "render_preflight",
       backend: "hyperframes",
       name: "lint",
-      command: ["npx", "hyperframes", "lint", "--json"]
+      command: ["npx", "--no-install", "hyperframes", "lint", "--json"]
     });
   });
 });

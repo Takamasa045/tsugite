@@ -1,0 +1,12 @@
+slug: no-skill-agent
+run_id: no-skill-agent-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: no-skill-agent
+  requests:
+    - id: captions-001
+      output: captions
+      params: {}

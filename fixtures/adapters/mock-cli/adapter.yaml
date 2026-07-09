@@ -12,3 +12,7 @@ exit_code_map:
   "0": ok
   "20": transient
   "40": invalid_request
+command:
+  executable: node
+  args: ["fixtures/adapters/mock-cli/generate.mjs"]
+  input: stdin-json

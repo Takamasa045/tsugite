@@ -38,6 +38,14 @@ const generationRequestSchema = z
   })
   .passthrough();
 
+const analysisRequestSchema = z
+  .object({
+    id: z.string().min(1),
+    output: z.union([z.literal("captions"), z.literal("chapters"), z.literal("cut_points")]),
+    params: z.record(z.unknown()).default({})
+  })
+  .passthrough();
+
 export const projectSchema = z
   .object({
     slug: safeIdSchema,
@@ -52,9 +60,16 @@ export const projectSchema = z
         adapter: z.string().min(1),
         requests: z.array(generationRequestSchema).default([])
       })
+      .optional(),
+    analysis: z
+      .object({
+        adapter: z.string().min(1),
+        requests: z.array(analysisRequestSchema).min(1)
+      })
       .optional()
   })
   .passthrough();
 
 export type Project = z.infer<typeof projectSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];
+export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][number];

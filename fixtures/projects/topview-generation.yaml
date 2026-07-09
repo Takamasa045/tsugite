@@ -1,0 +1,16 @@
+slug: topview-generation
+run_id: topview-generation-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: topview
+  requests:
+    - id: topview-001
+      prompt: fixture prompt
+      model: Standard
+      duration: 5
+      aspect: "16:9"
+      seed: 1
+      params: {}
