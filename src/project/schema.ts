@@ -34,6 +34,12 @@ const generationRequestSchema = z
     duration: z.number().positive(),
     aspect: z.union([z.literal("16:9"), z.literal("9:16")]),
     seed: z.number().int().optional(),
+    input_mode: z.union([z.literal("text-to-video"), z.literal("image-to-video")]).optional(),
+    prompt_guide: z
+      .object({
+        catalog: safeIdSchema
+      })
+      .optional(),
     params: z.record(z.unknown()).default({})
   })
   .passthrough();
@@ -73,6 +79,24 @@ export const projectSchema = z
 export type Project = z.infer<typeof projectSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];
 export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][number];
+
+export function toExecutionGenerationRequest(
+  request: GenerationRequest
+): GenerationRequest {
+  const { prompt_guide: _promptGuide, ...executionRequest } = request;
+  return executionRequest as GenerationRequest;
+}
+
+export function toExecutionProject(project: Project): Project {
+  if (!project.generation) return project;
+  return {
+    ...project,
+    generation: {
+      ...project.generation,
+      requests: project.generation.requests.map(toExecutionGenerationRequest)
+    }
+  };
+}
 
 function rejectDuplicateRequestIds(requests: Array<{ id: string }>, context: z.RefinementCtx): void {
   const seen = new Set<string>();

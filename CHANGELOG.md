@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-07-10
+
+- Added source-backed PixVerse, Kling, and Seedance T2V/I2V prompt knowledge catalogs, structured model limits, a read-only `guides` CLI, request-specific plan guidance, and input-mode execution validation.
 - Hardened project request IDs and adapter output paths against traversal, duplicates, mismatches, and symlink escapes.
 - Added integrity checks for resumed Gate 2 runs and preserved generated asset/credit metrics.
 - Added Gate 3 QC reports and a Gate 3-only `re-render` transition.

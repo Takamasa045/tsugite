@@ -19,6 +19,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 - Manifest validation and local asset checks.
 - Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.
 - CLI generation adapter wrappers for PixVerse/Kling.
+- Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
 - MCP-agent generation adapter contract for Topview.
 - Optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
@@ -32,6 +33,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 ```sh
 npm ci
 npm run check
+bin/pipeline guides --json
 cp -R examples/local-fixture projects/my-first-run
 bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 bin/pipeline validate --config projects/my-first-run/project.yaml --json
@@ -73,11 +75,14 @@ generation:
   requests:
     - id: shot-001
       prompt: short prompt
-      model: v4.5
+      model: v6
       duration: 5
       aspect: "16:9"
+      input_mode: text-to-video
       params: {}
 ```
+
+`plan` returns request-specific `prompt_guidance` when the model and input mode match. Set `prompt_guide.catalog` when the knowledge catalog differs from the execution adapter. A catalog never implies execution capability and never rewrites the prompt. See [Model Prompt Knowledge](docs/prompt-guides.md).
 
 Optional OpenClaw/Hermes adapters are distribution-time opt-ins. The base
 install does not require them; set them up only when a `project.yaml` selects
@@ -112,7 +117,7 @@ This is how the repo can grow toward your taste while still staying safe for dis
 
 ## Repository Rules
 
-- Keep core code vendor-neutral. Vendor-specific behavior belongs under `adapters/` or `backends/`.
+- Keep core code vendor-neutral. Vendor-specific execution behavior belongs under `adapters/` or `backends/`; source-backed advisory data belongs under `knowledge/video-models/`.
 - Adapter directories must include `constraints.md`.
 - `mcp-agent` adapters must include `SKILL.md`.
 - Put user work under `projects/`; keep `examples/` copyable and resettable.

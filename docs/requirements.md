@@ -13,6 +13,8 @@ manifest（EDL）という単一の契約で接続する「砂時計型」アー
 
 ### 現在の実装メモ
 
+- `guides` は config 不要・副作用なしでモデル別prompt knowledgeを一覧・解決する。カタログの存在はadapterや実行権限を意味しない。
+- `plan` / `run --dry-run` はrequestの `input_mode` と `prompt_guide.catalog` に応じた `prompt_guidance` を返すが、prompt自体は変更しない。
 - `doctor --config` はNode、ffprobe、project validation、選択backend runner、宣言済みpreflight executable、選択adapter executableの存在を副作用なしで確認する。
 - Gate 2 は `approve_all` を実装済み。`retry_specific` は対象clipの差し替え契約が未実装のため、曖昧に成功させず明示エラーにする。
 - Gate 3 は `approve` / `re-render` / `abort` を実装済み。`re-render` はGate 1 / 2承認を維持する。
@@ -137,6 +139,8 @@ tsugite/
 ├── backends/
 │   ├── remotion/          # capabilities.yaml + constraints.md
 │   └── hyperframes/       # capabilities.yaml + constraints.md
+├── knowledge/
+│   └── video-models/      # 出典・鮮度付きのT2V/I2V prompt knowledge（実行能力とは分離）
 ├── skills/                # 役割別 skill（editor / qc / assembler）
 ├── references/
 │   ├── exit-codes.md      # 終了コード・リトライ契約
@@ -169,11 +173,12 @@ manifest は生成側と編集側の**唯一の合意点**。
 
 ### FR-2: `bin/pipeline` CLI
 
-全サブコマンドで `--config <project.yaml>` を受け取り、`--json` 出力に対応する。
+projectを扱うサブコマンドは `--config <project.yaml>` を受け取り、全サブコマンドが `--json` 出力に対応する。`guides` だけはproject非依存の読み取り専用コマンドなのでconfig不要。
 
 | コマンド | 責務 |
 |---------|------|
 | `doctor` | 副作用なしの環境検査（Node 22、ffprobe、project validation、選択backend runner、宣言済みpreflight/adapter executableの存在確認）。認証や実プロバイダー疎通は行わない |
+| `guides` | モデル別prompt knowledgeの一覧・モデル/T2V/I2V解決。実行可否は判定せず、外部APIを呼ばない |
 | `validate` | project.yaml / manifest のスキーマ検証 + constraints 由来の機械チェック |
 | `plan` | 実行計画の提示（カット一覧、工程、推定クレジット、推定尺 vs 目標尺） |
 | `run --dry-run` | 生成・編集を実行せず、全工程の手順とコストを出力 |
@@ -224,6 +229,17 @@ manifest は生成側と編集側の**唯一の合意点**。
 - analysis アダプタはクレジット見積もり・Gate 2 QC の対象外とできる
   （メディアファイルを新規生成しないため）。ただし出力メタデータの
   スキーマ検証は generation と同様に validate が行う
+
+### FR-3.1: モデル別 prompt knowledge
+
+- 実行adapterとモデル知識を分離し、`knowledge/video-models/<catalog>/prompt-guide.yaml` に置く。
+- 各catalogは `model` / alias、`input_mode`、T2V/I2V template、checklist、avoid、negative方針、公式source、確認日、再確認期限を持つ。
+- requestの `input_mode` は `text-to-video | image-to-video` を明示する。coreは `params` から推測しない。
+- 実行adapterとcatalogが異なる場合だけ `prompt_guide.catalog` を指定する。未指定時はadapter名と同じcatalogを探索する。
+- `plan.prompt_guidance` は `matched` / `catalog-missing` / `model-unmatched` / `input-mode-unset` / `input-mode-unsupported` を明示し、別モデルのrecipeへ黙ってfallbackしない。
+- guidanceはGate 1前の助言であり、promptの自動書き換え、adapter可用性の保証、実行承認を行わない。
+- `verified_at` と `review_after` から鮮度を示し、staleは警告扱いとして人間またはPlannerが公式資料を再確認する。
+- adapterは対応 `input_modes` と各modeのrequired/forbidden paramsを宣言できる。明示 `input_mode` と実行parameterが矛盾するrequestはクレジット消費前にvalidateで拒否する。
 
 ### FR-4: 編集バックエンド契約
 
@@ -283,6 +299,7 @@ manifest は生成側と編集側の**唯一の合意点**。
 ### FR-7: エージェント運用契約
 
 - `SKILL.md` を正本とし、`AGENTS.md` は Codex 向けミラー（既存2リポと同型）
+- generationを計画するエージェントは `guides` と `plan.prompt_guidance` を確認し、適用したcatalog/model/input modeをGate 1で提示する
 - サブエージェント分担（character-pipeline の型を踏襲）:
   - Coordinator: project.yaml の所有者。最終 `run` / `render` を実行できる唯一の役割
   - Planner / Reviewer: validate / plan / dry-run 担当。読み取り専用
@@ -321,7 +338,7 @@ manifest は生成側と編集側の**唯一の合意点**。
 1. **公式ショーケース入りしたリポ（pixverse-shotpack / pixverse-character-pipeline）
    に他社エンジンのコード・名前を持ち込まない。エンジン統合は本リポのアダプタで行う**
 2. コア（src/、manifest/、SKILL.md）に特定ベンダー名・ベンダー固有コードを置かない。
-   ベンダー固有物は adapters/ と backends/ の中に完全に閉じ込める
+   ベンダー固有の実行物は adapters/ と backends/、出典付き助言データは knowledge/video-models/ に閉じ込める
 3. 依存は一方通行: 公式リポ → manifest → 本リポ。逆参照ゼロ
 4. 生成アダプタの成果物は必ずローカルファイル（ffprobe 通過）として dist/ に置く
 5. `run` / `render` は明示的な指示と Gate 承認なしに実行しない
@@ -334,7 +351,7 @@ manifest は生成側と編集側の**唯一の合意点**。
 ## 7. テスト方針
 
 - **ユニットテスト**: manifest スキーマ検証、capabilities 照合、plan 計算、
-  exit-code 正規化、state.json の遷移。カバレッジ 80% 以上（コア src/ 対象）
+  prompt guide schema/解決、exit-code 正規化、state.json の遷移。カバレッジ 80% 以上（コア src/ 対象）
 - **統合テスト**: fixtures/ の小さな素材と manifest サンプルを使い、
   `validate → plan → run --dry-run` をアダプタのモックで通す。
   バックエンドは fixtures 素材で実レンダー（数秒の MP4）まで検証する

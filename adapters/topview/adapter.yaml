@@ -14,3 +14,6 @@ exit_code_map:
   "20": transient
   "21": rate_limited
   "40": invalid_request
+input_modes:
+  text-to-video:
+    forbidden_params: [image]

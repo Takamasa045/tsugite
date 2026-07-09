@@ -6,7 +6,7 @@ import { runCliGenerationAdapter, type CliGenerationRequestResult } from "../ada
 import type { AdapterDefinition } from "../adapters/registry.js";
 import type { Manifest } from "../manifest/schema.js";
 import { validateManifest } from "../manifest/validate.js";
-import type { Project } from "../project/schema.js";
+import { toExecutionProject, type Project } from "../project/schema.js";
 import type { Result } from "../types.js";
 import { inspectGate2Manifest, writeGate2QcReport } from "./gate2Qc.js";
 import { markGateAwaiting, writeState, type RunState } from "./state.js";
@@ -672,7 +672,7 @@ async function writeRunLog(
 
 function runInputDigest(project: Project, manifest: Manifest, adapter?: AdapterDefinition): string {
   return createHash("sha256")
-    .update(stableJson({ project, manifest, adapter: adapter ? { ...adapter, root: undefined } : undefined }))
+    .update(stableJson({ project: toExecutionProject(project), manifest, adapter: adapter ? { ...adapter, root: undefined } : undefined }))
     .digest("hex");
 }
 

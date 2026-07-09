@@ -19,6 +19,7 @@
 - manifest 検証とローカル素材チェック。
 - `cli`、`mcp-agent`、`mcp-client` 形式のアダプタ registry。
 - PixVerse / Kling 向け CLI generation adapter wrapper。
+- PixVerse / Kling / Seedance の出典・鮮度付き T2V / I2V prompt knowledge catalog。
 - Topview 向け MCP-agent generation adapter 契約。
 - OpenClaw 向け optional CLI bridge と Hermes 向け analysis handoff adapter。
 - local-media / generated-media を `dist/<run-id>/` に組み立てる処理。
@@ -32,6 +33,7 @@
 ```sh
 npm ci
 npm run check
+bin/pipeline guides --json
 cp -R examples/local-fixture projects/my-first-run
 bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 bin/pipeline validate --config projects/my-first-run/project.yaml --json
@@ -73,11 +75,14 @@ generation:
   requests:
     - id: shot-001
       prompt: short prompt
-      model: v4.5
+      model: v6
       duration: 5
       aspect: "16:9"
+      input_mode: text-to-video
       params: {}
 ```
+
+`plan` はモデルと入力モードが一致した `prompt_guidance` を返します。別adapter経由でモデル知識を使う場合はrequestに `prompt_guide.catalog` を指定します。カタログは実行能力を意味せず、promptを自動変更しません。詳しくは [モデル別プロンプト知識](docs/prompt-guides.md) を参照してください。
 
 OpenClaw / Hermes の optional adapter は、配布時に必要な人だけが追加する
 opt-in 機能です。base install では不要で、`project.yaml` が該当 adapter を
@@ -113,7 +118,7 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 
 ## リポジトリルール
 
-- core code はベンダー中立に保つ。ベンダー固有の挙動は `adapters/` または `backends/` に閉じ込める。
+- core code はベンダー中立に保つ。ベンダー固有の実行挙動は `adapters/` または `backends/`、根拠付きの助言データは `knowledge/video-models/` に閉じ込める。
 - adapter directory には `constraints.md` を必ず置く。
 - `mcp-agent` adapter には `SKILL.md` を必ず置く。
 - ユーザー作業は `projects/` に置き、`examples/` はコピー可能でリセットしやすい状態に保つ。

@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { readYamlFile } from "../io.js";
-import type { Project } from "../project/schema.js";
+import type { GenerationRequest, Project } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import { loadAdapterDefinition } from "./registry.js";
 
@@ -37,24 +37,83 @@ export async function validateGenerationConstraints(
   const adapter = await loadAdapterDefinition(project.generation.adapter, adapterDirs);
   const constraints = await loadConstraints(adapter.root);
   const issues = project.generation.requests.flatMap((request, index) =>
-    constraints.checks.flatMap((check) => {
-      if (check.scope !== "generation") return [];
+    [
+      ...constraints.checks.flatMap((check) => {
+        if (check.scope !== "generation") return [];
 
-      const actual = request[check.field as keyof typeof request] as Comparable;
-      const valid = matchesConstraint(actual, check);
-      return valid
-        ? []
-        : [
-            {
-              code: `adapter.constraint.${check.id}`,
-              message: check.message,
-              path: `generation.requests.${index}.${check.field}`
-            }
-          ];
-    })
+        const actual = request[check.field as keyof typeof request] as Comparable;
+        const valid = matchesConstraint(actual, check);
+        return valid
+          ? []
+          : [
+              {
+                code: `adapter.constraint.${check.id}`,
+                message: check.message,
+                path: `generation.requests.${index}.${check.field}`
+              }
+            ];
+      }),
+      ...validateInputMode(request, index, adapter.input_modes)
+    ]
   );
 
   return issues.length > 0 ? { ok: false, issues } : { ok: true, issues: [] };
+}
+
+function validateInputMode(
+  request: GenerationRequest,
+  index: number,
+  contracts: Awaited<ReturnType<typeof loadAdapterDefinition>>["input_modes"]
+): Issue[] {
+  if (!request.input_mode || !contracts) return [];
+  const contract = contracts[request.input_mode];
+  if (!contract) {
+    return [
+      {
+        code: "adapter.input_mode.unsupported",
+        message: `selected adapter does not support ${request.input_mode}`,
+        path: `generation.requests.${index}.input_mode`
+      }
+    ];
+  }
+
+  const required = Object.entries(contract.required_params);
+  const missing = required.filter(([key]) => !hasParam(request.params, key));
+  const invalidTypes = required.filter(
+    ([key, type]) => hasParam(request.params, key) && !matchesParamType(request.params[key], type)
+  );
+  const forbidden = contract.forbidden_params.filter((key) => hasParam(request.params, key));
+  return [
+    ...missing.map(([key]) => ({
+      code: "adapter.input_mode.required_param",
+      message: `input mode requires params.${key}`,
+      path: `generation.requests.${index}.params.${key}`
+    })),
+    ...invalidTypes.map(([key, type]) => ({
+      code: "adapter.input_mode.param_type",
+      message: `params.${key} must be ${type}`,
+      path: `generation.requests.${index}.params.${key}`
+    })),
+    ...forbidden.map((key) => ({
+      code: "adapter.input_mode.forbidden_param",
+      message: `input mode does not allow params.${key}`,
+      path: `generation.requests.${index}.params.${key}`
+    }))
+  ];
+}
+
+function matchesParamType(
+  value: unknown,
+  type: "non-empty-string" | "boolean" | "finite-number"
+): boolean {
+  if (type === "non-empty-string") return typeof value === "string" && value.trim().length > 0;
+  if (type === "boolean") return typeof value === "boolean";
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function hasParam(params: Record<string, unknown>, key: string): boolean {
+  const value = params[key];
+  return value !== undefined && value !== null && value !== "";
 }
 
 async function loadConstraints(root: string): Promise<ConstraintFile> {

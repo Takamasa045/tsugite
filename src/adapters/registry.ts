@@ -21,6 +21,26 @@ const adapterSchema = z.object({
     retryable_exit_codes: z.array(z.number().int())
   }),
   exit_code_map: z.record(z.string().min(1)),
+  input_modes: z
+    .object({
+      "text-to-video": z
+        .object({
+          required_params: z
+            .record(z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")]))
+            .default({}),
+          forbidden_params: z.array(z.string().min(1)).default([])
+        })
+        .optional(),
+      "image-to-video": z
+        .object({
+          required_params: z
+            .record(z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")]))
+            .default({}),
+          forbidden_params: z.array(z.string().min(1)).default([])
+        })
+        .optional()
+    })
+    .optional(),
   command: z
     .object({
       executable: z.string().min(1),

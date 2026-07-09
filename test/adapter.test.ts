@@ -237,6 +237,71 @@ describe("adapter contract", () => {
     expect(badResult.issues[0]?.code).toBe("adapter.constraint.duration-supported");
   });
 
+  it("keeps declared prompt input mode aligned with execution parameters", async () => {
+    const project = await loadProject("fixtures/projects/local-valid.yaml");
+    const request = project.generation!.requests[0];
+    const missingImage = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [{ ...request, input_mode: "image-to-video" as const, params: {} }]
+      }
+    };
+    const unexpectedImage = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...request,
+            input_mode: "text-to-video" as const,
+            params: { image: "references/shot.png" }
+          }
+        ]
+      }
+    };
+    const wrongImageType = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...request,
+            input_mode: "image-to-video" as const,
+            params: { image: true }
+          }
+        ]
+      }
+    };
+
+    const missingResult = await validateGenerationConstraints(missingImage, ["fixtures/adapters", "adapters"]);
+    const unexpectedResult = await validateGenerationConstraints(unexpectedImage, ["fixtures/adapters", "adapters"]);
+    const wrongTypeResult = await validateGenerationConstraints(wrongImageType, ["fixtures/adapters", "adapters"]);
+
+    expect(missingResult.issues[0]?.code).toBe("adapter.input_mode.required_param");
+    expect(unexpectedResult.issues[0]?.code).toBe("adapter.input_mode.forbidden_param");
+    expect(wrongTypeResult.issues[0]?.code).toBe("adapter.input_mode.param_type");
+  });
+
+  it("rejects an input mode the selected adapter does not declare", async () => {
+    const project = await loadProject("fixtures/projects/topview-generation.yaml");
+    const unsupported = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: project.generation!.requests.map((request) => ({
+          ...request,
+          input_mode: "image-to-video" as const,
+          params: { image: "references/shot.png" }
+        }))
+      }
+    };
+
+    const result = await validateGenerationConstraints(unsupported, ["fixtures/adapters", "adapters"]);
+
+    expect(result.issues[0]?.code).toBe("adapter.input_mode.unsupported");
+  });
+
   it("applies multiple adapter constraints and skips optional missing fields", async () => {
     const project = await loadProject("fixtures/projects/local-valid.yaml");
     const generation = project.generation!;

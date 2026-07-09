@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { loadProject } from "../src/project/loadProject.js";
-import { projectSchema } from "../src/project/schema.js";
+import { projectSchema, toExecutionProject } from "../src/project/schema.js";
 import { validateProject } from "../src/project/validateProject.js";
 
 describe("project validation", () => {
@@ -108,6 +108,72 @@ describe("project validation", () => {
           })
         ])
       );
+    }
+  });
+
+  it("accepts explicit prompt guidance metadata without defaulting existing requests", () => {
+    const project = validProjectDefinition();
+    project.generation = {
+      adapter: "fixture-adapter",
+      requests: [
+        {
+          ...requestDefinition("generation", "guided-request"),
+          input_mode: "image-to-video",
+          prompt_guide: { catalog: "seedance" }
+        }
+      ]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.generation?.requests[0]).toMatchObject({
+        input_mode: "image-to-video",
+        prompt_guide: { catalog: "seedance" }
+      });
+    }
+  });
+
+  it("keeps advisory guide selectors out of execution input while retaining input mode", () => {
+    const parsed = projectSchema.parse({
+      ...validProjectDefinition(),
+      generation: {
+        adapter: "fixture-adapter",
+        requests: [
+          {
+            ...requestDefinition("generation", "guided-execution"),
+            input_mode: "image-to-video",
+            prompt_guide: { catalog: "seedance" }
+          }
+        ]
+      }
+    });
+
+    const execution = toExecutionProject(parsed);
+
+    expect(execution.generation?.requests[0]).not.toHaveProperty("prompt_guide");
+    expect(execution.generation?.requests[0]?.input_mode).toBe("image-to-video");
+    expect(parsed.generation?.requests[0]?.prompt_guide?.catalog).toBe("seedance");
+  });
+
+  it("rejects unsafe prompt guide catalog ids", () => {
+    const project = validProjectDefinition();
+    project.generation = {
+      adapter: "fixture-adapter",
+      requests: [
+        {
+          ...requestDefinition("generation", "unsafe-guide"),
+          prompt_guide: { catalog: "../outside" }
+        }
+      ]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.path).toEqual(["generation", "requests", 0, "prompt_guide", "catalog"]);
     }
   });
 
