@@ -84,17 +84,20 @@ Tsugite 不会因为你生成很多视频就自动变得更符合你的偏好。
 2. 只在 Gate 审批后执行生成或组装。
 3. 查看输出，记录哪里好、哪里失败、为什么重试。
 4. 一次性的笔记保留在该 project 内。
-5. 反复出现的经验再提升为 reusable examples、templates、adapter constraints、validation checks 或 `LESSONS.md`。
+5. 反复出现的经验再提升为 reusable examples、templates、adapter/backend constraints、validation/doctor checks、tests/fixtures、运行规则或公开契约。
 
 提升规则：
 
 ```text
 一次性偏好             -> projects/<job>/notes.md
 可复用的风格选择       -> examples/ or templates/
-可机器检查的问题       -> constraints.yaml or validate
-运行经验               -> LESSONS.md
-QA 判断规则            -> Gate 2 / Gate 3 checks
+可机器检查的问题       -> constraints.yaml / validate / doctor + tests/fixtures
+需要判断的运行规则     -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+QA 判断规则            -> Gate 2 / Gate 3 checks + report schema/tests
+公开契约变更           -> README / manifest/schema.md / docs/requirements.md
 ```
+
+每次提升都应留下可复现的 fixture 和测试，或留下人能阅读的运行规则。新增 Gate 2 / Gate 3 判断时，也要同步更新 report 结构和测试。
 
 这样可以在保持 repo 可分发、安全的同时，让制作流程逐步接近你的偏好。本地项目留在被忽略的 `projects/` 下，只有可复用的改进才提交回源码。
 
@@ -112,4 +115,3 @@ QA 判断规则            -> Gate 2 / Gate 3 checks
 - `projects/*` 会被 git 忽略，因此本地 prompt、media、manifest、`dist/` 和 run state 不会混入可分发 commit。
 - npm 11 中，platform-specific parent 被跳过时，optional wasm child package 仍可能留在 lockfile，导致 `npm ci` 后 `npm ls` 报告 `@emnapi/runtime` 为 extraneous。只有当 `npm ci`、`npm audit`、build、tests、`validate`、`plan`、`run --dry-run` 全部通过时，才把它当作 non-blocking。
 - 当前 workspace path 包含 `*`，Vite 可能会提示 warning。测试目前可以通过；如果该 warning 影响运行，请把 repo 移到不含 `*` 的路径。
-

@@ -251,15 +251,21 @@ manifest は生成側と編集側の**唯一の合意点**。
 
 ### FR-6: 学習ループ（同じミスを繰り返さない仕組み）
 
-3段階の昇格構造を repo の仕組みとして持つ。
+捕獲、分類、昇格の構造を repo の仕組みとして持つ。
 
 1. **捕獲**: 失敗発生時、`LESSONS.md` に1行追記（形式: 日付 / 症状 / 原因 / ルール）。
    追記専用・削除しない。書くコストを最小化する
-2. **実行チェックへ昇格**: コードで判定できるルールは
+2. **分類**: 一回限りの好みは `projects/<job>/notes.md`、再利用する好みは
+   `examples/` または `templates/`、公開契約の変更は README / `manifest/schema.md` /
+   `docs/requirements.md` に置く
+3. **実行チェックへ昇格**: コードで判定できるルールは
    `pipeline validate` / `doctor` のチェックとして実装し、
-   LESSONS.md の該当行に `→ validate済` を付記する
+   LESSONS.md の該当行に `validate済` / `doctor済` / `qa済` / `documented` を付記する
    （例: 「モデル X は 10 秒非対応」→ validate が実行前に拒否）
-3. **契約文書へ昇格**: コード化できない判断ルール（演出・構成系）は
+   再発防止の fixture とテストも同時に追加する
+4. **QA へ昇格**: Gate 2 / Gate 3 で判定すべきルールは check、report schema、
+   fixtures、tests を同時に更新する
+5. **契約文書へ昇格**: コード化できない判断ルール（演出・構成系）は
    SKILL.md / CLAUDE.md の運用ルール節へ転記する
 
 - エンジン固有の教訓は `adapters/<engine>/constraints.md`、

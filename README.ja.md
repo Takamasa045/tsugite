@@ -84,17 +84,20 @@ Tsugite は、動画をたくさん生成するだけで自動的に自分好み
 2. Gate 承認後にだけ生成または組み立てを実行する。
 3. 出力を見て、良かった点、失敗した点、やり直した理由を書く。
 4. 一回限りのメモはその project 内に残す。
-5. 繰り返し使う教訓だけを examples、templates、adapter constraints、validate、`LESSONS.md` に昇格する。
+5. 繰り返し使う教訓だけを examples、templates、adapter/backend constraints、validate/doctor、tests/fixtures、運用ルール、公開契約に昇格する。
 
 昇格の目安:
 
 ```text
 一回限りの好み        -> projects/<job>/notes.md
 何度も使う好み        -> examples/ or templates/
-機械的に防げる失敗    -> constraints.yaml or validate
-運用上の教訓          -> LESSONS.md
-QA の判定ルール       -> Gate 2 / Gate 3 checks
+機械的に防げる失敗    -> constraints.yaml / validate / doctor + tests/fixtures
+判断系の運用ルール    -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
+公開契約の変更        -> README / manifest/schema.md / docs/requirements.md
 ```
+
+昇格時は、失敗の再現 fixture とテスト、または人間が読む運用ルールのどちらかを必ず残します。Gate 2 / Gate 3 の判定を増やす場合は、report の形とテストも一緒に更新します。
 
 このループによって、配布用 repo としての安全性を保ったまま、自分好みの制作パイプラインに育てていけます。ローカル案件は `projects/` 配下で git 管理外にし、再利用できる改善だけを本体へ commit します。
 

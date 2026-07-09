@@ -84,17 +84,20 @@ Tsugite는 영상을 많이 생성한다고 자동으로 개인 취향에 맞게
 2. Gate 승인 후에만 생성 또는 조립을 실행합니다.
 3. 출력을 보고 무엇이 좋았는지, 무엇이 실패했는지, 왜 다시 시도했는지 기록합니다.
 4. 한 번만 쓰는 메모는 해당 project 안에 둡니다.
-5. 반복해서 쓰이는 교훈만 reusable examples, templates, adapter constraints, validation checks 또는 `LESSONS.md`로 승격합니다.
+5. 반복해서 쓰이는 교훈만 reusable examples, templates, adapter/backend constraints, validation/doctor checks, tests/fixtures, 운영 규칙, 공개 계약으로 승격합니다.
 
 승격 기준:
 
 ```text
 일회성 선호            -> projects/<job>/notes.md
 재사용 가능한 스타일   -> examples/ or templates/
-기계적으로 막을 문제   -> constraints.yaml or validate
-운영상의 교훈          -> LESSONS.md
-QA 판단 규칙           -> Gate 2 / Gate 3 checks
+기계적으로 막을 문제   -> constraints.yaml / validate / doctor + tests/fixtures
+판단이 필요한 운영 규칙 -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+QA 판단 규칙           -> Gate 2 / Gate 3 checks + report schema/tests
+공개 계약 변경         -> README / manifest/schema.md / docs/requirements.md
 ```
+
+승격할 때는 재현 fixture와 테스트, 또는 사람이 읽을 수 있는 운영 규칙 중 하나를 반드시 남깁니다. Gate 2 / Gate 3 판단을 추가할 때는 report 형태와 테스트도 함께 갱신합니다.
 
 이 루프를 통해 배포용 repo의 안전성을 유지하면서도 제작 파이프라인을 자신의 취향에 맞게 키울 수 있습니다. 로컬 프로젝트는 git에서 무시되는 `projects/` 아래에 두고, 재사용 가능한 개선만 소스에 commit합니다.
 
@@ -112,4 +115,3 @@ QA 판단 규칙           -> Gate 2 / Gate 3 checks
 - `projects/*`는 git에서 무시되므로 로컬 prompt, media, manifest, `dist/`, run state가 배포 commit에 섞이지 않습니다.
 - npm 11에서는 platform-specific parent가 건너뛰어져도 optional wasm child package가 lockfile에 남아 `npm ci` 후 `npm ls`가 `@emnapi/runtime`을 extraneous로 표시할 수 있습니다. `npm ci`, `npm audit`, build, tests, `validate`, `plan`, `run --dry-run`이 모두 통과할 때만 non-blocking으로 봅니다.
 - 현재 workspace path에는 `*`가 포함되어 있어 Vite가 warning을 낼 수 있습니다. 이 path에서도 tests는 통과하지만, 운영상 거슬리면 `*`가 없는 path로 repo를 옮기세요.
-

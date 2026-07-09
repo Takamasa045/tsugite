@@ -84,17 +84,20 @@ Use this loop:
 2. Generate or assemble only after the Gate approvals.
 3. Review the output and write what worked, what failed, and why you retried.
 4. Keep one-off notes inside that project.
-5. Promote repeated lessons into reusable examples, templates, adapter constraints, validation checks, or `LESSONS.md`.
+5. Promote repeated lessons into reusable examples, templates, adapter/backend constraints, validation/doctor checks, tests/fixtures, operational rules, or public contracts.
 
 Recommended promotion rule:
 
 ```text
 One-off preference       -> projects/<job>/notes.md
 Reusable style choice    -> examples/ or templates/
-Machine-checkable issue  -> constraints.yaml or validate
-Operational lesson       -> LESSONS.md
-QA rule                  -> Gate 2 / Gate 3 checks
+Machine-checkable issue  -> constraints.yaml / validate / doctor + tests/fixtures
+Judgment-based rule      -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+QA rule                  -> Gate 2 / Gate 3 checks + report schema/tests
+Public contract change   -> README / manifest/schema.md / docs/requirements.md
 ```
+
+Every promotion should leave either a reproducing fixture and test, or a human-readable operating rule. Gate 2 / Gate 3 check changes should update the report shape and tests together.
 
 This is how the repo can grow toward your taste while still staying safe for distribution. Local projects stay ignored under `projects/`, and only reusable improvements are committed back to the source.
 
