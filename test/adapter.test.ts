@@ -37,6 +37,52 @@ describe("adapter contract", () => {
     expect(adapter.dry_run_estimate).toBe(true);
   });
 
+  it("loads optional OpenClaw generation without requiring OpenClaw during validation", async () => {
+    const { validateProject } = await import("../src/project/validateProject.js");
+    const result = await validateProject("fixtures/projects/openclaw-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.adapter).toMatchObject({
+      name: "openclaw",
+      kind: "cli",
+      class: "generation",
+      dry_run_estimate: true,
+      command: {
+        executable: "node",
+        args: ["adapters/openclaw/generate.mjs"],
+        input: "stdin-json"
+      }
+    });
+  });
+
+  it("loads optional Hermes as an analysis handoff adapter", async () => {
+    const { validateProject } = await import("../src/project/validateProject.js");
+    const result = await validateProject("fixtures/projects/hermes-analysis.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.analysisAdapter).toMatchObject({
+      name: "hermes",
+      kind: "mcp-agent",
+      class: "analysis",
+      dry_run_estimate: false
+    });
+  });
+
+  it("does not require optional adapters when a project does not select them", async () => {
+    const { validateProject } = await import("../src/project/validateProject.js");
+    const result = await validateProject("fixtures/projects/local-media-only.yaml", {
+      adapterDirs: ["adapters"]
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.adapter).toBeUndefined();
+    expect(result.analysisAdapter).toBeUndefined();
+  });
+
   it("loads a declared analysis adapter contract", async () => {
     const adapter = await loadAdapterDefinition("analysis-metadata", ["fixtures/adapters", "adapters"]);
 

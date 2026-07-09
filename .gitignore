@@ -3,6 +3,9 @@ build/
 dist/
 coverage/
 .DS_Store
+.env
+.env.*
+!.env.example
 projects/*
 !projects/.gitkeep
 !projects/README.md

@@ -1,0 +1,16 @@
+slug: openclaw-generation
+run_id: openclaw-generation-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: openclaw
+  requests:
+    - id: openclaw-001
+      prompt: fixture prompt
+      model: optional-runtime
+      duration: 5
+      aspect: "16:9"
+      seed: 1
+      params: {}

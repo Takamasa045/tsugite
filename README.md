@@ -20,6 +20,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 - Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.
 - CLI generation adapter wrappers for PixVerse/Kling.
 - MCP-agent generation adapter contract for Topview.
+- Optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
 - Gate 2 QC report generation using manifest and media probes.
 - Remotion and HyperFrames backend contracts.
@@ -73,6 +74,10 @@ generation:
       aspect: "16:9"
       params: {}
 ```
+
+Optional OpenClaw/Hermes adapters are distribution-time opt-ins. The base
+install does not require them; set them up only when a `project.yaml` selects
+one of those adapters. See [Optional Adapters](docs/optional-adapters.md).
 
 ## Growing the Pipeline
 

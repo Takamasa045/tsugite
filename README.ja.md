@@ -20,6 +20,7 @@
 - `cli`、`mcp-agent`、`mcp-client` 形式のアダプタ registry。
 - PixVerse / Kling 向け CLI generation adapter wrapper。
 - Topview 向け MCP-agent generation adapter 契約。
+- OpenClaw 向け optional CLI bridge と Hermes 向け analysis handoff adapter。
 - local-media / generated-media を `dist/<run-id>/` に組み立てる処理。
 - manifest と media probe による Gate 2 QC report 生成。
 - Remotion / HyperFrames backend 契約。
@@ -73,6 +74,11 @@ generation:
       aspect: "16:9"
       params: {}
 ```
+
+OpenClaw / Hermes の optional adapter は、配布時に必要な人だけが追加する
+opt-in 機能です。base install では不要で、`project.yaml` が該当 adapter を
+選んだ場合だけ adapter 固有の setup を行います。詳しくは
+[Optional Adapters](docs/optional-adapters.md) を参照してください。
 
 ## パイプラインの育て方
 

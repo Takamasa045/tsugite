@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-07-09
+
+- Added optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
+- Documented optional adapter setup for distribution-time opt-in use.
+- Added tests that keep optional adapters out of base validation unless selected.
 - Added reserved manifest support for caption speaker labels and chapters.
 - Added adapter `class` metadata for generation and analysis contracts.
 - Expanded planned Gate steps and state tracking for Gate 1-3 approvals.

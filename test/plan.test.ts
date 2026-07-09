@@ -115,6 +115,62 @@ describe("plan and dry run", () => {
     ]);
   });
 
+  it("surfaces optional OpenClaw generation as a pipeline-cli adapter", async () => {
+    const validation = await validateProject("fixtures/projects/openclaw-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const dryRun = createDryRun(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.backend
+    );
+
+    expect(validation.ok).toBe(true);
+    expect(dryRun.executed).toBe(false);
+    expect(dryRun.estimated_credits).toBe(2);
+    expect(dryRun.agent_handoffs).toEqual([
+      {
+        phase: "generation",
+        adapter: "openclaw",
+        kind: "cli",
+        class: "generation",
+        outputs: ["openclaw-001"],
+        dry_run_estimate_available: true,
+        batch: false,
+        execution: "pipeline-cli"
+      }
+    ]);
+  });
+
+  it("surfaces optional Hermes analysis as an agent handoff", async () => {
+    const validation = await validateProject("fixtures/projects/hermes-analysis.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const dryRun = createDryRun(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.backend
+    );
+
+    expect(validation.ok).toBe(true);
+    expect(dryRun.agent_handoffs).toEqual([
+      {
+        phase: "analysis",
+        adapter: "hermes",
+        kind: "mcp-agent",
+        class: "analysis",
+        outputs: ["captions"],
+        dry_run_estimate_available: false,
+        batch: false,
+        execution: "agent-handoff"
+      }
+    ]);
+  });
+
   it("uses adapter credit estimate in plan output", async () => {
     const validation = await validateProject("fixtures/projects/local-valid.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]

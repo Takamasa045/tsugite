@@ -1,0 +1,13 @@
+checks:
+  - id: duration-supported
+    scope: generation
+    field: duration
+    operator: in
+    values: [5, 10]
+    message: duration must be 5 or 10 seconds
+  - id: aspect-supported
+    scope: generation
+    field: aspect
+    operator: in
+    values: ["16:9", "9:16"]
+    message: aspect must be 16:9 or 9:16

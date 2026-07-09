@@ -1,0 +1,12 @@
+slug: hermes-analysis
+run_id: hermes-analysis-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: hermes
+  requests:
+    - id: captions-001
+      output: captions
+      params: {}

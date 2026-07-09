@@ -180,6 +180,150 @@ describe("pipeline main", () => {
     expect(JSON.parse(run.stderr).issues[0].code).toBe("run.adapter_kind_unsupported");
   });
 
+  it("requires OpenClaw setup only when the optional adapter is executed", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const validated = await capture([
+      "validate",
+      "--config",
+      "fixtures/projects/openclaw-generation.yaml",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/openclaw-generation.yaml",
+      "--gate",
+      "gate-1",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
+    delete process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
+    let run;
+    try {
+      run = await capture([
+        "run",
+        "--config",
+        "fixtures/projects/openclaw-generation.yaml",
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
+      } else {
+        process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = previous;
+      }
+    }
+    expect(validated.status).toBe(0);
+    expect(run.status).toBe(1);
+    expect(JSON.parse(run.stderr).issues[0]).toMatchObject({
+      code: "run.adapter_exit.invalid_request"
+    });
+    expect(JSON.parse(run.stderr).issues[0].message).toContain("TSUGITE_OPENCLAW_GENERATE_COMMAND");
+  });
+
+  it("runs the optional OpenClaw adapter when an executable bridge is configured", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/openclaw-generation.yaml",
+      "--gate",
+      "gate-1",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
+    process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify(["node", "fixtures/tools/openclaw-generate.mjs"]);
+    let run;
+    try {
+      run = await capture([
+        "run",
+        "--config",
+        "fixtures/projects/openclaw-generation.yaml",
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
+      } else {
+        process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = previous;
+      }
+    }
+    const payload = JSON.parse(run.stdout);
+    expect(run.status).toBe(0);
+    expect(payload.actual_credits).toBe(2);
+    expect(payload.state.status).toBe("awaiting_gate_2");
+    expect(payload.asset_count).toBe(1);
+    await expect(stat(join(stateDir, "openclaw-generation-run/assets/clips/001-openclaw-001-clip.mp4"))).resolves.toMatchObject({
+      size: expect.any(Number)
+    });
+  });
+
+  it("does not surface optional OpenClaw bridge stderr on failure", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/openclaw-generation.yaml",
+      "--gate",
+      "gate-1",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
+    process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify(["node", "-e", "console.error('secret-token'); process.exit(40)"]);
+    let run;
+    try {
+      run = await capture([
+        "run",
+        "--config",
+        "fixtures/projects/openclaw-generation.yaml",
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
+      } else {
+        process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = previous;
+      }
+    }
+    const issue = JSON.parse(run.stderr).issues[0];
+    expect(run.status).toBe(1);
+    expect(issue.code).toBe("run.adapter_exit.invalid_request");
+    expect(issue.message).toBe("OpenClaw bridge command failed");
+    expect(issue.message).not.toContain("secret-token");
+  });
+
   it("requires gate 2 approval before render", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     const blocked = await capture([
