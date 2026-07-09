@@ -1,0 +1,6 @@
+slug: bad-run-id
+run_id: ../outside
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion

@@ -1,0 +1,9 @@
+name: no-dry
+kind: cli
+dry_run_estimate: false
+batch: false
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok

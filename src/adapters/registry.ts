@@ -1,0 +1,70 @@
+import { access } from "node:fs/promises";
+import { join } from "node:path";
+import { z } from "zod";
+import { readYamlFile } from "../io.js";
+import { PipelineError } from "../types.js";
+
+const adapterSchema = z.object({
+  name: z.string().min(1),
+  kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
+  dry_run_estimate: z.boolean(),
+  batch: z.boolean(),
+  credit_estimate: z
+    .object({
+      per_request: z.number().nonnegative().default(0),
+      per_second: z.number().nonnegative().default(0)
+    })
+    .default({ per_request: 0, per_second: 0 }),
+  retry: z.object({
+    max_attempts: z.number().int().nonnegative(),
+    retryable_exit_codes: z.array(z.number().int())
+  }),
+  exit_code_map: z.record(z.string().min(1))
+});
+
+export type AdapterDefinition = z.infer<typeof adapterSchema> & {
+  root: string;
+};
+
+export async function loadAdapterDefinition(
+  name: string,
+  adapterDirs = ["adapters"]
+): Promise<AdapterDefinition> {
+  for (const dir of adapterDirs) {
+    const root = join(dir, name);
+    if (await exists(join(root, "adapter.yaml"))) {
+      await requireFile(join(root, "constraints.md"), "adapter.constraints_md_missing");
+      const parsed = adapterSchema.safeParse(await readYamlFile(join(root, "adapter.yaml")));
+      if (!parsed.success) {
+        throw new PipelineError({
+          code: "adapter.schema",
+          message: parsed.error.issues[0]?.message ?? "invalid adapter definition",
+          path: join(root, "adapter.yaml")
+        });
+      }
+      return { ...parsed.data, root };
+    }
+  }
+
+  throw new PipelineError({
+    code: "adapter.not_found",
+    message: `adapter '${name}' was not found`
+  });
+}
+
+async function requireFile(path: string, code: string): Promise<void> {
+  if (await exists(path)) return;
+  throw new PipelineError({
+    code,
+    message: `${path} is required`
+  });
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}

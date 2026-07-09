@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "aspect": "16:9",
+    "fps": 30,
+    "target_duration_seconds": 3,
+    "slug": "bad-duration"
+  },
+  "clips": [
+    {
+      "id": "clip-001",
+      "src": "../media/clip-001.mp4",
+      "in": 2,
+      "out": 1,
+      "duration": 3,
+      "fps": 30,
+      "resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "audio": true
+    }
+  ],
+  "audio": {
+    "bgm": [],
+    "narration": [],
+    "sfx": []
+  },
+  "captions": [],
+  "provenance": []
+}

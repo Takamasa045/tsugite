@@ -1,0 +1,7 @@
+name: hyperframes
+capabilities:
+  captions: false
+  transitions: true
+  audio_mix: true
+  vertical: true
+  fps: [24, 30]

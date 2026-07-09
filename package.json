@@ -1,0 +1,27 @@
+{
+  "name": "tsugite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "pipeline": "./bin/pipeline"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.include='src/**/*.ts'",
+    "vendor:check": "node scripts/check-vendor-boundary.mjs",
+    "check": "npm run vendor:check && npm run build && npm test"
+  },
+  "dependencies": {
+    "yaml": "^2.8.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "@vitest/coverage-v8": "^3.2.4",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

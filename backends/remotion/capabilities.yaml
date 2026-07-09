@@ -1,0 +1,7 @@
+name: remotion
+capabilities:
+  captions: true
+  transitions: true
+  audio_mix: true
+  vertical: true
+  fps: [24, 30, 60]

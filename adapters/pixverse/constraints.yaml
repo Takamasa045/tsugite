@@ -1,0 +1,7 @@
+checks:
+  - id: duration-supported
+    scope: generation
+    field: duration
+    operator: in
+    values: [3, 5, 10]
+    message: duration must be 3, 5, or 10 seconds

@@ -1,0 +1,6 @@
+slug: unknown-backend
+run_id: unknown-backend-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: missing

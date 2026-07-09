@@ -1,0 +1,7 @@
+name: malformed
+capabilities:
+  captions: maybe
+  transitions: true
+  audio_mix: true
+  vertical: true
+  fps: [30]

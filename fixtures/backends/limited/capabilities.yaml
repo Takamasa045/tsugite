@@ -1,0 +1,7 @@
+name: limited
+capabilities:
+  captions: false
+  transitions: false
+  audio_mix: true
+  vertical: false
+  fps: [24]

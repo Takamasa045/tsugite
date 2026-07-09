@@ -1,0 +1,7 @@
+name: no-mix
+capabilities:
+  captions: true
+  transitions: false
+  audio_mix: false
+  vertical: true
+  fps: [30]

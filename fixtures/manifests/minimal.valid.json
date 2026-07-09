@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "aspect": "16:9",
+    "fps": 30,
+    "target_duration_seconds": 6,
+    "slug": "local-fixture"
+  },
+  "clips": [
+    {
+      "id": "clip-001",
+      "src": "../media/clip-001.mp4",
+      "in": 0,
+      "out": 3,
+      "duration": 3,
+      "fps": 30,
+      "resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "audio": true
+    },
+    {
+      "id": "clip-002",
+      "src": "../media/clip-002.mp4",
+      "in": 0,
+      "out": 3,
+      "duration": 3,
+      "fps": 30,
+      "resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "audio": false
+    }
+  ],
+  "audio": {
+    "bgm": [],
+    "narration": [],
+    "sfx": []
+  },
+  "captions": [],
+  "provenance": [
+    {
+      "clip_id": "clip-001",
+      "engine": "local",
+      "model": "fixture",
+      "params": {},
+      "credits": 0
+    }
+  ]
+}

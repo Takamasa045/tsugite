@@ -1,0 +1,15 @@
+name: pixverse
+kind: cli
+dry_run_estimate: true
+batch: true
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 2
+  retryable_exit_codes: [20, 21]
+exit_code_map:
+  "0": ok
+  "20": transient
+  "21": rate_limited
+  "40": invalid_request

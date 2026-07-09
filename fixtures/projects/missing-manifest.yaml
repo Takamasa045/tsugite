@@ -1,0 +1,6 @@
+slug: missing-manifest
+run_id: missing-manifest-run
+manifest: ../manifests/not-found.json
+dist_dir: dist
+edit:
+  backend: remotion

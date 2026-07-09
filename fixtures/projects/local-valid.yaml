@@ -1,0 +1,16 @@
+slug: local-fixture
+run_id: local-fixture-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: pixverse
+  requests:
+    - id: local-001
+      prompt: local fixture
+      model: local
+      duration: 3
+      aspect: "16:9"
+      seed: 1
+      params: {}

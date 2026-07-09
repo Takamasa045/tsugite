@@ -1,0 +1,6 @@
+slug: malformed-backend
+run_id: malformed-backend-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: malformed

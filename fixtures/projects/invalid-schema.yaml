@@ -1,0 +1,4 @@
+slug: ""
+manifest: ../manifests/minimal.valid.json
+edit:
+  backend: remotion

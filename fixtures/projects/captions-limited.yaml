@@ -1,0 +1,6 @@
+slug: captions-limited
+run_id: captions-limited-run
+manifest: ../manifests/render-manifest.compat.json
+dist_dir: dist
+edit:
+  backend: limited
