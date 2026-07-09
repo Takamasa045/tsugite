@@ -4,7 +4,7 @@
 
 Vendor-neutral video pipeline that connects generation adapters and editing backends through a single manifest contract.
 
-The execution entrypoint is `project.yaml`. The safe flow is:
+Each video job has its own `project.yaml`. For distribution, the repository keeps copyable examples under `examples/` and ignores user projects under `projects/`. The safe flow is:
 
 1. Validate the project and manifest.
 2. Create a plan.
@@ -30,30 +30,31 @@ The execution entrypoint is `project.yaml`. The safe flow is:
 ```sh
 npm ci
 npm run check
-bin/pipeline validate --config project.yaml --json
-bin/pipeline plan --config project.yaml --json
-bin/pipeline run --config project.yaml --dry-run --json
+cp -R examples/local-fixture projects/my-first-run
+bin/pipeline validate --config projects/my-first-run/project.yaml --json
+bin/pipeline plan --config projects/my-first-run/project.yaml --json
+bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```
 
 `run` and `render` are intentionally gated:
 
 ```sh
-bin/pipeline gate --config project.yaml --actor coordinator --gate gate-1 --decision approve --json
-bin/pipeline run --config project.yaml --actor coordinator --json
-bin/pipeline gate --config project.yaml --actor coordinator --gate gate-2 --decision approve --json
-bin/pipeline render --config project.yaml --actor coordinator --json
+bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
+bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
+bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve --json
+bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
 ```
 
 Do not run non-dry-run `run` or `render` without explicit human approval.
 
 ## Project File
 
-Minimal local-media project:
+Minimal local-media project, as used by `examples/local-fixture/project.yaml`:
 
 ```yaml
 slug: local-fixture
 run_id: local-fixture-run
-manifest: fixtures/manifests/minimal.valid.json
+manifest: manifest.json
 dist_dir: dist
 edit:
   backend: remotion
@@ -78,10 +79,12 @@ generation:
 - Keep core code vendor-neutral. Vendor-specific behavior belongs under `adapters/` or `backends/`.
 - Adapter directories must include `constraints.md`.
 - `mcp-agent` adapters must include `SKILL.md`.
+- Put user work under `projects/`; keep `examples/` copyable and resettable.
 - Failures that produce reusable rules should be recorded in `LESSONS.md`.
 
 ## Production Notes
 
-- The checked-in `project.yaml` is a fixture-style local validation config, not a real production job.
+- `examples/local-fixture/project.yaml` is a fixture-style local validation config. Copy it into `projects/` before editing.
+- `projects/*` is ignored by git so local prompts, media, manifests, `dist/`, and run state stay out of distributable commits.
 - `npm ls` may report `@emnapi/runtime` as extraneous after `npm ci` on npm 11 because optional wasm child packages remain in the lockfile while their platform-specific parents are skipped. Treat this as non-blocking only when `npm ci`, `npm audit`, build, tests, `validate`, `plan`, and `run --dry-run` all pass.
 - Vite may warn because this workspace path contains `*`. Tests currently pass in this path; move the repo to a path without `*` if that warning becomes operationally noisy.

@@ -1,6 +1,6 @@
 slug: local-fixture
 run_id: local-fixture-run
-manifest: fixtures/manifests/minimal.valid.json
+manifest: manifest.json
 dist_dir: dist
 edit:
   backend: remotion

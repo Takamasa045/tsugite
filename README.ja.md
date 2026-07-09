@@ -4,7 +4,7 @@
 
 生成アダプタと編集バックエンドを、単一の manifest 契約で接続するベンダー中立の動画パイプラインです。
 
-実行入口は `project.yaml` です。安全な基本フローは次の通りです。
+動画 job ごとに `project.yaml` を持ちます。配布用 repo として、コピー可能なサンプルは `examples/` に置き、ユーザー作業用の `projects/` は git 管理から外します。安全な基本フローは次の通りです。
 
 1. project と manifest を検証する。
 2. 実行計画を作成する。
@@ -30,30 +30,31 @@
 ```sh
 npm ci
 npm run check
-bin/pipeline validate --config project.yaml --json
-bin/pipeline plan --config project.yaml --json
-bin/pipeline run --config project.yaml --dry-run --json
+cp -R examples/local-fixture projects/my-first-run
+bin/pipeline validate --config projects/my-first-run/project.yaml --json
+bin/pipeline plan --config projects/my-first-run/project.yaml --json
+bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```
 
 `run` と `render` は意図的に Gate で保護されています。
 
 ```sh
-bin/pipeline gate --config project.yaml --actor coordinator --gate gate-1 --decision approve --json
-bin/pipeline run --config project.yaml --actor coordinator --json
-bin/pipeline gate --config project.yaml --actor coordinator --gate gate-2 --decision approve --json
-bin/pipeline render --config project.yaml --actor coordinator --json
+bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
+bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
+bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve --json
+bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
 ```
 
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
 
 ## project ファイル
 
-最小の local-media project:
+`examples/local-fixture/project.yaml` で使っている最小の local-media project:
 
 ```yaml
 slug: local-fixture
 run_id: local-fixture-run
-manifest: fixtures/manifests/minimal.valid.json
+manifest: manifest.json
 dist_dir: dist
 edit:
   backend: remotion
@@ -78,11 +79,12 @@ generation:
 - core code はベンダー中立に保つ。ベンダー固有の挙動は `adapters/` または `backends/` に閉じ込める。
 - adapter directory には `constraints.md` を必ず置く。
 - `mcp-agent` adapter には `SKILL.md` を必ず置く。
+- ユーザー作業は `projects/` に置き、`examples/` はコピー可能でリセットしやすい状態に保つ。
 - 再利用できるルールが生まれる失敗は `LESSONS.md` に記録する。
 
 ## 本番運用メモ
 
-- checked-in の `project.yaml` は fixture style のローカル検証 config であり、実本番 job ではありません。
+- `examples/local-fixture/project.yaml` は fixture style のローカル検証 config です。編集前に `projects/` へコピーしてください。
+- `projects/*` は git ignore されるため、ローカル prompt、media、manifest、`dist/`、run state は配布用 commit に混ざりません。
 - npm 11 では、platform-specific parent が skip されても optional wasm child package が lockfile に残るため、`npm ci` 後に `npm ls` が `@emnapi/runtime` を extraneous と表示する場合があります。`npm ci`、`npm audit`、build、tests、`validate`、`plan`、`run --dry-run` がすべて通っている場合のみ non-blocking と扱います。
 - この workspace path には `*` が含まれるため、Vite が警告する場合があります。現在この path でも tests は通りますが、運用上ノイズになる場合は `*` を含まない path に repo を移してください。
-

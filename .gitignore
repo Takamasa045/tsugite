@@ -3,3 +3,6 @@ build/
 dist/
 coverage/
 .DS_Store
+projects/*
+!projects/.gitkeep
+!projects/README.md

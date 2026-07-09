@@ -98,7 +98,7 @@ adapters/<future>   ─┘   （EDL・唯一の正本契約）      └─ backe
                     bin/pipeline が全工程を統括
                     （doctor/validate/plan/run/render）
                               ↑
-                    project.yaml が唯一の実行入口
+                    各 project.yaml が唯一の実行入口
 ```
 
 ### 3.1 ディレクトリ構成
@@ -109,7 +109,12 @@ tsugite/
 ├── CLAUDE.md              # Claude Code 入口ガイド
 ├── AGENTS.md              # Codex / OpenAI 系入口ガイド（SKILL.md のミラー）
 ├── LESSONS.md             # ミス台帳（症状/原因/ルール、追記専用）
-├── project.yaml           # 実行入口（案件ごとに project.<slug>.yaml）
+├── examples/              # 配布用のコピー可能な project サンプル
+│   └── local-fixture/
+│       ├── project.yaml
+│       ├── manifest.json
+│       └── media/
+├── projects/              # ユーザー作業用（projects/* は git 管理外）
 ├── bin/
 │   └── pipeline           # CLI エントリポイント
 ├── src/                   # コア実装（TypeScript）
