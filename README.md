@@ -1,6 +1,6 @@
 # tsugite
 
-[English](README.md) | [日本語](README.ja.md)
+[English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
 Vendor-neutral video pipeline that connects generation adapters and editing backends through a single manifest contract.
 
@@ -73,6 +73,30 @@ generation:
       aspect: "16:9"
       params: {}
 ```
+
+## Growing the Pipeline
+
+Tsugite does not become more personalized just because you generate many videos. It improves when you feed review notes, retry reasons, and repeated preferences back into the repository.
+
+Use this loop:
+
+1. Create a project under `projects/`.
+2. Generate or assemble only after the Gate approvals.
+3. Review the output and write what worked, what failed, and why you retried.
+4. Keep one-off notes inside that project.
+5. Promote repeated lessons into reusable examples, templates, adapter constraints, validation checks, or `LESSONS.md`.
+
+Recommended promotion rule:
+
+```text
+One-off preference       -> projects/<job>/notes.md
+Reusable style choice    -> examples/ or templates/
+Machine-checkable issue  -> constraints.yaml or validate
+Operational lesson       -> LESSONS.md
+QA rule                  -> Gate 2 / Gate 3 checks
+```
+
+This is how the repo can grow toward your taste while still staying safe for distribution. Local projects stay ignored under `projects/`, and only reusable improvements are committed back to the source.
 
 ## Repository Rules
 
