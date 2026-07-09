@@ -23,6 +23,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 - Optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
 - Gate 2 QC report generation using manifest and media probes.
+- Gate 3 QC report generation for final duration, resolution, fps, and audio/video streams.
 - Remotion and HyperFrames backend contracts.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
 
@@ -32,6 +33,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 npm ci
 npm run check
 cp -R examples/local-fixture projects/my-first-run
+bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 bin/pipeline validate --config projects/my-first-run/project.yaml --json
 bin/pipeline plan --config projects/my-first-run/project.yaml --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
@@ -42,11 +44,13 @@ bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```sh
 bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
 bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve --json
+bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
 bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
+bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
 ```
 
 Do not run non-dry-run `run` or `render` without explicit human approval.
+Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and returns the run to rendering. Gate 2 `retry_specific` is not implemented yet; use `revise` for a full re-plan.
 
 ## Project File
 
@@ -119,4 +123,5 @@ This is how the repo can grow toward your taste while still staying safe for dis
 - `examples/local-fixture/project.yaml` is a fixture-style local validation config. Copy it into `projects/` before editing.
 - `projects/*` is ignored by git so local prompts, media, manifests, `dist/`, and run state stay out of distributable commits.
 - `npm ls` may report `@emnapi/runtime` as extraneous after `npm ci` on npm 11 because optional wasm child packages remain in the lockfile while their platform-specific parents are skipped. Treat this as non-blocking only when `npm ci`, `npm audit`, build, tests, `validate`, `plan`, and `run --dry-run` all pass.
+- `npm run check` enforces the vendor boundary, TypeScript build, the full test suite, and 80% minimum statement, branch, function, and line coverage for `src/`.
 - Vite may warn because this workspace path contains `*`. Tests currently pass in this path; move the repo to a path without `*` if that warning becomes operationally noisy.

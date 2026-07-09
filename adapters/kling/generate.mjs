@@ -16,6 +16,6 @@ try {
   console.log(JSON.stringify(result));
 } catch (error) {
   const normalized = normalizeError(error);
-  console.error(normalized.message);
+  console.error("Kling adapter command failed");
   process.exit(normalized.exitCode);
 }

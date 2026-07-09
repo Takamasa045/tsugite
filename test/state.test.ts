@@ -152,4 +152,29 @@ describe("run state", () => {
     expect(restarted.status).toBe("running");
     expect(restarted.gates.gate_2.status).toBe("pending");
   });
+
+  it("returns only Gate 3 to rendering when a re-render is requested", () => {
+    const planned = createPlannedState("run-005", "2026-07-09T00:00:00.000Z");
+    const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");
+    const running = recordGateDecision(gate1, "gate_1", "approved", "2026-07-09T00:02:00.000Z");
+    const gate2 = markGateAwaiting(running, "gate_2", "2026-07-09T00:03:00.000Z");
+    const rendering = recordGateDecision(gate2, "gate_2", "approved", "2026-07-09T00:04:00.000Z");
+    const gate3 = markGateAwaiting(rendering, "gate_3", "2026-07-09T00:05:00.000Z");
+
+    const rerendering = recordGateDecision(gate3, "gate_3", "re_render", "2026-07-09T00:06:00.000Z");
+
+    expect(rerendering.status).toBe("rendering");
+    expect(rerendering.gates.gate_1.status).toBe("approved");
+    expect(rerendering.gates.gate_2.status).toBe("approved");
+    expect(rerendering.gates.gate_3.status).toBe("pending");
+  });
+
+  it("rejects a re-render decision outside Gate 3", () => {
+    const planned = createPlannedState("run-006", "2026-07-09T00:00:00.000Z");
+    const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");
+
+    expect(() => recordGateDecision(gate1, "gate_1", "re_render", "2026-07-09T00:02:00.000Z")).toThrow(
+      "re_render is only valid for gate_3"
+    );
+  });
 });

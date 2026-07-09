@@ -5,6 +5,6 @@ try {
   console.log(JSON.stringify(runPixverseVideo(payload, { adapterName: "pixverse" })));
 } catch (error) {
   const normalized = normalizeError(error);
-  console.error(normalized.message);
+  console.error("PixVerse adapter command failed");
   process.exit(normalized.exitCode);
 }

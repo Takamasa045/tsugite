@@ -265,7 +265,7 @@ function numberOrUndefined(value: string | undefined): number | undefined {
 }
 
 function probeErrorMessage(stderr: string, stdout: string): string {
-  const text = `${stderr}\n${stdout}`.trim();
+  const text = `${stderr}\n${stdout}`.trim().replace(/0x[0-9a-f]+/gi, "0xADDR");
   return text.length > 0 ? text.slice(0, 1000) : "asset probe failed";
 }
 

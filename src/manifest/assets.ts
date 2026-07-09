@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { Manifest } from "./schema.js";
 import type { Issue, Result } from "../types.js";
@@ -17,7 +17,7 @@ export async function validateManifestAssets(
 
   for (const [index, clip] of manifest.clips.entries()) {
     const path = `clips.${index}.src`;
-    const sourcePath = safeLocalAssetPath(clip.src, baseDir, assetRoot, path, "manifest.clip.src.safe");
+    const sourcePath = await safeLocalAssetPath(clip.src, baseDir, assetRoot, path, "manifest.clip.src.safe");
     if (!sourcePath.ok) {
       issues.push(...sourcePath.issues);
       continue;
@@ -42,7 +42,7 @@ export async function validateManifestAssets(
     for (const [index, entry] of entries.entries()) {
       if (!entry.src) continue;
       const path = `audio.${track}.${index}.src`;
-      const sourcePath = safeLocalAssetPath(entry.src, baseDir, assetRoot, path, "manifest.audio.src.safe");
+      const sourcePath = await safeLocalAssetPath(entry.src, baseDir, assetRoot, path, "manifest.audio.src.safe");
       if (!sourcePath.ok) {
         issues.push(...sourcePath.issues);
         continue;
@@ -61,13 +61,13 @@ export async function validateManifestAssets(
   return issues.length > 0 ? { ok: false, issues } : { ok: true, issues: [] };
 }
 
-function safeLocalAssetPath(
+async function safeLocalAssetPath(
   src: string,
   baseDir: string,
   assetRoot: string,
   path: string,
   code: string
-): Result<{ path: string }> {
+): Promise<Result<{ path: string }>> {
   if (isAbsolute(src)) {
     return {
       ok: false,
@@ -81,6 +81,23 @@ function safeLocalAssetPath(
       ok: false,
       issues: [{ code, message: "asset src must stay within the project asset root", path }]
     };
+  }
+
+  try {
+    const [realRoot, realSource] = await Promise.all([realpath(assetRoot), realpath(resolved)]);
+    if (!isWithinRoot(realSource, realRoot)) {
+      return {
+        ok: false,
+        issues: [{ code, message: "asset src must stay within the project asset root", path }]
+      };
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      return {
+        ok: false,
+        issues: [{ code, message: "asset src could not be resolved safely", path }]
+      };
+    }
   }
 
   return { ok: true, issues: [], path: resolved };

@@ -1,8 +1,11 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inspectEnvironment } from "./doctor.js";
+import type { AdapterDefinition } from "./adapters/registry.js";
+import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
-import { renderAssembledMedia } from "./orchestrator/render.js";
-import { assembleLocalMediaRun } from "./orchestrator/run.js";
+import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
+import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
   createPlannedState,
   markGateAwaiting,
@@ -26,19 +29,24 @@ type ParsedArgs = {
   gate?: string;
   decision?: string;
   stateDir?: string;
+  issues: Issue[];
 };
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const args = parseArgs(argv);
+  if (args.issues.length > 0) {
+    return output(args, 1, { ok: false, command: args.command, issues: args.issues });
+  }
   if (!args.command) {
     return output(args, 1, { ok: false, issues: [{ code: "cli.command_missing", message: "command is required" }] });
   }
 
   if (args.command === "doctor") {
-    return output(args, 0, {
-      ok: true,
+    const report = await inspectEnvironment(args.config);
+    return output(args, report.ok ? 0 : 1, {
+      ok: report.ok,
       command: "doctor",
-      checks: [{ name: "node", ok: true, version: process.version }]
+      checks: report.checks
     });
   }
 
@@ -94,14 +102,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (coordinatorIssue) return output(args, 1, { ok: false, command: "gate", issues: [coordinatorIssue] });
 
     const gate = parseGate(args.gate);
-    const decision = parseDecision(args.decision);
+    const unsupportedDecision = isUnsupportedDecision(gate, args.decision);
+    const decision = parseDecision(gate, args.decision);
     const issues = [
       ...(gate ? [] : [{ code: "cli.gate_missing", message: "--gate must be gate-1, gate-2, or gate-3" }]),
-      ...(decision ? [] : [{ code: "cli.decision_missing", message: "--decision must be approve, revise, or abort" }])
+      ...(unsupportedDecision
+        ? [unsupportedDecision]
+        : decision
+          ? []
+          : [{ code: "cli.decision_missing", message: "--decision is missing or invalid for the selected gate" }])
     ];
     if (issues.length > 0) return output(args, 1, { ok: false, command: "gate", issues });
 
-    const gateResult = await recordGate(args, validation.project!, gate!, decision!);
+    const gateResult = await recordGate(
+      args,
+      validation.project!,
+      validation.manifest!,
+      gate!,
+      decision!,
+      validation.adapter
+    );
     return output(args, gateResult.ok ? 0 : 1, {
       ok: gateResult.ok,
       command: "gate",
@@ -171,6 +191,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       issues: renderResult.issues,
       output_path: renderResult.outputPath,
       report_path: renderResult.reportPath,
+      gate3_qc_report_path: renderResult.gate3QcReportPath,
       already_rendered: renderResult.alreadyRendered,
       state: renderResult.state,
       state_path: renderResult.statePath
@@ -187,22 +208,75 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 function parseArgs(argv: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
     command: argv[0] ?? "",
-    json: false,
-    dryRun: false
+    json: argv.includes("--json"),
+    dryRun: false,
+    issues: []
   };
 
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--config") parsed.config = argv[++index];
-    else if (arg === "--json") parsed.json = true;
-    else if (arg === "--dry-run") parsed.dryRun = true;
-    else if (arg === "--actor") parsed.actor = argv[++index];
-    else if (arg === "--gate") parsed.gate = argv[++index];
-    else if (arg === "--decision") parsed.decision = argv[++index];
-    else if (arg === "--state-dir") parsed.stateDir = argv[++index];
+    if (arg === "--json") continue;
+    if (arg === "--dry-run") {
+      if (isOptionAllowed(parsed.command, arg)) {
+        parsed.dryRun = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
+
+    const valueOptions: Record<string, keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir">> = {
+      "--config": "config",
+      "--actor": "actor",
+      "--gate": "gate",
+      "--decision": "decision",
+      "--state-dir": "stateDir"
+    };
+    const target = valueOptions[arg];
+    if (target) {
+      const value = argv[index + 1];
+      if (!isOptionAllowed(parsed.command, arg)) {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+        if (value && !value.startsWith("--")) index += 1;
+        continue;
+      }
+      if (!value || value.startsWith("--")) {
+        parsed.issues.push({
+          code: "cli.option_value_missing",
+          message: `${arg} requires a value`,
+          path: arg
+        });
+        continue;
+      }
+      parsed[target] = value;
+      index += 1;
+      continue;
+    }
+
+    parsed.issues.push({ code: "cli.option_unknown", message: `unknown option '${arg}'`, path: arg });
   }
 
   return parsed;
+}
+
+function isOptionAllowed(command: string, option: string): boolean {
+  const allowedByCommand: Record<string, Set<string>> = {
+    doctor: new Set(["--config"]),
+    validate: new Set(["--config"]),
+    plan: new Set(["--config"]),
+    run: new Set(["--config", "--dry-run", "--actor", "--state-dir"]),
+    gate: new Set(["--config", "--actor", "--gate", "--decision", "--state-dir"]),
+    render: new Set(["--config", "--actor", "--state-dir"])
+  };
+  return allowedByCommand[command]?.has(option) ?? true;
 }
 
 function requireCoordinator(args: ParsedArgs): Issue | undefined {
@@ -216,8 +290,10 @@ function requireCoordinator(args: ParsedArgs): Issue | undefined {
 async function recordGate(
   args: ParsedArgs,
   project: Project,
+  manifest: Manifest,
   gate: GateId,
-  decision: GateDecision
+  decision: GateDecision,
+  adapter?: AdapterDefinition
 ): Promise<Result<{ state: RunState; statePath: string }>> {
   const stateLocation = getStateLocation(args, project);
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
@@ -228,8 +304,33 @@ async function recordGate(
     state = markGateAwaiting(state, "gate_1");
   }
 
+  let nextState: RunState;
   try {
-    const nextState = recordGateDecision(state, gate, decision);
+    nextState = recordGateDecision(state, gate, decision);
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [{ code: "state.gate_invalid", message: error instanceof Error ? error.message : String(error) }],
+      state,
+      statePath: stateLocation.statePath
+    };
+  }
+
+  if (decision === "approved" && gate === "gate_2") {
+    const inspected = await inspectGate2RunForApproval(project, manifest, existing.stateDir, adapter);
+    if (!inspected.ok) {
+      return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
+    }
+  }
+
+  if (decision === "approved" && gate === "gate_3") {
+    const inspected = await inspectGate3RunForApproval(project, existing.stateDir);
+    if (!inspected.ok) {
+      return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
+    }
+  }
+
+  try {
     await writeState(stateLocation.stateDir, nextState);
     return { ok: true, issues: [], state: nextState, statePath: stateLocation.statePath };
   } catch (error) {
@@ -310,10 +411,33 @@ function parseGate(value: string | undefined): GateId | undefined {
   return undefined;
 }
 
-function parseDecision(value: string | undefined): GateDecision | undefined {
-  if (value === "approve" || value === "approved") return "approved";
-  if (value === "revise") return "revise";
-  if (value === "abort") return "abort";
+function parseDecision(gate: GateId | undefined, value: string | undefined): GateDecision | undefined {
+  if (gate === "gate_1") {
+    if (value === "approve" || value === "approved") return "approved";
+    if (value === "revise") return "revise";
+    if (value === "abort") return "abort";
+  }
+  if (gate === "gate_2") {
+    if (value === "approve_all" || value === "approve-all") return "approved";
+    if (value === "revise") return "revise";
+    if (value === "abort") return "abort";
+  }
+  if (gate === "gate_3") {
+    if (value === "approve" || value === "approved") return "approved";
+    if (value === "re-render" || value === "re_render") return "re_render";
+    if (value === "abort") return "abort";
+  }
+  return undefined;
+}
+
+function isUnsupportedDecision(gate: GateId | undefined, value: string | undefined): Issue | undefined {
+  if (gate === "gate_2" && (value === "retry_specific" || value === "retry-specific")) {
+    return {
+      code: "cli.decision_unsupported",
+      message: "Gate 2 retry_specific is not implemented; use revise for a full re-plan",
+      path: "--decision"
+    };
+  }
   return undefined;
 }
 

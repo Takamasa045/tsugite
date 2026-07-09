@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -42,6 +42,27 @@ describe("local media run assembly", () => {
     expect(result.issues[0]?.code).toBe("run.manifest_missing");
   });
 
+  it("does not resume an awaiting Gate 2 run from an assembled manifest alone", async () => {
+    const validation = await validateProject("fixtures/projects/local-media-only.yaml");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const runDir = join(stateDir, "local-media-only-run");
+    const gate1 = markGateAwaiting(createPlannedState("local-media-only-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const awaitingGate2 = markGateAwaiting(running, "gate_2");
+
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "manifest.json"), `${JSON.stringify(validation.manifest!, null, 2)}\n`);
+
+    const result = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/minimal.valid.json",
+      stateDir,
+      state: awaitingGate2
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("run.qc_report_missing");
+  });
+
   it("assembles generated clips from a cli adapter command", async () => {
     const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]
@@ -75,6 +96,360 @@ describe("local media run assembly", () => {
     expect(manifest.provenance[0].credits).toBe(0.25);
     expect(qc.asset_count).toBe(1);
     expect(runLog).toContain("actual_credits: 0.25");
+  });
+
+  it("resumes generated runs with the original asset count and actual credits", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const firstRequest = validation.project!.generation!.requests[0]!;
+    const project = {
+      ...validation.project!,
+      generation: {
+        adapter: validation.project!.generation!.adapter,
+        requests: [firstRequest, { ...firstRequest, id: "generated-002" }]
+      }
+    };
+
+    const first = await assembleLocalMediaRun(
+      project,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+
+    const resumed = await assembleLocalMediaRun(
+      project,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(true);
+    expect(resumed.alreadyAssembled).toBe(true);
+    expect(resumed.assetCount).toBe(first.assetCount);
+    expect(resumed.assetCount).toBe(2);
+    expect(resumed.actualCredits).toBe(first.actualCredits);
+    expect(resumed.actualCredits).toBe(0.5);
+  });
+
+  it("rejects resume when the project inputs changed under the same run id", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+    const changedProject = {
+      ...validation.project!,
+      generation: {
+        ...validation.project!.generation!,
+        requests: validation.project!.generation!.requests.map((request) => ({
+          ...request,
+          prompt: `${request.prompt} changed`
+        }))
+      }
+    };
+
+    const resumed = await assembleLocalMediaRun(
+      changedProject,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.input_changed");
+  });
+
+  it("rejects resume when an assembled asset is missing", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+    const assembledManifest = JSON.parse(await readFile(first.manifestPath!, "utf8"));
+    await rm(join(stateDir, "cli-generation-run", assembledManifest.clips[0].src));
+
+    const resumed = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.asset_missing");
+  });
+
+  it("rejects resume when an assembled asset changed after Gate 2 QC", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+    const assembledManifest = JSON.parse(await readFile(first.manifestPath!, "utf8"));
+    const assembledAssetPath = join(stateDir, "cli-generation-run", assembledManifest.clips[0].src);
+    await writeFile(assembledAssetPath, "changed after QC\n");
+
+    const resumed = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.qc_report_stale");
+  });
+
+  it("rejects resume when an assembled manifest points outside its run directory", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+
+    const externalAssetPath = join(process.cwd(), "fixtures/media/render-001.mp4");
+    const assembledManifest = JSON.parse(await readFile(first.manifestPath!, "utf8"));
+    assembledManifest.clips[0].src = externalAssetPath;
+    await writeFile(first.manifestPath!, `${JSON.stringify(assembledManifest, null, 2)}\n`);
+    const qc = JSON.parse(await readFile(first.qcReportPath!, "utf8"));
+    qc.assets[0].src = externalAssetPath;
+    qc.assets[0].path = externalAssetPath;
+    await writeFile(first.qcReportPath!, `${JSON.stringify(qc, null, 2)}\n`);
+
+    const resumed = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.asset_path_invalid");
+  });
+
+  it("rejects resume when an assembled asset symlink escapes the run directory", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+    const assembledManifest = JSON.parse(await readFile(first.manifestPath!, "utf8"));
+    const assembledAssetPath = join(stateDir, "cli-generation-run", assembledManifest.clips[0].src);
+    await rm(assembledAssetPath);
+    await symlink(join(process.cwd(), "fixtures/media/render-001.mp4"), assembledAssetPath);
+
+    const resumed = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.asset_path_invalid");
+  });
+
+  it("rejects resume when Gate 2 QC disagrees with the assembled manifest", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+    const qc = JSON.parse(await readFile(first.qcReportPath!, "utf8"));
+    qc.asset_count = 99;
+    await writeFile(first.qcReportPath!, `${JSON.stringify(qc, null, 2)}\n`);
+
+    const resumed = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.qc_report_inconsistent");
+  });
+
+  it("rejects resume when manifest timing no longer matches the Gate 2 QC summary", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+    const assembledManifest = JSON.parse(await readFile(first.manifestPath!, "utf8"));
+    assembledManifest.meta.target_duration_seconds += 1;
+    await writeFile(first.manifestPath!, `${JSON.stringify(assembledManifest, null, 2)}\n`);
+
+    const resumed = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.qc_report_inconsistent");
+  });
+
+  it("rejects resume when the run log is missing", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+    expect(first.ok).toBe(true);
+    await rm(first.runLogPath!);
+
+    const resumed = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: first.state!
+      },
+      validation.adapter
+    );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.run_log_missing");
   });
 
   it("retries retryable cli adapter exits", async () => {
