@@ -133,7 +133,7 @@ describe("hyperframes render runner", () => {
             duration: 1,
             fps: 30,
             resolution: { width: 320, height: 180 },
-            audio: false
+            audio: true
           }
         ],
         audio: { bgm: [], narration: [], sfx: [] },
@@ -181,7 +181,10 @@ process.exit(40);
       report_path: reportPath,
       output_path: outputPath
     });
-    expect(await readFile(join(runDir, "index.html"), "utf8")).toContain('data-composition-id="tsugite-render"');
+    const html = await readFile(join(runDir, "index.html"), "utf8");
+    expect(html).toContain('data-composition-id="tsugite-render"');
+    expect(html).toContain('data-width="320" data-height="180"');
+    expect(html.match(/<video[^>]+>/)?.[0]).not.toContain(" muted");
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     expect(report).toMatchObject({
       backend: "hyperframes",

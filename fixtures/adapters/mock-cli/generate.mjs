@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const payload = JSON.parse(await readStdin());
@@ -16,11 +16,15 @@ if (request.params?.fail_once) {
 }
 
 if (typeof request.params?.exit_code === "number") {
-  console.error("fixture requested failure");
+  console.error(request.params.error_output ?? "fixture requested failure");
   process.exit(request.params.exit_code);
 }
 
 await mkdir(payload.run_dir, { recursive: true });
+const outputDir = join(payload.run_dir, "generated", request.id);
+const outputPath = join(outputDir, `${request.id}-clip.mp4`);
+await mkdir(outputDir, { recursive: true });
+await copyFile("fixtures/media/render-001.mp4", outputPath);
 console.log(
   JSON.stringify({
     request_id: request.id,
@@ -28,7 +32,7 @@ console.log(
     clips: [
       {
         id: `${request.id}-clip`,
-        src: "fixtures/media/render-001.mp4",
+        src: outputPath,
         duration: 1,
         fps: 30,
         resolution: {

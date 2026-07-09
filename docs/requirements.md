@@ -11,6 +11,13 @@ manifest（EDL）という単一の契約で接続する「砂時計型」アー
   スコープに明記、manifest に chapters[] / 話者ラベルを予約、
   MCP 試験導入ベンダーとして Topview を選定
 
+### 現在の実装メモ
+
+- `doctor --config` はNode、ffprobe、project validation、選択backend runner、宣言済みpreflight executable、選択adapter executableの存在を副作用なしで確認する。
+- Gate 2 は `approve_all` を実装済み。`retry_specific` は対象clipの差し替え契約が未実装のため、曖昧に成功させず明示エラーにする。
+- Gate 3 は `approve` / `re-render` / `abort` を実装済み。`re-render` はGate 1 / 2承認を維持する。
+- Gate 3 QCは最終MP4のprobe、映像/音声stream、尺、解像度、fpsを検査する。カット順・黒画面・無音区間の検査は今後の拡張対象。
+
 ---
 
 ## 1. 背景と目的
@@ -166,7 +173,7 @@ manifest は生成側と編集側の**唯一の合意点**。
 
 | コマンド | 責務 |
 |---------|------|
-| `doctor` | 環境検査（依存 CLI の存在、認証状態、バックエンドの動作確認） |
+| `doctor` | 副作用なしの環境検査（Node 22、ffprobe、project validation、選択backend runner、宣言済みpreflight/adapter executableの存在確認）。認証や実プロバイダー疎通は行わない |
 | `validate` | project.yaml / manifest のスキーマ検証 + constraints 由来の機械チェック |
 | `plan` | 実行計画の提示（カット一覧、工程、推定クレジット、推定尺 vs 目標尺） |
 | `run --dry-run` | 生成・編集を実行せず、全工程の手順とコストを出力 |
@@ -243,11 +250,11 @@ manifest は生成側と編集側の**唯一の合意点**。
 | Gate | タイミング | 提示内容 | 選択肢 |
 |------|-----------|---------|--------|
 | Gate 1 | plan 直後 | カット一覧、工程、推定クレジット、推定尺 vs 目標尺 | approve / revise / abort |
-| Gate 2 | 生成完了後 | クリップ一覧、QC 結果、実績クレジット | approve_all / retry_specific / abort |
-| Gate 3 | render 完了後 | 最終 MP4、レンダーレポート、尺・音・カット順の検査結果 | approve / re-render / abort |
+| Gate 2 | 生成完了後 | クリップ一覧、QC 結果、実績クレジット | approve_all / revise / abort（retry_specific は未実装） |
+| Gate 3 | render 完了後 | 最終 MP4、レンダーレポート、尺・解像度・fps・映像/音声streamの検査結果 | approve / re-render / abort |
 
 - Gate 2 の QC は asset-qc 相当（ffprobe + manifest 整合）を機械実行してから提示
-- Gate 3 の QC は video-qa 相当（カット順・音・尺ズレ検出）を機械実行してから提示
+- Gate 3 の現行 QC は最終MP4のprobeから、映像/音声stream、尺、解像度、fpsを機械検査してから提示する。カット順・黒画面・無音区間の検査は今後の拡張対象
 
 ### FR-6: 学習ループ（同じミスを繰り返さない仕組み）
 

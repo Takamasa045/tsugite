@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Hardened project request IDs and adapter output paths against traversal, duplicates, mismatches, and symlink escapes.
+- Added integrity checks for resumed Gate 2 runs and preserved generated asset/credit metrics.
+- Added Gate 3 QC reports and a Gate 3-only `re-render` transition.
+- Added config-aware `doctor` checks and strict CLI option parsing.
+- Prevented raw provider CLI output from leaking through adapter errors.
+- Added CI, Dependabot, Node engine constraints, and enforced 80% core coverage thresholds.
+
 ## 0.2.0 - 2026-07-09
 
 - Added optional OpenClaw CLI bridge and Hermes analysis handoff adapters.

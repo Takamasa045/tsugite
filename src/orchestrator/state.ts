@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { z } from "zod";
 
 export type GateId = "gate_1" | "gate_2" | "gate_3";
-export type GateDecision = "approved" | "revise" | "abort";
-export type GateStatus = "pending" | "awaiting_approval" | GateDecision;
+export type GateDecision = "approved" | "revise" | "abort" | "re_render";
+export type GateStatus = "pending" | "awaiting_approval" | "approved" | "revise" | "abort";
 export type RunStatus =
   | "planned"
   | "awaiting_gate_1"
@@ -96,6 +96,9 @@ export function recordGateDecision(
   decision: GateDecision,
   updatedAt = new Date().toISOString()
 ): RunState {
+  if (decision === "re_render" && gate !== "gate_3") {
+    throw new Error("re_render is only valid for gate_3");
+  }
   assertCanDecideGate(state, gate);
 
   if (state.gates[gate].status !== "awaiting_approval") {
@@ -261,6 +264,7 @@ function gateToRunStatus(gate: GateId): RunStatus {
 function statusAfterDecision(gate: GateId, decision: GateDecision, current: RunStatus): RunStatus {
   if (decision === "abort") return "aborted";
   if (decision === "revise") return "planned";
+  if (decision === "re_render") return "rendering";
   if (gate === "gate_1") return "running";
   if (gate === "gate_2") return "rendering";
   if (gate === "gate_3") return "completed";
@@ -275,6 +279,13 @@ function gatesAfterDecision(
 ): Record<GateId, GateState> {
   if (decision === "revise") {
     return defaultGates();
+  }
+
+  if (decision === "re_render") {
+    return {
+      ...state.gates,
+      gate_3: { status: "pending", updated_at: updatedAt }
+    };
   }
 
   return {

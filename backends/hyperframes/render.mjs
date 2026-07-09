@@ -239,7 +239,7 @@ async function writeHyperFramesProject(runDir, manifest) {
 }
 
 function renderIndexHtml(manifest) {
-  const size = compositionSize(manifest.meta.aspect);
+  const size = compositionSize(manifest);
   const duration = manifest.meta.target_duration_seconds;
   return `<!doctype html>
 <html>
@@ -307,7 +307,8 @@ function renderClips(clips) {
   return clips
     .map((clip, index) => {
       const duration = clip.duration;
-      const element = `    <video id="${escapeAttr(clip.id)}" data-start="${start}" data-duration="${duration}" data-track-index="0" src="${escapeAttr(clip.src)}" muted playsinline></video>`;
+      const muted = clip.audio ? "" : " muted";
+      const element = `    <video id="${escapeAttr(clip.id)}" data-start="${start}" data-duration="${duration}" data-track-index="0" src="${escapeAttr(clip.src)}"${muted} playsinline></video>`;
       start += duration;
       return element;
     })
@@ -343,8 +344,16 @@ function renderCaptions(captions) {
     .join("\n");
 }
 
-function compositionSize(aspect) {
-  return aspect === "9:16" ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
+function compositionSize(manifest) {
+  const first = manifest.clips?.[0]?.resolution;
+  if (first?.width && first?.height) {
+    return { width: even(first.width), height: even(first.height) };
+  }
+  return manifest.meta.aspect === "9:16" ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
+}
+
+function even(value) {
+  return value % 2 === 0 ? value : value + 1;
 }
 
 async function writeSuccessResult(input, manifest, render) {

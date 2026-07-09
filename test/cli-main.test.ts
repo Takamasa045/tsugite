@@ -24,6 +24,27 @@ describe("pipeline main", () => {
 
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout).command).toBe("doctor");
+    expect(JSON.parse(result.stdout).checks.map((check: { name: string }) => check.name)).toEqual(
+      expect.arrayContaining(["node", "ffprobe"])
+    );
+  });
+
+  it("reports config-aware doctor checks without executing adapter or backend commands", async () => {
+    const result = await capture([
+      "doctor",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--json"
+    ]);
+
+    const payload = JSON.parse(result.stdout);
+    expect(result.status).toBe(0);
+    expect(payload.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "project", ok: true }),
+        expect.objectContaining({ name: "backend:remotion", ok: true })
+      ])
+    );
   });
 
   it("requires a command and config where appropriate", async () => {
@@ -33,6 +54,189 @@ describe("pipeline main", () => {
     expect(noCommand.status).toBe(1);
     expect(noConfig.status).toBe(1);
     expect(JSON.parse(noConfig.stderr).issues[0].code).toBe("cli.config_missing");
+  });
+
+  it("rejects unknown options and missing option values", async () => {
+    const unknown = await capture([
+      "validate",
+      "--bogus",
+      "--config",
+      "fixtures/projects/local-valid.yaml",
+      "--json"
+    ]);
+    const missingValue = await capture(["validate", "--config", "--json"]);
+
+    expect(unknown.status).toBe(1);
+    expect(JSON.parse(unknown.stderr).issues[0].code).toBe("cli.option_unknown");
+    expect(missingValue.status).toBe(1);
+    expect(JSON.parse(missingValue.stderr).issues[0].code).toBe("cli.option_value_missing");
+  });
+
+  it("rejects --dry-run outside run without changing gate state", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const gate = await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-1",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--dry-run",
+      "--json"
+    ]);
+    const render = await capture([
+      "render",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--dry-run",
+      "--json"
+    ]);
+
+    expect(gate.status).toBe(1);
+    expect(render.status).toBe(1);
+    expect(JSON.parse(gate.stderr).issues[0]?.code).toBe("cli.option_unsupported");
+    expect(JSON.parse(render.stderr).issues[0]?.code).toBe("cli.option_unsupported");
+    await expect(stat(join(stateDir, "local-media-only-run/state.json"))).rejects.toThrow();
+  });
+
+  it("rejects unsupported retry_specific and Gate 2 approval without verified artifacts", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const runDir = join(stateDir, "local-media-only-run");
+    await mkdir(runDir);
+    await writeFile(
+      join(runDir, "state.json"),
+      JSON.stringify({
+        run_id: "local-media-only-run",
+        status: "awaiting_gate_2",
+        updated_at: "2026-07-09T00:00:00.000Z",
+        gates: {
+          gate_1: { status: "approved" },
+          gate_2: { status: "awaiting_approval" },
+          gate_3: { status: "pending" }
+        }
+      })
+    );
+
+    const unsupported = await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-2",
+      "--decision",
+      "retry_specific",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    const approved = await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-2",
+      "--decision",
+      "approve_all",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+
+    expect(unsupported.status).toBe(1);
+    expect(JSON.parse(unsupported.stderr).issues[0].code).toBe("cli.decision_unsupported");
+    expect(approved.status).toBe(1);
+    expect(JSON.parse(approved.stderr).issues[0].code).toBe("run.manifest_missing");
+  });
+
+  it("accepts Gate 3 re-render without resetting earlier approvals", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const runDir = join(stateDir, "local-media-only-run");
+    await mkdir(runDir);
+    await writeFile(
+      join(runDir, "state.json"),
+      JSON.stringify({
+        run_id: "local-media-only-run",
+        status: "awaiting_gate_3",
+        updated_at: "2026-07-09T00:00:00.000Z",
+        gates: {
+          gate_1: { status: "approved" },
+          gate_2: { status: "approved" },
+          gate_3: { status: "awaiting_approval" }
+        }
+      })
+    );
+
+    const result = await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-3",
+      "--decision",
+      "re-render",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+
+    const state = JSON.parse(result.stdout).state;
+    expect(result.status).toBe(0);
+    expect(state.status).toBe("rendering");
+    expect(state.gates.gate_1.status).toBe("approved");
+    expect(state.gates.gate_2.status).toBe("approved");
+    expect(state.gates.gate_3.status).toBe("pending");
+  });
+
+  it("rejects Gate 3 approval without verified render and QC artifacts", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const runDir = join(stateDir, "local-media-only-run");
+    await mkdir(runDir);
+    await writeFile(
+      join(runDir, "state.json"),
+      JSON.stringify({
+        run_id: "local-media-only-run",
+        status: "awaiting_gate_3",
+        updated_at: "2026-07-09T00:00:00.000Z",
+        gates: {
+          gate_1: { status: "approved" },
+          gate_2: { status: "approved" },
+          gate_3: { status: "awaiting_approval" }
+        }
+      })
+    );
+
+    const result = await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-3",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stderr).issues[0].code).toBe("render.output_missing");
   });
 
   it("returns plan output", async () => {
@@ -186,8 +390,6 @@ describe("pipeline main", () => {
       "validate",
       "--config",
       "fixtures/projects/openclaw-generation.yaml",
-      "--state-dir",
-      stateDir,
       "--json"
     ]);
     await capture([
@@ -228,9 +430,9 @@ describe("pipeline main", () => {
     expect(validated.status).toBe(0);
     expect(run.status).toBe(1);
     expect(JSON.parse(run.stderr).issues[0]).toMatchObject({
-      code: "run.adapter_exit.invalid_request"
+      code: "run.adapter_exit.invalid_request",
+      message: "adapter command failed"
     });
-    expect(JSON.parse(run.stderr).issues[0].message).toContain("TSUGITE_OPENCLAW_GENERATE_COMMAND");
   });
 
   it("runs the optional OpenClaw adapter when an executable bridge is configured", async () => {
@@ -320,7 +522,7 @@ describe("pipeline main", () => {
     const issue = JSON.parse(run.stderr).issues[0];
     expect(run.status).toBe(1);
     expect(issue.code).toBe("run.adapter_exit.invalid_request");
-    expect(issue.message).toBe("OpenClaw bridge command failed");
+    expect(issue.message).toBe("adapter command failed");
     expect(issue.message).not.toContain("secret-token");
   });
 
@@ -396,7 +598,7 @@ describe("pipeline main", () => {
         "--gate",
         "gate-2",
         "--decision",
-        "approve",
+        "approve_all",
         "--actor",
         "coordinator",
         "--state-dir",
@@ -448,6 +650,8 @@ describe("pipeline main", () => {
       expect(report.width).toBe(320);
       expect(report.height).toBe(180);
       expect(report.duration_seconds).toBeGreaterThan(0);
+      expect(payload.gate3_qc_report_path).toBeTruthy();
+      await expect(stat(payload.gate3_qc_report_path)).resolves.toMatchObject({ size: expect.any(Number) });
       await expect(stat(payload.output_path)).resolves.toMatchObject({ size: expect.any(Number) });
       expect(rerender.status).toBe(0);
       expect(rerenderPayload.already_rendered).toBe(true);

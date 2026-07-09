@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { loadProject } from "../src/project/loadProject.js";
+import { projectSchema } from "../src/project/schema.js";
 import { validateProject } from "../src/project/validateProject.js";
 
 describe("project validation", () => {
@@ -56,6 +57,58 @@ describe("project validation", () => {
 
     expect(result.ok).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain("project.schema");
+  });
+
+  it.each(["generation", "analysis"] as const)("rejects unsafe %s request ids", (requestKind) => {
+    const project = validProjectDefinition();
+    project[requestKind] = {
+      adapter: "fixture-adapter",
+      requests: [requestDefinition(requestKind, "../escape")]
+    };
+
+    const result = projectSchema.safeParse(project);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.path).toEqual([requestKind, "requests", 0, "id"]);
+    }
+  });
+
+  it.each(["generation", "analysis"] as const)("rejects unsafe %s adapter names", (requestKind) => {
+    const project = validProjectDefinition();
+    project[requestKind] = {
+      adapter: "../outside-adapter",
+      requests: [requestDefinition(requestKind, "safe-request")]
+    };
+
+    const result = projectSchema.safeParse(project);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.path).toEqual([requestKind, "adapter"]);
+    }
+  });
+
+  it.each(["generation", "analysis"] as const)("rejects duplicate %s request ids", (requestKind) => {
+    const project = validProjectDefinition();
+    project[requestKind] = {
+      adapter: "fixture-adapter",
+      requests: [requestDefinition(requestKind, "duplicate"), requestDefinition(requestKind, "duplicate")]
+    };
+
+    const result = projectSchema.safeParse(project);
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: "request ids must be unique",
+            path: [requestKind, "requests", 1, "id"]
+          })
+        ])
+      );
+    }
   });
 
   it("rejects manifest paths that escape beyond the project asset root", async () => {
@@ -164,6 +217,22 @@ describe("project validation", () => {
     expect(result.ok).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain("manifest.audio.src.safe");
   });
+
+  it("rejects clip assets that escape the project asset root through a symbolic link", async () => {
+    const root = await createProjectRoot();
+    const outsideRoot = await mkdtemp(join(tmpdir(), "tsugite-outside-"));
+    const outsideVideo = join(outsideRoot, "outside.mp4");
+    await writeFile(outsideVideo, "not a real video");
+    await symlink(outsideVideo, join(root, "media/link.mp4"));
+    await writeProject(root, {
+      clips: [clip({ src: "../media/link.mp4" })]
+    });
+
+    const result = await validateProject(join(root, "projects/project.yaml"));
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("manifest.clip.src.safe");
+  });
 });
 
 async function createProjectRoot(): Promise<string> {
@@ -230,5 +299,35 @@ function clip(overrides: { src: string }) {
       height: 1080
     },
     audio: true
+  };
+}
+
+function validProjectDefinition(): Record<string, unknown> {
+  return {
+    slug: "request-validation",
+    run_id: "request-validation-run",
+    manifest: "../manifests/manifest.json",
+    dist_dir: "dist",
+    edit: {
+      backend: "remotion"
+    }
+  };
+}
+
+function requestDefinition(kind: "generation" | "analysis", id: string) {
+  if (kind === "analysis") {
+    return {
+      id,
+      output: "captions",
+      params: {}
+    };
+  }
+  return {
+    id,
+    prompt: "fixture prompt",
+    model: "fixture-model",
+    duration: 1,
+    aspect: "16:9",
+    params: {}
   };
 }

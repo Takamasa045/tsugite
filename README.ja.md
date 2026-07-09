@@ -23,6 +23,7 @@
 - OpenClaw 向け optional CLI bridge と Hermes 向け analysis handoff adapter。
 - local-media / generated-media を `dist/<run-id>/` に組み立てる処理。
 - manifest と media probe による Gate 2 QC report 生成。
+- 最終尺・解像度・fps・映像/音声streamを検査する Gate 3 QC report 生成。
 - Remotion / HyperFrames backend 契約。
 - Coordinator role と Gate 承認を要求する guarded `run` / `render`。
 
@@ -32,6 +33,7 @@
 npm ci
 npm run check
 cp -R examples/local-fixture projects/my-first-run
+bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 bin/pipeline validate --config projects/my-first-run/project.yaml --json
 bin/pipeline plan --config projects/my-first-run/project.yaml --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
@@ -42,11 +44,13 @@ bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```sh
 bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
 bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve --json
+bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
 bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
+bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
 ```
 
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
+Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装です。全体を計画からやり直す場合は `revise` を使います。
 
 ## project ファイル
 
@@ -120,4 +124,5 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 - `examples/local-fixture/project.yaml` は fixture style のローカル検証 config です。編集前に `projects/` へコピーしてください。
 - `projects/*` は git ignore されるため、ローカル prompt、media、manifest、`dist/`、run state は配布用 commit に混ざりません。
 - npm 11 では、platform-specific parent が skip されても optional wasm child package が lockfile に残るため、`npm ci` 後に `npm ls` が `@emnapi/runtime` を extraneous と表示する場合があります。`npm ci`、`npm audit`、build、tests、`validate`、`plan`、`run --dry-run` がすべて通っている場合のみ non-blocking と扱います。
+- `npm run check` はvendor boundary、TypeScript build、全テストに加え、`src/`のstatements / branches / functions / linesが各80%以上であることを強制します。
 - この workspace path には `*` が含まれるため、Vite が警告する場合があります。現在この path でも tests は通りますが、運用上ノイズになる場合は `*` を含まない path に repo を移してください。

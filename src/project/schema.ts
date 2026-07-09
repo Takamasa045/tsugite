@@ -28,7 +28,7 @@ const manifestPathSchema = z
 
 const generationRequestSchema = z
   .object({
-    id: z.string().min(1),
+    id: safeIdSchema,
     prompt: z.string().min(1),
     model: z.string().min(1),
     duration: z.number().positive(),
@@ -40,7 +40,7 @@ const generationRequestSchema = z
 
 const analysisRequestSchema = z
   .object({
-    id: z.string().min(1),
+    id: safeIdSchema,
     output: z.union([z.literal("captions"), z.literal("chapters"), z.literal("cut_points")]),
     params: z.record(z.unknown()).default({})
   })
@@ -57,14 +57,14 @@ export const projectSchema = z
     }),
     generation: z
       .object({
-        adapter: z.string().min(1),
-        requests: z.array(generationRequestSchema).default([])
+        adapter: safeIdSchema,
+        requests: z.array(generationRequestSchema).superRefine(rejectDuplicateRequestIds).default([])
       })
       .optional(),
     analysis: z
       .object({
-        adapter: z.string().min(1),
-        requests: z.array(analysisRequestSchema).min(1)
+        adapter: safeIdSchema,
+        requests: z.array(analysisRequestSchema).min(1).superRefine(rejectDuplicateRequestIds)
       })
       .optional()
   })
@@ -73,3 +73,17 @@ export const projectSchema = z
 export type Project = z.infer<typeof projectSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];
 export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][number];
+
+function rejectDuplicateRequestIds(requests: Array<{ id: string }>, context: z.RefinementCtx): void {
+  const seen = new Set<string>();
+  for (const [index, request] of requests.entries()) {
+    if (seen.has(request.id)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "request ids must be unique",
+        path: [index, "id"]
+      });
+    }
+    seen.add(request.id);
+  }
+}
