@@ -14,7 +14,14 @@ describe("plan and dry run", () => {
 
     expect(plan.run_id).toBe("local-fixture-run");
     expect(plan.total_clip_duration_seconds).toBe(6);
-    expect(plan.steps.map((step) => step.name)).toEqual(["validate", "gate-1", "assemble-manifest"]);
+    expect(plan.steps.map((step) => step.name)).toEqual([
+      "validate",
+      "gate-1",
+      "assemble-manifest",
+      "gate-2",
+      "render",
+      "gate-3"
+    ]);
   });
 
   it("creates dry-run output without execution", async () => {
@@ -25,6 +32,30 @@ describe("plan and dry run", () => {
 
     expect(dryRun.executed).toBe(false);
     expect(dryRun.estimated_credits).toBe(0);
+  });
+
+  it("plans local media projects without generation requests", async () => {
+    const validation = await validateProject("fixtures/projects/local-media-only.yaml");
+    const dryRun = createDryRun(validation.project!, validation.manifest!);
+
+    expect(dryRun.executed).toBe(false);
+    expect(dryRun.estimated_credits).toBe(0);
+    expect(dryRun.external_commands).toEqual([]);
+  });
+
+  it("includes backend render preflight checks in dry-run output", async () => {
+    const validation = await validateProject("fixtures/projects/hyperframes-local-media.yaml");
+    const dryRun = createDryRun(validation.project!, validation.manifest!, undefined, validation.backend);
+
+    expect(validation.ok).toBe(true);
+    expect(dryRun.external_commands).toEqual([
+      {
+        phase: "render_preflight",
+        backend: "hyperframes",
+        name: "lint",
+        command: ["npx", "hyperframes", "lint", "--json"]
+      }
+    ]);
   });
 
   it("uses adapter credit estimate in plan output", async () => {

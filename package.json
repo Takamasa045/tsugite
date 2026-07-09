@@ -14,6 +14,11 @@
     "check": "npm run vendor:check && npm run build && npm test"
   },
   "dependencies": {
+    "@remotion/bundler": "^4.0.486",
+    "@remotion/renderer": "^4.0.486",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "remotion": "^4.0.486",
     "yaml": "^2.8.0",
     "zod": "^3.25.76"
   },

@@ -14,10 +14,28 @@ const capabilitiesSchema = z.object({
     audio_mix: z.boolean(),
     vertical: z.boolean(),
     fps: z.array(z.number().positive()).min(1)
-  })
+  }),
+  checks: z
+    .object({
+      render_preflight: z
+        .array(
+          z.object({
+            name: z.string().min(1),
+            command: z.array(z.string().min(1)).min(1)
+          })
+        )
+        .default([])
+    })
+    .default({ render_preflight: [] })
 });
 
 export type BackendCapabilities = z.infer<typeof capabilitiesSchema>;
+export type BackendExternalCommand = {
+  phase: "render_preflight";
+  backend: string;
+  name: string;
+  command: string[];
+};
 
 export async function loadBackendCapabilities(
   name: string,
@@ -86,6 +104,17 @@ export function validateBackendCapabilities(
   return issues.length > 0
     ? { ok: false, issues, backend }
     : { ok: true, issues: [], backend };
+}
+
+export function renderPreflightCommands(backend?: BackendCapabilities): BackendExternalCommand[] {
+  if (!backend) return [];
+
+  return backend.checks.render_preflight.map((check) => ({
+    phase: "render_preflight",
+    backend: backend.name,
+    name: check.name,
+    command: check.command
+  }));
 }
 
 function requiresAudioMix(manifest: Manifest): boolean {

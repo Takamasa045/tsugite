@@ -1,6 +1,11 @@
 import type { Manifest } from "../manifest/schema.js";
 import type { Project } from "../project/schema.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
+import {
+  renderPreflightCommands,
+  type BackendCapabilities,
+  type BackendExternalCommand
+} from "../backends/capabilities.js";
 
 export type PlanStep = {
   name: string;
@@ -45,17 +50,30 @@ export function createPlan(
     steps: [
       { name: "validate", status: "pending" },
       { name: "gate-1", status: "gate" },
-      { name: "assemble-manifest", status: "pending" }
+      { name: "assemble-manifest", status: "pending" },
+      { name: "gate-2", status: "gate" },
+      { name: "render", status: "pending" },
+      { name: "gate-3", status: "gate" }
     ]
   };
 }
 
-export function createDryRun(project: Project, manifest: Manifest, adapter?: AdapterDefinition) {
+export function createDryRun(
+  project: Project,
+  manifest: Manifest,
+  adapter?: AdapterDefinition,
+  backend?: BackendCapabilities
+): {
+  executed: false;
+  plan: ExecutionPlan;
+  estimated_credits: number;
+  external_commands: BackendExternalCommand[];
+} {
   return {
     executed: false,
     plan: createPlan(project, manifest, adapter),
     estimated_credits: estimateCredits(project, adapter),
-    external_commands: []
+    external_commands: renderPreflightCommands(backend)
   };
 }
 

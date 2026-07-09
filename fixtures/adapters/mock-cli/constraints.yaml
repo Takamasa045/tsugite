@@ -5,3 +5,9 @@ checks:
     operator: in
     values: [3, 5, 10]
     message: duration must be 3, 5, or 10 seconds
+  - id: analysis-only
+    scope: analysis
+    field: prompt
+    operator: in
+    values: [analysis-only]
+    message: analysis-only constraints must not apply to generation requests

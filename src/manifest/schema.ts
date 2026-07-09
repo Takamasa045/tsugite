@@ -52,6 +52,18 @@ export const manifestSchema = z
         z
           .object({
             text: z.string(),
+            speaker: z.string().min(1).optional(),
+            start: z.number().nonnegative(),
+            end: z.number().positive()
+          })
+          .passthrough()
+      )
+      .default([]),
+    chapters: z
+      .array(
+        z
+          .object({
+            title: z.string().min(1),
             start: z.number().nonnegative(),
             end: z.number().positive()
           })

@@ -19,6 +19,15 @@ describe("manifest validation", () => {
     expect(result.manifest?.meta.aspect).toBe("9:16");
   });
 
+  it("accepts reserved caption speaker labels and chapters", async () => {
+    const manifest = await readJsonFile("fixtures/manifests/captions-chapters.valid.json");
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(true);
+    expect(result.manifest?.captions[0]?.speaker).toBe("speaker-1");
+    expect(result.manifest?.chapters[0]?.title).toBe("Opening");
+  });
+
   it("rejects non-local clip sources before execution", async () => {
     const manifest = await readJsonFile("fixtures/manifests/invalid.url-src.json");
     const result = validateManifest(manifest);
@@ -33,6 +42,20 @@ describe("manifest validation", () => {
 
     expect(result.ok).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain("manifest.clip.timing");
+  });
+
+  it("rejects invalid caption and chapter timing", async () => {
+    const manifest = await readJsonFile("fixtures/manifests/captions-chapters.valid.json");
+    const result = validateManifest({
+      ...(manifest as object),
+      captions: [{ text: "bad", start: 2, end: 1 }],
+      chapters: [{ title: "Bad", start: 3, end: 3 }]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["manifest.caption.timing", "manifest.chapter.timing"])
+    );
   });
 
   it("rejects schema-level manifest errors", async () => {

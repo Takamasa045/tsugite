@@ -11,7 +11,7 @@ const constraintSchema = z.object({
     .array(
       z.object({
         id: z.string().min(1),
-        scope: z.literal("generation"),
+        scope: z.union([z.literal("generation"), z.literal("analysis")]),
         field: z.string().min(1),
         operator: z.union([z.literal("in"), z.literal("min"), z.literal("max")]),
         values: z.array(z.union([z.string(), z.number()])).optional(),
@@ -37,6 +37,8 @@ export async function validateGenerationConstraints(
   const constraints = await loadConstraints(adapter.root);
   const issues = project.generation.requests.flatMap((request, index) =>
     constraints.checks.flatMap((check) => {
+      if (check.scope !== "generation") return [];
+
       const actual = request[check.field as keyof typeof request] as Comparable;
       const valid = matchesConstraint(actual, check);
       return valid

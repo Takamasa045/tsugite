@@ -8,8 +8,17 @@ describe("adapter contract", () => {
     const adapter = await loadAdapterDefinition("mock-cli", ["fixtures/adapters", "adapters"]);
 
     expect(adapter.kind).toBe("cli");
+    expect(adapter.class).toBe("generation");
     expect(adapter.dry_run_estimate).toBe(true);
     expect(adapter.retry.max_attempts).toBe(2);
+  });
+
+  it("loads a declared analysis adapter contract", async () => {
+    const adapter = await loadAdapterDefinition("analysis-metadata", ["fixtures/adapters", "adapters"]);
+
+    expect(adapter.kind).toBe("mcp-agent");
+    expect(adapter.class).toBe("analysis");
+    expect(adapter.dry_run_estimate).toBe(false);
   });
 
   it("applies adapter constraints before run", async () => {
@@ -30,6 +39,16 @@ describe("adapter contract", () => {
 
     expect(badResult.ok).toBe(false);
     expect(badResult.issues[0]?.code).toBe("adapter.constraint.duration-supported");
+  });
+
+  it("rejects analysis adapters in generation slots", async () => {
+    const { validateProject } = await import("../src/project/validateProject.js");
+    const result = await validateProject("fixtures/projects/generation-analysis-adapter.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("adapter.class_mismatch");
   });
 
   it("rejects adapters that cannot provide dry-run estimates", async () => {

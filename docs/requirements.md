@@ -4,9 +4,12 @@
 生成アダプタ（CLI / MCP）と編集バックエンド（Remotion / HyperFrames）を、
 manifest（EDL）という単一の契約で接続する「砂時計型」アーキテクチャ。
 
-- 版: v0.1（2026-07-09）
-- 状態: ドラフト（実装着手前）
+- 版: v0.2（2026-07-09）
+- 状態: ドラフト（Phase 0 骨格は Codex により実装着手済み）
 - リポ名「tsugite（継手）」は仮称。確定後にディレクトリごとリネームする
+- v0.2 変更点: 解析アダプタ（class: analysis）追加、非クリエイティブ用途を
+  スコープに明記、manifest に chapters[] / 話者ラベルを予約、
+  MCP 試験導入ベンダーとして Topview を選定
 
 ---
 
@@ -31,6 +34,9 @@ manifest（EDL）という単一の契約で接続する「砂時計型」アー
    **3段階学習ループ**で機械化し、同じミスを構造的に繰り返さない
 4. エージェント（Claude Code / Codex）が自然言語依頼から
    計画 → 承認 → 実行 → QC まで自走できる契約（SKILL.md）を備える
+5. 本リポの本質は「manifest（EDL）駆動の動画処理基盤」であり、
+   クリエイティブ生成は入力の一形態にすぎない。文字起こし→テロップ、
+   データ駆動の定型動画量産などの**非クリエイティブ用途も第一級のユースケース**とする
 
 ### 1.3 既存リポとの関係
 
@@ -55,6 +61,15 @@ pipeline
 - `bin/pipeline` CLI（doctor / validate / plan / run / render）
 - 生成アダプタ機構（kind: cli / mcp-agent / mcp-client）
   - 初期実装: `adapters/kling/`、`adapters/pixverse/`
+- 解析アダプタ機構（class: analysis — 出力がクリップではなく manifest メタデータ）
+  - 候補実装: 文字起こし（ElevenLabs MCP speech_to_text / whisper）、
+    無音・シーン検出によるカット点提案
+- 非クリエイティブ用途のサポート
+  - 文字起こし→テロップ焼き込み、横→縦リフレーミング、長尺の切り出し・チャプター化、
+    データ駆動の定型動画量産、多言語展開（翻訳+TTS+字幕差し替え）、
+    音声コンテンツの動画化、アーカイブの一括QC
+  - **クリップ生成ゼロでも project として成立する**
+    （最小構成 = 手持ち動画 + テロップ入れのみ）
 - 編集バックエンド機構（capabilities 宣言つき）
   - 初期実装: `backends/remotion/`、`backends/hyperframes/`
 - Gate（人間承認ポイント）と再開可能な実行状態管理
@@ -133,7 +148,9 @@ manifest は生成側と編集側の**唯一の合意点**。
   - `clips[]`: id、src（ローカルパス必須）、in/out、duration、fps、resolution、
     audio 有無
   - `audio`: bgm / narration / sfx のトラック定義
-  - `captions[]`: テキスト・タイミング（バックエンドが対応する場合のみ）
+  - `captions[]`: テキスト・タイミング（バックエンドが対応する場合のみ）。
+    話者ラベル（speaker）を任意フィールドとして予約
+  - `chapters[]`: チャプター定義（title、start、end）。将来枠として予約
   - `provenance[]`: 各クリップの生成元（engine、model、params、消費クレジット）
 - スキーマ検証は `pipeline validate` が実行（スキーマ違反は実行前に拒否）
 - スキーマ変更は `manifest/schema.md` の更新と CHANGELOG 追記をセットで行う
@@ -181,6 +198,17 @@ manifest は生成側と編集側の**唯一の合意点**。
 - 昇格ルート: `mcp-agent` で試験導入 → 常用経路になったら `mcp-client` へ実装昇格
 - `validate` は kind を見て「dry-run 見積もり可能か」「バッチ可能か」を判定する
 
+**class 軸（kind と直交する分類）:**
+
+| class | 出力 | 例 |
+|-------|------|----|
+| `generation` | 新規クリップ（dist/ のローカルファイル） | kling、pixverse、Topview |
+| `analysis` | manifest メタデータ（captions[] / chapters[] / カット点提案） | 文字起こし、無音・シーン検出 |
+
+- analysis アダプタはクレジット見積もり・Gate 2 QC の対象外とできる
+  （メディアファイルを新規生成しないため）。ただし出力メタデータの
+  スキーマ検証は generation と同様に validate が行う
+
 ### FR-4: 編集バックエンド契約
 
 バックエンドは `backends/<name>/` に自己完結で置く。
@@ -190,6 +218,7 @@ manifest は生成側と編集側の**唯一の合意点**。
 - **capabilities.yaml** を必ず持つ:
   - 対応機能の宣言（captions、transitions、audio-mix、vertical、対応 fps、
     audio-reactive など）
+  - 実行前チェックは `checks.render_preflight[]` に `name` と `command[]` で宣言する
   - `validate` は「manifest が要求する機能 ⊆ 選択バックエンドの capabilities」を
     実行前にチェックし、不一致なら拒否する
 - バックエンド固有の検証コマンドを組み込む:
@@ -320,6 +349,8 @@ manifest は生成側と編集側の**唯一の合意点**。
 - **Phase 1: backends/remotion + ローカル素材 E2E**
   - remotion バックエンド（capabilities 宣言込み）、`plan` / `run` / `render`
   - 生成なし・手持ち素材のみで 1 本通す
+  - E2E 実案件の推奨: **手持ち動画への文字起こしテロップ入れ**
+    （クレジット消費ゼロで manifest → Gate → render の全経路を検証できる）
   - 完了条件: AC-1、AC-4、AC-6
 - **Phase 2: adapters/kling（kind: cli）**
   - kling アダプタ + constraints.md、Gate 2 QC、クレジット見積もり
@@ -357,6 +388,6 @@ Phase 2 以降は独立に前後可能。
 |---|------|--------------|
 | 1 | リポ名の確定 | tsugite（継手）仮称。cutlab / edit-forge も候補 |
 | 2 | Kling を叩く初期経路 | PixVerse CLI の Kling 対応を私的リポ内で利用（専用 CLI / API への乗り換えはアダプタ内で吸収） |
-| 3 | Phase 4 の MCP 試験導入ベンダー | 未定（登場した動画ベンダー MCP から選定） |
+| 3 | Phase 4 の MCP 試験導入ベンダー | **Topview に決定**（2026-07-09 に topview-skill / topview-mcp / Codex プラグインを導入済み。mcp-agent 型アダプタ第1号の実装対象） |
 | 4 | GitHub リモート（public / private） | private 前提。public 化する場合は AC-7（ベンダー名 grep）を再確認 |
 | 5 | `Projects/作品/Pixverse-Workflow`（3週間古い重複クローン）の扱い | 本リポとは別件だが、混乱防止のため同期または撤去を推奨 |

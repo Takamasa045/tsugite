@@ -10,7 +10,8 @@ Minimum JSON fields:
 - `meta.slug`: stable project slug
 - `clips[]`: `id`, local `src`, `in`, `out`, `duration`, `fps`, `resolution`, `audio`
 - `audio`: `bgm`, `narration`, `sfx` track arrays
-- `captions[]`: optional timed text
+- `captions[]`: optional timed text. `speaker` is reserved for speaker labels.
+- `chapters[]`: optional chapter ranges with `title`, `start`, and `end`
 - `provenance[]`: optional source metadata
 
 Unknown fields are accepted to preserve legacy RenderManifest compatibility.

@@ -13,6 +13,19 @@ const safeRelativePathSchema = z
     "must be a safe relative path"
   );
 
+const manifestPathSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => {
+      if (value.startsWith("/") || value.includes("\\")) return false;
+      const parts = value.split("/");
+      const parentRefs = parts.filter((part) => part === "..");
+      return parentRefs.length === 0 || (parentRefs.length === 1 && parts[0] === "..");
+    },
+    "must be a safe manifest path"
+  );
+
 const generationRequestSchema = z
   .object({
     id: z.string().min(1),
@@ -29,10 +42,10 @@ export const projectSchema = z
   .object({
     slug: safeIdSchema,
     run_id: safeIdSchema.optional(),
-    manifest: z.string().min(1),
+    manifest: manifestPathSchema,
     dist_dir: safeRelativePathSchema.default("dist"),
     edit: z.object({
-      backend: z.string().min(1)
+      backend: safeIdSchema
     }),
     generation: z
       .object({

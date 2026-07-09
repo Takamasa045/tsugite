@@ -26,4 +26,23 @@ describe("pipeline CLI", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.dry_run.executed).toBe(false);
   });
+
+  it("surfaces backend preflight commands in dry-run output", () => {
+    const result = runPipeline([
+      "run",
+      "--config",
+      "fixtures/projects/hyperframes-local-media.yaml",
+      "--dry-run",
+      "--json"
+    ]);
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.dry_run.external_commands[0]).toEqual({
+      phase: "render_preflight",
+      backend: "hyperframes",
+      name: "lint",
+      command: ["npx", "hyperframes", "lint", "--json"]
+    });
+  });
 });

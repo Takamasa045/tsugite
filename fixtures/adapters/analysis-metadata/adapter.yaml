@@ -1,0 +1,13 @@
+name: analysis-metadata
+kind: mcp-agent
+class: analysis
+dry_run_estimate: false
+batch: false
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok

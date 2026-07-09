@@ -21,4 +21,15 @@ describe("vendor boundary", () => {
     expect(result.ok).toBe(false);
     expect(result.issues[0]?.code).toBe("vendor_boundary.term");
   });
+
+  it("reports backend-specific terms when present", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-vendor-"));
+    const path = join(root, "bad.md");
+    await writeFile(path, "remotion");
+
+    const result = await checkVendorBoundary([path]);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.message).toContain("remotion");
+  });
 });

@@ -1,0 +1,6 @@
+slug: directory-asset
+run_id: directory-asset-run
+manifest: ../manifests/directory-asset.json
+dist_dir: dist
+edit:
+  backend: remotion

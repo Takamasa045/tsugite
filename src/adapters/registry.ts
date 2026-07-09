@@ -7,6 +7,7 @@ import { PipelineError } from "../types.js";
 const adapterSchema = z.object({
   name: z.string().min(1),
   kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
+  class: z.union([z.literal("generation"), z.literal("analysis")]).default("generation"),
   dry_run_estimate: z.boolean(),
   batch: z.boolean(),
   credit_estimate: z

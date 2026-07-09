@@ -5,3 +5,7 @@ capabilities:
   audio_mix: true
   vertical: true
   fps: [24, 30]
+checks:
+  render_preflight:
+    - name: lint
+      command: ["npx", "hyperframes", "lint", "--json"]

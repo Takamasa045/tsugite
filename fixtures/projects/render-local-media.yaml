@@ -1,0 +1,6 @@
+slug: render-local
+run_id: render-local-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion

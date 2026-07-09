@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 const targets = ["src", "manifest", "SKILL.md"];
-const bannedTerms = await adapterNames("adapters");
+const bannedTerms = await vendorNames(["adapters", "backends"]);
 
 const files = (await Promise.all(targets.map((target) => collectFiles(target)))).flat();
 const violations = [];
@@ -33,7 +33,12 @@ async function collectFiles(path) {
   return (await Promise.all(children.map((child) => collectFiles(join(path, child))))).flat();
 }
 
-async function adapterNames(path) {
+async function vendorNames(paths) {
+  const names = await Promise.all(paths.map((path) => childDirectoryNames(path)));
+  return [...new Set(names.flat())];
+}
+
+async function childDirectoryNames(path) {
   try {
     const entries = await readdir(path, { withFileTypes: true });
     return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name.toLowerCase());

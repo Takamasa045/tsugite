@@ -4,9 +4,9 @@ import type { Issue, Result } from "./types.js";
 
 export async function checkVendorBoundary(
   paths: string[],
-  adapterRoot = "adapters"
+  vendorRoots = ["adapters", "backends"]
 ): Promise<Result<{}>> {
-  const bannedTerms = await adapterNames(adapterRoot);
+  const bannedTerms = await vendorNames(vendorRoots);
   const files = (await Promise.all(paths.map((path) => collectFiles(path)))).flat();
   const issues: Issue[] = [];
 
@@ -17,7 +17,7 @@ export async function checkVendorBoundary(
       if (lower.includes(term)) {
         issues.push({
           code: "vendor_boundary.term",
-          message: `core file contains adapter-specific term '${term}'`,
+          message: `core file contains vendor-specific term '${term}'`,
           path: file
         });
       }
@@ -27,7 +27,12 @@ export async function checkVendorBoundary(
   return issues.length > 0 ? { ok: false, issues } : { ok: true, issues: [] };
 }
 
-async function adapterNames(path: string): Promise<string[]> {
+async function vendorNames(paths: string[]): Promise<string[]> {
+  const names = await Promise.all(paths.map((path) => childDirectoryNames(path)));
+  return [...new Set(names.flat())];
+}
+
+async function childDirectoryNames(path: string): Promise<string[]> {
   try {
     const entries = await readdir(path, { withFileTypes: true });
     return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name.toLowerCase());

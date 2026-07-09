@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { loadBackendCapabilities } from "../src/backends/capabilities.js";
 import { validateProject } from "../src/project/validateProject.js";
 
 describe("backend capabilities", () => {
+  it("loads backend render preflight checks from capabilities", async () => {
+    const backend = await loadBackendCapabilities("hyperframes");
+
+    expect(backend?.checks.render_preflight).toEqual([
+      {
+        name: "lint",
+        command: ["npx", "hyperframes", "lint", "--json"]
+      }
+    ]);
+  });
+
   it("rejects captions, vertical, and fps demands unsupported by a backend", async () => {
     const result = await validateProject("fixtures/projects/captions-limited.yaml", {
       backendDirs: ["fixtures/backends", "backends"]

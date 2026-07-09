@@ -25,7 +25,7 @@ export function validateManifest(input: unknown): Result<{ manifest: Manifest }>
 }
 
 function validateManifestContract(manifest: Manifest): Issue[] {
-  return manifest.clips.flatMap((clip, index) => {
+  const clipIssues = manifest.clips.flatMap((clip, index) => {
     const issues: Issue[] = [];
     const path = `clips.${index}`;
 
@@ -47,6 +47,32 @@ function validateManifestContract(manifest: Manifest): Issue[] {
 
     return issues;
   });
+
+  const captionIssues = manifest.captions.flatMap((caption, index) =>
+    caption.end <= caption.start
+      ? [
+          {
+            code: "manifest.caption.timing",
+            message: "caption end must be greater than start",
+            path: `captions.${index}`
+          }
+        ]
+      : []
+  );
+
+  const chapterIssues = manifest.chapters.flatMap((chapter, index) =>
+    chapter.end <= chapter.start
+      ? [
+          {
+            code: "manifest.chapter.timing",
+            message: "chapter end must be greater than start",
+            path: `chapters.${index}`
+          }
+        ]
+      : []
+  );
+
+  return [...clipIssues, ...captionIssues, ...chapterIssues];
 }
 
 function isCloseEnough(left: number, right: number): boolean {
