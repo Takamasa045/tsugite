@@ -1,5 +1,7 @@
 # tsugite
 
+[English](README.md) | [日本語](README.ja.md)
+
 Vendor-neutral video pipeline that connects generation adapters and editing backends through a single manifest contract.
 
 The execution entrypoint is `project.yaml`. The safe flow is:
@@ -83,4 +85,3 @@ generation:
 - The checked-in `project.yaml` is a fixture-style local validation config, not a real production job.
 - `npm ls` may report `@emnapi/runtime` as extraneous after `npm ci` on npm 11 because optional wasm child packages remain in the lockfile while their platform-specific parents are skipped. Treat this as non-blocking only when `npm ci`, `npm audit`, build, tests, `validate`, `plan`, and `run --dry-run` all pass.
 - Vite may warn because this workspace path contains `*`. Tests currently pass in this path; move the repo to a path without `*` if that warning becomes operationally noisy.
-
