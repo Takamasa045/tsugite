@@ -18,6 +18,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Install media probe
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
       - run: npm ci
       - run: npm run check
       - run: bin/pipeline validate --config examples/local-fixture/project.yaml --json
