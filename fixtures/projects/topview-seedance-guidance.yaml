@@ -1,0 +1,18 @@
+slug: topview-seedance-guidance
+run_id: topview-seedance-guidance-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: topview
+  requests:
+    - id: seedance-guided-001
+      prompt: A subject turns toward a sunlit window as the camera slowly pushes in.
+      model: seedance-2.0
+      duration: 5
+      aspect: "16:9"
+      input_mode: text-to-video
+      prompt_guide:
+        catalog: seedance
+      params: {}

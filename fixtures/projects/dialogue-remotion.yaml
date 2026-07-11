@@ -1,0 +1,6 @@
+slug: dialogue-fixture
+run_id: dialogue-fixture-run
+manifest: ../manifests/dialogue.valid.json
+dist_dir: dist
+edit:
+  backend: remotion

@@ -18,6 +18,21 @@ describe("adapter contract", () => {
     expect(adapter.retry.max_attempts).toBe(2);
   });
 
+  it("loads vendor-neutral setup checks declared by a real adapter", async () => {
+    const adapter = await loadAdapterDefinition("pixverse");
+
+    expect(adapter.checks.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "command",
+          name: "provider:pixverse",
+          command: ["pixverse", "--version"],
+          capture_version: true
+        })
+      ])
+    );
+  });
+
   it("accepts generated clips copied into the run directory", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "tsugite-adapter-run-"));
     const adapter = await loadAdapterDefinition("mock-cli", ["fixtures/adapters", "adapters"]);
@@ -235,6 +250,71 @@ describe("adapter contract", () => {
 
     expect(badResult.ok).toBe(false);
     expect(badResult.issues[0]?.code).toBe("adapter.constraint.duration-supported");
+  });
+
+  it("keeps declared prompt input mode aligned with execution parameters", async () => {
+    const project = await loadProject("fixtures/projects/local-valid.yaml");
+    const request = project.generation!.requests[0];
+    const missingImage = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [{ ...request, input_mode: "image-to-video" as const, params: {} }]
+      }
+    };
+    const unexpectedImage = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...request,
+            input_mode: "text-to-video" as const,
+            params: { image: "references/shot.png" }
+          }
+        ]
+      }
+    };
+    const wrongImageType = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...request,
+            input_mode: "image-to-video" as const,
+            params: { image: true }
+          }
+        ]
+      }
+    };
+
+    const missingResult = await validateGenerationConstraints(missingImage, ["fixtures/adapters", "adapters"]);
+    const unexpectedResult = await validateGenerationConstraints(unexpectedImage, ["fixtures/adapters", "adapters"]);
+    const wrongTypeResult = await validateGenerationConstraints(wrongImageType, ["fixtures/adapters", "adapters"]);
+
+    expect(missingResult.issues[0]?.code).toBe("adapter.input_mode.required_param");
+    expect(unexpectedResult.issues[0]?.code).toBe("adapter.input_mode.forbidden_param");
+    expect(wrongTypeResult.issues[0]?.code).toBe("adapter.input_mode.param_type");
+  });
+
+  it("rejects an input mode the selected adapter does not declare", async () => {
+    const project = await loadProject("fixtures/projects/topview-generation.yaml");
+    const unsupported = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: project.generation!.requests.map((request) => ({
+          ...request,
+          input_mode: "image-to-video" as const,
+          params: { image: "references/shot.png" }
+        }))
+      }
+    };
+
+    const result = await validateGenerationConstraints(unsupported, ["fixtures/adapters", "adapters"]);
+
+    expect(result.issues[0]?.code).toBe("adapter.input_mode.unsupported");
   });
 
   it("applies multiple adapter constraints and skips optional missing fields", async () => {

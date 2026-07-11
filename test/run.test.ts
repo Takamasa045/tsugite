@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assembleLocalMediaRun } from "../src/orchestrator/run.js";
+import { assembleLocalMediaRun, manifestDigestInput } from "../src/orchestrator/run.js";
 import {
   createPlannedState,
   markGateAwaiting,
@@ -11,6 +11,88 @@ import {
 import { validateProject } from "../src/project/validateProject.js";
 
 describe("local media run assembly", () => {
+  it("pins local images before invoking a credit-bearing generation adapter", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-generation-image-order-"));
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const project = {
+      ...validation.project!,
+      generation: {
+        ...validation.project!.generation!,
+        requests: validation.project!.generation!.requests.map((request) => ({
+          ...request,
+          params: { fail_once: true }
+        }))
+      }
+    };
+    const manifest = {
+      ...validation.manifest!,
+      images: [{ id: "missing-character", src: "../media/missing-character.png" }]
+    };
+
+    await expect(
+      assembleLocalMediaRun(project, manifest, {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir,
+        state: running
+      }, validation.adapter)
+    ).rejects.toThrow();
+    await expect(access(join(stateDir, "cli-generation-run", ".mock-failed-generated-001"))).rejects.toThrow();
+  });
+
+  it("removes newly introduced empty defaults from the persisted input digest", async () => {
+    const validation = await validateProject("fixtures/projects/local-media-only.yaml");
+    const input = {
+      ...validation.manifest!,
+      images: [],
+      speakers: [],
+      presentation: { preset: "legacy-preset", draft: false },
+      captions: [
+        {
+          text: "legacy caption",
+          start: 0,
+          end: 1,
+          emphasis: [],
+          visual: { headline: "Legacy", badges: [] }
+        }
+      ]
+    };
+
+    const canonical = manifestDigestInput(input) as Record<string, any>;
+
+    expect(canonical).not.toHaveProperty("images");
+    expect(canonical).not.toHaveProperty("speakers");
+    expect(canonical.presentation).not.toHaveProperty("draft");
+    expect(canonical.captions[0]).not.toHaveProperty("emphasis");
+    expect(canonical.captions[0].visual).not.toHaveProperty("badges");
+  });
+
+  it("copies first-class image assets into the guarded run directory", async () => {
+    const validation = await validateProject("fixtures/projects/dialogue-remotion.yaml");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-dialogue-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("dialogue-fixture-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+
+    const result = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/dialogue.valid.json",
+      stateDir,
+      state: running
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.assetCount).toBe(3);
+    const manifest = JSON.parse(await readFile(result.manifestPath!, "utf8"));
+    const qc = JSON.parse(await readFile(result.qcReportPath!, "utf8"));
+    expect(manifest.images.map((image: { src: string }) => image.src)).toEqual([
+      "assets/images/001-left-neutral.svg",
+      "assets/images/002-right-neutral.svg"
+    ]);
+    expect(qc.assets.filter((asset: { kind: string }) => asset.kind === "image")).toHaveLength(2);
+  });
+
   it("rejects assembly before Gate 1 has approved a running state", async () => {
     const validation = await validateProject("fixtures/projects/local-media-only.yaml");
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));
@@ -257,6 +339,32 @@ describe("local media run assembly", () => {
       },
       validation.adapter
     );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.qc_report_stale");
+  });
+
+  it("rejects resume when an assembled image is replaced with different same-shape content", async () => {
+    const validation = await validateProject("fixtures/projects/dialogue-remotion.yaml");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-image-resume-"));
+    const gate1 = markGateAwaiting(createPlannedState("dialogue-fixture-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/dialogue.valid.json",
+      stateDir,
+      state: running
+    });
+    expect(first.ok).toBe(true);
+    const assembledManifest = JSON.parse(await readFile(first.manifestPath!, "utf8"));
+    const imagePath = join(stateDir, "dialogue-fixture-run", assembledManifest.images[0].src);
+    const original = await readFile(imagePath, "utf8");
+    await writeFile(imagePath, original.replace("#f6a95f", "#f5a85e"));
+
+    const resumed = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/dialogue.valid.json",
+      stateDir,
+      state: first.state!
+    });
 
     expect(resumed.ok).toBe(false);
     expect(resumed.issues[0]?.code).toBe("run.qc_report_stale");

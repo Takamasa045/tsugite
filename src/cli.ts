@@ -2,8 +2,15 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectEnvironment } from "./doctor.js";
 import type { AdapterDefinition } from "./adapters/registry.js";
+import {
+  loadPromptGuideCatalog,
+  loadPromptGuideById,
+  resolvePromptGuidance,
+  type PromptMode
+} from "./adapters/promptKnowledge.js";
 import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
+import { openCreativeReview, writeCreativeReview } from "./orchestrator/review.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
@@ -18,7 +25,7 @@ import {
 } from "./orchestrator/state.js";
 import { validateProject } from "./project/validateProject.js";
 import type { Project } from "./project/schema.js";
-import type { Issue, Result } from "./types.js";
+import { PipelineError, type Issue, type Result } from "./types.js";
 
 type ParsedArgs = {
   command: string;
@@ -29,6 +36,11 @@ type ParsedArgs = {
   gate?: string;
   decision?: string;
   stateDir?: string;
+  catalog?: string;
+  model?: string;
+  inputMode?: string;
+  output?: string;
+  open: boolean;
   issues: Issue[];
 };
 
@@ -48,6 +60,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       command: "doctor",
       checks: report.checks
     });
+  }
+
+  if (args.command === "guides") {
+    try {
+      return await outputPromptGuides(args);
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "guides",
+        scope: "prompt-guidance-only",
+        issues: cliIssuesFromError(error)
+      });
+    }
   }
 
   if (!args.config) {
@@ -79,8 +104,74 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return output(args, 0, {
       ok: true,
       command: "plan",
-      plan: createPlan(validation.project!, validation.manifest!, validation.adapter, validation.analysisAdapter)
+      plan: createPlan(
+        validation.project!,
+        validation.manifest!,
+        validation.adapter,
+        validation.analysisAdapter,
+        validation.promptGuides
+      )
     });
+  }
+
+  if (args.command === "review") {
+    const plan = createPlan(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.promptGuides
+    );
+    try {
+      const review = await writeCreativeReview({
+        configPath: args.config,
+        project: validation.project!,
+        manifest: validation.manifest!,
+        plan,
+        outputDir: args.output
+      });
+      if (args.open) {
+        try {
+          await openCreativeReview(review.reviewPath);
+        } catch (error) {
+          return output(args, 1, {
+            ok: false,
+            command: "review",
+            review_path: review.reviewPath,
+            review_data_path: review.dataPath,
+            issues: [
+              {
+                code: "review.open_failed",
+                message: error instanceof Error ? error.message : String(error),
+                path: review.reviewPath
+              }
+            ]
+          });
+        }
+      }
+      return output(args, 0, {
+        ok: true,
+        command: "review",
+        review_path: review.reviewPath,
+        review_data_path: review.dataPath,
+        asset_count: review.assetCount,
+        gate: "gate-1",
+        gate_state: "unchanged",
+        opened: args.open
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "review",
+        issues: [
+          {
+            code: "review.write_failed",
+            message: error instanceof Error ? error.message : String(error),
+            path: args.output
+          }
+        ]
+      });
+    }
   }
 
   if (args.command === "run" && args.dryRun) {
@@ -92,7 +183,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.manifest!,
         validation.adapter,
         validation.analysisAdapter,
-        validation.backend
+        validation.backend,
+        validation.promptGuides
       )
     });
   }
@@ -210,6 +302,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     command: argv[0] ?? "",
     json: argv.includes("--json"),
     dryRun: false,
+    open: false,
     issues: []
   };
 
@@ -228,13 +321,32 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       continue;
     }
+    if (arg === "--open") {
+      if (isOptionAllowed(parsed.command, arg)) {
+        parsed.open = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
 
-    const valueOptions: Record<string, keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir">> = {
+    const valueOptions: Record<
+      string,
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output">
+    > = {
       "--config": "config",
       "--actor": "actor",
       "--gate": "gate",
       "--decision": "decision",
-      "--state-dir": "stateDir"
+      "--state-dir": "stateDir",
+      "--catalog": "catalog",
+      "--model": "model",
+      "--input-mode": "inputMode",
+      "--output": "output"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -270,13 +382,112 @@ function parseArgs(argv: string[]): ParsedArgs {
 function isOptionAllowed(command: string, option: string): boolean {
   const allowedByCommand: Record<string, Set<string>> = {
     doctor: new Set(["--config"]),
+    guides: new Set(["--catalog", "--model", "--input-mode"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
+    review: new Set(["--config", "--output", "--open"]),
     run: new Set(["--config", "--dry-run", "--actor", "--state-dir"]),
     gate: new Set(["--config", "--actor", "--gate", "--decision", "--state-dir"]),
     render: new Set(["--config", "--actor", "--state-dir"])
   };
   return allowedByCommand[command]?.has(option) ?? true;
+}
+
+async function outputPromptGuides(args: ParsedArgs): Promise<number> {
+  if (!args.catalog && (args.model || args.inputMode)) {
+    return promptGuideOptionError(args, "prompt_guide.catalog_required", "--catalog is required when filtering guides");
+  }
+  if (args.catalog && Boolean(args.model) !== Boolean(args.inputMode)) {
+    return promptGuideOptionError(
+      args,
+      "prompt_guide.filter_incomplete",
+      "--model and --input-mode must be provided together"
+    );
+  }
+  const inputMode = args.inputMode ? parsePromptMode(args.inputMode) : undefined;
+  if (args.inputMode && !inputMode) {
+    return promptGuideOptionError(
+      args,
+      "prompt_guide.input_mode",
+      "--input-mode must be text-to-video or image-to-video"
+    );
+  }
+
+  if (!args.catalog) {
+    const guides = await loadPromptGuideCatalog();
+    return output(args, 0, {
+      ok: true,
+      command: "guides",
+      scope: "prompt-guidance-only",
+      execution_capability: "not-evaluated",
+      catalogs: guides.map((guide) => ({
+        catalog_id: guide.catalog_id,
+        display_name: guide.display_name,
+        revision: guide.revision,
+        models: guide.models.map((model) => model.id),
+        guide_path: guide.path
+      }))
+    });
+  }
+
+  const guide = await loadPromptGuideById(args.catalog);
+  if (!guide) {
+    return output(args, 1, {
+      ok: false,
+      command: "guides",
+      scope: "prompt-guidance-only",
+      issues: [{ code: "prompt_guide.not_found", message: `prompt guide '${args.catalog}' was not found` }]
+    });
+  }
+  if (!args.model || !args.inputMode) {
+    return output(args, 0, {
+      ok: true,
+      command: "guides",
+      scope: "prompt-guidance-only",
+      execution_capability: "not-evaluated",
+      guide
+    });
+  }
+
+  const guidance = resolvePromptGuidance(
+    {
+      id: "guide-query",
+      prompt: "guide query",
+      model: args.model,
+      duration: 1,
+      aspect: "16:9",
+      input_mode: inputMode!,
+      prompt_guide: { catalog: guide.catalog_id },
+      params: {}
+    },
+    guide
+  );
+  return output(args, 0, {
+    ok: true,
+    command: "guides",
+    scope: "prompt-guidance-only",
+    execution_capability: "not-evaluated",
+    guidance
+  });
+}
+
+function promptGuideOptionError(args: ParsedArgs, code: string, message: string): number {
+  return output(args, 1, {
+    ok: false,
+    command: "guides",
+    scope: "prompt-guidance-only",
+    issues: [{ code, message }]
+  });
+}
+
+function cliIssuesFromError(error: unknown): Issue[] {
+  if (error instanceof PipelineError) return error.issues;
+  return [{ code: "pipeline.error", message: error instanceof Error ? error.message : String(error) }];
+}
+
+function parsePromptMode(value: string): PromptMode | undefined {
+  if (value === "text-to-video" || value === "image-to-video") return value;
+  return undefined;
 }
 
 function requireCoordinator(args: ParsedArgs): Issue | undefined {

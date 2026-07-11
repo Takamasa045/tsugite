@@ -5,6 +5,7 @@ import { readYamlFile } from "../io.js";
 import type { Manifest } from "../manifest/schema.js";
 import type { Issue, Result } from "../types.js";
 import { PipelineError } from "../types.js";
+import { setupCheckSchema } from "../setupChecks.js";
 
 const capabilitiesSchema = z.object({
   name: z.string().min(1),
@@ -13,10 +14,12 @@ const capabilitiesSchema = z.object({
     transitions: z.boolean(),
     audio_mix: z.boolean(),
     vertical: z.boolean(),
-    fps: z.array(z.number().positive()).min(1)
+    fps: z.array(z.number().positive()).min(1),
+    presets: z.array(z.string().min(1)).default([])
   }),
   checks: z
     .object({
+      setup: z.array(setupCheckSchema).default([]),
       render_preflight: z
         .array(
           z.object({
@@ -26,7 +29,7 @@ const capabilitiesSchema = z.object({
         )
         .default([])
     })
-    .default({ render_preflight: [] })
+    .default({ setup: [], render_preflight: [] })
 });
 
 export type BackendCapabilities = z.infer<typeof capabilitiesSchema>;
@@ -98,6 +101,13 @@ export function validateBackendCapabilities(
     issues.push({
       code: "backend.capability.transitions",
       message: "manifest requires transitions, but backend does not support them"
+    });
+  }
+
+  if (manifest.presentation && !capabilities.presets.includes(manifest.presentation.preset)) {
+    issues.push({
+      code: "backend.capability.preset",
+      message: `manifest requires presentation preset '${manifest.presentation.preset}', but backend does not support it`
     });
   }
 

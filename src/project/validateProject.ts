@@ -1,5 +1,9 @@
 import { dirname, isAbsolute, resolve } from "node:path";
 import { loadAdapterDefinition, type AdapterDefinition } from "../adapters/registry.js";
+import {
+  loadProjectPromptGuides,
+  type PromptGuide
+} from "../adapters/promptKnowledge.js";
 import { readJsonFile } from "../io.js";
 import { validateGenerationConstraints } from "../adapters/constraints.js";
 import {
@@ -18,6 +22,7 @@ import type { Project } from "./schema.js";
 type ValidateOptions = {
   adapterDirs?: string[];
   backendDirs?: string[];
+  promptGuideDirs?: string[];
 };
 
 export async function validateProject(
@@ -30,6 +35,7 @@ export async function validateProject(
     adapter?: AdapterDefinition;
     analysisAdapter?: AdapterDefinition;
     backend?: BackendCapabilities;
+    promptGuides: PromptGuide[];
   }>
 > {
   const issues: Issue[] = [];
@@ -79,6 +85,7 @@ export async function validateProject(
 
   let adapter: AdapterDefinition | undefined;
   let analysisAdapter: AdapterDefinition | undefined;
+  let promptGuides: PromptGuide[] = [];
   try {
     if (project.generation) {
       adapter = await loadAdapterDefinition(project.generation.adapter, options.adapterDirs);
@@ -104,15 +111,16 @@ export async function validateProject(
       }
     }
     issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
+    promptGuides = await loadProjectPromptGuides(project, options.promptGuideDirs);
   } catch (error) {
     issues.push(...issuesFromError(error));
   }
 
   if (issues.length > 0 || !manifestResult.manifest) {
-    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, analysisAdapter, backend };
+    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, analysisAdapter, backend, promptGuides };
   }
 
-  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, analysisAdapter, backend };
+  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, analysisAdapter, backend, promptGuides };
 }
 
 function issuesFromError(error: unknown): Issue[] {

@@ -4,7 +4,7 @@ import type { Issue, Result } from "./types.js";
 
 export async function checkVendorBoundary(
   paths: string[],
-  vendorRoots = ["adapters", "backends"]
+  vendorRoots = ["adapters", "backends", "knowledge/video-models"]
 ): Promise<Result<{}>> {
   const bannedTerms = await vendorNames(vendorRoots);
   const files = (await Promise.all(paths.map((path) => collectFiles(path)))).flat();

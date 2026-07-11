@@ -1,0 +1,70 @@
+{
+  "title": "OpenClawの始め方",
+  "subtitle": "よくある質問にテンポよく答える",
+  "source_title": "OpenClaw FAQ",
+  "source_url": "https://example.com/openclaw-faq",
+  "label": "Q&A DIALOGUE",
+  "duration_per_qa": 10,
+  "question_ratio": 0.35,
+  "cta_headline": "まずは1コマンド",
+  "cta_detail": "公式ドキュメントで続きを確認",
+  "roles": {
+    "questioner": "shiba",
+    "answerer": "itopan"
+  },
+  "intro": {
+    "text": "今日はOpenClawのFAQをサクッと片付けるよ",
+    "speaker": "itopan",
+    "seconds": 4,
+    "visual": {
+      "kicker": "FAQ",
+      "headline": "OpenClawの始め方",
+      "detail": "よくある質問にテンポよく答える"
+    }
+  },
+  "qa_list": [
+    {
+      "id": "q01",
+      "q": "OpenClawって何？",
+      "a": "エージェントがCLIから動く実行環境だよ",
+      "detail": "プロンプトから作業を進められる",
+      "highlights": ["CLI", "エージェント"],
+      "emphasis_a": ["CLI"]
+    },
+    {
+      "id": "q02",
+      "q": "最初に何を用意するの？",
+      "a": "APIキーと作業ディレクトリがあれば十分",
+      "detail": "認証と作業場所を先に固定する",
+      "highlights": ["APIキー", "作業場所"],
+      "emphasis_a": ["APIキー"]
+    },
+    {
+      "id": "q03",
+      "q": "失敗したらどうする？",
+      "a_lines": [
+        {
+          "text": "ログを見て再現手順を残す",
+          "emphasis": ["ログ"]
+        },
+        {
+          "text": "次に同じ失敗をしないルールへ昇格",
+          "headline": "失敗をルールに変える",
+          "emphasis": ["ルール"]
+        }
+      ],
+      "detail": "再実行より学習を優先する",
+      "highlights": ["ログ", "ルール"]
+    }
+  ],
+  "outro": {
+    "text": "詳細はドキュメントで確認してね",
+    "speaker": "itopan",
+    "seconds": 4,
+    "visual": {
+      "kicker": "NEXT",
+      "headline": "まずは1コマンド",
+      "detail": "公式ドキュメントで続きを確認"
+    }
+  }
+}

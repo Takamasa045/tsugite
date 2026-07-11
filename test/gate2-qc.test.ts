@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { inspectGate2Manifest, type Gate2QcProbe } from "../src/orchestrator/gate2Qc.js";
 import type { Manifest } from "../src/manifest/schema.js";
 
@@ -56,6 +59,73 @@ describe("gate 2 qc", () => {
         "gate2.asset.fps_mismatch",
         "gate2.asset.probe_failed"
       ])
+    );
+  });
+
+  it("rejects an image without alpha when the manifest requires transparency", () => {
+    const input = manifest();
+    input.images = [
+      {
+        id: "character",
+        src: resolve("fixtures/media/character.svg"),
+        alpha_required: true
+      }
+    ];
+    const report = inspectGate2Manifest(input, "/runs/demo", {
+      probe: (path): Gate2QcProbe =>
+        path.endsWith("character.png")
+          ? {
+              ok: true,
+              width: 1200,
+              height: 1200,
+              has_video: true,
+              has_audio: false,
+              codec: "png",
+              pixel_format: "rgb24"
+            }
+          : {
+              ok: true,
+              duration_seconds: 3,
+              width: 1920,
+              height: 1080,
+              fps: 30,
+              has_video: true,
+              has_audio: true,
+              codec: "h264"
+            }
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.code)).toContain("gate2.image.alpha_missing");
+  });
+
+  it("fingerprints image contents so same-size replacements invalidate Gate 2", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tsugite-image-hash-"));
+    const path = join(directory, "character.png");
+    const input = manifest();
+    input.images = [{ id: "character", src: "character.png" }];
+    const probe = (candidate: string): Gate2QcProbe =>
+      candidate.endsWith("character.png")
+        ? { ok: true, width: 1200, height: 1200, has_video: true, codec: "png", pixel_format: "rgba" }
+        : {
+            ok: true,
+            duration_seconds: 3,
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            has_video: true,
+            has_audio: true,
+            codec: "h264"
+          };
+
+    await writeFile(path, "first-image");
+    const first = inspectGate2Manifest(input, directory, { probe });
+    await writeFile(path, "other-image");
+    const second = inspectGate2Manifest(input, directory, { probe });
+
+    expect(first.assets.find((asset) => asset.kind === "image")?.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(second.assets.find((asset) => asset.kind === "image")?.sha256).not.toBe(
+      first.assets.find((asset) => asset.kind === "image")?.sha256
     );
   });
 });
