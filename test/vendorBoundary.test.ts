@@ -32,4 +32,15 @@ describe("vendor boundary", () => {
     expect(result.ok).toBe(false);
     expect(result.issues[0]?.message).toContain("remotion");
   });
+
+  it("reports knowledge-catalog terms even when no execution adapter exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-vendor-"));
+    const path = join(root, "bad.md");
+    await writeFile(path, "seedance");
+
+    const result = await checkVendorBoundary([path]);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.message).toContain("seedance");
+  });
 });

@@ -5,3 +5,4 @@
 - Generated videos must be downloaded to local files under `dist/<run-id>/` before success.
 - Do not persist API keys, auth links, prompts, or user-provided private material in adapter history.
 - Normalize external failures to the shared exit-code contract.
+- The current handoff contract declares text-to-video only; do not label an image request as supported until the skill mapping is implemented and tested.

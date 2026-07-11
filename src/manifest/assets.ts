@@ -32,6 +32,23 @@ export async function validateManifestAssets(
     }
   }
 
+  for (const [index, image] of manifest.images.entries()) {
+    const path = `images.${index}.src`;
+    const sourcePath = await safeLocalAssetPath(image.src, baseDir, assetRoot, path, "manifest.image.src.safe");
+    if (!sourcePath.ok) {
+      issues.push(...sourcePath.issues);
+      continue;
+    }
+
+    if (!(await exists(sourcePath.path))) {
+      issues.push({
+        code: "manifest.image.src.exists",
+        message: "image src must point to an existing local file",
+        path
+      });
+    }
+  }
+
   const audioTracks = [
     ["bgm", manifest.audio.bgm],
     ["narration", manifest.audio.narration],

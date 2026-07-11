@@ -19,25 +19,52 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 - Manifest validation and local asset checks.
 - Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.
 - CLI generation adapter wrappers for PixVerse/Kling.
+- Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
 - MCP-agent generation adapter contract for Topview.
 - Optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
 - Gate 2 QC report generation using manifest and media probes.
 - Gate 3 QC report generation for final duration, resolution, fps, and audio/video streams.
+- First-class image assets, speaker/pose metadata, and guarded presentation presets.
+- A Remotion starter for turning an article into a 60-second, 16:9 two-speaker dialogue.
+- A Remotion Q&A dialogue template for FAQ-style question lists with QUESTION/ANSWER cards.
 - Remotion and HyperFrames backend contracts.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
+
+## Setup
+
+Prerequisites are Git, Node.js 22.x, npm 10 or newer, and FFmpeg including `ffprobe`.
+
+```sh
+# macOS
+brew install ffmpeg
+
+# Debian / Ubuntu
+sudo apt-get update && sudo apt-get install -y ffmpeg
+
+# Windows
+winget install --id Gyan.FFmpeg -e
+```
+
+On Windows, reopen the terminal after installation. `npm ci` installs Remotion, HyperFrames, and the other repository dependencies locally; no global Remotion or HyperFrames install is needed. HyperFrames is a development dependency, so do not use `npm ci --omit=dev`.
+
+Provider CLIs such as PixVerse/Kling, external Topview/OpenClaw/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. Doctor performs non-charging version, local-package, and declared-bridge checks. It does not contact provider authentication or generation APIs; required human verification is reported as `status: manual` with a `remediation`. Any unresolved blocking check makes the overall `ok` value `false`.
 
 ## Commands
 
 ```sh
 npm ci
 npm run check
+bin/pipeline guides --json
 cp -R examples/local-fixture projects/my-first-run
 bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 bin/pipeline validate --config projects/my-first-run/project.yaml --json
 bin/pipeline plan --config projects/my-first-run/project.yaml --json
+bin/pipeline review --config projects/my-first-run/project.yaml --open --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```
+
+`review` derives `dist/<run-id>/review/index.html` and `review-data.json` from the validated project, manifest, and plan. It presents a caption-first storyboard, character sheets, shot details, cost, and Gate 1 commands without changing `state.json` or executing generation. Use `--output <directory>` to override the destination and `--open` only when you want to open the local HTML.
 
 `run` and `render` are intentionally gated:
 
@@ -51,6 +78,14 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 
 Do not run non-dry-run `run` or `render` without explicit human approval.
 Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and returns the run to rendering. Gate 2 `retry_specific` is not implemented yet; use `revise` for a full re-plan.
+
+## Blog Dialogue Template
+
+`templates/blog-dialogue-60s/` turns article source notes and a timed two-speaker script into a deterministic Remotion manifest. Copy it under `projects/`, add the local teacher character, rebuild the manifest, then use `validate`, `plan`, and `run --dry-run` before any gated execution.
+
+## Q&A Dialogue Template
+
+`templates/qa-dialogue/` turns a FAQ `qa_list` into the same Remotion dialogue presentation with auto-timed QUESTION/ANSWER cards. Edit `qa.json`, run `node build-manifest.mjs .`, then use `validate`, `plan`, and `run --dry-run` before any gated execution.
 
 ## Project File
 
@@ -73,11 +108,14 @@ generation:
   requests:
     - id: shot-001
       prompt: short prompt
-      model: v4.5
+      model: v6
       duration: 5
       aspect: "16:9"
+      input_mode: text-to-video
       params: {}
 ```
+
+`plan` returns request-specific `prompt_guidance` when the model and input mode match. Set `prompt_guide.catalog` when the knowledge catalog differs from the execution adapter. A catalog never implies execution capability and never rewrites the prompt. See [Model Prompt Knowledge](docs/prompt-guides.md).
 
 Optional OpenClaw/Hermes adapters are distribution-time opt-ins. The base
 install does not require them; set them up only when a `project.yaml` selects
@@ -112,7 +150,7 @@ This is how the repo can grow toward your taste while still staying safe for dis
 
 ## Repository Rules
 
-- Keep core code vendor-neutral. Vendor-specific behavior belongs under `adapters/` or `backends/`.
+- Keep core code vendor-neutral. Vendor-specific execution behavior belongs under `adapters/` or `backends/`; source-backed advisory data belongs under `knowledge/video-models/`.
 - Adapter directories must include `constraints.md`.
 - `mcp-agent` adapters must include `SKILL.md`.
 - Put user work under `projects/`; keep `examples/` copyable and resettable.

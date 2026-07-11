@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { Manifest } from "../manifest/schema.js";
@@ -13,15 +15,17 @@ export type Gate2QcProbe = {
   has_video?: boolean;
   has_audio?: boolean;
   codec?: string;
+  pixel_format?: string;
   error?: string;
 };
 
 export type Gate2QcAsset = {
   id: string;
-  kind: "clip" | "audio";
+  kind: "clip" | "audio" | "image";
   src: string;
   path: string;
   probe: Gate2QcProbe;
+  sha256?: string;
 };
 
 export type Gate2QcReport = {
@@ -137,6 +141,46 @@ export function inspectGate2Manifest(
     }
   }
 
+  for (const image of manifest.images ?? []) {
+    const path = resolveAssetPath(manifestDir, image.src);
+    const assetProbe = probe(path);
+    const sha256 = fileSha256(path);
+    assets.push({
+      id: image.id,
+      kind: "image",
+      src: image.src,
+      path,
+      probe: assetProbe,
+      ...(sha256 ? { sha256 } : {})
+    });
+
+    if (!assetProbe.ok) {
+      issues.push({
+        code: "gate2.image.probe_failed",
+        message: assetProbe.error ?? "image probe failed",
+        path
+      });
+    } else if (!assetProbe.has_video || assetProbe.width === undefined || assetProbe.height === undefined) {
+      issues.push({
+        code: "gate2.image.stream_missing",
+        message: `image '${image.id}' could not be decoded as a visual asset`,
+        path
+      });
+    } else if (!sha256) {
+      issues.push({
+        code: "gate2.image.hash_failed",
+        message: `image '${image.id}' could not be fingerprinted`,
+        path
+      });
+    } else if (image.alpha_required && !hasAlphaChannel(assetProbe.pixel_format)) {
+      issues.push({
+        code: "gate2.image.alpha_missing",
+        message: `image '${image.id}' requires an alpha channel`,
+        path
+      });
+    }
+  }
+
   for (const entry of audioEntries(manifest)) {
     if (!entry.src) continue;
     const path = resolveAssetPath(manifestDir, entry.src);
@@ -212,6 +256,7 @@ function parseProbeOutput(stdout: string): Gate2QcProbe {
         width?: number;
         height?: number;
         avg_frame_rate?: string;
+        pix_fmt?: string;
       }>;
     };
     const streams = parsed.streams ?? [];
@@ -226,13 +271,26 @@ function parseProbeOutput(stdout: string): Gate2QcProbe {
       fps: frameRate(video?.avg_frame_rate),
       has_video: Boolean(video),
       has_audio: Boolean(audio),
-      codec: video?.codec_name ?? audio?.codec_name
+      codec: video?.codec_name ?? audio?.codec_name,
+      pixel_format: video?.pix_fmt
     };
   } catch (error) {
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error)
     };
+  }
+}
+
+function hasAlphaChannel(pixelFormat: string | undefined): boolean {
+  return pixelFormat !== undefined && /^(?:rgba|bgra|argb|abgr|ya|yuva|gbrap)/.test(pixelFormat);
+}
+
+function fileSha256(path: string): string | undefined {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    return undefined;
   }
 }
 

@@ -14,8 +14,10 @@ describe("plan and dry run", () => {
 
     expect(plan.run_id).toBe("local-fixture-run");
     expect(plan.total_clip_duration_seconds).toBe(6);
+    expect(plan).not.toHaveProperty("prompt_guidance");
     expect(plan.steps.map((step) => step.name)).toEqual([
       "validate",
+      "creative-review",
       "gate-1",
       "assemble-manifest",
       "gate-2",
@@ -187,5 +189,73 @@ describe("plan and dry run", () => {
     const plan = createPlan(project, validation.manifest!, adapter);
 
     expect(plan.estimated_credits).toBe(2.5);
+  });
+
+  it("surfaces matched prompt guidance for AI planners", async () => {
+    const validation = await validateProject("fixtures/projects/local-valid.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    expect(validation.ok).toBe(true);
+    const project = {
+      ...validation.project!,
+      generation: {
+        ...validation.project!.generation!,
+        requests: validation.project!.generation!.requests.map((request) => ({
+          ...request,
+          model: "v6",
+          input_mode: "image-to-video" as const,
+          prompt_guide: { catalog: "pixverse" },
+          params: { image: "references/shot.png" }
+        }))
+      }
+    };
+
+    const plan = createPlan(
+      project,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.promptGuides
+    );
+
+    expect(plan.prompt_guidance).toEqual([
+      expect.objectContaining({
+        request_id: "local-001",
+        catalog_id: "pixverse",
+        input_mode: "image-to-video",
+        model_profile: "v6",
+        status: "matched",
+        recipe: expect.objectContaining({
+          template: expect.any(String)
+        })
+      })
+    ]);
+  });
+
+  it("plans a Topview handoff with separately selected Seedance guidance", async () => {
+    const validation = await validateProject("fixtures/projects/topview-seedance-guidance.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    expect(validation.ok).toBe(true);
+
+    const dryRun = createDryRun(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.backend,
+      validation.promptGuides
+    );
+
+    expect(dryRun.agent_handoffs[0]).toMatchObject({
+      adapter: "topview",
+      kind: "mcp-agent",
+      execution: "agent-handoff"
+    });
+    expect(dryRun.plan.prompt_guidance[0]).toMatchObject({
+      catalog_id: "seedance",
+      model_profile: "seedance-2.0",
+      status: "matched"
+    });
   });
 });

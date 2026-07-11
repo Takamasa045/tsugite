@@ -29,7 +29,7 @@ describe("pipeline main", () => {
     );
   });
 
-  it("reports config-aware doctor checks without executing adapter or backend commands", async () => {
+  it("reports config-aware doctor checks without generation or render commands", async () => {
     const result = await capture([
       "doctor",
       "--config",
@@ -243,7 +243,8 @@ describe("pipeline main", () => {
     const result = await capture(["plan", "--config", "fixtures/projects/local-valid.yaml", "--json"]);
 
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).plan.steps[1].name).toBe("gate-1");
+    expect(JSON.parse(result.stdout).plan.steps[1].name).toBe("creative-review");
+    expect(JSON.parse(result.stdout).plan.steps[2].name).toBe("gate-1");
   });
 
   it("blocks non-dry-run execution in Phase 0", async () => {

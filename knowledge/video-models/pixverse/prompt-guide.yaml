@@ -1,0 +1,146 @@
+schema_version: 1
+kind: video-prompt-guide
+catalog_id: pixverse
+display_name: PixVerse
+revision: 2026-07-10.1
+sources:
+  - id: prompt-guide
+    type: official-guide
+    title: "AI Video Prompt Guide: 7 Tested Fixes for Better Videos"
+    publisher: PixVerse
+    url: https://pixverse.ai/en/blog/ai-video-prompt-guide-7-tested-fixes
+    accessed_at: 2026-07-10
+  - id: v6-api
+    type: official-api
+    title: V6 model capabilities
+    publisher: PixVerse
+    url: https://docs.platform.pixverse.ai/v6-2056814m0
+    accessed_at: 2026-07-10
+  - id: i2v-api
+    type: official-api
+    title: Image-to-Video generation
+    publisher: PixVerse
+    url: https://docs.platform.pixverse.ai/image-to-video-generation-13016633e0
+    accessed_at: 2026-07-10
+  - id: c1-api
+    type: official-api
+    title: C1 model capabilities
+    publisher: PixVerse
+    url: https://docs.platform.pixverse.ai/c1-2067883m0
+    accessed_at: 2026-07-10
+models:
+  - id: v6
+    aliases: [pixverse-v6]
+    verified_at: 2026-07-10
+    review_after: 2026-10-10
+    input_modes: [text-to-video, image-to-video]
+    limits:
+      prompt_max_characters: 5000
+      duration_seconds: { min: 1, max: 15 }
+      resolutions: [360p, 540p, 720p, 1080p]
+      text_to_video_aspect_ratios: ["16:9", "4:3", "1:1", "3:4", "9:16", "2:3", "3:2", "21:9"]
+      image_to_video_aspect_ratios: []
+      image_to_video_uses_input_aspect: true
+      unsupported_parameters: []
+      notes:
+        - Adapter and consumer-app limits can be narrower than the API model capability.
+    notes:
+      - "Official API supports 1-15 seconds and up to 1080p; the selected adapter may expose a narrower range."
+      - "For image-to-video, output framing follows the input image rather than an aspect-ratio request field."
+    source_ids: [v6-api, i2v-api]
+  - id: c1
+    aliases: [pixverse-c1]
+    verified_at: 2026-07-10
+    review_after: 2026-10-10
+    input_modes: [text-to-video, image-to-video]
+    limits:
+      prompt_max_characters: 5000
+      duration_seconds: { min: 1, max: 15 }
+      resolutions: [360p, 540p, 720p, 1080p]
+      text_to_video_aspect_ratios: ["16:9", "4:3", "1:1", "3:4", "9:16", "2:3", "3:2", "21:9"]
+      image_to_video_aspect_ratios: []
+      image_to_video_uses_input_aspect: true
+      unsupported_parameters: [extend]
+      notes:
+        - Use structured storyboard controls for complex narrative shots when the selected route exposes them.
+    notes:
+      - "C1 is optimized for cinematic and reference-driven work, but its route does not support video extension."
+    source_ids: [prompt-guide, c1-api]
+common:
+  checklist:
+    - id: lead-with-control
+      instruction: Put the core subject, action, and location before secondary styling details.
+      evidence: documented
+      confidence: high
+      source_ids: [prompt-guide]
+    - id: one-camera-vector
+      instruction: Use one primary camera movement; add at most one subtle texture cue.
+      evidence: documented
+      confidence: high
+      source_ids: [prompt-guide]
+    - id: visible-style-cues
+      instruction: Replace broad quality adjectives with visible lens, lighting, palette, composition, or material cues.
+      evidence: documented
+      confidence: high
+      source_ids: [prompt-guide]
+modes:
+  text-to-video:
+    template: >-
+      [Subject] performs [one readable action] in [location]. [One camera movement] with [specific lens, lighting, palette, or composition]. [Positive stability and end-frame constraints]. [Optional audio cue].
+    prompt_order: [subject, one-action, location, one-camera-move, concrete-style, positive-constraints, optional-audio]
+    checklist:
+      - id: compact-first-pass
+        instruction: Start with a compact three-part prompt and add detail only when it earns control.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide]
+      - id: physical-speed
+        instruction: Describe physical evidence of speed instead of repeating generic speed words.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide]
+      - id: stable-ending
+        instruction: State the desired stable final frame when the clip must cut cleanly into an edit.
+        evidence: synthesized
+        confidence: medium
+        source_ids: [prompt-guide]
+    avoid:
+      - Long lists of unrelated preferences
+      - Several conflicting camera directions in one shot
+      - Generic terms such as cinematic or high quality without visible cues
+    negative_prompt:
+      strategy: dedicated-field-if-endpoint-supports-otherwise-positive-constraints
+      guidance:
+        - Do not place a fake negative list in the normal prompt field.
+        - State the desired stable condition positively unless the selected endpoint documents a dedicated field.
+      source_ids: [prompt-guide, i2v-api]
+  image-to-video:
+    template: >-
+      Preserve the reference subject and composition. Add [subject or environmental motion] with [one camera behavior]. Keep [one identity, material, lighting, or background consistency rule]. [Optional audio cue].
+    prompt_order: [reference-preservation, motion, one-camera-move, consistency-rule, optional-audio]
+    checklist:
+      - id: do-not-redescribe
+        instruction: Let the reference image define appearance, materials, background, and composition; describe only what changes over time.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide]
+      - id: restrained-motion
+        instruction: Prefer one readable motion path that is physically compatible with the source frame.
+        evidence: synthesized
+        confidence: high
+        source_ids: [prompt-guide]
+      - id: preserve-identity
+        instruction: Name the single visual property that must remain unchanged throughout the shot.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide]
+    avoid:
+      - Re-describing visible subject details with slightly different wording
+      - Inventing hidden geometry or off-frame mechanics without a reference
+      - Overloading a product or character shot with transformations and camera changes
+    negative_prompt:
+      strategy: dedicated-field-if-endpoint-supports-otherwise-positive-constraints
+      guidance:
+        - Keep exclusions out of the ordinary prompt unless the endpoint explicitly supports negative prompting.
+        - Express preservation as positive constraints on silhouette, material, lighting, and composition.
+      source_ids: [prompt-guide, i2v-api]
