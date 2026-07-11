@@ -21,13 +21,16 @@ const adapterSchema = z.object({
     max_attempts: z.number().int().nonnegative(),
     retryable_exit_codes: z.array(z.number().int())
   }),
-  exit_code_map: z.record(z.string().min(1)),
+  exit_code_map: z.record(z.string(), z.string().min(1)),
   input_modes: z
     .object({
       "text-to-video": z
         .object({
           required_params: z
-            .record(z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")]))
+            .record(
+              z.string(),
+              z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")])
+            )
             .default({}),
           forbidden_params: z.array(z.string().min(1)).default([])
         })
@@ -35,7 +38,10 @@ const adapterSchema = z.object({
       "image-to-video": z
         .object({
           required_params: z
-            .record(z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")]))
+            .record(
+              z.string(),
+              z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")])
+            )
             .default({}),
           forbidden_params: z.array(z.string().min(1)).default([])
         })

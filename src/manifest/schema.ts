@@ -17,7 +17,7 @@ const speakerSchema = z
     display_name: z.string().min(1),
     side: z.union([z.literal("left"), z.literal("right")]),
     accent: z.string().min(1),
-    poses: z.record(z.string().min(1)),
+    poses: z.record(z.string(), z.string().min(1)),
     mouth_frames: z.array(z.string().min(1)).length(3).optional()
   })
   .passthrough();
@@ -123,7 +123,7 @@ export const manifestSchema = z
             clip_id: z.string().optional(),
             engine: z.string().optional(),
             model: z.string().optional(),
-            params: z.record(z.unknown()).optional(),
+            params: z.record(z.string(), z.unknown()).optional(),
             credits: z.number().nonnegative().optional()
           })
           .passthrough()

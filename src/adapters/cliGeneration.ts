@@ -31,7 +31,7 @@ const cliOutputSchema = z
     request_id: safeIdSchema,
     credits: z.number().nonnegative().default(0),
     clips: z.array(generatedClipSchema).min(1),
-    metadata: z.record(z.unknown()).default({})
+    metadata: z.record(z.string(), z.unknown()).default({})
   })
   .superRefine((output, context) => {
     const seen = new Set<string>();

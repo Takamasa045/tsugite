@@ -40,7 +40,7 @@ const generationRequestSchema = z
         catalog: safeIdSchema
       })
       .optional(),
-    params: z.record(z.unknown()).default({})
+    params: z.record(z.string(), z.unknown()).default({})
   })
   .passthrough();
 
@@ -48,7 +48,7 @@ const analysisRequestSchema = z
   .object({
     id: safeIdSchema,
     output: z.union([z.literal("captions"), z.literal("chapters"), z.literal("cut_points")]),
-    params: z.record(z.unknown()).default({})
+    params: z.record(z.string(), z.unknown()).default({})
   })
   .passthrough();
 
