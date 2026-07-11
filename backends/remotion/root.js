@@ -10,6 +10,10 @@ import {
   useCurrentFrame
 } from "remotion";
 import { audioTrackTiming, secondsToFrames, secondsToTimelineFrame, totalDuration } from "./timing.mjs";
+import { ArticleDialogue } from "./dialogue.js";
+import { ARTICLE_DIALOGUE_PRESET } from "./presentation.mjs";
+import { StreetDialogue } from "./streetDialogue.js";
+import { STREET_DIALOGUE_PRESET } from "./streetPresentation.mjs";
 
 const DEFAULT_MANIFEST = {
   meta: {
@@ -31,7 +35,9 @@ const DEFAULT_MANIFEST = {
     }
   ],
   audio: { bgm: [], narration: [], sfx: [] },
-  captions: []
+  captions: [],
+  images: [],
+  speakers: []
 };
 
 function Root() {
@@ -96,7 +102,13 @@ function Timeline({ manifest }) {
     );
   }
 
-  children.push(React.createElement(Captions, { key: "captions", captions: manifest.captions ?? [], fps }));
+  if (manifest.presentation?.preset === ARTICLE_DIALOGUE_PRESET) {
+    children.push(React.createElement(ArticleDialogue, { key: "article-dialogue", manifest }));
+  } else if (manifest.presentation?.preset === STREET_DIALOGUE_PRESET) {
+    children.push(React.createElement(StreetDialogue, { key: "street-dialogue", manifest }));
+  } else {
+    children.push(React.createElement(Captions, { key: "captions", captions: manifest.captions ?? [], fps }));
+  }
 
   return React.createElement(AbsoluteFill, { style: { backgroundColor: "black" } }, ...children);
 }

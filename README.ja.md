@@ -25,8 +25,30 @@
 - local-media / generated-media を `dist/<run-id>/` に組み立てる処理。
 - manifest と media probe による Gate 2 QC report 生成。
 - 最終尺・解像度・fps・映像/音声streamを検査する Gate 3 QC report 生成。
+- 画像素材、話者/pose、presentation presetを含むmanifest契約。
+- ブログ記事を60秒・16:9の2人掛け合いへ変換するRemotionテンプレート。
+- FAQの質問リストからQUESTION/ANSWERカード付き掛け合いを生成するQ&Aテンプレート。
 - Remotion / HyperFrames backend 契約。
 - Coordinator role と Gate 承認を要求する guarded `run` / `render`。
+
+## セットアップ
+
+必要環境は Git、Node.js 22.x、npm 10以上、FFmpeg（`ffprobe`を含む）です。
+
+```sh
+# macOS
+brew install ffmpeg
+
+# Debian / Ubuntu
+sudo apt-get update && sudo apt-get install -y ffmpeg
+
+# Windows
+winget install --id Gyan.FFmpeg -e
+```
+
+Windowsではインストール後にterminalを開き直してください。`npm ci`はRemotionとHyperFramesを含む依存をこのrepo内へ導入するため、global installは不要です。HyperFramesはdevDependencyなので`npm ci --omit=dev`は使用しないでください。
+
+PixVerse / Klingなどのprovider CLI、Topview / OpenClaw / Hermesの外部runtime、認証情報、課金設定は自動導入・設定しません。選択したadapterだけを別途準備し、`doctor`を再実行してください。`doctor`はversion・local package・宣言済みbridgeを副作用のない方法で検査し、生成や課金を行いません。認証や実providerへの接続は行わず、必要な手動確認を`status: manual`と`remediation`で表示します。blocking checkが不足または未確認なら全体の`ok`は`false`になります。
 
 ## コマンド
 
@@ -38,8 +60,11 @@ cp -R examples/local-fixture projects/my-first-run
 bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 bin/pipeline validate --config projects/my-first-run/project.yaml --json
 bin/pipeline plan --config projects/my-first-run/project.yaml --json
+bin/pipeline review --config projects/my-first-run/project.yaml --open --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```
+
+`review` は検証済みのproject・manifest・planから `dist/<run-id>/review/index.html` と `review-data.json` を生成します。字幕を優先した一枚絵コンテ、キャラクターシート、カット詳細、コスト、Gate 1コマンドを表示しますが、`state.json` は変更せず生成処理も実行しません。出力先を変える場合は `--output <directory>`、ローカルHTMLを開く場合だけ `--open` を使います。
 
 `run` と `render` は意図的に Gate で保護されています。
 
@@ -53,6 +78,34 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
 Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装です。全体を計画からやり直す場合は `revise` を使います。
+
+## ブログ掛け合いテンプレート
+
+`templates/blog-dialogue-60s/` は、記事の出典、60秒台本、オリジナル柴犬pose、話者画像、字幕図解を `manifest.json` へまとめるstarterです。
+
+```sh
+cp -R templates/blog-dialogue-60s projects/my-article-dialogue
+node projects/my-article-dialogue/build-manifest.mjs projects/my-article-dialogue
+bin/pipeline validate --config projects/my-article-dialogue/project.yaml --json
+bin/pipeline plan --config projects/my-article-dialogue/project.yaml --json
+bin/pipeline run --config projects/my-article-dialogue/project.yaml --dry-run --json
+```
+
+ユーザー提供キャラクターはローカルslotへ置きます。音声/BGMが空の状態は字幕付き無音ドラフトで、非dry-runの `run` / `render` は通常どおり明示承認が必要です。
+
+## Q&A掛け合いテンプレート
+
+`templates/qa-dialogue/` は FAQ の `qa_list` から、QUESTION/ANSWER カード付きの16:9掛け合い manifest を決定的に生成します。
+
+```sh
+cp -R templates/qa-dialogue projects/my-faq
+node projects/my-faq/build-manifest.mjs projects/my-faq
+bin/pipeline validate --config projects/my-faq/project.yaml --json
+bin/pipeline plan --config projects/my-faq/project.yaml --json
+bin/pipeline run --config projects/my-faq/project.yaml --dry-run --json
+```
+
+`qa.json` を編集して `build-manifest.mjs` を再実行するだけで尺・字幕・チャプターが更新されます。無音の間は `draft: true` のままにしてください。
 
 ## project ファイル
 

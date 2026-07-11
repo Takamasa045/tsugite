@@ -31,6 +31,14 @@ Each optional adapter should still follow the normal Tsugite adapter contract:
 `adapter.yaml`, `constraints.md`, normalized exit/status handling, and local
 artifact outputs or manifest metadata as appropriate for its class.
 
+`bin/pipeline doctor --config <project.yaml> --json` checks only the setup
+contract declared by the selected adapter. OpenClaw validates that
+`TSUGITE_OPENCLAW_GENERATE_COMMAND` is a JSON command array and that its first
+executable is available, but it never executes the bridge. Topview and Hermes
+remain `status: manual` because this repository cannot safely prove their
+external skill/MCP runtime, credentials, or provider access. Follow each
+reported `remediation` before approving Gate 1.
+
 ## Execution Gate
 
 Selecting an OpenClaw or Hermes adapter does not loosen the pipeline gates.

@@ -39,10 +39,11 @@ const gate2QcResumeSchema = z
       z
         .object({
           id: z.string().min(1),
-          kind: z.enum(["clip", "audio"]),
+          kind: z.enum(["clip", "audio", "image"]),
           src: z.string().min(1),
           path: z.string().min(1),
-          probe: z.object({ ok: z.boolean() }).passthrough()
+          probe: z.object({ ok: z.boolean() }).passthrough(),
+          sha256: z.string().regex(/^[a-f0-9]{64}$/).optional()
         })
         .passthrough()
     ),
@@ -65,7 +66,7 @@ type ResumeMetrics = {
 
 type ManifestAssetReference = {
   id: string;
-  kind: "clip" | "audio";
+  kind: "clip" | "audio" | "image";
   src: string;
 };
 
@@ -133,6 +134,12 @@ export async function assembleLocalMediaRun(
   for (const [index, clip] of assembled.clips.entries()) {
     const copied = await copyAsset(clip.src, manifestDir, runDir, "assets/clips", index, clip.id);
     clip.src = copied.relativePath;
+    assetCount += 1;
+  }
+
+  for (const [index, image] of assembled.images.entries()) {
+    const copied = await copyAsset(image.src, manifestDir, runDir, "assets/images", index, image.id);
+    image.src = copied.relativePath;
     assetCount += 1;
   }
 
@@ -254,13 +261,20 @@ async function assembleGeneratedMediaRun(
 
   await mkdir(runDir, { recursive: true });
 
-  const generation = runCliGenerationAdapter(adapter, project.generation!.requests, { runId, runDir });
-  if (!generation.ok) return generation;
-
   const assembled = cloneManifest(manifest);
   assembled.clips = [];
   assembled.provenance = [];
   let assetCount = 0;
+
+  const manifestDir = dirname(options.manifestPath);
+  for (const [index, image] of assembled.images.entries()) {
+    const copied = await copyAsset(image.src, manifestDir, runDir, "assets/images", index, image.id);
+    image.src = copied.relativePath;
+    assetCount += 1;
+  }
+
+  const generation = runCliGenerationAdapter(adapter, project.generation!.requests, { runId, runDir });
+  if (!generation.ok) return generation;
 
   for (const [index, clip] of generation.clips.entries()) {
     const copied = await copyAsset(clip.src, process.cwd(), runDir, "assets/clips", index, clip.id);
@@ -607,6 +621,7 @@ async function readAndValidateRunLog(path: string): Promise<
 function manifestAssetReferences(manifest: Manifest): ManifestAssetReference[] {
   return [
     ...manifest.clips.map((clip) => ({ id: clip.id, kind: "clip" as const, src: clip.src })),
+    ...manifest.images.map((image) => ({ id: image.id, kind: "image" as const, src: image.src })),
     ...manifest.audio.bgm.flatMap((entry, index) =>
       entry.src ? [{ id: entry.id ?? `bgm-${index + 1}`, kind: "audio" as const, src: entry.src }] : []
     ),
@@ -672,8 +687,37 @@ async function writeRunLog(
 
 function runInputDigest(project: Project, manifest: Manifest, adapter?: AdapterDefinition): string {
   return createHash("sha256")
-    .update(stableJson({ project: toExecutionProject(project), manifest, adapter: adapter ? { ...adapter, root: undefined } : undefined }))
+    .update(
+      stableJson({
+        project: toExecutionProject(project),
+        manifest: manifestDigestInput(manifest),
+        adapter: adapter ? { ...adapter, root: undefined } : undefined
+      })
+    )
     .digest("hex");
+}
+
+export function manifestDigestInput(manifest: Manifest): unknown {
+  const normalized = cloneManifest(manifest);
+  const digestInput: Record<string, unknown> = { ...normalized };
+  if (normalized.images.length === 0) delete digestInput.images;
+  if (normalized.speakers.length === 0) delete digestInput.speakers;
+  if (normalized.presentation?.draft === false) {
+    const presentation: Record<string, unknown> = { ...normalized.presentation };
+    delete presentation.draft;
+    digestInput.presentation = presentation;
+  }
+  digestInput.captions = normalized.captions.map((caption) => {
+    const normalizedCaption: Record<string, unknown> = { ...caption };
+    if (caption.emphasis.length === 0) delete normalizedCaption.emphasis;
+    if (caption.visual?.badges.length === 0) {
+      const visual: Record<string, unknown> = { ...caption.visual };
+      delete visual.badges;
+      normalizedCaption.visual = visual;
+    }
+    return normalizedCaption;
+  });
+  return digestInput;
 }
 
 function stableJson(value: unknown): string {

@@ -17,6 +17,7 @@ describe("plan and dry run", () => {
     expect(plan).not.toHaveProperty("prompt_guidance");
     expect(plan.steps.map((step) => step.name)).toEqual([
       "validate",
+      "creative-review",
       "gate-1",
       "assemble-manifest",
       "gate-2",

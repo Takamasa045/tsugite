@@ -1,0 +1,6 @@
+slug: note-jspace-dialogue
+run_id: note-jspace-dialogue-draft
+manifest: manifest.json
+dist_dir: dist
+edit:
+  backend: remotion

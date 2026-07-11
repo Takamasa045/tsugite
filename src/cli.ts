@@ -10,6 +10,7 @@ import {
 } from "./adapters/promptKnowledge.js";
 import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
+import { openCreativeReview, writeCreativeReview } from "./orchestrator/review.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
@@ -38,6 +39,8 @@ type ParsedArgs = {
   catalog?: string;
   model?: string;
   inputMode?: string;
+  output?: string;
+  open: boolean;
   issues: Issue[];
 };
 
@@ -109,6 +112,66 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.promptGuides
       )
     });
+  }
+
+  if (args.command === "review") {
+    const plan = createPlan(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.promptGuides
+    );
+    try {
+      const review = await writeCreativeReview({
+        configPath: args.config,
+        project: validation.project!,
+        manifest: validation.manifest!,
+        plan,
+        outputDir: args.output
+      });
+      if (args.open) {
+        try {
+          await openCreativeReview(review.reviewPath);
+        } catch (error) {
+          return output(args, 1, {
+            ok: false,
+            command: "review",
+            review_path: review.reviewPath,
+            review_data_path: review.dataPath,
+            issues: [
+              {
+                code: "review.open_failed",
+                message: error instanceof Error ? error.message : String(error),
+                path: review.reviewPath
+              }
+            ]
+          });
+        }
+      }
+      return output(args, 0, {
+        ok: true,
+        command: "review",
+        review_path: review.reviewPath,
+        review_data_path: review.dataPath,
+        asset_count: review.assetCount,
+        gate: "gate-1",
+        gate_state: "unchanged",
+        opened: args.open
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "review",
+        issues: [
+          {
+            code: "review.write_failed",
+            message: error instanceof Error ? error.message : String(error),
+            path: args.output
+          }
+        ]
+      });
+    }
   }
 
   if (args.command === "run" && args.dryRun) {
@@ -239,6 +302,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     command: argv[0] ?? "",
     json: argv.includes("--json"),
     dryRun: false,
+    open: false,
     issues: []
   };
 
@@ -257,10 +321,22 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       continue;
     }
+    if (arg === "--open") {
+      if (isOptionAllowed(parsed.command, arg)) {
+        parsed.open = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -269,7 +345,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--state-dir": "stateDir",
       "--catalog": "catalog",
       "--model": "model",
-      "--input-mode": "inputMode"
+      "--input-mode": "inputMode",
+      "--output": "output"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -308,6 +385,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     guides: new Set(["--catalog", "--model", "--input-mode"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
+    review: new Set(["--config", "--output", "--open"]),
     run: new Set(["--config", "--dry-run", "--actor", "--state-dir"]),
     gate: new Set(["--config", "--actor", "--gate", "--decision", "--state-dir"]),
     render: new Set(["--config", "--actor", "--state-dir"])

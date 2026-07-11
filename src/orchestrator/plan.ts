@@ -74,6 +74,7 @@ export function createPlan(
     steps: [
       { name: "validate", status: "pending" },
       ...(project.analysis ? [{ name: "analysis-handoff", status: "pending" as const }] : []),
+      { name: "creative-review", status: "pending" },
       { name: "gate-1", status: "gate" },
       { name: "assemble-manifest", status: "pending" },
       { name: "gate-2", status: "gate" },

@@ -19,6 +19,20 @@ input_modes:
   image-to-video:
     required_params:
       image: non-empty-string
+checks:
+  setup:
+    - type: command
+      name: provider:pixverse
+      command: ["pixverse", "--version"]
+      capture_version: true
+      remediation:
+        default: "Install the PixVerse CLI with `npm install -g pixverse@latest`, then rerun doctor."
+    - type: manual
+      name: provider-auth:pixverse
+      blocking: false
+      detail: "Authentication and provider connectivity are not contacted by doctor."
+      remediation:
+        default: "Run `pixverse auth status --json`; if needed, run `pixverse auth login` before Gate 1 approval."
 command:
   executable: node
   args: ["adapters/pixverse/generate.mjs"]
