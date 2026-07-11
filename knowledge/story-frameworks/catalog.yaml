@@ -2,7 +2,7 @@ schema_version: 1
 kind: story-framework-guide
 catalog_id: classic-video-storytelling
 display_name: Classic video storytelling and film grammar
-revision: 2026-07-11.1
+revision: 2026-07-11.2
 sources:
   - id: save-the-cat
     title: What Is the Save the Cat Method?
