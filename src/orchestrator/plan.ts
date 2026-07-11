@@ -2,6 +2,11 @@ import type { Manifest } from "../manifest/schema.js";
 import type { Project } from "../project/schema.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
 import {
+  resolveProjectPromptGuidance,
+  type PromptGuide,
+  type PromptGuidance
+} from "../adapters/promptKnowledge.js";
+import {
   renderPreflightCommands,
   type BackendCapabilities,
   type BackendExternalCommand
@@ -36,6 +41,7 @@ export type ExecutionPlan = {
     src: string;
   }>;
   agent_handoffs: AgentHandoff[];
+  prompt_guidance?: PromptGuidance[];
   steps: PlanStep[];
 };
 
@@ -43,11 +49,13 @@ export function createPlan(
   project: Project,
   manifest: Manifest,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AdapterDefinition
+  analysisAdapter?: AdapterDefinition,
+  promptGuides: PromptGuide[] = []
 ): ExecutionPlan {
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, adapter);
   const agentHandoffs = createAgentHandoffs(project, adapter, analysisAdapter);
+  const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
 
   return {
     run_id: project.run_id ?? project.slug,
@@ -62,9 +70,11 @@ export function createPlan(
       src: clip.src
     })),
     agent_handoffs: agentHandoffs,
+    ...(promptGuidance.length > 0 ? { prompt_guidance: promptGuidance } : {}),
     steps: [
       { name: "validate", status: "pending" },
       ...(project.analysis ? [{ name: "analysis-handoff", status: "pending" as const }] : []),
+      { name: "creative-review", status: "pending" },
       { name: "gate-1", status: "gate" },
       { name: "assemble-manifest", status: "pending" },
       { name: "gate-2", status: "gate" },
@@ -79,7 +89,8 @@ export function createDryRun(
   manifest: Manifest,
   adapter?: AdapterDefinition,
   analysisAdapter?: AdapterDefinition,
-  backend?: BackendCapabilities
+  backend?: BackendCapabilities,
+  promptGuides: PromptGuide[] = []
 ): {
   executed: false;
   plan: ExecutionPlan;
@@ -87,7 +98,7 @@ export function createDryRun(
   external_commands: BackendExternalCommand[];
   agent_handoffs: AgentHandoff[];
 } {
-  const plan = createPlan(project, manifest, adapter, analysisAdapter);
+  const plan = createPlan(project, manifest, adapter, analysisAdapter, promptGuides);
   return {
     executed: false,
     plan,

@@ -28,6 +28,70 @@ describe("manifest validation", () => {
     expect(result.manifest?.chapters[0]?.title).toBe("Opening");
   });
 
+  it("accepts first-class images, speakers, and an article dialogue presentation", async () => {
+    const manifest = await readJsonFile("fixtures/manifests/dialogue.valid.json");
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(true);
+    expect(result.manifest?.images).toHaveLength(2);
+    expect(result.manifest?.speakers[0]?.poses.neutral).toBe("left-neutral");
+    expect(result.manifest?.presentation?.preset).toBe("article-dialogue-16x9");
+    expect(result.manifest?.captions[0]?.visual?.headline).toContain("answer");
+  });
+
+  it("accepts three mouth-state images and rejects unresolved mouth frames", async () => {
+    const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
+    manifest.speakers[0].mouth_frames = ["left-neutral", "left-neutral", "left-neutral"];
+
+    expect(validateManifest(manifest).ok).toBe(true);
+
+    manifest.speakers[0].mouth_frames[1] = "missing-mouth-frame";
+    const invalid = validateManifest(manifest);
+    expect(invalid.ok).toBe(false);
+    expect(invalid.issues.map((issue) => issue.code)).toContain("manifest.speaker.mouth_frame");
+  });
+
+  it("rejects duplicate image ids and unresolved dialogue references", async () => {
+    const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
+    manifest.images[1].id = manifest.images[0].id;
+    manifest.speakers[1].poses.neutral = "missing-image";
+    manifest.captions[0].speaker = "missing-speaker";
+
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "manifest.image.id.duplicate",
+        "manifest.speaker.image",
+        "manifest.caption.speaker"
+      ])
+    );
+  });
+
+  it("rejects overlapping dialogue captions and captions outside the target duration", async () => {
+    const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
+    manifest.captions[1].start = 0.4;
+    manifest.captions[1].end = 1.2;
+
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["manifest.caption.overlap", "manifest.caption.range"])
+    );
+  });
+
+  it("requires silent article dialogue presentations to remain marked as drafts", async () => {
+    const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
+    manifest.presentation.draft = false;
+
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("manifest.presentation.draft");
+  });
+
   it("rejects non-local clip sources before execution", async () => {
     const manifest = await readJsonFile("fixtures/manifests/invalid.url-src.json");
     const result = validateManifest(manifest);

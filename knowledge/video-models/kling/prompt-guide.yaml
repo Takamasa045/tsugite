@@ -1,0 +1,181 @@
+schema_version: 1
+kind: video-prompt-guide
+catalog_id: kling
+display_name: Kling AI Video
+revision: 2026-07-10.1
+sources:
+  - id: t2v-guide
+    type: official-guide
+    title: Text-to-Video Prompt Guide
+    publisher: Kling AI
+    url: https://kling.ai/quickstart/text-to-video-prompt-guide
+    accessed_at: 2026-07-10
+  - id: i2v-guide
+    type: official-guide
+    title: Image-to-Video Prompt Guide
+    publisher: Kling AI
+    url: https://kling.ai/quickstart/image-to-video-guide
+    accessed_at: 2026-07-10
+  - id: video-3-guide
+    type: official-guide
+    title: Kling VIDEO 3.0 Model User Guide
+    publisher: Kling AI
+    url: https://kling.ai/quickstart/klingai-video-3-model-user-guide
+    accessed_at: 2026-07-10
+  - id: omni-api
+    type: official-api
+    title: VIDEO Omni API
+    publisher: Kling AI
+    url: https://kling.ai/document-api/api/video/o1/video-omni
+    accessed_at: 2026-07-10
+  - id: native-4k
+    type: official-guide
+    title: Kling AI introduces native 4K video model
+    publisher: Kling AI
+    url: https://kling.ai/blog/kling-ai-introduces-native-4k-video-model
+    accessed_at: 2026-07-10
+models:
+  - id: video-3.0
+    aliases: [kling-v3, kling-video-3.0, kling-3.0]
+    verified_at: 2026-07-10
+    review_after: 2026-10-10
+    input_modes: [text-to-video, image-to-video]
+    limits:
+      duration_seconds: { min: 3, max: 15 }
+      resolutions: [720p, 1080p, 4k]
+      text_to_video_aspect_ratios: ["16:9", "9:16", "1:1"]
+      image_to_video_aspect_ratios: []
+      image_to_video_uses_input_aspect: true
+      max_storyboard_shots: 6
+      unsupported_parameters: []
+      notes:
+        - Resolution and native-audio availability depend on the selected product mode.
+    mode_checklist:
+      text-to-video:
+        - id: video-3-storyboard
+          instruction: Use the model's explicit multi-shot structure for a storyboard of up to six shots.
+          evidence: documented
+          confidence: high
+          source_ids: [video-3-guide]
+    notes:
+      - "VIDEO 3.0 supports single-shot and multi-shot workflows; keep storyboard controls separate from ordinary prompt text."
+      - "Current duration, resolution, and audio support depend on the selected product mode and route."
+    source_ids: [video-3-guide, native-4k]
+  - id: video-3.0-omni
+    aliases: [kling-v3-omni, kling-video-3.0-omni]
+    verified_at: 2026-07-10
+    review_after: 2026-10-10
+    input_modes: [text-to-video, image-to-video]
+    limits:
+      prompt_max_characters: 2500
+      duration_seconds: { min: 3, max: 15 }
+      resolutions: [720p, 1080p, 4k]
+      text_to_video_aspect_ratios: ["16:9", "9:16", "1:1"]
+      image_to_video_aspect_ratios: []
+      image_to_video_uses_input_aspect: true
+      max_storyboard_shots: 6
+      unsupported_parameters: []
+      notes:
+        - Standard, professional, and 4K output availability is model- and mode-dependent.
+        - In custom multi-shot mode, each shot is at least one second and shot durations must sum to the requested duration.
+    mode_checklist:
+      text-to-video:
+        - id: video-3-omni-storyboard
+          instruction: Use the explicit multi-shot request structure for a storyboard of up to six shots.
+          evidence: documented
+          confidence: high
+          source_ids: [omni-api]
+    notes:
+      - "The Omni API contract differs from legacy endpoints; verify prompt and multi-shot fields before execution."
+    source_ids: [omni-api, native-4k]
+  - id: video-o1
+    aliases: [kling-video-o1, kling-o1]
+    verified_at: 2026-07-10
+    review_after: 2026-10-10
+    input_modes: [text-to-video, image-to-video]
+    limits:
+      prompt_max_characters: 2500
+      duration_seconds: { min: 3, max: 10 }
+      resolutions: [720p, 1080p]
+      text_to_video_aspect_ratios: ["16:9", "9:16", "1:1"]
+      image_to_video_aspect_ratios: []
+      image_to_video_uses_input_aspect: true
+      unsupported_parameters: []
+      notes:
+        - Confirm resolution and mode support against the current API before execution.
+    notes:
+      - "O1 is a distinct Omni API model and must not inherit VIDEO 3.0 Omni duration limits."
+    source_ids: [omni-api]
+common:
+  checklist:
+    - id: simple-language
+      instruction: Use short, direct sentences with movements that can complete within the requested clip.
+      evidence: documented
+      confidence: high
+      source_ids: [t2v-guide, i2v-guide]
+    - id: physical-continuity
+      instruction: Keep subject movement compatible with the starting pose, scene geometry, and ordinary physics.
+      evidence: documented
+      confidence: high
+      source_ids: [i2v-guide]
+    - id: separate-controls
+      instruction: Keep camera-control parameters and prose camera language conceptually separate.
+      evidence: synthesized
+      confidence: medium
+      source_ids: [video-3-guide, omni-api]
+modes:
+  text-to-video:
+    template: >-
+      [Subject with concise description] [performs movement] in [scene with concise description]. [Optional camera language], [lighting], and [atmosphere].
+    prompt_order: [subject, subject-description, movement, scene, camera-language, lighting, atmosphere]
+    checklist:
+      - id: complete-core
+        instruction: Always provide a subject, its movement, and the scene before optional film language.
+        evidence: documented
+        confidence: high
+        source_ids: [t2v-guide]
+      - id: bounded-action
+        instruction: Limit each shot to actions that can read clearly within its duration.
+        evidence: documented
+        confidence: high
+        source_ids: [t2v-guide]
+    avoid:
+      - Exact object counts when they are not essential
+      - Complex ballistic or collision choreography in a short clip
+      - Mixing custom multi-shot fields with an ordinary single-shot prompt without checking the API contract
+    negative_prompt:
+      strategy: endpoint-specific-inline-constraints
+      guidance:
+        - The current Omni contract accepts positive and negative descriptions in its prompt rather than a separate negative field.
+        - Keep exclusions concise and verify the selected endpoint because legacy contracts can differ.
+      source_ids: [omni-api]
+  image-to-video:
+    template: >-
+      [Visible subject] [performs a physically plausible movement]; [background element] [performs optional movement]. [One camera behavior and one consistency requirement].
+    prompt_order: [visible-subject, subject-motion, optional-background-motion, one-camera-behavior, consistency]
+    checklist:
+      - id: movement-first
+        instruction: Use the prompt to direct subject and background movement because the image already supplies the scene.
+        evidence: documented
+        confidence: high
+        source_ids: [i2v-guide]
+      - id: enumerate-subjects
+        instruction: When several subjects move, name each subject and its movement in sequence.
+        evidence: documented
+        confidence: high
+        source_ids: [i2v-guide]
+      - id: bind-elements
+        instruction: Use element binding when the route supports it, and do not restate an already bound voice identity.
+        evidence: documented
+        confidence: high
+        source_ids: [video-3-guide]
+    avoid:
+      - Repeating the entire scene description already present in the image
+      - Motion that strongly contradicts the pose or framing
+      - Large deviations that unintentionally turn into cuts or transitions
+    negative_prompt:
+      strategy: endpoint-specific-inline-constraints
+      guidance:
+        - Write only concise constraints supported by the selected endpoint.
+        - Prefer desired motion and identity continuity over long artifact lists.
+      source_ids: [omni-api, i2v-guide]

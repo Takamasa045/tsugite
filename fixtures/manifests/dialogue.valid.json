@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "aspect": "16:9",
+    "fps": 30,
+    "target_duration_seconds": 1,
+    "slug": "dialogue-fixture"
+  },
+  "clips": [
+    {
+      "id": "background",
+      "src": "../media/render-001.mp4",
+      "in": 0,
+      "out": 1,
+      "duration": 1,
+      "fps": 30,
+      "resolution": { "width": 320, "height": 180 },
+      "audio": false
+    }
+  ],
+  "images": [
+    { "id": "left-neutral", "src": "../media/character.svg", "alt": "left character" },
+    { "id": "right-neutral", "src": "../media/character.svg", "alt": "right character" }
+  ],
+  "speakers": [
+    {
+      "id": "left",
+      "display_name": "Left",
+      "side": "left",
+      "accent": "#e77732",
+      "poses": { "neutral": "left-neutral" }
+    },
+    {
+      "id": "right",
+      "display_name": "Right",
+      "side": "right",
+      "accent": "#2c6ed5",
+      "poses": { "neutral": "right-neutral" }
+    }
+  ],
+  "presentation": {
+    "preset": "article-dialogue-16x9",
+    "title": "Dialogue fixture",
+    "source_url": "https://example.com/article",
+    "draft": true
+  },
+  "audio": { "bgm": [], "narration": [], "sfx": [] },
+  "captions": [
+    {
+      "id": "s01",
+      "speaker": "left",
+      "text": "Hello",
+      "start": 0,
+      "end": 0.5,
+      "pose": "neutral",
+      "emphasis": ["Hello"],
+      "visual": {
+        "kicker": "QUESTION",
+        "headline": "What happens before an answer?",
+        "detail": "A compact visual explanation"
+      }
+    },
+    {
+      "id": "s02",
+      "speaker": "right",
+      "text": "World",
+      "start": 0.5,
+      "end": 1,
+      "pose": "neutral",
+      "visual": {
+        "kicker": "ANSWER",
+        "headline": "A shared workspace",
+        "detail": "The second speaker responds"
+      }
+    }
+  ],
+  "chapters": [{ "title": "Dialogue", "start": 0, "end": 1 }],
+  "provenance": []
+}

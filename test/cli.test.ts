@@ -9,6 +9,52 @@ function runPipeline(args: string[]) {
 }
 
 describe("pipeline CLI", () => {
+  it("lists read-only prompt guide catalogs without a project config", () => {
+    const result = runPipeline(["guides", "--json"]);
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.scope).toBe("prompt-guidance-only");
+    expect(parsed.catalogs.map((catalog: { catalog_id: string }) => catalog.catalog_id)).toEqual(
+      expect.arrayContaining(["pixverse", "kling", "seedance"])
+    );
+  });
+
+  it("resolves model and input-mode guidance without claiming execution support", () => {
+    const result = runPipeline([
+      "guides",
+      "--catalog",
+      "seedance",
+      "--model",
+      "seedance-2.0",
+      "--input-mode",
+      "image-to-video",
+      "--json"
+    ]);
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.scope).toBe("prompt-guidance-only");
+    expect(parsed.execution_capability).toBe("not-evaluated");
+    expect(parsed.guidance).toMatchObject({
+      status: "matched",
+      catalog_id: "seedance",
+      model_profile: "seedance-2.0",
+      input_mode: "image-to-video"
+    });
+  });
+
+  it.each([
+    [["guides", "--model", "seedance-2.0", "--input-mode", "image-to-video", "--json"], "prompt_guide.catalog_required"],
+    [["guides", "--catalog", "seedance", "--model", "seedance-2.0", "--json"], "prompt_guide.filter_incomplete"],
+    [["guides", "--catalog", "seedance", "--model", "seedance-2.0", "--input-mode", "invalid", "--json"], "prompt_guide.input_mode"]
+  ])("rejects incomplete or invalid guide filters", (args, code) => {
+    const result = runPipeline(args);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stderr).issues[0].code).toBe(code);
+  });
+
   it("returns machine-readable validate output", () => {
     const result = runPipeline(["validate", "--config", "fixtures/projects/local-valid.yaml", "--json"]);
 

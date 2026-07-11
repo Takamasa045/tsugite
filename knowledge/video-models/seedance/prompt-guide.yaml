@@ -1,0 +1,141 @@
+schema_version: 1
+kind: video-prompt-guide
+catalog_id: seedance
+display_name: Seedance
+revision: 2026-07-10.1
+sources:
+  - id: prompt-guide
+    type: official-guide
+    title: Dreamina Seedance 2.0 series prompt guide
+    publisher: BytePlus ModelArk
+    url: https://docs.byteplus.com/en/docs/ModelArk/2222480
+    accessed_at: 2026-07-10
+  - id: video-api
+    type: official-api
+    title: Create a video generation task
+    publisher: BytePlus ModelArk
+    url: https://docs.byteplus.com/en/docs/modelark/1520757
+    accessed_at: 2026-07-10
+  - id: tutorial
+    type: official-guide
+    title: Dreamina Seedance 2.0 series tutorial
+    publisher: BytePlus ModelArk
+    url: https://docs.byteplus.com/en/docs/ModelArk/2291680
+    accessed_at: 2026-07-10
+models:
+  - id: seedance-2.0
+    aliases: [dreamina-seedance-2-0-260128, seedance-v2]
+    verified_at: 2026-07-10
+    review_after: 2026-10-10
+    input_modes: [text-to-video, image-to-video]
+    limits:
+      prompt_recommended_max_words: 1000
+      duration_seconds: { min: 4, max: 15, auto_value: -1 }
+      resolutions: [480p, 720p, 1080p, 4k]
+      text_to_video_aspect_ratios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", adaptive]
+      image_to_video_aspect_ratios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", adaptive]
+      image_to_video_uses_input_aspect: true
+      unsupported_parameters: [seed, camera_fixed]
+      notes:
+        - A non-adaptive requested ratio can center-crop an input image with a different ratio.
+    notes:
+      - "The 2.0 series supports text, first-frame, first-and-last-frame, and multimodal-reference workflows with route-specific constraints."
+      - "Do not combine mutually exclusive first-frame, first-and-last-frame, and multimodal-reference request shapes."
+      - "Aspect ratio, resolution, duration, and codec support differ across standard, fast, and mini variants."
+    source_ids: [prompt-guide, video-api, tutorial]
+  - id: seedance-2.0-fast
+    aliases: [dreamina-seedance-2-0-fast-260128, seedance-v2-fast]
+    verified_at: 2026-07-10
+    review_after: 2026-10-10
+    input_modes: [text-to-video, image-to-video]
+    limits:
+      prompt_recommended_max_words: 1000
+      duration_seconds: { min: 4, max: 15, auto_value: -1 }
+      resolutions: [480p, 720p]
+      text_to_video_aspect_ratios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", adaptive]
+      image_to_video_aspect_ratios: ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", adaptive]
+      image_to_video_uses_input_aspect: true
+      unsupported_parameters: [seed, camera_fixed, 1080p, 4k]
+      notes:
+        - Use the standard variant when 1080p or 4K output is required.
+    notes:
+      - "Fast is a separate API model with a lower output-resolution ceiling."
+    source_ids: [prompt-guide, video-api, tutorial]
+common:
+  checklist:
+    - id: spatial-temporal-split
+      instruction: Let references carry appearance and spatial relationships; use text to control actions, timing, camera, and change.
+      evidence: documented
+      confidence: high
+      source_ids: [prompt-guide]
+    - id: stable-subject-labels
+      instruction: Define each subject with two or three stable visible traits and reuse one short label consistently.
+      evidence: documented
+      confidence: high
+      source_ids: [prompt-guide]
+    - id: one-camera-per-shot
+      instruction: Give each shot one primary camera movement and a clear action sequence.
+      evidence: documented
+      confidence: high
+      source_ids: [prompt-guide]
+modes:
+  text-to-video:
+    template: >-
+      [Precisely identified subject] [performs detailed action] in [environment]. [Lighting and color]. [One camera movement]. [Visual style and quality target]. [Constraints].
+    prompt_order: [subject, action, environment, lighting-color, one-camera-move, style, quality, constraints]
+    checklist:
+      - id: explicit-action
+        instruction: Describe action through body part, direction, range, speed, and force when those details matter.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide]
+      - id: shot-timeline
+        instruction: For complex clips, write an ordered Shot 1, Shot 2, Shot 3 timeline; keep each shot to who, where, action, and camera.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide]
+      - id: concise-instructions
+        instruction: Remove script prose that does not change the visible or audible result and avoid contradictory subject traits.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide, video-api]
+    avoid:
+      - Forcing precise second ranges inside prose when shot order is sufficient
+      - Several simultaneous push, pan, orbit, and tilt instructions in one shot
+      - Pasting a full screenplay as one undifferentiated prompt
+    negative_prompt:
+      strategy: inline-positive-and-exclusion-constraints
+      guidance:
+        - Put short subtitle, logo, watermark, or duplicate-subject constraints at the end of the prompt.
+        - No independent negative-prompt field is documented for this route.
+      source_ids: [prompt-guide, video-api]
+  image-to-video:
+    template: >-
+      Treat [reference label] as [stable subject label]. Preserve its visible identity and spatial relationships. [Action or temporal change]. [One camera movement]. [End-state and text/logo constraints].
+    prompt_order: [reference-binding, identity-preservation, temporal-change, one-camera-move, end-state, constraints]
+    checklist:
+      - id: reference-binding
+        instruction: Refer to uploaded materials with stable labels and state which visible subject each label controls.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide]
+      - id: image-owns-space
+        instruction: Keep spatial layout in the reference image instead of rebuilding it with redundant prose.
+        evidence: documented
+        confidence: high
+        source_ids: [prompt-guide]
+      - id: frame-role
+        instruction: Use explicit first-frame and last-frame roles when exact endpoints matter, and align their aspect ratios before generation.
+        evidence: documented
+        confidence: high
+        source_ids: [video-api, tutorial]
+    avoid:
+      - Multi-view character collages when one clean subject reference is available
+      - Conflicting labels for the same person or object
+      - Mismatched first and last frame ratios that trigger cropping or abrupt geometry changes
+    negative_prompt:
+      strategy: inline-positive-and-exclusion-constraints
+      guidance:
+        - Keep exclusions short and concrete, such as no subtitles, logo, watermark, or duplicate subject.
+        - State the desired preserved identity and continuity before exclusion constraints.
+      source_ids: [prompt-guide, video-api]

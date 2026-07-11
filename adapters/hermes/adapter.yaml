@@ -11,3 +11,10 @@ retry:
   retryable_exit_codes: []
 exit_code_map:
   "0": ok
+checks:
+  setup:
+    - type: manual
+      name: handoff:hermes
+      detail: "Tsugite cannot verify the external Hermes runtime, MCP surface, or provider credentials from this repository."
+      remediation:
+        default: "Verify Hermes runtime and MCP connectivity before using the analysis handoff."
