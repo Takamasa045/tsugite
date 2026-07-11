@@ -9,6 +9,49 @@ function runPipeline(args: string[]) {
 }
 
 describe("pipeline CLI", () => {
+  it("streams the complete expanded story catalog before exiting", () => {
+    const result = runPipeline(["story-guides", "--json"]);
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.catalog.frameworks.length).toBeGreaterThanOrEqual(30);
+    expect(parsed.catalog.principles.length).toBeGreaterThanOrEqual(30);
+  });
+
+  it("recommends story frameworks without claiming execution support", () => {
+    const result = runPipeline([
+      "story-guides",
+      "--request",
+      "30秒の縦型SNS広告。講座の価値と実績を見せて申込みにつなげたい",
+      "--duration",
+      "30",
+      "--json"
+    ]);
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.scope).toBe("creative-guidance-only");
+    expect(parsed.execution_capability).toBe("not-evaluated");
+    expect(parsed.recommendation).toMatchObject({
+      primary: { id: "hook-value-proof-cta" },
+      duration_seconds: 30
+    });
+  });
+
+  it("rejects invalid story guide duration", () => {
+    const result = runPipeline([
+      "story-guides",
+      "--request",
+      "商品紹介",
+      "--duration",
+      "zero",
+      "--json"
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stderr).issues[0].code).toBe("story_guide.duration");
+  });
+
   it("lists read-only prompt guide catalogs without a project config", () => {
     const result = runPipeline(["guides", "--json"]);
 

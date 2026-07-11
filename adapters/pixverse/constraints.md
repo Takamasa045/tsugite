@@ -7,3 +7,4 @@
 - Normalize transient CLI failures to the shared exit-code contract.
 - Use dry-run estimates before any command that can consume credits.
 - `input_mode: image-to-video` requires `params.image`; `text-to-video` rejects it so guidance and paid execution cannot diverge.
+- Image-to-video omits the provider `--aspect-ratio` flag because framing is derived from the input image; project-level aspect validation remains required.

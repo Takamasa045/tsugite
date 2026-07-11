@@ -9,6 +9,8 @@ import {
   staticFile,
   useCurrentFrame
 } from "remotion";
+import { CinematicImpactCaptions } from "./cinematicImpactCaptions.js";
+import { resolveCaptionStyle } from "./captionMotion.mjs";
 import { audioTrackTiming, secondsToFrames, secondsToTimelineFrame, totalDuration } from "./timing.mjs";
 import { ArticleDialogue } from "./dialogue.js";
 import { ARTICLE_DIALOGUE_PRESET } from "./presentation.mjs";
@@ -107,7 +109,16 @@ function Timeline({ manifest }) {
   } else if (manifest.presentation?.preset === STREET_DIALOGUE_PRESET) {
     children.push(React.createElement(StreetDialogue, { key: "street-dialogue", manifest }));
   } else {
-    children.push(React.createElement(Captions, { key: "captions", captions: manifest.captions ?? [], fps }));
+    const captionStyle = resolveCaptionStyle(manifest);
+    children.push(
+      captionStyle === "cinematic-impact"
+        ? React.createElement(CinematicImpactCaptions, {
+            key: "captions-cinematic-impact",
+            captions: manifest.captions ?? [],
+            fps
+          })
+        : React.createElement(Captions, { key: "captions", captions: manifest.captions ?? [], fps })
+    );
   }
 
   return React.createElement(AbsoluteFill, { style: { backgroundColor: "black" } }, ...children);

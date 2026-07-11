@@ -210,6 +210,48 @@ describe("gate 3 qc", () => {
     expect(report.expected.audio_required).toBe(false);
   });
 
+  it("rejects sustained black frames and long silence in the final output", () => {
+    const report = inspectGate3Output(manifest(), "/runs/demo/final.mp4", {
+      probe: (): Gate3QcProbe => ({
+        ok: true,
+        duration_seconds: 6,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        has_video: true,
+        has_audio: true
+      }),
+      contentProbe: () => ({
+        ok: true,
+        longest_black_seconds: 1.25,
+        longest_silence_seconds: 3.5
+      })
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["gate3.output.black_frame", "gate3.output.long_silence"])
+    );
+  });
+
+  it("fails closed when final content analysis cannot run", () => {
+    const report = inspectGate3Output(manifest(), "/runs/demo/final.mp4", {
+      probe: (): Gate3QcProbe => ({
+        ok: true,
+        duration_seconds: 6,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        has_video: true,
+        has_audio: true
+      }),
+      contentProbe: () => ({ ok: false, error: "ffmpeg unavailable" })
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.issues[0]?.code).toBe("gate3.output.content_probe_failed");
+  });
+
   it("writes the report as JSON", async () => {
     const outputDir = await mkdtemp(join(tmpdir(), "tsugite-gate3-qc-"));
     const reportPath = join(outputDir, "gate3-qc.json");

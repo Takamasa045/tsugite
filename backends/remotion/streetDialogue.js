@@ -6,6 +6,7 @@ import {
   activeBounce,
   chapterAt,
   idleBob,
+  mouthLevelAt,
   popIn,
   stickyVisualAt,
   swapPhase
@@ -50,7 +51,7 @@ export function StreetDialogue({ manifest }) {
         }
       },
       h(PaperWash),
-      h(Watermark),
+      h(Watermark, { presentation: manifest.presentation }),
       h(Doodles, { frame, fps }),
       h(TitleTag, { presentation: manifest.presentation }),
       h(ChapterChip, { chapter }),
@@ -122,7 +123,7 @@ function TitleTag({ presentation }) {
   );
 }
 
-function Watermark() {
+function Watermark({ presentation }) {
   return h(
     "div",
     {
@@ -140,7 +141,7 @@ function Watermark() {
         whiteSpace: "nowrap"
       }
     },
-    "J-SPACE"
+    presentation?.watermark ?? "PAKU PAKU"
   );
 }
 
@@ -517,7 +518,9 @@ function Tape({ left, right, rotate }) {
 }
 
 function Character({ speaker, images, caption, frame, fps, captionLocalFrame, isActive }) {
-  const image = resolveSpeakerImage(speaker, caption, images, frame, fps);
+  const image =
+    envelopeSpeakerImage(speaker, caption, images, frame, fps, isActive) ??
+    resolveSpeakerImage(speaker, caption, images, frame, fps);
   if (!image) return null;
   const sideStyle = speaker.side === "left" ? { left: 30 } : { right: 30 };
   const phase = speaker.side === "left" ? 0 : Math.PI;
@@ -549,6 +552,14 @@ function Character({ speaker, images, caption, frame, fps, captionLocalFrame, is
       }
     })
   );
+}
+
+function envelopeSpeakerImage(speaker, caption, images, frame, fps, isActive) {
+  if (!isActive || speaker.mouth_frames?.length !== 3) return undefined;
+  const level = mouthLevelAt(caption, frame / fps);
+  if (level === undefined) return undefined;
+  const imageId = speaker.mouth_frames[level];
+  return (images ?? []).find((image) => image.id === imageId);
 }
 
 function SprayBlob({ color, pop }) {

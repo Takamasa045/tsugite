@@ -1,0 +1,623 @@
+schema_version: 1
+kind: story-framework-guide
+catalog_id: classic-video-storytelling
+display_name: Classic video storytelling and film grammar
+revision: 2026-07-11.1
+sources:
+  - id: save-the-cat
+    title: What Is the Save the Cat Method?
+    publisher: Save the Cat
+    url: https://savethecat.com/get-started
+    accessed_at: 2026-07-11
+  - id: screen-direction
+    title: What is the 180 Degree Rule in Film?
+    publisher: StudioBinder
+    url: https://www.studiobinder.com/blog/what-is-the-180-degree-rule-film/
+    accessed_at: 2026-07-11
+  - id: continuity-editing
+    title: What is Continuity Editing in Film?
+    publisher: StudioBinder
+    url: https://www.studiobinder.com/blog/what-is-continuity-editing-in-film/
+    accessed_at: 2026-07-11
+  - id: split-edits
+    title: Perform J cuts and L cuts
+    publisher: Adobe
+    url: https://helpx.adobe.com/ca/premiere/desktop/edit-projects/trim-clips/perform-j-cuts-and-l-cuts.html
+    accessed_at: 2026-07-11
+  - id: visual-composition
+    title: Cinematography basics, elements and techniques
+    publisher: Adobe
+    url: https://www.adobe.com/uk/creativecloud/video/production/cinematography.html
+    accessed_at: 2026-07-11
+  - id: rule-of-thirds
+    title: How to use and break the rule of thirds
+    publisher: Adobe
+    url: https://www.adobe.com/au/creativecloud/photography/discover/rule-of-thirds.html
+    accessed_at: 2026-07-11
+  - id: copywriting-formulas
+    title: My Go-To Copywriting Templates
+    publisher: HubSpot
+    url: https://blog.hubspot.com/marketing/copywriting-templates
+    accessed_at: 2026-07-11
+  - id: documentary-guide
+    title: My American Story Storytelling Guide
+    publisher: PBS WETA
+    url: https://www.pbs.org/weta/iconic-america/wp-content/uploads/2024/01/Iconic-America-Storytelling-Guide.pdf
+    accessed_at: 2026-07-11
+  - id: music-video-types
+    title: Five main types of music videos
+    publisher: Wedio
+    url: https://www.wedio.com/en/learn/types-of-music-videos
+    accessed_at: 2026-07-11
+  - id: comedy-rule-three
+    title: The Rule of Three in Comedy
+    publisher: ScreenWeaver
+    url: https://www.screenweaver.ai/blog/rule-three-comedy-setup-reinforce-subvert
+    accessed_at: 2026-07-11
+frameworks:
+  - id: hook-value-proof-cta
+    name: Hook Value Proof CTA型
+    family: 短尺・行動
+    best_for: [縦型SNS, 短尺広告, 告知]
+    flow: [Hook, Value, Proof, CTA]
+    keywords: [縦型, sns, ショート, 広告, 申込み, 申し込み, cta]
+    short_form_score: 7
+    long_form_score: -2
+    caution: 1カット1メッセージに絞り、証拠のない断定を避ける。
+    source_ids: []
+  - id: aida
+    name: AIDA型
+    family: 広告・告知
+    best_for: [広告, 集客, LP誘導]
+    flow: [Attention, Interest, Desire, Action]
+    keywords: [広告, 告知, 集客, 販売, 申込み, 申し込み, lp, プロモ]
+    short_form_score: 5
+    long_form_score: 1
+    caution: Desireには視聴者メリットと具体的な根拠を置く。
+    source_ids: []
+  - id: problem-solution
+    name: 問題解決型
+    family: 説明・販売
+    best_for: [商品紹介, サービス紹介, 講座]
+    flow: [問題, 原因, 解決策, 証拠, CTA]
+    keywords: [課題, 問題, 解決, 商品, サービス, 講座, セミナー]
+    short_form_score: 4
+    long_form_score: 3
+    caution: 不安をあおりすぎず、解決策を早めに提示する。
+    source_ids: []
+  - id: prep
+    name: PREP型
+    family: 解説・講座
+    best_for: [結論先行の解説, ビジネス説明, 教育]
+    flow: [Point, Reason, Example, Point]
+    keywords: [解説, 結論, 理由, ポイント, 教育, ビジネス]
+    short_form_score: 4
+    long_form_score: 2
+    caution: 冒頭の結論を抽象語だけで終わらせない。
+    source_ids: []
+  - id: tutorial
+    name: チュートリアル型
+    family: 手順・教育
+    best_for: [使い方, 操作説明, ハウツー]
+    flow: [完成像, 手順, つまずき回避, 次の行動]
+    keywords: [使い方, 操作, 手順, チュートリアル, ハウツー, 作り方]
+    short_form_score: 3
+    long_form_score: 3
+    caution: 1カット1手順とし、完成像を先に見せる。
+    source_ids: []
+  - id: three-act
+    name: 三幕構成
+    family: 物語・説明
+    best_for: [短編, 物語性のある告知, 30秒以上の説明]
+    flow: [前提ときっかけ, 展開と障害, 解決と変化]
+    keywords: [物語, 主人公, 短編, 映画, ドラマ, 障害, 変化]
+    short_form_score: 1
+    long_form_score: 6
+    caution: 短尺では中盤を圧縮し、転換点を一つに絞る。
+    source_ids: []
+  - id: generalized-beat-sheet
+    name: 一般化ビートシート型
+    family: 物語・映画的構成
+    best_for: [60秒以上の物語プロモ, 感情変化, キャラクター変容]
+    flow: [日常像, きっかけ, 迷い, 選択, 転換, 山場, 変化後]
+    keywords: [主人公, 迷い, 選択, 成長, 変化, 山場, 物語, 映画的]
+    short_form_score: -2
+    long_form_score: 8
+    caution: 15ビートを機械的に詰め込まず、尺に必要な役割へ圧縮する。
+    derived_from: Save the Catの15ビートを含む定番ビートシート群
+    source_ids: [save-the-cat]
+  - id: hero-journey
+    name: ヒーローズジャーニー抽象型
+    family: 物語・ブランド
+    best_for: [挑戦, 成長, 参加体験, ブランド動画]
+    flow: [日常, 呼びかけ, 試練, 支援, 変化, 帰還]
+    keywords: [挑戦, 成長, 冒険, 旅, 参加体験, 変容, ブランド]
+    short_form_score: -2
+    long_form_score: 5
+    caution: 大げさにせず、視聴者が自分ごと化できる試練にする。
+    source_ids: []
+  - id: kishotenketsu
+    name: 起承転結
+    family: 余韻・作品
+    best_for: [情緒的な作品, 世界観紹介, 余韻を残す映像]
+    flow: [起, 承, 転, 結]
+    keywords: [起承転結, 余韻, 情緒, 世界観, 作品, 映画的, 物語]
+    short_form_score: 0
+    long_form_score: 4
+    caution: 転を単なる驚きにせず、見方や意味が変わる転換にする。
+    source_ids: []
+  - id: before-after-bridge
+    name: Before After Bridge型
+    family: 変化・実績
+    best_for: [改善事例, 導入実績, 変化の可視化]
+    flow: [Before, After, Bridge]
+    keywords: [before, after, 改善, 実績, 導入, 成果, 比較]
+    short_form_score: 5
+    long_form_score: 2
+    caution: Afterを先に見せる変形も検討し、効果を誇張しない。
+    source_ids: []
+  - id: case-study
+    name: ケーススタディ型
+    family: 証拠・信頼
+    best_for: [事例紹介, 導入成果, 顧客ストーリー]
+    flow: [背景, 課題, 打ち手, 結果, 学び]
+    keywords: [事例, 導入, 成果, 実績, 顧客, 証拠]
+    short_form_score: 2
+    long_form_score: 4
+    caution: 数字や証言がない場合は効果を断定しない。
+    source_ids: []
+  - id: digest
+    name: ダイジェスト型
+    family: 記録・イベント
+    best_for: [イベント, 制作過程, 活動記録]
+    flow: [見どころ, 連続カット, 代表シーン, まとめ]
+    keywords: [イベント, 記録, ダイジェスト, ハイライト, 制作過程, 舞台裏]
+    short_form_score: 4
+    long_form_score: 2
+    caution: 時系列の羅列にせず、選ぶ軸と感情の上昇を作る。
+    source_ids: []
+  - id: freytag-pyramid
+    name: フライターク型
+    family: 古典ドラマ
+    best_for: [対立と山場が明確な短編, 舞台的ドラマ, 悲劇]
+    flow: [導入, 上昇, 頂点, 下降, 結末]
+    keywords: [対立, 頂点, クライマックス, 悲劇, 戯曲, 上昇, 下降]
+    short_form_score: -2
+    long_form_score: 5
+    caution: 山場の後を長くしすぎず、映像尺に合わせて下降部を圧縮する。
+    source_ids: []
+  - id: seven-point-story
+    name: 7ポイント物語型
+    family: プロット設計
+    best_for: [中長尺物語, 伏線と転換, ジャンル短編]
+    flow: [開始像, きっかけ, 圧力1, 中央転換, 圧力2, 最終決断, 結末像]
+    keywords: [伏線, 転換点, 中央, 決断, プロット, ジャンル]
+    short_form_score: -3
+    long_form_score: 6
+    caution: ポイント数を満たすことより、各転換が主人公の選択を変えることを優先する。
+    source_ids: []
+  - id: story-circle
+    name: ストーリーサークル抽象型
+    family: 変化・帰還
+    best_for: [主人公の欲求と変化, エピソード, 反復シリーズ]
+    flow: [安定, 欲求, 未知へ, 適応, 獲得, 代償, 帰還, 変化]
+    keywords: [欲求, 未知, 適応, 代償, 帰還, エピソード, シリーズ]
+    short_form_score: -2
+    long_form_score: 5
+    caution: 円環を形式的に閉じず、最初と最後の差を画で示す。
+    source_ids: []
+  - id: jo-ha-kyu
+    name: 序破急
+    family: 日本的リズム
+    best_for: [静かな導入から加速する作品, MV, 和的演出]
+    flow: [序・静かな提示, 破・展開と変化, 急・加速と収束]
+    keywords: [序破急, 和風, 日本的, 加速, 静けさ, 余白, 収束]
+    short_form_score: 1
+    long_form_score: 5
+    caution: 急を単なる高速編集にせず、密度と必然性の上昇として設計する。
+    source_ids: []
+  - id: five-act-tv
+    name: 五幕・連続転換型
+    family: エピソード構成
+    best_for: [章立て解説, 長めの短編, 連続する危機]
+    flow: [導入, 複雑化, 中央転換, 危機, 解決]
+    keywords: [五幕, 章立て, エピソード, 危機, 複雑化, 連続]
+    short_form_score: -4
+    long_form_score: 5
+    caution: 短尺では幕数を減らし、同じ種類の危機を反復しない。
+    source_ids: []
+  - id: pas
+    name: PAS型
+    family: 広告・課題喚起
+    best_for: [悩み訴求, 問題認識, 解決商品]
+    flow: [Problem, Agitate, Solution]
+    keywords: [悩み, 痛み, 不便, 放置, 問題, 解決, 広告]
+    short_form_score: 6
+    long_form_score: 0
+    caution: Agitateで恐怖や不安を誇張せず、解決と根拠へ早く移る。
+    source_ids: [copywriting-formulas]
+  - id: four-ps
+    name: 4P型
+    family: 広告・証拠
+    best_for: [商品広告, オファー, 実績付き訴求]
+    flow: [Promise, Picture, Proof, Push]
+    keywords: [約束, ベネフィット, 証拠, オファー, 購入, 商品, 実績]
+    short_form_score: 5
+    long_form_score: 1
+    caution: Promiseを検証可能にし、形容詞より具体例と証拠を使う。
+    source_ids: [copywriting-formulas]
+  - id: golden-circle
+    name: Why How What型
+    family: ブランド・理念
+    best_for: [ブランド紹介, 採用, 理念, 創業ストーリー]
+    flow: [Why, How, What, Invitation]
+    keywords: [理念, なぜ, why, ミッション, 採用, 創業, ブランド]
+    short_form_score: 2
+    long_form_score: 4
+    caution: 抽象的な理念だけで終わらず、行動と具体物へ接続する。
+    source_ids: []
+  - id: inverted-pyramid
+    name: 逆三角形型
+    family: ニュース・情報
+    best_for: [ニュース, 緊急告知, 要点先行レポート]
+    flow: [最重要事実, 主要根拠, 詳細, 背景]
+    keywords: [ニュース, 緊急, 速報, 発表, 要点, レポート, 事実]
+    short_form_score: 5
+    long_form_score: 2
+    caution: 冒頭で結論を出しても、根拠と出典を省かない。
+    source_ids: []
+  - id: myth-fact-reframe
+    name: 誤解・事実・再定義型
+    family: 教育・訂正
+    best_for: [誤解訂正, 専門解説, 啓発]
+    flow: [よくある誤解, なぜ信じられるか, 事実, 新しい見方, 応用]
+    keywords: [誤解, 実は, 間違い, 神話, 事実, 再定義, 勘違い]
+    short_form_score: 5
+    long_form_score: 3
+    caution: 藁人形論法を避け、実在する主張と根拠を扱う。
+    source_ids: []
+  - id: comparison-decision
+    name: 比較・判断型
+    family: 意思決定
+    best_for: [商品比較, 方法比較, 選び方]
+    flow: [判断基準, 候補, 比較, トレードオフ, 推奨]
+    keywords: [比較, 違い, 選び方, どっち, 候補, 判断, トレードオフ]
+    short_form_score: 4
+    long_form_score: 4
+    caution: 同じ条件で比較し、万能な勝者ではなく条件付き推奨を示す。
+    source_ids: []
+  - id: testimonial-proof
+    name: 証言・実証型
+    family: 信頼・社会的証明
+    best_for: [お客様の声, 導入事例, 推薦]
+    flow: [人物と背景, 元の課題, 体験, 具体的変化, 本人の結論]
+    keywords: [証言, お客様の声, レビュー, 推薦, 体験談, 導入事例]
+    short_form_score: 4
+    long_form_score: 4
+    caution: 証言を改変せず、典型例と保証を混同しない。
+    source_ids: []
+  - id: open-loop-reveal
+    name: オープンループ型
+    family: 好奇心・短尺
+    best_for: [短尺解説, リビール, ビフォーアフター]
+    flow: [未解決の問い, 部分情報, 期待更新, 回収]
+    keywords: [気になる, 秘密, 最後に, 正体, リビール, 答え, 結果]
+    short_form_score: 6
+    long_form_score: 1
+    caution: 回収を遅らせすぎず、冒頭の約束と同じ問いに答える。
+    source_ids: []
+  - id: tension-escalation-reveal
+    name: 緊張上昇・開示型
+    family: サスペンス
+    best_for: [危機, タイムリミット, 観客優位情報]
+    flow: [危険の提示, 情報差, 制約強化, 選択, 開示または回避]
+    keywords: [サスペンス, 緊張, 危険, タイムリミット, 観客だけ, 危機, 真相]
+    short_form_score: 4
+    long_form_score: 8
+    caution: 危険を隠すだけでなく、観客が何を待つべきかを明確にする。
+    source_ids: []
+  - id: mystery-question-clue-answer
+    name: 問い・手掛かり・解答型
+    family: ミステリー
+    best_for: [謎解き, 調査, 推理, 解説]
+    flow: [中心の問い, 仮説, 手掛かり, 誤誘導, 統合, 解答]
+    keywords: [ミステリー, 謎, 推理, 手掛かり, 犯人, 調査, 解答]
+    short_form_score: 1
+    long_form_score: 7
+    caution: 解答に必要な手掛かりを事前に公平に提示する。
+    source_ids: []
+  - id: comedy-rule-of-three
+    name: コメディ三段型
+    family: コメディ
+    best_for: [三段オチ, 反復ギャグ, 短いコメディ]
+    flow: [型を提示, 型を強化, 型を裏切るまたは増幅する]
+    keywords: [コメディ, 三段オチ, 笑い, パターン, 裏切り, ギャグ, オチ]
+    short_form_score: 8
+    long_form_score: 4
+    caution: 三回目を単なる反復にせず、期待の反転か強い増幅にする。
+    source_ids: [comedy-rule-three]
+  - id: documentary-character-quest
+    name: 人物追跡ドキュメンタリー型
+    family: ノンフィクション
+    best_for: [人物密着, 挑戦の記録, 現場取材]
+    flow: [人物と目標, 現実の状況, 障害, 選択と観察, 結果, 残る問い]
+    keywords: [ドキュメンタリー, 人物, 目標, 取材, インタビュー, 現実, 密着]
+    short_form_score: -1
+    long_form_score: 8
+    caution: 現実を予定調和へ曲げず、不確実性と本人の主体性を残す。
+    source_ids: [documentary-guide]
+  - id: interview-insight-evidence
+    name: インタビュー洞察型
+    family: 会話・専門知
+    best_for: [専門家インタビュー, 対談, 顧客インタビュー]
+    flow: [問い, 要点, 具体例, 裏付け映像, 含意, 次の問い]
+    keywords: [インタビュー, 対談, 専門家, 質問, 回答, 洞察, 取材]
+    short_form_score: 2
+    long_form_score: 6
+    caution: 発言を文脈から切り離さず、Bロールは内容を裏付けるものにする。
+    source_ids: [documentary-guide]
+  - id: music-performance-motif
+    name: パフォーマンス・モチーフ型
+    family: ミュージックビデオ
+    best_for: [アーティスト中心MV, ライブ感, サビの反復]
+    flow: [象徴モチーフ, Aメロ提示, サビで増幅, 変奏, 最終サビで統合]
+    keywords: [mv, ミュージックビデオ, 楽曲, サビ, アーティスト, パフォーマンス, モチーフ]
+    short_form_score: 3
+    long_form_score: 9
+    caution: 全編を同じ強度の歌唱画にせず、セクションごとに画角とモチーフを発展させる。
+    source_ids: [music-video-types]
+  - id: music-narrative-concept
+    name: 楽曲・物語・コンセプト混成型
+    family: ミュージックビデオ
+    best_for: [物語MV, コンセプトMV, 歌詞の視覚化]
+    flow: [楽曲テーマ, 視覚ルール, 物語断片, サビの象徴像, 変奏と回収]
+    keywords: [mv, 歌詞, コンセプト, 物語mv, 象徴, 抽象, 楽曲テーマ]
+    short_form_score: 1
+    long_form_score: 7
+    caution: 歌詞を逐語的に再現するだけでなく、補完または対位する視覚テーマを持つ。
+    source_ids: [music-video-types]
+  - id: montage-association
+    name: 連想モンタージュ型
+    family: 編集・詩的表現
+    best_for: [イメージ映像, テーマ紹介, 時間圧縮]
+    flow: [基準イメージ, 類似または対照, リズム反復, 意味の衝突, 統合像]
+    keywords: [モンタージュ, 連想, 対比, イメージ, 詩的, 時間経過, 圧縮]
+    short_form_score: 4
+    long_form_score: 4
+    caution: 美しい画の羅列にせず、隣接する二つのショットで生まれる意味を設計する。
+    source_ids: []
+  - id: looped-short
+    name: ループ短尺型
+    family: 縦型・反復視聴
+    best_for: [シームレスループ, 商品デモ, 視覚トリック]
+    flow: [強い開始像, 一方向の変化, 意外な接続, 開始像へ復帰]
+    keywords: [ループ, シームレス, 繰り返し, リピート, 縦型, 視覚トリック]
+    short_form_score: 8
+    long_form_score: -5
+    caution: 終端と始端の画・動き・音を事前に合わせ、回収を省略しない。
+    source_ids: []
+duration_presets:
+  - id: short-15
+    max_seconds: 20
+    recommended_cuts: { min: 3, max: 5 }
+    phases:
+      - { range: 0-2秒, role: Hook }
+      - { range: 2-6秒, role: 文脈 }
+      - { range: 6-11秒, role: 価値・実例 }
+      - { range: 11-15秒, role: CTA・余韻 }
+  - id: short-30
+    max_seconds: 37
+    recommended_cuts: { min: 5, max: 7 }
+    phases:
+      - { range: 0-3秒, role: Hook }
+      - { range: 3-8秒, role: 文脈 }
+      - { range: 8-16秒, role: 具体例 }
+      - { range: 16-24秒, role: 価値・証拠 }
+      - { range: 24-30秒, role: CTA・余韻 }
+  - id: short-60
+    max_seconds: 75
+    recommended_cuts: { min: 8, max: 12 }
+    phases:
+      - { range: 0-4秒, role: Hook }
+      - { range: 4-12秒, role: 前提 }
+      - { range: 12-32秒, role: 展開 }
+      - { range: 32-48秒, role: 実例・山場 }
+      - { range: 48-60秒, role: 結論・CTA }
+  - id: short-90
+    max_seconds: 105
+    recommended_cuts: { min: 12, max: 18 }
+    phases:
+      - { range: 0-5秒, role: Hook・日常像 }
+      - { range: 5-18秒, role: 文脈・きっかけ }
+      - { range: 18-55秒, role: 展開・迷い・選択 }
+      - { range: 55-78秒, role: 山場・証拠 }
+      - { range: 78-90秒, role: 変化後・余韻 }
+  - id: long-form
+    max_seconds: 3600
+    recommended_cuts: { min: 16, max: 40 }
+    phases:
+      - { range: 冒頭5%, role: Hook・前提 }
+      - { range: 前半25%, role: きっかけ・問い }
+      - { range: 中盤45%, role: 展開・障害・証拠 }
+      - { range: 終盤20%, role: 山場・解決 }
+      - { range: 最後5%, role: 変化後・余韻 }
+principles:
+  - id: one-shot-one-role
+    category: shot-design
+    instruction: 1カットに一つの主要な情報・感情・動作だけを割り当てる。
+    rationale: カットの役割が明確になり、生成指示と編集判断を分離しやすい。
+    source_ids: []
+  - id: start-end-state
+    category: shot-design
+    instruction: 各カットに開始状態、可視の変化、終了状態を書く。
+    rationale: AI生成クリップでも時間変化と接続点を検証できる。
+    source_ids: []
+  - id: setup-payoff
+    category: story
+    instruction: 重要な結末や変化には前段の仕込みまたは予兆を置く。
+    rationale: 山場を偶然ではなく必然として受け取れるようにする。
+    source_ids: []
+  - id: escalation
+    category: story
+    instruction: 展開ごとに情報、障害、感情、視覚変化のいずれかを一段上げる。
+    rationale: 同じ強度の反復による中だるみを防ぐ。
+    source_ids: []
+  - id: screen-direction
+    category: continuity
+    instruction: 会話や移動の左右関係を保ち、軸を越える場合は意図と橋渡しカットを設ける。
+    rationale: 観客が空間関係を見失うのを防ぐ。
+    source_ids: [screen-direction, continuity-editing]
+  - id: eyeline-match
+    category: continuity
+    instruction: 視線の方向と次に見せる対象の位置関係を一致させる。
+    rationale: 別々に生成したショット間にも知覚上の因果を作る。
+    source_ids: [continuity-editing]
+  - id: motivated-cut
+    category: editing
+    instruction: 動作、視線、意味の変化、音の打点のいずれかを根拠にカットする。
+    rationale: 切り替えを装飾ではなく物語上の判断にする。
+    source_ids: [continuity-editing]
+  - id: shot-size-progression
+    category: shot-design
+    instruction: Wideで関係を示し、Mediumで行動、Close-upで感情や証拠を強調する。
+    rationale: 画角の変化に情報階層と感情の強弱を持たせる。
+    source_ids: []
+  - id: audio-leads-picture
+    category: sound
+    instruction: 必要に応じてJカットやLカットで音と画の切替時点をずらす。
+    rationale: 次の場面を予告し、会話や場面転換を滑らかにする。
+    source_ids: [split-edits]
+  - id: silence-as-emphasis
+    category: sound
+    instruction: 山場や意味の転換前では、音を足すだけでなく短い無音も候補にする。
+    rationale: コントラストによって次の言葉や画を強調できる。
+    source_ids: []
+  - id: rule-of-thirds
+    category: shot-design
+    instruction: 主題を三分割線や交点へ置き、余白に視線や移動の方向を受ける。
+    rationale: 主題と環境の関係を保ちながら視線を誘導できる。
+    source_ids: [rule-of-thirds, visual-composition]
+  - id: leading-lines
+    category: shot-design
+    instruction: 道、影、建築線、視線などを焦点へ向かう導線として使う。
+    rationale: 画面内の読む順序と奥行きを作る。
+    source_ids: [visual-composition]
+  - id: look-room
+    category: shot-design
+    instruction: 人物の視線や移動方向の先に意図的な空間を残す。
+    rationale: 圧迫感、期待、不在の対象を余白で制御できる。
+    source_ids: [visual-composition]
+  - id: headroom
+    category: shot-design
+    instruction: 頭上余白をショットサイズ間で一貫させ、意図のない窮屈さを避ける。
+    rationale: 人物ショットを安定させ、編集時の画面ジャンプを減らす。
+    source_ids: []
+  - id: depth-layers
+    category: shot-design
+    instruction: 前景・中景・背景に役割を持たせ、平面的な画を避ける。
+    rationale: 空間、規模、視線誘導を一枚の画で伝えられる。
+    source_ids: [visual-composition]
+  - id: symmetry-intent
+    category: shot-design
+    instruction: 対称構図は秩序や儀式性、崩れは不安や変化を示すため意図的に使う。
+    rationale: 構図そのものを感情変化の信号にできる。
+    source_ids: [visual-composition]
+  - id: visual-hierarchy
+    category: shot-design
+    instruction: 明暗、サイズ、色、焦点、動きの優先順位を一つ決める。
+    rationale: 観客が最初に見る対象を制御し、情報過多を防ぐ。
+    source_ids: [visual-composition]
+  - id: color-motif
+    category: story
+    instruction: 色を人物、状態、テーマに結び付け、変化時だけ規則を変える。
+    rationale: 台詞なしで反復と変化を認識させられる。
+    source_ids: []
+  - id: thirty-degree-change
+    category: continuity
+    instruction: 同じ被写体へ切るときは画角またはサイズを十分変え、意図しないジャンプを避ける。
+    rationale: 同一場面内の切替を明確な視点変化として読ませる。
+    source_ids: [continuity-editing]
+  - id: match-on-action
+    category: continuity
+    instruction: 動作の途中で切り、次のショットで同じ方向と位相の動作を継続する。
+    rationale: 空間や撮影テイクが異なっても連続した一動作に見せられる。
+    source_ids: [continuity-editing]
+  - id: cutaway-bridge
+    category: continuity
+    instruction: 手元、反応、環境などのカットアウェイを時間圧縮や軸変更の橋として使う。
+    rationale: 不連続を隠すだけでなく、情報を追加しながら接続できる。
+    source_ids: [screen-direction, continuity-editing]
+  - id: establishing-reestablishing
+    category: continuity
+    instruction: 場面冒頭で空間関係を示し、配置が変わったら再提示する。
+    rationale: Close-upが続いても観客が場所と人物関係を追える。
+    source_ids: [continuity-editing]
+  - id: shot-reverse-shot
+    category: continuity
+    instruction: 会話では視線、肩越しの向き、サイズ差を対応させる。
+    rationale: 別撮りや別生成でも対話している空間を成立させる。
+    source_ids: [screen-direction, continuity-editing]
+  - id: cut-on-gaze
+    category: editing
+    instruction: 人物が見る動作の直後に対象を示し、必要なら反応へ戻る。
+    rationale: 視線を因果として使い、説明台詞を減らせる。
+    source_ids: [continuity-editing]
+  - id: graphic-match
+    category: editing
+    instruction: 形、方向、色、動きが似るショットを接続して場面を飛び越える。
+    rationale: 時空間の変化に視覚的な連続性と意味を持たせる。
+    source_ids: []
+  - id: pace-contrast
+    category: editing
+    instruction: 同じカット長を続けず、速い連続と長い保持を目的に応じて対比する。
+    rationale: 速度そのものではなく速度変化で注意と感情を作る。
+    source_ids: []
+  - id: hold-before-after
+    category: editing
+    instruction: 重要な動作や台詞の前後に短い保持を残す。
+    rationale: 期待と反応の時間を作り、編集とトランジションの余地も確保する。
+    source_ids: []
+  - id: room-tone
+    category: sound
+    instruction: 場所ごとの環境音を連続して敷き、無音の継ぎ目を避ける。
+    rationale: 別テイクや別ショットの音を同じ空間として結び付ける。
+    source_ids: []
+  - id: dialogue-ducking
+    category: sound
+    instruction: 台詞中はBGMと効果音を下げ、言葉が終わった後に戻す。
+    rationale: 音量競合を避け、感情の勢いを保ったまま明瞭度を上げる。
+    source_ids: []
+  - id: sonic-motif
+    category: sound
+    instruction: 人物、場所、概念に短い音型を結び付け、変化に合わせて変奏する。
+    rationale: 画面外でもテーマの回帰や予兆を示せる。
+    source_ids: []
+  - id: continuity-anchor
+    category: continuity
+    instruction: AI生成ショット間で人物特徴、衣装、持ち物、光向き、画面方向の固定項目を再利用する。
+    rationale: モデルごとの揺れを抑え、別クリップを同一シーンとして接続しやすくする。
+    source_ids: []
+  - id: transition-handles
+    category: editing
+    instruction: 各生成クリップの開始と終了に編集用の安定フレームまたは完了動作を確保する。
+    rationale: 黒フレーム、急停止、意味の途中切れを避けて接続点を選べる。
+    source_ids: []
+  - id: camera-motivation
+    category: shot-design
+    instruction: カメラ移動は被写体の動き、情報開示、感情変化のいずれかに反応させる。
+    rationale: 無目的な浮遊カメラを避け、動きに物語上の意味を持たせる。
+    source_ids: []
+  - id: one-motion-per-clip
+    category: shot-design
+    instruction: 一つの生成クリップでは主動作と主カメラ移動をそれぞれ一つに絞る。
+    rationale: AI生成の破綻を減らし、結果を編集可能な単位に保つ。
+    source_ids: []
+  - id: reference-ownership
+    category: continuity
+    instruction: 参照画像には外見と空間、テキストには動作と時間変化を主に担当させる。
+    rationale: 同じ情報を競合する指示で二重定義するのを避ける。
+    source_ids: []
+safety_notes:
+  - 構成法は正解ではなく仮説として扱い、目的・尺・媒体・視聴者心理に合わせて主軸と補助線を選ぶ。
+  - 既存IP、特定作品、特定作家の固有表現や具体的展開をコピーせず、構造上の役割だけを抽象化する。
+  - カタログは提案知識であり、生成・編集・外部APIの実行能力を意味しない。

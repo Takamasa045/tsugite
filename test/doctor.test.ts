@@ -38,6 +38,17 @@ describe("environment doctor", () => {
     );
   });
 
+  it("requires ffmpeg for Gate 3 black-frame and silence analysis", async () => {
+    const report = await inspectEnvironment(undefined, {
+      commandExists: async (command) => command !== "ffmpeg"
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({ name: "ffmpeg", ok: false, status: "missing" })
+    );
+  });
+
   it("fails closed when npm is older than the supported major version", async () => {
     const report = await inspectEnvironment(undefined, {
       commandExists: async () => true,
@@ -68,7 +79,7 @@ describe("environment doctor", () => {
         expect.objectContaining({ name: "backend-preflight:lint", ok: true })
       ])
     );
-    expect(checkedCommands).toEqual(expect.arrayContaining(["npm", "ffprobe", "npx"]));
+    expect(checkedCommands).toEqual(expect.arrayContaining(["npm", "ffprobe", "ffmpeg", "npx"]));
   });
 
   it("fails closed when npx exists but the installed HyperFrames CLI cannot be probed", async () => {
@@ -168,7 +179,7 @@ describe("environment doctor", () => {
     const report = await inspectEnvironment("fixtures/projects/openclaw-generation.yaml", {
       commandExists: async (command) => {
         checkedCommands.push(command);
-        return command === "node" || command === "npm" || command === "ffprobe";
+        return command === "node" || command === "npm" || command === "ffprobe" || command === "ffmpeg";
       },
       probeCommand: async (command) => {
         probedCommands.push([...command]);

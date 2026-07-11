@@ -10,8 +10,39 @@ import {
   resolveSpeakerImage
 } from "../backends/remotion/presentation.mjs";
 import { audioTrackTiming } from "../backends/remotion/timing.mjs";
+import {
+  captionMotionState,
+  captionSegments,
+  resolveCaptionStyle
+} from "../backends/remotion/captionMotion.mjs";
 
 describe("remotion backend helpers", () => {
+  it("opts into cinematic impact captions without changing the default style", () => {
+    expect(resolveCaptionStyle({ meta: {} })).toBe("standard");
+    expect(resolveCaptionStyle({ meta: { caption_style: "cinematic-impact" } })).toBe("cinematic-impact");
+  });
+
+  it("calculates bounded entrance and exit progress for impact captions", () => {
+    const caption = { start: 1, end: 4 };
+
+    expect(captionMotionState(caption, 0.9, 30).active).toBe(false);
+    expect(captionMotionState(caption, 1, 30)).toMatchObject({ active: true, enter: 0, exit: 0 });
+    expect(captionMotionState(caption, 1.5, 30)).toMatchObject({ active: true, enter: 1, exit: 0 });
+    expect(captionMotionState(caption, 3.9, 30)).toMatchObject({ active: true, enter: 1 });
+    expect(captionMotionState(caption, 3.9, 30).exit).toBeGreaterThan(0);
+    expect(captionMotionState(caption, 4, 30).active).toBe(false);
+  });
+
+  it("splits emphasized phrases into renderable caption segments", () => {
+    expect(captionSegments("その夜、川から提灯が噴き上がった。", ["提灯", "噴き上がった"])).toEqual([
+      { text: "その夜、川から", emphasized: false },
+      { text: "提灯", emphasized: true },
+      { text: "が", emphasized: false },
+      { text: "噴き上がった", emphasized: true },
+      { text: "。", emphasized: false }
+    ]);
+  });
+
   it("places audio tracks on the timeline and honors end timing", () => {
     const manifest = {
       meta: { target_duration_seconds: 3 },

@@ -63,6 +63,37 @@ function activeCenterCaption(captions, second) {
   return (captions ?? []).find((caption) => second >= caption.start && second < caption.end);
 }
 
+export const MOUTH_LEVEL_RATE = 20;
+
+const MOUTH_OPEN_THRESHOLD = 0.5;
+const MOUTH_HALF_THRESHOLD = 0.15;
+
+// Reads the per-caption amplitude envelope (mouth_levels sampled at
+// mouth_rate Hz from the narration audio). Returns undefined when the
+// caption has no envelope so callers can fall back to timed cycling.
+export function mouthLevelAt(caption, second) {
+  const levels = caption?.mouth_levels;
+  if (!levels || levels.length === 0) return undefined;
+  const rate = caption.mouth_rate ?? MOUTH_LEVEL_RATE;
+  const index = Math.floor((second - caption.start) * rate);
+  if (index < 0 || index >= levels.length) return 0;
+  return levels[index];
+}
+
+// Quantizes a normalized RMS envelope (0..1) into closed/half/open levels
+// and removes single-sample closures that would read as flicker.
+export function quantizeMouthLevels(rms) {
+  const levels = rms.map((value) =>
+    value >= MOUTH_OPEN_THRESHOLD ? 2 : value >= MOUTH_HALF_THRESHOLD ? 1 : 0
+  );
+  return levels.map((level, index) => {
+    const previous = levels[index - 1] ?? 0;
+    const next = levels[index + 1] ?? 0;
+    if (level === 0 && previous > 0 && next > 0) return 1;
+    return level;
+  });
+}
+
 const SWAP_WINDOW_START = 0.42;
 const SWAP_WINDOW_LENGTH = 0.16;
 

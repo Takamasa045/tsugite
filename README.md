@@ -20,6 +20,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 - Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.
 - CLI generation adapter wrappers for PixVerse/Kling.
 - Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
+- A story-guide catalog covering 34 narrative, persuasion, documentary, genre, and music-video structures plus 35 contextual film-grammar and AI-video principles.
 - MCP-agent generation adapter contract for Topview.
 - Optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
@@ -55,6 +56,7 @@ Provider CLIs such as PixVerse/Kling, external Topview/OpenClaw/Hermes runtimes,
 ```sh
 npm ci
 npm run check
+bin/pipeline story-guides --request "A 30-second vertical ad showing value and proof" --duration 30 --json
 bin/pipeline guides --json
 cp -R examples/local-fixture projects/my-first-run
 bin/pipeline doctor --config projects/my-first-run/project.yaml --json

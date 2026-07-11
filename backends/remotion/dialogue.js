@@ -430,8 +430,10 @@ function Character({ speaker, image, active, frame, fps }) {
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              // Keep face centered in the round portrait; slight top bias for hair/bun.
-              objectPosition: speaker.id === "itopan" ? "center 22%" : "center 20%"
+              // Face-closeup assets already fill the circle; keep mild top bias for hair/bun.
+              objectPosition: speaker.id === "itopan" ? "center 30%" : "center 20%",
+              transform: speaker.id === "itopan" ? "scale(1.06)" : "none",
+              transformOrigin: "center 32%"
             }
           })
         : React.createElement("div", { style: { width: "100%", height: "100%", backgroundColor: "#eee5da" } })

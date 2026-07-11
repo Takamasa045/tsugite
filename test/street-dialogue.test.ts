@@ -9,7 +9,9 @@ import {
   centerAt,
   chapterAt,
   idleBob,
+  mouthLevelAt,
   popIn,
+  quantizeMouthLevels,
   stickyVisualAt,
   swapPhase
 } from "../backends/remotion/streetPresentation.mjs";
@@ -183,6 +185,30 @@ describe("street presentation helpers", () => {
     expect(centerAt(captions, 1)?.text).toBe("キーワード");
     expect(centerAt(captions, 5)).toBeUndefined();
     expect(centerAt(captions, 9)).toBeUndefined();
+  });
+
+  it("follows the recorded mouth envelope and closes outside it", () => {
+    const caption = { start: 2, end: 5, mouth_levels: [0, 1, 2, 2, 1, 0, 2], mouth_rate: 2 };
+
+    expect(mouthLevelAt(caption, 2.0)).toBe(0);
+    expect(mouthLevelAt(caption, 2.6)).toBe(1);
+    expect(mouthLevelAt(caption, 3.1)).toBe(2);
+    expect(mouthLevelAt(caption, 9.0)).toBe(0);
+    expect(mouthLevelAt({ start: 0, end: 1 }, 0.5)).toBeUndefined();
+  });
+
+  it("quantizes and smooths an rms envelope into mouth levels", () => {
+    const rms = [0, 0.02, 0.5, 0.9, 0.85, 0.02, 0.8, 0.4, 0.05, 0];
+    const levels = quantizeMouthLevels(rms);
+
+    expect(levels).toHaveLength(rms.length);
+    expect(levels[0]).toBe(0);
+    expect(levels[3]).toBe(2);
+    expect(levels[5]).toBeGreaterThan(0);
+    expect(new Set(levels).size).toBeGreaterThan(1);
+    for (const level of levels) {
+      expect([0, 1, 2]).toContain(level);
+    }
   });
 
   it("flips the desk card label halfway through the swap window", () => {

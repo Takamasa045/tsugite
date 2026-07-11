@@ -8,6 +8,10 @@ import {
   resolvePromptGuidance,
   type PromptMode
 } from "./adapters/promptKnowledge.js";
+import {
+  loadStoryGuide,
+  recommendStoryFrameworks
+} from "./adapters/storyKnowledge.js";
 import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
 import { openCreativeReview, writeCreativeReview } from "./orchestrator/review.js";
@@ -40,6 +44,8 @@ type ParsedArgs = {
   model?: string;
   inputMode?: string;
   output?: string;
+  request?: string;
+  duration?: string;
   open: boolean;
   issues: Issue[];
 };
@@ -70,6 +76,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ok: false,
         command: "guides",
         scope: "prompt-guidance-only",
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "story-guides") {
+    try {
+      return await outputStoryGuides(args);
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "story-guides",
+        scope: "creative-guidance-only",
         issues: cliIssuesFromError(error)
       });
     }
@@ -336,7 +355,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -346,7 +365,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--catalog": "catalog",
       "--model": "model",
       "--input-mode": "inputMode",
-      "--output": "output"
+      "--output": "output",
+      "--request": "request",
+      "--duration": "duration"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -383,6 +404,7 @@ function isOptionAllowed(command: string, option: string): boolean {
   const allowedByCommand: Record<string, Set<string>> = {
     doctor: new Set(["--config"]),
     guides: new Set(["--catalog", "--model", "--input-mode"]),
+    "story-guides": new Set(["--request", "--duration"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
     review: new Set(["--config", "--output", "--open"]),
@@ -391,6 +413,53 @@ function isOptionAllowed(command: string, option: string): boolean {
     render: new Set(["--config", "--actor", "--state-dir"])
   };
   return allowedByCommand[command]?.has(option) ?? true;
+}
+
+async function outputStoryGuides(args: ParsedArgs): Promise<number> {
+  if (args.duration && !args.request) {
+    return storyGuideOptionError(args, "story_guide.request_required", "--request is required when --duration is provided");
+  }
+  const duration = args.duration ? Number(args.duration) : undefined;
+  if (args.duration && (!Number.isFinite(duration) || duration! <= 0)) {
+    return storyGuideOptionError(args, "story_guide.duration", "--duration must be a positive number of seconds");
+  }
+
+  const guide = await loadStoryGuide();
+  if (!args.request) {
+    return output(args, 0, {
+      ok: true,
+      command: "story-guides",
+      scope: "creative-guidance-only",
+      execution_capability: "not-evaluated",
+      catalog: {
+        catalog_id: guide.catalog_id,
+        display_name: guide.display_name,
+        revision: guide.revision,
+        frameworks: guide.frameworks,
+        duration_presets: guide.duration_presets,
+        principles: guide.principles,
+        sources: guide.sources,
+        safety_notes: guide.safety_notes
+      }
+    });
+  }
+
+  return output(args, 0, {
+    ok: true,
+    command: "story-guides",
+    scope: "creative-guidance-only",
+    execution_capability: "not-evaluated",
+    recommendation: recommendStoryFrameworks(args.request, guide, { durationSeconds: duration })
+  });
+}
+
+function storyGuideOptionError(args: ParsedArgs, code: string, message: string): number {
+  return output(args, 1, {
+    ok: false,
+    command: "story-guides",
+    scope: "creative-guidance-only",
+    issues: [{ code, message }]
+  });
 }
 
 async function outputPromptGuides(args: ParsedArgs): Promise<number> {

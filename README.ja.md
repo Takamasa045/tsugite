@@ -20,6 +20,7 @@
 - `cli`、`mcp-agent`、`mcp-client` 形式のアダプタ registry。
 - PixVerse / Kling 向け CLI generation adapter wrapper。
 - PixVerse / Kling / Seedance の出典・鮮度付き T2V / I2V prompt knowledge catalog。
+- 34種の物語・広告・解説・ドキュメンタリー・ジャンル・MV構成と、35種の尺配分・映像文法・AI動画原則を理由付きで選ぶ story guide catalog。
 - Topview 向け MCP-agent generation adapter 契約。
 - OpenClaw 向け optional CLI bridge と Hermes 向け analysis handoff adapter。
 - local-media / generated-media を `dist/<run-id>/` に組み立てる処理。
@@ -55,6 +56,7 @@ PixVerse / Klingなどのprovider CLI、Topview / OpenClaw / Hermesの外部runt
 ```sh
 npm ci
 npm run check
+bin/pipeline story-guides --request "30秒の縦型SNS広告。価値と実績を見せる" --duration 30 --json
 bin/pipeline guides --json
 cp -R examples/local-fixture projects/my-first-run
 bin/pipeline doctor --config projects/my-first-run/project.yaml --json
@@ -137,6 +139,8 @@ generation:
 
 `plan` はモデルと入力モードが一致した `prompt_guidance` を返します。別adapter経由でモデル知識を使う場合はrequestに `prompt_guide.catalog` を指定します。カタログは実行能力を意味せず、promptを自動変更しません。詳しくは [モデル別プロンプト知識](docs/prompt-guides.md) を参照してください。
 
+構成やカットを提案する前に `story-guides` を使うと、目的と尺に応じた第一候補、補助候補、不採用理由、カット配分、映像文法をJSONで確認できます。Save the Catを含む有名メソッドは固有展開をコピーせず、構造上の役割へ抽象化します。詳しくは [王道の物語構成・映像文法](docs/story-guides.md) を参照してください。
+
 OpenClaw / Hermes の optional adapter は、配布時に必要な人だけが追加する
 opt-in 機能です。base install では不要で、`project.yaml` が該当 adapter を
 選んだ場合だけ adapter 固有の setup を行います。詳しくは
@@ -171,7 +175,7 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 
 ## リポジトリルール
 
-- core code はベンダー中立に保つ。ベンダー固有の実行挙動は `adapters/` または `backends/`、根拠付きの助言データは `knowledge/video-models/` に閉じ込める。
+- core code はベンダー中立に保つ。ベンダー固有の実行挙動は `adapters/` または `backends/`、根拠付きの助言データは `knowledge/video-models/` と `knowledge/story-frameworks/` に閉じ込める。
 - adapter directory には `constraints.md` を必ず置く。
 - `mcp-agent` adapter には `SKILL.md` を必ず置く。
 - ユーザー作業は `projects/` に置き、`examples/` はコピー可能でリセットしやすい状態に保つ。

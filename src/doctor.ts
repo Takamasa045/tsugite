@@ -70,6 +70,12 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
       probeCommand,
       remediation: ffmpegRemediation(platform),
       captureVersion: true
+    }),
+    await commandCheck("ffmpeg", ["ffmpeg", "-version"], {
+      commandExists,
+      probeCommand,
+      remediation: ffmpegRemediation(platform),
+      captureVersion: true
     })
   ];
 

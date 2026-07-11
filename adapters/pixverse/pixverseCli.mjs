@@ -20,39 +20,7 @@ export function runPixverseVideo(input, options = {}) {
     throw new AdapterError("request.model is required", INVALID_REQUEST);
   }
 
-  const createArgs = [
-    "create",
-    "video",
-    "--prompt",
-    request.prompt,
-    "--model",
-    model,
-    "--duration",
-    String(request.duration),
-    "--aspect-ratio",
-    request.aspect,
-    "--count",
-    String(numberParam(request.params?.count, 1)),
-    "--idempotency-key",
-    safeIdempotencyKey(payload.run_id, request.id),
-    "--no-wait",
-    "--json"
-  ];
-
-  if (typeof request.seed === "number") {
-    createArgs.push("--seed", String(request.seed));
-  }
-  if (typeof request.params?.quality === "string") {
-    createArgs.push("--quality", request.params.quality);
-  }
-  if (typeof request.params?.image === "string") {
-    createArgs.push("--image", request.params.image);
-  }
-  if (request.params?.audio === true) {
-    createArgs.push("--audio");
-  } else {
-    createArgs.push("--no-audio");
-  }
+  const createArgs = buildPixverseCreateArgs(request, payload.run_id);
 
   const create = runJsonCommand(pixverse, createArgs);
   const taskId = findFirstString(create, ["video_id", "videoId", "task_id", "taskId", "id"]);
@@ -89,6 +57,45 @@ export function runPixverseVideo(input, options = {}) {
       wait
     }
   };
+}
+
+export function buildPixverseCreateArgs(request, runId) {
+  const model = String(request.model || "").trim();
+  const args = [
+    "create",
+    "video",
+    "--prompt",
+    request.prompt,
+    "--model",
+    model,
+    "--duration",
+    String(request.duration),
+    "--count",
+    String(numberParam(request.params?.count, 1)),
+    "--idempotency-key",
+    safeIdempotencyKey(runId, request.id),
+    "--no-wait",
+    "--json"
+  ];
+
+  if (request.input_mode !== "image-to-video") {
+    args.push("--aspect-ratio", request.aspect);
+  }
+  if (typeof request.seed === "number") {
+    args.push("--seed", String(request.seed));
+  }
+  if (typeof request.params?.quality === "string") {
+    args.push("--quality", request.params.quality);
+  }
+  if (typeof request.params?.image === "string") {
+    args.push("--image", request.params.image);
+  }
+  if (request.params?.audio === true) {
+    args.push("--audio");
+  } else {
+    args.push("--no-audio");
+  }
+  return args;
 }
 
 export function normalizeError(error) {
