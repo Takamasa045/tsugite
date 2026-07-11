@@ -6,6 +6,13 @@ capabilities:
   vertical: true
   fps: [24, 30]
 checks:
+  setup:
+    - type: command
+      name: tool:hyperframes
+      command: ["npx", "--no-install", "hyperframes", "--version"]
+      capture_version: true
+      remediation:
+        default: "Run `npm ci` without `--omit=dev` from the Tsugite repository root, then rerun doctor."
   render_preflight:
     - name: lint
       command: ["npx", "--no-install", "hyperframes", "lint", "--json"]

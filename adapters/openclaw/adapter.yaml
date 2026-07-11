@@ -14,6 +14,14 @@ exit_code_map:
   "20": transient
   "21": rate_limited
   "40": invalid_request
+checks:
+  setup:
+    - type: environment
+      name: bridge:openclaw
+      variable: TSUGITE_OPENCLAW_GENERATE_COMMAND
+      format: json-command
+      remediation:
+        default: "Set TSUGITE_OPENCLAW_GENERATE_COMMAND to a JSON command array whose executable is installed, then rerun doctor."
 command:
   executable: node
   args: ["adapters/openclaw/generate.mjs"]

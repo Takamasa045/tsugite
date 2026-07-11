@@ -1,0 +1,115 @@
+{
+  "slug": "note-jspace-dialogue",
+  "aspect": "16:9",
+  "fps": 30,
+  "duration_seconds": 60,
+  "background": {
+    "id": "background",
+    "src": "media/background-60s.mp4",
+    "resolution": {
+      "width": 1920,
+      "height": 1080
+    }
+  },
+  "images": [
+    {
+      "id": "shiba-mouth-closed",
+      "src": "media/characters/shiba-mouth-closed.png",
+      "alt": "ImageGenで生成したオリジナル柴犬キャラクター・口閉じ"
+    },
+    {
+      "id": "shiba-mouth-half",
+      "src": "media/characters/shiba-mouth-half.png",
+      "alt": "ImageGenで生成したオリジナル柴犬キャラクター・口半開き"
+    },
+    {
+      "id": "shiba-mouth-open",
+      "src": "media/characters/shiba-mouth-open.png",
+      "alt": "ImageGenで生成したオリジナル柴犬キャラクター・口開き"
+    },
+    {
+      "id": "itopan-mouth-closed",
+      "src": "media/characters/itopan-mouth-closed.png",
+      "alt": "添付画像を参照してImageGenで生成したイトパン・口閉じ"
+    },
+    {
+      "id": "itopan-mouth-half",
+      "src": "media/characters/itopan-mouth-half.png",
+      "alt": "添付画像を参照してImageGenで生成したイトパン・口半開き"
+    },
+    {
+      "id": "itopan-mouth-open",
+      "src": "media/characters/itopan-mouth-open.png",
+      "alt": "添付画像を参照してImageGenで生成したイトパン・口開き"
+    }
+  ],
+  "speakers": [
+    {
+      "id": "shiba",
+      "display_name": "しば",
+      "side": "left",
+      "accent": "#df7b37",
+      "poses": {
+        "neutral": "shiba-mouth-closed",
+        "curious": "shiba-mouth-closed",
+        "surprised": "shiba-mouth-open",
+        "nod": "shiba-mouth-closed",
+        "smile": "shiba-mouth-half"
+      },
+      "mouth_frames": ["shiba-mouth-closed", "shiba-mouth-half", "shiba-mouth-open"]
+    },
+    {
+      "id": "itopan",
+      "display_name": "イトパン",
+      "side": "right",
+      "accent": "#3972b8",
+      "poses": {
+        "neutral": "itopan-mouth-closed",
+        "explain": "itopan-mouth-half",
+        "serious": "itopan-mouth-closed",
+        "smile": "itopan-mouth-half"
+      },
+      "mouth_frames": ["itopan-mouth-closed", "itopan-mouth-half", "itopan-mouth-open"]
+    }
+  ],
+  "presentation": {
+    "preset": "article-dialogue-16x9",
+    "title": "Claudeは、答える前に何を考えている？",
+    "source_title": "Claudeの沈黙した思考を読む、AnthropicのJ-space研究",
+    "source_url": "https://note.com/azumimusuhi/n/n8df767749414",
+    "draft": true
+  },
+  "audio": {
+    "bgm": [],
+    "narration": [],
+    "sfx": []
+  },
+  "chapters": [
+    {
+      "title": "Hook",
+      "start": 0,
+      "end": 10
+    },
+    {
+      "title": "Core idea",
+      "start": 10,
+      "end": 45
+    },
+    {
+      "title": "Caution and CTA",
+      "start": 45,
+      "end": 60
+    }
+  ],
+  "provenance": [
+    {
+      "engine": "imagegen",
+      "model": "imagegen-character-mouth-sheet",
+      "params": {
+        "source_url": "https://note.com/azumimusuhi/n/n8df767749414",
+        "character_sheet": "media/characters/source/imagegen-mouth-sheet.png",
+        "mouth_states": ["closed", "half-open", "open"]
+      }
+    }
+  ]
+}

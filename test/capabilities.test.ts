@@ -16,6 +16,14 @@ describe("backend capabilities", () => {
         command: ["npx", "--no-install", "hyperframes", "lint", "--json"]
       }
     ]);
+    expect(backend?.checks.setup).toContainEqual({
+      type: "command",
+      name: "tool:hyperframes",
+      command: ["npx", "--no-install", "hyperframes", "--version"],
+      capture_version: true,
+      blocking: true,
+      remediation: expect.any(Object)
+    });
   });
 
   it("rejects captions, vertical, and fps demands unsupported by a backend", async () => {
@@ -45,6 +53,15 @@ describe("backend capabilities", () => {
         "backend.capability.transitions"
       ])
     );
+  });
+
+  it("rejects a presentation preset unsupported by the selected backend", async () => {
+    const result = await validateProject("fixtures/projects/dialogue-limited.yaml", {
+      backendDirs: ["fixtures/backends", "backends"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("backend.capability.preset");
   });
 });
 

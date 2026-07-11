@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { readYamlFile } from "../io.js";
 import { PipelineError } from "../types.js";
+import { setupCheckSchema } from "../setupChecks.js";
 
 const adapterSchema = z.object({
   name: z.string().min(1),
@@ -41,6 +42,11 @@ const adapterSchema = z.object({
         .optional()
     })
     .optional(),
+  checks: z
+    .object({
+      setup: z.array(setupCheckSchema).default([])
+    })
+    .default({ setup: [] }),
   command: z
     .object({
       executable: z.string().min(1),

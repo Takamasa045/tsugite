@@ -5,3 +5,11 @@ capabilities:
   audio_mix: true
   vertical: true
   fps: [24, 30, 60]
+  presets: [article-dialogue-16x9, street-dialogue-16x9]
+checks:
+  setup:
+    - type: command
+      name: tool:remotion
+      command: ["node", "--input-type=module", "--eval", "await Promise.all([import('@remotion/renderer'), import('@remotion/bundler')])"]
+      remediation:
+        default: "Run `npm ci` from the Tsugite repository root, then rerun doctor."

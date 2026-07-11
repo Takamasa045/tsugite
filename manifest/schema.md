@@ -9,9 +9,16 @@ Minimum JSON fields:
 - `meta.target_duration_seconds`: positive number
 - `meta.slug`: stable project slug
 - `clips[]`: `id`, local `src`, `in`, `out`, `duration`, `fps`, `resolution`, `audio`
+- `images[]`: optional first-class local image assets with `id`, `src`, and optional `alt` / `alpha_required`
+- `speakers[]`: optional speaker definitions with left/right placement, accent color, pose-to-image mappings, and optional three-image `mouth_frames` ordered closed / half-open / open
+- `presentation`: optional backend-neutral preset selection and source metadata
 - `audio`: `bgm`, `narration`, `sfx` track arrays
-- `captions[]`: optional timed text. `speaker` is reserved for speaker labels.
+- `captions[]`: optional timed text. `speaker` selects a declared speaker when a presentation is active; `pose`, `emphasis`, and `visual` carry deterministic dialogue presentation metadata.
 - `chapters[]`: optional chapter ranges with `title`, `start`, and `end`
 - `provenance[]`: optional source metadata
 
 Unknown fields are accepted to preserve legacy RenderManifest compatibility.
+
+`images[]` are copied into the guarded run directory and included in Gate 2 decode, dimension, alpha (when requested), and SHA-256 integrity checks. A selected `presentation.preset` must be declared by the editing backend capabilities before execution. Silent `article-dialogue-16x9` presentations must remain marked as drafts.
+
+When `mouth_frames` is present, every referenced image id must exist in `images[]`. A dialogue presentation backend may cycle `closed → half-open → open → half-open` for the active speaker while leaving the listener on the closed frame.

@@ -1,0 +1,6 @@
+slug: missing-image
+run_id: missing-image-run
+manifest: ../manifests/missing-image-asset.json
+dist_dir: dist
+edit:
+  backend: remotion

@@ -228,6 +228,20 @@ describe("project validation", () => {
     expect(result.project?.generation).toBeUndefined();
   });
 
+  it("accepts a Remotion article dialogue project with local character images", async () => {
+    const result = await validateProject("fixtures/projects/dialogue-remotion.yaml");
+
+    expect(result.ok).toBe(true);
+    expect(result.manifest?.images).toHaveLength(2);
+  });
+
+  it("reports missing local image assets", async () => {
+    const result = await validateProject("fixtures/projects/missing-image-asset.yaml");
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("manifest.image.src.exists");
+  });
+
   it("reports missing local clip assets", async () => {
     const result = await validateProject("fixtures/projects/missing-asset.yaml");
 

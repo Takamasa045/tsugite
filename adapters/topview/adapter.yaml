@@ -17,3 +17,10 @@ exit_code_map:
 input_modes:
   text-to-video:
     forbidden_params: [image]
+checks:
+  setup:
+    - type: manual
+      name: handoff:topview
+      detail: "Tsugite cannot verify the external Topview skill, API access, credentials, or credits from this repository."
+      remediation:
+        default: "Verify the installed Topview skill and API access with a non-charging check before Gate 1 approval."

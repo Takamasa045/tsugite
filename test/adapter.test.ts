@@ -18,6 +18,21 @@ describe("adapter contract", () => {
     expect(adapter.retry.max_attempts).toBe(2);
   });
 
+  it("loads vendor-neutral setup checks declared by a real adapter", async () => {
+    const adapter = await loadAdapterDefinition("pixverse");
+
+    expect(adapter.checks.setup).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "command",
+          name: "provider:pixverse",
+          command: ["pixverse", "--version"],
+          capture_version: true
+        })
+      ])
+    );
+  });
+
   it("accepts generated clips copied into the run directory", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "tsugite-adapter-run-"));
     const adapter = await loadAdapterDefinition("mock-cli", ["fixtures/adapters", "adapters"]);

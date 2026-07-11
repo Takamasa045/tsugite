@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -24,6 +24,8 @@ jobs:
           sudo apt-get install --no-install-recommends -y ffmpeg
       - run: npm ci
       - run: npm run check
+      - run: bin/pipeline doctor --config examples/local-fixture/project.yaml --json
+      - run: bin/pipeline doctor --config fixtures/projects/hyperframes-local-media.yaml --json
       - run: bin/pipeline validate --config examples/local-fixture/project.yaml --json
       - run: bin/pipeline plan --config examples/local-fixture/project.yaml --json
       - run: bin/pipeline run --config examples/local-fixture/project.yaml --dry-run --json
