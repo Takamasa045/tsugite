@@ -81,6 +81,10 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
 Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装です。全体を計画からやり直す場合は `revise` を使います。
 
+## イベント告知テンプレート
+
+`templates/event-promo/` は、マルチカット、横型/縦型の別設計、TTSの1クリップ先行確認、QA、完成時の良かった点・悪かった点・再試行理由を整理する、生成素材を含まない雛形です。`projects/` 配下へコピーして使い、生成画像・音声・manifest・report・完成動画は案件内に留め、再利用できるルールだけを本体へ昇格してください。
+
 ## ブログ掛け合いテンプレート
 
 `templates/blog-dialogue-60s/` は、記事の出典、60秒台本、オリジナル柴犬pose、話者画像、字幕図解を `manifest.json` へまとめるstarterです。

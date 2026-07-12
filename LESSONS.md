@@ -24,3 +24,8 @@ Append-only format:
 2026-07-11 / doctorがwrapperのnodeやpreflight先頭のnpxだけで外部能力をready判定した / provider/backend実体とhandoff準備を検査していなかった / adapter/backendが非課金setup checkを宣言し、安全に自動確認できないhandoffや認証はmanualとしてready扱いしない / doctor済
 2026-07-11 / 掛け合い動画が激しい口パク、不適切な配置、不自然な窓枠で会話らしく見えなかった / キャラクターを単なる矩形素材として置き、発話表現と画面構成を別々に設計した / 激しい口パクと窓枠形式を再利用せず、丸型など自然な切り抜き、吹き出し、話者交代が伝わる控えめな会話アニメーションを一体設計する / rejected
 2026-07-11 / 最終動画の尺と形式が正しくても黒画面や長い無音を承認できた / Gate 3がffprobeのメタデータだけを検査していた / ffmpegで1秒以上の黒区間と3秒以上の無音区間を検出し、内容解析失敗時もfail closedにする / qa済
+2026-07-12 / イベント固有の画像・音声・完成MP4をexamplesとしてpushした / 完成案件と配布用fixtureの分類をstaging前に行わなかった / 案件固有成果物はignored projects配下に留め、再利用可能なルール・template・testだけを本体へ昇格する / documented
+2026-07-12 / 完成宣言後に良かった点・悪かった点・再試行理由が本体の学習ループへ残らなかった / 成果物の完成と知見の昇格を同じ完了条件にしていなかった / 完成時はproject内のcompletion notesを埋め、再利用知見の昇格可否を判定してからrepo作業を閉じる / documented
+2026-07-12 / 1枚絵中心の告知動画が手抜きに見え、8カットへ作り直した / render前に画角・距離・場所の変化をcontact sheetで確認しなかった / 短尺イベント告知は6〜8カットを設計し、全体contact sheetで視覚的な変化を確認する / documented
+2026-07-12 / TTSがstyle tagを読み上げ、音声の重複生成も起きた / model固有のテキスト挙動を1クリップで確認せず一括生成した / TTSは1クリップを先に合成・聴取し、読みと重複を確認してからbatch生成する / documented
+2026-07-12 / 横型素材の単純cropでは縦型の主要要素を守れなかった / format変換をresizeとして扱った / 縦型は独立したcompositionとして設計し、中央cropを既定にしない / documented

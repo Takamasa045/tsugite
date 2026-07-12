@@ -11,3 +11,4 @@
 3. For machine-checkable and QA rules, add or update a fixture plus a test that proves the failure is rejected before execution or reported at the right Gate.
 4. Mark the lesson line with `validate済`, `doctor済`, `qa済`, or `documented`.
 5. Keep `LESSONS.md` append-only; do not delete old lessons after promotion.
+6. Before staging, inspect every added file. Keep user-specific images, audio, rendered video, generated manifests, and run reports under ignored `projects/<job>/`; commit only the reusable promotion.

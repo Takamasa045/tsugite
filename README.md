@@ -81,6 +81,10 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 Do not run non-dry-run `run` or `render` without explicit human approval.
 Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and returns the run to rendering. Gate 2 `retry_specific` is not implemented yet; use `revise` for a full re-plan.
 
+## Event Promo Template
+
+`templates/event-promo/` provides a media-free scaffold for multi-cut event promos, horizontal/vertical composition decisions, one-clip TTS proof, QA, and completion notes. Copy it under `projects/`; keep generated images, audio, manifests, reports, and final video there, and promote only reusable rules back into the repository.
+
 ## Blog Dialogue Template
 
 `templates/blog-dialogue-60s/` turns article source notes and a timed two-speaker script into a deterministic Remotion manifest. Copy it under `projects/`, add the local teacher character, rebuild the manifest, then use `validate`, `plan`, and `run --dry-run` before any gated execution.
