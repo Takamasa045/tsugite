@@ -24,3 +24,5 @@ Append-only format:
 2026-07-11 / doctorがwrapperのnodeやpreflight先頭のnpxだけで外部能力をready判定した / provider/backend実体とhandoff準備を検査していなかった / adapter/backendが非課金setup checkを宣言し、安全に自動確認できないhandoffや認証はmanualとしてready扱いしない / doctor済
 2026-07-11 / 掛け合い動画が激しい口パク、不適切な配置、不自然な窓枠で会話らしく見えなかった / キャラクターを単なる矩形素材として置き、発話表現と画面構成を別々に設計した / 激しい口パクと窓枠形式を再利用せず、丸型など自然な切り抜き、吹き出し、話者交代が伝わる控えめな会話アニメーションを一体設計する / rejected
 2026-07-11 / 最終動画の尺と形式が正しくても黒画面や長い無音を承認できた / Gate 3がffprobeのメタデータだけを検査していた / ffmpegで1秒以上の黒区間と3秒以上の無音区間を検出し、内容解析失敗時もfail closedにする / qa済
+2026-07-12 / storyboard HTMLなしでGate 1からrunへ進められた / reviewが独立コマンドのままでGate 1とrun-logに接続されていなかった / Gate 1承認前に対象runのreview/index.htmlとreview-data.jsonを検査し、run-logにも相対パスを残す / validate済
+2026-07-12 / Vitest 4の単独更新でnpm ciと既存カバレッジゲートが壊れた / vitestとcoverage-v8のpeer majorと分岐率が同時に変わった / Vitest本体とcoverage-v8は同じmajorで更新し、npm ciとnpm run checkを通してから公開する / validate済

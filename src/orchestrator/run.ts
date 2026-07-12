@@ -166,6 +166,8 @@ export async function assembleLocalMediaRun(
     assetCount,
     actualCredits: 0,
     inputDigest,
+    reviewPath: "review/index.html",
+    reviewDataPath: "review/review-data.json",
     requests: []
   });
 
@@ -306,6 +308,8 @@ async function assembleGeneratedMediaRun(
     assetCount,
     actualCredits: generation.credits,
     inputDigest,
+    reviewPath: "review/index.html",
+    reviewDataPath: "review/review-data.json",
     requests: generation.requests
   });
 
@@ -664,6 +668,8 @@ async function writeRunLog(
     assetCount: number;
     actualCredits: number;
     inputDigest: string;
+    reviewPath: string;
+    reviewDataPath: string;
     requests: CliGenerationRequestResult[];
   }
 ): Promise<void> {
@@ -674,6 +680,8 @@ async function writeRunLog(
     `- asset_count: ${input.assetCount}`,
     `- actual_credits: ${input.actualCredits}`,
     `- input_digest: ${input.inputDigest}`,
+    `- review_path: ${input.reviewPath}`,
+    `- review_data_path: ${input.reviewDataPath}`,
     `- generated_at: ${new Date().toISOString()}`,
     "",
     "## Requests",

@@ -18,6 +18,12 @@ async function capture(args: string[]) {
   return { status, stdout, stderr };
 }
 
+async function prepareReview(config: string, stateDir: string) {
+  const result = await capture(["review", "--config", config, "--state-dir", stateDir, "--json"]);
+  expect(result.status).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
 describe("pipeline main", () => {
   it("reports doctor checks", async () => {
     const result = await capture(["doctor", "--json"]);
@@ -268,6 +274,7 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
+    await prepareReview("fixtures/projects/local-media-only.yaml", stateDir);
     const approved = await capture([
       "gate",
       "--config",
@@ -289,6 +296,127 @@ describe("pipeline main", () => {
     expect(JSON.parse(approved.stdout).state.status).toBe("running");
   });
 
+  it("requires a creative review artifact before Gate 1 approval", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const reviewDir = join(stateDir, "local-media-only-run", "review");
+    const missing = await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-1",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+
+    expect(missing.status).toBe(1);
+    expect(JSON.parse(missing.stderr).issues[0]).toMatchObject({
+      code: "gate.review_required",
+      path: join(reviewDir, "index.html")
+    });
+    await expect(stat(join(stateDir, "local-media-only-run", "state.json"))).rejects.toThrow();
+
+    const review = await capture([
+      "review",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    expect(review.status).toBe(0);
+
+    const approved = await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-1",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+
+    expect(approved.status).toBe(0);
+    expect(JSON.parse(approved.stdout)).toMatchObject({
+      state: { status: "running" },
+      review_path: join(reviewDir, "index.html"),
+      review_data_path: join(reviewDir, "review-data.json")
+    });
+  });
+
+  it("rejects a review artifact for a different project at Gate 1", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const review = await prepareReview("fixtures/projects/local-media-only.yaml", stateDir);
+    const reviewData = JSON.parse(await readFile(review.review_data_path, "utf8"));
+    reviewData.run_id = "other-run";
+    await writeFile(review.review_data_path, `${JSON.stringify(reviewData, null, 2)}\n`);
+
+    const result = await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-1",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stderr).issues[0]).toMatchObject({
+      code: "gate.review_invalid",
+      path: review.review_data_path
+    });
+  });
+
+  it("rechecks the storyboard review before run", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const review = await prepareReview("fixtures/projects/local-media-only.yaml", stateDir);
+    await capture([
+      "gate",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--gate",
+      "gate-1",
+      "--decision",
+      "approve",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    await writeFile(review.review_path, "<!doctype html><html></html>\n");
+
+    const result = await capture([
+      "run",
+      "--config",
+      "fixtures/projects/local-media-only.yaml",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stderr).issues[0]).toMatchObject({ code: "gate.review_invalid", path: review.review_path });
+  });
+
   it("assembles a local-media run after gate 1 approval", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     const blocked = await capture([
@@ -301,6 +429,7 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
+    await prepareReview("fixtures/projects/local-media-only.yaml", stateDir);
     await capture([
       "gate",
       "--config",
@@ -356,6 +485,7 @@ describe("pipeline main", () => {
 
   it("rejects mcp-agent generation handoffs during direct run execution", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    await prepareReview("fixtures/projects/topview-generation.yaml", stateDir);
     await capture([
       "gate",
       "--config",
@@ -387,6 +517,7 @@ describe("pipeline main", () => {
 
   it("requires OpenClaw setup only when the optional adapter is executed", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    await prepareReview("fixtures/projects/openclaw-generation.yaml", stateDir);
     const validated = await capture([
       "validate",
       "--config",
@@ -438,6 +569,7 @@ describe("pipeline main", () => {
 
   it("runs the optional OpenClaw adapter when an executable bridge is configured", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    await prepareReview("fixtures/projects/openclaw-generation.yaml", stateDir);
     await capture([
       "gate",
       "--config",
@@ -485,6 +617,7 @@ describe("pipeline main", () => {
 
   it("does not surface optional OpenClaw bridge stderr on failure", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    await prepareReview("fixtures/projects/openclaw-generation.yaml", stateDir);
     await capture([
       "gate",
       "--config",
@@ -577,6 +710,7 @@ describe("pipeline main", () => {
       const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
       const config = "fixtures/projects/render-local-media.yaml";
 
+      await prepareReview(config, stateDir);
       await capture([
         "gate",
         "--config",
@@ -677,6 +811,7 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
+    await prepareReview("fixtures/projects/local-media-only.yaml", stateDir);
     const approved = await capture([
       "gate",
       "--config",

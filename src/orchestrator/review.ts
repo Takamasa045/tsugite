@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, realpath, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Manifest } from "../manifest/schema.js";
 import type { Project } from "../project/schema.js";
+import type { Result } from "../types.js";
 import type { ExecutionPlan } from "./plan.js";
 
 type ReviewAsset = {
@@ -80,6 +81,7 @@ type WriteCreativeReviewOptions = {
   manifest: Manifest;
   plan: ExecutionPlan;
   outputDir?: string;
+  stateDir?: string;
 };
 
 export type CreativeReviewResult = {
@@ -88,6 +90,88 @@ export type CreativeReviewResult = {
   outputDir: string;
   assetCount: number;
 };
+
+export function getCreativeReviewDir(configPath: string, project: Project, stateDir?: string): string {
+  const resolvedStateDir = stateDir
+    ? resolve(stateDir)
+    : resolve(dirname(resolve(configPath)), project.dist_dir);
+  return resolve(resolvedStateDir, project.run_id ?? project.slug, "review");
+}
+
+export async function inspectGate1Review(options: {
+  configPath: string;
+  project: Project;
+  stateDir?: string;
+}): Promise<Result<{ reviewPath: string; dataPath: string }>> {
+  const outputDir = getCreativeReviewDir(options.configPath, options.project, options.stateDir);
+  const reviewPath = resolve(outputDir, "index.html");
+  const dataPath = resolve(outputDir, "review-data.json");
+  const [hasReview, hasData] = await Promise.all([isFile(reviewPath), isFile(dataPath)]);
+
+  if (!hasReview || !hasData) {
+    const stateArgument = options.stateDir ? ` --state-dir ${options.stateDir}` : "";
+    return {
+      ok: false,
+      issues: [
+        {
+          code: "gate.review_required",
+          message: `Gate 1 requires a storyboard review. Run 'bin/pipeline review --config ${options.configPath}${stateArgument} --open --json', inspect the HTML, then approve Gate 1.`,
+          path: hasReview ? dataPath : reviewPath
+        }
+      ],
+      reviewPath,
+      dataPath
+    };
+  }
+
+  try {
+    const [html, dataText] = await Promise.all([readFile(reviewPath, "utf8"), readFile(dataPath, "utf8")]);
+    const data = JSON.parse(dataText) as unknown;
+    if (!isReviewDocumentForProject(data, options.project)) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: "gate.review_invalid",
+            message: "Gate 1 review-data.json is not a valid review for this project.",
+            path: dataPath
+          }
+        ],
+        reviewPath,
+        dataPath
+      };
+    }
+    if (!html.includes('data-testid="storyboard-sheet"')) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: "gate.review_invalid",
+            message: "Gate 1 review HTML does not contain the storyboard sheet.",
+            path: reviewPath
+          }
+        ],
+        reviewPath,
+        dataPath
+      };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [
+        {
+          code: "gate.review_invalid",
+          message: `Gate 1 review artifacts could not be read: ${error instanceof Error ? error.message : String(error)}`,
+          path: dataPath
+        }
+      ],
+      reviewPath,
+      dataPath
+    };
+  }
+
+  return { ok: true, issues: [], reviewPath, dataPath };
+}
 
 export function createReviewDocument(
   project: Project,
@@ -251,12 +335,7 @@ export async function writeCreativeReview(
   const configPath = resolve(options.configPath);
   const outputDir = options.outputDir
     ? resolve(options.outputDir)
-    : resolve(
-        dirname(configPath),
-        options.project.dist_dir,
-        options.project.run_id ?? options.project.slug,
-        "review"
-      );
+    : getCreativeReviewDir(configPath, options.project, options.stateDir);
   const assetsDir = resolve(outputDir, "assets");
   await mkdir(assetsDir, { recursive: true });
 
@@ -311,6 +390,33 @@ function collectReferencedAssets(document: ReviewDocument): ReviewAsset[] {
     ...document.characters.flatMap((character) => character.poses.flatMap((pose) => pose.asset ?? [])),
     ...document.storyboard.flatMap((shot) => shot.image ?? [])
   ];
+}
+
+async function isFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isReviewDocumentForProject(value: unknown, project: Project): boolean {
+  if (!value || typeof value !== "object") return false;
+  const document = value as {
+    schema_version?: unknown;
+    run_id?: unknown;
+    slug?: unknown;
+    storyboard?: unknown;
+    summary?: { gate?: unknown };
+  };
+  return (
+    document.schema_version === 1 &&
+    document.run_id === (project.run_id ?? project.slug) &&
+    document.slug === project.slug &&
+    document.summary?.gate === "gate-1" &&
+    Array.isArray(document.storyboard) &&
+    document.storyboard.length > 0
+  );
 }
 
 function isExternalAsset(src: string): boolean {

@@ -178,6 +178,8 @@ describe("local media run assembly", () => {
     expect(manifest.provenance[0].credits).toBe(0.25);
     expect(qc.asset_count).toBe(1);
     expect(runLog).toContain("actual_credits: 0.25");
+    expect(runLog).toContain("review_path: review/index.html");
+    expect(runLog).toContain("review_data_path: review/review-data.json");
   });
 
   it("resumes generated runs with the original asset count and actual credits", async () => {

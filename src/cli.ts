@@ -14,7 +14,11 @@ import {
 } from "./adapters/storyKnowledge.js";
 import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
-import { openCreativeReview, writeCreativeReview } from "./orchestrator/review.js";
+import {
+  inspectGate1Review,
+  openCreativeReview,
+  writeCreativeReview
+} from "./orchestrator/review.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
@@ -147,7 +151,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         project: validation.project!,
         manifest: validation.manifest!,
         plan,
-        outputDir: args.output
+        outputDir: args.output,
+        stateDir: args.stateDir
       });
       if (args.open) {
         try {
@@ -238,7 +243,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       command: "gate",
       issues: gateResult.issues,
       state: gateResult.state,
-      state_path: gateResult.statePath
+      state_path: gateResult.statePath,
+      review_path: gateResult.reviewPath,
+      review_data_path: gateResult.reviewDataPath
     });
   }
 
@@ -255,6 +262,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         command: "run",
         issues: [{ code: "run.requires_gate_1_approval", message: "Gate 1 must be approved before run" }]
       });
+    }
+
+    const review = await inspectGate1Review({
+      configPath: args.config!,
+      project: validation.project!,
+      stateDir: stateResult.stateDir
+    });
+    if (!review.ok) {
+      return output(args, 1, { ok: false, command: "run", issues: review.issues });
     }
 
     const runResult = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
@@ -407,7 +423,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     "story-guides": new Set(["--request", "--duration"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
-    review: new Set(["--config", "--output", "--open"]),
+    review: new Set(["--config", "--output", "--state-dir", "--open"]),
     run: new Set(["--config", "--dry-run", "--actor", "--state-dir"]),
     gate: new Set(["--config", "--actor", "--gate", "--decision", "--state-dir"]),
     render: new Set(["--config", "--actor", "--state-dir"])
@@ -574,12 +590,33 @@ async function recordGate(
   gate: GateId,
   decision: GateDecision,
   adapter?: AdapterDefinition
-): Promise<Result<{ state: RunState; statePath: string }>> {
+): Promise<Result<{ state: RunState; statePath: string; reviewPath?: string; reviewDataPath?: string }>> {
   const stateLocation = getStateLocation(args, project);
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
   if (!existing.ok) return existing;
 
   let state = existing.state ?? createPlannedState(project.run_id ?? project.slug);
+  let reviewPath: string | undefined;
+  let reviewDataPath: string | undefined;
+  if (gate === "gate_1" && decision === "approved") {
+    const review = await inspectGate1Review({
+      configPath: args.config!,
+      project,
+      stateDir: stateLocation.stateDir
+    });
+    if (!review.ok) {
+      return {
+        ok: false,
+        issues: review.issues,
+        state,
+        statePath: stateLocation.statePath,
+        reviewPath: review.reviewPath,
+        reviewDataPath: review.dataPath
+      };
+    }
+    reviewPath = review.reviewPath;
+    reviewDataPath = review.dataPath;
+  }
   if (gate === "gate_1" && (state.gates.gate_1.status === "pending" || state.gates.gate_1.status === "revise")) {
     state = markGateAwaiting(state, "gate_1");
   }
@@ -612,7 +649,14 @@ async function recordGate(
 
   try {
     await writeState(stateLocation.stateDir, nextState);
-    return { ok: true, issues: [], state: nextState, statePath: stateLocation.statePath };
+    return {
+      ok: true,
+      issues: [],
+      state: nextState,
+      statePath: stateLocation.statePath,
+      reviewPath,
+      reviewDataPath
+    };
   } catch (error) {
     return {
       ok: false,
