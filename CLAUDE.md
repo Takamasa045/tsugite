@@ -7,6 +7,7 @@ Use `SKILL.md` as the canonical workflow.
 - Start with a one-sentence goal and completion condition, then follow `SKILL.md`.
 - Use `/tsugite-plan <project.yaml> | <creative brief> | <duration>` for the safe planning loop.
 - Use `/tsugite-verify [path or test]` after code or documentation changes.
+- Use `/tsugite-finalize <project.yaml>` only after the user explicitly declares that selected video complete.
 - `.claude/settings.json` allows routine checks, asks before gated execution or Git publication, and denies secret-file access and destructive commands.
 - Never use `--dangerously-skip-permissions` for this repository.
 - Stop at each Gate until the human chooses approve, revise, or abort.

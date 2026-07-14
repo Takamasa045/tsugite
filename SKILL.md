@@ -21,6 +21,7 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 7. Only after explicit approval, run generation or render commands.
 8. Before Gate 2 approval, inspect `gate2-qc.json`; use approve_all only when the report and artifacts are acceptable.
 9. Before Gate 3 approval, inspect `render-report.json`, `gate3-qc.json`, and the final artifact.
+10. When the user explicitly declares the selected video complete, record the canonical output, QA proof, and retrospective; preview `bin/pipeline finalize --config <project.yaml> --json`, then apply it as Coordinator only when the retained run and deletion scope match the completed project.
 
 ## Optional Shitate Handoff
 
@@ -41,6 +42,8 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 - Gate 1 approval requires a valid storyboard review at `dist/<run-id>/review/index.html` and `review-data.json` for the current project.
 - Do not report skipped steps as completed work.
 - `re-render` is a Gate 3-only decision. It preserves Gate 1 and Gate 2 approval.
+- `finalize` is completion-only cleanup. It requires a completed run with Gate 3 approved and final QA proof. Preview is read-only; `--apply` is approval-gated and may run only after the user explicitly declares that project complete.
+- Finalization keeps the selected final run, media referenced by the final manifest, and text records. It deletes only superseded media from older runs, older QA, and unused project media, then writes `completion-record.json`.
 - Gate 2 `retry_specific` is not executable yet; use `revise` for a full re-plan instead of claiming a targeted retry.
 - Record failures in `LESSONS.md` when they create a new operational rule.
 - In Claude Code, keep `.claude/settings.json` in default permission mode; routine checks may be allowlisted, but Gate decisions, non-dry-run execution, commit, push, and PR creation must remain approval-gated.

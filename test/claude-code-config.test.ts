@@ -16,6 +16,7 @@ describe("Claude Code project configuration", () => {
       "Bash(bin/pipeline validate *)",
       "Bash(bin/pipeline plan *)",
       "Bash(bin/pipeline review *)",
+      "Bash(bin/pipeline finalize * --json)",
       "Bash(bin/pipeline run * --dry-run *)",
       "Bash(git status *)",
       "Bash(git diff *)"
@@ -28,6 +29,7 @@ describe("Claude Code project configuration", () => {
     expect(settings.permissions.ask).toEqual(expect.arrayContaining([
       "Bash(bin/pipeline gate *)",
       "Bash(bin/pipeline render *)",
+      "Bash(bin/pipeline finalize * --apply *)",
       "Bash(bin/pipeline run * --actor *)",
       "Bash(git commit *)",
       "Bash(git push *)"
@@ -44,6 +46,7 @@ describe("Claude Code project configuration", () => {
     ["bin/pipeline run --config projects/demo/project.yaml --actor coordinator --json", "ask"],
     ["bin/pipeline render --config projects/demo/project.yaml --actor coordinator --json", "ask"],
     ["bin/pipeline gate --config projects/demo/project.yaml --gate gate-1 --decision approve", "ask"],
+    ["bin/pipeline finalize --config projects/demo/project.yaml --apply --actor coordinator --json", "ask"],
     ["git push origin main", "ask"],
     ["git reset --hard HEAD~1", "deny"],
     ["git clean -df", "deny"],
@@ -73,6 +76,14 @@ describe("Claude Code project configuration", () => {
     expect(files[1]).toContain("npm run check");
     expect(files[2]).toContain("任意");
     expect(files[2]).toContain("明示承認");
+  });
+
+  it("documents the explicit completion cleanup workflow", async () => {
+    const command = await readFile(resolve(ROOT, ".claude/commands/tsugite-finalize.md"), "utf8");
+
+    expect(command).toContain("finalize");
+    expect(command).toContain("--apply");
+    expect(command).toContain("completion-record.json");
   });
 
   it("keeps Claude entry guidance synchronized with the canonical workflow", async () => {

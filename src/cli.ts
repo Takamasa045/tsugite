@@ -14,6 +14,7 @@ import {
 } from "./adapters/storyKnowledge.js";
 import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
+import { finalizeCompletedProject } from "./orchestrator/finalize.js";
 import {
   inspectGate1Review,
   openCreativeReview,
@@ -61,6 +62,7 @@ type ParsedArgs = {
   side?: string;
   accent?: string;
   open: boolean;
+  apply: boolean;
   issues: Issue[];
 };
 
@@ -169,6 +171,35 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ok: false,
       command: args.command,
       issues: validation.issues
+    });
+  }
+
+  if (args.command === "finalize") {
+    if (args.apply) {
+      const coordinatorIssue = requireCoordinator(args);
+      if (coordinatorIssue) {
+        return output(args, 1, { ok: false, command: "finalize", issues: [coordinatorIssue] });
+      }
+    }
+    const finalized = await finalizeCompletedProject({
+      configPath: args.config,
+      project: validation.project!,
+      manifest: validation.manifest!,
+      stateDir: args.stateDir,
+      apply: args.apply
+    });
+    return output(args, finalized.ok ? 0 : 1, {
+      ok: finalized.ok,
+      command: "finalize",
+      issues: finalized.issues,
+      applied: finalized.applied,
+      canonical_output: finalized.canonicalOutput,
+      completion_record: finalized.recordPath,
+      media_files: finalized.mediaFiles,
+      retained_media: finalized.retainedMedia,
+      planned_bytes: finalized.plannedBytes,
+      deleted_files: finalized.deletedFiles,
+      deleted_bytes: finalized.deletedBytes
     });
   }
 
@@ -446,6 +477,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     json: argv.includes("--json"),
     dryRun: false,
     open: false,
+    apply: false,
     issues: []
   };
 
@@ -467,6 +499,18 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--open") {
       if (isOptionAllowed(parsed.command, arg)) {
         parsed.open = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
+    if (arg === "--apply") {
+      if (isOptionAllowed(parsed.command, arg)) {
+        parsed.apply = true;
       } else {
         parsed.issues.push({
           code: "cli.option_unsupported",
@@ -543,6 +587,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     plan: new Set(["--config"]),
     viewer: new Set(["--config", "--output", "--state-dir", "--open"]),
     review: new Set(["--config", "--output", "--state-dir", "--open"]),
+    finalize: new Set(["--config", "--state-dir", "--actor", "--apply"]),
     run: new Set(["--config", "--dry-run", "--actor", "--state-dir"]),
     gate: new Set(["--config", "--actor", "--gate", "--decision", "--state-dir"]),
     render: new Set(["--config", "--actor", "--state-dir"])

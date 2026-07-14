@@ -80,6 +80,7 @@ bin/pipeline plan --config projects/my-first-run/project.yaml --json
 bin/pipeline review --config projects/my-first-run/project.yaml --open --json
 bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
+bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
 
 `review` derives `dist/<run-id>/review/index.html` and `review-data.json` from the validated project, manifest, and plan. It presents a caption-first storyboard, character sheets, shot details, cost, and Gate 1 commands without changing `state.json` or executing generation. Gate 1 approval and run start verify that both artifacts exist and belong to the current project. Use `--output <directory>` to override the destination, `--state-dir <directory>` for an alternate state root, and `--open` only when you want to open the local HTML. Use the canonical output location when the artifact must satisfy Gate 1.
@@ -98,6 +99,13 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 
 Do not run non-dry-run `run` or `render` without explicit human approval.
 Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and returns the run to rendering. Gate 2 `retry_specific` is not implemented yet; use `revise` for a full re-plan.
+
+Only after the user explicitly declares the selected video complete, use `finalize` to clean up superseded media. The default preview is read-only. After reviewing its scope, a Coordinator may add `--apply`; this keeps the final run, source media referenced by the final manifest, and text records, while deleting video, audio, and image files from older runs, older QA, and unused project media. The result is recorded in `completion-record.json` inside the final run.
+
+```sh
+bin/pipeline finalize --config projects/my-first-run/project.yaml --json
+bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
+```
 
 ## Optional Shitate Import
 

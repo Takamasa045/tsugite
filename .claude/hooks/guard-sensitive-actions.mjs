@@ -17,6 +17,7 @@ if (destructive) {
 
 const approvalRequired = commands.find((command) => {
   if (/\b(?:\.\/)?bin\/pipeline\s+(?:gate|render|shitate-import)\b/.test(command)) return true;
+  if (/\b(?:\.\/)?bin\/pipeline\s+finalize\b/.test(command) && /\s--apply(?:\s|$)/.test(command)) return true;
   if (/\b(?:\.\/)?bin\/pipeline\s+run\b/.test(command) && !/\s--dry-run(?:\s|$)/.test(command)) return true;
   return /\bgit\s+(?:commit|push)\b/.test(command) || /\bgh\s+pr\s+create\b/.test(command);
 });

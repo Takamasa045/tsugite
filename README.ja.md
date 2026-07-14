@@ -80,6 +80,7 @@ bin/pipeline plan --config projects/my-first-run/project.yaml --json
 bin/pipeline review --config projects/my-first-run/project.yaml --open --json
 bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
+bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
 
 `review` は検証済みのproject・manifest・planから `dist/<run-id>/review/index.html` と `review-data.json` を生成します。字幕を優先した一枚絵コンテ、キャラクターシート、カット詳細、コスト、Gate 1コマンドを表示しますが、`state.json` は変更せず生成処理も実行しません。Gate 1のapproveと実行開始時には、この2ファイルが存在し、対象projectのレビューであることを検査します。出力先を変える場合は `--output <directory>`、別のstateルートを使う場合は `--state-dir <directory>`、ローカルHTMLを開く場合だけ `--open` を使います。Gate 1検査に使う場合はcanonicalな出力先を使ってください。
@@ -98,6 +99,13 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
 Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装です。全体を計画からやり直す場合は `revise` を使います。
+
+ユーザーが対象動画を明示的に「完成」と確定した後だけ、`finalize` で旧メディアを整理できます。引数なしのpreviewは削除予定と保持対象を表示するだけです。内容を確認後、Coordinatorが `--apply` を付けると、最終run、最終manifestが参照する元素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材の動画・音声・画像だけを削除します。実行結果は最終run内の `completion-record.json` に記録されます。
+
+```sh
+bin/pipeline finalize --config projects/my-first-run/project.yaml --json
+bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
+```
 
 ## Shitate連携（任意）
 
