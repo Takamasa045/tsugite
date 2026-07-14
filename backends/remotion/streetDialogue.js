@@ -5,8 +5,8 @@ import {
   STREET_THEME,
   activeBounce,
   chapterAt,
+  envelopeSpeakerImage,
   idleBob,
-  mouthLevelAt,
   popIn,
   stickyVisualAt,
   swapPhase
@@ -552,14 +552,6 @@ function Character({ speaker, images, caption, frame, fps, captionLocalFrame, is
       }
     })
   );
-}
-
-function envelopeSpeakerImage(speaker, caption, images, frame, fps, isActive) {
-  if (!isActive || speaker.mouth_frames?.length !== 3) return undefined;
-  const level = mouthLevelAt(caption, frame / fps);
-  if (level === undefined) return undefined;
-  const imageId = speaker.mouth_frames[level];
-  return (images ?? []).find((image) => image.id === imageId);
 }
 
 function SprayBlob({ color, pop }) {

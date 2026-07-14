@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Bash(npm run vendor:check)",
+      "Bash(npm run build)",
+      "Bash(npm run test)",
+      "Bash(npm run test *)",
+      "Bash(npm run test:coverage)",
+      "Bash(npm run check)",
+      "Bash(npm run viewer:check)",
+      "Bash(npm run viewer:build)",
+      "Bash(bin/pipeline doctor *)",
+      "Bash(bin/pipeline story-guides *)",
+      "Bash(bin/pipeline guides *)",
+      "Bash(bin/pipeline validate *)",
+      "Bash(bin/pipeline plan *)",
+      "Bash(bin/pipeline review *)",
+      "Bash(bin/pipeline viewer *)",
+      "Bash(bin/pipeline run * --dry-run *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git rev-parse *)",
+      "Bash(git branch --show-current)"
+    ],
+    "ask": [
+      "Bash(bin/pipeline shitate-import *)",
+      "Bash(bin/pipeline gate *)",
+      "Bash(bin/pipeline render *)",
+      "Bash(bin/pipeline run * --actor *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(gh pr create *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Bash(rm -rf *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean -fd*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-sensitive-actions.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

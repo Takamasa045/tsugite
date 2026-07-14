@@ -22,6 +22,14 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 8. Before Gate 2 approval, inspect `gate2-qc.json`; use approve_all only when the report and artifacts are acceptable.
 9. Before Gate 3 approval, inspect `render-report.json`, `gate3-qc.json`, and the final artifact.
 
+## Optional Shitate Handoff
+
+- Shitate is an optional external character-design repository and is not required for the normal pipeline.
+- Use `bin/pipeline shitate-import` only when the user explicitly requests a Shitate snapshot handoff.
+- Before import, show the source root, character, run ID, anchor, destination, and planned manifest/request updates, then obtain explicit approval.
+- Import copies a SHA-256-locked snapshot into `media/shitate/`; it does not generate media, update Gates, send data externally, or authorize non-dry-run execution.
+- After import, run `validate`, `plan`, `review`, and `run --dry-run` before considering Gate 1.
+
 ## Non-Negotiable Rules
 
 - Keep the core neutral; engine-specific execution details live inside adapter or backend directories, while source-backed advisory data lives in the prompt knowledge catalogs.
@@ -35,3 +43,4 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 - `re-render` is a Gate 3-only decision. It preserves Gate 1 and Gate 2 approval.
 - Gate 2 `retry_specific` is not executable yet; use `revise` for a full re-plan instead of claiming a targeted retry.
 - Record failures in `LESSONS.md` when they create a new operational rule.
+- In Claude Code, keep `.claude/settings.json` in default permission mode; routine checks may be allowlisted, but Gate decisions, non-dry-run execution, commit, push, and PR creation must remain approval-gated.

@@ -15,5 +15,7 @@
 - Gate 1を承認する前に `review` を実行し、`dist/<run-id>/review/index.html` と `review-data.json` を確認する。成果物がない、または対象projectと一致しない場合は承認しない。
 - generationを計画するときは `guides` と `plan.prompt_guidance` を確認し、catalogの存在を実行能力とみなさない。
 - Output QA は manifest と成果物検査のみ。編集や実行はしない。
+- 任意の `shitate-import` はShitateの選定済みrunをproject内へコピーするだけで、生成・Gate更新・外部送信を行わない。
+- Shitateの外部pathやsymlinkをmanifestから直接参照せず、`character-lock.json` 付きsnapshotを使う。
 - core にはエンジン固有名や固有コードを入れない。
 - 失敗から再利用できるルールが生まれたら `LESSONS.md` に追記する。

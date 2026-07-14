@@ -1,0 +1,46 @@
+{
+  "id": "web-app-development",
+  "name": "Webアプリ開発フロー",
+  "description": "要件整理からビルドまでを並列エージェントで進める",
+  "status": "running",
+  "startedAt": "2026-07-13T10:00:00+09:00",
+  "duration": 140,
+  "nodes": [
+    { "id": "requirements", "name": "要件整理", "type": "task", "agent": "product-agent", "description": "MVPの境界と完了条件を定義", "status": "pending", "progress": 0, "inputs": ["product-brief"], "outputs": ["requirements.md"], "logs": [] },
+    { "id": "ui", "name": "UI設計", "type": "agent", "agent": "design-agent", "description": "レイアウトと操作導線を設計", "status": "pending", "progress": 0, "inputs": ["requirements.md"], "outputs": ["ui-spec.md"], "logs": [] },
+    { "id": "model", "name": "データモデル", "type": "task", "agent": "architecture-agent", "description": "型と状態境界を設計", "status": "pending", "progress": 0, "inputs": ["requirements.md"], "outputs": ["types.ts"], "logs": [] },
+    { "id": "frontend", "name": "フロント実装", "type": "agent", "agent": "frontend-agent", "description": "Reactコンポーネントを実装", "status": "pending", "progress": 0, "inputs": ["ui-spec.md", "types.ts"], "outputs": ["src"], "logs": [] },
+    { "id": "tests", "name": "自動テスト", "type": "task", "agent": "test-agent", "description": "単体とUIの回帰テスト", "status": "pending", "progress": 0, "inputs": ["src"], "outputs": ["test-report.xml"], "logs": [] },
+    { "id": "review", "name": "レビュー", "type": "approval", "description": "変更差分と表示を確認", "status": "pending", "progress": 0, "inputs": ["src", "test-report.xml"], "outputs": ["review-approved"], "logs": [] },
+    { "id": "fix", "name": "修正", "type": "agent", "agent": "frontend-agent", "description": "レビュー指摘を反映", "status": "pending", "progress": 0, "inputs": ["review-approved"], "outputs": ["fixed-src"], "logs": [] },
+    { "id": "build", "name": "ビルド", "type": "output", "agent": "build-agent", "description": "静的配布物を生成", "status": "pending", "progress": 0, "inputs": ["fixed-src"], "outputs": ["dist"], "logs": [] }
+  ],
+  "edges": [
+    { "id": "e1", "source": "requirements", "target": "ui" },
+    { "id": "e2", "source": "requirements", "target": "model" },
+    { "id": "e3", "source": "ui", "target": "frontend" },
+    { "id": "e4", "source": "model", "target": "frontend" },
+    { "id": "e5", "source": "frontend", "target": "tests" },
+    { "id": "e6", "source": "tests", "target": "review" },
+    { "id": "e7", "source": "review", "target": "fix" },
+    { "id": "e8", "source": "fix", "target": "build" }
+  ],
+  "events": [
+    { "time": 0, "nodeId": "requirements", "status": "thinking", "progress": 10 },
+    { "time": 15, "nodeId": "requirements", "status": "completed", "progress": 100 },
+    { "time": 16, "nodeId": "ui", "status": "running", "progress": 10 },
+    { "time": 16, "nodeId": "model", "status": "running", "progress": 10 },
+    { "time": 35, "nodeId": "model", "status": "completed", "progress": 100 },
+    { "time": 42, "nodeId": "ui", "status": "completed", "progress": 100 },
+    { "time": 43, "nodeId": "frontend", "status": "running", "progress": 15 },
+    { "time": 80, "nodeId": "frontend", "status": "completed", "progress": 100 },
+    { "time": 81, "nodeId": "tests", "status": "testing", "progress": 20 },
+    { "time": 98, "nodeId": "tests", "status": "completed", "progress": 100 },
+    { "time": 99, "nodeId": "review", "status": "waiting_approval", "progress": 50 },
+    { "time": 108, "nodeId": "review", "status": "completed", "progress": 100 },
+    { "time": 109, "nodeId": "fix", "status": "running", "progress": 20 },
+    { "time": 125, "nodeId": "fix", "status": "completed", "progress": 100 },
+    { "time": 126, "nodeId": "build", "status": "running", "progress": 20 },
+    { "time": 140, "nodeId": "build", "status": "completed", "progress": 100 }
+  ]
+}

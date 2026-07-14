@@ -275,6 +275,21 @@ async function assembleGeneratedMediaRun(
     assetCount += 1;
   }
 
+  const audioTracks = [
+    ["bgm", assembled.audio.bgm],
+    ["narration", assembled.audio.narration],
+    ["sfx", assembled.audio.sfx]
+  ] as const;
+
+  for (const [track, entries] of audioTracks) {
+    for (const [index, entry] of entries.entries()) {
+      if (!entry.src) continue;
+      const copied = await copyAsset(entry.src, manifestDir, runDir, `assets/audio/${track}`, index, entry.id ?? track);
+      entry.src = copied.relativePath;
+      assetCount += 1;
+    }
+  }
+
   const generation = runCliGenerationAdapter(adapter, project.generation!.requests, { runId, runDir });
   if (!generation.ok) return generation;
 

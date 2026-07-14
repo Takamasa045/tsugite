@@ -31,6 +31,21 @@
 - FAQの質問リストからQUESTION/ANSWERカード付き掛け合いを生成するQ&Aテンプレート。
 - Remotion / HyperFrames backend 契約。
 - Coordinator role と Gate 承認を要求する guarded `run` / `render`。
+- `apps/workflow-viewer/` 配下の独立した読み取り専用3Dワークフロービューア。
+
+## 3D Workflow Viewer
+
+同梱サンプルまたはCLIが生成したTsugiteスナップショットを、状態付きノード、依存線、詳細パネル、シーク可能なイベント再生を備えた3D制作フロアとして表示します。工程名と説明は非エンジニア向けの日本語を優先し、内部名、技術参照、時刻、ログは「詳しい情報」にまとめます。CLIから現在状態を出力できますが、Viewer自体はバックエンド、プロバイダー呼び出し、project変更、実行権限を持ちません。
+
+```sh
+cd apps/workflow-viewer
+npm install
+npm run dev
+npm run test:coverage
+npm run build
+```
+
+JSON仕様、操作、サンプル、現在の制限は [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) を参照してください。
 
 ## セットアップ
 
@@ -63,10 +78,13 @@ bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 bin/pipeline validate --config projects/my-first-run/project.yaml --json
 bin/pipeline plan --config projects/my-first-run/project.yaml --json
 bin/pipeline review --config projects/my-first-run/project.yaml --open --json
+bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```
 
 `review` は検証済みのproject・manifest・planから `dist/<run-id>/review/index.html` と `review-data.json` を生成します。字幕を優先した一枚絵コンテ、キャラクターシート、カット詳細、コスト、Gate 1コマンドを表示しますが、`state.json` は変更せず生成処理も実行しません。Gate 1のapproveと実行開始時には、この2ファイルが存在し、対象projectのレビューであることを検査します。出力先を変える場合は `--output <directory>`、別のstateルートを使う場合は `--state-dir <directory>`、ローカルHTMLを開く場合だけ `--open` を使います。Gate 1検査に使う場合はcanonicalな出力先を使ってください。
+
+`viewer` は検証済みproject / planに、現在の `state.json`、`run-log.md`、review、Gate 2 / Gate 3のQC成果物を重ね、`dist/<run-id>/viewer/index.html` と `workflow.json` を生成します。`run-log.md` の実行サマリーと生成リクエスト記録は、素材生成工程の詳しい情報に表示されます。Gate 2 QCが参照する実ファイルがある場合は、代表的な生成映像2本・画像4枚・音声2本を `viewer/previews/` にコピーし、Gate 2の右パネルで直接プレビューできます。Gate 3 QCの完成動画も同じ場所へコピーし、完成動画の作成・確認・完了工程で再生できます。パス外参照、リンク、未対応形式、欠損ファイルは同梱しません。adapter実行、Gate更新、state書き込みを行わない読み取り専用スナップショットです。初回だけ `npm --prefix apps/workflow-viewer ci` でViewer依存を導入し、pipeline状態が変わったらコマンドを再実行してください。Tsugiteは完全なイベント履歴をまだ保存していないため、タイムラインはplanの工程順と現在の成果物から決定的に再構成します。`--output`、`--state-dir`、`--open` は `review` と同じローカル成果物規約です。
 
 `run` と `render` は意図的に Gate で保護されています。
 
@@ -80,6 +98,23 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
 Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装です。全体を計画からやり直す場合は `revise` を使います。
+
+## Shitate連携（任意）
+
+別リポジトリのShitateを使う場合だけ、選定済みrunとanchorをSHA-256 lock付きの不変snapshotとしてprojectへ取り込めます。通常のTsugite利用にはShitateの導入・設定は不要です。
+
+```sh
+bin/pipeline shitate-import \
+  --config projects/my-project/project.yaml \
+  --shitate-root /absolute/path/to/shitate \
+  --character hero \
+  --run-id 20260713_three-view_v1 \
+  --anchor references/images/main-anchor.png \
+  --request-id shot-001 \
+  --json
+```
+
+ローカルファイルのコピー、manifestへのanchor/speaker追加、任意requestのI2V化だけを行い、生成やGate更新は行いません。`negative.txt` は保存しますが、現行PixVerse video CLIに対応引数がないため黙って適用しません。詳しくは [Shitate連携](docs/shitate.md) を参照してください。
 
 ## ブログ掛け合いテンプレート
 

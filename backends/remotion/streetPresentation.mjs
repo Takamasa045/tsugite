@@ -80,6 +80,17 @@ export function mouthLevelAt(caption, second) {
   return levels[index];
 }
 
+// Resolves the active speaker's mouth image from the amplitude envelope.
+// Returns undefined when no envelope applies so callers can fall back to
+// timed cycling. Shared by every dialogue preset.
+export function envelopeSpeakerImage(speaker, caption, images, frame, fps, isActive) {
+  if (!isActive || speaker.mouth_frames?.length !== 3) return undefined;
+  const level = mouthLevelAt(caption, frame / fps);
+  if (level === undefined) return undefined;
+  const imageId = speaker.mouth_frames[level];
+  return (images ?? []).find((image) => image.id === imageId);
+}
+
 // Quantizes a normalized RMS envelope (0..1) into closed/half/open levels
 // and removes single-sample closures that would read as flicker.
 export function quantizeMouthLevels(rms) {

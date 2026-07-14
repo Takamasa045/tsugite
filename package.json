@@ -13,8 +13,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage --coverage.include='src/**/*.ts' --coverage.thresholds.statements=80 --coverage.thresholds.branches=80 --coverage.thresholds.functions=80 --coverage.thresholds.lines=80",
+    "test": "vitest run --exclude='apps/**'",
+    "test:coverage": "vitest run --exclude='apps/**' --coverage --coverage.include='src/**/*.ts' --coverage.thresholds.statements=80 --coverage.thresholds.branches=80 --coverage.thresholds.functions=80 --coverage.thresholds.lines=80",
+    "viewer:dev": "npm --prefix apps/workflow-viewer run dev",
+    "viewer:check": "npm --prefix apps/workflow-viewer run test:coverage && npm --prefix apps/workflow-viewer run typecheck",
+    "viewer:build": "npm --prefix apps/workflow-viewer run build",
     "vendor:check": "node scripts/check-vendor-boundary.mjs",
     "check": "npm run vendor:check && npm run build && npm run test:coverage"
   },

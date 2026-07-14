@@ -6,6 +6,7 @@ coverage/
 .env
 .env.*
 !.env.example
+.claude/settings.local.json
 projects/*
 !projects/.gitkeep
 !projects/README.md

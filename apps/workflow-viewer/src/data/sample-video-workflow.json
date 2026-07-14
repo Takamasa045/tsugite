@@ -1,0 +1,46 @@
+{
+  "id": "ai-video-production",
+  "name": "AI動画制作フロー",
+  "description": "企画からレンダリングまでをAIエージェントが連携する制作ライン",
+  "status": "running",
+  "startedAt": "2026-07-13T09:00:00+09:00",
+  "duration": 180,
+  "nodes": [
+    { "id": "plan", "name": "企画", "type": "task", "agent": "planner-agent", "description": "制作目標と構成を定める", "status": "pending", "progress": 0, "position": { "layer": 0, "order": 0 }, "inputs": ["user-request"], "outputs": ["production-plan.json"], "logs": [{ "time": 2, "level": "info", "message": "依頼を解析" }] },
+    { "id": "storyboard", "name": "絵コンテ", "type": "task", "agent": "story-agent", "description": "ショットと時間配分を設計", "status": "pending", "progress": 0, "position": { "layer": 1, "order": 0 }, "inputs": ["production-plan.json"], "outputs": ["storyboard.json"], "logs": [] },
+    { "id": "images", "name": "画像生成", "type": "agent", "agent": "image-agent", "description": "各シーンのキービジュアルを生成", "status": "pending", "progress": 0, "position": { "layer": 2, "order": 0 }, "inputs": ["storyboard.json"], "outputs": ["scene-images"], "logs": [] },
+    { "id": "voice", "name": "ナレーション", "type": "agent", "agent": "voice-agent", "description": "音声とタイミングを生成", "status": "pending", "progress": 0, "position": { "layer": 2, "order": 1 }, "inputs": ["storyboard.json"], "outputs": ["narration.wav"], "logs": [] },
+    { "id": "approval", "name": "素材承認", "type": "approval", "description": "生成素材の方向性を確認", "status": "pending", "progress": 0, "position": { "layer": 3, "order": 0 }, "inputs": ["scene-images", "narration.wav"], "outputs": ["approved-assets"], "logs": [] },
+    { "id": "edit", "name": "Remotion編集", "type": "agent", "agent": "edit-agent", "description": "映像・音声・テロップを統合", "status": "pending", "progress": 0, "position": { "layer": 4, "order": 0 }, "inputs": ["approved-assets"], "outputs": ["preview.mp4"], "logs": [] },
+    { "id": "qa", "name": "QA", "type": "task", "agent": "qa-agent", "description": "黒フレーム・音・表示を検査", "status": "pending", "progress": 0, "position": { "layer": 5, "order": 0 }, "inputs": ["preview.mp4"], "outputs": ["qa-report.json"], "logs": [] },
+    { "id": "render", "name": "最終レンダリング", "type": "output", "agent": "render-agent", "description": "配布用MP4を書き出す", "status": "pending", "progress": 0, "position": { "layer": 6, "order": 0 }, "inputs": ["qa-report.json"], "outputs": ["final.mp4"], "logs": [] }
+  ],
+  "edges": [
+    { "id": "e1", "source": "plan", "target": "storyboard" },
+    { "id": "e2", "source": "storyboard", "target": "images" },
+    { "id": "e3", "source": "storyboard", "target": "voice" },
+    { "id": "e4", "source": "images", "target": "approval" },
+    { "id": "e5", "source": "voice", "target": "approval" },
+    { "id": "e6", "source": "approval", "target": "edit" },
+    { "id": "e7", "source": "edit", "target": "qa" },
+    { "id": "e8", "source": "qa", "target": "render" }
+  ],
+  "events": [
+    { "time": 0, "nodeId": "plan", "status": "thinking", "progress": 5 },
+    { "time": 12, "nodeId": "plan", "status": "completed", "progress": 100 },
+    { "time": 13, "nodeId": "storyboard", "status": "running", "progress": 10 },
+    { "time": 30, "nodeId": "storyboard", "status": "completed", "progress": 100 },
+    { "time": 31, "nodeId": "images", "status": "running", "progress": 10 },
+    { "time": 31, "nodeId": "voice", "status": "running", "progress": 15 },
+    { "time": 62, "nodeId": "voice", "status": "completed", "progress": 100 },
+    { "time": 70, "nodeId": "images", "status": "completed", "progress": 100 },
+    { "time": 71, "nodeId": "approval", "status": "waiting_approval", "progress": 50 },
+    { "time": 88, "nodeId": "approval", "status": "completed", "progress": 100 },
+    { "time": 89, "nodeId": "edit", "status": "running", "progress": 15 },
+    { "time": 125, "nodeId": "edit", "status": "completed", "progress": 100 },
+    { "time": 126, "nodeId": "qa", "status": "testing", "progress": 20 },
+    { "time": 148, "nodeId": "qa", "status": "completed", "progress": 100 },
+    { "time": 149, "nodeId": "render", "status": "running", "progress": 10 },
+    { "time": 180, "nodeId": "render", "status": "completed", "progress": 100 }
+  ]
+}

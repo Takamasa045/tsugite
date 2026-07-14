@@ -23,7 +23,7 @@ export function runPixverseVideo(input, options = {}) {
   const createArgs = buildPixverseCreateArgs(request, payload.run_id);
 
   const create = runJsonCommand(pixverse, createArgs);
-  const taskId = findFirstString(create, ["video_id", "videoId", "task_id", "taskId", "id"]);
+  const taskId = findTaskId(create);
   if (!taskId) {
     throw new AdapterError("PixVerse CLI did not return a task id", TRANSIENT);
   }
@@ -35,7 +35,9 @@ export function runPixverseVideo(input, options = {}) {
 
   return {
     request_id: request.id,
-    credits: findFirstNumber(wait, ["credits", "credit", "cost"]) ?? findFirstNumber(create, ["credits", "credit", "cost"]) ?? 0,
+    credits: findNumberByKeys(wait, ["credits", "credit", "cost", "cost_credits", "costCredits"])
+      ?? findNumberByKeys(create, ["credits", "credit", "cost", "cost_credits", "costCredits"])
+      ?? 0,
     clips: [
       {
         id: `${request.id}-clip`,
@@ -101,6 +103,16 @@ export function buildPixverseCreateArgs(request, runId) {
 export function normalizeError(error) {
   if (error instanceof AdapterError) return error;
   return new AdapterError(error instanceof Error ? error.message : String(error), TRANSIENT);
+}
+
+export function findTaskId(value) {
+  const found = findTaskIdValue(value);
+  return found === undefined ? undefined : String(found);
+}
+
+export function findNumberByKeys(value, keys) {
+  const found = findKeyedValue(value, keys, (candidate) => typeof candidate === "number" && Number.isFinite(candidate));
+  return typeof found === "number" ? found : undefined;
 }
 
 export async function readStdin() {
@@ -220,9 +232,50 @@ function findFirstString(value, keys) {
   return typeof found === "string" ? found : undefined;
 }
 
-function findFirstNumber(value, keys) {
-  const found = findFirst(value, keys, (candidate) => typeof candidate === "number" && Number.isFinite(candidate));
-  return typeof found === "number" ? found : undefined;
+function findTaskIdValue(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findTaskIdValue(item);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") return undefined;
+
+  for (const key of ["video_id", "videoId", "task_id", "taskId", "id"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.length > 0) return candidate;
+    if (typeof candidate === "number" && Number.isSafeInteger(candidate) && candidate > 0) return candidate;
+  }
+
+  for (const item of Object.values(value)) {
+    const found = findTaskIdValue(item);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function findKeyedValue(value, keys, predicate) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findKeyedValue(item, keys, predicate);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") return undefined;
+
+  for (const key of keys) {
+    if (predicate(value[key])) return value[key];
+  }
+
+  for (const item of Object.values(value)) {
+    const found = findKeyedValue(item, keys, predicate);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 function findFirst(value, keys, predicate) {

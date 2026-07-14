@@ -36,7 +36,7 @@ sources:
     accessed_at: 2026-07-10
 models:
   - id: video-3.0
-    aliases: [kling-v3, kling-video-3.0, kling-3.0]
+    aliases: [kling-v3, kling-video-3.0, kling-3.0, kling-3.0-pro, kling-3.0-standard]
     verified_at: 2026-07-10
     review_after: 2026-10-10
     input_modes: [text-to-video, image-to-video]

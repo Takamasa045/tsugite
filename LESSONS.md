@@ -24,5 +24,18 @@ Append-only format:
 2026-07-11 / doctorがwrapperのnodeやpreflight先頭のnpxだけで外部能力をready判定した / provider/backend実体とhandoff準備を検査していなかった / adapter/backendが非課金setup checkを宣言し、安全に自動確認できないhandoffや認証はmanualとしてready扱いしない / doctor済
 2026-07-11 / 掛け合い動画が激しい口パク、不適切な配置、不自然な窓枠で会話らしく見えなかった / キャラクターを単なる矩形素材として置き、発話表現と画面構成を別々に設計した / 激しい口パクと窓枠形式を再利用せず、丸型など自然な切り抜き、吹き出し、話者交代が伝わる控えめな会話アニメーションを一体設計する / rejected
 2026-07-11 / 最終動画の尺と形式が正しくても黒画面や長い無音を承認できた / Gate 3がffprobeのメタデータだけを検査していた / ffmpegで1秒以上の黒区間と3秒以上の無音区間を検出し、内容解析失敗時もfail closedにする / qa済
+2026-07-11 / a run rendered before a gate3-qc schema upgrade could not be approved afterwards / the stored report lacked fields the new approval validation requires / when gate-3 approval fails on report shape after a core upgrade, use the gate-3 re-render decision to regenerate the report instead of editing it / validate済
+2026-07-12 / Fish Audioを利用不可と誤判定した / FISH_API_KEY環境変数だけを確認し、既存のfish-audio-ttsとmacOS Keychain service fish-audio-api-keyを確認しなかった / Fish Audio作業は最初にfish-audio-doctorを実行し、環境変数が空でもKeychain経路と既存helperを確認してから可否判定する / validate済
+2026-07-12 / いとぱん・しばの掛け合いに女性の共通ボイスと8fps口パクを流用した / 話者別の性別・声質を固定せず、音声エンベロープを使わずに順番アニメーションしていた / 掛け合いは話者ごとのpersonaとFish reference_idをmanifest生成前に固定し、実音声から6Hz以下の平滑化mouth_levelsを作ってからレンダーする / qa済
+2026-07-12 / provider BGMの末尾に0.86秒の無音が残りGate 3を通過した / Gate 3の無音検査は長い事故を止める閾値で、告知動画の締め品質は保証しない / 完成扱いの告知動画は最終ミックスの末尾1秒もsilencedetectで確認し、必要ならprovider生成SEで意図的に締める / qa済
 2026-07-12 / storyboard HTMLなしでGate 1からrunへ進められた / reviewが独立コマンドのままでGate 1とrun-logに接続されていなかった / Gate 1承認前に対象runのreview/index.htmlとreview-data.jsonを検査し、run-logにも相対パスを残す / validate済
 2026-07-12 / Vitest 4の単独更新でnpm ciと既存カバレッジゲートが壊れた / vitestとcoverage-v8のpeer majorと分岐率が同時に変わった / Vitest本体とcoverage-v8は同じmajorで更新し、npm ciとnpm run checkを通してから公開する / validate済
+2026-07-12 / 歩行カットが足踏みに見えて物語の進行を損ねた / 動作語だけで人物の開始位置と終了位置を固定していなかった / 歩行・移動カットは画面内の異なる開始・終了ゾーンと移動距離をプロンプトに明示し、1fpsコンタクトで位置の変化を確認してから採用する / qa済
+2026-07-12 / 生成クリップの解像度がプロジェクト契約と異なりGate 2で停止した / 生成元の720pラベルだけを信頼し、実ファイルの幅高さを事前照合していなかった / 新規クリップは組み立て前にffprobeでmanifestの解像度・fpsを照合し、必要なら対象仕様へ正規化してから新runを作る / qa済
+2026-07-12 / 朝採りを掲げながら水やり後に収穫する構成で時間帯が曖昧になった / 作業順、光、環境音を別々に更新し、朝という物語上の制約を全レイヤーへ固定していなかった / 時間帯が主題の動画では、カット順・ナレーション・背景光・環境音を同じ時間帯へ明示的にそろえ、代表フレームで連続性を確認する / qa済
+2026-07-12 / 直売所の二人が同一人物に見えた / 2人の参照を渡しても帽子・上着・左右位置を生成中の不変条件として明示せず、最終確認も疎だった / 複数キャラのカットは人物ごとに衣装色・帽子形状・髪型・画面位置を固定し、最終レンダ後も2fps以上の密なフレームで重複・交換・同一化を除外する / qa済
+2026-07-13 / ユーザーが完成と判断した動画に正本リンクだけを返し、改善の学びを完了成果物として渡せなかった / 個別のQA・LESSONS記録を残せば完成時の振り返りは不要だと取り違えた / 完成宣言の前に、正本・QA・代表フレーム・良かったこと・悪かったこと・次回固定ルールを一つのユーザー向け成果物へ統合する / qa済
+2026-07-13 / new character snapshot could be redirected outside the project through a symlinked parent / only an already-existing final destination was checked / validate every destination parent with lstat before mkdir or copy and require real directories inside the project root / validate済
+2026-07-14 / generation runのBGMとSFXがGate 2でmissingになった / generation組み立てが画像と生成clipだけをrunDirへ固定し、audioを元pathのまま残していた / generationでも全audioを課金adapter実行前にrunDirへcopyし、asset_count、QC、resumeを同じ契約で検証する / validate済
+2026-07-14 / provider尺のままでは字幕とローカルendcardが30秒設計からずれた / 生成可能尺と編集尺を同一視し、generation組み立て後のclip契約を再確認していなかった / Gate 2前に生成clipを編集尺へ物理正規化し、非生成clipを含む最終manifestの合計尺と順序を再検査する / qa済
+2026-07-14 / 地名の読みと同音語がTTS・STTで誤認され、最終文が尺を超えた / 表示表記・読み指定・TTS用の自然な言い換えを分けず、完成ミックス後のSTTまで確認していなかった / 固有地名はユーザー確認済みの読みをTTS本文へ固定し、個別音声と完成版の両方をSTT確認し、5秒枠は35モーラ前後を上限にする / qa済

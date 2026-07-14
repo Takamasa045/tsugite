@@ -1,0 +1,42 @@
+{
+  "id": "error-recovery",
+  "name": "生成エラー復旧フロー",
+  "description": "生成失敗、切り分け、ユーザー確認、再試行、復旧を追体験する",
+  "status": "running",
+  "startedAt": "2026-07-13T11:00:00+09:00",
+  "duration": 120,
+  "nodes": [
+    { "id": "request", "name": "依頼解析", "type": "task", "agent": "planner-agent", "description": "入力と制約を解析", "status": "pending", "progress": 0, "position": { "layer": 0, "order": 0 }, "inputs": ["user-request"], "outputs": ["job.json"], "logs": [] },
+    { "id": "generate", "name": "初回生成", "type": "agent", "agent": "generation-agent", "description": "初回ジョブを実行", "status": "pending", "progress": 0, "position": { "layer": 1, "order": 0 }, "inputs": ["job.json"], "outputs": ["draft-assets"], "logs": [{ "time": 28, "level": "error", "message": "モデルがタイムアウト" }] },
+    { "id": "diagnose", "name": "エラー切り分け", "type": "task", "agent": "diagnostic-agent", "description": "失敗原因と安全な再試行条件を特定", "status": "pending", "progress": 0, "position": { "layer": 2, "order": 0 }, "inputs": ["failed-job"], "outputs": ["recovery-plan.json"], "logs": [] },
+    { "id": "approval", "name": "再試行確認", "type": "approval", "description": "ユーザーが代替設定を確認", "status": "pending", "progress": 0, "position": { "layer": 3, "order": 0 }, "inputs": ["recovery-plan.json"], "outputs": ["retry-approved"], "logs": [] },
+    { "id": "retry", "name": "再試行", "type": "agent", "agent": "generation-agent", "description": "負荷を下げた設定で再生成", "status": "pending", "progress": 0, "position": { "layer": 4, "order": 0 }, "inputs": ["retry-approved"], "outputs": ["recovered-assets"], "logs": [] },
+    { "id": "verify", "name": "復旧検証", "type": "task", "agent": "qa-agent", "description": "再生成結果の整合性を検査", "status": "pending", "progress": 0, "position": { "layer": 5, "order": 0 }, "inputs": ["recovered-assets"], "outputs": ["verification.json"], "logs": [] },
+    { "id": "output", "name": "復旧完了", "type": "output", "description": "検証済み成果物を確定", "status": "pending", "progress": 0, "position": { "layer": 6, "order": 0 }, "inputs": ["verification.json"], "outputs": ["final-assets"], "logs": [] }
+  ],
+  "edges": [
+    { "id": "e1", "source": "request", "target": "generate" },
+    { "id": "e2", "source": "generate", "target": "diagnose" },
+    { "id": "e3", "source": "diagnose", "target": "approval" },
+    { "id": "e4", "source": "approval", "target": "retry" },
+    { "id": "e5", "source": "retry", "target": "verify" },
+    { "id": "e6", "source": "verify", "target": "output" }
+  ],
+  "events": [
+    { "time": 0, "nodeId": "request", "status": "running", "progress": 10 },
+    { "time": 10, "nodeId": "request", "status": "completed", "progress": 100 },
+    { "time": 11, "nodeId": "generate", "status": "running", "progress": 15 },
+    { "time": 28, "nodeId": "generate", "status": "error", "progress": 44, "message": "生成モデルがタイムアウト" },
+    { "time": 29, "nodeId": "diagnose", "status": "thinking", "progress": 10 },
+    { "time": 43, "nodeId": "diagnose", "status": "completed", "progress": 100 },
+    { "time": 44, "nodeId": "approval", "status": "waiting_approval", "progress": 50 },
+    { "time": 60, "nodeId": "approval", "status": "completed", "progress": 100 },
+    { "time": 61, "nodeId": "retry", "status": "running", "progress": 10 },
+    { "time": 78, "nodeId": "retry", "status": "running", "progress": 65 },
+    { "time": 90, "nodeId": "retry", "status": "completed", "progress": 100 },
+    { "time": 91, "nodeId": "verify", "status": "testing", "progress": 15 },
+    { "time": 108, "nodeId": "verify", "status": "completed", "progress": 100 },
+    { "time": 109, "nodeId": "output", "status": "running", "progress": 25 },
+    { "time": 120, "nodeId": "output", "status": "completed", "progress": 100 }
+  ]
+}

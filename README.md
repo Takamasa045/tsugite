@@ -31,6 +31,21 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 - A Remotion Q&A dialogue template for FAQ-style question lists with QUESTION/ANSWER cards.
 - Remotion and HyperFrames backend contracts.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
+- A standalone, read-only 3D workflow viewer under `apps/workflow-viewer/`.
+
+## 3D Workflow Viewer
+
+The viewer turns bundled samples or CLI-generated Tsugite snapshots into a navigable 3D production floor with status-aware nodes, dependency lines, node details, and seekable event playback. Default labels and summaries use plain, non-technical Japanese; internal names, references, timestamps, and logs stay under the collapsed details section. The CLI can export current state into it, while the Viewer itself keeps no backend, provider calls, project mutation, or execution authority.
+
+```sh
+cd apps/workflow-viewer
+npm install
+npm run dev
+npm run test:coverage
+npm run build
+```
+
+See [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) for the JSON contract, controls, samples, and current limitations.
 
 ## Setup
 
@@ -63,10 +78,13 @@ bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 bin/pipeline validate --config projects/my-first-run/project.yaml --json
 bin/pipeline plan --config projects/my-first-run/project.yaml --json
 bin/pipeline review --config projects/my-first-run/project.yaml --open --json
+bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```
 
 `review` derives `dist/<run-id>/review/index.html` and `review-data.json` from the validated project, manifest, and plan. It presents a caption-first storyboard, character sheets, shot details, cost, and Gate 1 commands without changing `state.json` or executing generation. Gate 1 approval and run start verify that both artifacts exist and belong to the current project. Use `--output <directory>` to override the destination, `--state-dir <directory>` for an alternate state root, and `--open` only when you want to open the local HTML. Use the canonical output location when the artifact must satisfy Gate 1.
+
+`viewer` converts the validated project and plan plus the current `state.json`, `run-log.md`, review, and Gate 2 / Gate 3 QC artifacts into `dist/<run-id>/viewer/index.html` and `workflow.json`. Run summaries and generation request records from `run-log.md` appear in the material-generation details. When Gate 2 QC references real media, the snapshot copies a bounded preview set (2 generated videos, 4 images, and 2 audio files) into `viewer/previews/`; the Gate 2 panel can display or play them directly. The Gate 3 final video is also copied and appears on the render, final-approval, and completion steps. References outside the run directory, links, missing files, and unsupported extensions are not copied. It is a read-only snapshot: it does not run adapters, change gates, or write state. Install the Viewer dependencies once with `npm --prefix apps/workflow-viewer ci`; rerun the command after the pipeline state changes. The timeline is deterministically reconstructed from the plan order and current artifacts because Tsugite does not yet persist a complete event history. `--output`, `--state-dir`, and `--open` follow the same local-artifact conventions as `review`.
 
 `run` and `render` are intentionally gated:
 
@@ -80,6 +98,23 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 
 Do not run non-dry-run `run` or `render` without explicit human approval.
 Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and returns the run to rendering. Gate 2 `retry_specific` is not implemented yet; use `revise` for a full re-plan.
+
+## Optional Shitate Import
+
+When using the separate Shitate repository, optionally import a selected run and anchor as an immutable, SHA-256-locked project snapshot. Shitate is not required for normal Tsugite usage.
+
+```sh
+bin/pipeline shitate-import \
+  --config projects/my-project/project.yaml \
+  --shitate-root /absolute/path/to/shitate \
+  --character hero \
+  --run-id 20260713_three-view_v1 \
+  --anchor references/images/main-anchor.png \
+  --request-id shot-001 \
+  --json
+```
+
+The command copies local files, adds the anchor and speaker to the manifest, and optionally changes one request to I2V. It never runs generation or changes a Gate. `negative.txt` is preserved but not silently applied because the current PixVerse video CLI has no negative-prompt option. See [Shitate Integration](docs/shitate.md).
 
 ## Blog Dialogue Template
 

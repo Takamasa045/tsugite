@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPixverseCreateArgs } from "../adapters/pixverse/pixverseCli.mjs";
+import { buildPixverseCreateArgs, findNumberByKeys, findTaskId } from "../adapters/pixverse/pixverseCli.mjs";
 
 describe("PixVerse CLI request mapping", () => {
   it("omits aspect-ratio for image-to-video because framing comes from the image", () => {
@@ -29,5 +29,19 @@ describe("PixVerse CLI request mapping", () => {
     }, "demo-run");
 
     expect(args).toEqual(expect.arrayContaining(["--aspect-ratio", "9:16"]));
+  });
+
+  it("normalizes a numeric video_id and prefers it over trace_id", () => {
+    expect(findTaskId({ video_id: 413102731506491, trace_id: "trace-should-not-be-used" })).toBe("413102731506491");
+  });
+
+  it("accepts a string task id without treating trace_id as a fallback", () => {
+    expect(findTaskId({ task_id: "task-123", trace_id: "trace-456" })).toBe("task-123");
+    expect(findTaskId({ trace_id: "trace-456" })).toBeUndefined();
+  });
+
+  it("reads cost credits only from the declared credit keys", () => {
+    expect(findNumberByKeys({ cost_credits: 125, video_id: 413102731506491 }, ["cost_credits"])).toBe(125);
+    expect(findNumberByKeys({ video_id: 413102731506491 }, ["cost_credits"])).toBeUndefined();
   });
 });

@@ -182,6 +182,61 @@ describe("local media run assembly", () => {
     expect(runLog).toContain("review_data_path: review/review-data.json");
   });
 
+  it("pins audio assets for generated runs so Gate 2 can validate and resume them", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const projectDir = await mkdtemp(join(tmpdir(), "tsugite-generation-audio-input-"));
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-generation-audio-run-"));
+    const audioPath = join(projectDir, "country-day.wav");
+    await writeFile(audioPath, silentWav());
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const manifest = {
+      ...validation.manifest!,
+      audio: {
+        ...validation.manifest!.audio,
+        bgm: [
+          {
+            id: "country-day",
+            src: "country-day.wav",
+            start: 0,
+            end: 1,
+            volume: 0.4
+          }
+        ]
+      }
+    };
+
+    const result = await assembleLocalMediaRun(
+      validation.project!,
+      manifest,
+      {
+        manifestPath: join(projectDir, "manifest.json"),
+        stateDir,
+        state: running
+      },
+      validation.adapter
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.assetCount).toBe(2);
+    const assembled = JSON.parse(await readFile(result.manifestPath!, "utf8"));
+    const qc = JSON.parse(await readFile(result.qcReportPath!, "utf8"));
+    expect(assembled.audio.bgm[0].src).toBe("assets/audio/bgm/001-country-day.wav");
+    expect(qc.ok).toBe(true);
+    expect(qc.assets.filter((asset: { kind: string }) => asset.kind === "audio")).toHaveLength(1);
+    await expect(access(join(stateDir, "cli-generation-run", assembled.audio.bgm[0].src))).resolves.toBeUndefined();
+
+    const resumed = await assembleLocalMediaRun(validation.project!, manifest, {
+      manifestPath: join(projectDir, "manifest.json"),
+      stateDir,
+      state: result.state!
+    }, validation.adapter);
+    expect(resumed.ok).toBe(true);
+    expect(resumed.alreadyAssembled).toBe(true);
+  });
+
   it("resumes generated runs with the original asset count and actual credits", async () => {
     const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]
@@ -621,3 +676,24 @@ describe("local media run assembly", () => {
     expect(result.issues[0]?.code).toBe("run.adapter_command_missing");
   });
 });
+
+function silentWav(): Buffer {
+  const sampleRate = 8_000;
+  const sampleCount = sampleRate;
+  const dataSize = sampleCount * 2;
+  const wav = Buffer.alloc(44 + dataSize);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + dataSize, 4);
+  wav.write("WAVE", 8);
+  wav.write("fmt ", 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(dataSize, 40);
+  return wav;
+}

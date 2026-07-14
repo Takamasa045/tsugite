@@ -34,6 +34,7 @@ import {
 import { validateProject } from "./project/validateProject.js";
 import type { Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
+import { openWorkflowViewer, writeWorkflowViewer } from "./viewer/artifact.js";
 
 type ParsedArgs = {
   command: string;
@@ -50,6 +51,15 @@ type ParsedArgs = {
   output?: string;
   request?: string;
   duration?: string;
+  shitateRoot?: string;
+  character?: string;
+  runId?: string;
+  anchor?: string;
+  requestId?: string;
+  speakerId?: string;
+  displayName?: string;
+  side?: string;
+  accent?: string;
   open: boolean;
   issues: Issue[];
 };
@@ -106,6 +116,45 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
+  if (args.command === "shitate-import") {
+    const shitateRoot = args.shitateRoot ?? process.env.SHITATE_ROOT;
+    const requiredIssues = [
+      ...(shitateRoot ? [] : [{ code: "shitate_import.root_required", message: "--shitate-root or SHITATE_ROOT is required" }]),
+      ...(args.character ? [] : [{ code: "shitate_import.character_required", message: "--character is required" }]),
+      ...(args.runId ? [] : [{ code: "shitate_import.run_id_required", message: "--run-id is required" }])
+    ];
+    if (requiredIssues.length > 0) {
+      return output(args, 1, { ok: false, command: "shitate-import", issues: requiredIssues });
+    }
+    const { importShitateSnapshot } = await import("./integrations/shitate.js");
+    const imported = await importShitateSnapshot({
+      configPath: args.config,
+      shitateRoot: shitateRoot!,
+      character: args.character!,
+      runId: args.runId!,
+      ...(args.anchor ? { anchor: args.anchor } : {}),
+      ...(args.requestId ? { requestId: args.requestId } : {}),
+      ...(args.speakerId ? { speakerId: args.speakerId } : {}),
+      ...(args.displayName ? { displayName: args.displayName } : {}),
+      ...(args.side ? { side: args.side as "left" | "right" } : {}),
+      ...(args.accent ? { accent: args.accent } : {})
+    });
+    return output(args, imported.ok ? 0 : 1, {
+      ok: imported.ok,
+      command: "shitate-import",
+      issues: imported.issues,
+      character: args.character,
+      run_id: args.runId,
+      destination: imported.destination,
+      lock_path: imported.lockPath,
+      image_id: imported.imageId,
+      speaker_id: imported.speakerId,
+      request_image_path: imported.requestImagePath,
+      already_imported: imported.alreadyImported,
+      warnings: imported.warnings
+    });
+  }
+
   const validation = await validateProject(args.config);
   if (args.command === "validate") {
     return output(args, validation.ok ? 0 : 1, {
@@ -135,6 +184,65 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.promptGuides
       )
     });
+  }
+
+  if (args.command === "viewer") {
+    const plan = createPlan(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.promptGuides
+    );
+    try {
+      const viewer = await writeWorkflowViewer({
+        configPath: args.config,
+        project: validation.project!,
+        plan,
+        outputDir: args.output,
+        stateDir: args.stateDir
+      });
+      if (args.open) {
+        try {
+          await openWorkflowViewer(viewer.viewerPath);
+        } catch (error) {
+          return output(args, 1, {
+            ok: false,
+            command: "viewer",
+            viewer_path: viewer.viewerPath,
+            workflow_path: viewer.workflowPath,
+            issues: [
+              {
+                code: "viewer.open_failed",
+                message: error instanceof Error ? error.message : String(error),
+                path: viewer.viewerPath
+              }
+            ]
+          });
+        }
+      }
+      return output(args, 0, {
+        ok: true,
+        command: "viewer",
+        viewer_path: viewer.viewerPath,
+        workflow_path: viewer.workflowPath,
+        output_dir: viewer.outputDir,
+        state_found: viewer.stateFound,
+        opened: args.open
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "viewer",
+        issues: [
+          {
+            code: "viewer.write_failed",
+            message: error instanceof Error ? error.message : String(error),
+            path: args.output
+          }
+        ]
+      });
+    }
   }
 
   if (args.command === "review") {
@@ -371,7 +479,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -383,7 +491,16 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--input-mode": "inputMode",
       "--output": "output",
       "--request": "request",
-      "--duration": "duration"
+      "--duration": "duration",
+      "--shitate-root": "shitateRoot",
+      "--character": "character",
+      "--run-id": "runId",
+      "--anchor": "anchor",
+      "--request-id": "requestId",
+      "--speaker-id": "speakerId",
+      "--display-name": "displayName",
+      "--side": "side",
+      "--accent": "accent"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -421,8 +538,10 @@ function isOptionAllowed(command: string, option: string): boolean {
     doctor: new Set(["--config"]),
     guides: new Set(["--catalog", "--model", "--input-mode"]),
     "story-guides": new Set(["--request", "--duration"]),
+    "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
+    viewer: new Set(["--config", "--output", "--state-dir", "--open"]),
     review: new Set(["--config", "--output", "--state-dir", "--open"]),
     run: new Set(["--config", "--dry-run", "--actor", "--state-dir"]),
     gate: new Set(["--config", "--actor", "--gate", "--decision", "--state-dir"]),
