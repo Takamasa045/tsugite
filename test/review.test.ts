@@ -167,6 +167,28 @@ describe("creative review", () => {
     expect(html).toContain("prefers-reduced-motion");
   });
 
+  it("renders an editing-desk layout with clear review navigation and decision context", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+
+    const html = renderReviewHtml(
+      createReviewDocument(project, manifest, createPlan(project, manifest))
+    );
+
+    expect(html).toContain('class="review-nav"');
+    expect(html).toContain('aria-label="レビュー内ナビゲーション"');
+    expect(html).toContain('href="#storyboard-title"');
+    expect(html).toContain('href="#characters-title"');
+    expect(html).toContain('href="#decision-title"');
+    expect(html).toContain('class="screening-room"');
+    expect(html).toContain('class="film-strip"');
+    expect(html).toContain('class="shot-index"');
+    expect(html).toContain('aria-label="Gate 1 承認待ち"');
+    expect(html).toContain('data-design="joinery-review"');
+    expect(html).toContain('class="joinery-mark"');
+    expect(html).toContain("映像制作の事前確認");
+  });
+
   it("writes deterministic review artifacts and stages only referenced manifest images", async () => {
     const root = await mkdtemp(join(tmpdir(), "tsugite-review-"));
     await mkdir(join(root, "media"));
