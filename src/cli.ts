@@ -2,6 +2,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectEnvironment } from "./doctor.js";
 import type { AdapterDefinition } from "./adapters/registry.js";
+import { analyzeProject } from "./orchestrator/analyze.js";
 import {
   loadPromptGuideCatalog,
   loadPromptGuideById,
@@ -211,9 +212,33 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.project!,
         validation.manifest!,
         validation.adapter,
-        validation.analysisAdapter,
+        validation.analysisAdapters ?? validation.analysisAdapter,
         validation.promptGuides
       )
+    });
+  }
+
+  if (args.command === "analyze") {
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) return output(args, 1, { ok: false, command: "analyze", issues: [coordinatorIssue] });
+    const analyzed = await analyzeProject(
+      args.config,
+      validation.project!,
+      validation.manifest!,
+      validation.analysisAdapters ?? validation.analysisAdapter,
+      args.stateDir
+    );
+    return output(args, analyzed.ok ? 0 : 1, {
+      ok: analyzed.ok,
+      command: "analyze",
+      issues: analyzed.issues,
+      analysis_path: analyzed.analysisPath,
+      proposal_path: analyzed.proposalPath,
+      handoff_path: analyzed.handoffPath,
+      result_count: analyzed.resultCount,
+      actual_credits: analyzed.actualCredits,
+      api_used: analyzed.apiUsed,
+      network_used: analyzed.networkUsed
     });
   }
 
@@ -222,7 +247,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.project!,
       validation.manifest!,
       validation.adapter,
-      validation.analysisAdapter,
+      validation.analysisAdapters ?? validation.analysisAdapter,
       validation.promptGuides
     );
     try {
@@ -281,7 +306,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.project!,
       validation.manifest!,
       validation.adapter,
-      validation.analysisAdapter,
+      validation.analysisAdapters ?? validation.analysisAdapter,
       validation.promptGuides
     );
     try {
@@ -345,7 +370,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.project!,
         validation.manifest!,
         validation.adapter,
-        validation.analysisAdapter,
+        validation.analysisAdapters ?? validation.analysisAdapter,
         validation.backend,
         validation.promptGuides
       )
@@ -406,16 +431,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const review = await inspectGate1Review({
       configPath: args.config!,
       project: validation.project!,
+      manifest: validation.manifest!,
       stateDir: stateResult.stateDir
     });
     if (!review.ok) {
       return output(args, 1, { ok: false, command: "run", issues: review.issues });
     }
+    if (
+      validation.project!.analysis &&
+      stateResult.state.gates.gate_1.approved_input_digest !== review.approvalDigest
+    ) {
+      return output(args, 1, {
+        ok: false,
+        command: "run",
+        issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current analysis artifacts" }]
+      });
+    }
 
     const runResult = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
       manifestPath: resolve(dirname(resolve(args.config!)), validation.project!.manifest),
       stateDir: stateResult.stateDir,
-      state: stateResult.state
+      state: stateResult.state,
+      ...(review.compilation ? { editorial: review.compilation } : {})
     }, validation.adapter);
     return output(args, runResult.ok ? 0 : 1, {
       ok: runResult.ok,
@@ -424,6 +461,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       manifest_path: runResult.manifestPath,
       qc_report_path: runResult.qcReportPath,
       run_log_path: runResult.runLogPath,
+      edl_path: runResult.edlPath,
       asset_count: runResult.assetCount,
       actual_credits: runResult.actualCredits,
       already_assembled: runResult.alreadyAssembled,
@@ -444,6 +482,50 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ok: false,
         command: "render",
         issues: [{ code: "render.requires_gate_2_approval", message: "Gate 2 must be approved before render" }]
+      });
+    }
+
+    let editorialCompilation;
+    if (validation.project!.edit.editorial) {
+      const review = await inspectGate1Review({
+        configPath: args.config!,
+        project: validation.project!,
+        manifest: validation.manifest!,
+        stateDir: stateResult.stateDir
+      });
+      if (!review.ok) return output(args, 1, { ok: false, command: "render", issues: review.issues });
+      if (
+        stateResult.state.gates.gate_1.approved_input_digest !== review.approvalDigest ||
+        !review.compilation
+      ) {
+        return output(args, 1, {
+          ok: false,
+          command: "render",
+          issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current editorial EDL" }]
+        });
+      }
+      editorialCompilation = review.compilation;
+    }
+    const gate2Inspection = await inspectGate2RunForApproval(
+      validation.project!,
+      validation.manifest!,
+      stateResult.stateDir,
+      validation.adapter,
+      editorialCompilation
+    );
+    if (!gate2Inspection.ok) {
+      const issues = gate2Inspection.issues.map((issue) =>
+        issue.code === "run.manifest_missing"
+          ? { ...issue, code: "render.manifest_missing", message: "assembled manifest is missing" }
+          : issue
+      );
+      return output(args, 1, { ok: false, command: "render", issues });
+    }
+    if (stateResult.state.gates.gate_2.approved_input_digest !== gate2Inspection.approvalDigest) {
+      return output(args, 1, {
+        ok: false,
+        command: "render",
+        issues: [{ code: "render.gate2_artifacts_changed", message: "Gate 2 approval does not match the current run artifacts" }]
       });
     }
 
@@ -585,6 +667,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
+    analyze: new Set(["--config", "--actor", "--state-dir"]),
     viewer: new Set(["--config", "--output", "--state-dir", "--open"]),
     review: new Set(["--config", "--output", "--state-dir", "--open"]),
     finalize: new Set(["--config", "--state-dir", "--actor", "--apply"]),
@@ -762,10 +845,12 @@ async function recordGate(
   let state = existing.state ?? createPlannedState(project.run_id ?? project.slug);
   let reviewPath: string | undefined;
   let reviewDataPath: string | undefined;
+  let reviewApprovalDigest: string | undefined;
   if (gate === "gate_1" && decision === "approved") {
     const review = await inspectGate1Review({
       configPath: args.config!,
       project,
+      manifest,
       stateDir: stateLocation.stateDir
     });
     if (!review.ok) {
@@ -780,28 +865,50 @@ async function recordGate(
     }
     reviewPath = review.reviewPath;
     reviewDataPath = review.dataPath;
+    reviewApprovalDigest = review.approvalDigest;
   }
   if (gate === "gate_1" && (state.gates.gate_1.status === "pending" || state.gates.gate_1.status === "revise")) {
     state = markGateAwaiting(state, "gate_1");
   }
 
-  let nextState: RunState;
-  try {
-    nextState = recordGateDecision(state, gate, decision);
-  } catch (error) {
-    return {
-      ok: false,
-      issues: [{ code: "state.gate_invalid", message: error instanceof Error ? error.message : String(error) }],
-      state,
-      statePath: stateLocation.statePath
-    };
-  }
+  let gateApprovalDigest = reviewApprovalDigest;
 
   if (decision === "approved" && gate === "gate_2") {
-    const inspected = await inspectGate2RunForApproval(project, manifest, existing.stateDir, adapter);
+    let editorialCompilation;
+    if (project.edit.editorial) {
+      const review = await inspectGate1Review({
+        configPath: args.config!,
+        project,
+        manifest,
+        stateDir: existing.stateDir
+      });
+      if (!review.ok) {
+        return { ok: false, issues: review.issues, state, statePath: stateLocation.statePath };
+      }
+      if (
+        state.gates.gate_1.approved_input_digest !== review.approvalDigest ||
+        !review.compilation
+      ) {
+        return {
+          ok: false,
+          issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current editorial EDL" }],
+          state,
+          statePath: stateLocation.statePath
+        };
+      }
+      editorialCompilation = review.compilation;
+    }
+    const inspected = await inspectGate2RunForApproval(
+      project,
+      manifest,
+      existing.stateDir,
+      adapter,
+      editorialCompilation
+    );
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
+    gateApprovalDigest = inspected.approvalDigest;
   }
 
   if (decision === "approved" && gate === "gate_3") {
@@ -809,6 +916,18 @@ async function recordGate(
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
+  }
+
+  let nextState: RunState;
+  try {
+    nextState = recordGateDecision(state, gate, decision, undefined, gateApprovalDigest);
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [{ code: "state.gate_invalid", message: error instanceof Error ? error.message : String(error) }],
+      state,
+      statePath: stateLocation.statePath
+    };
   }
 
   try {

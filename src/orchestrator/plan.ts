@@ -45,11 +45,13 @@ export type ExecutionPlan = {
   steps: PlanStep[];
 };
 
+type AnalysisAdapterInput = AdapterDefinition | AdapterDefinition[];
+
 export function createPlan(
   project: Project,
   manifest: Manifest,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AdapterDefinition,
+  analysisAdapter?: AnalysisAdapterInput,
   promptGuides: PromptGuide[] = []
 ): ExecutionPlan {
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
@@ -88,7 +90,7 @@ export function createDryRun(
   project: Project,
   manifest: Manifest,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AdapterDefinition,
+  analysisAdapter?: AnalysisAdapterInput,
   backend?: BackendCapabilities,
   promptGuides: PromptGuide[] = []
 ): {
@@ -122,7 +124,7 @@ function estimateCredits(project: Project, adapter?: AdapterDefinition): number 
 function createAgentHandoffs(
   project: Project,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AdapterDefinition
+  analysisAdapter?: AnalysisAdapterInput
 ): AgentHandoff[] {
   const handoffs: AgentHandoff[] = [];
 
@@ -140,17 +142,35 @@ function createAgentHandoffs(
   }
 
   if (project.analysis && analysisAdapter) {
-    handoffs.push({
-      phase: "analysis",
-      adapter: analysisAdapter.name,
-      kind: analysisAdapter.kind,
-      class: analysisAdapter.class,
-      outputs: project.analysis.requests.map((request) => request.output),
-      dry_run_estimate_available: analysisAdapter.dry_run_estimate,
-      batch: analysisAdapter.batch,
-      execution: analysisAdapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
-    });
+    const available = Array.isArray(analysisAdapter) ? analysisAdapter : [analysisAdapter];
+    const byName = new Map(available.map((definition) => [definition.name, definition]));
+    const adapterNames = uniqueInOrder(
+      project.analysis.requests.map((request) => request.adapter ?? project.analysis!.adapter)
+    );
+    for (const adapterName of adapterNames) {
+      const definition = byName.get(adapterName);
+      if (!definition) continue;
+      const outputs = uniqueInOrder(
+        project.analysis.requests
+          .filter((request) => (request.adapter ?? project.analysis!.adapter) === adapterName)
+          .map((request) => request.output)
+      );
+      handoffs.push({
+        phase: "analysis",
+        adapter: definition.name,
+        kind: definition.kind,
+        class: definition.class,
+        outputs,
+        dry_run_estimate_available: definition.dry_run_estimate,
+        batch: definition.batch,
+        execution: definition.kind === "cli" ? "pipeline-cli" : "agent-handoff"
+      });
+    }
   }
 
   return handoffs;
+}
+
+function uniqueInOrder<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }

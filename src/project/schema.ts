@@ -26,6 +26,15 @@ const manifestPathSchema = z
     "must be a safe manifest path"
   );
 
+export const analysisOutputSchema = z.union([
+  z.literal("captions"),
+  z.literal("chapters"),
+  z.literal("cut_points"),
+  z.literal("transcript"),
+  z.literal("summary"),
+  z.literal("subtitle_track")
+]);
+
 const generationRequestSchema = z
   .object({
     id: safeIdSchema,
@@ -47,10 +56,38 @@ const generationRequestSchema = z
 const analysisRequestSchema = z
   .object({
     id: safeIdSchema,
-    output: z.union([z.literal("captions"), z.literal("chapters"), z.literal("cut_points")]),
+    output: analysisOutputSchema,
+    adapter: safeIdSchema.optional(),
+    source_clip_id: z.string().min(1).optional(),
+    depends_on: z.array(safeIdSchema).default([]),
     params: z.record(z.string(), z.unknown()).default({})
   })
   .passthrough();
+
+const editorialTrackSchema = z.object({
+  request_id: safeIdSchema
+});
+
+const editorialPolicySchema = z
+  .object({
+    remove_kinds: z.array(safeIdSchema).max(32).default([]),
+    remove_ids: z.array(safeIdSchema).max(10_000).default([]),
+    exclude_ids: z.array(safeIdSchema).max(10_000).default([]),
+    captions: editorialTrackSchema.optional(),
+    chapters: editorialTrackSchema.optional()
+  })
+  .superRefine((policy, context) => {
+    const excluded = new Set(policy.exclude_ids);
+    for (const [index, id] of policy.remove_ids.entries()) {
+      if (excluded.has(id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "an editorial candidate cannot be both removed and excluded",
+          path: ["remove_ids", index]
+        });
+      }
+    }
+  });
 
 export const projectSchema = z
   .object({
@@ -59,7 +96,8 @@ export const projectSchema = z
     manifest: manifestPathSchema,
     dist_dir: safeRelativePathSchema.default("dist"),
     edit: z.object({
-      backend: safeIdSchema
+      backend: safeIdSchema,
+      editorial: editorialPolicySchema.optional()
     }),
     generation: z
       .object({
@@ -74,7 +112,43 @@ export const projectSchema = z
       })
       .optional()
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((project, context) => {
+    if (project.edit.editorial && !project.analysis) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "edit.editorial requires analysis requests",
+        path: ["analysis"]
+      });
+      return;
+    }
+    if (project.edit.editorial && project.generation?.requests.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "edit.editorial cannot be combined with generation requests",
+        path: ["generation"]
+      });
+    }
+    const policy = project.edit.editorial;
+    if (!policy || !project.analysis) return;
+    const requests = new Map(project.analysis.requests.map((request) => [request.id, request]));
+    const captionRequest = policy.captions ? requests.get(policy.captions.request_id) : undefined;
+    if (policy.captions && (!captionRequest || !["transcript", "subtitle_track"].includes(captionRequest.output))) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "editorial captions must reference a transcript or subtitle_track request",
+        path: ["edit", "editorial", "captions", "request_id"]
+      });
+    }
+    const chapterRequest = policy.chapters ? requests.get(policy.chapters.request_id) : undefined;
+    if (policy.chapters && (!chapterRequest || chapterRequest.output !== "chapters")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "editorial chapters must reference a chapters request",
+        path: ["edit", "editorial", "chapters", "request_id"]
+      });
+    }
+  });
 
 export type Project = z.infer<typeof projectSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];

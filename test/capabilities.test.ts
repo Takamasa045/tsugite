@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ describe("backend capabilities", () => {
   it("loads backend render preflight checks from capabilities", async () => {
     const backend = await loadBackendCapabilities("hyperframes");
 
+    expect(backend?.capabilities.captions).toBe(true);
     expect(backend?.checks.render_preflight).toEqual([
       {
         name: "lint",
@@ -128,6 +129,60 @@ describe("hyperframes render runner", () => {
     });
   });
 
+  it("rejects external media before invoking HyperFrames", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-hyperframes-network-"));
+    const manifestPath = join(runDir, "manifest.json");
+    const outputPath = join(runDir, "final.mp4");
+    const reportPath = join(runDir, "render-report.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "hyperframes-test" },
+        clips: [{ id: "external", src: "https://example.invalid/video.mp4", in: 0, out: 1, duration: 1, audio: false }],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        provenance: []
+      })
+    );
+
+    const result = spawnSync(process.execPath, [resolve("backends/hyperframes/render.mjs")], {
+      cwd: process.cwd(),
+      input: JSON.stringify({ runDir, manifestPath, outputPath, reportPath }),
+      encoding: "utf8",
+      env: { ...process.env, PATH: "" }
+    });
+
+    expect(result.status).toBe(10);
+    expect(result.stderr).toContain("clips[0].src must be a local asset path");
+  });
+
+  it("rejects absolute local media paths before invoking HyperFrames", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-hyperframes-absolute-"));
+    const manifestPath = join(runDir, "manifest.json");
+    const outputPath = join(runDir, "final.mp4");
+    const reportPath = join(runDir, "render-report.json");
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "hyperframes-test" },
+        clips: [{ id: "absolute", src: resolve("fixtures/media/render-001.mp4"), in: 0, out: 1, duration: 1, audio: false }],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        provenance: []
+      })
+    );
+
+    const result = spawnSync(process.execPath, [resolve("backends/hyperframes/render.mjs")], {
+      cwd: process.cwd(),
+      input: JSON.stringify({ runDir, manifestPath, outputPath, reportPath }),
+      encoding: "utf8",
+      env: { ...process.env, PATH: "" }
+    });
+
+    expect(result.status).toBe(10);
+    expect(result.stderr).toContain("clips[0].src must stay inside runDir");
+  });
+
   it("renders through the HyperFrames CLI contract when preflight succeeds", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "tsugite-hyperframes-render-"));
     const binDir = await mkdtemp(join(tmpdir(), "tsugite-hyperframes-bin-"));
@@ -137,6 +192,9 @@ describe("hyperframes render runner", () => {
     const sourceVideo = resolve("fixtures/media/render-001.mp4");
     const fakeNpx = join(binDir, "npx");
 
+    await mkdir(join(runDir, "assets/clips"), { recursive: true });
+    await copyFile(sourceVideo, join(runDir, "assets/clips/clip-001.mp4"));
+
     await writeFile(
       manifestPath,
       JSON.stringify({
@@ -145,8 +203,8 @@ describe("hyperframes render runner", () => {
           {
             id: "clip-001",
             src: "assets/clips/clip-001.mp4",
-            in: 0,
-            out: 1,
+            in: 2.5,
+            out: 3.5,
             duration: 1,
             fps: 30,
             resolution: { width: 320, height: 180 },
@@ -154,7 +212,7 @@ describe("hyperframes render runner", () => {
           }
         ],
         audio: { bgm: [], narration: [], sfx: [] },
-        captions: [{ text: "hello", start: 0, end: 1 }],
+        captions: [{ id: "caption-001", text: "<hello & goodbye>", start: 0.125, end: 0.875 }],
         provenance: []
       })
     );
@@ -201,7 +259,24 @@ process.exit(40);
     const html = await readFile(join(runDir, "index.html"), "utf8");
     expect(html).toContain('data-composition-id="tsugite-render"');
     expect(html).toContain('data-width="320" data-height="180"');
-    expect(html.match(/<video[^>]+>/)?.[0]).not.toContain(" muted");
+    const video = html.match(/<video[^>]+>/)?.[0] ?? "";
+    const sourceAudio = html.match(/<audio[^>]+id="clip-001-audio"[^>]+>/)?.[0] ?? "";
+    expect(video).toContain('class="clip"');
+    expect(video).toContain('data-start="0"');
+    expect(video).toContain('data-duration="1"');
+    expect(video).toContain('data-track-index="0"');
+    expect(video).toContain('data-media-start="2.5"');
+    expect(video).toContain(" muted");
+    expect(sourceAudio).toContain('class="clip"');
+    expect(sourceAudio).toContain('data-start="0"');
+    expect(sourceAudio).toContain('data-duration="1"');
+    expect(sourceAudio).toContain('data-track-index="1"');
+    expect(sourceAudio).toContain('data-media-start="2.5"');
+    expect(sourceAudio).toContain('src="assets/clips/clip-001.mp4"');
+    expect(html).toContain(
+      '<div id="caption-001" class="clip caption" data-start="0.125" data-duration="0.75" data-track-index="20">&lt;hello &amp; goodbye&gt;</div>'
+    );
+    expect(html).not.toMatch(/https?:\/\//);
     const report = JSON.parse(await readFile(reportPath, "utf8"));
     expect(report).toMatchObject({
       backend: "hyperframes",

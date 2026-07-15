@@ -173,6 +173,20 @@ describe("environment doctor", () => {
     );
   });
 
+  it("checks every selected analysis adapter once and ignores unselected adapters", async () => {
+    const report = await inspectEnvironment("fixtures/projects/multi-analysis-adapters.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"],
+      commandExists: async () => true,
+      probeCommand: async () => ({ ok: true, version: "test" })
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.checks.filter((check) => check.name === "adapter:mock-cli-transcription")).toHaveLength(1);
+    expect(report.checks.filter((check) => check.name === "adapter:mock-cli-analysis")).toHaveLength(1);
+    expect(report.checks.filter((check) => check.name === "tool:mock-local-stt (mock-cli-transcription)")).toHaveLength(1);
+    expect(report.checks.some((check) => check.name.includes("mock-cli-analysis-online"))).toBe(false);
+  });
+
   it("checks a declared bridge environment variable without executing the bridge", async () => {
     const checkedCommands: string[] = [];
     const probedCommands: string[][] = [];

@@ -39,3 +39,4 @@ Append-only format:
 2026-07-14 / generation runのBGMとSFXがGate 2でmissingになった / generation組み立てが画像と生成clipだけをrunDirへ固定し、audioを元pathのまま残していた / generationでも全audioを課金adapter実行前にrunDirへcopyし、asset_count、QC、resumeを同じ契約で検証する / validate済
 2026-07-14 / provider尺のままでは字幕とローカルendcardが30秒設計からずれた / 生成可能尺と編集尺を同一視し、generation組み立て後のclip契約を再確認していなかった / Gate 2前に生成clipを編集尺へ物理正規化し、非生成clipを含む最終manifestの合計尺と順序を再検査する / qa済
 2026-07-14 / 地名の読みと同音語がTTS・STTで誤認され、最終文が尺を超えた / 表示表記・読み指定・TTS用の自然な言い換えを分けず、完成ミックス後のSTTまで確認していなかった / 固有地名はユーザー確認済みの読みをTTS本文へ固定し、個別音声と完成版の両方をSTT確認し、5秒枠は35モーラ前後を上限にする / qa済
+2026-07-15 / EDLの時刻だけを照合すると字幕・章の改変と多数分割のframe丸め誤差を見逃せた / 承認対象をsegmentだけに限定し秒単位clipを個別roundしていた / Gate 2とrender直前は編集manifest全体をdigest拘束し、render側は累積frame境界の差分で各区間を配置する / validate済

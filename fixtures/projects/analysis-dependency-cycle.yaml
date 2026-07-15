@@ -1,0 +1,19 @@
+slug: analysis-dependency-cycle
+run_id: analysis-dependency-cycle-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: mock-cli-transcription
+  requests:
+    - id: transcript
+      output: captions
+      source_clip_id: render-001
+      depends_on: [chapters]
+      params: {}
+    - id: chapters
+      output: chapters
+      source_clip_id: render-001
+      depends_on: [transcript]
+      params: {}

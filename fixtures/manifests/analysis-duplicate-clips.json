@@ -1,0 +1,34 @@
+{
+  "meta": {
+    "aspect": "16:9",
+    "fps": 30,
+    "target_duration_seconds": 2,
+    "slug": "analysis-duplicate-clips"
+  },
+  "clips": [
+    {
+      "id": "duplicate-source",
+      "src": "../media/render-001.mp4",
+      "in": 0,
+      "out": 1,
+      "duration": 1,
+      "fps": 30,
+      "resolution": { "width": 320, "height": 180 },
+      "audio": false
+    },
+    {
+      "id": "duplicate-source",
+      "src": "../media/render-001.mp4",
+      "in": 0,
+      "out": 1,
+      "duration": 1,
+      "fps": 30,
+      "resolution": { "width": 320, "height": 180 },
+      "audio": false
+    }
+  ],
+  "audio": { "bgm": [], "narration": [], "sfx": [] },
+  "captions": [],
+  "chapters": [],
+  "provenance": []
+}

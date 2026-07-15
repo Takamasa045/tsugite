@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { Manifest } from "../manifest/schema.js";
@@ -49,8 +49,44 @@ export async function writeGate2QcReport(
   outputPath: string,
   options: Gate2QcOptions = {}
 ): Promise<Gate2QcReport> {
-  const report = inspectGate2Manifest(manifest, dirname(manifestPath), options);
+  const report = await inspectGate2ManifestWithFingerprints(manifest, dirname(manifestPath), options);
   await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
+export async function inspectGate2ManifestWithFingerprints(
+  manifest: Manifest,
+  manifestDir: string,
+  options: Gate2QcOptions = {}
+): Promise<Gate2QcReport> {
+  const report = inspectGate2Manifest(manifest, manifestDir, options);
+  const hashes = new Map<string, Promise<string | undefined>>();
+
+  const fingerprints = await Promise.all(report.assets.map(async (asset) => {
+    if (asset.kind === "image") return asset.sha256;
+    let pending = hashes.get(asset.path);
+    if (!pending) {
+      pending = fileSha256Stream(asset.path);
+      hashes.set(asset.path, pending);
+    }
+    return pending;
+  }));
+
+  for (const [index, asset] of report.assets.entries()) {
+    if (asset.kind === "image") continue;
+    const sha256 = fingerprints[index];
+    if (sha256) {
+      asset.sha256 = sha256;
+      continue;
+    }
+    report.issues.push({
+      code: asset.kind === "audio" ? "gate2.audio.hash_failed" : "gate2.asset.hash_failed",
+      message: `${asset.kind} asset '${asset.id}' could not be fingerprinted`,
+      path: asset.path
+    });
+  }
+
+  report.ok = report.issues.length === 0;
   return report;
 }
 
@@ -110,11 +146,11 @@ export function inspectGate2Manifest(
     }
 
     if (assetProbe.duration_seconds !== undefined) {
-      const delta = roundSeconds(assetProbe.duration_seconds - clip.duration);
-      if (Math.abs(delta) > tolerance) {
+      const shortage = clip.out - assetProbe.duration_seconds;
+      if (shortage > tolerance) {
         issues.push({
-          code: "gate2.asset.duration_mismatch",
-          message: `clip '${clip.id}' duration differs from manifest by ${delta} seconds`,
+          code: "gate2.asset.range_out_of_bounds",
+          message: `clip '${clip.id}' source ends ${roundSeconds(shortage)} seconds before manifest out point`,
           path
         });
       }
@@ -289,6 +325,16 @@ function hasAlphaChannel(pixelFormat: string | undefined): boolean {
 function fileSha256(path: string): string | undefined {
   try {
     return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+async function fileSha256Stream(path: string): Promise<string | undefined> {
+  try {
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    return hash.digest("hex");
   } catch {
     return undefined;
   }

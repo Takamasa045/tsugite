@@ -1,0 +1,66 @@
+slug: local-editorial-analysis
+run_id: local-editorial-analysis-run
+manifest: manifest.json
+dist_dir: dist
+edit:
+  backend: remotion
+  editorial:
+    remove_kinds: [filler]
+    remove_ids: []
+    exclude_ids: []
+    captions:
+      request_id: subtitles-en
+    chapters:
+      request_id: chapters-ja
+analysis:
+  adapter: local-media-analysis
+  requests:
+    - id: silence-scan
+      output: cut_points
+      source_clip_id: seminar-source
+      params:
+        silence_noise_db: -35
+        silence_min_duration_seconds: 0.5
+    - id: transcript-ja
+      adapter: local-whisper-analysis
+      output: transcript
+      source_clip_id: seminar-source
+      params:
+        model_path: /absolute/path/to/whisper-small.pt
+        model_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        language: ja
+        device: cpu
+        no_speech_threshold: 0.8
+    - id: fillers-ja
+      adapter: local-whisper-analysis
+      output: cut_points
+      source_clip_id: seminar-source
+      depends_on: [transcript-ja]
+      params:
+        filler_words: [えー, えっと, あの, その, まあ, なんか]
+    - id: chapters-ja
+      adapter: local-whisper-analysis
+      output: chapters
+      source_clip_id: seminar-source
+      depends_on: [transcript-ja]
+      params:
+        chapter_seconds: 300
+    - id: summary-ja
+      adapter: local-whisper-analysis
+      output: summary
+      source_clip_id: seminar-source
+      depends_on: [transcript-ja]
+      params:
+        summary_seconds: 300
+    - id: subtitles-en
+      adapter: local-whisper-analysis
+      output: subtitle_track
+      source_clip_id: seminar-source
+      depends_on: [transcript-ja]
+      params:
+        model_path: /absolute/path/to/whisper-small.pt
+        model_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        language: ja
+        target_language: en
+        device: cpu
+        no_speech_threshold: 0.8

@@ -23,6 +23,9 @@
 - 34種の物語・広告・解説・ドキュメンタリー・ジャンル・MV構成と、35種の尺配分・映像文法・AI動画原則を理由付きで選ぶ story guide catalog。
 - Topview 向け MCP-agent generation adapter 契約。
 - OpenClaw 向け optional CLI bridge と Hermes 向け analysis handoff adapter。
+- APIキー不要でFFmpegだけを使う `pipeline analyze` と local-media-analysis adapter。
+- 既存のローカルWhisperモデルで、文字起こし・フィラー候補・章・抽出的要約・英訳字幕を作るlocal-whisper-analysis adapter。
+- Gate 1で承認した明示的な候補だけをsource-to-output EDLへ変換し、Remotion / HyperFramesへ同じ編集済みmanifestを渡す長尺編集フロー。
 - local-media / generated-media を `dist/<run-id>/` に組み立てる処理。
 - manifest と media probe による Gate 2 QC report 生成。
 - 最終尺・解像度・fps・映像/音声streamを検査する Gate 3 QC report 生成。
@@ -82,6 +85,18 @@ bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
 bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
+
+長尺の手持ち動画を外部APIなしで解析する場合は、`examples/local-analysis` を使います。
+
+```sh
+cp -R examples/local-analysis projects/my-seminar
+bin/pipeline doctor --config projects/my-seminar/project.yaml --json
+bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinator --json
+```
+
+ローカルWhisperまで使う場合は `examples/local-analysis/project-editorial.yaml` を参照し、`model_path` と必須の `model_sha256` を信頼できる既存`.pt`へ変更します。モデルの自動downloadは行いません。詳しくは [APIを使わないローカル長尺解析](docs/local-analysis.md) を参照してください。
+
+解析は元動画・manifest・Gate stateを変更せず、source timestamp付き候補とローカルhandoffを生成します。候補は `edit.editorial` で明示選択し、Gate 1承認後の `run` だけが `editorial-edl.json` と編集済みmanifestへ反映します。詳しくは [APIを使わないローカル長尺解析](docs/local-analysis.md) を参照してください。
 
 `review` は検証済みのproject・manifest・planから `dist/<run-id>/review/index.html` と `review-data.json` を生成します。字幕を優先した一枚絵コンテ、キャラクターシート、カット詳細、コスト、Gate 1コマンドを表示しますが、`state.json` は変更せず生成処理も実行しません。Gate 1のapproveと実行開始時には、この2ファイルが存在し、対象projectのレビューであることを検査します。出力先を変える場合は `--output <directory>`、別のstateルートを使う場合は `--state-dir <directory>`、ローカルHTMLを開く場合だけ `--open` を使います。Gate 1検査に使う場合はcanonicalな出力先を使ってください。
 

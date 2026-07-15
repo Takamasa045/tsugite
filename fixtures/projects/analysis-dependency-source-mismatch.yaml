@@ -1,0 +1,18 @@
+slug: analysis-dependency-source-mismatch
+run_id: analysis-dependency-source-mismatch-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: mock-cli-transcription
+  requests:
+    - id: first-source
+      output: captions
+      source_clip_id: clip-001
+      params: {}
+    - id: second-source
+      output: chapters
+      source_clip_id: clip-002
+      depends_on: [first-source]
+      params: {}

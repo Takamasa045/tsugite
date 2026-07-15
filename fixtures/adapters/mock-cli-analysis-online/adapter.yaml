@@ -1,0 +1,21 @@
+name: mock-cli-analysis-online
+kind: cli
+class: analysis
+offline: false
+outputs: [cut_points]
+dry_run_estimate: true
+batch: true
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+checks:
+  setup: []
+command:
+  executable: node
+  args: ["fixtures/adapters/mock-cli-analysis/analyze.mjs"]
+  input: stdin-json

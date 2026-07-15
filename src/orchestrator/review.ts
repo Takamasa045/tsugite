@@ -1,11 +1,32 @@
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Manifest } from "../manifest/schema.js";
 import type { Project } from "../project/schema.js";
 import type { Result } from "../types.js";
+import {
+  digest,
+  verifyEditorialProposal,
+  type EditorialProposal,
+  type RawAnalysisForProposal
+} from "./editorialProposal.js";
+import {
+  compileEditorial,
+  type EditorialDecisionList
+} from "./editorialCompile.js";
 import type { ExecutionPlan } from "./plan.js";
+
+export type EditorialCompilation = {
+  manifest: Manifest;
+  edl: EditorialDecisionList;
+};
+
+type EditorialReview = {
+  proposal: EditorialProposal;
+  approvalDigest: string;
+  compilation?: EditorialCompilation;
+};
 
 type ReviewAsset = {
   id: string;
@@ -47,7 +68,7 @@ export type ReviewShot = {
 };
 
 export type ReviewDocument = {
-  schema_version: 1;
+  schema_version: 1 | 2;
   run_id: string;
   slug: string;
   summary: {
@@ -68,6 +89,23 @@ export type ReviewDocument = {
   prompt_guidance: NonNullable<ExecutionPlan["prompt_guidance"]>;
   steps: ExecutionPlan["steps"];
   warnings: string[];
+  approval_digest?: string;
+  analysis?: {
+    status: "ready" | "missing";
+    analysis_input_digest?: string;
+    raw_analysis_digest?: string;
+    proposal_digest?: string;
+    outputs: EditorialProposal["outputs"];
+    editorial?: {
+      edl_digest: string;
+      source_duration_seconds: number;
+      output_duration_seconds: number;
+      removed_duration_seconds: number;
+      applied_cut_ids: string[];
+      caption_count: number;
+      chapter_count: number;
+    };
+  };
   approval_commands: {
     approve: string;
     revise: string;
@@ -101,8 +139,15 @@ export function getCreativeReviewDir(configPath: string, project: Project, state
 export async function inspectGate1Review(options: {
   configPath: string;
   project: Project;
+  manifest: Manifest;
   stateDir?: string;
-}): Promise<Result<{ reviewPath: string; dataPath: string }>> {
+}): Promise<Result<{
+  reviewPath: string;
+  dataPath: string;
+  approvalDigest?: string;
+  proposal?: EditorialProposal;
+  compilation?: EditorialCompilation;
+}>> {
   const outputDir = getCreativeReviewDir(options.configPath, options.project, options.stateDir);
   const reviewPath = resolve(outputDir, "index.html");
   const dataPath = resolve(outputDir, "review-data.json");
@@ -141,13 +186,16 @@ export async function inspectGate1Review(options: {
         dataPath
       };
     }
-    if (!html.includes('data-testid="storyboard-sheet"')) {
+    if (
+      !html.includes('data-testid="storyboard-sheet"') ||
+      html !== renderReviewHtml(data as ReviewDocument)
+    ) {
       return {
         ok: false,
         issues: [
           {
             code: "gate.review_invalid",
-            message: "Gate 1 review HTML does not contain the storyboard sheet.",
+            message: "Gate 1 review HTML does not match the reviewed data.",
             path: reviewPath
           }
         ],
@@ -155,6 +203,38 @@ export async function inspectGate1Review(options: {
         dataPath
       };
     }
+    let approvalDigest: string | undefined;
+    let currentEditorial: EditorialReview | undefined;
+    if (options.project.analysis) {
+      const editorial = await loadEditorialReview(options.configPath, options.project, options.manifest, options.stateDir);
+      if (!editorial.ok) {
+        return { ok: false, issues: editorial.issues, reviewPath, dataPath };
+      }
+      const document = data as ReviewDocument;
+      currentEditorial = editorial;
+      approvalDigest = editorial.approvalDigest;
+      if (
+        document.approval_digest !== approvalDigest ||
+        document.analysis?.proposal_digest !== editorial.proposal.proposal_digest ||
+        document.analysis?.editorial?.edl_digest !== editorial.compilation?.edl.digest
+      ) {
+        return {
+          ok: false,
+          issues: [{ code: "gate.analysis_changed", message: "analysis artifacts changed after the Gate 1 review", path: dataPath }],
+          reviewPath,
+          dataPath
+        };
+      }
+    }
+    return {
+      ok: true,
+      issues: [],
+      reviewPath,
+      dataPath,
+      approvalDigest,
+      ...(currentEditorial ? { proposal: currentEditorial.proposal } : {}),
+      ...(currentEditorial?.compilation ? { compilation: currentEditorial.compilation } : {})
+    };
   } catch (error) {
     return {
       ok: false,
@@ -176,7 +256,8 @@ export async function inspectGate1Review(options: {
 export function createReviewDocument(
   project: Project,
   manifest: Manifest,
-  plan: ExecutionPlan
+  plan: ExecutionPlan,
+  editorial?: EditorialReview
 ): ReviewDocument {
   const images = new Map(manifest.images.map((image) => [image.id, image]));
   const speakers = new Map(manifest.speakers.map((speaker) => [speaker.id, speaker]));
@@ -246,9 +327,12 @@ export function createReviewDocument(
   if (unmatchedRequests.length > 0 && manifest.captions.length > 0) {
     warnings.push(`絵コンテとIDが一致しない生成リクエスト: ${unmatchedRequests.join(", ")}`);
   }
+  if (project.analysis && !editorial) {
+    warnings.push("解析成果物が未生成または不整合です。Gate 1は承認できません。");
+  }
 
   return {
-    schema_version: 1,
+    schema_version: project.analysis ? 2 : 1,
     run_id: project.run_id ?? project.slug,
     slug: project.slug,
     summary: {
@@ -269,6 +353,36 @@ export function createReviewDocument(
     prompt_guidance: plan.prompt_guidance ?? [],
     steps: plan.steps,
     warnings,
+    ...(project.analysis
+      ? {
+          ...(editorial ? { approval_digest: editorial.approvalDigest } : {}),
+          analysis: editorial
+            ? {
+                status: "ready" as const,
+                analysis_input_digest: editorial.proposal.analysis_input_digest,
+                raw_analysis_digest: editorial.proposal.raw_analysis_digest,
+                proposal_digest: editorial.proposal.proposal_digest,
+                outputs: editorial.proposal.outputs,
+                ...(editorial.compilation
+                  ? {
+                      editorial: {
+                        edl_digest: editorial.compilation.edl.digest,
+                        source_duration_seconds: editorial.compilation.edl.source_duration_seconds,
+                        output_duration_seconds: editorial.compilation.edl.duration_seconds,
+                        removed_duration_seconds: editorial.compilation.edl.removed_duration_seconds,
+                        applied_cut_ids: editorial.compilation.edl.removed_ranges.flatMap((range) => range.cut_ids),
+                        caption_count: editorial.compilation.manifest.captions.length,
+                        chapter_count: editorial.compilation.manifest.chapters.length
+                      }
+                    }
+                  : {})
+              }
+            : {
+                status: "missing" as const,
+                outputs: emptyEditorialOutputs()
+              }
+        }
+      : {}),
     approval_commands: {
       approve: `${gateBase} --decision approve --json`,
       revise: `${gateBase} --decision revise --json`,
@@ -339,7 +453,21 @@ export async function writeCreativeReview(
   const assetsDir = resolve(outputDir, "assets");
   await mkdir(assetsDir, { recursive: true });
 
-  const document = createReviewDocument(options.project, options.manifest, options.plan);
+  const loadedEditorial = options.project.analysis
+    ? await loadEditorialReview(configPath, options.project, options.manifest, options.stateDir)
+    : undefined;
+  const document = createReviewDocument(
+    options.project,
+    options.manifest,
+    options.plan,
+    loadedEditorial?.ok
+      ? {
+          proposal: loadedEditorial.proposal,
+          approvalDigest: loadedEditorial.approvalDigest,
+          ...(loadedEditorial.compilation ? { compilation: loadedEditorial.compilation } : {})
+        }
+      : undefined
+  );
   const configArgument = shellQuote(relative(process.cwd(), configPath) || configPath);
   document.approval_commands = {
     approve: document.approval_commands.approve.replace("<project.yaml>", configArgument),
@@ -385,11 +513,121 @@ export async function writeCreativeReview(
   };
 }
 
+async function loadEditorialReview(
+  configPath: string,
+  project: Project,
+  manifest: Manifest,
+  stateDir?: string
+): Promise<Result<EditorialReview>> {
+  const distDir = stateDir
+    ? resolve(stateDir)
+    : resolve(dirname(resolve(configPath)), project.dist_dir);
+  const analysisDir = join(distDir, project.run_id ?? project.slug, "analysis");
+  try {
+    const [rawText, proposalText] = await Promise.all([
+      readFile(join(analysisDir, "raw-analysis.json"), "utf8"),
+      readFile(join(analysisDir, "editorial-proposal.json"), "utf8")
+    ]);
+    const raw = JSON.parse(rawText) as RawAnalysisForProposal;
+    const proposal = JSON.parse(proposalText) as EditorialProposal;
+    const verified = verifyEditorialProposal(raw, proposal);
+    if (!verified.ok) {
+      return {
+        ok: false,
+        issues: [{ code: "gate.analysis_stale", message: "analysis proposal digest is stale or invalid", path: analysisDir }]
+      };
+    }
+    let compilation: EditorialCompilation | undefined;
+    if (project.edit.editorial) {
+      const compiled = compileEditorial(manifest, proposal, project.edit.editorial);
+      if (!compiled.ok) {
+        return {
+          ok: false,
+          issues: compiled.issues.map((issue) => ({
+            ...issue,
+            path: issue.path ?? join(analysisDir, "editorial-proposal.json")
+          }))
+        };
+      }
+      compilation = { manifest: compiled.manifest, edl: compiled.edl };
+    }
+    return {
+      ok: true,
+      issues: [],
+      proposal,
+      approvalDigest: digest({
+        project,
+        manifest,
+        raw_analysis_digest: proposal.raw_analysis_digest,
+        proposal_digest: proposal.proposal_digest,
+        editorial_edl_digest: compilation?.edl.digest
+      }),
+      ...(compilation ? { compilation } : {})
+    };
+  } catch {
+    return {
+      ok: false,
+      issues: [{ code: "gate.analysis_stale", message: "analysis artifacts are missing or invalid", path: analysisDir }]
+    };
+  }
+}
+
+function emptyEditorialOutputs(): EditorialProposal["outputs"] {
+  return {
+    transcripts: [],
+    cut_points: [],
+    chapters: [],
+    summaries: [],
+    subtitle_tracks: []
+  };
+}
+
 function collectReferencedAssets(document: ReviewDocument): ReviewAsset[] {
   return [
     ...document.characters.flatMap((character) => character.poses.flatMap((pose) => pose.asset ?? [])),
     ...document.storyboard.flatMap((shot) => shot.image ?? [])
   ];
+}
+
+function renderAnalysisReview(analysis: ReviewDocument["analysis"]): string {
+  if (!analysis) return "";
+  if (analysis.status !== "ready") {
+    return `<section class="warnings" aria-labelledby="analysis-title"><h2 id="analysis-title">解析レビュー</h2><p>解析成果物が揃っていません。</p></section>`;
+  }
+  const appliedCutIds = new Set(analysis.editorial?.applied_cut_ids ?? []);
+  const cutPoints = analysis.outputs.cut_points.map((candidate) => {
+    const start = numericField(candidate, "source_start");
+    const end = numericField(candidate, "source_end");
+    const kind = stringField(candidate, "kind") ?? "candidate";
+    const id = stringField(candidate, "id");
+    const status = id && appliedCutIds.has(id) ? "適用予定" : "保持";
+    return `<li><time>${formatTime(start)}–${formatTime(end)}</time> ${escapeHtml(kind)} · ${status}</li>`;
+  }).join("");
+  const transcriptCount = analysis.outputs.transcripts.reduce((count, transcript) => {
+    const segments = transcript.segments;
+    return count + (Array.isArray(segments) ? segments.length : 0);
+  }, 0);
+  const subtitleCount = analysis.outputs.subtitle_tracks.reduce((count, track) => {
+    const captions = track.captions;
+    return count + (Array.isArray(captions) ? captions.length : 0);
+  }, 0);
+  const editorialSummary = analysis.editorial
+    ? `<p><b>Gate 1承認後の適用予定:</b> ${analysis.editorial.applied_cut_ids.length}候補を削除、${formatSeconds(analysis.editorial.removed_duration_seconds)}短縮、出力${formatSeconds(analysis.editorial.output_duration_seconds)}、字幕${analysis.editorial.caption_count}件、章${analysis.editorial.chapter_count}件。</p>`
+    : "";
+  return `<section class="conditions" aria-labelledby="analysis-title" data-testid="analysis-review">
+    <div class="section-heading"><div><p class="eyebrow">SOURCE TIMESTAMP / PROPOSED</p><h2 id="analysis-title">解析レビュー</h2></div><p>${analysis.editorial ? "明示された編集方針だけをGate 1承認後に適用します。" : "元動画の時刻を保った確認候補です。自動削除は行いません。"}</p></div>
+    <dl class="metrics"><div><dt>文字起こしsegment</dt><dd>${transcriptCount}</dd></div><div><dt>フィラー・カット確認候補</dt><dd>${analysis.outputs.cut_points.length}</dd></div><div><dt>章</dt><dd>${analysis.outputs.chapters.length}</dd></div><div><dt>要約</dt><dd>${analysis.outputs.summaries.length}</dd></div><div><dt>翻訳字幕</dt><dd>${subtitleCount}</dd></div></dl>
+    ${editorialSummary}
+    ${cutPoints ? `<ul>${cutPoints}</ul>` : "<p>フィラー・カット確認候補はありません。</p>"}
+  </section>`;
+}
+
+function numericField(value: Record<string, unknown>, key: string): number {
+  return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : 0;
+}
+
+function stringField(value: Record<string, unknown>, key: string): string | undefined {
+  return typeof value[key] === "string" ? value[key] : undefined;
 }
 
 async function isFile(path: string): Promise<boolean> {
@@ -410,7 +648,7 @@ function isReviewDocumentForProject(value: unknown, project: Project): boolean {
     summary?: { gate?: unknown };
   };
   return (
-    document.schema_version === 1 &&
+    document.schema_version === (project.analysis ? 2 : 1) &&
     document.run_id === (project.run_id ?? project.slug) &&
     document.slug === project.slug &&
     document.summary?.gate === "gate-1" &&
@@ -482,6 +720,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
   const handoffs = document.handoffs.length > 0
     ? document.handoffs.map((handoff) => `<li><b>${escapeHtml(handoff.phase)}</b> ${escapeHtml(handoff.adapter)} · ${escapeHtml(handoff.execution)}</li>`).join("")
     : "<li>外部エージェントへの引き継ぎはありません。</li>";
+  const analysis = renderAnalysisReview(document.analysis);
 
   return `<!doctype html>
 <html lang="ja">
@@ -513,6 +752,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
       </dl>
     </header>
     ${warnings}
+    ${analysis}
     <section class="storyboard-section" aria-labelledby="storyboard-title">
       <div class="section-heading"><div><p class="eyebrow">SEQUENCE / TIMING</p><h2 id="storyboard-title">映像の流れ</h2></div><p>左から時間順です。青い尺ゲージとタイムコードでテンポを確認できます。</p></div>
       <div class="screening-room">

@@ -19,6 +19,7 @@ export type RunStatus =
 export type GateState = {
   status: GateStatus;
   updated_at?: string;
+  approved_input_digest?: string;
 };
 
 export type RunState = {
@@ -41,7 +42,8 @@ const gateStateSchema = z.object({
     z.literal("revise"),
     z.literal("abort")
   ]),
-  updated_at: z.string().optional()
+  updated_at: z.string().optional(),
+  approved_input_digest: z.string().regex(/^[a-f0-9]{64}$/).optional()
 });
 
 const runStateSchema = z.object({
@@ -94,7 +96,8 @@ export function recordGateDecision(
   state: RunState,
   gate: GateId,
   decision: GateDecision,
-  updatedAt = new Date().toISOString()
+  updatedAt = new Date().toISOString(),
+  approvedInputDigest?: string
 ): RunState {
   if (decision === "re_render" && gate !== "gate_3") {
     throw new Error("re_render is only valid for gate_3");
@@ -109,7 +112,7 @@ export function recordGateDecision(
     ...state,
     status: statusAfterDecision(gate, decision, state.status),
     updated_at: updatedAt,
-    gates: gatesAfterDecision(state, gate, decision, updatedAt)
+    gates: gatesAfterDecision(state, gate, decision, updatedAt, approvedInputDigest)
   };
 }
 
@@ -275,7 +278,8 @@ function gatesAfterDecision(
   state: RunState,
   gate: GateId,
   decision: GateDecision,
-  updatedAt: string
+  updatedAt: string,
+  approvedInputDigest?: string
 ): Record<GateId, GateState> {
   if (decision === "revise") {
     return defaultGates();
@@ -290,6 +294,12 @@ function gatesAfterDecision(
 
   return {
     ...state.gates,
-    [gate]: { status: decision, updated_at: updatedAt }
+    [gate]: {
+      status: decision,
+      updated_at: updatedAt,
+      ...(decision === "approved" && approvedInputDigest
+        ? { approved_input_digest: approvedInputDigest }
+        : {})
+    }
   };
 }

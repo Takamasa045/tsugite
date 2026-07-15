@@ -1,0 +1,22 @@
+name: mock-cli-analysis
+kind: cli
+class: analysis
+offline: true
+outputs: [cut_points, transcript, summary, subtitle_track]
+dry_run_estimate: true
+batch: true
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "40": invalid_request
+checks:
+  setup: []
+command:
+  executable: node
+  args: ["fixtures/adapters/mock-cli-analysis/analyze.mjs"]
+  input: stdin-json

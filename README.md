@@ -24,6 +24,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 - MCP-agent generation adapter contract for Topview.
 - Optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
+- Gate-bound editorial EDL compilation that retimes selected cuts, captions, and chapters for both Remotion and HyperFrames without modifying source media.
 - Gate 2 QC report generation using manifest and media probes.
 - Gate 3 QC report generation for final duration, resolution, fps, and audio/video streams.
 - First-class image assets, speaker/pose metadata, and guarded presentation presets.

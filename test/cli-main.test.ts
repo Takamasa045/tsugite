@@ -400,7 +400,8 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
-    await writeFile(review.review_path, "<!doctype html><html></html>\n");
+    const reviewHtml = await readFile(review.review_path, "utf8");
+    await writeFile(review.review_path, reviewHtml.replace("映像の流れ", "改ざんされた表示"));
 
     const result = await capture([
       "run",

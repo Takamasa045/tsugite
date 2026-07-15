@@ -1,0 +1,14 @@
+slug: analysis-dependency-unknown
+run_id: analysis-dependency-unknown-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: mock-cli-analysis
+  requests:
+    - id: silence
+      output: cut_points
+      source_clip_id: render-001
+      depends_on: [missing]
+      params: {}

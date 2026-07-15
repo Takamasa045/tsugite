@@ -88,6 +88,44 @@ describe("plan and dry run", () => {
     ]);
   });
 
+  it("groups analysis handoffs by request-selected adapter in request order", async () => {
+    const validation = await validateProject("fixtures/projects/multi-analysis-adapters.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    const dryRun = createDryRun(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapters,
+      validation.backend
+    );
+
+    expect(validation.ok).toBe(true);
+    expect(dryRun.agent_handoffs).toEqual([
+      {
+        phase: "analysis",
+        adapter: "mock-cli-transcription",
+        kind: "cli",
+        class: "analysis",
+        outputs: ["captions", "chapters"],
+        dry_run_estimate_available: true,
+        batch: true,
+        execution: "pipeline-cli"
+      },
+      {
+        phase: "analysis",
+        adapter: "mock-cli-analysis",
+        kind: "cli",
+        class: "analysis",
+        outputs: ["cut_points"],
+        dry_run_estimate_available: true,
+        batch: true,
+        execution: "pipeline-cli"
+      }
+    ]);
+  });
+
   it("surfaces Topview generation handoffs without executing external work", async () => {
     const validation = await validateProject("fixtures/projects/topview-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]

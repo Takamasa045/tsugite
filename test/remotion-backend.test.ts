@@ -9,7 +9,12 @@ import {
   mouthFrameIndex,
   resolveSpeakerImage
 } from "../backends/remotion/presentation.mjs";
-import { audioTrackTiming } from "../backends/remotion/timing.mjs";
+import {
+  audioTrackTiming,
+  clipSequenceTimings,
+  secondsToFrames,
+  totalDuration
+} from "../backends/remotion/timing.mjs";
 import {
   captionMotionState,
   captionSegments,
@@ -57,6 +62,29 @@ describe("remotion backend helpers", () => {
       from: 0,
       durationInFrames: 90
     });
+  });
+
+  it("derives fractional clip sequences from cumulative frame boundaries", () => {
+    const manifest = {
+      meta: { target_duration_seconds: 0.06 },
+      clips: [
+        { in: 1, duration: 0.02 },
+        { in: 2, duration: 0.02 },
+        { in: 3, duration: 0.02 }
+      ]
+    };
+
+    const timings = clipSequenceTimings(manifest.clips, 30);
+
+    expect(timings).toEqual([
+      { from: 0, durationInFrames: 1, trimBefore: 30 },
+      { from: 1, durationInFrames: 0, trimBefore: 60 },
+      { from: 1, durationInFrames: 1, trimBefore: 90 }
+    ]);
+    expect(timings.reduce((sum, timing) => sum + timing.durationInFrames, 0)).toBe(
+      secondsToFrames(totalDuration(manifest), 30)
+    );
+    expect(timings.at(-1)!.from + timings.at(-1)!.durationInFrames).toBe(2);
   });
 
   it("selects the active dialogue caption and resolves pose images with a neutral fallback", () => {

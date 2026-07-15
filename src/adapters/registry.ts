@@ -4,11 +4,17 @@ import { z } from "zod";
 import { readYamlFile } from "../io.js";
 import { PipelineError } from "../types.js";
 import { setupCheckSchema } from "../setupChecks.js";
+import { analysisOutputSchema } from "../project/schema.js";
 
 const adapterSchema = z.object({
   name: z.string().min(1),
   kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
   class: z.union([z.literal("generation"), z.literal("analysis")]).default("generation"),
+  offline: z.boolean().optional(),
+  outputs: z
+    .array(analysisOutputSchema)
+    .min(1)
+    .optional(),
   dry_run_estimate: z.boolean(),
   batch: z.boolean(),
   credit_estimate: z

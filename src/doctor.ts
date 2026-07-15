@@ -30,6 +30,7 @@ type CommandProbeResult = {
 };
 
 type DoctorOptions = {
+  adapterDirs?: string[];
   commandExists?: (command: string) => Promise<boolean>;
   probeCommand?: (command: string[]) => Promise<CommandProbeResult>;
   nodeVersion?: string;
@@ -80,7 +81,7 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
   ];
 
   if (configPath) {
-    const validation = await validateProject(configPath);
+    const validation = await validateProject(configPath, { adapterDirs: options.adapterDirs });
     checks.push(
       check("project", validation.ok, {
         detail: validation.ok ? configPath : validation.issues.map((issue) => issue.code).join(", "),
@@ -112,7 +113,11 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
       }
     }
 
-    for (const adapter of [validation.adapter, validation.analysisAdapter]) {
+    const selectedAdapters = uniqueAdapters([
+      validation.adapter,
+      ...(validation.analysisAdapters ?? (validation.analysisAdapter ? [validation.analysisAdapter] : []))
+    ]);
+    for (const adapter of selectedAdapters) {
       if (!adapter) continue;
       if (adapter.kind === "cli") {
         const executable = adapter.command?.executable;
@@ -154,6 +159,14 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
   }
 
   return { ok: checks.every((item) => !item.blocking || item.ok), checks };
+}
+
+function uniqueAdapters<T extends { name: string }>(adapters: Array<T | undefined>): T[] {
+  const byName = new Map<string, T>();
+  for (const adapter of adapters) {
+    if (adapter && !byName.has(adapter.name)) byName.set(adapter.name, adapter);
+  }
+  return [...byName.values()];
 }
 
 type SetupInspectionOptions = {

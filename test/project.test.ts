@@ -14,6 +14,88 @@ describe("project validation", () => {
     expect(project.edit.backend).toBe("remotion");
   });
 
+  it("accepts an explicit editorial policy for analysis-derived cuts and captions", () => {
+    const project = validProjectDefinition();
+    project.edit = {
+      backend: "remotion",
+      editorial: {
+        remove_kinds: ["filler"],
+        remove_ids: ["silence-0001"],
+        exclude_ids: ["filler-0002"],
+        captions: { request_id: "subtitles-en" },
+        chapters: { request_id: "chapters-ja" }
+      }
+    };
+    project.analysis = {
+      adapter: "fixture-adapter",
+      requests: [
+        { ...requestDefinition("analysis", "subtitles-en"), output: "subtitle_track" },
+        { ...requestDefinition("analysis", "chapters-ja"), output: "chapters" }
+      ]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.edit.editorial).toEqual({
+        remove_kinds: ["filler"],
+        remove_ids: ["silence-0001"],
+        exclude_ids: ["filler-0002"],
+        captions: { request_id: "subtitles-en" },
+        chapters: { request_id: "chapters-ja" }
+      });
+    }
+  });
+
+  it("rejects editorial execution without analysis and rejects unsafe decision ids", () => {
+    const withoutAnalysis = validProjectDefinition();
+    withoutAnalysis.edit = {
+      backend: "remotion",
+      editorial: { remove_kinds: ["filler"] }
+    };
+    const unsafe = validProjectDefinition();
+    unsafe.edit = {
+      backend: "remotion",
+      editorial: { remove_ids: ["../outside"] }
+    };
+    unsafe.analysis = {
+      adapter: "fixture-adapter",
+      requests: [requestDefinition("analysis", "transcript-ja")]
+    };
+
+    expect(projectSchema.safeParse(withoutAnalysis).success).toBe(false);
+    expect(projectSchema.safeParse(unsafe).success).toBe(false);
+  });
+
+  it("rejects editorial execution together with generated clips until that timing contract is supported", () => {
+    const project = validProjectDefinition();
+    project.edit = {
+      backend: "remotion",
+      editorial: { remove_kinds: ["filler"] }
+    };
+    project.analysis = {
+      adapter: "fixture-adapter",
+      requests: [requestDefinition("analysis", "transcript-ja")]
+    };
+    project.generation = {
+      adapter: "fixture-adapter",
+      requests: [requestDefinition("generation", "generated-clip")]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          message: "edit.editorial cannot be combined with generation requests",
+          path: ["generation"]
+        })
+      ]));
+    }
+  });
+
   it("rejects an unknown backend during validation", async () => {
     const result = await validateProject("fixtures/projects/unknown-backend.yaml");
 
@@ -109,6 +191,57 @@ describe("project validation", () => {
         ])
       );
     }
+  });
+
+  it("loads every request-selected analysis adapter once while preserving the default adapter", async () => {
+    const result = await validateProject("fixtures/projects/multi-analysis-adapters.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.analysisAdapter?.name).toBe("mock-cli-analysis");
+    expect(result.analysisAdapters?.map((adapter) => adapter.name)).toEqual([
+      "mock-cli-transcription",
+      "mock-cli-analysis"
+    ]);
+  });
+
+  it("rejects an editorial caption track when the selected backend cannot render captions", async () => {
+    const result = await validateProject("fixtures/projects/editorial-captions-limited.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"],
+      backendDirs: ["fixtures/backends", "backends"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "backend.capability.captions" }));
+  });
+
+  it.each([
+    ["analysis-request-adapter-not-found.yaml", "adapter.not_found"],
+    ["analysis-request-class-mismatch.yaml", "adapter.class_mismatch"],
+    ["analysis-request-offline-mismatch.yaml", "analysis.offline_contract_required"],
+    ["analysis-request-output-mismatch.yaml", "analysis.output_unsupported"]
+  ])("validates each request-selected adapter in %s", async (fixture, code) => {
+    const result = await validateProject(`fixtures/projects/${fixture}`, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code }));
+  });
+
+  it.each([
+    ["analysis-dependency-unknown.yaml", "analysis.dependency_not_found"],
+    ["analysis-dependency-cycle.yaml", "analysis.dependency_cycle"],
+    ["analysis-dependency-source-mismatch.yaml", "analysis.dependency_source_mismatch"],
+    ["analysis-dependency-adapter-mismatch.yaml", "analysis.dependency_adapter_mismatch"]
+  ])("rejects an invalid analysis dependency graph in %s", async (fixture, code) => {
+    const result = await validateProject(`fixtures/projects/${fixture}`, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code }));
   });
 
   it("accepts explicit prompt guidance metadata without defaulting existing requests", () => {

@@ -8,13 +8,16 @@ import type { Manifest } from "../manifest/schema.js";
 import { validateManifest } from "../manifest/validate.js";
 import { toExecutionProject, type Project } from "../project/schema.js";
 import type { Result } from "../types.js";
-import { inspectGate2Manifest, writeGate2QcReport } from "./gate2Qc.js";
+import { inspectGate2ManifestWithFingerprints, writeGate2QcReport } from "./gate2Qc.js";
 import { markGateAwaiting, writeState, type RunState } from "./state.js";
+import { digest } from "./editorialProposal.js";
+import type { EditorialCompilation } from "./review.js";
 
 export type LocalRunResult = {
   manifestPath: string;
   qcReportPath: string;
   runLogPath: string;
+  edlPath?: string;
   assetCount: number;
   actualCredits: number;
   alreadyAssembled: boolean;
@@ -26,6 +29,7 @@ type AssembleOptions = {
   manifestPath: string;
   stateDir: string;
   state: RunState;
+  editorial?: EditorialCompilation;
 };
 
 const gate2QcResumeSchema = z
@@ -62,6 +66,7 @@ const gate2QcResumeSchema = z
 type ResumeMetrics = {
   assetCount: number;
   actualCredits: number;
+  approvalDigest: string;
 };
 
 type ManifestAssetReference = {
@@ -85,6 +90,7 @@ export async function assembleLocalMediaRun(
   const manifestOutputPath = join(runDir, "manifest.json");
   const qcReportPath = join(runDir, "gate2-qc.json");
   const runLogPath = join(runDir, "run-log.md");
+  const edlPath = project.edit.editorial ? join(runDir, "editorial-edl.json") : undefined;
   const statePath = join(runDir, "state.json");
   const inputDigest = runInputDigest(project, manifest);
 
@@ -92,10 +98,16 @@ export async function assembleLocalMediaRun(
     const resumed = await inspectAwaitingGate2Artifacts({
       runId,
       mode: "local-media",
+      backend: project.edit.backend,
       inputDigest,
       manifestPath: manifestOutputPath,
       qcReportPath,
-      runLogPath
+      runLogPath,
+      ...(edlPath && options.editorial ? {
+        edlPath,
+        editorialEdlDigest: options.editorial.edl.digest,
+        editorialManifest: options.editorial.manifest
+      } : {})
     });
     if (!resumed.ok) return { ok: false, issues: resumed.issues };
 
@@ -105,6 +117,7 @@ export async function assembleLocalMediaRun(
       manifestPath: manifestOutputPath,
       qcReportPath,
       runLogPath,
+      ...(edlPath ? { edlPath } : {}),
       assetCount: resumed.assetCount,
       actualCredits: resumed.actualCredits,
       alreadyAssembled: true,
@@ -126,14 +139,26 @@ export async function assembleLocalMediaRun(
   }
 
   const manifestDir = dirname(options.manifestPath);
-  const assembled = cloneManifest(manifest);
+  if (project.edit.editorial && !options.editorial) {
+    return {
+      ok: false,
+      issues: [{ code: "run.editorial_required", message: "approved editorial compilation is required before assembly" }]
+    };
+  }
+  const assembled = cloneManifest(options.editorial?.manifest ?? manifest);
   let assetCount = 0;
 
   await mkdir(runDir, { recursive: true });
 
+  const copiedClips = new Map<string, string>();
   for (const [index, clip] of assembled.clips.entries()) {
-    const copied = await copyAsset(clip.src, manifestDir, runDir, "assets/clips", index, clip.id);
-    clip.src = copied.relativePath;
+    let relativePath = copiedClips.get(clip.src);
+    if (!relativePath) {
+      const copied = await copyAsset(clip.src, manifestDir, runDir, "assets/clips", index, clip.id);
+      relativePath = copied.relativePath;
+      copiedClips.set(clip.src, relativePath);
+    }
+    clip.src = relativePath;
     assetCount += 1;
   }
 
@@ -159,6 +184,9 @@ export async function assembleLocalMediaRun(
   }
 
   await writeFile(manifestOutputPath, `${JSON.stringify(assembled, null, 2)}\n`);
+  if (edlPath && options.editorial) {
+    await writeFile(edlPath, `${JSON.stringify(options.editorial.edl, null, 2)}\n`);
+  }
   await writeGate2QcReport(assembled, manifestOutputPath, qcReportPath);
   await writeRunLog(runLogPath, {
     runId,
@@ -168,7 +196,8 @@ export async function assembleLocalMediaRun(
     inputDigest,
     reviewPath: "review/index.html",
     reviewDataPath: "review/review-data.json",
-    requests: []
+    requests: [],
+    ...(options.editorial ? { editorialEdlDigest: options.editorial.edl.digest } : {})
   });
 
   const nextState = markGateAwaiting(options.state, "gate_2");
@@ -180,6 +209,7 @@ export async function assembleLocalMediaRun(
     manifestPath: manifestOutputPath,
     qcReportPath,
     runLogPath,
+    ...(edlPath ? { edlPath } : {}),
     assetCount,
     actualCredits: 0,
     alreadyAssembled: false,
@@ -192,7 +222,8 @@ export async function inspectGate2RunForApproval(
   project: Project,
   manifest: Manifest,
   stateDir: string,
-  adapter?: AdapterDefinition
+  adapter?: AdapterDefinition,
+  editorial?: EditorialCompilation
 ): Promise<Result<ResumeMetrics>> {
   const runId = project.run_id ?? project.slug;
   const runDir = join(stateDir, runId);
@@ -200,11 +231,17 @@ export async function inspectGate2RunForApproval(
   return inspectAwaitingGate2Artifacts({
     runId,
     mode: isGeneration ? "generation" : "local-media",
+    backend: project.edit.backend,
     inputDigest: runInputDigest(project, manifest, isGeneration ? adapter : undefined),
     requireQcPass: true,
     manifestPath: join(runDir, "manifest.json"),
     qcReportPath: join(runDir, "gate2-qc.json"),
-    runLogPath: join(runDir, "run-log.md")
+    runLogPath: join(runDir, "run-log.md"),
+    ...(editorial ? {
+      edlPath: join(runDir, "editorial-edl.json"),
+      editorialEdlDigest: editorial.edl.digest,
+      editorialManifest: editorial.manifest
+    } : {})
   });
 }
 
@@ -233,6 +270,7 @@ async function assembleGeneratedMediaRun(
     const resumed = await inspectAwaitingGate2Artifacts({
       runId,
       mode: "generation",
+      backend: project.edit.backend,
       inputDigest,
       manifestPath: manifestOutputPath,
       qcReportPath,
@@ -389,11 +427,15 @@ async function isFile(path: string): Promise<boolean> {
 async function inspectAwaitingGate2Artifacts(input: {
   runId: string;
   mode: "local-media" | "generation";
+  backend: string;
   inputDigest: string;
   requireQcPass?: boolean;
   manifestPath: string;
   qcReportPath: string;
   runLogPath: string;
+  edlPath?: string;
+  editorialEdlDigest?: string;
+  editorialManifest?: Manifest;
 }): Promise<Result<ResumeMetrics>> {
   if (!(await isFile(input.manifestPath))) {
     return {
@@ -429,6 +471,39 @@ async function inspectAwaitingGate2Artifacts(input: {
 
   const runLog = await readAndValidateRunLog(input.runLogPath);
   if (!runLog.ok) return runLog;
+
+  if (input.editorialEdlDigest) {
+    if (!input.edlPath || !(await isFile(input.edlPath))) {
+      return {
+        ok: false,
+        issues: [{ code: "run.edl_missing", message: "approved editorial EDL is missing", path: input.edlPath }]
+      };
+    }
+    const edl = await readAndValidateEdl(input.edlPath, input.editorialEdlDigest);
+    if (!edl.ok) return edl;
+    if (runLog.log.editorialEdlDigest !== input.editorialEdlDigest) {
+      return {
+        ok: false,
+        issues: [{ code: "run.edl_inconsistent", message: "run log does not match the approved editorial EDL" }]
+      };
+    }
+    if (
+      !input.editorialManifest ||
+      edl.edl.output_manifest_digest !== digest(input.editorialManifest) ||
+      !edlMatchesManifest(edl.edl, assembledManifest.manifest) ||
+      !editorialManifestMatchesAssembled(input.editorialManifest, assembledManifest.manifest)
+    ) {
+      return {
+        ok: false,
+        issues: [{ code: "run.edl_inconsistent", message: "editorial EDL does not match the assembled manifest" }]
+      };
+    }
+  } else if (runLog.log.editorialEdlDigest) {
+    return {
+      ok: false,
+      issues: [{ code: "run.edl_unapproved", message: "assembled run contains an editorial EDL without current approval" }]
+    };
+  }
 
   const assetReferences = manifestAssetReferences(assembledManifest.manifest);
   const realRunDir = await realpath(dirname(input.manifestPath));
@@ -524,7 +599,10 @@ async function inspectAwaitingGate2Artifacts(input: {
     }
   }
 
-  const freshQcReport = inspectGate2Manifest(assembledManifest.manifest, dirname(input.manifestPath));
+  const freshQcReport = await inspectGate2ManifestWithFingerprints(
+    assembledManifest.manifest,
+    dirname(input.manifestPath)
+  );
   if (stableJson(qcReport.report) !== stableJson(freshQcReport)) {
     return {
       ok: false,
@@ -554,7 +632,14 @@ async function inspectAwaitingGate2Artifacts(input: {
     ok: true,
     issues: [],
     assetCount: assetReferences.length,
-    actualCredits: runLog.log.actualCredits
+    actualCredits: runLog.log.actualCredits,
+    approvalDigest: digest({
+      backend: input.backend,
+      manifest: assembledManifest.manifest,
+      editorial_edl_digest: input.editorialEdlDigest,
+      run_log: runLog.log,
+      gate2_qc: freshQcReport
+    })
   };
 }
 
@@ -598,7 +683,14 @@ async function readAndValidateQcReport(
 
 async function readAndValidateRunLog(path: string): Promise<
   Result<{
-    log: { runId: string; mode: string; assetCount: number; actualCredits: number; inputDigest: string };
+    log: {
+      runId: string;
+      mode: string;
+      assetCount: number;
+      actualCredits: number;
+      inputDigest: string;
+      editorialEdlDigest?: string;
+    };
   }>
 > {
   try {
@@ -608,6 +700,7 @@ async function readAndValidateRunLog(path: string): Promise<
     const assetCountText = text.match(/^- asset_count: (.+)$/m)?.[1]?.trim();
     const actualCreditsText = text.match(/^- actual_credits: (.+)$/m)?.[1]?.trim();
     const inputDigest = text.match(/^- input_digest: ([a-f0-9]{64})$/m)?.[1];
+    const editorialEdlDigest = text.match(/^- editorial_edl_digest: ([a-f0-9]{64})$/m)?.[1];
     const assetCount = Number(assetCountText);
     const actualCredits = Number(actualCreditsText);
 
@@ -628,7 +721,18 @@ async function readAndValidateRunLog(path: string): Promise<
       };
     }
 
-    return { ok: true, issues: [], log: { runId, mode, assetCount, actualCredits, inputDigest } };
+    return {
+      ok: true,
+      issues: [],
+      log: {
+        runId,
+        mode,
+        assetCount,
+        actualCredits,
+        inputDigest,
+        ...(editorialEdlDigest ? { editorialEdlDigest } : {})
+      }
+    };
   } catch (error) {
     return {
       ok: false,
@@ -686,6 +790,7 @@ async function writeRunLog(
     reviewPath: string;
     reviewDataPath: string;
     requests: CliGenerationRequestResult[];
+    editorialEdlDigest?: string;
   }
 ): Promise<void> {
   const lines = [
@@ -695,6 +800,7 @@ async function writeRunLog(
     `- asset_count: ${input.assetCount}`,
     `- actual_credits: ${input.actualCredits}`,
     `- input_digest: ${input.inputDigest}`,
+    ...(input.editorialEdlDigest ? [`- editorial_edl_digest: ${input.editorialEdlDigest}`] : []),
     `- review_path: ${input.reviewPath}`,
     `- review_data_path: ${input.reviewDataPath}`,
     `- generated_at: ${new Date().toISOString()}`,
@@ -706,6 +812,67 @@ async function writeRunLog(
     )
   ];
   await writeFile(path, `${lines.join("\n")}\n`);
+}
+
+async function readAndValidateEdl(
+  path: string,
+  expectedDigest: string
+): Promise<Result<{ edl: Record<string, unknown> }>> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const claimedDigest = parsed.digest;
+    const { digest: _digest, ...withoutDigest } = parsed;
+    if (claimedDigest !== expectedDigest || digest(withoutDigest) !== expectedDigest) {
+      return {
+        ok: false,
+        issues: [{ code: "run.edl_invalid", message: "editorial EDL digest does not match Gate 1 approval", path }]
+      };
+    }
+    return { ok: true, issues: [], edl: parsed };
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [{ code: "run.edl_invalid", message: error instanceof Error ? error.message : String(error), path }]
+    };
+  }
+}
+
+function edlMatchesManifest(edl: Record<string, unknown>, manifest: Manifest): boolean {
+  if (edl.duration_seconds !== manifest.meta.target_duration_seconds || !Array.isArray(edl.segments)) return false;
+  if (edl.segments.length !== manifest.clips.length) return false;
+  return edl.segments.every((unknownSegment, index) => {
+    if (!unknownSegment || typeof unknownSegment !== "object" || Array.isArray(unknownSegment)) return false;
+    const segment = unknownSegment as Record<string, unknown>;
+    const clip = manifest.clips[index];
+    return Boolean(clip) &&
+      segment.source_clip_id === (clip as Record<string, unknown>).source_clip_id &&
+      segment.source_start === clip.in &&
+      segment.source_end === clip.out &&
+      segment.output_start === (clip as Record<string, unknown>).output_start &&
+      segment.output_end === (clip as Record<string, unknown>).output_end;
+  });
+}
+
+function editorialManifestMatchesAssembled(expected: Manifest, assembled: Manifest): boolean {
+  if (
+    expected.clips.length !== assembled.clips.length ||
+    expected.images.length !== assembled.images.length ||
+    expected.audio.bgm.length !== assembled.audio.bgm.length ||
+    expected.audio.narration.length !== assembled.audio.narration.length ||
+    expected.audio.sfx.length !== assembled.audio.sfx.length
+  ) {
+    return false;
+  }
+
+  const relocated = cloneManifest(expected);
+  for (const [index, clip] of relocated.clips.entries()) clip.src = assembled.clips[index]!.src;
+  for (const [index, image] of relocated.images.entries()) image.src = assembled.images[index]!.src;
+  for (const track of ["bgm", "narration", "sfx"] as const) {
+    for (const [index, entry] of relocated.audio[track].entries()) {
+      entry.src = assembled.audio[track][index]!.src;
+    }
+  }
+  return stableJson(relocated) === stableJson(assembled);
 }
 
 function runInputDigest(project: Project, manifest: Manifest, adapter?: AdapterDefinition): string {
