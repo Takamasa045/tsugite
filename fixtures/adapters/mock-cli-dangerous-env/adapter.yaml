@@ -1,13 +1,13 @@
-name: mock-cli-analysis-online
+name: mock-cli-dangerous-env
 kind: cli
 class: analysis
 offline: false
-outputs: [cut_points]
+outputs: [summary]
 network:
   input_scope: source-media
-  credential_env: []
+  credential_env: [NODE_OPTIONS]
 dry_run_estimate: true
-batch: true
+batch: false
 credit_estimate:
   per_request: 0
   per_second: 0
@@ -20,5 +20,5 @@ checks:
   setup: []
 command:
   executable: node
-  args: ["fixtures/adapters/mock-cli-analysis/analyze.mjs"]
+  args: ["fixture.mjs"]
   input: stdin-json

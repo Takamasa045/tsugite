@@ -27,7 +27,8 @@ const metadataSchema = z
   .object({
     engine: z.string().min(1),
     api_used: z.boolean(),
-    network_used: z.boolean()
+    network_used: z.boolean(),
+    actual_credits: z.number().nonnegative().optional()
   })
   .passthrough();
 
@@ -168,15 +169,29 @@ export type CliAnalysisRequestResult = z.infer<typeof analysisAdapterOutputSchem
 
 export type CliAnalysisResult = {
   results: CliAnalysisRequestResult[];
-  actualCredits: 0;
-  apiUsed: false;
-  networkUsed: false;
+  actualCredits: number;
+  apiUsed: boolean;
+  networkUsed: boolean;
+  externalTransfers: ExternalAnalysisTransfer[];
+};
+
+export type ExternalAnalysisTransfer = {
+  request_id: string;
+  adapter: string;
+  input_scope: "low-confidence-segments" | "source-media" | "source-media-and-dependencies";
+  source_sha256: string;
+  segment_ids: string[];
+  dependency_ids: string[];
 };
 
 export type CliAnalysisOptions = {
   runId: string;
   runDir: string;
   manifestDir: string;
+  mode?: "local" | "hybrid" | "cloud";
+  confidenceThreshold?: number;
+  allowExternalAnalysis?: boolean;
+  environment?: NodeJS.ProcessEnv;
 };
 
 export function runCliAnalysisAdapter(
@@ -188,9 +203,6 @@ export function runCliAnalysisAdapter(
   if (adapter.kind !== "cli") {
     return failure("analysis.adapter_kind_unsupported", `adapter kind '${adapter.kind}' is not executable by pipeline analyze`);
   }
-  if (!adapter.offline) {
-    return failure("analysis.adapter_offline_required", "cli analysis adapter must declare offline: true");
-  }
   if (!adapter.outputs) {
     return failure("analysis.adapter_outputs_required", "cli analysis adapter must declare supported outputs");
   }
@@ -201,27 +213,13 @@ export function runCliAnalysisAdapter(
   const ordered = orderAnalysisRequests(requests);
   if (!ordered.ok) return ordered;
   const resultsById = new Map<string, CliAnalysisRequestResult>();
+  const externalTransfers: ExternalAnalysisTransfer[] = [];
   for (const request of ordered.requests) {
-    if (request.adapter && request.adapter !== adapter.name) {
-      return failure(
-        "analysis.request_adapter_mismatch",
-        `analysis request '${request.id}' selects adapter '${request.adapter}', not '${adapter.name}'`,
-        `analysis.requests.${request.id}.adapter`
-      );
-    }
-    const source = resolveSource(request, manifest, options.manifestDir);
-    if (!source.ok) return source;
     const inputs = requestDependencies(request).map((dependencyId) => resultsById.get(dependencyId)!);
-    if (inputs.some((input) => !sameSource(input.source, source.source))) {
-      return failure(
-        "analysis.dependency_source_mismatch",
-        "analysis request dependencies must use the same source clip and fingerprint",
-        `analysis.requests.${request.id}.depends_on`
-      );
-    }
-    const executed = runRequest(adapter, request, source.source, inputs, options);
+    const executed = runCliAnalysisRequest(adapter, request, manifest, inputs, options);
     if (!executed.ok) return executed;
     resultsById.set(request.id, executed.result);
+    if (executed.externalTransfer) externalTransfers.push(executed.externalTransfer);
   }
 
   const results = requests.map((request) => resultsById.get(request.id)!);
@@ -230,10 +228,64 @@ export function runCliAnalysisAdapter(
     ok: true,
     issues: [],
     results,
-    actualCredits: 0,
-    apiUsed: false,
-    networkUsed: false
+    actualCredits: sumCredits(results),
+    apiUsed: results.some((result) => result.metadata.api_used),
+    networkUsed: results.some((result) => result.metadata.network_used),
+    externalTransfers
   };
+}
+
+export function runCliAnalysisRequest(
+  adapter: AdapterDefinition,
+  request: AnalysisRequest,
+  manifest: Manifest,
+  inputs: CliAnalysisRequestResult[],
+  options: CliAnalysisOptions
+): Result<{ result: CliAnalysisRequestResult; externalTransfer?: ExternalAnalysisTransfer }> {
+  if (adapter.kind !== "cli") {
+    return failure("analysis.adapter_kind_unsupported", `adapter kind '${adapter.kind}' is not executable by pipeline analyze`);
+  }
+  if (request.adapter && request.adapter !== adapter.name) {
+    return failure(
+      "analysis.request_adapter_mismatch",
+      `analysis request '${request.id}' selects adapter '${request.adapter}', not '${adapter.name}'`,
+      `analysis.requests.${request.id}.adapter`
+    );
+  }
+  if (!adapter.outputs?.includes(request.output)) {
+    return failure("analysis.output_unsupported", `analysis adapter '${adapter.name}' does not support '${request.output}'`);
+  }
+  if (!adapter.command) {
+    return failure("analysis.adapter_command_missing", "cli analysis adapter command is not declared");
+  }
+  const mode = options.mode ?? "local";
+  if (adapter.offline === false) {
+    if (mode === "local") {
+      return failure("analysis.online_adapter_forbidden", "local analysis mode cannot execute an online adapter");
+    }
+    if (!options.allowExternalAnalysis) {
+      return failure(
+        "analysis.external_permission_required",
+        "external analysis requires the explicit --allow-external-analysis execution flag"
+      );
+    }
+    if (!adapter.network) {
+      return failure("analysis.network_contract_required", "online analysis adapter must declare its network input scope");
+    }
+  } else if (adapter.offline !== true) {
+    return failure("analysis.offline_contract_required", "cli analysis adapter must explicitly declare offline");
+  }
+
+  const source = resolveSource(request, manifest, options.manifestDir);
+  if (!source.ok) return source;
+  if (inputs.some((input) => !sameSource(input.source, source.source))) {
+    return failure(
+      "analysis.dependency_source_mismatch",
+      "analysis request dependencies must use the same source clip and fingerprint",
+      `analysis.requests.${request.id}.depends_on`
+    );
+  }
+  return runRequest(adapter, request, source.source, inputs, options);
 }
 
 type ResolvedSource = {
@@ -320,31 +372,102 @@ function runRequest(
   source: ResolvedSource,
   inputs: CliAnalysisRequestResult[],
   options: CliAnalysisOptions
-): Result<{ result: CliAnalysisRequestResult }> {
+): Result<{ result: CliAnalysisRequestResult; externalTransfer?: ExternalAnalysisTransfer }> {
   const maxAttempts = Math.max(1, adapter.retry.max_attempts + 1);
   let lastIssue: Issue | undefined;
+  const externalInput = createExternalInput(adapter, inputs, options.confidenceThreshold ?? 0.7);
+  if (!externalInput.ok) return externalInput;
+  if (adapter.network?.input_scope === "low-confidence-segments" && externalInput.segmentIds.length === 0) {
+    const transcript = inputs.find(
+      (input): input is Extract<CliAnalysisRequestResult, { output: "transcript" }> => input.output === "transcript"
+    );
+    if (!transcript) {
+      return failure("analysis.hybrid_transcript_dependency_required", "hybrid passthrough requires a transcript dependency");
+    }
+    return {
+      ok: true,
+      issues: [],
+      result: {
+        ...transcript,
+        request_id: request.id,
+        metadata: {
+          engine: "hybrid-local-passthrough",
+          api_used: false,
+          network_used: false,
+          actual_credits: 0
+        },
+        attempts: 0
+      }
+    };
+  }
+  const environment = options.environment ?? process.env;
+  for (const variable of adapter.network?.credential_env ?? []) {
+    if (!environment[variable]) {
+      return failure("analysis.credential_missing", `required analysis credential '${variable}' is not set`, variable);
+    }
+  }
+  const sourcePayload = adapter.network?.input_scope === "low-confidence-segments"
+    ? publicSource(source)
+    : source;
+  const adapterInputs = adapter.offline || adapter.network?.input_scope === "source-media-and-dependencies"
+    ? inputs
+    : [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const execution = spawnSync(adapter.command!.executable, adapter.command!.args, {
       cwd: process.cwd(),
-      input: `${JSON.stringify({ request, run_id: options.runId, run_dir: options.runDir, source, inputs })}\n`,
+      input: `${JSON.stringify({
+        request,
+        run_id: options.runId,
+        run_dir: options.runDir,
+        source: sourcePayload,
+        inputs: adapterInputs,
+        ...(externalInput.input ? { external_input: externalInput.input } : {})
+      })}\n`,
       encoding: "utf8",
       maxBuffer: 1024 * 1024 * 20,
-      env: offlineEnvironment(process.env)
+      ...(adapter.network ? { timeout: adapter.network.timeout_ms } : {}),
+      env: adapterEnvironment(adapter, environment),
+      shell: false
     });
 
     if (execution.error) {
+      if ((execution.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {
+        return failure("analysis.adapter_timeout", "external analysis adapter timed out");
+      }
       return failure("analysis.adapter_spawn_failed", "analysis adapter command could not be started");
     }
     if (execution.status === 0) {
       if (sourceChanged(source)) {
         return failure("analysis.source_changed", "analysis source changed while the adapter was running");
       }
+      if (adapterOutputContainsCredential(execution.stdout, adapter, environment)) {
+        return failure(
+          "analysis.adapter_output_secret_detected",
+          "analysis adapter output contained a declared credential and was rejected"
+        );
+      }
       const parsed = parseOutput(execution.stdout, request.id);
       if (!parsed.ok) return parsed;
-      const validated = validateOutput(parsed.output, request, source, inputs);
+      const validated = validateOutput(parsed.output, request, source, inputs, adapter);
       if (!validated.ok) return validated;
-      return { ok: true, issues: [], result: { ...parsed.output, attempts: attempt } };
+      const merged = mergeHybridTranscript(parsed.output, inputs, externalInput.segmentIds);
+      if (!merged.ok) return merged;
+      return {
+        ok: true,
+        issues: [],
+        result: { ...merged.output, attempts: attempt },
+        ...(adapter.network ? {
+          externalTransfer: {
+            request_id: request.id,
+            adapter: adapter.name,
+            input_scope: adapter.network.input_scope,
+            source_sha256: source.sha256,
+            segment_ids: externalInput.segmentIds,
+            dependency_ids: adapterInputs.map((input) => input.request_id)
+          }
+        } : {})
+      };
     }
 
     const status = execution.status ?? 1;
@@ -360,6 +483,113 @@ function runRequest(
   }
 
   return { ok: false, issues: [lastIssue ?? { code: "analysis.adapter_failed", message: "analysis adapter failed" }] };
+}
+
+function adapterOutputContainsCredential(
+  stdout: string,
+  adapter: AdapterDefinition,
+  environment: NodeJS.ProcessEnv
+): boolean {
+  return (adapter.network?.credential_env ?? []).some((variable) => {
+    const value = environment[variable];
+    if (!value) return false;
+    return value.length >= 8 ? stdout.includes(value) : stdout.includes(JSON.stringify(value));
+  });
+}
+
+type ExternalInput = {
+  scope: "low-confidence-segments" | "source-media" | "source-media-and-dependencies";
+  segments: Array<Extract<CliAnalysisRequestResult, { output: "transcript" }>["data"]["segments"][number]>;
+};
+
+function createExternalInput(
+  adapter: AdapterDefinition,
+  inputs: CliAnalysisRequestResult[],
+  confidenceThreshold: number
+): Result<{ input?: ExternalInput; segmentIds: string[] }> {
+  if (!adapter.network) return { ok: true, issues: [], segmentIds: [] };
+  if (adapter.network.input_scope !== "low-confidence-segments") {
+    return {
+      ok: true,
+      issues: [],
+      input: { scope: adapter.network.input_scope, segments: [] },
+      segmentIds: []
+    };
+  }
+  const transcript = inputs.find(
+    (input): input is Extract<CliAnalysisRequestResult, { output: "transcript" }> => input.output === "transcript"
+  );
+  if (!transcript) {
+    return failure(
+      "analysis.hybrid_transcript_dependency_required",
+      "low-confidence external analysis requires a transcript dependency"
+    );
+  }
+  const segments = transcript.data.segments.filter((segment) => {
+    const confidence = segment.confidence ?? averageConfidence(segment.words ?? []);
+    return confidence !== undefined && confidence < confidenceThreshold;
+  });
+  return {
+    ok: true,
+    issues: [],
+    input: { scope: "low-confidence-segments", segments },
+    segmentIds: segments.map((segment) => segment.id)
+  };
+}
+
+function averageConfidence(words: Array<{ confidence?: number }>): number | undefined {
+  const values = words.flatMap((word) => word.confidence === undefined ? [] : [word.confidence]);
+  if (values.length === 0) return undefined;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function publicSource(source: ResolvedSource): Omit<ResolvedSource, "path" | "size_bytes" | "modified_at_ms"> {
+  const { path: _path, size_bytes: _size, modified_at_ms: _modified, ...publicFields } = source;
+  return publicFields;
+}
+
+function mergeHybridTranscript(
+  output: z.infer<typeof analysisAdapterOutputSchema>,
+  inputs: CliAnalysisRequestResult[],
+  selectedIds: string[]
+): Result<{ output: z.infer<typeof analysisAdapterOutputSchema> }> {
+  if (selectedIds.length === 0 || output.output !== "transcript") {
+    return { ok: true, issues: [], output };
+  }
+  const transcript = inputs.find(
+    (input): input is Extract<CliAnalysisRequestResult, { output: "transcript" }> => input.output === "transcript"
+  );
+  if (!transcript) return { ok: true, issues: [], output };
+  if (output.data.language !== transcript.data.language) {
+    return failure("analysis.hybrid_language_mismatch", "hybrid transcript correction changed the transcript language");
+  }
+  const selected = new Set(selectedIds);
+  const originals = new Map(transcript.data.segments.map((segment) => [segment.id, segment]));
+  const corrections = new Map(output.data.segments.map((segment) => [segment.id, segment]));
+  for (const correction of output.data.segments) {
+    const original = originals.get(correction.id);
+    if (!selected.has(correction.id) || !original) {
+      return failure("analysis.hybrid_segment_unselected", "hybrid adapter returned an unselected transcript segment");
+    }
+    if (correction.source_start !== original.source_start || correction.source_end !== original.source_end) {
+      return failure("analysis.hybrid_segment_range_changed", "hybrid adapter changed a selected source timestamp range");
+    }
+  }
+  return {
+    ok: true,
+    issues: [],
+    output: {
+      ...output,
+      data: {
+        ...output.data,
+        segments: transcript.data.segments.map((segment) => corrections.get(segment.id) ?? segment)
+      }
+    }
+  };
+}
+
+function sumCredits(results: CliAnalysisRequestResult[]): number {
+  return results.reduce((sum, result) => sum + (result.metadata.actual_credits ?? 0), 0);
 }
 
 function sourceChanged(source: ResolvedSource): boolean {
@@ -405,7 +635,8 @@ function validateOutput(
   output: z.infer<typeof analysisAdapterOutputSchema>,
   request: AnalysisRequest,
   source: ResolvedSource,
-  inputs: CliAnalysisRequestResult[]
+  inputs: CliAnalysisRequestResult[],
+  adapter: AdapterDefinition
 ): Result<Record<never, never>> {
   if (output.request_id !== request.id) {
     return failure("analysis.adapter_output_request_id_mismatch", "analysis adapter request_id does not match the request");
@@ -422,11 +653,14 @@ function validateOutput(
   ) {
     return failure("analysis.adapter_output_source_mismatch", "analysis adapter source fingerprint does not match the input");
   }
-  if (output.metadata.api_used) {
+  if (adapter.offline && output.metadata.api_used) {
     return failure("analysis.adapter_api_used", "offline analysis adapters must not use an API");
   }
-  if (output.metadata.network_used) {
+  if (adapter.offline && output.metadata.network_used) {
     return failure("analysis.adapter_network_used", "offline analysis adapters must not use network access");
+  }
+  if (adapter.offline === false && !output.metadata.network_used) {
+    return failure("analysis.adapter_network_not_reported", "online analysis adapters must report network usage");
   }
 
   const ranges = outputRanges(output);
@@ -591,7 +825,7 @@ function sameSource(
   );
 }
 
-function offlineEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function adapterEnvironment(adapter: AdapterDefinition, environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const allowed = new Set([
     "PATH",
     "HOME",
@@ -607,9 +841,8 @@ function offlineEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     "LC_CTYPE",
     "TZ"
   ]);
-  return Object.fromEntries(
-    Object.entries(environment).filter(([key]) => allowed.has(key.toUpperCase()))
-  );
+  for (const variable of adapter.network?.credential_env ?? []) allowed.add(variable);
+  return Object.fromEntries(Object.entries(environment).filter(([key]) => allowed.has(key.toUpperCase())));
 }
 
 function failure<T = Record<never, never>>(code: string, message: string, path?: string): Result<T> {

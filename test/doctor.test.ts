@@ -187,6 +187,24 @@ describe("environment doctor", () => {
     expect(report.checks.some((check) => check.name.includes("mock-cli-analysis-online"))).toBe(false);
   });
 
+  it("reports required external analysis credential names without exposing values", async () => {
+    const secret = "doctor-secret-value";
+    const report = await inspectEnvironment("fixtures/projects/hybrid-analysis.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"],
+      commandExists: async () => true,
+      probeCommand: async () => ({ ok: true, version: "test" }),
+      environment: { TSUGITE_TEST_ANALYSIS_TOKEN: secret }
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.checks).toContainEqual(expect.objectContaining({
+      name: "credential:TSUGITE_TEST_ANALYSIS_TOKEN (mock-cli-external-refinement)",
+      ok: true,
+      status: "ready"
+    }));
+    expect(JSON.stringify(report)).not.toContain(secret);
+  });
+
   it("checks a declared bridge environment variable without executing the bridge", async () => {
     const checkedCommands: string[] = [];
     const probedCommands: string[][] = [];

@@ -64,6 +64,7 @@ type ParsedArgs = {
   accent?: string;
   open: boolean;
   apply: boolean;
+  allowExternalAnalysis: boolean;
   issues: Issue[];
 };
 
@@ -226,7 +227,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.project!,
       validation.manifest!,
       validation.analysisAdapters ?? validation.analysisAdapter,
-      args.stateDir
+      args.stateDir,
+      { allowExternalAnalysis: args.allowExternalAnalysis }
     );
     return output(args, analyzed.ok ? 0 : 1, {
       ok: analyzed.ok,
@@ -560,6 +562,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     dryRun: false,
     open: false,
     apply: false,
+    allowExternalAnalysis: false,
     issues: []
   };
 
@@ -593,6 +596,18 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--apply") {
       if (isOptionAllowed(parsed.command, arg)) {
         parsed.apply = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
+    if (arg === "--allow-external-analysis") {
+      if (isOptionAllowed(parsed.command, arg)) {
+        parsed.allowExternalAnalysis = true;
       } else {
         parsed.issues.push({
           code: "cli.option_unsupported",
@@ -667,7 +682,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
-    analyze: new Set(["--config", "--actor", "--state-dir"]),
+    analyze: new Set(["--config", "--actor", "--state-dir", "--allow-external-analysis"]),
     viewer: new Set(["--config", "--output", "--state-dir", "--open"]),
     review: new Set(["--config", "--output", "--state-dir", "--open"]),
     finalize: new Set(["--config", "--state-dir", "--actor", "--apply"]),

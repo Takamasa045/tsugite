@@ -1,0 +1,19 @@
+slug: hybrid-analysis
+run_id: hybrid-analysis-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  mode: hybrid
+  adapter: mock-cli-confidence
+  confidence_threshold: 0.7
+  requests:
+    - id: transcript-local
+      output: transcript
+      source_clip_id: render-001
+    - id: transcript-refined
+      adapter: mock-cli-external-refinement
+      output: transcript
+      source_clip_id: render-001
+      depends_on: [transcript-local]

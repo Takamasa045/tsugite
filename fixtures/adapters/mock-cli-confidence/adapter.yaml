@@ -1,13 +1,10 @@
-name: mock-cli-analysis-online
+name: mock-cli-confidence
 kind: cli
 class: analysis
-offline: false
-outputs: [cut_points]
-network:
-  input_scope: source-media
-  credential_env: []
+offline: true
+outputs: [transcript]
 dry_run_estimate: true
-batch: true
+batch: false
 credit_estimate:
   per_request: 0
   per_second: 0
@@ -20,5 +17,5 @@ checks:
   setup: []
 command:
   executable: node
-  args: ["fixtures/adapters/mock-cli-analysis/analyze.mjs"]
+  args: ["fixtures/adapters/mock-cli-confidence/analyze.mjs"]
   input: stdin-json

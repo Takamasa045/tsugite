@@ -119,6 +119,14 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
     ]);
     for (const adapter of selectedAdapters) {
       if (!adapter) continue;
+      for (const variable of adapter.network?.credential_env ?? []) {
+        checks.push(
+          check(`credential:${variable} (${adapter.name})`, Boolean(environment[variable]), {
+            detail: `environment variable ${variable}`,
+            remediation: `Set ${variable} only in the execution environment, then rerun doctor.`
+          })
+        );
+      }
       if (adapter.kind === "cli") {
         const executable = adapter.command?.executable;
         checks.push(

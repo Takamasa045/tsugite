@@ -1,0 +1,18 @@
+slug: cloud-translation-analysis
+run_id: cloud-translation-analysis-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  mode: cloud
+  adapter: mock-cli-confidence
+  requests:
+    - id: transcript-local
+      output: transcript
+      source_clip_id: render-001
+    - id: subtitles-cloud
+      adapter: mock-cli-cloud-translation
+      output: subtitle_track
+      source_clip_id: render-001
+      depends_on: [transcript-local]

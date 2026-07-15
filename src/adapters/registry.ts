@@ -6,6 +6,20 @@ import { PipelineError } from "../types.js";
 import { setupCheckSchema } from "../setupChecks.js";
 import { analysisOutputSchema } from "../project/schema.js";
 
+const unsafeForwardedEnvironment = new Set([
+  "BASH_ENV",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+  "ENV",
+  "LD_PRELOAD",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "PERL5OPT",
+  "PYTHONPATH",
+  "RUBYOPT",
+  "SHELLOPTS"
+]);
+
 const adapterSchema = z.object({
   name: z.string().min(1),
   kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
@@ -14,6 +28,24 @@ const adapterSchema = z.object({
   outputs: z
     .array(analysisOutputSchema)
     .min(1)
+    .optional(),
+  network: z
+    .object({
+      input_scope: z.enum([
+        "low-confidence-segments",
+        "source-media",
+        "source-media-and-dependencies"
+      ]),
+      timeout_ms: z.number().int().min(1_000).max(3_600_000).default(900_000),
+      credential_env: z
+        .array(
+          z.string()
+            .regex(/^[A-Z][A-Z0-9_]*$/, "must be an uppercase environment variable name")
+            .refine((value) => !unsafeForwardedEnvironment.has(value), "must not be a runtime injection variable")
+        )
+        .max(16)
+        .default([])
+    })
     .optional(),
   dry_run_estimate: z.boolean(),
   batch: z.boolean(),
@@ -66,6 +98,28 @@ const adapterSchema = z.object({
       input: z.literal("stdin-json").default("stdin-json")
     })
     .optional()
+}).superRefine((adapter, context) => {
+  if (adapter.offline === false && !adapter.network) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "online adapters must declare a network contract",
+      path: ["network"]
+    });
+  }
+  if (adapter.offline === false && adapter.retry.max_attempts > 2) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "online adapters may retry at most twice",
+      path: ["retry", "max_attempts"]
+    });
+  }
+  if (adapter.offline === true && adapter.network) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "offline adapters cannot declare a network contract",
+      path: ["network"]
+    });
+  }
 });
 
 export type AdapterDefinition = z.infer<typeof adapterSchema> & {

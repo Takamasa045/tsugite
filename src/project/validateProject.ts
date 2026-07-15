@@ -139,10 +139,10 @@ export async function validateProject(
         const selectedName = request.adapter ?? project.analysis.adapter;
         const selected = loadedByName.get(selectedName);
         if (!selected) continue;
-        issues.push(...validateAnalysisRequestAdapter(request, selected, manifestResult.manifest));
+        issues.push(...validateAnalysisRequestAdapter(project, request, selected, loadedByName, manifestResult.manifest));
       }
       if (manifestResult.manifest) {
-        issues.push(...validateAnalysisDependencies(project, manifestResult.manifest));
+        issues.push(...validateAnalysisDependencies(project, manifestResult.manifest, loadedByName));
       }
     }
     issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
@@ -159,8 +159,10 @@ export async function validateProject(
 }
 
 function validateAnalysisRequestAdapter(
+  project: Project,
   request: AnalysisRequest,
   adapter: AdapterDefinition,
+  adapters: Map<string, AdapterDefinition>,
   manifest?: Manifest
 ): Issue[] {
   const path = `analysis.requests.${request.id}`;
@@ -174,12 +176,62 @@ function validateAnalysisRequestAdapter(
   if (adapter.kind !== "cli") return [];
 
   const issues: Issue[] = [];
-  if (!adapter.offline) {
+  const mode = project.analysis?.mode ?? "local";
+  if (adapter.offline === false && mode === "local") {
     issues.push({
       code: "analysis.offline_contract_required",
-      message: `cli analysis adapter '${adapter.name}' must declare offline: true`,
+      message: `local analysis adapter '${adapter.name}' must declare offline: true`,
       path: `${path}.adapter`
     });
+    issues.push({
+      code: "analysis.online_adapter_forbidden",
+      message: `analysis mode 'local' cannot use online adapter '${adapter.name}'`,
+      path: `${path}.adapter`
+    });
+  }
+  if (adapter.offline === undefined) {
+    issues.push({
+      code: "analysis.offline_contract_required",
+      message: `cli analysis adapter '${adapter.name}' must explicitly declare offline`,
+      path: `${path}.adapter`
+    });
+  }
+  if (adapter.offline === false && !adapter.network) {
+    issues.push({
+      code: "analysis.network_contract_required",
+      message: `online analysis adapter '${adapter.name}' must declare its network input scope`,
+      path: `${path}.adapter`
+    });
+  }
+  if (adapter.offline === false && mode === "hybrid") {
+    if (adapter.network?.input_scope !== "low-confidence-segments") {
+      issues.push({
+        code: "analysis.hybrid_scope_invalid",
+        message: "hybrid analysis can send only low-confidence transcript segments",
+        path: `${path}.adapter`
+      });
+    }
+    if (request.output !== "transcript") {
+      issues.push({
+        code: "analysis.hybrid_output_invalid",
+        message: "hybrid online refinement must produce a transcript",
+        path: `${path}.output`
+      });
+    }
+    const dependencies = request.depends_on
+      .map((id) => project.analysis?.requests.find((candidate) => candidate.id === id))
+      .filter((candidate): candidate is AnalysisRequest => Boolean(candidate));
+    const hasOfflineTranscript = dependencies.some((dependency) => {
+      const selectedName = dependency.adapter ?? project.analysis!.adapter;
+      return dependency.output === "transcript" && adapters.get(selectedName)?.offline === true;
+    });
+    if (!hasOfflineTranscript) {
+      issues.push({
+        code: "analysis.hybrid_transcript_dependency_required",
+        message: "hybrid online refinement must depend on an offline transcript request",
+        path: `${path}.depends_on`
+      });
+    }
   }
   if (!adapter.outputs) {
     issues.push({
@@ -230,7 +282,11 @@ function validateAnalysisSource(
   return [];
 }
 
-function validateAnalysisDependencies(project: Project, manifest: Manifest): Issue[] {
+function validateAnalysisDependencies(
+  project: Project,
+  manifest: Manifest,
+  adapters: Map<string, AdapterDefinition>
+): Issue[] {
   if (!project.analysis) return [];
   const requests = new Map(project.analysis.requests.map((request) => [request.id, request]));
   const issues: Issue[] = [];
@@ -247,12 +303,20 @@ function validateAnalysisDependencies(project: Project, manifest: Manifest): Iss
         });
         continue;
       }
-      const requestAdapter = request.adapter ?? project.analysis.adapter;
-      const dependencyAdapter = dependency.adapter ?? project.analysis.adapter;
-      if (requestAdapter !== dependencyAdapter) {
+      const requestAdapterName = request.adapter ?? project.analysis.adapter;
+      const dependencyAdapterName = dependency.adapter ?? project.analysis.adapter;
+      const crossesAdapters = requestAdapterName !== dependencyAdapterName;
+      if (crossesAdapters && project.analysis.mode === "local") {
         issues.push({
           code: "analysis.dependency_adapter_mismatch",
-          message: "analysis dependencies must use the same adapter",
+          message: "local analysis dependencies must use the same adapter",
+          path
+        });
+      }
+      if (crossesAdapters && !adapters.has(requestAdapterName)) {
+        issues.push({
+          code: "analysis.dependency_adapter_not_loaded",
+          message: `analysis adapter '${requestAdapterName}' is not loaded`,
           path
         });
       }

@@ -114,6 +114,33 @@ describe("pipeline main", () => {
     await expect(stat(join(stateDir, "local-media-only-run/state.json"))).rejects.toThrow();
   });
 
+  it("accepts explicit external-analysis permission only on analyze without changing local behavior", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-local-analysis-"));
+    const local = await capture([
+      "analyze",
+      "--config",
+      "examples/local-analysis/project.yaml",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--allow-external-analysis",
+      "--json"
+    ]);
+    const unsupported = await capture([
+      "validate",
+      "--config",
+      "examples/local-analysis/project.yaml",
+      "--allow-external-analysis",
+      "--json"
+    ]);
+
+    expect(local.status).toBe(0);
+    expect(JSON.parse(local.stdout)).toMatchObject({ api_used: false, network_used: false, actual_credits: 0 });
+    expect(unsupported.status).toBe(1);
+    expect(JSON.parse(unsupported.stderr).issues[0]?.code).toBe("cli.option_unsupported");
+  });
+
   it("rejects unsupported retry_specific and Gate 2 approval without verified artifacts", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     const runDir = join(stateDir, "local-media-only-run");

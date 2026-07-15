@@ -1,15 +1,15 @@
-name: mock-cli-analysis-online
+name: mock-cli-external-refinement
 kind: cli
 class: analysis
 offline: false
-outputs: [cut_points]
+outputs: [transcript]
 network:
-  input_scope: source-media
-  credential_env: []
+  input_scope: low-confidence-segments
+  credential_env: [TSUGITE_TEST_ANALYSIS_TOKEN]
 dry_run_estimate: true
-batch: true
+batch: false
 credit_estimate:
-  per_request: 0
+  per_request: 0.25
   per_second: 0
 retry:
   max_attempts: 0
@@ -20,5 +20,5 @@ checks:
   setup: []
 command:
   executable: node
-  args: ["fixtures/adapters/mock-cli-analysis/analyze.mjs"]
+  args: ["fixtures/adapters/mock-cli-external-refinement/analyze.mjs"]
   input: stdin-json

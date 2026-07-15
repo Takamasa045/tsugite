@@ -107,13 +107,27 @@ export const projectSchema = z
       .optional(),
     analysis: z
       .object({
+        mode: z.enum(["local", "hybrid", "cloud"]).default("local"),
         adapter: safeIdSchema,
+        confidence_threshold: z.number().min(0).max(1).default(0.7),
         requests: z.array(analysisRequestSchema).min(1).superRefine(rejectDuplicateRequestIds)
       })
       .optional()
   })
   .passthrough()
   .superRefine((project, context) => {
+    if (project.analysis?.mode !== "local") {
+      for (const [index, request] of project.analysis?.requests.entries() ?? []) {
+        const secretPath = findSecretKeyPath(request.params);
+        if (secretPath) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "external analysis credentials must use adapter-declared environment variables",
+            path: ["analysis", "requests", index, "params", ...secretPath]
+          });
+        }
+      }
+    }
     if (project.edit.editorial && !project.analysis) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -184,4 +198,23 @@ function rejectDuplicateRequestIds(requests: Array<{ id: string }>, context: z.R
     }
     seen.add(request.id);
   }
+}
+
+function findSecretKeyPath(value: unknown, path: Array<string | number> = []): Array<string | number> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const found = findSecretKeyPath(item, [...path, index]);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (/^(?:api[_-]?key|token|access[_-]?token|auth[_-]?token|bearer[_-]?token|secret|client[_-]?secret|password|credential)$/i.test(key)) {
+      return [...path, key];
+    }
+    const found = findSecretKeyPath(item, [...path, key]);
+    if (found) return found;
+  }
+  return undefined;
 }
