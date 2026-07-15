@@ -8,6 +8,7 @@ import { useTimelinePlayback } from '../hooks/useTimelinePlayback'
 import { useWorkflowStateAtTime } from '../hooks/useWorkflowStateAtTime'
 import { calculateNodePositions } from '../lib/layout-engine'
 import { validateWorkflowData } from '../lib/workflow-validator'
+import { getFocusCopy, getFocusNode } from '../lib/workflow-presentation'
 import { useWorkflowStore, type PlaybackSpeed } from '../store/workflow-store'
 
 const WorkflowScene = lazy(() =>
@@ -114,6 +115,14 @@ export function App({ samples = workflowSamples }: AppProps) {
   }
 
   const selectNode = useWorkflowStore.getState().selectNode
+  const focusNode = getFocusNode(derivedState.nodes)
+  const focusCopy = getFocusCopy(focusNode)
+  const focusIndex = focusNode
+    ? derivedState.nodes.findIndex((node) => node.id === focusNode.id) + 1
+    : 0
+  const focusProgress = derivedState.nodes.length > 0
+    ? (focusIndex / derivedState.nodes.length) * 100
+    : 0
   const handlePlaying = (playing: boolean) => {
     const state = useWorkflowStore.getState()
     if (playing && state.currentTime >= state.duration) state.setCurrentTime(0)
@@ -134,6 +143,8 @@ export function App({ samples = workflowSamples }: AppProps) {
       <section className="scene-viewport" aria-label="3Dビューポート">
         <Suspense fallback={<div className="scene-loading">3D空間を構築しています…</div>}>
           <WorkflowScene
+            currentTime={currentTime}
+            focusNodeId={focusNode?.id}
             nodesAtTime={derivedState.nodes}
             onSelect={selectNode}
             positions={layout.positions}
@@ -142,10 +153,19 @@ export function App({ samples = workflowSamples }: AppProps) {
             workflow={workflow}
           />
         </Suspense>
-        <div className="scene-readout" aria-hidden="true">
-          <span>木組み工程図</span>
-          <strong>{derivedState.nodes.length} 工程 / {workflow.edges.length} 接続</strong>
-        </div>
+        <section aria-label="制作の現在地" className="scene-focus-card">
+          <div className="scene-focus-heading">
+            <span className="scene-focus-kicker">制作の現在地</span>
+            <span className="scene-focus-index">工程 {focusIndex} / {derivedState.nodes.length}</span>
+          </div>
+          <span aria-hidden="true" className="scene-focus-progress">
+            <i style={{ width: `${focusProgress}%` }} />
+          </span>
+          <h2 id="scene-focus-title">{focusCopy.label}</h2>
+          <strong>{focusNode?.name ?? '工程なし'}</strong>
+          <p>{focusCopy.note}</p>
+          <small>木札を選ぶと、作業と成果物を詳しく確認できます</small>
+        </section>
         {layout.warnings.length > 0 && (
           <p className="scene-warning" role="status">{layout.warnings.join(' · ')}</p>
         )}

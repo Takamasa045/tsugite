@@ -41,7 +41,7 @@ export function WorkflowSummary({ workflow, currentNodes }: WorkflowSummaryProps
     <section aria-labelledby="workflow-summary-title" className="panel-section summary-panel">
       <div className="panel-heading">
         <div>
-          <span className="eyebrow">制作の記録 · OVERVIEW</span>
+          <span className="eyebrow">制作の記録</span>
           <h2 id="workflow-summary-title">制作全体の状況</h2>
         </div>
         <StatusBadge status={workflow.status} compact />

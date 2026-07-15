@@ -38,6 +38,15 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 
 The viewer turns bundled samples or CLI-generated Tsugite snapshots into a navigable 3D production floor with status-aware nodes, dependency lines, node details, and seekable event playback. Default labels and summaries use plain, non-technical Japanese; internal names, references, timestamps, and logs stay under the collapsed details section. The CLI can export current state into it, while the Viewer itself keeps no backend, provider calls, project mutation, or execution authority.
 
+For a non-technical local entry point, install the nested Viewer dependencies once and then open the project launcher:
+
+```sh
+npm --prefix apps/workflow-viewer ci  # first time only
+npm run viewer:open
+```
+
+The launcher binds only to an available `127.0.0.1` port, lists direct `projects/*/project.yaml` entries, and can refresh or open their read-only snapshots. It never runs production adapters, changes Gates or state, or publishes the server externally. Stop it with `Ctrl+C` in the launching terminal.
+
 ```sh
 cd apps/workflow-viewer
 npm install
@@ -132,6 +141,10 @@ The command copies local files, adds the anchor and speaker to the manifest, and
 ## Q&A Dialogue Template
 
 `templates/qa-dialogue/` turns a FAQ `qa_list` into the same Remotion dialogue presentation with auto-timed QUESTION/ANSWER cards. Edit `qa.json`, run `node build-manifest.mjs .`, then use `validate`, `plan`, and `run --dry-run` before any gated execution.
+
+## Neon Dialogue Template
+
+`templates/neon-dialogue/` turns a timed two-speaker script into the reusable `neon-dialogue-16x9` presentation used by `codex-goal-talk-neon`. Edit `dialogue.json` and `video.json`, run `node build-manifest.mjs .`, then use `validate`, `plan`, and `run --dry-run` before any gated execution.
 
 ## Project File
 

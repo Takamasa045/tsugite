@@ -37,6 +37,10 @@ import { validateProject } from "./project/validateProject.js";
 import type { Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
 import { openWorkflowViewer, writeWorkflowViewer } from "./viewer/artifact.js";
+import {
+  openWorkflowViewerLauncher,
+  startWorkflowViewerLauncher
+} from "./viewer/launcher.js";
 
 type ParsedArgs = {
   command: string;
@@ -62,6 +66,8 @@ type ParsedArgs = {
   displayName?: string;
   side?: string;
   accent?: string;
+  projectsDir?: string;
+  port?: string;
   open: boolean;
   apply: boolean;
   allowExternalAnalysis: boolean;
@@ -108,6 +114,62 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         command: "story-guides",
         scope: "creative-guidance-only",
         issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "viewer-launcher") {
+    const port = args.port === undefined ? 0 : Number(args.port);
+    if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+      return output(args, 1, {
+        ok: false,
+        command: "viewer-launcher",
+        issues: [{
+          code: "viewer_launcher.port",
+          message: "--port must be an integer between 0 and 65535",
+          path: "--port"
+        }]
+      });
+    }
+    try {
+      const launcher = await startWorkflowViewerLauncher({
+        ...(args.projectsDir ? { projectsDir: args.projectsDir } : {}),
+        port
+      });
+      if (args.open) {
+        try {
+          await openWorkflowViewerLauncher(launcher.url);
+        } catch (error) {
+          await launcher.close();
+          return output(args, 1, {
+            ok: false,
+            command: "viewer-launcher",
+            url: launcher.url,
+            issues: [{
+              code: "viewer_launcher.open_failed",
+              message: error instanceof Error ? error.message : String(error)
+            }]
+          });
+        }
+      }
+      const status = output(args, 0, {
+        ok: true,
+        command: "viewer-launcher",
+        url: launcher.url,
+        port: launcher.port,
+        project_count: launcher.projectCount,
+        opened: args.open
+      });
+      await launcher.closed;
+      return status;
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "viewer-launcher",
+        issues: [{
+          code: "viewer_launcher.start_failed",
+          message: error instanceof Error ? error.message : String(error)
+        }]
       });
     }
   }
@@ -620,7 +682,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -641,7 +703,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--speaker-id": "speakerId",
       "--display-name": "displayName",
       "--side": "side",
-      "--accent": "accent"
+      "--accent": "accent",
+      "--projects-dir": "projectsDir",
+      "--port": "port"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -679,6 +743,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     doctor: new Set(["--config"]),
     guides: new Set(["--catalog", "--model", "--input-mode"]),
     "story-guides": new Set(["--request", "--duration"]),
+    "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),

@@ -5,7 +5,7 @@ import type { ComponentRef } from 'react'
 import { Vector3 } from 'three'
 
 import type { NodePositions } from './scene-utils'
-import { getSceneBounds } from './scene-utils'
+import { getSceneBounds, getSceneFitDistance } from './scene-utils'
 
 export interface FocusRequest {
   nonce: number
@@ -21,7 +21,7 @@ interface CameraControllerProps {
 
 // Keep the workflow's X axis readable from left to right while retaining a
 // shallow workshop-floor perspective.
-const FIT_DIRECTION = new Vector3(0.24, 0.72, 1.35).normalize()
+const FIT_DIRECTION = new Vector3(0.18, 0.48, 1.55).normalize()
 
 export function CameraController({
   focusRequest,
@@ -30,6 +30,7 @@ export function CameraController({
   sceneKey,
 }: CameraControllerProps) {
   const camera = useThree((state) => state.camera)
+  const size = useThree((state) => state.size)
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null)
   const desiredPosition = useRef(new Vector3())
   const desiredTarget = useRef(new Vector3())
@@ -38,7 +39,9 @@ export function CameraController({
 
   const fitView = () => {
     const center = new Vector3(...bounds.center)
-    const distance = Math.max(9, bounds.radius * 1.85)
+    const aspectRatio = size.width / Math.max(1, size.height)
+    const verticalFov = 'fov' in camera && typeof camera.fov === 'number' ? camera.fov : 42
+    const distance = getSceneFitDistance(positions, aspectRatio, verticalFov)
     desiredTarget.current.copy(center)
     desiredPosition.current.copy(center).addScaledVector(FIT_DIRECTION, distance)
     transitioning.current = true
@@ -48,7 +51,7 @@ export function CameraController({
     fitView()
     // `resetSignal` intentionally lets the parent replay the fit-view transition.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetSignal, sceneKey])
+  }, [resetSignal, sceneKey, size.height, size.width])
 
   useEffect(() => {
     if (!focusRequest) return

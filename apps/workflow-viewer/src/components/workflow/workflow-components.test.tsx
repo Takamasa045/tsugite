@@ -8,14 +8,14 @@ afterEach(cleanup)
 describe('StatusBadge', () => {
   it.each([
     ['pending', '未着手'],
-    ['queued', '待機中'],
-    ['thinking', '思考中'],
-    ['running', '実行中'],
-    ['waiting_approval', '承認待ち'],
-    ['testing', 'テスト中'],
+    ['queued', '開始待ち'],
+    ['thinking', '内容を検討中'],
+    ['running', '作業中'],
+    ['waiting_approval', '確認待ち'],
+    ['testing', '品質確認中'],
     ['completed', '完了'],
-    ['error', 'エラー'],
-    ['skipped', 'スキップ'],
+    ['error', '要確認'],
+    ['skipped', '対象外'],
   ] as const)('%s を色以外のラベルでも識別できる', (status, label) => {
     render(<StatusBadge status={status} />)
 

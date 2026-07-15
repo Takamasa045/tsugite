@@ -1,5 +1,6 @@
 import { Pause, Play, RotateCcw } from 'lucide-react'
 import { getStatusConfig } from '../../lib/status-config'
+import { getFocusCopy, getFocusNode } from '../../lib/workflow-presentation'
 import type { WorkflowData, WorkflowNode } from '../../types/workflow'
 
 interface TimelinePanelProps {
@@ -37,16 +38,19 @@ export function TimelinePanel({
   onSpeedChange,
 }: TimelinePanelProps) {
   const duration = Math.max(0, workflow.duration)
+  const focusNode = getFocusNode(currentNodes)
+  const focusCopy = getFocusCopy(focusNode)
 
   return (
     <section aria-label="タイムライン操作" className="timeline-panel">
       <div className="stage-beam">
         <div className="stage-beam-heading">
           <div>
-            <span className="eyebrow">制作の流れ · WORKFLOW</span>
-            <strong>見たい工程を選んでください</strong>
+            <span className="eyebrow">制作の流れ</span>
+            <h2>制作の現在地</h2>
+            <strong>{focusCopy.summary}</strong>
           </div>
-          <p>選ぶと、右側に作ったものと確認内容が表示されます。</p>
+          <p>工程を選ぶと、右の記録欄に内容が表示されます。</p>
         </div>
         <ol aria-label="工程一覧" className="stage-list">
           {currentNodes.map((node, index) => {
@@ -65,6 +69,7 @@ export function TimelinePanel({
                 >
                   <span className="stage-number">工程 {String(index + 1).padStart(2, '0')}</span>
                   <strong>{node.name}</strong>
+                  {selected ? <span className="stage-viewing">詳細表示中</span> : null}
                   <span className="stage-status"><i aria-hidden="true">{status.symbol}</i>{status.label}</span>
                 </button>
               </li>
@@ -89,7 +94,7 @@ export function TimelinePanel({
 
       <div className="timeline-main">
         <div className="timeline-meta">
-          <span className="eyebrow">記録時刻 · PLAYBACK</span>
+          <span className="eyebrow">時間をたどる</span>
           <output aria-live="off">{formatTime(currentTime)} / {formatTime(duration)}</output>
         </div>
         <div className="timeline-rail">

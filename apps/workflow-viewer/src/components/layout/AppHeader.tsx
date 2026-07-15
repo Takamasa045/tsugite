@@ -29,6 +29,7 @@ export function AppHeader({
     ? currentNodes.reduce((sum, node) => sum + node.progress, 0) / currentNodes.length
     : 0
   const roundedProgress = Math.round(progress)
+  const completedCount = currentNodes.filter((node) => node.status === 'completed').length
 
   return (
     <header className="app-header">
@@ -42,7 +43,10 @@ export function AppHeader({
 
       <div className="header-progress">
         <div className="header-progress-meta">
-          <StatusBadge status={workflow.status} compact />
+          <div className="header-progress-copy">
+            <StatusBadge status={workflow.status} compact />
+            <span>{currentNodes.length}工程中 {completedCount}工程完了</span>
+          </div>
           <strong>{roundedProgress}%</strong>
         </div>
         <ProgressBar label="全体進捗" value={progress} />

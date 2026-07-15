@@ -86,6 +86,15 @@ bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
 
+非エンジニアが複数の制作案件から選んで確認する場合は、初回だけViewer依存を導入し、その後はランチャーを1コマンドで開けます。
+
+```sh
+npm --prefix apps/workflow-viewer ci  # 初回だけ
+npm run viewer:open
+```
+
+ランチャーは `127.0.0.1` の空きポートだけで起動し、`projects/*/project.yaml` を一覧表示します。「最新状態に更新して開く」は現在のstate・review・QC・run logから読み取り専用Viewerを再生成します。制作実行、Gate更新、state書き込み、外部公開は行いません。終了するときは、起動したターミナルで `Ctrl+C` を押します。
+
 長尺の手持ち動画を外部APIなしで解析する場合は、`examples/local-analysis` を使います。
 
 ```sh

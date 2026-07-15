@@ -221,7 +221,7 @@ describe('status presentation config', () => {
       expect(config.label).not.toBe('')
       expect(config.symbol).not.toBe('')
     }
-    expect(getStatusConfig('error')).toMatchObject({ label: 'エラー', symbol: '⚠' })
+    expect(getStatusConfig('error')).toMatchObject({ label: '要確認', symbol: '⚠' })
   })
 })
 

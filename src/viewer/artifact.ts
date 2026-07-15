@@ -57,6 +57,12 @@ const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 const viewerAppDir = join(repositoryRoot, "apps", "workflow-viewer");
 const defaultBundleDir = join(viewerAppDir, "dist");
 
+export async function prepareWorkflowViewerBundle(bundleDir?: string): Promise<string> {
+  const resolvedBundleDir = bundleDir ? resolve(bundleDir) : defaultBundleDir;
+  await ensureViewerBundle(resolvedBundleDir, bundleDir !== undefined);
+  return resolvedBundleDir;
+}
+
 /**
  * Writes a read-only Viewer snapshot. Pipeline state and Gate artifacts are never changed.
  */
@@ -77,7 +83,7 @@ export async function writeWorkflowViewer(
   const { state, found: stateFound } = await loadRunState(join(runDir, "state.json"), runId);
   const loadedEvidence = await loadViewerEvidence(runDir, runId);
   const { previewSources, ...evidence } = loadedEvidence;
-  await ensureViewerBundle(bundleDir, options.bundleDir !== undefined);
+  await prepareWorkflowViewerBundle(options.bundleDir);
   await mkdir(outputDir, { recursive: true });
   const previews = await writeViewerPreviews(
     runDir,

@@ -8,9 +8,16 @@ import { SceneEnvironment } from './SceneEnvironment'
 import { WorkflowEdge3D } from './WorkflowEdge3D'
 import { WorkflowNode3D } from './WorkflowNode3D'
 import type { NodePositions } from './scene-utils'
-import { getPosition, getSceneBounds } from './scene-utils'
+import {
+  createPresentationPositions,
+  getPosition,
+  getSceneBounds,
+  getSceneFitDistance,
+} from './scene-utils'
 
 export interface WorkflowSceneProps {
+  currentTime: number
+  focusNodeId?: string
   nodesAtTime?: readonly WorkflowNode[]
   onSelect: (nodeId: string | null) => void
   positions: NodePositions
@@ -38,6 +45,8 @@ interface SceneContentProps extends WorkflowSceneProps {
 }
 
 function SceneContent({
+  currentTime,
+  focusNodeId,
   nodesAtTime,
   onSelect,
   positions,
@@ -59,6 +68,7 @@ function SceneContent({
       .filter((value): value is number => value !== undefined)
     return (values.length > 0 ? Math.min(...values) : 0) - 1.35
   }, [positions, visibleNodes])
+  const sceneBounds = useMemo(() => getSceneBounds(positions), [positions])
 
   const focusNode = (position: readonly [number, number, number]) => {
     focusNonce.current += 1
@@ -68,8 +78,10 @@ function SceneContent({
   return (
     <>
       <SceneEnvironment
+        center={sceneBounds.center}
         floorY={floorY}
         onBackgroundClick={() => onSelect(null)}
+        radius={sceneBounds.radius}
         reducedMotion={reducedMotion}
       />
       <group>
@@ -93,11 +105,14 @@ function SceneContent({
         })}
       </group>
       <group>
-        {visibleNodes.map((node) => {
+        {visibleNodes.map((node, index) => {
           const position = getPosition(positions, node.id)
           if (!position) return null
           return (
             <WorkflowNode3D
+              currentTime={currentTime}
+              featured={node.id === focusNodeId}
+              labelRaised={index % 2 === 1}
               key={node.id}
               node={node}
               onFocus={focusNode}
@@ -121,12 +136,19 @@ function SceneContent({
 
 export function WorkflowScene(props: WorkflowSceneProps) {
   const reducedMotion = useReducedMotion()
-  const bounds = useMemo(() => getSceneBounds(props.positions), [props.positions])
-  const initialDistance = Math.max(9, bounds.radius * 1.85)
+  const presentationPositions = useMemo(
+    () => createPresentationPositions(props.positions),
+    [props.positions],
+  )
+  const bounds = useMemo(
+    () => getSceneBounds(presentationPositions),
+    [presentationPositions],
+  )
+  const initialDistance = getSceneFitDistance(presentationPositions, 1.25, 42)
   const cameraPosition: [number, number, number] = [
-    bounds.center[0] + initialDistance * 0.15,
-    bounds.center[1] + initialDistance * 0.46,
-    bounds.center[2] + initialDistance * 0.86,
+    bounds.center[0] + initialDistance * 0.11,
+    bounds.center[1] + initialDistance * 0.3,
+    bounds.center[2] + initialDistance * 0.95,
   ]
 
   return (
@@ -136,13 +158,13 @@ export function WorkflowScene(props: WorkflowSceneProps) {
       style={{ height: '100%', minHeight: 320, position: 'relative', width: '100%' }}
     >
       <Canvas
-        camera={{ far: 140, fov: 45, near: 0.1, position: cameraPosition }}
+        camera={{ far: 140, fov: 42, near: 0.1, position: cameraPosition }}
         dpr={[1, 1.75]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         onPointerMissed={() => props.onSelect(null)}
         shadows="percentage"
       >
-        <SceneContent {...props} reducedMotion={reducedMotion} />
+        <SceneContent {...props} positions={presentationPositions} reducedMotion={reducedMotion} />
       </Canvas>
     </div>
   )

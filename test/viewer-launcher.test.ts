@@ -1,0 +1,232 @@
+import { cp, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { get } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  startWorkflowViewerLauncher,
+  type WorkflowViewerLauncher
+} from "../src/viewer/launcher.js";
+
+const launchers: WorkflowViewerLauncher[] = [];
+
+afterEach(async () => {
+  await Promise.all(launchers.splice(0).map((launcher) => launcher.close()));
+});
+
+async function createFixture() {
+  const root = await mkdtemp(join(tmpdir(), "tsugite-viewer-launcher-"));
+  const projectsDir = join(root, "projects");
+  const projectDir = join(projectsDir, "valid-project");
+  const bundleDir = join(root, "bundle");
+  await mkdir(projectsDir, { recursive: true });
+  await cp(join(process.cwd(), "examples", "local-fixture"), projectDir, { recursive: true });
+  await mkdir(join(bundleDir, "assets"), { recursive: true });
+  await writeFile(
+    join(bundleDir, "index.html"),
+    '<!doctype html><html><head><title>Viewer</title><link rel="stylesheet" href="./assets/app.css"></head><body><div id="root"></div><script type="module" src="./assets/app.js"></script></body></html>\n'
+  );
+  await writeFile(join(bundleDir, "assets", "app.css"), "body { color: black; }\n");
+  await writeFile(join(bundleDir, "assets", "app.js"), "globalThis.viewerLoaded = true;\n");
+  return { root, projectsDir, projectDir, bundleDir };
+}
+
+async function launch(options: Parameters<typeof startWorkflowViewerLauncher>[0]) {
+  const launcher = await startWorkflowViewerLauncher(options);
+  launchers.push(launcher);
+  return launcher;
+}
+
+async function statusWithHost(url: string, host: string): Promise<number> {
+  const target = new URL(url);
+  return await new Promise<number>((resolveStatus, reject) => {
+    const request = get({
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname,
+      headers: { host }
+    }, (response) => {
+      response.resume();
+      response.once("end", () => resolveStatus(response.statusCode ?? 0));
+    });
+    request.once("error", reject);
+  });
+}
+
+describe("workflow viewer launcher", () => {
+  it("serves the built Viewer shell with launcher metadata and lists direct real projects", async () => {
+    const fixture = await createFixture();
+    const invalidDir = join(fixture.projectsDir, "invalid-project");
+    const nestedDir = join(fixture.projectsDir, "group", "nested-project");
+    await mkdir(invalidDir);
+    await writeFile(join(invalidDir, "project.yaml"), "slug: [invalid\n");
+    await mkdir(nestedDir, { recursive: true });
+    await writeFile(join(nestedDir, "project.yaml"), "slug: nested\n");
+    await symlink(fixture.projectDir, join(fixture.projectsDir, "linked-project"));
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    expect(launcher.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    const rootResponse = await fetch(launcher.url);
+    const rootHtml = await rootResponse.text();
+    expect(rootResponse.status).toBe(200);
+    expect(rootHtml).toContain('<meta name="tsugite-launcher" content="true">');
+    expect(rootHtml).toContain(
+      `<meta name="tsugite-launcher-token" content="${launcher.token}">`
+    );
+    await expect(fetch(`${launcher.url}/assets/app.js`).then((response) => response.text()))
+      .resolves.toContain("viewerLoaded");
+
+    const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    expect(payload).toMatchObject({ ok: true });
+    expect(payload.projects).toHaveLength(2);
+    expect(payload.projects.map((project: { name: string }) => project.name)).toEqual([
+      "invalid-project",
+      "valid-project"
+    ]);
+    const valid = payload.projects.find((project: { name: string }) => project.name === "valid-project");
+    expect(valid).toMatchObject({
+      name: "valid-project",
+      slug: "local-fixture",
+      runId: "local-fixture-run",
+      status: "planned",
+      updatedAt: null,
+      hasViewer: false,
+      valid: true
+    });
+    expect(valid.id).not.toBe("valid-project");
+    expect(valid.id).not.toBe("local-fixture");
+    const invalid = payload.projects.find((project: { name: string }) => project.name === "invalid-project");
+    expect(invalid).toMatchObject({ valid: false, status: "error", hasViewer: false });
+    expect(invalid.issue).toEqual(expect.any(String));
+
+    await expect(statusWithHost(launcher.url, "viewer.attacker.invalid")).resolves.toBe(403);
+  });
+
+  it("requires the launcher token and same origin before refreshing a snapshot", async () => {
+    const fixture = await createFixture();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    const missingToken = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url }
+    });
+    expect(missingToken.status).toBe(403);
+    const foreignOrigin = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: {
+        origin: "https://example.com",
+        "x-tsugite-token": launcher.token
+      }
+    });
+    expect(foreignOrigin.status).toBe(403);
+
+    const refreshed = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "x-tsugite-token": launcher.token
+      }
+    });
+    const payload = await refreshed.json();
+    expect(refreshed.status).toBe(200);
+    expect(payload).toMatchObject({
+      ok: true,
+      viewerUrl: `/viewer/${project.id}/`,
+      project: { id: project.id, hasViewer: true, valid: true }
+    });
+    const viewerResponse = await fetch(`${launcher.url}${payload.viewerUrl}`);
+    expect(viewerResponse.status).toBe(200);
+    await expect(viewerResponse.text()).resolves.toContain('id="tsugite-workflow-data"');
+
+    const statePath = join(fixture.projectDir, "dist", "local-fixture-run", "state.json");
+    await expect(readFile(statePath, "utf8")).rejects.toThrow();
+  });
+
+  it("serves only files below the generated Viewer and rejects traversal and unknown ids", async () => {
+    const fixture = await createFixture();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+
+    expect((await fetch(`${launcher.url}/viewer/unknown/`)).status).toBe(404);
+    expect((await fetch(`${launcher.url}/viewer/${project.id}/..%2fstate.json`)).status).toBe(404);
+    expect((await fetch(`${launcher.url}/viewer/${project.id}/..%2f..%2fproject.yaml`)).status).toBe(404);
+  });
+
+  it("refuses a project whose dist path is redirected through a symlink", async () => {
+    const fixture = await createFixture();
+    const outside = join(fixture.root, "outside");
+    await mkdir(outside);
+    await symlink(outside, join(fixture.projectDir, "dist"));
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    expect(project).toMatchObject({ valid: false, status: "error", hasViewer: false });
+    expect(project.issue).toMatch(/outside the project|symbolic link/i);
+    const response = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+    expect(response.status).toBe(422);
+    await expect(readFile(join(outside, "local-fixture-run", "viewer", "index.html"), "utf8"))
+      .rejects.toThrow();
+  });
+
+  it("rejects a second refresh while the same project is already refreshing", async () => {
+    const fixture = await createFixture();
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      beforeRefresh: () => paused
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const headers = { origin: launcher.url, "x-tsugite-token": launcher.token };
+    const first = fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const second = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers
+    });
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toMatchObject({
+      ok: false,
+      issue: { code: "viewer_launcher.refresh_in_progress" }
+    });
+    release();
+    expect((await first).status).toBe(200);
+  });
+});
