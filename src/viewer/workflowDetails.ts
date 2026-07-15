@@ -1,6 +1,6 @@
 import type { ExecutionPlan } from "../orchestrator/plan.js";
 import type { GateId, RunState } from "../orchestrator/state.js";
-import type { Project } from "../project/schema.js";
+import { generationRequestMode, type Project } from "../project/schema.js";
 import type {
   ViewerArtifactSnapshot,
   ViewerMediaPreview,
@@ -111,7 +111,7 @@ function gate1Details(context: DetailContext): ViewerWorkflowNodeDetails {
   const requestCount = requests.length || plan.clips.length;
   const decision = gateDecision("gate_1", context, `${adapter}による素材生成を開始できる状態にしました。`);
   const models = unique(requests.map((request) => request.model));
-  const modes = unique(requests.map((request) => inputModeLabel(request.input_mode)));
+  const modes = unique(requests.map((request) => inputModeLabel(generationRequestMode(request))));
   const creditSummary = artifacts.runLog
     ? `クレジット: 事前見積り${formatNumber(plan.estimated_credits)} / 実績${formatNumber(artifacts.runLog.actualCredits)}`
     : `事前見積りクレジット: ${formatNumber(plan.estimated_credits)}`;

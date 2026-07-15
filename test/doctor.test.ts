@@ -156,19 +156,25 @@ describe("environment doctor", () => {
     );
   });
 
-  it("marks an agent handoff as manual instead of reporting a false ready state", async () => {
+  it("probes the Topview CLI without submitting a generation task", async () => {
+    const probedCommands: string[][] = [];
     const report = await inspectEnvironment("fixtures/projects/topview-generation.yaml", {
       commandExists: async () => true,
-      probeCommand: async () => ({ ok: true, version: "test" })
+      probeCommand: async (command) => {
+        probedCommands.push([...command]);
+        return { ok: true, version: "topview-video-gen ready" };
+      }
     });
 
-    expect(report.ok).toBe(false);
+    expect(report.ok).toBe(true);
+    expect(probedCommands).toContainEqual(["node", "adapters/topview/check.mjs"]);
+    expect(probedCommands.flat()).not.toContain("run");
     expect(report.checks).toContainEqual(
       expect.objectContaining({
-        name: "handoff:topview (topview)",
-        ok: false,
-        status: "manual",
-        remediation: expect.stringContaining("Topview")
+        name: "provider:topview-cli (topview)",
+        ok: true,
+        status: "ready",
+        version: "topview-video-gen ready"
       })
     );
   });

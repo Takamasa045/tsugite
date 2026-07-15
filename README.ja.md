@@ -21,7 +21,7 @@
 - PixVerse / Kling 向け CLI generation adapter wrapper。
 - PixVerse / Kling / Seedance の出典・鮮度付き T2V / I2V prompt knowledge catalog。
 - 34種の物語・広告・解説・ドキュメンタリー・ジャンル・MV構成と、35種の尺配分・映像文法・AI動画原則を理由付きで選ぶ story guide catalog。
-- Topview 向け MCP-agent generation adapter 契約。
+- TopView skill CLIを使うT2V / 単一画像I2V generation adapter。
 - OpenClaw 向け optional CLI bridge と Hermes 向け analysis handoff adapter。
 - APIキー不要でFFmpegだけを使う `pipeline analyze` と local-media-analysis adapter。
 - 既存のローカルWhisperモデルで、文字起こし・フィラー候補・章・抽出的要約・英訳字幕を作るlocal-whisper-analysis adapter。
@@ -67,7 +67,9 @@ winget install --id Gyan.FFmpeg -e
 
 Windowsではインストール後にterminalを開き直してください。`npm ci`はRemotionとHyperFramesを含む依存をこのrepo内へ導入するため、global installは不要です。HyperFramesはdevDependencyなので`npm ci --omit=dev`は使用しないでください。
 
-PixVerse / Klingなどのprovider CLI、Topview / OpenClaw / Hermesの外部runtime、認証情報、課金設定は自動導入・設定しません。選択したadapterだけを別途準備し、`doctor`を再実行してください。`doctor`はversion・local package・宣言済みbridgeを副作用のない方法で検査し、生成や課金を行いません。認証や実providerへの接続は行わず、必要な手動確認を`status: manual`と`remediation`で表示します。blocking checkが不足または未確認なら全体の`ok`は`false`になります。
+PixVerse / Klingなどのprovider CLI、TopView / OpenClaw / Hermesの外部runtime、認証情報、課金設定は自動導入・設定しません。選択したadapterだけを別途準備し、`doctor`を再実行してください。TopViewでは同梱skillの`video_gen.py`を非課金の`list-models`で確認します。`doctor`は生成や課金を行わず、認証や残クレジットは手動確認として表示します。blocking checkが不足または未確認なら全体の`ok`は`false`になります。
+
+TopViewの`mode: image-to-video`設定、安全な`first_frame`、Gate付き実行は[`docs/topview-cli.md`](docs/topview-cli.md)を参照してください。
 
 ## コマンド
 

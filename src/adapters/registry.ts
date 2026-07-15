@@ -70,7 +70,9 @@ const adapterSchema = z.object({
               z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")])
             )
             .default({}),
-          forbidden_params: z.array(z.string().min(1)).default([])
+          forbidden_params: z.array(z.string().min(1)).default([]),
+          required_fields: z.array(z.string().min(1)).default([]),
+          forbidden_fields: z.array(z.string().min(1)).default([])
         })
         .optional(),
       "image-to-video": z
@@ -81,7 +83,9 @@ const adapterSchema = z.object({
               z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")])
             )
             .default({}),
-          forbidden_params: z.array(z.string().min(1)).default([])
+          forbidden_params: z.array(z.string().min(1)).default([]),
+          required_fields: z.array(z.string().min(1)).default([]),
+          forbidden_fields: z.array(z.string().min(1)).default([])
         })
         .optional()
     })

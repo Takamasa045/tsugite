@@ -220,6 +220,40 @@ describe("creative review", () => {
     await expect(stat(join(root, "dist/creative-review-run/state.json"))).rejects.toThrow();
   });
 
+  it("stages a generation first_frame from the project directory for Gate 1 review", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-review-generation-image-"));
+    await mkdir(join(root, "assets"));
+    await writeFile(join(root, "project.yaml"), "placeholder\n");
+    await writeFile(join(root, "manifest.json"), "{}\n");
+    await writeFile(join(root, "assets/opening.png"), Buffer.from([137, 80, 78, 71]));
+    const project = sampleProject();
+    project.generation!.requests[0] = {
+      ...project.generation!.requests[0],
+      mode: "image-to-video",
+      input_mode: undefined,
+      first_frame: "assets/opening.png"
+    };
+    const manifest = sampleManifest();
+    manifest.captions = [];
+    manifest.images = [];
+
+    const result = await writeCreativeReview({
+      configPath: join(root, "project.yaml"),
+      project,
+      manifest,
+      plan: createPlan(project, manifest),
+      outputDir: join(root, "review")
+    });
+
+    const data = JSON.parse(await readFile(result.dataPath, "utf8"));
+    expect(result.assetCount).toBe(1);
+    expect(data.storyboard[0].image).toMatchObject({
+      src: "assets/opening.png",
+      preview_src: "assets/001-opening.png"
+    });
+    await expect(stat(join(root, "review/assets/001-opening.png"))).resolves.toBeDefined();
+  });
+
   it("maps explicit open requests without executing them", () => {
     expect(getReviewOpenCommand("/tmp/review/index.html", "darwin")).toEqual({
       command: "open",

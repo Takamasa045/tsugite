@@ -26,6 +26,8 @@ const manifestPathSchema = z
     "must be a safe manifest path"
   );
 
+const generationModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
+
 export const analysisOutputSchema = z.union([
   z.literal("captions"),
   z.literal("chapters"),
@@ -43,7 +45,9 @@ const generationRequestSchema = z
     duration: z.number().positive(),
     aspect: z.union([z.literal("16:9"), z.literal("9:16")]),
     seed: z.number().int().optional(),
-    input_mode: z.union([z.literal("text-to-video"), z.literal("image-to-video")]).optional(),
+    mode: generationModeSchema.optional(),
+    input_mode: generationModeSchema.optional(),
+    first_frame: z.string().min(1).optional(),
     prompt_guide: z
       .object({
         catalog: safeIdSchema
@@ -51,7 +55,16 @@ const generationRequestSchema = z
       .optional(),
     params: z.record(z.string(), z.unknown()).default({})
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((request, context) => {
+    if (request.mode && request.input_mode && request.mode !== request.input_mode) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "mode and input_mode must match when both are declared",
+        path: ["mode"]
+      });
+    }
+  });
 
 const analysisRequestSchema = z
   .object({
@@ -167,6 +180,12 @@ export const projectSchema = z
 export type Project = z.infer<typeof projectSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];
 export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][number];
+
+export function generationRequestMode(
+  request: GenerationRequest
+): "text-to-video" | "image-to-video" | undefined {
+  return request.mode ?? request.input_mode;
+}
 
 export function toExecutionGenerationRequest(
   request: GenerationRequest

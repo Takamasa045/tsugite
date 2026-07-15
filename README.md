@@ -21,7 +21,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 - CLI generation adapter wrappers for PixVerse/Kling.
 - Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
 - A story-guide catalog covering 34 narrative, persuasion, documentary, genre, and music-video structures plus 35 contextual film-grammar and AI-video principles.
-- MCP-agent generation adapter contract for Topview.
+- TopView skill CLI generation adapter for T2V and single-frame I2V.
 - Optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
 - Gate-bound editorial EDL compilation that retimes selected cuts, captions, and chapters for both Remotion and HyperFrames without modifying source media.
@@ -74,7 +74,7 @@ winget install --id Gyan.FFmpeg -e
 
 On Windows, reopen the terminal after installation. `npm ci` installs Remotion, HyperFrames, and the other repository dependencies locally; no global Remotion or HyperFrames install is needed. HyperFrames is a development dependency, so do not use `npm ci --omit=dev`.
 
-Provider CLIs such as PixVerse/Kling, external Topview/OpenClaw/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. Doctor performs non-charging version, local-package, and declared-bridge checks. It does not contact provider authentication or generation APIs; required human verification is reported as `status: manual` with a `remediation`. Any unresolved blocking check makes the overall `ok` value `false`.
+Provider CLIs such as PixVerse/Kling, external TopView/OpenClaw/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. For TopView, doctor probes the skill's `video_gen.py` with the non-charging `list-models` command. It does not submit generation tasks; authentication and credits remain manual checks. Any unresolved blocking check makes the overall `ok` value `false`.
 
 ## Commands
 

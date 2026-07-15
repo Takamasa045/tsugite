@@ -3,7 +3,7 @@ import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/pr
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Manifest } from "../manifest/schema.js";
-import type { Project } from "../project/schema.js";
+import { generationRequestMode, type GenerationRequest, type Project } from "../project/schema.js";
 import type { Result } from "../types.js";
 import {
   digest,
@@ -33,6 +33,7 @@ type ReviewAsset = {
   src: string;
   alt?: string;
   preview_src?: string;
+  source_scope?: "manifest" | "project";
 };
 
 export type ReviewCharacter = {
@@ -299,10 +300,10 @@ export function createReviewDocument(
           emphasis: caption.emphasis,
           badges: caption.visual?.badges ?? [],
           chapter: chapter?.title,
-          image: imageId ? toReviewAsset(images.get(imageId)) : undefined,
+          image: imageId ? toReviewAsset(images.get(imageId)) : generationReviewAsset(request),
           prompt: request?.prompt,
           model: request?.model,
-          input_mode: request?.input_mode
+          input_mode: request ? generationRequestMode(request) : undefined
         } satisfies ReviewShot;
       })
     : createFallbackStoryboard(project, manifest, images);
@@ -413,7 +414,8 @@ function createFallbackStoryboard(
         badges: [],
         prompt: request.prompt,
         model: request.model,
-        input_mode: request.input_mode
+        input_mode: generationRequestMode(request),
+        image: generationReviewAsset(request)
       };
     });
   }
@@ -440,7 +442,17 @@ function createFallbackStoryboard(
 
 function toReviewAsset(image: Manifest["images"][number] | undefined): ReviewAsset | undefined {
   if (!image) return undefined;
-  return { id: image.id, src: image.src, alt: image.alt };
+  return { id: image.id, src: image.src, alt: image.alt, source_scope: "manifest" };
+}
+
+function generationReviewAsset(request: GenerationRequest | undefined): ReviewAsset | undefined {
+  if (!request?.first_frame) return undefined;
+  return {
+    id: `${request.id}-first-frame`,
+    src: request.first_frame,
+    alt: `${request.id}の開始フレーム`,
+    source_scope: "project"
+  };
 }
 
 export async function writeCreativeReview(
@@ -485,9 +497,11 @@ export async function writeCreativeReview(
 
   for (const asset of referencedAssets) {
     if (isExternalAsset(asset.src)) continue;
-    let previewSrc = stagedBySource.get(asset.src);
+    const sourceKey = `${asset.source_scope ?? "manifest"}:${asset.src}`;
+    let previewSrc = stagedBySource.get(sourceKey);
     if (!previewSrc) {
-      const sourcePath = await realpath(resolve(manifestDir, asset.src));
+      const sourceBase = asset.source_scope === "project" ? dirname(configPath) : manifestDir;
+      const sourcePath = await realpath(resolve(sourceBase, asset.src));
       if (!isPathWithin(realAssetRoot, sourcePath)) {
         throw new Error(`review asset escapes project root: ${asset.src}`);
       }
@@ -495,7 +509,7 @@ export async function writeCreativeReview(
       const filename = `${assetNumber}-${safeBasename(basename(asset.src))}`;
       await copyFile(sourcePath, resolve(assetsDir, filename));
       previewSrc = `assets/${filename}`;
-      stagedBySource.set(asset.src, previewSrc);
+      stagedBySource.set(sourceKey, previewSrc);
     }
     asset.preview_src = previewSrc;
   }

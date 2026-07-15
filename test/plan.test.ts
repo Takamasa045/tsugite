@@ -126,8 +126,8 @@ describe("plan and dry run", () => {
     ]);
   });
 
-  it("surfaces Topview generation handoffs without executing external work", async () => {
-    const validation = await validateProject("fixtures/projects/topview-generation.yaml", {
+  it("plans Topview image-to-video as a non-executing CLI dry run", async () => {
+    const validation = await validateProject("fixtures/projects/topview-image-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]
     });
     const dryRun = createDryRun(
@@ -140,17 +140,17 @@ describe("plan and dry run", () => {
 
     expect(validation.ok).toBe(true);
     expect(dryRun.executed).toBe(false);
-    expect(dryRun.estimated_credits).toBe(2);
+    expect(dryRun.estimated_credits).toBe(5);
     expect(dryRun.agent_handoffs).toEqual([
       {
         phase: "generation",
         adapter: "topview",
-        kind: "mcp-agent",
+        kind: "cli",
         class: "generation",
-        outputs: ["topview-001"],
+        outputs: ["opening-shot"],
         dry_run_estimate_available: true,
         batch: false,
-        execution: "agent-handoff"
+        execution: "pipeline-cli"
       }
     ]);
   });
@@ -287,8 +287,8 @@ describe("plan and dry run", () => {
 
     expect(dryRun.agent_handoffs[0]).toMatchObject({
       adapter: "topview",
-      kind: "mcp-agent",
-      execution: "agent-handoff"
+      kind: "cli",
+      execution: "pipeline-cli"
     });
     expect(dryRun.plan.prompt_guidance[0]).toMatchObject({
       catalog_id: "seedance",

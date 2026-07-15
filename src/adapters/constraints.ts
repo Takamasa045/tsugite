@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { readYamlFile } from "../io.js";
-import type { GenerationRequest, Project } from "../project/schema.js";
+import { generationRequestMode, type GenerationRequest, type Project } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import { loadAdapterDefinition } from "./registry.js";
 
@@ -65,14 +65,15 @@ function validateInputMode(
   index: number,
   contracts: Awaited<ReturnType<typeof loadAdapterDefinition>>["input_modes"]
 ): Issue[] {
-  if (!request.input_mode || !contracts) return [];
-  const contract = contracts[request.input_mode];
+  const inputMode = generationRequestMode(request);
+  if (!inputMode || !contracts) return [];
+  const contract = contracts[inputMode];
   if (!contract) {
     return [
       {
         code: "adapter.input_mode.unsupported",
-        message: `selected adapter does not support ${request.input_mode}`,
-        path: `generation.requests.${index}.input_mode`
+        message: `selected adapter does not support ${inputMode}`,
+        path: `generation.requests.${index}.${request.mode ? "mode" : "input_mode"}`
       }
     ];
   }
@@ -83,6 +84,8 @@ function validateInputMode(
     ([key, type]) => hasParam(request.params, key) && !matchesParamType(request.params[key], type)
   );
   const forbidden = contract.forbidden_params.filter((key) => hasParam(request.params, key));
+  const missingFields = contract.required_fields.filter((key) => !hasField(request, key));
+  const forbiddenFields = contract.forbidden_fields.filter((key) => hasField(request, key));
   return [
     ...missing.map(([key]) => ({
       code: "adapter.input_mode.required_param",
@@ -98,6 +101,16 @@ function validateInputMode(
       code: "adapter.input_mode.forbidden_param",
       message: `input mode does not allow params.${key}`,
       path: `generation.requests.${index}.params.${key}`
+    })),
+    ...missingFields.map((key) => ({
+      code: "adapter.input_mode.required_field",
+      message: `input mode requires ${key}`,
+      path: `generation.requests.${index}.${key}`
+    })),
+    ...forbiddenFields.map((key) => ({
+      code: "adapter.input_mode.forbidden_field",
+      message: `input mode does not allow ${key}`,
+      path: `generation.requests.${index}.${key}`
     }))
   ];
 }
@@ -113,6 +126,11 @@ function matchesParamType(
 
 function hasParam(params: Record<string, unknown>, key: string): boolean {
   const value = params[key];
+  return value !== undefined && value !== null && value !== "";
+}
+
+function hasField(request: GenerationRequest, key: string): boolean {
+  const value = request[key as keyof GenerationRequest];
   return value !== undefined && value !== null && value !== "";
 }
 

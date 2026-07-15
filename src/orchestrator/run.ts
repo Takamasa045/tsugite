@@ -12,6 +12,7 @@ import { inspectGate2ManifestWithFingerprints, writeGate2QcReport } from "./gate
 import { markGateAwaiting, writeState, type RunState } from "./state.js";
 import { digest } from "./editorialProposal.js";
 import type { EditorialCompilation } from "./review.js";
+import { pinGenerationAssets, projectAssetRoot } from "../project/generationAssets.js";
 
 export type LocalRunResult = {
   manifestPath: string;
@@ -26,6 +27,7 @@ export type LocalRunResult = {
 };
 
 type AssembleOptions = {
+  configPath?: string;
   manifestPath: string;
   stateDir: string;
   state: RunState;
@@ -301,6 +303,22 @@ async function assembleGeneratedMediaRun(
 
   await mkdir(runDir, { recursive: true });
 
+  const hasGenerationAssets = project.generation!.requests.some((request) => Boolean(request.first_frame));
+  if (hasGenerationAssets && !options.configPath) {
+    return {
+      ok: false,
+      issues: [{ code: "run.config_path_required", message: "generation assets require the project config path" }]
+    };
+  }
+  const configDir = options.configPath ? dirname(resolve(options.configPath)) : dirname(options.manifestPath);
+  const pinned = await pinGenerationAssets(
+    project.generation!.requests,
+    configDir,
+    projectAssetRoot(configDir, project.manifest),
+    runDir
+  );
+  if (!pinned.ok) return pinned;
+
   const assembled = cloneManifest(manifest);
   assembled.clips = [];
   assembled.provenance = [];
@@ -328,7 +346,7 @@ async function assembleGeneratedMediaRun(
     }
   }
 
-  const generation = runCliGenerationAdapter(adapter, project.generation!.requests, { runId, runDir });
+  const generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });
   if (!generation.ok) return generation;
 
   for (const [index, clip] of generation.clips.entries()) {
@@ -347,7 +365,12 @@ async function assembleGeneratedMediaRun(
         clip_id: clip.id,
         engine: adapter.name,
         model: original?.model,
-        params: original?.params,
+        params: {
+          ...(original?.params ?? {}),
+          ...(pinned.manifestPaths.get(request.request_id)
+            ? { first_frame: pinned.manifestPaths.get(request.request_id) }
+            : {})
+        },
         credits: request.credits / request.clips.length
       });
     }

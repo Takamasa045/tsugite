@@ -511,13 +511,24 @@ describe("pipeline main", () => {
     await expect(stat(copiedClip)).resolves.toMatchObject({ size: expect.any(Number) });
   });
 
-  it("rejects mcp-agent generation handoffs during direct run execution", async () => {
+  it("runs Topview image-to-video only after Gate 1 and records the downloaded clip", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
-    await prepareReview("fixtures/projects/topview-generation.yaml", stateDir);
+    const config = "fixtures/projects/topview-image-generation.yaml";
+    const blocked = await capture([
+      "run",
+      "--config",
+      config,
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    await prepareReview(config, stateDir);
     await capture([
       "gate",
       "--config",
-      "fixtures/projects/topview-generation.yaml",
+      config,
       "--gate",
       "gate-1",
       "--decision",
@@ -528,19 +539,40 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
-    const run = await capture([
-      "run",
-      "--config",
-      "fixtures/projects/topview-generation.yaml",
-      "--actor",
-      "coordinator",
-      "--state-dir",
-      stateDir,
-      "--json"
+    const previous = process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND;
+    process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND = JSON.stringify([
+      "node",
+      "fixtures/tools/topview-video-gen.mjs"
     ]);
+    let run;
+    try {
+      run = await capture([
+        "run",
+        "--config",
+        config,
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND;
+      else process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND = previous;
+    }
 
-    expect(run.status).toBe(1);
-    expect(JSON.parse(run.stderr).issues[0].code).toBe("run.adapter_kind_unsupported");
+    const payload = JSON.parse(run.stdout);
+    const manifest = JSON.parse(await readFile(payload.manifest_path, "utf8"));
+    expect(blocked.status).toBe(1);
+    expect(JSON.parse(blocked.stderr).issues[0].code).toBe("run.requires_gate_1_approval");
+    expect(run.status).toBe(0);
+    expect(payload.actual_credits).toBe(5);
+    expect(payload.state.status).toBe("awaiting_gate_2");
+    expect(manifest.clips[0].src).toBe("assets/clips/001-opening-shot-clip.mp4");
+    expect(manifest.provenance[0]).toMatchObject({ engine: "topview", model: "Standard", credits: 5 });
+    await expect(stat(join(stateDir, "topview-image-generation-run", manifest.clips[0].src))).resolves.toMatchObject({
+      size: expect.any(Number)
+    });
   });
 
   it("requires OpenClaw setup only when the optional adapter is executed", async () => {

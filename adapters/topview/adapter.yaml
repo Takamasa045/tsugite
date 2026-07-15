@@ -1,11 +1,11 @@
 name: topview
-kind: mcp-agent
+kind: cli
 class: generation
 dry_run_estimate: true
 batch: false
 credit_estimate:
-  per_request: 1
-  per_second: 0.2
+  per_request: 0
+  per_second: 1
 retry:
   max_attempts: 0
   retryable_exit_codes: []
@@ -17,10 +17,25 @@ exit_code_map:
 input_modes:
   text-to-video:
     forbidden_params: [image]
+    forbidden_fields: [first_frame]
+  image-to-video:
+    forbidden_params: [image]
+    required_fields: [first_frame]
 checks:
   setup:
-    - type: manual
-      name: handoff:topview
-      detail: "Tsugite cannot verify the external Topview skill, API access, credentials, or credits from this repository."
+    - type: command
+      name: provider:topview-cli
+      command: ["node", "adapters/topview/check.mjs"]
+      capture_version: true
       remediation:
-        default: "Verify the installed Topview skill and API access with a non-charging check before Gate 1 approval."
+        default: "Install the TopView skill CLI or set TSUGITE_TOPVIEW_VIDEO_COMMAND to its JSON command array, then rerun doctor."
+    - type: manual
+      name: provider-auth:topview
+      blocking: false
+      detail: "Authentication, provider connectivity, and credits are not contacted by doctor."
+      remediation:
+        default: "Confirm TopView login and available credits before Gate 1 approval."
+command:
+  executable: node
+  args: ["adapters/topview/generate.mjs"]
+  input: stdin-json

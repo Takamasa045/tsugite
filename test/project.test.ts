@@ -268,6 +268,56 @@ describe("project validation", () => {
     }
   });
 
+  it("accepts mode and first_frame for a first-class image-to-video request", () => {
+    const project = validProjectDefinition();
+    project.generation = {
+      adapter: "topview",
+      requests: [
+        {
+          ...requestDefinition("generation", "opening-shot"),
+          mode: "image-to-video",
+          first_frame: "assets/opening.png"
+        }
+      ]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.generation?.requests[0]).toMatchObject({
+        mode: "image-to-video",
+        first_frame: "assets/opening.png"
+      });
+    }
+  });
+
+  it.each([
+    ["missing", "assets/missing.png", "generation.first_frame.exists"],
+    ["outside", "../../outside.png", "generation.first_frame.safe"]
+  ])("rejects a %s generation first_frame", async (_kind, firstFrame, code) => {
+    const root = await createGenerationProjectRoot(firstFrame);
+
+    const result = await validateProject(join(root, "projects/project.yaml"));
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code }));
+  });
+
+  it("rejects absolute and symbolic-link generation first_frame paths", async () => {
+    const absoluteRoot = await createGenerationProjectRoot("/tmp/outside.png");
+    const linkedRoot = await createGenerationProjectRoot("assets/opening-link.png");
+    await mkdir(join(linkedRoot, "projects/assets"), { recursive: true });
+    await writeFile(join(linkedRoot, "projects/assets/opening.png"), "fixture image");
+    await symlink("opening.png", join(linkedRoot, "projects/assets/opening-link.png"));
+
+    const absolute = await validateProject(join(absoluteRoot, "projects/project.yaml"));
+    const linked = await validateProject(join(linkedRoot, "projects/project.yaml"));
+
+    expect(absolute.issues).toContainEqual(expect.objectContaining({ code: "generation.first_frame.safe" }));
+    expect(linked.issues).toContainEqual(expect.objectContaining({ code: "generation.first_frame.symlink" }));
+  });
+
   it("keeps advisory guide selectors out of execution input while retaining input mode", () => {
     const parsed = projectSchema.parse({
       ...validProjectDefinition(),
@@ -453,6 +503,35 @@ async function createProjectRoot(): Promise<string> {
   await mkdir(join(root, "projects"), { recursive: true });
   await mkdir(join(root, "manifests"), { recursive: true });
   await mkdir(join(root, "media"), { recursive: true });
+  return root;
+}
+
+async function createGenerationProjectRoot(firstFrame: string): Promise<string> {
+  const root = await createProjectRoot();
+  await writeFile(join(root, "media/clip.mp4"), "fixture video");
+  await writeProject(root, { clips: [clip({ src: "../media/clip.mp4" })] });
+  await writeFile(
+    join(root, "projects/project.yaml"),
+    [
+      "slug: topview-image",
+      "run_id: topview-image-run",
+      "manifest: ../manifests/manifest.json",
+      "dist_dir: dist",
+      "edit:",
+      "  backend: remotion",
+      "generation:",
+      "  adapter: topview",
+      "  requests:",
+      "    - id: opening-shot",
+      "      mode: image-to-video",
+      `      first_frame: ${firstFrame}`,
+      "      prompt: slow camera push",
+      "      model: Standard",
+      "      duration: 5",
+      '      aspect: "9:16"',
+      "      params: {}"
+    ].join("\n")
+  );
   return root;
 }
 

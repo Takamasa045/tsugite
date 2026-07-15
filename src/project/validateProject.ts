@@ -18,6 +18,7 @@ import type { Issue, Result } from "../types.js";
 import { PipelineError } from "../types.js";
 import { loadProject } from "./loadProject.js";
 import type { AnalysisRequest, Project } from "./schema.js";
+import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
 
 type ValidateOptions = {
   adapterDirs?: string[];
@@ -52,9 +53,10 @@ export async function validateProject(
   const manifestPath = resolveFrom(configDir, project.manifest);
   const manifestDir = dirname(manifestPath);
   const projectRoot = projectAssetRoot(configDir, project.manifest);
+  issues.push(...(await validateGenerationAssets(project, configDir, projectRoot)).issues);
   const manifestInput = await readManifest(manifestPath);
   if (!manifestInput.ok) {
-    return { ok: false, issues: manifestInput.issues, project };
+    return { ok: false, issues: [...issues, ...manifestInput.issues], project };
   }
 
   const manifestResult = validateManifest(manifestInput.input);
@@ -398,8 +400,4 @@ async function readManifest(path: string): Promise<Result<{ input: unknown }>> {
 
 function resolveFrom(baseDir: string, candidate: string): string {
   return isAbsolute(candidate) ? candidate : resolve(baseDir, candidate);
-}
-
-function projectAssetRoot(configDir: string, manifest: string): string {
-  return manifest.startsWith("../") ? resolve(configDir, "..") : configDir;
 }

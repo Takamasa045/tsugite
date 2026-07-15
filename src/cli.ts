@@ -513,6 +513,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const runResult = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      configPath: resolve(args.config!),
       manifestPath: resolve(dirname(resolve(args.config!)), validation.project!.manifest),
       stateDir: stateResult.stateDir,
       state: stateResult.state,
