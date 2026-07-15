@@ -61,10 +61,6 @@ bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinato
 没有明确的人工审批时，不要执行非 dry-run 的 `run` 或 `render`。
 Gate 3 也支持 `re-render`，并保留 Gate 1 / 2 的审批。Gate 2 的 `retry_specific` 尚未实现；需要完整重新规划时使用 `revise`。
 
-## 博客对话模板
-
-`templates/blog-dialogue-60s/` 会把文章来源和带时间轴的双人脚本转换为确定性的Remotion manifest。复制到 `projects/` 后加入本地角色图，重新生成manifest，再执行 `validate`、`plan` 和 `run --dry-run`。
-
 ## Project 文件
 
 `examples/local-fixture/project.yaml` 使用的最小 local-media project：

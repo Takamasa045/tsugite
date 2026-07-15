@@ -1,6 +1,0 @@
-slug: qa-dialogue-openclaw
-run_id: qa-dialogue-openclaw-draft
-manifest: manifest.json
-dist_dir: dist
-edit:
-  backend: remotion

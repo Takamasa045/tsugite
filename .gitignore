@@ -10,3 +10,8 @@ coverage/
 projects/*
 !projects/.gitkeep
 !projects/README.md
+
+# Paid-only local templates. Keep these out of the public repository.
+templates/blog-dialogue-60s/
+templates/qa-dialogue/
+templates/neon-dialogue/

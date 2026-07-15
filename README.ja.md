@@ -27,8 +27,6 @@
 - manifest と media probe による Gate 2 QC report 生成。
 - 最終尺・解像度・fps・映像/音声streamを検査する Gate 3 QC report 生成。
 - 画像素材、話者/pose、presentation presetを含むmanifest契約。
-- ブログ記事を60秒・16:9の2人掛け合いへ変換するRemotionテンプレート。
-- FAQの質問リストからQUESTION/ANSWERカード付き掛け合いを生成するQ&Aテンプレート。
 - Remotion / HyperFrames backend 契約。
 - Coordinator role と Gate 承認を要求する guarded `run` / `render`。
 - `apps/workflow-viewer/` 配下の独立した読み取り専用3Dワークフロービューア。
@@ -123,34 +121,6 @@ bin/pipeline shitate-import \
 ```
 
 ローカルファイルのコピー、manifestへのanchor/speaker追加、任意requestのI2V化だけを行い、生成やGate更新は行いません。`negative.txt` は保存しますが、現行PixVerse video CLIに対応引数がないため黙って適用しません。詳しくは [Shitate連携](docs/shitate.md) を参照してください。
-
-## ブログ掛け合いテンプレート
-
-`templates/blog-dialogue-60s/` は、記事の出典、60秒台本、オリジナル柴犬pose、話者画像、字幕図解を `manifest.json` へまとめるstarterです。
-
-```sh
-cp -R templates/blog-dialogue-60s projects/my-article-dialogue
-node projects/my-article-dialogue/build-manifest.mjs projects/my-article-dialogue
-bin/pipeline validate --config projects/my-article-dialogue/project.yaml --json
-bin/pipeline plan --config projects/my-article-dialogue/project.yaml --json
-bin/pipeline run --config projects/my-article-dialogue/project.yaml --dry-run --json
-```
-
-ユーザー提供キャラクターはローカルslotへ置きます。音声/BGMが空の状態は字幕付き無音ドラフトで、非dry-runの `run` / `render` は通常どおり明示承認が必要です。
-
-## Q&A掛け合いテンプレート
-
-`templates/qa-dialogue/` は FAQ の `qa_list` から、QUESTION/ANSWER カード付きの16:9掛け合い manifest を決定的に生成します。
-
-```sh
-cp -R templates/qa-dialogue projects/my-faq
-node projects/my-faq/build-manifest.mjs projects/my-faq
-bin/pipeline validate --config projects/my-faq/project.yaml --json
-bin/pipeline plan --config projects/my-faq/project.yaml --json
-bin/pipeline run --config projects/my-faq/project.yaml --dry-run --json
-```
-
-`qa.json` を編集して `build-manifest.mjs` を再実行するだけで尺・字幕・チャプターが更新されます。無音の間は `draft: true` のままにしてください。
 
 ## project ファイル
 
