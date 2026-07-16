@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tsugite"
+  short_description: "Tsugite動画制作をGate・レビュー・QA付きで安全に進める"
+  default_prompt: "$tsugite を使って、この動画projectを検証、計画、レビューし、承認境界を守って進めてください。"

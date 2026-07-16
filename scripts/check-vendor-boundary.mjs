@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-const targets = ["src", "manifest", "SKILL.md"];
+const targets = ["src", "manifest", ".agents/skills/tsugite/SKILL.md"];
 const bannedTerms = await vendorNames(["adapters", "backends", "knowledge/video-models"]);
 
 const files = (await Promise.all(targets.map((target) => collectFiles(target)))).flat();

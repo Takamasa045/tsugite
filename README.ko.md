@@ -111,7 +111,7 @@ Tsugite는 영상을 많이 생성한다고 자동으로 개인 취향에 맞게
 일회성 선호            -> projects/<job>/notes.md
 재사용 가능한 스타일   -> examples/ or templates/
 기계적으로 막을 문제   -> constraints.yaml / validate / doctor + tests/fixtures
-판단이 필요한 운영 규칙 -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+판단이 필요한 운영 규칙 -> LESSONS.md -> .agents/skills/tsugite/SKILL.md / CLAUDE.md / AGENTS.md
 QA 판단 규칙           -> Gate 2 / Gate 3 checks + report schema/tests
 공개 계약 변경         -> README / manifest/schema.md / docs/requirements.md
 ```

@@ -6,7 +6,11 @@ import { checkVendorBoundary } from "../src/vendorBoundary.js";
 
 describe("vendor boundary", () => {
   it("keeps core files free of adapter-specific vendor names", async () => {
-    const result = await checkVendorBoundary(["src", "manifest", "SKILL.md"]);
+    const result = await checkVendorBoundary([
+      "src",
+      "manifest",
+      ".agents/skills/tsugite/SKILL.md"
+    ]);
 
     expect(result.ok).toBe(true);
   });

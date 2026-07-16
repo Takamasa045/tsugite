@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-Use `SKILL.md` as the canonical workflow.
+Use `/tsugite` or `.claude/skills/tsugite/SKILL.md` to load the canonical workflow at `.agents/skills/tsugite/SKILL.md`.
 
 ## Claude Code workflow
 
-- Start with a one-sentence goal and completion condition, then follow `SKILL.md`.
+- Start with a one-sentence goal and completion condition, then follow the loaded Tsugite skill.
 - Use `/tsugite-plan <project.yaml> | <creative brief> | <duration>` for the safe planning loop.
 - Use `/tsugite-verify [path or test]` after code or documentation changes.
 - Use `/tsugite-finalize <project.yaml>` only after the user explicitly declares that selected video complete.

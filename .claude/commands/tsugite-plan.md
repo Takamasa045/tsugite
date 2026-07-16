@@ -10,7 +10,7 @@ allowed-tools:
   - Bash(bin/pipeline run * --dry-run *)
 ---
 
-`SKILL.md` の Required Flow に従い、引数 `$ARGUMENTS` のprojectとcreative briefを扱う。
+`.claude/skills/tsugite/SKILL.md` から共通の正本を読み、Required Flow に従って引数 `$ARGUMENTS` のprojectとcreative briefを扱う。
 
 1. 対象 `project.yaml` と完了条件を一文で確認する。
 2. 構成やカットを提案する前に `story-guides` を実行する。

@@ -111,7 +111,7 @@ Tsugite 不会因为你生成很多视频就自动变得更符合你的偏好。
 一次性偏好             -> projects/<job>/notes.md
 可复用的风格选择       -> examples/ or templates/
 可机器检查的问题       -> constraints.yaml / validate / doctor + tests/fixtures
-需要判断的运行规则     -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+需要判断的运行规则     -> LESSONS.md -> .agents/skills/tsugite/SKILL.md / CLAUDE.md / AGENTS.md
 QA 判断规则            -> Gate 2 / Gate 3 checks + report schema/tests
 公开契约变更           -> README / manifest/schema.md / docs/requirements.md
 ```

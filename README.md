@@ -14,6 +14,12 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 6. Render only after Gate 2 approval.
 7. Stop at Gate 3 for final video QA.
 
+## Agent Skills
+
+Codex discovers the repository skill at `.agents/skills/tsugite/SKILL.md`. Invoke it with `$tsugite`, or let Codex select it for matching Tsugite video work.
+
+Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads the same canonical workflow. The existing `/tsugite-plan`, `/tsugite-verify`, `/tsugite-finalize`, and `/shitate-import` commands remain focused shortcuts. The root `SKILL.md` is a legacy compatibility entry.
+
 ## Current Scope
 
 - Manifest validation and local asset checks.
@@ -198,7 +204,7 @@ Recommended promotion rule:
 One-off preference       -> projects/<job>/notes.md
 Reusable style choice    -> examples/ or templates/
 Machine-checkable issue  -> constraints.yaml / validate / doctor + tests/fixtures
-Judgment-based rule      -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+Judgment-based rule      -> LESSONS.md -> .agents/skills/tsugite/SKILL.md / CLAUDE.md / AGENTS.md
 QA rule                  -> Gate 2 / Gate 3 checks + report schema/tests
 Public contract change   -> README / manifest/schema.md / docs/requirements.md
 ```

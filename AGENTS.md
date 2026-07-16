@@ -8,6 +8,7 @@
 
 ## Rules
 
+- 制作ワークフローの正本は `.agents/skills/tsugite/SKILL.md`。該当作業では完全に読んでから進める。
 - 最初にゴールと完了条件を一文で置く。
 - `run` / `render` は Coordinator だけが、明示承認後に実行できる。
 - Planner / Reviewer は `validate`、`plan`、`review`、`run --dry-run` まで。

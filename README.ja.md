@@ -14,6 +14,12 @@
 6. Gate 2 承認後にだけ render する。
 7. Gate 3 で最終動画 QA を行う。
 
+## エージェントスキル
+
+Codexはrepo skillの `.agents/skills/tsugite/SKILL.md` を検出し、`$tsugite` または内容に一致する依頼から安全な制作フローを読み込みます。
+
+Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同じ正本を読み込みます。目的別の短縮入口として `/tsugite-plan`、`/tsugite-verify`、`/tsugite-finalize`、`/shitate-import` も利用できます。ルートの `SKILL.md` は旧ツール向けの互換入口です。
+
 ## 現在のスコープ
 
 - manifest 検証とローカル素材チェック。
@@ -233,7 +239,7 @@ Tsugite は、動画をたくさん生成するだけで自動的に自分好み
 一回限りの好み        -> projects/<job>/notes.md
 何度も使う好み        -> examples/ or templates/
 機械的に防げる失敗    -> constraints.yaml / validate / doctor + tests/fixtures
-判断系の運用ルール    -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+判断系の運用ルール    -> LESSONS.md -> .agents/skills/tsugite/SKILL.md / CLAUDE.md / AGENTS.md
 QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 公開契約の変更        -> README / manifest/schema.md / docs/requirements.md
 ```
