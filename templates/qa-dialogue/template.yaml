@@ -1,0 +1,36 @@
+schema_version: 1
+kind: tsugite-template
+id: qa-dialogue
+name: Q&A掛け合い
+summary: FAQの質問と回答から、質問役と解説役が交互に話す横型動画を作ります。
+category: Q&A・FAQ
+use_cases:
+  - よくある質問
+  - 操作説明
+output:
+  duration:
+    mode: variable
+    min_seconds: 10
+    max_seconds: 3600
+    label: Q&A件数に応じて可変
+  aspect_ratios:
+    - "16:9"
+  speaker_count: 2
+required_inputs:
+  - type: data
+    label: 質問と回答の一覧
+    required: true
+  - type: image
+    label: 2人分のキャラクター画像
+    required: true
+tags:
+  - FAQ
+  - 掛け合い
+  - 解説
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声とBGMは任意。未指定時は字幕付き無音ドラフトになります。
+status: stable
+distribution: local-only

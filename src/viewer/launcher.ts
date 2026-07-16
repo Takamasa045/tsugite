@@ -12,6 +12,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { parse } from "yaml";
+import { z } from "zod";
 import { createPlan } from "../orchestrator/plan.js";
 import { readState } from "../orchestrator/state.js";
 import { loadProject } from "../project/loadProject.js";
@@ -40,6 +42,70 @@ export type LauncherProject = {
   issue?: string;
 };
 
+export type LauncherTemplate = {
+  id: string;
+  name: string;
+  summary: string;
+  category: string;
+  useCases: string[];
+  duration: string;
+  aspectRatio: string;
+  speakers?: number;
+  requiredInputs: string[];
+  tags: string[];
+  audio: string;
+  status: "stable" | "experimental" | "deprecated" | "unknown";
+  distribution: "bundled" | "local-only" | "unknown";
+  valid: boolean;
+  issue?: { code: string; message: string };
+};
+
+const TEMPLATE_METADATA_MAX_BYTES = 64 * 1024;
+const templateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
+const nonEmptyText = z.string().trim().min(1).max(240);
+const descriptionText = z.string().trim().min(1).max(600);
+const templateMetadataSchema = z.object({
+  schema_version: z.literal(1),
+  kind: z.literal("tsugite-template"),
+  id: templateIdSchema,
+  name: nonEmptyText,
+  summary: descriptionText,
+  category: nonEmptyText,
+  use_cases: z.array(nonEmptyText).min(1).max(12),
+  output: z.object({
+    duration: z.object({
+      mode: z.enum(["fixed", "variable"]),
+      min_seconds: z.number().int().nonnegative().max(86_400),
+      max_seconds: z.number().int().nonnegative().max(86_400),
+      label: nonEmptyText
+    }).strict().refine((duration) => duration.max_seconds >= duration.min_seconds, {
+      message: "max_seconds must be greater than or equal to min_seconds"
+    }),
+    aspect_ratios: z.array(nonEmptyText).min(1).max(4),
+    speaker_count: z.number().int().nonnegative().max(20).optional()
+  }).strict(),
+  required_inputs: z.array(z.object({
+    type: z.enum(["text", "image", "audio", "video", "data", "other"]),
+    label: nonEmptyText,
+    required: z.boolean()
+  }).strict()).min(1).max(16),
+  tags: z.array(nonEmptyText).max(16).default([]),
+  audio: z.object({
+    narration: z.enum(["required", "optional", "unsupported"]),
+    bgm: z.enum(["required", "optional", "unsupported"]),
+    silent_draft: z.boolean(),
+    notes: descriptionText
+  }).strict(),
+  status: z.enum(["stable", "experimental", "deprecated"]),
+  distribution: z.enum(["bundled", "local-only"])
+}).strict();
+
+class TemplateMetadataError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+  }
+}
+
 type LauncherProjectRecord = {
   id: string;
   name: string;
@@ -51,6 +117,7 @@ type LauncherProjectRecord = {
 
 export type StartWorkflowViewerLauncherOptions = {
   projectsDir?: string;
+  templatesDir?: string;
   port?: number;
   bundleDir?: string;
   beforeRefresh?: (project: LauncherProject) => void | Promise<void>;
@@ -76,6 +143,9 @@ export async function startWorkflowViewerLauncher(
 
   const projectsDir = resolve(
     options.projectsDir ?? fileURLToPath(new URL("../../projects", import.meta.url))
+  );
+  const templatesDir = resolve(
+    options.templatesDir ?? fileURLToPath(new URL("../../templates", import.meta.url))
   );
   const bundleDir = await prepareWorkflowViewerBundle(options.bundleDir);
   const token = randomBytes(24).toString("hex");
@@ -146,6 +216,11 @@ export async function startWorkflowViewerLauncher(
 
     if (method === "GET" && requestUrl.pathname === "/api/projects") {
       sendJson(response, 200, { ok: true, projects: await reloadProjects() });
+      return;
+    }
+
+    if (method === "GET" && requestUrl.pathname === "/api/templates") {
+      sendJson(response, 200, { ok: true, templates: await discoverTemplates(templatesDir) });
       return;
     }
 
@@ -307,6 +382,119 @@ async function discoverProjects(
     projects.push(await inspectProject(entry.name, configPath, id));
   }
   return projects;
+}
+
+async function discoverTemplates(templatesDir: string): Promise<LauncherTemplate[]> {
+  let entries;
+  try {
+    entries = await readdir(templatesDir, { withFileTypes: true });
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT")) return [];
+    throw error;
+  }
+
+  const templates: LauncherTemplate[] = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isDirectory()) continue;
+    const templateDir = join(templatesDir, entry.name);
+    try {
+      await lstat(join(templateDir, "template.yaml"));
+    } catch (error) {
+      if (isFileSystemError(error, "ENOENT")) continue;
+      throw error;
+    }
+    templates.push(await inspectTemplate(entry.name, templateDir));
+  }
+  return templates;
+}
+
+async function inspectTemplate(id: string, templateDir: string): Promise<LauncherTemplate> {
+  const metadataPath = join(templateDir, "template.yaml");
+  try {
+    if (!templateIdSchema.safeParse(id).success) {
+      throw new TemplateMetadataError(
+        "template_metadata.invalid_id",
+        "テンプレートのフォルダ名は小文字英数字とハイフンで指定してください。"
+      );
+    }
+    const metadataStats = await lstat(metadataPath);
+    if (metadataStats.isSymbolicLink()) {
+      throw new TemplateMetadataError(
+        "template_metadata.symlink",
+        "template.yamlにシンボリックリンクは使用できません。"
+      );
+    }
+    if (!metadataStats.isFile()) {
+      throw new TemplateMetadataError(
+        "template_metadata.not_file",
+        "template.yamlが通常ファイルではありません。"
+      );
+    }
+    if (metadataStats.size > TEMPLATE_METADATA_MAX_BYTES) {
+      throw new TemplateMetadataError(
+        "template_metadata.too_large",
+        "template.yamlが大きすぎます。64 KiB以下にしてください。"
+      );
+    }
+    const metadataText = await readFile(metadataPath, "utf8");
+    const metadata = templateMetadataSchema.parse(parse(metadataText, { maxAliasCount: 0 }));
+    if (metadata.id !== id) {
+      throw new TemplateMetadataError(
+        "template_metadata.id_mismatch",
+        "template.yamlのidをフォルダ名と一致させてください。"
+      );
+    }
+    return {
+      id,
+      name: metadata.name,
+      summary: metadata.summary,
+      category: metadata.category,
+      useCases: metadata.use_cases,
+      duration: metadata.output.duration.label,
+      aspectRatio: metadata.output.aspect_ratios.join(" / "),
+      ...(metadata.output.speaker_count === undefined
+        ? {}
+        : { speakers: metadata.output.speaker_count }),
+      requiredInputs: metadata.required_inputs
+        .filter((input) => input.required)
+        .map((input) => input.label),
+      tags: metadata.tags,
+      audio: metadata.audio.notes,
+      status: metadata.status,
+      distribution: metadata.distribution,
+      valid: true
+    };
+  } catch (error) {
+    const issue = error instanceof TemplateMetadataError
+      ? { code: error.code, message: error.message }
+      : {
+          code: "template_metadata.invalid",
+          message: "template.yamlの形式が正しくありません。必須項目と値を確認してください。"
+        };
+    return invalidTemplate(id, issue);
+  }
+}
+
+function invalidTemplate(
+  id: string,
+  issue: { code: string; message: string }
+): LauncherTemplate {
+  return {
+    id,
+    name: id,
+    summary: "",
+    category: "",
+    useCases: [],
+    duration: "",
+    aspectRatio: "",
+    requiredInputs: [],
+    tags: [],
+    audio: "",
+    status: "unknown",
+    distribution: "unknown",
+    valid: false,
+    issue
+  };
 }
 
 async function inspectProject(

@@ -17,9 +17,11 @@ afterEach(async () => {
 async function createFixture() {
   const root = await mkdtemp(join(tmpdir(), "tsugite-viewer-launcher-"));
   const projectsDir = join(root, "projects");
+  const templatesDir = join(root, "templates");
   const projectDir = join(projectsDir, "valid-project");
   const bundleDir = join(root, "bundle");
   await mkdir(projectsDir, { recursive: true });
+  await mkdir(templatesDir, { recursive: true });
   await cp(join(process.cwd(), "examples", "local-fixture"), projectDir, { recursive: true });
   await mkdir(join(bundleDir, "assets"), { recursive: true });
   await writeFile(
@@ -28,7 +30,7 @@ async function createFixture() {
   );
   await writeFile(join(bundleDir, "assets", "app.css"), "body { color: black; }\n");
   await writeFile(join(bundleDir, "assets", "app.js"), "globalThis.viewerLoaded = true;\n");
-  return { root, projectsDir, projectDir, bundleDir };
+  return { root, projectsDir, templatesDir, projectDir, bundleDir };
 }
 
 async function launch(options: Parameters<typeof startWorkflowViewerLauncher>[0]) {
@@ -54,6 +56,133 @@ async function statusWithHost(url: string, host: string): Promise<number> {
 }
 
 describe("workflow viewer launcher", () => {
+  it("lists direct template metadata and reports unsafe or invalid catalog entries", async () => {
+    const fixture = await createFixture();
+    const validDir = join(fixture.templatesDir, "article-dialogue");
+    const invalidDir = join(fixture.templatesDir, "broken-template");
+    const missingDir = join(fixture.templatesDir, "missing-metadata");
+    const nestedDir = join(fixture.templatesDir, "group", "nested-template");
+    await Promise.all([
+      mkdir(validDir),
+      mkdir(invalidDir),
+      mkdir(missingDir),
+      mkdir(nestedDir, { recursive: true })
+    ]);
+    await writeFile(join(validDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: article-dialogue
+name: 記事掛け合い
+summary: 記事を二人の会話で伝える動画
+category: 記事を動画化
+use_cases:
+  - ブログ記事
+  - 解説動画
+output:
+  duration:
+    mode: fixed
+    min_seconds: 60
+    max_seconds: 60
+    label: 60秒
+  aspect_ratios:
+    - "16:9"
+  speaker_count: 2
+required_inputs:
+  - type: text
+    label: 記事本文
+    required: true
+  - type: image
+    label: キャラクター画像
+    required: true
+tags:
+  - 掛け合い
+  - 60秒
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意。未指定時は無音ドラフト
+status: stable
+distribution: local-only
+`);
+    await writeFile(join(invalidDir, "template.yaml"), "name: [broken\n");
+    await writeFile(join(nestedDir, "template.yaml"), "name: nested\n");
+    await symlink(join(validDir, "template.yaml"), join(missingDir, "template.yaml"));
+    await symlink(validDir, join(fixture.templatesDir, "linked-template"));
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    const response = await fetch(`${launcher.url}/api/templates`);
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true });
+    expect(payload.templates.map((template: { id: string }) => template.id)).toEqual([
+      "article-dialogue",
+      "broken-template",
+      "missing-metadata"
+    ]);
+    expect(payload.templates[0]).toEqual({
+      id: "article-dialogue",
+      name: "記事掛け合い",
+      summary: "記事を二人の会話で伝える動画",
+      category: "記事を動画化",
+      useCases: ["ブログ記事", "解説動画"],
+      duration: "60秒",
+      aspectRatio: "16:9",
+      speakers: 2,
+      requiredInputs: ["記事本文", "キャラクター画像"],
+      tags: ["掛け合い", "60秒"],
+      audio: "音声は任意。未指定時は無音ドラフト",
+      status: "stable",
+      distribution: "local-only",
+      valid: true
+    });
+    expect(payload.templates[1]).toMatchObject({
+      id: "broken-template",
+      name: "broken-template",
+      valid: false,
+      issue: { code: "template_metadata.invalid", message: expect.any(String) }
+    });
+    expect(payload.templates[2]).toMatchObject({
+      id: "missing-metadata",
+      name: "missing-metadata",
+      valid: false,
+      issue: {
+        code: "template_metadata.symlink",
+        message: expect.stringMatching(/シンボリックリンク/)
+      }
+    });
+  });
+
+  it("rejects oversized template metadata without exposing file contents", async () => {
+    const fixture = await createFixture();
+    const oversizedDir = join(fixture.templatesDir, "oversized");
+    await mkdir(oversizedDir);
+    await writeFile(join(oversizedDir, "template.yaml"), `summary: ${"x".repeat(70_000)}\n`);
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+    expect(payload.templates[0]).toMatchObject({
+      id: "oversized",
+      valid: false,
+      issue: {
+        code: "template_metadata.too_large",
+        message: "template.yamlが大きすぎます。64 KiB以下にしてください。"
+      }
+    });
+    expect(JSON.stringify(payload)).not.toContain("x".repeat(100));
+  });
+
   it("serves the built Viewer shell with launcher metadata and lists direct real projects", async () => {
     const fixture = await createFixture();
     const invalidDir = join(fixture.projectsDir, "invalid-project");
