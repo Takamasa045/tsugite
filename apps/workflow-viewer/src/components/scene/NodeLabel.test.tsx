@@ -36,4 +36,11 @@ describe('NodeLabel', () => {
     await user.click(button)
     expect(onSelect).toHaveBeenCalledWith('gate-1')
   })
+
+  it('工程単体へズーム中は未選択の工程札を画面と読み上げ対象から隠す', () => {
+    render(<NodeLabel muted node={node} selected={false} onSelect={vi.fn()} />)
+
+    expect(document.querySelector('button.scene-node-label')).toHaveAttribute('hidden')
+    expect(screen.queryByRole('button', { name: 'Gate 1 制作方針承認の詳細を表示' })).not.toBeInTheDocument()
+  })
 })

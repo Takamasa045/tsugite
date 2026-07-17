@@ -11,6 +11,7 @@ export type ViewerWorkflowDetailItem = {
   label: string;
   description: string;
   reference?: string;
+  href?: string;
   facts?: string[];
 };
 

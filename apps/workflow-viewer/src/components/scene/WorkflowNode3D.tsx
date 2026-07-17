@@ -16,9 +16,9 @@ import { STATUS_VISUALS } from './status-visuals'
 interface WorkflowNode3DProps {
   currentTime: number
   featured: boolean
+  focusMode: boolean
   labelRaised: boolean
   node: WorkflowNode
-  onFocus: (position: readonly [number, number, number]) => void
   onSelect: (nodeId: string) => void
   position: readonly [number, number, number]
   reducedMotion: boolean
@@ -43,21 +43,21 @@ interface NodeBodyProps {
 function NodeBody({ featured, materialRef, node, selected }: NodeBodyProps) {
   const visual = STATUS_VISUALS[node.status]
   const woodColor = node.type === 'approval'
-    ? '#b47b42'
+    ? '#a85d32'
     : node.type === 'agent'
-      ? '#72503d'
+      ? '#4b382f'
       : node.type === 'output'
-        ? '#a88358'
-        : '#8e6241'
+        ? '#b18a59'
+        : '#81532f'
   const material = (
     <meshStandardMaterial
       ref={materialRef}
       color={woodColor}
       emissive={visual.color}
       emissiveIntensity={visual.emissiveIntensity * (featured ? 0.28 : 0.14)}
-      metalness={0.08}
+      metalness={node.type === 'approval' ? 0.12 : 0.035}
       opacity={node.status === 'skipped' ? 0.38 : 0.96}
-      roughness={0.46}
+      roughness={node.type === 'approval' ? 0.42 : 0.62}
       transparent
     />
   )
@@ -100,7 +100,7 @@ function NodeJoineryDetails({
     <group>
       <mesh position={[0, baseY, 0]}>
         <cylinderGeometry args={[0.5, 0.66, 0.18, 8]} />
-        <meshStandardMaterial color="#3b2b22" metalness={0.08} roughness={0.72} />
+        <meshStandardMaterial color="#261d18" metalness={0.06} roughness={0.78} />
       </mesh>
       <mesh position={[0, baseY + 0.1, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.52, 0.025, 6, 32]} />
@@ -108,14 +108,14 @@ function NodeJoineryDetails({
       </mesh>
       <mesh position={[0, topY, 0]}>
         <cylinderGeometry args={[0.09, 0.12, 0.24, 8]} />
-        <meshStandardMaterial color="#c8a66a" metalness={0.52} roughness={0.32} />
+        <meshStandardMaterial color="#c5a15e" metalness={0.64} roughness={0.28} />
       </mesh>
       {type === 'task' || type === 'output' ? (
         <group>
           <mesh position={[0, topY - 0.12, 0]}>
             <boxGeometry args={[1.14, 0.035, 0.68]} />
             <meshStandardMaterial
-              color="#d4b47c"
+              color="#d8b875"
               emissive={color}
               emissiveIntensity={featured ? 0.48 : 0.16}
               metalness={0.03}
@@ -126,18 +126,18 @@ function NodeJoineryDetails({
             <group key={direction} position={[tenonX * direction, 0, 0]}>
               <mesh castShadow>
                 <boxGeometry args={[0.34, 0.27, 0.5]} />
-                <meshStandardMaterial color="#b68450" roughness={0.82} />
+                <meshStandardMaterial color="#b77c45" roughness={0.76} />
               </mesh>
               <mesh position={[0, 0, 0.27]} rotation={[Math.PI / 2, 0, 0]}>
                 <torusGeometry args={[0.12, 0.018, 5, 24]} />
-                <meshBasicMaterial color="#69442e" transparent opacity={0.78} />
+                <meshBasicMaterial color="#56331f" transparent opacity={0.82} />
               </mesh>
             </group>
           ))}
           {[-0.56, 0.56].map((offset) => (
             <mesh key={offset} position={[offset, -0.43, 0.69]} rotation={[Math.PI / 2, 0, 0]}>
               <cylinderGeometry args={[0.055, 0.055, 0.11, 10]} />
-              <meshStandardMaterial color="#d8bd91" roughness={0.76} />
+              <meshStandardMaterial color="#d8bd88" roughness={0.7} />
             </mesh>
           ))}
         </group>
@@ -150,9 +150,9 @@ function NodeJoineryDetails({
 export const WorkflowNode3D = memo(function WorkflowNode3D({
   currentTime,
   featured,
+  focusMode,
   labelRaised,
   node,
-  onFocus,
   onSelect,
   position,
   reducedMotion,
@@ -195,18 +195,11 @@ export const WorkflowNode3D = memo(function WorkflowNode3D({
     onSelect(node.id)
   }
 
-  const handleDoubleClick = (event: ThreeEvent<MouseEvent>) => {
-    event.stopPropagation()
-    onSelect(node.id)
-    onFocus(position)
-  }
-
   return (
     <group
       ref={groupRef}
       position={position}
       onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
       onPointerOut={() => setHovered(false)}
       onPointerOver={(event) => {
         event.stopPropagation()
@@ -236,6 +229,7 @@ export const WorkflowNode3D = memo(function WorkflowNode3D({
       <StatusEffect color={visual.color} reducedMotion={reducedMotion} status={node.status} />
       <NodeLabel
         featured={featured}
+        muted={focusMode && !selected}
         node={node}
         onSelect={onSelect}
         raised={labelRaised}

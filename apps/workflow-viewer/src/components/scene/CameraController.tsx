@@ -5,11 +5,11 @@ import type { ComponentRef } from 'react'
 import { Vector3 } from 'three'
 
 import type { NodePositions } from './scene-utils'
-import { getSceneBounds, getSceneFitDistance } from './scene-utils'
+import { getPosition, getSceneBounds, getSceneFitDistance } from './scene-utils'
 
 export interface FocusRequest {
   nonce: number
-  position: readonly [number, number, number]
+  nodeId: string
 }
 
 interface CameraControllerProps {
@@ -22,6 +22,8 @@ interface CameraControllerProps {
 // Keep the workflow's X axis readable from left to right while retaining a
 // shallow workshop-floor perspective.
 const FIT_DIRECTION = new Vector3(0.18, 0.48, 1.55).normalize()
+const NODE_FOCUS_DISTANCE = 6.2
+const NODE_FOCUS_HEIGHT_OFFSET = 0.55
 
 export function CameraController({
   focusRequest,
@@ -55,14 +57,16 @@ export function CameraController({
 
   useEffect(() => {
     if (!focusRequest) return
-    const target = new Vector3(...focusRequest.position)
+    const position = getPosition(positions, focusRequest.nodeId)
+    if (!position) return
+    const target = new Vector3(position[0], position[1] + NODE_FOCUS_HEIGHT_OFFSET, position[2])
     const currentDirection = camera.position.clone().sub(controlsRef.current?.target ?? target)
     if (currentDirection.lengthSq() < 0.01) currentDirection.copy(FIT_DIRECTION)
     currentDirection.normalize()
     desiredTarget.current.copy(target)
-    desiredPosition.current.copy(target).addScaledVector(currentDirection, 6.4)
+    desiredPosition.current.copy(target).addScaledVector(currentDirection, NODE_FOCUS_DISTANCE)
     transitioning.current = true
-  }, [camera, focusRequest])
+  }, [camera, focusRequest, positions])
 
   useFrame((_, delta) => {
     const controls = controlsRef.current
@@ -93,11 +97,13 @@ export function CameraController({
       enableRotate
       enableZoom
       maxDistance={70}
-      minDistance={3.5}
+      minDistance={1.6}
       onStart={() => {
         transitioning.current = false
       }}
       screenSpacePanning
+      zoomSpeed={1.1}
+      zoomToCursor
     />
   )
 }
