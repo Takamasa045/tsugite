@@ -32,10 +32,11 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "@vitest/coverage-v8": "^3.2.7",
     "hyperframes": "^0.7.46",
     "tsx": "^4.23.1",
-    "typescript": "^5.8.3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^3.2.7"
   }
 }
