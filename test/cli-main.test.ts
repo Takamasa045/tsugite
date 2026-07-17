@@ -492,6 +492,8 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
+    expect(run.status, run.stderr).toBe(0);
+    expect(rerun.status, rerun.stderr).toBe(0);
     const payload = JSON.parse(run.stdout);
     const rerunPayload = JSON.parse(rerun.stdout);
     const assembledManifest = JSON.parse(await readFile(payload.manifest_path, "utf8"));
@@ -500,11 +502,9 @@ describe("pipeline main", () => {
 
     expect(blocked.status).toBe(1);
     expect(JSON.parse(blocked.stderr).issues[0].code).toBe("run.requires_gate_1_approval");
-    expect(run.status).toBe(0);
     expect(payload.state.status).toBe("awaiting_gate_2");
     expect(payload.asset_count).toBe(2);
     expect(assembledManifest.clips[0].src).toBe("assets/clips/001-clip-001.mp4");
-    expect(rerun.status).toBe(0);
     expect(rerunPayload.already_assembled).toBe(true);
     expect(rerunPayload.state.status).toBe("awaiting_gate_2");
     expect(qcReport.asset_count).toBe(2);
