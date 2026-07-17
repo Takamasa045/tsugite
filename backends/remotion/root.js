@@ -11,6 +11,7 @@ import {
 } from "remotion";
 import { CinematicImpactCaptions } from "./cinematicImpactCaptions.js";
 import { resolveCaptionStyle } from "./captionMotion.mjs";
+import { resolveRenderDimensions } from "./dimensions.mjs";
 import { audioTrackTiming, clipSequenceTimings, secondsToFrames, totalDuration } from "./timing.mjs";
 import { ArticleDialogue } from "./dialogue.js";
 import { ARTICLE_DIALOGUE_PRESET } from "./presentation.mjs";
@@ -50,7 +51,7 @@ function Root() {
     calculateMetadata: ({ props }) => {
       const manifest = props.manifest ?? DEFAULT_MANIFEST;
       const fps = manifest.meta.fps;
-      const size = dimensions(manifest);
+      const size = resolveRenderDimensions(manifest);
       return {
         fps,
         width: size.width,
@@ -162,19 +163,6 @@ function audioTracks(manifest) {
   return [...(manifest.audio?.bgm ?? []), ...(manifest.audio?.narration ?? []), ...(manifest.audio?.sfx ?? [])].filter(
     (track) => track.src
   );
-}
-
-function dimensions(manifest) {
-  const first = manifest.clips[0]?.resolution;
-  if (first) {
-    return { width: even(first.width), height: even(first.height) };
-  }
-
-  return manifest.meta.aspect === "9:16" ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
-}
-
-function even(value) {
-  return value % 2 === 0 ? value : value + 1;
 }
 
 function mediaStyle() {

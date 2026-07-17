@@ -46,6 +46,27 @@ describe("gate 3 qc", () => {
     });
   });
 
+  it("expects the declared 16:9 output when a provider clip is slightly short", () => {
+    const input = manifest();
+    input.clips[0].resolution = { width: 1920, height: 1072 };
+
+    const report = inspectGate3Output(input, "/runs/demo/final.mp4", {
+      probe: (): Gate3QcProbe => ({
+        ok: true,
+        duration_seconds: 6,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        has_video: true,
+        has_audio: true,
+        codec: "h264"
+      })
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.expected).toMatchObject({ width: 1920, height: 1080 });
+  });
+
   it("reports probe failure without throwing", () => {
     const report = inspectGate3Output(manifest(), "/runs/demo/final.mp4", {
       probe: (): Gate3QcProbe => ({ ok: false, error: "ffprobe unavailable" })

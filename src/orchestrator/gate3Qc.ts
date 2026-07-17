@@ -1,7 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
-import type { Manifest } from "../manifest/schema.js";
+import { resolveOutputDimensions } from "../manifest/outputDimensions.js";
 import { spawnCommandSync } from "../platform/process.js";
+import type { Manifest } from "../manifest/schema.js";
 import type { Issue, Result } from "../types.js";
 
 export type Gate3QcProbe = {
@@ -141,11 +142,11 @@ export function inspectGate3Output(
   outputPath: string,
   options: Gate3QcOptions = {}
 ): Gate3QcReport {
-  const firstClip = manifest.clips[0];
+  const dimensions = resolveOutputDimensions(manifest);
   const expected: Gate3QcExpected = {
     duration_seconds: manifest.meta.target_duration_seconds,
-    width: even(firstClip.resolution.width),
-    height: even(firstClip.resolution.height),
+    width: dimensions.width,
+    height: dimensions.height,
     fps: manifest.meta.fps,
     audio_required: hasRequiredAudio(manifest)
   };
@@ -400,8 +401,4 @@ function numberOrUndefined(value: string | undefined): number | undefined {
 function probeErrorMessage(stderr: string, stdout: string): string {
   const text = `${stderr}\n${stdout}`.trim().replace(/0x[0-9a-f]+/gi, "0xADDR");
   return text.length > 0 ? text.slice(0, 1000) : "final output probe failed";
-}
-
-function even(value: number): number {
-  return value % 2 === 0 ? value : value + 1;
 }
