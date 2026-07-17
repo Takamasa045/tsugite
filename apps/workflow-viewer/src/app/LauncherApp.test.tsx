@@ -540,6 +540,52 @@ describe('LauncherApp', () => {
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
+  it('好み・学びを状態タグで絞り込み、選択中の詳細と件数を同期する', async () => {
+    const user = userEvent.setup()
+    const observedPreference = {
+      ...feedback.preferences[0]!,
+      key: 'opening-title-density',
+      stage: 'observed' as const,
+      summary: '冒頭タイトルの情報量を抑える。',
+      promotions: [],
+      promotion: undefined,
+    }
+    const filterableFeedback = {
+      ...feedback,
+      preferences: [observedPreference, ...feedback.preferences],
+    }
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, feedback: filterableFeedback }))
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const filters = await screen.findByRole('group', { name: '状態で絞り込む' })
+    const allFilter = within(filters).getByRole('button', { name: 'すべて 4件' })
+    expect(allFilter).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(within(filters).getByRole('button', { name: '学習中 1件' }))
+    expect(screen.getByText('全4件 / 表示1件')).toBeVisible()
+    expect(screen.getByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '冒頭タイトルの情報量を抑える。の詳細を見る' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '和モダンの意匠を制作画面に取り入れる。の詳細を見る' })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('字幕をセーフエリア内に収める。')
+
+    await user.click(within(filters).getByRole('button', { name: '観測中 1件' }))
+    expect(screen.getByRole('button', { name: '冒頭タイトルの情報量を抑える。の詳細を見る' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('冒頭タイトルの情報量を抑える。')
+
+    await user.click(allFilter)
+    expect(allFilter).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('全4件 / 表示4件')).toBeVisible()
+    expect(screen.getByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '和モダンの意匠を制作画面に取り入れる。の詳細を見る' })).toBeVisible()
+  })
+
   it('読み取り警告は最大5件の詳細と残件数を表示する', async () => {
     const user = userEvent.setup()
     const issues = Array.from({ length: 6 }, (_, index) => ({

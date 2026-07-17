@@ -150,6 +150,7 @@ type TemplateLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
 type ProjectFilter = 'all' | 'active' | 'waiting' | 'completed' | 'invalid'
+type FeedbackFilter = 'all' | FeedbackStage
 
 const defaultFetcher: typeof fetch = (...args) => window.fetch(...args)
 const PROJECT_PAGE_SIZE = 12
@@ -468,6 +469,7 @@ export function LauncherApp({
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
   const [feedbackLoadState, setFeedbackLoadState] = useState<FeedbackLoadState>('idle')
   const [selectedFeedbackKey, setSelectedFeedbackKey] = useState<string | null>(null)
+  const [feedbackFilter, setFeedbackFilter] = useState<FeedbackFilter>('all')
   const [visibleFeedbackCount, setVisibleFeedbackCount] = useState(FEEDBACK_PAGE_SIZE)
   const [promotionDecisionState, setPromotionDecisionState] = useState<PromotionDecisionState>('idle')
   const [promotionDecisionError, setPromotionDecisionError] = useState<string | null>(null)
@@ -640,11 +642,20 @@ export function LauncherApp({
     ))
   }, [activeShelf, filteredTemplates])
 
+  const filteredFeedback = useMemo(() => (
+    feedback?.preferences.filter((preference) => feedbackFilter === 'all' || preference.stage === feedbackFilter) ?? []
+  ), [feedback, feedbackFilter])
+  const feedbackStageCounts = useMemo(() => FEEDBACK_STAGES.reduce<Record<FeedbackStage, number>>((counts, stage) => {
+    counts[stage] = feedback?.preferences.filter((preference) => preference.stage === stage).length ?? 0
+    return counts
+  }, { observed: 0, recurring: 0, promoted: 0, verified: 0 }), [feedback])
   const selected = projects.find((project) => project.id === selectedId) ?? null
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? null
-  const selectedFeedback = feedback?.preferences.find((preference) => preference.key === selectedFeedbackKey) ?? null
-  const visibleFeedback = feedback?.preferences.slice(0, visibleFeedbackCount) ?? []
-  const remainingFeedbackCount = Math.max(0, (feedback?.preferences.length ?? 0) - visibleFeedback.length)
+  const selectedFeedback = filteredFeedback.find((preference) => preference.key === selectedFeedbackKey)
+    ?? filteredFeedback[0]
+    ?? null
+  const visibleFeedback = filteredFeedback.slice(0, visibleFeedbackCount)
+  const remainingFeedbackCount = Math.max(0, filteredFeedback.length - visibleFeedback.length)
   const pendingPromotionCount = feedback ? pendingPromotionPreferences(feedback).length : 0
   const projectSummary = useMemo(() => ({
     active: projects.filter((project) => projectMatchesFilter(project, 'active')).length,
@@ -652,15 +663,24 @@ export function LauncherApp({
     completed: projects.filter((project) => projectMatchesFilter(project, 'completed')).length,
   }), [projects])
 
+  useEffect(() => {
+    setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
+    setSelectedFeedbackKey((current) => (
+      current && filteredFeedback.some((preference) => preference.key === current)
+        ? current
+        : filteredFeedback[0]?.key ?? null
+    ))
+  }, [feedbackFilter, filteredFeedback])
+
   const selectShelf = (shelf: Shelf) => {
     setActiveShelf(shelf)
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
     if (shelf === 'feedback') {
       setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
       setSelectedFeedbackKey((current) => (
-        current && feedback?.preferences.slice(0, FEEDBACK_PAGE_SIZE).some((preference) => preference.key === current)
+        current && filteredFeedback.slice(0, FEEDBACK_PAGE_SIZE).some((preference) => preference.key === current)
           ? current
-          : feedback?.preferences[0]?.key ?? current
+          : filteredFeedback[0]?.key ?? current
       ))
       if (feedbackLoadState === 'idle') void loadFeedback()
     }
@@ -1263,6 +1283,31 @@ export function LauncherApp({
                 ))}
               </dl>
 
+              <div aria-label="状態で絞り込む" className="launcher-feedback-filters" role="group">
+                <button
+                  aria-label={`すべて ${feedback.preferences.length}件`}
+                  aria-pressed={feedbackFilter === 'all'}
+                  onClick={() => setFeedbackFilter('all')}
+                  type="button"
+                >
+                  <span>すべて</span>
+                  <b>{feedback.preferences.length}件</b>
+                </button>
+                {FEEDBACK_STAGES.map((stage) => (
+                  <button
+                    aria-label={`${FEEDBACK_STAGE_LABELS[stage]} ${feedbackStageCounts[stage]}件`}
+                    aria-pressed={feedbackFilter === stage}
+                    data-stage={stage}
+                    key={stage}
+                    onClick={() => setFeedbackFilter(stage)}
+                    type="button"
+                  >
+                    <span>{FEEDBACK_STAGE_LABELS[stage]}</span>
+                    <b>{feedbackStageCounts[stage]}件</b>
+                  </button>
+                ))}
+              </div>
+
               <section aria-label="学びの状態と適用状況" className="launcher-feedback-stage-guide">
                 <header>
                   <h3>状態の見方</h3>
@@ -1324,6 +1369,14 @@ export function LauncherApp({
                   <BookOpen aria-hidden="true" size={24} />
                   <strong>まだ整理された好み・学びはありません。</strong>
                   <p><code>pipeline feedback</code>で記録した<code>feedback.jsonl</code>が蓄積すると、ここに表示されます。</p>
+                </div>
+              ) : filteredFeedback.length === 0 ? (
+                <div className="launcher-empty launcher-feedback-state">
+                  <BookOpen aria-hidden="true" size={24} />
+                  <strong>{feedbackFilter === 'all' ? '該当する好み・学びはありません。' : `${FEEDBACK_STAGE_LABELS[feedbackFilter]}の好み・学びはありません。`}</strong>
+                  <button className="launcher-secondary" onClick={() => setFeedbackFilter('all')} type="button">
+                    すべての状態を表示
+                  </button>
                 </div>
               ) : (
                 <div className="launcher-feedback-workbench">
