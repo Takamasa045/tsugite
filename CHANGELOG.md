@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Added opt-in desktop notifications and a launcher tab badge for newly seen promotion proposals awaiting human approval.
+- Replaced launcher desktop notifications with a startup-loaded, unread-style pickup for pending proposals created by the dedicated learning-promotion automation; manual proposals and other workflows stay out of the pickup.
+- Added strict automation provenance to promotion proposals, CLI source flags, pending-priority aggregation, and a reproducible local Codex automation contract that appends at most three complete, non-duplicate proposals without changing shared source.
 - Added append-only feedback promotion proposals, human approve/reject decisions, and an explicit approval-waiting workflow in the local launcher without automatically changing shared rules or project state.
 - Added a repository-discoverable Tsugite skill for Codex, a Claude Code `/tsugite` compatibility entry, shared feedback-promotion guidance, and configuration regression tests.
 - Fixed PixVerse image-to-video requests so provider-derived framing is not overridden by `--aspect-ratio`.

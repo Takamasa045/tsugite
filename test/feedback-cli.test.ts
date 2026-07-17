@@ -70,6 +70,8 @@ describe("pipeline feedback command", () => {
       "--target", "src/orchestrator/gate3Qc.ts",
       "--proposal-summary", "Add an opening-audio Gate 3 check",
       "--verification", "Confirm the check on a later project",
+      "--proposal-workflow", "tsugite-learning-promotion-review",
+      "--proposal-run-id", "automation-run-17",
       "--json"
     ]);
 
@@ -84,10 +86,65 @@ describe("pipeline feedback command", () => {
           target: "src/orchestrator/gate3Qc.ts",
           change_summary: "Add an opening-audio Gate 3 check",
           verification: "Confirm the check on a later project",
+          source: {
+            kind: "codex_automation",
+            workflow_id: "tsugite-learning-promotion-review",
+            run_id: "automation-run-17"
+          },
           decision: "pending"
         }
       }
     });
+  });
+
+  it("rejects proposal provenance without proposal details, a workflow, or safe ids", async () => {
+    const baseArgs = [
+      "feedback",
+      "--config", "project.yaml",
+      "--key", "opening-audio",
+      "--category", "sound",
+      "--signal", "prefer",
+      "--stage", "recurring",
+      "--summary", "Start the soundtrack at frame zero",
+      "--evidence", "dist/run-1/gate3-qc.json",
+      "--promotion-kind", "qa",
+      "--target", "src/orchestrator/gate3Qc.ts"
+    ];
+
+    const withoutProposal = await capture([
+      ...baseArgs,
+      "--proposal-workflow", "tsugite-learning-promotion-review",
+      "--json"
+    ]);
+    expect(JSON.parse(withoutProposal.stderr).issues).toContainEqual(expect.objectContaining({
+      code: "feedback.proposal_source_without_proposal",
+      path: "--proposal-workflow"
+    }));
+
+    const withoutWorkflow = await capture([
+      ...baseArgs,
+      "--proposal-summary", "Add a check",
+      "--verification", "Verify later",
+      "--proposal-run-id", "automation-run-17",
+      "--json"
+    ]);
+    expect(JSON.parse(withoutWorkflow.stderr).issues).toContainEqual(expect.objectContaining({
+      code: "feedback.proposal_workflow_required",
+      path: "--proposal-workflow"
+    }));
+
+    const unsafeIds = await capture([
+      ...baseArgs,
+      "--proposal-summary", "Add a check",
+      "--verification", "Verify later",
+      "--proposal-workflow", "unsafe workflow",
+      "--proposal-run-id", "../run",
+      "--json"
+    ]);
+    expect(JSON.parse(unsafeIds.stderr).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "feedback.proposal_workflow_invalid", path: "--proposal-workflow" }),
+      expect.objectContaining({ code: "feedback.proposal_run_id_invalid", path: "--proposal-run-id" })
+    ]));
   });
 
   it("reports missing and invalid values using structured issues", async () => {

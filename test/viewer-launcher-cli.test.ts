@@ -75,4 +75,38 @@ describe("pipeline viewer-launcher", () => {
     });
     expect(startLauncherMock).not.toHaveBeenCalled();
   });
+
+  it("closes the launcher on SIGINT before returning", async () => {
+    let resolveClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    });
+    const close = vi.fn(async () => {
+      resolveClosed();
+    });
+    startLauncherMock.mockResolvedValue({
+      url: "http://127.0.0.1:43123",
+      port: 43123,
+      token: "secret",
+      projectCount: 3,
+      close,
+      closed
+    });
+    const existingHandlers = new Set(process.listeners("SIGINT"));
+
+    const pending = capture(["viewer-launcher", "--json"]);
+    await vi.waitFor(() => {
+      expect(process.listeners("SIGINT").some((handler) => !existingHandlers.has(handler)))
+        .toBe(true);
+    });
+    const closeHandler = process.listeners("SIGINT")
+      .find((handler) => !existingHandlers.has(handler));
+    expect(closeHandler).toBeDefined();
+    closeHandler!();
+
+    await expect(pending).resolves.toMatchObject({ status: 0 });
+    expect(close).toHaveBeenCalledOnce();
+    expect(process.listeners("SIGINT").some((handler) => !existingHandlers.has(handler)))
+      .toBe(false);
+  });
 });

@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, symlink, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -202,6 +202,15 @@ describe("workflow viewer launcher", () => {
     expect((await fetch(endpoint, {
       method: "POST",
       headers: {
+        origin: launcher.artifactUrl,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: requestBody
+    })).status).toBe(403);
+    expect((await fetch(endpoint, {
+      method: "POST",
+      headers: {
         origin: launcher.url,
         "content-type": "application/json",
         "x-tsugite-token": launcher.token
@@ -259,6 +268,63 @@ describe("workflow viewer launcher", () => {
     expect(payload.feedback.issues).toContainEqual(expect.objectContaining({
       code: "feedback.aggregate_record_limit",
       projectName: "ランチャー"
+    }));
+  });
+
+  it("keeps the latest pending promotion proposal visible among many newer records", async () => {
+    const fixture = await createFixture();
+    const pending = JSON.stringify({
+      schema_version: 1,
+      id: "pending-proposal",
+      created_at: "2026-07-17T08:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "recurring",
+      summary: "Start the soundtrack at frame zero",
+      evidence: ["dist/local-fixture-run/gate3-qc.json"],
+      promotion_proposal: {
+        id: "opening-audio-v1",
+        kind: "qa",
+        target: "src/orchestrator/gate3Qc.ts",
+        change_summary: "Add an opening-audio Gate 3 check",
+        verification: "Confirm the check on a later project",
+        decision: "pending"
+      }
+    });
+    const newerRecords = Array.from({ length: 1_000 }, (_, index) => JSON.stringify({
+      schema_version: 1,
+      id: `newer-record-${index + 1}`,
+      created_at: "2026-07-17T10:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "observed",
+      summary: "Newer observation"
+    }));
+    await writeFile(
+      join(fixture.projectDir, "feedback.jsonl"),
+      `${[pending, ...newerRecords].join("\n")}\n`
+    );
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/feedback`).then((response) => response.json());
+
+    expect(payload.feedback.preferences[0]).toMatchObject({
+      key: "opening-audio",
+      stage: "recurring",
+      recordCount: 997,
+      promotionProposal: {
+        id: "opening-audio-v1",
+        decision: "pending"
+      }
+    });
+    expect(payload.feedback.issues).toContainEqual(expect.objectContaining({
+      code: "feedback.aggregate_record_limit"
     }));
   });
 
@@ -508,9 +574,14 @@ distribution: local-only
     });
 
     expect(launcher.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    expect(launcher.artifactUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    expect(launcher.artifactUrl).not.toBe(launcher.url);
     const rootResponse = await fetch(launcher.url);
     const rootHtml = await rootResponse.text();
     expect(rootResponse.status).toBe(200);
+    expect(rootResponse.headers.get("content-security-policy")).toContain(
+      `img-src 'self' data: blob: ${launcher.artifactUrl}`
+    );
     expect(rootHtml).toContain('<meta name="tsugite-launcher" content="true">');
     expect(rootHtml).toContain(
       `<meta name="tsugite-launcher-token" content="${launcher.token}">`
@@ -533,7 +604,7 @@ distribution: local-only
       status: "planned",
       updatedAt: null,
       hasViewer: false,
-      thumbnailUrl: `/thumbnail/${valid.id}`,
+      thumbnailUrl: `${launcher.artifactUrl}/thumbnail/${valid.id}`,
       valid: true,
       refreshable: true,
       issues: []
@@ -549,10 +620,18 @@ distribution: local-only
       issues: [{ code: "viewer_launcher.project_invalid", message: expect.any(String) }]
     });
     expect(invalid.issue).toEqual(expect.any(String));
-    await expect(fetch(`${launcher.url}${valid.thumbnailUrl}`).then((response) => response.text()))
+    const thumbnailResponse = await fetch(valid.thumbnailUrl);
+    expect(thumbnailResponse.headers.get("access-control-allow-origin")).toBeNull();
+    await expect(thumbnailResponse.text())
       .resolves.toBe("thumbnail-image");
+    expect((await fetch(valid.thumbnailUrl, { method: "HEAD" })).status).toBe(200);
+    expect((await fetch(`${launcher.url}/thumbnail/${valid.id}`)).status).toBe(404);
+    expect((await fetch(launcher.artifactUrl)).status).toBe(404);
+    expect((await fetch(`${launcher.artifactUrl}/api/feedback`)).status).toBe(404);
+    expect((await fetch(`${launcher.artifactUrl}/assets/app.js`)).status).toBe(404);
 
     await expect(statusWithHost(launcher.url, "viewer.attacker.invalid")).resolves.toBe(403);
+    await expect(statusWithHost(launcher.artifactUrl, "viewer.attacker.invalid")).resolves.toBe(403);
   });
 
   it("selects the most recently updated direct project config", async () => {
@@ -620,17 +699,30 @@ distribution: local-only
     expect(refreshed.status).toBe(200);
     expect(payload).toMatchObject({
       ok: true,
-      viewerUrl: `/viewer/${project.id}/`,
-      project: { id: project.id, hasViewer: true, valid: true }
+      viewerUrl: `${launcher.artifactUrl}/viewer/${project.id}/`,
+      project: {
+        id: project.id,
+        hasViewer: true,
+        valid: true,
+        viewerUrl: `${launcher.artifactUrl}/viewer/${project.id}/`
+      }
     });
-    const viewerResponse = await fetch(`${launcher.url}${payload.viewerUrl}`);
+    const viewerResponse = await fetch(payload.viewerUrl);
     expect(viewerResponse.status).toBe(200);
     await expect(viewerResponse.text()).resolves.toContain('id="tsugite-workflow-data"');
+    const rangeResponse = await fetch(payload.viewerUrl, { headers: { range: "bytes=0-8" } });
+    expect(rangeResponse.status).toBe(206);
+    expect(rangeResponse.headers.get("content-range")).toMatch(/^bytes 0-8\/\d+$/);
+    await expect(rangeResponse.text()).resolves.toBe("<!doctype");
+    expect((await fetch(payload.viewerUrl, { method: "HEAD" })).status).toBe(200);
+    expect((await fetch(payload.viewerUrl, { method: "POST" })).status).toBe(404);
+    expect((await fetch(`${launcher.url}/viewer/${project.id}/`)).status).toBe(404);
 
-    const reviewDir = join(fixture.projectDir, "dist", "local-fixture-run", "viewer", "review");
+    const [snapshotName] = await readdir(launcher.privateRoot!);
+    const reviewDir = join(launcher.privateRoot!, snapshotName!, "review");
     await mkdir(reviewDir, { recursive: true });
     await writeFile(join(reviewDir, "index.html"), "<!doctype html><script>globalThis.compromised = true</script>\n");
-    const reviewResponse = await fetch(`${launcher.url}${payload.viewerUrl}review/index.html`);
+    const reviewResponse = await fetch(new URL("review/index.html", payload.viewerUrl));
     expect(reviewResponse.status).toBe(200);
     expect(reviewResponse.headers.get("content-security-policy")).toBe(
       "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
@@ -673,14 +765,14 @@ distribution: local-only
       valid: true,
       refreshable: false,
       hasViewer: true,
-      viewerUrl: `/viewer/${project.id}/`,
+      viewerUrl: `${launcher.artifactUrl}/viewer/${project.id}/`,
       issues: [{
         code: "backend.capability.preset",
         message: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it"
       }],
       issue: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it"
     });
-    const viewerResponse = await fetch(`${launcher.url}${project.viewerUrl}`);
+    const viewerResponse = await fetch(project.viewerUrl);
     expect(viewerResponse.status).toBe(200);
     await expect(viewerResponse.text()).resolves.toContain("previous snapshot");
 
@@ -727,7 +819,7 @@ distribution: local-only
       issues: [{ code: "manifest.clip.src.safe" }]
     });
     expect(project.issues[0]).not.toHaveProperty("path");
-    expect((await fetch(`${launcher.url}${project.viewerUrl}`)).status).toBe(200);
+    expect((await fetch(project.viewerUrl)).status).toBe(200);
 
     const refreshResponse = await fetch(
       `${launcher.url}/api/projects/${project.id}/refresh`,
@@ -760,10 +852,10 @@ distribution: local-only
       refreshable: false,
       status: "error",
       hasViewer: true,
-      viewerUrl: `/viewer/${project.id}/`,
+      viewerUrl: `${launcher.artifactUrl}/viewer/${project.id}/`,
       issues: [{ code: "viewer_launcher.state_invalid", message: expect.any(String) }]
     });
-    expect((await fetch(`${launcher.url}${project.viewerUrl}`)).status).toBe(200);
+    expect((await fetch(project.viewerUrl)).status).toBe(200);
   });
 
   it("serves only files below the generated Viewer and rejects traversal and unknown ids", async () => {
@@ -780,9 +872,279 @@ distribution: local-only
       headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
     });
 
-    expect((await fetch(`${launcher.url}/viewer/unknown/`)).status).toBe(404);
-    expect((await fetch(`${launcher.url}/viewer/${project.id}/..%2fstate.json`)).status).toBe(404);
-    expect((await fetch(`${launcher.url}/viewer/${project.id}/..%2f..%2fproject.yaml`)).status).toBe(404);
+    expect((await fetch(`${launcher.artifactUrl}/viewer/unknown/`)).status).toBe(404);
+    expect((await fetch(`${launcher.artifactUrl}/viewer/${project.id}/..%2fstate.json`)).status).toBe(404);
+    expect((await fetch(`${launcher.artifactUrl}/viewer/${project.id}/..%2f..%2fproject.yaml`)).status).toBe(404);
+  });
+
+  it("serves the pinned viewer handle and rejects later artifacts after a run symlink swap", async () => {
+    const fixture = await createFixture();
+    const runDir = join(fixture.projectDir, "dist", "local-fixture-run");
+    const viewerDir = join(runDir, "viewer");
+    const thumbnailDir = join(runDir, "qa");
+    await mkdir(viewerDir, { recursive: true });
+    await mkdir(thumbnailDir, { recursive: true });
+    await writeFile(join(viewerDir, "index.html"), "<!doctype html><p>safe viewer</p>\n");
+    await writeFile(join(thumbnailDir, "contact-sheet.png"), "safe-thumbnail");
+    const outsideRunDir = join(fixture.root, "outside-run");
+    await mkdir(join(outsideRunDir, "viewer"), { recursive: true });
+    await mkdir(join(outsideRunDir, "qa"), { recursive: true });
+    await writeFile(join(outsideRunDir, "viewer", "index.html"), "external viewer\n");
+    await writeFile(join(outsideRunDir, "qa", "contact-sheet.png"), "external-thumbnail");
+    const beforeServeArtifact = vi.fn(async () => {
+      await rename(runDir, join(fixture.projectDir, "dist", "local-fixture-run-original"));
+      await symlink(outsideRunDir, runDir);
+    });
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      beforeServeArtifact
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    const pinnedViewer = await fetch(project.viewerUrl);
+    expect(pinnedViewer.status).toBe(200);
+    await expect(pinnedViewer.text()).resolves.toContain("safe viewer");
+    expect(beforeServeArtifact).toHaveBeenCalledOnce();
+
+    expect((await fetch(project.viewerUrl)).status).toBe(404);
+    expect((await fetch(project.thumbnailUrl)).status).toBe(404);
+  });
+
+  it("rejects approval and refresh writes after the project identity is replaced", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.projectDir, "feedback.jsonl"), `${JSON.stringify({
+      schema_version: 1,
+      id: "proposal-record",
+      created_at: "2026-07-17T10:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "recurring",
+      summary: "Start the soundtrack at frame zero",
+      evidence: ["dist/local-fixture-run/gate3-qc.json"],
+      promotion_proposal: {
+        id: "opening-audio-v1",
+        kind: "qa",
+        target: "src/orchestrator/gate3Qc.ts",
+        change_summary: "Add an opening-audio Gate 3 check",
+        verification: "Confirm the check on a later project",
+        decision: "pending"
+      }
+    })}\n`);
+    const writeViewer = vi.fn();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      writeViewer
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const outsideProject = join(fixture.root, "outside-project");
+    await cp(fixture.projectDir, outsideProject, { recursive: true });
+    await rename(fixture.projectDir, join(fixture.projectsDir, "valid-project-original"));
+    await symlink(outsideProject, fixture.projectDir);
+    const headers = {
+      origin: launcher.url,
+      "content-type": "application/json",
+      "x-tsugite-token": launcher.token
+    };
+
+    const decisionResponse = await fetch(
+      `${launcher.url}/api/feedback/${project.id}/promotion-decision`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          key: "opening-audio",
+          proposalId: "opening-audio-v1",
+          decision: "approved"
+        })
+      }
+    );
+    expect(decisionResponse.status).toBe(422);
+    await expect(decisionResponse.json()).resolves.toMatchObject({
+      ok: false,
+      issue: { code: "viewer_launcher.project_changed" }
+    });
+    const refreshResponse = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers
+    });
+    expect(refreshResponse.status).toBe(422);
+    await expect(refreshResponse.json()).resolves.toMatchObject({
+      ok: false,
+      issue: { code: "viewer_launcher.project_changed" }
+    });
+    expect(writeViewer).not.toHaveBeenCalled();
+    const outsideRecords = (await readFile(join(outsideProject, "feedback.jsonl"), "utf8"))
+      .trim().split("\n").map((line) => JSON.parse(line));
+    expect(outsideRecords).toHaveLength(1);
+    expect(outsideRecords[0].promotion_proposal).toMatchObject({ decision: "pending" });
+  });
+
+  it("rejects approval when feedback.jsonl is replaced after the launcher loads it", async () => {
+    const fixture = await createFixture();
+    const feedbackPath = join(fixture.projectDir, "feedback.jsonl");
+    const pendingRecord = `${JSON.stringify({
+      schema_version: 1,
+      id: "proposal-record",
+      created_at: "2026-07-17T10:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "recurring",
+      summary: "Start the soundtrack at frame zero",
+      evidence: ["dist/local-fixture-run/gate3-qc.json"],
+      promotion_proposal: {
+        id: "opening-audio-v1",
+        kind: "qa",
+        target: "src/orchestrator/gate3Qc.ts",
+        change_summary: "Add an opening-audio Gate 3 check",
+        verification: "Confirm the check on a later project",
+        decision: "pending"
+      }
+    })}\n`;
+    await writeFile(feedbackPath, pendingRecord);
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    await rename(feedbackPath, join(fixture.projectDir, "feedback-original.jsonl"));
+    await writeFile(feedbackPath, pendingRecord);
+
+    const response = await fetch(
+      `${launcher.url}/api/feedback/${project.id}/promotion-decision`,
+      {
+        method: "POST",
+        headers: {
+          origin: launcher.url,
+          "content-type": "application/json",
+          "x-tsugite-token": launcher.token
+        },
+        body: JSON.stringify({
+          key: "opening-audio",
+          proposalId: "opening-audio-v1",
+          decision: "approved"
+        })
+      }
+    );
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      issue: { code: "feedback.file_changed" }
+    });
+    expect(await readFile(feedbackPath, "utf8")).toBe(pendingRecord);
+  });
+
+  it("rejects a refreshed snapshot when project identity changes inside the writer", async () => {
+    const fixture = await createFixture();
+    const configPath = join(fixture.projectDir, "project.yaml");
+    const configContents = await readFile(configPath, "utf8");
+    const writeViewer = vi.fn(async (options: { outputDir?: string }) => {
+      expect(options.outputDir).toBeUndefined();
+      await rename(configPath, join(fixture.projectDir, "project-original.yaml"));
+      await writeFile(configPath, configContents);
+      const outputDir = join(fixture.projectDir, "dist", "local-fixture-run", "viewer");
+      return {
+        viewerPath: join(outputDir, "index.html"),
+        workflowPath: join(outputDir, "workflow.json"),
+        outputDir,
+        stateFound: false
+      };
+    });
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      writeViewer
+    });
+    expect(launcher.privateRoot).toBeUndefined();
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    const response = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+
+    expect(writeViewer).toHaveBeenCalledOnce();
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      issue: { code: "viewer_launcher.project_changed" }
+    });
+  });
+
+  it("closes both launcher and artifact origins", async () => {
+    const fixture = await createFixture();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    await Promise.all([launcher.close(), launcher.close(), launcher.closed]);
+
+    await expect(fetch(launcher.url)).rejects.toThrow();
+    await expect(fetch(launcher.artifactUrl)).rejects.toThrow();
+  });
+
+  it("isolates default refresh output from a persistent viewer symlink and cleans it on close", async () => {
+    const fixture = await createFixture();
+    const runDir = join(fixture.projectDir, "dist", "local-fixture-run");
+    const externalViewer = join(fixture.root, "external-viewer");
+    await mkdir(runDir, { recursive: true });
+    await mkdir(externalViewer);
+    await writeFile(join(externalViewer, "sentinel.txt"), "unchanged\n");
+    await symlink(externalViewer, join(runDir, "viewer"));
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const privateRoot = launcher.privateRoot!;
+    const privateRootStats = await lstat(privateRoot);
+    expect(privateRootStats.isDirectory()).toBe(true);
+    expect(privateRootStats.mode & 0o777).toBe(0o700);
+
+    const initialListing = await fetch(`${launcher.url}/api/projects`)
+      .then((response) => response.json());
+    const project = initialListing.projects[0];
+    expect(project).toMatchObject({ valid: true, refreshable: true, hasViewer: false });
+
+    const refreshResponse = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+    expect(refreshResponse.status).toBe(200);
+    const refreshed = await refreshResponse.json();
+    expect((await lstat(join(runDir, "viewer"))).isSymbolicLink()).toBe(true);
+    expect(await readdir(externalViewer)).toEqual(["sentinel.txt"]);
+    expect((await fetch(refreshed.viewerUrl)).status).toBe(200);
+
+    const reloadedListing = await fetch(`${launcher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(reloadedListing.projects[0]).toMatchObject({
+      id: project.id,
+      hasViewer: true,
+      viewerUrl: refreshed.viewerUrl
+    });
+    expect((await fetch(reloadedListing.projects[0].viewerUrl)).status).toBe(200);
+    const privateEntries = await readdir(privateRoot, { recursive: true });
+    expect(privateEntries.some((entry) => entry.endsWith("index.html"))).toBe(true);
+
+    await launcher.close();
+    await launcher.closed;
+    await expect(lstat(privateRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readdir(externalViewer)).toEqual(["sentinel.txt"]);
   });
 
   it("refuses a project whose dist path is redirected through a symlink", async () => {

@@ -1,14 +1,19 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import {
+  chmod,
   lstat,
+  mkdtemp,
+  open,
   readFile,
   readdir,
   realpath,
-  stat
+  rm,
+  type FileHandle
 } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -17,8 +22,10 @@ import { z } from "zod";
 import {
   aggregateFeedback,
   decideProjectFeedbackPromotion,
+  feedbackPathForProject,
   readProjectFeedback,
   type FeedbackAggregate,
+  type FeedbackFileIdentity,
   type FeedbackRecord
 } from "../feedback/index.js";
 import { createPlan } from "../orchestrator/plan.js";
@@ -134,10 +141,40 @@ type LauncherProjectRecord = {
   name: string;
   configPath: string;
   sourceModifiedAtMs: number;
+  identity?: LauncherProjectIdentity;
+  feedbackIdentity?: FeedbackFileIdentity;
   project?: Project;
   outputDir?: string;
+  viewerRoot?: LauncherDirectoryIdentity;
   thumbnailPath?: string;
   public: LauncherProject;
+};
+
+type LauncherProjectIdentity = {
+  realProjectDir: string;
+  realConfigPath: string;
+  projectDevice: number;
+  projectInode: number;
+  configDevice: number;
+  configInode: number;
+};
+
+type OpenedStaticFile = {
+  handle: FileHandle;
+  path: string;
+  stats: Stats;
+};
+
+type LauncherDirectoryIdentity = {
+  path: string;
+  realPath: string;
+  device: number;
+  inode: number;
+};
+
+type LauncherViewerSnapshot = {
+  outputDir: string;
+  root: LauncherDirectoryIdentity;
 };
 
 export type StartWorkflowViewerLauncherOptions = {
@@ -146,11 +183,14 @@ export type StartWorkflowViewerLauncherOptions = {
   port?: number;
   bundleDir?: string;
   beforeRefresh?: (project: LauncherProject) => void | Promise<void>;
+  beforeServeArtifact?: (path: string) => void | Promise<void>;
   writeViewer?: (options: WriteWorkflowViewerOptions) => Promise<WorkflowViewerResult>;
 };
 
 export type WorkflowViewerLauncher = {
   url: string;
+  artifactUrl: string;
+  privateRoot?: string;
   port: number;
   token: string;
   projectCount: number;
@@ -175,24 +215,33 @@ export async function startWorkflowViewerLauncher(
   const bundleDir = await prepareWorkflowViewerBundle(options.bundleDir);
   const token = randomBytes(24).toString("hex");
   const idsByConfig = new Map<string, string>();
+  const viewerSnapshots = new Map<string, LauncherViewerSnapshot>();
   let projects = new Map<string, LauncherProjectRecord>();
   const refreshing = new Set<string>();
   const writer = options.writeViewer ?? writeWorkflowViewer;
+  let launcherOrigin = "";
+  let artifactOrigin = "";
 
   const reloadProjects = async (): Promise<LauncherProject[]> => {
-    const discovered = await discoverProjects(projectsDir, idsByConfig);
+    const discovered = await discoverProjects(
+      projectsDir,
+      idsByConfig,
+      artifactOrigin,
+      viewerSnapshots
+    );
     projects = new Map(discovered.map((project) => [project.id, project]));
     return discovered.map((project) => project.public);
   };
-  const initialProjects = await reloadProjects();
   const rootHtml = injectLauncherMeta(
     await readFile(join(bundleDir, "index.html"), "utf8"),
     token
   );
+  const privateRoot = options.writeViewer
+    ? undefined
+    : await createLauncherPrivateRoot();
 
-  let origin = "";
-  const server = createServer((request, response) => {
-    void handleRequest(request, response).catch((error) => {
+  const launcherServer = createServer((request, response) => {
+    void handleLauncherRequest(request, response).catch((error) => {
       if (response.headersSent) {
         response.destroy(error instanceof Error ? error : undefined);
         return;
@@ -206,17 +255,37 @@ export async function startWorkflowViewerLauncher(
       });
     });
   });
+  const artifactServer = createServer((request, response) => {
+    void handleArtifactRequest(request, response).catch((error) => {
+      if (response.headersSent) {
+        response.destroy(error instanceof Error ? error : undefined);
+        return;
+      }
+      sendJson(response, 500, {
+        ok: false,
+        issue: {
+          code: "viewer_launcher.internal",
+          message: "制作案件を処理できませんでした。ランチャーを再起動してください。"
+        }
+      });
+    });
+  });
+  const launcherClosed = waitForServerClose(launcherServer);
+  const artifactClosed = waitForServerClose(artifactServer);
 
-  async function handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  async function handleLauncherRequest(
+    request: IncomingMessage,
+    response: ServerResponse
+  ): Promise<void> {
     setCommonHeaders(response);
-    if (origin && request.headers.host !== new URL(origin).host) {
+    if (launcherOrigin && request.headers.host !== new URL(launcherOrigin).host) {
       sendJson(response, 403, {
         ok: false,
         issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
       });
       return;
     }
-    const requestUrl = new URL(request.url ?? "/", origin || `http://${LOOPBACK_HOST}`);
+    const requestUrl = new URL(request.url ?? "/", launcherOrigin || `http://${LOOPBACK_HOST}`);
     const method = request.method ?? "GET";
 
     if (method === "GET" && requestUrl.pathname === "/") {
@@ -224,19 +293,19 @@ export async function startWorkflowViewerLauncher(
       response.setHeader("content-type", "text/html; charset=utf-8");
       response.setHeader(
         "content-security-policy",
-        "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+        `default-src 'self'; img-src 'self' data: blob: ${artifactOrigin}; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`
       );
       response.end(rootHtml);
       return;
     }
 
     if ((method === "GET" || method === "HEAD") && requestUrl.pathname.startsWith("/assets/")) {
-      const assetPath = await containedStaticFile(
+      const assetFile = await openContainedStaticFile(
         join(bundleDir, "assets"),
         requestUrl.pathname.slice("/assets/".length)
       );
-      if (!assetPath) return sendNotFound(response);
-      return serveFile(request, response, assetPath);
+      if (!assetFile) return sendNotFound(response);
+      return serveFile(request, response, assetFile);
     }
 
     if (method === "GET" && requestUrl.pathname === "/api/projects") {
@@ -324,7 +393,7 @@ export async function startWorkflowViewerLauncher(
     const promotionDecisionMatch = /^\/api\/feedback\/([^/]+)\/promotion-decision$/.exec(requestUrl.pathname);
     if (method === "POST" && promotionDecisionMatch) {
       if (
-        request.headers.origin !== origin ||
+        request.headers.origin !== launcherOrigin ||
         request.headers["x-tsugite-token"] !== token
       ) {
         sendJson(response, 403, {
@@ -353,8 +422,18 @@ export async function startWorkflowViewerLauncher(
         });
         return;
       }
+      if (
+        !record.identity
+        || !record.feedbackIdentity
+        || !await matchesProjectIdentity(record.configPath, record.identity)
+      ) {
+        sendProjectChanged(response);
+        return;
+      }
       try {
-        await decideProjectFeedbackPromotion(record.configPath, input);
+        await decideProjectFeedbackPromotion(record.configPath, input, {
+          expectedFileIdentity: record.feedbackIdentity
+        });
         sendJson(response, 200, { ok: true, decision: input.decision });
       } catch (error) {
         const issue = error instanceof Error && "issues" in error
@@ -374,7 +453,7 @@ export async function startWorkflowViewerLauncher(
     const refreshMatch = /^\/api\/projects\/([^/]+)\/refresh$/.exec(requestUrl.pathname);
     if (method === "POST" && refreshMatch) {
       if (
-        request.headers.origin !== origin ||
+        request.headers.origin !== launcherOrigin ||
         request.headers["x-tsugite-token"] !== token
       ) {
         sendJson(response, 403, {
@@ -387,8 +466,8 @@ export async function startWorkflowViewerLauncher(
       const record = projects.get(projectId);
       if (!record) return sendNotFound(response);
       if (
-        !record.project
-        || !record.outputDir
+        !record.identity
+        || !record.project
         || !record.public.valid
         || !record.public.refreshable
       ) {
@@ -399,6 +478,10 @@ export async function startWorkflowViewerLauncher(
             message: record.public.issue ?? "Project cannot be refreshed safely"
           }
         });
+        return;
+      }
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
         return;
       }
       if (refreshing.has(projectId)) {
@@ -414,6 +497,10 @@ export async function startWorkflowViewerLauncher(
       refreshing.add(projectId);
       try {
         await options.beforeRefresh?.(record.public);
+        if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+          sendProjectChanged(response);
+          return;
+        }
         const validation = await validateProject(record.configPath);
         if (!validation.ok) {
           sendJson(response, 422, {
@@ -425,6 +512,10 @@ export async function startWorkflowViewerLauncher(
           });
           return;
         }
+        if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+          sendProjectChanged(response);
+          return;
+        }
         const plan = createPlan(
           validation.project!,
           validation.manifest!,
@@ -432,20 +523,65 @@ export async function startWorkflowViewerLauncher(
           validation.analysisAdapters ?? validation.analysisAdapter,
           validation.promptGuides
         );
+        if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+          sendProjectChanged(response);
+          return;
+        }
+        if (privateRoot && !await matchesDirectoryIdentity(privateRoot)) {
+          sendPrivateRootChanged(response);
+          return;
+        }
+        // Node does not expose a portable openat-style API that can bind an arbitrary writer to
+        // the verified project directory handle. Bracket the writer with identity checks so a
+        // raced replacement never becomes the launcher's accepted refreshed snapshot.
+        const privateOutputDir = privateRoot
+          ? join(privateRoot.path, `${projectId}-${randomBytes(12).toString("hex")}`)
+          : undefined;
         const viewer = await writer({
           configPath: record.configPath,
           project: validation.project!,
           plan,
-          bundleDir
+          bundleDir,
+          ...(privateOutputDir ? { outputDir: privateOutputDir } : {})
         });
+        if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+          sendProjectChanged(response);
+          return;
+        }
+        if (
+          privateRoot
+          && (
+            !await matchesDirectoryIdentity(privateRoot)
+            || resolve(viewer.outputDir) !== resolve(privateOutputDir!)
+          )
+        ) {
+          sendPrivateRootChanged(response);
+          return;
+        }
+        const snapshot: LauncherViewerSnapshot = {
+          outputDir: viewer.outputDir,
+          root: privateRoot ?? projectDirectoryIdentity(record.configPath, record.identity)
+        };
         const refreshedRecord = await inspectProject(
           record.name,
           record.configPath,
           record.id,
-          viewer.outputDir
+          artifactOrigin,
+          snapshot
         );
+        if (!refreshedRecord.outputDir || !refreshedRecord.viewerRoot) {
+          sendJson(response, 422, {
+            ok: false,
+            issue: {
+              code: "viewer_launcher.snapshot_invalid",
+              message: refreshedRecord.public.issue ?? "Viewer snapshot could not be accepted safely"
+            }
+          });
+          return;
+        }
+        viewerSnapshots.set(projectId, snapshot);
         projects.set(projectId, refreshedRecord);
-        const viewerUrl = `/viewer/${projectId}/`;
+        const viewerUrl = `${artifactOrigin}/viewer/${projectId}/`;
         sendJson(response, 200, {
           ok: true,
           viewerUrl,
@@ -457,62 +593,114 @@ export async function startWorkflowViewerLauncher(
       return;
     }
 
+    sendNotFound(response);
+  }
+
+  async function handleArtifactRequest(
+    request: IncomingMessage,
+    response: ServerResponse
+  ): Promise<void> {
+    setArtifactHeaders(response);
+    if (artifactOrigin && request.headers.host !== new URL(artifactOrigin).host) {
+      sendJson(response, 403, {
+        ok: false,
+        issue: { code: "viewer_launcher.forbidden", message: "Artifact request was not authorized" }
+      });
+      return;
+    }
+    const requestUrl = new URL(request.url ?? "/", artifactOrigin || `http://${LOOPBACK_HOST}`);
+    const method = request.method ?? "GET";
+
     const thumbnailMatch = /^\/thumbnail\/([^/]+)$/.exec(requestUrl.pathname);
     if ((method === "GET" || method === "HEAD") && thumbnailMatch) {
       const record = projects.get(thumbnailMatch[1]!);
-      if (!record?.thumbnailPath) return sendNotFound(response);
-      const thumbnailPath = await safeProjectThumbnail(record.configPath, record.thumbnailPath);
-      if (!thumbnailPath) return sendNotFound(response);
-      return serveFile(request, response, thumbnailPath);
+      if (!record?.thumbnailPath || !record.identity) return sendNotFound(response);
+      const thumbnailFile = await safeProjectThumbnail(
+        record.configPath,
+        record.thumbnailPath,
+        record.identity
+      );
+      if (!thumbnailFile) return sendNotFound(response);
+      await beforeServeArtifact(thumbnailFile);
+      return serveFile(request, response, thumbnailFile);
     }
 
     const viewerMatch = /^\/viewer\/([^/]+)(?:\/(.*))?$/.exec(requestUrl.pathname);
     if ((method === "GET" || method === "HEAD") && viewerMatch) {
       const record = projects.get(viewerMatch[1]!);
-      if (!record?.outputDir) return sendNotFound(response);
+      if (
+        !record?.outputDir
+        || !record.viewerRoot
+        || !record.identity
+        || !await matchesProjectIdentity(record.configPath, record.identity)
+        || !await matchesDirectoryIdentity(record.viewerRoot)
+      ) return sendNotFound(response);
       const relativePath = viewerMatch[2] || "index.html";
-      const filePath = await containedStaticFile(record.outputDir, relativePath);
-      if (!filePath) return sendNotFound(response);
+      const file = await openContainedStaticFile(
+        record.outputDir,
+        relativePath,
+        record.viewerRoot.realPath
+      );
+      if (!file) return sendNotFound(response);
       if (relativePath.startsWith("review/")) {
         response.setHeader("content-security-policy", REVIEW_PREVIEW_CSP);
       }
-      return serveFile(request, response, filePath);
+      await beforeServeArtifact(file);
+      return serveFile(request, response, file);
     }
 
     sendNotFound(response);
   }
 
-  await new Promise<void>((resolveListening, reject) => {
-    const onError = (error: Error) => {
-      server.off("listening", onListening);
-      reject(error);
-    };
-    const onListening = () => {
-      server.off("error", onError);
-      resolveListening();
-    };
-    server.once("error", onError);
-    server.once("listening", onListening);
-    server.listen(requestedPort, LOOPBACK_HOST);
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") {
-    await closeServer(server);
-    throw new Error("Viewer launcher did not obtain a TCP port");
+  async function beforeServeArtifact(file: OpenedStaticFile): Promise<void> {
+    try {
+      await options.beforeServeArtifact?.(file.path);
+    } catch (error) {
+      await file.handle.close();
+      throw error;
+    }
   }
-  origin = `http://${LOOPBACK_HOST}:${address.port}`;
-  const closed = new Promise<void>((resolveClosed) => {
-    server.once("close", resolveClosed);
-  });
 
-  return {
-    url: origin,
-    port: address.port,
-    token,
-    projectCount: initialProjects.length,
-    closed,
-    close: () => closeServer(server)
-  };
+  try {
+    const artifactPort = await listenServer(artifactServer, 0);
+    artifactOrigin = `http://${LOOPBACK_HOST}:${artifactPort}`;
+    const launcherPort = await listenServer(launcherServer, requestedPort);
+    launcherOrigin = `http://${LOOPBACK_HOST}:${launcherPort}`;
+    const initialProjects = await reloadProjects();
+    let cleanupPromise: Promise<void> | undefined;
+    const cleanupPrivateRoot = (): Promise<void> => {
+      cleanupPromise ??= cleanupLauncherPrivateRoot(privateRoot);
+      return cleanupPromise;
+    };
+    const closed = Promise.all([launcherClosed, artifactClosed])
+      .then(cleanupPrivateRoot);
+    let closePromise: Promise<void> | undefined;
+    const close = (): Promise<void> => {
+      closePromise ??= Promise.all([
+        closeServer(launcherServer),
+        closeServer(artifactServer)
+      ]).then(cleanupPrivateRoot);
+      return closePromise;
+    };
+
+    return {
+      url: launcherOrigin,
+      artifactUrl: artifactOrigin,
+      port: launcherPort,
+      token,
+      projectCount: initialProjects.length,
+      ...(privateRoot ? { privateRoot: privateRoot.path } : {}),
+      closed,
+      close
+    };
+  } catch (error) {
+    await Promise.allSettled([
+      closeServer(launcherServer),
+      closeServer(artifactServer)
+    ]);
+    await cleanupLauncherPrivateRoot(privateRoot);
+    throw error;
+  }
 }
 
 function selectRecentFeedbackEntries(entries: FeedbackRecord[], limit: number): FeedbackRecord[] {
@@ -539,6 +727,19 @@ function selectRecentFeedbackEntries(entries: FeedbackRecord[], limit: number): 
     selected.add(index);
     return true;
   };
+
+  const latestPendingProposals = groups.flatMap((indices) => {
+    const latestProposal = [...indices]
+      .sort(newestFirst)
+      .find((index) => entries[index]!.promotion_proposal);
+    return latestProposal !== undefined
+      && entries[latestProposal]!.promotion_proposal?.decision === "pending"
+      ? [latestProposal]
+      : [];
+  }).sort(newestFirst);
+  for (const index of latestPendingProposals) {
+    if (!add(index)) break;
+  }
 
   for (const indices of groups) {
     if (selected.size >= limit) break;
@@ -597,7 +798,9 @@ export async function openWorkflowViewerLauncher(url: string): Promise<void> {
 
 async function discoverProjects(
   projectsDir: string,
-  idsByConfig: Map<string, string>
+  idsByConfig: Map<string, string>,
+  artifactOrigin: string,
+  viewerSnapshots: Map<string, LauncherViewerSnapshot>
 ): Promise<LauncherProjectRecord[]> {
   let entries;
   try {
@@ -622,7 +825,13 @@ async function discoverProjects(
           const configPath = join(projectDir, candidate.name);
           const id = idsByConfig.get(configPath) ?? randomBytes(16).toString("hex");
           idsByConfig.set(configPath, id);
-          return await inspectProject(entry.name, configPath, id);
+          return await inspectProject(
+            entry.name,
+            configPath,
+            id,
+            artifactOrigin,
+            viewerSnapshots.get(id)
+          );
         })
     );
     const latest = selectLatestProjectRecord(candidates);
@@ -775,19 +984,33 @@ async function inspectProject(
   name: string,
   configPath: string,
   id: string,
-  knownOutputDir?: string
+  artifactOrigin: string,
+  knownSnapshot?: LauncherViewerSnapshot
 ): Promise<LauncherProjectRecord> {
   let sourceModifiedAtMs = 0;
   try {
-    const configStats = await lstat(configPath);
-    if (!configStats.isFile()) throw new Error("Project config must be a regular file");
-    sourceModifiedAtMs = configStats.mtimeMs;
+    const captured = await captureProjectIdentity(configPath);
+    const feedbackIdentity = await captureFeedbackFileIdentity(configPath);
+    sourceModifiedAtMs = captured.sourceModifiedAtMs;
     const project = await loadProject(configPath);
     const runId = project.run_id ?? project.slug;
     const projectDir = dirname(configPath);
     const runDir = join(projectDir, project.dist_dir, runId);
-    const outputDir = knownOutputDir ?? join(runDir, "viewer");
-    await assertSafeProjectOutput(configPath, outputDir);
+    let outputDir: string | undefined = knownSnapshot?.outputDir ?? join(runDir, "viewer");
+    let viewerRoot: LauncherDirectoryIdentity | undefined = knownSnapshot?.root
+      ?? projectDirectoryIdentity(configPath, captured.identity);
+    if (knownSnapshot) {
+      await assertSafeViewerSnapshot(knownSnapshot);
+    } else {
+      try {
+        await assertSafeProjectOutput(configPath, outputDir);
+      } catch (error) {
+        if (!await isSymbolicLink(outputDir)) throw error;
+        await assertSafeProjectOutput(configPath, dirname(outputDir));
+        outputDir = undefined;
+        viewerRoot = undefined;
+      }
+    }
     const thumbnailPath = await findProjectThumbnail(projectDir, runDir);
     const statePath = join(runDir, "state.json");
     let status = "planned";
@@ -809,9 +1032,11 @@ async function inspectProject(
         };
       }
     }
-    const hasViewer = await isRegularFile(join(outputDir, "index.html"));
-    const viewerUrl = hasViewer ? `/viewer/${id}/` : undefined;
-    const thumbnailUrl = thumbnailPath ? `/thumbnail/${id}` : undefined;
+    const hasViewer = outputDir
+      ? await isRegularFile(join(outputDir, "index.html"))
+      : false;
+    const viewerUrl = hasViewer ? `${artifactOrigin}/viewer/${id}/` : undefined;
+    const thumbnailUrl = thumbnailPath ? `${artifactOrigin}/thumbnail/${id}` : undefined;
     const validation = await validateProject(configPath);
     const safetyIssues = validation.issues.filter(isProjectSafetyIssue);
     const issues = [
@@ -824,8 +1049,11 @@ async function inspectProject(
       name,
       configPath,
       sourceModifiedAtMs,
+      identity: captured.identity,
+      ...(feedbackIdentity ? { feedbackIdentity } : {}),
       project,
-      outputDir,
+      ...(outputDir ? { outputDir } : {}),
+      ...(viewerRoot ? { viewerRoot } : {}),
       thumbnailPath,
       public: {
         id,
@@ -922,22 +1150,151 @@ async function firstImageInDirectory(directory: string): Promise<string | undefi
 
 async function safeProjectThumbnail(
   configPath: string,
-  thumbnailPath: string
-): Promise<string | undefined> {
+  thumbnailPath: string,
+  identity: LauncherProjectIdentity
+): Promise<OpenedStaticFile | undefined> {
   const projectDir = dirname(configPath);
   if (!isContained(projectDir, thumbnailPath)) return undefined;
+  if (!await matchesProjectIdentity(configPath, identity)) return undefined;
+  return openContainedStaticFile(
+    projectDir,
+    relative(projectDir, thumbnailPath),
+    identity.realProjectDir
+  );
+}
+
+async function captureProjectIdentity(
+  configPath: string
+): Promise<{ identity: LauncherProjectIdentity; sourceModifiedAtMs: number }> {
+  const projectDir = dirname(configPath);
+  const [projectStats, configStats] = await Promise.all([
+    lstat(projectDir),
+    lstat(configPath)
+  ]);
+  if (!projectStats.isDirectory() || projectStats.isSymbolicLink()) {
+    throw new Error("Project directory must be a real directory");
+  }
+  if (!configStats.isFile() || configStats.isSymbolicLink()) {
+    throw new Error("Project config must be a regular file");
+  }
+  const [realProjectDir, realConfigPath] = await Promise.all([
+    realpath(projectDir),
+    realpath(configPath)
+  ]);
+  if (!isContained(realProjectDir, realConfigPath)) {
+    throw new Error("Project config resolves outside the project directory");
+  }
+  return {
+    identity: {
+      realProjectDir,
+      realConfigPath,
+      projectDevice: projectStats.dev,
+      projectInode: projectStats.ino,
+      configDevice: configStats.dev,
+      configInode: configStats.ino
+    },
+    sourceModifiedAtMs: configStats.mtimeMs
+  };
+}
+
+async function captureFeedbackFileIdentity(
+  configPath: string
+): Promise<FeedbackFileIdentity | undefined> {
   try {
-    const thumbnailStats = await lstat(thumbnailPath);
-    if (!thumbnailStats.isFile() || thumbnailStats.isSymbolicLink()) return undefined;
-    const [realProjectDir, realThumbnail] = await Promise.all([
-      realpath(projectDir),
-      realpath(thumbnailPath)
-    ]);
-    return isContained(realProjectDir, realThumbnail) ? realThumbnail : undefined;
+    const stats = await lstat(feedbackPathForProject(configPath));
+    if (!stats.isFile() || stats.isSymbolicLink()) return undefined;
+    return { device: stats.dev, inode: stats.ino };
+  } catch {
+    return undefined;
+  }
+}
+
+async function matchesProjectIdentity(
+  configPath: string,
+  expected: LauncherProjectIdentity
+): Promise<boolean> {
+  try {
+    const { identity: current } = await captureProjectIdentity(configPath);
+    return current.realProjectDir === expected.realProjectDir
+      && current.realConfigPath === expected.realConfigPath
+      && current.projectDevice === expected.projectDevice
+      && current.projectInode === expected.projectInode
+      && current.configDevice === expected.configDevice
+      && current.configInode === expected.configInode;
+  } catch {
+    return false;
+  }
+}
+
+function projectDirectoryIdentity(
+  configPath: string,
+  identity: LauncherProjectIdentity
+): LauncherDirectoryIdentity {
+  return {
+    path: resolve(dirname(configPath)),
+    realPath: identity.realProjectDir,
+    device: identity.projectDevice,
+    inode: identity.projectInode
+  };
+}
+
+async function captureDirectoryIdentity(path: string): Promise<LauncherDirectoryIdentity> {
+  const absolutePath = resolve(path);
+  const stats = await lstat(absolutePath);
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error("Viewer root must be a real directory");
+  }
+  return {
+    path: absolutePath,
+    realPath: await realpath(absolutePath),
+    device: stats.dev,
+    inode: stats.ino
+  };
+}
+
+async function matchesDirectoryIdentity(expected: LauncherDirectoryIdentity): Promise<boolean> {
+  try {
+    const current = await captureDirectoryIdentity(expected.path);
+    return current.realPath === expected.realPath
+      && current.device === expected.device
+      && current.inode === expected.inode;
+  } catch {
+    return false;
+  }
+}
+
+async function createLauncherPrivateRoot(): Promise<LauncherDirectoryIdentity> {
+  let createdPath: string | undefined;
+  try {
+    createdPath = await mkdtemp(join(tmpdir(), "tsugite-viewer-launcher-"));
+    await chmod(createdPath, 0o700);
+    const stats = await lstat(createdPath);
+    if ((stats.mode & 0o777) !== 0o700) {
+      throw new Error("Viewer private root permissions must be 0700");
+    }
+    return await captureDirectoryIdentity(createdPath);
   } catch (error) {
-    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) return undefined;
+    if (createdPath) await rm(createdPath, { recursive: true, force: true });
     throw error;
   }
+}
+
+async function cleanupLauncherPrivateRoot(
+  root: LauncherDirectoryIdentity | undefined
+): Promise<void> {
+  if (!root || !await matchesDirectoryIdentity(root)) return;
+  await rm(root.path, { recursive: true, force: true });
+}
+
+async function assertSafeViewerSnapshot(snapshot: LauncherViewerSnapshot): Promise<void> {
+  if (!await matchesDirectoryIdentity(snapshot.root)) {
+    throw new Error("Viewer snapshot root changed after generation");
+  }
+  await assertSafeOutputBelowRoot(
+    snapshot.root.path,
+    snapshot.root.realPath,
+    snapshot.outputDir
+  );
 }
 
 function isThumbnailImage(name: string): boolean {
@@ -950,29 +1307,46 @@ function isContactSheet(name: string): boolean {
 
 async function assertSafeProjectOutput(configPath: string, outputDir: string): Promise<void> {
   const projectDir = dirname(resolve(configPath));
-  if (!isContained(projectDir, outputDir)) {
-    throw new Error("Viewer output is outside the project directory");
-  }
   const realProjectDir = await realpath(projectDir);
+  await assertSafeOutputBelowRoot(projectDir, realProjectDir, outputDir);
+}
+
+async function assertSafeOutputBelowRoot(
+  root: string,
+  realRoot: string,
+  outputDir: string
+): Promise<void> {
+  if (!isContained(root, outputDir)) {
+    throw new Error("Viewer output is outside the allowed directory");
+  }
   let current = resolve(outputDir);
-  while (isContained(projectDir, current)) {
+  while (isContained(root, current)) {
     try {
       const currentStats = await lstat(current);
       if (currentStats.isSymbolicLink()) {
         throw new Error("Viewer output path contains a symbolic link");
       }
       const realCurrent = await realpath(current);
-      if (!isContained(realProjectDir, realCurrent)) {
-        throw new Error("Viewer output resolves outside the project directory");
+      if (!isContained(realRoot, realCurrent)) {
+        throw new Error("Viewer output resolves outside the allowed directory");
       }
       return;
     } catch (error) {
       if (!isFileSystemError(error, "ENOENT")) throw error;
-      if (current === projectDir) break;
+      if (current === resolve(root)) break;
       current = dirname(current);
     }
   }
-  throw new Error("Viewer output could not be resolved inside the project directory");
+  throw new Error("Viewer output could not be resolved inside the allowed directory");
+}
+
+async function isSymbolicLink(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isSymbolicLink();
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) return false;
+    throw error;
+  }
 }
 
 function injectLauncherMeta(html: string, token: string): string {
@@ -996,7 +1370,11 @@ async function readJsonRequest(request: IncomingMessage, maximumBytes: number): 
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function containedStaticFile(root: string, reference: string): Promise<string | undefined> {
+async function openContainedStaticFile(
+  root: string,
+  reference: string,
+  requiredRealAncestor?: string
+): Promise<OpenedStaticFile | undefined> {
   let decoded: string;
   try {
     decoded = decodeURIComponent(reference);
@@ -1012,16 +1390,47 @@ async function containedStaticFile(root: string, reference: string): Promise<str
   }
   const candidate = resolve(root, decoded);
   if (!isContained(root, candidate)) return undefined;
+  let handle: FileHandle | undefined;
   try {
-    const fileStats = await lstat(candidate);
-    if (!fileStats.isFile() || fileStats.isSymbolicLink()) return undefined;
-    const [realRoot, realCandidate] = await Promise.all([realpath(root), realpath(candidate)]);
+    handle = await open(candidate, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const [fileStats, currentCandidate, realRoot, realCandidate] = await Promise.all([
+      handle.stat(),
+      lstat(candidate),
+      realpath(root),
+      realpath(candidate)
+    ]);
+    if (
+      !fileStats.isFile()
+      || currentCandidate.isSymbolicLink()
+      || !sameFileIdentity(fileStats, currentCandidate)
+    ) return undefined;
+    const realCandidateStats = await lstat(realCandidate);
+    if (!sameFileIdentity(fileStats, realCandidateStats)) return undefined;
     if (!isContained(realRoot, realCandidate)) return undefined;
-    return realCandidate;
+    if (
+      requiredRealAncestor
+      && (
+        !isContained(requiredRealAncestor, realRoot)
+        || !isContained(requiredRealAncestor, realCandidate)
+      )
+    ) return undefined;
+    const opened = { handle, path: realCandidate, stats: fileStats };
+    handle = undefined;
+    return opened;
   } catch (error) {
-    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) return undefined;
+    if (
+      isFileSystemError(error, "ENOENT")
+      || isFileSystemError(error, "ENOTDIR")
+      || isFileSystemError(error, "ELOOP")
+    ) return undefined;
     throw error;
+  } finally {
+    await handle?.close();
   }
+}
+
+function sameFileIdentity(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
 }
 
 function isContained(root: string, candidate: string): boolean {
@@ -1042,35 +1451,55 @@ async function isRegularFile(path: string): Promise<boolean> {
 async function serveFile(
   request: IncomingMessage,
   response: ServerResponse,
-  path: string
+  file: OpenedStaticFile
 ): Promise<void> {
-  const fileStats = await stat(path);
-  const contentType = contentTypeFor(path);
-  response.setHeader("content-type", contentType);
-  response.setHeader("accept-ranges", "bytes");
-  const range = parseRange(request.headers.range, fileStats.size);
-  if (request.headers.range && !range) {
-    response.statusCode = 416;
-    response.setHeader("content-range", `bytes */${fileStats.size}`);
-    response.end();
-    return;
+  try {
+    const contentType = contentTypeFor(file.path);
+    response.setHeader("content-type", contentType);
+    response.setHeader("accept-ranges", "bytes");
+    const range = parseRange(request.headers.range, file.stats.size);
+    if (request.headers.range && !range) {
+      response.statusCode = 416;
+      response.setHeader("content-range", `bytes */${file.stats.size}`);
+      response.end();
+      return;
+    }
+    const start = range?.start ?? 0;
+    const end = range?.end ?? Math.max(0, file.stats.size - 1);
+    const length = file.stats.size === 0 ? 0 : end - start + 1;
+    response.statusCode = range ? 206 : 200;
+    response.setHeader("content-length", String(length));
+    if (range) response.setHeader("content-range", `bytes ${start}-${end}/${file.stats.size}`);
+    if (request.method === "HEAD" || file.stats.size === 0) {
+      response.end();
+      return;
+    }
+    await new Promise<void>((resolveStream, reject) => {
+      const stream = file.handle.createReadStream({ start, end, autoClose: false });
+      let settled = false;
+      const settle = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        response.off("finish", onFinish);
+        response.off("close", onClose);
+        stream.off("error", onError);
+        if (error) reject(error);
+        else resolveStream();
+      };
+      const onFinish = () => settle();
+      const onClose = () => {
+        stream.destroy();
+        settle();
+      };
+      const onError = (error: Error) => settle(error);
+      stream.once("error", onError);
+      response.once("finish", onFinish);
+      response.once("close", onClose);
+      stream.pipe(response);
+    });
+  } finally {
+    await file.handle.close();
   }
-  const start = range?.start ?? 0;
-  const end = range?.end ?? Math.max(0, fileStats.size - 1);
-  const length = fileStats.size === 0 ? 0 : end - start + 1;
-  response.statusCode = range ? 206 : 200;
-  response.setHeader("content-length", String(length));
-  if (range) response.setHeader("content-range", `bytes ${start}-${end}/${fileStats.size}`);
-  if (request.method === "HEAD" || fileStats.size === 0) {
-    response.end();
-    return;
-  }
-  await new Promise<void>((resolveStream, reject) => {
-    const stream = createReadStream(path, { start, end });
-    stream.once("error", reject);
-    response.once("finish", resolveStream);
-    stream.pipe(response);
-  });
 }
 
 function parseRange(
@@ -1129,6 +1558,11 @@ function setCommonHeaders(response: ServerResponse): void {
   response.setHeader("cross-origin-resource-policy", "same-origin");
 }
 
+function setArtifactHeaders(response: ServerResponse): void {
+  setCommonHeaders(response);
+  response.setHeader("cross-origin-resource-policy", "same-site");
+}
+
 function sendJson(response: ServerResponse, status: number, payload: unknown): void {
   response.statusCode = status;
   response.setHeader("content-type", "application/json; charset=utf-8");
@@ -1142,10 +1576,61 @@ function sendNotFound(response: ServerResponse): void {
   });
 }
 
+function sendProjectChanged(response: ServerResponse): void {
+  sendJson(response, 422, {
+    ok: false,
+    issue: {
+      code: "viewer_launcher.project_changed",
+      message: "Project files changed after loading. Reload the launcher before continuing."
+    }
+  });
+}
+
+function sendPrivateRootChanged(response: ServerResponse): void {
+  sendJson(response, 422, {
+    ok: false,
+    issue: {
+      code: "viewer_launcher.private_root_changed",
+      message: "Viewer private storage changed. Restart the launcher before refreshing."
+    }
+  });
+}
+
 async function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
   if (!server.listening) return;
   await new Promise<void>((resolveClose, reject) => {
     server.close((error) => error ? reject(error) : resolveClose());
+  });
+}
+
+async function listenServer(
+  server: ReturnType<typeof createServer>,
+  port: number
+): Promise<number> {
+  await new Promise<void>((resolveListening, reject) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolveListening();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, LOOPBACK_HOST);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    await closeServer(server);
+    throw new Error("Viewer server did not obtain a TCP port");
+  }
+  return address.port;
+}
+
+function waitForServerClose(server: ReturnType<typeof createServer>): Promise<void> {
+  return new Promise<void>((resolveClosed) => {
+    server.once("close", resolveClosed);
   });
 }
 

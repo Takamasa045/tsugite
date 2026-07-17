@@ -82,6 +82,8 @@ type ParsedArgs = {
   target?: string;
   proposalSummary?: string;
   verification?: string;
+  proposalWorkflow?: string;
+  proposalRunId?: string;
   open: boolean;
   apply: boolean;
   allowExternalAnalysis: boolean;
@@ -191,32 +193,42 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ...(args.projectsDir ? { projectsDir: args.projectsDir } : {}),
         port
       });
-      if (args.open) {
-        try {
-          await openWorkflowViewerLauncher(launcher.url);
-        } catch (error) {
-          await launcher.close();
-          return output(args, 1, {
-            ok: false,
-            command: "viewer-launcher",
-            url: launcher.url,
-            issues: [{
-              code: "viewer_launcher.open_failed",
-              message: error instanceof Error ? error.message : String(error)
-            }]
-          });
+      const closeOnSignal = () => {
+        void launcher.close();
+      };
+      process.once("SIGINT", closeOnSignal);
+      process.once("SIGTERM", closeOnSignal);
+      try {
+        if (args.open) {
+          try {
+            await openWorkflowViewerLauncher(launcher.url);
+          } catch (error) {
+            await launcher.close();
+            return output(args, 1, {
+              ok: false,
+              command: "viewer-launcher",
+              url: launcher.url,
+              issues: [{
+                code: "viewer_launcher.open_failed",
+                message: error instanceof Error ? error.message : String(error)
+              }]
+            });
+          }
         }
+        const status = output(args, 0, {
+          ok: true,
+          command: "viewer-launcher",
+          url: launcher.url,
+          port: launcher.port,
+          project_count: launcher.projectCount,
+          opened: args.open
+        });
+        await launcher.closed;
+        return status;
+      } finally {
+        process.off("SIGINT", closeOnSignal);
+        process.off("SIGTERM", closeOnSignal);
       }
-      const status = output(args, 0, {
-        ok: true,
-        command: "viewer-launcher",
-        url: launcher.url,
-        port: launcher.port,
-        project_count: launcher.projectCount,
-        opened: args.open
-      });
-      await launcher.closed;
-      return status;
     } catch (error) {
       return output(args, 1, {
         ok: false,
@@ -244,6 +256,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const promotionKind = parseFeedbackPromotionKind(args.promotionKind);
     const hasPromotionTarget = Boolean(promotionKind && args.target);
     const hasProposalDetails = Boolean(args.proposalSummary && args.verification);
+    const hasProposalSource = Boolean(args.proposalWorkflow || args.proposalRunId);
     const issues: Issue[] = [
       ...(args.key ? [] : [{ code: "feedback.key_required", message: "--key is required", path: "--key" }]),
       ...(args.category ? [] : [{ code: "feedback.category_required", message: "--category is required", path: "--category" }]),
@@ -282,6 +295,34 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             message: "--proposal-summary and --verification must be provided together",
             path: args.proposalSummary ? "--verification" : "--proposal-summary"
           }]),
+      ...(args.proposalWorkflow && !isSafeFeedbackId(args.proposalWorkflow)
+        ? [{
+            code: "feedback.proposal_workflow_invalid",
+            message: "--proposal-workflow must be a safe id",
+            path: "--proposal-workflow"
+          }]
+        : []),
+      ...(args.proposalRunId && !isSafeFeedbackId(args.proposalRunId)
+        ? [{
+            code: "feedback.proposal_run_id_invalid",
+            message: "--proposal-run-id must be a safe id",
+            path: "--proposal-run-id"
+          }]
+        : []),
+      ...(hasProposalSource && !hasProposalDetails
+        ? [{
+            code: "feedback.proposal_source_without_proposal",
+            message: "proposal source requires --proposal-summary and --verification",
+            path: args.proposalWorkflow ? "--proposal-workflow" : "--proposal-run-id"
+          }]
+        : []),
+      ...(args.proposalRunId && !args.proposalWorkflow
+        ? [{
+            code: "feedback.proposal_workflow_required",
+            message: "--proposal-run-id requires --proposal-workflow",
+            path: "--proposal-workflow"
+          }]
+        : []),
       ...(hasProposalDetails && !hasPromotionTarget
         ? [{
             code: "feedback.proposal_target_required",
@@ -334,6 +375,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 target: args.target!,
                 change_summary: args.proposalSummary!,
                 verification: args.verification!,
+                ...(args.proposalWorkflow ? {
+                  source: {
+                    kind: "codex_automation" as const,
+                    workflow_id: args.proposalWorkflow,
+                    ...(args.proposalRunId ? { run_id: args.proposalRunId } : {})
+                  }
+                } : {}),
                 decision: "pending" as const
               }
             }
@@ -855,7 +903,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -889,7 +937,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--promotion-kind": "promotionKind",
       "--target": "target",
       "--proposal-summary": "proposalSummary",
-      "--verification": "verification"
+      "--verification": "verification",
+      "--proposal-workflow": "proposalWorkflow",
+      "--proposal-run-id": "proposalRunId"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -930,7 +980,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     presets: new Set(["--backend"]),
     "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
-    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target", "--proposal-summary", "--verification"]),
+    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target", "--proposal-summary", "--verification", "--proposal-workflow", "--proposal-run-id"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
     analyze: new Set(["--config", "--actor", "--state-dir", "--allow-external-analysis"]),
@@ -1121,6 +1171,10 @@ function parseFeedbackPromotionKind(
     return value;
   }
   return undefined;
+}
+
+function isSafeFeedbackId(value: string): boolean {
+  return value.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
 }
 
 function requireCoordinator(args: ParsedArgs): Issue | undefined {
