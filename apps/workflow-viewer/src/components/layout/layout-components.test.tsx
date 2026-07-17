@@ -132,6 +132,57 @@ describe('SidePanel', () => {
     expect(onSelectNode).toHaveBeenCalledWith(null)
   })
 
+  it('映像ごとの実メタデータで縦横を判定し、読み込み前は16:9にフォールバックする', () => {
+    const mixedPreviewNode: WorkflowNode = {
+      ...nodes[1],
+      details: {
+        ...nodes[1].details!,
+        previews: [
+          { id: 'portrait-video', role: 'final', kind: 'video', label: '縦型完成動画', description: '9:16の完成版です。', src: './previews/portrait.mp4' },
+          { id: 'landscape-video', role: 'material', kind: 'video', label: '横型参考動画', description: '16:9の参考映像です。', src: './previews/landscape.mp4' },
+          { id: 'keyframe', role: 'material', kind: 'image', label: '完成イメージ', description: '制作に使った画像です。', src: './previews/keyframe.jpg' },
+        ],
+      },
+    }
+    const { rerender } = render(<SidePanel workflow={{ ...workflow, nodes: [mixedPreviewNode], edges: [] }}
+      currentNodes={[mixedPreviewNode]} selectedNodeId="render" onSelectNode={vi.fn()} />)
+
+    const portraitVideo = screen.getByLabelText('縦型完成動画を再生')
+    const landscapeVideo = screen.getByLabelText('横型参考動画を再生')
+    expect(portraitVideo).toHaveAttribute('data-orientation', 'landscape')
+    expect(landscapeVideo).toHaveAttribute('data-orientation', 'landscape')
+
+    Object.defineProperties(portraitVideo, {
+      videoWidth: { configurable: true, value: 1080 },
+      videoHeight: { configurable: true, value: 1920 },
+    })
+    Object.defineProperties(landscapeVideo, {
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 },
+    })
+    fireEvent.loadedMetadata(portraitVideo)
+    fireEvent.loadedMetadata(landscapeVideo)
+
+    expect(portraitVideo).toHaveAttribute('data-orientation', 'portrait')
+    expect(landscapeVideo).toHaveAttribute('data-orientation', 'landscape')
+    expect(screen.getByRole('img', { name: '完成イメージ' })).toBeInTheDocument()
+
+    const switchedPreviewNode: WorkflowNode = {
+      ...mixedPreviewNode,
+      details: {
+        ...mixedPreviewNode.details!,
+        previews: mixedPreviewNode.details!.previews!.map((preview) => (
+          preview.id === 'portrait-video' ? { ...preview, src: './previews/replaced.mp4' } : preview
+        )),
+      },
+    }
+    rerender(<SidePanel workflow={{ ...workflow, nodes: [switchedPreviewNode], edges: [] }}
+      currentNodes={[switchedPreviewNode]} selectedNodeId="render" onSelectNode={vi.fn()} />)
+
+    expect(screen.getByLabelText('縦型完成動画を再生')).toHaveAttribute('data-orientation', 'landscape')
+    expect(screen.getByLabelText('縦型完成動画を再生')).toHaveAttribute('src', './previews/replaced.mp4')
+  })
+
   it('承認工程で、承認対象・確認ポイント・現在の判断を人向けに表示する', () => {
     const approvalNode = {
       id: 'gate-2', name: 'Gate 2 素材・構成承認', type: 'approval' as const,

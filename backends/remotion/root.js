@@ -12,11 +12,8 @@ import {
 import { CinematicImpactCaptions } from "./cinematicImpactCaptions.js";
 import { resolveCaptionStyle } from "./captionMotion.mjs";
 import { resolveRenderDimensions } from "./dimensions.mjs";
+import { resolveRemotionPreset } from "./presetRegistry.mjs";
 import { audioTrackTiming, clipSequenceTimings, secondsToFrames, totalDuration } from "./timing.mjs";
-import { ArticleDialogue } from "./dialogue.js";
-import { ARTICLE_DIALOGUE_PRESET } from "./presentation.mjs";
-import { StreetDialogue } from "./streetDialogue.js";
-import { STREET_DIALOGUE_PRESET } from "./streetPresentation.mjs";
 
 const DEFAULT_MANIFEST = {
   meta: {
@@ -104,10 +101,9 @@ function Timeline({ manifest }) {
     );
   }
 
-  if (manifest.presentation?.preset === ARTICLE_DIALOGUE_PRESET) {
-    children.push(React.createElement(ArticleDialogue, { key: "article-dialogue", manifest }));
-  } else if (manifest.presentation?.preset === STREET_DIALOGUE_PRESET) {
-    children.push(React.createElement(StreetDialogue, { key: "street-dialogue", manifest }));
+  const registeredPreset = resolveRemotionPreset(manifest.presentation?.preset);
+  if (registeredPreset) {
+    children.push(React.createElement(registeredPreset.handler, { key: registeredPreset.id, manifest }));
   } else {
     const captionStyle = resolveCaptionStyle(manifest);
     children.push(

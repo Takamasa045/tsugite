@@ -140,6 +140,13 @@ function validateManifestContract(manifest: Manifest): Issue[] {
       }
       captionIds.add(caption.id);
     }
+    if (caption.visual?.image_id && !imageIds.has(caption.visual.image_id)) {
+      captionIssues.push({
+        code: "manifest.caption.visual_image",
+        message: `caption visual references unknown image '${caption.visual.image_id}'`,
+        path: `captions.${index}.visual.image_id`
+      });
+    }
     if (isDialoguePresentation && (!caption.speaker || !speakerIds.has(caption.speaker))) {
       captionIssues.push({
         code: "manifest.caption.speaker",

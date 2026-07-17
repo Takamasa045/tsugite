@@ -16,6 +16,7 @@ const projects = [
     viewerUrl: '/viewers/project-alpha/',
     thumbnailUrl: '/thumbnail/project-alpha',
     valid: true,
+    refreshable: true,
   },
   {
     id: 'codex-goal-talk-paper',
@@ -26,6 +27,7 @@ const projects = [
     updatedAt: '2026-07-15T10:00:00+09:00',
     hasViewer: false,
     valid: true,
+    refreshable: true,
   },
 ]
 
@@ -365,6 +367,7 @@ describe('LauncherApp', () => {
       updatedAt: `2026-07-${String(index + 1).padStart(2, '0')}T00:00:00+09:00`,
       hasViewer: false,
       valid: true,
+      refreshable: true,
     }))
     const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects: manyProjects }))
 
@@ -665,6 +668,7 @@ describe('LauncherApp', () => {
       id: 'broken',
       name: '設定確認が必要な案件',
       valid: false,
+      refreshable: false,
       hasViewer: false,
       viewerUrl: undefined,
       issue: 'manifest.jsonが見つかりません。',
@@ -676,12 +680,46 @@ describe('LauncherApp', () => {
 
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
     expect(within(selectedPanel).getByText('設定の確認が必要')).toBeVisible()
-    expect(screen.getByText('manifest.jsonが見つかりません。')).toBeVisible()
+    expect(within(selectedPanel).getByText('manifest.jsonが見つかりません。')).toBeVisible()
     expect(screen.getByRole('button', { name: '最新状態に更新して開く' })).toBeDisabled()
     expect(screen.getByText('project.yamlと参照ファイルを確認してください。')).toBeVisible()
 
     await user.type(screen.getByRole('searchbox', { name: '制作案件を検索' }), '存在しない')
     expect(screen.getByText('検索条件に合う制作案件はありません。')).toBeVisible()
+  })
+
+  it('更新不能な理由を事前表示し、前回のViewerは開ける', async () => {
+    const user = userEvent.setup()
+    const unrefreshableProject = {
+      ...projects[0],
+      id: 'unsupported-showreel',
+      name: '未対応ショーリール',
+      valid: true,
+      refreshable: false,
+      hasViewer: true,
+      viewerUrl: '/viewers/unsupported-showreel/',
+      issue: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it",
+    }
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects: [unrefreshableProject] }))
+    const navigate = vi.fn()
+
+    render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
+
+    const reasonCard = await screen.findByRole('button', { name: '未対応ショーリールの更新できない理由を確認' })
+    expect(reasonCard).toHaveTextContent('最新状態に更新できません')
+    expect(reasonCard).toHaveTextContent("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")
+    expect(reasonCard).toHaveAccessibleDescription("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")
+
+    const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
+    expect(within(selectedPanel).getByText("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")).toBeVisible()
+    expect(within(selectedPanel).getByRole('button', { name: '最新状態に更新して開く' })).toBeDisabled()
+
+    await user.click(reasonCard)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole('button', { name: '完了で絞り込む' }))
+    expect(screen.getByRole('button', { name: '未対応ショーリールの更新できない理由を確認' })).toBeVisible()
+    await user.click(within(selectedPanel).getByRole('button', { name: '前回の表示を開く' }))
+    expect(navigate).toHaveBeenCalledWith('/viewers/unsupported-showreel/')
   })
 
   it('metaのsession tokenを使い、更新失敗時はViewerへ移動しない', async () => {

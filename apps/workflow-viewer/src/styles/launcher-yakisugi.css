@@ -174,7 +174,20 @@
 .launcher-feedback-card { border-radius: 1px 14px 1px 14px; transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
 .launcher-project-card { border-color: rgba(75, 55, 32, .2); background: #fffaf0; }
 .launcher-project-card::after { position: absolute; top: -1px; left: 24px; width: 48px; height: 7px; background: var(--launcher-mokume); content: ""; opacity: .78; }
+.launcher-project-card[data-unrefreshable="true"] { border-color: rgba(166, 61, 47, .52); }
+.launcher-project-card[data-unrefreshable="true"]::after,
+.launcher-project-card[data-unrefreshable="true"] .launcher-project-status { background: var(--launcher-urushi); }
 .launcher-project-card[aria-pressed="true"] { border-color: var(--launcher-urushi); box-shadow: 0 8px 24px rgba(92, 47, 33, .13); }
+.launcher-project-card-issue {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #7c3128;
+  font-size: .66rem;
+  font-weight: 700;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .launcher-search input,
 .launcher-filter select,
 .launcher-project-filter button,

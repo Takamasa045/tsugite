@@ -98,6 +98,7 @@ npm ci
 npm run check
 node bin/pipeline story-guides --request "A 30-second vertical ad showing value and proof" --duration 30 --json
 node bin/pipeline guides --json
+node bin/pipeline presets --backend remotion --json
 cp -R examples/local-fixture projects/my-first-run
 node bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 node bin/pipeline validate --config projects/my-first-run/project.yaml --json
@@ -107,6 +108,8 @@ node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --js
 node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
+
+`presets` is a project-independent, read-only query of the presentation presets declared by an installed backend. Use its returned `presets` list when creating or changing a manifest instead of typing an unverified preset ID.
 
 `review` derives `dist/<run-id>/review/index.html` and `review-data.json` from the validated project, manifest, and plan. It presents a caption-first storyboard, character sheets, shot details, cost, and Gate 1 commands without changing `state.json` or executing generation. Gate 1 approval and run start verify that both artifacts exist and belong to the current project. Use `--output <directory>` to override the destination, `--state-dir <directory>` for an alternate state root, and `--open` only when you want to open the local HTML. Use the canonical output location when the artifact must satisfy Gate 1.
 

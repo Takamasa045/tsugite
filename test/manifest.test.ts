@@ -51,6 +51,21 @@ describe("manifest validation", () => {
     expect(invalid.issues.map((issue) => issue.code)).toContain("manifest.speaker.mouth_frame");
   });
 
+  it("rejects an unresolved caption visual image", async () => {
+    const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
+    manifest.captions[0].visual.image_id = "missing-storyboard-image";
+
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        code: "manifest.caption.visual_image",
+        path: "captions.0.visual.image_id"
+      })
+    );
+  });
+
   it("rejects duplicate image ids and unresolved dialogue references", async () => {
     const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
     manifest.images[1].id = manifest.images[0].id;

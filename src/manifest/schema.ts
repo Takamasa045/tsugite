@@ -34,6 +34,7 @@ const presentationSchema = z
 
 const captionVisualSchema = z
   .object({
+    image_id: z.string().min(1).optional(),
     kicker: z.string().optional(),
     headline: z.string().min(1),
     detail: z.string().optional(),

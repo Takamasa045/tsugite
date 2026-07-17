@@ -26,6 +26,7 @@ import { readState } from "../orchestrator/state.js";
 import { loadProject } from "../project/loadProject.js";
 import { validateProject } from "../project/validateProject.js";
 import type { Project } from "../project/schema.js";
+import type { Issue } from "../types.js";
 import {
   getWorkflowViewerOpenCommand,
   prepareWorkflowViewerBundle,
@@ -47,6 +48,8 @@ export type LauncherProject = {
   viewerUrl?: string;
   thumbnailUrl?: string;
   valid: boolean;
+  refreshable: boolean;
+  issues: Issue[];
   issue?: string;
 };
 
@@ -383,7 +386,12 @@ export async function startWorkflowViewerLauncher(
       const projectId = refreshMatch[1]!;
       const record = projects.get(projectId);
       if (!record) return sendNotFound(response);
-      if (!record.project || !record.outputDir || !record.public.valid) {
+      if (
+        !record.project
+        || !record.outputDir
+        || !record.public.valid
+        || !record.public.refreshable
+      ) {
         sendJson(response, 422, {
           ok: false,
           issue: {
@@ -784,6 +792,7 @@ async function inspectProject(
     const statePath = join(runDir, "state.json");
     let status = "planned";
     let updatedAt: string | null = null;
+    let stateIssue: Issue | undefined;
     try {
       const state = await readState(statePath);
       if (state.run_id !== runId) {
@@ -792,11 +801,24 @@ async function inspectProject(
       status = state.status;
       updatedAt = state.updated_at;
     } catch (error) {
-      if (!isFileSystemError(error, "ENOENT")) throw error;
+      if (!isFileSystemError(error, "ENOENT")) {
+        status = "error";
+        stateIssue = {
+          code: "viewer_launcher.state_invalid",
+          message: error instanceof Error ? error.message : String(error)
+        };
+      }
     }
     const hasViewer = await isRegularFile(join(outputDir, "index.html"));
     const viewerUrl = hasViewer ? `/viewer/${id}/` : undefined;
     const thumbnailUrl = thumbnailPath ? `/thumbnail/${id}` : undefined;
+    const validation = await validateProject(configPath);
+    const safetyIssues = validation.issues.filter(isProjectSafetyIssue);
+    const issues = [
+      ...safetyIssues,
+      ...validation.issues.filter((issue) => !isProjectSafetyIssue(issue)),
+      ...(stateIssue ? [stateIssue] : [])
+    ].map(toPublicLauncherIssue);
     return {
       id,
       name,
@@ -815,10 +837,17 @@ async function inspectProject(
         hasViewer,
         ...(viewerUrl ? { viewerUrl } : {}),
         ...(thumbnailUrl ? { thumbnailUrl } : {}),
-        valid: true
+        valid: safetyIssues.length === 0,
+        refreshable: validation.ok && stateIssue === undefined,
+        issues,
+        ...(issues[0] ? { issue: issues[0].message } : {})
       }
     };
   } catch (error) {
+    const issue = {
+      code: "viewer_launcher.project_invalid",
+      message: error instanceof Error ? error.message : String(error)
+    };
     return {
       id,
       name,
@@ -833,10 +862,24 @@ async function inspectProject(
         updatedAt: null,
         hasViewer: false,
         valid: false,
-        issue: error instanceof Error ? error.message : String(error)
+        refreshable: false,
+        issues: [issue],
+        issue: issue.message
       }
     };
   }
+}
+
+function isProjectSafetyIssue(issue: Issue): boolean {
+  return issue.code === "project.schema"
+    || issue.code === "manifest.clip.src.local"
+    || issue.code === "manifest.image.src.local"
+    || issue.code.endsWith(".safe")
+    || issue.code.endsWith(".symlink");
+}
+
+function toPublicLauncherIssue(issue: Issue): Issue {
+  return { code: issue.code, message: issue.message };
 }
 
 async function findProjectThumbnail(projectDir: string, runDir: string): Promise<string | undefined> {

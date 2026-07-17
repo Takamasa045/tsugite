@@ -2,7 +2,7 @@ import { cp, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promis
 import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlannedState, writeState } from "../src/orchestrator/state.js";
 import {
   startWorkflowViewerLauncher,
@@ -534,12 +534,20 @@ distribution: local-only
       updatedAt: null,
       hasViewer: false,
       thumbnailUrl: `/thumbnail/${valid.id}`,
-      valid: true
+      valid: true,
+      refreshable: true,
+      issues: []
     });
     expect(valid.id).not.toBe("valid-project");
     expect(valid.id).not.toBe("local-fixture");
     const invalid = payload.projects.find((project: { name: string }) => project.name === "invalid-project");
-    expect(invalid).toMatchObject({ valid: false, status: "error", hasViewer: false });
+    expect(invalid).toMatchObject({
+      valid: false,
+      refreshable: false,
+      status: "error",
+      hasViewer: false,
+      issues: [{ code: "viewer_launcher.project_invalid", message: expect.any(String) }]
+    });
     expect(invalid.issue).toEqual(expect.any(String));
     await expect(fetch(`${launcher.url}${valid.thumbnailUrl}`).then((response) => response.text()))
       .resolves.toBe("thumbnail-image");
@@ -630,6 +638,132 @@ distribution: local-only
 
     const statePath = join(fixture.projectDir, "dist", "local-fixture-run", "state.json");
     await expect(readFile(statePath, "utf8")).rejects.toThrow();
+  });
+
+  it("reports complete validation issues before refresh while keeping an existing snapshot readable", async () => {
+    const fixture = await createFixture();
+    const manifestPath = join(fixture.projectDir, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.presentation = {
+      preset: "unsupported-showreel-16x9",
+      title: "Unsupported showreel",
+      draft: true
+    };
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const viewerDir = join(
+      fixture.projectDir,
+      "dist",
+      "local-fixture-run",
+      "viewer"
+    );
+    await mkdir(viewerDir, { recursive: true });
+    await writeFile(join(viewerDir, "index.html"), "<!doctype html><p>previous snapshot</p>\n");
+
+    const beforeRefresh = vi.fn();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      beforeRefresh
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    expect(project).toMatchObject({
+      valid: true,
+      refreshable: false,
+      hasViewer: true,
+      viewerUrl: `/viewer/${project.id}/`,
+      issues: [{
+        code: "backend.capability.preset",
+        message: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it"
+      }],
+      issue: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it"
+    });
+    const viewerResponse = await fetch(`${launcher.url}${project.viewerUrl}`);
+    expect(viewerResponse.status).toBe(200);
+    await expect(viewerResponse.text()).resolves.toContain("previous snapshot");
+
+    const refreshResponse = await fetch(
+      `${launcher.url}/api/projects/${project.id}/refresh`,
+      {
+        method: "POST",
+        headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+      }
+    );
+    expect(refreshResponse.status).toBe(422);
+    expect(beforeRefresh).not.toHaveBeenCalled();
+    await expect(refreshResponse.json()).resolves.toMatchObject({
+      ok: false,
+      issue: {
+        code: "viewer_launcher.project_invalid",
+        message: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it"
+      }
+    });
+  });
+
+  it("marks unsafe project asset paths invalid without discarding a contained snapshot", async () => {
+    const fixture = await createFixture();
+    const manifestPath = join(fixture.projectDir, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.clips[0].src = "../outside.mp4";
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const viewerDir = join(fixture.projectDir, "dist", "local-fixture-run", "viewer");
+    await mkdir(viewerDir, { recursive: true });
+    await writeFile(join(viewerDir, "index.html"), "<!doctype html><p>safe snapshot</p>\n");
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    expect(project).toMatchObject({
+      valid: false,
+      refreshable: false,
+      hasViewer: true,
+      issues: [{ code: "manifest.clip.src.safe" }]
+    });
+    expect(project.issues[0]).not.toHaveProperty("path");
+    expect((await fetch(`${launcher.url}${project.viewerUrl}`)).status).toBe(200);
+
+    const refreshResponse = await fetch(
+      `${launcher.url}/api/projects/${project.id}/refresh`,
+      {
+        method: "POST",
+        headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+      }
+    );
+    expect(refreshResponse.status).toBe(422);
+  });
+
+  it("keeps a safe snapshot readable but not refreshable when its state metadata is invalid", async () => {
+    const fixture = await createFixture();
+    const runDir = join(fixture.projectDir, "dist", "local-fixture-run");
+    const viewerDir = join(runDir, "viewer");
+    await mkdir(viewerDir, { recursive: true });
+    await writeFile(join(viewerDir, "index.html"), "<!doctype html><p>safe snapshot</p>\n");
+    await writeFile(join(runDir, "state.json"), "{not-json\n");
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    expect(project).toMatchObject({
+      valid: true,
+      refreshable: false,
+      status: "error",
+      hasViewer: true,
+      viewerUrl: `/viewer/${project.id}/`,
+      issues: [{ code: "viewer_launcher.state_invalid", message: expect.any(String) }]
+    });
+    expect((await fetch(`${launcher.url}${project.viewerUrl}`)).status).toBe(200);
   });
 
   it("serves only files below the generated Viewer and rejects traversal and unknown ids", async () => {
