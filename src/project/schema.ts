@@ -192,8 +192,17 @@ export function generationRequestMode(
 export function toExecutionGenerationRequest(
   request: GenerationRequest
 ): GenerationRequest {
-  const { prompt_guide: _promptGuide, ...executionRequest } = request;
-  return executionRequest as GenerationRequest;
+  const {
+    prompt_guide: _promptGuide,
+    mode,
+    input_mode: inputMode,
+    ...executionRequest
+  } = request;
+  const normalizedInputMode = mode ?? inputMode;
+  return {
+    ...executionRequest,
+    ...(normalizedInputMode ? { input_mode: normalizedInputMode } : {})
+  } as GenerationRequest;
 }
 
 export function toExecutionProject(project: Project): Project {

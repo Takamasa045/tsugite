@@ -340,6 +340,29 @@ describe("project validation", () => {
     expect(parsed.generation?.requests[0]?.prompt_guide?.catalog).toBe("seedance");
   });
 
+  it("normalizes the legacy generation mode alias for adapter execution", () => {
+    const parsed = projectSchema.parse({
+      ...validProjectDefinition(),
+      generation: {
+        adapter: "fixture-adapter",
+        requests: [
+          {
+            ...requestDefinition("generation", "legacy-mode"),
+            mode: "image-to-video",
+            prompt_guide: { catalog: "seedance" }
+          }
+        ]
+      }
+    });
+
+    const executionRequest = toExecutionProject(parsed).generation?.requests[0];
+
+    expect(executionRequest).not.toHaveProperty("prompt_guide");
+    expect(executionRequest).not.toHaveProperty("mode");
+    expect(executionRequest?.input_mode).toBe("image-to-video");
+    expect(parsed.generation?.requests[0]?.mode).toBe("image-to-video");
+  });
+
   it("rejects unsafe prompt guide catalog ids", () => {
     const project = validProjectDefinition();
     project.generation = {
