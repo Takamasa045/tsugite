@@ -9,7 +9,7 @@ import {
   stat
 } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { parse } from "yaml";
@@ -110,6 +110,7 @@ type LauncherProjectRecord = {
   id: string;
   name: string;
   configPath: string;
+  sourceModifiedAtMs: number;
   project?: Project;
   outputDir?: string;
   public: LauncherProject;
@@ -370,18 +371,52 @@ async function discoverProjects(
   const projects: LauncherProjectRecord[] = [];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (!entry.isDirectory()) continue;
-    const configPath = join(projectsDir, entry.name, "project.yaml");
-    try {
-      if (!(await lstat(configPath)).isFile()) continue;
-    } catch (error) {
-      if (isFileSystemError(error, "ENOENT")) continue;
-      throw error;
+    const projectDir = join(projectsDir, entry.name);
+    const configEntries = await readdir(projectDir, { withFileTypes: true });
+    if (!configEntries.some((candidate) => candidate.isFile() && candidate.name === "project.yaml")) {
+      continue;
     }
-    const id = idsByConfig.get(configPath) ?? randomBytes(16).toString("hex");
-    idsByConfig.set(configPath, id);
-    projects.push(await inspectProject(entry.name, configPath, id));
+    const candidates = await Promise.all(
+      configEntries
+        .filter((candidate) => candidate.isFile() && isProjectConfigName(candidate.name))
+        .map(async (candidate) => {
+          const configPath = join(projectDir, candidate.name);
+          const id = idsByConfig.get(configPath) ?? randomBytes(16).toString("hex");
+          idsByConfig.set(configPath, id);
+          return await inspectProject(entry.name, configPath, id);
+        })
+    );
+    const latest = selectLatestProjectRecord(candidates);
+    if (latest) projects.push(latest);
   }
   return projects;
+}
+
+function isProjectConfigName(name: string): boolean {
+  return /^project(?:[.-][A-Za-z0-9][A-Za-z0-9._-]*)?\.ya?ml$/.test(name);
+}
+
+function selectLatestProjectRecord(
+  candidates: LauncherProjectRecord[]
+): LauncherProjectRecord | undefined {
+  return candidates.sort((left, right) => {
+    const activityDifference = projectActivityMs(right) - projectActivityMs(left);
+    if (activityDifference !== 0) return activityDifference;
+    const canonicalDifference = Number(isCanonicalProject(right)) - Number(isCanonicalProject(left));
+    if (canonicalDifference !== 0) return canonicalDifference;
+    return left.configPath.localeCompare(right.configPath);
+  })[0];
+}
+
+function projectActivityMs(record: LauncherProjectRecord): number {
+  const stateUpdatedAtMs = record.public.updatedAt ? Date.parse(record.public.updatedAt) : Number.NaN;
+  return Number.isFinite(stateUpdatedAtMs)
+    ? Math.max(record.sourceModifiedAtMs, stateUpdatedAtMs)
+    : record.sourceModifiedAtMs;
+}
+
+function isCanonicalProject(record: LauncherProjectRecord): boolean {
+  return basename(record.configPath) === "project.yaml";
 }
 
 async function discoverTemplates(templatesDir: string): Promise<LauncherTemplate[]> {
@@ -503,7 +538,11 @@ async function inspectProject(
   id: string,
   knownOutputDir?: string
 ): Promise<LauncherProjectRecord> {
+  let sourceModifiedAtMs = 0;
   try {
+    const configStats = await lstat(configPath);
+    if (!configStats.isFile()) throw new Error("Project config must be a regular file");
+    sourceModifiedAtMs = configStats.mtimeMs;
     const project = await loadProject(configPath);
     const runId = project.run_id ?? project.slug;
     const runDir = join(dirname(configPath), project.dist_dir, runId);
@@ -528,6 +567,7 @@ async function inspectProject(
       id,
       name,
       configPath,
+      sourceModifiedAtMs,
       project,
       outputDir,
       public: {
@@ -547,6 +587,7 @@ async function inspectProject(
       id,
       name,
       configPath,
+      sourceModifiedAtMs,
       public: {
         id,
         name,

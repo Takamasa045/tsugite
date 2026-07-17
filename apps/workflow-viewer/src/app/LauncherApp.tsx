@@ -56,6 +56,14 @@ interface RefreshResponse {
   project: LauncherProject
 }
 
+interface RefreshErrorResponse {
+  ok: false
+  issue: {
+    code: string
+    message: string
+  }
+}
+
 interface LauncherAppProps {
   fetcher?: typeof fetch
   navigate?: (url: string) => void
@@ -127,6 +135,13 @@ function isTemplateListResponse(input: unknown): input is TemplateListResponse {
 function isRefreshResponse(input: unknown): input is RefreshResponse {
   return typeof input === 'object' && input !== null && 'ok' in input && input.ok === true
     && 'viewerUrl' in input && typeof input.viewerUrl === 'string'
+}
+
+function isRefreshErrorResponse(input: unknown): input is RefreshErrorResponse {
+  if (typeof input !== 'object' || input === null || !('ok' in input) || input.ok !== false) return false
+  if (!('issue' in input) || typeof input.issue !== 'object' || input.issue === null) return false
+  return 'code' in input.issue && typeof input.issue.code === 'string'
+    && 'message' in input.issue && typeof input.issue.message === 'string'
 }
 
 export function LauncherApp({
@@ -240,6 +255,7 @@ export function LauncherApp({
     if (!selected || !selected.valid || refreshing) return
     setRefreshing(true)
     setRefreshError(null)
+    let failureDetail = '設定と成果物を確認して、もう一度お試しください。'
     try {
       const response = await fetcher(`/api/projects/${encodeURIComponent(selected.id)}/refresh`, {
         method: 'POST',
@@ -251,10 +267,13 @@ export function LauncherApp({
         body: '{}',
       })
       const payload: unknown = await response.json()
-      if (!response.ok || !isRefreshResponse(payload)) throw new Error('refresh failed')
+      if (!response.ok || !isRefreshResponse(payload)) {
+        if (isRefreshErrorResponse(payload)) failureDetail = payload.issue.message
+        throw new Error('refresh failed')
+      }
       navigate(payload.viewerUrl)
     } catch {
-      setRefreshError('最新の制作記録を開けませんでした。設定と成果物を確認して、もう一度お試しください。')
+      setRefreshError(`最新の制作記録を開けませんでした。${failureDetail}`)
     } finally {
       setRefreshing(false)
     }

@@ -256,14 +256,22 @@ describe('LauncherApp', () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
-      .mockResolvedValueOnce(jsonResponse({ ok: false, issues: [{ message: 'broken' }] }, false))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: false,
+        issue: {
+          code: 'viewer_launcher.project_invalid',
+          message: '参照画像 section-01.png が見つかりません。',
+        },
+      }, false))
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} />)
     await screen.findByRole('button', { name: /天狗の山寺 60秒映像を選ぶ/ })
     await user.click(screen.getByRole('button', { name: '最新状態に更新して開く' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('最新の制作記録を開けませんでした。')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '最新の制作記録を開けませんでした。参照画像 section-01.png が見つかりません。',
+    )
     expect(fetcher).toHaveBeenLastCalledWith(
       '/api/projects/tengu-60s-landscape/refresh',
       expect.objectContaining({

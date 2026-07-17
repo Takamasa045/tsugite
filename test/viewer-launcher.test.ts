@@ -3,6 +3,7 @@ import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createPlannedState, writeState } from "../src/orchestrator/state.js";
 import {
   startWorkflowViewerLauncher,
   type WorkflowViewerLauncher
@@ -234,6 +235,36 @@ distribution: local-only
     expect(invalid.issue).toEqual(expect.any(String));
 
     await expect(statusWithHost(launcher.url, "viewer.attacker.invalid")).resolves.toBe(403);
+  });
+
+  it("selects the most recently updated direct project config", async () => {
+    const fixture = await createFixture();
+    const latestConfig = join(fixture.projectDir, "project-audio-r3.yaml");
+    const latestRunId = "local-fixture-audio-r3";
+    const canonical = await readFile(join(fixture.projectDir, "project.yaml"), "utf8");
+    await writeFile(
+      latestConfig,
+      canonical.replace("run_id: local-fixture-run", `run_id: ${latestRunId}`)
+    );
+    await writeState(
+      join(fixture.projectDir, "dist"),
+      createPlannedState(latestRunId, "2026-07-17T00:00:00.000Z")
+    );
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    expect(payload.projects).toHaveLength(1);
+    expect(payload.projects[0]).toMatchObject({
+      name: "valid-project",
+      runId: latestRunId,
+      updatedAt: "2026-07-17T00:00:00.000Z",
+      valid: true
+    });
   });
 
   it("requires the launcher token and same origin before refreshing a snapshot", async () => {
