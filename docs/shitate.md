@@ -13,7 +13,7 @@ Shitateは別リポジトリであり、通常の `validate / plan / review / ru
 ## コマンド
 
 ```sh
-bin/pipeline shitate-import \
+node bin/pipeline shitate-import \
   --config projects/<project>/project.yaml \
   --shitate-root /absolute/path/to/shitate \
   --character <character-id> \
@@ -60,11 +60,11 @@ requestへ自動適用せず `shitate_import.negative_prompt_not_applied` を警
 ## Import後の確認
 
 ```sh
-bin/pipeline guides --catalog pixverse --model v6 --input-mode image-to-video --json
-bin/pipeline validate --config projects/<project>/project.yaml --json
-bin/pipeline plan --config projects/<project>/project.yaml --json
-bin/pipeline review --config projects/<project>/project.yaml --json
-bin/pipeline run --config projects/<project>/project.yaml --dry-run --json
+node bin/pipeline guides --catalog pixverse --model v6 --input-mode image-to-video --json
+node bin/pipeline validate --config projects/<project>/project.yaml --json
+node bin/pipeline plan --config projects/<project>/project.yaml --json
+node bin/pipeline review --config projects/<project>/project.yaml --json
+node bin/pipeline run --config projects/<project>/project.yaml --dry-run --json
 ```
 
 `review` のキャラクターシートでanchor、表示名、poseを確認してからGate 1を判断する。

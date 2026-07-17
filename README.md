@@ -117,11 +117,11 @@ node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 `run` and `render` are intentionally gated:
 
 ```sh
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
-bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
-bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
+node bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
+node bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
 ```
 
 Do not run non-dry-run `run` or `render` without explicit human approval.
@@ -130,8 +130,8 @@ Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and 
 Only after the user explicitly declares the selected video complete, use `finalize` to clean up superseded media. The default preview is read-only. After reviewing its scope, a Coordinator may add `--apply`; this keeps the final run, source media referenced by the final manifest, and text records, while deleting video, audio, and image files from older runs, older QA, and unused project media. The result is recorded in `completion-record.json` inside the final run.
 
 ```sh
-bin/pipeline finalize --config projects/my-first-run/project.yaml --json
-bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
+node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
+node bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
 ```
 
 ## Optional Shitate Import
@@ -139,7 +139,7 @@ bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --acto
 When using the separate Shitate repository, optionally import a selected run and anchor as an immutable, SHA-256-locked project snapshot. Shitate is not required for normal Tsugite usage.
 
 ```sh
-bin/pipeline shitate-import \
+node bin/pipeline shitate-import \
   --config projects/my-project/project.yaml \
   --shitate-root /absolute/path/to/shitate \
   --character hero \

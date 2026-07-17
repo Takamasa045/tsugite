@@ -57,4 +57,79 @@ describe("Topview CLI request mapping", () => {
       params: {}
     }, "/safe/run/generated/missing-image")).toThrow(/first_frame/);
   });
+
+  it("can keep the internal aspect while omitting the unsupported provider argument", () => {
+    const args = buildTopviewVideoArgs({
+      id: "seedance-image",
+      mode: "image-to-video",
+      first_frame: "/safe/run/assets/generation-inputs/seedance.png",
+      prompt: "run through the forest",
+      model: "Seedance 1.5 Pro",
+      duration: 10,
+      aspect: "16:9",
+      params: {
+        resolution: 1080,
+        sound: true,
+        omit_aspect_ratio: true
+      }
+    }, "/safe/run/generated/seedance-image");
+
+    expect(args).not.toContain("--aspect-ratio");
+    expect(args).toEqual(expect.arrayContaining([
+      "--type", "i2v",
+      "--model", "Seedance 1.5 Pro",
+      "--resolution", "1080"
+    ]));
+  });
+
+  it("keeps the storyboard separate from material references for TopView Omni", () => {
+    const args = buildTopviewVideoArgs({
+      id: "act-1",
+      mode: "image-to-video",
+      first_frame: "/safe/run/assets/generation-inputs/act-1/001-first-frame.png",
+      reference_images: [
+        "/safe/run/assets/generation-inputs/act-1/002-reference.png",
+        "/safe/run/assets/generation-inputs/act-1/003-reference.png"
+      ],
+      prompt: "four-shot historical action sequence",
+      model: "Standard",
+      duration: 15,
+      aspect: "16:9",
+      params: {
+        omni_reference: true,
+        reference_image_descriptions: ["Gashadokuro and shrine lock", "ronin character lock"],
+        resolution: 720,
+        sound: true
+      }
+    }, "/safe/run/generated/act-1");
+
+    expect(args).toEqual(expect.arrayContaining([
+      "run",
+      "--type", "omni",
+      "--storyboard-image", "/safe/run/assets/generation-inputs/act-1/001-first-frame.png",
+      "--input-images",
+      "/safe/run/assets/generation-inputs/act-1/002-reference.png",
+      "/safe/run/assets/generation-inputs/act-1/003-reference.png",
+      "--reference-image-descriptions",
+      "Gashadokuro and shrine lock",
+      "ronin character lock",
+      "--model", "Standard",
+      "--resolution", "720"
+    ]));
+    expect(args).not.toContain("--first-frame");
+    expect(args).not.toContain("--sound");
+  });
+
+  it("rejects TopView Omni without material reference images", () => {
+    expect(() => buildTopviewVideoArgs({
+      id: "missing-materials",
+      mode: "image-to-video",
+      first_frame: "/safe/run/assets/generation-inputs/storyboard.png",
+      prompt: "move",
+      model: "Standard",
+      duration: 15,
+      aspect: "16:9",
+      params: { omni_reference: true }
+    }, "/safe/run/generated/missing-materials")).toThrow(/reference_images/);
+  });
 });

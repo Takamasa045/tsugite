@@ -118,8 +118,8 @@ npm run viewer:open
 
 ```sh
 cp -R examples/local-analysis projects/my-seminar
-bin/pipeline doctor --config projects/my-seminar/project.yaml --json
-bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinator --json
+node bin/pipeline doctor --config projects/my-seminar/project.yaml --json
+node bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinator --json
 ```
 
 ローカルWhisperまで使う場合は `examples/local-analysis/project-editorial.yaml` を参照し、`model_path` と必須の `model_sha256` を信頼できる既存`.pt`へ変更します。モデルの自動downloadは行いません。詳しくは [APIを使わないローカル長尺解析](docs/local-analysis.md) を参照してください。
@@ -133,11 +133,11 @@ bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinat
 `run` と `render` は意図的に Gate で保護されています。
 
 ```sh
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
-bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
-bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
+node bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
+node bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
 ```
 
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
@@ -146,8 +146,8 @@ Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままr
 ユーザーが対象動画を明示的に「完成」と確定した後だけ、`finalize` で旧メディアを整理できます。引数なしのpreviewは削除予定と保持対象を表示するだけです。内容を確認後、Coordinatorが `--apply` を付けると、最終run、最終manifestが参照する元素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材の動画・音声・画像だけを削除します。実行結果は最終run内の `completion-record.json` に記録されます。
 
 ```sh
-bin/pipeline finalize --config projects/my-first-run/project.yaml --json
-bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
+node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
+node bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
 ```
 
 ## Shitate連携（任意）
@@ -155,7 +155,7 @@ bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --acto
 別リポジトリのShitateを使う場合だけ、選定済みrunとanchorをSHA-256 lock付きの不変snapshotとしてprojectへ取り込めます。通常のTsugite利用にはShitateの導入・設定は不要です。
 
 ```sh
-bin/pipeline shitate-import \
+node bin/pipeline shitate-import \
   --config projects/my-project/project.yaml \
   --shitate-root /absolute/path/to/shitate \
   --character hero \
@@ -174,9 +174,9 @@ bin/pipeline shitate-import \
 ```sh
 cp -R templates/blog-dialogue-60s projects/my-article-dialogue
 node projects/my-article-dialogue/build-manifest.mjs projects/my-article-dialogue
-bin/pipeline validate --config projects/my-article-dialogue/project.yaml --json
-bin/pipeline plan --config projects/my-article-dialogue/project.yaml --json
-bin/pipeline run --config projects/my-article-dialogue/project.yaml --dry-run --json
+node bin/pipeline validate --config projects/my-article-dialogue/project.yaml --json
+node bin/pipeline plan --config projects/my-article-dialogue/project.yaml --json
+node bin/pipeline run --config projects/my-article-dialogue/project.yaml --dry-run --json
 ```
 
 ユーザー提供キャラクターはローカルslotへ置きます。音声/BGMが空の状態は字幕付き無音ドラフトで、非dry-runの `run` / `render` は通常どおり明示承認が必要です。
@@ -188,9 +188,9 @@ bin/pipeline run --config projects/my-article-dialogue/project.yaml --dry-run --
 ```sh
 cp -R templates/qa-dialogue projects/my-faq
 node projects/my-faq/build-manifest.mjs projects/my-faq
-bin/pipeline validate --config projects/my-faq/project.yaml --json
-bin/pipeline plan --config projects/my-faq/project.yaml --json
-bin/pipeline run --config projects/my-faq/project.yaml --dry-run --json
+node bin/pipeline validate --config projects/my-faq/project.yaml --json
+node bin/pipeline plan --config projects/my-faq/project.yaml --json
+node bin/pipeline run --config projects/my-faq/project.yaml --dry-run --json
 ```
 
 `qa.json` を編集して `build-manifest.mjs` を再実行するだけで尺・字幕・チャプターが更新されます。無音の間は `draft: true` のままにしてください。

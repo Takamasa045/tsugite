@@ -23,11 +23,11 @@ generation:
 `first_frame`は`project.yaml`基準の相対pathです。未存在ファイル、repo外path、絶対path、symlinkは`validate`で拒否され、`run`直前にも再検証されます。`review`ではこの画像をGate 1確認用に表示します。検証済み画像は`dist/<run-id>/assets/generation-inputs/`へ固定され、TopViewには固定後のpathだけを渡します。
 
 ```sh
-bin/pipeline doctor --config <project.yaml> --json
-bin/pipeline validate --config <project.yaml> --json
-bin/pipeline plan --config <project.yaml> --json
-bin/pipeline review --config <project.yaml> --json
-bin/pipeline run --config <project.yaml> --dry-run --json
+node bin/pipeline doctor --config <project.yaml> --json
+node bin/pipeline validate --config <project.yaml> --json
+node bin/pipeline plan --config <project.yaml> --json
+node bin/pipeline review --config <project.yaml> --json
+node bin/pipeline run --config <project.yaml> --dry-run --json
 ```
 
 `run --dry-run`はadapterを起動せず、クレジット見積もりだけを返します。実生成はレビュー済みのGate 1をCoordinatorが承認した後だけ実行できます。生成済み動画は`dist/<run-id>/`へ取得され、assembled manifestの`clips`と`provenance`に記録されます。

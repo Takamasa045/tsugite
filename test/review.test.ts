@@ -279,12 +279,15 @@ describe("creative review", () => {
     await writeFile(join(root, "project.yaml"), "placeholder\n");
     await writeFile(join(root, "manifest.json"), "{}\n");
     await writeFile(join(root, "assets/opening.png"), Buffer.from([137, 80, 78, 71]));
+    await writeFile(join(root, "assets/character-front.png"), Buffer.from([137, 80, 78, 71]));
+    await writeFile(join(root, "assets/character-side.png"), Buffer.from([137, 80, 78, 71]));
     const project = sampleProject();
     project.generation!.requests[0] = {
       ...project.generation!.requests[0],
       mode: "image-to-video",
       input_mode: undefined,
-      first_frame: "assets/opening.png"
+      first_frame: "assets/opening.png",
+      reference_images: ["assets/character-front.png", "assets/character-side.png"]
     };
     const manifest = sampleManifest();
     manifest.captions = [];
@@ -299,12 +302,27 @@ describe("creative review", () => {
     });
 
     const data = JSON.parse(await readFile(result.dataPath, "utf8"));
-    expect(result.assetCount).toBe(1);
+    expect(result.assetCount).toBe(3);
     expect(data.storyboard[0].image).toMatchObject({
       src: "assets/opening.png",
       preview_src: "assets/001-opening.png"
     });
+    expect(data.storyboard[0].reference_images).toEqual([
+      expect.objectContaining({
+        src: "assets/character-front.png",
+        preview_src: "assets/002-character-front.png"
+      }),
+      expect.objectContaining({
+        src: "assets/character-side.png",
+        preview_src: "assets/003-character-side.png"
+      })
+    ]);
+    const html = await readFile(result.reviewPath, "utf8");
+    expect(html).toContain("外部送信する参照画像");
+    expect(html).toContain('data-testid="reference-images-s01"');
     await expect(stat(join(root, "review/assets/001-opening.png"))).resolves.toBeDefined();
+    await expect(stat(join(root, "review/assets/002-character-front.png"))).resolves.toBeDefined();
+    await expect(stat(join(root, "review/assets/003-character-side.png"))).resolves.toBeDefined();
   });
 
   it("maps explicit open requests without executing them", () => {

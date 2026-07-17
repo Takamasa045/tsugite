@@ -40,22 +40,22 @@ Git, Node.js 22.12 이상의 22.x LTS, npm 10 이상, `ffprobe`를 포함한 FFm
 ```sh
 npm ci
 npm run check
-bin/pipeline guides --json
+node bin/pipeline guides --json
 cp -R examples/local-fixture projects/my-first-run
-bin/pipeline doctor --config projects/my-first-run/project.yaml --json
-bin/pipeline validate --config projects/my-first-run/project.yaml --json
-bin/pipeline plan --config projects/my-first-run/project.yaml --json
-bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
+node bin/pipeline doctor --config projects/my-first-run/project.yaml --json
+node bin/pipeline validate --config projects/my-first-run/project.yaml --json
+node bin/pipeline plan --config projects/my-first-run/project.yaml --json
+node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```
 
 `run`과 `render`는 의도적으로 Gate로 보호됩니다.
 
 ```sh
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
-bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
-bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
+node bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
+node bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
 ```
 
 명시적인 사람의 승인 없이 non-dry-run `run` 또는 `render`를 실행하지 마세요.

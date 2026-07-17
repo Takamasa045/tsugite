@@ -252,7 +252,7 @@ describe("project validation", () => {
         {
           ...requestDefinition("generation", "guided-request"),
           input_mode: "image-to-video",
-          prompt_guide: { catalog: "seedance" }
+          prompt_guide: { catalog: "seedance", model: "seedance-2.0" }
         }
       ]
     };
@@ -263,7 +263,7 @@ describe("project validation", () => {
     if (parsed.success) {
       expect(parsed.data.generation?.requests[0]).toMatchObject({
         input_mode: "image-to-video",
-        prompt_guide: { catalog: "seedance" }
+        prompt_guide: { catalog: "seedance", model: "seedance-2.0" }
       });
     }
   });

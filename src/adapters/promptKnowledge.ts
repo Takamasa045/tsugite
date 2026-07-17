@@ -285,8 +285,11 @@ export function resolvePromptGuidance(
   asOf = new Date().toISOString().slice(0, 10)
 ): PromptGuidance {
   const inputMode: PromptMode | "unspecified" = generationRequestMode(request) ?? "unspecified";
+  const advisoryModel = request.prompt_guide?.model ?? request.model;
   const model = guide.models.find((candidate) =>
-    [candidate.id, ...candidate.aliases].some((alias) => normalizeModelName(alias) === normalizeModelName(request.model))
+    [candidate.id, ...candidate.aliases].some(
+      (alias) => normalizeModelName(alias) === normalizeModelName(advisoryModel)
+    )
   );
   const base = {
     request_id: request.id,

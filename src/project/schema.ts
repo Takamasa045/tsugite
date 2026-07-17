@@ -48,9 +48,11 @@ const generationRequestSchema = z
     mode: generationModeSchema.optional(),
     input_mode: generationModeSchema.optional(),
     first_frame: z.string().min(1).optional(),
+    reference_images: z.array(z.string().min(1)).min(1).optional(),
     prompt_guide: z
       .object({
-        catalog: safeIdSchema
+        catalog: safeIdSchema,
+        model: safeIdSchema.optional()
       })
       .optional(),
     params: z.record(z.string(), z.unknown()).default({})

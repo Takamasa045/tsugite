@@ -25,10 +25,10 @@
 
 ```sh
 cp -R examples/local-analysis projects/my-seminar
-bin/pipeline doctor --config projects/my-seminar/project.yaml --json
-bin/pipeline validate --config projects/my-seminar/project.yaml --json
-bin/pipeline plan --config projects/my-seminar/project.yaml --json
-bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinator --json
+node bin/pipeline doctor --config projects/my-seminar/project.yaml --json
+node bin/pipeline validate --config projects/my-seminar/project.yaml --json
+node bin/pipeline plan --config projects/my-seminar/project.yaml --json
+node bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinator --json
 ```
 
 成果物:
@@ -57,10 +57,10 @@ edit:
 `examples/local-analysis/project-editorial.yaml` は、無音検出とローカルWhisperを1つのprojectで使う例です。`model_path` と `model_sha256` を手元の既存モデルへ変更してから実行します。
 
 ```sh
-bin/pipeline doctor --config examples/local-analysis/project-editorial.yaml --json
-bin/pipeline validate --config examples/local-analysis/project-editorial.yaml --json
-bin/pipeline analyze --config examples/local-analysis/project-editorial.yaml --actor coordinator --json
-bin/pipeline review --config examples/local-analysis/project-editorial.yaml --open --json
+node bin/pipeline doctor --config examples/local-analysis/project-editorial.yaml --json
+node bin/pipeline validate --config examples/local-analysis/project-editorial.yaml --json
+node bin/pipeline analyze --config examples/local-analysis/project-editorial.yaml --actor coordinator --json
+node bin/pipeline review --config examples/local-analysis/project-editorial.yaml --open --json
 ```
 
 - `doctor` は選択されたWhisper CLIとFFmpegを検査します。

@@ -10,15 +10,26 @@ export async function validateGenerationAssets(
 ): Promise<Result<{}>> {
   const issues: Issue[] = [];
   for (const [index, request] of project.generation?.requests.entries() ?? []) {
-    if (!request.first_frame) continue;
-    const result = await resolveGenerationAsset(
-      request.first_frame,
-      configDir,
-      assetRoot,
-      `generation.requests.${index}.first_frame`,
-      "generation.first_frame"
-    );
-    if (!result.ok) issues.push(...result.issues);
+    if (request.first_frame) {
+      const result = await resolveGenerationAsset(
+        request.first_frame,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.first_frame`,
+        "generation.first_frame"
+      );
+      if (!result.ok) issues.push(...result.issues);
+    }
+    for (const [referenceIndex, referenceImage] of request.reference_images?.entries() ?? []) {
+      const result = await resolveGenerationAsset(
+        referenceImage,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.reference_images.${referenceIndex}`,
+        "generation.reference_images"
+      );
+      if (!result.ok) issues.push(...result.issues);
+    }
   }
   return issues.length > 0 ? { ok: false, issues } : { ok: true, issues: [] };
 }
@@ -28,38 +39,78 @@ export async function pinGenerationAssets(
   configDir: string,
   assetRoot: string,
   runDir: string
-): Promise<Result<{ requests: GenerationRequest[]; manifestPaths: Map<string, string> }>> {
+): Promise<Result<{
+  requests: GenerationRequest[];
+  manifestPaths: Map<string, string>;
+  referenceManifestPaths: Map<string, string[]>;
+}>> {
   const prepared: GenerationRequest[] = [];
   const manifestPaths = new Map<string, string>();
+  const referenceManifestPaths = new Map<string, string[]>();
 
   for (const [index, request] of requests.entries()) {
-    if (!request.first_frame) {
-      prepared.push(request);
-      continue;
-    }
-    const resolved = await resolveGenerationAsset(
-      request.first_frame,
-      configDir,
-      assetRoot,
-      `generation.requests.${index}.first_frame`,
-      "generation.first_frame"
-    );
-    if (!resolved.ok) return resolved;
+    let pinnedRequest = request;
+    if (request.first_frame) {
+      const resolved = await resolveGenerationAsset(
+        request.first_frame,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.first_frame`,
+        "generation.first_frame"
+      );
+      if (!resolved.ok) return resolved;
 
-    const relativePath = join(
-      "assets",
-      "generation-inputs",
-      request.id,
-      `001-first-frame${extension(request.first_frame)}`
-    );
-    const target = join(runDir, relativePath);
-    await mkdir(dirname(target), { recursive: true });
-    await copyFile(resolved.path, target);
-    prepared.push({ ...request, first_frame: target });
-    manifestPaths.set(request.id, relativePath);
+      const relativePath = join(
+        "assets",
+        "generation-inputs",
+        request.id,
+        `001-first-frame${extension(request.first_frame)}`
+      );
+      const target = join(runDir, relativePath);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(resolved.path, target);
+      pinnedRequest = { ...pinnedRequest, first_frame: target };
+      manifestPaths.set(request.id, relativePath);
+    }
+
+    const pinnedReferences: string[] = [];
+    const referencePaths: string[] = [];
+    for (const [referenceIndex, referenceImage] of request.reference_images?.entries() ?? []) {
+      const resolved = await resolveGenerationAsset(
+        referenceImage,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.reference_images.${referenceIndex}`,
+        "generation.reference_images"
+      );
+      if (!resolved.ok) return resolved;
+
+      const relativePath = join(
+        "assets",
+        "generation-inputs",
+        request.id,
+        `${String(referenceIndex + 2).padStart(3, "0")}-reference${extension(referenceImage)}`
+      );
+      const target = join(runDir, relativePath);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(resolved.path, target);
+      pinnedReferences.push(target);
+      referencePaths.push(relativePath);
+    }
+    if (pinnedReferences.length > 0) {
+      pinnedRequest = { ...pinnedRequest, reference_images: pinnedReferences };
+      referenceManifestPaths.set(request.id, referencePaths);
+    }
+    prepared.push(pinnedRequest);
   }
 
-  return { ok: true, issues: [], requests: prepared, manifestPaths };
+  return {
+    ok: true,
+    issues: [],
+    requests: prepared,
+    manifestPaths,
+    referenceManifestPaths
+  };
 }
 
 export function projectAssetRoot(configDir: string, manifest: string): string {

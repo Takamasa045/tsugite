@@ -54,13 +54,28 @@ export function buildTopviewVideoArgs(request, outputDir) {
   if (mode === "image-to-video" && !nonEmptyString(request.first_frame)) {
     throw new AdapterError("image-to-video requires first_frame", INVALID_REQUEST);
   }
+  const omniReference = mode === "image-to-video" && request.params?.omni_reference === true;
+  if (omniReference && !nonEmptyStringArray(request.reference_images)) {
+    throw new AdapterError("Topview Omni requires reference_images", INVALID_REQUEST);
+  }
+  if (
+    omniReference &&
+    request.params?.reference_image_descriptions !== undefined &&
+    (!nonEmptyStringArray(request.params.reference_image_descriptions) ||
+      request.params.reference_image_descriptions.length !== request.reference_images.length)
+  ) {
+    throw new AdapterError(
+      "reference_image_descriptions must match reference_images",
+      INVALID_REQUEST
+    );
+  }
   if (!nonEmptyString(request.model) || !nonEmptyString(request.prompt)) {
     throw new AdapterError("request.model and request.prompt are required", INVALID_REQUEST);
   }
 
   const args = [
     "run",
-    "--type", mode === "image-to-video" ? "i2v" : "t2v",
+    "--type", omniReference ? "omni" : mode === "image-to-video" ? "i2v" : "t2v",
     "--model", request.model,
     "--prompt", request.prompt,
     "--duration", String(request.duration),
@@ -69,15 +84,32 @@ export function buildTopviewVideoArgs(request, outputDir) {
     "--json",
     "--quiet"
   ];
-  if (mode === "image-to-video") args.push("--first-frame", request.first_frame);
-  if (nonEmptyString(request.aspect)) args.push("--aspect-ratio", request.aspect);
+  if (omniReference) {
+    args.push("--storyboard-image", request.first_frame);
+    args.push("--input-images", ...request.reference_images);
+    if (request.params.reference_image_descriptions) {
+      args.push(
+        "--reference-image-descriptions",
+        ...request.params.reference_image_descriptions
+      );
+    }
+  } else if (mode === "image-to-video") {
+    args.push("--first-frame", request.first_frame);
+  }
+  if (nonEmptyString(request.aspect) && request.params?.omit_aspect_ratio !== true) {
+    args.push("--aspect-ratio", request.aspect);
+  }
   args.push("--resolution", String(numberParam(request.params?.resolution, 720)));
-  if (request.params?.sound !== undefined) {
+  if (!omniReference && request.params?.sound !== undefined) {
     args.push("--sound", soundEnabled(request.params.sound) ? "on" : "off");
   }
   if (nonEmptyString(request.params?.board_id)) args.push("--board-id", request.params.board_id);
   if (Number.isFinite(request.params?.timeout)) args.push("--timeout", String(request.params.timeout));
   return args;
+}
+
+function nonEmptyStringArray(value) {
+  return Array.isArray(value) && value.length > 0 && value.every(nonEmptyString);
 }
 
 export function runTopviewCommand(args, options = {}) {

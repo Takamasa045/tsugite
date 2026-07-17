@@ -303,7 +303,9 @@ async function assembleGeneratedMediaRun(
 
   await mkdir(runDir, { recursive: true });
 
-  const hasGenerationAssets = project.generation!.requests.some((request) => Boolean(request.first_frame));
+  const hasGenerationAssets = project.generation!.requests.some(
+    (request) => Boolean(request.first_frame) || (request.reference_images?.length ?? 0) > 0
+  );
   if (hasGenerationAssets && !options.configPath) {
     return {
       ok: false,
@@ -369,6 +371,9 @@ async function assembleGeneratedMediaRun(
           ...(original?.params ?? {}),
           ...(pinned.manifestPaths.get(request.request_id)
             ? { first_frame: pinned.manifestPaths.get(request.request_id) }
+            : {}),
+          ...(pinned.referenceManifestPaths.get(request.request_id)
+            ? { reference_images: pinned.referenceManifestPaths.get(request.request_id) }
             : {})
         },
         credits: request.credits / request.clips.length

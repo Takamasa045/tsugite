@@ -6,15 +6,15 @@ import { LauncherApp } from './LauncherApp'
 
 const projects = [
   {
-    id: 'tengu-60s-landscape',
-    name: '天狗の山寺 60秒映像',
-    slug: 'tengu-60s-landscape',
-    runId: 'tengu-60s-landscape-v3',
+    id: 'project-alpha',
+    name: 'サンプル映像A',
+    slug: 'project-alpha',
+    runId: 'project-alpha-r3',
     status: 'completed',
     updatedAt: '2026-07-15T09:30:00+09:00',
     hasViewer: true,
-    viewerUrl: '/viewers/tengu-60s-landscape/',
-    thumbnailUrl: '/thumbnail/tengu-60s-landscape',
+    viewerUrl: '/viewers/project-alpha/',
+    thumbnailUrl: '/thumbnail/project-alpha',
     valid: true,
   },
   {
@@ -99,25 +99,25 @@ const feedback = {
       stage: 'promoted' as const,
       summary: '和モダンの意匠を制作画面に取り入れる。',
       projectCount: 3,
-      projectNames: ['天狗の山寺', '稲作ケータリング', '未来市プロモ'],
-      runIds: ['tengu-r3', 'inaka-r9', 'miraichi-r13'],
-      evidence: ['projects/tengu/notes.md', 'LESSONS.md#wa-modern'],
+      projectNames: ['サンプル案件A', 'サンプル案件B', 'サンプル案件C'],
+      runIds: ['sample-a-r3', 'sample-b-r9', 'sample-c-r13'],
+      evidence: ['projects/sample-a/notes.md', 'LESSONS.md#wa-modern'],
       promotion: {
-        projectId: 'tengu',
-        projectName: '天狗の山寺',
+        projectId: 'sample-a',
+        projectName: 'サンプル案件A',
         kind: 'template' as const,
         target: 'templates/wa-modern-launcher',
       },
       promotions: [
         {
-          projectId: 'tengu',
-          projectName: '天狗の山寺',
+          projectId: 'sample-a',
+          projectName: 'サンプル案件A',
           kind: 'template' as const,
           target: 'templates/wa-modern-launcher',
         },
         {
-          projectId: 'inaka',
-          projectName: '稲作ケータリング',
+          projectId: 'sample-b',
+          projectName: 'サンプル案件B',
           kind: 'rule' as const,
           target: 'LESSONS.md#wa-modern',
         },
@@ -131,18 +131,18 @@ const feedback = {
       stage: 'verified' as const,
       summary: '冒頭からBGMまたは短いSFXを入れる。',
       projectCount: 2,
-      projectNames: ['天狗の山寺', 'monpe-ai-dialogue'],
-      runIds: ['tengu-r3', 'monpe-r2'],
+      projectNames: ['サンプル案件A', 'サンプル会話案件'],
+      runIds: ['sample-a-r3', 'sample-dialogue-r2'],
       evidence: ['LESSONS.md#opening-audio'],
       promotion: {
-        projectId: 'tengu',
-        projectName: '天狗の山寺',
+        projectId: 'sample-a',
+        projectName: 'サンプル案件A',
         kind: 'qa' as const,
         target: 'Gate 3 opening-audio check',
       },
       promotions: [{
-        projectId: 'tengu',
-        projectName: '天狗の山寺',
+        projectId: 'sample-a',
+        projectName: 'サンプル案件A',
         kind: 'qa' as const,
         target: 'Gate 3 opening-audio check',
       }],
@@ -209,19 +209,19 @@ describe('LauncherApp', () => {
     expect(await screen.findByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
     expect(screen.getByText('全2件 / 表示2件')).toBeVisible()
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
-    expect(within(selectedPanel).getByRole('heading', { name: '天狗の山寺 60秒映像' })).toBeVisible()
+    expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
     expect(within(selectedPanel).getByText('完了')).toBeVisible()
     expect(within(selectedPanel).getByText(/2026\/07\/15/)).toBeVisible()
-    expect(document.querySelector('img[src="/thumbnail/tengu-60s-landscape"]')).toBeInTheDocument()
+    expect(document.querySelector('img[src="/thumbnail/project-alpha"]')).toBeInTheDocument()
 
-    await user.type(screen.getByRole('searchbox', { name: '制作案件を検索' }), '天狗')
+    await user.type(screen.getByRole('searchbox', { name: '制作案件を検索' }), 'サンプル映像A')
     expect(screen.getByText('全2件 / 表示1件')).toBeVisible()
     const projectList = screen.getByRole('region', { name: '制作案件を選ぶ' })
     expect(within(projectList).queryByRole('heading', { name: 'Codex Goal Talk' })).not.toBeInTheDocument()
 
     await user.clear(screen.getByRole('searchbox', { name: '制作案件を検索' }))
     await user.click(screen.getByRole('button', { name: '前回の表示を開く' }))
-    expect(navigate).toHaveBeenCalledWith('/viewers/tengu-60s-landscape/')
+    expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/')
   })
 
   it('大量の案件を最近更新順に12件ずつ表示し、状態で絞り込める', async () => {
@@ -350,9 +350,9 @@ describe('LauncherApp', () => {
     expect(promotedCard).toHaveTextContent('適用未確認')
 
     const detail = screen.getByRole('complementary', { name: '選択した好み・学び' })
-    expect(within(detail).getAllByText('天狗の山寺').length).toBeGreaterThan(0)
-    expect(within(detail).getByText('tengu-r3')).toBeVisible()
-    expect(within(detail).getByText('projects/tengu/notes.md')).toBeVisible()
+    expect(within(detail).getAllByText('サンプル案件A').length).toBeGreaterThan(0)
+    expect(within(detail).getByText('sample-a-r3')).toBeVisible()
+    expect(within(detail).getByText('projects/sample-a/notes.md')).toBeVisible()
     const promotionSection = within(detail).getByRole('heading', { name: '昇格先' }).closest('section')
     expect(promotionSection).not.toBeNull()
     expect(within(promotionSection!).getByText('LESSONS.md#wa-modern')).toBeVisible()
@@ -464,12 +464,12 @@ describe('LauncherApp', () => {
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
-    const projectCard = await screen.findByRole('button', { name: '天狗の山寺 60秒映像の制作記録を開く' })
+    const projectCard = await screen.findByRole('button', { name: 'サンプル映像Aの制作記録を開く' })
 
     await user.click(projectCard)
 
     await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(
-      '/api/projects/tengu-60s-landscape/refresh',
+      '/api/projects/project-alpha/refresh',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -480,10 +480,10 @@ describe('LauncherApp', () => {
     ))
     resolveRefresh(jsonResponse({
       ok: true,
-      viewerUrl: '/viewers/tengu-60s-landscape/?updated=1',
+      viewerUrl: '/viewers/project-alpha/?updated=1',
       project: projects[0],
     }))
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/viewers/tengu-60s-landscape/?updated=1'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/?updated=1'))
   })
 
   it('無効な案件と検索の空状態を、次の行動が分かる日本語で表示する', async () => {
@@ -531,14 +531,14 @@ describe('LauncherApp', () => {
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} />)
-    await screen.findByRole('button', { name: '天狗の山寺 60秒映像の制作記録を開く' })
+    await screen.findByRole('button', { name: 'サンプル映像Aの制作記録を開く' })
     await user.click(screen.getByRole('button', { name: '最新状態に更新して開く' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       '最新の制作記録を開けませんでした。参照画像 section-01.png が見つかりません。',
     )
     expect(fetcher).toHaveBeenLastCalledWith(
-      '/api/projects/tengu-60s-landscape/refresh',
+      '/api/projects/project-alpha/refresh',
       expect.objectContaining({
         headers: expect.objectContaining({ 'x-tsugite-token': 'meta-session-token' }),
       }),
