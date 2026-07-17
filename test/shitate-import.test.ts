@@ -463,6 +463,8 @@ describe("optional shitate-import CLI", () => {
 
   it("reports missing shitate-import arguments as structured issues", async () => {
     const fixture = await createFixture();
+    const env = { ...process.env };
+    delete env.SHITATE_ROOT;
 
     const result = spawnSync(process.execPath, [
       "--import",
@@ -472,7 +474,7 @@ describe("optional shitate-import CLI", () => {
       "--config",
       fixture.configPath,
       "--json"
-    ], { cwd: process.cwd(), encoding: "utf8" });
+    ], { cwd: process.cwd(), encoding: "utf8", env });
 
     expect(result.status).toBe(1);
     expect(JSON.parse(result.stderr).issues.map((issue: { code: string }) => issue.code)).toEqual([
