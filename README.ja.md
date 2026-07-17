@@ -113,7 +113,7 @@ npm --prefix apps/workflow-viewer ci  # 初回だけ
 npm run viewer:open
 ```
 
-ランチャーは `127.0.0.1` の空きポートだけで起動し、`projects/*/project.yaml` を一覧表示します。「好み・学び」棚では、各ローカル案件の `feedback.jsonl` を横断し、`observed` / `recurring` / `promoted` / `verified` の状態を要約します。対象は最大128案件で、各案件の最新記録・診断を公平に合計1000項目まで選び、上限到達時は画面に明示します。「最新状態に更新して開く」は現在のstate・review・QC・run logから読み取り専用Viewerを再生成します。棚を含むランチャーは読み取り専用で、prompt、template、ruleの自動書き換え、制作実行、Gate更新、state書き込み、外部公開を行いません。終了するときは、起動したターミナルで `Ctrl+C` を押します。
+ランチャーは `127.0.0.1` の空きポートだけで起動し、`projects/*/project.yaml` を一覧表示します。「好み・学び」棚では、各ローカル案件の `feedback.jsonl` を横断し、`observed` / `recurring` / `promoted` / `verified` の状態を要約します。対象は最大128案件で、各案件の最新記録・診断を公平に合計1000項目まで選び、上限到達時は画面に明示します。「最新状態に更新して開く」は現在のstate・review・QC・run logから読み取り専用Viewerを再生成します。昇格案がある `recurring` 記録は「昇格承認待ち」と表示され、人は反映先・変更内容・検証方法を確認して承認または見送りできます。「承認待ちの通知を有効にする」を一度押すと、ランチャー起動中は30秒ごとに確認し、新しい待ち案件だけを「昇格承認待ちが1件あります」のようなデスクトップ通知で知らせます。待ち件数は「好み・学び」タブにも表示されます。ブラウザの通知許可が必要で、ランチャーを終了している間は通知しません。承認操作が書き込むのはローカル `feedback.jsonl` の判断記録だけで、prompt、template、rule、Gate、stateを自動変更せず、制作実行や外部公開も行いません。終了するときは、起動したターミナルで `Ctrl+C` を押します。
 
 長尺の手持ち動画を外部APIなしで解析する場合は、`examples/local-analysis` を使います。
 
@@ -209,7 +209,7 @@ opt-in 機能です。base install では不要で、`project.yaml` が該当 ad
 
 Tsugite は、動画をたくさん生成するだけで自動的に自分好みになるわけではありません。出力を見て、やり直し理由や好みを言語化し、それを repo のルール、テンプレ、チェックに戻していくことで育ちます。
 
-構造化feedbackは各 `projects/<job>/feedback.jsonl` にローカル保存します。案件をまたいで同じ好みには同じ `key` を付け、生成回数ではなく反復した記録を識別します。状態は `observed`（初回記録）→ `recurring`（反復を確認）→ `promoted`（人間が再利用変更を承認）→ `verified`（後続出力で改善確認）の順です。昇格は必ず人間が判断し、`pipeline feedback` やランチャーがprompt、template、check、運用ruleを自動変更することはありません。
+構造化feedbackは各 `projects/<job>/feedback.jsonl` にローカル保存します。案件をまたいで同じ好みには同じ `key` を付け、生成回数ではなく反復した記録を識別します。状態は `observed`（初回記録）→ `recurring`（反復を確認）→ `promoted`（共有先へ反映済み）→ `verified`（後続出力で改善確認）の順です。`recurring` で反映先・変更内容・検証方法が揃うと昇格案を作成でき、`pending`（承認待ち）→ `approved`（承認済み・反映待ち）または `rejected`（見送り）を別軸で記録します。昇格は必ず人間が判断し、承認記録だけではprompt、template、check、運用ruleを自動変更しません。
 
 基本ループは次の通りです。
 
@@ -217,8 +217,9 @@ Tsugite は、動画をたくさん生成するだけで自動的に自分好み
 2. Gate 承認後にだけ生成または組み立てを実行する。
 3. 出力を見て、良かった点、失敗した点、やり直した理由を `pipeline feedback` で記録する。
 4. 一回限りのメモと `feedback.jsonl` はそのローカルproject内に残す。
-5. 同じ `key` の反復記録を根拠にし、人間が承認した教訓だけを再利用先へ昇格する。
-6. 後続の出力で改善を確認してから `verified` にする。
+5. 同じ `key` の反復記録を根拠に、反映先・変更内容・検証方法を持つ昇格案を作る。
+6. ランチャーで人が昇格案を承認または見送り、承認済みの案だけを再利用先へ実装して `promoted` にする。
+7. 後続の出力で改善を確認してから `verified` にする。
 
 コピー済みのローカルprojectへ記録し、絶対pathを公開せずJSON結果を確認する例:
 
@@ -226,6 +227,18 @@ Tsugite は、動画をたくさん生成するだけで自動的に自分好み
 node bin/pipeline feedback --config projects/my-first-run/project.yaml \
   --key opening-audio --category audio --signal prefer --stage observed \
   --summary "冒頭0.5秒以内にBGMを開始する" --json
+```
+
+反復した学びに昇格案を作り、ランチャーへ「昇格承認待ち」として表示する例:
+
+```sh
+node bin/pipeline feedback --config projects/my-first-run/project.yaml \
+  --key opening-audio --category audio --signal prefer --stage recurring \
+  --summary "冒頭0.5秒以内にBGMを開始する" \
+  --evidence "dist/my-first-run/gate3-qc.json" \
+  --promotion-kind qa --target src/orchestrator/gate3Qc.ts \
+  --proposal-summary "冒頭音声の判定をGate 3へ追加する" \
+  --verification "後続案件のgate3-qc.jsonと冒頭波形で確認する" --json
 ```
 
 昇格の目安:

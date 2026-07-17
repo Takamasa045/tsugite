@@ -16,6 +16,7 @@ import { parse } from "yaml";
 import { z } from "zod";
 import {
   aggregateFeedback,
+  decideProjectFeedbackPromotion,
   readProjectFeedback,
   type FeedbackAggregate,
   type FeedbackRecord
@@ -77,6 +78,12 @@ const LAUNCHER_FEEDBACK_MAX_PROJECTS = 128;
 const LAUNCHER_FEEDBACK_MAX_ITEMS = 1_000;
 const LAUNCHER_FEEDBACK_NOTICE_RESERVE = 3;
 const REVIEW_PREVIEW_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
+const LAUNCHER_DECISION_BODY_MAX_BYTES = 8 * 1024;
+const promotionDecisionSchema = z.object({
+  key: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+  proposalId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  decision: z.enum(["approved", "rejected"])
+}).strict();
 const templateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const nonEmptyText = z.string().trim().min(1).max(240);
 const descriptionText = z.string().trim().min(1).max(600);
@@ -311,6 +318,56 @@ export async function startWorkflowViewerLauncher(
         ok: true,
         feedback: boundLauncherFeedbackOutput(aggregateFeedback(projectFeedback))
       });
+      return;
+    }
+
+    const promotionDecisionMatch = /^\/api\/feedback\/([^/]+)\/promotion-decision$/.exec(requestUrl.pathname);
+    if (method === "POST" && promotionDecisionMatch) {
+      if (
+        request.headers.origin !== origin ||
+        request.headers["x-tsugite-token"] !== token
+      ) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const record = projects.get(promotionDecisionMatch[1]!);
+      if (!record?.public.valid) return sendNotFound(response);
+      let input: z.infer<typeof promotionDecisionSchema>;
+      try {
+        const parsed = promotionDecisionSchema.safeParse(await readJsonRequest(request, LAUNCHER_DECISION_BODY_MAX_BYTES));
+        if (!parsed.success) {
+          sendJson(response, 400, {
+            ok: false,
+            issue: { code: "feedback.decision_invalid", message: "Promotion decision request was invalid" }
+          });
+          return;
+        }
+        input = parsed.data;
+      } catch {
+        sendJson(response, 400, {
+          ok: false,
+          issue: { code: "feedback.decision_invalid", message: "Promotion decision request was invalid" }
+        });
+        return;
+      }
+      try {
+        await decideProjectFeedbackPromotion(record.configPath, input);
+        sendJson(response, 200, { ok: true, decision: input.decision });
+      } catch (error) {
+        const issue = error instanceof Error && "issues" in error
+          ? (error as { issues?: Array<{ code?: string; message?: string }> }).issues?.[0]
+          : undefined;
+        sendJson(response, issue?.code === "feedback.proposal_already_decided" ? 409 : 422, {
+          ok: false,
+          issue: {
+            code: issue?.code ?? "feedback.decision_failed",
+            message: issue?.message ?? "Promotion decision could not be recorded"
+          }
+        });
+      }
       return;
     }
 
@@ -925,6 +982,18 @@ function injectLauncherMeta(html: string, token: string): string {
     head,
     (opening) => `${opening}\n    <meta name="tsugite-launcher" content="true">\n    <meta name="tsugite-launcher-token" content="${token}">`
   );
+}
+
+async function readJsonRequest(request: IncomingMessage, maximumBytes: number): Promise<unknown> {
+  let size = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > maximumBytes) throw new Error("request body too large");
+    chunks.push(buffer);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
 async function containedStaticFile(root: string, reference: string): Promise<string | undefined> {

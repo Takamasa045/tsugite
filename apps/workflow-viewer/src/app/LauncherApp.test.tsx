@@ -150,6 +150,29 @@ const feedback = {
       }],
       lastSeenAt: '2026-07-16T21:00:00+09:00',
     },
+    {
+      key: 'caption-safe-area',
+      category: '字幕',
+      signal: 'keep' as const,
+      stage: 'recurring' as const,
+      summary: '字幕をセーフエリア内に収める。',
+      projectCount: 2,
+      projectNames: ['サンプル案件A', 'サンプル案件B'],
+      runIds: ['sample-a-r3', 'sample-b-r9'],
+      evidence: ['projects/sample-a/feedback.jsonl', 'projects/sample-b/feedback.jsonl'],
+      promotions: [],
+      promotionProposal: {
+        projectId: 'sample-a',
+        projectName: 'サンプル案件A',
+        id: 'caption-safe-area-v1',
+        kind: 'qa' as const,
+        target: 'src/orchestrator/gate3Qc.ts',
+        changeSummary: '字幕のセーフエリア判定をGate 3へ追加する。',
+        verification: '後続案件のgate3-qc.jsonと代表フレームで確認する。',
+        decision: 'pending' as const,
+      },
+      lastSeenAt: '2026-07-17T09:00:00+09:00',
+    },
   ],
   issues: [],
 }
@@ -159,6 +182,113 @@ function jsonResponse(input: unknown, ok = true): Response {
 }
 
 describe('LauncherApp', () => {
+  it('昇格承認待ちをタブへ表示し、新しい待ち案件だけをデスクトップ通知する', async () => {
+    const user = userEvent.setup()
+    let permission: NotificationPermission = 'default'
+    let currentFeedback: unknown = feedback
+    const notify = vi.fn()
+    const requestPermission = vi.fn(async () => {
+      permission = 'granted'
+      return permission
+    })
+    const notificationStorage = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => notificationStorage.get(key) ?? null,
+      setItem: (key: string, value: string) => { notificationStorage.set(key, value) },
+    }
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback: currentFeedback }))
+      return Promise.resolve(jsonResponse({ ok: true, projects }))
+    })
+
+    render(
+      <LauncherApp
+        feedbackPollIntervalMs={20}
+        fetcher={fetcher}
+        notificationApi={{
+          getPermission: () => permission,
+          isSupported: () => true,
+          requestPermission,
+          show: notify,
+        }}
+        notificationStorage={storage}
+        token="session-token"
+      />,
+    )
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+    await user.click(feedbackTab)
+
+    expect(await screen.findByText('昇格承認待ち 1件')).toBeVisible()
+    expect(feedbackTab).toHaveTextContent('1')
+    await user.click(screen.getByRole('button', { name: '承認待ちの通知を有効にする' }))
+
+    await waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(notify).toHaveBeenCalledWith(
+      '昇格承認待ちが1件あります',
+      expect.objectContaining({ body: '字幕をセーフエリア内に収める。' }),
+    ))
+    expect(screen.getByText('デスクトップ通知は有効です')).toBeVisible()
+
+    currentFeedback = {
+      ...feedback,
+      preferences: [
+        ...feedback.preferences,
+        {
+          ...feedback.preferences[2]!,
+          key: 'opening-black-frame',
+          summary: '冒頭の黒画面を避ける。',
+          promotionProposal: {
+            ...feedback.preferences[2]!.promotionProposal!,
+            id: 'opening-black-frame-v1',
+          },
+        },
+      ],
+    }
+
+    await waitFor(() => expect(notify).toHaveBeenCalledWith(
+      '昇格承認待ちが2件あります',
+      expect.objectContaining({ body: '新しく1件が承認待ちになりました。' }),
+    ))
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(notify).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('昇格承認待ち 2件')).toBeVisible()
+  })
+
+  it('通知を拒否した場合は再要求せず、ブラウザ設定の案内を表示する', async () => {
+    const user = userEvent.setup()
+    let permission: NotificationPermission = 'default'
+    const show = vi.fn()
+    const fetcher = vi.fn().mockImplementation((url: string) => (
+      url === '/api/feedback'
+        ? Promise.resolve(jsonResponse({ ok: true, feedback }))
+        : Promise.resolve(jsonResponse({ ok: true, projects }))
+    ))
+
+    render(
+      <LauncherApp
+        fetcher={fetcher}
+        notificationApi={{
+          getPermission: () => permission,
+          isSupported: () => true,
+          requestPermission: async () => {
+            permission = 'denied'
+            return permission
+          },
+          show,
+        }}
+        token="session-token"
+      />,
+    )
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+    await user.click(await screen.findByRole('button', { name: '承認待ちの通知を有効にする' }))
+
+    expect(await screen.findByText('通知がブロックされています。ブラウザのサイト設定から通知を許可してください。')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '承認待ちの通知を有効にする' })).not.toBeInTheDocument()
+    expect(show).not.toHaveBeenCalled()
+  })
+
   it('棚タブを矢印キーとHome・Endで移動できる', async () => {
     const user = userEvent.setup()
     const fetcher = vi.fn().mockImplementation((url: string) => {
@@ -342,6 +472,18 @@ describe('LauncherApp', () => {
     expect(within(metrics).getByText('反映済み').parentElement).toHaveTextContent('反映済み / 到達済み1')
     expect(within(metrics).getByText('適用確認済み').parentElement).toHaveTextContent('適用確認済み / 到達済み1')
 
+    const stageGuide = screen.getByRole('region', { name: '学びの状態と適用状況' })
+    expect(within(stageGuide).getByText('未適用・記録中')).toBeVisible()
+    expect(within(stageGuide).getByText('未適用・昇格候補')).toBeVisible()
+    expect(within(stageGuide).getByText('適用済み・確認待ち')).toBeVisible()
+    expect(within(stageGuide).getByText('適用済み・確認済み')).toBeVisible()
+
+    const promotionFlow = screen.getByRole('region', { name: '学習中から昇格する流れ' })
+    expect(within(promotionFlow).getByText('反復根拠をそろえる')).toBeVisible()
+    expect(within(promotionFlow).getByText('人が昇格を承認する')).toBeVisible()
+    expect(within(promotionFlow).getByText('再利用先へ反映する')).toBeVisible()
+    expect(within(promotionFlow).getByText('後続案件で確認する')).toBeVisible()
+
     const promotedCard = screen.getByRole('button', { name: '和モダンの意匠を制作画面に取り入れる。の詳細を見る' })
     expect(promotedCard).toHaveAttribute('aria-pressed', 'true')
     expect(promotedCard).toHaveTextContent('画面デザイン')
@@ -350,7 +492,7 @@ describe('LauncherApp', () => {
     expect(promotedCard).toHaveTextContent('反映済み')
     expect(promotedCard).toHaveTextContent('templates/wa-modern-launcher')
     expect(promotedCard).toHaveTextContent('ほか1件')
-    expect(promotedCard).toHaveTextContent('適用未確認')
+    expect(promotedCard).toHaveTextContent('適用済み・確認待ち')
 
     const detail = screen.getByRole('complementary', { name: '選択した好み・学び' })
     expect(within(detail).getAllByText('サンプル案件A').length).toBeGreaterThan(0)
@@ -363,9 +505,39 @@ describe('LauncherApp', () => {
     await user.click(screen.getByRole('button', { name: '冒頭からBGMまたは短いSFXを入れる。の詳細を見る' }))
     expect(within(detail).getByText('適用確認').parentElement).toHaveTextContent('適用確認済み')
 
+    const recurringCard = screen.getByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' })
+    expect(recurringCard).toHaveTextContent('未適用・昇格候補')
+    expect(recurringCard).toHaveTextContent('昇格承認待ち')
+    await user.click(recurringCard)
+    expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('昇格案を確認し、人が承認または見送り')
+    const approvalSection = within(detail).getByRole('heading', { name: '昇格承認' }).closest('section')
+    expect(approvalSection).not.toBeNull()
+    expect(within(approvalSection!).getByText('字幕のセーフエリア判定をGate 3へ追加する。')).toBeVisible()
+    expect(within(approvalSection!).getByText('後続案件のgate3-qc.jsonと代表フレームで確認する。')).toBeVisible()
+    expect(within(approvalSection!).getByRole('button', { name: '昇格を承認' })).toBeVisible()
+    expect(within(approvalSection!).getByRole('button', { name: '今回は見送る' })).toBeVisible()
+
+    fetcher.mockResolvedValueOnce(jsonResponse({ ok: true, decision: 'approved' }))
+    await user.click(within(approvalSection!).getByRole('button', { name: '昇格を承認' }))
+    await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(
+      '/api/feedback/sample-a/promotion-decision',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'x-tsugite-token': 'session-token' }),
+        body: JSON.stringify({
+          key: 'caption-safe-area',
+          proposalId: 'caption-safe-area-v1',
+          decision: 'approved',
+        }),
+      }),
+    ))
+    expect(await within(detail).findByText('承認済み・反映待ち')).toBeVisible()
+    expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('共有先へ反映し、テストして反映済みへ')
+    expect(within(detail).getByRole('heading', { name: '次にすること' }).parentElement).toHaveTextContent('承認された案を共有先へ実装')
+
     await user.click(screen.getByRole('tab', { name: '制作案件' }))
     await user.click(feedbackTab)
-    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
   it('読み取り警告は最大5件の詳細と残件数を表示する', async () => {

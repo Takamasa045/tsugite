@@ -52,6 +52,44 @@ describe("pipeline feedback command", () => {
     expect(JSON.parse((await readFile(payload.path, "utf8")).trim())).toEqual(payload.entry);
   });
 
+  it("records a pending promotion proposal for human approval", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-feedback-cli-"));
+    const configPath = join(root, "project.yaml");
+    await writeProjectConfig(configPath);
+
+    const result = await capture([
+      "feedback",
+      "--config", configPath,
+      "--key", "opening-audio",
+      "--category", "sound",
+      "--signal", "prefer",
+      "--stage", "recurring",
+      "--summary", "Start the soundtrack at frame zero",
+      "--evidence", "dist/run-1/gate3-qc.json",
+      "--promotion-kind", "qa",
+      "--target", "src/orchestrator/gate3Qc.ts",
+      "--proposal-summary", "Add an opening-audio Gate 3 check",
+      "--verification", "Confirm the check on a later project",
+      "--json"
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      entry: {
+        stage: "recurring",
+        promotion_proposal: {
+          id: expect.any(String),
+          kind: "qa",
+          target: "src/orchestrator/gate3Qc.ts",
+          change_summary: "Add an opening-audio Gate 3 check",
+          verification: "Confirm the check on a later project",
+          decision: "pending"
+        }
+      }
+    });
+  });
+
   it("reports missing and invalid values using structured issues", async () => {
     const result = await capture([
       "feedback",

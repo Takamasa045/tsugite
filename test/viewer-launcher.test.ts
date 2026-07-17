@@ -154,6 +154,86 @@ describe("workflow viewer launcher", () => {
     expect(JSON.stringify(payload)).not.toContain(fixture.root);
   });
 
+  it("records an authorized human decision for a pending promotion proposal", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.projectDir, "feedback.jsonl"), `${JSON.stringify({
+      schema_version: 1,
+      id: "proposal-record",
+      created_at: "2026-07-17T10:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "recurring",
+      summary: "Start the soundtrack at frame zero",
+      evidence: ["dist/local-fixture-run/gate3-qc.json"],
+      promotion_proposal: {
+        id: "opening-audio-v1",
+        kind: "qa",
+        target: "src/orchestrator/gate3Qc.ts",
+        change_summary: "Add an opening-audio Gate 3 check",
+        verification: "Confirm the check on a later project",
+        decision: "pending"
+      }
+    })}\n`);
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const projects = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const projectId = projects.projects[0].id as string;
+    const endpoint = `${launcher.url}/api/feedback/${projectId}/promotion-decision`;
+    const requestBody = JSON.stringify({
+      key: "opening-audio",
+      proposalId: "opening-audio-v1",
+      decision: "approved"
+    });
+
+    expect((await fetch(endpoint, { method: "POST" })).status).toBe(403);
+    expect((await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: "https://example.com",
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: requestBody
+    })).status).toBe(403);
+    expect((await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({ padding: "x".repeat(9_000) })
+    })).status).toBe(400);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: requestBody
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true, decision: "approved" });
+    const records = (await readFile(join(fixture.projectDir, "feedback.jsonl"), "utf8"))
+      .trim().split("\n").map((line) => JSON.parse(line));
+    expect(records.at(-1)).toMatchObject({
+      key: "opening-audio",
+      stage: "recurring",
+      promotion_proposal: {
+        id: "opening-audio-v1",
+        decision: "approved",
+        decided_by: "human",
+        decided_at: expect.any(String)
+      }
+    });
+  });
+
   it("caps launcher feedback records and reports the read-only display limit", async () => {
     const fixture = await createFixture();
     const records = Array.from({ length: 1_001 }, (_, index) => JSON.stringify({
