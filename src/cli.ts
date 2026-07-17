@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectEnvironment } from "./doctor.js";
@@ -77,6 +78,8 @@ type ParsedArgs = {
   evidence?: string;
   promotionKind?: string;
   target?: string;
+  proposalSummary?: string;
+  verification?: string;
   open: boolean;
   apply: boolean;
   allowExternalAnalysis: boolean;
@@ -196,6 +199,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const stage = parseFeedbackStage(args.stage);
     const gate = parseFeedbackGate(args.gate);
     const promotionKind = parseFeedbackPromotionKind(args.promotionKind);
+    const hasPromotionTarget = Boolean(promotionKind && args.target);
+    const hasProposalDetails = Boolean(args.proposalSummary && args.verification);
     const issues: Issue[] = [
       ...(args.key ? [] : [{ code: "feedback.key_required", message: "--key is required", path: "--key" }]),
       ...(args.category ? [] : [{ code: "feedback.category_required", message: "--category is required", path: "--category" }]),
@@ -226,7 +231,42 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             code: "feedback.promotion_incomplete",
             message: "--promotion-kind and --target must be provided together",
             path: args.promotionKind ? "--target" : "--promotion-kind"
-          }])
+          }]),
+      ...(Boolean(args.proposalSummary) === Boolean(args.verification)
+        ? []
+        : [{
+            code: "feedback.proposal_incomplete",
+            message: "--proposal-summary and --verification must be provided together",
+            path: args.proposalSummary ? "--verification" : "--proposal-summary"
+          }]),
+      ...(hasProposalDetails && !hasPromotionTarget
+        ? [{
+            code: "feedback.proposal_target_required",
+            message: "promotion proposal requires --promotion-kind and --target",
+            path: "--promotion-kind"
+          }]
+        : []),
+      ...(hasProposalDetails && !args.evidence
+        ? [{
+            code: "feedback.proposal_evidence_required",
+            message: "promotion proposal requires --evidence",
+            path: "--evidence"
+          }]
+        : []),
+      ...(hasProposalDetails && stage !== "recurring"
+        ? [{
+            code: "feedback.proposal_stage_invalid",
+            message: "promotion proposal requires --stage recurring",
+            path: "--stage"
+          }]
+        : []),
+      ...(hasPromotionTarget && !hasProposalDetails && stage !== "promoted"
+        ? [{
+            code: "feedback.promotion_stage_invalid",
+            message: "promotion metadata requires --stage promoted, or proposal details with --stage recurring",
+            path: "--stage"
+          }]
+        : [])
     ];
     if (issues.length > 0) return output(args, 1, { ok: false, command: "feedback", issues });
 
@@ -240,7 +280,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ...(args.runId ? { run_id: args.runId } : {}),
         ...(gate ? { gate } : {}),
         ...(args.evidence ? { evidence: [args.evidence] } : {}),
-        ...(promotionKind && args.target ? { promotion: { kind: promotionKind, target: args.target } } : {})
+        ...(hasPromotionTarget && stage === "promoted"
+          ? { promotion: { kind: promotionKind!, target: args.target! } }
+          : {}),
+        ...(hasPromotionTarget && hasProposalDetails && stage === "recurring"
+          ? {
+              promotion_proposal: {
+                id: randomUUID(),
+                kind: promotionKind!,
+                target: args.target!,
+                change_summary: args.proposalSummary!,
+                verification: args.verification!,
+                decision: "pending" as const
+              }
+            }
+          : {})
       });
       return output(args, 0, {
         ok: true,
@@ -758,7 +812,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -789,7 +843,9 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--summary": "summary",
       "--evidence": "evidence",
       "--promotion-kind": "promotionKind",
-      "--target": "target"
+      "--target": "target",
+      "--proposal-summary": "proposalSummary",
+      "--verification": "verification"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -829,7 +885,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     "story-guides": new Set(["--request", "--duration"]),
     "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
-    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target"]),
+    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target", "--proposal-summary", "--verification"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
     analyze: new Set(["--config", "--actor", "--state-dir", "--allow-external-analysis"]),

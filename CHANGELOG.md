@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added opt-in desktop notifications and a launcher tab badge for newly seen promotion proposals awaiting human approval.
+- Added append-only feedback promotion proposals, human approve/reject decisions, and an explicit approval-waiting workflow in the local launcher without automatically changing shared rules or project state.
 - Added a repository-discoverable Tsugite skill for Codex, a Claude Code `/tsugite` compatibility entry, shared feedback-promotion guidance, and configuration regression tests.
 - Fixed PixVerse image-to-video requests so provider-derived framing is not overridden by `--aspect-ratio`.
 - Extended Gate 3 QC with fail-closed FFmpeg analysis for black segments of at least one second and silent segments of at least three seconds.

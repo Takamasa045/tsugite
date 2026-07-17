@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateFeedback,
   appendProjectFeedback,
+  decideProjectFeedbackPromotion,
   FEEDBACK_MAX_FILE_BYTES,
   FEEDBACK_MAX_LINE_BYTES,
   FEEDBACK_MAX_RECORDS,
@@ -59,6 +60,60 @@ describe("feedback contract", () => {
       promotion: { kind: "qa", target: "src/orchestrator/gate3Qc.ts" }
     })).rejects.toThrow("promotion is only valid for promoted feedback");
     await expect(appendProjectFeedback(configPath, { ...base, extra: true } as never)).rejects.toThrow("Unrecognized key");
+  });
+
+  it("records promotion proposals only while recurring and requires a human decision timestamp", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-feedback-"));
+    const configPath = join(root, "project.yaml");
+    await writeProjectConfig(configPath);
+    const pendingProposal = {
+      id: "opening-audio-v1",
+      kind: "qa" as const,
+      target: "src/orchestrator/gate3Qc.ts",
+      change_summary: "冒頭音声をGate 3で確認する",
+      verification: "後続案件のgate3-qc.jsonで確認する",
+      decision: "pending" as const
+    };
+
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: pendingProposal
+    })).resolves.toMatchObject({ entry: { promotion_proposal: pendingProposal } });
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      promotion_proposal: pendingProposal
+    })).rejects.toThrow("promotion proposal is only valid for recurring feedback");
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      stage: "recurring",
+      promotion_proposal: pendingProposal
+    })).rejects.toThrow("promotion proposal requires evidence");
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: { ...pendingProposal, decision: "approved" }
+    })).rejects.toThrow("decided promotion proposal requires decided_at and decided_by");
+
+    const decisions = await Promise.allSettled([
+      decideProjectFeedbackPromotion(configPath, {
+        key: "opening-audio",
+        proposalId: "opening-audio-v1",
+        decision: "approved"
+      }),
+      decideProjectFeedbackPromotion(configPath, {
+        key: "opening-audio",
+        proposalId: "opening-audio-v1",
+        decision: "rejected"
+      })
+    ]);
+    expect(decisions.filter((decision) => decision.status === "fulfilled")).toHaveLength(1);
+    expect(decisions.filter((decision) => decision.status === "rejected")).toHaveLength(1);
+    expect((await readProjectFeedback(configPath)).entries.filter((entry) => (
+      entry.promotion_proposal?.decision !== "pending"
+    ))).toHaveLength(1);
   });
 
   it("keeps valid records when another line is malformed", async () => {
@@ -227,6 +282,46 @@ describe("feedback contract", () => {
     ]);
     expect(aggregate.preferences[0]?.stage).toBe("recurring");
     expect(aggregate.metrics).toEqual({ observed: 1, recurring: 1, promoted: 0, verified: 0, issues: 0 });
+  });
+
+  it("shows the latest promotion proposal decision until the feedback is promoted", () => {
+    const proposal = {
+      id: "opening-audio-v1",
+      kind: "qa" as const,
+      target: "src/orchestrator/gate3Qc.ts",
+      change_summary: "冒頭音声をGate 3で確認する",
+      verification: "後続案件のgate3-qc.jsonで確認する",
+      decision: "pending" as const
+    };
+    const pending = record("proposal-1", "recurring", { promotion_proposal: proposal });
+    const approved = record("proposal-2", "recurring", {
+      created_at: "2026-07-17T00:00:04.000Z",
+      promotion_proposal: {
+        ...proposal,
+        decision: "approved",
+        decided_at: "2026-07-17T00:00:04.000Z",
+        decided_by: "human"
+      }
+    });
+    const aggregate = aggregateFeedback([
+      { projectId: "a", projectName: "Project A", entries: [pending, approved] }
+    ]);
+
+    expect(aggregate.preferences[0]?.promotionProposal).toMatchObject({
+      projectId: "a",
+      projectName: "Project A",
+      decision: "approved",
+      decidedBy: "human"
+    });
+
+    const promoted = record("proposal-3", "promoted", {
+      created_at: "2026-07-17T00:00:05.000Z",
+      promotion: { kind: "qa", target: "src/orchestrator/gate3Qc.ts" }
+    });
+    const promotedAggregate = aggregateFeedback([
+      { projectId: "a", projectName: "Project A", entries: [pending, approved, promoted] }
+    ]);
+    expect(promotedAggregate.preferences[0]?.promotionProposal).toBeUndefined();
   });
 
   it("excludes conflicting key meanings and does not verify without promotion history", () => {

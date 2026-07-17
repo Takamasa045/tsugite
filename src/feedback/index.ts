@@ -28,6 +28,17 @@ const isoDateSchema = z.string().refine(
   (value) => !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value,
   "must be an ISO 8601 UTC timestamp"
 );
+const promotionKindSchema = z.enum(["template", "constraint", "validator", "qa", "rule", "documentation"]);
+const promotionProposalSchema = z.object({
+  id: safeIdSchema,
+  kind: promotionKindSchema,
+  target: safeRelativePathSchema,
+  change_summary: z.string().trim().min(1).max(1_000),
+  verification: z.string().trim().min(1).max(1_000),
+  decision: z.enum(["pending", "approved", "rejected"]),
+  decided_at: isoDateSchema.optional(),
+  decided_by: z.literal("human").optional()
+}).strict();
 
 export const feedbackRecordSchema = z.object({
   schema_version: z.literal(1),
@@ -42,9 +53,10 @@ export const feedbackRecordSchema = z.object({
   gate: z.enum(["gate_1", "gate_2", "gate_3"]).optional(),
   evidence: z.array(safeRelativePathSchema).min(1).max(32).optional(),
   promotion: z.object({
-    kind: z.enum(["template", "constraint", "validator", "qa", "rule", "documentation"]),
+    kind: promotionKindSchema,
     target: safeRelativePathSchema
-  }).strict().optional()
+  }).strict().optional(),
+  promotion_proposal: promotionProposalSchema.optional()
 }).strict().superRefine((record, context) => {
   if (record.stage === "promoted" && !record.promotion) {
     context.addIssue({ code: "custom", message: "promoted feedback requires promotion", path: ["promotion"] });
@@ -54,6 +66,19 @@ export const feedbackRecordSchema = z.object({
   }
   if (record.promotion && record.stage !== "promoted") {
     context.addIssue({ code: "custom", message: "promotion is only valid for promoted feedback", path: ["promotion"] });
+  }
+  if (record.promotion_proposal && record.stage !== "recurring") {
+    context.addIssue({ code: "custom", message: "promotion proposal is only valid for recurring feedback", path: ["promotion_proposal"] });
+  }
+  if (record.promotion_proposal && !record.evidence?.length) {
+    context.addIssue({ code: "custom", message: "promotion proposal requires evidence", path: ["evidence"] });
+  }
+  if (record.promotion_proposal?.decision === "pending" && (record.promotion_proposal.decided_at || record.promotion_proposal.decided_by)) {
+    context.addIssue({ code: "custom", message: "pending promotion proposal cannot have decision metadata", path: ["promotion_proposal"] });
+  }
+  if (record.promotion_proposal && record.promotion_proposal.decision !== "pending"
+    && (!record.promotion_proposal.decided_at || !record.promotion_proposal.decided_by)) {
+    context.addIssue({ code: "custom", message: "decided promotion proposal requires decided_at and decided_by", path: ["promotion_proposal"] });
   }
 });
 
@@ -106,6 +131,19 @@ export type AggregatedFeedbackPromotion = {
   target: string;
 };
 
+export type AggregatedFeedbackPromotionProposal = {
+  projectId: string;
+  projectName: string;
+  id: string;
+  kind: string;
+  target: string;
+  changeSummary: string;
+  verification: string;
+  decision: "pending" | "approved" | "rejected";
+  decidedAt?: string;
+  decidedBy?: "human";
+};
+
 export type AggregatedPreference = {
   key: string;
   category: string;
@@ -120,6 +158,7 @@ export type AggregatedPreference = {
   evidence: string[];
   promotion?: AggregatedFeedbackPromotion;
   promotions: AggregatedFeedbackPromotion[];
+  promotionProposal?: AggregatedFeedbackPromotionProposal;
   lastSeenAt: string;
   metrics: FeedbackMetrics;
 };
@@ -132,6 +171,49 @@ export type FeedbackAggregate = {
 
 export function feedbackPathForProject(configPath: string): string {
   return join(dirname(configPath), FEEDBACK_FILE_NAME);
+}
+
+export async function decideProjectFeedbackPromotion(
+  configPath: string,
+  input: { key: string; proposalId: string; decision: "approved" | "rejected" }
+): Promise<{ path: string; entry: FeedbackRecord }> {
+  const path = feedbackPathForProject(configPath);
+  return withAppendLock(path, async () => {
+    await assertRegularConfig(configPath);
+    await loadProject(configPath);
+    const releaseFileLock = await acquireFeedbackFileLock(`${path}.lock`);
+    try {
+      const result = await readProjectFeedback(configPath);
+      const latestProposal = result.entries
+        .filter((entry) => entry.key === input.key && entry.promotion_proposal)
+        .sort((left, right) => right.created_at.localeCompare(left.created_at))[0];
+      if (!latestProposal?.promotion_proposal || latestProposal.promotion_proposal.id !== input.proposalId) {
+        throw feedbackError("feedback.proposal_missing", "current promotion proposal was not found", input.proposalId);
+      }
+      if (latestProposal.promotion_proposal.decision !== "pending") {
+        throw feedbackError("feedback.proposal_already_decided", "promotion proposal was already decided", input.proposalId);
+      }
+      const decidedAt = new Date().toISOString();
+      return appendProjectFeedbackWithLock(path, {
+        key: latestProposal.key,
+        category: latestProposal.category,
+        signal: latestProposal.signal,
+        stage: "recurring",
+        summary: latestProposal.summary,
+        ...(latestProposal.run_id ? { run_id: latestProposal.run_id } : {}),
+        ...(latestProposal.gate ? { gate: latestProposal.gate } : {}),
+        ...(latestProposal.evidence ? { evidence: latestProposal.evidence } : {}),
+        promotion_proposal: {
+          ...latestProposal.promotion_proposal,
+          decision: input.decision,
+          decided_at: decidedAt,
+          decided_by: "human"
+        }
+      });
+    } finally {
+      await releaseFileLock();
+    }
+  });
 }
 
 export async function readProjectFeedback(configPath: string): Promise<FeedbackReadResult> {
@@ -302,6 +384,10 @@ export function aggregateFeedback(projects: FeedbackProjectInput[]): FeedbackAgg
       const fallbackStage = unsupportedVerifiedFallbackStage(rows);
       preference.stage = fallbackStage;
       preference.metrics = metricsForStage(fallbackStage);
+      if (fallbackStage === "recurring") {
+        const proposal = latestPromotionProposal(rows);
+        if (proposal) preference.promotionProposal = proposal;
+      }
       const fallbackRepresentative = rows
         .filter(({ entry }) => stageRank(entry.stage) <= stageRank(fallbackStage))
         .sort((left, right) => right.entry.created_at.localeCompare(left.entry.created_at))[0];
@@ -381,6 +467,7 @@ function aggregatePreference(
   ).sort(compareProjectPath);
   let stage = representative.entry.stage;
   if (projectIds.length >= 2 && stageRank(stage) < stageRank("recurring")) stage = "recurring";
+  const proposal = stage === "recurring" ? latestPromotionProposal(rows) : undefined;
   return {
     key,
     category: representative.entry.category,
@@ -395,8 +482,31 @@ function aggregatePreference(
     evidence,
     ...(representativePromotion ? { promotion: representativePromotion } : {}),
     promotions,
+    ...(proposal ? { promotionProposal: proposal } : {}),
     lastSeenAt: rows.reduce((latest, row) => row.entry.created_at > latest ? row.entry.created_at : latest, rows[0]!.entry.created_at),
     metrics: metricsForStage(stage)
+  };
+}
+
+function latestPromotionProposal(
+  rows: Array<{ project: FeedbackProjectInput; entry: FeedbackRecord }>
+): AggregatedFeedbackPromotionProposal | undefined {
+  const row = rows
+    .filter(({ entry }) => entry.promotion_proposal)
+    .sort((left, right) => right.entry.created_at.localeCompare(left.entry.created_at))[0];
+  const proposal = row?.entry.promotion_proposal;
+  if (!row || !proposal) return undefined;
+  return {
+    projectId: row.project.projectId,
+    projectName: row.project.projectName,
+    id: proposal.id,
+    kind: proposal.kind,
+    target: proposal.target,
+    changeSummary: proposal.change_summary,
+    verification: proposal.verification,
+    decision: proposal.decision,
+    ...(proposal.decided_at ? { decidedAt: proposal.decided_at } : {}),
+    ...(proposal.decided_by ? { decidedBy: proposal.decided_by } : {})
   };
 }
 
