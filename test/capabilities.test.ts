@@ -207,7 +207,7 @@ describe("hyperframes render runner", () => {
             out: 3.5,
             duration: 1,
             fps: 30,
-            resolution: { width: 320, height: 180 },
+            resolution: { width: 1920, height: 1072 },
             audio: true
           }
         ],
@@ -264,7 +264,7 @@ process.exit(40);
     });
     const html = await readFile(join(runDir, "index.html"), "utf8");
     expect(html).toContain('data-composition-id="tsugite-render"');
-    expect(html).toContain('data-width="320" data-height="180"');
+    expect(html).toContain('data-width="1920" data-height="1080"');
     const video = html.match(/<video[^>]+>/)?.[0] ?? "";
     const sourceAudio = html.match(/<audio[^>]+id="clip-001-audio"[^>]+>/)?.[0] ?? "";
     expect(video).toContain('class="clip"');

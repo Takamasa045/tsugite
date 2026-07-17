@@ -54,7 +54,23 @@ export function buildTopviewVideoArgs(request, outputDir) {
   if (mode === "image-to-video" && !nonEmptyString(request.first_frame)) {
     throw new AdapterError("image-to-video requires first_frame", INVALID_REQUEST);
   }
-  const omniReference = mode === "image-to-video" && request.params?.omni_reference === true;
+  const omniRequested = request.params?.omni_reference === true;
+  if (omniRequested && mode !== "image-to-video") {
+    throw new AdapterError("Topview Omni requires image-to-video mode", INVALID_REQUEST);
+  }
+  const omniReference = mode === "image-to-video" && omniRequested;
+  if (request.reference_images !== undefined && !omniReference) {
+    throw new AdapterError(
+      "reference_images require params.omni_reference=true",
+      INVALID_REQUEST
+    );
+  }
+  if (request.params?.reference_image_descriptions !== undefined && !omniReference) {
+    throw new AdapterError(
+      "reference_image_descriptions require params.omni_reference=true",
+      INVALID_REQUEST
+    );
+  }
   if (omniReference && !nonEmptyStringArray(request.reference_images)) {
     throw new AdapterError("Topview Omni requires reference_images", INVALID_REQUEST);
   }

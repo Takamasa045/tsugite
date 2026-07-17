@@ -8,4 +8,4 @@
 - `mode: image-to-video` requires one repo-local regular file in `first_frame`.
 - Reject absolute paths, missing files, paths outside the project asset root, and every symbolic-link path before provider execution.
 - Copy the accepted image into `dist/<run-id>/assets/generation-inputs/` and pass only that pinned copy to TopView.
-- End-frame and omni reference modes are not part of this first i2v contract.
+- `reference_images` and `reference_image_descriptions` require image-to-video mode with `params.omni_reference: true`; reject them instead of silently ignoring approved assets in standard i2v mode.

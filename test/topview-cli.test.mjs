@@ -132,4 +132,39 @@ describe("Topview CLI request mapping", () => {
       params: { omni_reference: true }
     }, "/safe/run/generated/missing-materials")).toThrow(/reference_images/);
   });
+
+  it("rejects material references that standard i2v would ignore", () => {
+    expect(() => buildTopviewVideoArgs({
+      id: "ignored-materials",
+      mode: "image-to-video",
+      first_frame: "/safe/run/assets/generation-inputs/storyboard.png",
+      reference_images: ["/safe/run/assets/generation-inputs/material.png"],
+      prompt: "move",
+      model: "Standard",
+      duration: 5,
+      aspect: "16:9",
+      params: {}
+    }, "/safe/run/generated/ignored-materials")).toThrow(/omni_reference/);
+
+    expect(() => buildTopviewVideoArgs({
+      id: "ignored-descriptions",
+      mode: "image-to-video",
+      first_frame: "/safe/run/assets/generation-inputs/storyboard.png",
+      prompt: "move",
+      model: "Standard",
+      duration: 5,
+      aspect: "16:9",
+      params: { reference_image_descriptions: ["character lock"] }
+    }, "/safe/run/generated/ignored-descriptions")).toThrow(/omni_reference/);
+
+    expect(() => buildTopviewVideoArgs({
+      id: "text-omni",
+      mode: "text-to-video",
+      prompt: "move",
+      model: "Standard",
+      duration: 5,
+      aspect: "16:9",
+      params: { omni_reference: true }
+    }, "/safe/run/generated/text-omni")).toThrow(/image-to-video/);
+  });
 });

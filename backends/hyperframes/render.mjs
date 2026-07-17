@@ -1,6 +1,7 @@
 import crossSpawn from "cross-spawn";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { resolveOutputDimensions } from "../outputDimensions.mjs";
 
 const spawnSync = crossSpawn.sync;
 
@@ -437,15 +438,7 @@ function renderLocalGsapRuntime() {
 }
 
 function compositionSize(manifest) {
-  const first = manifest.clips?.[0]?.resolution;
-  if (first?.width && first?.height) {
-    return { width: even(first.width), height: even(first.height) };
-  }
-  return manifest.meta.aspect === "9:16" ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
-}
-
-function even(value) {
-  return value % 2 === 0 ? value : value + 1;
+  return resolveOutputDimensions(manifest);
 }
 
 async function writeSuccessResult(input, manifest, render) {
