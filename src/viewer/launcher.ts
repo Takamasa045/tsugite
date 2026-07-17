@@ -1312,7 +1312,9 @@ async function createLauncherPrivateRoot(): Promise<LauncherDirectoryIdentity> {
     createdPath = await mkdtemp(join(tmpdir(), "tsugite-viewer-launcher-"));
     await chmod(createdPath, 0o700);
     const stats = await lstat(createdPath);
-    if ((stats.mode & 0o777) !== 0o700) {
+    // Windows does not expose POSIX permission bits with Unix semantics. Its temporary
+    // directory ACL remains the access boundary; identity checks below still pin the root.
+    if (process.platform !== "win32" && (stats.mode & 0o777) !== 0o700) {
       throw new Error("Viewer private root permissions must be 0700");
     }
     return await captureDirectoryIdentity(createdPath);

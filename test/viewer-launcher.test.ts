@@ -1195,7 +1195,9 @@ distribution: local-only
     const privateRoot = launcher.privateRoot!;
     const privateRootStats = await lstat(privateRoot);
     expect(privateRootStats.isDirectory()).toBe(true);
-    expect(privateRootStats.mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") {
+      expect(privateRootStats.mode & 0o777).toBe(0o700);
+    }
 
     const initialListing = await fetch(`${launcher.url}/api/projects`)
       .then((response) => response.json());
