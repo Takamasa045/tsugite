@@ -973,9 +973,21 @@ distribution: local-only
     await mkdir(join(outsideRunDir, "qa"), { recursive: true });
     await writeFile(join(outsideRunDir, "viewer", "index.html"), "external viewer\n");
     await writeFile(join(outsideRunDir, "qa", "contact-sheet.png"), "external-thumbnail");
+    let swapBlockedByWindows = false;
     const beforeServeArtifact = vi.fn(async () => {
-      await rename(runDir, join(fixture.projectDir, "dist", "local-fixture-run-original"));
-      await symlink(outsideRunDir, runDir);
+      try {
+        await rename(runDir, join(fixture.projectDir, "dist", "local-fixture-run-original"));
+        await symlink(outsideRunDir, runDir);
+      } catch (error) {
+        const code = error instanceof Error && "code" in error
+          ? String((error as NodeJS.ErrnoException).code)
+          : "";
+        if (process.platform === "win32" && ["EACCES", "EBUSY", "EPERM"].includes(code)) {
+          swapBlockedByWindows = true;
+          return;
+        }
+        throw error;
+      }
     });
     const launcher = await launch({
       projectsDir: fixture.projectsDir,
@@ -990,6 +1002,16 @@ distribution: local-only
     expect(pinnedViewer.status).toBe(200);
     await expect(pinnedViewer.text()).resolves.toContain("safe viewer");
     expect(beforeServeArtifact).toHaveBeenCalledOnce();
+
+    if (swapBlockedByWindows) {
+      const stillPinnedViewer = await fetch(project.viewerUrl);
+      expect(stillPinnedViewer.status).toBe(200);
+      await expect(stillPinnedViewer.text()).resolves.toContain("safe viewer");
+      const stillPinnedThumbnail = await fetch(project.thumbnailUrl);
+      expect(stillPinnedThumbnail.status).toBe(200);
+      await expect(stillPinnedThumbnail.text()).resolves.toBe("safe-thumbnail");
+      return;
+    }
 
     expect((await fetch(project.viewerUrl)).status).toBe(404);
     expect((await fetch(project.thumbnailUrl)).status).toBe(404);

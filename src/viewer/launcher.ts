@@ -1199,9 +1199,12 @@ async function safeProjectThumbnail(
   const projectDir = dirname(configPath);
   if (!isContained(projectDir, thumbnailPath)) return undefined;
   if (!await matchesProjectIdentity(configPath, identity)) return undefined;
+  const thumbnailReference = relative(projectDir, thumbnailPath);
   return openContainedStaticFile(
     projectDir,
-    relative(projectDir, thumbnailPath),
+    process.platform === "win32"
+      ? thumbnailReference.replaceAll("\\", "/")
+      : thumbnailReference,
     identity.realProjectDir
   );
 }
