@@ -29,7 +29,16 @@ export interface AppProps {
 }
 
 function currentLauncherHref(): string | undefined {
-  return /^\/viewer\/[^/]+\/?/.test(window.location.pathname) ? '/' : undefined
+  if (!/^\/viewer\/[^/]+\/?$/.test(window.location.pathname)) return undefined
+
+  const launcherHints = new URLSearchParams(window.location.search).getAll('launcher')
+  if (launcherHints.length !== 1) return undefined
+
+  const match = /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/.exec(launcherHints[0])
+  if (!match || match[0] !== launcherHints[0]) return undefined
+
+  const port = Number(match[1])
+  return port <= 65_535 ? `http://127.0.0.1:${port}/` : undefined
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

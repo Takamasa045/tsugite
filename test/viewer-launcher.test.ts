@@ -56,6 +56,12 @@ async function statusWithHost(url: string, host: string): Promise<number> {
   });
 }
 
+function expectedViewerUrl(launcher: WorkflowViewerLauncher, projectId: string): string {
+  const viewerUrl = new URL(`/viewer/${projectId}/`, launcher.artifactUrl);
+  viewerUrl.searchParams.set("launcher", launcher.url);
+  return viewerUrl.toString();
+}
+
 describe("workflow viewer launcher", () => {
   it("serves an empty read-only feedback aggregate when projects have no feedback", async () => {
     const fixture = await createFixture();
@@ -580,8 +586,9 @@ distribution: local-only
     const rootHtml = await rootResponse.text();
     expect(rootResponse.status).toBe(200);
     expect(rootResponse.headers.get("content-security-policy")).toContain(
-      `img-src 'self' data: blob: ${launcher.artifactUrl}`
+      "img-src 'self' data: blob:"
     );
+    expect(rootResponse.headers.get("content-security-policy")).not.toContain(launcher.artifactUrl);
     expect(rootHtml).toContain('<meta name="tsugite-launcher" content="true">');
     expect(rootHtml).toContain(
       `<meta name="tsugite-launcher-token" content="${launcher.token}">`
@@ -604,7 +611,7 @@ distribution: local-only
       status: "planned",
       updatedAt: null,
       hasViewer: false,
-      thumbnailUrl: `${launcher.artifactUrl}/thumbnail/${valid.id}`,
+      thumbnailUrl: `${launcher.url}/thumbnail/${valid.id}`,
       valid: true,
       refreshable: true,
       issues: []
@@ -620,12 +627,20 @@ distribution: local-only
       issues: [{ code: "viewer_launcher.project_invalid", message: expect.any(String) }]
     });
     expect(invalid.issue).toEqual(expect.any(String));
+    const invalidRefresh = await fetch(
+      `${launcher.url}/api/projects/${invalid.id}/refresh`,
+      {
+        method: "POST",
+        headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+      }
+    );
+    expect(invalidRefresh.status).toBe(422);
     const thumbnailResponse = await fetch(valid.thumbnailUrl);
     expect(thumbnailResponse.headers.get("access-control-allow-origin")).toBeNull();
     await expect(thumbnailResponse.text())
       .resolves.toBe("thumbnail-image");
     expect((await fetch(valid.thumbnailUrl, { method: "HEAD" })).status).toBe(200);
-    expect((await fetch(`${launcher.url}/thumbnail/${valid.id}`)).status).toBe(404);
+    expect((await fetch(`${launcher.artifactUrl}/thumbnail/${valid.id}`)).status).toBe(404);
     expect((await fetch(launcher.artifactUrl)).status).toBe(404);
     expect((await fetch(`${launcher.artifactUrl}/api/feedback`)).status).toBe(404);
     expect((await fetch(`${launcher.artifactUrl}/assets/app.js`)).status).toBe(404);
@@ -699,12 +714,12 @@ distribution: local-only
     expect(refreshed.status).toBe(200);
     expect(payload).toMatchObject({
       ok: true,
-      viewerUrl: `${launcher.artifactUrl}/viewer/${project.id}/`,
+      viewerUrl: expectedViewerUrl(launcher, project.id),
       project: {
         id: project.id,
         hasViewer: true,
         valid: true,
-        viewerUrl: `${launcher.artifactUrl}/viewer/${project.id}/`
+        viewerUrl: expectedViewerUrl(launcher, project.id)
       }
     });
     const viewerResponse = await fetch(payload.viewerUrl);
@@ -732,7 +747,7 @@ distribution: local-only
     await expect(readFile(statePath, "utf8")).rejects.toThrow();
   });
 
-  it("reports complete validation issues before refresh while keeping an existing snapshot readable", async () => {
+  it("preserves capability issues while allowing the Viewer snapshot to refresh", async () => {
     const fixture = await createFixture();
     const manifestPath = join(fixture.projectDir, "manifest.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -763,9 +778,9 @@ distribution: local-only
 
     expect(project).toMatchObject({
       valid: true,
-      refreshable: false,
+      refreshable: true,
       hasViewer: true,
-      viewerUrl: `${launcher.artifactUrl}/viewer/${project.id}/`,
+      viewerUrl: expectedViewerUrl(launcher, project.id),
       issues: [{
         code: "backend.capability.preset",
         message: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it"
@@ -783,15 +798,74 @@ distribution: local-only
         headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
       }
     );
-    expect(refreshResponse.status).toBe(422);
-    expect(beforeRefresh).not.toHaveBeenCalled();
+    expect(refreshResponse.status).toBe(200);
+    expect(beforeRefresh).toHaveBeenCalledOnce();
     await expect(refreshResponse.json()).resolves.toMatchObject({
-      ok: false,
-      issue: {
-        code: "viewer_launcher.project_invalid",
-        message: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it"
+      ok: true,
+      viewerUrl: expectedViewerUrl(launcher, project.id),
+      project: {
+        refreshable: true,
+        issues: [{
+          code: "backend.capability.preset",
+          message: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it"
+        }]
       }
     });
+  });
+
+  it("blocks Viewer refresh for missing files, adapters, and backends", async () => {
+    const cases = [
+      {
+        issueCode: "manifest.clip.src.exists",
+        mutate: async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
+          await rename(
+            join(fixture.projectDir, "media", "clip-001.mp4"),
+            join(fixture.projectDir, "media", "clip-001.missing")
+          );
+        }
+      },
+      {
+        issueCode: "adapter.not_found",
+        mutate: async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
+          const configPath = join(fixture.projectDir, "project.yaml");
+          const config = await readFile(configPath, "utf8");
+          await writeFile(configPath, `${config}generation:\n  adapter: missing-adapter\n  requests:\n    - id: missing-adapter-request\n      prompt: fixture prompt\n      model: fixture\n      duration: 1\n      aspect: "16:9"\n      params: {}\n`);
+        }
+      },
+      {
+        issueCode: "backend.not_found",
+        mutate: async (fixture: Awaited<ReturnType<typeof createFixture>>) => {
+          const configPath = join(fixture.projectDir, "project.yaml");
+          const config = await readFile(configPath, "utf8");
+          await writeFile(configPath, config.replace("backend: remotion", "backend: missing-backend"));
+        }
+      }
+    ];
+
+    for (const testCase of cases) {
+      const fixture = await createFixture();
+      await testCase.mutate(fixture);
+      const beforeRefresh = vi.fn();
+      const launcher = await launch({
+        projectsDir: fixture.projectsDir,
+        bundleDir: fixture.bundleDir,
+        port: 0,
+        beforeRefresh
+      });
+      const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+      const project = listing.projects[0];
+
+      expect(project).toMatchObject({
+        refreshable: false,
+        issues: expect.arrayContaining([{ code: testCase.issueCode, message: expect.any(String) }])
+      });
+      const response = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+        method: "POST",
+        headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+      });
+      expect(response.status).toBe(422);
+      expect(beforeRefresh).not.toHaveBeenCalled();
+    }
   });
 
   it("marks unsafe project asset paths invalid without discarding a contained snapshot", async () => {
@@ -852,10 +926,18 @@ distribution: local-only
       refreshable: false,
       status: "error",
       hasViewer: true,
-      viewerUrl: `${launcher.artifactUrl}/viewer/${project.id}/`,
+      viewerUrl: expectedViewerUrl(launcher, project.id),
       issues: [{ code: "viewer_launcher.state_invalid", message: expect.any(String) }]
     });
     expect((await fetch(project.viewerUrl)).status).toBe(200);
+    const refreshResponse = await fetch(
+      `${launcher.url}/api/projects/${project.id}/refresh`,
+      {
+        method: "POST",
+        headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+      }
+    );
+    expect(refreshResponse.status).toBe(422);
   });
 
   it("serves only files below the generated Viewer and rejects traversal and unknown ids", async () => {
@@ -1145,6 +1227,52 @@ distribution: local-only
     await launcher.closed;
     await expect(lstat(privateRoot)).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readdir(externalViewer)).toEqual(["sentinel.txt"]);
+  });
+
+  it("does not let an overlapping project reload replace a newly refreshed Viewer snapshot", async () => {
+    const fixture = await createFixture();
+    let pauseNextReload = false;
+    let markReloadStarted!: () => void;
+    let releaseReload!: () => void;
+    const reloadStarted = new Promise<void>((resolve) => {
+      markReloadStarted = resolve;
+    });
+    const reloadReleased = new Promise<void>((resolve) => {
+      releaseReload = resolve;
+    });
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      beforeProjectReloadCommit: async () => {
+        if (!pauseNextReload) return;
+        markReloadStarted();
+        await reloadReleased;
+      }
+    });
+    const initialListing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = initialListing.projects[0];
+    expect(project).toMatchObject({ hasViewer: false, refreshable: true });
+
+    pauseNextReload = true;
+    const overlappingReload = fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    await reloadStarted;
+
+    const refreshResponse = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+    expect(refreshResponse.status).toBe(200);
+    const refreshed = await refreshResponse.json();
+    releaseReload();
+
+    const reloaded = await overlappingReload;
+    expect(reloaded.projects[0]).toMatchObject({
+      id: project.id,
+      hasViewer: true,
+      viewerUrl: refreshed.viewerUrl
+    });
+    expect((await fetch(reloaded.projects[0].viewerUrl)).status).toBe(200);
   });
 
   it("refuses a project whose dist path is redirected through a symlink", async () => {
