@@ -400,19 +400,18 @@ describe('LauncherApp', () => {
     vi.unstubAllGlobals()
   })
 
-  it('案件を読み込み、検索と前回の表示を案内する', async () => {
+  it('案件を読み込み、検索と最近更新した案件を案内する', async () => {
     const user = userEvent.setup()
     const fetcher = createLauncherFetcher()
-    const navigate = vi.fn()
 
-    render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
 
     expect(screen.getByText('制作案件を読み込んでいます…')).toBeVisible()
     expect(await screen.findByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
     expect(screen.getByText('全2件 / 表示2件')).toBeVisible()
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
-    expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
-    expect(within(selectedPanel).getByText('完了')).toBeVisible()
+    expect(within(selectedPanel).getByRole('heading', { name: 'Codex Goal Talk' })).toBeVisible()
+    expect(within(selectedPanel).getByText('制作中')).toBeVisible()
     expect(within(selectedPanel).getByText(/2026\/07\/15/)).toBeVisible()
     expect(document.querySelector('img[src="/thumbnail/project-alpha"]')).toBeInTheDocument()
 
@@ -422,8 +421,120 @@ describe('LauncherApp', () => {
     expect(within(projectList).queryByRole('heading', { name: 'Codex Goal Talk' })).not.toBeInTheDocument()
 
     await user.clear(screen.getByRole('searchbox', { name: '制作案件を検索' }))
-    await user.click(screen.getByRole('button', { name: '前回の表示を開く' }))
-    expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/')
+  })
+
+  it('初期選択は表示順と同じupdatedAt降順で最新のvalid案件にする', async () => {
+    const newestInvalid = {
+      ...projects[0],
+      id: 'newest-invalid',
+      name: '最新の要確認案件',
+      updatedAt: '2026-07-16T12:00:00+09:00',
+      valid: false,
+      refreshable: false,
+    }
+    const newestValid = {
+      ...projects[1],
+      id: 'newest-valid',
+      name: '最新の有効案件',
+      updatedAt: '2026-07-16T11:00:00+09:00',
+    }
+    const olderValid = {
+      ...projects[0],
+      id: 'older-valid',
+      name: '古い有効案件',
+      updatedAt: '2026-07-16T10:00:00+09:00',
+    }
+    const fetcher = createLauncherFetcher({
+      projectList: [olderValid, newestInvalid, newestValid],
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+
+    const projectList = await screen.findByRole('region', { name: '制作案件を選ぶ' })
+    expect(within(projectList).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      '最新の要確認案件',
+      '最新の有効案件',
+      '古い有効案件',
+    ])
+    expect(within(screen.getByRole('complementary', { name: '選択した制作案件' }))
+      .getByRole('heading', { name: '最新の有効案件' })).toBeVisible()
+  })
+
+  it('制作案件棚を画面に残したまま手動再取得し、存在する選択を維持する', async () => {
+    const user = userEvent.setup()
+    const initiallySelected = {
+      ...projects[0],
+      updatedAt: '2026-07-16T10:00:00+09:00',
+    }
+    const olderProject = {
+      ...projects[1],
+      updatedAt: '2026-07-16T09:00:00+09:00',
+    }
+    const newlyUpdatedProject = {
+      ...projects[1],
+      id: 'newly-updated-project',
+      name: '新しく更新された案件',
+      updatedAt: '2026-07-16T11:00:00+09:00',
+    }
+    let projectRequestCount = 0
+    let resolveRefresh!: (response: Response) => void
+    const refreshRequest = new Promise<Response>((resolve) => { resolveRefresh = resolve })
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects') {
+        projectRequestCount += 1
+        return projectRequestCount === 1
+          ? Promise.resolve(jsonResponse({ ok: true, projects: [olderProject, initiallySelected] }))
+          : refreshRequest
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+
+    const selectedPanel = await screen.findByRole('complementary', { name: '選択した制作案件' })
+    expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '制作案件を再読み込み' }))
+
+    const refreshingButton = screen.getByRole('button', { name: '制作案件を再読み込み中…' })
+    expect(refreshingButton).toBeDisabled()
+    expect(refreshingButton).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
+    expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'サンプル映像Aの制作記録を開く' })).toBeDisabled()
+    expect(within(selectedPanel).getByRole('button', { name: '最新状態に更新して開く' })).toBeDisabled()
+
+    resolveRefresh(jsonResponse({
+      ok: true,
+      projects: [newlyUpdatedProject, initiallySelected],
+    }))
+
+    expect(await screen.findByRole('heading', { name: '新しく更新された案件' })).toBeVisible()
+    expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '制作案件を再読み込み' })).toBeEnabled()
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(2)
+  })
+
+  it('手動再取得に失敗しても現在の制作案件棚と選択を残す', async () => {
+    const user = userEvent.setup()
+    let projectRequestCount = 0
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      projectRequestCount += 1
+      return projectRequestCount === 1
+        ? Promise.resolve(jsonResponse({ ok: true, projects }))
+        : Promise.reject(new Error('offline'))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    const selectedPanel = await screen.findByRole('complementary', { name: '選択した制作案件' })
+
+    await user.click(screen.getByRole('button', { name: '制作案件を再読み込み' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('制作案件を再読み込みできませんでした。')
+    expect(screen.getByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
+    expect(within(selectedPanel).getByRole('heading', { name: 'Codex Goal Talk' })).toBeVisible()
   })
 
   it('大量の案件を最近更新順に12件ずつ表示し、状態で絞り込める', async () => {
@@ -845,6 +956,31 @@ describe('LauncherApp', () => {
     expect(navigate).toHaveBeenCalledWith('/viewers/unsupported-showreel/')
   })
 
+  it('Viewer更新で許容する実行能力の不一致を警告し、要確認に分類する', async () => {
+    const user = userEvent.setup()
+    const capabilityWarningProject = {
+      ...projects[0],
+      id: 'viewer-refreshable-warning',
+      name: '実行条件要確認',
+      issue: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it",
+    }
+    const fetcher = createLauncherFetcher({ projectList: [capabilityWarningProject] })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+
+    const warningCard = await screen.findByRole('button', { name: '実行条件要確認の注意事項を確認' })
+    expect(warningCard).toHaveTextContent('実行条件の確認が必要')
+    expect(warningCard).toHaveAccessibleDescription(capabilityWarningProject.issue)
+
+    const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
+    expect(within(selectedPanel).getByText('Viewerは更新できますが実行条件の確認が必要です')).toBeVisible()
+    expect(within(selectedPanel).getByText(capabilityWarningProject.issue)).toBeVisible()
+    expect(within(selectedPanel).getByRole('button', { name: '最新状態に更新して開く' })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: '要確認で絞り込む' }))
+    expect(warningCard).toBeVisible()
+  })
+
   it('metaのsession tokenを使い、更新失敗時はViewerへ移動しない', async () => {
     const user = userEvent.setup()
     const meta = document.createElement('meta')
@@ -872,7 +1008,7 @@ describe('LauncherApp', () => {
       '最新の制作記録を開けませんでした。参照画像 section-01.png が見つかりません。',
     )
     expect(fetcher).toHaveBeenLastCalledWith(
-      '/api/projects/project-alpha/refresh',
+      '/api/projects/codex-goal-talk-paper/refresh',
       expect.objectContaining({
         headers: expect.objectContaining({ 'x-tsugite-token': 'meta-session-token' }),
       }),

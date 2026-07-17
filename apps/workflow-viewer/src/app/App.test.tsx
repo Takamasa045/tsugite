@@ -25,7 +25,65 @@ vi.mock('../components/scene', () => ({
 
 describe('App', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '/')
     useWorkflowStore.getState().clearWorkflow()
+  })
+
+  it.each([
+    ['http://127.0.0.1:1', 'http://127.0.0.1:1/'],
+    ['http://127.0.0.1:4173/', 'http://127.0.0.1:4173/'],
+    ['http://127.0.0.1:65535', 'http://127.0.0.1:65535/'],
+  ])('Viewer URLの有効なlauncher origin %s を戻り導線にする', async (launcher, expectedHref) => {
+    window.history.replaceState(
+      null,
+      '',
+      `/viewer/sample-project/?launcher=${encodeURIComponent(launcher)}`,
+    )
+
+    render(<App />)
+
+    expect(await screen.findByRole('link', { name: '制作案件へ戻る' })).toHaveAttribute(
+      'href',
+      expectedHref,
+    )
+  })
+
+  it.each([
+    ['外部host', 'http://example.com:4173/'],
+    ['localhost別名', 'http://localhost:4173/'],
+    ['credentials', 'http://user:pass@127.0.0.1:4173/'],
+    ['path', 'http://127.0.0.1:4173/projects'],
+    ['fragment', 'http://127.0.0.1:4173/#projects'],
+    ['query', 'http://127.0.0.1:4173/?project=sample'],
+    ['異なるscheme', 'https://127.0.0.1:4173/'],
+    ['portなし', 'http://127.0.0.1/'],
+    ['port 0', 'http://127.0.0.1:0/'],
+    ['数字以外のport', 'http://127.0.0.1:port/'],
+    ['範囲外のport', 'http://127.0.0.1:65536/'],
+  ])('Viewer URLの不正なlauncher hintは戻り導線にしない: %s', async (_label, launcher) => {
+    window.history.replaceState(
+      null,
+      '',
+      `/viewer/sample-project/?launcher=${encodeURIComponent(launcher)}`,
+    )
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: workflowSamples[0].data.name })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '制作案件へ戻る' })).not.toBeInTheDocument()
+  })
+
+  it('standalone Viewerは有効なlauncher hintがあっても戻り導線を表示しない', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      `/?launcher=${encodeURIComponent('http://127.0.0.1:4173')}`,
+    )
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: workflowSamples[0].data.name })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '制作案件へ戻る' })).not.toBeInTheDocument()
   })
 
   it('サンプルを読み込み、3D選択と詳細表示を統合する', async () => {

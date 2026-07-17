@@ -172,6 +172,17 @@
 
 .launcher-section-heading h2,
 .launcher-feedback-heading h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }
+.launcher-project-list-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.launcher-project-list-refresh { min-height: 36px; padding: 0 12px; white-space: nowrap; }
+.launcher-project-list-refresh-error {
+  margin: 16px 0 0;
+  border-left: 3px solid var(--launcher-urushi);
+  padding: 10px 12px;
+  color: #65362f;
+  background: #fff4f0;
+  font-size: .72rem;
+  line-height: 1.6;
+}
 .launcher-project-card,
 .launcher-template-card,
 .launcher-feedback-card { border-radius: 1px 14px 1px 14px; transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
@@ -467,6 +478,8 @@
   .launcher-joinery,
   .launcher-workbench,
   .launcher-feedback-panel { width: calc(100% - 24px); }
+  .launcher-section-heading { align-items: flex-start; flex-direction: column; }
+  .launcher-project-list-actions { width: 100%; justify-content: space-between; }
   .launcher-feedback-pickup > header { padding: 18px 18px 14px 22px; }
   .launcher-feedback-pickup > header > strong { min-width: 52px; height: 52px; }
   .launcher-feedback-pickup ul { padding: 0 12px 14px 16px; }

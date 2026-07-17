@@ -86,6 +86,14 @@ const LAUNCHER_FEEDBACK_MAX_ITEMS = 1_000;
 const LAUNCHER_FEEDBACK_NOTICE_RESERVE = 3;
 const REVIEW_PREVIEW_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
 const LAUNCHER_DECISION_BODY_MAX_BYTES = 8 * 1024;
+const VIEWER_REFRESH_CAPABILITY_ISSUES = new Set([
+  "backend.capability.captions",
+  "backend.capability.vertical",
+  "backend.capability.fps",
+  "backend.capability.audio_mix",
+  "backend.capability.transitions",
+  "backend.capability.preset"
+]);
 const promotionDecisionSchema = z.object({
   key: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
   proposalId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
@@ -183,6 +191,7 @@ export type StartWorkflowViewerLauncherOptions = {
   port?: number;
   bundleDir?: string;
   beforeRefresh?: (project: LauncherProject) => void | Promise<void>;
+  beforeProjectReloadCommit?: () => void | Promise<void>;
   beforeServeArtifact?: (path: string) => void | Promise<void>;
   writeViewer?: (options: WriteWorkflowViewerOptions) => Promise<WorkflowViewerResult>;
 };
@@ -223,14 +232,23 @@ export async function startWorkflowViewerLauncher(
   let artifactOrigin = "";
 
   const reloadProjects = async (): Promise<LauncherProject[]> => {
+    const snapshotsAtStart = new Map(viewerSnapshots);
     const discovered = await discoverProjects(
       projectsDir,
       idsByConfig,
       artifactOrigin,
+      launcherOrigin,
       viewerSnapshots
     );
-    projects = new Map(discovered.map((project) => [project.id, project]));
-    return discovered.map((project) => project.public);
+    await options.beforeProjectReloadCommit?.();
+    const nextProjects = new Map(discovered.map((project) => [project.id, project]));
+    for (const [projectId, currentRecord] of projects) {
+      if (viewerSnapshots.get(projectId) !== snapshotsAtStart.get(projectId)) {
+        nextProjects.set(projectId, currentRecord);
+      }
+    }
+    projects = nextProjects;
+    return [...nextProjects.values()].map((project) => project.public);
   };
   const rootHtml = injectLauncherMeta(
     await readFile(join(bundleDir, "index.html"), "utf8"),
@@ -293,7 +311,7 @@ export async function startWorkflowViewerLauncher(
       response.setHeader("content-type", "text/html; charset=utf-8");
       response.setHeader(
         "content-security-policy",
-        `default-src 'self'; img-src 'self' data: blob: ${artifactOrigin}; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`
+        "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
       );
       response.end(rootHtml);
       return;
@@ -306,6 +324,20 @@ export async function startWorkflowViewerLauncher(
       );
       if (!assetFile) return sendNotFound(response);
       return serveFile(request, response, assetFile);
+    }
+
+    const thumbnailMatch = /^\/thumbnail\/([^/]+)$/.exec(requestUrl.pathname);
+    if ((method === "GET" || method === "HEAD") && thumbnailMatch) {
+      const record = projects.get(thumbnailMatch[1]!);
+      if (!record?.thumbnailPath || !record.identity) return sendNotFound(response);
+      const thumbnailFile = await safeProjectThumbnail(
+        record.configPath,
+        record.thumbnailPath,
+        record.identity
+      );
+      if (!thumbnailFile) return sendNotFound(response);
+      await beforeServeArtifact(thumbnailFile);
+      return serveFile(request, response, thumbnailFile);
     }
 
     if (method === "GET" && requestUrl.pathname === "/api/projects") {
@@ -502,7 +534,11 @@ export async function startWorkflowViewerLauncher(
           return;
         }
         const validation = await validateProject(record.configPath);
-        if (!validation.ok) {
+        if (
+          !validation.project
+          || !validation.manifest
+          || !validation.issues.every(isExecutionCapabilityIssue)
+        ) {
           sendJson(response, 422, {
             ok: false,
             issue: {
@@ -567,6 +603,7 @@ export async function startWorkflowViewerLauncher(
           record.configPath,
           record.id,
           artifactOrigin,
+          launcherOrigin,
           snapshot
         );
         if (!refreshedRecord.outputDir || !refreshedRecord.viewerRoot) {
@@ -581,7 +618,7 @@ export async function startWorkflowViewerLauncher(
         }
         viewerSnapshots.set(projectId, snapshot);
         projects.set(projectId, refreshedRecord);
-        const viewerUrl = `${artifactOrigin}/viewer/${projectId}/`;
+        const viewerUrl = createViewerUrl(artifactOrigin, launcherOrigin, projectId);
         sendJson(response, 200, {
           ok: true,
           viewerUrl,
@@ -610,20 +647,6 @@ export async function startWorkflowViewerLauncher(
     }
     const requestUrl = new URL(request.url ?? "/", artifactOrigin || `http://${LOOPBACK_HOST}`);
     const method = request.method ?? "GET";
-
-    const thumbnailMatch = /^\/thumbnail\/([^/]+)$/.exec(requestUrl.pathname);
-    if ((method === "GET" || method === "HEAD") && thumbnailMatch) {
-      const record = projects.get(thumbnailMatch[1]!);
-      if (!record?.thumbnailPath || !record.identity) return sendNotFound(response);
-      const thumbnailFile = await safeProjectThumbnail(
-        record.configPath,
-        record.thumbnailPath,
-        record.identity
-      );
-      if (!thumbnailFile) return sendNotFound(response);
-      await beforeServeArtifact(thumbnailFile);
-      return serveFile(request, response, thumbnailFile);
-    }
 
     const viewerMatch = /^\/viewer\/([^/]+)(?:\/(.*))?$/.exec(requestUrl.pathname);
     if ((method === "GET" || method === "HEAD") && viewerMatch) {
@@ -800,6 +823,7 @@ async function discoverProjects(
   projectsDir: string,
   idsByConfig: Map<string, string>,
   artifactOrigin: string,
+  launcherOrigin: string,
   viewerSnapshots: Map<string, LauncherViewerSnapshot>
 ): Promise<LauncherProjectRecord[]> {
   let entries;
@@ -830,6 +854,7 @@ async function discoverProjects(
             configPath,
             id,
             artifactOrigin,
+            launcherOrigin,
             viewerSnapshots.get(id)
           );
         })
@@ -985,6 +1010,7 @@ async function inspectProject(
   configPath: string,
   id: string,
   artifactOrigin: string,
+  launcherOrigin: string,
   knownSnapshot?: LauncherViewerSnapshot
 ): Promise<LauncherProjectRecord> {
   let sourceModifiedAtMs = 0;
@@ -1035,8 +1061,8 @@ async function inspectProject(
     const hasViewer = outputDir
       ? await isRegularFile(join(outputDir, "index.html"))
       : false;
-    const viewerUrl = hasViewer ? `${artifactOrigin}/viewer/${id}/` : undefined;
-    const thumbnailUrl = thumbnailPath ? `${artifactOrigin}/thumbnail/${id}` : undefined;
+    const viewerUrl = hasViewer ? createViewerUrl(artifactOrigin, launcherOrigin, id) : undefined;
+    const thumbnailUrl = thumbnailPath ? `${launcherOrigin}/thumbnail/${id}` : undefined;
     const validation = await validateProject(configPath);
     const safetyIssues = validation.issues.filter(isProjectSafetyIssue);
     const issues = [
@@ -1066,7 +1092,10 @@ async function inspectProject(
         ...(viewerUrl ? { viewerUrl } : {}),
         ...(thumbnailUrl ? { thumbnailUrl } : {}),
         valid: safetyIssues.length === 0,
-        refreshable: validation.ok && stateIssue === undefined,
+        refreshable: validation.project !== undefined
+          && validation.manifest !== undefined
+          && validation.issues.every(isExecutionCapabilityIssue)
+          && stateIssue === undefined,
         issues,
         ...(issues[0] ? { issue: issues[0].message } : {})
       }
@@ -1104,6 +1133,20 @@ function isProjectSafetyIssue(issue: Issue): boolean {
     || issue.code === "manifest.image.src.local"
     || issue.code.endsWith(".safe")
     || issue.code.endsWith(".symlink");
+}
+
+function isExecutionCapabilityIssue(issue: Issue): boolean {
+  return VIEWER_REFRESH_CAPABILITY_ISSUES.has(issue.code);
+}
+
+function createViewerUrl(
+  artifactOrigin: string,
+  launcherOrigin: string,
+  projectId: string
+): string {
+  const viewerUrl = new URL(`/viewer/${projectId}/`, artifactOrigin);
+  viewerUrl.searchParams.set("launcher", launcherOrigin);
+  return viewerUrl.toString();
 }
 
 function toPublicLauncherIssue(issue: Issue): Issue {
@@ -1156,9 +1199,12 @@ async function safeProjectThumbnail(
   const projectDir = dirname(configPath);
   if (!isContained(projectDir, thumbnailPath)) return undefined;
   if (!await matchesProjectIdentity(configPath, identity)) return undefined;
+  const thumbnailReference = relative(projectDir, thumbnailPath);
   return openContainedStaticFile(
     projectDir,
-    relative(projectDir, thumbnailPath),
+    process.platform === "win32"
+      ? thumbnailReference.replaceAll("\\", "/")
+      : thumbnailReference,
     identity.realProjectDir
   );
 }
@@ -1269,7 +1315,9 @@ async function createLauncherPrivateRoot(): Promise<LauncherDirectoryIdentity> {
     createdPath = await mkdtemp(join(tmpdir(), "tsugite-viewer-launcher-"));
     await chmod(createdPath, 0o700);
     const stats = await lstat(createdPath);
-    if ((stats.mode & 0o777) !== 0o700) {
+    // Windows does not expose POSIX permission bits with Unix semantics. Its temporary
+    // directory ACL remains the access boundary; identity checks below still pin the root.
+    if (process.platform !== "win32" && (stats.mode & 0o777) !== 0o700) {
       throw new Error("Viewer private root permissions must be 0700");
     }
     return await captureDirectoryIdentity(createdPath);
