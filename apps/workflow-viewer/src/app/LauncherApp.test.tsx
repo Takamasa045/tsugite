@@ -83,11 +83,109 @@ const templates = [
   },
 ]
 
+const feedback = {
+  metrics: {
+    observed: 3,
+    recurring: 2,
+    promoted: 1,
+    verified: 1,
+    issues: 0,
+  },
+  preferences: [
+    {
+      key: 'wa-modern-interface',
+      category: '画面デザイン',
+      signal: 'prefer' as const,
+      stage: 'promoted' as const,
+      summary: '和モダンの意匠を制作画面に取り入れる。',
+      projectCount: 3,
+      projectNames: ['天狗の山寺', '稲作ケータリング', '未来市プロモ'],
+      runIds: ['tengu-r3', 'inaka-r9', 'miraichi-r13'],
+      evidence: ['projects/tengu/notes.md', 'LESSONS.md#wa-modern'],
+      promotion: {
+        projectId: 'tengu',
+        projectName: '天狗の山寺',
+        kind: 'template' as const,
+        target: 'templates/wa-modern-launcher',
+      },
+      promotions: [
+        {
+          projectId: 'tengu',
+          projectName: '天狗の山寺',
+          kind: 'template' as const,
+          target: 'templates/wa-modern-launcher',
+        },
+        {
+          projectId: 'inaka',
+          projectName: '稲作ケータリング',
+          kind: 'rule' as const,
+          target: 'LESSONS.md#wa-modern',
+        },
+      ],
+      lastSeenAt: '2026-07-17T08:30:00+09:00',
+    },
+    {
+      key: 'opening-audio',
+      category: '音声',
+      signal: 'keep' as const,
+      stage: 'verified' as const,
+      summary: '冒頭からBGMまたは短いSFXを入れる。',
+      projectCount: 2,
+      projectNames: ['天狗の山寺', 'monpe-ai-dialogue'],
+      runIds: ['tengu-r3', 'monpe-r2'],
+      evidence: ['LESSONS.md#opening-audio'],
+      promotion: {
+        projectId: 'tengu',
+        projectName: '天狗の山寺',
+        kind: 'qa' as const,
+        target: 'Gate 3 opening-audio check',
+      },
+      promotions: [{
+        projectId: 'tengu',
+        projectName: '天狗の山寺',
+        kind: 'qa' as const,
+        target: 'Gate 3 opening-audio check',
+      }],
+      lastSeenAt: '2026-07-16T21:00:00+09:00',
+    },
+  ],
+  issues: [],
+}
+
 function jsonResponse(input: unknown, ok = true): Response {
   return { ok, json: async () => input } as Response
 }
 
 describe('LauncherApp', () => {
+  it('棚タブを矢印キーとHome・Endで移動できる', async () => {
+    const user = userEvent.setup()
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/templates') return Promise.resolve(jsonResponse({ ok: true, templates }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      return Promise.resolve(jsonResponse({ ok: true, projects }))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    const projectsTab = screen.getByRole('tab', { name: '制作案件' })
+    const templatesTab = screen.getByRole('tab', { name: 'テンプレート' })
+    const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+
+    projectsTab.focus()
+    await user.keyboard('{ArrowRight}')
+    expect(templatesTab).toHaveFocus()
+    expect(templatesTab).toHaveAttribute('aria-selected', 'true')
+    expect(projectsTab).toHaveAttribute('tabindex', '-1')
+
+    await user.keyboard('{End}')
+    expect(feedbackTab).toHaveFocus()
+    expect(feedbackTab).toHaveAttribute('aria-selected', 'true')
+
+    await user.keyboard('{Home}')
+    expect(projectsTab).toHaveFocus()
+    expect(projectsTab).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('既定のfetchでも一覧取得を一度だけ実行する', async () => {
     const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects }))
     vi.stubGlobal('fetch', fetcher)
@@ -210,6 +308,148 @@ describe('LauncherApp', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('テンプレートを読み込めませんでした。')
     await user.click(screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' }))
     expect(await screen.findByText('表示できるテンプレートはまだありません。')).toBeVisible()
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it('好み・学びを必要時だけ読み込み、4段階と根拠を表示する', async () => {
+    const user = userEvent.setup()
+    let resolveFeedback!: (response: Response) => void
+    const feedbackRequest = new Promise<Response>((resolve) => { resolveFeedback = resolve })
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
+      .mockReturnValueOnce(feedbackRequest)
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+
+    const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+    await user.click(feedbackTab)
+    expect(feedbackTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('好み・学びを整理しています…')).toBeVisible()
+    expect(fetcher).toHaveBeenLastCalledWith('/api/feedback', {
+      headers: { accept: 'application/json' },
+    })
+
+    resolveFeedback(jsonResponse({ ok: true, feedback }))
+    const metrics = await screen.findByLabelText('学びの4段階')
+    expect(within(metrics).getByText('観測中').parentElement).toHaveTextContent('観測中 / 到達済み3')
+    expect(within(metrics).getByText('学習中').parentElement).toHaveTextContent('学習中 / 到達済み2')
+    expect(within(metrics).getByText('反映済み').parentElement).toHaveTextContent('反映済み / 到達済み1')
+    expect(within(metrics).getByText('適用確認済み').parentElement).toHaveTextContent('適用確認済み / 到達済み1')
+
+    const promotedCard = screen.getByRole('button', { name: '和モダンの意匠を制作画面に取り入れる。の詳細を見る' })
+    expect(promotedCard).toHaveAttribute('aria-pressed', 'true')
+    expect(promotedCard).toHaveTextContent('画面デザイン')
+    expect(promotedCard).toHaveTextContent('取り入れたい')
+    expect(promotedCard).toHaveTextContent('3案件')
+    expect(promotedCard).toHaveTextContent('反映済み')
+    expect(promotedCard).toHaveTextContent('templates/wa-modern-launcher')
+    expect(promotedCard).toHaveTextContent('ほか1件')
+    expect(promotedCard).toHaveTextContent('適用未確認')
+
+    const detail = screen.getByRole('complementary', { name: '選択した好み・学び' })
+    expect(within(detail).getAllByText('天狗の山寺').length).toBeGreaterThan(0)
+    expect(within(detail).getByText('tengu-r3')).toBeVisible()
+    expect(within(detail).getByText('projects/tengu/notes.md')).toBeVisible()
+    const promotionSection = within(detail).getByRole('heading', { name: '昇格先' }).closest('section')
+    expect(promotionSection).not.toBeNull()
+    expect(within(promotionSection!).getByText('LESSONS.md#wa-modern')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '冒頭からBGMまたは短いSFXを入れる。の詳細を見る' }))
+    expect(within(detail).getByText('適用確認').parentElement).toHaveTextContent('適用確認済み')
+
+    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(feedbackTab)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('読み取り警告は最大5件の詳細と残件数を表示する', async () => {
+    const user = userEvent.setup()
+    const issues = Array.from({ length: 6 }, (_, index) => ({
+      code: `feedback.issue_${index + 1}`,
+      message: `確認が必要な記録${index + 1}`,
+      projectName: `案件${index + 1}`,
+      line: index + 10,
+      path: `projects/project-${index + 1}/feedback.jsonl`,
+    }))
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        feedback: { ...feedback, metrics: { ...feedback.metrics, issues: 6 }, issues },
+      }))
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const warning = await screen.findByRole('status', { name: '読み取り警告' })
+    expect(warning).toHaveTextContent('案件1')
+    expect(warning).toHaveTextContent('feedback.issue_1')
+    expect(warning).toHaveTextContent('10行')
+    expect(warning).toHaveTextContent('確認が必要な記録1')
+    expect(warning).not.toHaveTextContent('案件6')
+    expect(warning).toHaveTextContent('ほか1件')
+  })
+
+  it('好み・学びを24件ずつ表示し、棚に戻ると表示件数を戻す', async () => {
+    const user = userEvent.setup()
+    const manyPreferences = Array.from({ length: 25 }, (_, index) => ({
+      ...feedback.preferences[0]!,
+      key: `preference-${index + 1}`,
+      summary: `好み・学び ${String(index + 1).padStart(2, '0')}`,
+    }))
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        feedback: { ...feedback, preferences: manyPreferences },
+      }))
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+    await user.click(feedbackTab)
+
+    expect(await screen.findByText('全25件 / 表示24件')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '好み・学び 25の詳細を見る' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '残り1件を表示' }))
+    expect(screen.getByRole('button', { name: '好み・学び 25の詳細を見る' })).toBeVisible()
+
+    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(feedbackTab)
+    expect(screen.getByText('全25件 / 表示24件')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '好み・学び 25の詳細を見る' })).not.toBeInTheDocument()
+  })
+
+  it('好み・学びの読込失敗から再試行でき、空状態を案内する', async () => {
+    const user = userEvent.setup()
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        feedback: {
+          metrics: { observed: 0, recurring: 0, promoted: 0, verified: 0, issues: 0 },
+          preferences: [],
+          issues: [],
+        },
+      }))
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('好み・学びを読み込めませんでした。')
+    await user.click(screen.getByRole('button', { name: '好み・学びをもう一度読み込む' }))
+    expect(await screen.findByText('まだ整理された好み・学びはありません。')).toBeVisible()
+    expect(screen.getByText('pipeline feedback')).toBeVisible()
+    expect(screen.getByText('feedback.jsonl')).toBeVisible()
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 

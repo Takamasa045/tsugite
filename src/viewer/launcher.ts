@@ -14,6 +14,12 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { parse } from "yaml";
 import { z } from "zod";
+import {
+  aggregateFeedback,
+  readProjectFeedback,
+  type FeedbackAggregate,
+  type FeedbackRecord
+} from "../feedback/index.js";
 import { createPlan } from "../orchestrator/plan.js";
 import { readState } from "../orchestrator/state.js";
 import { loadProject } from "../project/loadProject.js";
@@ -61,7 +67,12 @@ export type LauncherTemplate = {
   issue?: { code: string; message: string };
 };
 
+export type LauncherFeedback = FeedbackAggregate;
+
 const TEMPLATE_METADATA_MAX_BYTES = 64 * 1024;
+const LAUNCHER_FEEDBACK_MAX_PROJECTS = 128;
+const LAUNCHER_FEEDBACK_MAX_ITEMS = 1_000;
+const LAUNCHER_FEEDBACK_NOTICE_RESERVE = 3;
 const templateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const nonEmptyText = z.string().trim().min(1).max(240);
 const descriptionText = z.string().trim().min(1).max(600);
@@ -227,6 +238,78 @@ export async function startWorkflowViewerLauncher(
       return;
     }
 
+    if (method === "GET" && requestUrl.pathname === "/api/feedback") {
+      await reloadProjects();
+      const projectRecords = [...projects.values()];
+      const visibleProjectRecords = projectRecords.slice(0, LAUNCHER_FEEDBACK_MAX_PROJECTS);
+      const projectFeedback = [];
+      const perProjectItemLimit = Math.max(
+        1,
+        Math.floor(
+          (LAUNCHER_FEEDBACK_MAX_ITEMS - LAUNCHER_FEEDBACK_NOTICE_RESERVE)
+          / Math.max(visibleProjectRecords.length, 1)
+        )
+      );
+      let recordsWereLimited = false;
+      let issuesWereLimited = false;
+      for (const record of visibleProjectRecords) {
+        const result = await readProjectFeedback(record.configPath);
+        const reservedIssueSlots = result.issues.length > 0 && perProjectItemLimit > 1
+          ? Math.max(1, Math.floor(perProjectItemLimit / 4))
+          : 0;
+        const entryLimit = perProjectItemLimit - reservedIssueSlots;
+        const entries = selectRecentFeedbackEntries(result.entries, entryLimit);
+        const issueLimit = Math.max(0, perProjectItemLimit - entries.length);
+        const issues = issueLimit > 0 ? result.issues.slice(-issueLimit) : [];
+        recordsWereLimited ||= result.entries.length > entries.length;
+        issuesWereLimited ||= result.issues.length > issues.length;
+        projectFeedback.push({
+          projectId: record.id,
+          projectName: record.name,
+          runId: record.public.runId,
+          entries,
+          issues: issues.map((issue) => ({
+            ...issue,
+            ...(issue.path && isAbsolute(issue.path) ? { path: "feedback.jsonl" } : {})
+          }))
+        });
+      }
+      if (recordsWereLimited) projectFeedback.push({
+        projectId: "launcher-record-limit",
+        projectName: "ランチャー",
+        entries: [],
+        issues: [{
+          code: "feedback.aggregate_record_limit",
+          message: `各案件の最新記録を優先し、表示対象を合計${LAUNCHER_FEEDBACK_MAX_ITEMS}項目以内に制限しました`
+        }]
+      });
+      if (issuesWereLimited) projectFeedback.push({
+        projectId: "launcher-issue-limit",
+        projectName: "ランチャー",
+        entries: [],
+        issues: [{
+          code: "feedback.aggregate_issue_limit",
+          message: `各案件の最新診断を優先し、表示対象を合計${LAUNCHER_FEEDBACK_MAX_ITEMS}項目以内に制限しました`
+        }]
+      });
+      if (projectRecords.length > LAUNCHER_FEEDBACK_MAX_PROJECTS) {
+        projectFeedback.push({
+          projectId: "launcher-project-limit",
+          projectName: "ランチャー",
+          entries: [],
+          issues: [{
+            code: "feedback.aggregate_project_limit",
+            message: `表示対象の案件を${LAUNCHER_FEEDBACK_MAX_PROJECTS}件に制限しました`
+          }]
+        });
+      }
+      sendJson(response, 200, {
+        ok: true,
+        feedback: boundLauncherFeedbackOutput(aggregateFeedback(projectFeedback))
+      });
+      return;
+    }
+
     const refreshMatch = /^\/api\/projects\/([^/]+)\/refresh$/.exec(requestUrl.pathname);
     if (method === "POST" && refreshMatch) {
       if (
@@ -360,6 +443,81 @@ export async function startWorkflowViewerLauncher(
     closed,
     close: () => closeServer(server)
   };
+}
+
+function selectRecentFeedbackEntries(entries: FeedbackRecord[], limit: number): FeedbackRecord[] {
+  if (limit <= 0) return [];
+  if (entries.length <= limit) return entries;
+
+  const indicesByKey = new Map<string, number[]>();
+  for (const [index, entry] of entries.entries()) {
+    const indices = indicesByKey.get(entry.key) ?? [];
+    indices.push(index);
+    indicesByKey.set(entry.key, indices);
+  }
+  const newestFirst = (left: number, right: number) =>
+    entries[right]!.created_at.localeCompare(entries[left]!.created_at) || right - left;
+  const groups = [...indicesByKey.values()].sort((left, right) =>
+    entries[[...right].sort(newestFirst)[0]!]!.created_at.localeCompare(
+      entries[[...left].sort(newestFirst)[0]!]!.created_at
+    )
+  );
+  const selected = new Set<number>();
+  const add = (index: number | undefined): boolean => {
+    if (index === undefined || selected.has(index)) return true;
+    if (selected.size >= limit) return false;
+    selected.add(index);
+    return true;
+  };
+
+  for (const indices of groups) {
+    if (selected.size >= limit) break;
+    const orderedIndices = [...indices].sort(newestFirst);
+    const latestPromotion = orderedIndices.find((index) => entries[index]!.stage === "promoted");
+    const latestVerification = orderedIndices.find((index) => entries[index]!.stage === "verified");
+    if (latestPromotion !== undefined) {
+      add(latestPromotion);
+      if (
+        latestVerification !== undefined
+        && entries[latestPromotion]!.created_at < entries[latestVerification]!.created_at
+      ) add(latestVerification);
+    }
+    add(orderedIndices[0]);
+  }
+  for (const index of entries.map((_, itemIndex) => itemIndex).sort(newestFirst)) {
+    if (selected.size >= limit) break;
+    add(index);
+  }
+  return [...selected].sort((left, right) => left - right).map((index) => entries[index]!);
+}
+
+function boundLauncherFeedbackOutput(feedback: FeedbackAggregate): FeedbackAggregate {
+  if (feedback.preferences.length + feedback.issues.length <= LAUNCHER_FEEDBACK_MAX_ITEMS) return feedback;
+
+  const payloadLimit = LAUNCHER_FEEDBACK_MAX_ITEMS - 1;
+  const prioritizedIssues = [...feedback.issues].sort((left, right) => {
+    const leftLimit = left.code.startsWith("feedback.aggregate_") ? 0 : 1;
+    const rightLimit = right.code.startsWith("feedback.aggregate_") ? 0 : 1;
+    return leftLimit - rightLimit;
+  });
+  const reservedIssueSlots = Math.min(prioritizedIssues.length, Math.max(1, Math.floor(payloadLimit / 4)));
+  const preferences = feedback.preferences.slice(0, payloadLimit - reservedIssueSlots);
+  const issues = prioritizedIssues.slice(0, payloadLimit - preferences.length);
+  issues.push({
+    code: "feedback.aggregate_output_limit",
+    message: `好み・学びと診断の表示を合計${LAUNCHER_FEEDBACK_MAX_ITEMS}項目に制限しました`,
+    projectId: "launcher-output-limit",
+    projectName: "ランチャー"
+  });
+  const metrics = preferences.reduce<FeedbackAggregate["metrics"]>((result, preference) => {
+    const rank = { observed: 0, recurring: 1, promoted: 2, verified: 3 }[preference.stage];
+    result.observed += 1;
+    if (rank >= 1) result.recurring += 1;
+    if (rank >= 2) result.promoted += 1;
+    if (rank >= 3) result.verified += 1;
+    return result;
+  }, { observed: 0, recurring: 0, promoted: 0, verified: 0, issues: issues.length });
+  return { metrics, preferences, issues };
 }
 
 export async function openWorkflowViewerLauncher(url: string): Promise<void> {

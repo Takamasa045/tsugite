@@ -51,7 +51,7 @@ npm --prefix apps/workflow-viewer ci  # first time only
 npm run viewer:open
 ```
 
-The launcher binds only to an available `127.0.0.1` port, lists direct `projects/*/project.yaml` entries, and can refresh or open their read-only snapshots. It never runs production adapters, changes Gates or state, or publishes the server externally. Stop it with `Ctrl+C` in the launching terminal.
+The launcher binds only to an available `127.0.0.1` port, lists direct `projects/*/project.yaml` entries, and can refresh or open their read-only snapshots. Its **Preferences & Learnings** shelf summarizes local `feedback.jsonl` records across those projects, including their `observed` / `recurring` / `promoted` / `verified` status. It reads at most 128 projects and fairly selects up to 1,000 of their latest records and diagnostics, reporting when either limit is reached. The shelf is read-only: it never rewrites prompts, templates, or rules, and the launcher never runs production adapters, changes Gates or state, or publishes the server externally. Stop it with `Ctrl+C` in the launching terminal.
 
 ```sh
 cd apps/workflow-viewer
@@ -201,18 +201,30 @@ one of those adapters. See [Optional Adapters](docs/optional-adapters.md).
 
 Tsugite does not become more personalized just because you generate many videos. It improves when you feed review notes, retry reasons, and repeated preferences back into the repository.
 
+Structured feedback stays local in each `projects/<job>/feedback.jsonl`. Record a stable `key` for the same preference across projects so repetitions can be identified without treating generation count as learning. The lifecycle is `observed` (recorded once), `recurring` (repeated evidence), `promoted` (a human approved a reusable change), then `verified` (later output confirms the improvement). Promotion is always a human decision; neither `pipeline feedback` nor the launcher changes prompts, templates, checks, or operating rules automatically.
+
 Use this loop:
 
 1. Create a project under `projects/`.
 2. Generate or assemble only after the Gate approvals.
-3. Review the output and write what worked, what failed, and why you retried.
-4. Keep one-off notes inside that project.
-5. Promote repeated lessons into reusable examples, templates, adapter/backend constraints, validation/doctor checks, tests/fixtures, operational rules, or public contracts.
+3. Review the output and record what worked, what failed, and why you retried with `pipeline feedback`.
+4. Keep one-off notes and the local `feedback.jsonl` inside that project.
+5. Use repeated records with the same `key` as evidence, then promote a reusable change only after human approval.
+6. Verify the promoted change against a later output before marking the feedback `verified`.
+
+For example, record feedback against a copied local project and inspect the resulting JSON without exposing an absolute local path:
+
+```sh
+node bin/pipeline feedback --config projects/my-first-run/project.yaml \
+  --key opening-audio --category audio --signal prefer --stage observed \
+  --summary "Start music within the first 0.5 seconds" --json
+```
 
 Recommended promotion rule:
 
 ```text
-One-off preference       -> projects/<job>/notes.md
+One-off preference       -> projects/<job>/notes.md + feedback.jsonl (observed)
+Repeated preference key  -> feedback.jsonl (recurring; review for promotion)
 Reusable style choice    -> examples/ or templates/
 Machine-checkable issue  -> constraints.yaml / validate / doctor + tests/fixtures
 Judgment-based rule      -> LESSONS.md -> .agents/skills/tsugite/SKILL.md / CLAUDE.md / AGENTS.md
@@ -220,7 +232,7 @@ QA rule                  -> Gate 2 / Gate 3 checks + report schema/tests
 Public contract change   -> README / manifest/schema.md / docs/requirements.md
 ```
 
-Every promotion should leave either a reproducing fixture and test, or a human-readable operating rule. Gate 2 / Gate 3 check changes should update the report shape and tests together.
+Every promotion requires human approval and should leave either a reproducing fixture and test, or a human-readable operating rule. Gate 2 / Gate 3 check changes should update the report shape and tests together. After promotion, use later project evidence to decide whether the preference is `verified`.
 
 This is how the repo can grow toward your taste while still staying safe for distribution. Local projects stay ignored under `projects/`, and only reusable improvements are committed back to the source.
 

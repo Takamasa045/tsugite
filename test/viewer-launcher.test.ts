@@ -57,6 +57,230 @@ async function statusWithHost(url: string, host: string): Promise<number> {
 }
 
 describe("workflow viewer launcher", () => {
+  it("serves an empty read-only feedback aggregate when projects have no feedback", async () => {
+    const fixture = await createFixture();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    const response = await fetch(`${launcher.url}/api/feedback`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      feedback: {
+        metrics: { observed: 0, recurring: 0, promoted: 0, verified: 0, issues: 0 },
+        preferences: [],
+        issues: []
+      }
+    });
+    expect((await fetch(`${launcher.url}/api/feedback`, { method: "POST" })).status).toBe(404);
+  });
+
+  it("aggregates recurring project feedback and reports invalid lines without hiding valid records", async () => {
+    const fixture = await createFixture();
+    const secondProjectDir = join(fixture.projectsDir, "second-project");
+    await cp(fixture.projectDir, secondProjectDir, { recursive: true });
+    const secondConfigPath = join(secondProjectDir, "project.yaml");
+    const secondConfig = await readFile(secondConfigPath, "utf8");
+    await writeFile(
+      secondConfigPath,
+      secondConfig
+        .replace("slug: local-fixture", "slug: second-project")
+        .replace("run_id: local-fixture-run", "run_id: second-project-run")
+    );
+    await writeFile(join(fixture.projectDir, "feedback.jsonl"), [
+      JSON.stringify({
+        schema_version: 1,
+        id: "11111111-1111-4111-8111-111111111111",
+        created_at: "2026-07-16T10:00:00.000Z",
+        key: "opening-audio",
+        category: "sound",
+        signal: "prefer",
+        stage: "promoted",
+        summary: "Start the soundtrack at frame zero",
+        run_id: "local-fixture-run",
+        evidence: ["dist/local-fixture-run/gate3-qc.json"],
+        promotion: { kind: "qa", target: "src/orchestrator/gate3Qc.ts" }
+      }),
+      "{not-valid-json",
+      ""
+    ].join("\n"));
+    await writeFile(join(secondProjectDir, "feedback.jsonl"), `${JSON.stringify({
+      schema_version: 1,
+      id: "22222222-2222-4222-8222-222222222222",
+      created_at: "2026-07-17T10:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "verified",
+      summary: "Opening audio was confirmed in the final output",
+      run_id: "second-project-run",
+      evidence: ["dist/second-project-run/gate3-qc.json"]
+    })}\n`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const response = await fetch(`${launcher.url}/api/feedback`);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      ok: true,
+      feedback: {
+        metrics: { observed: 1, recurring: 1, promoted: 1, verified: 1, issues: 1 },
+        preferences: [{
+          key: "opening-audio",
+          category: "sound",
+          signal: "prefer",
+          stage: "verified",
+          projectCount: 2,
+          projectNames: ["second-project", "valid-project"],
+          runIds: ["local-fixture-run", "second-project-run"],
+          promotion: { kind: "qa", target: "src/orchestrator/gate3Qc.ts" },
+          lastSeenAt: "2026-07-17T10:00:00.000Z"
+        }],
+        issues: [expect.objectContaining({
+          code: "feedback.invalid_json",
+          projectName: "valid-project",
+          path: "feedback.jsonl"
+        })]
+      }
+    });
+    expect(JSON.stringify(payload)).not.toContain(fixture.root);
+  });
+
+  it("caps launcher feedback records and reports the read-only display limit", async () => {
+    const fixture = await createFixture();
+    const records = Array.from({ length: 1_001 }, (_, index) => JSON.stringify({
+      schema_version: 1,
+      id: `record-${index + 1}`,
+      created_at: "2026-07-17T10:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "observed",
+      summary: "Start the soundtrack at frame zero"
+    }));
+    await writeFile(join(fixture.projectDir, "feedback.jsonl"), `${records.join("\n")}\n`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/feedback`).then((response) => response.json());
+
+    expect(payload.feedback.preferences[0]).toMatchObject({ key: "opening-audio", recordCount: 997 });
+    expect(payload.feedback.issues).toContainEqual(expect.objectContaining({
+      code: "feedback.aggregate_record_limit",
+      projectName: "ランチャー"
+    }));
+  });
+
+  it("prioritizes recent feedback fairly and caps invalid diagnostics", async () => {
+    const fixture = await createFixture();
+    const secondProjectDir = join(fixture.projectsDir, "second-project");
+    await cp(fixture.projectDir, secondProjectDir, { recursive: true });
+    const verified = JSON.stringify({
+      schema_version: 1,
+      id: "latest-verification",
+      created_at: "2026-07-17T10:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "verified",
+      summary: "Latest verification",
+      evidence: ["dist/run/gate3-qc.json"]
+    });
+    const observed = Array.from({ length: 999 }, (_, index) => JSON.stringify({
+      schema_version: 1,
+      id: `old-${index + 1}`,
+      created_at: "2026-07-17T09:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "observed",
+      summary: "Old observation"
+    }));
+    const promoted = JSON.stringify({
+      schema_version: 1,
+      id: "promotion-anchor",
+      created_at: "2026-07-17T08:00:00.000Z",
+      key: "opening-audio",
+      category: "sound",
+      signal: "prefer",
+      stage: "promoted",
+      summary: "Promotion anchor",
+      promotion: { kind: "qa", target: "docs/requirements.md" }
+    });
+    await writeFile(join(fixture.projectDir, "feedback.jsonl"), `${[verified, ...observed, promoted].join("\n")}\n`);
+    await writeFile(join(secondProjectDir, "feedback.jsonl"), "\n".repeat(10_001));
+
+    const launcher = await launch({ projectsDir: fixture.projectsDir, bundleDir: fixture.bundleDir, port: 0 });
+    const payload = await fetch(`${launcher.url}/api/feedback`).then((response) => response.json());
+
+    expect(payload.feedback.preferences[0]).toMatchObject({
+      key: "opening-audio",
+      stage: "verified",
+      promotion: { target: "docs/requirements.md" }
+    });
+    expect(payload.feedback.issues.length).toBeLessThanOrEqual(1_000);
+    expect(payload.feedback.issues).toContainEqual(expect.objectContaining({
+      code: "feedback.aggregate_issue_limit"
+    }));
+  });
+
+  it("reports when more than 128 project feedback sources are available", async () => {
+    const fixture = await createFixture();
+    await Promise.all(Array.from({ length: 128 }, async (_, index) => {
+      const projectDir = join(fixture.projectsDir, `project-${index + 1}`);
+      await mkdir(projectDir);
+      await writeFile(join(projectDir, "project.yaml"), [
+        `slug: project-${index + 1}`,
+        "manifest: manifest.json",
+        "edit:",
+        "  backend: remotion",
+        ""
+      ].join("\n"));
+    }));
+
+    const launcher = await launch({ projectsDir: fixture.projectsDir, bundleDir: fixture.bundleDir, port: 0 });
+    const payload = await fetch(`${launcher.url}/api/feedback`).then((response) => response.json());
+    expect(payload.feedback.issues).toContainEqual(expect.objectContaining({
+      code: "feedback.aggregate_project_limit"
+    }));
+  });
+
+  it("caps preferences and derived lifecycle diagnostics together", async () => {
+    const fixture = await createFixture();
+    const records = Array.from({ length: 1_001 }, (_, index) => JSON.stringify({
+      schema_version: 1,
+      id: `verified-${index + 1}`,
+      created_at: "2026-07-17T10:00:00.000Z",
+      key: `preference-${index + 1}`,
+      category: "sound",
+      signal: "prefer",
+      stage: "verified",
+      summary: `Unpromoted verification ${index + 1}`,
+      evidence: ["dist/run/gate3-qc.json"]
+    }));
+    await writeFile(join(fixture.projectDir, "feedback.jsonl"), `${records.join("\n")}\n`);
+
+    const launcher = await launch({ projectsDir: fixture.projectsDir, bundleDir: fixture.bundleDir, port: 0 });
+    const payload = await fetch(`${launcher.url}/api/feedback`).then((response) => response.json());
+
+    expect(payload.feedback.preferences.length + payload.feedback.issues.length).toBeLessThanOrEqual(1_000);
+    expect(payload.feedback.metrics.issues).toBe(payload.feedback.issues.length);
+    expect(payload.feedback.issues).toContainEqual(expect.objectContaining({
+      code: "feedback.aggregate_output_limit"
+    }));
+  });
+
   it("lists direct template metadata and reports unsafe or invalid catalog entries", async () => {
     const fixture = await createFixture();
     const validDir = join(fixture.templatesDir, "article-dialogue");

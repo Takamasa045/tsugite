@@ -36,6 +36,7 @@ import {
 import { validateProject } from "./project/validateProject.js";
 import type { Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
+import { appendProjectFeedback } from "./feedback/index.js";
 import { openWorkflowViewer, writeWorkflowViewer } from "./viewer/artifact.js";
 import {
   openWorkflowViewerLauncher,
@@ -68,6 +69,14 @@ type ParsedArgs = {
   accent?: string;
   projectsDir?: string;
   port?: string;
+  key?: string;
+  category?: string;
+  signal?: string;
+  stage?: string;
+  summary?: string;
+  evidence?: string;
+  promotionKind?: string;
+  target?: string;
   open: boolean;
   apply: boolean;
   allowExternalAnalysis: boolean;
@@ -180,6 +189,72 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       command: args.command,
       issues: [{ code: "cli.config_missing", message: "--config is required" }]
     });
+  }
+
+  if (args.command === "feedback") {
+    const signal = parseFeedbackSignal(args.signal);
+    const stage = parseFeedbackStage(args.stage);
+    const gate = parseFeedbackGate(args.gate);
+    const promotionKind = parseFeedbackPromotionKind(args.promotionKind);
+    const issues: Issue[] = [
+      ...(args.key ? [] : [{ code: "feedback.key_required", message: "--key is required", path: "--key" }]),
+      ...(args.category ? [] : [{ code: "feedback.category_required", message: "--category is required", path: "--category" }]),
+      ...(args.signal
+        ? signal
+          ? []
+          : [{ code: "feedback.signal_invalid", message: "--signal must be prefer, avoid, or keep", path: "--signal" }]
+        : [{ code: "feedback.signal_required", message: "--signal is required", path: "--signal" }]),
+      ...(args.stage
+        ? stage
+          ? []
+          : [{ code: "feedback.stage_invalid", message: "--stage must be observed, recurring, promoted, or verified", path: "--stage" }]
+        : [{ code: "feedback.stage_required", message: "--stage is required", path: "--stage" }]),
+      ...(args.summary ? [] : [{ code: "feedback.summary_required", message: "--summary is required", path: "--summary" }]),
+      ...(args.gate && !gate
+        ? [{ code: "feedback.gate_invalid", message: "--gate must be gate_1, gate_2, or gate_3", path: "--gate" }]
+        : []),
+      ...(args.promotionKind && !promotionKind
+        ? [{
+            code: "feedback.promotion_kind_invalid",
+            message: "--promotion-kind must be template, constraint, validator, qa, rule, or documentation",
+            path: "--promotion-kind"
+          }]
+        : []),
+      ...(Boolean(args.promotionKind) === Boolean(args.target)
+        ? []
+        : [{
+            code: "feedback.promotion_incomplete",
+            message: "--promotion-kind and --target must be provided together",
+            path: args.promotionKind ? "--target" : "--promotion-kind"
+          }])
+    ];
+    if (issues.length > 0) return output(args, 1, { ok: false, command: "feedback", issues });
+
+    try {
+      const recorded = await appendProjectFeedback(args.config, {
+        key: args.key!,
+        category: args.category!,
+        signal: signal!,
+        stage: stage!,
+        summary: args.summary!,
+        ...(args.runId ? { run_id: args.runId } : {}),
+        ...(gate ? { gate } : {}),
+        ...(args.evidence ? { evidence: [args.evidence] } : {}),
+        ...(promotionKind && args.target ? { promotion: { kind: promotionKind, target: args.target } } : {})
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "feedback",
+        path: recorded.path,
+        entry: recorded.entry
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "feedback",
+        issues: cliIssuesFromError(error)
+      });
+    }
   }
 
   if (args.command === "shitate-import") {
@@ -683,7 +758,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -706,7 +781,15 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--side": "side",
       "--accent": "accent",
       "--projects-dir": "projectsDir",
-      "--port": "port"
+      "--port": "port",
+      "--key": "key",
+      "--category": "category",
+      "--signal": "signal",
+      "--stage": "stage",
+      "--summary": "summary",
+      "--evidence": "evidence",
+      "--promotion-kind": "promotionKind",
+      "--target": "target"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -746,6 +829,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     "story-guides": new Set(["--request", "--duration"]),
     "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
+    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
     analyze: new Set(["--config", "--actor", "--state-dir", "--allow-external-analysis"]),
@@ -900,6 +984,41 @@ function cliIssuesFromError(error: unknown): Issue[] {
 
 function parsePromptMode(value: string): PromptMode | undefined {
   if (value === "text-to-video" || value === "image-to-video") return value;
+  return undefined;
+}
+
+function parseFeedbackSignal(value: string | undefined): "prefer" | "avoid" | "keep" | undefined {
+  if (value === "prefer" || value === "avoid" || value === "keep") return value;
+  return undefined;
+}
+
+function parseFeedbackStage(
+  value: string | undefined
+): "observed" | "recurring" | "promoted" | "verified" | undefined {
+  if (value === "observed" || value === "recurring" || value === "promoted" || value === "verified") {
+    return value;
+  }
+  return undefined;
+}
+
+function parseFeedbackGate(value: string | undefined): "gate_1" | "gate_2" | "gate_3" | undefined {
+  if (value === "gate_1" || value === "gate_2" || value === "gate_3") return value;
+  return undefined;
+}
+
+function parseFeedbackPromotionKind(
+  value: string | undefined
+): "template" | "constraint" | "validator" | "qa" | "rule" | "documentation" | undefined {
+  if (
+    value === "template" ||
+    value === "constraint" ||
+    value === "validator" ||
+    value === "qa" ||
+    value === "rule" ||
+    value === "documentation"
+  ) {
+    return value;
+  }
   return undefined;
 }
 

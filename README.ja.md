@@ -112,7 +112,7 @@ npm --prefix apps/workflow-viewer ci  # 初回だけ
 npm run viewer:open
 ```
 
-ランチャーは `127.0.0.1` の空きポートだけで起動し、`projects/*/project.yaml` を一覧表示します。「最新状態に更新して開く」は現在のstate・review・QC・run logから読み取り専用Viewerを再生成します。制作実行、Gate更新、state書き込み、外部公開は行いません。終了するときは、起動したターミナルで `Ctrl+C` を押します。
+ランチャーは `127.0.0.1` の空きポートだけで起動し、`projects/*/project.yaml` を一覧表示します。「好み・学び」棚では、各ローカル案件の `feedback.jsonl` を横断し、`observed` / `recurring` / `promoted` / `verified` の状態を要約します。対象は最大128案件で、各案件の最新記録・診断を公平に合計1000項目まで選び、上限到達時は画面に明示します。「最新状態に更新して開く」は現在のstate・review・QC・run logから読み取り専用Viewerを再生成します。棚を含むランチャーは読み取り専用で、prompt、template、ruleの自動書き換え、制作実行、Gate更新、state書き込み、外部公開を行いません。終了するときは、起動したターミナルで `Ctrl+C` を押します。
 
 長尺の手持ち動画を外部APIなしで解析する場合は、`examples/local-analysis` を使います。
 
@@ -236,18 +236,30 @@ opt-in 機能です。base install では不要で、`project.yaml` が該当 ad
 
 Tsugite は、動画をたくさん生成するだけで自動的に自分好みになるわけではありません。出力を見て、やり直し理由や好みを言語化し、それを repo のルール、テンプレ、チェックに戻していくことで育ちます。
 
+構造化feedbackは各 `projects/<job>/feedback.jsonl` にローカル保存します。案件をまたいで同じ好みには同じ `key` を付け、生成回数ではなく反復した記録を識別します。状態は `observed`（初回記録）→ `recurring`（反復を確認）→ `promoted`（人間が再利用変更を承認）→ `verified`（後続出力で改善確認）の順です。昇格は必ず人間が判断し、`pipeline feedback` やランチャーがprompt、template、check、運用ruleを自動変更することはありません。
+
 基本ループは次の通りです。
 
 1. `projects/` に project を作る。
 2. Gate 承認後にだけ生成または組み立てを実行する。
-3. 出力を見て、良かった点、失敗した点、やり直した理由を書く。
-4. 一回限りのメモはその project 内に残す。
-5. 繰り返し使う教訓だけを examples、templates、adapter/backend constraints、validate/doctor、tests/fixtures、運用ルール、公開契約に昇格する。
+3. 出力を見て、良かった点、失敗した点、やり直した理由を `pipeline feedback` で記録する。
+4. 一回限りのメモと `feedback.jsonl` はそのローカルproject内に残す。
+5. 同じ `key` の反復記録を根拠にし、人間が承認した教訓だけを再利用先へ昇格する。
+6. 後続の出力で改善を確認してから `verified` にする。
+
+コピー済みのローカルprojectへ記録し、絶対pathを公開せずJSON結果を確認する例:
+
+```sh
+node bin/pipeline feedback --config projects/my-first-run/project.yaml \
+  --key opening-audio --category audio --signal prefer --stage observed \
+  --summary "冒頭0.5秒以内にBGMを開始する" --json
+```
 
 昇格の目安:
 
 ```text
-一回限りの好み        -> projects/<job>/notes.md
+一回限りの好み        -> projects/<job>/notes.md + feedback.jsonl (observed)
+同じ好みkeyの反復     -> feedback.jsonl (recurring; 昇格を人間が確認)
 何度も使う好み        -> examples/ or templates/
 機械的に防げる失敗    -> constraints.yaml / validate / doctor + tests/fixtures
 判断系の運用ルール    -> LESSONS.md -> .agents/skills/tsugite/SKILL.md / CLAUDE.md / AGENTS.md
@@ -255,7 +267,7 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 公開契約の変更        -> README / manifest/schema.md / docs/requirements.md
 ```
 
-昇格時は、失敗の再現 fixture とテスト、または人間が読む運用ルールのどちらかを必ず残します。Gate 2 / Gate 3 の判定を増やす場合は、report の形とテストも一緒に更新します。
+昇格には人間の承認が必要です。失敗の再現fixtureとテスト、または人間が読む運用ルールのどちらかを必ず残します。Gate 2 / Gate 3 の判定を増やす場合は、reportの形とテストも一緒に更新します。昇格後は、後続projectの記録を根拠に `verified` を判断します。
 
 このループによって、配布用 repo としての安全性を保ったまま、自分好みの制作パイプラインに育てていけます。ローカル案件は `projects/` 配下で git 管理外にし、再利用できる改善だけを本体へ commit します。
 
