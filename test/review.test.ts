@@ -157,6 +157,35 @@ describe("creative review", () => {
     expect(html).toContain("背景・舞台");
   });
 
+  it("uses an explicit caption visual image for the storyboard frame", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    manifest.images.push({
+      id: "shot-preview",
+      src: "media/storyboard/shot-01.png",
+      alt: "実際のRemotion構図から書き出した縦型プレビュー"
+    });
+    manifest.captions[0]!.visual!.image_id = "shot-preview";
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+
+    expect(review.storyboard[0]!.image).toMatchObject({
+      id: "shot-preview",
+      src: "media/storyboard/shot-01.png"
+    });
+  });
+
+  it("marks a vertical review with the 9:16 aspect", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    manifest.meta.aspect = "9:16";
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+    const html = renderReviewHtml(review);
+
+    expect(html).toContain('data-aspect="9:16"');
+  });
+
   it("warns when the selected background image id is not present", () => {
     const project = sampleProject();
     const manifest = sampleManifest();
@@ -224,6 +253,8 @@ describe("creative review", () => {
     expect(html).toContain('aria-label="Gate 1 承認待ち"');
     expect(html).toContain('data-design="joinery-review"');
     expect(html).toContain('data-material="hinoki-yakisugi"');
+    expect(html).toContain('data-aspect="16:9"');
+    expect(html).toContain('main[data-aspect="9:16"] .frame{aspect-ratio:9/16}');
     expect(html).toContain('class="joinery-mark"');
     expect(html).toContain('class="hero-joinery"');
     expect(html).toContain("継ぎ手絵コンテ / JOINERY SEQUENCE");
