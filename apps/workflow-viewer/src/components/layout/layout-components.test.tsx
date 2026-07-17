@@ -33,6 +33,7 @@ const nodes: WorkflowNode[] = [
         label: '最終動画',
         description: '視聴・納品に使うMP4動画です。今回はエラーのため未完成です。',
         reference: '動画',
+        href: './review/index.html',
       }],
       previews: [
         { id: 'final-video', role: 'final', kind: 'video', label: '完成動画', description: '確認用の完成版です。', src: './previews/final.mp4' },
@@ -115,6 +116,8 @@ describe('SidePanel', () => {
     expect(screen.getByText('全体尺: 60秒')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '次へ渡したもの' })).toBeInTheDocument()
     expect(screen.getByText('最終動画')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '最終動画のプレビューHTMLを開く' })).toHaveAttribute('href', './review/index.html')
+    expect(screen.getByRole('link', { name: '最終動画のプレビューHTMLを開く' })).toHaveAttribute('target', '_blank')
     expect(screen.getByRole('heading', { name: '実際に作ったもの' })).toBeInTheDocument()
     expect(document.querySelector('video[src="./previews/final.mp4"]')).toHaveAttribute('controls')
     expect(screen.getByRole('img', { name: '完成イメージ' })).toHaveAttribute('src', './previews/keyframe.jpg')

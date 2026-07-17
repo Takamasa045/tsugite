@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowUpFromLine, ChevronRight, X } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, ChevronRight, ExternalLink, X } from 'lucide-react'
 import type {
   WorkflowData,
   WorkflowDetailItem,
@@ -39,6 +39,18 @@ function DataList({ details, icon: Icon, label, values }: {
               <p>{item.description}</p>
               {item.facts?.length ? (
                 <ul>{item.facts.map((fact) => <li key={fact}>{fact}</li>)}</ul>
+              ) : null}
+              {item.href ? (
+                <a
+                  aria-label={`${item.label}のプレビューHTMLを開く`}
+                  className="artifact-link"
+                  href={item.href}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  プレビューHTMLを開く
+                  <ExternalLink aria-hidden="true" size={14} />
+                </a>
               ) : null}
             </article>
           ))}

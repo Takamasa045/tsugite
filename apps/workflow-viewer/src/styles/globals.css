@@ -342,6 +342,8 @@ select {
 .artifact-card ul { display: grid; gap: 4px; margin: 2px 0 0; padding: 0; list-style: none; }
 .artifact-card li { color: #46534f; font-size: 0.67rem; line-height: 1.5; }
 .artifact-card li::before { margin-right: 7px; color: var(--sugi-500); content: "—"; }
+.artifact-link { display: inline-flex; width: max-content; min-height: 34px; align-items: center; gap: 7px; margin-top: 3px; border: 1px solid rgba(36, 77, 73, 0.24); border-radius: 7px 2px 7px 2px; padding: 0 10px; color: var(--ai-700); background: rgba(220, 232, 226, 0.48); font-size: 0.68rem; font-weight: 800; text-decoration: none; }
+.artifact-link:hover { border-color: var(--ai-600); color: var(--washi-0); background: var(--ai-600); }
 .technical-details { margin-top: 24px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .technical-details summary { padding: 14px 2px; color: var(--muted); font-size: 0.71rem; font-weight: 750; list-style-position: inside; }
 .technical-details summary:hover { color: var(--ai-700); }

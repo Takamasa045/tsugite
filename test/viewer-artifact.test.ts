@@ -139,10 +139,11 @@ describe("workflow viewer artifact", () => {
         gate_3: { status: "approved", updated_at: "2026-07-13T09:03:00.000Z" }
       }
     };
-    await mkdir(join(runDir, "review"), { recursive: true });
+    await mkdir(join(runDir, "review", "assets"), { recursive: true });
     await writeFile(configPath, "slug: viewer-project\n");
     await writeFile(join(runDir, "state.json"), `${JSON.stringify(state, null, 2)}\n`);
-    await writeFile(join(runDir, "review", "index.html"), "<!doctype html>\n");
+    await writeFile(join(runDir, "review", "index.html"), '<!doctype html><img src="assets/storyboard.png">\n');
+    await writeFile(join(runDir, "review", "assets", "storyboard.png"), "storyboard-preview");
     await writeFile(join(runDir, "review", "review-data.json"), '{"schema_version":1}\n');
     await writeFile(join(runDir, "gate2-qc.json"), JSON.stringify({
       ok: false,
@@ -179,6 +180,7 @@ describe("workflow viewer artifact", () => {
       state,
       {
         reviewPresent: true,
+        reviewHref: "./review/index.html",
         gate2Qc: {
           ok: false,
           issues: [{ code: "asset", message: "missing" }],
@@ -199,6 +201,10 @@ describe("workflow viewer artifact", () => {
       }
     );
     await expect(readFile(join(runDir, "state.json"), "utf8")).resolves.toBe(stateBefore);
+    await expect(readFile(join(result.outputDir, "review", "index.html"), "utf8"))
+      .resolves.toContain('src="assets/storyboard.png"');
+    await expect(readFile(join(result.outputDir, "review", "assets", "storyboard.png"), "utf8"))
+      .resolves.toBe("storyboard-preview");
   });
 
   it("copies a bounded set of real media into the snapshot and exposes browser-safe previews", async () => {

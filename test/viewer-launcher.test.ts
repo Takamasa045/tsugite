@@ -539,6 +539,15 @@ distribution: local-only
     expect(viewerResponse.status).toBe(200);
     await expect(viewerResponse.text()).resolves.toContain('id="tsugite-workflow-data"');
 
+    const reviewDir = join(fixture.projectDir, "dist", "local-fixture-run", "viewer", "review");
+    await mkdir(reviewDir, { recursive: true });
+    await writeFile(join(reviewDir, "index.html"), "<!doctype html><script>globalThis.compromised = true</script>\n");
+    const reviewResponse = await fetch(`${launcher.url}${payload.viewerUrl}review/index.html`);
+    expect(reviewResponse.status).toBe(200);
+    expect(reviewResponse.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    );
+
     const statePath = join(fixture.projectDir, "dist", "local-fixture-run", "state.json");
     await expect(readFile(statePath, "utf8")).rejects.toThrow();
   });

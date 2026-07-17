@@ -53,6 +53,8 @@ type ViewerEvidence = ViewerArtifactSnapshot & {
 };
 
 const MATERIAL_PREVIEW_LIMITS = { clip: 2, image: 4, audio: 2 } as const;
+const REVIEW_PREVIEW_FILE_LIMIT = 64;
+const REVIEW_PREVIEW_BYTE_LIMIT = 64 * 1024 * 1024;
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 const viewerAppDir = join(repositoryRoot, "apps", "workflow-viewer");
@@ -86,14 +88,18 @@ export async function writeWorkflowViewer(
   const { previewSources, ...evidence } = loadedEvidence;
   await prepareWorkflowViewerBundle(options.bundleDir);
   await mkdir(outputDir, { recursive: true });
-  const previews = await writeViewerPreviews(
-    runDir,
-    outputDir,
-    previewSources,
-    evidence.gate3Qc?.outputPath
-  );
+  const [reviewHref, previews] = await Promise.all([
+    writeReviewPreview(runDir, outputDir, evidence.reviewPresent === true),
+    writeViewerPreviews(
+      runDir,
+      outputDir,
+      previewSources,
+      evidence.gate3Qc?.outputPath
+    )
+  ]);
   const workflow = createViewerWorkflow(options.project, options.plan, state, {
     ...evidence,
+    ...(reviewHref ? { reviewHref } : {}),
     ...(previews.length > 0 ? { previews } : {})
   });
   const workflowJson = `${JSON.stringify(workflow, null, 2)}\n`;
@@ -380,6 +386,76 @@ async function writeViewerPreviews(
   }
 
   return previews;
+}
+
+type ReviewPreviewFile = {
+  source: string;
+  relativePath: string;
+  size: number;
+};
+
+async function writeReviewPreview(
+  runDir: string,
+  outputDir: string,
+  reviewPresent: boolean
+): Promise<string | undefined> {
+  const destinationDir = join(outputDir, "review");
+  await rm(destinationDir, { recursive: true, force: true });
+  if (!reviewPresent) return undefined;
+
+  const reviewDir = join(runDir, "review");
+  const files = await collectReviewPreviewFiles(runDir, reviewDir);
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (
+    files.length === 0 ||
+    files.length > REVIEW_PREVIEW_FILE_LIMIT ||
+    totalBytes > REVIEW_PREVIEW_BYTE_LIMIT
+  ) return undefined;
+
+  for (const file of files) {
+    const destination = join(destinationDir, file.relativePath);
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(file.source, destination);
+  }
+  return "./review/index.html";
+}
+
+async function collectReviewPreviewFiles(runDir: string, reviewDir: string): Promise<ReviewPreviewFile[]> {
+  const [realRunDir, realReviewDir] = await Promise.all([realpath(runDir), realpath(reviewDir)]);
+  if (!isSameOrDescendant(relative(realRunDir, realReviewDir))) return [];
+  const files: ReviewPreviewFile[] = [];
+
+  const addFile = async (source: string, relativePath: string): Promise<void> => {
+    const realSource = await realpath(source);
+    if (!isSameOrDescendant(relative(realReviewDir, realSource))) return;
+    const sourceStat = await stat(realSource);
+    if (!sourceStat.isFile()) return;
+    files.push({ source: realSource, relativePath, size: sourceStat.size });
+  };
+
+  await addFile(join(reviewDir, "index.html"), "index.html");
+  const walkAssets = async (directory: string, relativeDirectory: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (isFileSystemError(error, "ENOENT")) return;
+      throw error;
+    }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.isSymbolicLink()) continue;
+      const source = join(directory, entry.name);
+      const relativePath = join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        await walkAssets(source, relativePath);
+      } else if (entry.isFile()) {
+        await addFile(source, relativePath);
+      }
+      if (files.length > REVIEW_PREVIEW_FILE_LIMIT) return;
+    }
+  };
+  await walkAssets(join(reviewDir, "assets"), "assets");
+  return files;
 }
 
 function previewKind(kind: ViewerPreviewSource["kind"]): ViewerMediaPreview["kind"] {

@@ -73,6 +73,7 @@ const TEMPLATE_METADATA_MAX_BYTES = 64 * 1024;
 const LAUNCHER_FEEDBACK_MAX_PROJECTS = 128;
 const LAUNCHER_FEEDBACK_MAX_ITEMS = 1_000;
 const LAUNCHER_FEEDBACK_NOTICE_RESERVE = 3;
+const REVIEW_PREVIEW_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
 const templateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const nonEmptyText = z.string().trim().min(1).max(240);
 const descriptionText = z.string().trim().min(1).max(600);
@@ -404,8 +405,12 @@ export async function startWorkflowViewerLauncher(
     if ((method === "GET" || method === "HEAD") && viewerMatch) {
       const record = projects.get(viewerMatch[1]!);
       if (!record?.outputDir) return sendNotFound(response);
-      const filePath = await containedStaticFile(record.outputDir, viewerMatch[2] || "index.html");
+      const relativePath = viewerMatch[2] || "index.html";
+      const filePath = await containedStaticFile(record.outputDir, relativePath);
       if (!filePath) return sendNotFound(response);
+      if (relativePath.startsWith("review/")) {
+        response.setHeader("content-security-policy", REVIEW_PREVIEW_CSP);
+      }
       return serveFile(request, response, filePath);
     }
 
