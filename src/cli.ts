@@ -1,6 +1,7 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectEnvironment } from "./doctor.js";
+import { loadBackendCapabilities } from "./backends/capabilities.js";
 import type { AdapterDefinition } from "./adapters/registry.js";
 import { analyzeProject } from "./orchestrator/analyze.js";
 import {
@@ -69,6 +70,7 @@ type ParsedArgs = {
   accent?: string;
   projectsDir?: string;
   port?: string;
+  backend?: string;
   key?: string;
   category?: string;
   signal?: string;
@@ -122,6 +124,47 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ok: false,
         command: "story-guides",
         scope: "creative-guidance-only",
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "presets") {
+    if (!args.backend) {
+      return output(args, 1, {
+        ok: false,
+        command: "presets",
+        issues: [{ code: "cli.backend_missing", message: "--backend is required", path: "--backend" }]
+      });
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(args.backend)) {
+      return output(args, 1, {
+        ok: false,
+        command: "presets",
+        issues: [{ code: "cli.backend_invalid", message: "--backend must be a safe backend id", path: "--backend" }]
+      });
+    }
+    try {
+      const backend = await loadBackendCapabilities(args.backend);
+      if (!backend) {
+        return output(args, 1, {
+          ok: false,
+          command: "presets",
+          backend: args.backend,
+          issues: [{ code: "backend.not_found", message: `backend '${args.backend}' was not found` }]
+        });
+      }
+      return output(args, 0, {
+        ok: true,
+        command: "presets",
+        backend: args.backend,
+        presets: backend.capabilities.presets
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "presets",
+        backend: args.backend,
         issues: cliIssuesFromError(error)
       });
     }
@@ -758,7 +801,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -782,6 +825,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--accent": "accent",
       "--projects-dir": "projectsDir",
       "--port": "port",
+      "--backend": "backend",
       "--key": "key",
       "--category": "category",
       "--signal": "signal",
@@ -827,6 +871,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     doctor: new Set(["--config"]),
     guides: new Set(["--catalog", "--model", "--input-mode"]),
     "story-guides": new Set(["--request", "--duration"]),
+    presets: new Set(["--backend"]),
     "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
     feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target"]),

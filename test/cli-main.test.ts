@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadBackendCapabilities } from "../src/backends/capabilities.js";
 import { main } from "../src/cli.js";
 
 async function capture(args: string[]) {
@@ -51,6 +52,52 @@ describe("pipeline main", () => {
         expect.objectContaining({ name: "backend:remotion", ok: true })
       ])
     );
+  });
+
+  it("lists registered presentation presets for a backend without requiring a project", async () => {
+    const backend = await loadBackendCapabilities("remotion");
+    const result = await capture(["presets", "--backend", "remotion", "--json"]);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: true,
+      command: "presets",
+      backend: "remotion",
+      presets: backend?.capabilities.presets
+    });
+    expect(backend?.capabilities.presets).toEqual(expect.arrayContaining([
+      "article-dialogue-16x9",
+      "street-dialogue-16x9"
+    ]));
+  });
+
+  it("validates the backend argument for the read-only presets command", async () => {
+    const missing = await capture(["presets", "--json"]);
+    const missingValue = await capture(["presets", "--backend", "--json"]);
+    const unknown = await capture(["presets", "--backend", "unknown-backend", "--json"]);
+    const safeUnknown = await capture(["presets", "--backend", "Unknown_backend.v2", "--json"]);
+    const unsafe = await capture(["presets", "--backend", "../outside", "--json"]);
+    const unsupported = await capture([
+      "presets",
+      "--backend",
+      "remotion",
+      "--config",
+      "fixtures/projects/local-valid.yaml",
+      "--json"
+    ]);
+
+    expect(missing.status).toBe(1);
+    expect(JSON.parse(missing.stderr).issues[0].code).toBe("cli.backend_missing");
+    expect(missingValue.status).toBe(1);
+    expect(JSON.parse(missingValue.stderr).issues[0].code).toBe("cli.option_value_missing");
+    expect(unknown.status).toBe(1);
+    expect(JSON.parse(unknown.stderr).issues[0].code).toBe("backend.not_found");
+    expect(safeUnknown.status).toBe(1);
+    expect(JSON.parse(safeUnknown.stderr).issues[0].code).toBe("backend.not_found");
+    expect(unsafe.status).toBe(1);
+    expect(JSON.parse(unsafe.stderr).issues[0].code).toBe("cli.backend_invalid");
+    expect(unsupported.status).toBe(1);
+    expect(JSON.parse(unsupported.stderr).issues[0].code).toBe("cli.option_unsupported");
   });
 
   it("requires a command and config where appropriate", async () => {

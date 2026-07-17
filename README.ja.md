@@ -93,6 +93,7 @@ npm ci
 npm run check
 node bin/pipeline story-guides --request "30秒の縦型SNS広告。価値と実績を見せる" --duration 30 --json
 node bin/pipeline guides --json
+node bin/pipeline presets --backend remotion --json
 cp -R examples/local-fixture projects/my-first-run
 node bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 node bin/pipeline validate --config projects/my-first-run/project.yaml --json
@@ -102,6 +103,8 @@ node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --js
 node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
+
+`presets` は、install済みbackendが宣言するpresentation presetをprojectに依存せず読み取る、副作用のないコマンドです。manifestの作成・変更時は、未確認のpreset IDを手入力せず、返却された `presets` 一覧から選びます。
 
 非エンジニアが複数の制作案件から選んで確認する場合は、初回だけViewer依存を導入し、その後はランチャーを1コマンドで開けます。
 

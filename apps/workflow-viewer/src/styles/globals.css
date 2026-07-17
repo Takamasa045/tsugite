@@ -321,6 +321,7 @@ select {
 .media-card { min-width: 0; margin: 0; overflow: hidden; border: 1px solid rgba(36, 77, 73, 0.13); border-radius: var(--radius-sm); background: var(--washi-0); }
 .media-card.media-video, .media-card.media-audio { grid-column: 1 / -1; }
 .media-card video, .media-card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--sumi-950); }
+.media-card video[data-orientation="portrait"] { width: min(100%, 18rem); aspect-ratio: 9 / 16; margin-inline: auto; object-fit: contain; }
 .media-card audio { display: block; width: calc(100% - 18px); height: 38px; margin: 12px 9px 4px; }
 .media-card a { display: block; overflow: hidden; }
 .media-card a:hover img { filter: saturate(1.05) brightness(1.04); transform: scale(1.018); }

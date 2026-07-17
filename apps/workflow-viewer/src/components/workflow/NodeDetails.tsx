@@ -1,4 +1,5 @@
 import { ArrowDownToLine, ArrowUpFromLine, ChevronRight, ExternalLink, X } from 'lucide-react'
+import { useState } from 'react'
 import type {
   WorkflowData,
   WorkflowDetailItem,
@@ -63,10 +64,23 @@ function DataList({ details, icon: Icon, label, values }: {
 }
 
 function MediaPreview({ preview }: { preview: WorkflowMediaPreview }) {
+  const [videoOrientation, setVideoOrientation] = useState<'landscape' | 'portrait'>('landscape')
+
   return (
     <figure className={`media-card media-${preview.kind}`}>
       {preview.kind === 'video' ? (
-        <video aria-label={`${preview.label}を再生`} controls playsInline preload="metadata" src={preview.src} />
+        <video
+          aria-label={`${preview.label}を再生`}
+          controls
+          data-orientation={videoOrientation}
+          onLoadedMetadata={(event) => {
+            const { videoHeight, videoWidth } = event.currentTarget
+            setVideoOrientation(videoWidth > 0 && videoHeight > videoWidth ? 'portrait' : 'landscape')
+          }}
+          playsInline
+          preload="metadata"
+          src={preview.src}
+        />
       ) : null}
       {preview.kind === 'image' ? (
         <a aria-label={`${preview.label}を大きく見る`} href={preview.src} rel="noreferrer" target="_blank">
@@ -97,7 +111,7 @@ function MediaPreviewGallery({ previews }: { previews?: WorkflowMediaPreview[] }
       </div>
       <p className="section-help">画像はクリックで拡大、映像と音声はその場で再生できます。</p>
       <div className="media-preview-grid">
-        {previews.map((preview) => <MediaPreview key={preview.id} preview={preview} />)}
+        {previews.map((preview) => <MediaPreview key={`${preview.id}:${preview.src}`} preview={preview} />)}
       </div>
     </section>
   )

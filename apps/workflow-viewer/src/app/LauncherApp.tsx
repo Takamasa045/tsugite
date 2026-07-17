@@ -23,6 +23,7 @@ export interface LauncherProject {
   viewerUrl?: string
   thumbnailUrl?: string
   valid: boolean
+  refreshable: boolean
   issue?: string
 }
 
@@ -218,7 +219,7 @@ function formatUpdatedAt(value?: string): string {
 
 function projectMatchesFilter(project: LauncherProject, filter: ProjectFilter): boolean {
   if (filter === 'all') return true
-  if (filter === 'invalid') return !project.valid
+  if (filter === 'invalid') return !project.valid || !project.refreshable
   if (!project.valid) return false
   if (filter === 'completed') return project.status === 'completed'
   if (filter === 'waiting') return project.status.startsWith('awaiting_gate_')
@@ -478,7 +479,7 @@ export function LauncherApp({
   const openProject = async (project: LauncherProject) => {
     setSelectedId(project.id)
     setRefreshError(null)
-    if (!project.valid || refreshing) return
+    if (!project.valid || !project.refreshable || refreshing) return
     setRefreshing(true)
     setOpeningProjectId(project.id)
     let failureDetail = '設定と成果物を確認して、もう一度お試しください。'
@@ -677,10 +678,16 @@ export function LauncherApp({
                 {visibleProjects.map((project) => (
                   <button
                     aria-busy={openingProjectId === project.id}
-                    aria-label={project.valid ? `${project.name}の制作記録を開く` : `${project.name}の設定を確認`}
+                    aria-describedby={!project.valid || !project.refreshable ? `launcher-project-issue-${project.id}` : undefined}
+                    aria-label={!project.valid
+                      ? `${project.name}の設定を確認`
+                      : project.refreshable
+                        ? `${project.name}の制作記録を開く`
+                        : `${project.name}の更新できない理由を確認`}
                     aria-pressed={project.id === selectedId}
                     className="launcher-project-card"
                     data-invalid={!project.valid}
+                    data-unrefreshable={project.valid && !project.refreshable}
                     disabled={refreshing}
                     key={project.id}
                     onClick={() => void openProject(project)}
@@ -699,12 +706,23 @@ export function LauncherApp({
                       <span className="launcher-project-status">
                         {openingProjectId === project.id
                           ? '開いています…'
-                          : project.valid ? statusLabel(project.status) : '設定の確認が必要'}
+                          : !project.valid
+                            ? '設定の確認が必要'
+                            : project.refreshable
+                              ? statusLabel(project.status)
+                              : '最新状態に更新できません'}
                       </span>
                     </span>
                     <span className="launcher-project-copy">
                       <span className="launcher-project-name" role="heading" aria-level={3}>{project.name}</span>
                       <small>{project.slug}</small>
+                      {(!project.valid || !project.refreshable) && (
+                        <span className="launcher-project-card-issue" id={`launcher-project-issue-${project.id}`}>
+                          {project.issue ?? (project.valid
+                            ? '現在のバックエンドでは更新できません。'
+                            : '設定ファイルを読み込めませんでした。')}
+                        </span>
+                      )}
                       <span className="launcher-project-card-footer">
                         <small>{formatUpdatedAt(project.updatedAt)}</small>
                         <ArrowRight aria-hidden="true" size={17} />
@@ -736,11 +754,15 @@ export function LauncherApp({
                   <div><dt>最終更新</dt><dd><Clock3 aria-hidden="true" size={15} />{formatUpdatedAt(selected.updatedAt)}</dd></div>
                 </dl>
 
-                {!selected.valid && (
+                {(!selected.valid || !selected.refreshable) && (
                   <div className="launcher-project-issue" role="status">
-                    <strong>この案件はまだ更新できません</strong>
-                    <p>{selected.issue ?? '設定ファイルを読み込めませんでした。'}</p>
-                    <small>project.yamlと参照ファイルを確認してください。</small>
+                    <strong>{selected.valid ? '最新状態に更新できません' : 'この案件はまだ更新できません'}</strong>
+                    <p>{selected.issue ?? (selected.valid
+                      ? '現在のバックエンドではこの案件を更新できません。'
+                      : '設定ファイルを読み込めませんでした。')}</p>
+                    <small>{selected.valid
+                      ? '前回の表示がある場合は、更新せずに開けます。'
+                      : 'project.yamlと参照ファイルを確認してください。'}</small>
                   </div>
                 )}
                 {refreshError && <p className="launcher-refresh-error" role="alert">{refreshError}</p>}
@@ -748,7 +770,7 @@ export function LauncherApp({
                 <div className="launcher-actions">
                   <button
                     className="launcher-primary"
-                    disabled={!selected.valid || refreshing}
+                    disabled={!selected.valid || !selected.refreshable || refreshing}
                     onClick={() => void refreshSelected()}
                     type="button"
                   >
