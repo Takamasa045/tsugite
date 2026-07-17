@@ -85,6 +85,7 @@ export type ViewerWorkflowData = {
 
 export type ViewerArtifactSnapshot = {
   reviewPresent?: boolean;
+  reviewHref?: string;
   gate2Qc?: ViewerGate2QcEvidence;
   gate3Qc?: ViewerGate3QcEvidence;
   runLog?: ViewerRunLogEvidence;

@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { WorkflowData, WorkflowNode } from '../../types/workflow'
 import { CameraController } from './CameraController'
@@ -17,6 +17,7 @@ import {
 
 export interface WorkflowSceneProps {
   currentTime: number
+  focusRequest?: FocusRequest | null
   focusNodeId?: string
   nodesAtTime?: readonly WorkflowNode[]
   onSelect: (nodeId: string | null) => void
@@ -46,6 +47,7 @@ interface SceneContentProps extends WorkflowSceneProps {
 
 function SceneContent({
   currentTime,
+  focusRequest,
   focusNodeId,
   nodesAtTime,
   onSelect,
@@ -55,8 +57,6 @@ function SceneContent({
   selectedNodeId,
   workflow,
 }: SceneContentProps) {
-  const focusNonce = useRef(0)
-  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
   const visibleNodes = nodesAtTime ?? workflow.nodes
   const nodeById = useMemo(
     () => new Map(visibleNodes.map((node) => [node.id, node])),
@@ -69,11 +69,6 @@ function SceneContent({
     return (values.length > 0 ? Math.min(...values) : 0) - 1.35
   }, [positions, visibleNodes])
   const sceneBounds = useMemo(() => getSceneBounds(positions), [positions])
-
-  const focusNode = (position: readonly [number, number, number]) => {
-    focusNonce.current += 1
-    setFocusRequest({ nonce: focusNonce.current, position })
-  }
 
   return (
     <>
@@ -112,10 +107,10 @@ function SceneContent({
             <WorkflowNode3D
               currentTime={currentTime}
               featured={node.id === focusNodeId}
+              focusMode={selectedNodeId !== null}
               labelRaised={index % 2 === 1}
               key={node.id}
               node={node}
-              onFocus={focusNode}
               onSelect={onSelect}
               position={position}
               reducedMotion={reducedMotion}
@@ -125,7 +120,7 @@ function SceneContent({
         })}
       </group>
       <CameraController
-        focusRequest={focusRequest}
+        focusRequest={focusRequest ?? null}
         positions={positions}
         resetSignal={resetSignal}
         sceneKey={workflow.id}

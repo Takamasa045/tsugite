@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AppHeader } from '../components/layout/AppHeader'
 import { SidePanel } from '../components/layout/SidePanel'
@@ -10,6 +10,7 @@ import { calculateNodePositions } from '../lib/layout-engine'
 import { validateWorkflowData } from '../lib/workflow-validator'
 import { getFocusCopy, getFocusNode } from '../lib/workflow-presentation'
 import { useWorkflowStore, type PlaybackSpeed } from '../store/workflow-store'
+import type { FocusRequest } from '../components/scene/CameraController'
 
 const WorkflowScene = lazy(() =>
   import('../components/scene').then((module) => ({ default: module.WorkflowScene })),
@@ -41,6 +42,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
 export function App({ samples = workflowSamples, launcherHref = currentLauncherHref() }: AppProps) {
   const [activeSampleId, setActiveSampleId] = useState(samples[0]?.id ?? '')
   const [resetSignal, setResetSignal] = useState(0)
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
+  const focusNonce = useRef(0)
   const workflow = useWorkflowStore((state) => state.workflow)
   const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId)
   const currentTime = useWorkflowStore((state) => state.currentTime)
@@ -54,10 +57,17 @@ export function App({ samples = workflowSamples, launcherHref = currentLauncherH
 
   useTimelinePlayback()
 
+  const resetView = () => {
+    useWorkflowStore.getState().selectNode(null)
+    setFocusRequest(null)
+    setResetSignal((signal) => signal + 1)
+  }
+
   useEffect(() => {
     if (validation.success) {
       const store = useWorkflowStore.getState()
       store.setWorkflow(validation.data)
+      setFocusRequest(null)
       if (activeSample?.initialTime !== undefined) {
         store.setCurrentTime(activeSample.initialTime)
       }
@@ -84,7 +94,7 @@ export function App({ samples = workflowSamples, launcherHref = currentLauncherH
         event.preventDefault()
         state.setCurrentTime(state.currentTime + 5)
       } else if (event.key.toLowerCase() === 'r') {
-        setResetSignal((signal) => signal + 1)
+        resetView()
       }
     }
 
@@ -119,7 +129,12 @@ export function App({ samples = workflowSamples, launcherHref = currentLauncherH
     return <main className="loading-state" aria-live="polite">制作管制卓を起動しています…</main>
   }
 
-  const selectNode = useWorkflowStore.getState().selectNode
+  const selectNode = (nodeId: string | null) => {
+    useWorkflowStore.getState().selectNode(nodeId)
+    if (!nodeId) return
+    focusNonce.current += 1
+    setFocusRequest({ nodeId, nonce: focusNonce.current })
+  }
   const focusNode = getFocusNode(derivedState.nodes)
   const focusCopy = getFocusCopy(focusNode)
   const focusIndex = focusNode
@@ -140,16 +155,17 @@ export function App({ samples = workflowSamples, launcherHref = currentLauncherH
         activeSampleId={activeSample?.id ?? ''}
         currentNodes={derivedState.nodes}
         launcherHref={launcherHref}
-        onResetView={() => setResetSignal((signal) => signal + 1)}
+        onResetView={resetView}
         onSampleChange={setActiveSampleId}
         samples={samples.map(({ id, label }) => ({ id, label }))}
         workflow={workflow}
       />
 
-      <section className="scene-viewport" aria-label="3Dビューポート">
+      <section className="scene-viewport" aria-label="木組みの3D制作工程">
         <Suspense fallback={<div className="scene-loading">3D空間を構築しています…</div>}>
           <WorkflowScene
             currentTime={currentTime}
+            focusRequest={focusRequest}
             focusNodeId={focusNode?.id}
             nodesAtTime={derivedState.nodes}
             onSelect={selectNode}
@@ -170,7 +186,7 @@ export function App({ samples = workflowSamples, launcherHref = currentLauncherH
           <h2 id="scene-focus-title">{focusCopy.label}</h2>
           <strong>{focusNode?.name ?? '工程なし'}</strong>
           <p>{focusCopy.note}</p>
-          <small>木札を選ぶと、作業と成果物を詳しく確認できます</small>
+          <small>工程を選択してズーム · ホイールでカーソル位置へ寄る</small>
         </section>
         {layout.warnings.length > 0 && (
           <p className="scene-warning" role="status">{layout.warnings.join(' · ')}</p>

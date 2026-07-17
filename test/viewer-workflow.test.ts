@@ -161,6 +161,23 @@ describe("createViewerWorkflow", () => {
     ]);
   });
 
+  it("adds the copied preview HTML link to review-related workflow items", () => {
+    const workflow = createViewerWorkflow(
+      project,
+      plan,
+      state("awaiting_gate_2", "approved", "awaiting_approval"),
+      { reviewPresent: true, reviewHref: "./review/index.html", gate2Qc: { ok: true } }
+    );
+
+    const reviewOutput = workflow.nodes.find((node) => node.id === "creative-review")
+      ?.details?.outputs.find((item) => item.reference === "review/index.html");
+    const gate1Input = workflow.nodes.find((node) => node.id === "gate-1")
+      ?.details?.inputs.find((item) => item.reference === "review/index.html");
+
+    expect(reviewOutput).toMatchObject({ href: "./review/index.html" });
+    expect(gate1Input).toMatchObject({ href: "./review/index.html" });
+  });
+
   it("marks the current execution step as running", () => {
     const assembling = createViewerWorkflow(
       project,

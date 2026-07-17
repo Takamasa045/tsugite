@@ -7,6 +7,7 @@ import { STATUS_VISUALS } from './status-visuals'
 
 interface NodeLabelProps {
   featured?: boolean
+  muted?: boolean
   node: WorkflowNode
   onSelect: (nodeId: string) => void
   raised?: boolean
@@ -16,6 +17,7 @@ interface NodeLabelProps {
 
 export function NodeLabel({
   featured = false,
+  muted = false,
   node,
   onSelect,
   raised = false,
@@ -50,6 +52,7 @@ export function NodeLabel({
         data-selected={selected ? 'true' : 'false'}
         data-status={node.status}
         data-worker={workerLabel ? 'true' : 'false'}
+        hidden={muted}
         onClick={handleSelect}
         onPointerDown={(event) => event.stopPropagation()}
         style={labelStyle}
