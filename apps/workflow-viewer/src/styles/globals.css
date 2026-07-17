@@ -1041,6 +1041,16 @@ select {
 .launcher-feedback-metrics dt span { display: grid; width: 22px; height: 22px; flex: 0 0 auto; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 0.62rem; }
 .launcher-feedback-metrics dt small { color: var(--ai-700); font-size: 0.56rem; white-space: nowrap; }
 .launcher-feedback-metrics dd { margin: 0; color: var(--sumi-900); font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.launcher-feedback-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: -8px 0 20px; }
+.launcher-feedback-filters button { display: inline-flex; min-height: 32px; align-items: center; gap: 7px; border: 1px solid rgba(36, 77, 73, 0.18); border-radius: 999px; padding: 5px 10px; color: var(--muted); background: rgba(250, 249, 245, 0.9); font-size: 0.65rem; font-weight: 800; transition: border-color 140ms ease, background 140ms ease, color 140ms ease; }
+.launcher-feedback-filters button:hover { border-color: var(--ai-600); color: var(--ai-700); }
+.launcher-feedback-filters button[aria-pressed="true"] { border-color: var(--ai-600); color: #fff; background: var(--ai-700); box-shadow: 0 4px 10px rgba(36, 77, 73, 0.16); }
+.launcher-feedback-filters button b { min-width: 2.6em; border-radius: 999px; padding: 2px 6px; color: var(--ai-700); background: rgba(111, 155, 141, 0.14); font-size: 0.58rem; text-align: center; font-variant-numeric: tabular-nums; }
+.launcher-feedback-filters button[aria-pressed="true"] b { color: var(--ai-700); background: rgba(255, 255, 255, 0.86); }
+.launcher-feedback-filters button[data-stage="observed"] { border-left-color: #7b817d; }
+.launcher-feedback-filters button[data-stage="recurring"] { border-left-color: var(--ai-600); }
+.launcher-feedback-filters button[data-stage="promoted"] { border-left-color: var(--sugi-500); }
+.launcher-feedback-filters button[data-stage="verified"] { border-left-color: #4f7c50; }
 .launcher-feedback-stage-guide,
 .launcher-feedback-promotion-flow { border: 1px solid rgba(36, 77, 73, 0.14); border-radius: 3px 12px 3px 12px; margin-bottom: 14px; padding: 16px; background: rgba(250, 249, 245, 0.9); }
 .launcher-feedback-stage-guide header,
