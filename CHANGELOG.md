@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.3.1 - 2026-07-18
+
+- Added the local launcher and interactive 3D workflow viewer, including project discovery, visual thumbnails, project refresh, stable return navigation, and Windows support.
+- Added safe completed-project finalization, Shitate snapshot imports, local and optional external analysis workflows, and richer Gate 1 visual review artifacts.
+- Fixed launcher project refresh so unsupported presentation presets remain viewable while unsafe or structurally invalid projects stay blocked.
 - Replaced launcher desktop notifications with a startup-loaded, unread-style pickup for pending proposals created by the dedicated learning-promotion automation; manual proposals and other workflows stay out of the pickup.
 - Added strict automation provenance to promotion proposals, CLI source flags, pending-priority aggregation, and a reproducible local Codex automation contract that appends at most three complete, non-duplicate proposals without changing shared source.
 - Added append-only feedback promotion proposals, human approve/reject decisions, and an explicit approval-waiting workflow in the local launcher without automatically changing shared rules or project state.
