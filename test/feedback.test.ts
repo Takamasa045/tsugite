@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, symlink, unlink, utimes, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rename, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -75,12 +75,14 @@ describe("feedback contract", () => {
       decision: "pending" as const
     };
 
-    await expect(appendProjectFeedback(configPath, {
+    const legacyProposal = await appendProjectFeedback(configPath, {
       ...base,
       stage: "recurring",
       evidence: ["dist/run-1/gate3-qc.json"],
       promotion_proposal: pendingProposal
-    })).resolves.toMatchObject({ entry: { promotion_proposal: pendingProposal } });
+    });
+    expect(legacyProposal.entry).toMatchObject({ promotion_proposal: pendingProposal });
+    expect(legacyProposal.entry.promotion_proposal?.source).toBeUndefined();
     await expect(appendProjectFeedback(configPath, {
       ...base,
       promotion_proposal: pendingProposal
@@ -114,6 +116,202 @@ describe("feedback contract", () => {
     expect((await readProjectFeedback(configPath)).entries.filter((entry) => (
       entry.promotion_proposal?.decision !== "pending"
     ))).toHaveLength(1);
+  });
+
+  it("records strict automation provenance and preserves it when a human decides", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-feedback-"));
+    const configPath = join(root, "project.yaml");
+    await writeProjectConfig(configPath);
+    const proposal = {
+      id: "opening-audio-automation-v1",
+      kind: "qa" as const,
+      target: "src/orchestrator/gate3Qc.ts",
+      change_summary: "冒頭音声をGate 3で確認する",
+      verification: "後続案件のgate3-qc.jsonで確認する",
+      source: {
+        kind: "codex_automation" as const,
+        workflow_id: "tsugite-learning-promotion-review",
+        run_id: "automation-run-17"
+      },
+      decision: "pending" as const
+    };
+
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: proposal
+    })).resolves.toMatchObject({ entry: { promotion_proposal: proposal } });
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: {
+        ...proposal,
+        source: { ...proposal.source, workflow_id: "unsafe workflow" }
+      }
+    })).rejects.toThrow("must be a safe id");
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: {
+        ...proposal,
+        source: { ...proposal.source, extra: true }
+      }
+    } as never)).rejects.toThrow("Unrecognized key");
+
+    const decided = await decideProjectFeedbackPromotion(configPath, {
+      key: "opening-audio",
+      proposalId: proposal.id,
+      decision: "approved"
+    });
+    expect(decided.entry.promotion_proposal).toMatchObject({
+      source: proposal.source,
+      decision: "approved",
+      decided_by: "human"
+    });
+
+    const rejectedProposal = {
+      ...proposal,
+      id: "opening-audio-automation-v2"
+    };
+    await appendProjectFeedback(configPath, {
+      ...base,
+      key: "opening-audio-rejected",
+      stage: "recurring",
+      evidence: ["dist/run-2/gate3-qc.json"],
+      promotion_proposal: rejectedProposal
+    });
+    const rejected = await decideProjectFeedbackPromotion(configPath, {
+      key: "opening-audio-rejected",
+      proposalId: rejectedProposal.id,
+      decision: "rejected"
+    });
+    expect(rejected.entry.promotion_proposal).toMatchObject({
+      source: proposal.source,
+      decision: "rejected",
+      decided_by: "human"
+    });
+  });
+
+  it("rejects a decision when the append handle does not match the expected feedback identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-feedback-"));
+    const configPath = join(root, "project.yaml");
+    await writeProjectConfig(configPath);
+    const pending = await appendProjectFeedback(configPath, {
+      ...base,
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: {
+        id: "opening-audio-identity-v1",
+        kind: "qa",
+        target: "src/orchestrator/gate3Qc.ts",
+        change_summary: "冒頭音声をGate 3で確認する",
+        verification: "後続案件のgate3-qc.jsonで確認する",
+        decision: "pending"
+      }
+    });
+    const loadedStats = await lstat(pending.path);
+    const originalContents = await readFile(pending.path, "utf8");
+    await rename(pending.path, join(root, "feedback-original.jsonl"));
+    await writeFile(pending.path, originalContents);
+
+    await expect(decideProjectFeedbackPromotion(configPath, {
+      key: base.key,
+      proposalId: "opening-audio-identity-v1",
+      decision: "approved"
+    }, {
+      expectedFileIdentity: { device: loadedStats.dev, inode: loadedStats.ino }
+    })).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "feedback.file_changed" })]
+    });
+    expect(await readFile(pending.path, "utf8")).toBe(originalContents);
+  });
+
+  it("atomically rejects duplicate automation proposals and allows a new proposal after a decision", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-feedback-"));
+    const configPath = join(root, "project.yaml");
+    await writeProjectConfig(configPath);
+    const proposal = {
+      kind: "qa" as const,
+      target: "src/orchestrator/gate3Qc.ts",
+      change_summary: "冒頭音声をGate 3で確認する",
+      verification: "後続案件のgate3-qc.jsonで確認する",
+      decision: "pending" as const
+    };
+    const inputFor = (id: string, runId: string) => ({
+      ...base,
+      stage: "recurring" as const,
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: {
+        ...proposal,
+        id,
+        source: {
+          kind: "codex_automation" as const,
+          workflow_id: "tsugite-learning-promotion-review",
+          run_id: runId
+        }
+      }
+    });
+
+    const concurrent = await Promise.allSettled([
+      appendProjectFeedback(configPath, inputFor("automation-race-1", "automation-run-1")),
+      appendProjectFeedback(configPath, inputFor("automation-race-2", "automation-run-2"))
+    ]);
+    const fulfilled = concurrent.filter((result) => result.status === "fulfilled");
+    const rejected = concurrent.filter((result) => result.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      issues: [expect.objectContaining({ code: "feedback.proposal_pending_exists" })]
+    });
+
+    const accepted = (fulfilled[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof appendProjectFeedback>>>).value;
+    await decideProjectFeedbackPromotion(configPath, {
+      key: base.key,
+      proposalId: accepted.entry.promotion_proposal!.id,
+      decision: "approved"
+    });
+    await expect(appendProjectFeedback(configPath, inputFor(
+      "automation-duplicate-after-decision",
+      "automation-run-3"
+    ))).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "feedback.proposal_duplicate" })]
+    });
+
+    await expect(appendProjectFeedback(configPath, {
+      ...inputFor("automation-new-after-decision", "automation-run-4"),
+      promotion_proposal: {
+        ...inputFor("automation-new-after-decision", "automation-run-4").promotion_proposal,
+        change_summary: "冒頭音声と波形をGate 3で確認する"
+      }
+    })).resolves.toMatchObject({
+      entry: {
+        promotion_proposal: {
+          id: "automation-new-after-decision",
+          decision: "pending"
+        }
+      }
+    });
+
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: {
+        ...proposal,
+        id: "manual-proposal-after-pending",
+        change_summary: "冒頭音声と波形をGate 3で確認する"
+      }
+    })).resolves.toMatchObject({
+      entry: {
+        promotion_proposal: {
+          id: "manual-proposal-after-pending",
+          decision: "pending"
+        }
+      }
+    });
   });
 
   it("keeps valid records when another line is malformed", async () => {
@@ -291,6 +489,11 @@ describe("feedback contract", () => {
       target: "src/orchestrator/gate3Qc.ts",
       change_summary: "冒頭音声をGate 3で確認する",
       verification: "後続案件のgate3-qc.jsonで確認する",
+      source: {
+        kind: "codex_automation" as const,
+        workflow_id: "tsugite-learning-promotion-review",
+        run_id: "automation-run-17"
+      },
       decision: "pending" as const
     };
     const pending = record("proposal-1", "recurring", { promotion_proposal: proposal });
@@ -311,7 +514,12 @@ describe("feedback contract", () => {
       projectId: "a",
       projectName: "Project A",
       decision: "approved",
-      decidedBy: "human"
+      decidedBy: "human",
+      source: {
+        kind: "codex_automation",
+        workflowId: "tsugite-learning-promotion-review",
+        runId: "automation-run-17"
+      }
     });
 
     const promoted = record("proposal-3", "promoted", {

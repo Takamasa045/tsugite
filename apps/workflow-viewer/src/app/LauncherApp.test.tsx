@@ -170,6 +170,11 @@ const feedback = {
         changeSummary: '字幕のセーフエリア判定をGate 3へ追加する。',
         verification: '後続案件のgate3-qc.jsonと代表フレームで確認する。',
         decision: 'pending' as const,
+        source: {
+          kind: 'codex_automation' as const,
+          workflowId: 'tsugite-learning-promotion-review',
+          runId: 'review-run-20260717',
+        },
       },
       lastSeenAt: '2026-07-17T09:00:00+09:00',
     },
@@ -177,116 +182,179 @@ const feedback = {
   issues: [],
 }
 
-function jsonResponse(input: unknown, ok = true): Response {
-  return { ok, json: async () => input } as Response
+function jsonResponse(input: unknown, ok = true, status = ok ? 200 : 500): Response {
+  return { ok, status, json: async () => input } as Response
+}
+
+function createLauncherFetcher({
+  projectList = projects,
+  feedbackAggregate = feedback,
+  templateList = templates,
+}: {
+  projectList?: unknown
+  feedbackAggregate?: unknown
+  templateList?: unknown
+} = {}) {
+  return vi.fn().mockImplementation((url: string) => {
+    if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects: projectList }))
+    if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback: feedbackAggregate }))
+    if (url === '/api/templates') return Promise.resolve(jsonResponse({ ok: true, templates: templateList }))
+    return Promise.resolve(jsonResponse({ ok: false }, false))
+  })
 }
 
 describe('LauncherApp', () => {
-  it('昇格承認待ちをタブへ表示し、新しい待ち案件だけをデスクトップ通知する', async () => {
+  it('初回起動で dedicated workflow の確認待ちだけをタブとピックアップへ表示する', async () => {
     const user = userEvent.setup()
-    let permission: NotificationPermission = 'default'
-    let currentFeedback: unknown = feedback
-    const notify = vi.fn()
-    const requestPermission = vi.fn(async () => {
-      permission = 'granted'
-      return permission
-    })
-    const notificationStorage = new Map<string, string>()
-    const storage = {
-      getItem: (key: string) => notificationStorage.get(key) ?? null,
-      setItem: (key: string, value: string) => { notificationStorage.set(key, value) },
+    const manualPending = {
+      ...feedback.preferences[2]!,
+      key: 'manual-pending',
+      summary: '手動で記録した昇格案。',
+      promotionProposal: {
+        ...feedback.preferences[2]!.promotionProposal!,
+        id: 'manual-pending-v1',
+        source: undefined,
+      },
     }
-    const fetcher = vi.fn().mockImplementation((url: string) => {
-      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback: currentFeedback }))
-      return Promise.resolve(jsonResponse({ ok: true, projects }))
+    const otherWorkflowPending = {
+      ...feedback.preferences[2]!,
+      key: 'other-workflow-pending',
+      summary: '別のworkflowが作成した昇格案。',
+      promotionProposal: {
+        ...feedback.preferences[2]!.promotionProposal!,
+        id: 'other-workflow-pending-v1',
+        source: {
+          kind: 'codex_automation' as const,
+          workflowId: 'another-workflow',
+        },
+      },
+    }
+    const fetcher = createLauncherFetcher({
+      feedbackAggregate: {
+        ...feedback,
+        preferences: [...feedback.preferences, manualPending, otherWorkflowPending],
+      },
     })
 
-    render(
-      <LauncherApp
-        feedbackPollIntervalMs={20}
-        fetcher={fetcher}
-        notificationApi={{
-          getPermission: () => permission,
-          isSupported: () => true,
-          requestPermission,
-          show: notify,
-        }}
-        notificationStorage={storage}
-        token="session-token"
-      />,
-    )
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
     const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+    await waitFor(() => expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 1件'))
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/feedback')).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: '制作案件を選ぶ' })).toBeVisible()
     await user.click(feedbackTab)
 
-    expect(await screen.findByText('昇格承認待ち 1件')).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '好み・学びの育ち方' })).toBeVisible()
     expect(feedbackTab).toHaveTextContent('1')
-    await user.click(screen.getByRole('button', { name: '承認待ちの通知を有効にする' }))
+    const pickup = screen.getByRole('region', { name: '確認してほしい学び' })
+    const pickupButton = within(pickup).getByRole('button', {
+      name: '「字幕をセーフエリア内に収める。」の昇格案を確認',
+    })
+    expect(pickupButton).toBeVisible()
+    expect(within(pickup).queryByText('手動で記録した昇格案。')).not.toBeInTheDocument()
+    expect(within(pickup).queryByText('別のworkflowが作成した昇格案。')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '手動で記録した昇格案。の詳細を見る' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '別のworkflowが作成した昇格案。の詳細を見る' })).toBeVisible()
 
-    await waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(notify).toHaveBeenCalledWith(
-      '昇格承認待ちが1件あります',
-      expect.objectContaining({ body: '字幕をセーフエリア内に収める。' }),
-    ))
-    expect(screen.getByText('デスクトップ通知は有効です')).toBeVisible()
-
-    currentFeedback = {
-      ...feedback,
-      preferences: [
-        ...feedback.preferences,
-        {
-          ...feedback.preferences[2]!,
-          key: 'opening-black-frame',
-          summary: '冒頭の黒画面を避ける。',
-          promotionProposal: {
-            ...feedback.preferences[2]!.promotionProposal!,
-            id: 'opening-black-frame-v1',
-          },
-        },
-      ],
-    }
-
-    await waitFor(() => expect(notify).toHaveBeenCalledWith(
-      '昇格承認待ちが2件あります',
-      expect.objectContaining({ body: '新しく1件が承認待ちになりました。' }),
-    ))
-    await new Promise((resolve) => setTimeout(resolve, 60))
-    expect(notify).toHaveBeenCalledTimes(2)
-    expect(screen.getByText('昇格承認待ち 2件')).toBeVisible()
+    await user.click(pickupButton)
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('字幕をセーフエリア内に収める。')
+    expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 1件')
+    expect(screen.queryByRole('region', { name: '昇格承認待ちの通知' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '承認待ちの通知を有効にする' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/デスクトップ通知/)).not.toBeInTheDocument()
   })
 
-  it('通知を拒否した場合は再要求せず、ブラウザ設定の案内を表示する', async () => {
+  it('見送りの記録に成功したときだけ、確認待ち件数とピックアップから外す', async () => {
     const user = userEvent.setup()
-    let permission: NotificationPermission = 'default'
-    const show = vi.fn()
-    const fetcher = vi.fn().mockImplementation((url: string) => (
-      url === '/api/feedback'
-        ? Promise.resolve(jsonResponse({ ok: true, feedback }))
-        : Promise.resolve(jsonResponse({ ok: true, projects }))
-    ))
+    let decisionAttempts = 0
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      decisionAttempts += 1
+      return Promise.resolve(decisionAttempts === 1
+        ? jsonResponse({ ok: false }, false)
+        : jsonResponse({ ok: true, decision: 'rejected' }))
+    })
 
-    render(
-      <LauncherApp
-        fetcher={fetcher}
-        notificationApi={{
-          getPermission: () => permission,
-          isSupported: () => true,
-          requestPermission: async () => {
-            permission = 'denied'
-            return permission
-          },
-          show,
-        }}
-        token="session-token"
-      />,
-    )
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
-    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
-    await user.click(await screen.findByRole('button', { name: '承認待ちの通知を有効にする' }))
+    const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+    await waitFor(() => expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 1件'))
+    await user.click(feedbackTab)
 
-    expect(await screen.findByText('通知がブロックされています。ブラウザのサイト設定から通知を許可してください。')).toBeVisible()
-    expect(screen.queryByRole('button', { name: '承認待ちの通知を有効にする' })).not.toBeInTheDocument()
-    expect(show).not.toHaveBeenCalled()
+    const pickup = await screen.findByRole('region', { name: '確認してほしい学び' })
+    await user.click(within(pickup).getByRole('button', {
+      name: '「字幕をセーフエリア内に収める。」の昇格案を確認',
+    }))
+    expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 1件')
+
+    await user.click(screen.getByRole('button', { name: '今回は見送る' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('承認結果を記録できませんでした')
+    expect(screen.getByRole('region', { name: '確認してほしい学び' })).toBeVisible()
+    expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 1件')
+
+    await user.click(screen.getByRole('button', { name: '今回は見送る' }))
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: '確認してほしい学び' })).not.toBeInTheDocument())
+    expect(feedbackTab).not.toHaveAttribute('aria-describedby')
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('見送り済み')
+  })
+
+  it('既決定の409競合は最新feedbackを再取得し、詳細・件数・ピックアップを同期する', async () => {
+    const user = userEvent.setup()
+    let feedbackGetCount = 0
+    const decidedFeedback = {
+      ...feedback,
+      preferences: feedback.preferences.map((preference) => (
+        preference.key === 'caption-safe-area' && preference.promotionProposal
+          ? {
+              ...preference,
+              promotionProposal: {
+                ...preference.promotionProposal,
+                decision: 'approved' as const,
+                decidedAt: '2026-07-17T10:15:00.000Z',
+                decidedBy: 'human' as const,
+              },
+            }
+          : preference
+      )),
+    }
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') {
+        feedbackGetCount += 1
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          feedback: feedbackGetCount === 1 ? feedback : decidedFeedback,
+        }))
+      }
+      return Promise.resolve(jsonResponse({
+        ok: false,
+        issue: {
+          code: 'feedback.proposal_already_decided',
+          message: 'promotion proposal was already decided',
+        },
+      }, false, 409))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+    await waitFor(() => expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 1件'))
+    await user.click(feedbackTab)
+
+    const pickup = await screen.findByRole('region', { name: '確認してほしい学び' })
+    await user.click(within(pickup).getByRole('button', {
+      name: '「字幕をセーフエリア内に収める。」の昇格案を確認',
+    }))
+    await user.click(screen.getByRole('button', { name: '昇格を承認' }))
+
+    await waitFor(() => expect(feedbackGetCount).toBe(2))
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/feedback')).toHaveLength(2)
+    expect(screen.queryByRole('region', { name: '確認してほしい学び' })).not.toBeInTheDocument()
+    expect(feedbackTab).not.toHaveAttribute('aria-describedby')
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('承認済み・反映待ち')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('棚タブを矢印キーとHome・Endで移動できる', async () => {
@@ -318,21 +386,23 @@ describe('LauncherApp', () => {
     expect(projectsTab).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('既定のfetchでも一覧取得を一度だけ実行する', async () => {
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects }))
+  it('既定のfetchで案件と好み・学びを初回に一度ずつ取得する', async () => {
+    const fetcher = createLauncherFetcher()
     vi.stubGlobal('fetch', fetcher)
 
     render(<LauncherApp token="session-token" />)
 
     expect(await screen.findByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
     await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(1)
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/feedback')).toHaveLength(1)
     vi.unstubAllGlobals()
   })
 
   it('案件を読み込み、検索と前回の表示を案内する', async () => {
     const user = userEvent.setup()
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects }))
+    const fetcher = createLauncherFetcher()
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
@@ -369,7 +439,7 @@ describe('LauncherApp', () => {
       valid: true,
       refreshable: true,
     }))
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects: manyProjects }))
+    const fetcher = createLauncherFetcher({ projectList: manyProjects })
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('button', { name: '案件14の制作記録を開く' })
@@ -388,14 +458,11 @@ describe('LauncherApp', () => {
 
   it('テンプレート棚を必要時に読み込み、検索・用途絞り込み・詳細確認ができる', async () => {
     const user = userEvent.setup()
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, templates }))
+    const fetcher = createLauncherFetcher()
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
-    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher).toHaveBeenCalledTimes(2)
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
     expect(await screen.findByRole('heading', { name: 'テンプレートを選ぶ' })).toBeVisible()
@@ -423,16 +490,20 @@ describe('LauncherApp', () => {
 
     await user.click(screen.getByRole('tab', { name: '制作案件' }))
     expect(screen.getByRole('heading', { name: '制作案件を選ぶ' })).toBeVisible()
-    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
   it('テンプレート一覧の読込失敗から再試行できる', async () => {
     const user = userEvent.setup()
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
-      .mockRejectedValueOnce(new Error('offline'))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, templates: [] }))
+    let templateAttempts = 0
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      templateAttempts += 1
+      return templateAttempts === 1
+        ? Promise.reject(new Error('offline'))
+        : Promise.resolve(jsonResponse({ ok: true, templates: [] }))
+    })
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
@@ -441,21 +512,25 @@ describe('LauncherApp', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('テンプレートを読み込めませんでした。')
     await user.click(screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' }))
     expect(await screen.findByText('表示できるテンプレートはまだありません。')).toBeVisible()
-    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(fetcher).toHaveBeenCalledTimes(4)
   })
 
-  it('好み・学びを必要時だけ読み込み、4段階と根拠を表示する', async () => {
+  it('初回起動で読み込んだ好み・学びの4段階と根拠を表示する', async () => {
     const user = userEvent.setup()
     let resolveFeedback!: (response: Response) => void
     const feedbackRequest = new Promise<Response>((resolve) => { resolveFeedback = resolve })
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
-      .mockReturnValueOnce(feedbackRequest)
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return feedbackRequest
+      if (url === '/api/feedback/sample-a/promotion-decision') {
+        return Promise.resolve(jsonResponse({ ok: true, decision: 'approved' }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
-    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher).toHaveBeenCalledTimes(2)
 
     const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
     await user.click(feedbackTab)
@@ -517,7 +592,6 @@ describe('LauncherApp', () => {
     expect(within(approvalSection!).getByRole('button', { name: '昇格を承認' })).toBeVisible()
     expect(within(approvalSection!).getByRole('button', { name: '今回は見送る' })).toBeVisible()
 
-    fetcher.mockResolvedValueOnce(jsonResponse({ ok: true, decision: 'approved' }))
     await user.click(within(approvalSection!).getByRole('button', { name: '昇格を承認' }))
     await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(
       '/api/feedback/sample-a/promotion-decision',
@@ -534,6 +608,8 @@ describe('LauncherApp', () => {
     expect(await within(detail).findByText('承認済み・反映待ち')).toBeVisible()
     expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('共有先へ反映し、テストして反映済みへ')
     expect(within(detail).getByRole('heading', { name: '次にすること' }).parentElement).toHaveTextContent('承認された案を共有先へ実装')
+    expect(screen.queryByRole('region', { name: '確認してほしい学び' })).not.toBeInTheDocument()
+    expect(feedbackTab).not.toHaveAttribute('aria-describedby')
 
     await user.click(screen.getByRole('tab', { name: '制作案件' }))
     await user.click(feedbackTab)
@@ -678,10 +754,11 @@ describe('LauncherApp', () => {
     const user = userEvent.setup()
     let resolveRefresh!: (response: Response) => void
     const refreshRequest = new Promise<Response>((resolve) => { resolveRefresh = resolve })
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
-      .mockReturnValueOnce(refreshRequest)
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      return refreshRequest
+    })
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
@@ -719,7 +796,7 @@ describe('LauncherApp', () => {
       viewerUrl: undefined,
       issue: 'manifest.jsonが見つかりません。',
     }
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects: [invalidProject] }))
+    const fetcher = createLauncherFetcher({ projectList: [invalidProject] })
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await user.click(await screen.findByRole('button', { name: '設定確認が必要な案件の設定を確認' }))
@@ -746,7 +823,7 @@ describe('LauncherApp', () => {
       viewerUrl: '/viewers/unsupported-showreel/',
       issue: "manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it",
     }
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects: [unrefreshableProject] }))
+    const fetcher = createLauncherFetcher({ projectList: [unrefreshableProject] })
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
@@ -761,7 +838,7 @@ describe('LauncherApp', () => {
     expect(within(selectedPanel).getByRole('button', { name: '最新状態に更新して開く' })).toBeDisabled()
 
     await user.click(reasonCard)
-    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher).toHaveBeenCalledTimes(2)
     await user.click(screen.getByRole('button', { name: '完了で絞り込む' }))
     expect(screen.getByRole('button', { name: '未対応ショーリールの更新できない理由を確認' })).toBeVisible()
     await user.click(within(selectedPanel).getByRole('button', { name: '前回の表示を開く' }))
@@ -774,16 +851,17 @@ describe('LauncherApp', () => {
     meta.name = 'tsugite-launcher-token'
     meta.content = 'meta-session-token'
     document.head.append(meta)
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ ok: true, projects }))
-      .mockResolvedValueOnce(jsonResponse({
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      return Promise.resolve(jsonResponse({
         ok: false,
         issue: {
           code: 'viewer_launcher.project_invalid',
           message: '参照画像 section-01.png が見つかりません。',
         },
       }, false))
+    })
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} />)
@@ -805,16 +883,20 @@ describe('LauncherApp', () => {
 
   it('一覧取得の失敗から再読込でき、空の一覧も案内する', async () => {
     const user = userEvent.setup()
-    const fetcher = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('offline'))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, projects: [] }))
+    let projectAttempts = 0
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      projectAttempts += 1
+      return projectAttempts === 1
+        ? Promise.reject(new Error('offline'))
+        : Promise.resolve(jsonResponse({ ok: true, projects: [] }))
+    })
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('制作案件を読み込めませんでした。')
     await user.click(screen.getByRole('button', { name: 'もう一度読み込む' }))
     expect(await screen.findByText('表示できる制作案件はまだありません。')).toBeVisible()
-    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher).toHaveBeenCalledTimes(3)
   })
 })

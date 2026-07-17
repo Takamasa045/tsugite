@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  Bell,
   BookOpen,
   Clapperboard,
   Clock3,
@@ -11,7 +10,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 export interface LauncherProject {
   id: string
@@ -76,6 +75,11 @@ interface FeedbackPromotionProposal {
   changeSummary: string
   verification: string
   decision: 'pending' | 'approved' | 'rejected'
+  source?: {
+    kind: 'codex_automation'
+    workflowId: string
+    runId?: string
+  }
   decidedAt?: string
   decidedBy?: 'human'
 }
@@ -132,17 +136,7 @@ interface RefreshErrorResponse {
 interface LauncherAppProps {
   fetcher?: typeof fetch
   navigate?: (url: string) => void
-  feedbackPollIntervalMs?: number
-  notificationApi?: LauncherNotificationApi
-  notificationStorage?: Pick<Storage, 'getItem' | 'setItem'>
   token?: string
-}
-
-export interface LauncherNotificationApi {
-  getPermission: () => NotificationPermission
-  isSupported: () => boolean
-  requestPermission: () => Promise<NotificationPermission>
-  show: (title: string, options: NotificationOptions) => void
 }
 
 type Shelf = 'projects' | 'templates' | 'feedback'
@@ -156,53 +150,12 @@ const defaultFetcher: typeof fetch = (...args) => window.fetch(...args)
 const PROJECT_PAGE_SIZE = 12
 const FEEDBACK_PAGE_SIZE = 24
 const FEEDBACK_ISSUE_DISPLAY_LIMIT = 5
-const FEEDBACK_NOTIFICATION_POLL_INTERVAL_MS = 30_000
-const FEEDBACK_NOTIFICATION_STORAGE_KEY = 'tsugite.feedback.notified-promotion-proposals.v1'
-const FEEDBACK_NOTIFICATION_STORAGE_LIMIT = 128
-
-const browserNotificationApi: LauncherNotificationApi = {
-  isSupported: () => typeof window !== 'undefined' && 'Notification' in window,
-  getPermission: () => Notification.permission,
-  requestPermission: () => Notification.requestPermission(),
-  show: (title, options) => { new Notification(title, options) },
-}
-
-function readNotifiedPromotionIds(storage?: Pick<Storage, 'getItem' | 'setItem'>): Set<string> {
-  if (!storage) return new Set()
-  try {
-    const stored: unknown = JSON.parse(storage.getItem(FEEDBACK_NOTIFICATION_STORAGE_KEY) ?? '[]')
-    const ids = Array.isArray(stored)
-      ? stored.filter((value): value is string => typeof value === 'string')
-      : []
-    return new Set(ids.slice(-FEEDBACK_NOTIFICATION_STORAGE_LIMIT))
-  } catch {
-    return new Set()
-  }
-}
-
-function defaultNotificationStorage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
-  try {
-    return typeof window === 'undefined' ? undefined : window.localStorage
-  } catch {
-    return undefined
-  }
-}
-
-function writeNotifiedPromotionIds(storage: Pick<Storage, 'getItem' | 'setItem'> | undefined, ids: Set<string>): void {
-  if (!storage) return
-  try {
-    storage.setItem(
-      FEEDBACK_NOTIFICATION_STORAGE_KEY,
-      JSON.stringify([...ids].slice(-FEEDBACK_NOTIFICATION_STORAGE_LIMIT)),
-    )
-  } catch {
-    // Notification delivery must continue even when browser storage is unavailable.
-  }
-}
 
 function pendingPromotionPreferences(feedback: FeedbackAggregate): FeedbackPreference[] {
   return feedback.preferences.filter((preference) => (
-    preference.stage === 'recurring' && preference.promotionProposal?.decision === 'pending'
+    preference.promotionProposal?.decision === 'pending'
+    && preference.promotionProposal.source?.kind === 'codex_automation'
+    && preference.promotionProposal.source.workflowId === 'tsugite-learning-promotion-review'
   ))
 }
 
@@ -388,6 +341,12 @@ function isFeedbackPromotionProposal(input: unknown): input is FeedbackPromotion
     && 'changeSummary' in input && typeof input.changeSummary === 'string'
     && 'verification' in input && typeof input.verification === 'string'
     && 'decision' in input && ['pending', 'approved', 'rejected'].includes(String(input.decision))
+    && (!('source' in input) || input.source === undefined || (
+      typeof input.source === 'object' && input.source !== null
+      && 'kind' in input.source && input.source.kind === 'codex_automation'
+      && 'workflowId' in input.source && typeof input.source.workflowId === 'string'
+      && (!('runId' in input.source) || input.source.runId === undefined || typeof input.source.runId === 'string')
+    ))
     && (!('decidedAt' in input) || input.decidedAt === undefined || typeof input.decidedAt === 'string')
     && (!('decidedBy' in input) || input.decidedBy === undefined || input.decidedBy === 'human')
 }
@@ -444,9 +403,6 @@ function isRefreshErrorResponse(input: unknown): input is RefreshErrorResponse {
 export function LauncherApp({
   fetcher = defaultFetcher,
   navigate = (url) => window.location.assign(url),
-  feedbackPollIntervalMs = FEEDBACK_NOTIFICATION_POLL_INTERVAL_MS,
-  notificationApi = browserNotificationApi,
-  notificationStorage,
   token = launcherToken(),
 }: LauncherAppProps) {
   const [activeShelf, setActiveShelf] = useState<Shelf>('projects')
@@ -473,37 +429,6 @@ export function LauncherApp({
   const [visibleFeedbackCount, setVisibleFeedbackCount] = useState(FEEDBACK_PAGE_SIZE)
   const [promotionDecisionState, setPromotionDecisionState] = useState<PromotionDecisionState>('idle')
   const [promotionDecisionError, setPromotionDecisionError] = useState<string | null>(null)
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => (
-    notificationApi.isSupported() ? notificationApi.getPermission() : 'unsupported'
-  ))
-  const [notificationError, setNotificationError] = useState<string | null>(null)
-  const fallbackStorage = useMemo(defaultNotificationStorage, [])
-  const notifiedPromotionIds = useRef<Set<string> | null>(null)
-  if (notifiedPromotionIds.current === null) {
-    notifiedPromotionIds.current = readNotifiedPromotionIds(notificationStorage ?? fallbackStorage)
-  }
-
-  const notifyPendingPromotions = useCallback((nextFeedback: FeedbackAggregate, permission = notificationPermission) => {
-    if (permission !== 'granted') return
-    const pending = pendingPromotionPreferences(nextFeedback)
-    const unseen = pending.filter((preference) => (
-      preference.promotionProposal && !notifiedPromotionIds.current!.has(preference.promotionProposal.id)
-    ))
-    if (unseen.length === 0) return
-    const title = `昇格承認待ちが${pending.length}件あります`
-    const body = pending.length === 1 && unseen.length === 1
-      ? unseen[0]!.summary
-      : `新しく${unseen.length}件が承認待ちになりました。`
-    try {
-      notificationApi.show(title, { body, tag: 'tsugite-promotion-approval' })
-      const notifiedIds = notifiedPromotionIds.current!
-      unseen.forEach((preference) => notifiedIds.add(preference.promotionProposal!.id))
-      writeNotifiedPromotionIds(notificationStorage ?? fallbackStorage, notifiedIds)
-      setNotificationError(null)
-    } catch {
-      setNotificationError('デスクトップ通知を表示できませんでした。ブラウザの通知設定を確認してください。')
-    }
-  }, [fallbackStorage, notificationApi, notificationPermission, notificationStorage])
 
   const acceptFeedback = useCallback((nextFeedback: FeedbackAggregate) => {
     setFeedback(nextFeedback)
@@ -514,8 +439,7 @@ export function LauncherApp({
         ? current
         : nextFeedback.preferences[0]?.key ?? null
     ))
-    notifyPendingPromotions(nextFeedback)
-  }, [notifyPendingPromotions])
+  }, [])
 
   const loadProjects = useCallback(async () => {
     setLoading(true)
@@ -572,26 +496,8 @@ export function LauncherApp({
   }, [loadAttempt, loadProjects])
 
   useEffect(() => {
-    if (notificationPermission !== 'granted') return
-    let cancelled = false
-    const poll = async () => {
-      try {
-        const response = await fetcher('/api/feedback', { headers: { accept: 'application/json' } })
-        const payload: unknown = await response.json()
-        if (cancelled || !response.ok || !isFeedbackResponse(payload)) return
-        acceptFeedback(payload.feedback)
-        setFeedbackLoadState('ready')
-      } catch {
-        // Background checks stay quiet; foreground loading keeps its own error state.
-      }
-    }
-    void poll()
-    const interval = window.setInterval(() => { void poll() }, feedbackPollIntervalMs)
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [acceptFeedback, feedbackPollIntervalMs, fetcher, notificationPermission])
+    void loadFeedback()
+  }, [loadFeedback])
 
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('ja')
@@ -656,7 +562,10 @@ export function LauncherApp({
     ?? null
   const visibleFeedback = filteredFeedback.slice(0, visibleFeedbackCount)
   const remainingFeedbackCount = Math.max(0, filteredFeedback.length - visibleFeedback.length)
-  const pendingPromotionCount = feedback ? pendingPromotionPreferences(feedback).length : 0
+  const pendingPromotions = useMemo(() => (
+    feedback ? pendingPromotionPreferences(feedback) : []
+  ), [feedback])
+  const pendingPromotionCount = pendingPromotions.length
   const projectSummary = useMemo(() => ({
     active: projects.filter((project) => projectMatchesFilter(project, 'active')).length,
     waiting: projects.filter((project) => projectMatchesFilter(project, 'waiting')).length,
@@ -749,6 +658,15 @@ export function LauncherApp({
         body: JSON.stringify({ key: selectedFeedback.key, proposalId: proposal.id, decision }),
       })
       const payload: unknown = await response.json()
+      if (
+        response.status === 409
+        && isRefreshErrorResponse(payload)
+        && payload.issue.code === 'feedback.proposal_already_decided'
+      ) {
+        await loadFeedback()
+        setPromotionDecisionState('idle')
+        return
+      }
       if (!response.ok || typeof payload !== 'object' || payload === null || !('ok' in payload) || payload.ok !== true) {
         throw new Error('promotion decision failed')
       }
@@ -772,21 +690,6 @@ export function LauncherApp({
     } catch {
       setPromotionDecisionState('error')
       setPromotionDecisionError('承認結果を記録できませんでした。内容を確認してもう一度お試しください。')
-    }
-  }
-
-  const enablePromotionNotifications = async () => {
-    if (!notificationApi.isSupported()) {
-      setNotificationPermission('unsupported')
-      return
-    }
-    setNotificationError(null)
-    try {
-      const permission = await notificationApi.requestPermission()
-      setNotificationPermission(permission)
-      if (permission === 'granted' && feedback) notifyPendingPromotions(feedback, permission)
-    } catch {
-      setNotificationError('通知の許可を確認できませんでした。ブラウザの通知設定を確認してください。')
     }
   }
 
@@ -846,7 +749,9 @@ export function LauncherApp({
               <LayoutTemplate aria-hidden="true" size={17} />テンプレート
             </button>
             <button
+              aria-label="好み・学び"
               aria-controls="launcher-feedback-panel"
+              aria-describedby={pendingPromotionCount > 0 ? 'launcher-feedback-pending-count' : undefined}
               aria-selected={activeShelf === 'feedback'}
               id="launcher-feedback-tab"
               onClick={() => selectShelf('feedback')}
@@ -857,7 +762,10 @@ export function LauncherApp({
             >
               <BookOpen aria-hidden="true" size={17} />好み・学び
               {pendingPromotionCount > 0 && (
-                <span aria-hidden="true" className="launcher-shelf-badge">{pendingPromotionCount}</span>
+                <span className="launcher-shelf-badge" id="launcher-feedback-pending-count">
+                  <span aria-hidden="true">{pendingPromotionCount}</span>
+                  <span className="sr-only">確認待ちの学び {pendingPromotionCount}件</span>
+                </span>
               )}
             </button>
           </div>
@@ -1254,22 +1162,49 @@ export function LauncherApp({
                 </span>
               </header>
 
-              <section aria-label="昇格承認待ちの通知" className="launcher-feedback-notification">
-                <Bell aria-hidden="true" size={19} />
-                <div>
-                  <strong>昇格承認待ち {pendingPromotionCount}件</strong>
-                  {notificationPermission === 'granted' && <p>デスクトップ通知は有効です</p>}
-                  {notificationPermission === 'default' && <p>新しい承認待ちを、ランチャー起動中にデスクトップへ通知できます。</p>}
-                  {notificationPermission === 'denied' && <p>通知がブロックされています。ブラウザのサイト設定から通知を許可してください。</p>}
-                  {notificationPermission === 'unsupported' && <p>このブラウザではデスクトップ通知を利用できません。</p>}
-                  {notificationError && <p className="launcher-feedback-notification-error" role="alert">{notificationError}</p>}
-                </div>
-                {notificationPermission === 'default' && (
-                  <button onClick={() => void enablePromotionNotifications()} type="button">
-                    承認待ちの通知を有効にする
-                  </button>
-                )}
-              </section>
+              {pendingPromotions.length > 0 && (
+                <section
+                  aria-labelledby="launcher-feedback-pickup-heading"
+                  className="launcher-feedback-pickup"
+                >
+                  <header>
+                    <div>
+                      <span className="launcher-feedback-pickup-kicker">確認待ち</span>
+                      <h3 id="launcher-feedback-pickup-heading">確認してほしい学び</h3>
+                      <p>繰り返し見つかった傾向です。反映先と検証方法を確かめ、承認または見送りを選んでください。</p>
+                    </div>
+                    <strong aria-label={`確認待ち ${pendingPromotionCount}件`}>
+                      {pendingPromotionCount}件
+                    </strong>
+                  </header>
+                  <ul>
+                    {pendingPromotions.map((preference) => (
+                      <li key={preference.promotionProposal!.id}>
+                        <button
+                          aria-label={`「${preference.summary}」の昇格案を確認`}
+                          onClick={() => {
+                            setFeedbackFilter('all')
+                            setSelectedFeedbackKey(preference.key)
+                            setPromotionDecisionState('idle')
+                            setPromotionDecisionError(null)
+                          }}
+                          type="button"
+                        >
+                          <span className="launcher-feedback-pickup-meta">
+                            <b>{preference.category}</b>
+                            <small>{FEEDBACK_PROMOTION_LABELS[preference.promotionProposal!.kind]}</small>
+                          </span>
+                          <strong>{preference.summary}</strong>
+                          <span>
+                            反映先 <code>{preference.promotionProposal!.target}</code>
+                          </span>
+                          <ArrowRight aria-hidden="true" size={18} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
               <dl aria-label="学びの4段階" className="launcher-feedback-metrics">
                 {FEEDBACK_STAGES.map((stage) => (

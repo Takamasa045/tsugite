@@ -33,7 +33,7 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 - Keep one-off preferences in `projects/<job>/notes.md`.
 - After recurring evidence has a concrete target, change summary, and verification plan, record a pending promotion proposal and obtain explicit human approval before editing shared source.
 - Treat launcher approve / reject actions as append-only local feedback decisions. Approval means implementation may begin; it does not itself modify templates, rules, checks, Gates, or project state.
-- Treat promotion notifications as launcher-local reminders: after explicit browser permission, notify only newly seen pending proposal IDs while the launcher remains open.
+- Use the optional Codex automation only to review preference/learning promotion candidates while the launcher is open or closed. It may append at most three complete, non-duplicate pending proposals per run through `pipeline feedback`; it must not edit shared source, implement approved proposals, inspect other automations, or send browser, desktop, or external notifications. Codex itself may surface the dedicated automation run through its normal notification policy.
 - Promote reusable project shapes and style choices into `examples/` or `templates/`.
 - Promote machine-checkable failures into constraints, `validate`, or `doctor`, with a reproducing fixture and test.
 - Record new operating rules in `LESSONS.md`, then promote judgment-based rules into this skill or `AGENTS.md`.
@@ -71,3 +71,4 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 - Read `../../../docs/story-guides.md` when interpreting story-framework recommendations.
 - Read `../../../docs/prompt-guides.md` when generation prompt guidance is involved.
 - Read `../../../docs/shitate.md` only for an explicitly requested Shitate handoff.
+- Read `../../../docs/automations/learning-promotion-review.md` when creating, reviewing, or running the dedicated learning-promotion automation.

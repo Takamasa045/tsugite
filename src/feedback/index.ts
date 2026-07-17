@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import { lstat, open, unlink, type FileHandle } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { z } from "zod";
@@ -29,12 +29,18 @@ const isoDateSchema = z.string().refine(
   "must be an ISO 8601 UTC timestamp"
 );
 const promotionKindSchema = z.enum(["template", "constraint", "validator", "qa", "rule", "documentation"]);
+const promotionProposalSourceSchema = z.object({
+  kind: z.literal("codex_automation"),
+  workflow_id: safeIdSchema,
+  run_id: safeIdSchema.optional()
+}).strict();
 const promotionProposalSchema = z.object({
   id: safeIdSchema,
   kind: promotionKindSchema,
   target: safeRelativePathSchema,
   change_summary: z.string().trim().min(1).max(1_000),
   verification: z.string().trim().min(1).max(1_000),
+  source: promotionProposalSourceSchema.optional(),
   decision: z.enum(["pending", "approved", "rejected"]),
   decided_at: isoDateSchema.optional(),
   decided_by: z.literal("human").optional()
@@ -102,6 +108,15 @@ export type FeedbackReadResult = {
   lineCount: number;
 };
 
+export type FeedbackFileIdentity = {
+  device: number;
+  inode: number;
+};
+
+export type FeedbackDecisionOptions = {
+  expectedFileIdentity?: FeedbackFileIdentity;
+};
+
 export type FeedbackProjectInput = {
   projectId: string;
   projectName: string;
@@ -139,6 +154,11 @@ export type AggregatedFeedbackPromotionProposal = {
   target: string;
   changeSummary: string;
   verification: string;
+  source?: {
+    kind: "codex_automation";
+    workflowId: string;
+    runId?: string;
+  };
   decision: "pending" | "approved" | "rejected";
   decidedAt?: string;
   decidedBy?: "human";
@@ -175,7 +195,8 @@ export function feedbackPathForProject(configPath: string): string {
 
 export async function decideProjectFeedbackPromotion(
   configPath: string,
-  input: { key: string; proposalId: string; decision: "approved" | "rejected" }
+  input: { key: string; proposalId: string; decision: "approved" | "rejected" },
+  options: FeedbackDecisionOptions = {}
 ): Promise<{ path: string; entry: FeedbackRecord }> {
   const path = feedbackPathForProject(configPath);
   return withAppendLock(path, async () => {
@@ -194,7 +215,7 @@ export async function decideProjectFeedbackPromotion(
         throw feedbackError("feedback.proposal_already_decided", "promotion proposal was already decided", input.proposalId);
       }
       const decidedAt = new Date().toISOString();
-      return appendProjectFeedbackWithLock(path, {
+      return await appendProjectFeedbackWithLock(path, {
         key: latestProposal.key,
         category: latestProposal.category,
         signal: latestProposal.signal,
@@ -209,7 +230,7 @@ export async function decideProjectFeedbackPromotion(
           decided_at: decidedAt,
           decided_by: "human"
         }
-      });
+      }, options.expectedFileIdentity);
     } finally {
       await releaseFileLock();
     }
@@ -291,7 +312,8 @@ async function appendProjectFeedbackUnlocked(
 
 async function appendProjectFeedbackWithLock(
   path: string,
-  input: FeedbackInput
+  input: FeedbackInput,
+  expectedFileIdentity?: FeedbackFileIdentity
 ): Promise<{ path: string; entry: FeedbackRecord }> {
   const entry = parseForAppend({
     ...input,
@@ -319,7 +341,10 @@ async function appendProjectFeedbackWithLock(
   try {
     handle = await open(
       path,
-      constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW,
+      constants.O_RDWR
+        | constants.O_APPEND
+        | constants.O_NOFOLLOW
+        | (expectedFileIdentity ? 0 : constants.O_CREAT),
       0o600
     );
   } catch (error) {
@@ -338,6 +363,9 @@ async function appendProjectFeedbackWithLock(
     }
     const stats = await handle.stat();
     if (!stats.isFile()) throw feedbackError("feedback.not_file", "feedback.jsonl must be a regular file", path);
+    if (expectedFileIdentity && !matchesFeedbackFileIdentity(stats, expectedFileIdentity)) {
+      throw feedbackError("feedback.file_changed", "feedback.jsonl changed after it was loaded", path);
+    }
     if (stats.size > FEEDBACK_MAX_FILE_BYTES) {
       throw feedbackError("feedback.file_too_large", `feedback.jsonl must not exceed ${FEEDBACK_MAX_FILE_BYTES} bytes`, path);
     }
@@ -350,9 +378,16 @@ async function appendProjectFeedbackWithLock(
     if (parsed.lineCount >= FEEDBACK_MAX_RECORDS) {
       throw feedbackError("feedback.too_many_records", `feedback.jsonl must not exceed ${FEEDBACK_MAX_RECORDS} records`, path);
     }
+    assertNoDuplicateAutomationProposal(entry, parsed.entries);
     const separator = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
     if (stats.size + Buffer.byteLength(separator + encodedEntry) > FEEDBACK_MAX_FILE_BYTES) {
       throw feedbackError("feedback.file_too_large", `feedback.jsonl must not exceed ${FEEDBACK_MAX_FILE_BYTES} bytes`, path);
+    }
+    if (
+      expectedFileIdentity
+      && !matchesFeedbackFileIdentity(await handle.stat(), expectedFileIdentity)
+    ) {
+      throw feedbackError("feedback.file_changed", "feedback.jsonl changed before the decision was written", path);
     }
     await handle.write(`${separator}${encodedEntry}`);
     await handle.sync();
@@ -360,6 +395,49 @@ async function appendProjectFeedbackWithLock(
     await handle.close();
   }
   return { path, entry };
+}
+
+function matchesFeedbackFileIdentity(
+  stats: Stats,
+  expected: FeedbackFileIdentity
+): boolean {
+  return stats.dev === expected.device && stats.ino === expected.inode;
+}
+
+function assertNoDuplicateAutomationProposal(entry: FeedbackRecord, existing: FeedbackRecord[]): void {
+  const proposal = entry.promotion_proposal;
+  if (proposal?.decision !== "pending" || proposal.source?.kind !== "codex_automation") return;
+
+  const proposalsForKey = existing.filter((candidate) => (
+    candidate.key === entry.key && candidate.promotion_proposal
+  ));
+  const latest = proposalsForKey.at(-1)?.promotion_proposal;
+  if (latest?.decision === "pending") {
+    throw feedbackError(
+      "feedback.proposal_pending_exists",
+      `feedback key '${entry.key}' already has a pending promotion proposal`,
+      entry.key
+    );
+  }
+
+  const duplicate = proposalsForKey.some((candidate) => {
+    const previous = candidate.promotion_proposal!;
+    return previous.target === proposal.target
+      && previous.change_summary === proposal.change_summary
+      && previous.verification === proposal.verification
+      && sameEvidence(candidate.evidence, entry.evidence);
+  });
+  if (duplicate) {
+    throw feedbackError(
+      "feedback.proposal_duplicate",
+      `feedback key '${entry.key}' already has an equivalent promotion proposal`,
+      entry.key
+    );
+  }
+}
+
+function sameEvidence(left: string[] | undefined, right: string[] | undefined): boolean {
+  return JSON.stringify(sortedUnique(left ?? [])) === JSON.stringify(sortedUnique(right ?? []));
 }
 
 export function aggregateFeedback(projects: FeedbackProjectInput[]): FeedbackAggregate {
@@ -529,6 +607,13 @@ function latestPromotionProposal(
     target: proposal.target,
     changeSummary: proposal.change_summary,
     verification: proposal.verification,
+    ...(proposal.source ? {
+      source: {
+        kind: proposal.source.kind,
+        workflowId: proposal.source.workflow_id,
+        ...(proposal.source.run_id ? { runId: proposal.source.run_id } : {})
+      }
+    } : {}),
     decision: proposal.decision,
     ...(proposal.decided_at ? { decidedAt: proposal.decided_at } : {}),
     ...(proposal.decided_by ? { decidedBy: proposal.decided_by } : {})
