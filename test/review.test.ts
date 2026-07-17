@@ -132,6 +132,43 @@ describe("creative review", () => {
     expect(JSON.stringify(plan)).toBe(before);
   });
 
+  it("shows the selected dialogue background as a dedicated Gate 1 review surface", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    manifest.images.push({
+      id: "room-background",
+      src: "media/room-background.png",
+      alt: "木の壁と障子がある掛け合い用の部屋"
+    });
+    manifest.presentation!.background_image_id = "room-background";
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+
+    expect(review.background).toMatchObject({
+      id: "room-background",
+      src: "media/room-background.png",
+      alt: "木の壁と障子がある掛け合い用の部屋"
+    });
+    review.background!.preview_src = "assets/002-room-background.png";
+    const html = renderReviewHtml(review);
+    expect(html).toContain('data-testid="background-review"');
+    expect(html).toContain('src="assets/002-room-background.png"');
+    expect(html).toContain('href="#background-title"');
+    expect(html).toContain("背景・舞台");
+  });
+
+  it("warns when the selected background image id is not present", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    manifest.presentation!.background_image_id = "missing-background";
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+
+    expect(review.warnings).toContain(
+      "背景画像ID missing-background が manifest.images に見つかりません。"
+    );
+  });
+
   it("falls back to clips and reports missing character definitions", () => {
     const project = sampleProject();
     delete project.generation;
@@ -170,6 +207,7 @@ describe("creative review", () => {
   it("renders an editing-desk layout with clear review navigation and decision context", () => {
     const project = sampleProject();
     const manifest = sampleManifest();
+    manifest.presentation!.title = "OpenClawの始め方";
 
     const html = renderReviewHtml(
       createReviewDocument(project, manifest, createPlan(project, manifest))
@@ -185,8 +223,14 @@ describe("creative review", () => {
     expect(html).toContain('class="shot-index"');
     expect(html).toContain('aria-label="Gate 1 承認待ち"');
     expect(html).toContain('data-design="joinery-review"');
+    expect(html).toContain('data-material="hinoki-yakisugi"');
     expect(html).toContain('class="joinery-mark"');
+    expect(html).toContain('class="hero-joinery"');
+    expect(html).toContain("継ぎ手絵コンテ / JOINERY SEQUENCE");
+    expect(html).toContain("--yakisugi:#171b18");
+    expect(html).toContain("--urushi:#a63d2f");
     expect(html).toContain("映像制作の事前確認");
+    expect(html).toContain("<h1>OpenClaw<wbr>の始め方</h1>");
   });
 
   it("writes deterministic review artifacts and stages only referenced manifest images", async () => {
@@ -195,9 +239,16 @@ describe("creative review", () => {
     await writeFile(join(root, "project.yaml"), "placeholder\n");
     await writeFile(join(root, "manifest.json"), "{}\n");
     await writeFile(join(root, "media/musuhi.png"), Buffer.from([137, 80, 78, 71]));
+    await writeFile(join(root, "media/room-background.png"), Buffer.from([137, 80, 78, 71]));
     await writeFile(join(root, "media/unreferenced.png"), Buffer.from([1, 2, 3]));
     const project = sampleProject();
     const manifest = sampleManifest();
+    manifest.images.push({
+      id: "room-background",
+      src: "media/room-background.png",
+      alt: "掛け合い用の背景"
+    });
+    manifest.presentation!.background_image_id = "room-background";
     manifest.images.push({ id: "unused", src: "media/unreferenced.png" });
     const outputDir = join(root, "custom-review");
 
@@ -209,10 +260,12 @@ describe("creative review", () => {
       outputDir
     });
 
-    expect(result.assetCount).toBe(1);
+    expect(result.assetCount).toBe(2);
     expect(JSON.parse(await readFile(result.dataPath, "utf8")).schema_version).toBe(1);
     const html = await readFile(result.reviewPath, "utf8");
     expect(html).toContain("assets/001-musuhi.png");
+    expect(html).toContain("assets/002-room-background.png");
+    expect(html).toContain('data-testid="background-review"');
     expect(html).not.toContain('aria-label="まず、問いを置くの構成ワイヤー"');
     expect(html).not.toContain("&lt;project.yaml&gt;");
     await expect(stat(join(outputDir, "assets/001-musuhi.png"))).resolves.toBeDefined();
