@@ -1,4 +1,4 @@
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import {
   copyFile,
   mkdir,
@@ -12,6 +12,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { spawnCommandSync } from "../platform/process.js";
 import type { ExecutionPlan } from "../orchestrator/plan.js";
 import { createPlannedState, readState, type RunState } from "../orchestrator/state.js";
 import type { Project } from "../project/schema.js";
@@ -52,10 +53,18 @@ type ViewerEvidence = ViewerArtifactSnapshot & {
 };
 
 const MATERIAL_PREVIEW_LIMITS = { clip: 2, image: 4, audio: 2 } as const;
+const REVIEW_PREVIEW_FILE_LIMIT = 64;
+const REVIEW_PREVIEW_BYTE_LIMIT = 64 * 1024 * 1024;
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 const viewerAppDir = join(repositoryRoot, "apps", "workflow-viewer");
 const defaultBundleDir = join(viewerAppDir, "dist");
+
+export async function prepareWorkflowViewerBundle(bundleDir?: string): Promise<string> {
+  const resolvedBundleDir = bundleDir ? resolve(bundleDir) : defaultBundleDir;
+  await ensureViewerBundle(resolvedBundleDir, bundleDir !== undefined);
+  return resolvedBundleDir;
+}
 
 /**
  * Writes a read-only Viewer snapshot. Pipeline state and Gate artifacts are never changed.
@@ -77,16 +86,20 @@ export async function writeWorkflowViewer(
   const { state, found: stateFound } = await loadRunState(join(runDir, "state.json"), runId);
   const loadedEvidence = await loadViewerEvidence(runDir, runId);
   const { previewSources, ...evidence } = loadedEvidence;
-  await ensureViewerBundle(bundleDir, options.bundleDir !== undefined);
+  await prepareWorkflowViewerBundle(options.bundleDir);
   await mkdir(outputDir, { recursive: true });
-  const previews = await writeViewerPreviews(
-    runDir,
-    outputDir,
-    previewSources,
-    evidence.gate3Qc?.outputPath
-  );
+  const [reviewHref, previews] = await Promise.all([
+    writeReviewPreview(runDir, outputDir, evidence.reviewPresent === true),
+    writeViewerPreviews(
+      runDir,
+      outputDir,
+      previewSources,
+      evidence.gate3Qc?.outputPath
+    )
+  ]);
   const workflow = createViewerWorkflow(options.project, options.plan, state, {
     ...evidence,
+    ...(reviewHref ? { reviewHref } : {}),
     ...(previews.length > 0 ? { previews } : {})
   });
   const workflowJson = `${JSON.stringify(workflow, null, 2)}\n`;
@@ -375,6 +388,76 @@ async function writeViewerPreviews(
   return previews;
 }
 
+type ReviewPreviewFile = {
+  source: string;
+  relativePath: string;
+  size: number;
+};
+
+async function writeReviewPreview(
+  runDir: string,
+  outputDir: string,
+  reviewPresent: boolean
+): Promise<string | undefined> {
+  const destinationDir = join(outputDir, "review");
+  await rm(destinationDir, { recursive: true, force: true });
+  if (!reviewPresent) return undefined;
+
+  const reviewDir = join(runDir, "review");
+  const files = await collectReviewPreviewFiles(runDir, reviewDir);
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (
+    files.length === 0 ||
+    files.length > REVIEW_PREVIEW_FILE_LIMIT ||
+    totalBytes > REVIEW_PREVIEW_BYTE_LIMIT
+  ) return undefined;
+
+  for (const file of files) {
+    const destination = join(destinationDir, file.relativePath);
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(file.source, destination);
+  }
+  return "./review/index.html";
+}
+
+async function collectReviewPreviewFiles(runDir: string, reviewDir: string): Promise<ReviewPreviewFile[]> {
+  const [realRunDir, realReviewDir] = await Promise.all([realpath(runDir), realpath(reviewDir)]);
+  if (!isSameOrDescendant(relative(realRunDir, realReviewDir))) return [];
+  const files: ReviewPreviewFile[] = [];
+
+  const addFile = async (source: string, relativePath: string): Promise<void> => {
+    const realSource = await realpath(source);
+    if (!isSameOrDescendant(relative(realReviewDir, realSource))) return;
+    const sourceStat = await stat(realSource);
+    if (!sourceStat.isFile()) return;
+    files.push({ source: realSource, relativePath, size: sourceStat.size });
+  };
+
+  await addFile(join(reviewDir, "index.html"), "index.html");
+  const walkAssets = async (directory: string, relativeDirectory: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (isFileSystemError(error, "ENOENT")) return;
+      throw error;
+    }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.isSymbolicLink()) continue;
+      const source = join(directory, entry.name);
+      const relativePath = join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        await walkAssets(source, relativePath);
+      } else if (entry.isFile()) {
+        await addFile(source, relativePath);
+      }
+      if (files.length > REVIEW_PREVIEW_FILE_LIMIT) return;
+    }
+  };
+  await walkAssets(join(reviewDir, "assets"), "assets");
+  return files;
+}
+
 function previewKind(kind: ViewerPreviewSource["kind"]): ViewerMediaPreview["kind"] {
   return kind === "clip" ? "video" : kind;
 }
@@ -409,8 +492,11 @@ async function copySafeRunFile(
   reference: string,
   destination: string
 ): Promise<boolean> {
-  if (reference.includes("\\") || /^[A-Za-z][A-Za-z\d+.-]*:/.test(reference)) return false;
-  const sourcePath = isAbsolute(reference) ? resolve(reference) : resolve(runDir, reference);
+  const absoluteReference = isAbsolute(reference);
+  if (!absoluteReference && (reference.includes("\\") || /^[A-Za-z][A-Za-z\d+.-]*:/.test(reference))) {
+    return false;
+  }
+  const sourcePath = absoluteReference ? resolve(reference) : resolve(runDir, reference);
   if (!isSameOrDescendant(relative(runDir, sourcePath))) return false;
   try {
     const [realRunDir, realSource] = await Promise.all([realpath(runDir), realpath(sourcePath)]);
@@ -529,8 +615,7 @@ async function ensureViewerBundle(bundleDir: string, customBundle: boolean): Pro
   }
 
   // Always rebuild the repository-owned bundle so the CLI cannot export stale Viewer source.
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = spawnSync(npmCommand, ["--prefix", viewerAppDir, "run", "build"], {
+  const result = spawnCommandSync("npm", ["--prefix", viewerAppDir, "run", "build"], {
     cwd: repositoryRoot,
     encoding: "utf8",
     shell: false,

@@ -1,0 +1,18 @@
+slug: topview-image-generation
+run_id: topview-image-generation-run
+manifest: ../manifests/topview-image.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: topview
+  requests:
+    - id: opening-shot
+      mode: image-to-video
+      first_frame: ../media/character.svg
+      prompt: "人物がゆっくり振り向き、カメラが少し前進する"
+      model: Standard
+      duration: 5
+      aspect: "9:16"
+      params:
+        resolution: 720

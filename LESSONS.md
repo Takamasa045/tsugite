@@ -39,3 +39,9 @@ Append-only format:
 2026-07-14 / generation runのBGMとSFXがGate 2でmissingになった / generation組み立てが画像と生成clipだけをrunDirへ固定し、audioを元pathのまま残していた / generationでも全audioを課金adapter実行前にrunDirへcopyし、asset_count、QC、resumeを同じ契約で検証する / validate済
 2026-07-14 / provider尺のままでは字幕とローカルendcardが30秒設計からずれた / 生成可能尺と編集尺を同一視し、generation組み立て後のclip契約を再確認していなかった / Gate 2前に生成clipを編集尺へ物理正規化し、非生成clipを含む最終manifestの合計尺と順序を再検査する / qa済
 2026-07-14 / 地名の読みと同音語がTTS・STTで誤認され、最終文が尺を超えた / 表示表記・読み指定・TTS用の自然な言い換えを分けず、完成ミックス後のSTTまで確認していなかった / 固有地名はユーザー確認済みの読みをTTS本文へ固定し、個別音声と完成版の両方をSTT確認し、5秒枠は35モーラ前後を上限にする / qa済
+2026-07-14 / loudnorm後のAAC音声が意図せず96kHzになった / loudnorm内部の高い処理レートに任せ、最終エンコードのサンプルレートを固定していなかった / ラウドネス正規化後のAACは-ar 48000を明示し、ffprobeでcodec・sample_rate・channelsを再確認する / qa済
+2026-07-15 / 上半身キャラの口形は明確でも本編で字幕に隠れた / 横長素材を従来の全身キャラ用bottom位置へ置き、口元のcaption safe zoneを確認していなかった / 口パク刷新は閉じ・半開き・大開きの同一セリフ連続フレームを最終レンダから抽出し、口元が字幕より上にあることをGate 3前に確認する / qa済
+2026-07-15 / EDLの時刻だけを照合すると字幕・章の改変と多数分割のframe丸め誤差を見逃せた / 承認対象をsegmentだけに限定し秒単位clipを個別roundしていた / Gate 2とrender直前は編集manifest全体をdigest拘束し、render側は累積frame境界の差分で各区間を配置する / validate済
+2026-07-16 / 左上バッジを収める修正を5回繰り返し、最後は背景楕円を横長に肥大化させて画面全体のバランスを崩した / 座標上の包含とGate成功を見た目の品質と取り違え、文字・形・余白・背景・他要素の重心を原寸静止画で評価せずに毎回フルレンダーした / レイアウト修正は包含だけで合格にせず、階層・整列軸・形と内容の比率・負の余白・背景遮蔽・画面重心を原寸静止画で確認し、初回の目視指摘後はユーザーが静止画を承認するまで動画をレンダーしない / rejectedから恒久ルール化
+2026-07-17 / Windows向け記述があってもlauncherとdoctorがnative PowerShellで起動保証できなかった / extensionless CLI、POSIX quoting、生のspawnSync、PATHだけの探索を個別実装していた / 公開入口はnode bin/pipelineへ統一し、子processはcmd shim対応層、doctorはPATHEXT、配布はWindows CIとPowerShell手順を同時に持つ / validate済
+2026-07-17 / Windowsで未変更のGate 2成果物が再検査時にstale判定された / FFmpegの診断文に含まれるcontext pointerがWindowsでは0xなしで毎回変化し、保存済みQCとの差分になった / 外部ツールの診断を永続比較へ含める前にOSごとのvolatile pointer表記を正規化し、内容hashは別に検証する / validate済

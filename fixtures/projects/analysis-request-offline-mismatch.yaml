@@ -1,0 +1,14 @@
+slug: analysis-request-offline-mismatch
+run_id: analysis-request-offline-mismatch-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: mock-cli-analysis
+  requests:
+    - id: silence
+      adapter: mock-cli-analysis-online
+      output: cut_points
+      source_clip_id: render-001
+      params: {}

@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -396,6 +396,31 @@ describe("local media run assembly", () => {
       },
       validation.adapter
     );
+
+    expect(resumed.ok).toBe(false);
+    expect(resumed.issues[0]?.code).toBe("run.qc_report_stale");
+  });
+
+  it("rejects a same-metadata media replacement by its content fingerprint", async () => {
+    const validation = await validateProject("fixtures/projects/render-local-media.yaml");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-media-fingerprint-"));
+    const gate1 = markGateAwaiting(createPlannedState("render-local-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const first = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/render-local.valid.json",
+      stateDir,
+      state: running
+    });
+    expect(first.ok).toBe(true);
+    const assembledManifest = JSON.parse(await readFile(first.manifestPath!, "utf8"));
+    const assembledAssetPath = join(stateDir, "render-local-run", assembledManifest.clips[0].src);
+    await appendFile(assembledAssetPath, Buffer.from([0]));
+
+    const resumed = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/render-local.valid.json",
+      stateDir,
+      state: first.state!
+    });
 
     expect(resumed.ok).toBe(false);
     expect(resumed.issues[0]?.code).toBe("run.qc_report_stale");

@@ -4,7 +4,7 @@ Use this adapter when `project.yaml` declares `generation.adapter: topview`.
 
 ## Responsibilities
 
-1. Convert each generation request into a Topview video generation task using the installed Topview skill scripts.
+1. Convert each generation request into a Topview video generation CLI task using the installed Topview skill scripts.
 2. Before spending credits, provide a dry-run estimate from `adapter.yaml` and the requested duration.
 3. Submit real generation only after Coordinator Gate 1 approval.
 4. Download completed results to local files under `dist/<run-id>/` before returning success.
@@ -21,5 +21,7 @@ Use this adapter when `project.yaml` declares `generation.adapter: topview`.
 ## Topview Mapping
 
 - Text-to-video requests map to the Topview video generation module with `type=t2v`.
+- `mode: image-to-video` requests map to `type=i2v`; the validated and pinned `first_frame` is passed with `--first-frame`.
 - `prompt`, `model`, `duration`, `aspect`, and optional `params.sound` are passed through.
 - If Topview returns a board or task id, keep it in `metadata` while still returning local clip files.
+- The first implementation accepts one `first_frame`. End-frame and omni references remain separate future contracts.

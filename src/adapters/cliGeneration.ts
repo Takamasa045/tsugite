@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawnCommandSync } from "../platform/process.js";
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -128,7 +128,7 @@ function runRequest(
   let lastIssue: Issue | undefined;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const result = spawnSync(adapter.command!.executable, adapter.command!.args, {
+    const result = spawnCommandSync(adapter.command!.executable, adapter.command!.args, {
       cwd: process.cwd(),
       input: `${JSON.stringify({ request: toExecutionGenerationRequest(request), run_id: options.runId, run_dir: options.runDir })}\n`,
       encoding: "utf8",

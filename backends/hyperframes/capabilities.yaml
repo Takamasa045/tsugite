@@ -1,6 +1,6 @@
 name: hyperframes
 capabilities:
-  captions: false
+  captions: true
   transitions: true
   audio_mix: true
   vertical: true

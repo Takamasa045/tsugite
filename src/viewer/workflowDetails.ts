@@ -1,6 +1,6 @@
 import type { ExecutionPlan } from "../orchestrator/plan.js";
 import type { GateId, RunState } from "../orchestrator/state.js";
-import type { Project } from "../project/schema.js";
+import { generationRequestMode, type Project } from "../project/schema.js";
 import type {
   ViewerArtifactSnapshot,
   ViewerMediaPreview,
@@ -99,6 +99,7 @@ function reviewDetails({ plan, artifacts, status }: DetailContext): ViewerWorkfl
       label: "制作方針レビュー",
       description: "人が制作意図と外部生成条件を確認するためのレビュー内容です。",
       reference: artifacts.reviewPresent ? "review/index.html" : "creative-review.result",
+      ...(artifacts.reviewHref ? { href: artifacts.reviewHref } : {}),
       facts: [`レビュー証跡: ${artifacts.reviewPresent ? "保存済み" : "今回の実行には未保存"}`]
     }]
   };
@@ -111,7 +112,7 @@ function gate1Details(context: DetailContext): ViewerWorkflowNodeDetails {
   const requestCount = requests.length || plan.clips.length;
   const decision = gateDecision("gate_1", context, `${adapter}による素材生成を開始できる状態にしました。`);
   const models = unique(requests.map((request) => request.model));
-  const modes = unique(requests.map((request) => inputModeLabel(request.input_mode)));
+  const modes = unique(requests.map((request) => inputModeLabel(generationRequestMode(request))));
   const creditSummary = artifacts.runLog
     ? `クレジット: 事前見積り${formatNumber(plan.estimated_credits)} / 実績${formatNumber(artifacts.runLog.actualCredits)}`
     : `事前見積りクレジット: ${formatNumber(plan.estimated_credits)}`;
@@ -123,6 +124,7 @@ function gate1Details(context: DetailContext): ViewerWorkflowNodeDetails {
       label: "クリエイティブレビュー",
       description: "企画、演出、カット構成、生成条件を承認判断できるようにまとめた内容です。",
       reference: artifacts.reviewPresent ? "review/index.html" : "creative-review.result",
+      ...(artifacts.reviewHref ? { href: artifacts.reviewHref } : {}),
       facts: [`生成予定: ${requestCount}本`, `完成予定: ${seconds(plan.target_duration_seconds)}`]
     }],
     outputs: [{

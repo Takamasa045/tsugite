@@ -1,0 +1,13 @@
+slug: cloud-analysis
+run_id: cloud-analysis-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  mode: cloud
+  adapter: mock-cli-analysis-cloud
+  requests:
+    - id: summary-cloud
+      output: summary
+      source_clip_id: render-001

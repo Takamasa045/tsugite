@@ -14,6 +14,88 @@ describe("project validation", () => {
     expect(project.edit.backend).toBe("remotion");
   });
 
+  it("accepts an explicit editorial policy for analysis-derived cuts and captions", () => {
+    const project = validProjectDefinition();
+    project.edit = {
+      backend: "remotion",
+      editorial: {
+        remove_kinds: ["filler"],
+        remove_ids: ["silence-0001"],
+        exclude_ids: ["filler-0002"],
+        captions: { request_id: "subtitles-en" },
+        chapters: { request_id: "chapters-ja" }
+      }
+    };
+    project.analysis = {
+      adapter: "fixture-adapter",
+      requests: [
+        { ...requestDefinition("analysis", "subtitles-en"), output: "subtitle_track" },
+        { ...requestDefinition("analysis", "chapters-ja"), output: "chapters" }
+      ]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.edit.editorial).toEqual({
+        remove_kinds: ["filler"],
+        remove_ids: ["silence-0001"],
+        exclude_ids: ["filler-0002"],
+        captions: { request_id: "subtitles-en" },
+        chapters: { request_id: "chapters-ja" }
+      });
+    }
+  });
+
+  it("rejects editorial execution without analysis and rejects unsafe decision ids", () => {
+    const withoutAnalysis = validProjectDefinition();
+    withoutAnalysis.edit = {
+      backend: "remotion",
+      editorial: { remove_kinds: ["filler"] }
+    };
+    const unsafe = validProjectDefinition();
+    unsafe.edit = {
+      backend: "remotion",
+      editorial: { remove_ids: ["../outside"] }
+    };
+    unsafe.analysis = {
+      adapter: "fixture-adapter",
+      requests: [requestDefinition("analysis", "transcript-ja")]
+    };
+
+    expect(projectSchema.safeParse(withoutAnalysis).success).toBe(false);
+    expect(projectSchema.safeParse(unsafe).success).toBe(false);
+  });
+
+  it("rejects editorial execution together with generated clips until that timing contract is supported", () => {
+    const project = validProjectDefinition();
+    project.edit = {
+      backend: "remotion",
+      editorial: { remove_kinds: ["filler"] }
+    };
+    project.analysis = {
+      adapter: "fixture-adapter",
+      requests: [requestDefinition("analysis", "transcript-ja")]
+    };
+    project.generation = {
+      adapter: "fixture-adapter",
+      requests: [requestDefinition("generation", "generated-clip")]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          message: "edit.editorial cannot be combined with generation requests",
+          path: ["generation"]
+        })
+      ]));
+    }
+  });
+
   it("rejects an unknown backend during validation", async () => {
     const result = await validateProject("fixtures/projects/unknown-backend.yaml");
 
@@ -111,6 +193,57 @@ describe("project validation", () => {
     }
   });
 
+  it("loads every request-selected analysis adapter once while preserving the default adapter", async () => {
+    const result = await validateProject("fixtures/projects/multi-analysis-adapters.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.analysisAdapter?.name).toBe("mock-cli-analysis");
+    expect(result.analysisAdapters?.map((adapter) => adapter.name)).toEqual([
+      "mock-cli-transcription",
+      "mock-cli-analysis"
+    ]);
+  });
+
+  it("rejects an editorial caption track when the selected backend cannot render captions", async () => {
+    const result = await validateProject("fixtures/projects/editorial-captions-limited.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"],
+      backendDirs: ["fixtures/backends", "backends"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "backend.capability.captions" }));
+  });
+
+  it.each([
+    ["analysis-request-adapter-not-found.yaml", "adapter.not_found"],
+    ["analysis-request-class-mismatch.yaml", "adapter.class_mismatch"],
+    ["analysis-request-offline-mismatch.yaml", "analysis.offline_contract_required"],
+    ["analysis-request-output-mismatch.yaml", "analysis.output_unsupported"]
+  ])("validates each request-selected adapter in %s", async (fixture, code) => {
+    const result = await validateProject(`fixtures/projects/${fixture}`, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code }));
+  });
+
+  it.each([
+    ["analysis-dependency-unknown.yaml", "analysis.dependency_not_found"],
+    ["analysis-dependency-cycle.yaml", "analysis.dependency_cycle"],
+    ["analysis-dependency-source-mismatch.yaml", "analysis.dependency_source_mismatch"],
+    ["analysis-dependency-adapter-mismatch.yaml", "analysis.dependency_adapter_mismatch"]
+  ])("rejects an invalid analysis dependency graph in %s", async (fixture, code) => {
+    const result = await validateProject(`fixtures/projects/${fixture}`, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code }));
+  });
+
   it("accepts explicit prompt guidance metadata without defaulting existing requests", () => {
     const project = validProjectDefinition();
     project.generation = {
@@ -119,7 +252,7 @@ describe("project validation", () => {
         {
           ...requestDefinition("generation", "guided-request"),
           input_mode: "image-to-video",
-          prompt_guide: { catalog: "seedance" }
+          prompt_guide: { catalog: "seedance", model: "seedance-2.0" }
         }
       ]
     };
@@ -130,9 +263,59 @@ describe("project validation", () => {
     if (parsed.success) {
       expect(parsed.data.generation?.requests[0]).toMatchObject({
         input_mode: "image-to-video",
-        prompt_guide: { catalog: "seedance" }
+        prompt_guide: { catalog: "seedance", model: "seedance-2.0" }
       });
     }
+  });
+
+  it("accepts mode and first_frame for a first-class image-to-video request", () => {
+    const project = validProjectDefinition();
+    project.generation = {
+      adapter: "topview",
+      requests: [
+        {
+          ...requestDefinition("generation", "opening-shot"),
+          mode: "image-to-video",
+          first_frame: "assets/opening.png"
+        }
+      ]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.generation?.requests[0]).toMatchObject({
+        mode: "image-to-video",
+        first_frame: "assets/opening.png"
+      });
+    }
+  });
+
+  it.each([
+    ["missing", "assets/missing.png", "generation.first_frame.exists"],
+    ["outside", "../../outside.png", "generation.first_frame.safe"]
+  ])("rejects a %s generation first_frame", async (_kind, firstFrame, code) => {
+    const root = await createGenerationProjectRoot(firstFrame);
+
+    const result = await validateProject(join(root, "projects/project.yaml"));
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code }));
+  });
+
+  it("rejects absolute and symbolic-link generation first_frame paths", async () => {
+    const absoluteRoot = await createGenerationProjectRoot("/tmp/outside.png");
+    const linkedRoot = await createGenerationProjectRoot("assets/opening-link.png");
+    await mkdir(join(linkedRoot, "projects/assets"), { recursive: true });
+    await writeFile(join(linkedRoot, "projects/assets/opening.png"), "fixture image");
+    await symlink("opening.png", join(linkedRoot, "projects/assets/opening-link.png"));
+
+    const absolute = await validateProject(join(absoluteRoot, "projects/project.yaml"));
+    const linked = await validateProject(join(linkedRoot, "projects/project.yaml"));
+
+    expect(absolute.issues).toContainEqual(expect.objectContaining({ code: "generation.first_frame.safe" }));
+    expect(linked.issues).toContainEqual(expect.objectContaining({ code: "generation.first_frame.symlink" }));
   });
 
   it("keeps advisory guide selectors out of execution input while retaining input mode", () => {
@@ -155,6 +338,29 @@ describe("project validation", () => {
     expect(execution.generation?.requests[0]).not.toHaveProperty("prompt_guide");
     expect(execution.generation?.requests[0]?.input_mode).toBe("image-to-video");
     expect(parsed.generation?.requests[0]?.prompt_guide?.catalog).toBe("seedance");
+  });
+
+  it("normalizes the legacy generation mode alias for adapter execution", () => {
+    const parsed = projectSchema.parse({
+      ...validProjectDefinition(),
+      generation: {
+        adapter: "fixture-adapter",
+        requests: [
+          {
+            ...requestDefinition("generation", "legacy-mode"),
+            mode: "image-to-video",
+            prompt_guide: { catalog: "seedance" }
+          }
+        ]
+      }
+    });
+
+    const executionRequest = toExecutionProject(parsed).generation?.requests[0];
+
+    expect(executionRequest).not.toHaveProperty("prompt_guide");
+    expect(executionRequest).not.toHaveProperty("mode");
+    expect(executionRequest?.input_mode).toBe("image-to-video");
+    expect(parsed.generation?.requests[0]?.mode).toBe("image-to-video");
   });
 
   it("rejects unsafe prompt guide catalog ids", () => {
@@ -320,6 +526,35 @@ async function createProjectRoot(): Promise<string> {
   await mkdir(join(root, "projects"), { recursive: true });
   await mkdir(join(root, "manifests"), { recursive: true });
   await mkdir(join(root, "media"), { recursive: true });
+  return root;
+}
+
+async function createGenerationProjectRoot(firstFrame: string): Promise<string> {
+  const root = await createProjectRoot();
+  await writeFile(join(root, "media/clip.mp4"), "fixture video");
+  await writeProject(root, { clips: [clip({ src: "../media/clip.mp4" })] });
+  await writeFile(
+    join(root, "projects/project.yaml"),
+    [
+      "slug: topview-image",
+      "run_id: topview-image-run",
+      "manifest: ../manifests/manifest.json",
+      "dist_dir: dist",
+      "edit:",
+      "  backend: remotion",
+      "generation:",
+      "  adapter: topview",
+      "  requests:",
+      "    - id: opening-shot",
+      "      mode: image-to-video",
+      `      first_frame: ${firstFrame}`,
+      "      prompt: slow camera push",
+      "      model: Standard",
+      "      duration: 5",
+      '      aspect: "9:16"',
+      "      params: {}"
+    ].join("\n")
+  );
   return root;
 }
 

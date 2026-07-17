@@ -1,6 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
+import { resolveOutputDimensions } from "../manifest/outputDimensions.js";
+import { spawnCommandSync } from "../platform/process.js";
 import type { Manifest } from "../manifest/schema.js";
 import type { Issue, Result } from "../types.js";
 
@@ -141,11 +142,11 @@ export function inspectGate3Output(
   outputPath: string,
   options: Gate3QcOptions = {}
 ): Gate3QcReport {
-  const firstClip = manifest.clips[0];
+  const dimensions = resolveOutputDimensions(manifest);
   const expected: Gate3QcExpected = {
     duration_seconds: manifest.meta.target_duration_seconds,
-    width: even(firstClip.resolution.width),
-    height: even(firstClip.resolution.height),
+    width: dimensions.width,
+    height: dimensions.height,
     fps: manifest.meta.fps,
     audio_required: hasRequiredAudio(manifest)
   };
@@ -289,7 +290,7 @@ export function probeGate3Content(path: string, audioRequired: boolean): Gate3Co
   const args = ["-hide_banner", "-nostats", "-i", path, "-vf", "blackdetect=d=0.1:pix_th=0.10"];
   if (audioRequired) args.push("-af", "silencedetect=n=-50dB:d=0.1");
   args.push("-f", "null", "-");
-  const result = spawnSync("ffmpeg", args, { encoding: "utf8", maxBuffer: 1024 * 1024 * 10 });
+  const result = spawnCommandSync("ffmpeg", args, { encoding: "utf8", maxBuffer: 1024 * 1024 * 10 });
   if (result.error) return { ok: false, error: result.error.message };
   if (result.status !== 0) return { ok: false, error: probeErrorMessage(result.stderr, result.stdout) };
 
@@ -324,7 +325,7 @@ export function probeGate3Output(path: string, command: Gate3QcCommand = runFfpr
 }
 
 function runFfprobe(path: string): Gate3QcCommandResult {
-  const result = spawnSync(
+  const result = spawnCommandSync(
     "ffprobe",
     ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
     {
@@ -400,8 +401,4 @@ function numberOrUndefined(value: string | undefined): number | undefined {
 function probeErrorMessage(stderr: string, stdout: string): string {
   const text = `${stderr}\n${stdout}`.trim().replace(/0x[0-9a-f]+/gi, "0xADDR");
   return text.length > 0 ? text.slice(0, 1000) : "final output probe failed";
-}
-
-function even(value: number): number {
-  return value % 2 === 0 ? value : value + 1;
 }

@@ -42,6 +42,7 @@ export interface WorkflowDetailItem {
   label: string
   description: string
   reference?: string
+  href?: string
   facts?: string[]
 }
 

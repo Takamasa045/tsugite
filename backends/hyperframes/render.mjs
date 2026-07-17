@@ -1,6 +1,9 @@
-import { spawnSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import crossSpawn from "cross-spawn";
+import { readFile, realpath, writeFile } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { resolveOutputDimensions } from "../outputDimensions.mjs";
+
+const spawnSync = crossSpawn.sync;
 
 const EXIT_VALIDATION_FAILED = 10;
 const EXIT_TRANSIENT_EXTERNAL_FAILURE = 20;
@@ -12,6 +15,7 @@ const HYPERFRAMES_LINT_COMMAND = ["npx", "hyperframes", "lint", "--json"];
 const HYPERFRAMES_SAFE_LINT_COMMAND = ["npx", "--no-install", "hyperframes", "lint", "--json"];
 const HYPERFRAMES_RENDER_COMMAND = ["npx", "--no-install", "hyperframes", "render"];
 const HYPERFRAMES_VERSION_COMMAND = ["npx", "--no-install", "hyperframes", "--version"];
+const LOCAL_GSAP_RUNTIME = "tsugite-gsap-runtime.js";
 
 class RunnerError extends Error {
   constructor(message, exitCode) {
@@ -23,6 +27,7 @@ class RunnerError extends Error {
 try {
   const input = parsePayload(await readPayload());
   const manifest = await readManifest(input.manifestPath);
+  await assertLocalManifestAssets(manifest, input.runDir);
 
   const dependency = checkHyperFramesDependency(input.runDir);
   if (!dependency.ok) {
@@ -146,6 +151,56 @@ async function readManifest(manifestPath) {
   }
 }
 
+async function assertLocalManifestAssets(manifest, runDir) {
+  const assets = [];
+  for (const [index, clip] of (manifest.clips ?? []).entries()) {
+    assets.push([`clips[${index}].src`, clip?.src]);
+  }
+  for (const track of ["bgm", "narration", "sfx"]) {
+    for (const [index, entry] of (manifest.audio?.[track] ?? []).entries()) {
+      if (entry?.src) assets.push([`audio.${track}[${index}].src`, entry.src]);
+    }
+  }
+  for (const [index, image] of (manifest.images ?? []).entries()) {
+    assets.push([`images[${index}].src`, image?.src]);
+  }
+
+  const realRunDir = await realpath(runDir);
+  for (const [label, value] of assets) {
+    if (typeof value !== "string") {
+      throw new RunnerError(`${label} must be a local asset path`, EXIT_VALIDATION_FAILED);
+    }
+    if (isAbsolute(value)) {
+      throw new RunnerError(`${label} must stay inside runDir`, EXIT_VALIDATION_FAILED);
+    }
+    if (isExternalAssetPath(value)) {
+      throw new RunnerError(`${label} must be a local asset path`, EXIT_VALIDATION_FAILED);
+    }
+    if (!isPathWithin(runDir, resolve(runDir, value))) {
+      throw new RunnerError(`${label} must stay inside runDir`, EXIT_VALIDATION_FAILED);
+    }
+    try {
+      const realAssetPath = await realpath(resolve(runDir, value));
+      if (!isPathWithin(realRunDir, realAssetPath)) {
+        throw new RunnerError(`${label} must stay inside runDir`, EXIT_VALIDATION_FAILED);
+      }
+    } catch (error) {
+      if (error instanceof RunnerError) throw error;
+      throw new RunnerError(`${label} must reference a readable run asset`, EXIT_VALIDATION_FAILED);
+    }
+  }
+}
+
+function isPathWithin(root, candidate) {
+  const path = relative(root, candidate);
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+}
+
+function isExternalAssetPath(value) {
+  const path = value.trim();
+  return path.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(path);
+}
+
 function checkHyperFramesDependency(runDir) {
   const result = spawnSync(HYPERFRAMES_VERSION_COMMAND[0], HYPERFRAMES_VERSION_COMMAND.slice(1), {
     cwd: runDir,
@@ -235,6 +290,7 @@ function runHyperFramesRender(runDir, outputPath, fps) {
 }
 
 async function writeHyperFramesProject(runDir, manifest) {
+  await writeFile(join(runDir, LOCAL_GSAP_RUNTIME), renderLocalGsapRuntime());
   await writeFile(join(runDir, "index.html"), renderIndexHtml(manifest));
 }
 
@@ -255,7 +311,7 @@ function renderIndexHtml(manifest) {
       background: #050505;
       font-family: Arial, sans-serif;
     }
-    [data-composition-id="tsugite-render"] {
+    #tsugite-render {
       position: relative;
       width: ${size.width}px;
       height: ${size.height}px;
@@ -285,10 +341,10 @@ function renderIndexHtml(manifest) {
       text-wrap: balance;
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script src="./${LOCAL_GSAP_RUNTIME}"></script>
 </head>
 <body>
-  <div data-composition-id="tsugite-render" data-start="0" data-duration="${duration}" data-width="${size.width}" data-height="${size.height}">
+  <div id="tsugite-render" data-composition-id="tsugite-render" data-start="0" data-duration="${duration}" data-width="${size.width}" data-height="${size.height}">
 ${renderClips(manifest.clips)}
 ${renderAudio(manifest.audio)}
 ${renderCaptions(manifest.captions)}
@@ -305,12 +361,20 @@ ${renderCaptions(manifest.captions)}
 function renderClips(clips) {
   let start = 0;
   return clips
-    .map((clip, index) => {
-      const duration = clip.duration;
-      const muted = clip.audio ? "" : " muted";
-      const element = `    <video id="${escapeAttr(clip.id)}" data-start="${start}" data-duration="${duration}" data-track-index="0" src="${escapeAttr(clip.src)}"${muted} playsinline></video>`;
+    .flatMap((clip) => {
+      const duration = clip.out - clip.in;
+      const id = escapeAttr(clip.id);
+      const src = escapeAttr(clip.src);
+      const elements = [
+        `    <video id="${id}" class="clip" data-start="${start}" data-duration="${duration}" data-track-index="0" data-media-start="${clip.in}" src="${src}" muted playsinline></video>`
+      ];
+      if (clip.audio) {
+        elements.push(
+          `    <audio id="${id}-audio" class="clip" data-start="${start}" data-duration="${duration}" data-track-index="1" data-media-start="${clip.in}" data-volume="1" src="${src}"></audio>`
+        );
+      }
       start += duration;
-      return element;
+      return elements;
     })
     .join("\n");
 }
@@ -328,7 +392,7 @@ function renderAudio(audio) {
       const start = entry.start ?? 0;
       const duration = entry.end && entry.end > start ? entry.end - start : undefined;
       elements.push(
-        `    <audio id="${escapeAttr(entry.id ?? `${track}-${index + 1}`)}" data-start="${start}"${duration ? ` data-duration="${duration}"` : ""} data-track-index="${index + 2}" src="${escapeAttr(entry.src)}"></audio>`
+        `    <audio id="${escapeAttr(entry.id ?? `${track}-${index + 1}`)}" class="clip" data-start="${start}"${duration ? ` data-duration="${duration}"` : ""} data-track-index="${index + 2}"${entry.volume === undefined ? "" : ` data-volume="${entry.volume}"`} src="${escapeAttr(entry.src)}"></audio>`
       );
     }
   }
@@ -339,21 +403,42 @@ function renderCaptions(captions) {
   return (captions ?? [])
     .map((caption, index) => {
       const duration = Math.max(0.01, caption.end - caption.start);
-      return `    <div class="caption" data-start="${caption.start}" data-duration="${duration}" data-track-index="${index + 20}">${escapeHtml(caption.text)}</div>`;
+      return `    <div id="${escapeAttr(caption.id ?? `caption-${index + 1}`)}" class="clip caption" data-start="${caption.start}" data-duration="${duration}" data-track-index="${index + 20}">${escapeHtml(caption.text)}</div>`;
     })
     .join("\n");
 }
 
-function compositionSize(manifest) {
-  const first = manifest.clips?.[0]?.resolution;
-  if (first?.width && first?.height) {
-    return { width: even(first.width), height: even(first.height) };
+function renderLocalGsapRuntime() {
+  return `(() => {
+  class StaticTimeline {
+    constructor() { this.currentTime = 0; this.currentScale = 1; }
+    pause() { return this; }
+    play() { return this; }
+    seek(value) { this.currentTime = Number(value) || 0; return this; }
+    totalTime(value) { if (value === undefined) return this.currentTime; return this.seek(value); }
+    time(value) { if (value === undefined) return this.currentTime; return this.seek(value); }
+    duration() { return 0; }
+    totalDuration() { return 0; }
+    timeScale(value) { if (value === undefined) return this.currentScale; this.currentScale = Number(value) || 1; return this; }
+    getChildren() { return []; }
+    getTweensOf() { return []; }
+    eventCallback() { return this; }
+    progress(value) { if (value === undefined) return 0; return this; }
+    add() { return this; }
+    set() { return this; }
+    to() { return this; }
+    from() { return this; }
+    fromTo() { return this; }
+    clear() { return this; }
+    kill() { return this; }
   }
-  return manifest.meta.aspect === "9:16" ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
+  window.gsap = { timeline: () => new StaticTimeline() };
+})();
+`;
 }
 
-function even(value) {
-  return value % 2 === 0 ? value : value + 1;
+function compositionSize(manifest) {
+  return resolveOutputDimensions(manifest);
 }
 
 async function writeSuccessResult(input, manifest, render) {

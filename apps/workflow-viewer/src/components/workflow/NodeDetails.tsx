@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowUpFromLine, ChevronRight, X } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, ChevronRight, ExternalLink, X } from 'lucide-react'
 import type {
   WorkflowData,
   WorkflowDetailItem,
@@ -39,6 +39,18 @@ function DataList({ details, icon: Icon, label, values }: {
               <p>{item.description}</p>
               {item.facts?.length ? (
                 <ul>{item.facts.map((fact) => <li key={fact}>{fact}</li>)}</ul>
+              ) : null}
+              {item.href ? (
+                <a
+                  aria-label={`${item.label}のプレビューHTMLを開く`}
+                  className="artifact-link"
+                  href={item.href}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  プレビューHTMLを開く
+                  <ExternalLink aria-hidden="true" size={14} />
+                </a>
               ) : null}
             </article>
           ))}
@@ -199,8 +211,8 @@ export function NodeDetails({ workflow, node, currentNodes, onSelectNode }: Node
       </div>
       <div aria-live="polite" className="work-state-card" data-status={node.status}>
         <span>{workState.title}</span>
-        {node.details ? <strong>{workState.note}</strong> : <strong>{node.description ?? '説明は登録されていません。'}</strong>}
-        {!node.details ? <p>{workState.note}</p> : null}
+        <strong>{node.details?.outcome ?? node.description ?? '説明は登録されていません。'}</strong>
+        <p>{workState.note}</p>
       </div>
 
       <MediaPreviewGallery previews={node.details?.previews} />
@@ -223,8 +235,8 @@ export function NodeDetails({ workflow, node, currentNodes, onSelectNode }: Node
       ) : null}
 
       <div className={node.details ? 'io-ledger' : 'io-grid'}>
-        <DataList details={node.details?.inputs} icon={ArrowDownToLine} label="使ったもの" values={node.inputs} />
-        <DataList details={node.details?.outputs} icon={ArrowUpFromLine} label="作ったもの" values={node.outputs} />
+        <DataList details={node.details?.inputs} icon={ArrowDownToLine} label="受け取ったもの" values={node.inputs} />
+        <DataList details={node.details?.outputs} icon={ArrowUpFromLine} label="次へ渡したもの" values={node.outputs} />
       </div>
 
       <details className="technical-details">

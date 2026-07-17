@@ -176,6 +176,23 @@ describe("adapter prompt knowledge", () => {
     expect(guidance.sources.map((source) => source.id)).not.toContain("v6-api");
     expect(guidance.sources.map((source) => source.id)).not.toContain("i2v-api");
   });
+
+  it("resolves advisory knowledge with a model selector separate from the execution name", async () => {
+    const guide = await loadPromptGuide("knowledge/video-models/seedance");
+    const request: GenerationRequest = {
+      ...imageRequest("Standard"),
+      prompt_guide: {
+        catalog: "seedance",
+        model: "seedance-2.0"
+      }
+    };
+
+    const guidance = resolvePromptGuidance(request, guide!);
+
+    expect(guidance.status).toBe("matched");
+    expect(guidance.model).toBe("Standard");
+    expect(guidance.model_profile).toBe("seedance-2.0");
+  });
 });
 
 function textRequest(model: string): GenerationRequest {

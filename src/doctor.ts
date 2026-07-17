@@ -1,8 +1,10 @@
-import { spawnSync } from "node:child_process";
-import { constants } from "node:fs";
-import { access, stat } from "node:fs/promises";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import { renderPreflightCommands } from "./backends/capabilities.js";
+import {
+  commandExists as platformCommandExists,
+  spawnCommandSync
+} from "./platform/process.js";
 import { validateProject } from "./project/validateProject.js";
 import { remediationForPlatform, type SetupCheck } from "./setupChecks.js";
 
@@ -30,6 +32,7 @@ type CommandProbeResult = {
 };
 
 type DoctorOptions = {
+  adapterDirs?: string[];
   commandExists?: (command: string) => Promise<boolean>;
   probeCommand?: (command: string[]) => Promise<CommandProbeResult>;
   nodeVersion?: string;
@@ -39,12 +42,12 @@ type DoctorOptions = {
 
 export async function inspectEnvironment(configPath?: string, options: DoctorOptions = {}): Promise<DoctorReport> {
   const environment = options.environment ?? process.env;
-  const commandExists = options.commandExists ?? ((command) => executableExists(command, environment));
   const platform = options.platform ?? process.platform;
+  const commandExists = options.commandExists ?? ((command) => platformCommandExists(command, environment, platform));
   const probeCommand = async (command: string[]): Promise<CommandProbeResult> =>
     options.probeCommand ? options.probeCommand(command) : executeProbe(command, environment);
   const nodeVersion = options.nodeVersion ?? process.version;
-  const nodeOk = nodeMajor(nodeVersion) === 22;
+  const nodeOk = nodeSupported(nodeVersion);
   const npm = await commandCheck("npm", ["npm", "--version"], {
     commandExists,
     probeCommand,
@@ -80,7 +83,7 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
   ];
 
   if (configPath) {
-    const validation = await validateProject(configPath);
+    const validation = await validateProject(configPath, { adapterDirs: options.adapterDirs });
     checks.push(
       check("project", validation.ok, {
         detail: validation.ok ? configPath : validation.issues.map((issue) => issue.code).join(", "),
@@ -112,8 +115,20 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
       }
     }
 
-    for (const adapter of [validation.adapter, validation.analysisAdapter]) {
+    const selectedAdapters = uniqueAdapters([
+      validation.adapter,
+      ...(validation.analysisAdapters ?? (validation.analysisAdapter ? [validation.analysisAdapter] : []))
+    ]);
+    for (const adapter of selectedAdapters) {
       if (!adapter) continue;
+      for (const variable of adapter.network?.credential_env ?? []) {
+        checks.push(
+          check(`credential:${variable} (${adapter.name})`, Boolean(environment[variable]), {
+            detail: `environment variable ${variable}`,
+            remediation: `Set ${variable} only in the execution environment, then rerun doctor.`
+          })
+        );
+      }
       if (adapter.kind === "cli") {
         const executable = adapter.command?.executable;
         checks.push(
@@ -154,6 +169,14 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
   }
 
   return { ok: checks.every((item) => !item.blocking || item.ok), checks };
+}
+
+function uniqueAdapters<T extends { name: string }>(adapters: Array<T | undefined>): T[] {
+  const byName = new Map<string, T>();
+  for (const adapter of adapters) {
+    if (adapter && !byName.has(adapter.name)) byName.set(adapter.name, adapter);
+  }
+  return [...byName.values()];
 }
 
 type SetupInspectionOptions = {
@@ -243,7 +266,7 @@ function check(
 }
 
 function executeProbe(command: string[], environment: NodeJS.ProcessEnv): CommandProbeResult {
-  const result = spawnSync(command[0]!, command.slice(1), {
+  const result = spawnCommandSync(command[0]!, command.slice(1), {
     cwd: process.cwd(),
     env: environment,
     encoding: "utf8",
@@ -276,9 +299,9 @@ function parseJsonCommand(value: string | undefined): string[] | undefined {
   }
 }
 
-function nodeMajor(version: string): number | undefined {
-  const major = Number(version.replace(/^v/, "").split(".")[0]);
-  return Number.isInteger(major) ? major : undefined;
+function nodeSupported(version: string): boolean {
+  const [major, minor] = version.replace(/^v/, "").split(".").map(Number);
+  return major === 22 && Number.isInteger(minor) && minor >= 12;
 }
 
 function leadingMajor(version: string): number | undefined {
@@ -289,8 +312,8 @@ function leadingMajor(version: string): number | undefined {
 }
 
 function nodeRemediation(platform: NodeJS.Platform): string {
-  if (platform === "win32") return "Install Node.js 22 LTS, reopen the terminal, then rerun doctor.";
-  return "Install and select Node.js 22 LTS, then rerun doctor.";
+  if (platform === "win32") return "Install Node.js 22.12 or newer in the 22.x LTS line, reopen the terminal, then rerun doctor.";
+  return "Install and select Node.js 22.12 or newer in the 22.x LTS line, then rerun doctor.";
 }
 
 function ffmpegRemediation(platform: NodeJS.Platform): string {
@@ -298,26 +321,6 @@ function ffmpegRemediation(platform: NodeJS.Platform): string {
   if (platform === "linux") return "Install FFmpeg with `sudo apt-get update && sudo apt-get install -y ffmpeg`, then rerun doctor.";
   if (platform === "win32") return "Install FFmpeg with `winget install --id Gyan.FFmpeg -e`, reopen the terminal, then rerun doctor.";
   return "Install FFmpeg including ffprobe, add it to PATH, then rerun doctor.";
-}
-
-async function executableExists(command: string, environment: NodeJS.ProcessEnv): Promise<boolean> {
-  if (command === "node" || resolve(command) === process.execPath) return true;
-  const candidates = isAbsolute(command)
-    ? [command]
-    : (environment.PATH ?? "")
-        .split(delimiter)
-        .filter(Boolean)
-        .map((directory) => join(directory, command));
-
-  for (const candidate of candidates) {
-    try {
-      await access(candidate, constants.X_OK);
-      return true;
-    } catch {
-      // Continue searching PATH.
-    }
-  }
-  return false;
 }
 
 async function isFile(path: string): Promise<boolean> {

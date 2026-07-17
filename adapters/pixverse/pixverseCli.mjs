@@ -1,5 +1,7 @@
-import { spawnSync } from "node:child_process";
+import crossSpawn from "cross-spawn";
 import { resolve } from "node:path";
+
+const spawnSync = crossSpawn.sync;
 
 const TRANSIENT = 20;
 const RATE_LIMITED = 21;

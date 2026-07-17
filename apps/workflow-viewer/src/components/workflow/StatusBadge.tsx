@@ -14,14 +14,14 @@ import type { WorkflowStatus } from '../../types/workflow'
 
 const statusMeta = {
   pending: { label: '未着手', Icon: Circle },
-  queued: { label: '待機中', Icon: Clock3 },
-  thinking: { label: '思考中', Icon: BrainCircuit },
-  running: { label: '実行中', Icon: LoaderCircle },
-  waiting_approval: { label: '承認待ち', Icon: Pause },
-  testing: { label: 'テスト中', Icon: FlaskConical },
+  queued: { label: '開始待ち', Icon: Clock3 },
+  thinking: { label: '内容を検討中', Icon: BrainCircuit },
+  running: { label: '作業中', Icon: LoaderCircle },
+  waiting_approval: { label: '確認待ち', Icon: Pause },
+  testing: { label: '品質確認中', Icon: FlaskConical },
   completed: { label: '完了', Icon: Check },
-  error: { label: 'エラー', Icon: AlertTriangle },
-  skipped: { label: 'スキップ', Icon: FastForward },
+  error: { label: '要確認', Icon: AlertTriangle },
+  skipped: { label: '対象外', Icon: FastForward },
 } satisfies Record<WorkflowStatus, { label: string; Icon: typeof Radio }>
 
 interface StatusBadgeProps {

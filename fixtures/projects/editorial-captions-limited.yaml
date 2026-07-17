@@ -1,0 +1,16 @@
+slug: editorial-captions-limited
+run_id: editorial-captions-limited-run
+manifest: ../manifests/editorial-no-captions.valid.json
+dist_dir: dist
+edit:
+  backend: limited
+  editorial:
+    captions:
+      request_id: subtitles-en
+analysis:
+  adapter: mock-cli-analysis
+  requests:
+    - id: subtitles-en
+      output: subtitle_track
+      source_clip_id: render-001
+      params: {}

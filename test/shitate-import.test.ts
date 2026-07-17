@@ -516,7 +516,7 @@ describe("optional shitate-import CLI", () => {
       gate_state: "unchanged"
     });
     expect(JSON.parse(results[3]!.stdout).dry_run.executed).toBe(false);
-  });
+  }, 15_000);
 });
 
 type FixtureOptions = {

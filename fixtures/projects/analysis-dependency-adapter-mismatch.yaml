@@ -1,0 +1,19 @@
+slug: analysis-dependency-adapter-mismatch
+run_id: analysis-dependency-adapter-mismatch-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: mock-cli-analysis
+  requests:
+    - id: transcript
+      adapter: mock-cli-transcription
+      output: captions
+      source_clip_id: render-001
+      params: {}
+    - id: silence
+      output: cut_points
+      source_clip_id: render-001
+      depends_on: [transcript]
+      params: {}

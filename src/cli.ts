@@ -2,6 +2,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectEnvironment } from "./doctor.js";
 import type { AdapterDefinition } from "./adapters/registry.js";
+import { analyzeProject } from "./orchestrator/analyze.js";
 import {
   loadPromptGuideCatalog,
   loadPromptGuideById,
@@ -35,7 +36,12 @@ import {
 import { validateProject } from "./project/validateProject.js";
 import type { Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
+import { appendProjectFeedback } from "./feedback/index.js";
 import { openWorkflowViewer, writeWorkflowViewer } from "./viewer/artifact.js";
+import {
+  openWorkflowViewerLauncher,
+  startWorkflowViewerLauncher
+} from "./viewer/launcher.js";
 
 type ParsedArgs = {
   command: string;
@@ -61,8 +67,19 @@ type ParsedArgs = {
   displayName?: string;
   side?: string;
   accent?: string;
+  projectsDir?: string;
+  port?: string;
+  key?: string;
+  category?: string;
+  signal?: string;
+  stage?: string;
+  summary?: string;
+  evidence?: string;
+  promotionKind?: string;
+  target?: string;
   open: boolean;
   apply: boolean;
+  allowExternalAnalysis: boolean;
   issues: Issue[];
 };
 
@@ -110,12 +127,134 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
   }
 
+  if (args.command === "viewer-launcher") {
+    const port = args.port === undefined ? 0 : Number(args.port);
+    if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+      return output(args, 1, {
+        ok: false,
+        command: "viewer-launcher",
+        issues: [{
+          code: "viewer_launcher.port",
+          message: "--port must be an integer between 0 and 65535",
+          path: "--port"
+        }]
+      });
+    }
+    try {
+      const launcher = await startWorkflowViewerLauncher({
+        ...(args.projectsDir ? { projectsDir: args.projectsDir } : {}),
+        port
+      });
+      if (args.open) {
+        try {
+          await openWorkflowViewerLauncher(launcher.url);
+        } catch (error) {
+          await launcher.close();
+          return output(args, 1, {
+            ok: false,
+            command: "viewer-launcher",
+            url: launcher.url,
+            issues: [{
+              code: "viewer_launcher.open_failed",
+              message: error instanceof Error ? error.message : String(error)
+            }]
+          });
+        }
+      }
+      const status = output(args, 0, {
+        ok: true,
+        command: "viewer-launcher",
+        url: launcher.url,
+        port: launcher.port,
+        project_count: launcher.projectCount,
+        opened: args.open
+      });
+      await launcher.closed;
+      return status;
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "viewer-launcher",
+        issues: [{
+          code: "viewer_launcher.start_failed",
+          message: error instanceof Error ? error.message : String(error)
+        }]
+      });
+    }
+  }
+
   if (!args.config) {
     return output(args, 1, {
       ok: false,
       command: args.command,
       issues: [{ code: "cli.config_missing", message: "--config is required" }]
     });
+  }
+
+  if (args.command === "feedback") {
+    const signal = parseFeedbackSignal(args.signal);
+    const stage = parseFeedbackStage(args.stage);
+    const gate = parseFeedbackGate(args.gate);
+    const promotionKind = parseFeedbackPromotionKind(args.promotionKind);
+    const issues: Issue[] = [
+      ...(args.key ? [] : [{ code: "feedback.key_required", message: "--key is required", path: "--key" }]),
+      ...(args.category ? [] : [{ code: "feedback.category_required", message: "--category is required", path: "--category" }]),
+      ...(args.signal
+        ? signal
+          ? []
+          : [{ code: "feedback.signal_invalid", message: "--signal must be prefer, avoid, or keep", path: "--signal" }]
+        : [{ code: "feedback.signal_required", message: "--signal is required", path: "--signal" }]),
+      ...(args.stage
+        ? stage
+          ? []
+          : [{ code: "feedback.stage_invalid", message: "--stage must be observed, recurring, promoted, or verified", path: "--stage" }]
+        : [{ code: "feedback.stage_required", message: "--stage is required", path: "--stage" }]),
+      ...(args.summary ? [] : [{ code: "feedback.summary_required", message: "--summary is required", path: "--summary" }]),
+      ...(args.gate && !gate
+        ? [{ code: "feedback.gate_invalid", message: "--gate must be gate_1, gate_2, or gate_3", path: "--gate" }]
+        : []),
+      ...(args.promotionKind && !promotionKind
+        ? [{
+            code: "feedback.promotion_kind_invalid",
+            message: "--promotion-kind must be template, constraint, validator, qa, rule, or documentation",
+            path: "--promotion-kind"
+          }]
+        : []),
+      ...(Boolean(args.promotionKind) === Boolean(args.target)
+        ? []
+        : [{
+            code: "feedback.promotion_incomplete",
+            message: "--promotion-kind and --target must be provided together",
+            path: args.promotionKind ? "--target" : "--promotion-kind"
+          }])
+    ];
+    if (issues.length > 0) return output(args, 1, { ok: false, command: "feedback", issues });
+
+    try {
+      const recorded = await appendProjectFeedback(args.config, {
+        key: args.key!,
+        category: args.category!,
+        signal: signal!,
+        stage: stage!,
+        summary: args.summary!,
+        ...(args.runId ? { run_id: args.runId } : {}),
+        ...(gate ? { gate } : {}),
+        ...(args.evidence ? { evidence: [args.evidence] } : {}),
+        ...(promotionKind && args.target ? { promotion: { kind: promotionKind, target: args.target } } : {})
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "feedback",
+        path: recorded.path,
+        entry: recorded.entry
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "feedback",
+        issues: cliIssuesFromError(error)
+      });
+    }
   }
 
   if (args.command === "shitate-import") {
@@ -211,9 +350,34 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.project!,
         validation.manifest!,
         validation.adapter,
-        validation.analysisAdapter,
+        validation.analysisAdapters ?? validation.analysisAdapter,
         validation.promptGuides
       )
+    });
+  }
+
+  if (args.command === "analyze") {
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) return output(args, 1, { ok: false, command: "analyze", issues: [coordinatorIssue] });
+    const analyzed = await analyzeProject(
+      args.config,
+      validation.project!,
+      validation.manifest!,
+      validation.analysisAdapters ?? validation.analysisAdapter,
+      args.stateDir,
+      { allowExternalAnalysis: args.allowExternalAnalysis }
+    );
+    return output(args, analyzed.ok ? 0 : 1, {
+      ok: analyzed.ok,
+      command: "analyze",
+      issues: analyzed.issues,
+      analysis_path: analyzed.analysisPath,
+      proposal_path: analyzed.proposalPath,
+      handoff_path: analyzed.handoffPath,
+      result_count: analyzed.resultCount,
+      actual_credits: analyzed.actualCredits,
+      api_used: analyzed.apiUsed,
+      network_used: analyzed.networkUsed
     });
   }
 
@@ -222,7 +386,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.project!,
       validation.manifest!,
       validation.adapter,
-      validation.analysisAdapter,
+      validation.analysisAdapters ?? validation.analysisAdapter,
       validation.promptGuides
     );
     try {
@@ -281,7 +445,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.project!,
       validation.manifest!,
       validation.adapter,
-      validation.analysisAdapter,
+      validation.analysisAdapters ?? validation.analysisAdapter,
       validation.promptGuides
     );
     try {
@@ -345,7 +509,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.project!,
         validation.manifest!,
         validation.adapter,
-        validation.analysisAdapter,
+        validation.analysisAdapters ?? validation.analysisAdapter,
         validation.backend,
         validation.promptGuides
       )
@@ -406,16 +570,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const review = await inspectGate1Review({
       configPath: args.config!,
       project: validation.project!,
+      manifest: validation.manifest!,
       stateDir: stateResult.stateDir
     });
     if (!review.ok) {
       return output(args, 1, { ok: false, command: "run", issues: review.issues });
     }
+    if (
+      validation.project!.analysis &&
+      stateResult.state.gates.gate_1.approved_input_digest !== review.approvalDigest
+    ) {
+      return output(args, 1, {
+        ok: false,
+        command: "run",
+        issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current analysis artifacts" }]
+      });
+    }
 
     const runResult = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      configPath: resolve(args.config!),
       manifestPath: resolve(dirname(resolve(args.config!)), validation.project!.manifest),
       stateDir: stateResult.stateDir,
-      state: stateResult.state
+      state: stateResult.state,
+      ...(review.compilation ? { editorial: review.compilation } : {})
     }, validation.adapter);
     return output(args, runResult.ok ? 0 : 1, {
       ok: runResult.ok,
@@ -424,6 +601,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       manifest_path: runResult.manifestPath,
       qc_report_path: runResult.qcReportPath,
       run_log_path: runResult.runLogPath,
+      edl_path: runResult.edlPath,
       asset_count: runResult.assetCount,
       actual_credits: runResult.actualCredits,
       already_assembled: runResult.alreadyAssembled,
@@ -444,6 +622,50 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ok: false,
         command: "render",
         issues: [{ code: "render.requires_gate_2_approval", message: "Gate 2 must be approved before render" }]
+      });
+    }
+
+    let editorialCompilation;
+    if (validation.project!.edit.editorial) {
+      const review = await inspectGate1Review({
+        configPath: args.config!,
+        project: validation.project!,
+        manifest: validation.manifest!,
+        stateDir: stateResult.stateDir
+      });
+      if (!review.ok) return output(args, 1, { ok: false, command: "render", issues: review.issues });
+      if (
+        stateResult.state.gates.gate_1.approved_input_digest !== review.approvalDigest ||
+        !review.compilation
+      ) {
+        return output(args, 1, {
+          ok: false,
+          command: "render",
+          issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current editorial EDL" }]
+        });
+      }
+      editorialCompilation = review.compilation;
+    }
+    const gate2Inspection = await inspectGate2RunForApproval(
+      validation.project!,
+      validation.manifest!,
+      stateResult.stateDir,
+      validation.adapter,
+      editorialCompilation
+    );
+    if (!gate2Inspection.ok) {
+      const issues = gate2Inspection.issues.map((issue) =>
+        issue.code === "run.manifest_missing"
+          ? { ...issue, code: "render.manifest_missing", message: "assembled manifest is missing" }
+          : issue
+      );
+      return output(args, 1, { ok: false, command: "render", issues });
+    }
+    if (stateResult.state.gates.gate_2.approved_input_digest !== gate2Inspection.approvalDigest) {
+      return output(args, 1, {
+        ok: false,
+        command: "render",
+        issues: [{ code: "render.gate2_artifacts_changed", message: "Gate 2 approval does not match the current run artifacts" }]
       });
     }
 
@@ -478,6 +700,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     dryRun: false,
     open: false,
     apply: false,
+    allowExternalAnalysis: false,
     issues: []
   };
 
@@ -520,10 +743,22 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       continue;
     }
+    if (arg === "--allow-external-analysis") {
+      if (isOptionAllowed(parsed.command, arg)) {
+        parsed.allowExternalAnalysis = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -544,7 +779,17 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--speaker-id": "speakerId",
       "--display-name": "displayName",
       "--side": "side",
-      "--accent": "accent"
+      "--accent": "accent",
+      "--projects-dir": "projectsDir",
+      "--port": "port",
+      "--key": "key",
+      "--category": "category",
+      "--signal": "signal",
+      "--stage": "stage",
+      "--summary": "summary",
+      "--evidence": "evidence",
+      "--promotion-kind": "promotionKind",
+      "--target": "target"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -582,9 +827,12 @@ function isOptionAllowed(command: string, option: string): boolean {
     doctor: new Set(["--config"]),
     guides: new Set(["--catalog", "--model", "--input-mode"]),
     "story-guides": new Set(["--request", "--duration"]),
+    "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
+    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
+    analyze: new Set(["--config", "--actor", "--state-dir", "--allow-external-analysis"]),
     viewer: new Set(["--config", "--output", "--state-dir", "--open"]),
     review: new Set(["--config", "--output", "--state-dir", "--open"]),
     finalize: new Set(["--config", "--state-dir", "--actor", "--apply"]),
@@ -739,6 +987,41 @@ function parsePromptMode(value: string): PromptMode | undefined {
   return undefined;
 }
 
+function parseFeedbackSignal(value: string | undefined): "prefer" | "avoid" | "keep" | undefined {
+  if (value === "prefer" || value === "avoid" || value === "keep") return value;
+  return undefined;
+}
+
+function parseFeedbackStage(
+  value: string | undefined
+): "observed" | "recurring" | "promoted" | "verified" | undefined {
+  if (value === "observed" || value === "recurring" || value === "promoted" || value === "verified") {
+    return value;
+  }
+  return undefined;
+}
+
+function parseFeedbackGate(value: string | undefined): "gate_1" | "gate_2" | "gate_3" | undefined {
+  if (value === "gate_1" || value === "gate_2" || value === "gate_3") return value;
+  return undefined;
+}
+
+function parseFeedbackPromotionKind(
+  value: string | undefined
+): "template" | "constraint" | "validator" | "qa" | "rule" | "documentation" | undefined {
+  if (
+    value === "template" ||
+    value === "constraint" ||
+    value === "validator" ||
+    value === "qa" ||
+    value === "rule" ||
+    value === "documentation"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
 function requireCoordinator(args: ParsedArgs): Issue | undefined {
   if (args.actor === "coordinator") return undefined;
   return {
@@ -762,10 +1045,12 @@ async function recordGate(
   let state = existing.state ?? createPlannedState(project.run_id ?? project.slug);
   let reviewPath: string | undefined;
   let reviewDataPath: string | undefined;
+  let reviewApprovalDigest: string | undefined;
   if (gate === "gate_1" && decision === "approved") {
     const review = await inspectGate1Review({
       configPath: args.config!,
       project,
+      manifest,
       stateDir: stateLocation.stateDir
     });
     if (!review.ok) {
@@ -780,28 +1065,50 @@ async function recordGate(
     }
     reviewPath = review.reviewPath;
     reviewDataPath = review.dataPath;
+    reviewApprovalDigest = review.approvalDigest;
   }
   if (gate === "gate_1" && (state.gates.gate_1.status === "pending" || state.gates.gate_1.status === "revise")) {
     state = markGateAwaiting(state, "gate_1");
   }
 
-  let nextState: RunState;
-  try {
-    nextState = recordGateDecision(state, gate, decision);
-  } catch (error) {
-    return {
-      ok: false,
-      issues: [{ code: "state.gate_invalid", message: error instanceof Error ? error.message : String(error) }],
-      state,
-      statePath: stateLocation.statePath
-    };
-  }
+  let gateApprovalDigest = reviewApprovalDigest;
 
   if (decision === "approved" && gate === "gate_2") {
-    const inspected = await inspectGate2RunForApproval(project, manifest, existing.stateDir, adapter);
+    let editorialCompilation;
+    if (project.edit.editorial) {
+      const review = await inspectGate1Review({
+        configPath: args.config!,
+        project,
+        manifest,
+        stateDir: existing.stateDir
+      });
+      if (!review.ok) {
+        return { ok: false, issues: review.issues, state, statePath: stateLocation.statePath };
+      }
+      if (
+        state.gates.gate_1.approved_input_digest !== review.approvalDigest ||
+        !review.compilation
+      ) {
+        return {
+          ok: false,
+          issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current editorial EDL" }],
+          state,
+          statePath: stateLocation.statePath
+        };
+      }
+      editorialCompilation = review.compilation;
+    }
+    const inspected = await inspectGate2RunForApproval(
+      project,
+      manifest,
+      existing.stateDir,
+      adapter,
+      editorialCompilation
+    );
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
+    gateApprovalDigest = inspected.approvalDigest;
   }
 
   if (decision === "approved" && gate === "gate_3") {
@@ -809,6 +1116,18 @@ async function recordGate(
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
+  }
+
+  let nextState: RunState;
+  try {
+    nextState = recordGateDecision(state, gate, decision, undefined, gateApprovalDigest);
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [{ code: "state.gate_invalid", message: error instanceof Error ? error.message : String(error) }],
+      state,
+      statePath: stateLocation.statePath
+    };
   }
 
   try {

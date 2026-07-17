@@ -1,0 +1,38 @@
+name: local-whisper-analysis
+kind: cli
+class: analysis
+offline: true
+outputs: [transcript, cut_points, chapters, summary, subtitle_track]
+dry_run_estimate: true
+batch: false
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "30": dependency_missing
+  "40": invalid_request
+  "50": execution_failed
+checks:
+  setup:
+    - type: command
+      name: tool:local-whisper
+      command: ["whisper", "--help"]
+      capture_version: false
+      remediation:
+        default: "Install the local Whisper CLI and place a compatible .pt model on disk. Runtime model downloads are not supported."
+        darwin: "Install a local Whisper CLI, place a compatible .pt model on disk, then rerun doctor. Runtime model downloads are not supported."
+    - type: command
+      name: tool:ffmpeg-for-whisper
+      command: ["ffmpeg", "-version"]
+      capture_version: true
+      remediation:
+        default: "Install FFmpeg locally, then rerun doctor. No API key is required."
+        darwin: "Install FFmpeg with `brew install ffmpeg`, then rerun doctor. No API key is required."
+command:
+  executable: node
+  args: ["adapters/local-whisper-analysis/analyze.mjs"]
+  input: stdin-json

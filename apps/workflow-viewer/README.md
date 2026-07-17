@@ -1,12 +1,12 @@
 # Tsugite 3D Workflow Viewer
 
-AIエージェントの制作工程を、木組みの工程梁と3D工程図で確認する静的Webアプリです。墨色、木材、和紙、真鍮を基調にした「夜のデジタル工房」として、装飾より工程の判読性を優先しています。バックエンド、認証、外部API、リアルタイム監視は使用しません。
+AIエージェントの制作工程を、木組みの工程梁と3D工程図で確認する静的Webアプリです。和紙、藍、青磁、杉を基調にした「墨庭の設計卓」として、装飾より工程の判読性を優先しています。バックエンド、認証、外部API、リアルタイム監視は使用しません。
 
 Tsugite本体から使う場合は、`project.yaml`・実行状態・Gate/QC成果物をViewer JSONへ変換し、自己完結した静的成果物として開けます。
 
 ## 起動
 
-前提: Node.js 22.x / npm 10以上
+前提: Node.js 22.12以上の22.x LTS / npm 10以上
 
 ```sh
 cd apps/workflow-viewer
@@ -27,8 +27,18 @@ npm run preview
 Viewerの依存関係を一度インストールしたあと、リポジトリルートで実行します。
 
 ```sh
-npm --prefix apps/workflow-viewer install
-bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
+npm --prefix apps/workflow-viewer ci
+npm run viewer:open
+```
+
+ブラウザの制作棚から案件を選び、「最新状態に更新して開く」を押すと、現在の実行記録からViewerを再生成して表示します。以前に生成済みなら「前回の表示を開く」も使えます。「テンプレート」タブでは、`templates/*/template.yaml` の用途・出力・必要素材を検索して比較できます。テンプレート棚は閲覧専用で、コピー・生成・実行は行いません。メタデータ契約は [テンプレートカタログ](../../docs/template-catalog.md) を参照してください。
+
+ランチャーはローカル専用で、制作実行・Gate更新・state書き込みは行いません。終了は起動したターミナルの `Ctrl+C` です。
+
+特定の1案件だけを直接生成して開く場合は、従来どおり次を使います。
+
+```sh
+node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
 ```
 
 既定では `dist/<run-id>/viewer/` に `index.html`、`workflow.json`、静的アセットを出力します。`--state-dir` で実行状態の参照先、`--output` でViewer出力先を変更できます。Viewer生成は `state.json` やGateを変更しません。実行状態が変わったらコマンドを再実行してスナップショットを更新します。

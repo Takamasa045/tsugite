@@ -121,7 +121,7 @@ describe('workflow parser and validator', () => {
           purpose: '制作条件を確定するためです。',
           activity: '依頼内容と制作設計を照合しました。',
           outcome: '必要な条件が揃っていることを確認しました。',
-          inputs: [{ label: '制作依頼', description: '作りたい内容をまとめた依頼です。', reference: 'request.md' }],
+          inputs: [{ label: '制作依頼', description: '作りたい内容をまとめた依頼です。', reference: 'request.md', href: './review/index.html' }],
           outputs: [{ label: '検証結果', description: '制作を開始できるという確認結果です。', facts: ['エラー: 0件'] }],
           previews: [{
             id: 'final-video',
@@ -142,6 +142,18 @@ describe('workflow parser and validator', () => {
     }
 
     expect(validateWorkflowData(withDetails).success).toBe(true)
+    const unsafeHref = validateWorkflowData({
+      ...withDetails,
+      nodes: [{
+        ...withDetails.nodes[0],
+        details: {
+          ...withDetails.nodes[0].details,
+          inputs: [{ label: '外部ページ', description: '許可しないリンクです。', href: 'https://example.com/review.html' }],
+        },
+      }, withDetails.nodes[1]],
+    })
+    expect(unsafeHref.success).toBe(false)
+    if (!unsafeHref.success) expect(unsafeHref.errors.map((error) => error.path)).toContain('nodes[0].details.inputs[0].href')
     const malformed = validateWorkflowData({
       ...withDetails,
       nodes: [{ ...withDetails.nodes[0], details: { purpose: '', inputs: 'request.md' } }, withDetails.nodes[1]],
@@ -221,7 +233,7 @@ describe('status presentation config', () => {
       expect(config.label).not.toBe('')
       expect(config.symbol).not.toBe('')
     }
-    expect(getStatusConfig('error')).toMatchObject({ label: 'エラー', symbol: '⚠' })
+    expect(getStatusConfig('error')).toMatchObject({ label: '要確認', symbol: '⚠' })
   })
 })
 

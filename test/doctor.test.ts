@@ -22,6 +22,27 @@ describe("environment doctor", () => {
     );
   });
 
+  it("requires the Node 22 minor used by the bundled Viewer toolchain", async () => {
+    const unsupported = await inspectEnvironment(undefined, {
+      nodeVersion: "v22.11.0",
+      commandExists: async () => true,
+      probeCommand: async () => ({ ok: true, version: "10.9.0" })
+    });
+    const supported = await inspectEnvironment(undefined, {
+      nodeVersion: "v22.12.0",
+      commandExists: async () => true,
+      probeCommand: async () => ({ ok: true, version: "10.9.0" })
+    });
+
+    expect(unsupported.ok).toBe(false);
+    expect(unsupported.checks).toContainEqual(expect.objectContaining({
+      name: "node",
+      ok: false,
+      remediation: expect.stringContaining("22.12")
+    }));
+    expect(supported.checks).toContainEqual(expect.objectContaining({ name: "node", ok: true }));
+  });
+
   it("fails closed when a required dependency is unavailable", async () => {
     const report = await inspectEnvironment(undefined, {
       commandExists: async (command) => command !== "ffprobe"
@@ -33,7 +54,7 @@ describe("environment doctor", () => {
         name: "ffprobe",
         ok: false,
         status: "missing",
-        remediation: expect.stringContaining("ffmpeg")
+        remediation: expect.stringMatching(/ffmpeg/i)
       })
     );
   });
@@ -156,21 +177,59 @@ describe("environment doctor", () => {
     );
   });
 
-  it("marks an agent handoff as manual instead of reporting a false ready state", async () => {
+  it("probes the Topview CLI without submitting a generation task", async () => {
+    const probedCommands: string[][] = [];
     const report = await inspectEnvironment("fixtures/projects/topview-generation.yaml", {
+      commandExists: async () => true,
+      probeCommand: async (command) => {
+        probedCommands.push([...command]);
+        return { ok: true, version: "topview-video-gen ready" };
+      }
+    });
+
+    expect(report.ok).toBe(true);
+    expect(probedCommands).toContainEqual(["node", "adapters/topview/check.mjs"]);
+    expect(probedCommands.flat()).not.toContain("run");
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        name: "provider:topview-cli (topview)",
+        ok: true,
+        status: "ready",
+        version: "topview-video-gen ready"
+      })
+    );
+  });
+
+  it("checks every selected analysis adapter once and ignores unselected adapters", async () => {
+    const report = await inspectEnvironment("fixtures/projects/multi-analysis-adapters.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"],
       commandExists: async () => true,
       probeCommand: async () => ({ ok: true, version: "test" })
     });
 
-    expect(report.ok).toBe(false);
-    expect(report.checks).toContainEqual(
-      expect.objectContaining({
-        name: "handoff:topview (topview)",
-        ok: false,
-        status: "manual",
-        remediation: expect.stringContaining("Topview")
-      })
-    );
+    expect(report.ok).toBe(true);
+    expect(report.checks.filter((check) => check.name === "adapter:mock-cli-transcription")).toHaveLength(1);
+    expect(report.checks.filter((check) => check.name === "adapter:mock-cli-analysis")).toHaveLength(1);
+    expect(report.checks.filter((check) => check.name === "tool:mock-local-stt (mock-cli-transcription)")).toHaveLength(1);
+    expect(report.checks.some((check) => check.name.includes("mock-cli-analysis-online"))).toBe(false);
+  });
+
+  it("reports required external analysis credential names without exposing values", async () => {
+    const secret = "doctor-secret-value";
+    const report = await inspectEnvironment("fixtures/projects/hybrid-analysis.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"],
+      commandExists: async () => true,
+      probeCommand: async () => ({ ok: true, version: "test" }),
+      environment: { TSUGITE_TEST_ANALYSIS_TOKEN: secret }
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.checks).toContainEqual(expect.objectContaining({
+      name: "credential:TSUGITE_TEST_ANALYSIS_TOKEN (mock-cli-external-refinement)",
+      ok: true,
+      status: "ready"
+    }));
+    expect(JSON.stringify(report)).not.toContain(secret);
   });
 
   it("checks a declared bridge environment variable without executing the bridge", async () => {

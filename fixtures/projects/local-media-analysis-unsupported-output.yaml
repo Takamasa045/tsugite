@@ -1,0 +1,13 @@
+slug: local-media-analysis-unsupported-output
+run_id: local-media-analysis-unsupported-output-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: local-media-analysis
+  requests:
+    - id: local-chapters
+      output: chapters
+      source_clip_id: render-001
+      params: {}

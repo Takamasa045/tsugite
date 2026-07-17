@@ -24,9 +24,61 @@ jobs:
           sudo apt-get install --no-install-recommends -y ffmpeg
       - run: npm ci
       - run: npm run check
-      - run: bin/pipeline doctor --config examples/local-fixture/project.yaml --json
-      - run: bin/pipeline doctor --config fixtures/projects/hyperframes-local-media.yaml --json
-      - run: bin/pipeline validate --config examples/local-fixture/project.yaml --json
-      - run: bin/pipeline plan --config examples/local-fixture/project.yaml --json
-      - run: bin/pipeline run --config examples/local-fixture/project.yaml --dry-run --json
+      - run: node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
+      - run: node bin/pipeline doctor --config fixtures/projects/hyperframes-local-media.yaml --json
+      - run: node bin/pipeline validate --config examples/local-fixture/project.yaml --json
+      - run: node bin/pipeline plan --config examples/local-fixture/project.yaml --json
+      - run: node bin/pipeline run --config examples/local-fixture/project.yaml --dry-run --json
       - run: npm audit --audit-level=high
+
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install media probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          if (-not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            $winget = Get-Command winget -ErrorAction SilentlyContinue
+            if ($winget) {
+              & $winget.Source install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+
+              $packages = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+              $probe = Get-ChildItem $packages -Filter ffprobe.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($probe) {
+                $binDirectory = $probe.Directory.FullName
+                $env:PATH = "$binDirectory;$env:PATH"
+                Add-Content -Path $env:GITHUB_PATH -Value $binDirectory
+              }
+            }
+          }
+
+          if (-not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --version 8.1.2 --yes --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              throw "FFmpeg installation failed through winget and Chocolatey"
+            }
+          }
+
+          ffmpeg -version
+          ffprobe -version
+      - run: npm ci
+      - run: npm --prefix apps/workflow-viewer ci
+      - run: npm run check
+      - run: npm run viewer:check
+      - run: npm run viewer:build
+      - run: node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
+      - run: node bin/pipeline doctor --config fixtures/projects/hyperframes-local-media.yaml --json
+      - run: node bin/pipeline validate --config examples/local-fixture/project.yaml --json
+      - run: node bin/pipeline plan --config examples/local-fixture/project.yaml --json
+      - run: node bin/pipeline review --config examples/local-fixture/project.yaml --json
+      - run: node bin/pipeline viewer --config examples/local-fixture/project.yaml --json
+      - run: node bin/pipeline run --config examples/local-fixture/project.yaml --dry-run --json

@@ -114,6 +114,33 @@ describe("pipeline main", () => {
     await expect(stat(join(stateDir, "local-media-only-run/state.json"))).rejects.toThrow();
   });
 
+  it("accepts explicit external-analysis permission only on analyze without changing local behavior", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-local-analysis-"));
+    const local = await capture([
+      "analyze",
+      "--config",
+      "examples/local-analysis/project.yaml",
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--allow-external-analysis",
+      "--json"
+    ]);
+    const unsupported = await capture([
+      "validate",
+      "--config",
+      "examples/local-analysis/project.yaml",
+      "--allow-external-analysis",
+      "--json"
+    ]);
+
+    expect(local.status).toBe(0);
+    expect(JSON.parse(local.stdout)).toMatchObject({ api_used: false, network_used: false, actual_credits: 0 });
+    expect(unsupported.status).toBe(1);
+    expect(JSON.parse(unsupported.stderr).issues[0]?.code).toBe("cli.option_unsupported");
+  });
+
   it("rejects unsupported retry_specific and Gate 2 approval without verified artifacts", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     const runDir = join(stateDir, "local-media-only-run");
@@ -400,7 +427,8 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
-    await writeFile(review.review_path, "<!doctype html><html></html>\n");
+    const reviewHtml = await readFile(review.review_path, "utf8");
+    await writeFile(review.review_path, reviewHtml.replace("映像の流れ", "改ざんされた表示"));
 
     const result = await capture([
       "run",
@@ -464,6 +492,8 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
+    expect(run.status, run.stderr).toBe(0);
+    expect(rerun.status, rerun.stderr).toBe(0);
     const payload = JSON.parse(run.stdout);
     const rerunPayload = JSON.parse(rerun.stdout);
     const assembledManifest = JSON.parse(await readFile(payload.manifest_path, "utf8"));
@@ -472,24 +502,33 @@ describe("pipeline main", () => {
 
     expect(blocked.status).toBe(1);
     expect(JSON.parse(blocked.stderr).issues[0].code).toBe("run.requires_gate_1_approval");
-    expect(run.status).toBe(0);
     expect(payload.state.status).toBe("awaiting_gate_2");
     expect(payload.asset_count).toBe(2);
     expect(assembledManifest.clips[0].src).toBe("assets/clips/001-clip-001.mp4");
-    expect(rerun.status).toBe(0);
     expect(rerunPayload.already_assembled).toBe(true);
     expect(rerunPayload.state.status).toBe("awaiting_gate_2");
     expect(qcReport.asset_count).toBe(2);
     await expect(stat(copiedClip)).resolves.toMatchObject({ size: expect.any(Number) });
   });
 
-  it("rejects mcp-agent generation handoffs during direct run execution", async () => {
+  it("runs Topview image-to-video only after Gate 1 and records the downloaded clip", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
-    await prepareReview("fixtures/projects/topview-generation.yaml", stateDir);
+    const config = "fixtures/projects/topview-image-generation.yaml";
+    const blocked = await capture([
+      "run",
+      "--config",
+      config,
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
+    ]);
+    await prepareReview(config, stateDir);
     await capture([
       "gate",
       "--config",
-      "fixtures/projects/topview-generation.yaml",
+      config,
       "--gate",
       "gate-1",
       "--decision",
@@ -500,19 +539,40 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
-    const run = await capture([
-      "run",
-      "--config",
-      "fixtures/projects/topview-generation.yaml",
-      "--actor",
-      "coordinator",
-      "--state-dir",
-      stateDir,
-      "--json"
+    const previous = process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND;
+    process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND = JSON.stringify([
+      "node",
+      "fixtures/tools/topview-video-gen.mjs"
     ]);
+    let run;
+    try {
+      run = await capture([
+        "run",
+        "--config",
+        config,
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND;
+      else process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND = previous;
+    }
 
-    expect(run.status).toBe(1);
-    expect(JSON.parse(run.stderr).issues[0].code).toBe("run.adapter_kind_unsupported");
+    const payload = JSON.parse(run.stdout);
+    const manifest = JSON.parse(await readFile(payload.manifest_path, "utf8"));
+    expect(blocked.status).toBe(1);
+    expect(JSON.parse(blocked.stderr).issues[0].code).toBe("run.requires_gate_1_approval");
+    expect(run.status).toBe(0);
+    expect(payload.actual_credits).toBe(5);
+    expect(payload.state.status).toBe("awaiting_gate_2");
+    expect(manifest.clips[0].src).toBe("assets/clips/001-opening-shot-clip.mp4");
+    expect(manifest.provenance[0]).toMatchObject({ engine: "topview", model: "Standard", credits: 5 });
+    await expect(stat(join(stateDir, "topview-image-generation-run", manifest.clips[0].src))).resolves.toMatchObject({
+      size: expect.any(Number)
+    });
   });
 
   it("requires OpenClaw setup only when the optional adapter is executed", async () => {

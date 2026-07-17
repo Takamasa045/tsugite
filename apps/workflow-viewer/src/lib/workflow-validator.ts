@@ -77,6 +77,9 @@ function validateDetailItems(
     if (item.reference !== undefined && (typeof item.reference !== 'string' || item.reference.length === 0)) {
       addDetailsError('reference must be a non-empty string', `${itemPath}.reference`, errors)
     }
+    if (item.href !== undefined && item.href !== './review/index.html') {
+      addDetailsError('href must be the safe local review HTML path', `${itemPath}.href`, errors)
+    }
     if (item.facts !== undefined && (!Array.isArray(item.facts) || !item.facts.every((fact) => typeof fact === 'string' && fact.length > 0))) {
       addDetailsError('facts must be a non-empty string array', `${itemPath}.facts`, errors)
     }

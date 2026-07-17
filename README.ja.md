@@ -14,6 +14,12 @@
 6. Gate 2 承認後にだけ render する。
 7. Gate 3 で最終動画 QA を行う。
 
+## エージェントスキル
+
+Codexはrepo skillの `.agents/skills/tsugite/SKILL.md` を検出し、`$tsugite` または内容に一致する依頼から安全な制作フローを読み込みます。
+
+Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同じ正本を読み込みます。目的別の短縮入口として `/tsugite-plan`、`/tsugite-verify`、`/tsugite-finalize`、`/shitate-import` も利用できます。ルートの `SKILL.md` は旧ツール向けの互換入口です。
+
 ## 現在のスコープ
 
 - manifest 検証とローカル素材チェック。
@@ -21,8 +27,11 @@
 - PixVerse / Kling 向け CLI generation adapter wrapper。
 - PixVerse / Kling / Seedance の出典・鮮度付き T2V / I2V prompt knowledge catalog。
 - 34種の物語・広告・解説・ドキュメンタリー・ジャンル・MV構成と、35種の尺配分・映像文法・AI動画原則を理由付きで選ぶ story guide catalog。
-- Topview 向け MCP-agent generation adapter 契約。
+- TopView skill CLIを使うT2V / 単一画像I2V generation adapter。
 - OpenClaw 向け optional CLI bridge と Hermes 向け analysis handoff adapter。
+- APIキー不要でFFmpegだけを使う `pipeline analyze` と local-media-analysis adapter。
+- 既存のローカルWhisperモデルで、文字起こし・フィラー候補・章・抽出的要約・英訳字幕を作るlocal-whisper-analysis adapter。
+- Gate 1で承認した明示的な候補だけをsource-to-output EDLへ変換し、Remotion / HyperFramesへ同じ編集済みmanifestを渡す長尺編集フロー。
 - local-media / generated-media を `dist/<run-id>/` に組み立てる処理。
 - manifest と media probe による Gate 2 QC report 生成。
 - 最終尺・解像度・fps・映像/音声streamを検査する Gate 3 QC report 生成。
@@ -47,7 +56,7 @@ JSON仕様、操作、サンプル、現在の制限は [`apps/workflow-viewer/R
 
 ## セットアップ
 
-必要環境は Git、Node.js 22.x、npm 10以上、FFmpeg（`ffprobe`を含む）です。
+必要環境は Git、Node.js 22.12以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。
 
 ```sh
 # macOS
@@ -60,26 +69,60 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 winget install --id Gyan.FFmpeg -e
 ```
 
-Windowsではインストール後にterminalを開き直してください。`npm ci`はRemotionとHyperFramesを含む依存をこのrepo内へ導入するため、global installは不要です。HyperFramesはdevDependencyなので`npm ci --omit=dev`は使用しないでください。
+Windowsではインストール後にterminalを開き直してください。`npm ci`はRemotionとHyperFramesを含む依存をこのrepo内へ導入するため、global installは不要です。HyperFramesはdevDependencyなので`npm ci --omit=dev`は使用しないでください。正式な入口とPowerShell手順は[Windowsネイティブ利用ガイド](docs/windows.md)を参照してください。
 
-PixVerse / Klingなどのprovider CLI、Topview / OpenClaw / Hermesの外部runtime、認証情報、課金設定は自動導入・設定しません。選択したadapterだけを別途準備し、`doctor`を再実行してください。`doctor`はversion・local package・宣言済みbridgeを副作用のない方法で検査し、生成や課金を行いません。認証や実providerへの接続は行わず、必要な手動確認を`status: manual`と`remediation`で表示します。blocking checkが不足または未確認なら全体の`ok`は`false`になります。
+repo rootからのPowerShell最短手順です。
+
+```powershell
+npm ci
+npm --prefix apps/workflow-viewer ci
+node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
+npm run viewer:open
+```
+
+PowerShellでは拡張子のない`bin/pipeline`を直接実行せず、`node bin/pipeline ...`を使用してください。Node.js、FFmpeg、provider CLIを導入・更新した後は、更新された`PATH`と`PATHEXT`を反映するためPowerShellを開き直します。providerの認証、利用権限、課金設定は別途手動で準備してください。
+
+PixVerse / Klingなどのprovider CLI、TopView / OpenClaw / Hermesの外部runtime、認証情報、課金設定は自動導入・設定しません。選択したadapterだけを別途準備し、`doctor`を再実行してください。TopViewでは同梱skillの`video_gen.py`を非課金の`list-models`で確認します。`doctor`は生成や課金を行わず、認証や残クレジットは手動確認として表示します。blocking checkが不足または未確認なら全体の`ok`は`false`になります。
+
+TopViewの`mode: image-to-video`設定、安全な`first_frame`、Gate付き実行は[`docs/topview-cli.md`](docs/topview-cli.md)を参照してください。
 
 ## コマンド
 
 ```sh
 npm ci
 npm run check
-bin/pipeline story-guides --request "30秒の縦型SNS広告。価値と実績を見せる" --duration 30 --json
-bin/pipeline guides --json
+node bin/pipeline story-guides --request "30秒の縦型SNS広告。価値と実績を見せる" --duration 30 --json
+node bin/pipeline guides --json
 cp -R examples/local-fixture projects/my-first-run
-bin/pipeline doctor --config projects/my-first-run/project.yaml --json
-bin/pipeline validate --config projects/my-first-run/project.yaml --json
-bin/pipeline plan --config projects/my-first-run/project.yaml --json
-bin/pipeline review --config projects/my-first-run/project.yaml --open --json
-bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
-bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
-bin/pipeline finalize --config projects/my-first-run/project.yaml --json
+node bin/pipeline doctor --config projects/my-first-run/project.yaml --json
+node bin/pipeline validate --config projects/my-first-run/project.yaml --json
+node bin/pipeline plan --config projects/my-first-run/project.yaml --json
+node bin/pipeline review --config projects/my-first-run/project.yaml --open --json
+node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
+node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
+node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
+
+非エンジニアが複数の制作案件から選んで確認する場合は、初回だけViewer依存を導入し、その後はランチャーを1コマンドで開けます。
+
+```sh
+npm --prefix apps/workflow-viewer ci  # 初回だけ
+npm run viewer:open
+```
+
+ランチャーは `127.0.0.1` の空きポートだけで起動し、`projects/*/project.yaml` を一覧表示します。「好み・学び」棚では、各ローカル案件の `feedback.jsonl` を横断し、`observed` / `recurring` / `promoted` / `verified` の状態を要約します。対象は最大128案件で、各案件の最新記録・診断を公平に合計1000項目まで選び、上限到達時は画面に明示します。「最新状態に更新して開く」は現在のstate・review・QC・run logから読み取り専用Viewerを再生成します。棚を含むランチャーは読み取り専用で、prompt、template、ruleの自動書き換え、制作実行、Gate更新、state書き込み、外部公開を行いません。終了するときは、起動したターミナルで `Ctrl+C` を押します。
+
+長尺の手持ち動画を外部APIなしで解析する場合は、`examples/local-analysis` を使います。
+
+```sh
+cp -R examples/local-analysis projects/my-seminar
+node bin/pipeline doctor --config projects/my-seminar/project.yaml --json
+node bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinator --json
+```
+
+ローカルWhisperまで使う場合は `examples/local-analysis/project-editorial.yaml` を参照し、`model_path` と必須の `model_sha256` を信頼できる既存`.pt`へ変更します。モデルの自動downloadは行いません。詳しくは [APIを使わないローカル長尺解析](docs/local-analysis.md) を参照してください。
+
+解析は元動画・manifest・Gate stateを変更せず、source timestamp付き候補とローカルhandoffを生成します。候補は `edit.editorial` で明示選択し、Gate 1承認後の `run` だけが `editorial-edl.json` と編集済みmanifestへ反映します。詳しくは [APIを使わないローカル長尺解析](docs/local-analysis.md) を参照してください。
 
 `review` は検証済みのproject・manifest・planから `dist/<run-id>/review/index.html` と `review-data.json` を生成します。字幕を優先した一枚絵コンテ、キャラクターシート、カット詳細、コスト、Gate 1コマンドを表示しますが、`state.json` は変更せず生成処理も実行しません。Gate 1のapproveと実行開始時には、この2ファイルが存在し、対象projectのレビューであることを検査します。出力先を変える場合は `--output <directory>`、別のstateルートを使う場合は `--state-dir <directory>`、ローカルHTMLを開く場合だけ `--open` を使います。Gate 1検査に使う場合はcanonicalな出力先を使ってください。
 
@@ -88,11 +131,11 @@ bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 `run` と `render` は意図的に Gate で保護されています。
 
 ```sh
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
-bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
-bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
-bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
+node bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
+node bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
+node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
 ```
 
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
@@ -101,8 +144,8 @@ Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままr
 ユーザーが対象動画を明示的に「完成」と確定した後だけ、`finalize` で旧メディアを整理できます。引数なしのpreviewは削除予定と保持対象を表示するだけです。内容を確認後、Coordinatorが `--apply` を付けると、最終run、最終manifestが参照する元素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材の動画・音声・画像だけを削除します。実行結果は最終run内の `completion-record.json` に記録されます。
 
 ```sh
-bin/pipeline finalize --config projects/my-first-run/project.yaml --json
-bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
+node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
+node bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
 ```
 
 ## Shitate連携（任意）
@@ -110,7 +153,7 @@ bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --acto
 別リポジトリのShitateを使う場合だけ、選定済みrunとanchorをSHA-256 lock付きの不変snapshotとしてprojectへ取り込めます。通常のTsugite利用にはShitateの導入・設定は不要です。
 
 ```sh
-bin/pipeline shitate-import \
+node bin/pipeline shitate-import \
   --config projects/my-project/project.yaml \
   --shitate-root /absolute/path/to/shitate \
   --character hero \
@@ -163,26 +206,38 @@ opt-in 機能です。base install では不要で、`project.yaml` が該当 ad
 
 Tsugite は、動画をたくさん生成するだけで自動的に自分好みになるわけではありません。出力を見て、やり直し理由や好みを言語化し、それを repo のルール、テンプレ、チェックに戻していくことで育ちます。
 
+構造化feedbackは各 `projects/<job>/feedback.jsonl` にローカル保存します。案件をまたいで同じ好みには同じ `key` を付け、生成回数ではなく反復した記録を識別します。状態は `observed`（初回記録）→ `recurring`（反復を確認）→ `promoted`（人間が再利用変更を承認）→ `verified`（後続出力で改善確認）の順です。昇格は必ず人間が判断し、`pipeline feedback` やランチャーがprompt、template、check、運用ruleを自動変更することはありません。
+
 基本ループは次の通りです。
 
 1. `projects/` に project を作る。
 2. Gate 承認後にだけ生成または組み立てを実行する。
-3. 出力を見て、良かった点、失敗した点、やり直した理由を書く。
-4. 一回限りのメモはその project 内に残す。
-5. 繰り返し使う教訓だけを examples、templates、adapter/backend constraints、validate/doctor、tests/fixtures、運用ルール、公開契約に昇格する。
+3. 出力を見て、良かった点、失敗した点、やり直した理由を `pipeline feedback` で記録する。
+4. 一回限りのメモと `feedback.jsonl` はそのローカルproject内に残す。
+5. 同じ `key` の反復記録を根拠にし、人間が承認した教訓だけを再利用先へ昇格する。
+6. 後続の出力で改善を確認してから `verified` にする。
+
+コピー済みのローカルprojectへ記録し、絶対pathを公開せずJSON結果を確認する例:
+
+```sh
+node bin/pipeline feedback --config projects/my-first-run/project.yaml \
+  --key opening-audio --category audio --signal prefer --stage observed \
+  --summary "冒頭0.5秒以内にBGMを開始する" --json
+```
 
 昇格の目安:
 
 ```text
-一回限りの好み        -> projects/<job>/notes.md
+一回限りの好み        -> projects/<job>/notes.md + feedback.jsonl (observed)
+同じ好みkeyの反復     -> feedback.jsonl (recurring; 昇格を人間が確認)
 何度も使う好み        -> examples/ or templates/
 機械的に防げる失敗    -> constraints.yaml / validate / doctor + tests/fixtures
-判断系の運用ルール    -> LESSONS.md -> SKILL.md / CLAUDE.md / AGENTS.md
+判断系の運用ルール    -> LESSONS.md -> .agents/skills/tsugite/SKILL.md / CLAUDE.md / AGENTS.md
 QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 公開契約の変更        -> README / manifest/schema.md / docs/requirements.md
 ```
 
-昇格時は、失敗の再現 fixture とテスト、または人間が読む運用ルールのどちらかを必ず残します。Gate 2 / Gate 3 の判定を増やす場合は、report の形とテストも一緒に更新します。
+昇格には人間の承認が必要です。失敗の再現fixtureとテスト、または人間が読む運用ルールのどちらかを必ず残します。Gate 2 / Gate 3 の判定を増やす場合は、reportの形とテストも一緒に更新します。昇格後は、後続projectの記録を根拠に `verified` を判断します。
 
 このループによって、配布用 repo としての安全性を保ったまま、自分好みの制作パイプラインに育てていけます。ローカル案件は `projects/` 配下で git 管理外にし、再利用できる改善だけを本体へ commit します。
 

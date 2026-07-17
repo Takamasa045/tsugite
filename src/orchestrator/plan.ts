@@ -41,20 +41,35 @@ export type ExecutionPlan = {
     src: string;
   }>;
   agent_handoffs: AgentHandoff[];
+  analysis?: {
+    mode: "local" | "hybrid" | "cloud";
+    external_permission_required: boolean;
+    max_estimated_credits: number;
+    transfers: Array<{
+      request_id: string;
+      adapter: string;
+      input_scope: "low-confidence-segments" | "source-media" | "source-media-and-dependencies";
+      credential_env: string[];
+      timeout_ms: number;
+    }>;
+  };
   prompt_guidance?: PromptGuidance[];
   steps: PlanStep[];
 };
+
+type AnalysisAdapterInput = AdapterDefinition | AdapterDefinition[];
 
 export function createPlan(
   project: Project,
   manifest: Manifest,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AdapterDefinition,
+  analysisAdapter?: AnalysisAdapterInput,
   promptGuides: PromptGuide[] = []
 ): ExecutionPlan {
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
-  const estimatedCredits = estimateCredits(project, adapter);
+  const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter);
   const agentHandoffs = createAgentHandoffs(project, adapter, analysisAdapter);
+  const analysis = createAnalysisPlan(project, manifest, analysisAdapter);
   const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
 
   return {
@@ -70,6 +85,7 @@ export function createPlan(
       src: clip.src
     })),
     agent_handoffs: agentHandoffs,
+    ...(analysis ? { analysis } : {}),
     ...(promptGuidance.length > 0 ? { prompt_guidance: promptGuidance } : {}),
     steps: [
       { name: "validate", status: "pending" },
@@ -84,11 +100,41 @@ export function createPlan(
   };
 }
 
+function createAnalysisPlan(
+  project: Project,
+  manifest: Manifest,
+  analysisAdapter?: AnalysisAdapterInput
+): ExecutionPlan["analysis"] | undefined {
+  if (!project.analysis) return undefined;
+  const available = analysisAdapter
+    ? (Array.isArray(analysisAdapter) ? analysisAdapter : [analysisAdapter])
+    : [];
+  const byName = new Map(available.map((adapter) => [adapter.name, adapter]));
+  const transfers = project.analysis.requests.flatMap((request) => {
+    const adapterName = request.adapter ?? project.analysis!.adapter;
+    const definition = byName.get(adapterName);
+    if (!definition?.network) return [];
+    return [{
+      request_id: request.id,
+      adapter: adapterName,
+      input_scope: definition.network.input_scope,
+      credential_env: [...definition.network.credential_env],
+      timeout_ms: definition.network.timeout_ms
+    }];
+  });
+  return {
+    mode: project.analysis.mode,
+    external_permission_required: transfers.length > 0,
+    max_estimated_credits: estimateAnalysisCredits(project, manifest, analysisAdapter),
+    transfers
+  };
+}
+
 export function createDryRun(
   project: Project,
   manifest: Manifest,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AdapterDefinition,
+  analysisAdapter?: AnalysisAdapterInput,
   backend?: BackendCapabilities,
   promptGuides: PromptGuide[] = []
 ): {
@@ -102,27 +148,50 @@ export function createDryRun(
   return {
     executed: false,
     plan,
-    estimated_credits: estimateCredits(project, adapter),
+    estimated_credits: estimateCredits(project, manifest, adapter, analysisAdapter),
     external_commands: renderPreflightCommands(backend),
     agent_handoffs: plan.agent_handoffs
   };
 }
 
-function estimateCredits(project: Project, adapter?: AdapterDefinition): number {
-  if (!project.generation || !adapter) return 0;
-  return project.generation.requests.reduce((sum, request) => {
-    return (
-      sum +
-      adapter.credit_estimate.per_request +
-      request.duration * adapter.credit_estimate.per_second
-    );
+function estimateCredits(
+  project: Project,
+  manifest: Manifest,
+  adapter?: AdapterDefinition,
+  analysisAdapter?: AnalysisAdapterInput
+): number {
+  const generation = !project.generation || !adapter
+    ? 0
+    : project.generation.requests.reduce((sum, request) => {
+        return sum + adapter.credit_estimate.per_request + request.duration * adapter.credit_estimate.per_second;
+      }, 0);
+  return generation + estimateAnalysisCredits(project, manifest, analysisAdapter);
+}
+
+function estimateAnalysisCredits(
+  project: Project,
+  manifest: Manifest,
+  analysisAdapter?: AnalysisAdapterInput
+): number {
+  if (!project.analysis || !analysisAdapter) return 0;
+  const available = Array.isArray(analysisAdapter) ? analysisAdapter : [analysisAdapter];
+  const byName = new Map(available.map((definition) => [definition.name, definition]));
+  const analysis = project.analysis.requests.reduce((sum, request) => {
+    const definition = byName.get(request.adapter ?? project.analysis!.adapter);
+    if (!definition?.network) return sum;
+    const clip = request.source_clip_id
+      ? manifest.clips.find((candidate) => candidate.id === request.source_clip_id)
+      : manifest.clips.length === 1 ? manifest.clips[0] : undefined;
+    const duration = clip ? clip.out - clip.in : 0;
+    return sum + definition.credit_estimate.per_request + duration * definition.credit_estimate.per_second;
   }, 0);
+  return analysis;
 }
 
 function createAgentHandoffs(
   project: Project,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AdapterDefinition
+  analysisAdapter?: AnalysisAdapterInput
 ): AgentHandoff[] {
   const handoffs: AgentHandoff[] = [];
 
@@ -140,17 +209,35 @@ function createAgentHandoffs(
   }
 
   if (project.analysis && analysisAdapter) {
-    handoffs.push({
-      phase: "analysis",
-      adapter: analysisAdapter.name,
-      kind: analysisAdapter.kind,
-      class: analysisAdapter.class,
-      outputs: project.analysis.requests.map((request) => request.output),
-      dry_run_estimate_available: analysisAdapter.dry_run_estimate,
-      batch: analysisAdapter.batch,
-      execution: analysisAdapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
-    });
+    const available = Array.isArray(analysisAdapter) ? analysisAdapter : [analysisAdapter];
+    const byName = new Map(available.map((definition) => [definition.name, definition]));
+    const adapterNames = uniqueInOrder(
+      project.analysis.requests.map((request) => request.adapter ?? project.analysis!.adapter)
+    );
+    for (const adapterName of adapterNames) {
+      const definition = byName.get(adapterName);
+      if (!definition) continue;
+      const outputs = uniqueInOrder(
+        project.analysis.requests
+          .filter((request) => (request.adapter ?? project.analysis!.adapter) === adapterName)
+          .map((request) => request.output)
+      );
+      handoffs.push({
+        phase: "analysis",
+        adapter: definition.name,
+        kind: definition.kind,
+        class: definition.class,
+        outputs,
+        dry_run_estimate_available: definition.dry_run_estimate,
+        batch: definition.batch,
+        execution: definition.kind === "cli" ? "pipeline-cli" : "agent-handoff"
+      });
+    }
   }
 
   return handoffs;
+}
+
+function uniqueInOrder<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }

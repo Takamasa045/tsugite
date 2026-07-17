@@ -1,0 +1,24 @@
+name: mock-cli-dangerous-env
+kind: cli
+class: analysis
+offline: false
+outputs: [summary]
+network:
+  input_scope: source-media
+  credential_env: [NODE_OPTIONS]
+dry_run_estimate: true
+batch: false
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+checks:
+  setup: []
+command:
+  executable: node
+  args: ["fixture.mjs"]
+  input: stdin-json

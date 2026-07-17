@@ -1,0 +1,13 @@
+slug: local-media-analysis-duplicate-source
+run_id: local-media-analysis-duplicate-source-run
+manifest: ../manifests/analysis-duplicate-clips.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: local-media-analysis
+  requests:
+    - id: silence-scan
+      output: cut_points
+      source_clip_id: duplicate-source
+      params: {}

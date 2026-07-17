@@ -89,10 +89,12 @@ describe("Claude Code project configuration", () => {
   it("keeps Claude entry guidance synchronized with the canonical workflow", async () => {
     const [claude, skill, gitignore] = await Promise.all([
       readFile(resolve(ROOT, "CLAUDE.md"), "utf8"),
-      readFile(resolve(ROOT, "SKILL.md"), "utf8"),
+      readFile(resolve(ROOT, ".agents/skills/tsugite/SKILL.md"), "utf8"),
       readFile(resolve(ROOT, ".gitignore"), "utf8")
     ]);
 
+    expect(claude).toContain("/tsugite");
+    expect(claude).toContain(".claude/skills/tsugite/SKILL.md");
     expect(claude).toContain("/tsugite-plan");
     expect(claude).toContain("Shitate");
     expect(skill).toContain("shitate-import");

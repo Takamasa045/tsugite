@@ -7,8 +7,8 @@
 ## エージェントから参照する
 
 ```sh
-bin/pipeline guides --json
-bin/pipeline guides --catalog seedance --model seedance-2.0 --input-mode image-to-video --json
+node bin/pipeline guides --json
+node bin/pipeline guides --catalog seedance --model seedance-2.0 --input-mode image-to-video --json
 ```
 
 結果には常に次が含まれます。

@@ -7,6 +7,29 @@ export function audioTrackTiming(track, manifest, fps) {
   };
 }
 
+export function clipSequenceTimings(clips, fps) {
+  if (clips.length === 0) return [];
+
+  const totalClipDuration = clips.reduce((sum, clip) => sum + clip.duration, 0);
+  const finalFrame = secondsToFrames(totalClipDuration, fps);
+  let outputSeconds = 0;
+  let previousFrame = 0;
+
+  return clips.map((clip, index) => {
+    outputSeconds += clip.duration;
+    const nextFrame = index === clips.length - 1
+      ? finalFrame
+      : secondsToTimelineFrame(outputSeconds, fps);
+    const timing = {
+      from: previousFrame,
+      durationInFrames: Math.max(0, nextFrame - previousFrame),
+      trimBefore: secondsToTimelineFrame(clip.in ?? 0, fps)
+    };
+    previousFrame = nextFrame;
+    return timing;
+  });
+}
+
 export function totalDuration(manifest) {
   const clipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   return Math.max(manifest.meta.target_duration_seconds, clipDuration);

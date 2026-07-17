@@ -1,0 +1,31 @@
+{
+  "meta": {
+    "aspect": "16:9",
+    "fps": 30,
+    "target_duration_seconds": 2,
+    "slug": "local-analysis"
+  },
+  "clips": [
+    {
+      "id": "seminar-source",
+      "src": "media/sample-seminar.mp4",
+      "in": 0,
+      "out": 2,
+      "duration": 2,
+      "fps": 30,
+      "resolution": {
+        "width": 320,
+        "height": 180
+      },
+      "audio": true
+    }
+  ],
+  "audio": {
+    "bgm": [],
+    "narration": [],
+    "sfx": []
+  },
+  "captions": [],
+  "chapters": [],
+  "provenance": []
+}

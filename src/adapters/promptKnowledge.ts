@@ -2,8 +2,9 @@ import { access, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { z } from "zod";
 import { readYamlFile } from "../io.js";
-import type { GenerationRequest, Project } from "../project/schema.js";
+import { generationRequestMode, type GenerationRequest, type Project } from "../project/schema.js";
 import { PipelineError } from "../types.js";
+import { toPortablePath } from "../platform/path.js";
 
 const promptModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
 const dateSchema = z
@@ -212,7 +213,7 @@ export async function loadPromptGuide(root: string): Promise<PromptGuide | undef
     if (parsed.data.catalog_id !== basename(root)) {
       throw schemaError(path, "catalog_id must match its directory name");
     }
-    return { ...parsed.data, root, path };
+    return { ...parsed.data, root, path: toPortablePath(path) };
   } catch (error) {
     if (error instanceof PipelineError) throw error;
     throw schemaError(path, error instanceof Error ? error.message : String(error));
@@ -284,9 +285,12 @@ export function resolvePromptGuidance(
   guide: PromptGuide,
   asOf = new Date().toISOString().slice(0, 10)
 ): PromptGuidance {
-  const inputMode: PromptMode | "unspecified" = request.input_mode ?? "unspecified";
+  const inputMode: PromptMode | "unspecified" = generationRequestMode(request) ?? "unspecified";
+  const advisoryModel = request.prompt_guide?.model ?? request.model;
   const model = guide.models.find((candidate) =>
-    [candidate.id, ...candidate.aliases].some((alias) => normalizeModelName(alias) === normalizeModelName(request.model))
+    [candidate.id, ...candidate.aliases].some(
+      (alias) => normalizeModelName(alias) === normalizeModelName(advisoryModel)
+    )
   );
   const base = {
     request_id: request.id,
@@ -351,7 +355,7 @@ function missingGuidance(request: GenerationRequest, catalogId: string): PromptG
   return {
     request_id: request.id,
     catalog_id: catalogId,
-    input_mode: request.input_mode ?? "unspecified",
+    input_mode: generationRequestMode(request) ?? "unspecified",
     model: request.model,
     status: "catalog-missing",
     available_model_profiles: [],

@@ -1,0 +1,24 @@
+name: mock-cli-cloud-translation
+kind: cli
+class: analysis
+offline: false
+outputs: [subtitle_track]
+network:
+  input_scope: source-media-and-dependencies
+  credential_env: [TSUGITE_TEST_ANALYSIS_TOKEN]
+dry_run_estimate: true
+batch: false
+credit_estimate:
+  per_request: 0.5
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+checks:
+  setup: []
+command:
+  executable: node
+  args: ["fixtures/adapters/mock-cli-cloud-translation/analyze.mjs"]
+  input: stdin-json

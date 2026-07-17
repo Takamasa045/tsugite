@@ -31,6 +31,9 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: workflowSamples[0].data.name })).toBeVisible()
+    expect(screen.getByRole('region', { name: '制作の現在地' })).toBeVisible()
+    expect(screen.getByText('いま進めている工程')).toBeVisible()
+    expect(screen.getByText(`工程 1 / ${workflowSamples[0].data.nodes.length}`)).toBeVisible()
     const firstNode = workflowSamples[0].data.nodes[0]
     await user.click(await screen.findByRole('button', { name: firstNode.name }))
 

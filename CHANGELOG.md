@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a repository-discoverable Tsugite skill for Codex, a Claude Code `/tsugite` compatibility entry, shared feedback-promotion guidance, and configuration regression tests.
 - Fixed PixVerse image-to-video requests so provider-derived framing is not overridden by `--aspect-ratio`.
 - Extended Gate 3 QC with fail-closed FFmpeg analysis for black segments of at least one second and silent segments of at least three seconds.
 - Added a source-backed catalog of 34 story, persuasion, documentary, genre, and music-video frameworks plus 35 film-grammar and AI-video principles; the read-only `story-guides` CLI returns primary/supporting structures, rejected alternatives, timing presets, and context-selected principles.

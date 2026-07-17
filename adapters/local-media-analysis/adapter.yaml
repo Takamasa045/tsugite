@@ -1,0 +1,30 @@
+name: local-media-analysis
+kind: cli
+class: analysis
+offline: true
+outputs: [cut_points]
+dry_run_estimate: true
+batch: true
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "30": dependency_missing
+  "40": invalid_request
+checks:
+  setup:
+    - type: command
+      name: tool:ffmpeg-analysis
+      command: ["ffmpeg", "-version"]
+      capture_version: true
+      remediation:
+        default: "Install FFmpeg locally, then rerun doctor. No API key is required."
+        darwin: "Install FFmpeg with `brew install ffmpeg`, then rerun doctor. No API key is required."
+command:
+  executable: node
+  args: ["adapters/local-media-analysis/analyze.mjs"]
+  input: stdin-json

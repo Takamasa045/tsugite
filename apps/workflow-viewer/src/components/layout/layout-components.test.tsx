@@ -33,6 +33,7 @@ const nodes: WorkflowNode[] = [
         label: '最終動画',
         description: '視聴・納品に使うMP4動画です。今回はエラーのため未完成です。',
         reference: '動画',
+        href: './review/index.html',
       }],
       previews: [
         { id: 'final-video', role: 'final', kind: 'video', label: '完成動画', description: '確認用の完成版です。', src: './previews/final.mp4' },
@@ -66,6 +67,7 @@ describe('AppHeader', () => {
 
     expect(screen.getByRole('heading', { name: 'AI動画制作' })).toBeInTheDocument()
     expect(screen.getByText('71%')).toBeInTheDocument()
+    expect(screen.getByText('2工程中 1工程完了')).toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText('サンプルを切り替える'), 'web')
     await user.click(screen.getByRole('button', { name: '表示をリセット' }))
     expect(onSampleChange).toHaveBeenCalledWith('web')
@@ -76,6 +78,13 @@ describe('AppHeader', () => {
     render(<AppHeader workflow={workflow} currentNodes={[]} onResetView={vi.fn()}
       samples={[]} activeSampleId="" onSampleChange={vi.fn()} />)
     expect(screen.getByText('0%')).toBeInTheDocument()
+  })
+
+  it('ランチャーから開いたViewerでは制作案件へ戻る導線を表示する', () => {
+    render(<AppHeader workflow={workflow} currentNodes={nodes} onResetView={vi.fn()}
+      samples={[]} activeSampleId="" onSampleChange={vi.fn()} launcherHref="/" />)
+
+    expect(screen.getByRole('link', { name: '制作案件へ戻る' })).toHaveAttribute('href', '/')
   })
 })
 
@@ -100,13 +109,15 @@ describe('SidePanel', () => {
     expect(screen.getByText('行ったこと')).toBeInTheDocument()
     expect(screen.getByText('企画書の構成に沿って映像と音声を合成し、動画ファイルを書き出しました。')).toBeInTheDocument()
     expect(screen.getByText('結果')).toBeInTheDocument()
-    expect(screen.getByText('書き出し中にGPUメモリが不足したため、最終動画はまだ完成していません。')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '使ったもの' })).toBeInTheDocument()
+    expect(screen.getAllByText('書き出し中にGPUメモリが不足したため、最終動画はまだ完成していません。')).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: '受け取ったもの' })).toBeInTheDocument()
     expect(screen.getByText('承認済みの企画書')).toBeInTheDocument()
     expect(screen.getByText('映像の順番、尺、演出方針が確定した制作設計です。')).toBeInTheDocument()
     expect(screen.getByText('全体尺: 60秒')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '作ったもの' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '次へ渡したもの' })).toBeInTheDocument()
     expect(screen.getByText('最終動画')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '最終動画のプレビューHTMLを開く' })).toHaveAttribute('href', './review/index.html')
+    expect(screen.getByRole('link', { name: '最終動画のプレビューHTMLを開く' })).toHaveAttribute('target', '_blank')
     expect(screen.getByRole('heading', { name: '実際に作ったもの' })).toBeInTheDocument()
     expect(document.querySelector('video[src="./previews/final.mp4"]')).toHaveAttribute('controls')
     expect(screen.getByRole('img', { name: '完成イメージ' })).toHaveAttribute('src', './previews/keyframe.jpg')
@@ -197,7 +208,10 @@ describe('TimelinePanel', () => {
     expect(screen.getByText('00:30 / 02:00')).toBeInTheDocument()
     expect(screen.getAllByTestId('event-marker')).toHaveLength(3)
     expect(screen.getByRole('button', { name: '完成動画を作るの工程詳細を表示' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('選ぶと、右側に作ったものと確認内容が表示されます。')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '制作の現在地' })).toBeInTheDocument()
+    expect(screen.getByText('いま確認が必要な工程：完成動画を作る')).toBeInTheDocument()
+    expect(screen.getByText('工程を選ぶと、右の記録欄に内容が表示されます。')).toBeInTheDocument()
+    expect(screen.getByText('詳細表示中')).toBeInTheDocument()
     expect(screen.getByText('工程 01')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '企画作成の工程詳細を表示' }))
     await user.click(screen.getByRole('button', { name: '再生' }))

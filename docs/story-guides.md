@@ -9,13 +9,13 @@
 カタログ全体:
 
 ```sh
-bin/pipeline story-guides --json
+node bin/pipeline story-guides --json
 ```
 
 企画に合わせた推薦:
 
 ```sh
-bin/pipeline story-guides \
+node bin/pipeline story-guides \
   --request "90秒の物語プロモ。主人公の迷い、選択、成長を映画的に描く" \
   --duration 90 \
   --json

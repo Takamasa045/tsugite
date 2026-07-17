@@ -9,13 +9,15 @@
 // which keeps the flap in sync with the actual voice.
 //
 // Usage: node scripts/mouth-levels.mjs <path/to/manifest.json>
-import { spawnSync } from "node:child_process";
+import crossSpawn from "cross-spawn";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
   MOUTH_LEVEL_RATE,
   quantizeMouthLevels
 } from "../backends/remotion/streetPresentation.mjs";
+
+const spawnSync = crossSpawn.sync;
 
 const SAMPLE_RATE = 8000;
 const NORMALIZATION_PERCENTILE = 0.95;

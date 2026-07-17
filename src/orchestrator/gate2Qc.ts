@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { Manifest } from "../manifest/schema.js";
+import { spawnCommandSync } from "../platform/process.js";
 import type { Issue } from "../types.js";
 
 export type Gate2QcProbe = {
@@ -49,8 +49,44 @@ export async function writeGate2QcReport(
   outputPath: string,
   options: Gate2QcOptions = {}
 ): Promise<Gate2QcReport> {
-  const report = inspectGate2Manifest(manifest, dirname(manifestPath), options);
+  const report = await inspectGate2ManifestWithFingerprints(manifest, dirname(manifestPath), options);
   await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
+export async function inspectGate2ManifestWithFingerprints(
+  manifest: Manifest,
+  manifestDir: string,
+  options: Gate2QcOptions = {}
+): Promise<Gate2QcReport> {
+  const report = inspectGate2Manifest(manifest, manifestDir, options);
+  const hashes = new Map<string, Promise<string | undefined>>();
+
+  const fingerprints = await Promise.all(report.assets.map(async (asset) => {
+    if (asset.kind === "image") return asset.sha256;
+    let pending = hashes.get(asset.path);
+    if (!pending) {
+      pending = fileSha256Stream(asset.path);
+      hashes.set(asset.path, pending);
+    }
+    return pending;
+  }));
+
+  for (const [index, asset] of report.assets.entries()) {
+    if (asset.kind === "image") continue;
+    const sha256 = fingerprints[index];
+    if (sha256) {
+      asset.sha256 = sha256;
+      continue;
+    }
+    report.issues.push({
+      code: asset.kind === "audio" ? "gate2.audio.hash_failed" : "gate2.asset.hash_failed",
+      message: `${asset.kind} asset '${asset.id}' could not be fingerprinted`,
+      path: asset.path
+    });
+  }
+
+  report.ok = report.issues.length === 0;
   return report;
 }
 
@@ -110,11 +146,11 @@ export function inspectGate2Manifest(
     }
 
     if (assetProbe.duration_seconds !== undefined) {
-      const delta = roundSeconds(assetProbe.duration_seconds - clip.duration);
-      if (Math.abs(delta) > tolerance) {
+      const shortage = clip.out - assetProbe.duration_seconds;
+      if (shortage > tolerance) {
         issues.push({
-          code: "gate2.asset.duration_mismatch",
-          message: `clip '${clip.id}' duration differs from manifest by ${delta} seconds`,
+          code: "gate2.asset.range_out_of_bounds",
+          message: `clip '${clip.id}' source ends ${roundSeconds(shortage)} seconds before manifest out point`,
           path
         });
       }
@@ -220,7 +256,7 @@ export function inspectGate2Manifest(
 }
 
 function probeAsset(path: string): Gate2QcProbe {
-  const result = spawnSync(
+  const result = spawnCommandSync(
     "ffprobe",
     ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
     {
@@ -294,6 +330,16 @@ function fileSha256(path: string): string | undefined {
   }
 }
 
+async function fileSha256Stream(path: string): Promise<string | undefined> {
+  try {
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    return hash.digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
 function audioEntries(manifest: Manifest): Array<{ id: string; src?: string }> {
   return [
     ...manifest.audio.bgm.map((entry, index) => ({ id: entry.id ?? `bgm-${index + 1}`, src: entry.src })),
@@ -323,8 +369,15 @@ function numberOrUndefined(value: string | undefined): number | undefined {
 }
 
 function probeErrorMessage(stderr: string, stdout: string): string {
-  const text = `${stderr}\n${stdout}`.trim().replace(/0x[0-9a-f]+/gi, "0xADDR");
+  const text = normalizeProbeErrorMessage(stderr, stdout);
   return text.length > 0 ? text.slice(0, 1000) : "asset probe failed";
+}
+
+export function normalizeProbeErrorMessage(stderr: string, stdout: string): string {
+  return `${stderr}\n${stdout}`
+    .trim()
+    .replace(/@\s+(?:0x)?[0-9a-f]{6,}/gi, "@ 0xADDR")
+    .replace(/0x[0-9a-f]+\b/gi, "0xADDR");
 }
 
 function roundSeconds(value: number): number {

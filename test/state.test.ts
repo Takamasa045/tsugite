@@ -44,6 +44,42 @@ describe("run state", () => {
     );
   });
 
+  it("binds an analysis Gate 1 approval to the reviewed input digest", () => {
+    const planned = createPlannedState("analysis-run", "2026-07-09T00:00:00.000Z");
+    const awaiting = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");
+    const approved = recordGateDecision(
+      awaiting,
+      "gate_1",
+      "approved",
+      "2026-07-09T00:02:00.000Z",
+      "a".repeat(64)
+    );
+
+    expect(approved.gates.gate_1).toMatchObject({
+      status: "approved",
+      approved_input_digest: "a".repeat(64)
+    });
+  });
+
+  it("binds Gate 2 approval to the inspected run artifact digest", () => {
+    const planned = createPlannedState("analysis-run", "2026-07-09T00:00:00.000Z");
+    const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");
+    const running = recordGateDecision(gate1, "gate_1", "approved", "2026-07-09T00:02:00.000Z");
+    const gate2 = markGateAwaiting(running, "gate_2", "2026-07-09T00:03:00.000Z");
+    const approved = recordGateDecision(
+      gate2,
+      "gate_2",
+      "approved",
+      "2026-07-09T00:04:00.000Z",
+      "b".repeat(64)
+    );
+
+    expect(approved.gates.gate_2).toMatchObject({
+      status: "approved",
+      approved_input_digest: "b".repeat(64)
+    });
+  });
+
   it("rejects out-of-order gate progression", () => {
     const planned = createPlannedState("run-003", "2026-07-09T00:00:00.000Z");
     const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");

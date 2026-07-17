@@ -1,0 +1,12 @@
+slug: local-with-online-analysis
+run_id: local-with-online-analysis-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: mock-cli-external-refinement
+  requests:
+    - id: transcript-online
+      output: transcript
+      source_clip_id: render-001

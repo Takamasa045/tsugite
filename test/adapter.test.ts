@@ -43,7 +43,7 @@ describe("adapter contract", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.clips?.[0]?.src).toMatch(new RegExp(`^${escapeRegExp(runDir)}/`));
+    expect(result.clips?.[0]?.src).toMatch(new RegExp(`^${escapeRegExp(runDir)}[\\\\/]`));
   });
 
   it("does not expose raw provider output when an adapter command fails", async () => {
@@ -169,12 +169,17 @@ describe("adapter contract", () => {
     });
   });
 
-  it("loads the Topview generation handoff adapter", async () => {
+  it("loads the executable Topview CLI generation adapter", async () => {
     const adapter = await loadAdapterDefinition("topview", ["fixtures/adapters", "adapters"]);
 
-    expect(adapter.kind).toBe("mcp-agent");
+    expect(adapter.kind).toBe("cli");
     expect(adapter.class).toBe("generation");
     expect(adapter.dry_run_estimate).toBe(true);
+    expect(adapter.command).toMatchObject({
+      executable: "node",
+      args: ["adapters/topview/generate.mjs"],
+      input: "stdin-json"
+    });
   });
 
   it("loads optional OpenClaw generation without requiring OpenClaw during validation", async () => {
@@ -298,23 +303,32 @@ describe("adapter contract", () => {
     expect(wrongTypeResult.issues[0]?.code).toBe("adapter.input_mode.param_type");
   });
 
-  it("rejects an input mode the selected adapter does not declare", async () => {
+  it("accepts Topview image-to-video and requires first_frame", async () => {
     const project = await loadProject("fixtures/projects/topview-generation.yaml");
-    const unsupported = {
+    const supported = {
       ...project,
       generation: {
         ...project.generation!,
         requests: project.generation!.requests.map((request) => ({
           ...request,
-          input_mode: "image-to-video" as const,
-          params: { image: "references/shot.png" }
+          mode: "image-to-video" as const,
+          first_frame: "../media/character.svg"
         }))
       }
     };
+    const missing = {
+      ...supported,
+      generation: {
+        ...supported.generation,
+        requests: supported.generation.requests.map(({ first_frame: _firstFrame, ...request }) => request)
+      }
+    };
 
-    const result = await validateGenerationConstraints(unsupported, ["fixtures/adapters", "adapters"]);
+    const supportedResult = await validateGenerationConstraints(supported, ["fixtures/adapters", "adapters"]);
+    const missingResult = await validateGenerationConstraints(missing, ["fixtures/adapters", "adapters"]);
 
-    expect(result.issues[0]?.code).toBe("adapter.input_mode.unsupported");
+    expect(supportedResult.ok).toBe(true);
+    expect(missingResult.issues[0]?.code).toBe("adapter.input_mode.required_field");
   });
 
   it("applies multiple adapter constraints and skips optional missing fields", async () => {

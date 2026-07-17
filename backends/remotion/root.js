@@ -11,7 +11,8 @@ import {
 } from "remotion";
 import { CinematicImpactCaptions } from "./cinematicImpactCaptions.js";
 import { resolveCaptionStyle } from "./captionMotion.mjs";
-import { audioTrackTiming, secondsToFrames, secondsToTimelineFrame, totalDuration } from "./timing.mjs";
+import { resolveRenderDimensions } from "./dimensions.mjs";
+import { audioTrackTiming, clipSequenceTimings, secondsToFrames, totalDuration } from "./timing.mjs";
 import { ArticleDialogue } from "./dialogue.js";
 import { ARTICLE_DIALOGUE_PRESET } from "./presentation.mjs";
 import { StreetDialogue } from "./streetDialogue.js";
@@ -50,7 +51,7 @@ function Root() {
     calculateMetadata: ({ props }) => {
       const manifest = props.manifest ?? DEFAULT_MANIFEST;
       const fps = manifest.meta.fps;
-      const size = dimensions(manifest);
+      const size = resolveRenderDimensions(manifest);
       return {
         fps,
         width: size.width,
@@ -63,25 +64,24 @@ function Root() {
 
 function Timeline({ manifest }) {
   const fps = manifest.meta.fps;
-  let cursor = 0;
   const children = [];
+  const clipTimings = clipSequenceTimings(manifest.clips, fps);
 
-  for (const clip of manifest.clips) {
-    const durationInFrames = secondsToFrames(clip.duration, fps);
-    const trimBefore = secondsToTimelineFrame(clip.in ?? 0, fps);
+  for (const [index, clip] of manifest.clips.entries()) {
+    const timing = clipTimings[index];
+    if (!timing || timing.durationInFrames === 0) continue;
     children.push(
       React.createElement(
         Sequence,
-        { from: cursor, durationInFrames, key: clip.id, name: clip.id },
+        { from: timing.from, durationInFrames: timing.durationInFrames, key: clip.id, name: clip.id },
         React.createElement(OffthreadVideo, {
           src: staticFile(clip.src),
-          startFrom: trimBefore,
+          startFrom: timing.trimBefore,
           muted: !clip.audio,
           style: mediaStyle()
         })
       )
     );
-    cursor += durationInFrames;
   }
 
   for (const track of audioTracks(manifest)) {
@@ -163,19 +163,6 @@ function audioTracks(manifest) {
   return [...(manifest.audio?.bgm ?? []), ...(manifest.audio?.narration ?? []), ...(manifest.audio?.sfx ?? [])].filter(
     (track) => track.src
   );
-}
-
-function dimensions(manifest) {
-  const first = manifest.clips[0]?.resolution;
-  if (first) {
-    return { width: even(first.width), height: even(first.height) };
-  }
-
-  return manifest.meta.aspect === "9:16" ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
-}
-
-function even(value) {
-  return value % 2 === 0 ? value : value + 1;
 }
 
 function mediaStyle() {

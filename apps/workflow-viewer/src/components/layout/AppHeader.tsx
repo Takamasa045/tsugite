@@ -1,4 +1,4 @@
-import { RotateCcw } from 'lucide-react'
+import { ArrowLeft, RotateCcw } from 'lucide-react'
 import type { WorkflowData, WorkflowNode } from '../../types/workflow'
 import { ProgressBar } from '../workflow/ProgressBar'
 import { StatusBadge } from '../workflow/StatusBadge'
@@ -15,6 +15,7 @@ interface AppHeaderProps {
   samples: WorkflowSampleOption[]
   activeSampleId: string
   onSampleChange: (sampleId: string) => void
+  launcherHref?: string
 }
 
 export function AppHeader({
@@ -24,11 +25,13 @@ export function AppHeader({
   samples,
   activeSampleId,
   onSampleChange,
+  launcherHref,
 }: AppHeaderProps) {
   const progress = currentNodes.length
     ? currentNodes.reduce((sum, node) => sum + node.progress, 0) / currentNodes.length
     : 0
   const roundedProgress = Math.round(progress)
+  const completedCount = currentNodes.filter((node) => node.status === 'completed').length
 
   return (
     <header className="app-header">
@@ -42,13 +45,22 @@ export function AppHeader({
 
       <div className="header-progress">
         <div className="header-progress-meta">
-          <StatusBadge status={workflow.status} compact />
+          <div className="header-progress-copy">
+            <StatusBadge status={workflow.status} compact />
+            <span>{currentNodes.length}工程中 {completedCount}工程完了</span>
+          </div>
           <strong>{roundedProgress}%</strong>
         </div>
         <ProgressBar label="全体進捗" value={progress} />
       </div>
 
       <div className="header-actions">
+        {launcherHref && (
+          <a className="control-button viewer-back-link" href={launcherHref}>
+            <ArrowLeft aria-hidden="true" size={15} />
+            <span>制作案件へ戻る</span>
+          </a>
+        )}
         <label className="field-label">
           <span>サンプルを切り替える</span>
           <select value={activeSampleId} onChange={(event) => onSampleChange(event.target.value)}>
