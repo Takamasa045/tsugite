@@ -188,10 +188,13 @@ distribution: local-only
     const fixture = await createFixture();
     const invalidDir = join(fixture.projectsDir, "invalid-project");
     const nestedDir = join(fixture.projectsDir, "group", "nested-project");
+    const thumbnailDir = join(fixture.projectDir, "dist", "local-fixture-run", "qa");
     await mkdir(invalidDir);
     await writeFile(join(invalidDir, "project.yaml"), "slug: [invalid\n");
     await mkdir(nestedDir, { recursive: true });
     await writeFile(join(nestedDir, "project.yaml"), "slug: nested\n");
+    await mkdir(thumbnailDir, { recursive: true });
+    await writeFile(join(thumbnailDir, "contact-sheet.png"), "thumbnail-image");
     await symlink(fixture.projectDir, join(fixture.projectsDir, "linked-project"));
 
     const launcher = await launch({
@@ -226,6 +229,7 @@ distribution: local-only
       status: "planned",
       updatedAt: null,
       hasViewer: false,
+      thumbnailUrl: `/thumbnail/${valid.id}`,
       valid: true
     });
     expect(valid.id).not.toBe("valid-project");
@@ -233,6 +237,8 @@ distribution: local-only
     const invalid = payload.projects.find((project: { name: string }) => project.name === "invalid-project");
     expect(invalid).toMatchObject({ valid: false, status: "error", hasViewer: false });
     expect(invalid.issue).toEqual(expect.any(String));
+    await expect(fetch(`${launcher.url}${valid.thumbnailUrl}`).then((response) => response.text()))
+      .resolves.toBe("thumbnail-image");
 
     await expect(statusWithHost(launcher.url, "viewer.attacker.invalid")).resolves.toBe(403);
   });

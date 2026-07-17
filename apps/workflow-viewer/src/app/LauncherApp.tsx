@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  Clapperboard,
   Clock3,
   FolderOpen,
   LayoutTemplate,
@@ -18,6 +19,7 @@ export interface LauncherProject {
   updatedAt?: string
   hasViewer: boolean
   viewerUrl?: string
+  thumbnailUrl?: string
   valid: boolean
   issue?: string
 }
@@ -72,8 +74,18 @@ interface LauncherAppProps {
 
 type Shelf = 'projects' | 'templates'
 type TemplateLoadState = 'idle' | 'loading' | 'ready' | 'error'
+type ProjectFilter = 'all' | 'active' | 'waiting' | 'completed' | 'invalid'
 
 const defaultFetcher: typeof fetch = (...args) => window.fetch(...args)
+const PROJECT_PAGE_SIZE = 12
+
+const PROJECT_FILTERS: Array<{ id: ProjectFilter; label: string }> = [
+  { id: 'all', label: 'すべて' },
+  { id: 'active', label: '制作中' },
+  { id: 'waiting', label: '確認待ち' },
+  { id: 'completed', label: '完了' },
+  { id: 'invalid', label: '要確認' },
+]
 
 const STATUS_LABELS: Record<string, string> = {
   planned: '準備中',
@@ -122,6 +134,21 @@ function formatUpdatedAt(value?: string): string {
   }).format(date)
 }
 
+function projectMatchesFilter(project: LauncherProject, filter: ProjectFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'invalid') return !project.valid
+  if (!project.valid) return false
+  if (filter === 'completed') return project.status === 'completed'
+  if (filter === 'waiting') return project.status.startsWith('awaiting_gate_')
+  return !['completed', 'aborted'].includes(project.status)
+    && !project.status.startsWith('awaiting_gate_')
+}
+
+function projectUpdatedAtMs(project: LauncherProject): number {
+  const timestamp = project.updatedAt ? Date.parse(project.updatedAt) : Number.NaN
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
 function isProjectListResponse(input: unknown): input is ProjectListResponse {
   return typeof input === 'object' && input !== null && 'ok' in input && input.ok === true
     && 'projects' in input && Array.isArray(input.projects)
@@ -153,8 +180,11 @@ export function LauncherApp({
   const [projects, setProjects] = useState<LauncherProject[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>('all')
+  const [visibleProjectCount, setVisibleProjectCount] = useState(PROJECT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [refreshError, setRefreshError] = useState<string | null>(null)
   const [loadAttempt, setLoadAttempt] = useState(0)
@@ -206,12 +236,22 @@ export function LauncherApp({
 
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('ja')
-    if (!normalized) return projects
-    return projects.filter((project) =>
-      [project.name, project.slug, project.runId]
-        .some((value) => value.toLocaleLowerCase('ja').includes(normalized)),
-    )
-  }, [projects, query])
+    return projects
+      .filter((project) => projectMatchesFilter(project, projectFilter))
+      .filter((project) => !normalized || [project.name, project.slug, project.runId]
+        .some((value) => value.toLocaleLowerCase('ja').includes(normalized)))
+      .sort((left, right) => (
+        projectUpdatedAtMs(right) - projectUpdatedAtMs(left)
+        || left.name.localeCompare(right.name, 'ja')
+      ))
+  }, [projectFilter, projects, query])
+
+  const visibleProjects = filteredProjects.slice(0, visibleProjectCount)
+  const remainingProjectCount = Math.max(0, filteredProjects.length - visibleProjects.length)
+
+  useEffect(() => {
+    setVisibleProjectCount(PROJECT_PAGE_SIZE)
+  }, [projectFilter, query])
 
   const templateCategories = useMemo(() => [
     'すべて',
@@ -251,13 +291,15 @@ export function LauncherApp({
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
   }
 
-  const refreshSelected = async () => {
-    if (!selected || !selected.valid || refreshing) return
-    setRefreshing(true)
+  const openProject = async (project: LauncherProject) => {
+    setSelectedId(project.id)
     setRefreshError(null)
+    if (!project.valid || refreshing) return
+    setRefreshing(true)
+    setOpeningProjectId(project.id)
     let failureDetail = '設定と成果物を確認して、もう一度お試しください。'
     try {
-      const response = await fetcher(`/api/projects/${encodeURIComponent(selected.id)}/refresh`, {
+      const response = await fetcher(`/api/projects/${encodeURIComponent(project.id)}/refresh`, {
         method: 'POST',
         headers: {
           accept: 'application/json',
@@ -276,7 +318,12 @@ export function LauncherApp({
       setRefreshError(`最新の制作記録を開けませんでした。${failureDetail}`)
     } finally {
       setRefreshing(false)
+      setOpeningProjectId(null)
     }
+  }
+
+  const refreshSelected = async () => {
+    if (selected) await openProject(selected)
   }
 
   if (loading) {
@@ -353,21 +400,36 @@ export function LauncherApp({
                 <span className="eyebrow">制作棚</span>
                 <h2 id="project-list-title">制作案件を選ぶ</h2>
               </div>
-              <span className="launcher-count">全{projects.length}件 / 表示{filteredProjects.length}件</span>
+              <span className="launcher-count">全{projects.length}件 / 表示{visibleProjects.length}件</span>
             </div>
 
             {projects.length > 0 && (
-              <label className="launcher-search">
-                <Search aria-hidden="true" size={17} />
-                <span className="sr-only">制作案件を検索</span>
-                <input
-                  aria-label="制作案件を検索"
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="名前やrun IDで絞り込む"
-                  type="search"
-                  value={query}
-                />
-              </label>
+              <div className="launcher-project-tools">
+                <label className="launcher-search">
+                  <Search aria-hidden="true" size={17} />
+                  <span className="sr-only">制作案件を検索</span>
+                  <input
+                    aria-label="制作案件を検索"
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="名前やrun IDで絞り込む"
+                    type="search"
+                    value={query}
+                  />
+                </label>
+                <div aria-label="制作状況で絞り込む" className="launcher-project-filter">
+                  {PROJECT_FILTERS.map((filter) => (
+                    <button
+                      aria-label={filter.id === 'all' ? 'すべての制作状況を表示' : `${filter.label}で絞り込む`}
+                      aria-pressed={projectFilter === filter.id}
+                      key={filter.id}
+                      onClick={() => setProjectFilter(filter.id)}
+                      type="button"
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
 
             {projects.length === 0 ? (
@@ -380,29 +442,54 @@ export function LauncherApp({
               <div className="launcher-empty"><strong>検索条件に合う制作案件はありません。</strong></div>
             ) : (
               <div className="launcher-project-list">
-                {filteredProjects.map((project) => (
+                {visibleProjects.map((project) => (
                   <button
-                    aria-label={`${project.name}を選ぶ`}
+                    aria-busy={openingProjectId === project.id}
+                    aria-label={project.valid ? `${project.name}の制作記録を開く` : `${project.name}の設定を確認`}
                     aria-pressed={project.id === selectedId}
                     className="launcher-project-card"
                     data-invalid={!project.valid}
+                    disabled={refreshing}
                     key={project.id}
-                    onClick={() => {
-                      setSelectedId(project.id)
-                      setRefreshError(null)
-                    }}
+                    onClick={() => void openProject(project)}
                     type="button"
                   >
                     <span aria-hidden="true" className="launcher-project-notch" />
+                    <span className="launcher-project-thumbnail">
+                      {project.thumbnailUrl ? (
+                        <img alt="" loading="lazy" src={project.thumbnailUrl} />
+                      ) : (
+                        <span className="launcher-project-thumbnail-empty">
+                          <Clapperboard aria-hidden="true" size={24} />
+                          <small>制作記録</small>
+                        </span>
+                      )}
+                      <span className="launcher-project-status">
+                        {openingProjectId === project.id
+                          ? '開いています…'
+                          : project.valid ? statusLabel(project.status) : '設定の確認が必要'}
+                      </span>
+                    </span>
                     <span className="launcher-project-copy">
-                      <span className="launcher-project-status">{project.valid ? statusLabel(project.status) : '設定の確認が必要'}</span>
                       <span className="launcher-project-name" role="heading" aria-level={3}>{project.name}</span>
                       <small>{project.slug}</small>
+                      <span className="launcher-project-card-footer">
+                        <small>{formatUpdatedAt(project.updatedAt)}</small>
+                        <ArrowRight aria-hidden="true" size={17} />
+                      </span>
                     </span>
-                    <ArrowRight aria-hidden="true" size={17} />
                   </button>
                 ))}
               </div>
+            )}
+            {remainingProjectCount > 0 && (
+              <button
+                className="launcher-load-more"
+                onClick={() => setVisibleProjectCount((count) => count + PROJECT_PAGE_SIZE)}
+                type="button"
+              >
+                残り{remainingProjectCount}件を表示
+              </button>
             )}
           </section>
 

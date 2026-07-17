@@ -78,6 +78,13 @@ describe('AppHeader', () => {
       samples={[]} activeSampleId="" onSampleChange={vi.fn()} />)
     expect(screen.getByText('0%')).toBeInTheDocument()
   })
+
+  it('ランチャーから開いたViewerでは制作案件へ戻る導線を表示する', () => {
+    render(<AppHeader workflow={workflow} currentNodes={nodes} onResetView={vi.fn()}
+      samples={[]} activeSampleId="" onSampleChange={vi.fn()} launcherHref="/" />)
+
+    expect(screen.getByRole('link', { name: '制作案件へ戻る' })).toHaveAttribute('href', '/')
+  })
 })
 
 describe('SidePanel', () => {

@@ -14,6 +14,7 @@ const projects = [
     updatedAt: '2026-07-15T09:30:00+09:00',
     hasViewer: true,
     viewerUrl: '/viewers/tengu-60s-landscape/',
+    thumbnailUrl: '/thumbnail/tengu-60s-landscape',
     valid: true,
   },
   {
@@ -99,7 +100,7 @@ describe('LauncherApp', () => {
     vi.unstubAllGlobals()
   })
 
-  it('案件を読み込み、検索・選択・前回の表示を案内する', async () => {
+  it('案件を読み込み、検索と前回の表示を案内する', async () => {
     const user = userEvent.setup()
     const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects }))
     const navigate = vi.fn()
@@ -113,10 +114,7 @@ describe('LauncherApp', () => {
     expect(within(selectedPanel).getByRole('heading', { name: '天狗の山寺 60秒映像' })).toBeVisible()
     expect(within(selectedPanel).getByText('完了')).toBeVisible()
     expect(within(selectedPanel).getByText(/2026\/07\/15/)).toBeVisible()
-
-    await user.click(screen.getByRole('button', { name: /Codex Goal Talkを選ぶ/ }))
-    expect(screen.getByText('codex-goal-talk-paper-r6')).toBeVisible()
-    expect(screen.queryByRole('button', { name: '前回の表示を開く' })).not.toBeInTheDocument()
+    expect(document.querySelector('img[src="/thumbnail/tengu-60s-landscape"]')).toBeInTheDocument()
 
     await user.type(screen.getByRole('searchbox', { name: '制作案件を検索' }), '天狗')
     expect(screen.getByText('全2件 / 表示1件')).toBeVisible()
@@ -124,9 +122,37 @@ describe('LauncherApp', () => {
     expect(within(projectList).queryByRole('heading', { name: 'Codex Goal Talk' })).not.toBeInTheDocument()
 
     await user.clear(screen.getByRole('searchbox', { name: '制作案件を検索' }))
-    await user.click(screen.getByRole('button', { name: /天狗の山寺 60秒映像を選ぶ/ }))
     await user.click(screen.getByRole('button', { name: '前回の表示を開く' }))
     expect(navigate).toHaveBeenCalledWith('/viewers/tengu-60s-landscape/')
+  })
+
+  it('大量の案件を最近更新順に12件ずつ表示し、状態で絞り込める', async () => {
+    const user = userEvent.setup()
+    const manyProjects = Array.from({ length: 14 }, (_, index) => ({
+      id: `project-${index + 1}`,
+      name: `案件${String(index + 1).padStart(2, '0')}`,
+      slug: `project-${index + 1}`,
+      runId: `run-${index + 1}`,
+      status: index % 2 === 0 ? 'completed' : 'running',
+      updatedAt: `2026-07-${String(index + 1).padStart(2, '0')}T00:00:00+09:00`,
+      hasViewer: false,
+      valid: true,
+    }))
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects: manyProjects }))
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('button', { name: '案件14の制作記録を開く' })
+
+    expect(screen.getByText('全14件 / 表示12件')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '案件02の制作記録を開く' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '残り2件を表示' }))
+    expect(screen.getByText('全14件 / 表示14件')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '制作中で絞り込む' }))
+    expect(screen.getByText('全14件 / 表示7件')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '案件13の制作記録を開く' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '案件14の制作記録を開く' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '案件02の制作記録を開く' })).toBeVisible()
   })
 
   it('テンプレート棚を必要時に読み込み、検索・用途絞り込み・詳細確認ができる', async () => {
@@ -198,10 +224,9 @@ describe('LauncherApp', () => {
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
-    await screen.findByRole('button', { name: /天狗の山寺 60秒映像を選ぶ/ })
+    const projectCard = await screen.findByRole('button', { name: '天狗の山寺 60秒映像の制作記録を開く' })
 
-    await user.click(screen.getByRole('button', { name: '最新状態に更新して開く' }))
-    expect(screen.getByRole('button', { name: '制作の記録を更新しています…' })).toBeDisabled()
+    await user.click(projectCard)
 
     await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(
       '/api/projects/tengu-60s-landscape/refresh',
@@ -235,7 +260,7 @@ describe('LauncherApp', () => {
     const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ok: true, projects: [invalidProject] }))
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
-    await screen.findByRole('button', { name: /設定確認が必要な案件を選ぶ/ })
+    await user.click(await screen.findByRole('button', { name: '設定確認が必要な案件の設定を確認' }))
 
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
     expect(within(selectedPanel).getByText('設定の確認が必要')).toBeVisible()
@@ -266,7 +291,7 @@ describe('LauncherApp', () => {
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} />)
-    await screen.findByRole('button', { name: /天狗の山寺 60秒映像を選ぶ/ })
+    await screen.findByRole('button', { name: '天狗の山寺 60秒映像の制作記録を開く' })
     await user.click(screen.getByRole('button', { name: '最新状態に更新して開く' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(

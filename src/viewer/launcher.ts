@@ -38,6 +38,7 @@ export type LauncherProject = {
   updatedAt: string | null;
   hasViewer: boolean;
   viewerUrl?: string;
+  thumbnailUrl?: string;
   valid: boolean;
   issue?: string;
 };
@@ -113,6 +114,7 @@ type LauncherProjectRecord = {
   sourceModifiedAtMs: number;
   project?: Project;
   outputDir?: string;
+  thumbnailPath?: string;
   public: LauncherProject;
 };
 
@@ -304,6 +306,15 @@ export async function startWorkflowViewerLauncher(
         refreshing.delete(projectId);
       }
       return;
+    }
+
+    const thumbnailMatch = /^\/thumbnail\/([^/]+)$/.exec(requestUrl.pathname);
+    if ((method === "GET" || method === "HEAD") && thumbnailMatch) {
+      const record = projects.get(thumbnailMatch[1]!);
+      if (!record?.thumbnailPath) return sendNotFound(response);
+      const thumbnailPath = await safeProjectThumbnail(record.configPath, record.thumbnailPath);
+      if (!thumbnailPath) return sendNotFound(response);
+      return serveFile(request, response, thumbnailPath);
     }
 
     const viewerMatch = /^\/viewer\/([^/]+)(?:\/(.*))?$/.exec(requestUrl.pathname);
@@ -545,9 +556,11 @@ async function inspectProject(
     sourceModifiedAtMs = configStats.mtimeMs;
     const project = await loadProject(configPath);
     const runId = project.run_id ?? project.slug;
-    const runDir = join(dirname(configPath), project.dist_dir, runId);
+    const projectDir = dirname(configPath);
+    const runDir = join(projectDir, project.dist_dir, runId);
     const outputDir = knownOutputDir ?? join(runDir, "viewer");
     await assertSafeProjectOutput(configPath, outputDir);
+    const thumbnailPath = await findProjectThumbnail(projectDir, runDir);
     const statePath = join(runDir, "state.json");
     let status = "planned";
     let updatedAt: string | null = null;
@@ -563,6 +576,7 @@ async function inspectProject(
     }
     const hasViewer = await isRegularFile(join(outputDir, "index.html"));
     const viewerUrl = hasViewer ? `/viewer/${id}/` : undefined;
+    const thumbnailUrl = thumbnailPath ? `/thumbnail/${id}` : undefined;
     return {
       id,
       name,
@@ -570,6 +584,7 @@ async function inspectProject(
       sourceModifiedAtMs,
       project,
       outputDir,
+      thumbnailPath,
       public: {
         id,
         name,
@@ -579,6 +594,7 @@ async function inspectProject(
         updatedAt,
         hasViewer,
         ...(viewerUrl ? { viewerUrl } : {}),
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
         valid: true
       }
     };
@@ -601,6 +617,72 @@ async function inspectProject(
       }
     };
   }
+}
+
+async function findProjectThumbnail(projectDir: string, runDir: string): Promise<string | undefined> {
+  const directories = [
+    join(runDir, "qa"),
+    runDir,
+    join(runDir, "review", "assets"),
+    join(projectDir, "qa"),
+    projectDir,
+    join(projectDir, "media", "reference"),
+    join(projectDir, "assets", "references"),
+    join(projectDir, "assets", "images"),
+    join(projectDir, "assets", "stills"),
+    join(projectDir, "media")
+  ];
+  for (const directory of directories) {
+    const thumbnail = await firstImageInDirectory(directory);
+    if (thumbnail) return thumbnail;
+  }
+  return undefined;
+}
+
+async function firstImageInDirectory(directory: string): Promise<string | undefined> {
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) return undefined;
+    throw error;
+  }
+  const imageNames = entries
+    .filter((entry) => entry.isFile() && isThumbnailImage(entry.name))
+    .map((entry) => entry.name)
+    .sort((left, right) => {
+      const contactSheetDifference = Number(isContactSheet(right)) - Number(isContactSheet(left));
+      return contactSheetDifference || left.localeCompare(right);
+    });
+  return imageNames[0] ? join(directory, imageNames[0]) : undefined;
+}
+
+async function safeProjectThumbnail(
+  configPath: string,
+  thumbnailPath: string
+): Promise<string | undefined> {
+  const projectDir = dirname(configPath);
+  if (!isContained(projectDir, thumbnailPath)) return undefined;
+  try {
+    const thumbnailStats = await lstat(thumbnailPath);
+    if (!thumbnailStats.isFile() || thumbnailStats.isSymbolicLink()) return undefined;
+    const [realProjectDir, realThumbnail] = await Promise.all([
+      realpath(projectDir),
+      realpath(thumbnailPath)
+    ]);
+    return isContained(realProjectDir, realThumbnail) ? realThumbnail : undefined;
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) return undefined;
+    throw error;
+  }
+}
+
+function isThumbnailImage(name: string): boolean {
+  return [".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(extname(name).toLowerCase());
+}
+
+function isContactSheet(name: string): boolean {
+  return /contact[-_]?sheet/i.test(name);
 }
 
 async function assertSafeProjectOutput(configPath: string, outputDir: string): Promise<void> {

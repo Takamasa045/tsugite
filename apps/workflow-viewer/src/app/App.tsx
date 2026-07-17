@@ -24,6 +24,11 @@ export interface ViewerSample {
 
 export interface AppProps {
   samples?: ViewerSample[]
+  launcherHref?: string
+}
+
+function currentLauncherHref(): string | undefined {
+  return /^\/viewer\/[^/]+\/?/.test(window.location.pathname) ? '/' : undefined
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -33,7 +38,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
   )
 }
 
-export function App({ samples = workflowSamples }: AppProps) {
+export function App({ samples = workflowSamples, launcherHref = currentLauncherHref() }: AppProps) {
   const [activeSampleId, setActiveSampleId] = useState(samples[0]?.id ?? '')
   const [resetSignal, setResetSignal] = useState(0)
   const workflow = useWorkflowStore((state) => state.workflow)
@@ -134,6 +139,7 @@ export function App({ samples = workflowSamples }: AppProps) {
       <AppHeader
         activeSampleId={activeSample?.id ?? ''}
         currentNodes={derivedState.nodes}
+        launcherHref={launcherHref}
         onResetView={() => setResetSignal((signal) => signal + 1)}
         onSampleChange={setActiveSampleId}
         samples={samples.map(({ id, label }) => ({ id, label }))}
