@@ -44,3 +44,4 @@ Append-only format:
 2026-07-15 / EDLの時刻だけを照合すると字幕・章の改変と多数分割のframe丸め誤差を見逃せた / 承認対象をsegmentだけに限定し秒単位clipを個別roundしていた / Gate 2とrender直前は編集manifest全体をdigest拘束し、render側は累積frame境界の差分で各区間を配置する / validate済
 2026-07-16 / 左上バッジを収める修正を5回繰り返し、最後は背景楕円を横長に肥大化させて画面全体のバランスを崩した / 座標上の包含とGate成功を見た目の品質と取り違え、文字・形・余白・背景・他要素の重心を原寸静止画で評価せずに毎回フルレンダーした / レイアウト修正は包含だけで合格にせず、階層・整列軸・形と内容の比率・負の余白・背景遮蔽・画面重心を原寸静止画で確認し、初回の目視指摘後はユーザーが静止画を承認するまで動画をレンダーしない / rejectedから恒久ルール化
 2026-07-17 / Windows向け記述があってもlauncherとdoctorがnative PowerShellで起動保証できなかった / extensionless CLI、POSIX quoting、生のspawnSync、PATHだけの探索を個別実装していた / 公開入口はnode bin/pipelineへ統一し、子processはcmd shim対応層、doctorはPATHEXT、配布はWindows CIとPowerShell手順を同時に持つ / validate済
+2026-07-17 / Windowsで未変更のGate 2成果物が再検査時にstale判定された / FFmpegの診断文に含まれるcontext pointerがWindowsでは0xなしで毎回変化し、保存済みQCとの差分になった / 外部ツールの診断を永続比較へ含める前にOSごとのvolatile pointer表記を正規化し、内容hashは別に検証する / validate済

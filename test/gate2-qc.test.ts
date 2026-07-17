@@ -5,11 +5,17 @@ import { join, resolve } from "node:path";
 import {
   inspectGate2Manifest,
   inspectGate2ManifestWithFingerprints,
+  normalizeProbeErrorMessage,
   type Gate2QcProbe
 } from "../src/orchestrator/gate2Qc.js";
 import type { Manifest } from "../src/manifest/schema.js";
 
 describe("gate 2 qc", () => {
+  it("normalizes volatile FFmpeg context pointers across platforms", () => {
+    expect(normalizeProbeErrorMessage("[mov @ 0x1a2b3c4d] invalid", "")).toBe("[mov @ 0xADDR] invalid");
+    expect(normalizeProbeErrorMessage("[mov @ 000001A2B3C4D5E6] invalid", "")).toBe("[mov @ 0xADDR] invalid");
+  });
+
   it("passes when probed media matches the manifest", () => {
     const report = inspectGate2Manifest(manifest(), "/runs/demo", {
       probe: (): Gate2QcProbe => ({

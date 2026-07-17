@@ -369,8 +369,15 @@ function numberOrUndefined(value: string | undefined): number | undefined {
 }
 
 function probeErrorMessage(stderr: string, stdout: string): string {
-  const text = `${stderr}\n${stdout}`.trim().replace(/0x[0-9a-f]+/gi, "0xADDR");
+  const text = normalizeProbeErrorMessage(stderr, stdout);
   return text.length > 0 ? text.slice(0, 1000) : "asset probe failed";
+}
+
+export function normalizeProbeErrorMessage(stderr: string, stdout: string): string {
+  return `${stderr}\n${stdout}`
+    .trim()
+    .replace(/@\s+(?:0x)?[0-9a-f]{6,}/gi, "@ 0xADDR")
+    .replace(/0x[0-9a-f]+\b/gi, "0xADDR");
 }
 
 function roundSeconds(value: number): number {
