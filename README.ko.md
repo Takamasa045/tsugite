@@ -61,10 +61,6 @@ node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coord
 명시적인 사람의 승인 없이 non-dry-run `run` 또는 `render`를 실행하지 마세요.
 Gate 3는 `re-render`도 지원하며 Gate 1 / 2 승인을 유지합니다. Gate 2의 `retry_specific`은 아직 구현되지 않았으므로 전체 재계획에는 `revise`를 사용하세요.
 
-## 블로그 대화 템플릿
-
-`templates/blog-dialogue-60s/`는 글 출처와 시간 정보가 있는 2인 대본을 결정적인 Remotion manifest로 변환합니다. `projects/`로 복사하고 로컬 캐릭터 이미지를 넣은 뒤 manifest를 다시 만들고, 실행 전에 `validate`, `plan`, `run --dry-run`을 사용하세요.
-
 ## Project 파일
 
 `examples/local-fixture/project.yaml`에서 사용하는 최소 local-media project:

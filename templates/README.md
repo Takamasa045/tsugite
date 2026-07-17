@@ -4,7 +4,4 @@ Reusable project shapes live here when an example is too specific and a blank st
 
 Use `examples/` for copyable, working fixtures. Use `templates/` for reusable structures that still require user-specific media, prompts, or settings before validation.
 
-Available templates:
-
-- `blog-dialogue-60s/`: article source -> two-speaker Japanese script -> 60-second 16:9 Remotion presentation. It includes a deterministic manifest builder, an original Shiba pose set, subtitle/LRC assets, and a local-only slot for the user's teacher character.
-- `qa-dialogue/`: FAQ-style Q&A list (`qa.json`) -> two-speaker 16:9 Remotion presentation with QUESTION/ANSWER cards. Duration is derived from intro, per-question timing, and outro. Reuses the `article-dialogue-16x9` preset.
+No public templates are currently bundled.

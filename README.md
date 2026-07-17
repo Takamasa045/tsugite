@@ -34,8 +34,6 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 - Gate 2 QC report generation using manifest and media probes.
 - Gate 3 QC report generation for final duration, resolution, fps, and audio/video streams.
 - First-class image assets, speaker/pose metadata, and guarded presentation presets.
-- A Remotion starter for turning an article into a 60-second, 16:9 two-speaker dialogue.
-- A Remotion Q&A dialogue template for FAQ-style question lists with QUESTION/ANSWER cards.
 - Remotion and HyperFrames backend contracts.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
 - A standalone, read-only 3D workflow viewer under `apps/workflow-viewer/`.
@@ -150,18 +148,6 @@ node bin/pipeline shitate-import \
 ```
 
 The command copies local files, adds the anchor and speaker to the manifest, and optionally changes one request to I2V. It never runs generation or changes a Gate. `negative.txt` is preserved but not silently applied because the current PixVerse video CLI has no negative-prompt option. See [Shitate Integration](docs/shitate.md).
-
-## Blog Dialogue Template
-
-`templates/blog-dialogue-60s/` turns article source notes and a timed two-speaker script into a deterministic Remotion manifest. Copy it under `projects/`, add the local teacher character, rebuild the manifest, then use `validate`, `plan`, and `run --dry-run` before any gated execution.
-
-## Q&A Dialogue Template
-
-`templates/qa-dialogue/` turns a FAQ `qa_list` into the same Remotion dialogue presentation with auto-timed QUESTION/ANSWER cards. Edit `qa.json`, run `node build-manifest.mjs .`, then use `validate`, `plan`, and `run --dry-run` before any gated execution.
-
-## Neon Dialogue Template
-
-`templates/neon-dialogue/` turns a timed two-speaker script into the reusable `neon-dialogue-16x9` presentation used by `codex-goal-talk-neon`. Edit `dialogue.json` and `video.json`, run `node build-manifest.mjs .`, then use `validate`, `plan`, and `run --dry-run` before any gated execution.
 
 ## Project File
 
