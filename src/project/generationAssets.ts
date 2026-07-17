@@ -2,6 +2,7 @@ import { copyFile, lstat, mkdir, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Issue, Result } from "../types.js";
 import type { GenerationRequest, Project } from "./schema.js";
+import { toPortablePath } from "../platform/path.js";
 
 export async function validateGenerationAssets(
   project: Project,
@@ -60,12 +61,12 @@ export async function pinGenerationAssets(
       );
       if (!resolved.ok) return resolved;
 
-      const relativePath = join(
+      const relativePath = toPortablePath(join(
         "assets",
         "generation-inputs",
         request.id,
         `001-first-frame${extension(request.first_frame)}`
-      );
+      ));
       const target = join(runDir, relativePath);
       await mkdir(dirname(target), { recursive: true });
       await copyFile(resolved.path, target);
@@ -85,12 +86,12 @@ export async function pinGenerationAssets(
       );
       if (!resolved.ok) return resolved;
 
-      const relativePath = join(
+      const relativePath = toPortablePath(join(
         "assets",
         "generation-inputs",
         request.id,
         `${String(referenceIndex + 2).padStart(3, "0")}-reference${extension(referenceImage)}`
-      );
+      ));
       const target = join(runDir, relativePath);
       await mkdir(dirname(target), { recursive: true });
       await copyFile(resolved.path, target);

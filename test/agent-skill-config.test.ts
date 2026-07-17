@@ -7,7 +7,7 @@ const CODEX_SKILL = ".agents/skills/tsugite/SKILL.md";
 
 describe("Tsugite agent skill configuration", () => {
   it("provides a Codex-discoverable repository skill as the canonical workflow", async () => {
-    const skill = await readFile(resolve(ROOT, CODEX_SKILL), "utf8");
+    const skill = (await readFile(resolve(ROOT, CODEX_SKILL), "utf8")).replaceAll("\r\n", "\n");
 
     expect(skill).toMatch(/^---\nname: tsugite\ndescription: .+\n---\n/);
     expect(skill).toContain("## Required Flow");
@@ -29,7 +29,7 @@ describe("Tsugite agent skill configuration", () => {
   });
 
   it("provides a Claude Code project skill that loads the Codex canonical workflow", async () => {
-    const skill = await readFile(resolve(ROOT, ".claude/skills/tsugite/SKILL.md"), "utf8");
+    const skill = (await readFile(resolve(ROOT, ".claude/skills/tsugite/SKILL.md"), "utf8")).replaceAll("\r\n", "\n");
 
     expect(skill).toMatch(/^---\nname: tsugite\ndescription: .+\n---\n/);
     expect(skill).toContain("../../../.agents/skills/tsugite/SKILL.md");

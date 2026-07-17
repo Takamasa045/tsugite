@@ -43,7 +43,7 @@ describe("adapter contract", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.clips?.[0]?.src).toMatch(new RegExp(`^${escapeRegExp(runDir)}/`));
+    expect(result.clips?.[0]?.src).toMatch(new RegExp(`^${escapeRegExp(runDir)}[\\\\/]`));
   });
 
   it("does not expose raw provider output when an adapter command fails", async () => {

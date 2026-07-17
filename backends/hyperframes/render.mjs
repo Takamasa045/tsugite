@@ -166,10 +166,16 @@ async function assertLocalManifestAssets(manifest, runDir) {
 
   const realRunDir = await realpath(runDir);
   for (const [label, value] of assets) {
-    if (typeof value !== "string" || isExternalAssetPath(value)) {
+    if (typeof value !== "string") {
       throw new RunnerError(`${label} must be a local asset path`, EXIT_VALIDATION_FAILED);
     }
-    if (isAbsolute(value) || !isPathWithin(runDir, resolve(runDir, value))) {
+    if (isAbsolute(value)) {
+      throw new RunnerError(`${label} must stay inside runDir`, EXIT_VALIDATION_FAILED);
+    }
+    if (isExternalAssetPath(value)) {
+      throw new RunnerError(`${label} must be a local asset path`, EXIT_VALIDATION_FAILED);
+    }
+    if (!isPathWithin(runDir, resolve(runDir, value))) {
       throw new RunnerError(`${label} must stay inside runDir`, EXIT_VALIDATION_FAILED);
     }
     try {

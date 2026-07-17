@@ -416,8 +416,11 @@ async function copySafeRunFile(
   reference: string,
   destination: string
 ): Promise<boolean> {
-  if (reference.includes("\\") || /^[A-Za-z][A-Za-z\d+.-]*:/.test(reference)) return false;
-  const sourcePath = isAbsolute(reference) ? resolve(reference) : resolve(runDir, reference);
+  const absoluteReference = isAbsolute(reference);
+  if (!absoluteReference && (reference.includes("\\") || /^[A-Za-z][A-Za-z\d+.-]*:/.test(reference))) {
+    return false;
+  }
+  const sourcePath = absoluteReference ? resolve(reference) : resolve(runDir, reference);
   if (!isSameOrDescendant(relative(runDir, sourcePath))) return false;
   try {
     const [realRunDir, realSource] = await Promise.all([realpath(runDir), realpath(sourcePath)]);

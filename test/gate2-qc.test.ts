@@ -119,7 +119,7 @@ describe("gate 2 qc", () => {
       expect.arrayContaining([
         expect.objectContaining({
           code: "gate2.asset.range_out_of_bounds",
-          path: "/runs/demo/assets/clips/clip-001.mp4"
+          path: resolve("/runs/demo/assets/clips/clip-001.mp4")
         })
       ])
     );

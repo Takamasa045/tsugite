@@ -4,6 +4,7 @@ import { z } from "zod";
 import { readYamlFile } from "../io.js";
 import { generationRequestMode, type GenerationRequest, type Project } from "../project/schema.js";
 import { PipelineError } from "../types.js";
+import { toPortablePath } from "../platform/path.js";
 
 const promptModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
 const dateSchema = z
@@ -212,7 +213,7 @@ export async function loadPromptGuide(root: string): Promise<PromptGuide | undef
     if (parsed.data.catalog_id !== basename(root)) {
       throw schemaError(path, "catalog_id must match its directory name");
     }
-    return { ...parsed.data, root, path };
+    return { ...parsed.data, root, path: toPortablePath(path) };
   } catch (error) {
     if (error instanceof PipelineError) throw error;
     throw schemaError(path, error instanceof Error ? error.message : String(error));

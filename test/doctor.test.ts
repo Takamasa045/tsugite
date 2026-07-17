@@ -54,7 +54,7 @@ describe("environment doctor", () => {
         name: "ffprobe",
         ok: false,
         status: "missing",
-        remediation: expect.stringContaining("ffmpeg")
+        remediation: expect.stringMatching(/ffmpeg/i)
       })
     );
   });

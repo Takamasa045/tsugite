@@ -13,6 +13,7 @@ import { markGateAwaiting, writeState, type RunState } from "./state.js";
 import { digest } from "./editorialProposal.js";
 import type { EditorialCompilation } from "./review.js";
 import { pinGenerationAssets, projectAssetRoot } from "../project/generationAssets.js";
+import { toPortablePath } from "../platform/path.js";
 
 export type LocalRunResult = {
   manifestPath: string;
@@ -425,7 +426,7 @@ async function copyAsset(
 ): Promise<{ relativePath: string }> {
   const sourcePath = isAbsolute(src) ? src : resolve(sourceBaseDir, src);
   const targetName = `${String(index + 1).padStart(3, "0")}-${safeFileLabel(label)}${assetExtension(src)}`;
-  const relativePath = join(relativeTargetDir, targetName);
+  const relativePath = toPortablePath(join(relativeTargetDir, targetName));
   const targetPath = join(runDir, relativePath);
 
   await mkdir(dirname(targetPath), { recursive: true });

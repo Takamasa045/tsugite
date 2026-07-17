@@ -136,6 +136,14 @@ export function feedbackPathForProject(configPath: string): string {
 
 export async function readProjectFeedback(configPath: string): Promise<FeedbackReadResult> {
   const path = feedbackPathForProject(configPath);
+  try {
+    if ((await lstat(path)).isSymbolicLink()) {
+      return fileIssue(path, "feedback.symlink", "feedback.jsonl must not be a symbolic link");
+    }
+  } catch (error) {
+    if (isFsError(error, "ENOENT")) return { path, entries: [], issues: [], lineCount: 0 };
+    return fileIssue(path, "feedback.unreadable", "feedback.jsonl could not be inspected safely");
+  }
   let handle;
   try {
     handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -156,6 +164,9 @@ export async function readProjectFeedback(configPath: string): Promise<FeedbackR
   }
 
   try {
+    if (!(await openHandleMatchesPath(handle, path))) {
+      return fileIssue(path, "feedback.symlink", "feedback.jsonl changed or became a symbolic link while opening");
+    }
     const stats = await handle.stat();
     if (!stats.isFile()) {
       return fileIssue(path, "feedback.not_file", "feedback.jsonl must be a regular file");
@@ -211,6 +222,17 @@ async function appendProjectFeedbackWithLock(
     throw feedbackError("feedback.line_too_long", `feedback records must not exceed ${FEEDBACK_MAX_LINE_BYTES} bytes`, path);
   }
 
+  try {
+    if ((await lstat(path)).isSymbolicLink()) {
+      throw feedbackError("feedback.symlink", "feedback.jsonl must not be a symbolic link", path);
+    }
+  } catch (error) {
+    if (error instanceof PipelineError) throw error;
+    if (!isFsError(error, "ENOENT")) {
+      throw feedbackError("feedback.unwritable", "feedback.jsonl could not be inspected safely", path);
+    }
+  }
+
   let handle;
   try {
     handle = await open(
@@ -229,6 +251,9 @@ async function appendProjectFeedbackWithLock(
   }
 
   try {
+    if (!(await openHandleMatchesPath(handle, path))) {
+      throw feedbackError("feedback.symlink", "feedback.jsonl changed or became a symbolic link while opening", path);
+    }
     const stats = await handle.stat();
     if (!stats.isFile()) throw feedbackError("feedback.not_file", "feedback.jsonl must be a regular file", path);
     if (stats.size > FEEDBACK_MAX_FILE_BYTES) {
@@ -437,6 +462,24 @@ function feedbackError(code: string, message: string, path?: string): PipelineEr
 }
 
 async function assertRegularConfig(configPath: string): Promise<void> {
+  try {
+    const stats = await lstat(configPath);
+    if (stats.isSymbolicLink()) {
+      throw feedbackError(
+        "feedback.config_symlink",
+        "project config must be an existing non-symlink regular file",
+        configPath
+      );
+    }
+    if (!stats.isFile()) {
+      throw feedbackError("feedback.config_not_file", "project config must be a regular file", configPath);
+    }
+  } catch (error) {
+    if (error instanceof PipelineError) throw error;
+    const code = isFsError(error, "ENOENT") ? "feedback.config_missing" : "feedback.config_unreadable";
+    throw feedbackError(code, "project config must be an existing non-symlink regular file", configPath);
+  }
+
   let handle;
   try {
     handle = await open(configPath, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -449,11 +492,27 @@ async function assertRegularConfig(configPath: string): Promise<void> {
     throw feedbackError(code, "project config must be an existing non-symlink regular file", configPath);
   }
   try {
+    if (!(await openHandleMatchesPath(handle, configPath))) {
+      throw feedbackError(
+        "feedback.config_symlink",
+        "project config changed or became a symbolic link while opening",
+        configPath
+      );
+    }
     if (!(await handle.stat()).isFile()) {
       throw feedbackError("feedback.config_not_file", "project config must be a regular file", configPath);
     }
   } finally {
     await handle.close();
+  }
+}
+
+async function openHandleMatchesPath(handle: FileHandle, path: string): Promise<boolean> {
+  try {
+    const [opened, current] = await Promise.all([handle.stat(), lstat(path)]);
+    return !current.isSymbolicLink() && opened.dev === current.dev && opened.ino === current.ino;
+  } catch {
+    return false;
   }
 }
 

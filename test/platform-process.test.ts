@@ -63,7 +63,7 @@ describe("cross-platform process commands", () => {
 
       const result = spawnCommandSync(command, ["value with spaces"], { encoding: "utf8" });
 
-      expect(result.error).toBeUndefined();
+      expect(result.error).toBeFalsy();
       expect(result.status).toBe(0);
       expect(result.stdout.trim()).toBe("value with spaces");
     });
