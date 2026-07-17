@@ -42,7 +42,34 @@ jobs:
           cache: npm
       - name: Install media probe
         shell: pwsh
-        run: choco install ffmpeg --version 8.1.2 --yes --no-progress
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          if (-not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            $winget = Get-Command winget -ErrorAction SilentlyContinue
+            if ($winget) {
+              & $winget.Source install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements --silent --disable-interactivity
+
+              $packages = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+              $probe = Get-ChildItem $packages -Filter ffprobe.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($probe) {
+                $binDirectory = $probe.Directory.FullName
+                $env:PATH = "$binDirectory;$env:PATH"
+                Add-Content -Path $env:GITHUB_PATH -Value $binDirectory
+              }
+            }
+          }
+
+          if (-not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --version 8.1.2 --yes --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              throw "FFmpeg installation failed through winget and Chocolatey"
+            }
+          }
+
+          ffmpeg -version
+          ffprobe -version
       - run: npm ci
       - run: npm --prefix apps/workflow-viewer ci
       - run: npm run check

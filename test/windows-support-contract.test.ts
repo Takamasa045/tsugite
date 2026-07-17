@@ -16,6 +16,9 @@ describe("Windows support contract", () => {
     const workflow = await readFile(".github/workflows/ci.yml", "utf8");
 
     expect(workflow).toContain("windows-latest");
+    expect(workflow).toContain("install --id Gyan.FFmpeg");
+    expect(workflow).toContain("choco install ffmpeg --version 8.1.2");
+    expect(workflow).toContain("ffprobe -version");
     expect(workflow).toContain("node bin/pipeline doctor");
     expect(workflow).toContain("npm --prefix apps/workflow-viewer ci");
     expect(workflow).toContain("npm run viewer:build");
