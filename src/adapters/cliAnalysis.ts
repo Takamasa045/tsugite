@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import type { Manifest } from "../manifest/schema.js";
+import { spawnCommandSync } from "../platform/process.js";
 import type { AnalysisRequest } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import type { AdapterDefinition } from "./registry.js";
@@ -414,7 +414,7 @@ function runRequest(
     : [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const execution = spawnSync(adapter.command!.executable, adapter.command!.args, {
+    const execution = spawnCommandSync(adapter.command!.executable, adapter.command!.args, {
       cwd: process.cwd(),
       input: `${JSON.stringify({
         request,

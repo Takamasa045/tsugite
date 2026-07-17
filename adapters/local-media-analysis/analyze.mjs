@@ -1,4 +1,6 @@
-import { spawnSync } from "node:child_process";
+import crossSpawn from "cross-spawn";
+
+const spawnSync = crossSpawn.sync;
 
 const EXIT_MISSING_DEPENDENCY = 30;
 const EXIT_INVALID_REQUEST = 40;

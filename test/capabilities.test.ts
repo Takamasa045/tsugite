@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadBackendCapabilities } from "../src/backends/capabilities.js";
 import { validateProject } from "../src/project/validateProject.js";
@@ -216,9 +216,7 @@ describe("hyperframes render runner", () => {
         provenance: []
       })
     );
-    await writeFile(
-      fakeNpx,
-      `#!/usr/bin/env node
+    const fakeNpxProgram = `
 const { copyFileSync, existsSync } = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "--no-install") args.shift();
@@ -239,15 +237,23 @@ if (args[1] === "render") {
   process.exit(0);
 }
 process.exit(40);
-`
-    );
-    await chmod(fakeNpx, 0o755);
+`;
+    if (process.platform === "win32") {
+      await writeFile(join(binDir, "npx.cjs"), fakeNpxProgram);
+      await writeFile(
+        join(binDir, "npx.cmd"),
+        `@echo off\r\n"${process.execPath}" "%~dp0npx.cjs" %*\r\n`
+      );
+    } else {
+      await writeFile(fakeNpx, `#!/usr/bin/env node\n${fakeNpxProgram}`);
+      await chmod(fakeNpx, 0o755);
+    }
 
     const result = spawnSync(process.execPath, [resolve("backends/hyperframes/render.mjs")], {
       cwd: process.cwd(),
       input: JSON.stringify({ runDir, manifestPath, outputPath, reportPath }),
       encoding: "utf8",
-      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` }
+      env: { ...process.env, PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}` }
     });
 
     expect(result.status).toBe(0);

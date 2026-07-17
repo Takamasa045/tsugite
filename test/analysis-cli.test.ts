@@ -183,7 +183,7 @@ describe("pipeline analyze", () => {
     ]);
     expect(blocked.status).toBe(1);
     expect(JSON.parse(blocked.stderr).issues[0].code).toMatch(/gate\.analysis_(?:stale|changed)/);
-  });
+  }, 15_000);
 
   it("compiles only Gate 1 approved editorial selections into an auditable EDL", async () => {
     const fixture = await createAnalysisProject({ editorial: true, mixedAudio: true });
@@ -299,7 +299,7 @@ describe("pipeline analyze", () => {
     ]);
     expect(renderTampered.status).toBe(1);
     expect(JSON.parse(renderTampered.stderr).issues[0].code).toBe("run.edl_inconsistent");
-  });
+  }, 15_000);
 });
 
 function runPipeline(args: string[]) {

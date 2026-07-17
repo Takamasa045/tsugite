@@ -22,6 +22,27 @@ describe("environment doctor", () => {
     );
   });
 
+  it("requires the Node 22 minor used by the bundled Viewer toolchain", async () => {
+    const unsupported = await inspectEnvironment(undefined, {
+      nodeVersion: "v22.11.0",
+      commandExists: async () => true,
+      probeCommand: async () => ({ ok: true, version: "10.9.0" })
+    });
+    const supported = await inspectEnvironment(undefined, {
+      nodeVersion: "v22.12.0",
+      commandExists: async () => true,
+      probeCommand: async () => ({ ok: true, version: "10.9.0" })
+    });
+
+    expect(unsupported.ok).toBe(false);
+    expect(unsupported.checks).toContainEqual(expect.objectContaining({
+      name: "node",
+      ok: false,
+      remediation: expect.stringContaining("22.12")
+    }));
+    expect(supported.checks).toContainEqual(expect.objectContaining({ name: "node", ok: true }));
+  });
+
   it("fails closed when a required dependency is unavailable", async () => {
     const report = await inspectEnvironment(undefined, {
       commandExists: async (command) => command !== "ffprobe"

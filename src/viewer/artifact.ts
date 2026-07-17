@@ -1,4 +1,4 @@
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import {
   copyFile,
   mkdir,
@@ -12,6 +12,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { spawnCommandSync } from "../platform/process.js";
 import type { ExecutionPlan } from "../orchestrator/plan.js";
 import { createPlannedState, readState, type RunState } from "../orchestrator/state.js";
 import type { Project } from "../project/schema.js";
@@ -535,8 +536,7 @@ async function ensureViewerBundle(bundleDir: string, customBundle: boolean): Pro
   }
 
   // Always rebuild the repository-owned bundle so the CLI cannot export stale Viewer source.
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = spawnSync(npmCommand, ["--prefix", viewerAppDir, "run", "build"], {
+  const result = spawnCommandSync("npm", ["--prefix", viewerAppDir, "run", "build"], {
     cwd: repositoryRoot,
     encoding: "utf8",
     shell: false,

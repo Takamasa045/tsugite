@@ -709,7 +709,7 @@ export function getReviewOpenCommand(
   platform: NodeJS.Platform = process.platform
 ): { command: string; args: string[] } {
   if (platform === "darwin") return { command: "open", args: [reviewPath] };
-  if (platform === "win32") return { command: "cmd", args: ["/c", "start", "", reviewPath] };
+  if (platform === "win32") return { command: "explorer.exe", args: [reviewPath] };
   return { command: "xdg-open", args: [reviewPath] };
 }
 

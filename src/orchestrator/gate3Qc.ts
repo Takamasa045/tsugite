@@ -1,7 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
 import type { Manifest } from "../manifest/schema.js";
+import { spawnCommandSync } from "../platform/process.js";
 import type { Issue, Result } from "../types.js";
 
 export type Gate3QcProbe = {
@@ -289,7 +289,7 @@ export function probeGate3Content(path: string, audioRequired: boolean): Gate3Co
   const args = ["-hide_banner", "-nostats", "-i", path, "-vf", "blackdetect=d=0.1:pix_th=0.10"];
   if (audioRequired) args.push("-af", "silencedetect=n=-50dB:d=0.1");
   args.push("-f", "null", "-");
-  const result = spawnSync("ffmpeg", args, { encoding: "utf8", maxBuffer: 1024 * 1024 * 10 });
+  const result = spawnCommandSync("ffmpeg", args, { encoding: "utf8", maxBuffer: 1024 * 1024 * 10 });
   if (result.error) return { ok: false, error: result.error.message };
   if (result.status !== 0) return { ok: false, error: probeErrorMessage(result.stderr, result.stdout) };
 
@@ -324,7 +324,7 @@ export function probeGate3Output(path: string, command: Gate3QcCommand = runFfpr
 }
 
 function runFfprobe(path: string): Gate3QcCommandResult {
-  const result = spawnSync(
+  const result = spawnCommandSync(
     "ffprobe",
     ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
     {

@@ -316,5 +316,9 @@ describe("creative review", () => {
       command: "xdg-open",
       args: ["/tmp/review/index.html"]
     });
+    expect(getReviewOpenCommand("C:\\review\\index.html", "win32")).toEqual({
+      command: "explorer.exe",
+      args: ["C:\\review\\index.html"]
+    });
   });
 });

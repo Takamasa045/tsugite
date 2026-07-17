@@ -65,7 +65,7 @@ See [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) for the J
 
 ## Setup
 
-Prerequisites are Git, Node.js 22.x, npm 10 or newer, and FFmpeg including `ffprobe`.
+Prerequisites are Git, Node.js 22.12 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`.
 
 ```sh
 # macOS
@@ -78,7 +78,18 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 winget install --id Gyan.FFmpeg -e
 ```
 
-On Windows, reopen the terminal after installation. `npm ci` installs Remotion, HyperFrames, and the other repository dependencies locally; no global Remotion or HyperFrames install is needed. HyperFrames is a development dependency, so do not use `npm ci --omit=dev`.
+On Windows, reopen the terminal after installation. `npm ci` installs Remotion, HyperFrames, and the other repository dependencies locally; no global Remotion or HyperFrames install is needed. HyperFrames is a development dependency, so do not use `npm ci --omit=dev`. See the [native Windows and PowerShell guide](docs/windows.md) for the canonical launcher and CLI entrypoints.
+
+From the repository root, the native PowerShell quick start is:
+
+```powershell
+npm ci
+npm --prefix apps/workflow-viewer ci
+node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
+npm run viewer:open
+```
+
+Use `node bin/pipeline ...` in PowerShell instead of invoking the extensionless `bin/pipeline` file directly. Reopen PowerShell after installing or updating Node.js, FFmpeg, or a provider CLI so the updated `PATH` and `PATHEXT` are visible. Provider authentication, entitlements, and billing remain separate manual setup.
 
 Provider CLIs such as PixVerse/Kling, external TopView/OpenClaw/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. For TopView, doctor probes the skill's `video_gen.py` with the non-charging `list-models` command. It does not submit generation tasks; authentication and credits remain manual checks. Any unresolved blocking check makes the overall `ok` value `false`.
 
@@ -87,16 +98,16 @@ Provider CLIs such as PixVerse/Kling, external TopView/OpenClaw/Hermes runtimes,
 ```sh
 npm ci
 npm run check
-bin/pipeline story-guides --request "A 30-second vertical ad showing value and proof" --duration 30 --json
-bin/pipeline guides --json
+node bin/pipeline story-guides --request "A 30-second vertical ad showing value and proof" --duration 30 --json
+node bin/pipeline guides --json
 cp -R examples/local-fixture projects/my-first-run
-bin/pipeline doctor --config projects/my-first-run/project.yaml --json
-bin/pipeline validate --config projects/my-first-run/project.yaml --json
-bin/pipeline plan --config projects/my-first-run/project.yaml --json
-bin/pipeline review --config projects/my-first-run/project.yaml --open --json
-bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
-bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
-bin/pipeline finalize --config projects/my-first-run/project.yaml --json
+node bin/pipeline doctor --config projects/my-first-run/project.yaml --json
+node bin/pipeline validate --config projects/my-first-run/project.yaml --json
+node bin/pipeline plan --config projects/my-first-run/project.yaml --json
+node bin/pipeline review --config projects/my-first-run/project.yaml --open --json
+node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
+node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
+node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
 
 `review` derives `dist/<run-id>/review/index.html` and `review-data.json` from the validated project, manifest, and plan. It presents a caption-first storyboard, character sheets, shot details, cost, and Gate 1 commands without changing `state.json` or executing generation. Gate 1 approval and run start verify that both artifacts exist and belong to the current project. Use `--output <directory>` to override the destination, `--state-dir <directory>` for an alternate state root, and `--open` only when you want to open the local HTML. Use the canonical output location when the artifact must satisfy Gate 1.

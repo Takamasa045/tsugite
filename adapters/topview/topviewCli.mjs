@@ -1,7 +1,9 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import crossSpawn from "cross-spawn";
+
+const spawnSync = crossSpawn.sync;
 
 const TRANSIENT = 20;
 const RATE_LIMITED = 21;
@@ -93,7 +95,7 @@ export function runTopviewCommand(args, options = {}) {
   return result;
 }
 
-export function resolveTopviewVideoCommand(environment = process.env) {
+export function resolveTopviewVideoCommand(environment = process.env, platform = process.platform) {
   if (environment.TSUGITE_TOPVIEW_VIDEO_COMMAND) {
     try {
       const parsed = JSON.parse(environment.TSUGITE_TOPVIEW_VIDEO_COMMAND);
@@ -108,7 +110,11 @@ export function resolveTopviewVideoCommand(environment = process.env) {
   if (!script) {
     throw new AdapterError("Topview video_gen.py was not found", INVALID_REQUEST);
   }
-  return [environment.TSUGITE_TOPVIEW_PYTHON || "python3", script];
+  return [environment.TSUGITE_TOPVIEW_PYTHON || defaultTopviewPython(platform), script];
+}
+
+export function defaultTopviewPython(platform = process.platform) {
+  return platform === "win32" ? "python" : "python3";
 }
 
 export function normalizeError(error) {

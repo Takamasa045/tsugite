@@ -1,4 +1,6 @@
-import { spawnSync } from "node:child_process";
+import crossSpawn from "cross-spawn";
+
+const spawnSync = crossSpawn.sync;
 
 const command = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
 

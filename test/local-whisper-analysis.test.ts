@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -252,7 +252,10 @@ function runAdapter(payload: unknown, binDir?: string) {
     encoding: "utf8",
     timeout: 10_000,
     maxBuffer: 1024 * 1024,
-    env: { ...process.env, ...(binDir ? { PATH: `${binDir}:${process.env.PATH}` } : {}) }
+    env: {
+      ...process.env,
+      ...(binDir ? { PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}` } : {})
+    }
   });
 }
 
@@ -302,21 +305,19 @@ async function whisperFixture() {
   await writeFile(modelPath, "fixture-model");
   await writeFile(sourcePath, "fixture-media");
 
-  const fakeWhisper = join(binDir, "whisper");
-  const fakeFfmpeg = join(binDir, "ffmpeg");
-  await writeFile(
-    fakeFfmpeg,
-    `#!${process.execPath}\n` +
-      `import { writeFileSync } from "node:fs";\n` +
+  await writeFakeCli(
+    binDir,
+    "ffmpeg",
+    `import { writeFileSync } from "node:fs";\n` +
       `const args = process.argv.slice(2);\n` +
       `const protocol = args.indexOf("-protocol_whitelist");\n` +
       `if (protocol < 0 || args[protocol + 1] !== "file,pipe") process.exit(7);\n` +
       `writeFileSync(args.at(-1), "fixture-wav");\n`
   );
-  await writeFile(
-    fakeWhisper,
-    `#!${process.execPath}\n` +
-      `import { mkdirSync, writeFileSync } from "node:fs";\n` +
+  await writeFakeCli(
+    binDir,
+    "whisper",
+    `import { mkdirSync, writeFileSync } from "node:fs";\n` +
       `import { basename, extname, join } from "node:path";\n` +
       `const args = process.argv.slice(2);\n` +
       `const value = (name) => args[args.indexOf(name) + 1];\n` +
@@ -333,8 +334,21 @@ async function whisperFixture() {
       `] };\n` +
       `writeFileSync(join(outputDir, basename(audio, extname(audio)) + ".json"), JSON.stringify(result));\n`
   );
-  await chmod(fakeFfmpeg, 0o755);
-  await chmod(fakeWhisper, 0o755);
   const modelSha256 = createHash("sha256").update("fixture-model").digest("hex");
   return { root, binDir, modelPath, modelSha256, sourcePath, sourceName: basename(sourcePath) };
+}
+
+async function writeFakeCli(binDir: string, name: string, source: string) {
+  if (process.platform === "win32") {
+    await writeFile(join(binDir, `${name}.mjs`), source);
+    await writeFile(
+      join(binDir, `${name}.cmd`),
+      `@echo off\r\n"${process.execPath}" "%~dp0${name}.mjs" %*\r\n`
+    );
+    return;
+  }
+
+  const command = join(binDir, name);
+  await writeFile(command, `#!${process.execPath}\n${source}`);
+  await chmod(command, 0o755);
 }

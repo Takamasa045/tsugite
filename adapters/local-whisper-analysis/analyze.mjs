@@ -10,7 +10,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import crossSpawn from "cross-spawn";
+
+const spawnSync = crossSpawn.sync;
 
 const EXIT_DEPENDENCY_MISSING = 30;
 const EXIT_INVALID_REQUEST = 40;

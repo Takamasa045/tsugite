@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { createReadStream, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import type { Manifest } from "../manifest/schema.js";
+import { spawnCommandSync } from "../platform/process.js";
 import type { Issue } from "../types.js";
 
 export type Gate2QcProbe = {
@@ -256,7 +256,7 @@ export function inspectGate2Manifest(
 }
 
 function probeAsset(path: string): Gate2QcProbe {
-  const result = spawnSync(
+  const result = spawnCommandSync(
     "ffprobe",
     ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
     {

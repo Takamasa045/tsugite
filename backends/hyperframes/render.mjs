@@ -1,6 +1,8 @@
-import { spawnSync } from "node:child_process";
+import crossSpawn from "cross-spawn";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+
+const spawnSync = crossSpawn.sync;
 
 const EXIT_VALIDATION_FAILED = 10;
 const EXIT_TRANSIENT_EXTERNAL_FAILURE = 20;

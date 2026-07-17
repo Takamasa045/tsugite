@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { buildTopviewVideoArgs } from "../adapters/topview/topviewCli.mjs";
+import {
+  buildTopviewVideoArgs,
+  defaultTopviewPython
+} from "../adapters/topview/topviewCli.mjs";
 
 describe("Topview CLI request mapping", () => {
+  it("uses the native Python command name for each platform", () => {
+    expect(defaultTopviewPython("win32")).toBe("python");
+    expect(defaultTopviewPython("linux")).toBe("python3");
+    expect(defaultTopviewPython("darwin")).toBe("python3");
+  });
+
   it("maps mode image-to-video and first_frame to i2v CLI arguments", () => {
     const args = buildTopviewVideoArgs({
       id: "opening-shot",
