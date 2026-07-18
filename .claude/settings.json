@@ -20,6 +20,7 @@
       "Bash(bin/pipeline viewer *)",
       "Bash(bin/pipeline finalize * --json)",
       "Bash(bin/pipeline run * --dry-run *)",
+      "Bash(node bin/pipeline feedback *)",
       "Bash(git status *)",
       "Bash(git diff *)",
       "Bash(git log *)",

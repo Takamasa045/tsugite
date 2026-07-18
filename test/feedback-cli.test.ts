@@ -97,6 +97,45 @@ describe("pipeline feedback command", () => {
     });
   });
 
+  it.each([
+    ["claude-desktop", "claude_desktop_automation"],
+    ["claude-code", "claude_code_automation"]
+  ])("records %s as the automation source", async (proposalSource, expectedKind) => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-feedback-cli-"));
+    const configPath = join(root, "project.yaml");
+    await writeProjectConfig(configPath);
+
+    const result = await capture([
+      "feedback",
+      "--config", configPath,
+      "--key", `opening-audio-${proposalSource}`,
+      "--category", "sound",
+      "--signal", "prefer",
+      "--stage", "recurring",
+      "--summary", "Start the soundtrack at frame zero",
+      "--evidence", "dist/run-1/gate3-qc.json",
+      "--promotion-kind", "qa",
+      "--target", "src/orchestrator/gate3Qc.ts",
+      "--proposal-summary", "Add an opening-audio Gate 3 check",
+      "--verification", "Confirm the check on a later project",
+      "--proposal-workflow", "tsugite-learning-promotion-review",
+      "--proposal-source", proposalSource,
+      "--json"
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      entry: {
+        promotion_proposal: {
+          source: {
+            kind: expectedKind,
+            workflow_id: "tsugite-learning-promotion-review"
+          }
+        }
+      }
+    });
+  });
+
   it("rejects proposal provenance without proposal details, a workflow, or safe ids", async () => {
     const baseArgs = [
       "feedback",
@@ -145,6 +184,19 @@ describe("pipeline feedback command", () => {
       expect.objectContaining({ code: "feedback.proposal_workflow_invalid", path: "--proposal-workflow" }),
       expect.objectContaining({ code: "feedback.proposal_run_id_invalid", path: "--proposal-run-id" })
     ]));
+
+    const unknownSource = await capture([
+      ...baseArgs,
+      "--proposal-summary", "Add a check",
+      "--verification", "Verify later",
+      "--proposal-workflow", "tsugite-learning-promotion-review",
+      "--proposal-source", "another-agent",
+      "--json"
+    ]);
+    expect(JSON.parse(unknownSource.stderr).issues).toContainEqual(expect.objectContaining({
+      code: "feedback.proposal_source_invalid",
+      path: "--proposal-source"
+    }));
   });
 
   it("reports missing and invalid values using structured issues", async () => {

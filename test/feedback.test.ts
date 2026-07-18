@@ -193,6 +193,23 @@ describe("feedback contract", () => {
       decision: "rejected",
       decided_by: "human"
     });
+
+    const claudeProposal = {
+      ...proposal,
+      id: "opening-audio-claude-code-v1",
+      source: {
+        kind: "claude_code_automation" as const,
+        workflow_id: "tsugite-learning-promotion-review",
+        run_id: "claude-code-run-17"
+      }
+    };
+    await expect(appendProjectFeedback(configPath, {
+      ...base,
+      key: "opening-audio-claude-code",
+      stage: "recurring",
+      evidence: ["dist/run-3/gate3-qc.json"],
+      promotion_proposal: claudeProposal
+    })).resolves.toMatchObject({ entry: { promotion_proposal: claudeProposal } });
   });
 
   it("rejects a decision when the append handle does not match the expected feedback identity", async () => {
@@ -240,7 +257,11 @@ describe("feedback contract", () => {
       verification: "後続案件のgate3-qc.jsonで確認する",
       decision: "pending" as const
     };
-    const inputFor = (id: string, runId: string) => ({
+    const inputFor = (
+      id: string,
+      runId: string,
+      kind: "codex_automation" | "claude_desktop_automation" | "claude_code_automation" = "codex_automation"
+    ) => ({
       ...base,
       stage: "recurring" as const,
       evidence: ["dist/run-1/gate3-qc.json"],
@@ -248,7 +269,7 @@ describe("feedback contract", () => {
         ...proposal,
         id,
         source: {
-          kind: "codex_automation" as const,
+          kind,
           workflow_id: "tsugite-learning-promotion-review",
           run_id: runId
         }
@@ -257,7 +278,11 @@ describe("feedback contract", () => {
 
     const concurrent = await Promise.allSettled([
       appendProjectFeedback(configPath, inputFor("automation-race-1", "automation-run-1")),
-      appendProjectFeedback(configPath, inputFor("automation-race-2", "automation-run-2"))
+      appendProjectFeedback(configPath, inputFor(
+        "automation-race-2",
+        "automation-run-2",
+        "claude_desktop_automation"
+      ))
     ]);
     const fulfilled = concurrent.filter((result) => result.status === "fulfilled");
     const rejected = concurrent.filter((result) => result.status === "rejected");

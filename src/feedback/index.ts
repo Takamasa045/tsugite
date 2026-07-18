@@ -29,8 +29,14 @@ const isoDateSchema = z.string().refine(
   "must be an ISO 8601 UTC timestamp"
 );
 const promotionKindSchema = z.enum(["template", "constraint", "validator", "qa", "rule", "documentation"]);
+export const FEEDBACK_AUTOMATION_SOURCE_KINDS = [
+  "codex_automation",
+  "claude_desktop_automation",
+  "claude_code_automation"
+] as const;
+export type FeedbackAutomationSourceKind = typeof FEEDBACK_AUTOMATION_SOURCE_KINDS[number];
 const promotionProposalSourceSchema = z.object({
-  kind: z.literal("codex_automation"),
+  kind: z.enum(FEEDBACK_AUTOMATION_SOURCE_KINDS),
   workflow_id: safeIdSchema,
   run_id: safeIdSchema.optional()
 }).strict();
@@ -156,7 +162,7 @@ export type AggregatedFeedbackPromotionProposal = {
   changeSummary: string;
   verification: string;
   source?: {
-    kind: "codex_automation";
+    kind: FeedbackAutomationSourceKind;
     workflowId: string;
     runId?: string;
   };
@@ -407,7 +413,7 @@ function matchesFeedbackFileIdentity(
 
 function assertNoDuplicateAutomationProposal(entry: FeedbackRecord, existing: FeedbackRecord[]): void {
   const proposal = entry.promotion_proposal;
-  if (proposal?.decision !== "pending" || proposal.source?.kind !== "codex_automation") return;
+  if (proposal?.decision !== "pending" || !proposal.source) return;
 
   const proposalsForKey = existing.filter((candidate) => (
     candidate.key === entry.key && candidate.promotion_proposal

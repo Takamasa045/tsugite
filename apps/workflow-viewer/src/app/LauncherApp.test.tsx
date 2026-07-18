@@ -232,28 +232,66 @@ describe('LauncherApp', () => {
         },
       },
     }
+    const claudeDesktopPending = {
+      ...feedback.preferences[2]!,
+      key: 'claude-desktop-pending',
+      summary: 'Claude Desktopが見つけた昇格案。',
+      promotionProposal: {
+        ...feedback.preferences[2]!.promotionProposal!,
+        id: 'claude-desktop-pending-v1',
+        source: {
+          kind: 'claude_desktop_automation' as const,
+          workflowId: 'tsugite-learning-promotion-review',
+        },
+      },
+    }
+    const claudeCodePending = {
+      ...feedback.preferences[2]!,
+      key: 'claude-code-pending',
+      summary: 'Claude Codeが見つけた昇格案。',
+      promotionProposal: {
+        ...feedback.preferences[2]!.promotionProposal!,
+        id: 'claude-code-pending-v1',
+        source: {
+          kind: 'claude_code_automation' as const,
+          workflowId: 'tsugite-learning-promotion-review',
+        },
+      },
+    }
     const fetcher = createLauncherFetcher({
       feedbackAggregate: {
         ...feedback,
-        preferences: [...feedback.preferences, manualPending, otherWorkflowPending],
+        preferences: [
+          ...feedback.preferences,
+          manualPending,
+          otherWorkflowPending,
+          claudeDesktopPending,
+          claudeCodePending,
+        ],
       },
     })
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
     const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
-    await waitFor(() => expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 1件'))
+    await waitFor(() => expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 3件'))
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/feedback')).toHaveLength(1)
     expect(screen.getByRole('heading', { name: '制作案件を選ぶ' })).toBeVisible()
     await user.click(feedbackTab)
 
     expect(await screen.findByRole('heading', { name: '制作に活かす学び' })).toBeVisible()
-    expect(feedbackTab).toHaveTextContent('1')
+    expect(feedbackTab).toHaveTextContent('3')
     const pickup = screen.getByRole('region', { name: '確認してほしい学び' })
     const pickupButton = within(pickup).getByRole('button', {
       name: '「字幕をセーフエリア内に収める。」の昇格案を確認',
     })
     expect(pickupButton).toBeVisible()
+    expect(within(pickup).getByRole('button', {
+      name: '「Claude Desktopが見つけた昇格案。」の昇格案を確認',
+    })).toBeVisible()
+    expect(within(pickup).getByRole('button', {
+      name: '「Claude Codeが見つけた昇格案。」の昇格案を確認',
+    })).toBeVisible()
     expect(within(pickup).queryByText('手動で記録した昇格案。')).not.toBeInTheDocument()
     expect(within(pickup).queryByText('別のworkflowが作成した昇格案。')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '手動で記録した昇格案。の詳細を見る' })).toBeVisible()
@@ -261,7 +299,7 @@ describe('LauncherApp', () => {
 
     await user.click(pickupButton)
     expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('字幕をセーフエリア内に収める。')
-    expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 1件')
+    expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 3件')
     expect(screen.queryByRole('region', { name: '昇格承認待ちの通知' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '承認待ちの通知を有効にする' })).not.toBeInTheDocument()
     expect(screen.queryByText(/デスクトップ通知/)).not.toBeInTheDocument()
