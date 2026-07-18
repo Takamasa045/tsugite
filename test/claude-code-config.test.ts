@@ -18,6 +18,7 @@ describe("Claude Code project configuration", () => {
       "Bash(bin/pipeline review *)",
       "Bash(bin/pipeline finalize * --json)",
       "Bash(bin/pipeline run * --dry-run *)",
+      "Bash(node bin/pipeline feedback *)",
       "Bash(git status *)",
       "Bash(git diff *)"
     ]));
@@ -86,6 +87,7 @@ describe("Claude Code project configuration", () => {
 
     expect(command).toContain("tsugite-learning-promotion-review");
     expect(command).toContain("--proposal-source claude-code");
+    expect(command).toContain("Bash(node bin/pipeline feedback *)");
     expect(command).toContain("最大3件");
     expect(command).toContain("feedback.jsonl");
     expect(command).toContain("外部通知");

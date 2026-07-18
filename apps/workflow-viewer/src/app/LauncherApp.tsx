@@ -306,6 +306,7 @@ function formatUpdatedAt(value?: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '更新記録なし'
   return new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

@@ -2,6 +2,7 @@
 description: Tsugiteの好み・学びから昇格承認待ち候補だけを安全に準備する
 argument-hint: [optional run id]
 allowed-tools:
+  - Bash(node bin/pipeline feedback *)
   - Bash(git status *)
 ---
 
