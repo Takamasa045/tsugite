@@ -468,7 +468,11 @@ describe("feedback contract", () => {
       projectCount: 2,
       projectNames: ["Project A", "Project B"],
       runIds: ["run-a", "run-b"],
-      promotion: { kind: "template", target: "templates/dialogue/template.yaml" }
+      promotion: {
+        kind: "template",
+        target: "templates/dialogue/template.yaml",
+        promotedAt: "2026-07-17T00:00:02.000Z"
+      }
     });
     expect(aggregate.issues[0]).toMatchObject({ projectName: "Project B", line: 2 });
   });
