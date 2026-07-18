@@ -98,6 +98,46 @@ function sampleManifest(): Manifest {
 }
 
 describe("creative review", () => {
+  it("shows fail-closed audio requests in the Gate 1 review", () => {
+    const project: Project = {
+      ...sampleProject(),
+      audio: {
+        adapter: "hyperframes-media",
+        fallback: "fail",
+        bgm: {
+          id: "bgm-main",
+          prompt: "Warm restrained ambient music",
+          start: 0,
+          end: 10,
+          volume: 0.2,
+          mode: "generate"
+        },
+        sfx: [
+          {
+            id: "sfx-hit",
+            prompt: "Soft transition hit",
+            start: 4,
+            volume: 0.5
+          }
+        ],
+        params: { allow_cloud_bgm: false }
+      }
+    };
+    const review = createReviewDocument(project, sampleManifest(), createPlan(project, sampleManifest()));
+    const html = renderReviewHtml(review);
+
+    expect(review.audio).toMatchObject({
+      adapter: "hyperframes-media",
+      fallback: "fail",
+      automatic_fallback: false
+    });
+    expect(html).toContain('data-testid="audio-review"');
+    expect(html).toContain("Warm restrained ambient music");
+    expect(html).toContain("Soft transition hit");
+    expect(html).toContain("AUTO FALLBACK");
+    expect(html).toContain("OFF");
+  });
+
   it("derives a character sheet and caption-first storyboard without mutating the plan", () => {
     const project = sampleProject();
     const manifest = sampleManifest();

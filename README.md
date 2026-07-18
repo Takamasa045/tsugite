@@ -35,6 +35,7 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 - Gate 3 QC report generation for final duration, resolution, fps, and audio/video streams.
 - First-class image assets, speaker/pose metadata, and guarded presentation presets.
 - Remotion and HyperFrames backend contracts.
+- A Gate-bound audio adapter contract and an official HyperFrames `media-use` integration for BGM/SFX.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
 - A standalone, read-only 3D workflow viewer under `apps/workflow-viewer/`.
 
@@ -90,6 +91,8 @@ npm run viewer:open
 Use `node bin/pipeline ...` in PowerShell instead of invoking the extensionless `bin/pipeline` file directly. Reopen PowerShell after installing or updating Node.js, FFmpeg, or a provider CLI so the updated `PATH` and `PATHEXT` are visible. Provider authentication, entitlements, and billing remain separate manual setup.
 
 Provider CLIs such as PixVerse/Kling, external TopView/OpenClaw/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. For TopView, doctor probes the skill's `video_gen.py` with the non-charging `list-models` command. It does not submit generation tasks; authentication and credits remain manual checks. Any unresolved blocking check makes the overall `ok` value `false`.
+
+See [`docs/hyperframes-audio.md`](docs/hyperframes-audio.md) for HyperFrames-first BGM generation and SFX resolution. This path never falls back to ElevenLabs automatically.
 
 ## Commands
 

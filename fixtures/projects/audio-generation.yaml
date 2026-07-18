@@ -1,0 +1,21 @@
+slug: audio-generation
+run_id: audio-generation-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+audio:
+  adapter: mock-cli-audio
+  fallback: fail
+  bgm:
+    id: main-bgm
+    mode: generate
+    prompt: warm cinematic underscore
+    start: 0
+    end: 6
+    volume: 0.2
+  sfx:
+    - id: opening-whoosh
+      prompt: soft whoosh
+      start: 0.25
+      volume: 0.35

@@ -1,0 +1,22 @@
+name: mock-cli-audio
+kind: cli
+class: audio
+offline: true
+dry_run_estimate: true
+batch: true
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "40": invalid_request
+audio_capabilities:
+  bgm_modes: [generate, retrieve]
+  sfx: true
+command:
+  executable: node
+  args: ["fixtures/adapters/mock-cli-audio/generate.mjs"]
+  input: stdin-json

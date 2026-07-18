@@ -27,6 +27,53 @@ const manifestPathSchema = z
   );
 
 const generationModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
+const audioBgmModeSchema = z.union([z.literal("generate"), z.literal("retrieve")]);
+
+const audioTimingSchema = z
+  .object({
+    id: safeIdSchema,
+    prompt: z.string().min(1),
+    start: z.number().nonnegative().default(0),
+    end: z.number().positive().optional(),
+    volume: z.number().min(0).max(1).optional()
+  })
+  .superRefine((track, context) => {
+    if (track.end !== undefined && track.end <= track.start) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "end must be greater than start",
+        path: ["end"]
+      });
+    }
+  });
+
+const audioBgmRequestSchema = audioTimingSchema.safeExtend({
+  mode: audioBgmModeSchema.default("generate"),
+  query: z.string().min(1).optional()
+});
+
+const audioRequestSchema = z
+  .object({
+    adapter: safeIdSchema,
+    fallback: z.literal("fail").default("fail"),
+    bgm: audioBgmRequestSchema.optional(),
+    sfx: z.array(audioTimingSchema).superRefine(rejectDuplicateRequestIds).default([]),
+    params: z.record(z.string(), z.unknown()).default({})
+  })
+  .superRefine((audio, context) => {
+    if (!audio.bgm && audio.sfx.length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "audio requires a BGM or SFX request"
+      });
+    }
+    if (audio.bgm && audio.sfx.some((request) => request.id === audio.bgm?.id)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "audio track ids must be unique"
+      });
+    }
+  });
 
 export const analysisOutputSchema = z.union([
   z.literal("captions"),
@@ -120,6 +167,7 @@ export const projectSchema = z
         requests: z.array(generationRequestSchema).superRefine(rejectDuplicateRequestIds).default([])
       })
       .optional(),
+    audio: audioRequestSchema.optional(),
     analysis: z
       .object({
         mode: z.enum(["local", "hybrid", "cloud"]).default("local"),
@@ -181,6 +229,7 @@ export const projectSchema = z
 
 export type Project = z.infer<typeof projectSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];
+export type AudioRequest = NonNullable<Project["audio"]>;
 export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][number];
 
 export function generationRequestMode(

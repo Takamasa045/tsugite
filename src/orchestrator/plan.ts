@@ -1,5 +1,5 @@
 import type { Manifest } from "../manifest/schema.js";
-import type { Project } from "../project/schema.js";
+import type { AudioRequest, Project } from "../project/schema.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
 import {
   resolveProjectPromptGuidance,
@@ -18,7 +18,7 @@ export type PlanStep = {
 };
 
 export type AgentHandoff = {
-  phase: "generation" | "analysis";
+  phase: "generation" | "audio" | "analysis";
   adapter: string;
   kind: AdapterDefinition["kind"];
   class: AdapterDefinition["class"];
@@ -53,6 +53,16 @@ export type ExecutionPlan = {
       timeout_ms: number;
     }>;
   };
+  audio?: AudioRequest & {
+    automatic_fallback: false;
+    external_permission_required: boolean;
+    transfer?: {
+      input_scope: "request-metadata";
+      credential_env: string[];
+      optional_credential_env: string[];
+      timeout_ms: number;
+    };
+  };
   prompt_guidance?: PromptGuidance[];
   steps: PlanStep[];
 };
@@ -64,11 +74,12 @@ export function createPlan(
   manifest: Manifest,
   adapter?: AdapterDefinition,
   analysisAdapter?: AnalysisAdapterInput,
-  promptGuides: PromptGuide[] = []
+  promptGuides: PromptGuide[] = [],
+  audioAdapter?: AdapterDefinition
 ): ExecutionPlan {
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
-  const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter);
-  const agentHandoffs = createAgentHandoffs(project, adapter, analysisAdapter);
+  const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
+  const agentHandoffs = createAgentHandoffs(project, adapter, analysisAdapter, audioAdapter);
   const analysis = createAnalysisPlan(project, manifest, analysisAdapter);
   const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
 
@@ -86,12 +97,35 @@ export function createPlan(
     })),
     agent_handoffs: agentHandoffs,
     ...(analysis ? { analysis } : {}),
+    ...(project.audio
+      ? {
+          audio: {
+            ...project.audio,
+            automatic_fallback: false as const,
+            external_permission_required: Boolean(audioAdapter?.network),
+            ...(audioAdapter?.network?.input_scope === "request-metadata"
+              ? {
+                  transfer: {
+                    input_scope: audioAdapter.network.input_scope,
+                    credential_env: [...audioAdapter.network.credential_env],
+                    optional_credential_env: [...audioAdapter.network.optional_credential_env],
+                    timeout_ms: audioAdapter.network.timeout_ms
+                  }
+                }
+              : {}),
+            ...(project.audio.bgm ? { bgm: { ...project.audio.bgm } } : {}),
+            sfx: project.audio.sfx.map((request) => ({ ...request })),
+            params: { ...project.audio.params }
+          }
+        }
+      : {}),
     ...(promptGuidance.length > 0 ? { prompt_guidance: promptGuidance } : {}),
     steps: [
       { name: "validate", status: "pending" },
       ...(project.analysis ? [{ name: "analysis-handoff", status: "pending" as const }] : []),
       { name: "creative-review", status: "pending" },
       { name: "gate-1", status: "gate" },
+      ...(project.audio ? [{ name: "audio-generation", status: "pending" as const }] : []),
       { name: "assemble-manifest", status: "pending" },
       { name: "gate-2", status: "gate" },
       { name: "render", status: "pending" },
@@ -113,7 +147,7 @@ function createAnalysisPlan(
   const transfers = project.analysis.requests.flatMap((request) => {
     const adapterName = request.adapter ?? project.analysis!.adapter;
     const definition = byName.get(adapterName);
-    if (!definition?.network) return [];
+    if (!definition?.network || definition.network.input_scope === "request-metadata") return [];
     return [{
       request_id: request.id,
       adapter: adapterName,
@@ -136,7 +170,8 @@ export function createDryRun(
   adapter?: AdapterDefinition,
   analysisAdapter?: AnalysisAdapterInput,
   backend?: BackendCapabilities,
-  promptGuides: PromptGuide[] = []
+  promptGuides: PromptGuide[] = [],
+  audioAdapter?: AdapterDefinition
 ): {
   executed: false;
   plan: ExecutionPlan;
@@ -144,11 +179,11 @@ export function createDryRun(
   external_commands: BackendExternalCommand[];
   agent_handoffs: AgentHandoff[];
 } {
-  const plan = createPlan(project, manifest, adapter, analysisAdapter, promptGuides);
+  const plan = createPlan(project, manifest, adapter, analysisAdapter, promptGuides, audioAdapter);
   return {
     executed: false,
     plan,
-    estimated_credits: estimateCredits(project, manifest, adapter, analysisAdapter),
+    estimated_credits: estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter),
     external_commands: renderPreflightCommands(backend),
     agent_handoffs: plan.agent_handoffs
   };
@@ -158,14 +193,19 @@ function estimateCredits(
   project: Project,
   manifest: Manifest,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AnalysisAdapterInput
+  analysisAdapter?: AnalysisAdapterInput,
+  audioAdapter?: AdapterDefinition
 ): number {
   const generation = !project.generation || !adapter
     ? 0
     : project.generation.requests.reduce((sum, request) => {
         return sum + adapter.credit_estimate.per_request + request.duration * adapter.credit_estimate.per_second;
       }, 0);
-  return generation + estimateAnalysisCredits(project, manifest, analysisAdapter);
+  const audio = !project.audio || !audioAdapter
+    ? 0
+    : audioAdapter.credit_estimate.per_request +
+      manifest.meta.target_duration_seconds * audioAdapter.credit_estimate.per_second;
+  return generation + audio + estimateAnalysisCredits(project, manifest, analysisAdapter);
 }
 
 function estimateAnalysisCredits(
@@ -191,7 +231,8 @@ function estimateAnalysisCredits(
 function createAgentHandoffs(
   project: Project,
   adapter?: AdapterDefinition,
-  analysisAdapter?: AnalysisAdapterInput
+  analysisAdapter?: AnalysisAdapterInput,
+  audioAdapter?: AdapterDefinition
 ): AgentHandoff[] {
   const handoffs: AgentHandoff[] = [];
 
@@ -205,6 +246,22 @@ function createAgentHandoffs(
       dry_run_estimate_available: adapter.dry_run_estimate,
       batch: adapter.batch,
       execution: adapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
+    });
+  }
+
+  if (project.audio && audioAdapter) {
+    handoffs.push({
+      phase: "audio",
+      adapter: audioAdapter.name,
+      kind: audioAdapter.kind,
+      class: audioAdapter.class,
+      outputs: [
+        ...(project.audio.bgm ? [`bgm:${project.audio.bgm.id}`] : []),
+        ...project.audio.sfx.map((request) => `sfx:${request.id}`)
+      ],
+      dry_run_estimate_available: audioAdapter.dry_run_estimate,
+      batch: audioAdapter.batch,
+      execution: audioAdapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
     });
   }
 

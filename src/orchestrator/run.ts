@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/pr
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { runCliGenerationAdapter, type CliGenerationRequestResult } from "../adapters/cliGeneration.js";
+import { runCliAudioAdapter, type CliAudioResult } from "../adapters/cliAudio.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
 import type { Manifest } from "../manifest/schema.js";
 import { validateManifest } from "../manifest/validate.js";
@@ -82,10 +83,11 @@ export async function assembleLocalMediaRun(
   project: Project,
   manifest: Manifest,
   options: AssembleOptions,
-  adapter?: AdapterDefinition
+  adapter?: AdapterDefinition,
+  audioAdapter?: AdapterDefinition
 ): Promise<Result<LocalRunResult>> {
   if (project.generation && project.generation.requests.length > 0) {
-    return assembleGeneratedMediaRun(project, manifest, options, adapter);
+    return assembleGeneratedMediaRun(project, manifest, options, adapter, audioAdapter);
   }
 
   const runId = project.run_id ?? project.slug;
@@ -95,7 +97,7 @@ export async function assembleLocalMediaRun(
   const runLogPath = join(runDir, "run-log.md");
   const edlPath = project.edit.editorial ? join(runDir, "editorial-edl.json") : undefined;
   const statePath = join(runDir, "state.json");
-  const inputDigest = runInputDigest(project, manifest);
+  const inputDigest = runInputDigest(project, manifest, undefined, audioAdapter);
 
   if (options.state.status === "awaiting_gate_2" && options.state.gates.gate_2.status === "awaiting_approval") {
     const resumed = await inspectAwaitingGate2Artifacts({
@@ -186,6 +188,10 @@ export async function assembleLocalMediaRun(
     }
   }
 
+  const generatedAudio = appendGeneratedAudio(project, assembled, runId, runDir, audioAdapter);
+  if (!generatedAudio.ok) return generatedAudio;
+  assetCount += generatedAudio.assetCount;
+
   await writeFile(manifestOutputPath, `${JSON.stringify(assembled, null, 2)}\n`);
   if (edlPath && options.editorial) {
     await writeFile(edlPath, `${JSON.stringify(options.editorial.edl, null, 2)}\n`);
@@ -195,11 +201,12 @@ export async function assembleLocalMediaRun(
     runId,
     mode: "local-media",
     assetCount,
-    actualCredits: 0,
+    actualCredits: generatedAudio.credits,
     inputDigest,
     reviewPath: "review/index.html",
     reviewDataPath: "review/review-data.json",
     requests: [],
+    ...(generatedAudio.log ? { audio: generatedAudio.log } : {}),
     ...(options.editorial ? { editorialEdlDigest: options.editorial.edl.digest } : {})
   });
 
@@ -214,7 +221,7 @@ export async function assembleLocalMediaRun(
     runLogPath,
     ...(edlPath ? { edlPath } : {}),
     assetCount,
-    actualCredits: 0,
+    actualCredits: generatedAudio.credits,
     alreadyAssembled: false,
     state: nextState,
     statePath: writtenStatePath
@@ -226,7 +233,8 @@ export async function inspectGate2RunForApproval(
   manifest: Manifest,
   stateDir: string,
   adapter?: AdapterDefinition,
-  editorial?: EditorialCompilation
+  editorial?: EditorialCompilation,
+  audioAdapter?: AdapterDefinition
 ): Promise<Result<ResumeMetrics>> {
   const runId = project.run_id ?? project.slug;
   const runDir = join(stateDir, runId);
@@ -235,7 +243,7 @@ export async function inspectGate2RunForApproval(
     runId,
     mode: isGeneration ? "generation" : "local-media",
     backend: project.edit.backend,
-    inputDigest: runInputDigest(project, manifest, isGeneration ? adapter : undefined),
+    inputDigest: runInputDigest(project, manifest, isGeneration ? adapter : undefined, audioAdapter),
     requireQcPass: true,
     manifestPath: join(runDir, "manifest.json"),
     qcReportPath: join(runDir, "gate2-qc.json"),
@@ -252,7 +260,8 @@ async function assembleGeneratedMediaRun(
   project: Project,
   manifest: Manifest,
   options: AssembleOptions,
-  adapter: AdapterDefinition | undefined
+  adapter: AdapterDefinition | undefined,
+  audioAdapter: AdapterDefinition | undefined
 ): Promise<Result<LocalRunResult>> {
   if (!adapter) {
     return {
@@ -267,7 +276,7 @@ async function assembleGeneratedMediaRun(
   const qcReportPath = join(runDir, "gate2-qc.json");
   const runLogPath = join(runDir, "run-log.md");
   const statePath = join(runDir, "state.json");
-  const inputDigest = runInputDigest(project, manifest, adapter);
+  const inputDigest = runInputDigest(project, manifest, adapter, audioAdapter);
 
   if (options.state.status === "awaiting_gate_2" && options.state.gates.gate_2.status === "awaiting_approval") {
     const resumed = await inspectAwaitingGate2Artifacts({
@@ -382,17 +391,23 @@ async function assembleGeneratedMediaRun(
     }
   }
 
+  const generatedAudio = appendGeneratedAudio(project, assembled, runId, runDir, audioAdapter);
+  if (!generatedAudio.ok) return generatedAudio;
+  assetCount += generatedAudio.assetCount;
+  const actualCredits = generation.credits + generatedAudio.credits;
+
   await writeFile(manifestOutputPath, `${JSON.stringify(assembled, null, 2)}\n`);
   await writeGate2QcReport(assembled, manifestOutputPath, qcReportPath);
   await writeRunLog(runLogPath, {
     runId,
     mode: "generation",
     assetCount,
-    actualCredits: generation.credits,
+    actualCredits,
     inputDigest,
     reviewPath: "review/index.html",
     reviewDataPath: "review/review-data.json",
-    requests: generation.requests
+    requests: generation.requests,
+    ...(generatedAudio.log ? { audio: generatedAudio.log } : {})
   });
 
   const nextState = markGateAwaiting(options.state, "gate_2");
@@ -405,10 +420,94 @@ async function assembleGeneratedMediaRun(
     qcReportPath,
     runLogPath,
     assetCount,
-    actualCredits: generation.credits,
+    actualCredits,
     alreadyAssembled: false,
     state: nextState,
     statePath: writtenStatePath
+  };
+}
+
+type AudioRunLog = {
+  adapter: string;
+  bgmCount: number;
+  sfxCount: number;
+  elevenlabsUsed: boolean;
+  fallbackUsed: boolean;
+};
+
+type AudioAssemblyResult = Result<{
+  assetCount: number;
+  credits: number;
+  log?: AudioRunLog;
+}>;
+
+function appendGeneratedAudio(
+  project: Project,
+  manifest: Manifest,
+  runId: string,
+  runDir: string,
+  adapter?: AdapterDefinition
+): AudioAssemblyResult {
+  if (!project.audio) return { ok: true, issues: [], assetCount: 0, credits: 0 };
+  if (!adapter) {
+    return {
+      ok: false,
+      issues: [{ code: "run.audio_adapter_missing", message: "audio adapter definition is required" }]
+    };
+  }
+
+  const existingIds = new Set(
+    [...manifest.audio.bgm, ...manifest.audio.narration, ...manifest.audio.sfx]
+      .map((track) => track.id)
+      .filter((id): id is string => Boolean(id))
+  );
+  const requestedTracks = [...(project.audio.bgm ? [project.audio.bgm] : []), ...project.audio.sfx];
+  const duplicate = requestedTracks.find((track) => existingIds.has(track.id));
+  if (duplicate) {
+    return {
+      ok: false,
+      issues: [{ code: "run.audio_track_id_duplicate", message: `audio track id '${duplicate.id}' already exists in the manifest` }]
+    };
+  }
+
+  const result = runCliAudioAdapter(adapter, project.audio, {
+    runId,
+    runDir,
+    targetDurationSeconds: manifest.meta.target_duration_seconds
+  });
+  if (!result.ok) return result;
+  const generatedTracks = [...(result.bgm ? [result.bgm] : []), ...result.sfx];
+
+  const relativeTrack = (track: NonNullable<CliAudioResult["bgm"]>) => ({
+    ...track,
+    src: toPortablePath(relative(runDir, isAbsolute(track.src) ? track.src : resolve(process.cwd(), track.src)))
+  });
+  if (result.bgm) manifest.audio.bgm.push(relativeTrack(result.bgm));
+  manifest.audio.sfx.push(...result.sfx.map(relativeTrack));
+
+  const provenance = {
+    adapter: adapter.name,
+    credits: result.credits,
+    track_ids: generatedTracks.map((track) => track.id),
+    provider: result.metadata.provider,
+    bgm_mode: result.metadata.bgm_mode,
+    elevenlabs_used: result.metadata.elevenlabs_used,
+    fallback_used: result.metadata.fallback_used
+  };
+  (manifest as Record<string, unknown>).audio_provenance = provenance;
+
+  return {
+    ok: true,
+    issues: [],
+    assetCount: generatedTracks.length,
+    credits: result.credits,
+    log: {
+      adapter: adapter.name,
+      bgmCount: result.bgm ? 1 : 0,
+      sfxCount: result.sfx.length,
+      elevenlabsUsed: result.metadata.elevenlabs_used,
+      fallbackUsed: result.metadata.fallback_used
+    }
   };
 }
 
@@ -608,10 +707,10 @@ async function inspectAwaitingGate2Artifacts(input: {
     };
   }
 
-  const expectedCredits =
-    input.mode === "generation"
-      ? assembledManifest.manifest.provenance.reduce((sum, entry) => sum + (entry.credits ?? 0), 0)
-      : 0;
+  const generationCredits = input.mode === "generation"
+    ? assembledManifest.manifest.provenance.reduce((sum, entry) => sum + (entry.credits ?? 0), 0)
+    : 0;
+  const expectedCredits = generationCredits + manifestAudioCredits(assembledManifest.manifest);
   if (Math.abs(runLog.log.actualCredits - expectedCredits) > 1e-9) {
     return {
       ok: false,
@@ -820,6 +919,7 @@ async function writeRunLog(
     reviewDataPath: string;
     requests: CliGenerationRequestResult[];
     editorialEdlDigest?: string;
+    audio?: AudioRunLog;
   }
 ): Promise<void> {
   const lines = [
@@ -830,6 +930,13 @@ async function writeRunLog(
     `- actual_credits: ${input.actualCredits}`,
     `- input_digest: ${input.inputDigest}`,
     ...(input.editorialEdlDigest ? [`- editorial_edl_digest: ${input.editorialEdlDigest}`] : []),
+    ...(input.audio ? [
+      `- audio_adapter: ${input.audio.adapter}`,
+      `- audio_bgm_count: ${input.audio.bgmCount}`,
+      `- audio_sfx_count: ${input.audio.sfxCount}`,
+      `- elevenlabs_used: ${input.audio.elevenlabsUsed}`,
+      `- audio_fallback_used: ${input.audio.fallbackUsed}`
+    ] : []),
     `- review_path: ${input.reviewPath}`,
     `- review_data_path: ${input.reviewDataPath}`,
     `- generated_at: ${new Date().toISOString()}`,
@@ -883,12 +990,15 @@ function edlMatchesManifest(edl: Record<string, unknown>, manifest: Manifest): b
 }
 
 function editorialManifestMatchesAssembled(expected: Manifest, assembled: Manifest): boolean {
+  const generatedIds = manifestAudioTrackIds(assembled);
+  const assembledBgm = assembled.audio.bgm.filter((track) => !track.id || !generatedIds.has(track.id));
+  const assembledSfx = assembled.audio.sfx.filter((track) => !track.id || !generatedIds.has(track.id));
   if (
     expected.clips.length !== assembled.clips.length ||
     expected.images.length !== assembled.images.length ||
-    expected.audio.bgm.length !== assembled.audio.bgm.length ||
+    expected.audio.bgm.length !== assembledBgm.length ||
     expected.audio.narration.length !== assembled.audio.narration.length ||
-    expected.audio.sfx.length !== assembled.audio.sfx.length
+    expected.audio.sfx.length !== assembledSfx.length
   ) {
     return false;
   }
@@ -897,23 +1007,49 @@ function editorialManifestMatchesAssembled(expected: Manifest, assembled: Manife
   for (const [index, clip] of relocated.clips.entries()) clip.src = assembled.clips[index]!.src;
   for (const [index, image] of relocated.images.entries()) image.src = assembled.images[index]!.src;
   for (const track of ["bgm", "narration", "sfx"] as const) {
+    const comparable = track === "bgm" ? assembledBgm : track === "sfx" ? assembledSfx : assembled.audio.narration;
     for (const [index, entry] of relocated.audio[track].entries()) {
-      entry.src = assembled.audio[track][index]!.src;
+      entry.src = comparable[index]!.src;
     }
   }
-  return stableJson(relocated) === stableJson(assembled);
+  const comparableAssembled = cloneManifest(assembled);
+  comparableAssembled.audio.bgm = assembledBgm;
+  comparableAssembled.audio.sfx = assembledSfx;
+  delete (comparableAssembled as Record<string, unknown>).audio_provenance;
+  return stableJson(relocated) === stableJson(comparableAssembled);
 }
 
-function runInputDigest(project: Project, manifest: Manifest, adapter?: AdapterDefinition): string {
+function runInputDigest(
+  project: Project,
+  manifest: Manifest,
+  adapter?: AdapterDefinition,
+  audioAdapter?: AdapterDefinition
+): string {
   return createHash("sha256")
     .update(
       stableJson({
         project: toExecutionProject(project),
         manifest: manifestDigestInput(manifest),
-        adapter: adapter ? { ...adapter, root: undefined } : undefined
+        adapter: adapter ? { ...adapter, root: undefined } : undefined,
+        audio_adapter: audioAdapter ? { ...audioAdapter, root: undefined } : undefined
       })
     )
     .digest("hex");
+}
+
+function manifestAudioProvenance(manifest: Manifest): Record<string, unknown> | undefined {
+  const value = (manifest as Record<string, unknown>).audio_provenance;
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function manifestAudioCredits(manifest: Manifest): number {
+  const credits = manifestAudioProvenance(manifest)?.credits;
+  return typeof credits === "number" && Number.isFinite(credits) && credits >= 0 ? credits : 0;
+}
+
+function manifestAudioTrackIds(manifest: Manifest): Set<string> {
+  const ids = manifestAudioProvenance(manifest)?.track_ids;
+  return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
 }
 
 export function manifestDigestInput(manifest: Manifest): unknown {

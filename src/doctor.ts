@@ -117,6 +117,7 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
 
     const selectedAdapters = uniqueAdapters([
       validation.adapter,
+      validation.audioAdapter,
       ...(validation.analysisAdapters ?? (validation.analysisAdapter ? [validation.analysisAdapter] : []))
     ]);
     for (const adapter of selectedAdapters) {

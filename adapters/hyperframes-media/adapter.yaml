@@ -1,0 +1,37 @@
+name: hyperframes-media
+kind: cli
+class: audio
+offline: false
+network:
+  input_scope: request-metadata
+  timeout_ms: 3600000
+  credential_env: []
+  optional_credential_env: [HEYGEN_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY]
+dry_run_estimate: true
+batch: true
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "20": provider_unavailable
+  "30": dependency_missing
+  "40": invalid_request
+audio_capabilities:
+  bgm_modes: [generate, retrieve]
+  sfx: true
+checks:
+  setup:
+    - type: command
+      name: tool:hyperframes-media-use
+      command: ["node", "adapters/hyperframes-media/check.mjs"]
+      capture_version: true
+      remediation:
+        default: "Run `npx --no-install hyperframes skills update media-use`, then set TSUGITE_HYPERFRAMES_MEDIA_SKILL_DIR if the skill is installed outside a standard agent skills directory."
+command:
+  executable: node
+  args: ["adapters/hyperframes-media/generate.mjs"]
+  input: stdin-json

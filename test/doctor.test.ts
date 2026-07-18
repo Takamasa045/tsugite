@@ -125,6 +125,27 @@ describe("environment doctor", () => {
     );
   });
 
+  it("checks the selected HyperFrames media-use adapter without generating audio", async () => {
+    const probedCommands: string[][] = [];
+    const report = await inspectEnvironment("fixtures/projects/hyperframes-audio.yaml", {
+      commandExists: async () => true,
+      probeCommand: async (command) => {
+        probedCommands.push([...command]);
+        return { ok: true, version: "test" };
+      }
+    });
+
+    expect(report.ok).toBe(true);
+    expect(probedCommands).toContainEqual(["node", "adapters/hyperframes-media/check.mjs"]);
+    expect(probedCommands.flat()).not.toContain("generate.mjs");
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        name: "tool:hyperframes-media-use (hyperframes-media)",
+        ok: true
+      })
+    );
+  });
+
   it.each(["pixverse", "kling"])(
     "checks the shared PixVerse provider CLI for the %s adapter with a non-charging version probe",
     async (adapterName) => {

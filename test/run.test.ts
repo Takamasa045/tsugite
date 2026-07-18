@@ -93,6 +93,87 @@ describe("local media run assembly", () => {
     expect(qc.assets.filter((asset: { kind: string }) => asset.kind === "image")).toHaveLength(2);
   });
 
+  it("runs an approved audio adapter before Gate 2 and pins its BGM and SFX", async () => {
+    const validation = await validateProject("fixtures/projects/audio-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-audio-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("audio-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+
+    const result = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/minimal.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter,
+      validation.audioAdapter
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.assetCount).toBe(4);
+    expect(result.actualCredits).toBe(0);
+    const manifest = JSON.parse(await readFile(result.manifestPath!, "utf8"));
+    const runLog = await readFile(result.runLogPath!, "utf8");
+    expect(manifest.audio.bgm).toEqual([
+      expect.objectContaining({
+        id: "main-bgm",
+        src: "generated-audio/main-bgm.wav",
+        start: 0,
+        end: 6,
+        volume: 0.2
+      })
+    ]);
+    expect(manifest.audio.sfx).toEqual([
+      expect.objectContaining({
+        id: "opening-whoosh",
+        src: "generated-audio/opening-whoosh.wav",
+        start: 0.25,
+        volume: 0.35
+      })
+    ]);
+    expect(runLog).toContain("audio_adapter: mock-cli-audio");
+    expect(runLog).toContain("elevenlabs_used: false");
+  });
+
+  it("rejects requested audio ids already present in the manifest before invoking the adapter", async () => {
+    const validation = await validateProject("fixtures/projects/audio-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const projectDir = await mkdtemp(join(tmpdir(), "tsugite-audio-duplicate-input-"));
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-audio-duplicate-run-"));
+    const existingAudioPath = join(projectDir, "existing.wav");
+    await writeFile(existingAudioPath, silentWav());
+    const gate1 = markGateAwaiting(createPlannedState("audio-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const manifest = {
+      ...validation.manifest!,
+      audio: {
+        ...validation.manifest!.audio,
+        bgm: [{ id: "main-bgm", src: existingAudioPath, start: 0, end: 1, volume: 0.2 }]
+      }
+    };
+
+    const result = await assembleLocalMediaRun(
+      validation.project!,
+      manifest,
+      {
+        manifestPath: "fixtures/manifests/minimal.valid.json",
+        stateDir,
+        state: running
+      },
+      validation.adapter,
+      validation.audioAdapter
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("run.audio_track_id_duplicate");
+    await expect(access(join(stateDir, "audio-generation-run", "generated-audio", "main-bgm.wav"))).rejects.toThrow();
+  });
+
   it("rejects assembly before Gate 1 has approved a running state", async () => {
     const validation = await validateProject("fixtures/projects/local-media-only.yaml");
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-"));

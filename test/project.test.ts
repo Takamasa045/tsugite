@@ -363,6 +363,60 @@ describe("project validation", () => {
     expect(parsed.generation?.requests[0]?.mode).toBe("image-to-video");
   });
 
+  it("parses an explicit fail-closed audio generation request", () => {
+    const parsed = projectSchema.parse({
+      ...validProjectDefinition(),
+      audio: {
+        adapter: "hyperframes-media",
+        bgm: {
+          id: "main-bgm",
+          mode: "generate",
+          prompt: "warm cinematic underscore",
+          volume: 0.2
+        },
+        sfx: [
+          {
+            id: "opening-whoosh",
+            prompt: "soft whoosh",
+            start: 0.25
+          }
+        ]
+      }
+    });
+
+    expect(parsed.audio).toMatchObject({
+      adapter: "hyperframes-media",
+      fallback: "fail",
+      bgm: {
+        id: "main-bgm",
+        mode: "generate",
+        start: 0,
+        volume: 0.2
+      },
+      sfx: [
+        {
+          id: "opening-whoosh",
+          prompt: "soft whoosh",
+          start: 0.25
+        }
+      ]
+    });
+  });
+
+  it("rejects an audio request that has neither BGM nor SFX", () => {
+    const parsed = projectSchema.safeParse({
+      ...validProjectDefinition(),
+      audio: {
+        adapter: "hyperframes-media"
+      }
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.path).toEqual(["audio"]);
+    }
+  });
+
   it("rejects unsafe prompt guide catalog ids", () => {
     const project = validProjectDefinition();
     project.generation = {
