@@ -147,7 +147,11 @@ describe("workflow viewer launcher", () => {
           projectCount: 2,
           projectNames: ["second-project", "valid-project"],
           runIds: ["local-fixture-run", "second-project-run"],
-          promotion: { kind: "qa", target: "src/orchestrator/gate3Qc.ts" },
+          promotion: {
+            kind: "qa",
+            target: "src/orchestrator/gate3Qc.ts",
+            promotedAt: "2026-07-16T10:00:00.000Z"
+          },
           lastSeenAt: "2026-07-17T10:00:00.000Z"
         }],
         issues: [expect.objectContaining({

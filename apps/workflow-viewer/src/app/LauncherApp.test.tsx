@@ -109,6 +109,7 @@ const feedback = {
         projectName: 'サンプル案件A',
         kind: 'template' as const,
         target: 'templates/wa-modern-launcher',
+        promotedAt: '2026-07-17T08:20:00+09:00',
       },
       promotions: [
         {
@@ -116,12 +117,14 @@ const feedback = {
           projectName: 'サンプル案件A',
           kind: 'template' as const,
           target: 'templates/wa-modern-launcher',
+          promotedAt: '2026-07-17T08:20:00+09:00',
         },
         {
           projectId: 'sample-b',
           projectName: 'サンプル案件B',
           kind: 'rule' as const,
           target: 'LESSONS.md#wa-modern',
+          promotedAt: '2026-07-17T08:30:00+09:00',
         },
       ],
       lastSeenAt: '2026-07-17T08:30:00+09:00',
@@ -244,7 +247,7 @@ describe('LauncherApp', () => {
     expect(screen.getByRole('heading', { name: '制作案件を選ぶ' })).toBeVisible()
     await user.click(feedbackTab)
 
-    expect(await screen.findByRole('heading', { name: '好み・学びの育ち方' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '制作に活かす学び' })).toBeVisible()
     expect(feedbackTab).toHaveTextContent('1')
     const pickup = screen.getByRole('region', { name: '確認してほしい学び' })
     const pickupButton = within(pickup).getByRole('button', {
@@ -353,7 +356,8 @@ describe('LauncherApp', () => {
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/feedback')).toHaveLength(2)
     expect(screen.queryByRole('region', { name: '確認してほしい学び' })).not.toBeInTheDocument()
     expect(feedbackTab).not.toHaveAttribute('aria-describedby')
-    expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('承認済み・反映待ち')
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('承認済み')
+    expect(screen.queryByText('承認済み・反映待ち')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -653,22 +657,18 @@ describe('LauncherApp', () => {
 
     resolveFeedback(jsonResponse({ ok: true, feedback }))
     const metrics = await screen.findByLabelText('学びの4段階')
-    expect(within(metrics).getByText('観測中').parentElement).toHaveTextContent('観測中 / 到達済み3')
+    expect(within(metrics).getByText('記録').parentElement).toHaveTextContent('記録 / 到達済み3')
     expect(within(metrics).getByText('学習中').parentElement).toHaveTextContent('学習中 / 到達済み2')
     expect(within(metrics).getByText('反映済み').parentElement).toHaveTextContent('反映済み / 到達済み1')
-    expect(within(metrics).getByText('適用確認済み').parentElement).toHaveTextContent('適用確認済み / 到達済み1')
+    expect(within(metrics).getByText('効果確認済み').parentElement).toHaveTextContent('効果確認済み / 到達済み1')
 
-    const stageGuide = screen.getByRole('region', { name: '学びの状態と適用状況' })
-    expect(within(stageGuide).getByText('未適用・記録中')).toBeVisible()
-    expect(within(stageGuide).getByText('未適用・昇格候補')).toBeVisible()
-    expect(within(stageGuide).getByText('適用済み・確認待ち')).toBeVisible()
-    expect(within(stageGuide).getByText('適用済み・確認済み')).toBeVisible()
-
-    const promotionFlow = screen.getByRole('region', { name: '学習中から昇格する流れ' })
-    expect(within(promotionFlow).getByText('反復根拠をそろえる')).toBeVisible()
-    expect(within(promotionFlow).getByText('人が昇格を承認する')).toBeVisible()
-    expect(within(promotionFlow).getByText('再利用先へ反映する')).toBeVisible()
-    expect(within(promotionFlow).getByText('後続案件で確認する')).toBeVisible()
+    const stageGuide = screen.getByRole('region', { name: '記録の状態' })
+    expect(within(stageGuide).getByText('まず1件を記録')).toBeVisible()
+    expect(within(stageGuide).getByText('同じ傾向を確認中')).toBeVisible()
+    expect(within(stageGuide).getByText('制作ルールに反映済み')).toBeVisible()
+    expect(within(stageGuide).getByText('反映後の効果を確認済み')).toBeVisible()
+    expect(within(stageGuide).getByRole('heading', { name: 'この記録は今どこ？' })).toBeVisible()
+    expect(within(stageGuide).getByText('承認は状態ではありません。')).toBeVisible()
 
     const promotedCard = screen.getByRole('button', { name: '和モダンの意匠を制作画面に取り入れる。の詳細を見る' })
     expect(promotedCard).toHaveAttribute('aria-pressed', 'true')
@@ -677,8 +677,9 @@ describe('LauncherApp', () => {
     expect(promotedCard).toHaveTextContent('3案件')
     expect(promotedCard).toHaveTextContent('反映済み')
     expect(promotedCard).toHaveTextContent('templates/wa-modern-launcher')
+    expect(promotedCard).toHaveTextContent('反映 2026/07/17 08:20')
     expect(promotedCard).toHaveTextContent('ほか1件')
-    expect(promotedCard).toHaveTextContent('適用済み・確認待ち')
+    expect(promotedCard).toHaveTextContent('制作ルールに反映済み')
 
     const detail = screen.getByRole('complementary', { name: '選択した好み・学び' })
     expect(within(detail).getAllByText('サンプル案件A').length).toBeGreaterThan(0)
@@ -689,10 +690,10 @@ describe('LauncherApp', () => {
     expect(within(promotionSection!).getByText('LESSONS.md#wa-modern')).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: '冒頭からBGMまたは短いSFXを入れる。の詳細を見る' }))
-    expect(within(detail).getByText('適用確認').parentElement).toHaveTextContent('適用確認済み')
+    expect(within(detail).getByText('適用確認').parentElement).toHaveTextContent('反映後の効果を確認済み')
 
     const recurringCard = screen.getByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' })
-    expect(recurringCard).toHaveTextContent('未適用・昇格候補')
+    expect(recurringCard).toHaveTextContent('同じ傾向を確認中')
     expect(recurringCard).toHaveTextContent('昇格承認待ち')
     await user.click(recurringCard)
     expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('昇格案を確認し、人が承認または見送り')
@@ -716,9 +717,9 @@ describe('LauncherApp', () => {
         }),
       }),
     ))
-    expect(await within(detail).findByText('承認済み・反映待ち')).toBeVisible()
+    expect(await within(detail).findByText('承認済み')).toBeVisible()
     expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('共有先へ反映し、テストして反映済みへ')
-    expect(within(detail).getByRole('heading', { name: '次にすること' }).parentElement).toHaveTextContent('承認された案を共有先へ実装')
+    expect(within(detail).getByRole('heading', { name: '次にすること' }).parentElement).toHaveTextContent('承認は記録済みです。共有先へ実装')
     expect(screen.queryByRole('region', { name: '確認してほしい学び' })).not.toBeInTheDocument()
     expect(feedbackTab).not.toHaveAttribute('aria-describedby')
 
@@ -761,7 +762,7 @@ describe('LauncherApp', () => {
     expect(screen.queryByRole('button', { name: '和モダンの意匠を制作画面に取り入れる。の詳細を見る' })).not.toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('字幕をセーフエリア内に収める。')
 
-    await user.click(within(filters).getByRole('button', { name: '観測中 1件' }))
+    await user.click(within(filters).getByRole('button', { name: '記録 1件' }))
     expect(screen.getByRole('button', { name: '冒頭タイトルの情報量を抑える。の詳細を見る' })).toBeVisible()
     expect(screen.queryByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' })).not.toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: '選択した好み・学び' })).toHaveTextContent('冒頭タイトルの情報量を抑える。')

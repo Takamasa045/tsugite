@@ -144,6 +144,7 @@ export type AggregatedFeedbackPromotion = {
   projectName: string;
   kind: string;
   target: string;
+  promotedAt: string;
 };
 
 export type AggregatedFeedbackPromotionProposal = {
@@ -561,7 +562,7 @@ function aggregatePreference(
   const runIds = sortedUnique(rows.flatMap(({ project, entry }) => entry.run_id ? [entry.run_id] : project.runId ? [project.runId] : []));
   const evidence = sortedUnique(rows.flatMap(({ entry }) => entry.evidence ?? []));
   const orderedPromotions = ordered.flatMap(({ project, entry }) => entry.promotion
-    ? [{ projectId: project.projectId, projectName: project.projectName, ...entry.promotion }]
+    ? [{ projectId: project.projectId, projectName: project.projectName, ...entry.promotion, promotedAt: entry.created_at }]
     : []);
   const representativePromotion = orderedPromotions[0];
   const promotions = uniqueBy(

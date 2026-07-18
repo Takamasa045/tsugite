@@ -64,6 +64,7 @@ interface FeedbackPromotion {
   projectName: string
   kind: FeedbackPromotionKind
   target: string
+  promotedAt?: string
 }
 
 interface FeedbackPromotionProposal {
@@ -194,10 +195,10 @@ const DISTRIBUTION_LABELS: Record<LauncherTemplate['distribution'], string> = {
 }
 
 const FEEDBACK_STAGE_LABELS: Record<FeedbackStage, string> = {
-  observed: '観測中',
+  observed: '記録',
   recurring: '学習中',
   promoted: '反映済み',
-  verified: '適用確認済み',
+  verified: '効果確認済み',
 }
 
 const FEEDBACK_STAGE_MARKS: Record<FeedbackStage, string> = {
@@ -208,31 +209,31 @@ const FEEDBACK_STAGE_MARKS: Record<FeedbackStage, string> = {
 }
 
 const FEEDBACK_APPLICATION_LABELS: Record<FeedbackStage, string> = {
-  observed: '未適用・記録中',
-  recurring: '未適用・昇格候補',
-  promoted: '適用済み・確認待ち',
-  verified: '適用済み・確認済み',
+  observed: 'まず1件を記録',
+  recurring: '同じ傾向を確認中',
+  promoted: '制作ルールに反映済み',
+  verified: '反映後の効果を確認済み',
 }
 
 const FEEDBACK_STAGE_DESCRIPTIONS: Record<FeedbackStage, string> = {
-  observed: '初回の記録です。別案件でも同じ傾向が出るかを見ます。',
-  recurring: '複数の根拠が集まった状態です。まだ制作へは自動適用されません。',
-  promoted: '人が承認し、テンプレートやルールなどへ反映した状態です。',
-  verified: '反映後の案件で、期待した改善を確認できた状態です。',
+  observed: '別の案件でも同じ傾向があるかを見ます。',
+  recurring: '複数の案件で同じ傾向を確認しています。',
+  promoted: 'テンプレートやルールなど、制作に使う場所へ反映しました。',
+  verified: '反映後の案件で、期待した改善を確認できました。',
 }
 
 const FEEDBACK_NEXT_STAGE_LABELS: Record<FeedbackStage, string> = {
-  observed: '別案件でも同じ key で記録',
-  recurring: '反復根拠を確認し、人が昇格先を承認',
-  promoted: '後続案件で改善を確認',
-  verified: '完了（継続して再発を監視）',
+  observed: '別の案件でも同じ傾向があるか確認',
+  recurring: '反映する内容を実装',
+  promoted: '後続案件で効果を確認',
+  verified: '完了（継続して確認）',
 }
 
 const FEEDBACK_NEXT_ACTIONS: Record<FeedbackStage, string> = {
   observed: '同じ好みや失敗が別案件でも起きたら、同じ key で記録します。',
-  recurring: '自動では昇格しません。根拠を確認し、反映先と検証方法を人が承認します。',
-  promoted: '反映後の後続案件を確認し、改善の証拠がそろったら適用確認済みにします。',
-  verified: '追加作業はありません。後続案件で再発がないかを継続して見ます。',
+  recurring: '反映する内容を実装し、テストします。完了後に「反映済み」になります。',
+  promoted: '反映後の後続案件を確認し、改善できたら「効果確認済み」になります。',
+  verified: '追加作業はありません。後続案件でも問題がないかを確認します。',
 }
 
 const FEEDBACK_SIGNAL_LABELS: Record<FeedbackSignal, string> = {
@@ -252,7 +253,7 @@ const FEEDBACK_PROMOTION_LABELS: Record<FeedbackPromotionKind, string> = {
 
 const FEEDBACK_PROPOSAL_DECISION_LABELS: Record<FeedbackPromotionProposal['decision'], string> = {
   pending: '昇格承認待ち',
-  approved: '承認済み・反映待ち',
+  approved: '承認済み',
   rejected: '見送り済み',
 }
 
@@ -276,7 +277,7 @@ function feedbackNextAction(preference: FeedbackPreference): string {
     return '昇格案の根拠、反映先、変更内容、検証方法を確認し、人が承認または見送りを選びます。'
   }
   if (preference.promotionProposal.decision === 'approved') {
-    return '承認された案を共有先へ実装し、fixtureとテストまたは運用ルールを残して「反映済み」にします。'
+    return '承認は記録済みです。共有先へ実装し、テストが終わったら「反映済み」にします。'
   }
   return '今回は実装しません。新しい根拠や別の昇格案が揃うまで「学習中」を継続します。'
 }
@@ -300,6 +301,16 @@ function formatUpdatedAt(value?: string): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)
+}
+
+function latestPromotionAt(preference: FeedbackPreference): string | undefined {
+  return preference.promotions.reduce<string | undefined>((latest, promotion) => (
+    !promotion.promotedAt || (latest && latest >= promotion.promotedAt) ? latest : promotion.promotedAt
+  ), undefined)
+}
+
+function feedbackDecisionLabel(decision: FeedbackPromotionProposal['decision']): string {
+  return decision === 'approved' ? '承認' : decision === 'rejected' ? '見送り' : '判断待ち'
 }
 
 function projectMatchesFilter(project: LauncherProject, filter: ProjectFilter): boolean {
@@ -338,6 +349,7 @@ function isFeedbackPromotion(input: unknown): input is FeedbackPromotion {
     && 'projectName' in input && typeof input.projectName === 'string'
     && 'kind' in input && typeof input.kind === 'string' && input.kind in FEEDBACK_PROMOTION_LABELS
     && 'target' in input && typeof input.target === 'string'
+    && (!('promotedAt' in input) || input.promotedAt === undefined || typeof input.promotedAt === 'string')
 }
 
 function isFeedbackPromotionProposal(input: unknown): input is FeedbackPromotionProposal {
@@ -1200,8 +1212,8 @@ export function LauncherApp({
               <header className="launcher-feedback-heading">
                 <div>
                   <span className="eyebrow">学びの棚</span>
-                  <h2>好み・学びの育ち方</h2>
-                  <p>案件で見つかった傾向が、繰り返し確かめられ、型やルールに育つまでを示します。</p>
+                  <h2>制作に活かす学び</h2>
+                  <p>案件で見つけたことを記録し、同じ傾向を確かめ、制作ルールに反映します。</p>
                 </div>
                 <span className="launcher-count">
                   全{feedback.preferences.length}件 / 表示{visibleFeedback.length}件
@@ -1289,10 +1301,13 @@ export function LauncherApp({
                 ))}
               </div>
 
-              <section aria-label="学びの状態と適用状況" className="launcher-feedback-stage-guide">
+              <section aria-label="記録の状態" className="launcher-feedback-stage-guide">
                 <header>
-                  <h3>状態の見方</h3>
-                  <p>「学習中」までは未適用です。「反映済み」から制作の型やルールに適用されます。</p>
+                  <div>
+                    <span className="launcher-feedback-guide-kicker">4つの状態</span>
+                    <h3>この記録は今どこ？</h3>
+                  </div>
+                  <p>記録、学習中、反映済み、効果確認済みのどれかが、今の状態です。</p>
                 </header>
                 <ol>
                   {FEEDBACK_STAGES.map((stage) => (
@@ -1306,19 +1321,7 @@ export function LauncherApp({
                     </li>
                   ))}
                 </ol>
-              </section>
-
-              <section aria-label="学習中から昇格する流れ" className="launcher-feedback-promotion-flow">
-                <header>
-                  <h3>学習中から昇格する流れ</h3>
-                  <p>昇格と適用は必ず人が判断します。</p>
-                </header>
-                <ol>
-                  <li><span>1</span><strong>反復根拠をそろえる</strong><small>同じ key の案件・run・証拠を確認</small></li>
-                  <li><span>2</span><strong>人が昇格を承認する</strong><small>再利用価値と安全性を判断</small></li>
-                  <li><span>3</span><strong>再利用先へ反映する</strong><small>テンプレート・制約・QA・運用ルールなど</small></li>
-                  <li><span>4</span><strong>後続案件で確認する</strong><small>改善を確認して「適用確認済み」へ</small></li>
-                </ol>
+                <p className="launcher-feedback-guide-note"><strong>承認は状態ではありません。</strong> 承認日時は、反映前の確認として詳細に表示します。</p>
               </section>
 
               {feedback.issues.length > 0 && (
@@ -1394,6 +1397,9 @@ export function LauncherApp({
                           <span className="launcher-feedback-card-promotion">
                             <small>昇格先</small>
                             <strong>{representativePromotion?.target ?? 'まだ設定されていません'}</strong>
+                            {representativePromotion?.promotedAt && (
+                              <span className="launcher-feedback-card-timestamp">反映 {formatUpdatedAt(representativePromotion.promotedAt)}</span>
+                            )}
                             {remainingPromotionCount > 0 && <span>ほか{remainingPromotionCount}件</span>}
                           </span>
                           {preference.stage === 'recurring' && (
@@ -1404,6 +1410,11 @@ export function LauncherApp({
                               {preference.promotionProposal
                                 ? FEEDBACK_PROPOSAL_DECISION_LABELS[preference.promotionProposal.decision]
                                 : '昇格案の準備待ち'}
+                            </span>
+                          )}
+                          {preference.stage === 'recurring' && preference.promotionProposal?.decidedAt && (
+                            <span className="launcher-feedback-card-timestamp">
+                              {feedbackDecisionLabel(preference.promotionProposal.decision)} {formatUpdatedAt(preference.promotionProposal.decidedAt)}
                             </span>
                           )}
                           <span className="launcher-feedback-card-verification">
@@ -1439,10 +1450,16 @@ export function LauncherApp({
                           <div><dt>傾向</dt><dd>{FEEDBACK_SIGNAL_LABELS[selectedFeedback.signal] ?? '確認中'}</dd></div>
                           <div>
                             <dt>適用確認</dt>
-                            <dd>{selectedFeedback.stage === 'verified' ? '適用確認済み（適用済み）' : FEEDBACK_APPLICATION_LABELS[selectedFeedback.stage]}</dd>
+                            <dd>{FEEDBACK_APPLICATION_LABELS[selectedFeedback.stage]}</dd>
                           </div>
                           <div><dt>次の段階</dt><dd>{feedbackNextStageLabel(selectedFeedback)}</dd></div>
-                          <div><dt>最終観測</dt><dd>{formatUpdatedAt(selectedFeedback.lastSeenAt)}</dd></div>
+                          {selectedFeedback.promotionProposal?.decidedAt && (
+                            <div><dt>{feedbackDecisionLabel(selectedFeedback.promotionProposal.decision)}日時</dt><dd>{formatUpdatedAt(selectedFeedback.promotionProposal.decidedAt)}</dd></div>
+                          )}
+                          {latestPromotionAt(selectedFeedback) && (
+                            <div><dt>最終反映</dt><dd>{formatUpdatedAt(latestPromotionAt(selectedFeedback))}</dd></div>
+                          )}
+                          <div><dt>最終記録</dt><dd>{formatUpdatedAt(selectedFeedback.lastSeenAt)}</dd></div>
                         </dl>
 
                         {selectedFeedback.promotionProposal && selectedFeedback.stage === 'recurring' && (
@@ -1504,6 +1521,7 @@ export function LauncherApp({
                                 <li key={`${promotion.projectId}-${promotion.kind}-${promotion.target}-${index}`}>
                                   <span>{FEEDBACK_PROMOTION_LABELS[promotion.kind] ?? '反映先'} / {promotion.projectName}</span>
                                   <code>{promotion.target}</code>
+                                  {promotion.promotedAt && <small>反映 {formatUpdatedAt(promotion.promotedAt)}</small>}
                                 </li>
                               ))}
                             </ul>
