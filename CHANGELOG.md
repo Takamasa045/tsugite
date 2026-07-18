@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-07-18
+
 - Added a Gate-bound audio adapter contract and HyperFrames `media-use` integration for HyperFrames-first BGM generation and SFX resolution, with no automatic ElevenLabs fallback.
 - Extended the dedicated learning-promotion review automation to Claude Desktop/Cowork and Claude Code with explicit, backward-compatible source provenance, shared launcher pickup, and host-native notification guidance.
 
