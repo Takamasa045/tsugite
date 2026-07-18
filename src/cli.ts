@@ -84,6 +84,7 @@ type ParsedArgs = {
   verification?: string;
   proposalWorkflow?: string;
   proposalRunId?: string;
+  proposalSource?: string;
   open: boolean;
   apply: boolean;
   allowExternalAnalysis: boolean;
@@ -254,9 +255,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const stage = parseFeedbackStage(args.stage);
     const gate = parseFeedbackGate(args.gate);
     const promotionKind = parseFeedbackPromotionKind(args.promotionKind);
+    const proposalSource = parseFeedbackAutomationSource(args.proposalSource);
     const hasPromotionTarget = Boolean(promotionKind && args.target);
     const hasProposalDetails = Boolean(args.proposalSummary && args.verification);
-    const hasProposalSource = Boolean(args.proposalWorkflow || args.proposalRunId);
+    const hasProposalSource = Boolean(args.proposalWorkflow || args.proposalRunId || args.proposalSource);
     const issues: Issue[] = [
       ...(args.key ? [] : [{ code: "feedback.key_required", message: "--key is required", path: "--key" }]),
       ...(args.category ? [] : [{ code: "feedback.category_required", message: "--category is required", path: "--category" }]),
@@ -307,19 +309,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             code: "feedback.proposal_run_id_invalid",
             message: "--proposal-run-id must be a safe id",
             path: "--proposal-run-id"
+        }]
+        : []),
+      ...(args.proposalSource && !proposalSource
+        ? [{
+            code: "feedback.proposal_source_invalid",
+            message: "--proposal-source must be codex, claude-desktop, or claude-code",
+            path: "--proposal-source"
           }]
         : []),
       ...(hasProposalSource && !hasProposalDetails
         ? [{
             code: "feedback.proposal_source_without_proposal",
             message: "proposal source requires --proposal-summary and --verification",
-            path: args.proposalWorkflow ? "--proposal-workflow" : "--proposal-run-id"
+            path: args.proposalSource
+              ? "--proposal-source"
+              : args.proposalWorkflow
+                ? "--proposal-workflow"
+                : "--proposal-run-id"
           }]
         : []),
       ...(args.proposalRunId && !args.proposalWorkflow
         ? [{
             code: "feedback.proposal_workflow_required",
             message: "--proposal-run-id requires --proposal-workflow",
+            path: "--proposal-workflow"
+        }]
+        : []),
+      ...(args.proposalSource && !args.proposalWorkflow
+        ? [{
+            code: "feedback.proposal_workflow_required",
+            message: "--proposal-source requires --proposal-workflow",
             path: "--proposal-workflow"
           }]
         : []),
@@ -377,7 +397,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 verification: args.verification!,
                 ...(args.proposalWorkflow ? {
                   source: {
-                    kind: "codex_automation" as const,
+                    kind: automationSourceKind(proposalSource ?? "codex"),
                     workflow_id: args.proposalWorkflow,
                     ...(args.proposalRunId ? { run_id: args.proposalRunId } : {})
                   }
@@ -903,7 +923,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -939,7 +959,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--proposal-summary": "proposalSummary",
       "--verification": "verification",
       "--proposal-workflow": "proposalWorkflow",
-      "--proposal-run-id": "proposalRunId"
+      "--proposal-run-id": "proposalRunId",
+      "--proposal-source": "proposalSource"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -980,7 +1001,7 @@ function isOptionAllowed(command: string, option: string): boolean {
     presets: new Set(["--backend"]),
     "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),
     "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
-    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target", "--proposal-summary", "--verification", "--proposal-workflow", "--proposal-run-id"]),
+    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target", "--proposal-summary", "--verification", "--proposal-workflow", "--proposal-run-id", "--proposal-source"]),
     validate: new Set(["--config"]),
     plan: new Set(["--config"]),
     analyze: new Set(["--config", "--actor", "--state-dir", "--allow-external-analysis"]),
@@ -1171,6 +1192,19 @@ function parseFeedbackPromotionKind(
     return value;
   }
   return undefined;
+}
+
+type FeedbackAutomationSource = "codex" | "claude-desktop" | "claude-code";
+
+function parseFeedbackAutomationSource(value: string | undefined): FeedbackAutomationSource | undefined {
+  if (value === "codex" || value === "claude-desktop" || value === "claude-code") return value;
+  return undefined;
+}
+
+function automationSourceKind(source: FeedbackAutomationSource) {
+  if (source === "claude-desktop") return "claude_desktop_automation" as const;
+  if (source === "claude-code") return "claude_code_automation" as const;
+  return "codex_automation" as const;
 }
 
 function isSafeFeedbackId(value: string): boolean {

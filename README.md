@@ -18,7 +18,7 @@ Each video job has its own `project.yaml`. For distribution, the repository keep
 
 Codex discovers the repository skill at `.agents/skills/tsugite/SKILL.md`. Invoke it with `$tsugite`, or let Codex select it for matching Tsugite video work.
 
-Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads the same canonical workflow. The existing `/tsugite-plan`, `/tsugite-verify`, `/tsugite-finalize`, and `/shitate-import` commands remain focused shortcuts. The root `SKILL.md` is a legacy compatibility entry.
+Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads the same canonical workflow. The existing `/tsugite-plan`, `/tsugite-verify`, `/tsugite-finalize`, `/tsugite-learning-review`, and `/shitate-import` commands remain focused shortcuts. The root `SKILL.md` is a legacy compatibility entry.
 
 ## Current Scope
 
@@ -201,7 +201,7 @@ Use this loop:
 5. Use repeated records with the same `key` as evidence, then promote a reusable change only after human approval.
 6. Verify the promoted change against a later output before marking the feedback `verified`.
 
-An optional Codex automation may prepare this approval queue independently of whether the launcher is running. It is dedicated to preference/learning promotion review, not to reporting every Codex automation. Each run stays local, adds at most three complete and non-duplicate pending proposals through the existing `pipeline feedback` CLI, and never edits shared source. See [Learning Promotion Review Automation](docs/automations/learning-promotion-review.md) for the reproducible prompt contract; its schedule is chosen when the automation is registered, not fixed by this repository.
+An optional Codex Automation, Claude Desktop/Cowork scheduled task, or Claude Code session may prepare this approval queue independently of whether the launcher is running. It is dedicated to preference/learning promotion review, not to reporting other automations. Each run stays local, records its supported source, adds at most three complete and non-duplicate pending proposals through the existing `pipeline feedback` CLI, and never edits shared source. See [Learning Promotion Review Automation](docs/automations/learning-promotion-review.md) for registration and native host-notification behavior. Keep only one durable schedule active to avoid duplicate runs.
 
 For example, record feedback against a copied local project and inspect the resulting JSON without exposing an absolute local path:
 

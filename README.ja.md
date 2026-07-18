@@ -18,7 +18,7 @@
 
 Codexはrepo skillの `.agents/skills/tsugite/SKILL.md` を検出し、`$tsugite` または内容に一致する依頼から安全な制作フローを読み込みます。
 
-Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同じ正本を読み込みます。目的別の短縮入口として `/tsugite-plan`、`/tsugite-verify`、`/tsugite-finalize`、`/shitate-import` も利用できます。ルートの `SKILL.md` は旧ツール向けの互換入口です。
+Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同じ正本を読み込みます。目的別の短縮入口として `/tsugite-plan`、`/tsugite-verify`、`/tsugite-finalize`、`/tsugite-learning-review`、`/shitate-import` も利用できます。ルートの `SKILL.md` は旧ツール向けの互換入口です。
 
 ## 現在のスコープ
 
@@ -221,7 +221,7 @@ Tsugite は、動画をたくさん生成するだけで自動的に自分好み
 6. ランチャーで人が昇格案を承認または見送り、承認済みの案だけを再利用先へ実装して `promoted` にする。
 7. 後続の出力で改善を確認してから `verified` にする。
 
-任意のCodex自動化で、この承認待ちキューだけをランチャーの起動と独立して準備できます。これは全Codex自動化の状態確認ではなく、「好み・学び」の昇格候補を人の承認待ちにする専用自動化です。1回に最大3件、反映先・変更内容・検証方法・根拠が揃う重複のない候補だけを、既存の `pipeline feedback` CLIで `pending` 追記します。共有sourceは自動変更しません。登録時に使う再現可能なprompt契約は [学び昇格レビュー自動化](docs/automations/learning-promotion-review.md) を参照してください。scheduleは文書に固定せず、実際の自動化登録時に決めます。
+任意のCodex Automation、Claude Desktop/Cowork Scheduled task、Claude Codeから、この承認待ちキューだけをランチャーの起動と独立して準備できます。これは他の自動化の状態確認ではなく、「好み・学び」の昇格候補を人の承認待ちにする専用自動化です。1回に最大3件、反映先・変更内容・検証方法・根拠が揃う重複のない候補だけを、既存の `pipeline feedback` CLIで `pending` 追記します。共有sourceは自動変更しません。登録方法、実行元の記録、host標準通知の条件は [学び昇格レビュー自動化](docs/automations/learning-promotion-review.md) を参照してください。重複実行を避けるため常設scheduleは1つを主系にします。
 
 コピー済みのローカルprojectへ記録し、絶対pathを公開せずJSON結果を確認する例:
 

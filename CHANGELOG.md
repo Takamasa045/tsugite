@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Extended the dedicated learning-promotion review automation to Claude Desktop/Cowork and Claude Code with explicit, backward-compatible source provenance, shared launcher pickup, and host-native notification guidance.
+
 ## 0.3.1 - 2026-07-18
 
 - Added the local launcher and interactive 3D workflow viewer, including project discovery, visual thumbnails, project refresh, stable return navigation, and Windows support.

@@ -77,7 +77,7 @@ interface FeedbackPromotionProposal {
   verification: string
   decision: 'pending' | 'approved' | 'rejected'
   source?: {
-    kind: 'codex_automation'
+    kind: FeedbackAutomationSourceKind
     workflowId: string
     runId?: string
   }
@@ -151,11 +151,22 @@ const defaultFetcher: typeof fetch = (...args) => window.fetch(...args)
 const PROJECT_PAGE_SIZE = 12
 const FEEDBACK_PAGE_SIZE = 24
 const FEEDBACK_ISSUE_DISPLAY_LIMIT = 5
+const FEEDBACK_AUTOMATION_SOURCE_KINDS = [
+  'codex_automation',
+  'claude_desktop_automation',
+  'claude_code_automation',
+] as const
+type FeedbackAutomationSourceKind = typeof FEEDBACK_AUTOMATION_SOURCE_KINDS[number]
+
+function isFeedbackAutomationSourceKind(input: unknown): input is FeedbackAutomationSourceKind {
+  return typeof input === 'string'
+    && FEEDBACK_AUTOMATION_SOURCE_KINDS.includes(input as FeedbackAutomationSourceKind)
+}
 
 function pendingPromotionPreferences(feedback: FeedbackAggregate): FeedbackPreference[] {
   return feedback.preferences.filter((preference) => (
     preference.promotionProposal?.decision === 'pending'
-    && preference.promotionProposal.source?.kind === 'codex_automation'
+    && isFeedbackAutomationSourceKind(preference.promotionProposal.source?.kind)
     && preference.promotionProposal.source.workflowId === 'tsugite-learning-promotion-review'
   ))
 }
@@ -360,7 +371,7 @@ function isFeedbackPromotionProposal(input: unknown): input is FeedbackPromotion
     && 'decision' in input && ['pending', 'approved', 'rejected'].includes(String(input.decision))
     && (!('source' in input) || input.source === undefined || (
       typeof input.source === 'object' && input.source !== null
-      && 'kind' in input.source && input.source.kind === 'codex_automation'
+      && 'kind' in input.source && isFeedbackAutomationSourceKind(input.source.kind)
       && 'workflowId' in input.source && typeof input.source.workflowId === 'string'
       && (!('runId' in input.source) || input.source.runId === undefined || typeof input.source.runId === 'string')
     ))

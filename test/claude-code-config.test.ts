@@ -78,6 +78,19 @@ describe("Claude Code project configuration", () => {
     expect(files[2]).toContain("明示承認");
   });
 
+  it("provides a reusable learning-promotion review command for Claude Code", async () => {
+    const command = await readFile(
+      resolve(ROOT, ".claude/commands/tsugite-learning-review.md"),
+      "utf8"
+    );
+
+    expect(command).toContain("tsugite-learning-promotion-review");
+    expect(command).toContain("--proposal-source claude-code");
+    expect(command).toContain("最大3件");
+    expect(command).toContain("feedback.jsonl");
+    expect(command).toContain("外部通知");
+  });
+
   it("documents the explicit completion cleanup workflow", async () => {
     const command = await readFile(resolve(ROOT, ".claude/commands/tsugite-finalize.md"), "utf8");
 
