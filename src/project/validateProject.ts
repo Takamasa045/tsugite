@@ -34,6 +34,7 @@ export async function validateProject(
     project: Project;
     manifest: Manifest;
     adapter?: AdapterDefinition;
+    audioAdapter?: AdapterDefinition;
     analysisAdapter?: AdapterDefinition;
     analysisAdapters?: AdapterDefinition[];
     backend?: BackendCapabilities;
@@ -94,6 +95,7 @@ export async function validateProject(
   }
 
   let adapter: AdapterDefinition | undefined;
+  let audioAdapter: AdapterDefinition | undefined;
   let analysisAdapter: AdapterDefinition | undefined;
   let analysisAdapters: AdapterDefinition[] | undefined;
   let promptGuides: PromptGuide[] = [];
@@ -110,6 +112,44 @@ export async function validateProject(
           code: "adapter.dry_run_unsupported",
           message: `adapter '${project.generation.adapter}' cannot provide dry-run estimates`
         });
+      }
+    }
+    if (project.audio) {
+      audioAdapter = await loadAdapterDefinition(project.audio.adapter, options.adapterDirs);
+      if (audioAdapter.class !== "audio") {
+        issues.push({
+          code: "adapter.class_mismatch",
+          message: `adapter '${project.audio.adapter}' cannot be used for audio requests`,
+          path: "audio.adapter"
+        });
+      } else if (audioAdapter.kind !== "cli") {
+        issues.push({
+          code: "adapter.kind_mismatch",
+          message: `audio adapter '${project.audio.adapter}' must be an executable cli adapter`,
+          path: "audio.adapter"
+        });
+      } else if (!audioAdapter.dry_run_estimate) {
+        issues.push({
+          code: "adapter.dry_run_unsupported",
+          message: `audio adapter '${project.audio.adapter}' cannot provide dry-run estimates`,
+          path: "audio.adapter"
+        });
+      } else {
+        const capabilities = audioAdapter.audio_capabilities;
+        if (project.audio.bgm && !capabilities?.bgm_modes.includes(project.audio.bgm.mode)) {
+          issues.push({
+            code: "audio.bgm_mode_unsupported",
+            message: `audio adapter '${project.audio.adapter}' does not support BGM mode '${project.audio.bgm.mode}'`,
+            path: "audio.bgm.mode"
+          });
+        }
+        if (project.audio.sfx.length > 0 && !capabilities?.sfx) {
+          issues.push({
+            code: "audio.sfx_unsupported",
+            message: `audio adapter '${project.audio.adapter}' does not support SFX`,
+            path: "audio.sfx"
+          });
+        }
       }
     }
     if (project.analysis) {
@@ -154,10 +194,10 @@ export async function validateProject(
   }
 
   if (issues.length > 0 || !manifestResult.manifest) {
-    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, analysisAdapter, analysisAdapters, backend, promptGuides };
+    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, audioAdapter, analysisAdapter, analysisAdapters, backend, promptGuides };
   }
 
-  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, analysisAdapter, analysisAdapters, backend, promptGuides };
+  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, audioAdapter, analysisAdapter, analysisAdapters, backend, promptGuides };
 }
 
 function validateAnalysisRequestAdapter(

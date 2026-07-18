@@ -457,7 +457,7 @@ function runRequest(
         ok: true,
         issues: [],
         result: { ...merged.output, attempts: attempt },
-        ...(adapter.network ? {
+        ...(adapter.network && adapter.network.input_scope !== "request-metadata" ? {
           externalTransfer: {
             request_id: request.id,
             adapter: adapter.name,
@@ -508,6 +508,12 @@ function createExternalInput(
   confidenceThreshold: number
 ): Result<{ input?: ExternalInput; segmentIds: string[] }> {
   if (!adapter.network) return { ok: true, issues: [], segmentIds: [] };
+  if (adapter.network.input_scope === "request-metadata") {
+    return failure(
+      "analysis.adapter_network_scope_invalid",
+      "analysis adapters cannot use the request-metadata network scope"
+    );
+  }
   if (adapter.network.input_scope !== "low-confidence-segments") {
     return {
       ok: true,

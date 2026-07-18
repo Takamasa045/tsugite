@@ -45,6 +45,44 @@ describe("plan and dry run", () => {
     expect(dryRun.external_commands).toEqual([]);
   });
 
+  it("surfaces audio generation after Gate 1 and before Gate 2 without executing it", async () => {
+    const validation = await validateProject("fixtures/projects/audio-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const dryRun = createDryRun(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.backend,
+      validation.promptGuides,
+      validation.audioAdapter
+    );
+
+    expect(validation.ok).toBe(true);
+    expect(dryRun.executed).toBe(false);
+    expect(dryRun.plan.steps.map((step) => step.name)).toEqual([
+      "validate",
+      "creative-review",
+      "gate-1",
+      "audio-generation",
+      "assemble-manifest",
+      "gate-2",
+      "render",
+      "gate-3"
+    ]);
+    expect(dryRun.agent_handoffs).toContainEqual({
+      phase: "audio",
+      adapter: "mock-cli-audio",
+      kind: "cli",
+      class: "audio",
+      outputs: ["bgm:main-bgm", "sfx:opening-whoosh"],
+      dry_run_estimate_available: true,
+      batch: true,
+      execution: "pipeline-cli"
+    });
+  });
+
   it("includes backend render preflight checks in dry-run output", async () => {
     const validation = await validateProject("fixtures/projects/hyperframes-local-media.yaml");
     const dryRun = createDryRun(validation.project!, validation.manifest!, undefined, undefined, validation.backend);

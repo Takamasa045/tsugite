@@ -516,7 +516,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.manifest!,
         validation.adapter,
         validation.analysisAdapters ?? validation.analysisAdapter,
-        validation.promptGuides
+        validation.promptGuides,
+        validation.audioAdapter
       )
     });
   }
@@ -552,7 +553,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapters ?? validation.analysisAdapter,
-      validation.promptGuides
+      validation.promptGuides,
+      validation.audioAdapter
     );
     try {
       const viewer = await writeWorkflowViewer({
@@ -611,7 +613,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapters ?? validation.analysisAdapter,
-      validation.promptGuides
+      validation.promptGuides,
+      validation.audioAdapter
     );
     try {
       const review = await writeCreativeReview({
@@ -676,7 +679,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.adapter,
         validation.analysisAdapters ?? validation.analysisAdapter,
         validation.backend,
-        validation.promptGuides
+        validation.promptGuides,
+        validation.audioAdapter
       )
     });
   }
@@ -704,7 +708,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.manifest!,
       gate!,
       decision!,
-      validation.adapter
+      validation.adapter,
+      validation.audioAdapter
     );
     return output(args, gateResult.ok ? 0 : 1, {
       ok: gateResult.ok,
@@ -758,7 +763,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       stateDir: stateResult.stateDir,
       state: stateResult.state,
       ...(review.compilation ? { editorial: review.compilation } : {})
-    }, validation.adapter);
+    }, validation.adapter, validation.audioAdapter);
     return output(args, runResult.ok ? 0 : 1, {
       ok: runResult.ok,
       command: "run",
@@ -816,7 +821,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.manifest!,
       stateResult.stateDir,
       validation.adapter,
-      editorialCompilation
+      editorialCompilation,
+      validation.audioAdapter
     );
     if (!gate2Inspection.ok) {
       const issues = gate2Inspection.issues.map((issue) =>
@@ -1225,7 +1231,8 @@ async function recordGate(
   manifest: Manifest,
   gate: GateId,
   decision: GateDecision,
-  adapter?: AdapterDefinition
+  adapter?: AdapterDefinition,
+  audioAdapter?: AdapterDefinition
 ): Promise<Result<{ state: RunState; statePath: string; reviewPath?: string; reviewDataPath?: string }>> {
   const stateLocation = getStateLocation(args, project);
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
@@ -1292,7 +1299,8 @@ async function recordGate(
       manifest,
       existing.stateDir,
       adapter,
-      editorialCompilation
+      editorialCompilation,
+      audioAdapter
     );
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };

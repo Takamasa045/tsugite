@@ -116,6 +116,38 @@ describe("pipeline CLI", () => {
     expect(parsed.dry_run.executed).toBe(false);
   });
 
+  it("exposes the HyperFrames audio handoff in dry-run without generating audio", () => {
+    const result = runPipeline([
+      "run",
+      "--config",
+      "fixtures/projects/hyperframes-audio.yaml",
+      "--dry-run",
+      "--json"
+    ]);
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.dry_run.executed).toBe(false);
+    expect(parsed.dry_run.agent_handoffs).toContainEqual(
+      expect.objectContaining({
+        phase: "audio",
+        adapter: "hyperframes-media",
+        outputs: ["bgm:main-bgm", "sfx:opening-whoosh"],
+        execution: "pipeline-cli"
+      })
+    );
+    expect(parsed.dry_run.plan.audio).toMatchObject({
+      automatic_fallback: false,
+      external_permission_required: true,
+      transfer: {
+        input_scope: "request-metadata",
+        credential_env: [],
+        optional_credential_env: ["HEYGEN_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]
+      }
+    });
+    expect(parsed.dry_run.plan.audio.transfer.optional_credential_env).not.toContain("ELEVENLABS_API_KEY");
+  });
+
   it("surfaces backend preflight commands in dry-run output", () => {
     const result = runPipeline([
       "run",

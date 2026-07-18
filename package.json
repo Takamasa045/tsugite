@@ -37,7 +37,7 @@
     "@types/node": "^22.15.30",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitest/coverage-v8": "^4.1.10",
-    "hyperframes": "^0.7.46",
+    "hyperframes": "^0.7.62",
     "tsx": "^4.23.1",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^4.1.10"

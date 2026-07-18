@@ -18,6 +18,29 @@ describe("adapter contract", () => {
     expect(adapter.retry.max_attempts).toBe(2);
   });
 
+  it("loads a dedicated audio adapter capability contract", async () => {
+    const adapter = await loadAdapterDefinition("mock-cli-audio", ["fixtures/adapters", "adapters"]);
+
+    expect(adapter.class).toBe("audio");
+    expect(adapter.audio_capabilities).toEqual({
+      bgm_modes: ["generate", "retrieve"],
+      sfx: true
+    });
+  });
+
+  it("declares the real HyperFrames audio network boundary without ElevenLabs credentials", async () => {
+    const adapter = await loadAdapterDefinition("hyperframes-media", ["adapters"]);
+
+    expect(adapter.offline).toBe(false);
+    expect(adapter.network).toMatchObject({
+      input_scope: "request-metadata",
+      timeout_ms: 3_600_000,
+      credential_env: [],
+      optional_credential_env: ["HEYGEN_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]
+    });
+    expect(adapter.network?.optional_credential_env).not.toContain("ELEVENLABS_API_KEY");
+  });
+
   it("loads vendor-neutral setup checks declared by a real adapter", async () => {
     const adapter = await loadAdapterDefinition("pixverse");
 

@@ -20,10 +20,15 @@ const unsafeForwardedEnvironment = new Set([
   "SHELLOPTS"
 ]);
 
+const credentialVariableSchema = z
+  .string()
+  .regex(/^[A-Z][A-Z0-9_]*$/, "must be an uppercase environment variable name")
+  .refine((value) => !unsafeForwardedEnvironment.has(value), "must not be a runtime injection variable");
+
 const adapterSchema = z.object({
   name: z.string().min(1),
   kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
-  class: z.union([z.literal("generation"), z.literal("analysis")]).default("generation"),
+  class: z.union([z.literal("generation"), z.literal("analysis"), z.literal("audio")]).default("generation"),
   offline: z.boolean().optional(),
   outputs: z
     .array(analysisOutputSchema)
@@ -34,17 +39,12 @@ const adapterSchema = z.object({
       input_scope: z.enum([
         "low-confidence-segments",
         "source-media",
-        "source-media-and-dependencies"
+        "source-media-and-dependencies",
+        "request-metadata"
       ]),
       timeout_ms: z.number().int().min(1_000).max(3_600_000).default(900_000),
-      credential_env: z
-        .array(
-          z.string()
-            .regex(/^[A-Z][A-Z0-9_]*$/, "must be an uppercase environment variable name")
-            .refine((value) => !unsafeForwardedEnvironment.has(value), "must not be a runtime injection variable")
-        )
-        .max(16)
-        .default([])
+      credential_env: z.array(credentialVariableSchema).max(16).default([]),
+      optional_credential_env: z.array(credentialVariableSchema).max(16).default([])
     })
     .optional(),
   dry_run_estimate: z.boolean(),
@@ -90,6 +90,12 @@ const adapterSchema = z.object({
         .optional()
     })
     .optional(),
+  audio_capabilities: z
+    .object({
+      bgm_modes: z.array(z.enum(["generate", "retrieve"])).min(1).default(["generate"]),
+      sfx: z.boolean().default(false)
+    })
+    .optional(),
   checks: z
     .object({
       setup: z.array(setupCheckSchema).default([])
@@ -103,6 +109,51 @@ const adapterSchema = z.object({
     })
     .optional()
 }).superRefine((adapter, context) => {
+  if (adapter.class === "audio" && !adapter.audio_capabilities) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "audio adapters must declare audio_capabilities",
+      path: ["audio_capabilities"]
+    });
+  }
+  if (adapter.class !== "audio" && adapter.audio_capabilities) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "audio_capabilities are valid only for audio adapters",
+      path: ["audio_capabilities"]
+    });
+  }
+  if (adapter.class === "audio" && adapter.network && adapter.network.input_scope !== "request-metadata") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "online audio adapters must limit network input_scope to request-metadata",
+      path: ["network", "input_scope"]
+    });
+  }
+  if (adapter.class !== "audio" && adapter.network?.input_scope === "request-metadata") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "request-metadata network scope is valid only for audio adapters",
+      path: ["network", "input_scope"]
+    });
+  }
+  if (adapter.class !== "audio" && (adapter.network?.optional_credential_env.length ?? 0) > 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "optional network credentials are valid only for audio adapters",
+      path: ["network", "optional_credential_env"]
+    });
+  }
+  const duplicateCredential = adapter.network?.credential_env.find((variable) =>
+    adapter.network?.optional_credential_env.includes(variable)
+  );
+  if (duplicateCredential) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `credential '${duplicateCredential}' cannot be both required and optional`,
+      path: ["network", "optional_credential_env"]
+    });
+  }
   if (adapter.offline === false && !adapter.network) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

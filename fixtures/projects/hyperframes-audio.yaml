@@ -1,0 +1,24 @@
+slug: hyperframes-audio
+run_id: hyperframes-audio-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: hyperframes
+audio:
+  adapter: hyperframes-media
+  fallback: fail
+  bgm:
+    id: main-bgm
+    mode: generate
+    prompt: warm cinematic underscore, restrained percussion, no vocals
+    start: 0
+    end: 6
+    volume: 0.2
+  sfx:
+    - id: opening-whoosh
+      prompt: soft whoosh
+      start: 0.25
+      volume: 0.35
+  params:
+    allow_cloud_bgm: false
+    bgm_timeout_ms: 3600000
