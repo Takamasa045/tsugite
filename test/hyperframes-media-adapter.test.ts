@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -79,8 +79,8 @@ describe("HyperFrames media-use audio adapter", () => {
         fallback_used: false
       }
     });
-    expect(output.bgm.src).toContain(`${runDir}/assets/bgm/track.wav`);
-    expect(output.sfx[0].src).toContain(`${runDir}/assets/sfx/whoosh.wav`);
+    expect(await realpath(output.bgm.src)).toBe(await realpath(join(runDir, "assets", "bgm", "track.wav")));
+    expect(await realpath(output.sfx[0].src)).toBe(await realpath(join(runDir, "assets", "sfx", "whoosh.wav")));
     expect(JSON.parse(await readFile(join(runDir, ".hyperframes-media", "engine-observation.json"), "utf8"))).toEqual({
       only: "bgm,sfx",
       elevenlabs_visible: false,
