@@ -1917,7 +1917,7 @@ distribution: local-only
     }
     expect(calls).toHaveLength(1);
     expect(calls[0]!.command).toBe(process.execPath);
-    expect(calls[0]!.args[0]).toMatch(/bin\/pipeline$/);
+    expect(calls[0]!.args[0]).toMatch(/bin[\\/]pipeline$/);
     expect(calls[0]!.args.slice(1)).toEqual([
       "run",
       "--config", join(fixture.projectDir, "project.yaml"),
