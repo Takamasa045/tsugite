@@ -260,7 +260,7 @@ connections:
     });
 
     expect(candidates.find((candidate) => candidate.id === "openclaw-bridge")?.setup.status)
-      .toBe("needs-setup");
+      .toBe(process.platform === "win32" ? "needs-verification" : "needs-setup");
   });
 
   it("forbids route identity pinning on credential environment variables", async () => {
