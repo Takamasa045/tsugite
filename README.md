@@ -92,6 +92,8 @@ Use `node bin/pipeline ...` in PowerShell instead of invoking the extensionless 
 
 Provider CLIs such as PixVerse/Kling, external TopView/OpenClaw/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. For TopView, doctor probes the skill's `video_gen.py` with the non-charging `list-models` command. It does not submit generation tasks; authentication and credits remain manual checks. Any unresolved blocking check makes the overall `ok` value `false`.
 
+After a successful local first-time setup, Codex and Claude Code ask once, before the next substantive proposal, whether to add the optional learning-promotion automation and its host-standard completion notification. Choosing it requires selecting one primary host (Codex, Claude Desktop/Cowork, or Claude Code) and a cadence; choosing not to set it up suppresses the repeat question for that setup flow. The automation stays local, creates only human-approval candidates, and never enables browser/OS notifications or external destinations. See [Learning Promotion Review Automation](docs/automations/learning-promotion-review.md).
+
 See [`docs/hyperframes-audio.md`](docs/hyperframes-audio.md) for HyperFrames-first BGM generation and SFX resolution. This path never falls back to ElevenLabs automatically.
 
 ## Commands
