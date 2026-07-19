@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { delimiter, dirname } from "node:path";
+import { dirname } from "node:path";
 
 const DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024;
 
@@ -47,7 +47,8 @@ export function createPipelineRunner({
     const environment = { ...baseEnv, ...(options.env ?? {}) };
     const runtimeBin = dirname(nodeExecutable);
     const currentPath = environment.PATH ?? environment.Path ?? environment.path ?? "";
-    environment.PATH = currentPath ? `${runtimeBin}${platform === "win32" ? ";" : delimiter}${currentPath}` : runtimeBin;
+    const pathDelimiter = platform === "win32" ? ";" : ":";
+    environment.PATH = currentPath ? `${runtimeBin}${pathDelimiter}${currentPath}` : runtimeBin;
     delete environment.Path;
     delete environment.path;
     const child = spawnProcess(nodeExecutable, [cliModulePath, ...requestedArgs], {
