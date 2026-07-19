@@ -93,10 +93,18 @@ async function trackedRuntimeFiles(repoRoot) {
 }
 
 async function installProductionDependencies(runtimeTsugiteRoot) {
+  const npmExecPath = process.env.npm_execpath;
+  if (!npmExecPath) {
+    throw new Error("Desktop runtime dependency installation must be started through npm");
+  }
   await execFile(
-    process.platform === "win32" ? "npm.cmd" : "npm",
-    ["ci", "--omit=dev", "--no-audit", "--no-fund"],
-    { cwd: runtimeTsugiteRoot, stdio: "inherit", env: { ...process.env, NODE_ENV: "production" } }
+    process.execPath,
+    [npmExecPath, "ci", "--omit=dev", "--no-audit", "--no-fund"],
+    {
+      cwd: runtimeTsugiteRoot,
+      env: { ...process.env, NODE_ENV: "production" },
+      maxBuffer: 16 * 1024 * 1024
+    }
   );
 }
 
