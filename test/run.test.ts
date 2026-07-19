@@ -438,7 +438,15 @@ describe("local media run assembly", () => {
     const resumed = await assembleLocalMediaRun(validation.project!, manifest, {
       manifestPath: join(projectDir, "manifest.json"),
       stateDir,
-      state: result.state!
+      state: result.state!,
+      audioConnection: {
+        id: "audio-provider-offline",
+        adapter: "mock-cli-audio",
+        transport: "cli",
+        provider: "fixture",
+        route_note: "provider removed after assembly",
+        setup_status: "needs-setup"
+      }
     }, validation.adapter);
     expect(resumed.ok).toBe(true);
     expect(resumed.alreadyAssembled).toBe(true);
@@ -478,7 +486,15 @@ describe("local media run assembly", () => {
       {
         manifestPath: "fixtures/manifests/render-local.valid.json",
         stateDir,
-        state: first.state!
+        state: first.state!,
+        generationConnection: {
+          id: "generation-provider-offline",
+          adapter: "mock-cli",
+          transport: "cli",
+          provider: "fixture",
+          route_note: "provider removed after assembly",
+          setup_status: "needs-setup"
+        }
       },
       validation.adapter
     );

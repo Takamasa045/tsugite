@@ -95,6 +95,8 @@ export async function assembleLocalMediaRun(
   adapter?: AdapterDefinition,
   audioAdapter?: AdapterDefinition
 ): Promise<Result<LocalRunResult>> {
+  const isAwaitingGate2Resume = options.state.status === "awaiting_gate_2"
+    && options.state.gates.gate_2.status === "awaiting_approval";
   const audioConnection = options.audioConnection
     ?? (project.audio?.connection
       ? await resolveGenerationConnection(project.audio.connection)
@@ -119,7 +121,11 @@ export async function assembleLocalMediaRun(
       }]
     };
   }
-  if (audioConnection?.setup_status === "needs-verification" && !options.audioConnectionVerificationApproved) {
+  if (
+    !isAwaitingGate2Resume
+    && audioConnection?.setup_status === "needs-verification"
+    && !options.audioConnectionVerificationApproved
+  ) {
     return {
       ok: false,
       issues: [{
@@ -129,7 +135,11 @@ export async function assembleLocalMediaRun(
       }]
     };
   }
-  if (audioConnection && ["needs-setup", "not-integrated"].includes(audioConnection.setup_status)) {
+  if (
+    !isAwaitingGate2Resume
+    && audioConnection
+    && ["needs-setup", "not-integrated"].includes(audioConnection.setup_status)
+  ) {
     return {
       ok: false,
       issues: [{
@@ -152,7 +162,7 @@ export async function assembleLocalMediaRun(
   const statePath = join(runDir, "state.json");
   const inputDigest = runInputDigest(project, manifest, undefined, audioAdapter);
 
-  if (options.state.status === "awaiting_gate_2" && options.state.gates.gate_2.status === "awaiting_approval") {
+  if (isAwaitingGate2Resume) {
     const resumed = await inspectAwaitingGate2Artifacts({
       runId,
       mode: "local-media",
@@ -321,6 +331,8 @@ async function assembleGeneratedMediaRun(
   adapter: AdapterDefinition | undefined,
   audioAdapter: AdapterDefinition | undefined
 ): Promise<Result<LocalRunResult>> {
+  const isAwaitingGate2Resume = options.state.status === "awaiting_gate_2"
+    && options.state.gates.gate_2.status === "awaiting_approval";
   const generationConnection = options.generationConnection
     ?? (project.generation?.connection
       ? await resolveGenerationConnection(project.generation.connection)
@@ -345,7 +357,7 @@ async function assembleGeneratedMediaRun(
       }]
     };
   }
-  if (generationConnection) {
+  if (generationConnection && !isAwaitingGate2Resume) {
     if (generationConnection.setup_status === "needs-verification" && !options.connectionVerificationApproved) {
       return {
         ok: false,
@@ -382,7 +394,7 @@ async function assembleGeneratedMediaRun(
   const statePath = join(runDir, "state.json");
   const inputDigest = runInputDigest(project, manifest, adapter, audioAdapter);
 
-  if (options.state.status === "awaiting_gate_2" && options.state.gates.gate_2.status === "awaiting_approval") {
+  if (isAwaitingGate2Resume) {
     const resumed = await inspectAwaitingGate2Artifacts({
       runId,
       mode: "generation",
