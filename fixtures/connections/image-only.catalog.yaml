@@ -1,0 +1,22 @@
+schema_version: 1
+selection_prompt:
+  id: generation-connection
+  question: "どのサービスを使って生成しますか？"
+  required_when: connection-unspecified
+  instruction: "Choose an explicit connection before generation."
+  no_subscription_message: "Use local or owned media."
+  no_subscription_options: [use-owned-media]
+connections:
+  - id: image-only
+    aliases: []
+    display_name: Image-only fixture
+    provider: fixture
+    transport: cli
+    auth_kind: none
+    implementation_status: integrated
+    adapter: pixverse
+    capabilities: [video.image-to-video]
+    automated_capabilities: [video.image-to-video]
+    model_families: [pixverse]
+    route_note: "Fixture connection that intentionally cannot automate text-to-video."
+    setup_checks: []

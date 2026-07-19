@@ -7,10 +7,12 @@ import { createPlan } from "../src/orchestrator/plan.js";
 import {
   createReviewDocument,
   getReviewOpenCommand,
+  inspectGate1Review,
   renderReviewHtml,
   writeCreativeReview
 } from "../src/orchestrator/review.js";
 import type { Project } from "../src/project/schema.js";
+import { validateProject } from "../src/project/validateProject.js";
 
 function sampleProject(): Project {
   return {
@@ -170,6 +172,115 @@ describe("creative review", () => {
     });
     expect(review.storyboard[1].prompt).toBeUndefined();
     expect(JSON.stringify(plan)).toBe(before);
+  });
+
+  it("shows an MCP generation connection as an agent handoff in Gate 1 review data", async () => {
+    const validation = await validateProject("fixtures/projects/generation-connection-topview.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const plan = createPlan(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      undefined,
+      [],
+      undefined,
+      validation.generationConnection
+    );
+
+    const review = createReviewDocument(validation.project!, validation.manifest!, plan);
+
+    expect(review.handoffs[0]).toMatchObject({
+      connection: "topview",
+      transport: "mcp",
+      provider: "topview",
+      route_note: expect.stringContaining("TopView MCP"),
+      setup_status: "needs-verification",
+      automatic_fallback: false,
+      execution: "agent-handoff"
+    });
+    const html = renderReviewHtml(review);
+    expect(html).toContain("topview via MCP");
+    expect(html).toContain("SETUP: NEEDS-VERIFICATION");
+    expect(html).toContain("AUTO FALLBACK OFF");
+    expect(review.warnings).toContain(
+      "接続 'topview' の状態は needs-verification です。Gate 1承認前にログイン、利用権限、残クレジットを確認してください。"
+    );
+  });
+
+  it("invalidates Gate 1 when the reviewed connection route differs from the current registry", async () => {
+    const configPath = "fixtures/projects/generation-connection-topview.yaml";
+    const validation = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    if (!validation.project || !validation.manifest) throw new Error("fixture project is invalid");
+    validation.project.generation!.requests[0].input_mode = undefined;
+    const plan = createPlan(
+      validation.project,
+      validation.manifest,
+      validation.adapter,
+      undefined,
+      [],
+      undefined,
+      validation.generationConnection
+    );
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-review-connection-snapshot-"));
+    const outputDir = join(stateDir, validation.project.run_id!, "review");
+    const written = await writeCreativeReview({
+      configPath,
+      project: validation.project,
+      manifest: validation.manifest,
+      plan,
+      outputDir
+    });
+    const initial = await inspectGate1Review({
+      configPath,
+      project: validation.project,
+      manifest: validation.manifest,
+      stateDir
+    });
+    expect(initial.ok).toBe(true);
+
+    const document = JSON.parse(await readFile(written.dataPath, "utf8"));
+    document.handoffs[0].auth_kind = "api-key";
+    await writeFile(written.dataPath, `${JSON.stringify(document, null, 2)}\n`);
+    await writeFile(written.reviewPath, renderReviewHtml(document));
+
+    const changed = await inspectGate1Review({
+      configPath,
+      project: validation.project,
+      manifest: validation.manifest,
+      stateDir
+    });
+    expect(changed.ok).toBe(false);
+    expect(changed.issues).toContainEqual(expect.objectContaining({ code: "gate.connection_changed" }));
+  });
+
+  it("records audio connection verification status in the Gate 1 review", async () => {
+    const validation = await validateProject("fixtures/projects/audio-connection.yaml");
+    const plan = createPlan(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      undefined,
+      [],
+      validation.audioAdapter,
+      validation.generationConnection,
+      validation.audioConnection
+    );
+
+    const review = createReviewDocument(validation.project!, validation.manifest!, plan);
+    const html = renderReviewHtml(review);
+
+    expect(review.handoffs).toContainEqual(expect.objectContaining({
+      phase: "audio",
+      connection: "hyperframes-media",
+      setup_status: "needs-verification"
+    }));
+    expect(review.warnings).toContain(
+      "接続 'hyperframes-media' の状態は needs-verification です。Gate 1承認前にログイン、利用権限、残クレジットを確認してください。"
+    );
+    expect(html).toContain("hyperframes-media via CLI · SETUP: NEEDS-VERIFICATION");
   });
 
   it("shows the selected dialogue background as a dedicated Gate 1 review surface", () => {

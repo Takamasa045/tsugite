@@ -1,0 +1,17 @@
+slug: generation-connection-mismatch
+run_id: generation-connection-mismatch-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  connection: topview
+  adapter: pixverse
+  requests:
+    - id: mismatched-001
+      prompt: Do not silently choose between conflicting routes.
+      model: seedance-2.0
+      duration: 5
+      aspect: "16:9"
+      input_mode: text-to-video
+      params: {}

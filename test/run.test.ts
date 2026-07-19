@@ -1,7 +1,7 @@
 import { access, appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { assembleLocalMediaRun, manifestDigestInput } from "../src/orchestrator/run.js";
 import {
   createPlannedState,
@@ -11,6 +11,132 @@ import {
 import { validateProject } from "../src/project/validateProject.js";
 
 describe("local media run assembly", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("fails closed before a pipeline CLI can execute an MCP generation connection", async () => {
+    const validation = await validateProject("fixtures/projects/generation-connection-topview.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-mcp-handoff-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("generation-connection-topview-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+
+    const result = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/minimal.valid.json",
+      stateDir,
+      state: running,
+      generationConnection: validation.generationConnection
+    }, validation.adapter);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      code: "run.connection_handoff_required",
+      message: "generation connection 'topview' uses MCP and requires an agent handoff; pipeline run will not execute adapter 'topview' as CLI",
+      path: "generation.connection"
+    });
+    await expect(access(join(stateDir, "generation-connection-topview-run"))).rejects.toThrow();
+  });
+
+  it("fails closed before generation when the selected CLI connection needs setup", async () => {
+    vi.stubEnv("PATH", "/missing");
+    const validation = await validateProject("fixtures/projects/generation-connection-pixburst-alias.yaml");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-connection-setup-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("generation-connection-pixburst-alias-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+
+    const result = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/minimal.valid.json",
+      stateDir,
+      state: running,
+      generationConnection: validation.generationConnection
+    }, validation.adapter);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      code: "run.connection_setup_required",
+      message: "generation connection 'pixverse' is needs-setup; complete setup before run",
+      path: "generation.connection"
+    });
+    await expect(access(join(stateDir, "generation-connection-pixburst-alias-run"))).rejects.toThrow();
+  });
+
+  it("requires approved Gate 1 verification before an audio connection can execute", async () => {
+    const validation = await validateProject("fixtures/projects/audio-connection.yaml");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-audio-connection-run-"));
+    const gate1 = markGateAwaiting(createPlannedState("audio-connection-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+
+    const result = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+      manifestPath: "fixtures/manifests/minimal.valid.json",
+      stateDir,
+      state: running,
+      audioConnection: validation.audioConnection
+    }, validation.adapter, validation.audioAdapter);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      code: "run.audio_connection_verification_required",
+      message: "audio connection 'hyperframes-media' needs verification recorded in the approved Gate 1 review before run",
+      path: "audio.connection"
+    });
+    await expect(access(join(stateDir, "audio-connection-run"))).rejects.toThrow();
+  });
+
+  it("requires an approved Gate 1 verification record for a needs-verification CLI connection", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const gate1 = markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const generationConnection = {
+      id: "fixture-subscription",
+      adapter: "mock-cli",
+      transport: "cli" as const,
+      provider: "fixture",
+      route_note: "local test adapter",
+      setup_status: "needs-verification" as const
+    };
+    const blockedStateDir = await mkdtemp(join(tmpdir(), "tsugite-connection-verification-blocked-"));
+
+    const blocked = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir: blockedStateDir,
+        state: running,
+        generationConnection
+      },
+      validation.adapter
+    );
+
+    expect(blocked.ok).toBe(false);
+    expect(blocked.issues).toContainEqual({
+      code: "run.connection_verification_required",
+      message: "generation connection 'fixture-subscription' needs verification recorded in the approved Gate 1 review before run",
+      path: "generation.connection"
+    });
+    await expect(access(join(blockedStateDir, "cli-generation-run"))).rejects.toThrow();
+
+    const approvedStateDir = await mkdtemp(join(tmpdir(), "tsugite-connection-verification-approved-"));
+    const approved = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        manifestPath: "fixtures/manifests/render-local.valid.json",
+        stateDir: approvedStateDir,
+        state: running,
+        generationConnection,
+        connectionVerificationApproved: true
+      },
+      validation.adapter
+    );
+
+    expect(approved.ok).toBe(true);
+  });
+
   it("pins local images before invoking a credit-bearing generation adapter", async () => {
     const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]

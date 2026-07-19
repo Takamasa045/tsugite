@@ -166,7 +166,8 @@ describe("pipeline analyze", () => {
       "--json"
     ]);
     expect(approved.status).toBe(0);
-    expect(JSON.parse(approved.stdout).state.gates.gate_1.approved_input_digest).toBe(reviewData.approval_digest);
+    expect(JSON.parse(approved.stdout).state.gates.gate_1.approved_input_digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.parse(approved.stdout).state.gates.gate_1.approved_input_digest).not.toBe(reviewData.approval_digest);
 
     const proposalPath = join(fixture.distDir, "offline-analysis-run", "analysis", "editorial-proposal.json");
     const proposal = JSON.parse(await readFile(proposalPath, "utf8"));

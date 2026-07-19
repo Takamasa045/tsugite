@@ -74,6 +74,7 @@ describe("plan and dry run", () => {
     expect(dryRun.agent_handoffs).toContainEqual({
       phase: "audio",
       adapter: "mock-cli-audio",
+      automatic_fallback: false,
       kind: "cli",
       class: "audio",
       outputs: ["bgm:main-bgm", "sfx:opening-whoosh"],
@@ -81,6 +82,31 @@ describe("plan and dry run", () => {
       batch: true,
       execution: "pipeline-cli"
     });
+  });
+
+  it("carries the selected audio connection into the handoff without fallback", async () => {
+    const validation = await validateProject("fixtures/projects/audio-connection.yaml");
+    const dryRun = createDryRun(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.backend,
+      validation.promptGuides,
+      validation.audioAdapter,
+      validation.generationConnection,
+      validation.audioConnection
+    );
+
+    expect(validation.ok).toBe(true);
+    expect(dryRun.agent_handoffs).toContainEqual(expect.objectContaining({
+      phase: "audio",
+      connection: "hyperframes-media",
+      adapter: "hyperframes-media",
+      transport: "cli",
+      automatic_fallback: false,
+      execution: "pipeline-cli"
+    }));
   });
 
   it("includes backend render preflight checks in dry-run output", async () => {
@@ -107,7 +133,10 @@ describe("plan and dry run", () => {
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapter,
-      validation.backend
+      validation.backend,
+      validation.promptGuides,
+      validation.audioAdapter,
+      validation.generationConnection
     );
 
     expect(validation.ok).toBe(true);
@@ -173,7 +202,10 @@ describe("plan and dry run", () => {
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapter,
-      validation.backend
+      validation.backend,
+      validation.promptGuides,
+      validation.audioAdapter,
+      validation.generationConnection
     );
 
     expect(validation.ok).toBe(true);
@@ -183,12 +215,20 @@ describe("plan and dry run", () => {
       {
         phase: "generation",
         adapter: "topview",
+        connection: "topview",
+        transport: "mcp",
+        setup_status: "needs-verification",
+        provider: "topview",
+        route_note: "TopView MCPとTopViewのサブスク認証を使う。TsugiteはMCP agent-handoffとして扱い、repo-local互換アダプターをCLI実行しない。",
+        auth_kind: "subscription",
+        connection_contract_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        automatic_fallback: false,
         kind: "cli",
         class: "generation",
         outputs: ["opening-shot"],
         dry_run_estimate_available: true,
         batch: false,
-        execution: "pipeline-cli"
+        execution: "agent-handoff"
       }
     ]);
   });
@@ -202,7 +242,10 @@ describe("plan and dry run", () => {
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapter,
-      validation.backend
+      validation.backend,
+      [],
+      validation.audioAdapter,
+      validation.generationConnection
     );
 
     expect(validation.ok).toBe(true);
@@ -212,6 +255,14 @@ describe("plan and dry run", () => {
       {
         phase: "generation",
         adapter: "openclaw",
+        connection: "openclaw-bridge",
+        transport: "cli",
+        setup_status: expect.stringMatching(/^(needs-verification|needs-setup)$/),
+        provider: "openclaw",
+        route_note: expect.stringContaining("TSUGITE_OPENCLAW_GENERATE_COMMAND"),
+        auth_kind: "local",
+        connection_contract_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        automatic_fallback: false,
         kind: "cli",
         class: "generation",
         outputs: ["openclaw-001"],
@@ -220,6 +271,32 @@ describe("plan and dry run", () => {
         execution: "pipeline-cli"
       }
     ]);
+  });
+
+  it("keeps an explicit generation connection separate and disables automatic fallback", async () => {
+    const validation = await validateProject("fixtures/projects/generation-connection-topview.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    const plan = createPlan(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      undefined,
+      [],
+      undefined,
+      validation.generationConnection
+    );
+
+    expect(plan.agent_handoffs[0]).toMatchObject({
+      phase: "generation",
+      connection: "topview",
+      adapter: "topview",
+      transport: "mcp",
+      setup_status: "needs-verification",
+      automatic_fallback: false,
+      execution: "agent-handoff"
+    });
   });
 
   it("surfaces optional Hermes analysis as an agent handoff", async () => {

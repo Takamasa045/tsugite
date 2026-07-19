@@ -3,6 +3,10 @@ import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/pr
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Manifest } from "../manifest/schema.js";
+import {
+  resolveGenerationConnection,
+  type GenerationConnectionResolution
+} from "../connections/registry.js";
 import { generationRequestMode, type GenerationRequest, type Project } from "../project/schema.js";
 import type { Result } from "../types.js";
 import {
@@ -207,7 +211,7 @@ export async function inspectGate1Review(options: {
         dataPath
       };
     }
-    let approvalDigest: string | undefined;
+    let editorialApprovalDigest: string | undefined;
     let currentEditorial: EditorialReview | undefined;
     if (options.project.analysis) {
       const editorial = await loadEditorialReview(options.configPath, options.project, options.manifest, options.stateDir);
@@ -216,9 +220,9 @@ export async function inspectGate1Review(options: {
       }
       const document = data as ReviewDocument;
       currentEditorial = editorial;
-      approvalDigest = editorial.approvalDigest;
+      editorialApprovalDigest = editorial.approvalDigest;
       if (
-        document.approval_digest !== approvalDigest ||
+        document.approval_digest !== editorialApprovalDigest ||
         document.analysis?.proposal_digest !== editorial.proposal.proposal_digest ||
         document.analysis?.editorial?.edl_digest !== editorial.compilation?.edl.digest
       ) {
@@ -230,6 +234,32 @@ export async function inspectGate1Review(options: {
         };
       }
     }
+    const document = data as ReviewDocument;
+    const currentConnections = await resolveReviewConnectionSnapshots(options.project);
+    if (!currentConnections.ok) {
+      return { ok: false, issues: currentConnections.issues, reviewPath, dataPath };
+    }
+    const reviewedConnections = reviewConnectionSnapshots(document);
+    if (digest(reviewedConnections) !== digest(currentConnections.snapshots)) {
+      return {
+        ok: false,
+        issues: [{
+          code: "gate.connection_changed",
+          message: "connection route or setup status changed after the Gate 1 review; regenerate and approve the review again",
+          path: dataPath
+        }],
+        reviewPath,
+        dataPath
+      };
+    }
+    const approvalDigest = digest({
+      schema_version: 1,
+      project: options.project,
+      manifest: options.manifest,
+      review: document,
+      connections: currentConnections.snapshots,
+      editorial_approval_digest: editorialApprovalDigest
+    });
     return {
       ok: true,
       issues: [],
@@ -255,6 +285,106 @@ export async function inspectGate1Review(options: {
   }
 
   return { ok: true, issues: [], reviewPath, dataPath };
+}
+
+type ReviewConnectionSnapshot = {
+  phase: "generation" | "audio";
+  connection: string;
+  adapter: string;
+  transport: GenerationConnectionResolution["transport"];
+  provider: string;
+  route_note: string;
+  auth_kind: GenerationConnectionResolution["auth_kind"];
+  contract_digest: string;
+  setup_status: GenerationConnectionResolution["setup_status"];
+};
+
+async function resolveReviewConnectionSnapshots(project: Project): Promise<
+  | { ok: true; snapshots: ReviewConnectionSnapshot[] }
+  | { ok: false; issues: Array<{ code: string; message: string; path?: string }> }
+> {
+  const snapshots: ReviewConnectionSnapshot[] = [];
+  if (project.generation?.connection) {
+    const resolution = await resolveGenerationConnection(project.generation.connection, undefined, {
+      models: project.generation.requests.map((request) => request.model),
+      capabilities: [...new Set(project.generation.requests.map((request) =>
+        `video.${generationRequestMode(request) ?? "text-to-video"}`
+      ))]
+    });
+    if (!resolution) {
+      return {
+        ok: false,
+        issues: [{
+          code: "gate.connection_changed",
+          message: `generation connection '${project.generation.connection}' is no longer available for the reviewed request`,
+          path: "generation.connection"
+        }]
+      };
+    }
+    snapshots.push(toReviewConnectionSnapshot("generation", resolution));
+  }
+  if (project.audio?.connection) {
+    const capabilities = [
+      ...(project.audio.bgm ? ["audio.music"] : []),
+      ...(project.audio.sfx.length > 0 ? ["audio.sound-effects"] : [])
+    ];
+    const resolution = await resolveGenerationConnection(project.audio.connection, undefined, { capabilities });
+    if (!resolution) {
+      return {
+        ok: false,
+        issues: [{
+          code: "gate.connection_changed",
+          message: `audio connection '${project.audio.connection}' is no longer available for the reviewed request`,
+          path: "audio.connection"
+        }]
+      };
+    }
+    snapshots.push(toReviewConnectionSnapshot("audio", resolution));
+  }
+  return { ok: true, snapshots };
+}
+
+function toReviewConnectionSnapshot(
+  phase: ReviewConnectionSnapshot["phase"],
+  resolution: GenerationConnectionResolution
+): ReviewConnectionSnapshot {
+  return {
+    phase,
+    connection: resolution.id,
+    adapter: resolution.adapter,
+    transport: resolution.transport,
+    provider: resolution.provider,
+    route_note: resolution.route_note,
+    auth_kind: resolution.auth_kind,
+    contract_digest: resolution.contract_digest,
+    setup_status: resolution.setup_status
+  };
+}
+
+function reviewConnectionSnapshots(document: ReviewDocument): ReviewConnectionSnapshot[] {
+  return document.handoffs.flatMap((handoff) => {
+    if (
+      (handoff.phase !== "generation" && handoff.phase !== "audio")
+      || !handoff.connection
+      || !handoff.transport
+      || !handoff.provider
+      || !handoff.route_note
+      || !handoff.auth_kind
+      || !handoff.connection_contract_digest
+      || !handoff.setup_status
+    ) return [];
+    return [{
+      phase: handoff.phase,
+      connection: handoff.connection,
+      adapter: handoff.adapter,
+      transport: handoff.transport,
+      provider: handoff.provider,
+      route_note: handoff.route_note,
+      auth_kind: handoff.auth_kind,
+      contract_digest: handoff.connection_contract_digest,
+      setup_status: handoff.setup_status
+    }];
+  });
 }
 
 export function createReviewDocument(
@@ -340,6 +470,14 @@ export function createReviewDocument(
   }
   if (project.analysis && !editorial) {
     warnings.push("解析成果物が未生成または不整合です。Gate 1は承認できません。");
+  }
+  for (const handoff of plan.agent_handoffs) {
+    if ((handoff.phase === "generation" || handoff.phase === "audio") && handoff.connection) {
+      const status = handoff.setup_status ?? "needs-verification";
+      warnings.push(
+        `接続 '${handoff.connection}' の状態は ${status} です。Gate 1承認前にログイン、利用権限、残クレジットを確認してください。`
+      );
+    }
   }
 
   return {
@@ -770,13 +908,18 @@ export function renderReviewHtml(document: ReviewDocument): string {
     return `<details class="shot-detail" id="detail-${escapeAttribute(shot.id)}"><summary><span>SHOT ${String(shot.order).padStart(2, "0")}</span>${escapeHtml(shot.title)}<time>${formatSeconds(shot.duration)}</time></summary><div class="detail-grid"><div><h3>内容</h3><p>${escapeHtml(shot.description ?? "説明はありません。")}</p>${shot.speaker ? `<p><b>話者</b> ${escapeHtml(shot.speaker)}${shot.pose ? ` / ${escapeHtml(shot.pose)}` : ""}</p>` : ""}</div><div><h3>生成条件</h3>${shot.prompt ? `<p>${escapeHtml(shot.prompt)}</p><p class="utility">${escapeHtml([shot.model, shot.input_mode].filter(Boolean).join(" · "))}</p>` : `<p class="muted">このカットに一致する生成リクエストはありません。</p>`}${referenceImages}</div></div></details>`;
   }).join("");
   const handoffs = document.handoffs.length > 0
-    ? document.handoffs.map((handoff) => `<li><b>${escapeHtml(handoff.phase)}</b> ${escapeHtml(handoff.adapter)} · ${escapeHtml(handoff.execution)}</li>`).join("")
+    ? document.handoffs.map((handoff) => {
+        const route = handoff.connection
+          ? ` · ${escapeHtml(handoff.connection)}${handoff.transport ? ` via ${escapeHtml(handoff.transport.toUpperCase())}` : ""}${handoff.setup_status ? ` · SETUP: ${escapeHtml(handoff.setup_status.toUpperCase())}` : ""}`
+          : "";
+        return `<li><b>${escapeHtml(handoff.phase)}</b> ${escapeHtml(handoff.adapter)}${route} · ${escapeHtml(handoff.execution)} · AUTO FALLBACK OFF</li>`;
+      }).join("")
     : "<li>外部エージェントへの引き継ぎはありません。</li>";
   const analysis = renderAnalysisReview(document.analysis);
   const audioReview = document.audio
     ? `<section class="audio-section" aria-labelledby="audio-title" data-testid="audio-review">
       <div class="section-heading"><div><p class="eyebrow">SOUND / TIMING</p><h2 id="audio-title">音響設計</h2></div><p>Gate 1でBGMと効果音の内容・タイミングを確認します。未解決時は停止し、別providerへの自動切り替えは行いません。</p></div>
-      <div class="audio-policy"><dl><div><dt>ADAPTER</dt><dd>${escapeHtml(document.audio.adapter)}</dd></div><div><dt>FALLBACK</dt><dd>${escapeHtml(document.audio.fallback)}</dd></div><div><dt>AUTO FALLBACK</dt><dd>${document.audio.automatic_fallback ? "ON" : "OFF"}</dd></div><div><dt>EXTERNAL ACCESS</dt><dd>${document.audio.external_permission_required ? "REVIEW REQUIRED" : "NONE"}</dd></div></dl>${document.audio.transfer ? `<p class="utility">NETWORK INPUT: ${escapeHtml(document.audio.transfer.input_scope)} / REQUIRED CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.credential_env.join(", ") || "none")} / OPTIONAL CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.optional_credential_env.join(", ") || "none")}</p>` : ""}</div>
+      <div class="audio-policy"><dl><div><dt>ADAPTER</dt><dd>${escapeHtml(document.audio.adapter ?? "未選択")}</dd></div><div><dt>FALLBACK</dt><dd>${escapeHtml(document.audio.fallback)}</dd></div><div><dt>AUTO FALLBACK</dt><dd>${document.audio.automatic_fallback ? "ON" : "OFF"}</dd></div><div><dt>EXTERNAL ACCESS</dt><dd>${document.audio.external_permission_required ? "REVIEW REQUIRED" : "NONE"}</dd></div></dl>${document.audio.transfer ? `<p class="utility">NETWORK INPUT: ${escapeHtml(document.audio.transfer.input_scope)} / REQUIRED CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.credential_env.join(", ") || "none")} / OPTIONAL CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.optional_credential_env.join(", ") || "none")}</p>` : ""}</div>
       <div class="audio-tracks">${document.audio.bgm ? renderAudioTrack("BGM", document.audio.bgm) : ""}${document.audio.sfx.map((track) => renderAudioTrack("SFX", track)).join("")}</div>
     </section>`
     : "";

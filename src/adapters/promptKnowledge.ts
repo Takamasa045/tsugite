@@ -258,8 +258,9 @@ export async function loadProjectPromptGuides(
   guideDirs = ["knowledge/video-models"]
 ): Promise<PromptGuide[]> {
   if (!project.generation) return [];
-  const ids = new Set(
+  const ids = new Set<string>(
     project.generation.requests.map((request) => request.prompt_guide?.catalog ?? project.generation!.adapter)
+      .filter((id): id is string => id !== undefined)
   );
   const guides = await Promise.all([...ids].map((id) => loadPromptGuideById(id, guideDirs)));
   return guides.filter((guide): guide is PromptGuide => guide !== undefined);
@@ -273,6 +274,7 @@ export function resolveProjectPromptGuidance(
   if (!project.generation) return [];
   return project.generation.requests.flatMap((request) => {
     const catalogId = request.prompt_guide?.catalog ?? project.generation!.adapter;
+    if (!catalogId) return [];
     const guide = guides.find((candidate) => candidate.catalog_id === catalogId);
     if (guide) return [resolvePromptGuidance(request, guide, asOf)];
     if (!request.prompt_guide) return [];

@@ -171,6 +171,394 @@ describe("project validation", () => {
     }
   });
 
+  it("accepts a generation connection without requiring the legacy adapter field", () => {
+    const parsed = projectSchema.safeParse({
+      ...validProjectDefinition(),
+      generation: {
+        connection: "pixverse-main",
+        requests: [requestDefinition("generation", "connected-request")]
+      }
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.generation).toMatchObject({
+        connection: "pixverse-main",
+        requests: [expect.objectContaining({ id: "connected-request" })]
+      });
+      expect(parsed.data.generation).not.toHaveProperty("adapter");
+    }
+  });
+
+  it("asks which service to use when generation requests have no connection", async () => {
+    const result = await validateProject("fixtures/projects/generation-connection-required.yaml");
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      code: "generation.connection_required",
+      message: "どのサービスを使って生成しますか？ `pipeline connections --json` で利用可能な候補を確認してください。",
+      path: "generation.connection"
+    });
+    expect(result.issues.map((issue) => issue.code)).not.toContain("project.schema");
+    expect(result.adapter).toBeUndefined();
+  });
+
+  it("resolves an explicit generation connection to its execution adapter", async () => {
+    const result = await validateProject("fixtures/projects/generation-connection-topview.yaml");
+
+    expect(result.ok).toBe(true);
+    expect(result.adapter?.name).toBe("topview");
+    expect(result.project?.generation).toMatchObject({
+      connection: "topview",
+      adapter: "topview"
+    });
+  });
+
+  it("normalizes a spoken generation connection alias before adapter execution", async () => {
+    const result = await validateProject("fixtures/projects/generation-connection-pixburst-alias.yaml");
+
+    expect(result.ok).toBe(true);
+    expect(result.adapter?.name).toBe("pixverse");
+    expect(result.project?.generation).toMatchObject({
+      connection: "pixverse",
+      adapter: "pixverse"
+    });
+  });
+
+  it("asks before using a known paid adapter without an explicit service connection", async () => {
+    const result = await validateProject("fixtures/projects/generation-known-adapter-connection-required.yaml");
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      code: "generation.connection_required",
+      message: "どのサービスを使って生成しますか？ 候補 'pixverse' を generation.connection に明示してください。",
+      path: "generation.connection"
+    });
+    expect(result.adapter).toBeUndefined();
+  });
+
+  it("asks before using an unregistered external adapter without a connection", async () => {
+    const result = await validateProject("fixtures/projects/openclaw-connection-required.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: "generation.connection_required",
+      path: "generation.connection"
+    }));
+  });
+
+  it("asks with every candidate when one adapter has multiple connection routes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-project-connections-"));
+    const catalogPath = join(root, "catalog.yaml");
+    await writeFile(catalogPath, `
+schema_version: 1
+selection_prompt:
+  id: generation-connection
+  question: choose
+  required_when: connection-unspecified
+  instruction: ask
+  no_subscription_message: none
+  no_subscription_options: [generate-later]
+connections:
+  - id: pixverse-route-one
+    display_name: PixVerse route one
+    provider: first
+    transport: cli
+    auth_kind: subscription
+    implementation_status: integrated
+    adapter: pixverse
+    capabilities: [video.text-to-video]
+    automated_capabilities: [video.text-to-video]
+    model_families: [pixverse]
+    route_note: first
+    setup_checks:
+      - type: manual
+        detail: verify first
+  - id: pixverse-route-two
+    display_name: PixVerse route two
+    provider: second
+    transport: cli
+    auth_kind: subscription
+    implementation_status: integrated
+    adapter: pixverse
+    capabilities: [video.text-to-video]
+    automated_capabilities: [video.text-to-video]
+    model_families: [pixverse]
+    route_note: second
+    setup_checks:
+      - type: manual
+        detail: verify second
+`);
+
+    const result = await validateProject(
+      "fixtures/projects/generation-known-adapter-connection-required.yaml",
+      { connectionCatalogPath: catalogPath }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: "generation.connection_required",
+      message: "どのサービスを使って生成しますか？ 候補 'pixverse-route-one', 'pixverse-route-two' から generation.connection を明示してください。"
+    }));
+  });
+
+  it("stops when explicit generation connection and legacy adapter disagree", async () => {
+    const result = await validateProject("fixtures/projects/generation-connection-mismatch.yaml");
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      code: "generation.connection_adapter_mismatch",
+      message: "connection 'topview' uses adapter 'topview', not 'pixverse'",
+      path: "generation.adapter"
+    });
+    expect(result.adapter).toBeUndefined();
+  });
+
+  it("stops when an explicit connection cannot run the requested model", async () => {
+    const result = await validateProject("fixtures/projects/generation-connection-incompatible.yaml");
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      code: "generation.connection_incompatible",
+      message: "connection 'kling-via-pixverse' does not support every requested model and input mode",
+      path: "generation.requests"
+    });
+    expect(result.adapter).toBeUndefined();
+  });
+
+  it("checks an omitted input mode as text-to-video instead of bypassing automation compatibility", async () => {
+    const result = await validateProject("fixtures/projects/generation-connection-default-t2v.yaml", {
+      connectionCatalogPath: "fixtures/connections/image-only.catalog.yaml"
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: "generation.connection_incompatible",
+      path: "generation.requests"
+    }));
+    expect(result.adapter).toBeUndefined();
+  });
+
+  it("keeps a generation request without connection as a validation concern", () => {
+    const parsed = projectSchema.safeParse({
+      ...validProjectDefinition(),
+      generation: {
+        requests: [requestDefinition("generation", "unrouted-request")]
+      }
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects unsafe generation connection names", () => {
+    const parsed = projectSchema.safeParse({
+      ...validProjectDefinition(),
+      generation: {
+        connection: "../outside-connection",
+        requests: [requestDefinition("generation", "safe-request")]
+      }
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.path).toEqual(["generation", "connection"]);
+    }
+  });
+
+  it("rejects secret-like keys in generation params even when the value names an environment variable", () => {
+    const project = validProjectDefinition();
+    project.generation = {
+      adapter: "fixture-adapter",
+      requests: [
+        {
+          ...requestDefinition("generation", "secret-param"),
+          params: { provider: { api_key: "PROVIDER_API_KEY" } }
+        }
+      ]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+        message: "generation credentials must use adapter-declared environment variables",
+        path: ["generation", "requests", 0, "params", "provider", "api_key"]
+      }));
+    }
+  });
+
+  it("rejects secret-like keys in audio params", () => {
+    const parsed = projectSchema.safeParse({
+      ...validProjectDefinition(),
+      audio: {
+        adapter: "hyperframes-media",
+        bgm: {
+          id: "main-bgm",
+          prompt: "warm cinematic underscore"
+        },
+        params: { auth: { token: "must-not-be-stored" } }
+      }
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+        message: "audio credentials must use adapter-declared environment variables",
+        path: ["audio", "params", "auth", "token"]
+      }));
+    }
+  });
+
+  it.each([
+    "authorization",
+    "cookie",
+    "session_cookie",
+    "session-cookie",
+    "refresh_token",
+    "secret_key",
+    "private_key",
+    "x_api_key",
+    "api_token",
+    "session_token",
+    "authorization_header",
+    "api_secret",
+    "client_token",
+    "auth_header",
+    "access_key",
+    "signing_key",
+    "id_token"
+  ])("rejects normalized secret parameter key '%s'", (key) => {
+    const parsed = projectSchema.safeParse({
+      ...validProjectDefinition(),
+      audio: {
+        adapter: "hyperframes-media",
+        bgm: { id: "main-bgm", prompt: "warm cinematic underscore" },
+        params: { auth: { [key]: "must-not-be-stored" } }
+      }
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+        message: "audio credentials must use adapter-declared environment variables",
+        path: ["audio", "params", "auth", key]
+      }));
+    }
+  });
+
+  it.each(["generation", "analysis"] as const)("rejects top-level secret fields in %s requests", (requestKind) => {
+    const project = validProjectDefinition();
+    project[requestKind] = {
+      ...(requestKind === "analysis" ? { mode: "cloud" as const } : {}),
+      adapter: "fixture-adapter",
+      requests: [{ ...requestDefinition(requestKind, "top-level-secret"), api_secret: "must-not-be-stored" }]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+        path: [requestKind, "requests", 0, "api_secret"]
+      }));
+    }
+  });
+
+  it("allows non-secret parameter keys to refer to adapter-declared environment variables", () => {
+    const parsed = projectSchema.safeParse({
+      ...validProjectDefinition(),
+      generation: {
+        adapter: "fixture-adapter",
+        requests: [
+          {
+            ...requestDefinition("generation", "environment-reference"),
+            params: { credential_environment_variable: "PROVIDER_API_KEY" }
+          }
+        ]
+      },
+      audio: {
+        adapter: "hyperframes-media",
+        bgm: {
+          id: "main-bgm",
+          prompt: "warm cinematic underscore"
+        },
+        params: { environment_variable: "AUDIO_API_KEY" }
+      }
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it.each([
+    ["api_key_environment_variable", "sk-live-secret"],
+    ["apiKeyEnv", "sk-live-secret"],
+    ["credential_environment_variable", "not-an-environment-name"]
+  ])("rejects a literal secret disguised as environment reference '%s'", (key, value) => {
+    const project = validProjectDefinition();
+    project.generation = {
+      adapter: "fixture-adapter",
+      requests: [{
+        ...requestDefinition("generation", "invalid-environment-reference"),
+        params: { [key]: value }
+      }]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+        path: ["generation", "requests", 0, "params", key]
+      }));
+    }
+  });
+
+  it("rejects a literal secret in a nested auth environment reference", () => {
+    const project = validProjectDefinition();
+    project.generation = {
+      adapter: "fixture-adapter",
+      requests: [{
+        ...requestDefinition("generation", "nested-invalid-environment-reference"),
+        auth: { environment_variable: "sk-live-secret" }
+      }]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+        path: ["generation", "requests", 0, "auth", "environment_variable"]
+      }));
+    }
+  });
+
+  it.each([
+    ["header", "Bearer must-not-be-stored"],
+    ["value", "must-not-be-stored"]
+  ])("rejects non-environment field '%s' inside an auth object", (key, value) => {
+    const project = validProjectDefinition();
+    project.generation = {
+      adapter: "fixture-adapter",
+      requests: [{
+        ...requestDefinition("generation", "unsafe-auth-object"),
+        params: { auth: { [key]: value } }
+      }]
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toContainEqual(expect.objectContaining({
+        path: ["generation", "requests", 0, "params", "auth", key]
+      }));
+    }
+  });
+
   it.each(["generation", "analysis"] as const)("rejects duplicate %s request ids", (requestKind) => {
     const project = validProjectDefinition();
     project[requestKind] = {
@@ -401,6 +789,56 @@ describe("project validation", () => {
         }
       ]
     });
+  });
+
+  it("resolves an audio connection to its canonical adapter", async () => {
+    const result = await validateProject("fixtures/projects/audio-connection.yaml");
+
+    expect(result.ok).toBe(true);
+    expect(result.project?.audio).toMatchObject({
+      connection: "hyperframes-media",
+      adapter: "hyperframes-media"
+    });
+    expect(result.audioConnection).toMatchObject({
+      id: "hyperframes-media",
+      adapter: "hyperframes-media",
+      transport: "cli"
+    });
+  });
+
+  it("asks which service to use when an audio connection and adapter are both absent", async () => {
+    const result = await validateProject("fixtures/projects/audio-connection-required.yaml");
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: "audio.connection_required",
+      message: expect.stringContaining("どのサービスを使って生成しますか？"),
+      path: "audio.connection"
+    }));
+  });
+
+  it("asks before using a known audio adapter without an explicit service connection", async () => {
+    const result = await validateProject("fixtures/projects/audio-known-adapter-connection-required.yaml");
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      code: "audio.connection_required",
+      message: "どのサービスを使って生成しますか？ 候補 'hyperframes-media' を audio.connection に明示してください。",
+      path: "audio.connection"
+    });
+    expect(result.audioAdapter).toBeUndefined();
+  });
+
+  it.each([
+    ["audio-connection-incompatible.yaml", "audio.connection_incompatible"],
+    ["audio-connection-mismatch.yaml", "audio.connection_adapter_mismatch"]
+  ])("rejects an invalid audio connection contract in %s", async (fixture, code) => {
+    const result = await validateProject(`fixtures/projects/${fixture}`, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code }));
   });
 
   it("rejects an audio request that has neither BGM nor SFX", () => {

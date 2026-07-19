@@ -15,6 +15,16 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 - Limit Planner / Reviewer work to `validate`, `plan`, `review`, and `run --dry-run`.
 - Keep Output QA read-only while inspecting manifests, media metadata, timing, artifacts, and final reports.
 
+## Connection Selection
+
+- Before selecting or writing a `project.yaml` for external video, image, or audio generation, resolve three separate choices: the requested media capability, the generation model, and the connection profile that pays for and authenticates the request.
+- If the user explicitly names both a connection/service and a compatible model, keep that choice and do not ask the connection question again. If the user names only a model and more than one compatible ready connection exists, list those connections and ask: `どのサービスを使って生成しますか？`
+- If no connection is named, show only the compatible connections and their verified status, then ask the same question before fixing the project configuration or starting any external action. Do not infer a paid route from a model catalog, previous project, preferred default, or installed executable.
+- Even when exactly one compatible ready connection exists, ask the connection question whenever the user did not explicitly name the service. Never silently select or fall back to a connection, subscription, model, or billing account.
+- If no compatible connection is ready, explain that planning and editing can continue without a subscription, then offer local/existing media, manual import of externally generated media, a supported local generator, or connection setup. Do not pressure the user to subscribe to every provider.
+- Never ask the user to paste API keys, session cookies, auth links, tokens, or other secrets into chat, `project.yaml`, or repository files. Direct them to the provider's login flow, OS credential store, or declared environment-variable setup instead.
+- Treat connection status as runtime evidence, not a promise. A model catalog is advisory; an installed transport, authenticated subscription, available entitlement, and sufficient credits are separate checks.
+
 ## Required Flow
 
 1. Read the selected `project.yaml` and state the goal and completion condition in one sentence.
@@ -70,5 +80,6 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 - Read `../../../templates/README.md` before selecting or adding a reusable project template.
 - Read `../../../docs/story-guides.md` when interpreting story-framework recommendations.
 - Read `../../../docs/prompt-guides.md` when generation prompt guidance is involved.
+- Read `../../../docs/connections.md` before selecting or adding an external video, image, or audio generation connection.
 - Read `../../../docs/shitate.md` only for an explicitly requested Shitate handoff.
 - Read `../../../docs/automations/learning-promotion-review.md` when creating, reviewing, or running the dedicated learning-promotion automation.

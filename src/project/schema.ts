@@ -54,7 +54,8 @@ const audioBgmRequestSchema = audioTimingSchema.safeExtend({
 
 const audioRequestSchema = z
   .object({
-    adapter: safeIdSchema,
+    connection: safeIdSchema.optional(),
+    adapter: safeIdSchema.optional(),
     fallback: z.literal("fail").default("fail"),
     bgm: audioBgmRequestSchema.optional(),
     sfx: z.array(audioTimingSchema).superRefine(rejectDuplicateRequestIds).default([]),
@@ -163,7 +164,8 @@ export const projectSchema = z
     }),
     generation: z
       .object({
-        adapter: safeIdSchema,
+        connection: safeIdSchema.optional(),
+        adapter: safeIdSchema.optional(),
         requests: z.array(generationRequestSchema).superRefine(rejectDuplicateRequestIds).default([])
       })
       .optional(),
@@ -179,16 +181,34 @@ export const projectSchema = z
   })
   .passthrough()
   .superRefine((project, context) => {
-    if (project.analysis?.mode !== "local") {
-      for (const [index, request] of project.analysis?.requests.entries() ?? []) {
-        const secretPath = findSecretKeyPath(request.params);
-        if (secretPath) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "external analysis credentials must use adapter-declared environment variables",
-            path: ["analysis", "requests", index, "params", ...secretPath]
-          });
-        }
+    for (const [index, request] of project.generation?.requests.entries() ?? []) {
+      const secretPath = findSecretKeyPath(request);
+      if (secretPath) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "generation credentials must use adapter-declared environment variables",
+          path: ["generation", "requests", index, ...secretPath]
+        });
+      }
+    }
+    if (project.audio) {
+      const secretPath = findSecretKeyPath(project.audio);
+      if (secretPath) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "audio credentials must use adapter-declared environment variables",
+          path: ["audio", ...secretPath]
+        });
+      }
+    }
+    for (const [index, request] of project.analysis?.requests.entries() ?? []) {
+      const secretPath = findSecretKeyPath(request);
+      if (secretPath) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "analysis credentials must use adapter-declared environment variables",
+          path: ["analysis", "requests", index, ...secretPath]
+        });
       }
     }
     if (project.edit.editorial && !project.analysis) {
@@ -289,11 +309,111 @@ function findSecretKeyPath(value: unknown, path: Array<string | number> = []): A
     return undefined;
   }
   for (const [key, item] of Object.entries(value)) {
-    if (/^(?:api[_-]?key|token|access[_-]?token|auth[_-]?token|bearer[_-]?token|secret|client[_-]?secret|password|credential)$/i.test(key)) {
+    const normalizedKey = key.toLocaleLowerCase("en-US").replace(/[^a-z0-9]+/g, "");
+    if (normalizedKey === "auth" && item && typeof item === "object") {
+      for (const [authKey, authValue] of Object.entries(item)) {
+        const tokens = authKey
+          .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+          .toLocaleLowerCase("en-US")
+          .split(/[^a-z0-9]+/)
+          .filter(Boolean);
+        const environmentReference = (
+          tokens.includes("environment") && tokens.includes("variable")
+        ) || (
+          tokens.includes("env")
+          && (tokens.includes("var") || tokens.includes("variable") || tokens.at(-1) === "env")
+        );
+        if (
+          !environmentReference
+          || typeof authValue !== "string"
+          || !/^[A-Z][A-Z0-9_]*$/.test(authValue)
+        ) {
+          return [...path, key, authKey];
+        }
+      }
+      continue;
+    }
+    if (isSecretParameterKey(key, normalizedKey, item)) {
       return [...path, key];
     }
     const found = findSecretKeyPath(item, [...path, key]);
     if (found) return found;
   }
   return undefined;
+}
+
+const SECRET_PARAMETER_KEYS = new Set([
+  "apikey",
+  "token",
+  "accesstoken",
+  "authtoken",
+  "bearertoken",
+  "refreshtoken",
+  "auth",
+  "authorization",
+  "cookie",
+  "cookies",
+  "sessioncookie",
+  "secret",
+  "secretkey",
+  "clientsecret",
+  "privatekey",
+  "password",
+  "credential",
+  "credentials"
+]);
+
+function isSecretParameterKey(key: string, normalizedKey: string, value: unknown): boolean {
+  const tokens = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLocaleLowerCase("en-US")
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const environmentReference = (
+    tokens.includes("environment") && tokens.includes("variable")
+  ) || (
+    tokens.includes("env")
+    && (tokens.includes("var") || tokens.includes("variable") || tokens.at(-1) === "env")
+  );
+  if (environmentReference) {
+    return typeof value !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(value);
+  }
+  if (SECRET_PARAMETER_KEYS.has(normalizedKey)) return true;
+  const directSecretTokens = new Set([
+    "secret",
+    "token",
+    "password",
+    "credential",
+    "credentials",
+    "cookie",
+    "cookies",
+    "authorization"
+  ]);
+  if (tokens.some((token) => directSecretTokens.has(token))) return true;
+  if (tokens.includes("auth") && tokens.length > 1) return true;
+  const keyQualifiers = new Set(["api", "access", "private", "signing", "client", "secret"]);
+  if (tokens.includes("key") && tokens.some((token) => keyQualifiers.has(token))) return true;
+  return [
+    "apikey",
+    "apitoken",
+    "apisecret",
+    "accesstoken",
+    "accesskey",
+    "authtoken",
+    "bearertoken",
+    "clienttoken",
+    "idtoken",
+    "refreshtoken",
+    "signingkey",
+    "sessiontoken",
+    "sessioncookie",
+    "secretkey",
+    "clientsecret",
+    "privatekey"
+  ].some((suffix) => normalizedKey.endsWith(suffix))
+    || normalizedKey.includes("authorization")
+    || normalizedKey.endsWith("cookie")
+    || normalizedKey.endsWith("password")
+    || normalizedKey.endsWith("credential")
+    || normalizedKey.endsWith("credentials");
 }

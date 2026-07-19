@@ -1,0 +1,16 @@
+slug: generation-connection-topview
+run_id: generation-connection-topview-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  connection: topview
+  requests:
+    - id: connected-001
+      prompt: Generate with the explicitly selected TopView subscription.
+      model: seedance-2.0
+      duration: 5
+      aspect: "16:9"
+      input_mode: text-to-video
+      params: {}

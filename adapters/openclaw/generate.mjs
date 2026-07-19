@@ -65,8 +65,8 @@ function parseBridgeCommand(value) {
     throw new AdapterError("TSUGITE_OPENCLAW_GENERATE_COMMAND must be a JSON array command", 40);
   }
 
-  if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every((part) => typeof part === "string" && part.length > 0)) {
-    throw new AdapterError("TSUGITE_OPENCLAW_GENERATE_COMMAND must be a non-empty JSON array of strings", 40);
+  if (!Array.isArray(parsed) || parsed.length !== 1 || typeof parsed[0] !== "string" || parsed[0].length === 0) {
+    throw new AdapterError("TSUGITE_OPENCLAW_GENERATE_COMMAND must contain exactly one executable wrapper command", 40);
   }
 
   const [executable, ...args] = parsed;

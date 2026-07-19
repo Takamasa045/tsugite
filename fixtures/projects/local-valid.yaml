@@ -5,11 +5,12 @@ dist_dir: dist
 edit:
   backend: remotion
 generation:
+  connection: pixverse
   adapter: pixverse
   requests:
     - id: local-001
       prompt: local fixture
-      model: local
+      model: pixverse-v6
       duration: 3
       aspect: "16:9"
       seed: 1

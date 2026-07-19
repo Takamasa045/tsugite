@@ -21,7 +21,7 @@ checks:
       variable: TSUGITE_OPENCLAW_GENERATE_COMMAND
       format: json-command
       remediation:
-        default: "Set TSUGITE_OPENCLAW_GENERATE_COMMAND to a JSON command array whose executable is installed, then rerun doctor."
+        default: "Set TSUGITE_OPENCLAW_GENERATE_COMMAND to a one-item JSON array containing an installed executable wrapper (for example, [\"/absolute/path/to/tsugite-openclaw-bridge\"]), then rerun doctor. Move fixed arguments from older multi-item arrays into the wrapper."
 command:
   executable: node
   args: ["adapters/openclaw/generate.mjs"]

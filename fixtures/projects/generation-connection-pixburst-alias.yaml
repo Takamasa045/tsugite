@@ -1,0 +1,16 @@
+slug: generation-connection-pixburst-alias
+run_id: generation-connection-pixburst-alias-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  connection: PixBurst
+  requests:
+    - id: aliased-001
+      prompt: Normalize the spoken provider alias to its canonical connection.
+      model: pixverse-v6
+      duration: 3
+      aspect: "16:9"
+      input_mode: text-to-video
+      params: {}

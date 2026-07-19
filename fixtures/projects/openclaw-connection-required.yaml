@@ -1,17 +1,15 @@
-slug: topview-generation
-run_id: topview-generation-run
+slug: openclaw-connection-required
+run_id: openclaw-connection-required-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist
 edit:
   backend: remotion
 generation:
-  connection: topview
-  adapter: topview
+  adapter: openclaw
   requests:
-    - id: topview-001
+    - id: openclaw-001
       prompt: fixture prompt
-      model: Standard
+      model: optional-runtime
       duration: 5
       aspect: "16:9"
-      seed: 1
       params: {}

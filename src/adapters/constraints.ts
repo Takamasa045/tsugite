@@ -30,7 +30,7 @@ export async function validateGenerationConstraints(
   project: Project,
   adapterDirs = ["adapters"]
 ): Promise<Result<{}>> {
-  if (!project.generation) {
+  if (!project.generation?.adapter) {
     return { ok: true, issues: [] };
   }
 

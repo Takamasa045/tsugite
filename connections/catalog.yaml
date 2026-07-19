@@ -1,0 +1,227 @@
+schema_version: 1
+selection_prompt:
+  id: generation-connection
+  question: "どのサービス（サブスク／認証経路）を使って生成しますか？"
+  required_when: connection-unspecified
+  instruction: "サービスが明示されていない場合は、互換候補が1件だけでも生成前にユーザーへ確認する。"
+  no_subscription_message: "生成サービスの契約がなくても、手持ち素材、手動取り込み、ローカル生成、または新しいサービスの接続で続行できます。"
+  no_subscription_options:
+    - use-owned-media
+    - import-generated-media
+    - configure-local-generation
+    - connect-a-service
+    - generate-later
+
+connections:
+  - id: pixverse
+    aliases: [pixvers, pixburst]
+    display_name: PixVerseサブスク
+    provider: pixverse
+    transport: cli
+    auth_kind: subscription
+    implementation_status: integrated
+    adapter: pixverse
+    capabilities:
+      - image.generate
+      - video.text-to-video
+      - video.image-to-video
+      - video.extend
+      - audio.text-to-speech
+      - audio.music
+      - audio.sound-effects
+    automated_capabilities:
+      - video.text-to-video
+      - video.image-to-video
+    model_families: [pixverse, seedance]
+    route_note: "PixVerse CLIとPixVerseのサブスク認証を使う。PixVerse・Seedanceの動画生成を現行アダプターで引き渡し、その他のcapabilityは追加接続が必要。"
+    setup_checks:
+      - type: command
+        command: pixverse
+      - type: manual
+        detail: "PixVerseのログイン状態とクレジットは生成前に確認する。"
+
+  - id: topview
+    display_name: TopViewサブスク
+    provider: topview
+    transport: mcp
+    auth_kind: subscription
+    implementation_status: integrated
+    adapter: topview
+    capabilities:
+      - image.generate
+      - video.text-to-video
+      - video.image-to-video
+      - video.native-audio
+    automated_capabilities:
+      - video.text-to-video
+      - video.image-to-video
+    model_families: [standard, kling, seedance, vidu, veo, sora, wan, hailuo]
+    route_note: "TopView MCPとTopViewのサブスク認証を使う。TsugiteはMCP agent-handoffとして扱い、repo-local互換アダプターをCLI実行しない。"
+    setup_checks:
+      - type: manual
+        detail: "実行ホストでTopView MCPの接続、ログイン、クレジットを確認する。"
+
+  - id: kling-via-pixverse
+    aliases: [kling, cling]
+    display_name: Kling（PixVerse経由）
+    provider: pixverse
+    transport: cli
+    auth_kind: subscription
+    implementation_status: integrated
+    adapter: kling
+    capabilities:
+      - video.text-to-video
+      - video.image-to-video
+    automated_capabilities:
+      - video.text-to-video
+      - video.image-to-video
+    model_families: [kling]
+    route_note: "KlingモデルをPixVerse CLIとPixVerseのサブスク認証で実行する互換接続。"
+    setup_checks:
+      - type: command
+        command: pixverse
+      - type: manual
+        detail: "PixVerseのログイン状態とKlingモデルの利用可否は生成前に確認する。"
+
+  - id: elevenlabs
+    display_name: ElevenLabs
+    provider: elevenlabs
+    transport: mcp
+    auth_kind: subscription
+    implementation_status: available-to-add
+    capabilities:
+      - audio.text-to-speech
+      - audio.music
+      - audio.sound-effects
+      - audio.transcription
+      - audio.dubbing
+    model_families: [elevenlabs]
+    route_note: "MCP接続と専用音声アダプターの追加後に自動実行できる。"
+    setup_checks: []
+
+  - id: hyperframes-media
+    display_name: Hyperframes Media Use（ローカル接続）
+    provider: hyperframes
+    transport: cli
+    auth_kind: local
+    implementation_status: integrated
+    adapter: hyperframes-media
+    capabilities:
+      - audio.music
+      - audio.sound-effects
+    automated_capabilities:
+      - audio.music
+      - audio.sound-effects
+    model_families: [hyperframes-media]
+    route_note: "既存のHyperframes media-use skillをCLI adapter経由で呼び出す。利用する外部providerの認証と権限は実行前に別途確認する。"
+    setup_checks:
+      - type: command
+        command: node
+      - type: manual
+        detail: "media-use skillと、選択した外部providerの認証・契約・クレジットを確認する。"
+
+  - id: openclaw-bridge
+    display_name: OpenClaw生成ブリッジ
+    provider: openclaw
+    transport: cli
+    auth_kind: local
+    implementation_status: integrated
+    adapter: openclaw
+    capabilities:
+      - video.text-to-video
+    automated_capabilities:
+      - video.text-to-video
+    model_families: [optional-runtime]
+    route_note: "TSUGITE_OPENCLAW_GENERATE_COMMANDで明示したOpenClaw生成経路を使う。実際の提供元と課金契約は実行前に確認する。"
+    setup_checks:
+      - type: command
+        command: node
+      - type: environment
+        variable: TSUGITE_OPENCLAW_GENERATE_COMMAND
+        direct_route_command: true
+      - type: manual
+        detail: "OpenClaw bridge設定が引数なしwrapper 1件のJSON command arrayで、実際のprovider契約が正しいことを確認する。"
+
+  - id: fish-audio
+    display_name: Fish Audio
+    provider: fish-audio
+    transport: api
+    auth_kind: api-key
+    implementation_status: available-to-add
+    capabilities:
+      - audio.text-to-speech
+      - audio.voice-clone
+      - audio.transcription
+    model_families: [fish-audio]
+    route_note: "Fish Audio API用の専用アダプターを追加するための登録枠。"
+    setup_checks: []
+
+  - id: vidu-direct
+    display_name: Vidu API
+    provider: vidu
+    transport: api
+    auth_kind: api-key
+    implementation_status: available-to-add
+    capabilities:
+      - video.text-to-video
+      - video.image-to-video
+      - video.reference-to-video
+    model_families: [vidu]
+    route_note: "Vidu直接契約を使う専用アダプターの登録枠。"
+    setup_checks: []
+
+  - id: runway
+    display_name: Runway API
+    provider: runway
+    transport: api
+    auth_kind: api-key
+    implementation_status: available-to-add
+    capabilities:
+      - image.generate
+      - video.text-to-video
+      - video.image-to-video
+    model_families: [runway, veo]
+    route_note: "RunwayのAPI契約を使う専用アダプターの登録枠。"
+    setup_checks: []
+
+  - id: google-veo
+    display_name: Google Vertex AI / Veo
+    provider: google
+    transport: api
+    auth_kind: api-key
+    implementation_status: available-to-add
+    capabilities:
+      - video.text-to-video
+      - video.image-to-video
+      - video.native-audio
+    model_families: [veo]
+    route_note: "Google Cloudの認証と専用Veoアダプターの登録枠。"
+    setup_checks: []
+
+  - id: luma
+    display_name: Luma API
+    provider: luma
+    transport: api
+    auth_kind: api-key
+    implementation_status: available-to-add
+    capabilities:
+      - image.generate
+      - video.text-to-video
+      - video.image-to-video
+    model_families: [luma, ray]
+    route_note: "LumaのAPI契約を使う専用アダプターの登録枠。"
+    setup_checks: []
+
+  - id: comfyui-local
+    display_name: ComfyUI（ローカル）
+    provider: comfyui
+    transport: local
+    auth_kind: none
+    implementation_status: available-to-add
+    capabilities:
+      - image.generate
+      - video.text-to-video
+      - video.image-to-video
+    model_families: [wan, custom]
+    route_note: "ローカルComfyUIサーバー用アダプターの登録枠。サブスクは不要。"
+    setup_checks: []

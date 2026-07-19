@@ -1,5 +1,6 @@
 name: analysis-metadata
 kind: mcp-agent
+connection_requirement: local-only
 class: analysis
 dry_run_estimate: false
 batch: false

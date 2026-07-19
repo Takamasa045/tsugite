@@ -558,7 +558,9 @@ export async function startWorkflowViewerLauncher(
           validation.adapter,
           validation.analysisAdapters ?? validation.analysisAdapter,
           validation.promptGuides,
-          validation.audioAdapter
+          validation.audioAdapter,
+          validation.generationConnection,
+          validation.audioConnection
         );
         if (!await matchesProjectIdentity(record.configPath, record.identity)) {
           sendProjectChanged(response);

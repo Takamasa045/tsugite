@@ -1,0 +1,12 @@
+slug: audio-connection-required
+run_id: audio-connection-required-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+audio:
+  fallback: fail
+  bgm:
+    id: main-bgm
+    mode: generate
+    prompt: warm cinematic underscore

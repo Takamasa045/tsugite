@@ -267,7 +267,7 @@ describe("environment doctor", () => {
       },
       environment: {
         ...process.env,
-        TSUGITE_OPENCLAW_GENERATE_COMMAND: '["node","bridge.mjs"]'
+        TSUGITE_OPENCLAW_GENERATE_COMMAND: '["node"]'
       }
     });
 
@@ -277,6 +277,24 @@ describe("environment doctor", () => {
     expect(report.checks).toContainEqual(
       expect.objectContaining({ name: "bridge:openclaw (openclaw)", ok: true, status: "ready" })
     );
+  });
+
+  it("fails closed when a direct bridge command includes arguments", async () => {
+    const report = await inspectEnvironment("fixtures/projects/openclaw-generation.yaml", {
+      commandExists: async () => true,
+      probeCommand: async () => ({ ok: true, version: "test" }),
+      environment: {
+        ...process.env,
+        TSUGITE_OPENCLAW_GENERATE_COMMAND: '["node","bridge.mjs"]'
+      }
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.checks).toContainEqual(expect.objectContaining({
+      name: "bridge:openclaw (openclaw)",
+      ok: false,
+      status: "missing"
+    }));
   });
 
   it("fails closed when a declared bridge environment variable is missing", async () => {
@@ -305,6 +323,14 @@ async function projectUsingAdapter(adapterName: string): Promise<string> {
     `.doctor-${adapterName}-${process.pid}-${Math.random().toString(36).slice(2)}.yaml`
   );
   temporaryProjects.push(path);
-  await writeFile(path, source.replace("adapter: pixverse", `adapter: ${adapterName}`));
+  const connection = adapterName === "kling" ? "kling-via-pixverse" : "pixverse";
+  const model = adapterName === "kling" ? "kling-v3" : "pixverse-v6";
+  await writeFile(
+    path,
+    source
+      .replace("connection: pixverse", `connection: ${connection}`)
+      .replace("adapter: pixverse", `adapter: ${adapterName}`)
+      .replace("model: pixverse-v6", `model: ${model}`)
+  );
   return path;
 }
