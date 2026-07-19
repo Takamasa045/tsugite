@@ -1,5 +1,6 @@
 name: no-command
 kind: cli
+connection_requirement: local-only
 class: generation
 dry_run_estimate: true
 batch: false

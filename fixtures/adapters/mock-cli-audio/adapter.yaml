@@ -1,5 +1,6 @@
 name: mock-cli-audio
 kind: cli
+connection_requirement: local-only
 class: audio
 offline: true
 dry_run_estimate: true

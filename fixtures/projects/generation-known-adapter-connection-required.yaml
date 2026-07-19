@@ -1,0 +1,16 @@
+slug: generation-known-adapter-connection-required
+run_id: generation-known-adapter-connection-required-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: pixverse
+  requests:
+    - id: paid-route-001
+      prompt: Ask which service should pay before generation.
+      model: pixverse-v6
+      duration: 3
+      aspect: "16:9"
+      input_mode: text-to-video
+      params: {}

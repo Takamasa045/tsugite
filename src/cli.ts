@@ -36,6 +36,7 @@ import {
   type RunState
 } from "./orchestrator/state.js";
 import { validateProject } from "./project/validateProject.js";
+import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import type { Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
 import { appendProjectFeedback } from "./feedback/index.js";
@@ -56,6 +57,7 @@ type ParsedArgs = {
   stateDir?: string;
   catalog?: string;
   model?: string;
+  capability?: string;
   inputMode?: string;
   output?: string;
   request?: string;
@@ -130,6 +132,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ok: false,
         command: "story-guides",
         scope: "creative-guidance-only",
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "connections") {
+    try {
+      const query = {
+        ...(args.model ? { model: args.model } : {}),
+        ...(args.capability ? { capability: args.capability } : {})
+      };
+      const connections = await listConnectionOptions(query);
+      return output(args, 0, {
+        ok: true,
+        command: "connections",
+        billing_action: false,
+        secret_values_exposed: false,
+        filters: query,
+        connections,
+        selection_prompt: await connectionSelectionPrompt(query)
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "connections",
         issues: cliIssuesFromError(error)
       });
     }
@@ -517,7 +544,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.adapter,
         validation.analysisAdapters ?? validation.analysisAdapter,
         validation.promptGuides,
-        validation.audioAdapter
+        validation.audioAdapter,
+        validation.generationConnection,
+        validation.audioConnection
       )
     });
   }
@@ -554,7 +583,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.adapter,
       validation.analysisAdapters ?? validation.analysisAdapter,
       validation.promptGuides,
-      validation.audioAdapter
+      validation.audioAdapter,
+      validation.generationConnection,
+      validation.audioConnection
     );
     try {
       const viewer = await writeWorkflowViewer({
@@ -614,7 +645,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.adapter,
       validation.analysisAdapters ?? validation.analysisAdapter,
       validation.promptGuides,
-      validation.audioAdapter
+      validation.audioAdapter,
+      validation.generationConnection,
+      validation.audioConnection
     );
     try {
       const review = await writeCreativeReview({
@@ -680,7 +713,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.analysisAdapters ?? validation.analysisAdapter,
         validation.backend,
         validation.promptGuides,
-        validation.audioAdapter
+        validation.audioAdapter,
+        validation.generationConnection,
+        validation.audioConnection
       )
     });
   }
@@ -746,14 +781,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (!review.ok) {
       return output(args, 1, { ok: false, command: "run", issues: review.issues });
     }
-    if (
-      validation.project!.analysis &&
-      stateResult.state.gates.gate_1.approved_input_digest !== review.approvalDigest
-    ) {
+    if (stateResult.state.gates.gate_1.approved_input_digest !== review.approvalDigest) {
       return output(args, 1, {
         ok: false,
         command: "run",
-        issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current analysis artifacts" }]
+        issues: [{ code: "gate.review_changed", message: "Gate 1 approval does not match the current review and input artifacts" }]
       });
     }
 
@@ -762,7 +794,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       manifestPath: resolve(dirname(resolve(args.config!)), validation.project!.manifest),
       stateDir: stateResult.stateDir,
       state: stateResult.state,
-      ...(review.compilation ? { editorial: review.compilation } : {})
+      generationConnection: validation.generationConnection,
+      audioConnection: validation.audioConnection,
+      connectionVerificationApproved: true,
+      audioConnectionVerificationApproved: true,
+      ...(review.compilation ? { editorial: review.compilation } : {}),
+      verifyApprovedInputs: async () => {
+        const currentReview = await inspectGate1Review({
+          configPath: args.config!,
+          project: validation.project!,
+          manifest: validation.manifest!,
+          stateDir: stateResult.stateDir
+        });
+        if (!currentReview.ok) return { ok: false as const, issues: currentReview.issues };
+        if (stateResult.state!.gates.gate_1.approved_input_digest !== currentReview.approvalDigest) {
+          return {
+            ok: false as const,
+            issues: [{
+              code: "gate.review_changed",
+              message: "Gate 1 approval does not match the pinned run inputs"
+            }]
+          };
+        }
+        return { ok: true as const, issues: [] };
+      }
     }, validation.adapter, validation.audioAdapter);
     return output(args, runResult.ok ? 0 : 1, {
       ok: runResult.ok,
@@ -929,7 +984,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -938,6 +993,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--state-dir": "stateDir",
       "--catalog": "catalog",
       "--model": "model",
+      "--capability": "capability",
       "--input-mode": "inputMode",
       "--output": "output",
       "--request": "request",
@@ -1003,6 +1059,7 @@ function isOptionAllowed(command: string, option: string): boolean {
   const allowedByCommand: Record<string, Set<string>> = {
     doctor: new Set(["--config"]),
     guides: new Set(["--catalog", "--model", "--input-mode"]),
+    connections: new Set(["--model", "--capability"]),
     "story-guides": new Set(["--request", "--duration"]),
     presets: new Set(["--backend"]),
     "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),

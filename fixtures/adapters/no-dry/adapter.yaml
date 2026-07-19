@@ -1,5 +1,6 @@
 name: no-dry
 kind: cli
+connection_requirement: local-only
 dry_run_estimate: false
 batch: false
 retry:

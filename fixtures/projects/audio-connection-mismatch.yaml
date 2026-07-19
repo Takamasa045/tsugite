@@ -1,0 +1,14 @@
+slug: audio-connection-mismatch
+run_id: audio-connection-mismatch-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+audio:
+  connection: hyperframes-media
+  adapter: mock-cli-audio
+  fallback: fail
+  sfx:
+    - id: opening-whoosh
+      prompt: soft whoosh
+      start: 0.25

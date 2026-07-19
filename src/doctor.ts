@@ -292,7 +292,7 @@ function parseJsonCommand(value: string | undefined): string[] | undefined {
   if (!value) return undefined;
   try {
     const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed) || parsed.length === 0) return undefined;
+    if (!Array.isArray(parsed) || parsed.length !== 1) return undefined;
     if (!parsed.every((item) => typeof item === "string" && item.length > 0)) return undefined;
     return parsed;
   } catch {

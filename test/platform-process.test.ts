@@ -42,6 +42,18 @@ describe("cross-platform process commands", () => {
     )).toEqual([String.raw`C:\Node\npm.cmd`]);
   });
 
+  it("normalizes empty and duplicate Windows PATHEXT entries", () => {
+    expect(commandCandidates(
+      "provider-wrapper",
+      { PATH: String.raw`C:\Tools`, PATHEXT: ".EXE;.CMD;; .CMD;" },
+      "win32"
+    )).toEqual([
+      String.raw`C:\Tools\provider-wrapper`,
+      String.raw`C:\Tools\provider-wrapper.EXE`,
+      String.raw`C:\Tools\provider-wrapper.CMD`
+    ]);
+  });
+
   it("finds a regular executable from the supplied PATH", async () => {
     const root = await mkdtemp(join(tmpdir(), "tsugite-command-"));
     temporaryDirectories.push(root);

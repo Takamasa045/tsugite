@@ -1,0 +1,13 @@
+slug: audio-connection-incompatible
+run_id: audio-connection-incompatible-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+audio:
+  connection: pixverse
+  fallback: fail
+  bgm:
+    id: main-bgm
+    mode: generate
+    prompt: warm cinematic underscore

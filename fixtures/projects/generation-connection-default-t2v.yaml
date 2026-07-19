@@ -1,0 +1,15 @@
+slug: generation-connection-default-t2v
+run_id: generation-connection-default-t2v-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  connection: image-only
+  requests:
+    - id: implicit-t2v-001
+      prompt: An unset input mode follows the existing text-to-video default.
+      model: pixverse-v6
+      duration: 3
+      aspect: "16:9"
+      params: {}

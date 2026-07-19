@@ -16,13 +16,19 @@ import { validateManifest } from "../manifest/validate.js";
 import type { Manifest } from "../manifest/schema.js";
 import type { Issue, Result } from "../types.js";
 import { PipelineError } from "../types.js";
+import {
+  resolveConnectionsByAdapter,
+  resolveGenerationConnection,
+  type GenerationConnectionResolution
+} from "../connections/registry.js";
 import { loadProject } from "./loadProject.js";
-import type { AnalysisRequest, Project } from "./schema.js";
+import { generationRequestMode, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
 
 type ValidateOptions = {
   adapterDirs?: string[];
   backendDirs?: string[];
+  connectionCatalogPath?: string;
   promptGuideDirs?: string[];
 };
 
@@ -39,6 +45,8 @@ export async function validateProject(
     analysisAdapters?: AdapterDefinition[];
     backend?: BackendCapabilities;
     promptGuides: PromptGuide[];
+    generationConnection?: GenerationConnectionResolution;
+    audioConnection?: GenerationConnectionResolution;
   }>
 > {
   const issues: Issue[] = [];
@@ -95,61 +103,230 @@ export async function validateProject(
   }
 
   let adapter: AdapterDefinition | undefined;
+  let generationConnection: GenerationConnectionResolution | undefined;
   let audioAdapter: AdapterDefinition | undefined;
+  let audioConnection: GenerationConnectionResolution | undefined;
   let analysisAdapter: AdapterDefinition | undefined;
   let analysisAdapters: AdapterDefinition[] | undefined;
   let promptGuides: PromptGuide[] = [];
   try {
     if (project.generation) {
-      adapter = await loadAdapterDefinition(project.generation.adapter, options.adapterDirs);
-      if (adapter.class !== "generation") {
+      let adapterName = project.generation.adapter;
+      const requestedConnection = project.generation.connection;
+      if (project.generation.requests.length > 0 && !requestedConnection && !adapterName) {
         issues.push({
-          code: "adapter.class_mismatch",
-          message: `adapter '${project.generation.adapter}' cannot be used for generation requests`
+          code: "generation.connection_required",
+          message: "どのサービスを使って生成しますか？ `pipeline connections --json` で利用可能な候補を確認してください。",
+          path: "generation.connection"
         });
-      } else if (!adapter.dry_run_estimate) {
-        issues.push({
-          code: "adapter.dry_run_unsupported",
-          message: `adapter '${project.generation.adapter}' cannot provide dry-run estimates`
-        });
+      } else if (requestedConnection) {
+        const declaredConnection = await resolveGenerationConnection(requestedConnection, options.connectionCatalogPath);
+        if (!declaredConnection) {
+          issues.push({
+            code: "generation.connection_unavailable",
+            message: `connection '${requestedConnection}' is not integrated for generation`,
+            path: "generation.connection"
+          });
+          adapterName = undefined;
+        } else if (adapterName && adapterName !== declaredConnection.adapter) {
+          issues.push({
+            code: "generation.connection_adapter_mismatch",
+            message: `connection '${declaredConnection.id}' uses adapter '${declaredConnection.adapter}', not '${adapterName}'`,
+            path: "generation.adapter"
+          });
+          adapterName = undefined;
+        } else {
+          const connection = await resolveGenerationConnection(
+            requestedConnection,
+            options.connectionCatalogPath,
+            generationConnectionRequirements(project)
+          );
+          if (!connection) {
+            issues.push({
+              code: "generation.connection_incompatible",
+              message: `connection '${declaredConnection.id}' does not support every requested model and input mode`,
+              path: "generation.requests"
+            });
+            adapterName = undefined;
+          } else {
+            generationConnection = connection;
+            adapterName = connection.adapter;
+            project = {
+              ...project,
+              generation: {
+                ...project.generation,
+                connection: connection.id,
+                adapter: connection.adapter
+              }
+            };
+          }
+        }
+      } else if (adapterName) {
+        const declaredConnections = await resolveConnectionsByAdapter(
+          adapterName,
+          {},
+          options.connectionCatalogPath
+        );
+        if (declaredConnections.length > 0 && project.generation.requests.length > 0) {
+          const candidateIds = declaredConnections.map((connection) => `'${connection.id}'`).join(", ");
+          issues.push({
+            code: "generation.connection_required",
+            message: declaredConnections.length === 1
+              ? `どのサービスを使って生成しますか？ 候補 ${candidateIds} を generation.connection に明示してください。`
+              : `どのサービスを使って生成しますか？ 候補 ${candidateIds} から generation.connection を明示してください。`,
+            path: "generation.connection"
+          });
+          adapterName = undefined;
+        } else if (project.generation.requests.length > 0) {
+          const declaredAdapter = await loadAdapterDefinition(adapterName, options.adapterDirs);
+          if (declaredAdapter.connection_requirement !== "local-only") {
+            issues.push({
+              code: "generation.connection_required",
+              message: "どのサービスを使って生成しますか？ 未登録の外部adapterはconnectionレジストリへ追加してから generation.connection を明示してください。",
+              path: "generation.connection"
+            });
+            adapterName = undefined;
+          }
+        }
+      }
+      if (adapterName) {
+        adapter = await loadAdapterDefinition(adapterName, options.adapterDirs);
+        if (adapter.class !== "generation") {
+          issues.push({
+            code: "adapter.class_mismatch",
+            message: `adapter '${adapterName}' cannot be used for generation requests`
+          });
+        } else if (!adapter.dry_run_estimate) {
+          issues.push({
+            code: "adapter.dry_run_unsupported",
+            message: `adapter '${adapterName}' cannot provide dry-run estimates`
+          });
+        }
       }
     }
     if (project.audio) {
-      audioAdapter = await loadAdapterDefinition(project.audio.adapter, options.adapterDirs);
+      let audioAdapterName = project.audio.adapter;
+      const requestedConnection = project.audio.connection;
+      const requirements = audioConnectionRequirements(project);
+      if (!requestedConnection && !audioAdapterName) {
+        issues.push({
+          code: "audio.connection_required",
+          message: "どのサービスを使って生成しますか？ `pipeline connections --json` で利用可能な候補を確認してください。",
+          path: "audio.connection"
+        });
+      } else if (requestedConnection) {
+        const declaredConnection = await resolveGenerationConnection(
+          requestedConnection,
+          options.connectionCatalogPath
+        );
+        if (!declaredConnection) {
+          issues.push({
+            code: "audio.connection_unavailable",
+            message: `connection '${requestedConnection}' is not integrated for audio generation`,
+            path: "audio.connection"
+          });
+          audioAdapterName = undefined;
+        } else if (audioAdapterName && audioAdapterName !== declaredConnection.adapter) {
+          issues.push({
+            code: "audio.connection_adapter_mismatch",
+            message: `connection '${declaredConnection.id}' uses adapter '${declaredConnection.adapter}', not '${audioAdapterName}'`,
+            path: "audio.adapter"
+          });
+          audioAdapterName = undefined;
+        } else {
+          const connection = await resolveGenerationConnection(
+            requestedConnection,
+            options.connectionCatalogPath,
+            requirements
+          );
+          if (!connection) {
+            issues.push({
+              code: "audio.connection_incompatible",
+              message: `connection '${declaredConnection.id}' does not support every requested audio capability`,
+              path: "audio"
+            });
+            audioAdapterName = undefined;
+          } else {
+            audioConnection = connection;
+            audioAdapterName = connection.adapter;
+            project = {
+              ...project,
+              audio: {
+                ...project.audio,
+                connection: connection.id,
+                adapter: connection.adapter
+              }
+            };
+          }
+        }
+      } else if (audioAdapterName) {
+        const declaredConnections = await resolveConnectionsByAdapter(
+          audioAdapterName,
+          {},
+          options.connectionCatalogPath
+        );
+        if (declaredConnections.length > 0) {
+          const candidateIds = declaredConnections.map((connection) => `'${connection.id}'`).join(", ");
+          issues.push({
+            code: "audio.connection_required",
+            message: declaredConnections.length === 1
+              ? `どのサービスを使って生成しますか？ 候補 ${candidateIds} を audio.connection に明示してください。`
+              : `どのサービスを使って生成しますか？ 候補 ${candidateIds} から audio.connection を明示してください。`,
+            path: "audio.connection"
+          });
+          audioAdapterName = undefined;
+        } else {
+          const declaredAdapter = await loadAdapterDefinition(audioAdapterName, options.adapterDirs);
+          if (declaredAdapter.connection_requirement !== "local-only") {
+            issues.push({
+              code: "audio.connection_required",
+              message: "どのサービスを使って生成しますか？ 未登録の外部adapterはconnectionレジストリへ追加してから audio.connection を明示してください。",
+              path: "audio.connection"
+            });
+            audioAdapterName = undefined;
+          }
+        }
+      }
+      if (!audioAdapterName) {
+        audioAdapter = undefined;
+      } else {
+      const audioRequest = project.audio!;
+      audioAdapter = await loadAdapterDefinition(audioAdapterName, options.adapterDirs);
       if (audioAdapter.class !== "audio") {
         issues.push({
           code: "adapter.class_mismatch",
-          message: `adapter '${project.audio.adapter}' cannot be used for audio requests`,
+          message: `adapter '${audioAdapterName}' cannot be used for audio requests`,
           path: "audio.adapter"
         });
       } else if (audioAdapter.kind !== "cli") {
         issues.push({
           code: "adapter.kind_mismatch",
-          message: `audio adapter '${project.audio.adapter}' must be an executable cli adapter`,
+          message: `audio adapter '${audioAdapterName}' must be an executable cli adapter`,
           path: "audio.adapter"
         });
       } else if (!audioAdapter.dry_run_estimate) {
         issues.push({
           code: "adapter.dry_run_unsupported",
-          message: `audio adapter '${project.audio.adapter}' cannot provide dry-run estimates`,
+          message: `audio adapter '${audioAdapterName}' cannot provide dry-run estimates`,
           path: "audio.adapter"
         });
       } else {
         const capabilities = audioAdapter.audio_capabilities;
-        if (project.audio.bgm && !capabilities?.bgm_modes.includes(project.audio.bgm.mode)) {
+        if (audioRequest.bgm && !capabilities?.bgm_modes.includes(audioRequest.bgm.mode)) {
           issues.push({
             code: "audio.bgm_mode_unsupported",
-            message: `audio adapter '${project.audio.adapter}' does not support BGM mode '${project.audio.bgm.mode}'`,
+            message: `audio adapter '${audioAdapterName}' does not support BGM mode '${audioRequest.bgm.mode}'`,
             path: "audio.bgm.mode"
           });
         }
-        if (project.audio.sfx.length > 0 && !capabilities?.sfx) {
+        if (audioRequest.sfx.length > 0 && !capabilities?.sfx) {
           issues.push({
             code: "audio.sfx_unsupported",
-            message: `audio adapter '${project.audio.adapter}' does not support SFX`,
+            message: `audio adapter '${audioAdapterName}' does not support SFX`,
             path: "audio.sfx"
           });
         }
+      }
       }
     }
     if (project.analysis) {
@@ -187,17 +364,42 @@ export async function validateProject(
         issues.push(...validateAnalysisDependencies(project, manifestResult.manifest, loadedByName));
       }
     }
-    issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
+    if (project.generation?.adapter && adapter?.class === "generation") {
+      issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
+    }
     promptGuides = await loadProjectPromptGuides(project, options.promptGuideDirs);
   } catch (error) {
     issues.push(...issuesFromError(error));
   }
 
   if (issues.length > 0 || !manifestResult.manifest) {
-    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, audioAdapter, analysisAdapter, analysisAdapters, backend, promptGuides };
+    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, audioAdapter, analysisAdapter, analysisAdapters, backend, promptGuides, generationConnection, audioConnection };
   }
 
-  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, audioAdapter, analysisAdapter, analysisAdapters, backend, promptGuides };
+  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, audioAdapter, analysisAdapter, analysisAdapters, backend, promptGuides, generationConnection, audioConnection };
+}
+
+function generationConnectionRequirements(project: Project): {
+  models: string[];
+  capabilities: string[];
+} {
+  const requests = project.generation?.requests ?? [];
+  return {
+    models: uniqueInOrder(requests.map((request) => request.model)),
+    capabilities: uniqueInOrder(
+      requests.map((request) => `video.${generationRequestMode(request) ?? "text-to-video"}`)
+    )
+  };
+}
+
+function audioConnectionRequirements(project: Project): { capabilities: string[] } {
+  if (!project.audio) return { capabilities: [] };
+  return {
+    capabilities: [
+      ...(project.audio.bgm ? ["audio.music"] : []),
+      ...(project.audio.sfx.length > 0 ? ["audio.sound-effects"] : [])
+    ]
+  };
 }
 
 function validateAnalysisRequestAdapter(

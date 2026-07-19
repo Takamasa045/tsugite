@@ -1,0 +1,16 @@
+slug: generation-connection-incompatible
+run_id: generation-connection-incompatible-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  connection: kling-via-pixverse
+  requests:
+    - id: wrong-model-001
+      prompt: This Seedance request must not run through a Kling-only route.
+      model: seedance-2.0
+      duration: 5
+      aspect: "16:9"
+      input_mode: text-to-video
+      params: {}

@@ -558,7 +558,7 @@ describe("pipeline main", () => {
     await expect(stat(copiedClip)).resolves.toMatchObject({ size: expect.any(Number) });
   });
 
-  it("runs Topview image-to-video only after Gate 1 and records the downloaded clip", async () => {
+  it("keeps TopView MCP as an agent handoff after Gate 1 instead of running the CLI bridge", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     const config = "fixtures/projects/topview-image-generation.yaml";
     const blocked = await capture([
@@ -586,40 +586,25 @@ describe("pipeline main", () => {
       stateDir,
       "--json"
     ]);
-    const previous = process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND;
-    process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND = JSON.stringify([
-      "node",
-      "fixtures/tools/topview-video-gen.mjs"
+    const run = await capture([
+      "run",
+      "--config",
+      config,
+      "--actor",
+      "coordinator",
+      "--state-dir",
+      stateDir,
+      "--json"
     ]);
-    let run;
-    try {
-      run = await capture([
-        "run",
-        "--config",
-        config,
-        "--actor",
-        "coordinator",
-        "--state-dir",
-        stateDir,
-        "--json"
-      ]);
-    } finally {
-      if (previous === undefined) delete process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND;
-      else process.env.TSUGITE_TOPVIEW_VIDEO_COMMAND = previous;
-    }
 
-    const payload = JSON.parse(run.stdout);
-    const manifest = JSON.parse(await readFile(payload.manifest_path, "utf8"));
     expect(blocked.status).toBe(1);
     expect(JSON.parse(blocked.stderr).issues[0].code).toBe("run.requires_gate_1_approval");
-    expect(run.status).toBe(0);
-    expect(payload.actual_credits).toBe(5);
-    expect(payload.state.status).toBe("awaiting_gate_2");
-    expect(manifest.clips[0].src).toBe("assets/clips/001-opening-shot-clip.mp4");
-    expect(manifest.provenance[0]).toMatchObject({ engine: "topview", model: "Standard", credits: 5 });
-    await expect(stat(join(stateDir, "topview-image-generation-run", manifest.clips[0].src))).resolves.toMatchObject({
-      size: expect.any(Number)
+    expect(run.status).toBe(1);
+    expect(JSON.parse(run.stderr).issues[0]).toMatchObject({
+      code: "run.connection_handoff_required",
+      path: "generation.connection"
     });
+    await expect(stat(join(stateDir, "topview-image-generation-run", "manifest.json"))).rejects.toThrow();
   });
 
   it("requires OpenClaw setup only when the optional adapter is executed", async () => {
@@ -669,32 +654,38 @@ describe("pipeline main", () => {
     expect(validated.status).toBe(0);
     expect(run.status).toBe(1);
     expect(JSON.parse(run.stderr).issues[0]).toMatchObject({
-      code: "run.adapter_exit.invalid_request",
-      message: "adapter command failed"
+      code: "run.connection_setup_required",
+      message: "generation connection 'openclaw-bridge' is needs-setup; complete setup before run"
     });
   });
 
   it("runs the optional OpenClaw adapter when an executable bridge is configured", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
-    await prepareReview("fixtures/projects/openclaw-generation.yaml", stateDir);
-    await capture([
-      "gate",
-      "--config",
-      "fixtures/projects/openclaw-generation.yaml",
-      "--gate",
-      "gate-1",
-      "--decision",
-      "approve",
-      "--actor",
-      "coordinator",
-      "--state-dir",
-      stateDir,
-      "--json"
-    ]);
     const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
-    process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify(["node", "fixtures/tools/openclaw-generate.mjs"]);
+    process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify([
+      join(
+        process.cwd(),
+        "fixtures/tools",
+        process.platform === "win32" ? "openclaw-generate.cmd" : "openclaw-generate"
+      )
+    ]);
     let run;
     try {
+      await prepareReview("fixtures/projects/openclaw-generation.yaml", stateDir);
+      await capture([
+        "gate",
+        "--config",
+        "fixtures/projects/openclaw-generation.yaml",
+        "--gate",
+        "gate-1",
+        "--decision",
+        "approve",
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
       run = await capture([
         "run",
         "--config",
@@ -724,25 +715,31 @@ describe("pipeline main", () => {
 
   it("does not surface optional OpenClaw bridge stderr on failure", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
-    await prepareReview("fixtures/projects/openclaw-generation.yaml", stateDir);
-    await capture([
-      "gate",
-      "--config",
-      "fixtures/projects/openclaw-generation.yaml",
-      "--gate",
-      "gate-1",
-      "--decision",
-      "approve",
-      "--actor",
-      "coordinator",
-      "--state-dir",
-      stateDir,
-      "--json"
-    ]);
     const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
-    process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify(["node", "-e", "console.error('secret-token'); process.exit(40)"]);
+    process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify([
+      join(
+        process.cwd(),
+        "fixtures/tools",
+        process.platform === "win32" ? "openclaw-fail.cmd" : "openclaw-fail"
+      )
+    ]);
     let run;
     try {
+      await prepareReview("fixtures/projects/openclaw-generation.yaml", stateDir);
+      await capture([
+        "gate",
+        "--config",
+        "fixtures/projects/openclaw-generation.yaml",
+        "--gate",
+        "gate-1",
+        "--decision",
+        "approve",
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
       run = await capture([
         "run",
         "--config",

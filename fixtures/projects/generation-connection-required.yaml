@@ -1,0 +1,15 @@
+slug: generation-connection-required
+run_id: generation-connection-required-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  requests:
+    - id: unrouted-001
+      prompt: Ask the user before choosing a generation service.
+      model: seedance-2.0
+      duration: 3
+      aspect: "16:9"
+      input_mode: text-to-video
+      params: {}

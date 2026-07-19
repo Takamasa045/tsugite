@@ -15,6 +15,10 @@ import { digest } from "./editorialProposal.js";
 import type { EditorialCompilation } from "./review.js";
 import { pinGenerationAssets, projectAssetRoot } from "../project/generationAssets.js";
 import { toPortablePath } from "../platform/path.js";
+import {
+  resolveGenerationConnection,
+  type GenerationConnectionResolution
+} from "../connections/registry.js";
 
 export type LocalRunResult = {
   manifestPath: string;
@@ -34,6 +38,11 @@ type AssembleOptions = {
   stateDir: string;
   state: RunState;
   editorial?: EditorialCompilation;
+  generationConnection?: GenerationConnectionResolution;
+  audioConnection?: GenerationConnectionResolution;
+  connectionVerificationApproved?: boolean;
+  audioConnectionVerificationApproved?: boolean;
+  verifyApprovedInputs?: () => Promise<Result<{}>>;
 };
 
 const gate2QcResumeSchema = z
@@ -86,6 +95,60 @@ export async function assembleLocalMediaRun(
   adapter?: AdapterDefinition,
   audioAdapter?: AdapterDefinition
 ): Promise<Result<LocalRunResult>> {
+  const isAwaitingGate2Resume = options.state.status === "awaiting_gate_2"
+    && options.state.gates.gate_2.status === "awaiting_approval";
+  const audioConnection = options.audioConnection
+    ?? (project.audio?.connection
+      ? await resolveGenerationConnection(project.audio.connection)
+      : undefined);
+  if (project.audio?.connection && !audioConnection) {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.audio_connection_unavailable",
+        message: `audio connection '${project.audio.connection}' could not be resolved for execution`,
+        path: "audio.connection"
+      }]
+    };
+  }
+  if (audioConnection && audioConnection.transport !== "cli") {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.audio_connection_handoff_required",
+        message: `audio connection '${audioConnection.id}' uses ${audioConnection.transport.toUpperCase()} and requires an agent handoff; pipeline run will not execute adapter '${audioConnection.adapter}' as CLI`,
+        path: "audio.connection"
+      }]
+    };
+  }
+  if (
+    !isAwaitingGate2Resume
+    && audioConnection?.setup_status === "needs-verification"
+    && !options.audioConnectionVerificationApproved
+  ) {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.audio_connection_verification_required",
+        message: `audio connection '${audioConnection.id}' needs verification recorded in the approved Gate 1 review before run`,
+        path: "audio.connection"
+      }]
+    };
+  }
+  if (
+    !isAwaitingGate2Resume
+    && audioConnection
+    && ["needs-setup", "not-integrated"].includes(audioConnection.setup_status)
+  ) {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.audio_connection_setup_required",
+        message: `audio connection '${audioConnection.id}' is ${audioConnection.setup_status}; complete setup before run`,
+        path: "audio.connection"
+      }]
+    };
+  }
   if (project.generation && project.generation.requests.length > 0) {
     return assembleGeneratedMediaRun(project, manifest, options, adapter, audioAdapter);
   }
@@ -99,7 +162,7 @@ export async function assembleLocalMediaRun(
   const statePath = join(runDir, "state.json");
   const inputDigest = runInputDigest(project, manifest, undefined, audioAdapter);
 
-  if (options.state.status === "awaiting_gate_2" && options.state.gates.gate_2.status === "awaiting_approval") {
+  if (isAwaitingGate2Resume) {
     const resumed = await inspectAwaitingGate2Artifacts({
       runId,
       mode: "local-media",
@@ -188,6 +251,11 @@ export async function assembleLocalMediaRun(
     }
   }
 
+  if (options.verifyApprovedInputs) {
+    const verified = await options.verifyApprovedInputs();
+    if (!verified.ok) return verified;
+  }
+
   const generatedAudio = appendGeneratedAudio(project, assembled, runId, runDir, audioAdapter);
   if (!generatedAudio.ok) return generatedAudio;
   assetCount += generatedAudio.assetCount;
@@ -263,6 +331,54 @@ async function assembleGeneratedMediaRun(
   adapter: AdapterDefinition | undefined,
   audioAdapter: AdapterDefinition | undefined
 ): Promise<Result<LocalRunResult>> {
+  const isAwaitingGate2Resume = options.state.status === "awaiting_gate_2"
+    && options.state.gates.gate_2.status === "awaiting_approval";
+  const generationConnection = options.generationConnection
+    ?? (project.generation?.connection
+      ? await resolveGenerationConnection(project.generation.connection)
+      : undefined);
+  if (project.generation?.connection && !generationConnection) {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.connection_unavailable",
+        message: `generation connection '${project.generation.connection}' could not be resolved for execution`,
+        path: "generation.connection"
+      }]
+    };
+  }
+  if (generationConnection && generationConnection.transport !== "cli") {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.connection_handoff_required",
+        message: `generation connection '${generationConnection.id}' uses ${generationConnection.transport.toUpperCase()} and requires an agent handoff; pipeline run will not execute adapter '${generationConnection.adapter}' as CLI`,
+        path: "generation.connection"
+      }]
+    };
+  }
+  if (generationConnection && !isAwaitingGate2Resume) {
+    if (generationConnection.setup_status === "needs-verification" && !options.connectionVerificationApproved) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.connection_verification_required",
+          message: `generation connection '${generationConnection.id}' needs verification recorded in the approved Gate 1 review before run`,
+          path: "generation.connection"
+        }]
+      };
+    }
+    if (["needs-setup", "not-integrated"].includes(generationConnection.setup_status)) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.connection_setup_required",
+          message: `generation connection '${generationConnection.id}' is ${generationConnection.setup_status}; complete setup before run`,
+          path: "generation.connection"
+        }]
+      };
+    }
+  }
   if (!adapter) {
     return {
       ok: false,
@@ -278,7 +394,7 @@ async function assembleGeneratedMediaRun(
   const statePath = join(runDir, "state.json");
   const inputDigest = runInputDigest(project, manifest, adapter, audioAdapter);
 
-  if (options.state.status === "awaiting_gate_2" && options.state.gates.gate_2.status === "awaiting_approval") {
+  if (isAwaitingGate2Resume) {
     const resumed = await inspectAwaitingGate2Artifacts({
       runId,
       mode: "generation",
@@ -356,6 +472,11 @@ async function assembleGeneratedMediaRun(
       entry.src = copied.relativePath;
       assetCount += 1;
     }
+  }
+
+  if (options.verifyApprovedInputs) {
+    const verified = await options.verifyApprovedInputs();
+    if (!verified.ok) return verified;
   }
 
   const generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });

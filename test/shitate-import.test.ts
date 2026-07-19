@@ -569,11 +569,12 @@ dist_dir: dist
 edit:
   backend: remotion
 generation:
+  connection: pixverse
   adapter: pixverse
   requests:
     - id: shot-1
       prompt: Hero walks forward while the camera tracks from the side.
-      model: v6
+      model: pixverse-v6
       duration: 5
       aspect: "16:9"
       params: {}

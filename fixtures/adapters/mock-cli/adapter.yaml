@@ -1,5 +1,6 @@
 name: mock-cli
 kind: cli
+connection_requirement: local-only
 dry_run_estimate: true
 batch: true
 credit_estimate:

@@ -1,6 +1,7 @@
 import type { Manifest } from "../manifest/schema.js";
 import type { AudioRequest, Project } from "../project/schema.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
+import type { GenerationConnectionResolution } from "../connections/registry.js";
 import {
   resolveProjectPromptGuidance,
   type PromptGuide,
@@ -20,6 +21,14 @@ export type PlanStep = {
 export type AgentHandoff = {
   phase: "generation" | "audio" | "analysis";
   adapter: string;
+  connection?: string;
+  transport?: GenerationConnectionResolution["transport"];
+  setup_status?: GenerationConnectionResolution["setup_status"];
+  provider?: string;
+  route_note?: string;
+  auth_kind?: GenerationConnectionResolution["auth_kind"];
+  connection_contract_digest?: string;
+  automatic_fallback?: false;
   kind: AdapterDefinition["kind"];
   class: AdapterDefinition["class"];
   outputs: string[];
@@ -75,11 +84,20 @@ export function createPlan(
   adapter?: AdapterDefinition,
   analysisAdapter?: AnalysisAdapterInput,
   promptGuides: PromptGuide[] = [],
-  audioAdapter?: AdapterDefinition
+  audioAdapter?: AdapterDefinition,
+  generationConnection?: GenerationConnectionResolution,
+  audioConnection?: GenerationConnectionResolution
 ): ExecutionPlan {
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
-  const agentHandoffs = createAgentHandoffs(project, adapter, analysisAdapter, audioAdapter);
+  const agentHandoffs = createAgentHandoffs(
+    project,
+    adapter,
+    analysisAdapter,
+    audioAdapter,
+    generationConnection,
+    audioConnection
+  );
   const analysis = createAnalysisPlan(project, manifest, analysisAdapter);
   const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
 
@@ -171,7 +189,9 @@ export function createDryRun(
   analysisAdapter?: AnalysisAdapterInput,
   backend?: BackendCapabilities,
   promptGuides: PromptGuide[] = [],
-  audioAdapter?: AdapterDefinition
+  audioAdapter?: AdapterDefinition,
+  generationConnection?: GenerationConnectionResolution,
+  audioConnection?: GenerationConnectionResolution
 ): {
   executed: false;
   plan: ExecutionPlan;
@@ -179,7 +199,16 @@ export function createDryRun(
   external_commands: BackendExternalCommand[];
   agent_handoffs: AgentHandoff[];
 } {
-  const plan = createPlan(project, manifest, adapter, analysisAdapter, promptGuides, audioAdapter);
+  const plan = createPlan(
+    project,
+    manifest,
+    adapter,
+    analysisAdapter,
+    promptGuides,
+    audioAdapter,
+    generationConnection,
+    audioConnection
+  );
   return {
     executed: false,
     plan,
@@ -232,7 +261,9 @@ function createAgentHandoffs(
   project: Project,
   adapter?: AdapterDefinition,
   analysisAdapter?: AnalysisAdapterInput,
-  audioAdapter?: AdapterDefinition
+  audioAdapter?: AdapterDefinition,
+  generationConnection?: GenerationConnectionResolution,
+  audioConnection?: GenerationConnectionResolution
 ): AgentHandoff[] {
   const handoffs: AgentHandoff[] = [];
 
@@ -240,12 +271,32 @@ function createAgentHandoffs(
     handoffs.push({
       phase: "generation",
       adapter: adapter.name,
+      automatic_fallback: false,
+      ...(project.generation.connection
+        ? {
+            connection: project.generation.connection,
+            ...(generationConnection
+              ? {
+                  transport: generationConnection.transport,
+                  setup_status: generationConnection.setup_status,
+                  provider: generationConnection.provider,
+                  route_note: generationConnection.route_note,
+                  auth_kind: generationConnection.auth_kind,
+                  connection_contract_digest: generationConnection.contract_digest
+                }
+              : {})
+          }
+        : {}),
       kind: adapter.kind,
       class: adapter.class,
       outputs: project.generation.requests.map((request) => request.id),
       dry_run_estimate_available: adapter.dry_run_estimate,
       batch: adapter.batch,
-      execution: adapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
+      execution: generationConnection
+        ? generationConnection.transport === "cli" && adapter.kind === "cli"
+          ? "pipeline-cli"
+          : "agent-handoff"
+        : adapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
     });
   }
 
@@ -253,6 +304,22 @@ function createAgentHandoffs(
     handoffs.push({
       phase: "audio",
       adapter: audioAdapter.name,
+      automatic_fallback: false,
+      ...(project.audio.connection
+        ? {
+            connection: project.audio.connection,
+            ...(audioConnection
+              ? {
+                  transport: audioConnection.transport,
+                  setup_status: audioConnection.setup_status,
+                  provider: audioConnection.provider,
+                  route_note: audioConnection.route_note,
+                  auth_kind: audioConnection.auth_kind,
+                  connection_contract_digest: audioConnection.contract_digest
+                }
+              : {})
+          }
+        : {}),
       kind: audioAdapter.kind,
       class: audioAdapter.class,
       outputs: [
@@ -261,7 +328,11 @@ function createAgentHandoffs(
       ],
       dry_run_estimate_available: audioAdapter.dry_run_estimate,
       batch: audioAdapter.batch,
-      execution: audioAdapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
+      execution: audioConnection
+        ? audioConnection.transport === "cli" && audioAdapter.kind === "cli"
+          ? "pipeline-cli"
+          : "agent-handoff"
+        : audioAdapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
     });
   }
 
