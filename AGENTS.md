@@ -22,3 +22,10 @@
 - Shitateの外部pathやsymlinkをmanifestから直接参照せず、`character-lock.json` 付きsnapshotを使う。
 - core にはエンジン固有名や固有コードを入れない。
 - 失敗から再利用できるルールが生まれたら `LESSONS.md` に追記する。
+
+## 初回セットアップ後の学び自動化
+
+- ローカル初回セットアップと `doctor` が完了したら、次の実質的な提案に入る前に一度だけ、次を確認する。`初回設定が完了しました。任意で、ローカルの「好み・学び」を定期レビューし、Codex または Claude の標準通知で承認待ちを知らせる自動化も設定しますか？（設定する／今回はしない）`
+- 「設定する」の場合だけ、Codex / Claude Desktop・Cowork / Claude Code のどれを主系にするかと実行頻度を確認し、`docs/automations/learning-promotion-review.md` の登録手順に従う。常設scheduleは1つだけにする。
+- 通知は選んだhostの標準通知だけを使う。Browser・OS通知の権限要求、独自Desktop通知、Slack、メールなどは設定しない。
+- 「今回はしない」の場合は同じ初回セットアップ中に再度たずねない。自動化の登録・通知設定は、明示承認なしに実行しない。

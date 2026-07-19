@@ -41,6 +41,9 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 ## Feedback Promotion
 
 - Keep one-off preferences in `projects/<job>/notes.md`.
+- After the local first-time setup is complete and before the next substantive proposal, ask once: `初回設定が完了しました。任意で、ローカルの「好み・学び」を定期レビューし、Codex または Claude の標準通知で承認待ちを知らせる自動化も設定しますか？（設定する／今回はしない）`
+- If the user chooses `設定する`, ask which one host to use (Codex, Claude Desktop/Cowork, or Claude Code) and the desired cadence. Then follow `docs/automations/learning-promotion-review.md`; keep only one durable schedule active. If the user declines, do not ask again in the same setup flow.
+- Do not create a schedule, enable push notifications, request browser/OS notification permission, or select a host without that explicit choice. Notifications are limited to the selected host's standard notification settings; never add a custom desktop notification, Slack, email, or other external destination.
 - After recurring evidence has a concrete target, change summary, and verification plan, record a pending promotion proposal and obtain explicit human approval before editing shared source.
 - Treat launcher approve / reject actions as append-only local feedback decisions. Approval means implementation may begin; it does not itself modify templates, rules, checks, Gates, or project state.
 - Use the optional Codex or Claude host automation only to review preference/learning promotion candidates while the launcher is open or closed. It may append at most three complete, non-duplicate pending proposals per run through `pipeline feedback`; it must identify its supported source, and must not edit shared source, implement approved proposals, inspect other automations, or send browser, custom desktop, or external notifications. Codex or Claude may surface the dedicated run through the host's normal notification policy.
