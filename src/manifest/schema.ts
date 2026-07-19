@@ -25,6 +25,7 @@ const speakerSchema = z
 const presentationSchema = z
   .object({
     preset: z.string().min(1),
+    required_aspect: aspectSchema.optional(),
     title: z.string().min(1).optional(),
     source_title: z.string().min(1).optional(),
     source_url: z.string().url().optional(),

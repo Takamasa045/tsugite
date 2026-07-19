@@ -1,4 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { constants, type Stats } from "node:fs";
+import { lstat, mkdir, open, readFile, rename, rm, rmdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -28,6 +30,23 @@ export type RunState = {
   updated_at: string;
   gates: Record<GateId, GateState>;
 };
+
+export type RunLock = {
+  token: string;
+  release: () => Promise<void>;
+};
+
+export const RUN_LOCK_INHERIT_ENV = "TSUGITE_INHERITED_RUN_LOCK";
+export const LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV = "TSUGITE_LAUNCHER_EXPECTED_APPROVAL_DIGEST";
+
+export class RunLockedError extends Error {
+  readonly code = "run.locked";
+
+  constructor() {
+    super("run is locked by another process");
+    this.name = "RunLockedError";
+  }
+}
 
 const safeIdSchema = z
   .string()
@@ -102,6 +121,14 @@ export function recordGateDecision(
   if (decision === "re_render" && gate !== "gate_3") {
     throw new Error("re_render is only valid for gate_3");
   }
+  if (gate === "gate_1" && decision === "revise" && state.gates.gate_1.status === "approved") {
+    return {
+      ...state,
+      status: "planned",
+      updated_at: updatedAt,
+      gates: defaultGates()
+    };
+  }
   assertCanDecideGate(state, gate);
 
   if (state.gates[gate].status !== "awaiting_approval") {
@@ -121,8 +148,112 @@ export async function writeState(distDir: string, state: RunState): Promise<stri
   const runDir = join(distDir, parsedState.run_id);
   await mkdir(runDir, { recursive: true });
   const path = join(runDir, "state.json");
-  await writeFile(path, `${JSON.stringify(parsedState, null, 2)}\n`);
-  return path;
+  const temporaryPath = join(runDir, `.state.json.${process.pid}.${randomUUID()}.tmp`);
+  let handle;
+
+  try {
+    handle = await open(temporaryPath, "wx", 0o600);
+    await handle.writeFile(`${JSON.stringify(parsedState, null, 2)}\n`);
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    await rename(temporaryPath, path);
+    if (process.platform !== "win32") {
+      const directoryHandle = await open(runDir, "r");
+      try {
+        await directoryHandle.sync();
+      } finally {
+        await directoryHandle.close();
+      }
+    }
+    return path;
+  } finally {
+    try {
+      await handle?.close();
+    } finally {
+      await rm(temporaryPath, { force: true });
+    }
+  }
+}
+
+export async function acquireRunLock(
+  distDir: string,
+  runId: string,
+  inheritedToken?: string
+): Promise<RunLock> {
+  const safeRunId = safeIdSchema.parse(runId);
+  const runDir = join(distDir, safeRunId);
+  const lockPath = join(runDir, ".mutation.lock");
+  if (inheritedToken) {
+    let handle;
+    try {
+      handle = await open(lockPath, constants.O_RDWR | constants.O_NOFOLLOW);
+      const owner = JSON.parse(await handle.readFile("utf8"));
+      if (!isRunLockRecord(owner) || !isLockOwner(owner, inheritedToken)) {
+        throw new RunLockedError();
+      }
+      await handle.truncate(0);
+      await handle.write(`${JSON.stringify({ ...owner, delegated_pid: process.pid })}\n`, 0, "utf8");
+      await handle.sync();
+    } catch {
+      throw new RunLockedError();
+    } finally {
+      await handle?.close();
+    }
+    return { token: inheritedToken, release: async () => undefined };
+  }
+  const token = randomUUID();
+  await mkdir(runDir, { recursive: true });
+
+  let handle;
+  try {
+    handle = await open(lockPath, "wx", 0o600);
+  } catch (error) {
+    if (!isAlreadyExists(error) || !await recoverStaleRunLock(lockPath)) {
+      if (isAlreadyExists(error)) throw new RunLockedError();
+      throw error;
+    }
+    try {
+      handle = await open(lockPath, "wx", 0o600);
+    } catch (retryError) {
+      if (isAlreadyExists(retryError)) throw new RunLockedError();
+      throw retryError;
+    }
+  }
+
+  try {
+    await handle.writeFile(`${JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString(), token })}\n`);
+    await handle.sync();
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    await unlink(lockPath).catch(() => undefined);
+    throw error;
+  }
+  await handle.close();
+
+  let released = false;
+  return {
+    token,
+    async release() {
+      if (released) return;
+
+      let owner: unknown;
+      try {
+        owner = JSON.parse(await readFile(lockPath, "utf8"));
+      } catch {
+        return;
+      }
+      if (!isLockOwner(owner, token)) return;
+
+      try {
+        await unlink(lockPath);
+      } catch {
+        return;
+      }
+      released = true;
+      await rmdir(runDir).catch(() => undefined);
+    }
+  };
 }
 
 export async function readState(path: string): Promise<RunState> {
@@ -136,6 +267,93 @@ function parseRunState(input: unknown): RunState {
     throw new Error(`invalid run state: ${invariantError}`);
   }
   return state;
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
+function isLockOwner(input: unknown, token: string): boolean {
+  return typeof input === "object" && input !== null && "token" in input && input.token === token;
+}
+
+async function recoverStaleRunLock(lockPath: string): Promise<boolean> {
+  let handle;
+  let observedStats: Stats;
+  let owner: unknown;
+  try {
+    handle = await open(lockPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    observedStats = await handle.stat();
+    owner = JSON.parse(await handle.readFile("utf8"));
+  } catch {
+    return false;
+  } finally {
+    await handle?.close();
+  }
+  if (
+    !isRunLockRecord(owner)
+    || isProcessAlive(owner.pid)
+    || (owner.delegated_pid !== undefined && isProcessAlive(owner.delegated_pid))
+  ) return false;
+
+  const recoveryPath = `${lockPath}.recovery.${process.pid}.${randomUUID()}`;
+  try {
+    await rename(lockPath, recoveryPath);
+  } catch (error) {
+    return isMissing(error);
+  }
+  try {
+    const recoveredStats = await lstat(recoveryPath);
+    if (!sameLockFile(observedStats, recoveredStats)) {
+      await rename(recoveryPath, lockPath).catch(() => undefined);
+      return false;
+    }
+    await unlink(recoveryPath);
+    return true;
+  } catch {
+    await rename(recoveryPath, lockPath).catch(() => undefined);
+    return false;
+  }
+}
+
+function isRunLockRecord(input: unknown): input is {
+  pid: number;
+  delegated_pid?: number;
+  token: string;
+  acquired_at: string;
+} {
+  return typeof input === "object"
+    && input !== null
+    && "pid" in input
+    && typeof input.pid === "number"
+    && Number.isSafeInteger(input.pid)
+    && input.pid > 0
+    && (!("delegated_pid" in input)
+      || (typeof input.delegated_pid === "number"
+        && Number.isSafeInteger(input.delegated_pid)
+        && input.delegated_pid > 0))
+    && "token" in input
+    && typeof input.token === "string"
+    && input.token.length > 0
+    && "acquired_at" in input
+    && typeof input.acquired_at === "string";
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(error instanceof Error && "code" in error && error.code === "ESRCH");
+  }
+}
+
+function sameLockFile(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 function defaultGates(): Record<GateId, GateState> {

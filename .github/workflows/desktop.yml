@@ -1,0 +1,84 @@
+name: Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "apps/desktop/**"
+      - "apps/workflow-viewer/**"
+      - "src/**"
+      - "adapters/**"
+      - "backends/**"
+      - "connections/**"
+      - "knowledge/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - ".github/workflows/desktop.yml"
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "apps/workflow-viewer/**"
+      - "src/**"
+      - "adapters/**"
+      - "backends/**"
+      - "connections/**"
+      - "knowledge/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - ".github/workflows/desktop.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-smoke:
+    name: ${{ matrix.name }} unsigned package
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Arm64
+            artifact: macos-arm64
+            os: macos-15
+          - name: Windows x64
+            artifact: windows-x64
+            os: windows-2022
+    env:
+      # Pull requests and normal pushes must never require or discover signing identities.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/workflow-viewer/package-lock.json
+            apps/desktop/package-lock.json
+      - name: Install runtime and Desktop dependencies
+        run: |
+          npm ci
+          npm --prefix apps/workflow-viewer ci
+          npm --prefix apps/desktop ci
+      - name: Test Desktop package boundary
+        run: npm --prefix apps/desktop test
+      - name: Build unsigned installers
+        run: npm --prefix apps/desktop run make
+      - name: Upload unsigned installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: tsugite-${{ matrix.artifact }}-${{ github.sha }}
+          path: apps/desktop/out/make/**
+          if-no-files-found: error
+          retention-days: 14

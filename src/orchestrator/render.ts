@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
@@ -123,9 +125,39 @@ export async function renderAssembledMedia(
   };
 }
 
-export async function inspectGate3RunForApproval(project: Project, stateDir: string): Promise<Result<{}>> {
+export async function inspectGate3RunForApproval(
+  project: Project,
+  stateDir: string
+): Promise<Result<{ approvalDigest: string }>> {
   const inspected = await inspectAwaitingGate3Artifacts(project, stateDir, true);
-  return inspected.ok ? { ok: true, issues: [] } : { ok: false, issues: inspected.issues };
+  if (!inspected.ok) return { ok: false, issues: inspected.issues };
+  const runId = project.run_id ?? project.slug;
+  try {
+    return {
+      ok: true,
+      issues: [],
+      approvalDigest: await sha256File(join(stateDir, runId, "final.mp4"))
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [{
+        code: "render.output_hash_failed",
+        message: error instanceof Error ? error.message : String(error),
+        path: join(stateDir, runId, "final.mp4")
+      }]
+    };
+  }
+}
+
+export async function sha256File(path: string): Promise<string> {
+  return await new Promise<string>((resolveDigest, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", () => resolveDigest(hash.digest("hex")));
+  });
 }
 
 async function inspectAwaitingGate3Artifacts(

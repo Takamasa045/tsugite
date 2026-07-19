@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -651,8 +652,21 @@ async function copyAsset(
 
   await mkdir(dirname(targetPath), { recursive: true });
   await copyFile(sourcePath, targetPath);
+  if (await sha256File(sourcePath) !== await sha256File(targetPath)) {
+    throw new Error(`source asset changed while it was being copied: ${src}`);
+  }
 
   return { relativePath };
+}
+
+async function sha256File(path: string): Promise<string> {
+  return await new Promise<string>((resolveDigest, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", () => resolveDigest(hash.digest("hex")));
+  });
 }
 
 function safeFileLabel(label: string): string {

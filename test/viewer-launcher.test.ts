@@ -1,11 +1,24 @@
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, symlink, writeFile } from "node:fs/promises";
 import { get } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPlannedState, writeState } from "../src/orchestrator/state.js";
+import type { Manifest } from "../src/manifest/schema.js";
+import { createPlan } from "../src/orchestrator/plan.js";
+import { inspectGate1Review, writeCreativeReview } from "../src/orchestrator/review.js";
 import {
+  acquireRunLock,
+  createPlannedState,
+  RUN_LOCK_INHERIT_ENV,
+  writeState
+} from "../src/orchestrator/state.js";
+import type { Project } from "../src/project/schema.js";
+import { validateProject } from "../src/project/validateProject.js";
+import {
+  launcherPipelineArgs,
   startWorkflowViewerLauncher,
+  type LauncherAction,
+  type LauncherJob,
   type WorkflowViewerLauncher
 } from "../src/viewer/launcher.js";
 
@@ -32,6 +45,37 @@ async function createFixture() {
   await writeFile(join(bundleDir, "assets", "app.css"), "body { color: black; }\n");
   await writeFile(join(bundleDir, "assets", "app.js"), "globalThis.viewerLoaded = true;\n");
   return { root, projectsDir, templatesDir, projectDir, bundleDir };
+}
+
+async function writeApprovedGate1State(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  updatedAt = "2026-07-19T02:00:00.000Z"
+): Promise<void> {
+  const configPath = join(fixture.projectDir, "project.yaml");
+  const validation = await validateProject(configPath);
+  if (!validation.project || !validation.manifest) throw new Error("fixture project is invalid");
+  await writeCreativeReview({
+    configPath,
+    project: validation.project,
+    manifest: validation.manifest,
+    plan: createPlan(validation.project, validation.manifest)
+  });
+  const review = await inspectGate1Review({
+    configPath,
+    project: validation.project,
+    manifest: validation.manifest
+  });
+  if (!review.ok || !review.approvalDigest) throw new Error("fixture review is invalid");
+  await writeState(join(fixture.projectDir, "dist"), {
+    run_id: "local-fixture-run",
+    status: "running",
+    updated_at: updatedAt,
+    gates: {
+      gate_1: { status: "approved", updated_at: updatedAt, approved_input_digest: review.approvalDigest },
+      gate_2: { status: "pending" },
+      gate_3: { status: "pending" }
+    }
+  });
 }
 
 async function launch(options: Parameters<typeof startWorkflowViewerLauncher>[0]) {
@@ -63,6 +107,44 @@ function expectedViewerUrl(launcher: WorkflowViewerLauncher, projectId: string):
 }
 
 describe("workflow viewer launcher", () => {
+  it("maps every allowlisted action to a fixed pipeline argv array", () => {
+    const config = "/safe/project.yaml";
+    const actions: LauncherAction[] = [
+      "validate",
+      "plan",
+      "review",
+      "dry-run",
+      "run",
+      "render",
+      "gate-1-approve",
+      "gate-1-revise",
+      "gate-1-abort",
+      "gate-2-approve-all",
+      "gate-2-revise",
+      "gate-2-abort",
+      "gate-3-approve",
+      "gate-3-re-render",
+      "gate-3-abort"
+    ];
+    expect(Object.fromEntries(actions.map((action) => [action, launcherPipelineArgs(config, action)]))).toEqual({
+      validate: ["validate", "--config", config, "--json"],
+      plan: ["plan", "--config", config, "--json"],
+      review: ["review", "--config", config, "--json"],
+      "dry-run": ["run", "--config", config, "--dry-run", "--json"],
+      run: ["run", "--config", config, "--actor", "coordinator", "--json"],
+      render: ["render", "--config", config, "--actor", "coordinator", "--json"],
+      "gate-1-approve": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-1", "--decision", "approve", "--json"],
+      "gate-1-revise": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-1", "--decision", "revise", "--json"],
+      "gate-1-abort": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-1", "--decision", "abort", "--json"],
+      "gate-2-approve-all": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-2", "--decision", "approve_all", "--json"],
+      "gate-2-revise": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-2", "--decision", "revise", "--json"],
+      "gate-2-abort": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-2", "--decision", "abort", "--json"],
+      "gate-3-approve": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-3", "--decision", "approve", "--json"],
+      "gate-3-re-render": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-3", "--decision", "re-render", "--json"],
+      "gate-3-abort": ["gate", "--config", config, "--actor", "coordinator", "--gate", "gate-3", "--decision", "abort", "--json"]
+    });
+  });
+
   it("serves an empty read-only feedback aggregate when projects have no feedback", async () => {
     const fixture = await createFixture();
     const launcher = await launch({
@@ -475,6 +557,37 @@ required_inputs:
   - type: image
     label: キャラクター画像
     required: true
+preview:
+  frames:
+    - { kind: person, label: 初心者の疑問 }
+    - { kind: person, label: 専門家の解説 }
+    - { kind: text, label: 要点まとめ }
+  flow:
+    - 疑問を提示
+    - 結論と理由
+    - 要点を確認
+not_for:
+  - 無言の商品イメージ映像
+variants:
+  - id: cast
+    label: キャラクター構成
+    default_option: beginner-expert
+    options:
+      - id: beginner-expert
+        label: 初心者＋専門家
+        description: 初心者が問い、専門家が結論と理由を説明する
+      - id: peer-dialogue
+        label: 同僚同士
+        description: 同じ目線の二人が事例を交えて整理する
+  - id: background
+    label: 背景
+    options:
+      - id: paper-cutout
+        label: 紙の切り絵
+        description: 紙素材と柔らかな陰影で見せる
+      - id: ui-window
+        label: 画面デモ
+        description: 背景に製品画面や操作例を表示する
 tags:
   - 掛け合い
   - 60秒
@@ -517,6 +630,38 @@ distribution: local-only
       aspectRatio: "16:9",
       speakers: 2,
       requiredInputs: ["記事本文", "キャラクター画像"],
+      requiredInputDetails: [
+        { type: "text", label: "記事本文" },
+        { type: "image", label: "キャラクター画像" }
+      ],
+      preview: {
+        frames: [
+          { kind: "person", label: "初心者の疑問" },
+          { kind: "person", label: "専門家の解説" },
+          { kind: "text", label: "要点まとめ" }
+        ],
+        flow: ["疑問を提示", "結論と理由", "要点を確認"]
+      },
+      notFor: ["無言の商品イメージ映像"],
+      variants: [
+        {
+          id: "cast",
+          label: "キャラクター構成",
+          defaultOptionId: "beginner-expert",
+          options: [
+            { id: "beginner-expert", label: "初心者＋専門家", description: "初心者が問い、専門家が結論と理由を説明する" },
+            { id: "peer-dialogue", label: "同僚同士", description: "同じ目線の二人が事例を交えて整理する" }
+          ]
+        },
+        {
+          id: "background",
+          label: "背景",
+          options: [
+            { id: "paper-cutout", label: "紙の切り絵", description: "紙素材と柔らかな陰影で見せる" },
+            { id: "ui-window", label: "画面デモ", description: "背景に製品画面や操作例を表示する" }
+          ]
+        }
+      ],
       tags: ["掛け合い", "60秒"],
       audio: "音声は任意。未指定時は無音ドラフト",
       status: "stable",
@@ -537,6 +682,100 @@ distribution: local-only
         code: "template_metadata.symlink",
         message: expect.stringMatching(/シンボリックリンク/)
       }
+    });
+  });
+
+  it("rejects a template variant whose recommended option is not declared", async () => {
+    const fixture = await createFixture();
+    const invalidDir = join(fixture.templatesDir, "invalid-variant");
+    await mkdir(invalidDir);
+    await writeFile(join(invalidDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: invalid-variant
+name: 無効なバリエーション
+summary: 推奨値が選択肢を参照しないテンプレート
+category: 解説
+use_cases: [解説動画]
+output:
+  duration: { mode: fixed, min_seconds: 30, max_seconds: 30, label: 30秒 }
+  aspect_ratios: ["16:9"]
+required_inputs:
+  - { type: text, label: 台本, required: true }
+variants:
+  - id: cast
+    label: キャラクター構成
+    default_option: missing
+    options:
+      - { id: solo, label: 一人, description: 一人で説明する }
+      - { id: duo, label: 二人, description: 二人で掛け合う }
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+
+    expect(payload.templates[0]).toMatchObject({
+      id: "invalid-variant",
+      valid: false,
+      issue: { code: "template_metadata.invalid" }
+    });
+  });
+
+  it("rejects a storyboard preview that does not contain exactly three frames", async () => {
+    const fixture = await createFixture();
+    const invalidDir = join(fixture.templatesDir, "invalid-preview");
+    await mkdir(invalidDir);
+    await writeFile(join(invalidDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: invalid-preview
+name: 無効な構成イメージ
+summary: 3コマに満たない構成イメージを持つテンプレート
+category: 解説
+use_cases: [解説動画]
+output:
+  duration: { mode: fixed, min_seconds: 30, max_seconds: 30, label: 30秒 }
+  aspect_ratios: ["16:9"]
+required_inputs:
+  - { type: text, label: 台本, required: true }
+preview:
+  frames:
+    - { kind: text, label: 導入 }
+    - { kind: person, label: 解説 }
+  flow: [導入, 解説, まとめ]
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+
+    expect(payload.templates[0]).toMatchObject({
+      id: "invalid-preview",
+      valid: false,
+      issue: { code: "template_metadata.invalid" }
     });
   });
 
@@ -651,6 +890,51 @@ distribution: local-only
 
     await expect(statusWithHost(launcher.url, "viewer.attacker.invalid")).resolves.toBe(403);
     await expect(statusWithHost(launcher.artifactUrl, "viewer.attacker.invalid")).resolves.toBe(403);
+  });
+
+  it("uses configured runtime validation paths when listing and refreshing a project", async () => {
+    const fixture = await createFixture();
+    const backendName = "packaged-remotion";
+    const backendRoot = join(fixture.root, "runtime", "backends");
+    const configPath = join(fixture.projectDir, "project.yaml");
+    await mkdir(join(backendRoot, backendName), { recursive: true });
+    await writeFile(
+      join(backendRoot, backendName, "capabilities.yaml"),
+      [
+        `name: ${backendName}`,
+        "capabilities:",
+        "  captions: true",
+        "  transitions: true",
+        "  audio_mix: true",
+        "  vertical: true",
+        "  fps: [24, 30, 60]",
+        "  presets: [article-dialogue-16x9]"
+      ].join("\n") + "\n"
+    );
+    await writeFile(
+      configPath,
+      (await readFile(configPath, "utf8")).replace("backend: remotion", `backend: ${backendName}`)
+    );
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      validationOptions: { backendDirs: [backendRoot] }
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    expect(project).toMatchObject({ valid: true, refreshable: true, issues: [] });
+
+    const refreshed = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+    expect(refreshed.status).toBe(200);
+    await expect(refreshed.json()).resolves.toMatchObject({
+      ok: true,
+      project: { valid: true, refreshable: true, issues: [] }
+    });
   });
 
   it("selects the most recently updated direct project config", async () => {
@@ -783,6 +1067,10 @@ distribution: local-only
     expect(project).toMatchObject({
       valid: true,
       refreshable: true,
+      availableActions: ["validate"],
+      workflowNodes: expect.arrayContaining([
+        expect.objectContaining({ id: "validate", status: "error" })
+      ]),
       hasViewer: true,
       viewerUrl: expectedViewerUrl(launcher, project.id),
       issues: [{
@@ -1359,5 +1647,386 @@ distribution: local-only
     });
     release();
     expect((await first).status).toBe(200);
+  });
+
+  it("exposes fixed workflow nodes and refreshes one selected project after an external CLI state change", async () => {
+    const fixture = await createFixture();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    expect(project.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(project.availableActions).toEqual(["validate", "plan", "review", "dry-run"]);
+    expect(project.workflowNodes.map((node: { id: string }) => node.id)).toEqual([
+      "validate", "plan", "review", "gate-1", "run", "gate-2", "render", "gate-3"
+    ]);
+    expect(project.workflowNodes.find((node: { id: string }) => node.id === "run"))
+      .toMatchObject({ status: "pending", action: "run" });
+
+    await writeApprovedGate1State(fixture);
+    const statusUrl = `${launcher.url}/api/projects/${project.id}/status`;
+    expect((await fetch(statusUrl)).status).toBe(403);
+    const statusResponse = await fetch(statusUrl, {
+      headers: { "x-tsugite-token": launcher.token }
+    });
+    const statusPayload = await statusResponse.json();
+
+    expect(statusResponse.status).toBe(200);
+    expect(statusPayload).toMatchObject({ ok: true, job: null });
+    expect(statusPayload.project.revision).not.toBe(project.revision);
+    expect(statusPayload.project.availableActions).toContain("run");
+    expect(statusPayload.project.workflowNodes.find((node: { id: string }) => node.id === "gate-1"))
+      .toMatchObject({ status: "completed" });
+    expect(statusPayload.project.workflowNodes.find((node: { id: string }) => node.id === "run"))
+      .toMatchObject({ status: "pending" });
+  });
+
+  it("changes the approval revision when reviewed media or final video bytes change", async () => {
+    const fixture = await createFixture();
+    const configPath = join(fixture.projectDir, "project.yaml");
+    const manifestPath = join(fixture.projectDir, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Manifest;
+    manifest.images = [{ id: "review-preview", src: "media/review-preview.png", alt: "review preview" }];
+    manifest.speakers = [{
+      id: "review-speaker",
+      display_name: "Review speaker",
+      side: "left",
+      accent: "#334455",
+      poses: { neutral: "review-preview" }
+    }];
+    await writeFile(join(fixture.projectDir, "media", "review-preview.png"), "reviewed-image-v1");
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const validation = await validateProject(configPath);
+    if (!validation.project || !validation.manifest) throw new Error("fixture project is invalid");
+    const project: Project = validation.project;
+    const normalizedManifest = validation.manifest;
+    await writeCreativeReview({
+      configPath,
+      project,
+      manifest: normalizedManifest,
+      plan: createPlan(project, normalizedManifest)
+    });
+    const runDir = join(fixture.projectDir, "dist", "local-fixture-run");
+    await writeFile(join(runDir, "render-report.json"), "{}\n");
+    await writeFile(join(runDir, "gate3-qc.json"), "{}\n");
+    await writeFile(join(runDir, "final.mp4"), "final-video-v1");
+    const reviewed = await inspectGate1Review({
+      configPath,
+      project,
+      manifest: normalizedManifest
+    });
+    if (!reviewed.ok || !reviewed.approvalDigest) throw new Error("fixture review is invalid");
+    await writeState(join(fixture.projectDir, "dist"), {
+      run_id: "local-fixture-run",
+      status: "running",
+      updated_at: "2026-07-19T02:00:00.000Z",
+      gates: {
+        gate_1: { status: "approved", approved_input_digest: reviewed.approvalDigest },
+        gate_2: { status: "pending" },
+        gate_3: { status: "pending" }
+      }
+    });
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const first = listing.projects[0];
+    expect(first.availableActions).toContain("run");
+
+    await writeFile(join(fixture.projectDir, "media", "review-preview.png"), "reviewed-image-source-v2");
+    const afterSourceChange = await fetch(`${launcher.url}/api/projects/${first.id}/status`, {
+      headers: { "x-tsugite-token": launcher.token }
+    })
+      .then((response) => response.json());
+    expect(afterSourceChange.project.revision).not.toBe(first.revision);
+    expect(afterSourceChange.project.availableActions).not.toContain("run");
+    expect(afterSourceChange.project.availableActions).toContain("gate-1-revise");
+
+    const reviewAssetsDir = join(runDir, "review", "assets");
+    const [reviewAsset] = await readdir(reviewAssetsDir);
+    await writeFile(join(reviewAssetsDir, reviewAsset!), "reviewed-image-v2");
+    const afterReviewChange = await fetch(`${launcher.url}/api/projects/${first.id}/status`, {
+      headers: { "x-tsugite-token": launcher.token }
+    })
+      .then((response) => response.json());
+    expect(afterReviewChange.project.revision).not.toBe(afterSourceChange.project.revision);
+    expect(afterReviewChange.project.availableActions).not.toContain("run");
+    expect(afterReviewChange.project.availableActions).toContain("gate-1-revise");
+    expect(afterReviewChange.project.workflowNodes.find((node: { id: string }) => node.id === "gate-1"))
+      .toMatchObject({ status: "error" });
+
+    await writeFile(join(runDir, "final.mp4"), "final-video-v2");
+    const afterFinalChange = await fetch(`${launcher.url}/api/projects/${first.id}/status`, {
+      headers: { "x-tsugite-token": launcher.token }
+    })
+      .then((response) => response.json());
+    expect(afterFinalChange.project.revision).not.toBe(afterReviewChange.project.revision);
+  });
+
+  it("keeps completed upstream nodes visible after Gate 2 or Gate 3 aborts", async () => {
+    const fixture = await createFixture();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const stateDir = join(fixture.projectDir, "dist");
+
+    await writeState(stateDir, {
+      run_id: project.runId,
+      status: "aborted",
+      updated_at: "2026-07-19T03:00:00.000Z",
+      gates: {
+        gate_1: { status: "approved" },
+        gate_2: { status: "abort" },
+        gate_3: { status: "pending" }
+      }
+    });
+    const gate2 = await fetch(`${launcher.url}/api/projects/${project.id}/status`, {
+      headers: { "x-tsugite-token": launcher.token }
+    })
+      .then((response) => response.json());
+    expect(gate2.project.workflowNodes.find((node: { id: string }) => node.id === "run"))
+      .toMatchObject({ status: "completed" });
+    expect(gate2.project.workflowNodes.find((node: { id: string }) => node.id === "gate-2"))
+      .toMatchObject({ status: "error" });
+
+    await writeState(stateDir, {
+      run_id: project.runId,
+      status: "aborted",
+      updated_at: "2026-07-19T03:01:00.000Z",
+      gates: {
+        gate_1: { status: "approved" },
+        gate_2: { status: "approved" },
+        gate_3: { status: "abort" }
+      }
+    });
+    const gate3 = await fetch(`${launcher.url}/api/projects/${project.id}/status`, {
+      headers: { "x-tsugite-token": launcher.token }
+    })
+      .then((response) => response.json());
+    expect(gate3.project.workflowNodes.find((node: { id: string }) => node.id === "run"))
+      .toMatchObject({ status: "completed" });
+    expect(gate3.project.workflowNodes.find((node: { id: string }) => node.id === "render"))
+      .toMatchObject({ status: "completed" });
+    expect(gate3.project.workflowNodes.find((node: { id: string }) => node.id === "gate-3"))
+      .toMatchObject({ status: "error" });
+  });
+
+  it("runs only fresh available allowlisted actions and passes coordinator arguments without a shell", async () => {
+    const fixture = await createFixture();
+    await writeApprovedGate1State(fixture);
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls: Array<{ command: string; args: readonly string[]; cwd: string }> = [];
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      executePipeline: async (command, args, options) => {
+        calls.push({ command, args, cwd: options.cwd });
+        const inheritedToken = options.env?.[RUN_LOCK_INHERIT_ENV];
+        expect(inheritedToken).toMatch(/^[0-9a-f-]{36}$/i);
+        await expect(acquireRunLock(join(fixture.projectDir, "dist"), "local-fixture-run"))
+          .rejects.toMatchObject({ code: "run.locked" });
+        const inherited = await acquireRunLock(
+          join(fixture.projectDir, "dist"),
+          "local-fixture-run",
+          inheritedToken
+        );
+        await inherited.release();
+        await paused;
+        return {
+          exitCode: 0,
+          stdout: [
+            join(fixture.projectDir, "project.yaml"),
+            "token=super-secret",
+            "AWS_SECRET_ACCESS_KEY=aws-secret-value",
+            "DATABASE_URL=postgres://db-user:db-password@example.invalid/database",
+            "GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+            "JWT=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZWNyZXQifQ.signaturevalue",
+            "authorization=Basic dXNlcjpwYXNzd29yZA==",
+            "private_key=-----BEGIN PRIVATE KEY-----\nprivate-key-material\n-----END PRIVATE KEY-----",
+            "-----BEGIN ENCRYPTED PRIVATE KEY-----\nencrypted-private-key-material\n-----END ENCRYPTED PRIVATE KEY-----",
+            "Cookie: sessionid=session-secret; csrf_token=csrf-secret",
+            join(homedir(), ".config", "provider", "credentials"),
+            "x".repeat(20_000)
+          ].join("\n"),
+          stderr: ""
+        };
+      }
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const endpoint = `${launcher.url}/api/projects/${project.id}/action`;
+    const headers = {
+      origin: launcher.url,
+      "content-type": "application/json",
+      "x-tsugite-token": launcher.token
+    };
+    const fresh = {
+      action: "run",
+      expectedRunId: project.runId,
+      revision: project.revision,
+      confirmed: true
+    };
+
+    expect((await fetch(endpoint, { method: "POST", body: JSON.stringify(fresh) })).status).toBe(403);
+    expect((await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...fresh, confirmed: undefined })
+    })).status).toBe(400);
+    const staleResponse = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...fresh, revision: "0".repeat(64) })
+    });
+    expect(staleResponse.status).toBe(409);
+    await expect(staleResponse.json()).resolves.toMatchObject({
+      issue: { code: "viewer_launcher.project_stale" }
+    });
+
+    const concurrent = await Promise.all([0, 1].map(() => fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(fresh)
+    })));
+    expect(concurrent.map((response) => response.status).sort()).toEqual([202, 409]);
+    const started = concurrent.find((response) => response.status === 202);
+    const duplicate = concurrent.find((response) => response.status === 409);
+    if (!started || !duplicate) throw new Error("expected one started and one conflicting action");
+    expect(started.status).toBe(202);
+    await expect(started.json()).resolves.toMatchObject({
+      ok: true,
+      job: { action: "run", status: "running", id: expect.any(String) }
+    });
+    for (let attempt = 0; attempt < 30 && calls.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.command).toBe(process.execPath);
+    expect(calls[0]!.args[0]).toMatch(/bin\/pipeline$/);
+    expect(calls[0]!.args.slice(1)).toEqual([
+      "run",
+      "--config", join(fixture.projectDir, "project.yaml"),
+      "--actor", "coordinator",
+      "--json"
+    ]);
+    expect(JSON.stringify(calls[0])).not.toContain(launcher.token);
+
+    expect(duplicate.status).toBe(409);
+    await expect(duplicate.json()).resolves.toMatchObject({
+      issue: { code: "viewer_launcher.job_in_progress" }
+    });
+
+    release();
+    let completed: { job?: LauncherJob } | undefined;
+    expect((await fetch(endpoint)).status).toBe(403);
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      completed = await fetch(endpoint, {
+        headers: { "x-tsugite-token": launcher.token }
+      }).then((response) => response.json());
+      if (completed.job?.status !== "running") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(completed?.job).toMatchObject({ status: "succeeded", exitCode: 0 });
+    const stdout = completed?.job?.stdout ?? "";
+    expect(Buffer.byteLength(stdout)).toBeLessThanOrEqual(16 * 1024);
+    expect(stdout).not.toContain(fixture.projectDir);
+    expect(stdout).not.toContain("super-secret");
+    expect(stdout).not.toContain("aws-secret-value");
+    expect(stdout).not.toContain("db-password");
+    expect(stdout).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(stdout).not.toContain("eyJhbGciOiJIUzI1NiJ9");
+    expect(stdout).not.toContain("dXNlcjpwYXNzd29yZA");
+    expect(stdout).not.toContain("private-key-material");
+    expect(stdout).not.toContain("encrypted-private-key-material");
+    expect(stdout).not.toContain("session-secret");
+    expect(stdout).not.toContain("csrf-secret");
+    expect(stdout).not.toContain(homedir());
+    expect(stdout).toContain("[output truncated]");
+  });
+
+  it("rejects unavailable Gate actions even when the request is authenticated and confirmed", async () => {
+    const fixture = await createFixture();
+    const executePipeline = vi.fn();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      executePipeline
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const response = await fetch(`${launcher.url}/api/projects/${project.id}/action`, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({
+        action: "gate-2-approve-all",
+        expectedRunId: project.runId,
+        revision: project.revision,
+        confirmed: true
+      })
+    });
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      issue: { code: "viewer_launcher.action_unavailable" }
+    });
+    expect(executePipeline).not.toHaveBeenCalled();
+  });
+
+  it("rejects an old revision after the project config is overwritten in the same inode", async () => {
+    const fixture = await createFixture();
+    const executePipeline = vi.fn();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      executePipeline
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const configPath = join(fixture.projectDir, "project.yaml");
+    const before = await lstat(configPath);
+    await writeFile(configPath, `${await readFile(configPath, "utf8")}# changed after display\n`);
+    const after = await lstat(configPath);
+    expect(after.ino).toBe(before.ino);
+
+    const response = await fetch(`${launcher.url}/api/projects/${project.id}/action`, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({
+        action: "validate",
+        expectedRunId: project.runId,
+        revision: project.revision
+      })
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      issue: { code: "viewer_launcher.project_stale" }
+    });
+    expect(executePipeline).not.toHaveBeenCalled();
   });
 });

@@ -120,6 +120,16 @@ function validateManifestContract(manifest: Manifest): Issue[] {
     }
   }
 
+  const presetAspect = requiredAspectForPreset(manifest.presentation?.preset);
+  const requiredPresentationAspect = presetAspect ?? manifest.presentation?.required_aspect;
+  if (requiredPresentationAspect && requiredPresentationAspect !== manifest.meta.aspect) {
+    speakerIssues.push({
+      code: "manifest.presentation.aspect",
+      message: `presentation requires ${requiredPresentationAspect} but manifest declares ${manifest.meta.aspect}`,
+      path: "meta.aspect"
+    });
+  }
+
   const captionIssues: Issue[] = [];
   const captionIds = new Set<string>();
   for (const [index, caption] of manifest.captions.entries()) {
@@ -154,14 +164,14 @@ function validateManifestContract(manifest: Manifest): Issue[] {
         path: `captions.${index}.speaker`
       });
     }
-    if (isDialoguePresentation && caption.end > manifest.meta.target_duration_seconds) {
+    if (manifest.presentation && caption.end > manifest.meta.target_duration_seconds) {
       captionIssues.push({
         code: "manifest.caption.range",
         message: "presentation caption must end within the target duration",
         path: `captions.${index}.end`
       });
     }
-    if (isDialoguePresentation && index > 0 && caption.start < manifest.captions[index - 1]!.end) {
+    if (manifest.presentation && index > 0 && caption.start < manifest.captions[index - 1]!.end) {
       captionIssues.push({
         code: "manifest.caption.overlap",
         message: "presentation captions must not overlap",
@@ -187,6 +197,12 @@ function validateManifestContract(manifest: Manifest): Issue[] {
 
 function isCloseEnough(left: number, right: number): boolean {
   return Math.abs(left - right) < 0.01;
+}
+
+function requiredAspectForPreset(preset?: string): "16:9" | "9:16" | undefined {
+  if (preset?.endsWith("-9x16")) return "9:16";
+  if (preset?.endsWith("-16x9")) return "16:9";
+  return undefined;
 }
 
 function hasAudibleSource(manifest: Manifest): boolean {

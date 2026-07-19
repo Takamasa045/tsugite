@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -10,6 +10,7 @@ const projects = [
     name: 'サンプル映像A',
     slug: 'project-alpha',
     runId: 'project-alpha-r3',
+    revision: 'revision-alpha',
     status: 'completed',
     updatedAt: '2026-07-15T09:30:00+09:00',
     hasViewer: true,
@@ -17,17 +18,28 @@ const projects = [
     thumbnailUrl: '/thumbnail/project-alpha',
     valid: true,
     refreshable: true,
+    workflowNodes: [
+      { id: 'validate', label: '検証', status: 'completed' as const, action: 'validate' as const },
+      { id: 'gate-3', label: '完成確認', status: 'completed' as const, action: 'gate-3-approve' as const },
+    ],
+    availableActions: ['validate', 'review'] as const,
   },
   {
     id: 'codex-goal-talk-paper',
     name: 'Codex Goal Talk',
     slug: 'codex-goal-talk-paper',
     runId: 'codex-goal-talk-paper-r6',
+    revision: 'revision-codex',
     status: 'running',
     updatedAt: '2026-07-15T10:00:00+09:00',
     hasViewer: false,
     valid: true,
     refreshable: true,
+    workflowNodes: [
+      { id: 'validate', label: '検証', status: 'completed' as const, action: 'validate' as const },
+      { id: 'run', label: '素材生成', status: 'pending' as const, action: 'run' as const },
+    ],
+    availableActions: ['validate', 'run'] as const,
   },
 ]
 
@@ -42,6 +54,38 @@ const templates = [
     aspectRatio: '16:9',
     speakers: 2,
     requiredInputs: ['記事本文と出典', '2人分のキャラクター画像'],
+    requiredInputDetails: [
+      { type: 'text' as const, label: '記事本文と出典' },
+      { type: 'image' as const, label: '2人分のキャラクター画像' },
+    ],
+    preview: {
+      frames: [
+        { kind: 'text' as const, label: '記事の要点' },
+        { kind: 'person' as const, label: '初心者の質問' },
+        { kind: 'interface' as const, label: '解説とまとめ' },
+      ],
+      flow: ['記事の要点', '疑問を代弁', '専門家が解説', '要点を回収'],
+    },
+    notFor: ['実演だけで魅力が伝わる商品'],
+    variants: [
+      {
+        id: 'cast',
+        label: 'キャラクター構成',
+        defaultOptionId: 'beginner-expert',
+        options: [
+          { id: 'beginner-expert', label: '初心者＋専門家', description: '初心者が問い、専門家が答える定番構成です。' },
+          { id: 'peer-dialogue', label: '同僚同士', description: '同じ目線の二人で事例を整理します。' },
+        ],
+      },
+      {
+        id: 'background',
+        label: '背景',
+        options: [
+          { id: 'paper-cutout', label: '紙の切り絵', description: '紙素材と柔らかな陰影で見せます。' },
+          { id: 'ui-window', label: '画面デモ', description: '製品画面や操作例を背景に表示します。' },
+        ],
+      },
+    ],
     tags: ['掛け合い', '記事', '60秒'],
     audio: '音声とBGMは任意です。',
     status: 'stable' as const,
@@ -58,6 +102,13 @@ const templates = [
     aspectRatio: '16:9',
     speakers: 2,
     requiredInputs: ['質問と回答の一覧', '2人分のキャラクター画像'],
+    requiredInputDetails: [
+      { type: 'text' as const, label: '質問と回答の一覧' },
+      { type: 'image' as const, label: '2人分のキャラクター画像' },
+    ],
+    preview: null,
+    notFor: [],
+    variants: [],
     tags: ['FAQ', '掛け合い'],
     audio: '音声とBGMは任意です。',
     status: 'stable' as const,
@@ -73,6 +124,10 @@ const templates = [
     duration: '',
     aspectRatio: '',
     requiredInputs: [],
+    requiredInputDetails: [],
+    preview: null,
+    notFor: [],
+    variants: [],
     tags: [],
     audio: '',
     status: 'unknown' as const,
@@ -82,6 +137,28 @@ const templates = [
       code: 'template_metadata.invalid',
       message: 'template.yamlの形式が正しくありません。',
     },
+  },
+  {
+    id: 'invalid-preview-shape',
+    name: '旧形式プレビュー',
+    summary: '不完全なプレビューでも安全な構成イメージへ戻します。',
+    category: '記事を動画化',
+    useCases: ['旧形式の確認'],
+    duration: '30秒',
+    aspectRatio: '16:9',
+    requiredInputs: ['台本'],
+    requiredInputDetails: [{ type: 'text' as const, label: '台本' }],
+    preview: {
+      frames: [{ kind: 'text' as const, label: '導入だけ' }],
+      flow: ['導入だけ'],
+    },
+    notFor: [],
+    variants: [],
+    tags: ['旧形式'],
+    audio: '音声は任意です。',
+    status: 'stable' as const,
+    distribution: 'local-only' as const,
+    valid: true,
   },
 ]
 
@@ -450,9 +527,12 @@ describe('LauncherApp', () => {
 
     expect(screen.getByText('制作案件を読み込んでいます…')).toBeVisible()
     expect(await screen.findByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
+    expect(document.querySelector('img.launcher-favicon-mark[src="./assets/tsugite-favicon.png"]')).toBeInTheDocument()
     expect(screen.getByText('全2件 / 表示2件')).toBeVisible()
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
     expect(within(selectedPanel).getByRole('heading', { name: 'Codex Goal Talk' })).toBeVisible()
+    expect(within(selectedPanel).queryByRole('region', { name: 'Codex Goal Talkの制作工程' })).not.toBeInTheDocument()
+    expect(within(selectedPanel).getByRole('button', { name: '生成キャンバスを開く' })).toBeVisible()
     expect(within(selectedPanel).getByText('制作中')).toBeVisible()
     expect(within(selectedPanel).getByText(/2026\/07\/15/)).toBeVisible()
     expect(document.querySelector('img[src="/thumbnail/project-alpha"]')).toBeInTheDocument()
@@ -544,7 +624,7 @@ describe('LauncherApp', () => {
     expect(refreshingButton).toHaveAttribute('aria-busy', 'true')
     expect(screen.getByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
     expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'サンプル映像Aの制作記録を開く' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' })).toBeDisabled()
     expect(within(selectedPanel).getByRole('button', { name: '最新状態に更新して開く' })).toBeDisabled()
 
     resolveRefresh(jsonResponse({
@@ -586,27 +666,30 @@ describe('LauncherApp', () => {
       name: `案件${String(index + 1).padStart(2, '0')}`,
       slug: `project-${index + 1}`,
       runId: `run-${index + 1}`,
+      revision: `revision-${index + 1}`,
       status: index % 2 === 0 ? 'completed' : 'running',
       updatedAt: `2026-07-${String(index + 1).padStart(2, '0')}T00:00:00+09:00`,
       hasViewer: false,
       valid: true,
       refreshable: true,
+      workflowNodes: [],
+      availableActions: [],
     }))
     const fetcher = createLauncherFetcher({ projectList: manyProjects })
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
-    await screen.findByRole('button', { name: '案件14の制作記録を開く' })
+    await screen.findByRole('button', { name: '案件14の制作工程を選ぶ' })
 
     expect(screen.getByText('全14件 / 表示12件')).toBeVisible()
-    expect(screen.queryByRole('button', { name: '案件02の制作記録を開く' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '案件02の制作工程を選ぶ' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '残り2件を表示' }))
     expect(screen.getByText('全14件 / 表示14件')).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: '制作中で絞り込む' }))
     expect(screen.getByText('全14件 / 表示7件')).toBeVisible()
-    expect(screen.queryByRole('button', { name: '案件13の制作記録を開く' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '案件14の制作記録を開く' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '案件02の制作記録を開く' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '案件13の制作工程を選ぶ' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '案件14の制作工程を選ぶ' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '案件02の制作工程を選ぶ' })).toBeVisible()
   })
 
   it('テンプレート棚を必要時に読み込み、検索・用途絞り込み・詳細確認ができる', async () => {
@@ -622,22 +705,66 @@ describe('LauncherApp', () => {
     expect(fetcher).toHaveBeenLastCalledWith('/api/templates', {
       headers: { accept: 'application/json' },
     })
-    expect(screen.getByText('全3件 / 表示3件')).toBeVisible()
+    expect(screen.getByText('全4件 / 表示4件')).toBeVisible()
+
+    const storyboardCard = screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })
+    expect(within(storyboardCard).getByText('構成イメージ')).toBeVisible()
+    expect(within(storyboardCard).getAllByRole('img')).toHaveLength(3)
+    expect(within(storyboardCard).getByText('60秒 · 16:9')).toBeVisible()
+    expect(within(storyboardCard).getByText('記事の要点 → 疑問を代弁 → 専門家が解説 → 要点を回収')).toBeVisible()
+    expect(within(storyboardCard).getByText('テキスト')).toBeVisible()
+    expect(within(storyboardCard).getByText('画像')).toBeVisible()
+    expect(storyboardCard).toHaveAttribute('aria-describedby', 'launcher-template-card-a11y-blog-dialogue-60s')
+    expect(document.getElementById('launcher-template-card-a11y-blog-dialogue-60s')).toHaveTextContent(
+      '60秒、16:9。構成: 記事の要点、疑問を代弁、専門家が解説、要点を回収。必要素材: テキスト、画像。',
+    )
+
+    const fallbackCard = screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ })
+    expect(within(fallbackCard).getByText('構成イメージ')).toBeVisible()
+    expect(within(fallbackCard).getAllByRole('img')).toHaveLength(3)
+    expect(within(fallbackCard).getByText('プレビュー準備中')).toBeVisible()
+
+    const invalidPreviewCard = screen.getByRole('button', { name: /旧形式プレビューを選ぶ/ })
+    expect(within(invalidPreviewCard).getAllByRole('img')).toHaveLength(3)
+    expect(within(invalidPreviewCard).getByText('プレビュー準備中')).toBeVisible()
 
     const detail = screen.getByRole('complementary', { name: '選択したテンプレート' })
     expect(within(detail).getByRole('heading', { name: 'ブログ掛け合い 60秒' })).toBeVisible()
     expect(within(detail).getByText('ブログ記事を初心者役と解説役の会話で伝える動画です。')).toBeVisible()
     expect(within(detail).getByText('記事本文と出典')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '選べるバリエーション' })).toBeVisible()
+    expect(within(detail).getByText('キャラクター構成')).toBeVisible()
+    expect(within(detail).getByText('初心者＋専門家')).toBeVisible()
+    expect(within(detail).getByText('紙の切り絵')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '構成の流れ' })).toBeVisible()
+    expect(within(detail).getByText('専門家が解説')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '向いている用途' })).toBeVisible()
+    expect(within(detail).getByText('初心者向け解説')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '向かない用途' })).toBeVisible()
+    expect(within(detail).getByText('実演だけで魅力が伝わる商品')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '同じ系統のテンプレート' })).toBeVisible()
+    expect(within(detail).getByText('Q&A掛け合い')).toBeVisible()
     expect(within(detail).getByText('閲覧専用')).toBeVisible()
 
+    const relatedTemplate = within(detail).getByRole('button', {
+      name: 'Q&A掛け合い Q&A件数に応じて可変 · 16:9',
+    })
+    await user.click(relatedTemplate)
+    expect(await within(detail).findByRole('heading', { name: 'Q&A掛け合い' })).toHaveFocus()
+
+    await user.type(screen.getByRole('searchbox', { name: 'テンプレートを検索' }), '紙の切り絵')
+    expect(screen.getByText('全4件 / 表示1件')).toBeVisible()
+    expect(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })).toBeVisible()
+
+    await user.clear(screen.getByRole('searchbox', { name: 'テンプレートを検索' }))
     await user.type(screen.getByRole('searchbox', { name: 'テンプレートを検索' }), 'FAQ')
-    expect(screen.getByText('全3件 / 表示1件')).toBeVisible()
+    expect(screen.getByText('全4件 / 表示1件')).toBeVisible()
     expect(screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })).not.toBeInTheDocument()
 
     await user.clear(screen.getByRole('searchbox', { name: 'テンプレートを検索' }))
     await user.click(screen.getByRole('button', { name: 'Q&A・FAQで絞り込む' }))
-    expect(screen.getByText('全3件 / 表示1件')).toBeVisible()
+    expect(screen.getByText('全4件 / 表示1件')).toBeVisible()
     await user.click(screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ }))
     expect(within(detail).getByText(/Q&A件数に応じて可変/)).toBeVisible()
 
@@ -912,9 +1039,12 @@ describe('LauncherApp', () => {
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
-    const projectCard = await screen.findByRole('button', { name: 'サンプル映像Aの制作記録を開く' })
+    const projectCard = await screen.findByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' })
 
     await user.click(projectCard)
+    expect(navigate).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('complementary', { name: '選択した制作案件' }))
+      .getByRole('button', { name: '最新状態に更新して開く' }))
 
     await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(
       '/api/projects/project-alpha/refresh',
@@ -932,6 +1062,293 @@ describe('LauncherApp', () => {
       project: projects[0],
     }))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/?updated=1'))
+  })
+
+  it('左のサムネイルから最新の3Dワークフローへ直接移動する', async () => {
+    const user = userEvent.setup()
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects/project-alpha/refresh') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          viewerUrl: '/viewers/project-alpha/?from=thumbnail',
+          project: projects[0],
+        }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+    const navigate = vi.fn()
+
+    render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
+
+    await user.click(await screen.findByRole('button', {
+      name: 'サンプル映像Aの3Dワークフローを最新にして開く',
+    }))
+
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/projects/project-alpha/refresh',
+      expect.objectContaining({ method: 'POST' }),
+    ))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/?from=thumbnail'))
+  })
+
+  it('選択案件の生成キャンバスを別画面で開く', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+    const navigate = vi.fn()
+
+    render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
+
+    const selectedPanel = await screen.findByRole('complementary', { name: '選択した制作案件' })
+    expect(within(selectedPanel).queryByRole('region', { name: 'Codex Goal Talkの制作工程' })).not.toBeInTheDocument()
+    await user.click(within(selectedPanel).getByRole('button', { name: '生成キャンバスを開く' }))
+
+    expect(navigate).toHaveBeenCalledWith('/?canvas=codex-goal-talk-paper')
+  })
+
+  it('選択案件の2D工程を表示し、安全な操作をrevision付きで開始する', async () => {
+    const user = userEvent.setup()
+    const longOutput = `先頭は表示しない${'a'.repeat(4_100)}末尾を表示する`
+    const fetcher = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects/codex-goal-talk-paper/action' && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          job: {
+            id: 'job-validate',
+            action: 'validate',
+            status: 'succeeded',
+            startedAt: '2026-07-19T11:00:00+09:00',
+            completedAt: '2026-07-19T11:00:01+09:00',
+            exitCode: 0,
+            stdout: longOutput,
+          },
+        }, true, 202))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    const navigate = vi.fn()
+    render(
+      <LauncherApp
+        fetcher={fetcher}
+        initialCanvasProjectId="codex-goal-talk-paper"
+        navigate={navigate}
+        token="session-token"
+      />,
+    )
+
+    expect(await screen.findByRole('heading', { name: '生成キャンバス' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'ランチャーへ戻る' }))
+    expect(navigate).toHaveBeenCalledWith('/')
+    const canvas = await screen.findByRole('region', { name: 'Codex Goal Talkの制作工程' })
+    expect(within(canvas).getByRole('button', { name: '検証、完了' })).toBeVisible()
+    expect(within(canvas).getByRole('button', { name: '素材生成、未着手' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '設定を検証' }))
+
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/projects/codex-goal-talk-paper/action',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'validate',
+          expectedRunId: 'codex-goal-talk-paper-r6',
+          revision: 'revision-codex',
+        }),
+      }),
+    ))
+    expect(screen.getByRole('heading', { name: '設定を検証' })).toBeVisible()
+    expect(screen.getByLabelText('標準出力')).not.toHaveTextContent('先頭は表示しない')
+    expect(screen.getByLabelText('標準出力')).toHaveTextContent('末尾を表示する')
+  })
+
+  it('POST応答待ちの連打でも同じ案件の操作を一度だけ送信する', async () => {
+    const user = userEvent.setup()
+    let resolveAction!: (response: Response) => void
+    const actionResponse = new Promise<Response>((resolve) => { resolveAction = resolve })
+    const fetcher = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects/codex-goal-talk-paper/action' && init?.method === 'POST') return actionResponse
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} initialCanvasProjectId="codex-goal-talk-paper" token="session-token" />)
+    const validateButton = await screen.findByRole('button', { name: '設定を検証' })
+    await Promise.all([user.click(validateButton), user.click(validateButton)])
+
+    expect(fetcher.mock.calls.filter(([url, init]) => (
+      url === '/api/projects/codex-goal-talk-paper/action' && init?.method === 'POST'
+    ))).toHaveLength(1)
+    expect(validateButton).toBeDisabled()
+
+    resolveAction(jsonResponse({
+      ok: true,
+      job: {
+        id: 'job-validate-lock',
+        action: 'validate',
+        status: 'succeeded',
+        startedAt: '2026-07-19T11:02:00+09:00',
+        completedAt: '2026-07-19T11:02:01+09:00',
+      },
+    }, true, 202))
+    await waitFor(() => expect(validateButton).toBeEnabled())
+  })
+
+  it('生成操作は確認を必須にし、確認後だけconfirmed付きで送信する', async () => {
+    const user = userEvent.setup()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const fetcher = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects/codex-goal-talk-paper/action' && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          job: {
+            id: 'job-run',
+            action: 'run',
+            status: 'running',
+            startedAt: '2026-07-19T11:05:00+09:00',
+          },
+        }, true, 202))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} initialCanvasProjectId="codex-goal-talk-paper" token="session-token" />)
+    const runButton = await screen.findByRole('button', { name: '素材生成を開始' })
+
+    await user.click(runButton)
+    expect(fetcher.mock.calls.filter(([url, init]) => (
+      url === '/api/projects/codex-goal-talk-paper/action' && init?.method === 'POST'
+    ))).toHaveLength(0)
+
+    await user.click(runButton)
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/projects/codex-goal-talk-paper/action',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'run',
+          confirmed: true,
+          expectedRunId: 'codex-goal-talk-paper-r6',
+          revision: 'revision-codex',
+        }),
+      }),
+    ))
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('プロバイダーへプロンプトや素材が送信'))
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringContaining('dry-runの見積りは支出上限ではありません'))
+    expect(screen.getByRole('heading', { name: '素材生成を開始' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '設定を検証' })).toBeDisabled()
+    confirm.mockRestore()
+  })
+
+  it('選択案件だけをpollし、別端末CLIによる工程更新を反映する', async () => {
+    vi.useFakeTimers()
+    const updatedProject = {
+      ...projects[1],
+      revision: 'revision-codex-updated',
+      status: 'awaiting_gate_1',
+      workflowNodes: [
+        { id: 'validate', label: '検証', status: 'completed' as const, action: 'validate' as const },
+        { id: 'gate-1', label: '制作方針確認', status: 'waiting_approval' as const, action: 'gate-1-approve' as const },
+      ],
+      availableActions: ['gate-1-approve'] as const,
+    }
+    let statusRequestCount = 0
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects/codex-goal-talk-paper/status') {
+        statusRequestCount += 1
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          project: statusRequestCount === 1
+            ? updatedProject
+            : { ...updatedProject, revision: 'revision-codex-updated-again' },
+          job: null,
+        }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} initialCanvasProjectId="codex-goal-talk-paper" token="session-token" />)
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByRole('region', { name: 'Codex Goal Talkの制作工程' })).toBeVisible()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_500) })
+
+    expect(fetcher).toHaveBeenCalledWith('/api/projects/codex-goal-talk-paper/status', {
+      headers: { accept: 'application/json', 'x-tsugite-token': 'session-token' },
+    })
+    expect(screen.getByRole('button', { name: '制作方針確認、確認待ち' })).toBeVisible()
+    const approveButton = screen.getByRole('button', { name: '制作方針を承認' })
+    expect(approveButton).toBeDisabled()
+    await act(async () => {
+      screen.getByRole('checkbox', { name: /review\/index.html/ }).click()
+    })
+    expect(approveButton).toBeEnabled()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_500) })
+    expect(approveButton).toBeDisabled()
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(1)
+    vi.useRealTimers()
+  })
+
+  it('同じjobの古いrunning観測で完了状態を巻き戻さない', async () => {
+    vi.useFakeTimers()
+    let statusRequestCount = 0
+    const terminalJob = {
+      id: 'job-observed',
+      action: 'validate',
+      status: 'succeeded',
+      startedAt: '2026-07-19T11:20:00+09:00',
+      completedAt: '2026-07-19T11:20:01+09:00',
+      exitCode: 0,
+    }
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects/codex-goal-talk-paper/status') {
+        statusRequestCount += 1
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          project: projects[1],
+          job: statusRequestCount === 1
+            ? terminalJob
+            : { ...terminalJob, status: 'running', completedAt: undefined, exitCode: undefined },
+        }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} initialCanvasProjectId="codex-goal-talk-paper" token="session-token" />)
+    await act(async () => { await Promise.resolve() })
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_500) })
+    const jobHeading = screen.getByRole('heading', { name: '設定を検証' })
+    expect(within(jobHeading.closest('section')!).getByText('完了')).toBeVisible()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_500) })
+    expect(within(jobHeading.closest('section')!).getByText('完了')).toBeVisible()
+    expect(screen.getByRole('button', { name: '設定を検証' })).toBeEnabled()
+    vi.useRealTimers()
+  })
+
+  it('variantsが欠けたテンプレート応答を棚のエラーとして扱う', async () => {
+    const user = userEvent.setup()
+    const malformedTemplate = { ...templates[0] } as Record<string, unknown>
+    delete malformedTemplate.variants
+    const fetcher = createLauncherFetcher({ templateList: [malformedTemplate] })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('テンプレートを読み込めませんでした。')
   })
 
   it('無効な案件と検索の空状態を、次の行動が分かる日本語で表示する', async () => {
@@ -982,6 +1399,10 @@ describe('LauncherApp', () => {
     expect(reasonCard).toHaveTextContent('最新状態に更新できません')
     expect(reasonCard).toHaveTextContent("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")
     expect(reasonCard).toHaveAccessibleDescription("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")
+
+    await user.click(screen.getByRole('button', { name: '未対応ショーリールの前回の3Dワークフローを開く' }))
+    expect(navigate).toHaveBeenCalledWith('/viewers/unsupported-showreel/')
+    navigate.mockClear()
 
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
     expect(within(selectedPanel).getByText("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")).toBeVisible()
@@ -1040,7 +1461,7 @@ describe('LauncherApp', () => {
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} />)
-    await screen.findByRole('button', { name: 'サンプル映像Aの制作記録を開く' })
+    await screen.findByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' })
     await user.click(screen.getByRole('button', { name: '最新状態に更新して開く' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(

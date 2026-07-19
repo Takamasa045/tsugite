@@ -4,6 +4,7 @@ import type { Manifest } from "../manifest/schema.js";
 import type { Project } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import { readState } from "./state.js";
+import { sha256File } from "./render.js";
 
 const MEDIA_EXTENSIONS = new Set([
   ".aac", ".aiff", ".aif", ".avi", ".avif", ".bmp", ".flac", ".flv", ".gif",
@@ -90,6 +91,27 @@ export async function finalizeCompletedProject(
     if (!(await isRegularFile(path))) proofIssues.push({ code, message, path });
   }
   if (proofIssues.length > 0) return { ...empty, issues: proofIssues };
+  let finalOutputDigest: string;
+  try {
+    finalOutputDigest = await sha256File(canonicalOutputPath);
+  } catch (error) {
+    return {
+      ...empty,
+      issues: [{
+        code: "finalize.output_hash_failed",
+        message: error instanceof Error ? error.message : String(error),
+        path: canonicalOutputPath
+      }]
+    };
+  }
+  if (
+    !state.gates.gate_3.approved_input_digest
+    || state.gates.gate_3.approved_input_digest !== finalOutputDigest
+  ) return failure(empty, {
+    code: "finalize.gate3_output_changed",
+    message: "final.mp4 no longer matches the Gate 3 approved output",
+    path: canonicalOutputPath
+  });
 
   const cleanupRoots = [
     stateDir,
