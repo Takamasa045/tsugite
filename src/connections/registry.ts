@@ -1,10 +1,8 @@
-import { access } from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
 import { createHash } from "node:crypto";
-import { delimiter, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { readYamlFile } from "../io.js";
+import { commandExists as platformCommandExists } from "../platform/process.js";
 
 const safeId = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/);
 const capability = z.string().regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/);
@@ -150,7 +148,7 @@ export async function loadConnectionCatalog(catalogPath = defaultCatalogPath): P
 
 export async function listConnectionOptions(options: ConnectionListOptions = {}): Promise<ConnectionOption[]> {
   const catalog = await loadConnectionCatalog(options.catalogPath);
-  const commandExists = options.commandExists ?? ((command) => executableExists(command, options.environment));
+  const commandExists = options.commandExists ?? ((command) => platformCommandExists(command, options.environment));
   const matches = catalog.connections.filter((connection) =>
     (!options.capability || connection.capabilities.includes(options.capability))
     && (!options.model || supportsModel(connection, options.model))
@@ -293,7 +291,7 @@ async function resolveIntegratedConnection(
 ): Promise<GenerationConnectionResolution> {
   const setup = await inspectConnectionSetup(connection, {
     environment: process.env,
-    commandExists: (command) => executableExists(command, process.env)
+    commandExists: (command) => platformCommandExists(command, process.env)
   });
   return {
     id: connection.id,
@@ -373,25 +371,4 @@ function normalizeConnectionName(value: string): string {
 function omitSetupChecks(connection: ConnectionDefinition): Omit<ConnectionDefinition, "setup_checks"> {
   const { setup_checks: _checks, ...publicConnection } = connection;
   return publicConnection;
-}
-
-async function executableExists(command: string, environment = process.env): Promise<boolean> {
-  const pathValue = environment.PATH ?? "";
-  const extensions = process.platform === "win32"
-    ? (environment.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";")
-    : [""];
-  for (const directory of pathValue.split(delimiter).filter(Boolean)) {
-    for (const extension of extensions) {
-      try {
-        await access(
-          resolve(directory, `${command}${extension}`),
-          process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK
-        );
-        return true;
-      } catch {
-        // Continue without executing the provider command or reading credentials.
-      }
-    }
-  }
-  return false;
 }

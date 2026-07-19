@@ -663,7 +663,11 @@ describe("pipeline main", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
     process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify([
-      join(process.cwd(), "fixtures/tools/openclaw-generate")
+      join(
+        process.cwd(),
+        "fixtures/tools",
+        process.platform === "win32" ? "openclaw-generate.cmd" : "openclaw-generate"
+      )
     ]);
     let run;
     try {
@@ -713,7 +717,11 @@ describe("pipeline main", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
     process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify([
-      join(process.cwd(), "fixtures/tools/openclaw-fail")
+      join(
+        process.cwd(),
+        "fixtures/tools",
+        process.platform === "win32" ? "openclaw-fail.cmd" : "openclaw-fail"
+      )
     ]);
     let run;
     try {
