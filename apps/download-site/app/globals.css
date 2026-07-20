@@ -106,6 +106,39 @@ button { font: inherit; }
 @keyframes motion-lock { 0%, 53% { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(.2); } 58%, 91% { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1); } 97%, 100% { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(.4); } }
 @keyframes motion-atmosphere { 0%, 55%, 100% { opacity: .38; } 60%, 88% { opacity: .86; } }
 
+/* Hero cinema: a rough-cut field resolves into the finished craft. */
+.hero > .nav, .hero-grid, .hero-specs { position: relative; z-index: 3; }
+.hero-grid { grid-template-columns: minmax(420px, .68fr) minmax(460px, 1.32fr); }
+.hero-copy { max-width: 560px; }
+.hero-motion { position: absolute; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; }
+.motion-stage { min-height: 100%; height: 100%; border: 0; border-radius: 0; background: radial-gradient(ellipse at 78% 37%, rgb(235 163 72 / .24), transparent 20%), radial-gradient(ellipse at 55% 65%, rgb(100 36 8 / .38), transparent 33%), repeating-linear-gradient(94deg, rgb(255 207 124 / .08) 0 1px, transparent 1px 24px), linear-gradient(112deg, #050302 0%, #1b0c04 44%, #5d260b 73%, #140704 100%); box-shadow: none; }
+.motion-stage::before { z-index: 0; background: radial-gradient(ellipse at 74% 46%, rgb(255 219 151 / .19), transparent 24%), linear-gradient(90deg, rgb(2 2 2 / .78) 0%, rgb(3 2 1 / .4) 39%, transparent 72%), linear-gradient(180deg, rgb(0 0 0 / .14), rgb(0 0 0 / .48)); animation: motion-film-grade 14s ease-in-out infinite; }
+.motion-stage::after { z-index: 6; border: 0; border-radius: 0; box-shadow: inset 0 0 180px rgb(0 0 0 / .6); }
+.motion-film { position: absolute; z-index: 1; inset: 0; overflow: hidden; opacity: .9; animation: motion-film-resolve 14s steps(1, end) infinite; }
+.motion-film::before { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgb(255 230 182 / .12) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, rgb(255 210 140 / .07) 0 1px, transparent 1px 7px), linear-gradient(105deg, transparent 0 42%, rgb(255 178 83 / .15) 48% 52%, transparent 58%); content: ""; opacity: .74; animation: motion-film-grain 14s steps(2, end) infinite; }
+.motion-film::after { position: absolute; inset: -8%; background: linear-gradient(90deg, transparent 0 7%, rgb(255 214 151 / .12) 7% 9%, transparent 9% 27%, rgb(8 3 1 / .72) 27% 35%, transparent 35% 63%, rgb(255 204 127 / .12) 63% 66%, transparent 66% 100%); content: ""; opacity: .85; transform: translateX(-5%); animation: motion-film-shutter 14s cubic-bezier(.5, 0, .5, 1) infinite; }
+.motion-film i { position: absolute; display: block; right: -10%; left: -10%; height: clamp(30px, 5vw, 80px); background: linear-gradient(90deg, transparent, rgb(255 202 122 / .13) 20% 61%, transparent); box-shadow: 0 1px rgb(255 226 176 / .15), 0 -18px 34px rgb(0 0 0 / .25); opacity: 0; }
+.motion-film i:nth-child(1) { top: 18%; animation: motion-film-band-a 14s linear infinite; }
+.motion-film i:nth-child(2) { top: 36%; animation: motion-film-band-b 14s linear infinite; }
+.motion-film i:nth-child(3) { top: 59%; animation: motion-film-band-a 14s linear -1.2s infinite; }
+.motion-film i:nth-child(4) { top: 76%; animation: motion-film-band-b 14s linear -1.2s infinite; }
+.motion-build { z-index: 2; inset: 15% 7% 12% 46%; }
+.motion-part { border-color: rgb(255 220 154 / .74); background: repeating-linear-gradient(8deg, rgb(44 14 3 / .32) 0 2px, transparent 3px 11px), linear-gradient(105deg, #331204 0%, #ad632b 45%, #51200a 100%); box-shadow: inset 0 1px rgb(255 239 205 / .46), inset 0 -10px 18px rgb(20 5 1 / .35), 0 22px 54px rgb(0 0 0 / .46); }
+.motion-part-base { height: clamp(52px, 6vw, 88px); }
+.motion-part-left, .motion-part-right { width: 25%; height: 58%; }
+.motion-part-cap { height: clamp(45px, 5vw, 72px); }
+.motion-copy { z-index: 4; top: 55%; left: 70%; width: min(33vw, 490px); border: 0; padding: 0; background: transparent; box-shadow: none; }
+.motion-copy small { color: #ffe0a9; text-shadow: 0 2px 6px rgb(0 0 0 / .96); }
+.motion-copy strong { font-size: clamp(2.1rem, 3.8vw, 4.7rem); text-shadow: 0 3px 18px rgb(0 0 0 / .96), 0 1px 0 #180603; }
+.motion-copy em { color: #ffd084; }
+.motion-footer { z-index: 7; justify-content: flex-end; right: 6vw; bottom: 26px; left: auto; }
+@keyframes motion-film-grade { 0%, 11% { opacity: .18; } 17%, 72% { opacity: 1; } 82%, 100% { opacity: .84; } }
+@keyframes motion-film-resolve { 0%, 12% { filter: contrast(1.45) saturate(.58) brightness(.72); } 18%, 72% { filter: contrast(1.08) saturate(1.05) brightness(1); } 80%, 100% { filter: contrast(1.02) saturate(1.12) brightness(1.04); } }
+@keyframes motion-film-grain { 0%, 8% { opacity: .86; transform: translate3d(-1%, 2%, 0); } 13%, 72% { opacity: .29; transform: translate3d(0, 0, 0); } 80%, 100% { opacity: .14; } }
+@keyframes motion-film-shutter { 0%, 6% { opacity: .95; transform: translateX(-12%) skewX(-4deg); } 12%, 22% { opacity: .58; transform: translateX(4%) skewX(2deg); } 30%, 100% { opacity: .08; transform: translateX(0) skewX(0); } }
+@keyframes motion-film-band-a { 0%, 3% { opacity: 0; transform: translateX(-16%) scaleX(.75); } 5%, 12% { opacity: .72; transform: translateX(8%) scaleX(1.1); } 16%, 100% { opacity: 0; transform: translateX(0) scaleX(1); } }
+@keyframes motion-film-band-b { 0%, 7% { opacity: 0; transform: translateX(18%) scaleX(.65); } 10%, 17% { opacity: .6; transform: translateX(-4%) scaleX(1.08); } 21%, 100% { opacity: 0; transform: translateX(0) scaleX(1); } }
+
 .hero-specs { display: grid; width: min(1420px, calc(100% - 72px)); grid-template-columns: repeat(3, 1fr); margin: auto; border-top: 1px solid rgb(244 237 223 / .13); }
 .hero-specs > div { display: grid; min-height: 96px; align-content: center; gap: 9px; border-right: 1px solid rgb(244 237 223 / .13); padding: 0 30px; }
 .hero-specs > div:first-child { border-left: 1px solid rgb(244 237 223 / .13); }
@@ -293,7 +326,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--urushi); outlin
 @media (max-width: 1180px) {
   .hero-grid { grid-template-columns: 1fr; max-width: 850px; padding-bottom: 86px; }
   .hero-copy { max-width: 720px; }
-  .hero-motion { max-width: 760px; }
+  .motion-build { inset: 45% 5% 10% 43%; }
+  .motion-copy { top: 68%; left: 65%; width: min(41vw, 430px); }
   .statement-grid, .download-grid, .knowledge-heading, .workspace-guide-heading { grid-template-columns: 1fr; }
   .knowledge-grid { grid-template-columns: 1fr; }
   .knowledge-card { min-height: 320px; }
@@ -320,8 +354,11 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--urushi); outlin
   .button { width: 100%; }
   .availability { align-items: flex-start; }
   .availability > span { margin-top: 5px; flex: 0 0 auto; }
-  .motion-stage { min-height: 350px; border-radius: 2px 18px 2px 18px; box-shadow: 0 24px 60px rgb(0 0 0 / .55), 10px 10px 0 rgb(166 61 47 / .08); }
-  .motion-copy strong { font-size: clamp(2rem, 10vw, 3.7rem); }
+  .motion-stage { min-height: 100%; border-radius: 0; box-shadow: none; }
+  .motion-build { inset: 54% 2% 7% 2%; opacity: .82; }
+  .motion-copy { top: 76%; left: 50%; width: 84%; }
+  .motion-copy strong { font-size: clamp(1.85rem, 9.6vw, 3.2rem); }
+  .motion-footer { right: 18px; bottom: 18px; }
   .hero-specs { width: calc(100% - 36px); grid-template-columns: 1fr; }
   .hero-specs > div { min-height: 76px; border-left: 1px solid rgb(244 237 223 / .13); border-bottom: 1px solid rgb(244 237 223 / .13); padding: 0 18px; }
   .statement, .knowledge-section, .workflow-section, .tools-section, .download-section { padding-right: 22px; padding-left: 22px; }
@@ -368,6 +405,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--urushi); outlin
   .button:hover, .platform-arrow { transform: none !important; }
   .motion-copy { opacity: 0; }
   .motion-copy-assemble { opacity: 1; transform: translate(-50%, -50%); }
+  .motion-film { animation: none; filter: contrast(1.02) saturate(1.12) brightness(1.04); }
+  .motion-film::before, .motion-film::after, .motion-film i { animation: none; opacity: .1; transform: none; }
   .motion-part { opacity: 1; transform: none; }
   .motion-lock { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1); }
 }

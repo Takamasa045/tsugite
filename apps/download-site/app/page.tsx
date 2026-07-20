@@ -109,7 +109,8 @@ export default function Home() {
             aria-label="構成を描き、素材を選び、映像を組み上げる。選ぶほど、自分好みの制作環境に育ってくる工程を表すアニメーション"
           >
             <div className="motion-stage" aria-hidden="true">
-              <div className="motion-topline"><span>TSUGITE / MAKING LOOP</span><i /><b>00:16</b></div>
+              <div className="motion-topline"><span>TSUGITE / ROUGH CUT TO CRAFT</span><i /><b>00:14</b></div>
+              <div className="motion-film"><i /><i /><i /><i /></div>
               <div className="motion-build">
                 <i className="motion-part motion-part-base" />
                 <i className="motion-part motion-part-left" />
