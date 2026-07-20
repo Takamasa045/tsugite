@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +15,9 @@ vi.mock("../src/viewer/workflow.js", () => ({
 }));
 
 import {
+  createWorkflowViewerSnapshotManifest,
   getWorkflowViewerOpenCommand,
+  WORKFLOW_VIEWER_EVIDENCE_FILE,
   writeWorkflowViewer
 } from "../src/viewer/artifact.js";
 
@@ -145,7 +148,7 @@ describe("workflow viewer artifact", () => {
     await writeFile(join(runDir, "review", "index.html"), '<!doctype html><img src="assets/storyboard.png">\n');
     await writeFile(join(runDir, "review", "assets", "storyboard.png"), "storyboard-preview");
     await writeFile(join(runDir, "review", "review-data.json"), '{"schema_version":1}\n');
-    await writeFile(join(runDir, "gate2-qc.json"), JSON.stringify({
+    const gate2Qc = JSON.stringify({
       ok: false,
       target_duration_seconds: 30,
       total_clip_duration_seconds: 30.2,
@@ -153,7 +156,8 @@ describe("workflow viewer artifact", () => {
       asset_count: 3,
       assets: [{ kind: "clip" }, { kind: "image" }, { kind: "audio" }],
       issues: [{ code: "asset", message: "missing" }]
-    }));
+    });
+    await writeFile(join(runDir, "gate2-qc.json"), gate2Qc);
     await writeFile(join(runDir, "gate3-qc.json"), JSON.stringify({
       ok: true,
       output_path: "/tmp/final.mp4",
@@ -205,6 +209,40 @@ describe("workflow viewer artifact", () => {
       .resolves.toContain('src="assets/storyboard.png"');
     await expect(readFile(join(result.outputDir, "review", "assets", "storyboard.png"), "utf8"))
       .resolves.toBe("storyboard-preview");
+    const snapshotEvidence = JSON.parse(
+      await readFile(join(result.outputDir, WORKFLOW_VIEWER_EVIDENCE_FILE), "utf8")
+    );
+    expect(snapshotEvidence).toEqual({
+      schema_version: 1,
+      review_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      gate2_qc_digest: createHash("sha256").update(gate2Qc).digest("hex"),
+      viewer_index_digest: createHash("sha256")
+        .update(await readFile(result.viewerPath))
+        .digest("hex"),
+      workflow_digest: createHash("sha256")
+        .update(await readFile(result.workflowPath))
+        .digest("hex"),
+      files: expect.arrayContaining([
+        expect.objectContaining({ path: "index.html", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        expect.objectContaining({ path: "workflow.json", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        expect.objectContaining({ path: "review/index.html", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        expect.objectContaining({ path: "review/assets/storyboard.png", size: 18, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
+      ])
+    });
+    expect(JSON.stringify(snapshotEvidence)).not.toContain(root);
+    expect(snapshotEvidence.files.length).toBeLessThanOrEqual(512);
+    expect(snapshotEvidence.files.every((file: { path: string; size: number; sha256: string }) =>
+      !file.path.startsWith("/")
+      && !file.path.includes("\\")
+      && file.path.length <= 512
+      && Number.isInteger(file.size)
+      && file.size >= 0
+      && /^[a-f0-9]{64}$/.test(file.sha256)
+    )).toBe(true);
+    expect(snapshotEvidence.files.reduce(
+      (sum: number, file: { size: number }) => sum + file.size,
+      0
+    )).toBeLessThanOrEqual(16 * 1024 * 1024 * 1024);
   });
 
   it("copies a bounded set of real media into the snapshot and exposes browser-safe previews", async () => {
@@ -514,5 +552,25 @@ describe("workflow viewer artifact", () => {
       command: "xdg-open",
       args: ["/tmp/viewer/index.html"]
     });
+  });
+
+  it("rejects snapshot directory trees that exceed entry or depth limits", async () => {
+    const entriesRoot = await mkdtemp(join(tmpdir(), "tsugite-viewer-entries-"));
+    await writeFile(join(entriesRoot, "index.html"), "index\n");
+    await writeFile(join(entriesRoot, "workflow.json"), "{}\n");
+    await Promise.all(Array.from({ length: 513 }, (_, index) =>
+      mkdir(join(entriesRoot, "assets", `empty-${index}`), { recursive: true })
+    ));
+    await expect(createWorkflowViewerSnapshotManifest(entriesRoot))
+      .rejects.toThrow("too many entries");
+
+    const depthRoot = await mkdtemp(join(tmpdir(), "tsugite-viewer-depth-"));
+    await writeFile(join(depthRoot, "index.html"), "index\n");
+    await writeFile(join(depthRoot, "workflow.json"), "{}\n");
+    let nested = join(depthRoot, "assets");
+    for (let depth = 0; depth < 33; depth += 1) nested = join(nested, "d");
+    await mkdir(nested, { recursive: true });
+    await expect(createWorkflowViewerSnapshotManifest(depthRoot))
+      .rejects.toThrow("too deeply nested");
   });
 });
