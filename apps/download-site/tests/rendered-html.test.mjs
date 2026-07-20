@@ -98,6 +98,9 @@ test("ships site-specific metadata, assets, and accessibility styles", async () 
   assert.match(css, /\.hybrid-roles/);
   assert.match(css, /\.hero-motion\s*\{/);
   assert.match(css, /repeating-linear-gradient\(97deg/);
+  assert.match(css, /\.motion-build\s*\{/);
+  assert.match(css, /\.motion-part-base\s*\{/);
+  assert.match(css, /@keyframes motion-part-base/);
   assert.match(css, /@keyframes motion-copy/);
   const heroRule = css.match(/\.hero\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(heroRule, /linear-gradient\(180deg, #090909/);

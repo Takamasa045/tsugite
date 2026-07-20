@@ -109,11 +109,14 @@ export default function Home() {
             aria-label="構成を描き、素材を選び、映像を組み上げる。選ぶほど、自分好みの制作環境に育ってくる工程を表すアニメーション"
           >
             <div className="motion-stage" aria-hidden="true">
-              <div className="motion-topline"><span>TSUGITE / MAKING LOOP</span><i /><b>00:12</b></div>
-              <div className="motion-guide motion-guide-a" />
-              <div className="motion-guide motion-guide-b" />
-              <div className="motion-joint"><i /><i /><i /></div>
-              <div className="motion-rail"><i /><i /><i /><i /></div>
+              <div className="motion-topline"><span>TSUGITE / MAKING LOOP</span><i /><b>00:16</b></div>
+              <div className="motion-build">
+                <i className="motion-part motion-part-base" />
+                <i className="motion-part motion-part-left" />
+                <i className="motion-part motion-part-right" />
+                <i className="motion-part motion-part-cap" />
+                <i className="motion-lock" />
+              </div>
               <p className="motion-copy motion-copy-compose"><small>01 / COMPOSE</small><strong>構成を、<em>描く。</em></strong></p>
               <p className="motion-copy motion-copy-select"><small>02 / SELECT</small><strong>素材を、<em>選ぶ。</em></strong></p>
               <p className="motion-copy motion-copy-assemble"><small>03 / ASSEMBLE</small><strong>映像を、<br /><em>組み上げる。</em></strong></p>
