@@ -116,7 +116,7 @@ export default function Home() {
               <div className="motion-rail"><i /><i /><i /><i /></div>
               <p className="motion-copy motion-copy-compose"><small>01 / COMPOSE</small><strong>構成を、<em>描く。</em></strong></p>
               <p className="motion-copy motion-copy-select"><small>02 / SELECT</small><strong>素材を、<em>選ぶ。</em></strong></p>
-              <p className="motion-copy motion-copy-assemble"><small>03 / ASSEMBLE</small><strong>映像を、<em>組み上げる。</em></strong></p>
+              <p className="motion-copy motion-copy-assemble"><small>03 / ASSEMBLE</small><strong>映像を、<br /><em>組み上げる。</em></strong></p>
               <p className="motion-copy motion-copy-grow"><small>04 / GROW</small><strong>選ぶほど、<em>自分好みに<br />育ってくる。</em></strong></p>
               <div className="motion-footer"><span>INTENT</span><i /><span>JUDGMENT</span><i /><span>YOUR CRAFT</span></div>
             </div>

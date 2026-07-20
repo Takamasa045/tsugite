@@ -50,7 +50,7 @@ test("server-renders the Tsugite download landing page", async () => {
   assert.match(html, /Smart App Control/);
   assert.match(html, /https:\/\/tsugite\.example\/og\.png/);
   assert.match(html, /TSUGITE \/ MAKING LOOP/);
-  assert.match(html, /映像を、<em>組み上げる。<\/em>/);
+  assert.match(html, /映像を、<br\s*\/><em>組み上げる。<\/em>/);
   assert.match(html, /選ぶほど、<em>自分好みに<br\s*\/>育ってくる。<\/em>/);
   assert.doesNotMatch(html, /launcher-screen\.(?:avif|webp|jpg)/);
   assert.match(html, /class="brand-icon"[^>]*src="\/favicon\.png"/);
@@ -97,6 +97,7 @@ test("ships site-specific metadata, assets, and accessibility styles", async () 
   assert.match(css, /\.knowledge-section/);
   assert.match(css, /\.hybrid-roles/);
   assert.match(css, /\.hero-motion\s*\{/);
+  assert.match(css, /repeating-linear-gradient\(97deg/);
   assert.match(css, /@keyframes motion-copy/);
   const heroRule = css.match(/\.hero\s*\{([^}]*)\}/s)?.[1] ?? "";
   assert.match(heroRule, /linear-gradient\(180deg, #090909/);
