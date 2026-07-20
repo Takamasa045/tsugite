@@ -64,6 +64,7 @@ function managerFixture(overrides = {}) {
   const manager = createAgentTerminalManager({
     workspaceRoot: "/safe/workspace",
     pty,
+    platform: "linux",
     env: { PATH: "/safe/bin", TERM_PROGRAM: "Tsugite", PRIVATE_TOKEN: "child-only", API_KEY: "secret" },
     idFactory: () => "session-1",
     async resolveExecutable(name) {
@@ -108,6 +109,30 @@ test("executable discovery checks only allowlisted names on absolute PATH entrie
   assert.equal(result, "/canonical/bin/codex");
   assert.deepEqual(checked, ["/safe/bin/codex"]);
   await assert.rejects(resolveAgentExecutable("bash"), /Unsupported agent executable/);
+});
+
+test("Windows executable discovery uses Windows PATH delimiters and PATHEXT casing", async () => {
+  const checked = [];
+  const result = await resolveAgentExecutable("codex", {
+    env: {
+      Path: "relative;C:\\safe\\bin;C:\\other\\bin",
+      PATHEXT: ".EXE;.CMD"
+    },
+    platform: "win32",
+    async accessFile(path) {
+      checked.push(path);
+      if (path !== "C:\\safe\\bin\\codex.EXE") {
+        const error = new Error("missing");
+        error.code = "ENOENT";
+        throw error;
+      }
+    },
+    async statFile() { return { isFile: () => true }; },
+    async realpathFile(path) { return path; }
+  });
+
+  assert.equal(result, "C:\\safe\\bin\\codex.EXE");
+  assert.deepEqual(checked, ["C:\\safe\\bin\\codex.EXE"]);
 });
 
 test("executable discovery includes common macOS GUI install directories when PATH is minimal", async () => {

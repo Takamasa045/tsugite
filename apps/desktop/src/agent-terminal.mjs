@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
-import { basename, delimiter, isAbsolute, join, posix, win32 } from "node:path";
+import { basename, isAbsolute, posix, win32 } from "node:path";
 
 const HOSTS = Object.freeze([
   Object.freeze({ id: "codex", label: "Codex CLI", executable: "codex" }),
@@ -31,14 +31,14 @@ function executableCandidates(name, platform, env) {
   const extensions = (env.PATHEXT || ".EXE;.CMD;.BAT;.COM")
     .split(";")
     .filter(Boolean);
-  return extensions.map((extension) => `${name}${extension.toLowerCase()}`);
+  return extensions.map((extension) => `${name}${extension}`);
 }
 
 function executableSearchDirectories(env, platform) {
   const pathApi = platform === "win32" ? win32 : posix;
   const pathValue = env.PATH ?? env.Path ?? env.path ?? "";
   const directories = String(pathValue)
-    .split(platform === "win32" ? ";" : delimiter)
+    .split(pathApi.delimiter)
     .filter((directory) => directory && pathApi.isAbsolute(directory));
   const home = env.HOME ?? env.USERPROFILE;
   if (platform === "darwin") {
@@ -73,11 +73,12 @@ export async function resolveAgentExecutable(name, {
   if (![...HOST_BY_ID.values()].some((host) => host.executable === name)) {
     throw new Error(`Unsupported agent executable: ${name}`);
   }
+  const pathApi = platform === "win32" ? win32 : posix;
   const directories = executableSearchDirectories(env, platform);
   const candidates = executableCandidates(name, platform, env);
   for (const directory of directories) {
     for (const candidate of candidates) {
-      const path = join(directory, candidate);
+      const path = pathApi.join(directory, candidate);
       try {
         const mode = platform === "win32" ? constants.F_OK : constants.X_OK;
         await accessFile(path, mode);
@@ -134,7 +135,7 @@ function terminalEnvironment(env, platform) {
   }));
   const pathKey = Object.keys(filtered).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
   filtered[pathKey] = executableSearchDirectories(env, platform)
-    .join(platform === "win32" ? ";" : delimiter);
+    .join(platform === "win32" ? win32.delimiter : posix.delimiter);
   return filtered;
 }
 
