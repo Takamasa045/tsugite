@@ -1,13 +1,18 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { constants, type Stats } from "node:fs";
 import {
   copyFile,
+  lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   realpath,
   rm,
   stat,
-  writeFile
+  writeFile,
+  type FileHandle
 } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -42,6 +47,20 @@ export type WorkflowViewerResult = {
   stateFound: boolean;
 };
 
+export const WORKFLOW_VIEWER_EVIDENCE_FILE = "viewer-evidence.json";
+export const WORKFLOW_VIEWER_SNAPSHOT_FILE_LIMIT = 512;
+export const WORKFLOW_VIEWER_SNAPSHOT_BYTE_LIMIT = 16 * 1024 * 1024 * 1024;
+export const WORKFLOW_VIEWER_SNAPSHOT_PATH_BYTE_LIMIT = 512;
+export const WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT = 16 * 1024 * 1024;
+const WORKFLOW_VIEWER_SNAPSHOT_ENTRY_LIMIT = 512;
+const WORKFLOW_VIEWER_DIRECTORY_DEPTH_LIMIT = 32;
+
+export type WorkflowViewerSnapshotFile = {
+  path: string;
+  size: number;
+  sha256: string;
+};
+
 type ViewerPreviewSource = {
   kind: "clip" | "image" | "audio";
   reference: string;
@@ -49,6 +68,7 @@ type ViewerPreviewSource = {
 
 type ViewerEvidence = ViewerArtifactSnapshot & {
   reviewPresent?: true;
+  gate2QcDigest?: string;
   previewSources: ViewerPreviewSource[];
 };
 
@@ -85,7 +105,7 @@ export async function writeWorkflowViewer(
 
   const { state, found: stateFound } = await loadRunState(join(runDir, "state.json"), runId);
   const loadedEvidence = await loadViewerEvidence(runDir, runId);
-  const { previewSources, ...evidence } = loadedEvidence;
+  const { previewSources, gate2QcDigest, ...evidence } = loadedEvidence;
   await prepareWorkflowViewerBundle(options.bundleDir);
   await mkdir(outputDir, { recursive: true });
   const [reviewHref, previews] = await Promise.all([
@@ -110,10 +130,27 @@ export async function writeWorkflowViewer(
 
   const viewerPath = join(outputDir, "index.html");
   const workflowPath = join(outputDir, "workflow.json");
+  const reviewDigest = reviewHref ? await digestWorkflowViewerReview(outputDir) : undefined;
+  const viewerIndexDigest = createHash("sha256").update(indexHtml).digest("hex");
+  const workflowDigest = createHash("sha256").update(workflowJson).digest("hex");
+  const evidencePath = join(outputDir, WORKFLOW_VIEWER_EVIDENCE_FILE);
   await Promise.all([
     writeFile(viewerPath, indexHtml),
     writeFile(workflowPath, workflowJson)
   ]);
+  const files = await createWorkflowViewerSnapshotManifest(outputDir);
+  await writeFile(
+    evidencePath,
+    `${JSON.stringify({
+      schema_version: 1,
+      ...(reviewDigest ? { review_digest: reviewDigest } : {}),
+      viewer_index_digest: viewerIndexDigest,
+      workflow_digest: workflowDigest,
+      ...(gate2QcDigest ? { gate2_qc_digest: gate2QcDigest } : {}),
+      files
+    }, null, 2)}\n`,
+    { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW }
+  );
 
   return { viewerPath, workflowPath, outputDir, stateFound };
 }
@@ -171,6 +208,7 @@ async function loadViewerEvidence(runDir: string, runId: string): Promise<Viewer
   return {
     ...(reviewPresent ? { reviewPresent: true as const } : {}),
     ...(gate2Result ? { gate2Qc: gate2Result.evidence } : {}),
+    ...(gate2Result ? { gate2QcDigest: gate2Result.digest } : {}),
     ...(gate3Qc ? { gate3Qc } : {}),
     ...(runLog ? { runLog } : {}),
     previewSources: gate2Result?.previewSources ?? []
@@ -254,15 +292,17 @@ function parseRunLogRequest(
 
 async function readOptionalGate2Qc(path: string): Promise<{
   evidence: ViewerGate2QcEvidence;
+  digest: string;
   previewSources: ViewerPreviewSource[];
 } | undefined> {
   const parsed = await readOptionalQcInput(path, "Gate 2 QC");
   if (!parsed) return undefined;
-  const { input, ok, issues } = parsed;
+  const { input, ok, issues, rawText } = parsed;
   const assets = input.assets === undefined
     ? undefined
     : parseGate2Assets(input.assets);
   return {
+    digest: createHash("sha256").update(rawText).digest("hex"),
     evidence: {
       ok,
       issues,
@@ -295,10 +335,12 @@ async function readOptionalGate3Qc(path: string): Promise<ViewerGate3QcEvidence 
 async function readOptionalQcInput(
   path: string,
   label: string
-): Promise<{ input: Record<string, unknown>; ok: boolean; issues: Issue[] } | undefined> {
+): Promise<{ input: Record<string, unknown>; ok: boolean; issues: Issue[]; rawText: string } | undefined> {
   let input: unknown;
+  let rawText: string;
   try {
-    input = JSON.parse(await readFile(path, "utf8")) as unknown;
+    rawText = await readFile(path, "utf8");
+    input = JSON.parse(rawText) as unknown;
   } catch (error) {
     if (isFileSystemError(error, "ENOENT")) return undefined;
     throw new Error(`${label} could not be read: ${errorMessage(error)}`, { cause: error });
@@ -312,7 +354,7 @@ async function readOptionalQcInput(
   }
 
   const issues = (input.issues ?? []).map((issue, index) => parseIssue(issue, label, index));
-  return { input, ok: input.ok, issues };
+  return { input, ok: input.ok, issues, rawText };
 }
 
 function parseGate2Assets(input: unknown): {
@@ -424,6 +466,7 @@ async function collectReviewPreviewFiles(runDir: string, reviewDir: string): Pro
   const [realRunDir, realReviewDir] = await Promise.all([realpath(runDir), realpath(reviewDir)]);
   if (!isSameOrDescendant(relative(realRunDir, realReviewDir))) return [];
   const files: ReviewPreviewFile[] = [];
+  let visitedEntries = 0;
 
   const addFile = async (source: string, relativePath: string): Promise<void> => {
     const realSource = await realpath(source);
@@ -434,7 +477,14 @@ async function collectReviewPreviewFiles(runDir: string, reviewDir: string): Pro
   };
 
   await addFile(join(reviewDir, "index.html"), "index.html");
-  const walkAssets = async (directory: string, relativeDirectory: string): Promise<void> => {
+  const walkAssets = async (
+    directory: string,
+    relativeDirectory: string,
+    depth: number
+  ): Promise<void> => {
+    if (depth > WORKFLOW_VIEWER_DIRECTORY_DEPTH_LIMIT) {
+      throw new Error("Viewer review contains directories that are too deeply nested");
+    }
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
@@ -443,19 +493,179 @@ async function collectReviewPreviewFiles(runDir: string, reviewDir: string): Pro
       throw error;
     }
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      visitedEntries += 1;
+      if (visitedEntries > WORKFLOW_VIEWER_SNAPSHOT_ENTRY_LIMIT) {
+        throw new Error("Viewer review contains too many entries");
+      }
       if (entry.isSymbolicLink()) continue;
       const source = join(directory, entry.name);
       const relativePath = join(relativeDirectory, entry.name);
       if (entry.isDirectory()) {
-        await walkAssets(source, relativePath);
+        await walkAssets(source, relativePath, depth + 1);
       } else if (entry.isFile()) {
         await addFile(source, relativePath);
       }
       if (files.length > REVIEW_PREVIEW_FILE_LIMIT) return;
     }
   };
-  await walkAssets(join(reviewDir, "assets"), "assets");
+  await walkAssets(join(reviewDir, "assets"), "assets", 1);
   return files;
+}
+
+export async function digestWorkflowViewerReview(runDir: string): Promise<string | undefined> {
+  let files: ReviewPreviewFile[];
+  try {
+    files = await collectReviewPreviewFiles(runDir, join(runDir, "review"));
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) return undefined;
+    throw error;
+  }
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  if (
+    files.length === 0
+    || files.length > REVIEW_PREVIEW_FILE_LIMIT
+    || totalBytes > REVIEW_PREVIEW_BYTE_LIMIT
+  ) return undefined;
+  const digest = createHash("sha256");
+  for (const file of files.sort((left, right) => left.relativePath.localeCompare(right.relativePath))) {
+    digest.update(file.relativePath.replaceAll("\\", "/"));
+    digest.update("\0");
+    const fingerprint = await fingerprintRegularFile(file.source);
+    if (!fingerprint || fingerprint.size !== file.size) return undefined;
+    digest.update(fingerprint.sha256);
+    digest.update("\0");
+  }
+  return digest.digest("hex");
+}
+
+export async function createWorkflowViewerSnapshotManifest(
+  outputDir: string
+): Promise<WorkflowViewerSnapshotFile[]> {
+  const root = resolve(outputDir);
+  const realRoot = await realpath(root);
+  const references = ["index.html", "workflow.json"];
+  const traversal = { entries: 0 };
+  for (const directory of ["assets", "previews", "review"]) {
+    await collectSnapshotReferences(root, directory, references, traversal, 1);
+  }
+  if (references.length > WORKFLOW_VIEWER_SNAPSHOT_FILE_LIMIT) {
+    throw new Error("Viewer snapshot contains too many files");
+  }
+  const files: WorkflowViewerSnapshotFile[] = [];
+  let totalBytes = 0;
+  for (const reference of [...new Set(references)].sort((left, right) => left.localeCompare(right))) {
+    if (!isSafeSnapshotReference(reference)) throw new Error("Viewer snapshot contains an unsafe path");
+    if (Buffer.byteLength(reference) > WORKFLOW_VIEWER_SNAPSHOT_PATH_BYTE_LIMIT) {
+      throw new Error("Viewer snapshot path is too long");
+    }
+    const candidate = resolve(root, reference);
+    const realCandidate = await realpath(candidate);
+    if (!isSameOrDescendant(relative(realRoot, realCandidate))) {
+      throw new Error("Viewer snapshot file resolves outside its root");
+    }
+    const fingerprint = await fingerprintRegularFile(candidate);
+    if (!fingerprint) throw new Error("Viewer snapshot contains a non-regular file");
+    if (
+      (reference === "index.html" || reference === "workflow.json")
+      && fingerprint.size > WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT
+    ) {
+      throw new Error("Viewer snapshot document is too large");
+    }
+    totalBytes += fingerprint.size;
+    if (totalBytes > WORKFLOW_VIEWER_SNAPSHOT_BYTE_LIMIT) {
+      throw new Error("Viewer snapshot is too large");
+    }
+    files.push({ path: reference, size: fingerprint.size, sha256: fingerprint.sha256 });
+  }
+  return files;
+}
+
+async function collectSnapshotReferences(
+  root: string,
+  reference: string,
+  output: string[],
+  traversal: { entries: number },
+  depth: number
+): Promise<void> {
+  if (depth > WORKFLOW_VIEWER_DIRECTORY_DEPTH_LIMIT) {
+    throw new Error("Viewer snapshot contains directories that are too deeply nested");
+  }
+  let entries;
+  try {
+    const stats = await lstat(resolve(root, reference));
+    if (stats.isSymbolicLink()) throw new Error("Viewer snapshot contains a symbolic link");
+    if (!stats.isDirectory()) throw new Error("Viewer snapshot path must be a directory");
+    entries = await readdir(resolve(root, reference), { withFileTypes: true });
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) return;
+    throw error;
+  }
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    traversal.entries += 1;
+    if (traversal.entries > WORKFLOW_VIEWER_SNAPSHOT_ENTRY_LIMIT) {
+      throw new Error("Viewer snapshot contains too many entries");
+    }
+    if (entry.isSymbolicLink()) throw new Error("Viewer snapshot contains a symbolic link");
+    const child = `${reference}/${entry.name}`;
+    if (!isSafeSnapshotReference(child)) throw new Error("Viewer snapshot contains an unsafe path");
+    if (entry.isDirectory()) {
+      await collectSnapshotReferences(root, child, output, traversal, depth + 1);
+    }
+    else if (entry.isFile()) output.push(child);
+    else throw new Error("Viewer snapshot contains an unsupported file type");
+    if (output.length > WORKFLOW_VIEWER_SNAPSHOT_FILE_LIMIT) {
+      throw new Error("Viewer snapshot contains too many files");
+    }
+  }
+}
+
+function isSafeSnapshotReference(reference: string): boolean {
+  return reference.length > 0
+    && !reference.startsWith("/")
+    && !reference.includes("\\")
+    && !reference.includes("\0")
+    && reference.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
+}
+
+async function fingerprintRegularFile(
+  path: string
+): Promise<{ size: number; sha256: string } | undefined> {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const before = await handle.stat();
+    if (!before.isFile()) return undefined;
+    const sha256 = await sha256OpenedFile(handle, before);
+    return { size: before.size, sha256 };
+  } catch (error) {
+    if (
+      isFileSystemError(error, "ENOENT")
+      || isFileSystemError(error, "ENOTDIR")
+      || isFileSystemError(error, "ELOOP")
+    ) return undefined;
+    throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
+async function sha256OpenedFile(handle: FileHandle, before: Stats): Promise<string> {
+  const digest = createHash("sha256");
+  const stream = handle.createReadStream({ start: 0, autoClose: false });
+  for await (const chunk of stream) digest.update(chunk as Buffer);
+  const after = await handle.stat();
+  if (!sameFingerprintIdentity(before, after)) {
+    throw new Error("File changed while it was being fingerprinted");
+  }
+  return digest.digest("hex");
+}
+
+function sameFingerprintIdentity(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs;
 }
 
 function previewKind(kind: ViewerPreviewSource["kind"]): ViewerMediaPreview["kind"] {

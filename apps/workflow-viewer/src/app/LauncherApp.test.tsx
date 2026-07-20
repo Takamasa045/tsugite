@@ -15,6 +15,8 @@ const projects = [
     updatedAt: '2026-07-15T09:30:00+09:00',
     hasViewer: true,
     viewerUrl: '/viewers/project-alpha/',
+    gate1ReviewUrl: '/reviews/project-alpha/gate-1/',
+    gate2ReviewUrl: '/reviews/project-alpha/gate-2/',
     thumbnailUrl: '/thumbnail/project-alpha',
     valid: true,
     refreshable: true,
@@ -1062,6 +1064,33 @@ describe('LauncherApp', () => {
       project: projects[0],
     }))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/?updated=1'))
+  })
+
+  it('選択した案件に存在するGate確認画面だけを閲覧専用導線から開く', async () => {
+    const user = userEvent.setup()
+    const navigate = vi.fn()
+    const fetcher = createLauncherFetcher()
+
+    render(<LauncherApp fetcher={fetcher} navigate={navigate} />)
+    await user.click(await screen.findByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' }))
+
+    const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
+    const gateActions = within(selectedPanel).getByRole('group', { name: 'Gate確認（閲覧専用）' })
+    expect(within(gateActions).getByText('Gate確認（閲覧専用）')).toBeVisible()
+    const gate1Button = within(gateActions).getByRole('button', { name: 'Gate 1 確認画面を開く' })
+    const gate2Button = within(gateActions).getByRole('button', { name: 'Gate 2 素材確認を開く' })
+
+    expect(gate1Button).toHaveAttribute('type', 'button')
+    expect(gate2Button).toHaveAttribute('type', 'button')
+    await user.click(gate1Button)
+    expect(navigate).toHaveBeenLastCalledWith('/reviews/project-alpha/gate-1/')
+    await user.click(gate2Button)
+    expect(navigate).toHaveBeenLastCalledWith('/reviews/project-alpha/gate-2/')
+
+    await user.click(screen.getByRole('button', { name: 'Codex Goal Talkの制作工程を選ぶ' }))
+    expect(within(selectedPanel).queryByRole('group', { name: 'Gate確認（閲覧専用）' })).not.toBeInTheDocument()
+    expect(within(selectedPanel).queryByRole('button', { name: 'Gate 1 確認画面を開く' })).not.toBeInTheDocument()
+    expect(within(selectedPanel).queryByRole('button', { name: 'Gate 2 素材確認を開く' })).not.toBeInTheDocument()
   })
 
   it('左のサムネイルから最新の3Dワークフローへ直接移動する', async () => {

@@ -1,4 +1,5 @@
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,10 @@ import {
   type LauncherJob,
   type WorkflowViewerLauncher
 } from "../src/viewer/launcher.js";
+import {
+  WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT,
+  writeWorkflowViewer
+} from "../src/viewer/artifact.js";
 
 const launchers: WorkflowViewerLauncher[] = [];
 
@@ -103,6 +108,16 @@ async function statusWithHost(url: string, host: string): Promise<number> {
 function expectedViewerUrl(launcher: WorkflowViewerLauncher, projectId: string): string {
   const viewerUrl = new URL(`/viewer/${projectId}/`, launcher.artifactUrl);
   viewerUrl.searchParams.set("launcher", launcher.url);
+  return viewerUrl.toString();
+}
+
+function expectedGate1ReviewUrl(launcher: WorkflowViewerLauncher, projectId: string): string {
+  return new URL(`/viewer/${projectId}/review/index.html`, launcher.artifactUrl).toString();
+}
+
+function expectedGate2ReviewUrl(launcher: WorkflowViewerLauncher, projectId: string): string {
+  const viewerUrl = new URL(expectedViewerUrl(launcher, projectId));
+  viewerUrl.searchParams.set("node", "gate-2");
   return viewerUrl.toString();
 }
 
@@ -1026,13 +1041,385 @@ distribution: local-only
     await mkdir(reviewDir, { recursive: true });
     await writeFile(join(reviewDir, "index.html"), "<!doctype html><script>globalThis.compromised = true</script>\n");
     const reviewResponse = await fetch(new URL("review/index.html", payload.viewerUrl));
-    expect(reviewResponse.status).toBe(200);
-    expect(reviewResponse.headers.get("content-security-policy")).toBe(
-      "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
-    );
+    expect(reviewResponse.status).toBe(404);
 
     const statePath = join(fixture.projectDir, "dist", "local-fixture-run", "state.json");
     await expect(readFile(statePath, "utf8")).rejects.toThrow();
+  });
+
+  it("returns Gate review URLs only when the Viewer snapshot contains their evidence", async () => {
+    const fixture = await createFixture();
+    await writeApprovedGate1State(fixture);
+    const runDir = join(fixture.projectDir, "dist", "local-fixture-run");
+    await writeFile(join(runDir, "gate2-qc.json"), `${JSON.stringify({
+      ok: true,
+      target_duration_seconds: 12,
+      total_clip_duration_seconds: 12,
+      duration_delta_seconds: 0,
+      asset_count: 1,
+      issues: []
+    })}\n`);
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    const initialListing = await fetch(`${launcher.url}/api/projects`)
+      .then((response) => response.json());
+    const initialProject = initialListing.projects[0];
+    expect(initialProject).not.toHaveProperty("gate1ReviewUrl");
+    expect(initialProject).not.toHaveProperty("gate2ReviewUrl");
+
+    const refreshResponse = await fetch(
+      `${launcher.url}/api/projects/${initialProject.id}/refresh`,
+      {
+        method: "POST",
+        headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+      }
+    );
+    expect(refreshResponse.status).toBe(200);
+    const refreshed = await refreshResponse.json();
+    expect(refreshed.project).toMatchObject({
+      gate1ReviewUrl: expectedGate1ReviewUrl(launcher, initialProject.id),
+      gate2ReviewUrl: expectedGate2ReviewUrl(launcher, initialProject.id)
+    });
+    expect(new URL(refreshed.project.gate2ReviewUrl).searchParams.get("node")).toBe("gate-2");
+    const gate1Response = await fetch(refreshed.project.gate1ReviewUrl);
+    expect(gate1Response.status).toBe(200);
+    expect(gate1Response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    );
+    const encodedReviewUrl = new URL(`/viewer/${initialProject.id}/review%2Findex.html`, launcher.artifactUrl);
+    const encodedReviewResponse = await fetch(encodedReviewUrl);
+    expect(encodedReviewResponse.status).toBe(200);
+    expect(encodedReviewResponse.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    );
+    expect((await fetch(refreshed.project.gate2ReviewUrl)).status).toBe(200);
+
+    const refreshedListing = await fetch(`${launcher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(refreshedListing.projects[0]).toMatchObject({
+      gate1ReviewUrl: refreshed.project.gate1ReviewUrl,
+      gate2ReviewUrl: refreshed.project.gate2ReviewUrl
+    });
+
+    const reviewPath = join(runDir, "review", "index.html");
+    const currentReview = await readFile(reviewPath, "utf8");
+    await writeFile(reviewPath, `${currentReview}\n<!-- changed after snapshot -->\n`);
+    const staleReviewListing = await fetch(`${launcher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(staleReviewListing.projects[0]).not.toHaveProperty("gate1ReviewUrl");
+    expect(staleReviewListing.projects[0]).toHaveProperty("gate2ReviewUrl");
+    await writeFile(reviewPath, currentReview);
+
+    await writeFile(join(runDir, "gate2-qc.json"), `${JSON.stringify({
+      ok: true,
+      target_duration_seconds: 13,
+      total_clip_duration_seconds: 12,
+      duration_delta_seconds: -1,
+      asset_count: 1,
+      issues: []
+    })}\n`);
+    const staleListing = await fetch(`${launcher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(staleListing.projects[0]).toMatchObject({
+      gate1ReviewUrl: refreshed.project.gate1ReviewUrl
+    });
+    expect(staleListing.projects[0]).not.toHaveProperty("gate2ReviewUrl");
+
+    await writeFile(join(runDir, "gate2-qc.json"), `${JSON.stringify({
+      ok: false,
+      issues: [{ code: "gate2.changed", message: "QC evidence changed" }]
+    })}\n`);
+    const failedQcRefresh = await fetch(
+      `${launcher.url}/api/projects/${initialProject.id}/refresh`,
+      {
+        method: "POST",
+        headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+      }
+    );
+    expect(failedQcRefresh.status).toBe(200);
+    const failedQcProject = (await failedQcRefresh.json()).project;
+    expect(failedQcProject).toHaveProperty(
+      "gate2ReviewUrl",
+      expectedGate2ReviewUrl(launcher, initialProject.id)
+    );
+  });
+
+  it("returns current Gate review URLs in the initial project listing", async () => {
+    const fixture = await createFixture();
+    await writeApprovedGate1State(fixture);
+    const configPath = join(fixture.projectDir, "project.yaml");
+    const runDir = join(fixture.projectDir, "dist", "local-fixture-run");
+    const gate2SourcePath = join(runDir, "assets", "clips", "gate2-source.mp4");
+    const gate2Source = Buffer.from("asset-A");
+    await mkdir(join(runDir, "assets", "clips"), { recursive: true });
+    await writeFile(gate2SourcePath, gate2Source);
+    await writeFile(join(runDir, "gate2-qc.json"), `${JSON.stringify({
+      ok: false,
+      assets: [{
+        id: "gate2-source",
+        kind: "clip",
+        src: "assets/clips/gate2-source.mp4",
+        path: gate2SourcePath,
+        sha256: createHash("sha256").update(gate2Source).digest("hex")
+      }],
+      issues: [{ code: "gate2.asset", message: "素材を確認してください" }]
+    })}\n`);
+    await mkdir(join(runDir, "review", "assets"), { recursive: true });
+    await writeFile(join(runDir, "review", "assets", "review-proof.png"), "review-proof");
+    const validation = await validateProject(configPath);
+    if (!validation.project || !validation.manifest) throw new Error("fixture project is invalid");
+    await writeWorkflowViewer({
+      configPath,
+      project: validation.project,
+      plan: createPlan(validation.project, validation.manifest),
+      bundleDir: fixture.bundleDir
+    });
+
+    const onSnapshotFingerprint = vi.fn();
+    const onReviewFingerprint = vi.fn();
+    const persistentLauncher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      onSnapshotFingerprint,
+      onReviewFingerprint
+    });
+    const persistentListing = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    const persistentProject = persistentListing.projects[0];
+    expect(persistentProject).toMatchObject({
+      gate1ReviewUrl: expectedGate1ReviewUrl(persistentLauncher, persistentProject.id),
+      gate2ReviewUrl: expectedGate2ReviewUrl(persistentLauncher, persistentProject.id)
+    });
+
+    const viewerBase = new URL(`/viewer/${persistentProject.id}/`, persistentLauncher.artifactUrl);
+    const previewDir = join(runDir, "viewer", "previews");
+    const [previewName] = await readdir(previewDir);
+    const previewUrl = new URL(`previews/${previewName}`, viewerBase);
+    const appAssetUrl = new URL("assets/app.js", viewerBase);
+    const workflowUrl = new URL("workflow.json", viewerBase);
+    const reviewAssetUrl = new URL("review/assets/review-proof.png", viewerBase);
+    const sidecarPath = join(runDir, "viewer", "viewer-evidence.json");
+    const sidecar = await readFile(sidecarPath);
+
+    await rm(sidecarPath);
+    expect((await fetch(persistentProject.gate2ReviewUrl)).status).toBe(404);
+    expect((await fetch(previewUrl)).status).toBe(404);
+    expect((await fetch(workflowUrl)).status).toBe(404);
+    await writeFile(sidecarPath, sidecar);
+    await writeFile(sidecarPath, "{invalid-json\n");
+    expect((await fetch(persistentProject.gate2ReviewUrl)).status).toBe(404);
+    expect((await fetch(previewUrl)).status).toBe(404);
+    expect((await fetch(workflowUrl)).status).toBe(404);
+    await writeFile(sidecarPath, sidecar);
+
+    const cacheSourceReviewPath = join(runDir, "review", "index.html");
+    const cacheSnapshotReviewPath = join(runDir, "viewer", "review", "index.html");
+    await writeFile(cacheSourceReviewPath, await readFile(cacheSourceReviewPath));
+    await writeFile(cacheSnapshotReviewPath, await readFile(cacheSnapshotReviewPath));
+    expect((await fetch(persistentProject.gate1ReviewUrl)).status).toBe(200);
+    expect((await fetch(reviewAssetUrl)).status).toBe(200);
+    expect((await fetch(reviewAssetUrl)).status).toBe(200);
+    expect(onReviewFingerprint).toHaveBeenCalledTimes(2);
+    expect(new Set(onReviewFingerprint.mock.calls.map(([root]) => String(root))).size).toBe(2);
+
+    const reviewAssetsDir = join(runDir, "review", "assets");
+    const emptyReviewDirectories = join(reviewAssetsDir, "empty-directories");
+    for (let start = 0; start < 513; start += 32) {
+      await Promise.all(Array.from({ length: Math.min(32, 513 - start) }, (_, offset) =>
+        mkdir(join(emptyReviewDirectories, String(start + offset)), { recursive: true })
+      ));
+    }
+    expect((await fetch(persistentProject.gate1ReviewUrl)).status).toBe(404);
+    await rm(emptyReviewDirectories, { recursive: true });
+
+    let deepReviewDirectory = join(reviewAssetsDir, "deep-directories");
+    for (let depth = 0; depth < 33; depth += 1) {
+      deepReviewDirectory = join(deepReviewDirectory, "d");
+    }
+    await mkdir(deepReviewDirectory, { recursive: true });
+    expect((await fetch(persistentProject.gate1ReviewUrl)).status).toBe(404);
+    await rm(join(reviewAssetsDir, "deep-directories"), { recursive: true });
+
+    const cachePreviewPath = join(previewDir, previewName!);
+    await writeFile(cachePreviewPath, await readFile(cachePreviewPath));
+    const firstPreviewRange = await fetch(previewUrl, { headers: { range: "bytes=0-1" } });
+    const secondPreviewRange = await fetch(previewUrl, { headers: { range: "bytes=2-3" } });
+    expect(firstPreviewRange.status).toBe(206);
+    expect(secondPreviewRange.status).toBe(206);
+    expect(onSnapshotFingerprint.mock.calls.filter(
+      ([path]) => String(path).replaceAll("\\", "/").endsWith(`/previews/${previewName}`)
+    )).toHaveLength(1);
+
+    await writeFile(gate2SourcePath, Buffer.from("asset-B"));
+    const changedSourceListing = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(changedSourceListing.projects[0]).not.toHaveProperty("gate2ReviewUrl");
+    expect((await fetch(persistentProject.gate2ReviewUrl)).status).toBe(404);
+    expect((await fetch(previewUrl)).status).toBe(404);
+    expect((await fetch(appAssetUrl)).status).toBe(404);
+    await writeFile(gate2SourcePath, gate2Source);
+
+    const sourceReviewPath = join(runDir, "review", "index.html");
+    const sourceReview = await readFile(sourceReviewPath, "utf8");
+    await writeFile(sourceReviewPath, `${sourceReview}\n<!-- changed source -->\n`);
+    expect((await fetch(persistentProject.gate1ReviewUrl)).status).toBe(404);
+    await writeFile(sourceReviewPath, sourceReview);
+
+    const previewContents = await readFile(cachePreviewPath);
+    await writeFile(cachePreviewPath, Buffer.concat([previewContents, Buffer.from("stale")]));
+    expect((await fetch(previewUrl)).status).toBe(404);
+    const changedPreviewListing = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(changedPreviewListing.projects[0]).not.toHaveProperty("gate2ReviewUrl");
+    await writeFile(cachePreviewPath, previewContents);
+
+    const appAssetPath = join(runDir, "viewer", "assets", "app.js");
+    const appAsset = await readFile(appAssetPath);
+    await writeFile(appAssetPath, Buffer.concat([appAsset, Buffer.from("stale")]));
+    expect((await fetch(appAssetUrl)).status).toBe(404);
+    await writeFile(appAssetPath, appAsset);
+
+    const untrackedPath = join(runDir, "viewer", "assets", "untracked.js");
+    await writeFile(untrackedPath, "not in snapshot manifest");
+    expect((await fetch(new URL("assets/untracked.js", viewerBase))).status).toBe(404);
+    expect((await fetch(new URL("viewer-evidence.json", viewerBase))).status).toBe(404);
+
+    const snapshotReviewPath = join(runDir, "viewer", "review", "index.html");
+    const snapshotReview = await readFile(snapshotReviewPath, "utf8");
+    await writeFile(snapshotReviewPath, `${snapshotReview}\n<!-- stale snapshot -->\n`);
+    const changedSnapshotReview = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(changedSnapshotReview.projects[0]).not.toHaveProperty("gate1ReviewUrl");
+    expect(changedSnapshotReview.projects[0]).toHaveProperty("gate2ReviewUrl");
+    await writeFile(snapshotReviewPath, snapshotReview);
+
+    const snapshotReviewAssetsDir = join(runDir, "viewer", "review", "assets");
+    const [snapshotReviewAssetName] = await readdir(snapshotReviewAssetsDir);
+    const snapshotReviewAssetPath = join(snapshotReviewAssetsDir, snapshotReviewAssetName!);
+    const snapshotReviewAsset = await readFile(snapshotReviewAssetPath);
+    await writeFile(snapshotReviewAssetPath, Buffer.concat([snapshotReviewAsset, Buffer.from("stale")]));
+    const changedSnapshotAsset = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(changedSnapshotAsset.projects[0]).not.toHaveProperty("gate1ReviewUrl");
+    expect(changedSnapshotAsset.projects[0]).toHaveProperty("gate2ReviewUrl");
+    await writeFile(snapshotReviewAssetPath, snapshotReviewAsset);
+
+    const snapshotWorkflowPath = join(runDir, "viewer", "workflow.json");
+    const snapshotWorkflow = await readFile(snapshotWorkflowPath, "utf8");
+    await writeFile(snapshotWorkflowPath, `${snapshotWorkflow}\n`);
+    const changedSnapshotWorkflow = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(changedSnapshotWorkflow.projects[0]).toHaveProperty("gate1ReviewUrl");
+    expect(changedSnapshotWorkflow.projects[0]).not.toHaveProperty("gate2ReviewUrl");
+    await writeFile(snapshotWorkflowPath, snapshotWorkflow);
+
+    const snapshotIndexPath = join(runDir, "viewer", "index.html");
+    const snapshotIndex = await readFile(snapshotIndexPath, "utf8");
+    await writeFile(snapshotIndexPath, `${snapshotIndex}\n<!-- stale viewer -->\n`);
+    const changedSnapshotIndex = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(changedSnapshotIndex.projects[0]).toHaveProperty("gate1ReviewUrl");
+    expect(changedSnapshotIndex.projects[0]).not.toHaveProperty("gate2ReviewUrl");
+    await writeFile(snapshotIndexPath, snapshotIndex);
+
+    await writeFile(snapshotIndexPath, Buffer.alloc(WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT + 1));
+    expect((await fetch(persistentProject.viewerUrl)).status).toBe(404);
+    await writeFile(snapshotIndexPath, snapshotIndex);
+
+    await writeFile(snapshotWorkflowPath, Buffer.alloc(WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT + 1));
+    expect((await fetch(new URL("workflow.json", viewerBase))).status).toBe(404);
+    await writeFile(snapshotWorkflowPath, snapshotWorkflow);
+    expect((await fetch(persistentProject.gate2ReviewUrl)).status).toBe(200);
+
+    await writeFile(sidecarPath, '{"schema_version":2}\n');
+    const invalidSidecar = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(invalidSidecar.projects[0]).not.toHaveProperty("gate1ReviewUrl");
+    expect(invalidSidecar.projects[0]).not.toHaveProperty("gate2ReviewUrl");
+    expect((await fetch(persistentProject.viewerUrl)).status).toBe(404);
+
+    await writeFile(sidecarPath, "x".repeat(513 * 1024));
+    const oversizedSidecar = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(oversizedSidecar.projects[0]).not.toHaveProperty("gate1ReviewUrl");
+    expect(oversizedSidecar.projects[0]).not.toHaveProperty("gate2ReviewUrl");
+    expect((await fetch(persistentProject.viewerUrl)).status).toBe(404);
+
+    const outsideSidecar = join(fixture.root, "outside-viewer-evidence.json");
+    await writeFile(outsideSidecar, JSON.stringify({
+      schema_version: 1,
+      review_digest: "a".repeat(64),
+      gate2_qc_digest: "b".repeat(64),
+      viewer_index_digest: "c".repeat(64),
+      workflow_digest: "d".repeat(64),
+      files: [
+        { path: "index.html", size: 0, sha256: "c".repeat(64) },
+        { path: "workflow.json", size: 0, sha256: "d".repeat(64) }
+      ]
+    }));
+    await rm(sidecarPath);
+    await symlink(outsideSidecar, sidecarPath);
+    const linkedSidecar = await fetch(`${persistentLauncher.url}/api/projects`)
+      .then((response) => response.json());
+    expect(linkedSidecar.projects[0]).not.toHaveProperty("gate1ReviewUrl");
+    expect(linkedSidecar.projects[0]).not.toHaveProperty("gate2ReviewUrl");
+    expect((await fetch(persistentProject.viewerUrl)).status).toBe(404);
+  });
+
+  it("keeps the current Gate 1 review link available when its previous approval is stale", async () => {
+    const fixture = await createFixture();
+    await writeApprovedGate1State(fixture);
+    const configPath = join(fixture.projectDir, "project.yaml");
+    await writeFile(join(fixture.projectDir, "media", "review-preview.png"), "updated-review-source");
+    const validation = await validateProject(configPath);
+    if (!validation.project || !validation.manifest) throw new Error("fixture project is invalid");
+    await writeCreativeReview({
+      configPath,
+      project: validation.project,
+      manifest: validation.manifest,
+      plan: createPlan(validation.project, validation.manifest)
+    });
+    await writeState(join(fixture.projectDir, "dist"), {
+      run_id: "local-fixture-run",
+      status: "running",
+      updated_at: "2026-07-19T02:01:00.000Z",
+      gates: {
+        gate_1: {
+          status: "approved",
+          updated_at: "2026-07-19T02:01:00.000Z",
+          approved_input_digest: "0".repeat(64)
+        },
+        gate_2: { status: "pending" },
+        gate_3: { status: "pending" }
+      }
+    });
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    expect(project.workflowNodes.find((node: { id: string }) => node.id === "gate-1"))
+      .toMatchObject({ status: "error" });
+
+    const refreshResponse = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+    expect(refreshResponse.status).toBe(200);
+    const refreshedProject = (await refreshResponse.json()).project;
+    expect(refreshedProject).toHaveProperty(
+      "gate1ReviewUrl",
+      expectedGate1ReviewUrl(launcher, project.id)
+    );
+    expect(refreshedProject.workflowNodes.find((node: { id: string }) => node.id === "gate-1"))
+      .toMatchObject({ status: "error" });
   });
 
   it("preserves capability issues while allowing the Viewer snapshot to refresh", async () => {
@@ -1251,6 +1638,26 @@ distribution: local-only
     expect((await fetch(`${launcher.artifactUrl}/viewer/${project.id}/..%2f..%2fproject.yaml`)).status).toBe(404);
   });
 
+  it("closes an opened Viewer artifact when request validation throws", async () => {
+    const fixture = await createFixture();
+    const viewerDir = join(fixture.projectDir, "dist", "local-fixture-run", "viewer");
+    const indexPath = join(viewerDir, "index.html");
+    await mkdir(viewerDir, { recursive: true });
+    await writeFile(indexPath, "<!doctype html><p>safe viewer</p>\n");
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      beforeServeArtifact: () => {
+        throw new Error("injected validation failure");
+      }
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+
+    expect((await fetch(listing.projects[0].viewerUrl)).status).toBe(500);
+    await expect(rm(indexPath)).resolves.toBeUndefined();
+  });
+
   it("serves the pinned viewer handle and rejects later artifacts after a run symlink swap", async () => {
     const fixture = await createFixture();
     const runDir = join(fixture.projectDir, "dist", "local-fixture-run");
@@ -1291,11 +1698,11 @@ distribution: local-only
     const project = listing.projects[0];
 
     const pinnedViewer = await fetch(project.viewerUrl);
-    expect(pinnedViewer.status).toBe(200);
-    await expect(pinnedViewer.text()).resolves.toContain("safe viewer");
     expect(beforeServeArtifact).toHaveBeenCalledOnce();
 
     if (swapBlockedByWindows) {
+      expect(pinnedViewer.status).toBe(200);
+      await expect(pinnedViewer.text()).resolves.toContain("safe viewer");
       const stillPinnedViewer = await fetch(project.viewerUrl);
       expect(stillPinnedViewer.status).toBe(200);
       await expect(stillPinnedViewer.text()).resolves.toContain("safe viewer");
@@ -1305,6 +1712,7 @@ distribution: local-only
       return;
     }
 
+    expect(pinnedViewer.status).toBe(404);
     expect((await fetch(project.viewerUrl)).status).toBe(404);
     expect((await fetch(project.thumbnailUrl)).status).toBe(404);
   });

@@ -170,6 +170,8 @@
 .launcher-selection .launcher-project-issue p,
 .launcher-selection .launcher-project-issue small { color: #65362f; }
 .launcher-selection .launcher-secondary { border-color: rgba(231,212,174,.35); color: var(--launcher-kinari); }
+.launcher-selection .launcher-gate-review-actions { display: grid; gap: 9px; }
+.launcher-selection .launcher-gate-review-label { color: var(--launcher-mokume); font-size: .64rem; font-weight: 800; letter-spacing: .08em; }
 
 .launcher-section-heading h2,
 .launcher-feedback-heading h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }

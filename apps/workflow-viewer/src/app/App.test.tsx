@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { workflowSamples } from '../data'
 import { useWorkflowStore } from '../store/workflow-store'
-import { App } from './App'
+import { App, nodeIdFromSearch } from './App'
 
 vi.mock('../components/scene', () => ({
   WorkflowScene: ({ focusRequest, nodesAtTime, onSelect }: {
@@ -27,6 +27,63 @@ describe('App', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/')
     useWorkflowStore.getState().clearWorkflow()
+  })
+
+  it('launcher queryとnode queryを併用し、該当工程の詳細を初期表示する', async () => {
+    const gateWorkflow = {
+      id: 'gate-review',
+      name: 'Gate review',
+      status: 'waiting_approval' as const,
+      duration: 10,
+      nodes: [{
+        id: 'gate-2',
+        name: 'Gate 2 素材・構成承認',
+        type: 'approval' as const,
+        status: 'waiting_approval' as const,
+        progress: 100,
+        inputs: [],
+        outputs: [],
+        logs: [],
+      }],
+      edges: [],
+      events: [],
+    }
+    const launcher = 'http://127.0.0.1:4173'
+    window.history.replaceState(
+      null,
+      '',
+      `/viewer/sample-project/?launcher=${encodeURIComponent(launcher)}&node=gate-2`,
+    )
+
+    render(<App samples={[{ id: 'gate-review', label: 'Gate review', data: gateWorkflow }]} />)
+
+    expect(await screen.findByRole('heading', { name: 'Gate 2 素材・構成承認' })).toBeVisible()
+    expect(await screen.findByRole('status', { name: 'カメラの焦点' })).toHaveTextContent('gate-2')
+    expect(screen.getByRole('link', { name: '制作案件へ戻る' })).toHaveAttribute(
+      'href',
+      `${launcher}/`,
+    )
+    expect(useWorkflowStore.getState().selectedNodeId).toBe('gate-2')
+  })
+
+  it.each([
+    ['未知のnode', '?node=unknown'],
+    ['空のnode', '?node='],
+    ['重複したnode', '?node=gate-2&node=other'],
+  ])('%s queryは安全に無視する', async (_label, search) => {
+    window.history.replaceState(null, '', `/viewer/sample-project/${search}`)
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: '制作全体の状況' })).toBeVisible()
+    expect(screen.getByRole('status', { name: 'カメラの焦点' })).toHaveTextContent('全体')
+    expect(useWorkflowStore.getState().selectedNodeId).toBeNull()
+  })
+
+  it('node query parserは単一の非空値だけを返す', () => {
+    expect(nodeIdFromSearch('?launcher=http%3A%2F%2F127.0.0.1%3A4173&node=gate-2')).toBe('gate-2')
+    expect(nodeIdFromSearch('?node=')).toBeUndefined()
+    expect(nodeIdFromSearch('?node=gate-1&node=gate-2')).toBeUndefined()
   })
 
   it.each([

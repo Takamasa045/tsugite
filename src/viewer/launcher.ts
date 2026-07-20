@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { constants, type Stats } from "node:fs";
+import { constants, type BigIntStats, type Stats } from "node:fs";
 import {
   chmod,
   lstat,
@@ -44,8 +44,10 @@ import { validateProject, type ValidateProjectOptions } from "../project/validat
 import type { Project } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import {
+  digestWorkflowViewerReview,
   getWorkflowViewerOpenCommand,
   prepareWorkflowViewerBundle,
+  WORKFLOW_VIEWER_EVIDENCE_FILE,
   writeWorkflowViewer,
   type WorkflowViewerResult,
   type WriteWorkflowViewerOptions
@@ -65,6 +67,8 @@ export type LauncherProject = {
   updatedAt: string | null;
   hasViewer: boolean;
   viewerUrl?: string;
+  gate1ReviewUrl?: string;
+  gate2ReviewUrl?: string;
   thumbnailUrl?: string;
   valid: boolean;
   refreshable: boolean;
@@ -176,6 +180,20 @@ const LAUNCHER_FEEDBACK_NOTICE_RESERVE = 3;
 const REVIEW_PREVIEW_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
 const LAUNCHER_DECISION_BODY_MAX_BYTES = 8 * 1024;
 const LAUNCHER_JOB_OUTPUT_MAX_BYTES = 16 * 1024;
+const LAUNCHER_VIEWER_EVIDENCE_MAX_BYTES = 512 * 1024;
+const WORKFLOW_VIEWER_SNAPSHOT_FILE_LIMIT = 512;
+const WORKFLOW_VIEWER_SNAPSHOT_BYTE_LIMIT = 16 * 1024 * 1024 * 1024;
+const WORKFLOW_VIEWER_SNAPSHOT_PATH_BYTE_LIMIT = 512;
+const WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT = 16 * 1024 * 1024;
+const LAUNCHER_GATE2_QC_MAX_BYTES = 8 * 1024 * 1024;
+const LAUNCHER_GATE2_ASSET_LIMIT = 1024;
+const LAUNCHER_GATE2_ASSET_DIGEST_CACHE_MAX_ENTRIES = 2048;
+const LAUNCHER_SNAPSHOT_DIGEST_CACHE_MAX_ENTRIES = 2048;
+const LAUNCHER_REVIEW_DIGEST_CACHE_MAX_ENTRIES = 256;
+const LAUNCHER_REVIEW_FILE_LIMIT = 64;
+const LAUNCHER_REVIEW_BYTE_LIMIT = 64 * 1024 * 1024;
+const LAUNCHER_REVIEW_ENTRY_LIMIT = 512;
+const LAUNCHER_REVIEW_DIRECTORY_DEPTH_LIMIT = 32;
 const REGULAR_FILE_DIGEST_CACHE_MAX_ENTRIES = 512;
 const regularFileDigestCache = new Map<string, {
   dev: number;
@@ -183,6 +201,26 @@ const regularFileDigestCache = new Map<string, {
   size: number;
   mtimeMs: number;
   ctimeMs: number;
+  digest: string;
+}>();
+const gate2AssetDigestCache = new Map<string, {
+  dev: bigint;
+  ino: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+  digest: string;
+}>();
+const snapshotArtifactDigestCache = new Map<string, {
+  dev: bigint;
+  ino: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+  digest: string;
+}>();
+const reviewAggregateDigestCache = new Map<string, {
+  signature: string;
   digest: string;
 }>();
 const VIEWER_REFRESH_CAPABILITY_ISSUES = new Set([
@@ -225,6 +263,40 @@ const launcherActionSchema = z.union([
   safeLauncherActionSchema,
   confirmedLauncherActionSchema
 ]);
+const viewerEvidenceSchema = z.object({
+  schema_version: z.literal(1),
+  review_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  gate2_qc_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  viewer_index_digest: z.string().regex(/^[a-f0-9]{64}$/),
+  workflow_digest: z.string().regex(/^[a-f0-9]{64}$/),
+  files: z.array(z.object({
+    path: z.string().min(1).max(WORKFLOW_VIEWER_SNAPSHOT_PATH_BYTE_LIMIT)
+      .refine(isSafeViewerManifestPath),
+    size: z.number().int().nonnegative().max(WORKFLOW_VIEWER_SNAPSHOT_BYTE_LIMIT),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/)
+  }).strict()).min(2).max(WORKFLOW_VIEWER_SNAPSHOT_FILE_LIMIT)
+}).strict().superRefine((evidence, context) => {
+  const paths = new Set<string>();
+  let totalBytes = 0;
+  for (const [index, file] of evidence.files.entries()) {
+    if (Buffer.byteLength(file.path) > WORKFLOW_VIEWER_SNAPSHOT_PATH_BYTE_LIMIT) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "snapshot path is too long", path: ["files", index, "path"] });
+    }
+    if (paths.has(file.path)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "snapshot paths must be unique", path: ["files", index, "path"] });
+    }
+    paths.add(file.path);
+    totalBytes += file.size;
+  }
+  if (totalBytes > WORKFLOW_VIEWER_SNAPSHOT_BYTE_LIMIT) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "snapshot is too large", path: ["files"] });
+  }
+  for (const required of ["index.html", "workflow.json"]) {
+    if (!paths.has(required)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: `snapshot is missing ${required}`, path: ["files"] });
+    }
+  }
+});
 const templateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const nonEmptyText = z.string().trim().min(1).max(240);
 const descriptionText = z.string().trim().min(1).max(600);
@@ -336,6 +408,8 @@ type LauncherProjectRecord = {
   project?: Project;
   outputDir?: string;
   viewerRoot?: LauncherDirectoryIdentity;
+  evidenceExpected?: boolean;
+  evidenceInvalid?: boolean;
   thumbnailPath?: string;
   approvalDigests?: Partial<Record<
     "gate-1-approve" | "gate-2-approve-all" | "gate-3-approve",
@@ -371,6 +445,15 @@ type LauncherViewerSnapshot = {
   root: LauncherDirectoryIdentity;
 };
 
+function preserveViewerEvidenceRequirement(
+  previous: LauncherProjectRecord | undefined,
+  next: LauncherProjectRecord
+): void {
+  if (next.evidenceExpected || next.evidenceInvalid) return;
+  if (previous?.evidenceExpected) next.evidenceExpected = true;
+  if (previous?.evidenceInvalid) next.evidenceInvalid = true;
+}
+
 export type StartWorkflowViewerLauncherOptions = {
   projectsDir?: string;
   templatesDir?: string;
@@ -379,6 +462,8 @@ export type StartWorkflowViewerLauncherOptions = {
   beforeRefresh?: (project: LauncherProject) => void | Promise<void>;
   beforeProjectReloadCommit?: () => void | Promise<void>;
   beforeServeArtifact?: (path: string) => void | Promise<void>;
+  onSnapshotFingerprint?: (path: string) => void | Promise<void>;
+  onReviewFingerprint?: (root: string) => void | Promise<void>;
   writeViewer?: (options: WriteWorkflowViewerOptions) => Promise<WorkflowViewerResult>;
   executePipeline?: LauncherProcessRunner;
   validationOptions?: ValidateProjectOptions;
@@ -439,6 +524,7 @@ export async function startWorkflowViewerLauncher(
       }
     }
     for (const [projectId, record] of nextProjects) {
+      preserveViewerEvidenceRequirement(projects.get(projectId), record);
       record.public = withLauncherJob(record.public, jobs.get(projectId));
     }
     projects = nextProjects;
@@ -530,8 +616,14 @@ export async function startWorkflowViewerLauncher(
         record.identity
       );
       if (!thumbnailFile) return sendNotFound(response);
-      await beforeServeArtifact(thumbnailFile);
-      return serveFile(request, response, thumbnailFile);
+      let handedToFileServer = false;
+      try {
+        await beforeServeArtifact(thumbnailFile);
+        handedToFileServer = true;
+        return serveFile(request, response, thumbnailFile);
+      } finally {
+        if (!handedToFileServer) await thumbnailFile.handle.close();
+      }
     }
 
     if (method === "GET" && requestUrl.pathname === "/api/projects") {
@@ -559,6 +651,7 @@ export async function startWorkflowViewerLauncher(
         viewerSnapshots.get(record.id),
         options.validationOptions
       );
+      preserveViewerEvidenceRequirement(record, inspected);
       inspected.public = withLauncherJob(inspected.public, jobs.get(record.id));
       projects.set(record.id, inspected);
       sendJson(response, 200, {
@@ -1019,23 +1112,32 @@ export async function startWorkflowViewerLauncher(
         record.viewerRoot.realPath
       );
       if (!file) return sendNotFound(response);
-      if (relativePath.startsWith("review/")) {
-        response.setHeader("content-security-policy", REVIEW_PREVIEW_CSP);
+      let handedToFileServer = false;
+      try {
+        await beforeServeArtifact(file);
+        if (!await validateViewerArtifactRequest(
+          requestUrl,
+          record,
+          file,
+          options.onSnapshotFingerprint,
+          options.onReviewFingerprint
+        )) return sendNotFound(response);
+        const servedReference = relative(await realpath(record.outputDir), file.path).replaceAll("\\", "/");
+        if (servedReference.startsWith("review/")) {
+          response.setHeader("content-security-policy", REVIEW_PREVIEW_CSP);
+        }
+        handedToFileServer = true;
+        return serveFile(request, response, file);
+      } finally {
+        if (!handedToFileServer) await file.handle.close();
       }
-      await beforeServeArtifact(file);
-      return serveFile(request, response, file);
     }
 
     sendNotFound(response);
   }
 
   async function beforeServeArtifact(file: OpenedStaticFile): Promise<void> {
-    try {
-      await options.beforeServeArtifact?.(file.path);
-    } catch (error) {
-      await file.handle.close();
-      throw error;
-    }
+    await options.beforeServeArtifact?.(file.path);
   }
 
   try {
@@ -1692,7 +1794,13 @@ async function inspectProject(
     const reviewAssetPaths = hasReview
       ? await listRegularFiles(join(runDir, "review", "assets"))
       : undefined;
-    const [manifestDigest, reviewDigest, gate2Digest, gate3Digest] = await Promise.all([
+    const [
+      manifestDigest,
+      reviewDigest,
+      viewerReviewDigest,
+      gate2Digest,
+      gate3Digest
+    ] = await Promise.all([
       digestRegularFiles([resolve(projectDir, project.manifest)]),
       hasReview && reviewAssetPaths
         ? digestRegularFiles([
@@ -1701,6 +1809,7 @@ async function inspectProject(
             ...reviewAssetPaths
           ])
         : undefined,
+      hasReview ? digestReviewAggregateCached(runDir) : undefined,
       digestRegularFiles([join(runDir, "gate2-qc.json")]),
       digestRegularFiles([
         join(runDir, "render-report.json"),
@@ -1734,6 +1843,24 @@ async function inspectProject(
     const gate3ApprovalDigest = hasGate3Evidence
       ? await digestRegularFile(join(runDir, "final.mp4"))
       : undefined;
+    const currentGate2Qc = gate2Digest !== undefined
+      ? await inspectGate2QcSource(
+        configPath,
+        join(runDir, "gate2-qc.json"),
+        captured.identity
+      )
+      : undefined;
+    const gate2QcDigest = currentGate2Qc?.digest;
+    const gate2SourceAssetsCurrent = currentGate2Qc?.assetsCurrent === true;
+    const viewerReviewInspection = hasViewer && outputDir && viewerRoot
+      ? await inspectViewerReviewLinks({
+          outputDir,
+          viewerRoot,
+          currentReviewDigest: viewerReviewDigest,
+          currentGate2QcDigest: gate2QcDigest,
+          gate2SourceAssetsCurrent
+        })
+      : { evidenceStatus: "absent" as const };
     if (
       !await matchesProjectIdentity(configPath, captured.identity)
       || createHash("sha256").update(await readFile(configPath)).digest("hex") !== configDigest
@@ -1756,6 +1883,8 @@ async function inspectProject(
       project,
       ...(outputDir ? { outputDir } : {}),
       ...(viewerRoot ? { viewerRoot } : {}),
+      ...(viewerReviewInspection.evidenceStatus === "valid" ? { evidenceExpected: true } : {}),
+      ...(viewerReviewInspection.evidenceStatus === "invalid" ? { evidenceInvalid: true } : {}),
       thumbnailPath,
       approvalDigests: {
         ...(reviewInspection?.ok && reviewInspection.approvalDigest
@@ -1784,6 +1913,12 @@ async function inspectProject(
         updatedAt,
         hasViewer,
         ...(viewerUrl ? { viewerUrl } : {}),
+        ...(viewerReviewInspection.gate1
+          ? { gate1ReviewUrl: createGate1ReviewUrl(artifactOrigin, id) }
+          : {}),
+        ...(viewerReviewInspection.gate2
+          ? { gate2ReviewUrl: createGate2ReviewUrl(artifactOrigin, launcherOrigin, id) }
+          : {}),
         ...(thumbnailUrl ? { thumbnailUrl } : {}),
         valid: safetyIssues.length === 0,
         refreshable: validation.project !== undefined
@@ -2014,6 +2149,533 @@ function createViewerUrl(
   const viewerUrl = new URL(`/viewer/${projectId}/`, artifactOrigin);
   viewerUrl.searchParams.set("launcher", launcherOrigin);
   return viewerUrl.toString();
+}
+
+function createGate1ReviewUrl(
+  artifactOrigin: string,
+  projectId: string
+): string {
+  return new URL(`/viewer/${projectId}/review/index.html`, artifactOrigin).toString();
+}
+
+function createGate2ReviewUrl(
+  artifactOrigin: string,
+  launcherOrigin: string,
+  projectId: string
+): string {
+  const viewerUrl = new URL(createViewerUrl(artifactOrigin, launcherOrigin, projectId));
+  viewerUrl.searchParams.set("node", "gate-2");
+  return viewerUrl.toString();
+}
+
+type ViewerReviewLinks = {
+  gate1?: true;
+  gate2?: true;
+};
+
+type ViewerEvidence = z.infer<typeof viewerEvidenceSchema>;
+
+type ViewerEvidenceRead =
+  | { status: "absent" }
+  | { status: "invalid" }
+  | { status: "valid"; evidence: ViewerEvidence };
+
+type ViewerReviewInspection = ViewerReviewLinks & {
+  evidenceStatus: ViewerEvidenceRead["status"];
+};
+
+async function inspectGate2QcSource(
+  configPath: string,
+  gate2QcPath: string,
+  identity: LauncherProjectIdentity
+): Promise<{ digest: string; assetsCurrent: boolean } | undefined> {
+  const projectDir = dirname(configPath);
+  const qcReference = relative(projectDir, gate2QcPath);
+  const qcFile = await openContainedStaticFile(
+    projectDir,
+    process.platform === "win32" ? qcReference.replaceAll("\\", "/") : qcReference,
+    identity.realProjectDir
+  );
+  if (!qcFile || qcFile.stats.size > LAUNCHER_GATE2_QC_MAX_BYTES) {
+    await qcFile?.handle.close();
+    return undefined;
+  }
+  let qc: unknown;
+  let rawQc: Buffer;
+  try {
+    rawQc = await readOpenedFileBounded(
+      qcFile.handle,
+      qcFile.stats,
+      LAUNCHER_GATE2_QC_MAX_BYTES
+    );
+    qc = JSON.parse(rawQc.toString("utf8")) as unknown;
+  } catch {
+    return undefined;
+  } finally {
+    await qcFile.handle.close();
+  }
+  const digest = createHash("sha256").update(rawQc).digest("hex");
+  if (typeof qc !== "object" || qc === null || Array.isArray(qc)) return undefined;
+  const input = qc as Record<string, unknown>;
+  if (typeof input.ok !== "boolean") return undefined;
+  if (input.assets === undefined) return { digest, assetsCurrent: true };
+  if (!Array.isArray(input.assets) || input.assets.length > LAUNCHER_GATE2_ASSET_LIMIT) {
+    return { digest, assetsCurrent: false };
+  }
+
+  for (const asset of input.assets) {
+    if (typeof asset !== "object" || asset === null || Array.isArray(asset)) {
+      return { digest, assetsCurrent: false };
+    }
+    const record = asset as Record<string, unknown>;
+    if (record.sha256 === undefined) {
+      if (input.ok === false) continue;
+      return { digest, assetsCurrent: false };
+    }
+    if (typeof record.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.sha256)) {
+      return { digest, assetsCurrent: false };
+    }
+    const declaredPath = typeof record.path === "string"
+      ? record.path
+      : typeof record.src === "string"
+        ? record.src
+        : undefined;
+    if (!declaredPath) return { digest, assetsCurrent: false };
+    const candidate = isAbsolute(declaredPath)
+      ? resolve(declaredPath)
+      : resolve(projectDir, declaredPath);
+    if (!isContained(projectDir, candidate)) return { digest, assetsCurrent: false };
+    const assetReference = relative(projectDir, candidate);
+    const file = await openContainedStaticFile(
+      projectDir,
+      process.platform === "win32" ? assetReference.replaceAll("\\", "/") : assetReference,
+      identity.realProjectDir
+    );
+    if (!file) return { digest, assetsCurrent: false };
+    try {
+      const assetDigest = await digestGate2AssetCached(file.path, file.handle);
+      if (assetDigest !== record.sha256) return { digest, assetsCurrent: false };
+    } finally {
+      await file.handle.close();
+    }
+  }
+  return { digest, assetsCurrent: true };
+}
+
+async function digestGate2AssetCached(path: string, handle: FileHandle): Promise<string> {
+  return digestOpenedFileCached(
+    path,
+    handle,
+    gate2AssetDigestCache,
+    LAUNCHER_GATE2_ASSET_DIGEST_CACHE_MAX_ENTRIES
+  );
+}
+
+async function digestSnapshotArtifactCached(
+  path: string,
+  handle: FileHandle,
+  onCacheMiss?: (path: string) => void | Promise<void>
+): Promise<string> {
+  return digestOpenedFileCached(
+    path,
+    handle,
+    snapshotArtifactDigestCache,
+    LAUNCHER_SNAPSHOT_DIGEST_CACHE_MAX_ENTRIES,
+    onCacheMiss
+  );
+}
+
+async function digestReviewAggregateCached(
+  root: string,
+  onCacheMiss?: (root: string) => void | Promise<void>
+): Promise<string | undefined> {
+  const cacheKey = resolve(root);
+  const before = await captureReviewAggregateIdentity(cacheKey);
+  if (!before) return undefined;
+  const cached = reviewAggregateDigestCache.get(cacheKey);
+  if (cached?.signature === before) return cached.digest;
+  await onCacheMiss?.(cacheKey);
+  const digest = await digestWorkflowViewerReview(cacheKey);
+  if (!digest) return undefined;
+  const after = await captureReviewAggregateIdentity(cacheKey);
+  if (!after || after !== before) return undefined;
+  reviewAggregateDigestCache.set(cacheKey, { signature: after, digest });
+  if (reviewAggregateDigestCache.size > LAUNCHER_REVIEW_DIGEST_CACHE_MAX_ENTRIES) {
+    const oldest = reviewAggregateDigestCache.keys().next().value as string | undefined;
+    if (oldest) reviewAggregateDigestCache.delete(oldest);
+  }
+  return digest;
+}
+
+async function captureReviewAggregateIdentity(root: string): Promise<string | undefined> {
+  try {
+    const reviewDir = join(root, "review");
+    const [rootStats, reviewStats, realRoot, realReviewDir] = await Promise.all([
+      lstat(root, { bigint: true }),
+      lstat(reviewDir, { bigint: true }),
+      realpath(root),
+      realpath(reviewDir)
+    ]);
+    if (
+      !rootStats.isDirectory()
+      || rootStats.isSymbolicLink()
+      || !reviewStats.isDirectory()
+      || reviewStats.isSymbolicLink()
+      || !isContained(realRoot, realReviewDir)
+    ) return undefined;
+
+    const identities = [reviewIdentityPart("directory", "review", reviewStats)];
+    let fileCount = 0;
+    let totalBytes = 0n;
+    let visitedEntries = 0;
+    const addFile = async (source: string, reference: string): Promise<boolean> => {
+      let handle: FileHandle | undefined;
+      try {
+        handle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+        const [openedStats, pathStats, realSource] = await Promise.all([
+          handle.stat({ bigint: true }),
+          lstat(source, { bigint: true }),
+          realpath(source)
+        ]);
+        if (
+          !openedStats.isFile()
+          || pathStats.isSymbolicLink()
+          || openedStats.dev !== pathStats.dev
+          || openedStats.ino !== pathStats.ino
+          || !isContained(realReviewDir, realSource)
+        ) return false;
+        const realStats = await lstat(realSource, { bigint: true });
+        if (openedStats.dev !== realStats.dev || openedStats.ino !== realStats.ino) return false;
+        fileCount += 1;
+        totalBytes += openedStats.size;
+        if (
+          fileCount > LAUNCHER_REVIEW_FILE_LIMIT
+          || totalBytes > BigInt(LAUNCHER_REVIEW_BYTE_LIMIT)
+        ) return false;
+        identities.push(reviewIdentityPart(
+          "file",
+          reference.replaceAll("\\", "/"),
+          openedStats
+        ));
+        return true;
+      } finally {
+        await handle?.close();
+      }
+    };
+
+    if (!await addFile(join(reviewDir, "index.html"), "index.html")) return undefined;
+    const walkAssets = async (
+      directory: string,
+      reference: string,
+      depth: number
+    ): Promise<boolean> => {
+      if (depth > LAUNCHER_REVIEW_DIRECTORY_DEPTH_LIMIT) return false;
+      let directoryStats;
+      try {
+        directoryStats = await lstat(directory, { bigint: true });
+      } catch (error) {
+        if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) {
+          return reference === "assets";
+        }
+        throw error;
+      }
+      if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) return false;
+      const realDirectory = await realpath(directory);
+      if (!isContained(realReviewDir, realDirectory)) return false;
+      identities.push(reviewIdentityPart("directory", reference, directoryStats));
+      const entries = await readdir(directory, { withFileTypes: true });
+      for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        visitedEntries += 1;
+        if (visitedEntries > LAUNCHER_REVIEW_ENTRY_LIMIT) return false;
+        if (entry.isSymbolicLink()) return false;
+        const source = join(directory, entry.name);
+        const childReference = `${reference}/${entry.name}`;
+        if (entry.isDirectory()) {
+          if (!await walkAssets(source, childReference, depth + 1)) return false;
+        } else if (entry.isFile()) {
+          if (!await addFile(source, childReference)) return false;
+        } else {
+          return false;
+        }
+      }
+      return true;
+    };
+    if (!await walkAssets(join(reviewDir, "assets"), "assets", 1)) return undefined;
+    return identities.sort((left, right) => left.localeCompare(right)).join("\n");
+  } catch {
+    return undefined;
+  }
+}
+
+function reviewIdentityPart(
+  kind: "directory" | "file",
+  reference: string,
+  stats: BigIntStats
+): string {
+  return JSON.stringify([
+    kind,
+    reference,
+    stats.dev.toString(),
+    stats.ino.toString(),
+    stats.size.toString(),
+    stats.mtimeNs.toString(),
+    stats.ctimeNs.toString()
+  ]);
+}
+
+async function digestOpenedFileCached(
+  path: string,
+  handle: FileHandle,
+  cache: Map<string, {
+    dev: bigint;
+    ino: bigint;
+    size: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
+    digest: string;
+  }>,
+  maximumEntries: number,
+  onCacheMiss?: (path: string) => void | Promise<void>
+): Promise<string> {
+  const before = await handle.stat({ bigint: true });
+  if (!before.isFile()) throw new Error("Fingerprint target must be a regular file");
+  const cached = cache.get(path);
+  if (
+    cached
+    && cached.dev === before.dev
+    && cached.ino === before.ino
+    && cached.size === before.size
+    && cached.mtimeNs === before.mtimeNs
+    && cached.ctimeNs === before.ctimeNs
+  ) return cached.digest;
+  await onCacheMiss?.(path);
+  const digest = createHash("sha256");
+  const stream = handle.createReadStream({ start: 0, autoClose: false });
+  for await (const chunk of stream) digest.update(chunk as Buffer);
+  const after = await handle.stat({ bigint: true });
+  if (
+    before.dev !== after.dev
+    || before.ino !== after.ino
+    || before.size !== after.size
+    || before.mtimeNs !== after.mtimeNs
+    || before.ctimeNs !== after.ctimeNs
+  ) throw new Error("File changed while it was being fingerprinted");
+  const sha256 = digest.digest("hex");
+  cache.set(path, {
+    dev: after.dev,
+    ino: after.ino,
+    size: after.size,
+    mtimeNs: after.mtimeNs,
+    ctimeNs: after.ctimeNs,
+    digest: sha256
+  });
+  if (cache.size > maximumEntries) {
+    const oldest = cache.keys().next().value as string | undefined;
+    if (oldest) cache.delete(oldest);
+  }
+  return sha256;
+}
+
+async function inspectViewerReviewLinks(input: {
+  outputDir: string;
+  viewerRoot: LauncherDirectoryIdentity;
+  currentReviewDigest?: string;
+  currentGate2QcDigest?: string;
+  gate2SourceAssetsCurrent: boolean;
+}): Promise<ViewerReviewInspection> {
+  const evidenceRead = await readViewerEvidence(input.outputDir, input.viewerRoot);
+  if (evidenceRead.status !== "valid") return { evidenceStatus: evidenceRead.status };
+  const evidence = evidenceRead.evidence;
+  const gate2SnapshotCurrent = evidence.gate2_qc_digest
+    ? await validateGate2ViewerSnapshot(input.outputDir, input.viewerRoot, evidence)
+    : false;
+  const snapshotReviewDigest = evidence.review_digest
+    ? await digestReviewAggregateCached(input.outputDir)
+    : undefined;
+  const gate1Current = Boolean(
+    evidence.review_digest === snapshotReviewDigest
+    && evidence.review_digest === input.currentReviewDigest
+  );
+  const viewerIndexEntry = evidence.files.find((file) => file.path === "index.html");
+  const workflowEntry = evidence.files.find((file) => file.path === "workflow.json");
+  return {
+    evidenceStatus: "valid",
+    ...(gate1Current ? { gate1: true as const } : {}),
+    ...(gate2SnapshotCurrent
+      && evidence.viewer_index_digest === viewerIndexEntry?.sha256
+      && evidence.workflow_digest === workflowEntry?.sha256
+      && evidence.gate2_qc_digest === input.currentGate2QcDigest
+      && input.gate2SourceAssetsCurrent
+      ? { gate2: true as const }
+      : {})
+  };
+}
+
+async function validateGate2ViewerSnapshot(
+  outputDir: string,
+  viewerRoot: LauncherDirectoryIdentity,
+  evidence: ViewerEvidence
+): Promise<boolean> {
+  const gate2Entries = evidence.files.filter((entry) =>
+    entry.path === "index.html"
+    || entry.path === "workflow.json"
+    || entry.path.startsWith("assets/")
+    || entry.path.startsWith("previews/")
+  );
+  for (const entry of gate2Entries) {
+    const file = await openContainedStaticFile(outputDir, entry.path, viewerRoot.realPath);
+    if (!file) return false;
+    try {
+      if (
+        entry.size !== file.stats.size
+        || (
+          (entry.path === "index.html" || entry.path === "workflow.json")
+          && file.stats.size > WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT
+        )
+      ) return false;
+      if (await digestSnapshotArtifactCached(file.path, file.handle) !== entry.sha256) return false;
+    } catch {
+      return false;
+    } finally {
+      await file.handle.close();
+    }
+  }
+  return true;
+}
+
+async function readViewerEvidence(
+  outputDir: string,
+  viewerRoot: LauncherDirectoryIdentity
+): Promise<ViewerEvidenceRead> {
+  const evidencePath = resolve(outputDir, WORKFLOW_VIEWER_EVIDENCE_FILE);
+  try {
+    const evidenceStats = await lstat(evidencePath);
+    if (!evidenceStats.isFile() || evidenceStats.isSymbolicLink()) return { status: "invalid" };
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) {
+      return { status: "absent" };
+    }
+    return { status: "invalid" };
+  }
+  const evidenceFile = await openContainedStaticFile(
+    outputDir,
+    WORKFLOW_VIEWER_EVIDENCE_FILE,
+    viewerRoot.realPath
+  );
+  if (!evidenceFile || evidenceFile.stats.size > LAUNCHER_VIEWER_EVIDENCE_MAX_BYTES) {
+    await evidenceFile?.handle.close();
+    return { status: "invalid" };
+  }
+  try {
+    const contents = await readOpenedFileBounded(
+      evidenceFile.handle,
+      evidenceFile.stats,
+      LAUNCHER_VIEWER_EVIDENCE_MAX_BYTES
+    );
+    return {
+      status: "valid",
+      evidence: viewerEvidenceSchema.parse(JSON.parse(contents.toString("utf8")))
+    };
+  } catch {
+    return { status: "invalid" };
+  } finally {
+    await evidenceFile.handle.close();
+  }
+}
+
+async function validateViewerArtifactRequest(
+  requestUrl: URL,
+  record: LauncherProjectRecord,
+  file: OpenedStaticFile,
+  onSnapshotFingerprint?: (path: string) => void | Promise<void>,
+  onReviewFingerprint?: (root: string) => void | Promise<void>
+): Promise<boolean> {
+  if (!record.outputDir || !record.viewerRoot || !record.identity || !record.project) return false;
+  const reference = relative(await realpath(record.outputDir), file.path).replaceAll("\\", "/");
+  if (!isSafeViewerManifestPath(reference) || reference === WORKFLOW_VIEWER_EVIDENCE_FILE) return false;
+  const evidenceRead = await readViewerEvidence(record.outputDir, record.viewerRoot);
+  if (evidenceRead.status === "invalid") {
+    record.evidenceInvalid = true;
+    return false;
+  }
+  if (evidenceRead.status === "absent") {
+    if (record.evidenceExpected || record.evidenceInvalid) return false;
+    const requestedNodes = requestUrl.searchParams.getAll("node");
+    return !reference.startsWith("review/")
+      && !(reference === "index.html" && requestedNodes.length === 1 && requestedNodes[0] === "gate-2");
+  }
+  record.evidenceExpected = true;
+  record.evidenceInvalid = false;
+  const evidence = evidenceRead.evidence;
+  const manifestEntry = evidence.files.find((entry) => entry.path === reference);
+  if (!manifestEntry || manifestEntry.size !== file.stats.size) return false;
+  if (
+    (reference === "index.html" || reference === "workflow.json")
+    && file.stats.size > WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT
+  ) return false;
+  const snapshotDigest = await digestSnapshotArtifactCached(
+    file.path,
+    file.handle,
+    onSnapshotFingerprint
+  );
+  if (snapshotDigest !== manifestEntry.sha256) return false;
+
+  if (reference.startsWith("review/")) {
+    if (!evidence.review_digest) return false;
+    const runDir = join(
+      dirname(record.configPath),
+      record.project.dist_dir,
+      record.project.run_id ?? record.project.slug
+    );
+    const [sourceReviewDigest, snapshotReviewDigest] = await Promise.all([
+      digestReviewAggregateCached(runDir, onReviewFingerprint),
+      digestReviewAggregateCached(record.outputDir, onReviewFingerprint)
+    ]);
+    if (
+      !sourceReviewDigest
+      || evidence.review_digest !== sourceReviewDigest
+      || evidence.review_digest !== snapshotReviewDigest
+    ) return false;
+  }
+
+  const requestedNodes = requestUrl.searchParams.getAll("node");
+  const gate2DeepLink = reference === "index.html"
+    && requestedNodes.length === 1
+    && requestedNodes[0] === "gate-2";
+  if (
+    gate2DeepLink
+    && !evidence.gate2_qc_digest
+  ) return false;
+  if (
+    gate2DeepLink
+    && !await validateGate2ViewerSnapshot(record.outputDir, record.viewerRoot, evidence)
+  ) return false;
+  if (
+    evidence.gate2_qc_digest
+    && (
+      reference === "index.html"
+      || reference === "workflow.json"
+      || reference.startsWith("assets/")
+      || reference.startsWith("previews/")
+    )
+  ) {
+    const gate2QcPath = join(
+      dirname(record.configPath),
+      record.project.dist_dir,
+      record.project.run_id ?? record.project.slug,
+      "gate2-qc.json"
+    );
+    const currentGate2Qc = await inspectGate2QcSource(
+      record.configPath,
+      gate2QcPath,
+      record.identity
+    );
+    if (
+      currentGate2Qc?.digest !== evidence.gate2_qc_digest
+      || currentGate2Qc.assetsCurrent !== true
+    ) return false;
+  }
+  return true;
 }
 
 function toPublicLauncherIssue(issue: Issue): Issue {
@@ -2353,6 +3015,20 @@ function isContained(root: string, candidate: string): boolean {
   return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
 }
 
+function isSafeViewerManifestPath(reference: string): boolean {
+  if (
+    reference.startsWith("/")
+    || reference.includes("\\")
+    || reference.includes("\0")
+    || reference.split("/").some((part) => !part || part === "." || part === "..")
+  ) return false;
+  return reference === "index.html"
+    || reference === "workflow.json"
+    || reference.startsWith("assets/")
+    || reference.startsWith("previews/")
+    || reference.startsWith("review/");
+}
+
 async function isRegularFile(path: string): Promise<boolean> {
   try {
     const fileStats = await lstat(path);
@@ -2384,12 +3060,8 @@ async function digestRegularFile(path: string): Promise<string | undefined> {
     if (!before.isFile()) return undefined;
     const cached = regularFileDigestCache.get(path);
     if (cached && sameDigestIdentity(cached, before)) return cached.digest;
-    const content = await handle.readFile();
+    const digest = await digestOpenedFileHandle(handle, before);
     const after = await handle.stat();
-    if (!sameFileIdentity(before, after) || !sameDigestIdentity(before, after)) {
-      throw new Error(`File changed while it was being fingerprinted: ${path}`);
-    }
-    const digest = createHash("sha256").update(content).digest("hex");
     regularFileDigestCache.set(path, {
       dev: after.dev,
       ino: after.ino,
@@ -2413,6 +3085,42 @@ async function digestRegularFile(path: string): Promise<string | undefined> {
   } finally {
     await handle?.close();
   }
+}
+
+async function digestOpenedFileHandle(handle: FileHandle, before: Stats): Promise<string> {
+  const digest = createHash("sha256");
+  const stream = handle.createReadStream({ start: 0, autoClose: false });
+  for await (const chunk of stream) digest.update(chunk as Buffer);
+  const after = await handle.stat();
+  if (!sameFileIdentity(before, after) || !sameDigestIdentity(before, after)) {
+    throw new Error("File changed while it was being fingerprinted");
+  }
+  return digest.digest("hex");
+}
+
+async function readOpenedFileBounded(
+  handle: FileHandle,
+  before: Stats,
+  maximumBytes: number
+): Promise<Buffer> {
+  if (before.size > maximumBytes) throw new Error("File exceeds the read limit");
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  const stream = handle.createReadStream({ start: 0, autoClose: false });
+  for await (const chunk of stream) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > maximumBytes) {
+      stream.destroy();
+      throw new Error("File exceeds the read limit");
+    }
+    chunks.push(buffer);
+  }
+  const after = await handle.stat();
+  if (!sameFileIdentity(before, after) || !sameDigestIdentity(before, after)) {
+    throw new Error("File changed while it was being read");
+  }
+  return Buffer.concat(chunks, totalBytes);
 }
 
 function sameDigestIdentity(

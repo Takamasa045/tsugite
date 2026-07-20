@@ -22,6 +22,8 @@ export interface LauncherProject {
   updatedAt?: string | null
   hasViewer: boolean
   viewerUrl?: string
+  gate1ReviewUrl?: string
+  gate2ReviewUrl?: string
   thumbnailUrl?: string
   valid: boolean
   refreshable: boolean
@@ -420,6 +422,8 @@ function isLauncherProject(input: unknown): input is LauncherProject {
     && (!('updatedAt' in input) || input.updatedAt === undefined || input.updatedAt === null || typeof input.updatedAt === 'string')
     && 'hasViewer' in input && typeof input.hasViewer === 'boolean'
     && (!('viewerUrl' in input) || input.viewerUrl === undefined || typeof input.viewerUrl === 'string')
+    && (!('gate1ReviewUrl' in input) || input.gate1ReviewUrl === undefined || typeof input.gate1ReviewUrl === 'string')
+    && (!('gate2ReviewUrl' in input) || input.gate2ReviewUrl === undefined || typeof input.gate2ReviewUrl === 'string')
     && (!('thumbnailUrl' in input) || input.thumbnailUrl === undefined || typeof input.thumbnailUrl === 'string')
     && 'valid' in input && typeof input.valid === 'boolean'
     && 'refreshable' in input && typeof input.refreshable === 'boolean'
@@ -564,6 +568,7 @@ function isFeedbackResponse(input: unknown): input is FeedbackResponse {
 function isRefreshResponse(input: unknown): input is RefreshResponse {
   return typeof input === 'object' && input !== null && 'ok' in input && input.ok === true
     && 'viewerUrl' in input && typeof input.viewerUrl === 'string'
+    && 'project' in input && isLauncherProject(input.project)
 }
 
 function isRefreshErrorResponse(input: unknown): input is RefreshErrorResponse {
@@ -1267,6 +1272,33 @@ export function LauncherApp({
                       前回の表示を開く
                       <ArrowRight aria-hidden="true" size={16} />
                     </button>
+                  )}
+                  {(selected.gate1ReviewUrl || selected.gate2ReviewUrl) && (
+                    <div aria-label="Gate確認（閲覧専用）" className="launcher-gate-review-actions" role="group">
+                      <span className="launcher-gate-review-label">Gate確認（閲覧専用）</span>
+                      {selected.gate1ReviewUrl && (
+                        <button
+                          className="launcher-secondary"
+                          disabled={refreshing || projectListRefreshing}
+                          onClick={() => navigate(selected.gate1ReviewUrl!)}
+                          type="button"
+                        >
+                          Gate 1 確認画面を開く
+                          <ArrowRight aria-hidden="true" size={16} />
+                        </button>
+                      )}
+                      {selected.gate2ReviewUrl && (
+                        <button
+                          className="launcher-secondary"
+                          disabled={refreshing || projectListRefreshing}
+                          onClick={() => navigate(selected.gate2ReviewUrl!)}
+                          type="button"
+                        >
+                          Gate 2 素材確認を開く
+                          <ArrowRight aria-hidden="true" size={16} />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </>
