@@ -62,4 +62,45 @@ describe("generation reference image assets", () => {
     await expect(access(result.requests[0].reference_images![0])).resolves.toBeUndefined();
     await expect(access(result.requests[0].reference_images![1])).resolves.toBeUndefined();
   });
+
+  it("pins generic image, video, and audio inputs before a provider CLI can read them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-generation-media-inputs-"));
+    const runDir = join(root, "run");
+    await mkdir(join(root, "assets"), { recursive: true });
+    for (const name of ["reference.png", "source.mp4", "voice.wav"]) {
+      await writeFile(join(root, "assets", name), name);
+    }
+    const result = await pinGenerationAssets([{
+      id: "media-request",
+      operation: "reference",
+      prompt: "continue the scene",
+      model: "runtime-model",
+      input_images: ["assets/reference.png"],
+      input_video: "assets/source.mp4",
+      input_audios: ["assets/voice.wav"],
+      params: {}
+    }] as any, root, root, runDir);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.requests[0].input_images?.[0]).toContain("assets/generation-inputs/media-request/input_images-001.png");
+    expect(result.requests[0].input_video).toContain("assets/generation-inputs/media-request/input-video.mp4");
+    expect(result.requests[0].input_audios?.[0]).toContain("assets/generation-inputs/media-request/input_audios-001.wav");
+  });
+
+  it("pins legacy params.image instead of letting a provider CLI read an arbitrary path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-generation-legacy-input-"));
+    const runDir = join(root, "run");
+    await mkdir(join(root, "assets"), { recursive: true });
+    await writeFile(join(root, "assets", "legacy.png"), "legacy image");
+    const legacy = request([]);
+    legacy.first_frame = undefined as any;
+    legacy.params = { image: "assets/legacy.png" };
+
+    const result = await pinGenerationAssets([legacy] as any, root, root, runDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.requests[0].params.image).toBe(join(runDir, "assets/generation-inputs/act-1/legacy-image.png"));
+    await expect(access(result.requests[0].params.image as string)).resolves.toBeUndefined();
+  });
 });

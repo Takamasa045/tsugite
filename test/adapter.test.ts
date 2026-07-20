@@ -69,6 +69,26 @@ describe("adapter contract", () => {
     expect(result.clips?.[0]?.src).toMatch(new RegExp(`^${escapeRegExp(runDir)}[\\\\/]`));
   });
 
+  it("accepts generated image and audio assets through the same media adapter contract", async () => {
+    const harness = await outputHarness();
+    const image = await writeRunFile(harness.runDir, "generated.png");
+    const audio = await writeRunFile(harness.runDir, "generated.wav");
+    const output = {
+      request_id: "mixed-media",
+      credits: 1,
+      clips: [],
+      images: [{ id: "generated-image", src: image }],
+      audio: [{ id: "generated-voice", src: audio, role: "narration", start: 0 }],
+      metadata: {}
+    };
+    const result = runOutputHarness(harness, [generationRequest("mixed-media", output)]);
+
+    expect(result.ok).toBe(true);
+    expect(result.images).toEqual([expect.objectContaining({ id: "generated-image", src: image })]);
+    expect(result.audio).toEqual([expect.objectContaining({ id: "generated-voice", role: "narration", src: audio })]);
+    expect(result.credits).toBe(1);
+  });
+
   it("does not expose raw provider output when an adapter command fails", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "tsugite-adapter-run-"));
     const adapter = await loadAdapterDefinition("mock-cli", ["fixtures/adapters", "adapters"]);

@@ -389,6 +389,65 @@ describe("local media run assembly", () => {
     expect(runLog).toContain("review_data_path: review/review-data.json");
   });
 
+  it("assembles generated images and narration into the project manifest without replacing existing clips", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-media-"));
+    const runDir = join(stateDir, "cli-generation-run");
+    await mkdir(runDir, { recursive: true });
+    const imageSrc = join(runDir, "provider-image.png");
+    const audioSrc = join(runDir, "provider-voice.wav");
+    await writeFile(imageSrc, "fixture image");
+    await writeFile(audioSrc, silentWav());
+    const project = {
+      ...validation.project!,
+      generation: {
+        ...validation.project!.generation!,
+        requests: [{
+          id: "generated-image",
+          operation: "image" as const,
+          prompt: "fixture image",
+          model: "fixture-model",
+          params: {
+            output: { request_id: "generated-image", credits: 0.4, clips: [], images: [{ id: "hero-image", src: imageSrc }], audio: [], metadata: {} }
+          }
+        }, {
+          id: "generated-voice",
+          operation: "voice" as const,
+          output_kind: "audio" as const,
+          audio_role: "narration" as const,
+          prompt: "fixture voice",
+          model: "fixture-model",
+          params: {
+            output: { request_id: "generated-voice", credits: 0.6, clips: [], images: [], audio: [{ id: "voice-track", src: audioSrc, role: "narration", start: 0 }], metadata: {} }
+          }
+        }]
+      }
+    };
+    const adapter = {
+      ...validation.adapter!,
+      command: { ...validation.adapter!.command!, args: ["fixtures/adapters/mock-cli/output-from-params.mjs"] }
+    };
+    const running = recordGateDecision(
+      markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1"), "gate_1", "approved"
+    );
+
+    const result = await assembleLocalMediaRun(project, validation.manifest!, {
+      manifestPath: "fixtures/manifests/render-local.valid.json",
+      stateDir,
+      state: running
+    }, adapter);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+    expect(manifest.clips).toHaveLength(validation.manifest!.clips.length);
+    expect(manifest.images).toContainEqual(expect.objectContaining({ id: "hero-image", src: "assets/images/generated/001-hero-image.png" }));
+    expect(manifest.audio.narration).toContainEqual(expect.objectContaining({ id: "voice-track", src: "assets/audio/narration/001-voice-track.wav" }));
+    expect(result.actualCredits).toBe(1);
+  });
+
   it("pins audio assets for generated runs so Gate 2 can validate and resume them", async () => {
     const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]

@@ -228,7 +228,7 @@ function estimateCredits(
   const generation = !project.generation || !adapter
     ? 0
     : project.generation.requests.reduce((sum, request) => {
-        return sum + adapter.credit_estimate.per_request + request.duration * adapter.credit_estimate.per_second;
+        return sum + adapter.credit_estimate.per_request + (request.duration ?? 0) * adapter.credit_estimate.per_second;
       }, 0);
   const audio = !project.audio || !audioAdapter
     ? 0

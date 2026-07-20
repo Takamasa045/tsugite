@@ -31,10 +31,41 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 ### 案内例
 
-> Klingで動画を生成できる接続が2つあります。
-> - TopView MCP: needs-verification
-> - PixVerse CLI: needs-verification
+> Klingで動画を生成できる接続が3つあります。
+> - PixVerseサブスク（PixVerse CLI。PixVerse側の料金・残高）
+> - Kling直契約（Kling CLI。Kling側の料金・残高）
+> - TopViewサブスク（TopView MCP。TopView側の料金・残高）
 > どのサービスを使って生成しますか？
+
+モデル名がKlingでも、`connection: pixverse`ならPixVerse経由、`connection: kling-direct`ならKling直契約である。Tsugiteはこの2つを自動で取り替えない。
+
+## PixVerse CLIとKling CLI
+
+`pixverse`接続は、インストール済みPixVerse CLIが公開する `create video / image / transition / voice / music / extend / modify / upscale / reference / motion-control / template` をgeneration requestから扱う。Gemini、Kling、Grok等のモデル名をTsugiteの固定allowlistで制限せず、CLIの検証結果を正本にする。
+
+`kling-direct`接続は、Kling CLIの `text_to_image / image_to_image / text_to_video / image_to_video` を扱う。利用可能モデルとモデル別パラメータは `kling who_am_i` の実行時宣言が正本である。
+
+```yaml
+generation:
+  connection: pixverse # または kling-direct
+  requests:
+    - id: hero-still
+      operation: image
+      prompt: 夕暮れの工房
+      model: gemini-3.1-flash-image
+      aspect: "16:9"
+      params: {}
+    - id: narration
+      operation: voice
+      output_kind: audio
+      audio_role: narration
+      prompt: ものづくりの旅が始まります
+      model: speech-2.8-hd
+      params:
+        voice_id: preset-id
+```
+
+既存の動画requestは`operation`省略時に`video`として扱う。参照素材は`first_frame`、`reference_images`、`input_images`、`input_video`、`input_videos`、`input_audios`でproject内の相対pathを指定し、実行前にrun directoryへ固定する。
 
 ## 接続状態の語彙
 

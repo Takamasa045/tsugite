@@ -23,17 +23,35 @@ connections:
     adapter: pixverse
     capabilities:
       - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
+      - video.transition
       - video.extend
+      - video.modify
+      - video.upscale
+      - video.reference-to-video
+      - video.motion-control
+      - media.template
       - audio.text-to-speech
       - audio.music
-      - audio.sound-effects
     automated_capabilities:
+      - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
-    model_families: [pixverse, seedance]
-    route_note: "PixVerse CLIとPixVerseのサブスク認証を使う。PixVerse・Seedanceの動画生成を現行アダプターで引き渡し、その他のcapabilityは追加接続が必要。"
+      - video.transition
+      - video.extend
+      - video.modify
+      - video.upscale
+      - video.reference-to-video
+      - video.motion-control
+      - media.template
+      - audio.text-to-speech
+      - audio.music
+    model_policy: runtime
+    model_families: [pixverse, seedance, kling, grok, veo, sora, gemini, qwen, seedream, gpt-image, minimax, elevenlabs, lyria]
+    route_note: "PixVerse CLIとPixVerseサブスクを使う。Gemini、Kling、Grok等を含む現在の画像・動画・音声モデルはCLIの実行時capabilityを正本にする。"
     setup_checks:
       - type: command
         command: pixverse
@@ -61,27 +79,32 @@ connections:
       - type: manual
         detail: "実行ホストでTopView MCPの接続、ログイン、クレジットを確認する。"
 
-  - id: kling-via-pixverse
-    aliases: [kling, cling]
-    display_name: Kling（PixVerse経由）
-    provider: pixverse
+  - id: kling-direct
+    aliases: [kling, cling, kling-cli]
+    display_name: Kling直契約
+    provider: kling
     transport: cli
     auth_kind: subscription
     implementation_status: integrated
     adapter: kling
     capabilities:
+      - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
     automated_capabilities:
+      - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
+    model_policy: runtime
     model_families: [kling]
-    route_note: "KlingモデルをPixVerse CLIとPixVerseのサブスク認証で実行する互換接続。"
+    route_note: "Kling CLIとKling直契約を使う。利用可能モデルとモデル別引数は who_am_i の実行時宣言を正本にする。"
     setup_checks:
       - type: command
-        command: pixverse
+        command: kling
       - type: manual
-        detail: "PixVerseのログイン状態とKlingモデルの利用可否は生成前に確認する。"
+        detail: "Kling CLIのログイン状態、who_am_iの利用可能モデル、クレジットを生成前に確認する。"
 
   - id: elevenlabs
     display_name: ElevenLabs

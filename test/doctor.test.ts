@@ -146,9 +146,12 @@ describe("environment doctor", () => {
     );
   });
 
-  it.each(["pixverse", "kling"])(
-    "checks the shared PixVerse provider CLI for the %s adapter with a non-charging version probe",
-    async (adapterName) => {
+  it.each([
+    { adapterName: "pixverse", provider: "pixverse", label: "pixverse", remediation: /PixVerse CLI.*install|install.*PixVerse CLI/i },
+    { adapterName: "kling", provider: "kling", label: "kling", remediation: /Kling CLI.*install|install.*Kling CLI/i }
+  ])(
+    "checks the dedicated $provider provider CLI for the $adapterName adapter with a non-charging version probe",
+    async ({ adapterName, provider, label, remediation }) => {
       const configPath = await projectUsingAdapter(adapterName);
       const checkedCommands: string[] = [];
       const probedCommands: string[][] = [];
@@ -156,22 +159,22 @@ describe("environment doctor", () => {
       const report = await inspectEnvironment(configPath, {
         commandExists: async (command) => {
           checkedCommands.push(command);
-          return command !== "pixverse";
+          return command !== provider;
         },
         probeCommand: async (command) => {
           probedCommands.push([...command]);
-          return { ok: true, version: "pixverse 1.2.3" };
+          return { ok: true, version: `${provider} 1.2.3` };
         }
       });
 
       expect(report.ok).toBe(false);
-      expect(checkedCommands).toContain("pixverse");
+      expect(checkedCommands).toContain(provider);
       expect(probedCommands).not.toContainEqual(expect.arrayContaining(["create", "video"]));
       expect(report.checks).toContainEqual(
         expect.objectContaining({
-          name: `provider:pixverse (${adapterName})`,
+          name: `provider:${label} (${adapterName})`,
           ok: false,
-          remediation: expect.stringMatching(/PixVerse CLI.*install|install.*PixVerse CLI/i)
+          remediation: expect.stringMatching(remediation)
         })
       );
     }
@@ -323,7 +326,7 @@ async function projectUsingAdapter(adapterName: string): Promise<string> {
     `.doctor-${adapterName}-${process.pid}-${Math.random().toString(36).slice(2)}.yaml`
   );
   temporaryProjects.push(path);
-  const connection = adapterName === "kling" ? "kling-via-pixverse" : "pixverse";
+  const connection = adapterName === "kling" ? "kling-direct" : "pixverse";
   const model = adapterName === "kling" ? "kling-v3" : "pixverse-v6";
   await writeFile(
     path,

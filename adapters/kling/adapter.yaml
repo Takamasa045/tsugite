@@ -22,17 +22,17 @@ input_modes:
 checks:
   setup:
     - type: command
-      name: provider:pixverse
-      command: ["pixverse", "--version"]
+      name: provider:kling
+      command: ["kling", "--version"]
       capture_version: true
       remediation:
-        default: "Install the PixVerse CLI with `npm install -g pixverse@latest`, then rerun doctor."
+        default: "Install Kling CLI, then rerun doctor."
     - type: manual
       name: provider-auth:pixverse
       blocking: false
-      detail: "Kling requests use the PixVerse CLI route; authentication and provider connectivity are not contacted by doctor."
+      detail: "Kling direct requests use Kling CLI; authentication and provider connectivity are not contacted by doctor."
       remediation:
-        default: "Run `pixverse auth status --json`; if needed, run `pixverse auth login` before Gate 1 approval."
+        default: "Run `kling who_am_i`; if needed, run `kling login` before Gate 1 approval."
 command:
   executable: node
   args: ["adapters/kling/generate.mjs"]
