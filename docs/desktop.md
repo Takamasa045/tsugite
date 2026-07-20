@@ -83,11 +83,15 @@ npm --prefix apps/desktop run test
 npm --prefix apps/desktop run package
 ```
 
-unsigned build は開発者のローカル確認用です。macOS Gatekeeper や Windows SmartScreen の警告が表示されるため、そのまま公開配布しないでください。インストーラー等の配布形式は `npm --prefix apps/desktop run make` で作成します。
+unsigned build は原則として開発者のローカル確認用です。macOS Gatekeeper や Windows SmartScreen の警告が表示されます。インストーラー等の配布形式は `npm --prefix apps/desktop run make` で作成します。
 
-公開時はバージョンを固定し、macOS では Developer ID Application による code signing と Apple notarization、Windows ではコードサイン証明書による署名を行います。署名と notarization の credential は CI secret で管理し、repository、ログ、配布物に含めません。PR / 通常 push の Desktop CI は secret なしの unsigned package smoke のみを行い、GitHub Releaseへは公開しません。
+正式版の公開時はバージョンを固定し、macOS では Developer ID Application による code signing と Apple notarization、Windows ではコードサイン証明書による署名を行います。署名と notarization の credential は CI secret で管理し、repository、ログ、配布物に含めません。PR / 通常 push の Desktop CI は secret なしの unsigned package smoke のみを行い、GitHub Releaseへは自動公開しません。
 
-Desktop CI はmacOS Arm64のDMG/ZIPとWindows x64のSquirrelインストーラーを作成し、GitHub Actionsのrun artifactとして14日間保持します。これは動作確認用の未署名成果物です。対象runのArtifacts欄から、`tsugite-macos-arm64-<sha>` または `tsugite-windows-x64-<sha>` を取得してください。
+`v0.6.0-beta.1` は、この通常方針の例外として未署名のまま限定公開するベータ版です。GitHub prereleaseと公式LPの両方で、コード署名なし、macOS notarization未実施、対応architecture、初回起動時の警告、生成ランチャー／生成ノード非搭載を明示します。利用者には公式GitHub Releaseからのみ取得し、同じReleaseの`SHA256SUMS.txt`と照合するよう案内します。OSの保護機能を常時無効にする案内は行いません。
+
+ベータ版のassetは、mainへmergeした同一sourceをtag付けした後、レビュー済みの成果物だけを`Tsugite-0.6.0-macos-arm64.dmg`、`Tsugite-0.6.0-windows-x64-setup.exe`へリネームして手動公開します。LPはこの固定asset名を参照します。tag、Release、asset、SHA-256、LPの公開は別の状態として検証します。
+
+Desktop CI はmacOS Arm64のDMG/ZIPとWindows x64のSquirrelインストーラーを作成し、GitHub Actionsのrun artifactとして14日間保持します。これは動作確認用の未署名成果物です。対象runのArtifacts欄から、`tsugite-macos-arm64-<sha>` または `tsugite-windows-x64-<sha>` を取得してください。Actions artifactの一時URLは公開LPから参照しません。
 
 Desktop runtime は tracked な実行コードと必要 resource の allowlist から作成します。workspace や repository の `projects/`、private `templates/`、`media/`、`output/`、`tmp/`、`.env` は梱包しません。ビルド前後の package test で、必要 runtime resource と禁止 path の両方を確認します。
 

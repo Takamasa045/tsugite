@@ -23,9 +23,9 @@ npm --prefix apps/desktop run build:runtime
 npm --prefix apps/desktop run package
 ```
 
-`build:runtime` は root CLI と Viewer をビルドし、パッケージ用 runtime を準備します。`package` は Electron Forge で unsigned app を `apps/desktop/out/` に作成します。`make` は配布形式を作りますが、公開用の macOS code signing / notarization と Windows code signing は別途必要です。
+`build:runtime` は root CLI と Viewer をビルドし、パッケージ用 runtime を準備します。`package` は Electron Forge で unsigned app を `apps/desktop/out/` に作成します。`make` は配布形式を作ります。正式版の公開にはmacOS code signing / notarizationとWindows code signingが別途必要です。未署名で限定公開する`v0.6.0-beta.1`の例外条件と利用者向け注意は[`docs/desktop.md`](../../docs/desktop.md)を参照してください。
 
-GitHub ActionsのDesktop workflowは、macOS Arm64とWindows x64の`make`成果物を未署名の検証用artifactとして14日間保持します。GitHub Releaseへは自動公開しません。
+GitHub ActionsのDesktop workflowは、macOS Arm64とWindows x64の`make`成果物を未署名の検証用artifactとして14日間保持します。GitHub Releaseへは自動公開せず、ベータ公開時もmain/tagとの一致、asset名、SHA-256を手動確認します。
 
 package runtime は `process.resourcesPath/runtime/tsugite/` と `process.resourcesPath/runtime/viewer/` に配置します。実行コードは runtime root を cwd とし、workspace の config は absolute path で渡します。
 
