@@ -99,7 +99,7 @@ subscription/API keyを使うintegrated connectionは、environmentまたはmanu
 
 ## TopViewの位置付け
 
-利用者向けの選択・認証上、TopViewは **TopView MCP接続** として表示する。現行repo-local実装の `adapters/topview/` は、TopViewのPython toolkit/skillを呼び出すbridgeであり、`project.yaml` の実行adapter互換性のため内部で使う。この内部bridgeを別の利用者契約や、MCP認証済みの証明として表示しない。
+利用者向けの選択・認証上、TopViewは **TopView MCP接続** として表示する。`adapters/topview/` は公式HTTPS MCPへ接続するrepo-local実行bridgeで、Gate 1承認後にだけ画像・動画・音声タスクを送信し、結果を案件内へ取得する。MCP transportが到達可能なだけでログイン、利用権限、残高まで確認済みとは表示しない。
 
 ## 新しいベンダーを追加する
 

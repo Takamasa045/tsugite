@@ -3,7 +3,12 @@ import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPlannedState, writeState } from "../src/orchestrator/state.js";
+import {
+  createPlannedState,
+  markGateAwaiting,
+  recordGateDecision,
+  writeState
+} from "../src/orchestrator/state.js";
 import {
   startWorkflowViewerLauncher,
   type WorkflowViewerLauncher
@@ -681,6 +686,172 @@ distribution: local-only
       updatedAt: "2026-07-17T00:00:00.000Z",
       valid: true
     });
+  });
+
+  it("serves a sanitized generation canvas for a known project id", async () => {
+    const fixture = await createFixture();
+    const configPath = join(fixture.projectDir, "project.yaml");
+    await writeFile(configPath, `${await readFile(configPath, "utf8")}generation:
+  connection: pixverse
+  adapter: pixverse
+  requests:
+    - id: arrival-shot
+      prompt: 雪山の稜線へゆっくり近づく
+      model: seedance-1.5-pro
+      duration: 5
+      aspect: "16:9"
+      input_mode: image-to-video
+      first_frame: assets/alps.png
+      params:
+        private_note: never-return-this
+`);
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+
+    const response = await fetch(`${launcher.url}/api/projects/${project.id}/generation-canvas`);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      ok: true,
+      canvas: {
+        project: {
+          id: project.id,
+          slug: "local-fixture",
+          runId: "local-fixture-run"
+        },
+        generation: {
+          connection: "pixverse",
+          adapter: "pixverse",
+          requests: [{
+            id: "arrival-shot",
+            prompt: "雪山の稜線へゆっくり近づく",
+            model: "seedance-1.5-pro",
+            duration: 5,
+            aspect: "16:9",
+            inputMode: "image-to-video",
+            hasFirstFrame: true,
+            referenceImageCount: 0
+          }]
+        },
+        connections: expect.arrayContaining([expect.objectContaining({
+          id: "pixverse",
+          authKind: "subscription",
+          capabilities: expect.arrayContaining(["image.generate", "video.text-to-video", "audio.music"]),
+          automatedCapabilities: expect.arrayContaining([
+            "image.generate", "video.text-to-video", "video.image-to-video", "audio.music"
+          ]),
+          modelPolicy: "runtime"
+        })])
+      }
+    });
+    expect(JSON.stringify(payload)).not.toContain(fixture.root);
+    expect(JSON.stringify(payload)).not.toContain("private_note");
+    expect(JSON.stringify(payload)).not.toContain("never-return-this");
+    expect((await fetch(`${launcher.url}/api/projects/not-a-project/generation-canvas`)).status).toBe(404);
+  });
+
+  it("requires same-origin authorization and writes a compatible TopView MCP selection to project.yaml", async () => {
+    const fixture = await createFixture();
+    const configPath = join(fixture.projectDir, "project.yaml");
+    await writeFile(configPath, `${await readFile(configPath, "utf8")}generation:
+  connection: pixverse
+  adapter: pixverse
+  requests:
+    - id: generated-shot
+      operation: video
+      prompt: 朝霧の山荘へ近づく
+      input_mode: text-to-video
+`);
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const endpoint = `${launcher.url}/api/projects/${project.id}/generation-connection`;
+
+    expect((await fetch(endpoint, { method: "POST" })).status).toBe(403);
+    expect((await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: "https://example.com",
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({ connection: "topview" })
+    })).status).toBe(403);
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({ connection: "topview" })
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      connection: "topview",
+      adapter: "topview",
+      requiresReview: true
+    });
+    const updated = await readFile(configPath, "utf8");
+    expect(updated).toContain("connection: topview");
+    expect(updated).toContain("adapter: topview");
+  });
+
+  it("starts generation only for a Gate 1 approved project and delegates to the coordinator runner", async () => {
+    const fixture = await createFixture();
+    const configPath = join(fixture.projectDir, "project.yaml");
+    await writeFile(configPath, `${await readFile(configPath, "utf8")}generation:
+  connection: topview
+  adapter: topview
+  requests:
+    - id: generated-shot
+      operation: image
+      output_kind: image
+      prompt: 朝霧の山荘
+`);
+    const running = recordGateDecision(
+      markGateAwaiting(createPlannedState("local-fixture-run"), "gate_1"),
+      "gate_1",
+      "approved"
+    );
+    await writeState(join(fixture.projectDir, "dist"), running);
+    const runGeneration = vi.fn(async () => ({ ok: true, command: "run", state: { status: "awaiting_gate_2" } }));
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      runGeneration
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const endpoint = `${launcher.url}/api/projects/${project.id}/generate`;
+
+    expect((await fetch(endpoint, { method: "POST", headers: { origin: launcher.url } })).status).toBe(403);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      result: { ok: true, command: "run", state: { status: "awaiting_gate_2" } }
+    });
+    expect(runGeneration).toHaveBeenCalledOnce();
+    expect(runGeneration).toHaveBeenCalledWith(configPath);
   });
 
   it("requires the launcher token and same origin before refreshing a snapshot", async () => {

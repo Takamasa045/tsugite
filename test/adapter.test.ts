@@ -212,7 +212,7 @@ describe("adapter contract", () => {
     });
   });
 
-  it("loads the executable Topview CLI generation adapter", async () => {
+  it("loads the executable TopView MCP bridge adapter", async () => {
     const adapter = await loadAdapterDefinition("topview", ["fixtures/adapters", "adapters"]);
 
     expect(adapter.kind).toBe("cli");

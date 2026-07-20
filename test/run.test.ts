@@ -15,7 +15,7 @@ describe("local media run assembly", () => {
     vi.unstubAllEnvs();
   });
 
-  it("fails closed before a pipeline CLI can execute an MCP generation connection", async () => {
+  it("fails closed when an MCP generation connection is explicitly agent-handoff only", async () => {
     const validation = await validateProject("fixtures/projects/generation-connection-topview.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]
     });
@@ -27,7 +27,10 @@ describe("local media run assembly", () => {
       manifestPath: "fixtures/manifests/minimal.valid.json",
       stateDir,
       state: running,
-      generationConnection: validation.generationConnection
+      generationConnection: {
+        ...validation.generationConnection!,
+        execution_mode: "agent-handoff"
+      }
     }, validation.adapter);
 
     expect(result.ok).toBe(false);
@@ -96,7 +99,8 @@ describe("local media run assembly", () => {
       transport: "cli" as const,
       provider: "fixture",
       route_note: "local test adapter",
-      setup_status: "needs-verification" as const
+      setup_status: "needs-verification" as const,
+      execution_mode: "pipeline-adapter" as const
     };
     const blockedStateDir = await mkdtemp(join(tmpdir(), "tsugite-connection-verification-blocked-"));
 
@@ -504,7 +508,8 @@ describe("local media run assembly", () => {
         transport: "cli",
         provider: "fixture",
         route_note: "provider removed after assembly",
-        setup_status: "needs-setup"
+        setup_status: "needs-setup",
+        execution_mode: "pipeline-adapter"
       }
     }, validation.adapter);
     expect(resumed.ok).toBe(true);
@@ -552,7 +557,8 @@ describe("local media run assembly", () => {
           transport: "cli",
           provider: "fixture",
           route_note: "provider removed after assembly",
-          setup_status: "needs-setup"
+          setup_status: "needs-setup",
+          execution_mode: "pipeline-adapter"
         }
       },
       validation.adapter

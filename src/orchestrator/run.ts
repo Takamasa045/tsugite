@@ -111,7 +111,7 @@ export async function assembleLocalMediaRun(
       }]
     };
   }
-  if (audioConnection && audioConnection.transport !== "cli") {
+  if (audioConnection && audioConnection.execution_mode !== "pipeline-adapter") {
     return {
       ok: false,
       issues: [{
@@ -347,7 +347,7 @@ async function assembleGeneratedMediaRun(
       }]
     };
   }
-  if (generationConnection && generationConnection.transport !== "cli") {
+  if (generationConnection && generationConnection.execution_mode !== "pipeline-adapter") {
     return {
       ok: false,
       issues: [{

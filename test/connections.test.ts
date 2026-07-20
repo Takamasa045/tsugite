@@ -34,9 +34,12 @@ describe("generation connection registry", () => {
       provider: "topview",
       transport: "mcp",
       adapter: "topview",
+      execution_mode: "pipeline-adapter",
       model_families: expect.arrayContaining(["kling", "seedance", "vidu"])
     });
-    expect(topview?.automated_capabilities).toEqual(expect.arrayContaining(["video.image-to-video"]));
+    expect(topview?.automated_capabilities).toEqual(expect.arrayContaining([
+      "image.generate", "video.image-to-video", "video.reference-to-video", "audio.text-to-speech", "audio.music"
+    ]));
     expect(pixverse).toMatchObject({ provider: "pixverse", adapter: "pixverse", model_policy: "runtime" });
     expect(pixverse?.automated_capabilities).toEqual(expect.arrayContaining([
       "image.generate", "video.transition", "audio.text-to-speech", "audio.music"
@@ -65,7 +68,7 @@ describe("generation connection registry", () => {
     await expect(resolveGenerationConnection("topview", undefined, {
       models: ["PixVerse V6"],
       capabilities: ["video.image-to-video"]
-    })).resolves.toBeUndefined();
+    })).resolves.toMatchObject({ id: "topview", execution_mode: "pipeline-adapter" });
     await expect(resolveGenerationConnection("pixverse", undefined, {
       models: ["Gemini 3.1 Flash Image", "Kling O3 Pro", "Grok Imagine"],
       capabilities: ["image.generate", "video.text-to-video", "audio.music"]
@@ -445,11 +448,11 @@ connections:
     expect(await listConnectionOptions({ model: "Kling3Fake", capability: "video.text-to-video" }))
       .toHaveLength(0);
     expect((await listConnectionOptions({ model: "Kling 3 Fake", capability: "video.text-to-video" }))
-      .map((candidate) => candidate.id)).toEqual(["pixverse", "kling-direct"]);
+      .map((candidate) => candidate.id)).toEqual(["pixverse", "topview", "kling-direct"]);
     expect(await listConnectionOptions({ model: "Acme Kling 3", capability: "video.text-to-video" }))
       .toHaveLength(0);
     expect((await listConnectionOptions({ model: "Kling3", capability: "video.text-to-video" }))
-      .map((candidate) => candidate.id)).toEqual(["topview"]);
+      .map((candidate) => candidate.id)).toEqual([]);
   });
 
   it("lists connection candidates from the read-only CLI without requiring project config", async () => {

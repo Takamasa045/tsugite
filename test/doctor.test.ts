@@ -201,13 +201,13 @@ describe("environment doctor", () => {
     );
   });
 
-  it("probes the Topview CLI without submitting a generation task", async () => {
+  it("probes the TopView MCP without submitting a generation task", async () => {
     const probedCommands: string[][] = [];
     const report = await inspectEnvironment("fixtures/projects/topview-generation.yaml", {
       commandExists: async () => true,
       probeCommand: async (command) => {
         probedCommands.push([...command]);
-        return { ok: true, version: "topview-video-gen ready" };
+        return { ok: true, version: "topview-mcp ready" };
       }
     });
 
@@ -216,10 +216,10 @@ describe("environment doctor", () => {
     expect(probedCommands.flat()).not.toContain("run");
     expect(report.checks).toContainEqual(
       expect.objectContaining({
-        name: "provider:topview-cli (topview)",
+        name: "provider:topview-mcp (topview)",
         ok: true,
         status: "ready",
-        version: "topview-video-gen ready"
+        version: "topview-mcp ready"
       })
     );
   });

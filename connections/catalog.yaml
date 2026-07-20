@@ -59,25 +59,41 @@ connections:
         detail: "PixVerseのログイン状態とクレジットは生成前に確認する。"
 
   - id: topview
-    display_name: TopViewサブスク
+    aliases: [topview-mcp]
+    display_name: TopView MCP
     provider: topview
     transport: mcp
     auth_kind: subscription
     implementation_status: integrated
     adapter: topview
+    execution_mode: pipeline-adapter
     capabilities:
       - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
+      - video.reference-to-video
+      - video.motion-control
       - video.native-audio
+      - audio.text-to-speech
+      - audio.music
+      - media.template
     automated_capabilities:
+      - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
-    model_families: [standard, kling, seedance, vidu, veo, sora, wan, hailuo]
-    route_note: "TopView MCPとTopViewのサブスク認証を使う。TsugiteはMCP agent-handoffとして扱い、repo-local互換アダプターをCLI実行しない。"
+      - video.reference-to-video
+      - video.motion-control
+      - audio.text-to-speech
+      - audio.music
+      - media.template
+    model_policy: runtime
+    model_families: [standard, kling, seedance, vidu, veo, sora, wan, hailuo, gpt-image, nano-banana, seedream, grok, imagen]
+    route_note: "TopView公式MCPとTopViewサブスクを使う。画像・動画・音声のモデルと必須parameterはMCPの実行時configを正本にし、生成物を案件内へ取得する。"
     setup_checks:
       - type: manual
-        detail: "実行ホストでTopView MCPの接続、ログイン、クレジットを確認する。"
+        detail: "TopViewのログイン、MCP tool availability、利用権限、残クレジットをGate 1前に確認する。"
 
   - id: kling-direct
     aliases: [kling, cling, kling-cli]

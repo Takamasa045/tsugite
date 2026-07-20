@@ -194,10 +194,10 @@ describe("creative review", () => {
       connection: "topview",
       transport: "mcp",
       provider: "topview",
-      route_note: expect.stringContaining("TopView MCP"),
+      route_note: expect.stringContaining("TopView公式MCP"),
       setup_status: "needs-verification",
       automatic_fallback: false,
-      execution: "agent-handoff"
+      execution: "pipeline-mcp"
     });
     const html = renderReviewHtml(review);
     expect(html).toContain("topview via MCP");

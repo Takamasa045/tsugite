@@ -35,8 +35,8 @@ artifact outputs or manifest metadata as appropriate for its class.
 `bin/pipeline doctor --config <project.yaml> --json` checks only the setup
 contract declared by the selected adapter. OpenClaw validates that
 `TSUGITE_OPENCLAW_GENERATE_COMMAND` is a one-item JSON command array and that
-the wrapper executable is available, but it never executes the bridge. TopView is a CLI
-adapter: doctor runs only its non-charging `list-models` probe, while login,
+the wrapper executable is available, but it never executes the bridge. TopView uses a
+repo-local MCP bridge: doctor lists the official MCP tools without submitting a task, while login,
 credits, and provider connectivity remain manual checks. Hermes remains a
 manual agent handoff. Follow each reported `remediation` before approving Gate 1.
 

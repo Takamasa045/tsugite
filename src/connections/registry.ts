@@ -26,6 +26,7 @@ const connectionDefinitionSchema = z.object({
   auth_kind: z.enum(["subscription", "api-key", "local", "none"]),
   implementation_status: z.enum(["integrated", "available-to-add", "manual-import"]),
   adapter: safeId.optional(),
+  execution_mode: z.enum(["pipeline-adapter", "agent-handoff"]).optional(),
   capabilities: z.array(capability).min(1),
   automated_capabilities: z.array(capability).default([]),
   model_policy: z.enum(["catalog", "runtime"]).default("catalog"),
@@ -141,6 +142,7 @@ export type GenerationConnectionResolution = {
   auth_kind: ConnectionDefinition["auth_kind"];
   contract_digest: string;
   setup_status: ConnectionSetupStatus;
+  execution_mode: "pipeline-adapter" | "agent-handoff";
 };
 
 export type GenerationConnectionRequirements = {
@@ -244,6 +246,7 @@ export async function connectionSelectionPrompt(options: ConnectionListOptions =
       implementation_status: candidate.implementation_status,
       automation_status: candidate.automation_status,
       setup_status: candidate.setup.status,
+      execution_mode: connectionExecutionMode(candidate),
       route_note: candidate.route_note
     }))
   };
@@ -309,8 +312,15 @@ async function resolveIntegratedConnection(
     route_note: connection.route_note,
     auth_kind: connection.auth_kind,
     contract_digest: connectionContractDigest(connection, process.env),
-    setup_status: setup.status
+    setup_status: setup.status,
+    execution_mode: connectionExecutionMode(connection)
   };
+}
+
+export function connectionExecutionMode(
+  connection: Pick<ConnectionDefinition, "transport" | "execution_mode">
+): "pipeline-adapter" | "agent-handoff" {
+  return connection.execution_mode ?? (connection.transport === "cli" ? "pipeline-adapter" : "agent-handoff");
 }
 
 function connectionContractDigest(

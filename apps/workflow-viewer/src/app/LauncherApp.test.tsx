@@ -200,6 +200,38 @@ function createLauncherFetcher({
 } = {}) {
   return vi.fn().mockImplementation((url: string) => {
     if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects: projectList }))
+    if (/^\/api\/projects\/[^/]+\/generation-canvas$/.test(url)) return Promise.resolve(jsonResponse({
+      ok: true,
+      canvas: {
+        project: projects[0],
+        generation: {
+          connection: 'topview',
+          adapter: 'topview',
+          requests: [{
+            id: 'opening-shot',
+            prompt: '山の工房へ近づく',
+            model: 'Seedance 2.0',
+            duration: 5,
+            aspect: '16:9',
+            inputMode: 'text-to-video',
+            referenceImageCount: 0,
+          }],
+        },
+        connections: [{
+          id: 'topview',
+          displayName: 'TopView MCP',
+          transport: 'mcp',
+          authKind: 'subscription',
+          capabilities: ['image.generate', 'video.text-to-video', 'audio.music'],
+          automatedCapabilities: ['image.generate', 'video.text-to-video', 'audio.music'],
+          routeNote: 'TopView公式MCPとTopViewサブスクを使います。',
+          modelPolicy: 'runtime',
+          setupStatus: 'needs-verification',
+          executionMode: 'pipeline-adapter',
+        }],
+        issues: [],
+      },
+    }))
     if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback: feedbackAggregate }))
     if (url === '/api/templates') return Promise.resolve(jsonResponse({ ok: true, templates: templateList }))
     return Promise.resolve(jsonResponse({ ok: false }, false))
@@ -207,6 +239,19 @@ function createLauncherFetcher({
 }
 
 describe('LauncherApp', () => {
+  it('生成キャンバスを棚として開き、TopView MCPの生成工程を確認できる', async () => {
+    const user = userEvent.setup()
+    render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '生成キャンバス' }))
+
+    expect(screen.getByRole('tabpanel', { name: '生成キャンバス' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'プロンプトから完成動画までをつなぐ' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'opening-shot' })).toBeVisible()
+    expect(screen.getAllByText('TopView MCP')[0]).toBeVisible()
+  })
+
   it('初回起動で dedicated workflow の確認待ちだけをタブとピックアップへ表示する', async () => {
     const user = userEvent.setup()
     const manualPending = {

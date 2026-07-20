@@ -193,7 +193,7 @@ describe("plan and dry run", () => {
     ]);
   });
 
-  it("plans Topview image-to-video as a non-executing CLI dry run", async () => {
+  it("plans TopView image-to-video as a gated MCP pipeline run", async () => {
     const validation = await validateProject("fixtures/projects/topview-image-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]
     });
@@ -219,16 +219,17 @@ describe("plan and dry run", () => {
         transport: "mcp",
         setup_status: "needs-verification",
         provider: "topview",
-        route_note: "TopView MCPとTopViewのサブスク認証を使う。TsugiteはMCP agent-handoffとして扱い、repo-local互換アダプターをCLI実行しない。",
+        route_note: "TopView公式MCPとTopViewサブスクを使う。画像・動画・音声のモデルと必須parameterはMCPの実行時configを正本にし、生成物を案件内へ取得する。",
         auth_kind: "subscription",
         connection_contract_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        execution_mode: "pipeline-adapter",
         automatic_fallback: false,
         kind: "cli",
         class: "generation",
         outputs: ["opening-shot"],
         dry_run_estimate_available: true,
         batch: false,
-        execution: "agent-handoff"
+        execution: "pipeline-mcp"
       }
     ]);
   });
@@ -262,6 +263,7 @@ describe("plan and dry run", () => {
         route_note: expect.stringContaining("TSUGITE_OPENCLAW_GENERATE_COMMAND"),
         auth_kind: "local",
         connection_contract_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        execution_mode: "pipeline-adapter",
         automatic_fallback: false,
         kind: "cli",
         class: "generation",
@@ -295,7 +297,7 @@ describe("plan and dry run", () => {
       transport: "mcp",
       setup_status: "needs-verification",
       automatic_fallback: false,
-      execution: "agent-handoff"
+      execution: "pipeline-mcp"
     });
   });
 

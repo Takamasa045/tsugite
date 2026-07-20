@@ -9,6 +9,7 @@ import {
   readFile,
   readdir,
   realpath,
+  rename,
   rm,
   type FileHandle
 } from "node:fs/promises";
@@ -17,7 +18,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { parse } from "yaml";
+import { parse, parseDocument } from "yaml";
 import { z } from "zod";
 import {
   aggregateFeedback,
@@ -28,11 +29,17 @@ import {
   type FeedbackFileIdentity,
   type FeedbackRecord
 } from "../feedback/index.js";
+import { connectionExecutionMode, listConnectionOptions } from "../connections/registry.js";
 import { createPlan } from "../orchestrator/plan.js";
 import { readState } from "../orchestrator/state.js";
 import { loadProject } from "../project/loadProject.js";
 import { validateProject } from "../project/validateProject.js";
-import type { Project } from "../project/schema.js";
+import {
+  generationRequestCapability,
+  generationRequestMode,
+  generationRequestOutputKind,
+  type Project
+} from "../project/schema.js";
 import type { Issue } from "../types.js";
 import {
   getWorkflowViewerOpenCommand,
@@ -86,6 +93,7 @@ const LAUNCHER_FEEDBACK_MAX_ITEMS = 1_000;
 const LAUNCHER_FEEDBACK_NOTICE_RESERVE = 3;
 const REVIEW_PREVIEW_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
 const LAUNCHER_DECISION_BODY_MAX_BYTES = 8 * 1024;
+const LAUNCHER_GENERATION_BODY_MAX_BYTES = 2 * 1024;
 const VIEWER_REFRESH_CAPABILITY_ISSUES = new Set([
   "backend.capability.captions",
   "backend.capability.vertical",
@@ -98,6 +106,9 @@ const promotionDecisionSchema = z.object({
   key: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
   proposalId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
   decision: z.enum(["approved", "rejected"])
+}).strict();
+const generationConnectionSchema = z.object({
+  connection: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/)
 }).strict();
 const templateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const nonEmptyText = z.string().trim().min(1).max(240);
@@ -194,6 +205,7 @@ export type StartWorkflowViewerLauncherOptions = {
   beforeProjectReloadCommit?: () => void | Promise<void>;
   beforeServeArtifact?: (path: string) => void | Promise<void>;
   writeViewer?: (options: WriteWorkflowViewerOptions) => Promise<WorkflowViewerResult>;
+  runGeneration?: (configPath: string) => Promise<unknown>;
 };
 
 export type WorkflowViewerLauncher = {
@@ -227,6 +239,7 @@ export async function startWorkflowViewerLauncher(
   const viewerSnapshots = new Map<string, LauncherViewerSnapshot>();
   let projects = new Map<string, LauncherProjectRecord>();
   const refreshing = new Set<string>();
+  const generating = new Set<string>();
   const writer = options.writeViewer ?? writeWorkflowViewer;
   let launcherOrigin = "";
   let artifactOrigin = "";
@@ -342,6 +355,219 @@ export async function startWorkflowViewerLauncher(
 
     if (method === "GET" && requestUrl.pathname === "/api/projects") {
       sendJson(response, 200, { ok: true, projects: await reloadProjects() });
+      return;
+    }
+
+    const generationCanvasMatch = /^\/api\/projects\/([^/]+)\/generation-canvas$/.exec(requestUrl.pathname);
+    if (method === "GET" && generationCanvasMatch) {
+      const record = projects.get(generationCanvasMatch[1]!);
+      if (!record?.identity || !record.project) return sendNotFound(response);
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+      const generation = record.project.generation;
+      const audio = record.project.audio;
+      const connectionOptions = await listConnectionOptions();
+      const connectionIds = [generation?.connection, audio?.connection].filter(
+        (id): id is string => Boolean(id)
+      );
+      const connectionSummaries = connectionOptions
+        .filter((connection) => connection.implementation_status === "integrated"
+          && (connectionExecutionMode(connection) === "pipeline-adapter" || connectionIds.includes(connection.id))
+          && (connection.model_policy === "runtime" || connectionIds.includes(connection.id))
+          && connection.automated_capabilities.some((capability) => /^(?:image|video|audio)\./.test(capability)))
+        .map((connection) => ({
+          id: connection.id,
+          displayName: connection.display_name,
+          transport: connection.transport,
+          authKind: connection.auth_kind,
+          capabilities: connection.capabilities,
+          automatedCapabilities: connection.automated_capabilities,
+          routeNote: connection.route_note,
+          modelPolicy: connection.model_policy,
+          setupStatus: connection.setup.status,
+          executionMode: connectionExecutionMode(connection)
+        }));
+      sendJson(response, 200, {
+        ok: true,
+        canvas: {
+          project: {
+            id: record.id,
+            name: record.name,
+            slug: record.public.slug,
+            runId: record.public.runId,
+            status: record.public.status,
+            valid: record.public.valid,
+            refreshable: record.public.refreshable
+          },
+          generation: {
+            ...(generation?.connection ? { connection: generation.connection } : {}),
+            ...(generation?.adapter ? { adapter: generation.adapter } : {}),
+            requests: (generation?.requests ?? []).map((request) => ({
+              id: request.id,
+              prompt: request.prompt,
+              model: request.model,
+              operation: request.operation ?? "video",
+              outputKind: generationRequestOutputKind(request),
+              duration: request.duration,
+              aspect: request.aspect,
+              inputMode: generationRequestMode(request)
+                ?? (request.first_frame || request.reference_images?.length
+                  ? "image-to-video"
+                  : "text-to-video"),
+              hasFirstFrame: Boolean(request.first_frame),
+              referenceImageCount: request.reference_images?.length ?? 0
+            }))
+          },
+          audio: audio
+            ? {
+                ...(audio.connection ? { connection: audio.connection } : {}),
+                ...(audio.adapter ? { adapter: audio.adapter } : {}),
+                tracks: [
+                  ...(audio.bgm
+                    ? [{
+                        id: audio.bgm.id,
+                        kind: "music",
+                        prompt: audio.bgm.prompt,
+                        start: audio.bgm.start,
+                        ...(audio.bgm.end !== undefined ? { end: audio.bgm.end } : {})
+                      }]
+                    : []),
+                  ...audio.sfx.map((request) => ({
+                    id: request.id,
+                    kind: "sound-effect",
+                    prompt: request.prompt,
+                    start: request.start,
+                    ...(request.end !== undefined ? { end: request.end } : {})
+                  }))
+                ]
+              }
+            : undefined,
+          connections: connectionSummaries,
+          issues: record.public.issues
+        }
+      });
+      return;
+    }
+
+    const generationConnectionMatch = /^\/api\/projects\/([^/]+)\/generation-connection$/.exec(requestUrl.pathname);
+    if (method === "POST" && generationConnectionMatch) {
+      if (request.headers.origin !== launcherOrigin || request.headers["x-tsugite-token"] !== token) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const record = projects.get(generationConnectionMatch[1]!);
+      if (!record?.identity || !record.project?.generation || !record.public.valid) return sendNotFound(response);
+      if (!["planned", "dry_run", "awaiting_gate_1"].includes(record.public.status)) {
+        sendJson(response, 409, {
+          ok: false,
+          issue: { code: "generation.connection_locked", message: "Generation connection can only change before Gate 1 approval" }
+        });
+        return;
+      }
+      let input: z.infer<typeof generationConnectionSchema>;
+      try {
+        input = generationConnectionSchema.parse(await readJsonRequest(request, LAUNCHER_GENERATION_BODY_MAX_BYTES));
+      } catch {
+        sendJson(response, 400, {
+          ok: false,
+          issue: { code: "generation.connection_invalid", message: "Generation connection selection was invalid" }
+        });
+        return;
+      }
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+      const connections = await listConnectionOptions();
+      const selected = connections.find((connection) => connection.id === input.connection);
+      const capabilities = record.project.generation.requests.map(generationRequestCapability);
+      if (
+        !selected?.adapter
+        || selected.implementation_status !== "integrated"
+        || connectionExecutionMode(selected) !== "pipeline-adapter"
+        || capabilities.some((capability) => !selected.automated_capabilities.includes(capability))
+      ) {
+        sendJson(response, 422, {
+          ok: false,
+          issue: { code: "generation.connection_incompatible", message: "Selected connection does not automate every project generation request" }
+        });
+        return;
+      }
+      const updated = await writeProjectGenerationConnection(record.configPath, record.identity, selected.id, selected.adapter);
+      if (!updated) {
+        sendProjectChanged(response);
+        return;
+      }
+      await reloadProjects();
+      sendJson(response, 200, {
+        ok: true,
+        connection: selected.id,
+        adapter: selected.adapter,
+        requiresReview: true
+      });
+      return;
+    }
+
+    const generationRunMatch = /^\/api\/projects\/([^/]+)\/generate$/.exec(requestUrl.pathname);
+    if (method === "POST" && generationRunMatch) {
+      if (request.headers.origin !== launcherOrigin || request.headers["x-tsugite-token"] !== token) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const projectId = generationRunMatch[1]!;
+      const record = projects.get(projectId);
+      if (!record?.identity || !record.project?.generation || !record.public.valid) return sendNotFound(response);
+      if (record.public.status !== "running") {
+        sendJson(response, 409, {
+          ok: false,
+          issue: { code: "run.requires_gate_1_approval", message: "Gate 1 must be approved before generation" }
+        });
+        return;
+      }
+      if (generating.has(projectId)) {
+        sendJson(response, 409, {
+          ok: false,
+          issue: { code: "generation.in_progress", message: "This project is already generating media" }
+        });
+        return;
+      }
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+      generating.add(projectId);
+      try {
+        const payload = options.runGeneration
+          ? await options.runGeneration(record.configPath)
+          : await runProjectGeneration(record.configPath);
+        await reloadProjects();
+        sendJson(response, 200, { ok: true, result: payload });
+      } catch (error) {
+        const output = error && typeof error === "object"
+          ? String((error as { stderr?: string; stdout?: string }).stderr
+            ?? (error as { stdout?: string }).stdout
+            ?? "")
+          : "";
+        let issue = { code: "generation.failed", message: "Generation could not be completed" };
+        try {
+          const parsed = JSON.parse(output) as { issues?: Array<{ code?: string; message?: string }> };
+          issue = {
+            code: parsed.issues?.[0]?.code ?? issue.code,
+            message: parsed.issues?.[0]?.message ?? issue.message
+          };
+        } catch { /* keep the sanitized issue */ }
+        sendJson(response, 422, { ok: false, issue });
+      } finally {
+        generating.delete(projectId);
+      }
       return;
     }
 
@@ -1407,6 +1633,54 @@ function injectLauncherMeta(html: string, token: string): string {
     head,
     (opening) => `${opening}\n    <meta name="tsugite-launcher" content="true">\n    <meta name="tsugite-launcher-token" content="${token}">`
   );
+}
+
+async function writeProjectGenerationConnection(
+  configPath: string,
+  identity: LauncherProjectIdentity,
+  connection: string,
+  adapter: string
+): Promise<boolean> {
+  if (!await matchesProjectIdentity(configPath, identity)) return false;
+  const source = await readFile(configPath, "utf8");
+  const document = parseDocument(source);
+  if (document.errors.length > 0) return false;
+  document.setIn(["generation", "connection"], connection);
+  document.setIn(["generation", "adapter"], adapter);
+  const output = document.toString({ lineWidth: 0 });
+  const temporaryPath = join(dirname(configPath), `.project-connection-${randomBytes(12).toString("hex")}.tmp`);
+  const handle = await open(
+    temporaryPath,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+    0o600
+  );
+  try {
+    await handle.writeFile(output, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    if (!await matchesProjectIdentity(configPath, identity)) return false;
+    await rename(temporaryPath, configPath);
+    return true;
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
+async function runProjectGeneration(configPath: string): Promise<unknown> {
+  const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+  const result = await promisify(execFile)(process.execPath, [
+    "--import", "tsx", "src/cli.ts",
+    "run", "--config", configPath,
+    "--actor", "coordinator", "--json"
+  ], {
+    cwd: repoRoot,
+    timeout: 60 * 60 * 1000,
+    maxBuffer: 1024 * 1024 * 20
+  });
+  return JSON.parse(result.stdout);
 }
 
 async function readJsonRequest(request: IncomingMessage, maximumBytes: number): Promise<unknown> {

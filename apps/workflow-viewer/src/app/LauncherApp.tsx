@@ -8,9 +8,12 @@ import {
   RefreshCw,
   Search,
   Users,
+  Workflow,
 } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+
+import { GenerationCanvas } from '../components/generation/GenerationCanvas'
 
 export interface LauncherProject {
   id: string
@@ -140,7 +143,7 @@ interface LauncherAppProps {
   token?: string
 }
 
-type Shelf = 'projects' | 'templates' | 'feedback'
+type Shelf = 'projects' | 'templates' | 'canvas' | 'feedback'
 type TemplateLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
@@ -269,7 +272,7 @@ const FEEDBACK_PROPOSAL_DECISION_LABELS: Record<FeedbackPromotionProposal['decis
 }
 
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
-const SHELVES: Shelf[] = ['projects', 'templates', 'feedback']
+const SHELVES: Shelf[] = ['projects', 'templates', 'canvas', 'feedback']
 
 function feedbackNextStageLabel(preference: FeedbackPreference): string {
   if (preference.stage !== 'recurring' || !preference.promotionProposal) {
@@ -790,6 +793,18 @@ export function LauncherApp({
               <LayoutTemplate aria-hidden="true" size={17} />テンプレート
             </button>
             <button
+              aria-controls="launcher-canvas-panel"
+              aria-selected={activeShelf === 'canvas'}
+              id="launcher-canvas-tab"
+              onClick={() => selectShelf('canvas')}
+              onKeyDown={(event) => handleShelfKeyDown(event, 'canvas')}
+              role="tab"
+              tabIndex={activeShelf === 'canvas' ? 0 : -1}
+              type="button"
+            >
+              <Workflow aria-hidden="true" size={17} />生成キャンバス
+            </button>
+            <button
               aria-label="好み・学び"
               aria-controls="launcher-feedback-panel"
               aria-describedby={pendingPromotionCount > 0 ? 'launcher-feedback-pending-count' : undefined}
@@ -821,12 +836,20 @@ export function LauncherApp({
           </div>
           <aside aria-label="現在の棚" className="launcher-hero-note">
             <small>現在の棚 / CURRENT SHELF</small>
-            <strong>{activeShelf === 'projects' ? '制作案件' : activeShelf === 'templates' ? 'テンプレート' : '好み・学び'}</strong>
+            <strong>{activeShelf === 'projects'
+              ? '制作案件'
+              : activeShelf === 'templates'
+                ? 'テンプレート'
+                : activeShelf === 'canvas'
+                  ? '生成キャンバス'
+                  : '好み・学び'}</strong>
             <span>{activeShelf === 'projects'
               ? '最近更新した順に並んでいます'
               : activeShelf === 'templates'
                 ? '用途と必要素材を比較できます'
-                : '制作から育った知見を確認できます'}</span>
+                : activeShelf === 'canvas'
+                  ? '画像・動画の工程をつないで設計します'
+                  : '制作から育った知見を確認できます'}</span>
           </aside>
         </div>
 
@@ -850,6 +873,12 @@ export function LauncherApp({
             <li data-active="true"><span>一</span><strong>見つける</strong></li>
             <li data-active={selectedTemplate !== null}><span>二</span><strong>比べる</strong></li>
             <li data-active={selectedTemplate?.valid === true}><span>三</span><strong>必要素材を見る</strong></li>
+          </>
+        ) : activeShelf === 'canvas' ? (
+          <>
+            <li data-active="true"><span>一</span><strong>置く</strong></li>
+            <li data-active="true"><span>二</span><strong>つなぐ</strong></li>
+            <li data-active="false"><span>三</span><strong>生成する</strong></li>
           </>
         ) : (
           <>
@@ -1202,6 +1231,13 @@ export function LauncherApp({
             )}
           </aside>
         </section>
+      ) : activeShelf === 'canvas' ? (
+        <GenerationCanvas
+          fetcher={fetcher}
+          onProjectSelect={setSelectedId}
+          projects={projects}
+          selectedProjectId={selectedId}
+        />
       ) : (
         <section aria-labelledby="launcher-feedback-tab" className="launcher-feedback-panel" id="launcher-feedback-panel" role="tabpanel">
           {feedbackLoadState === 'loading' && (
