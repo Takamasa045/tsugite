@@ -917,34 +917,6 @@ select {
 .launcher-project-issue p { margin: 5px 0; }
 .launcher-project-issue small { color: #7e5a54; }
 .launcher-actions { display: grid; gap: 9px; }
-.launcher-workflow-actions { margin: 20px 0; border-top: 1px solid var(--line); padding-top: 18px; }
-.launcher-workflow-actions header { display: grid; gap: 5px; margin-bottom: 12px; }
-.launcher-workflow-actions h3 { margin: 0; color: var(--sumi-900); font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 0.86rem; }
-.launcher-workflow-actions header p,
-.launcher-workflow-actions-empty { margin: 0; color: var(--muted); font-size: 0.68rem; line-height: 1.6; }
-.launcher-workflow-actions ul { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
-.launcher-workflow-actions li { display: grid; gap: 5px; border: 1px solid rgba(36, 77, 73, 0.12); border-radius: 3px 9px 3px 9px; padding: 9px; background: rgba(255, 255, 255, 0.5); }
-.launcher-workflow-actions li button { width: 100%; }
-.launcher-workflow-actions li code { overflow-wrap: anywhere; color: var(--muted); font-family: SFMono-Regular, Consolas, monospace; font-size: 0.58rem; line-height: 1.45; }
-.launcher-workflow-actions li small { color: #785a25; font-size: 0.58rem; font-weight: 750; }
-.launcher-action-evidence { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 7px; border-left: 3px solid var(--sugi-500); padding: 7px 8px; color: var(--sumi-900); background: rgba(206, 169, 121, 0.12); font-size: 0.64rem; line-height: 1.5; }
-.launcher-action-evidence input { margin-top: 2px; accent-color: var(--ai-700); }
-.launcher-job-status { display: grid; gap: 10px; margin: 18px 0; border: 1px solid rgba(36, 77, 73, 0.18); border-left: 4px solid var(--ai-600); border-radius: 3px 10px 3px 10px; padding: 12px; background: rgba(220, 232, 226, 0.28); }
-.launcher-job-status[data-status="succeeded"] { border-left-color: #4f7c50; }
-.launcher-job-status[data-status="failed"] { border-left-color: var(--bengara-500); background: #fff4f0; }
-.launcher-job-status > header { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
-.launcher-job-status > header div { display: grid; gap: 3px; }
-.launcher-job-status > header span { color: var(--ai-700); font-size: 0.6rem; font-weight: 850; }
-.launcher-job-status > header h3 { margin: 0; color: var(--sumi-900); font-size: 0.78rem; }
-.launcher-job-status > header > code { color: var(--muted); font-family: SFMono-Regular, Consolas, monospace; font-size: 0.6rem; }
-.launcher-job-status dl { display: grid; gap: 5px; margin: 0; }
-.launcher-job-status dl div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.62rem; }
-.launcher-job-status dt { color: var(--muted); }
-.launcher-job-status dd { margin: 0; color: var(--sumi-900); }
-.launcher-job-status pre { max-height: 180px; overflow: auto; margin: 0; border-radius: 3px; padding: 9px; color: #e8eee9; background: #1f2c29; font-family: SFMono-Regular, Consolas, monospace; font-size: 0.59rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.launcher-job-output { display: grid; gap: 7px; }
-.launcher-job-output summary { cursor: pointer; color: var(--ai-700); font-size: 0.64rem; font-weight: 800; }
-.launcher-job-output[open] summary { margin-bottom: 7px; }
 .launcher-primary,
 .launcher-secondary { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 9px; border-radius: var(--radius-sm); padding: 0 16px; font-size: 0.78rem; font-weight: 800; }
 .launcher-primary { border: 1px solid var(--ai-700); color: var(--washi-0); background: linear-gradient(135deg, var(--ai-600), var(--sumi-800)); box-shadow: 0 8px 18px rgba(36, 77, 73, 0.18); }

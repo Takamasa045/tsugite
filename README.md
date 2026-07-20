@@ -37,11 +37,11 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 - Remotion and HyperFrames backend contracts.
 - A Gate-bound audio adapter contract and an official HyperFrames `media-use` integration for BGM/SFX.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
-- A loopback-only launcher with a 2D workflow canvas and an optional, read-only 3D detail viewer under `apps/workflow-viewer/`.
+- A loopback-only project launcher and an optional, read-only 3D detail viewer under `apps/workflow-viewer/`.
 
 ## Local Workflow Launcher and 3D Viewer
 
-The launcher shows each project's `validate` / `plan` / `review` / Gate 1 / `run` / Gate 2 / `render` / Gate 3 flow as a 2D node canvas. It periodically rereads local project state, so state changes made by the CLI in another terminal appear without manually rebuilding the 3D snapshot. This is polling of persisted state, not event streaming or a provider-side progress feed.
+The launcher lists local projects and templates and can refresh or open each project's 3D workflow snapshot. The executable 2D generation-node canvas is deferred to a later release; the current Desktop UI does not expose `run`, `render`, or Gate-decision controls.
 
 The existing 3D Viewer remains available for detailed, seekable inspection. It turns bundled samples or a refreshed Tsugite snapshot into a navigable production floor with status-aware nodes, dependency lines, node details, and event playback. The 3D artifact itself stays static and read-only.
 
@@ -52,7 +52,7 @@ npm --prefix apps/workflow-viewer ci  # first time only
 npm run viewer:open
 ```
 
-The launcher can invoke only the predefined `validate`, `plan`, `review`, `run --dry-run`, `run`, `render`, and Gate decision operations. It is not a free-form shell. `run`, `render`, and every Gate change require an explicit confirmation in the launcher; the existing CLI Gate prerequisites and Coordinator actor checks still apply. A production `run` may consume provider credits and send prompts or assets to an external service, and `render` may invoke the configured backend, so review the displayed operation before confirming.
+Use the CLI for `validate`, `plan`, `review`, `run --dry-run`, `run`, `render`, and Gate decisions. The existing Gate prerequisites, explicit approvals, and Coordinator actor checks still apply. Opening the launcher itself does not consume provider credits, send prompts or assets, start generation, render media, or change a Gate.
 
 The launcher and its artifact server bind only to dynamically selected `127.0.0.1` ports. It lists direct `projects/*/project.yaml` entries and can refresh or open their read-only 3D snapshots. Refreshed snapshots are written only to a private `0700` temporary directory for the current launcher session, never back through a project output path, and are removed when the launcher closes. At startup, its **Preferences & Learnings** shelf reads local `feedback.jsonl` records across those projects and summarizes their `observed` / `recurring` / `promoted` / `verified` status. It reads at most 128 projects and fairly selects up to 1,000 of their latest records and diagnostics, reporting when either limit is reached. Pending proposals created by the dedicated learning-promotion automation are surfaced in an unread-style tab badge and a local pickup; manual proposals and other workflow results remain in the normal shelf and do not enter the pickup. The badge is a current approval-waiting count, not a separate read-state tracker. A human can review the target, change summary, evidence, and verification plan, then approve or reject the proposal. Either decision clears that pending item by appending a local decision to `feedback.jsonl`. Approval only permits a separate implementation task: it never rewrites prompts, templates, rules, Gates, or state. The launcher does not request browser notification permission, send desktop notifications, run as a resident service, or use an external notification destination. Stop it with `Ctrl+C` in the launching terminal.
 

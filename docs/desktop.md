@@ -42,14 +42,13 @@ open -a "Tsugite" --args --workspace "/Users/me/Tsugite Workspace"
 
 ## 安全境界
 
-Desktop 版でも CLI と同じ Gate と役割制約を保持します。
+今回の Desktop 配布版は、案件一覧、テンプレート、制作記録の更新、3D Viewerの閲覧を提供します。動画・画像を生成する2Dノード操作画面は後続リリースへ延期しており、Desktop UIから`run`、`render`、Gate判定は実行しません。
 
-- `validate`、`plan`、`review`、`run --dry-run` は計画と確認の操作です。
-- Gate 1 / 2 / 3 の変更、non-dry-run `run`、`render` はランチャー内でも明示確認が必要です。
-- `run` は provider credits を消費し、prompt や asset を外部に送る可能性があります。`render` は選択された backend を実行します。
-- UI からの確認は CLI の Gate prerequisite や Coordinator check を省略しません。
+- 制作の実行は、従来どおりCLIまたは承認済みのCoordinator作業から行います。
+- `run`、`render`、Gate判定のCLI前提条件と明示承認は変わりません。
+- Desktop UIを開いただけでは、provider creditsの消費、外部送信、動画生成、Gate変更は行いません。
 
-アプリが起動できることと、個別 project を実行できることは別の診断です。同梱 Node.js 22 runtime、FFmpeg / `ffprobe`、選択した provider CLI、認証、entitlement、credits は project ごとに `doctor` で確認してください。Electron と Node runtime はアプリに同梱しますが、FFmpeg や optional provider の実行環境と認証は同梱・自動設定しません。Electron が起動したことや provider catalog に項目があることは、これらの ready を意味しません。
+アプリが起動できることと、CLIで個別 project を実行できることは別の診断です。同梱 Node.js 22 runtime、FFmpeg / `ffprobe`、選択した provider CLI、認証、entitlement、credits は project ごとに `doctor` で確認してください。Electron と Node runtime はアプリに同梱しますが、FFmpeg や optional provider の実行環境と認証は同梱・自動設定しません。Electron が起動したことや provider catalog に項目があることは、これらの ready を意味しません。
 
 ## 開発
 

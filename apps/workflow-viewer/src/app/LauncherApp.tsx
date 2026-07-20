@@ -1,5 +1,4 @@
 import {
-  ArrowLeft,
   ArrowRight,
   BookOpen,
   Clapperboard,
@@ -12,8 +11,6 @@ import {
 } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
-import { WorkflowCanvas } from '../components/launcher'
 
 export interface LauncherProject {
   id: string
@@ -29,37 +26,7 @@ export interface LauncherProject {
   valid: boolean
   refreshable: boolean
   issue?: string
-  workflowNodes: LauncherWorkflowNode[]
-  availableActions: LauncherAction[]
 }
-
-export type LauncherWorkflowNodeStatus = 'pending' | 'running' | 'waiting_approval' | 'completed' | 'error'
-
-export interface LauncherWorkflowNode {
-  id: string
-  label: string
-  status: LauncherWorkflowNodeStatus
-  action: LauncherAction
-  description?: string
-  detail?: string
-}
-
-export type LauncherAction =
-  | 'validate'
-  | 'plan'
-  | 'review'
-  | 'dry-run'
-  | 'run'
-  | 'render'
-  | 'gate-1-approve'
-  | 'gate-1-revise'
-  | 'gate-1-abort'
-  | 'gate-2-approve-all'
-  | 'gate-2-revise'
-  | 'gate-2-abort'
-  | 'gate-3-approve'
-  | 'gate-3-re-render'
-  | 'gate-3-abort'
 
 export interface LauncherTemplate {
   id: string
@@ -190,31 +157,8 @@ interface RefreshErrorResponse {
   }
 }
 
-type LauncherJobStatus = 'running' | 'succeeded' | 'failed'
-
-interface LauncherActionJob {
-  id: string
-  action: LauncherAction
-  status: LauncherJobStatus
-  startedAt: string
-  completedAt?: string
-  exitCode?: number
-  stdout?: string
-  stderr?: string
-}
-
-interface LauncherActionResponse {
-  ok: true
-  job: LauncherActionJob | null
-}
-
-interface LauncherStatusResponse extends LauncherActionResponse {
-  project: LauncherProject
-}
-
 interface LauncherAppProps {
   fetcher?: typeof fetch
-  initialCanvasProjectId?: string | null
   navigate?: (url: string) => void
   token?: string
 }
@@ -230,70 +174,6 @@ const defaultFetcher: typeof fetch = (...args) => window.fetch(...args)
 const PROJECT_PAGE_SIZE = 12
 const FEEDBACK_PAGE_SIZE = 24
 const FEEDBACK_ISSUE_DISPLAY_LIMIT = 5
-const PROJECT_POLL_INTERVAL_MS = 2_500
-const JOB_POLL_INTERVAL_MS = 1_000
-const JOB_OUTPUT_DISPLAY_LIMIT = 4_000
-const WORKFLOW_NODE_STATUSES: LauncherWorkflowNodeStatus[] = ['pending', 'running', 'waiting_approval', 'completed', 'error']
-const LAUNCHER_ACTIONS: LauncherAction[] = [
-  'validate',
-  'plan',
-  'review',
-  'dry-run',
-  'run',
-  'render',
-  'gate-1-approve',
-  'gate-1-revise',
-  'gate-1-abort',
-  'gate-2-approve-all',
-  'gate-2-revise',
-  'gate-2-abort',
-  'gate-3-approve',
-  'gate-3-re-render',
-  'gate-3-abort',
-]
-const JOB_STATUSES: LauncherJobStatus[] = ['running', 'succeeded', 'failed']
-
-const ACTION_LABELS: Record<LauncherAction, string> = {
-  validate: '設定を検証',
-  plan: '制作計画を更新',
-  review: 'レビューを作成',
-  'dry-run': '実行前チェック',
-  run: '素材生成を開始',
-  render: '完成動画を書き出す',
-  'gate-1-approve': '制作方針を承認',
-  'gate-1-revise': '制作方針を修正へ戻す',
-  'gate-1-abort': '制作を中止',
-  'gate-2-approve-all': '素材をすべて承認',
-  'gate-2-revise': '素材を修正へ戻す',
-  'gate-2-abort': '制作を中止',
-  'gate-3-approve': '完成動画を承認',
-  'gate-3-re-render': '再書き出しへ戻す',
-  'gate-3-abort': '制作を中止',
-}
-
-const ACTION_COMMANDS: Record<LauncherAction, string> = {
-  validate: 'bin/pipeline validate --config <project.yaml> --json',
-  plan: 'bin/pipeline plan --config <project.yaml> --json',
-  review: 'bin/pipeline review --config <project.yaml> --json',
-  'dry-run': 'bin/pipeline run --config <project.yaml> --dry-run --json',
-  run: 'bin/pipeline run --config <project.yaml> --actor coordinator --json',
-  render: 'bin/pipeline render --config <project.yaml> --actor coordinator --json',
-  'gate-1-approve': 'bin/pipeline gate --config <project.yaml> --gate gate-1 --decision approve --actor coordinator --json',
-  'gate-1-revise': 'bin/pipeline gate --config <project.yaml> --gate gate-1 --decision revise --actor coordinator --json',
-  'gate-1-abort': 'bin/pipeline gate --config <project.yaml> --gate gate-1 --decision abort --actor coordinator --json',
-  'gate-2-approve-all': 'bin/pipeline gate --config <project.yaml> --gate gate-2 --decision approve_all --actor coordinator --json',
-  'gate-2-revise': 'bin/pipeline gate --config <project.yaml> --gate gate-2 --decision revise --actor coordinator --json',
-  'gate-2-abort': 'bin/pipeline gate --config <project.yaml> --gate gate-2 --decision abort --actor coordinator --json',
-  'gate-3-approve': 'bin/pipeline gate --config <project.yaml> --gate gate-3 --decision approve --actor coordinator --json',
-  'gate-3-re-render': 'bin/pipeline gate --config <project.yaml> --gate gate-3 --decision re-render --actor coordinator --json',
-  'gate-3-abort': 'bin/pipeline gate --config <project.yaml> --gate gate-3 --decision abort --actor coordinator --json',
-}
-
-const JOB_STATUS_LABELS: Record<LauncherJobStatus, string> = {
-  running: '実行中',
-  succeeded: '完了',
-  failed: '失敗',
-}
 const FEEDBACK_AUTOMATION_SOURCE_KINDS = [
   'codex_automation',
   'claude_desktop_automation',
@@ -481,15 +361,6 @@ function launcherToken(): string {
   return document.querySelector<HTMLMetaElement>('meta[name="tsugite-launcher-token"]')?.content ?? ''
 }
 
-function canvasProjectIdFromLocation(): string | null {
-  const projectId = new URLSearchParams(window.location.search).get('canvas')?.trim()
-  return projectId || null
-}
-
-function generationCanvasUrl(projectId: string): string {
-  return `/?canvas=${encodeURIComponent(projectId)}`
-}
-
 function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? '状況を確認中'
 }
@@ -538,21 +409,6 @@ function compareProjectsByRecentUpdate(left: LauncherProject, right: LauncherPro
     || left.name.localeCompare(right.name, 'ja')
 }
 
-function isLauncherAction(input: unknown): input is LauncherAction {
-  return typeof input === 'string' && LAUNCHER_ACTIONS.includes(input as LauncherAction)
-}
-
-function isWorkflowNode(input: unknown): input is LauncherWorkflowNode {
-  return typeof input === 'object' && input !== null
-    && 'id' in input && typeof input.id === 'string'
-    && 'label' in input && typeof input.label === 'string'
-    && 'status' in input && typeof input.status === 'string'
-    && WORKFLOW_NODE_STATUSES.includes(input.status as LauncherWorkflowNodeStatus)
-    && 'action' in input && isLauncherAction(input.action)
-    && (!('description' in input) || input.description === undefined || typeof input.description === 'string')
-    && (!('detail' in input) || input.detail === undefined || typeof input.detail === 'string')
-}
-
 function isLauncherProject(input: unknown): input is LauncherProject {
   return typeof input === 'object' && input !== null
     && 'id' in input && typeof input.id === 'string'
@@ -568,8 +424,6 @@ function isLauncherProject(input: unknown): input is LauncherProject {
     && 'valid' in input && typeof input.valid === 'boolean'
     && 'refreshable' in input && typeof input.refreshable === 'boolean'
     && (!('issue' in input) || input.issue === undefined || typeof input.issue === 'string')
-    && 'workflowNodes' in input && Array.isArray(input.workflowNodes) && input.workflowNodes.every(isWorkflowNode)
-    && 'availableActions' in input && Array.isArray(input.availableActions) && input.availableActions.every(isLauncherAction)
 }
 
 function isProjectListResponse(input: unknown): input is ProjectListResponse {
@@ -719,94 +573,11 @@ function isRefreshErrorResponse(input: unknown): input is RefreshErrorResponse {
     && 'message' in input.issue && typeof input.issue.message === 'string'
 }
 
-function isActionJob(input: unknown): input is LauncherActionJob {
-  return typeof input === 'object' && input !== null
-    && 'id' in input && typeof input.id === 'string'
-    && 'action' in input && isLauncherAction(input.action)
-    && 'status' in input && typeof input.status === 'string' && JOB_STATUSES.includes(input.status as LauncherJobStatus)
-    && 'startedAt' in input && typeof input.startedAt === 'string'
-    && (!('completedAt' in input) || input.completedAt === undefined || typeof input.completedAt === 'string')
-    && (!('exitCode' in input) || input.exitCode === undefined || typeof input.exitCode === 'number')
-    && (!('stdout' in input) || input.stdout === undefined || typeof input.stdout === 'string')
-    && (!('stderr' in input) || input.stderr === undefined || typeof input.stderr === 'string')
-}
-
-function isActionResponse(input: unknown): input is LauncherActionResponse {
-  return typeof input === 'object' && input !== null && 'ok' in input && input.ok === true
-    && 'job' in input && (input.job === null || isActionJob(input.job))
-}
-
-function isStatusResponse(input: unknown): input is LauncherStatusResponse {
-  return isActionResponse(input) && 'project' in input && isLauncherProject(input.project)
-}
-
-function isJobActive(job: LauncherActionJob | null): boolean {
-  return job?.status === 'running'
-}
-
-function mergeObservedJob(current: LauncherActionJob | null, observed: LauncherActionJob | null): LauncherActionJob | null {
-  if (!current) return observed
-  if (!observed) return current.status === 'succeeded' || current.status === 'failed' ? current : null
-  if (current.id !== observed.id) return observed
-  if ((current.status === 'succeeded' || current.status === 'failed') && observed.status === 'running') return current
-  return observed
-}
-
-function actionsForProject(project: LauncherProject): LauncherAction[] {
-  if (!project.valid || !project.refreshable) return []
-  return project.availableActions
-}
-
-function actionNeedsConfirmation(action: LauncherAction): boolean {
-  return action === 'run' || action === 'render' || action.startsWith('gate-')
-}
-
-function actionNeedsEvidence(action: LauncherAction): boolean {
-  return action === 'gate-1-approve' || action === 'gate-2-approve-all' || action === 'gate-3-approve'
-}
-
-function actionEvidenceLabel(action: LauncherAction): string {
-  if (action === 'gate-1-approve') return 'review/index.html と review/review-data.json を確認しました'
-  if (action === 'gate-2-approve-all') return 'gate2-qc.json と生成素材を確認しました'
-  return 'render-report.json、gate3-qc.json、最終動画を確認しました'
-}
-
-function evidenceKey(project: LauncherProject, action: LauncherAction): string {
-  return `${project.id}:${project.revision}:${action}`
-}
-
-function actionConfirmationMessage(action: LauncherAction): string {
-  if (action === 'gate-1-approve') return '現在のrevisionに対応するreview/index.htmlとreview/review-data.jsonを確認済みとして、制作方針を承認します。'
-  if (action === 'gate-2-approve-all') return '現在のrevisionに対応するgate2-qc.jsonと全生成素材を確認済みとして、素材を承認します。'
-  if (action === 'gate-3-approve') return '現在のrevisionに対応するrender-report.json、gate3-qc.json、最終動画を確認済みとして、完成動画を承認します。'
-  if (action === 'run') return '素材生成を実行します。設定したプロバイダーへプロンプトや素材が送信され、クレジットを消費する場合があります。dry-runの見積りは支出上限ではありません。'
-  return `${ACTION_LABELS[action]}を実行します。`
-}
-
-function boundedOutput(value?: string): string {
-  if (!value) return ''
-  return value.length > JOB_OUTPUT_DISPLAY_LIMIT
-    ? `…（末尾${JOB_OUTPUT_DISPLAY_LIMIT.toLocaleString('ja-JP')}文字）\n${value.slice(-JOB_OUTPUT_DISPLAY_LIMIT)}`
-    : value
-}
-
-function canvasAction(action: LauncherAction): string {
-  if (action === 'dry-run') return 'run'
-  if (action.startsWith('gate-1-')) return 'gate-1'
-  if (action.startsWith('gate-2-')) return 'gate-2'
-  if (action.startsWith('gate-3-')) return 'gate-3'
-  return action
-}
-
 export function LauncherApp({
   fetcher = defaultFetcher,
-  initialCanvasProjectId,
   navigate = (url) => window.location.assign(url),
   token = launcherToken(),
 }: LauncherAppProps) {
-  const canvasProjectId = initialCanvasProjectId === undefined
-    ? canvasProjectIdFromLocation()
-    : initialCanvasProjectId
   const [activeShelf, setActiveShelf] = useState<Shelf>('projects')
   const [projects, setProjects] = useState<LauncherProject[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -833,11 +604,6 @@ export function LauncherApp({
   const [visibleFeedbackCount, setVisibleFeedbackCount] = useState(FEEDBACK_PAGE_SIZE)
   const [promotionDecisionState, setPromotionDecisionState] = useState<PromotionDecisionState>('idle')
   const [promotionDecisionError, setPromotionDecisionError] = useState<string | null>(null)
-  const [actionJobs, setActionJobs] = useState<Record<string, LauncherActionJob | null>>({})
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [submittingProjects, setSubmittingProjects] = useState<Record<string, boolean>>({})
-  const [evidenceAcknowledgements, setEvidenceAcknowledgements] = useState<Record<string, boolean>>({})
-  const submittingProjectIds = useRef(new Set<string>())
   const templateDetailHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const focusTemplateDetailRef = useRef(false)
 
@@ -984,10 +750,7 @@ export function LauncherApp({
     counts[stage] = feedback?.preferences.filter((preference) => preference.stage === stage).length ?? 0
     return counts
   }, { observed: 0, recurring: 0, promoted: 0, verified: 0 }), [feedback])
-  const selected = projects.find((project) => project.id === (canvasProjectId ?? selectedId)) ?? null
-  const actionJob = selected ? actionJobs[selected.id] ?? null : null
-  const actionSubmitting = selected ? Boolean(submittingProjects[selected.id]) : false
-  const selectedActions = selected ? actionsForProject(selected) : []
+  const selected = projects.find((project) => project.id === selectedId) ?? null
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? null
   const relatedTemplates = selectedTemplate?.valid
     ? templates.filter((template) => (
@@ -1022,48 +785,6 @@ export function LauncherApp({
     waiting: projects.filter((project) => projectMatchesFilter(project, 'waiting')).length,
     completed: projects.filter((project) => projectMatchesFilter(project, 'completed')).length,
   }), [projects])
-
-  useEffect(() => {
-    if (!selected || !canvasProjectId) return
-    let stopped = false
-    let inFlight = false
-    const projectId = selected.id
-    const poll = async () => {
-      if (stopped || inFlight || document.hidden) return
-      inFlight = true
-      try {
-        const response = await fetcher(`/api/projects/${encodeURIComponent(projectId)}/status`, {
-          headers: { accept: 'application/json', 'x-tsugite-token': token },
-        })
-        const payload: unknown = await response.json()
-        if (!response.ok || !isStatusResponse(payload)) throw new Error('invalid project status')
-        if (payload.project.id !== projectId) throw new Error('mismatched project status')
-        if (stopped || submittingProjectIds.current.has(projectId)) return
-        setProjects((current) => current.map((project) => project.id === projectId ? payload.project : project))
-        setActionJobs((current) => ({
-          ...current,
-          [projectId]: mergeObservedJob(current[projectId] ?? null, payload.job),
-        }))
-      } catch {
-        // Automatic observation is best-effort; keep the last verified UI state on transient failure.
-      } finally {
-        inFlight = false
-      }
-    }
-    const intervalId = window.setInterval(
-      () => void poll(),
-      isJobActive(actionJob) ? JOB_POLL_INTERVAL_MS : PROJECT_POLL_INTERVAL_MS,
-    )
-    const handleVisibilityChange = () => {
-      if (!document.hidden) void poll()
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => {
-      stopped = true
-      window.clearInterval(intervalId)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [actionJob?.status, canvasProjectId, fetcher, selected?.id])
 
   useEffect(() => {
     setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
@@ -1137,7 +858,6 @@ export function LauncherApp({
 
   const selectProject = (project: LauncherProject) => {
     setSelectedId(project.id)
-    setActionError(null)
     setRefreshError(null)
   }
 
@@ -1148,49 +868,6 @@ export function LauncherApp({
       return
     }
     if (project.hasViewer && project.viewerUrl) navigate(project.viewerUrl)
-  }
-
-  const runProjectAction = async (action: LauncherAction) => {
-    if (
-      !selected
-      || submittingProjectIds.current.has(selected.id)
-      || isJobActive(actionJob)
-      || !actionsForProject(selected).includes(action)
-      || (actionNeedsEvidence(action) && !evidenceAcknowledgements[evidenceKey(selected, action)])
-    ) return
-    const confirmed = actionNeedsConfirmation(action)
-      ? window.confirm(`${actionConfirmationMessage(action)}\n\n実行予定: ${ACTION_COMMANDS[action]}\n\nこの操作を続けますか？`)
-      : true
-    if (!confirmed) return
-
-    const projectId = selected.id
-    submittingProjectIds.current.add(projectId)
-    setSubmittingProjects((current) => ({ ...current, [projectId]: true }))
-    setActionError(null)
-    try {
-      const response = await fetcher(`/api/projects/${encodeURIComponent(projectId)}/action`, {
-        method: 'POST',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          'x-tsugite-token': token,
-        },
-        body: JSON.stringify(confirmed && actionNeedsConfirmation(action)
-          ? { action, confirmed: true, expectedRunId: selected.runId, revision: selected.revision }
-          : { action, expectedRunId: selected.runId, revision: selected.revision }),
-      })
-      const payload: unknown = await response.json()
-      if (!response.ok || !isActionResponse(payload) || !payload.job || payload.job.action !== action) {
-        const detail = isRefreshErrorResponse(payload) ? payload.issue.message : '実行を開始できませんでした。'
-        throw new Error(detail)
-      }
-      setActionJobs((current) => ({ ...current, [projectId]: payload.job }))
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : '実行を開始できませんでした。')
-    } finally {
-      submittingProjectIds.current.delete(projectId)
-      setSubmittingProjects((current) => ({ ...current, [projectId]: false }))
-    }
   }
 
   const decidePromotion = async (decision: 'approved' | 'rejected') => {
@@ -1262,156 +939,6 @@ export function LauncherApp({
           <RefreshCw aria-hidden="true" size={17} />
           もう一度読み込む
         </button>
-      </main>
-    )
-  }
-
-  if (canvasProjectId) {
-    if (!selected) {
-      return (
-        <main className="launcher-state launcher-state-error" role="alert">
-          <span className="eyebrow">TSUGITE / GENERATION CANVAS</span>
-          <h1>生成キャンバスを開けません</h1>
-          <p>指定された制作案件が見つかりませんでした。</p>
-          <button className="launcher-secondary" onClick={() => navigate('/')} type="button">
-            <ArrowLeft aria-hidden="true" size={17} />
-            ランチャーへ戻る
-          </button>
-        </main>
-      )
-    }
-
-    return (
-      <main className="launcher-canvas-shell">
-        <header className="launcher-canvas-header">
-          <div className="launcher-canvas-navigation">
-            <img alt="" aria-hidden="true" className="launcher-favicon-mark" src="./assets/tsugite-favicon.png" />
-            <button className="launcher-secondary" onClick={() => navigate('/')} type="button">
-              <ArrowLeft aria-hidden="true" size={17} />
-              ランチャーへ戻る
-            </button>
-          </div>
-          <div>
-            <span className="eyebrow">TSUGITE / GENERATION CANVAS</span>
-            <h1>生成キャンバス</h1>
-            <p>動画・画像の生成と制作工程の操作を、案件ごとに進める画面です。</p>
-          </div>
-          <dl className="launcher-canvas-project-meta">
-            <div><dt>案件</dt><dd>{selected.name}</dd></div>
-            <div><dt>現在の状況</dt><dd>{selected.valid ? statusLabel(selected.status) : '設定の確認が必要'}</dd></div>
-            <div><dt>制作記録</dt><dd>{selected.runId}</dd></div>
-          </dl>
-        </header>
-
-        <section aria-label={`${selected.name}の生成キャンバス`} className="launcher-canvas-workbench">
-          <WorkflowCanvas
-            activeAction={actionJob?.status === 'running' ? canvasAction(actionJob.action) : null}
-            activeJob={actionJob ? {
-              id: actionJob.id,
-              action: actionJob.action,
-              status: actionJob.status === 'running'
-                ? 'running'
-                : actionJob.status === 'succeeded'
-                  ? 'completed'
-                  : 'error',
-              message: `${ACTION_LABELS[actionJob.action]}：${JOB_STATUS_LABELS[actionJob.status]}`,
-            } : null}
-            ariaLabel={`${selected.name}の制作工程`}
-            nodes={selected.workflowNodes ?? []}
-          />
-
-          <div className="launcher-canvas-controls">
-            {(selected.issue || !selected.valid || !selected.refreshable) && (
-              <div className="launcher-project-issue" role="status">
-                <strong>{!selected.valid
-                  ? 'この案件はまだ実行できません'
-                  : selected.refreshable
-                    ? '実行条件の確認が必要です'
-                    : 'この環境では実行できません'}</strong>
-                <p>{selected.issue ?? (selected.valid
-                  ? '現在のバックエンドではこの案件を実行できません。'
-                  : '設定ファイルを読み込めませんでした。')}</p>
-              </div>
-            )}
-            {actionError && <p className="launcher-refresh-error" role="alert">{actionError}</p>}
-
-            <section aria-label="制作操作" className="launcher-workflow-actions">
-              <header>
-                <h2>この案件で実行できる操作</h2>
-                <p>案件の現在状態から許可された操作だけを表示します。自由入力のCLIはありません。</p>
-              </header>
-              {selectedActions.length > 0 ? (
-                <ul>
-                  {selectedActions.map((action) => (
-                    <li key={action}>
-                      {actionNeedsEvidence(action) && (
-                        <label className="launcher-action-evidence">
-                          <input
-                            checked={Boolean(evidenceAcknowledgements[evidenceKey(selected, action)])}
-                            disabled={actionSubmitting || isJobActive(actionJob)}
-                            onChange={(event) => {
-                              const key = evidenceKey(selected, action)
-                              setEvidenceAcknowledgements((current) => ({ ...current, [key]: event.target.checked }))
-                            }}
-                            type="checkbox"
-                          />
-                          <span>{actionEvidenceLabel(action)}</span>
-                        </label>
-                      )}
-                      <button
-                        className={actionNeedsConfirmation(action) ? 'launcher-primary' : 'launcher-secondary'}
-                        disabled={
-                          actionSubmitting
-                          || isJobActive(actionJob)
-                          || (actionNeedsEvidence(action) && !evidenceAcknowledgements[evidenceKey(selected, action)])
-                        }
-                        onClick={() => void runProjectAction(action)}
-                        type="button"
-                      >
-                        {ACTION_LABELS[action]}
-                      </button>
-                      <code>{ACTION_COMMANDS[action]}</code>
-                      {actionNeedsConfirmation(action) && <small>実行前に確認画面を表示します</small>}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="launcher-workflow-actions-empty">現在実行できる操作はありません。</p>
-              )}
-            </section>
-
-            {actionJob && (
-              <section className="launcher-job-status" data-status={actionJob.status}>
-                <span aria-live="polite" className="sr-only">
-                  {ACTION_LABELS[actionJob.action]}：{JOB_STATUS_LABELS[actionJob.status]}
-                </span>
-                <header>
-                  <div>
-                    <span>{JOB_STATUS_LABELS[actionJob.status]}</span>
-                    <h3>{ACTION_LABELS[actionJob.action]}</h3>
-                  </div>
-                  {actionJob.exitCode !== undefined && <code>exit {actionJob.exitCode}</code>}
-                </header>
-                <dl>
-                  {actionJob.startedAt && <div><dt>開始</dt><dd>{formatUpdatedAt(actionJob.startedAt)}</dd></div>}
-                  {actionJob.completedAt && <div><dt>終了</dt><dd>{formatUpdatedAt(actionJob.completedAt)}</dd></div>}
-                </dl>
-                {actionJob.stdout && (
-                  <details className="launcher-job-output">
-                    <summary>標準出力を表示</summary>
-                    <pre aria-label="標準出力">{boundedOutput(actionJob.stdout)}</pre>
-                  </details>
-                )}
-                {actionJob.stderr && (
-                  <details className="launcher-job-output">
-                    <summary>エラー出力を表示</summary>
-                    <pre aria-label="エラー出力">{boundedOutput(actionJob.stderr)}</pre>
-                  </details>
-                )}
-              </section>
-            )}
-          </div>
-        </section>
       </main>
     )
   }
@@ -1728,7 +1255,7 @@ export function LauncherApp({
                 <div className="launcher-actions">
                   <button
                     className="launcher-primary"
-                    disabled={!selected.valid || !selected.refreshable || actionSubmitting || refreshing || projectListRefreshing}
+                    disabled={!selected.valid || !selected.refreshable || refreshing || projectListRefreshing}
                     onClick={() => void refreshSelected()}
                     type="button"
                   >
@@ -1736,20 +1263,11 @@ export function LauncherApp({
                     {refreshing ? '制作の記録を更新しています…' : '最新状態に更新して開く'}
                   </button>
                   {selected.hasViewer && selected.viewerUrl && (
-                    <button className="launcher-secondary" disabled={actionSubmitting || refreshing || projectListRefreshing} onClick={() => navigate(selected.viewerUrl!)} type="button">
+                    <button className="launcher-secondary" disabled={refreshing || projectListRefreshing} onClick={() => navigate(selected.viewerUrl!)} type="button">
                       前回の表示を開く
                       <ArrowRight aria-hidden="true" size={16} />
                     </button>
                   )}
-                  <button
-                    className="launcher-secondary"
-                    disabled={!selected.valid || actionSubmitting || refreshing || projectListRefreshing}
-                    onClick={() => navigate(generationCanvasUrl(selected.id))}
-                    type="button"
-                  >
-                    <Clapperboard aria-hidden="true" size={16} />
-                    生成キャンバスを開く
-                  </button>
                 </div>
               </>
             ) : (

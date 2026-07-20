@@ -1,7 +1,7 @@
 {
   "name": "@tsugite/desktop",
   "productName": "Tsugite",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Tsugite local video workflow desktop application",
   "author": "Azumi Musuhi",
   "private": true,
