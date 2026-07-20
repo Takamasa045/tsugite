@@ -55,7 +55,7 @@ export default function Home() {
             <div className="release-line">
               <span>DESKTOP APP</span>
               <b>v0.6.0 Beta</b>
-              <em>未署名ベータ</em>
+              <em>先行ベータ版</em>
             </div>
             <h1>
               映像づくりを、
@@ -67,16 +67,16 @@ export default function Home() {
               Tsugite Desktopの最初のベータ版を、MacとWindowsへ。
             </p>
             <div className="hero-actions">
-              <a className="button button-primary" href={MAC_DOWNLOAD_URL} aria-label="Mac版をダウンロード。Apple silicon、DMG、未署名ベータ">
+              <a className="button button-primary" href={MAC_DOWNLOAD_URL} aria-label="Mac版をダウンロード。Apple silicon、DMG、先行ベータ版">
                 <span>Mac版をダウンロード</span>
                 <b aria-hidden="true">↓</b>
               </a>
-              <a className="text-link" href={WINDOWS_DOWNLOAD_URL} aria-label="Windows版をダウンロード。x64、EXE、未署名ベータ">
+              <a className="text-link" href={WINDOWS_DOWNLOAD_URL} aria-label="Windows版をダウンロード。x64、EXE、先行ベータ版">
                 Windows版をダウンロード <span aria-hidden="true">↓</span>
               </a>
             </div>
             <p className="availability">
-              <span aria-hidden="true" /> 無料ベータ版・コード署名なし。macOS Apple silicon / Windows x64
+              <span aria-hidden="true" /> 先行ベータ版。macOS Apple silicon / Windows x64
             </p>
           </div>
 
@@ -189,24 +189,24 @@ export default function Home() {
             </p>
             <aside className="beta-notice" aria-labelledby="beta-notice-title">
               <span>IMPORTANT / BETA SCOPE</span>
-              <h3 id="beta-notice-title">未署名ベータ版について</h3>
-              <p>本ベータ版はMac・Windowsともにコード署名を行っていません。Mac版はAppleの公証（notarization）も未実施です。初回起動時にOSの警告が表示されます。</p>
+              <h3 id="beta-notice-title">ベータ版をご利用になる前に</h3>
+              <p>現在は先行ベータ版です。初回起動時に、MacやWindowsの確認画面が表示される場合があります。画面の案内をご確認のうえお試しください。</p>
               <p>動画生成などを行う生成ランチャー／生成ノード機能は、今回のベータ版には含まれていません。後日あらためて実装・提供予定です。</p>
             </aside>
             <a className="button button-light" href={RELEASE_URL} target="_blank" rel="noreferrer">
-              <span>リリース詳細とSHA-256</span><b aria-hidden="true">↗</b>
+              <span>リリース内容を見る</span><b aria-hidden="true">↗</b>
             </a>
-            <small className="download-note">公式GitHub Releaseからのみ取得し、リリースノートのファイル名とSHA-256を確認してください。一致しない場合は起動せず削除してください。</small>
+            <small className="download-note">初回起動の手順は、下記の案内をご確認ください。</small>
           </div>
 
           <div className="platform-list">
-            <a className="platform-card platform-download" href={MAC_DOWNLOAD_URL} aria-label="Mac版をダウンロード。Apple silicon arm64、DMG、未署名ベータ">
+            <a className="platform-card platform-download" href={MAC_DOWNLOAD_URL} aria-label="Mac版をダウンロード。Apple silicon arm64、DMG、先行ベータ版">
               <div><span className="platform-icon" aria-hidden="true">⌘</span><p><strong>macOS</strong><small>macOS 12+ · Apple silicon (arm64) · DMG</small></p></div>
-              <span className="download-state"><small>UNSIGNED BETA</small><b>ダウンロード ↓</b></span>
+              <span className="download-state"><small>EARLY BETA</small><b>ダウンロード ↓</b></span>
             </a>
-            <a className="platform-card platform-download" href={WINDOWS_DOWNLOAD_URL} aria-label="Windows版をダウンロード。x64、EXE、未署名ベータ">
+            <a className="platform-card platform-download" href={WINDOWS_DOWNLOAD_URL} aria-label="Windows版をダウンロード。x64、EXE、先行ベータ版">
               <div><span className="platform-icon windows-icon" aria-hidden="true"><i /><i /><i /><i /></span><p><strong>Windows</strong><small>Windows 10+ · x64 · EXE</small></p></div>
-              <span className="download-state"><small>UNSIGNED BETA</small><b>ダウンロード ↓</b></span>
+              <span className="download-state"><small>EARLY BETA</small><b>ダウンロード ↓</b></span>
             </a>
             <a className="platform-card platform-github" href={REPOSITORY_URL} target="_blank" rel="noreferrer">
               <div><span className="platform-icon">⌁</span><p><strong>GitHub</strong><small>Source & release notes</small></p></div>
@@ -219,7 +219,7 @@ export default function Home() {
           <header>
             <span>FIRST LAUNCH / SECURITY</span>
             <h3 id="security-title">初回起動の前に、必ずご確認ください。</h3>
-            <p>OSの保護機能を常時無効にする必要はありません。公式ReleaseとSHA-256を確認し、内容を理解できる場合だけ実行してください。</p>
+            <p>初回起動時に、MacやWindowsの確認画面が表示される場合があります。画面の案内と下記の手順をご確認ください。</p>
           </header>
           <div className="security-grid">
             <article>
@@ -236,8 +236,8 @@ export default function Home() {
               <span>02 / Windows</span>
               <h4>Windowsで初めて開くとき</h4>
               <ol>
-                <li>インストーラーのファイル名とSHA-256を確認して起動します。</li>
-                <li>警告が表示された場合は、発行元が未確認であることを理解したうえで判断してください。</li>
+                <li>ダウンロードしたインストーラーを起動します。</li>
+                <li>確認画面が表示されたら、内容をご確認のうえ進めてください。</li>
                 <li>Smart App Controlや組織のポリシーでブロックされた場合は、保護機能を無効化せず起動を中止してください。</li>
               </ol>
               <a href={MICROSOFT_SUPPORT_URL} target="_blank" rel="noreferrer">Microsoft公式の案内を見る <span aria-hidden="true">↗</span></a>

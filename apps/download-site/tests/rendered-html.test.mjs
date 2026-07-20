@@ -26,8 +26,8 @@ test("server-renders the Tsugite download landing page", async () => {
   assert.match(html, /映像づくりを、/);
   assert.match(html, /組み上げる。/);
   assert.match(html, /v0\.6\.0 Beta/);
-  assert.match(html, /未署名ベータ/);
-  assert.match(html, /コード署名を行っていません/);
+  assert.match(html, /先行ベータ版/);
+  assert.match(html, /MacやWindowsの確認画面が表示される場合があります/);
   assert.match(html, /生成ランチャー／生成ノード機能は、今回のベータ版には含まれていません/);
   assert.match(html, /TSUGITE \/ KEY VISUAL/);
   assert.match(html, /生成と判断を、ひとつの工程に継ぐ。/);
@@ -45,7 +45,8 @@ test("server-renders the Tsugite download landing page", async () => {
   assert.match(html, /\/launcher-screen\.avif/);
   assert.match(html, /class="brand-icon"[^>]*src="\/favicon\.png"/);
   assert.doesNotMatch(html, /レビューを開く|3本の生成映像|新しい映像を組み上げる/);
-  assert.doesNotMatch(html, /配布準備中|署名済みインストーラーの公開後|SIGNING|PREPARING/);
+  assert.doesNotMatch(html, /配布準備中|署名済みインストーラーの公開後|SIGNING|PREPARING|UNSIGNED BETA/);
+  assert.doesNotMatch(html, /未署名|コード署名|notarization|公式GitHub|公式Release/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
 
