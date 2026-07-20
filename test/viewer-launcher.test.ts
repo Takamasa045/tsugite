@@ -1229,9 +1229,11 @@ distribution: local-only
 
     const reviewAssetsDir = join(runDir, "review", "assets");
     const emptyReviewDirectories = join(reviewAssetsDir, "empty-directories");
-    await Promise.all(Array.from({ length: 513 }, (_, index) =>
-      mkdir(join(emptyReviewDirectories, String(index)), { recursive: true })
-    ));
+    for (let start = 0; start < 513; start += 32) {
+      await Promise.all(Array.from({ length: Math.min(32, 513 - start) }, (_, offset) =>
+        mkdir(join(emptyReviewDirectories, String(start + offset)), { recursive: true })
+      ));
+    }
     expect((await fetch(persistentProject.gate1ReviewUrl)).status).toBe(404);
     await rm(emptyReviewDirectories, { recursive: true });
 
@@ -1250,7 +1252,7 @@ distribution: local-only
     expect(firstPreviewRange.status).toBe(206);
     expect(secondPreviewRange.status).toBe(206);
     expect(onSnapshotFingerprint.mock.calls.filter(
-      ([path]) => String(path).endsWith(`/previews/${previewName}`)
+      ([path]) => String(path).replaceAll("\\", "/").endsWith(`/previews/${previewName}`)
     )).toHaveLength(1);
 
     await writeFile(gate2SourcePath, Buffer.from("asset-B"));

@@ -558,9 +558,11 @@ describe("workflow viewer artifact", () => {
     const entriesRoot = await mkdtemp(join(tmpdir(), "tsugite-viewer-entries-"));
     await writeFile(join(entriesRoot, "index.html"), "index\n");
     await writeFile(join(entriesRoot, "workflow.json"), "{}\n");
-    await Promise.all(Array.from({ length: 513 }, (_, index) =>
-      mkdir(join(entriesRoot, "assets", `empty-${index}`), { recursive: true })
-    ));
+    for (let start = 0; start < 513; start += 32) {
+      await Promise.all(Array.from({ length: Math.min(32, 513 - start) }, (_, offset) =>
+        mkdir(join(entriesRoot, "assets", `empty-${start + offset}`), { recursive: true })
+      ));
+    }
     await expect(createWorkflowViewerSnapshotManifest(entriesRoot))
       .rejects.toThrow("too many entries");
 
@@ -572,5 +574,5 @@ describe("workflow viewer artifact", () => {
     await mkdir(nested, { recursive: true });
     await expect(createWorkflowViewerSnapshotManifest(depthRoot))
       .rejects.toThrow("too deeply nested");
-  });
+  }, 15_000);
 });
