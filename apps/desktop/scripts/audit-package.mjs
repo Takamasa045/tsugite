@@ -25,10 +25,20 @@ const ALLOWED_MANIFEST_PATHS = [
 const ALLOWED_ASAR_SOURCE_FILES = new Set([
   "package.json",
   "src/main.mjs",
+  "src/preload.mjs",
+  "src/agent-terminal.mjs",
   "src/lifecycle.mjs",
   "src/process-runner.mjs",
   "src/runtime.mjs"
 ]);
+const NODE_PTY_TARGET = `${process.platform}-${process.arch}`;
+const NODE_PTY_NATIVE_ROOTS = [
+  "node_modules/node-pty/build/Release",
+  `node_modules/node-pty/prebuilds/${NODE_PTY_TARGET}`
+];
+const NODE_PTY_REQUIRED_RUNTIME_FILES = process.platform === "win32"
+  ? ["pty.node", "winpty-agent.exe", "winpty.dll"]
+  : ["pty.node", "spawn-helper"];
 
 function portable(path) {
   return path.split(sep).join("/");
@@ -146,7 +156,56 @@ function assertAsarBoundary(asarPath) {
   if (forbidden.length > 0) {
     throw new Error(`Package audit found forbidden app.asar entries: ${forbidden.slice(0, 10).join(", ")}`);
   }
+  const required = [...ALLOWED_ASAR_SOURCE_FILES, "node_modules/node-pty/package.json"];
+  const missing = required.filter((path) => !entries.includes(path));
+  if (missing.length > 0) {
+    throw new Error(`Package audit is missing required app.asar entries: ${missing.join(", ")}`);
+  }
   return entries.length;
+}
+
+async function assertUnpackedNativeBoundary(resourcesRoot) {
+  const unpackedRoot = join(resourcesRoot, "app.asar.unpacked");
+  const unpackedStats = await lstat(unpackedRoot).catch(() => null);
+  if (!unpackedStats?.isDirectory() || unpackedStats.isSymbolicLink()) {
+    throw new Error(`Package audit is missing the targeted node-pty runtime: ${unpackedRoot}`);
+  }
+
+  const files = await listFiles(unpackedRoot);
+  const forbidden = files.filter((path) => (
+    isSecretPath(path)
+    || !NODE_PTY_NATIVE_ROOTS.some((root) => path.startsWith(`${root}/`))
+  ));
+  if (forbidden.length > 0) {
+    throw new Error(
+      `Package audit found forbidden app.asar.unpacked entries: ${forbidden.slice(0, 10).join(", ")}`
+    );
+  }
+  for (const path of files) {
+    const stats = await lstat(join(unpackedRoot, path));
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Package audit found a symlink in app.asar.unpacked: ${path}`);
+    }
+  }
+  const required = NODE_PTY_NATIVE_ROOTS.flatMap((root) => (
+    NODE_PTY_REQUIRED_RUNTIME_FILES.map((file) => `${root}/${file}`)
+  ));
+  const missing = required.filter((path) => !files.includes(path));
+  if (missing.length > 0) {
+    throw new Error(
+      `Package audit is missing the targeted node-pty runtime (${NODE_PTY_TARGET}): ${missing.join(", ")}`
+    );
+  }
+  if (process.platform !== "win32") {
+    for (const root of NODE_PTY_NATIVE_ROOTS) {
+      const helper = `${root}/spawn-helper`;
+      const stats = await lstat(join(unpackedRoot, helper));
+      if ((stats.mode & 0o111) === 0) {
+        throw new Error(`Package audit found a non-executable node-pty spawn helper: ${helper}`);
+      }
+    }
+  }
+  return files.length;
 }
 
 export async function auditPackagedResources(resourcesRoot) {
@@ -155,7 +214,8 @@ export async function auditPackagedResources(resourcesRoot) {
   await assertRequiredFile(asarPath, "app.asar");
   const runtimeResult = await auditRuntimeBoundary(join(resolvedResourcesRoot, "runtime"));
   const asarEntryCount = assertAsarBoundary(asarPath);
-  return { ...runtimeResult, resourcesRoot: resolvedResourcesRoot, asarEntryCount };
+  const unpackedNativeFileCount = await assertUnpackedNativeBoundary(resolvedResourcesRoot);
+  return { ...runtimeResult, resourcesRoot: resolvedResourcesRoot, asarEntryCount, unpackedNativeFileCount };
 }
 
 async function findPackagedResources(outRoot) {

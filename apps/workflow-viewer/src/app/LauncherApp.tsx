@@ -12,6 +12,8 @@ import {
 import type { KeyboardEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { AgentWorkspaceChooser } from '../components/agent/AgentWorkspaceChooser'
+
 export interface LauncherProject {
   id: string
   name: string
@@ -592,6 +594,7 @@ export function LauncherApp({
   const [loading, setLoading] = useState(true)
   const [projectListRefreshing, setProjectListRefreshing] = useState(false)
   const [projectListRefreshError, setProjectListRefreshError] = useState<string | null>(null)
+  const [projectListRefreshNotice, setProjectListRefreshNotice] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -627,6 +630,7 @@ export function LauncherApp({
     if (background) {
       setProjectListRefreshing(true)
       setProjectListRefreshError(null)
+      setProjectListRefreshNotice(null)
     } else {
       setLoading(true)
       setLoadError(null)
@@ -636,6 +640,11 @@ export function LauncherApp({
       const payload: unknown = await response.json()
       if (!response.ok || !isProjectListResponse(payload)) throw new Error('invalid project list')
       setProjects(payload.projects)
+      if (background) {
+        setProjectListRefreshNotice(payload.projects.length > 0
+          ? `制作案件を再読み込みしました。${payload.projects.length}件見つかりました。`
+          : '再読み込みしましたが、このworkspaceには制作案件がありません。projectsフォルダとworkspaceを確認してください。')
+      }
       setSelectedId((current) => {
         if (current && payload.projects.some((project) => project.id === current)) return current
         const recentlyUpdatedProjects = [...payload.projects].sort(compareProjectsByRecentUpdate)
@@ -1053,7 +1062,8 @@ export function LauncherApp({
       </ol>
 
       {activeShelf === 'projects' ? (
-        <section aria-labelledby="launcher-projects-tab" className="launcher-workbench" id="launcher-projects-panel" role="tabpanel">
+        <>
+          <section aria-labelledby="launcher-projects-tab" className="launcher-workbench" id="launcher-projects-panel" role="tabpanel">
           <section aria-busy={projectListRefreshing} aria-labelledby="project-list-title" className="launcher-projects">
             <div className="launcher-section-heading">
               <div>
@@ -1079,6 +1089,9 @@ export function LauncherApp({
 
             {projectListRefreshError && (
               <p className="launcher-project-list-refresh-error" role="alert">{projectListRefreshError}</p>
+            )}
+            {projectListRefreshNotice && (
+              <p className="launcher-project-list-refresh-notice" role="status">{projectListRefreshNotice}</p>
             )}
 
             {projects.length > 0 && (
@@ -1306,7 +1319,8 @@ export function LauncherApp({
               <p className="launcher-selection-empty">左の制作棚から、確認したい案件を選んでください。</p>
             )}
           </aside>
-        </section>
+          </section>
+        </>
       ) : activeShelf === 'templates' ? (
         <section aria-labelledby="launcher-templates-tab" className="launcher-workbench" id="launcher-templates-panel" role="tabpanel">
           <section aria-labelledby="template-list-title" className="launcher-projects launcher-template-shelf">
@@ -1949,6 +1963,9 @@ export function LauncherApp({
           )}
         </section>
       )}
+      <div hidden={activeShelf !== 'projects'}>
+        <AgentWorkspaceChooser />
+      </div>
     </main>
   )
 }

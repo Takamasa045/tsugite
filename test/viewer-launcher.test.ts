@@ -49,6 +49,7 @@ async function createFixture() {
   );
   await writeFile(join(bundleDir, "assets", "app.css"), "body { color: black; }\n");
   await writeFile(join(bundleDir, "assets", "app.js"), "globalThis.viewerLoaded = true;\n");
+  await writeFile(join(bundleDir, "assets", "terminal.mjs"), "export const terminalLoaded = true;\n");
   return { root, projectsDir, templatesDir, projectDir, bundleDir };
 }
 
@@ -853,6 +854,9 @@ distribution: local-only
     );
     await expect(fetch(`${launcher.url}/assets/app.js`).then((response) => response.text()))
       .resolves.toContain("viewerLoaded");
+    const moduleResponse = await fetch(`${launcher.url}/assets/terminal.mjs`);
+    expect(moduleResponse.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    await expect(moduleResponse.text()).resolves.toContain("terminalLoaded");
 
     const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
     expect(payload).toMatchObject({ ok: true });
@@ -2228,6 +2232,51 @@ distribution: local-only
       .toMatchObject({ status: "completed" });
     expect(gate3.project.workflowNodes.find((node: { id: string }) => node.id === "gate-3"))
       .toMatchObject({ status: "error" });
+  });
+
+  it("keeps project viewing available while project action APIs are disabled", async () => {
+    const fixture = await createFixture();
+    const executePipeline = vi.fn();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      allowProjectActions: false,
+      executePipeline
+    });
+    const listingResponse = await fetch(`${launcher.url}/api/projects`);
+    expect(listingResponse.status).toBe(200);
+    const listing = await listingResponse.json();
+    const project = listing.projects[0];
+    expect(project).toMatchObject({ valid: true, refreshable: true });
+
+    const statusResponse = await fetch(`${launcher.url}/api/projects/${project.id}/status`, {
+      headers: { "x-tsugite-token": launcher.token }
+    });
+    expect(statusResponse.status).toBe(200);
+    await expect(statusResponse.json()).resolves.toMatchObject({
+      ok: true,
+      project: { id: project.id }
+    });
+
+    const endpoint = `${launcher.url}/api/projects/${project.id}/action`;
+    expect((await fetch(endpoint, {
+      headers: { "x-tsugite-token": launcher.token }
+    })).status).toBe(404);
+    expect((await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({
+        action: "validate",
+        expectedRunId: project.runId,
+        revision: project.revision
+      })
+    })).status).toBe(404);
+    expect(executePipeline).not.toHaveBeenCalled();
   });
 
   it("runs only fresh available allowlisted actions and passes coordinator arguments without a shell", async () => {

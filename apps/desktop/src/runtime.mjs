@@ -136,7 +136,8 @@ export async function prepareWorkspaceDirectories(workspaceRoot) {
   return { root: canonicalRoot, projectsDir, templatesDir };
 }
 
-export function createSecureWindowOptions() {
+export function createSecureWindowOptions({ preloadPath } = {}) {
+  if (!isAbsolute(preloadPath || "")) throw new Error("Desktop requires an absolute preload path");
   return {
     width: 1440,
     height: 960,
@@ -144,7 +145,8 @@ export function createSecureWindowOptions() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true
+      sandbox: true,
+      preload: preloadPath
     }
   };
 }
@@ -161,10 +163,31 @@ function allowedOrigins(launcherUrl, artifactUrl) {
   return origins;
 }
 
+export function createIpcOriginGuard({ launcherUrl, webContents }) {
+  const url = new URL(launcherUrl);
+  if (url.protocol !== "http:" || url.hostname !== LOOPBACK_HOST || url.username || url.password) {
+    throw new Error(`Desktop IPC requires a loopback HTTP origin: ${launcherUrl}`);
+  }
+  const launcherOrigin = url.origin;
+  return (event) => {
+    if (event?.sender !== webContents || event?.senderFrame !== webContents?.mainFrame) return false;
+    const input = event?.senderFrame?.url;
+    if (typeof input !== "string") return false;
+    try {
+      const url = new URL(input);
+      return url.protocol === "http:" && url.hostname === LOOPBACK_HOST && url.origin === launcherOrigin;
+    } catch {
+      return false;
+    }
+  };
+}
+
 export function installNavigationGuards(webContents, {
   launcherUrl,
   artifactUrl,
-  onAllowedWindowOpen
+  onAllowedWindowOpen,
+  canNavigate = () => true,
+  onNavigationBlocked = () => {}
 }) {
   const origins = allowedOrigins(launcherUrl, artifactUrl);
   const isAllowed = (candidate) => {
@@ -176,13 +199,16 @@ export function installNavigationGuards(webContents, {
     }
   };
   const guard = (event, url) => {
-    if (!isAllowed(url)) event.preventDefault();
+    if (isAllowed(url) && canNavigate(url)) return;
+    event.preventDefault();
+    if (isAllowed(url)) onNavigationBlocked(url);
   };
   webContents.on("will-navigate", guard);
   webContents.on("will-redirect", guard);
   webContents.on("will-attach-webview", (event) => event.preventDefault());
   webContents.setWindowOpenHandler(({ url }) => {
-    if (isAllowed(url)) onAllowedWindowOpen(url);
+    if (isAllowed(url) && canNavigate(url)) onAllowedWindowOpen(url);
+    else if (isAllowed(url)) onNavigationBlocked(url);
     return { action: "deny" };
   });
   return { isAllowed };

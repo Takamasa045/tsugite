@@ -1,13 +1,15 @@
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, dialog, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
 import squirrelStartup from "electron-squirrel-startup";
 
+import { createAgentTerminalManager, registerAgentTerminalIpc } from "./agent-terminal.mjs";
 import { createBeforeQuitCoordinator } from "./lifecycle.mjs";
 import { createPipelineRunner } from "./process-runner.mjs";
 import {
   assertCanonicalWorkspaceOutsideProtectedDirectory,
+  createIpcOriginGuard,
   createSecureWindowOptions,
   denyAllSessionPermissions,
   installNavigationGuards,
@@ -27,6 +29,8 @@ if (!shouldStart) app.quit();
 let mainWindow;
 let launcher;
 let runner;
+let agentTerminals;
+let agentTerminalIpc;
 let quitCoordinator;
 
 function logDevelopmentStatus(message) {
@@ -66,6 +70,11 @@ async function startDesktop() {
     cliModulePath: paths.cliModulePath,
     runtimeRoot: paths.runtimeRoot
   });
+  const ptyModule = await import("node-pty");
+  agentTerminals = createAgentTerminalManager({
+    workspaceRoot: workspace.root,
+    pty: ptyModule.default ?? ptyModule
+  });
 
   const launcherModule = await import(pathToFileURL(paths.launcherModulePath).href);
   logDevelopmentStatus("launcher module loaded");
@@ -74,12 +83,27 @@ async function startDesktop() {
     templatesDir: workspace.templatesDir,
     bundleDir: paths.viewerBundleDir,
     validationOptions: resolveRuntimeValidationOptions(paths.runtimeRoot),
+    allowProjectActions: false,
     executePipeline: runner.run
   });
   logDevelopmentStatus(`launcher ready at ${launcher.url}`);
 
+  const desktopProcesses = {
+    hasActive: () => runner.hasActive() || agentTerminals.hasActive(),
+    dispose: async () => {
+      const results = await Promise.allSettled([
+        agentTerminals.dispose(),
+        runner.dispose()
+      ]);
+      const failures = results
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason);
+      if (failures.length > 0) throw new AggregateError(failures, "Desktop processes could not be stopped");
+      agentTerminalIpc?.dispose();
+    }
+  };
   quitCoordinator = createBeforeQuitCoordinator({
-    runner,
+    runner: desktopProcesses,
     confirmActiveQuit: async () => {
       const options = {
         type: "warning",
@@ -100,13 +124,43 @@ async function startDesktop() {
   });
 
   denyAllSessionPermissions(session.defaultSession);
-  mainWindow = new BrowserWindow(createSecureWindowOptions());
+  mainWindow = new BrowserWindow(createSecureWindowOptions({
+    preloadPath: fileURLToPath(new URL("./preload.mjs", import.meta.url))
+  }));
   installNavigationGuards(mainWindow.webContents, {
     launcherUrl: launcher.url,
     artifactUrl: launcher.artifactUrl,
+    canNavigate: (url) => new URL(url).origin === new URL(launcher.url).origin || !agentTerminals.hasActive(),
     onAllowedWindowOpen: (url) => {
       if (mainWindow && !mainWindow.isDestroyed()) return mainWindow.loadURL(url);
       return undefined;
+    },
+    onNavigationBlocked: () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      void dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "AI CLIと作業中です",
+        message: "制作画面へ移動する前に、画面下部の「停止」を押してください。",
+        buttons: ["わかりました"],
+        noLink: true
+      });
+    }
+  });
+  const isTrustedIpcEvent = createIpcOriginGuard({
+    launcherUrl: launcher.url,
+    webContents: mainWindow.webContents
+  });
+  agentTerminalIpc = registerAgentTerminalIpc({
+    ipcMain,
+    manager: agentTerminals,
+    isTrustedEvent: isTrustedIpcEvent,
+    send: (channel, payload) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      const eventLike = {
+        sender: mainWindow.webContents,
+        senderFrame: mainWindow.webContents.mainFrame
+      };
+      if (isTrustedIpcEvent(eventLike)) mainWindow.webContents.send(channel, payload);
     }
   });
   mainWindow.once("ready-to-show", () => mainWindow?.show());
@@ -161,7 +215,13 @@ app.on("window-all-closed", () => app.quit());
 if (hasSingleInstanceLock) {
   app.whenReady()
     .then(startDesktop)
-    .catch((error) => {
+    .catch(async (error) => {
+      if (!quitCoordinator) {
+        agentTerminalIpc?.dispose();
+        await agentTerminals?.dispose().catch(() => {});
+        await runner?.dispose().catch(() => {});
+        await launcher?.close().catch(() => {});
+      }
       dialog.showErrorBox(
         "Tsugiteを起動できませんでした",
         error instanceof Error ? error.message : String(error)

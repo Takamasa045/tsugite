@@ -4,6 +4,37 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { LauncherApp } from './LauncherApp'
 
+const terminalWrite = vi.fn()
+const terminalDispose = vi.fn()
+let terminalInputListener: ((data: string) => void) | undefined
+const terminalOnData = vi.fn((listener: (data: string) => void) => {
+  terminalInputListener = listener
+  return { dispose: vi.fn() }
+})
+const terminalOpen = vi.fn()
+const terminalFocus = vi.fn()
+
+vi.mock('@xterm/xterm', () => ({
+  Terminal: vi.fn(function Terminal() {
+    return {
+      cols: 96,
+      rows: 28,
+      dispose: terminalDispose,
+      focus: terminalFocus,
+      loadAddon: vi.fn(),
+      onData: terminalOnData,
+      open: terminalOpen,
+      write: terminalWrite,
+    }
+  }),
+}))
+
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: vi.fn(function FitAddon() {
+    return { dispose: vi.fn(), fit: vi.fn() }
+  }),
+}))
+
 const projects = [
   {
     id: 'project-alpha',
@@ -286,6 +317,118 @@ function createLauncherFetcher({
 }
 
 describe('LauncherApp', () => {
+  it('AI CLIは制作案件だけに控えめに表示し、必要なときだけ説明を開ける', async () => {
+    const user = userEvent.setup()
+    render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+
+    const chooser = await screen.findByRole('region', { name: 'AI CLI（必要なときだけ）' })
+    const toggle = within(chooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(within(chooser).queryByText('ブラウザでは内蔵ターミナルを利用できません')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+    expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+
+    const reopenedChooser = screen.getByRole('region', { name: 'AI CLI（必要なときだけ）' })
+    await user.click(within(reopenedChooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ }))
+    expect(within(reopenedChooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(reopenedChooser).getByText(/ブラウザでは内蔵ターミナルを利用できません/)).toBeVisible()
+    expect(within(reopenedChooser).getByText('普段はこの確認画面だけで使えます。')).toBeVisible()
+  })
+
+  it('Desktopでインストール済みagentを選び、端末を開始・停止できる', async () => {
+    const user = userEvent.setup()
+    const stop = vi.fn()
+      .mockRejectedValueOnce(new Error('stop failed'))
+      .mockResolvedValueOnce(undefined)
+    const write = vi.fn().mockResolvedValue(undefined)
+    const removeDataListener = vi.fn()
+    const removeExitListener = vi.fn()
+    let desktopDataListener: ((event: { sessionId: string; data: string }) => void) | undefined
+    let desktopExitListener: ((event: { sessionId: string; exitCode: number }) => void) | undefined
+    const start = vi.fn().mockImplementation(async () => {
+      const sessionId = start.mock.calls.length === 1 ? 'session-claude' : 'session-fast-exit'
+      desktopDataListener?.({ sessionId, data: sessionId === 'session-claude' ? '起動時の案内\r\n' : '終了します\r\n' })
+      if (sessionId === 'session-fast-exit') desktopExitListener?.({ sessionId, exitCode: 0 })
+      return { sessionId }
+    })
+    const desktopWindow = window as Window & { tsugiteDesktop?: unknown }
+    Object.defineProperty(desktopWindow, 'tsugiteDesktop', {
+      configurable: true,
+      value: {
+        agents: {
+          list: vi.fn().mockResolvedValue({
+            workspaceLabel: 'tsugite-hybrid-agent-workspace',
+            hosts: [
+              { id: 'codex', label: 'Codex CLI', installed: false, detail: 'Codex CLIが見つかりません' },
+              { id: 'claude', label: 'Claude Code', installed: true, detail: '利用できます' },
+            ],
+          }),
+          start,
+          write,
+          resize: vi.fn().mockResolvedValue(undefined),
+          stop,
+          onData: vi.fn((listener) => {
+            desktopDataListener = listener
+            return removeDataListener
+          }),
+          onExit: vi.fn((listener) => {
+            desktopExitListener = listener
+            return removeExitListener
+          }),
+        },
+      },
+    })
+
+    try {
+      render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+
+      const chooser = await screen.findByRole('region', { name: 'AI CLI（必要なときだけ）' })
+      await user.click(within(chooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ }))
+      expect((await within(chooser).findAllByText('作業フォルダ：tsugite-hybrid-agent-workspace'))[0]).toBeVisible()
+      expect(within(chooser).getByRole('radio', { name: /Codex CLI/ })).toBeDisabled()
+      const claude = within(chooser).getByRole('radio', { name: /Claude Code/ })
+      expect(claude).toBeChecked()
+
+      await user.click(await within(chooser).findByRole('button', { name: 'Claude Codeを開始' }))
+      await waitFor(() => expect(start).toHaveBeenCalledWith({ hostId: 'claude', cols: 96, rows: 28 }))
+      expect(terminalWrite).toHaveBeenCalledWith('起動時の案内\r\n')
+      expect(within(chooser).getByRole('region', { name: 'Claude Codeの端末' })).toBeVisible()
+      expect(within(chooser).getByText('Claude Codeと作業中')).toBeVisible()
+      expect(claude).toBeDisabled()
+      desktopDataListener?.({ sessionId: 'session-claude', data: 'Claudeからの応答\r\n' })
+      expect(terminalWrite).toHaveBeenCalledWith('Claudeからの応答\r\n')
+      terminalInputListener?.('質問を入力\r')
+      expect(write).toHaveBeenCalledWith({ sessionId: 'session-claude', data: '質問を入力\r' })
+
+      await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+      expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
+      expect(stop).not.toHaveBeenCalled()
+      await user.click(screen.getByRole('tab', { name: '制作案件' }))
+      const reopenedChooser = screen.getByRole('region', { name: 'AI CLI（必要なときだけ）' })
+      expect(within(reopenedChooser).getByText('Claude Codeと作業中')).toBeVisible()
+
+      await user.click(within(reopenedChooser).getByRole('button', { name: 'Claude Codeを停止' }))
+      await waitFor(() => expect(stop).toHaveBeenCalledWith({ sessionId: 'session-claude' }))
+      expect(within(reopenedChooser).getByText('Claude Codeを停止できませんでした。もう一度停止してください。')).toBeVisible()
+      expect(claude).toBeDisabled()
+      await user.click(within(reopenedChooser).getByRole('button', { name: 'Claude Codeを停止' }))
+      await waitFor(() => expect(stop).toHaveBeenCalledTimes(2))
+      expect(claude).toBeEnabled()
+      expect(removeDataListener).toHaveBeenCalledTimes(1)
+      expect(removeExitListener).toHaveBeenCalledTimes(1)
+
+      await user.click(within(chooser).getByRole('button', { name: 'Claude Codeを開始' }))
+      expect(await within(chooser).findByText('Claude Codeは終了しました（終了コード 0）。もう一度開始できます。')).toBeVisible()
+      expect(within(chooser).getByRole('button', { name: 'Claude Codeを開始' })).toBeEnabled()
+    } finally {
+      delete desktopWindow.tsugiteDesktop
+    }
+  })
+
   it('初回起動で dedicated workflow の確認待ちだけをタブとピックアップへ表示する', async () => {
     const user = userEvent.setup()
     const manualPending = {
@@ -635,6 +778,7 @@ describe('LauncherApp', () => {
     }))
 
     expect(await screen.findByRole('heading', { name: '新しく更新された案件' })).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('制作案件を再読み込みしました。2件見つかりました。')
     expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
     expect(screen.getByRole('button', { name: '制作案件を再読み込み' })).toBeEnabled()
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(2)
@@ -659,6 +803,20 @@ describe('LauncherApp', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('制作案件を再読み込みできませんでした。')
     expect(screen.getByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
     expect(within(selectedPanel).getByRole('heading', { name: 'Codex Goal Talk' })).toBeVisible()
+  })
+
+  it('0件の制作workspaceを再読み込みした結果と確認先を表示する', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher({ projectList: [] })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByText('表示できる制作案件はまだありません。')
+    await user.click(screen.getByRole('button', { name: '制作案件を再読み込み' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '再読み込みしましたが、このworkspaceには制作案件がありません。projectsフォルダとworkspaceを確認してください。',
+    )
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(2)
   })
 
   it('大量の案件を最近更新順に12件ずつ表示し、状態で絞り込める', async () => {

@@ -1,9 +1,12 @@
+import { chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const desktopRoot = dirname(fileURLToPath(import.meta.url));
 const runtimeRoot = join(desktopRoot, "runtime");
 const iconRoot = join(desktopRoot, "assets", "icon");
+const nodePtyTarget = `${process.platform}-${process.arch}`;
+const nodePtyUnpackPattern = `{**/node_modules/node-pty/build/Release/**,**/node_modules/node-pty/prebuilds/${nodePtyTarget}/**}`;
 
 const macSignIdentity = process.env.MACOS_SIGN_IDENTITY;
 const canNotarize = Boolean(
@@ -16,6 +19,8 @@ const windowsCertificatePassword = process.env.WINDOWS_CERTIFICATE_PASSWORD;
 const appSourceFiles = new Set([
   "/package.json",
   "/src/main.mjs",
+  "/src/preload.mjs",
+  "/src/agent-terminal.mjs",
   "/src/lifecycle.mjs",
   "/src/process-runner.mjs",
   "/src/runtime.mjs"
@@ -28,10 +33,23 @@ function ignoreOutsideAppAllowlist(path) {
   return !appSourceFiles.has(normalized);
 }
 
+function ensureNodePtyHelperPermissions(buildPath, _electronVersion, platform, arch, callback) {
+  if (platform === "win32") {
+    callback();
+    return;
+  }
+  const helpers = [
+    join(buildPath, "node_modules", "node-pty", "build", "Release", "spawn-helper"),
+    join(buildPath, "node_modules", "node-pty", "prebuilds", `${platform}-${arch}`, "spawn-helper")
+  ];
+  Promise.all(helpers.map((helper) => chmod(helper, 0o755))).then(() => callback(), callback);
+}
+
 const packagerConfig = {
-  // Keep the Electron shell in ASAR, but stage the spawned CLI, its cwd and
-  // production node_modules as real files under process.resourcesPath/runtime.
-  asar: true,
+  // Keep JavaScript in ASAR. node-pty contains platform-native binaries and
+  // helper executables, so unpack only rebuilt and target-specific runtime files.
+  asar: { unpack: nodePtyUnpackPattern },
+  beforeAsar: [ensureNodePtyHelperPermissions],
   extraResource: [runtimeRoot],
   appBundleId: "jp.azumimusuhi.tsugite",
   appCategoryType: "public.app-category.video",

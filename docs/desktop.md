@@ -42,10 +42,21 @@ open -a "Tsugite" --args --workspace "/Users/me/Tsugite Workspace"
 
 ## 安全境界
 
-今回の Desktop 配布版は、案件一覧、テンプレート、制作記録の更新、3D Viewerの閲覧を提供します。動画・画像を生成する2Dノード操作画面は後続リリースへ延期しており、Desktop UIから`run`、`render`、Gate判定は実行しません。
+今回の Desktop 配布版は、案件一覧、テンプレート、制作記録の更新、3D Viewerの閲覧に加え、インストール済みのCodex CLIまたはClaude Codeを開く内蔵端末を提供します。画面では、作業場所を次の3つから選べます。
+
+1. **いつものAIで作業**: CodexやClaudeの外部アプリを、Tsugiteの確認画面と並べて使います。
+2. **このアプリでAIと作業**: 内蔵端末で、PCに導入済みのCodex CLIまたはClaude Codeを選んで起動します。最初に起動できる対象をこの2つに限定した端末です。
+3. **確認だけする**: AIを起動せず、案件の状態や3D Viewerだけを見ます。
+
+内蔵端末は、Codex CLIやClaude Code本体を同梱・インストールしません。各CLIのloginや契約は、それぞれの公式手順で事前に済ませてください。Tsugite DesktopへAPI keyやtokenを貼り付ける必要はありません。また、Codex / Claudeの認証・契約と、PixVerseなど生成providerのAPI利用料・creditsは別です。生成に使うproviderはprojectごとに選び、そのprovider側の認証・利用権限・残高を`doctor`で確認します。
+
+起動対象はCodex CLI / Claude Codeの2種類に限定しています。起動後のAI CLIは、それぞれに設定した通常の権限・承認ルールに従い、選択したworkspaceのファイル読書き、command実行、network接続を行うことがあります。内蔵端末はこれらの操作をTsugite独自のsandboxへ閉じ込めるものではありません。各CLIの承認画面を確認し、必要な権限だけを許可してください。TsugiteのGateは動画制作の`run` / `render`を守る仕組みであり、AI CLIによる一般的なファイル操作の承認設定を置き換えません。
+
+動画・画像を生成する2Dノード操作画面は後続リリースへ延期しています。Desktopのボタンや内蔵端末を開くだけで`run`、`render`、Gate判定が始まることはありません。
 
 - 制作の実行は、従来どおりCLIまたは承認済みのCoordinator作業から行います。
 - `run`、`render`、Gate判定のCLI前提条件と明示承認は変わりません。
+- AIが提案を表示しても、Gateは自動承認されません。人が内容を確認し、明示的に判断します。
 - Desktop UIを開いただけでは、provider creditsの消費、外部送信、動画生成、Gate変更は行いません。
 
 アプリが起動できることと、CLIで個別 project を実行できることは別の診断です。同梱 Node.js 22 runtime、FFmpeg / `ffprobe`、選択した provider CLI、認証、entitlement、credits は project ごとに `doctor` で確認してください。Electron と Node runtime はアプリに同梱しますが、FFmpeg や optional provider の実行環境と認証は同梱・自動設定しません。Electron が起動したことや provider catalog に項目があることは、これらの ready を意味しません。
@@ -93,6 +104,6 @@ unsigned build は原則として開発者のローカル確認用です。macOS
 
 Desktop CI はmacOS Arm64のDMG/ZIPとWindows x64のSquirrelインストーラーを作成し、GitHub Actionsのrun artifactとして14日間保持します。これは動作確認用の未署名成果物です。対象runのArtifacts欄から、`tsugite-macos-arm64-<sha>` または `tsugite-windows-x64-<sha>` を取得してください。Actions artifactの一時URLは公開LPから参照しません。
 
-Desktop runtime は tracked な実行コードと必要 resource の allowlist から作成します。workspace や repository の `projects/`、private `templates/`、`media/`、`output/`、`tmp/`、`.env` は梱包しません。ビルド前後の package test で、必要 runtime resource と禁止 path の両方を確認します。
+Desktop runtime は tracked な実行コードと必要 resource の allowlist から作成します。workspace や repository の `projects/`、private `templates/`、`media/`、`output/`、`tmp/`、`.env` は梱包しません。内蔵端末のpreload bridgeだけをDesktop sourceのallowlistへ加え、native PTY moduleは対象OS / architectureに必要なbinaryとhelperだけをASAR外へ展開します。ビルド前後の package test で、必要 runtime resource、native module、禁止 pathを確認します。
 
 Desktop 固有 CI は [`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml) を参照してください。
