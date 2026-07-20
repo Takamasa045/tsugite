@@ -25,7 +25,7 @@ import { loadProject } from "./loadProject.js";
 import { generationRequestMode, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
 
-type ValidateOptions = {
+export type ValidateProjectOptions = {
   adapterDirs?: string[];
   backendDirs?: string[];
   connectionCatalogPath?: string;
@@ -34,7 +34,7 @@ type ValidateOptions = {
 
 export async function validateProject(
   configPath: string,
-  options: ValidateOptions = {}
+  options: ValidateProjectOptions = {}
 ): Promise<
   Result<{
     project: Project;

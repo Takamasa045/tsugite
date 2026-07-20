@@ -85,7 +85,7 @@ async function safeLocalAssetPath(
   path: string,
   code: string
 ): Promise<Result<{ path: string }>> {
-  if (isAbsolute(src)) {
+  if (isAbsolute(src) || src.includes("\\")) {
     return {
       ok: false,
       issues: [{ code, message: "asset src must be relative to the project asset root", path }]

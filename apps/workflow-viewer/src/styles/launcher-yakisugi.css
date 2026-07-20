@@ -1,7 +1,7 @@
 /* Launcher-only art direction: a contemporary gallery built from yakisugi and hinoki. */
 :root {
-  --launcher-yakisugi: #151915;
-  --launcher-sumi: #20231e;
+  --launcher-yakisugi: #080808;
+  --launcher-sumi: #171817;
   --launcher-hinoki: #e7d4ae;
   --launcher-kinari: #f4eddf;
   --launcher-mokume: #c8a878;
@@ -16,9 +16,10 @@
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   background:
-    radial-gradient(circle at 12% 2%, rgba(200, 168, 120, 0.1), transparent 26rem),
-    repeating-linear-gradient(90deg, transparent 0 119px, rgba(231, 212, 174, 0.025) 119px 120px),
-    var(--launcher-yakisugi);
+    radial-gradient(circle at 78% 4%, rgba(200, 168, 120, .075), transparent 28rem),
+    repeating-linear-gradient(91deg, transparent 0 118px, rgba(255, 255, 255, .014) 118px 119px),
+    repeating-linear-gradient(2deg, rgba(255, 255, 255, .006) 0 1px, transparent 1px 8px),
+    linear-gradient(180deg, #0b0b0b 0%, #080808 58%, #0d0d0c 100%);
 }
 
 .launcher-hero {
@@ -27,11 +28,13 @@
   overflow: hidden;
   border: 1px solid rgba(231, 212, 174, 0.3);
   border-radius: 2px 24px 2px 24px;
+  color: var(--launcher-kinari);
   background:
-    linear-gradient(90deg, rgba(255,255,255,.18), transparent 38%),
-    repeating-linear-gradient(3deg, rgba(82, 58, 32, .035) 0 1px, transparent 1px 8px),
-    var(--launcher-hinoki);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, .36);
+    radial-gradient(circle at 78% 42%, rgba(231, 212, 174, .075), transparent 24rem),
+    repeating-linear-gradient(91deg, transparent 0 118px, rgba(255, 255, 255, .014) 118px 119px),
+    repeating-linear-gradient(2deg, rgba(255, 255, 255, .006) 0 1px, transparent 1px 8px),
+    linear-gradient(180deg, #0b0b0b 0%, #080808 58%, #0d0d0c 100%);
+  box-shadow: 0 42px 100px rgba(0, 0, 0, .58), 24px 24px 0 rgba(166, 61, 47, .08);
 }
 
 .launcher-hero-nav {
@@ -51,10 +54,7 @@
 .launcher-wordmark > span:last-child { display: grid; gap: 3px; }
 .launcher-wordmark strong { font-family: Georgia, "Yu Mincho", serif; font-size: .87rem; letter-spacing: .18em; }
 .launcher-wordmark small { color: rgba(244, 237, 223, .52); font-size: .52rem; letter-spacing: .14em; }
-.launcher-joinery-mark { position: relative; display: block; width: 42px; height: 42px; flex: 0 0 42px; transform: rotate(45deg); }
-.launcher-joinery-mark i { position: absolute; inset: 16px 0; display: block; background: var(--launcher-mokume); }
-.launcher-joinery-mark i:last-child { transform: rotate(90deg); }
-.launcher-joinery-mark::after { position: absolute; inset: 13px; border: 2px solid var(--launcher-urushi); content: ""; }
+.launcher-favicon-mark { display: block; width: 46px; height: 46px; flex: 0 0 46px; filter: drop-shadow(0 8px 16px rgba(0, 0, 0, .34)); }
 
 .launcher-hero .launcher-shelf-tabs {
   display: flex;
@@ -90,23 +90,23 @@
   overflow: hidden;
   padding: 72px clamp(34px, 6vw, 92px) 56px;
 }
-.launcher-hero-joinery { position: absolute; top: 50%; left: 50%; width: 240px; height: 240px; opacity: .2; transform: translate(-50%, -50%) rotate(45deg); }
+.launcher-hero-joinery { position: absolute; top: 50%; left: 58%; width: 240px; height: 240px; opacity: .13; transform: translate(-50%, -50%) rotate(45deg); }
 .launcher-hero-joinery span,
-.launcher-hero-joinery i { position: absolute; inset: 92px 0; display: block; border: 1px solid #5f4b31; background: rgba(255,255,255,.09); }
+.launcher-hero-joinery i { position: absolute; inset: 92px 0; display: block; border: 1px solid var(--launcher-mokume); background: rgba(255,255,255,.025); }
 .launcher-hero-joinery i { transform: rotate(90deg); }
 .launcher-hero-joinery::after { position: absolute; inset: 72px; border: 2px solid var(--launcher-urushi); content: ""; }
 .launcher-hero-copy { position: relative; z-index: 1; max-width: 800px; }
-.launcher-hero-copy .eyebrow { color: #5f4b31; font-size: .64rem; letter-spacing: .2em; }
+.launcher-hero-copy .eyebrow { color: var(--launcher-brass); font-size: .64rem; letter-spacing: .2em; }
 .launcher-hero-copy h1 {
   margin: 12px 0 20px;
-  color: #1e211d;
+  color: var(--launcher-kinari);
   font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
   font-size: clamp(3rem, 6.1vw, 5.45rem);
   font-weight: 500;
   letter-spacing: -.055em;
   line-height: 1.04;
 }
-.launcher-hero-copy p { max-width: 620px; margin: 0; color: #5e5647; font-size: .83rem; line-height: 1.9; }
+.launcher-hero-copy p { max-width: 620px; margin: 0; color: rgba(244, 237, 223, .6); font-size: .83rem; line-height: 1.9; }
 .launcher-hero-note {
   position: relative;
   z-index: 1;
@@ -116,18 +116,18 @@
   border-radius: 1px 16px 1px 16px;
   padding: 24px;
   color: var(--launcher-kinari);
-  background: var(--launcher-sumi);
+  background: #171817;
   box-shadow: 14px 14px 0 rgba(166, 61, 47, .15);
 }
 .launcher-hero-note small { color: var(--launcher-mokume); font-size: .55rem; letter-spacing: .15em; }
 .launcher-hero-note strong { font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 1.15rem; font-weight: 600; }
 .launcher-hero-note span { color: rgba(244, 237, 223, .58); font-size: .68rem; line-height: 1.6; }
 
-.launcher-hero-metrics { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; border-top: 1px solid rgba(52, 43, 30, .24); }
-.launcher-hero-metrics > div { display: flex; min-height: 74px; align-items: center; justify-content: space-between; gap: 16px; padding: 14px clamp(18px, 3vw, 36px); border-right: 1px solid rgba(52, 43, 30, .2); }
+.launcher-hero-metrics { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; border-top: 1px solid rgba(244, 237, 223, .13); }
+.launcher-hero-metrics > div { display: flex; min-height: 74px; align-items: center; justify-content: space-between; gap: 16px; padding: 14px clamp(18px, 3vw, 36px); border-right: 1px solid rgba(244, 237, 223, .13); }
 .launcher-hero-metrics > div:last-child { border-right: 0; }
-.launcher-hero-metrics dt { color: #655b4b; font-size: .67rem; font-weight: 750; }
-.launcher-hero-metrics dd { margin: 0; color: #252821; font-family: Georgia, "Yu Mincho", serif; font-size: 1.8rem; }
+.launcher-hero-metrics dt { color: rgba(244, 237, 223, .52); font-size: .67rem; font-weight: 750; }
+.launcher-hero-metrics dd { margin: 0; color: var(--launcher-hinoki); font-family: Georgia, "Yu Mincho", serif; font-size: 1.8rem; }
 
 .launcher-joinery { width: min(1400px, calc(100% - 48px)); max-width: none; margin: 18px auto; border-color: rgba(231, 212, 174, .2); color: rgba(244, 237, 223, .44); background: #20231e; }
 .launcher-joinery::before,
@@ -151,6 +151,7 @@
 .launcher-selection small,
 .launcher-selection-empty { color: rgba(244,237,223,.58); }
 .launcher-selection .launcher-template-requirements li,
+.launcher-selection .launcher-template-timeline li strong,
 .launcher-selection .launcher-feedback-detail-section code,
 .launcher-selection .launcher-feedback-evidence strong,
 .launcher-selection .launcher-feedback-projects strong,
@@ -191,7 +192,44 @@
 .launcher-project-card[data-unrefreshable="true"] { border-color: rgba(166, 61, 47, .52); }
 .launcher-project-card[data-unrefreshable="true"]::after,
 .launcher-project-card[data-unrefreshable="true"] .launcher-project-status { background: var(--launcher-urushi); }
-.launcher-project-card[aria-pressed="true"] { border-color: var(--launcher-urushi); box-shadow: 0 8px 24px rgba(92, 47, 33, .13); }
+.launcher-project-card[data-selected="true"] { border-color: var(--launcher-urushi); box-shadow: inset 4px 0 var(--launcher-urushi), 0 8px 24px rgba(92, 47, 33, .13); }
+.launcher-project-card[data-busy="true"] { opacity: .66; }
+.launcher-project-thumbnail-button,
+.launcher-project-select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+}
+.launcher-project-thumbnail-button { position: relative; cursor: pointer; }
+.launcher-project-thumbnail-button:disabled,
+.launcher-project-select:disabled { cursor: progress; }
+.launcher-project-thumbnail-button:focus-visible,
+.launcher-project-select:focus-visible { position: relative; z-index: 3; outline: 3px solid rgba(166, 61, 47, .42); outline-offset: -3px; }
+.launcher-project-open-cue {
+  position: absolute;
+  top: 10px;
+  left: 15px;
+  border: 1px solid rgba(255, 255, 255, .48);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #fff;
+  background: rgba(21, 25, 21, .78);
+  font-size: .6rem;
+  font-weight: 800;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.launcher-project-thumbnail-button:hover .launcher-project-open-cue,
+.launcher-project-thumbnail-button:focus-visible .launcher-project-open-cue { opacity: 1; transform: translateY(0); }
+.launcher-project-thumbnail-button:disabled .launcher-project-open-cue { display: none; }
+.launcher-project-select { cursor: pointer; }
+.launcher-project-card-footer > span { display: inline-flex; align-items: center; gap: 4px; color: var(--launcher-urushi); font-size: .64rem; font-weight: 800; }
 .launcher-project-card-issue {
   display: -webkit-box;
   overflow: hidden;
@@ -703,7 +741,7 @@
 @media (max-width: 760px) {
   .launcher-hero { width: calc(100% - 24px); margin-top: 12px; border-radius: 1px 16px 1px 16px; }
   .launcher-hero-nav { min-height: 64px; gap: 14px; padding: 0 16px; }
-  .launcher-wordmark { width: 42px; min-width: 42px; }
+  .launcher-wordmark { width: 46px; min-width: 46px; }
   .launcher-wordmark > span:last-child { display: none; }
   .launcher-joinery-mark { flex: 0 0 38px; width: 38px; height: 38px; }
   .launcher-hero .launcher-shelf-tabs { min-width: 0; }
@@ -744,4 +782,5 @@
   .launcher-project-card,
   .launcher-template-card,
   .launcher-feedback-card { transition: none; }
+  .launcher-project-open-cue { transition: none; }
 }

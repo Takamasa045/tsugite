@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createReadStream, type Stats } from "node:fs";
 import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -39,6 +41,16 @@ type ReviewAsset = {
   preview_src?: string;
   source_scope?: "manifest" | "project";
 };
+
+const REVIEW_SOURCE_DIGEST_CACHE_MAX_ENTRIES = 512;
+const reviewSourceDigestCache = new Map<string, {
+  dev: number;
+  ino: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+  digest: string;
+}>();
 
 export type ReviewCharacter = {
   id: string;
@@ -257,6 +269,12 @@ export async function inspectGate1Review(options: {
       project: options.project,
       manifest: options.manifest,
       review: document,
+      preview_assets: await fingerprintReviewAssets(outputDir, document),
+      source_assets: await fingerprintGate1SourceAssets(
+        options.configPath,
+        options.project,
+        options.manifest
+      ),
       connections: currentConnections.snapshots,
       editorial_approval_digest: editorialApprovalDigest
     });
@@ -387,6 +405,109 @@ function reviewConnectionSnapshots(document: ReviewDocument): ReviewConnectionSn
   });
 }
 
+async function fingerprintGate1SourceAssets(
+  configPath: string,
+  project: Project,
+  manifest: Manifest
+): Promise<Array<{ scope: "manifest" | "project"; src: string; sha256: string }>> {
+  const projectDir = dirname(resolve(configPath));
+  const manifestDir = dirname(resolve(projectDir, project.manifest));
+  const candidates: Array<{ scope: "manifest" | "project"; src: string }> = [
+    ...manifest.clips.map((clip) => ({ scope: "manifest" as const, src: clip.src })),
+    ...manifest.images.map((image) => ({ scope: "manifest" as const, src: image.src })),
+    ...(["bgm", "narration", "sfx"] as const).flatMap((track) =>
+      manifest.audio[track]
+        .filter((entry): entry is typeof entry & { src: string } => Boolean(entry.src))
+        .map((entry) => ({ scope: "manifest" as const, src: entry.src }))
+    ),
+    ...(project.generation?.requests ?? []).flatMap((request) => [
+      ...(request.first_frame ? [{ scope: "project" as const, src: request.first_frame }] : []),
+      ...(request.reference_images ?? []).map((src) => ({ scope: "project" as const, src }))
+    ])
+  ];
+  const unique = new Map<string, { scope: "manifest" | "project"; src: string }>();
+  for (const candidate of candidates) {
+    unique.set(`${candidate.scope}:${candidate.src}`, candidate);
+  }
+  const fingerprints: Array<{ scope: "manifest" | "project"; src: string; sha256: string }> = [];
+  for (const candidate of [...unique.values()].sort((left, right) =>
+    `${left.scope}:${left.src}`.localeCompare(`${right.scope}:${right.src}`)
+  )) {
+    const base = candidate.scope === "project" ? projectDir : manifestDir;
+    const sourcePath = await realpath(resolve(base, candidate.src));
+    fingerprints.push({
+      ...candidate,
+      sha256: await fingerprintReviewSourceFile(sourcePath)
+    });
+  }
+  return fingerprints;
+}
+
+async function fingerprintReviewSourceFile(path: string): Promise<string> {
+  const before = await stat(path);
+  if (!before.isFile()) throw new Error(`review source is not a regular file: ${path}`);
+  const cached = reviewSourceDigestCache.get(path);
+  if (cached && sameReviewSourceIdentity(cached, before)) return cached.digest;
+  const digest = await new Promise<string>((resolveDigest, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", () => resolveDigest(hash.digest("hex")));
+  });
+  const after = await stat(path);
+  if (!sameReviewSourceIdentity(before, after)) {
+    throw new Error(`review source changed while it was being fingerprinted: ${path}`);
+  }
+  reviewSourceDigestCache.set(path, {
+    dev: after.dev,
+    ino: after.ino,
+    size: after.size,
+    mtimeMs: after.mtimeMs,
+    ctimeMs: after.ctimeMs,
+    digest
+  });
+  if (reviewSourceDigestCache.size > REVIEW_SOURCE_DIGEST_CACHE_MAX_ENTRIES) {
+    const oldest = reviewSourceDigestCache.keys().next().value as string | undefined;
+    if (oldest) reviewSourceDigestCache.delete(oldest);
+  }
+  return digest;
+}
+
+function sameReviewSourceIdentity(
+  left: Pick<Stats, "dev" | "ino" | "size" | "mtimeMs" | "ctimeMs">,
+  right: Pick<Stats, "dev" | "ino" | "size" | "mtimeMs" | "ctimeMs">
+): boolean {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs;
+}
+
+async function fingerprintReviewAssets(
+  outputDir: string,
+  document: ReviewDocument
+): Promise<Array<{ path: string; sha256: string }>> {
+  const realOutputDir = await realpath(outputDir);
+  const previewPaths = [...new Set(
+    collectReferencedAssets(document)
+      .map((asset) => asset.preview_src)
+      .filter((path): path is string => Boolean(path))
+  )].sort();
+  const fingerprints: Array<{ path: string; sha256: string }> = [];
+  for (const previewPath of previewPaths) {
+    const sourcePath = await realpath(resolve(outputDir, previewPath));
+    if (!isPathWithin(realOutputDir, sourcePath)) {
+      throw new Error(`review preview escapes review root: ${previewPath}`);
+    }
+    fingerprints.push({
+      path: previewPath,
+      sha256: createHash("sha256").update(await readFile(sourcePath)).digest("hex")
+    });
+  }
+  return fingerprints;
+}
 export function createReviewDocument(
   project: Project,
   manifest: Manifest,

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { copyFile, lstat, mkdir, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Issue, Result } from "../types.js";
@@ -70,6 +72,7 @@ export async function pinGenerationAssets(
       const target = join(runDir, relativePath);
       await mkdir(dirname(target), { recursive: true });
       await copyFile(resolved.path, target);
+      await assertVerifiedCopy(resolved.path, target, request.first_frame);
       pinnedRequest = { ...pinnedRequest, first_frame: target };
       manifestPaths.set(request.id, relativePath);
     }
@@ -95,6 +98,7 @@ export async function pinGenerationAssets(
       const target = join(runDir, relativePath);
       await mkdir(dirname(target), { recursive: true });
       await copyFile(resolved.path, target);
+      await assertVerifiedCopy(resolved.path, target, referenceImage);
       pinnedReferences.push(target);
       referencePaths.push(relativePath);
     }
@@ -112,6 +116,22 @@ export async function pinGenerationAssets(
     manifestPaths,
     referenceManifestPaths
   };
+}
+
+async function assertVerifiedCopy(source: string, target: string, label: string): Promise<void> {
+  if (await sha256File(source) !== await sha256File(target)) {
+    throw new Error(`generation asset changed while it was being pinned: ${label}`);
+  }
+}
+
+async function sha256File(path: string): Promise<string> {
+  return await new Promise<string>((resolveDigest, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.once("error", reject);
+    stream.once("end", () => resolveDigest(hash.digest("hex")));
+  });
 }
 
 export function projectAssetRoot(configDir: string, manifest: string): string {

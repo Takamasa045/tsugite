@@ -1,4 +1,5 @@
 import { copyFile, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -74,6 +75,9 @@ async function cliFixture() {
   ]);
   const manifest = JSON.parse(await readFile(resolve("fixtures/manifests/minimal.valid.json"), "utf8"));
   for (const clip of manifest.clips) clip.src = clip.src.replace("../media/", "media/");
+  const finalDigest = createHash("sha256")
+    .update(await readFile(join(runDir, "final.mp4")))
+    .digest("hex");
   await Promise.all([
     writeFile(configPath, [
       "slug: demo",
@@ -92,7 +96,7 @@ async function cliFixture() {
       gates: {
         gate_1: { status: "approved" },
         gate_2: { status: "approved" },
-        gate_3: { status: "approved" }
+        gate_3: { status: "approved", approved_input_digest: finalDigest }
       }
     })}\n`),
     writeFile(join(runDir, "render-report.json"), "{}\n"),

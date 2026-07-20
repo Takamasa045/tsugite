@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadBackendCapabilities } from "../src/backends/capabilities.js";
 import { main } from "../src/cli.js";
+import {
+  acquireRunLock,
+  LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV
+} from "../src/orchestrator/state.js";
 
 async function capture(args: string[]) {
   const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -159,6 +163,50 @@ describe("pipeline main", () => {
     expect(JSON.parse(gate.stderr).issues[0]?.code).toBe("cli.option_unsupported");
     expect(JSON.parse(render.stderr).issues[0]?.code).toBe("cli.option_unsupported");
     await expect(stat(join(stateDir, "local-media-only-run/state.json"))).rejects.toThrow();
+  });
+
+  it("fails mutating run commands immediately while another process lock is held", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+    const config = "fixtures/projects/local-media-only.yaml";
+    const lock = await acquireRunLock(stateDir, "local-media-only-run");
+    let results: Awaited<ReturnType<typeof capture>>[] = [];
+    let dryRun: Awaited<ReturnType<typeof capture>> | undefined;
+
+    try {
+      results = [
+        await capture(["review", "--config", config, "--state-dir", stateDir, "--json"]),
+        await capture([
+          "gate",
+          "--config",
+          config,
+          "--gate",
+          "gate-1",
+          "--decision",
+          "approve",
+          "--actor",
+          "coordinator",
+          "--state-dir",
+          stateDir,
+          "--json"
+        ]),
+        await capture(["run", "--config", config, "--actor", "coordinator", "--state-dir", stateDir, "--json"]),
+        await capture(["render", "--config", config, "--actor", "coordinator", "--state-dir", stateDir, "--json"])
+      ];
+      dryRun = await capture(["run", "--config", config, "--dry-run", "--state-dir", stateDir, "--json"]);
+    } finally {
+      await lock.release();
+    }
+
+    for (const result of results) {
+      const issue = JSON.parse(result.stderr).issues[0];
+      expect(result.status).toBe(1);
+      expect(issue).toEqual({ code: "run.locked", message: "run is locked by another process" });
+      expect(result.stderr).not.toContain(stateDir);
+    }
+    expect(dryRun?.status).toBe(0);
+
+    const afterRelease = await capture(["review", "--config", config, "--state-dir", stateDir, "--json"]);
+    expect(afterRelease.status).toBe(0);
   });
 
   it("accepts explicit external-analysis permission only on analyze without changing local behavior", async () => {
@@ -868,6 +916,21 @@ describe("pipeline main", () => {
       const payload = JSON.parse(render.stdout);
       const rerenderPayload = JSON.parse(rerender.stdout);
       const report = JSON.parse(await readFile(payload.report_path, "utf8"));
+      process.env[LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV] = "0".repeat(64);
+      const changedAfterConfirmation = await capture([
+        "gate",
+        "--config",
+        config,
+        "--gate",
+        "gate-3",
+        "--decision",
+        "approve",
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
       const completed = await capture([
         "gate",
         "--config",
@@ -894,7 +957,13 @@ describe("pipeline main", () => {
       await expect(stat(payload.output_path)).resolves.toMatchObject({ size: expect.any(Number) });
       expect(rerender.status).toBe(0);
       expect(rerenderPayload.already_rendered).toBe(true);
+      expect(changedAfterConfirmation.status).toBe(1);
+      expect(JSON.parse(changedAfterConfirmation.stderr).issues[0].code)
+        .toBe("gate.approval_artifacts_changed");
+      expect(process.env[LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV]).toBeUndefined();
       expect(JSON.parse(completed.stdout).state.status).toBe("completed");
+      expect(JSON.parse(completed.stdout).state.gates.gate_3.approved_input_digest)
+        .toMatch(/^[a-f0-9]{64}$/);
     },
     60000
   );
