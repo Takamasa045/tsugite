@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +15,8 @@ test("Electron and Forge stay build-time dependencies at the pinned versions", a
   assert.equal(manifest.devDependencies.electron, "43.1.1");
   assert.equal(manifest.devDependencies["@electron-forge/cli"], "7.11.2");
   assert.equal(manifest.dependencies?.electron, undefined);
+  assert.match(manifest.dependencies["node-pty"], /^\^\d+\.\d+\.\d+$/);
+  assert.equal(manifest.devDependencies?.["node-pty"], undefined);
   assert.equal(manifest.overrides.tar, "7.5.20");
   assert.equal(manifest.overrides.tmp, "0.2.7");
   assert.match(manifest.scripts["build:runtime"], /^node scripts\/clean-generated\.mjs && .*prepare-runtime -- --install$/);
@@ -21,14 +25,30 @@ test("Electron and Forge stay build-time dependencies at the pinned versions", a
   assert.equal(manifest.scripts.test, "node --test test/*.test.mjs");
 });
 
+test("Viewer keeps terminal rendering dependencies in its runtime manifest", async () => {
+  const manifest = JSON.parse(
+    await readFile(new URL("../workflow-viewer/package.json", desktopRoot), "utf8")
+  );
+
+  assert.match(manifest.dependencies["@xterm/xterm"], /^\^\d+\.\d+\.\d+$/);
+  assert.match(manifest.dependencies["@xterm/addon-fit"], /^\^\d+\.\d+\.\d+$/);
+  assert.equal(manifest.devDependencies?.["@xterm/xterm"], undefined);
+  assert.equal(manifest.devDependencies?.["@xterm/addon-fit"], undefined);
+});
+
 test("Forge makes macOS ZIP/DMG and Windows Squirrel with an external runtime", async () => {
   const { default: config } = await import("../forge.config.mjs");
 
-  assert.equal(config.packagerConfig.asar, true);
+  assert.deepEqual(config.packagerConfig.asar, {
+    unpack: `{**/node_modules/node-pty/build/Release/**,**/node_modules/node-pty/prebuilds/${process.platform}-${process.arch}/**}`
+  });
   assert.deepEqual(config.packagerConfig.extraResource, [fileURLToPath(new URL("../runtime", import.meta.url))]);
   assert.equal(config.packagerConfig.icon, fileURLToPath(new URL("../assets/icon", import.meta.url)));
   assert.equal(config.packagerConfig.ignore("/src/main.mjs"), false);
+  assert.equal(config.packagerConfig.ignore("/src/preload.mjs"), false);
+  assert.equal(config.packagerConfig.ignore("/src/agent-terminal.mjs"), false);
   assert.equal(config.packagerConfig.ignore("/node_modules/electron-squirrel-startup/index.js"), false);
+  assert.equal(config.packagerConfig.ignore("/node_modules/node-pty/build/Release/pty.node"), false);
   assert.equal(config.packagerConfig.ignore("/runtime/secret.mov"), true);
   assert.equal(config.packagerConfig.ignore("/notes/private.txt"), true);
 
@@ -40,6 +60,34 @@ test("Forge makes macOS ZIP/DMG and Windows Squirrel with an external runtime", 
   assert.equal(JSON.stringify(config).includes("password"), false);
   assert.equal(JSON.stringify(config).includes("BEGIN PRIVATE KEY"), false);
 });
+
+if (process.platform !== "win32") {
+  test("Forge makes rebuilt and prebuilt node-pty spawn helpers executable before ASAR", async () => {
+    const { default: config } = await import("../forge.config.mjs");
+    const buildPath = await mkdtemp(join(tmpdir(), "tsugite-native-permissions-"));
+    const helpers = [
+      join(buildPath, "node_modules", "node-pty", "build", "Release", "spawn-helper"),
+      join(buildPath, "node_modules", "node-pty", "prebuilds", `${process.platform}-${process.arch}`, "spawn-helper")
+    ];
+    for (const helper of helpers) {
+      await mkdir(dirname(helper), { recursive: true });
+      await writeFile(helper, "helper");
+      await chmod(helper, 0o644);
+    }
+
+    await new Promise((resolve, reject) => {
+      config.packagerConfig.beforeAsar[0](
+        buildPath,
+        "43.1.1",
+        process.platform,
+        process.arch,
+        (error) => error ? reject(error) : resolve()
+      );
+    });
+
+    for (const helper of helpers) assert.notEqual((await stat(helper)).mode & 0o111, 0);
+  });
+}
 
 test("ships the Tsugite joinery icon in source, macOS, and Windows formats", async () => {
   const assets = new URL("../assets/", import.meta.url);

@@ -186,6 +186,15 @@
   font-size: .72rem;
   line-height: 1.6;
 }
+.launcher-project-list-refresh-notice {
+  margin: 16px 0 0;
+  border-left: 3px solid #758c69;
+  padding: 10px 12px;
+  color: #34452f;
+  background: #f1f6ed;
+  font-size: .72rem;
+  line-height: 1.6;
+}
 .launcher-project-card,
 .launcher-template-card,
 .launcher-feedback-card { border-radius: 1px 14px 1px 14px; transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
@@ -785,4 +794,110 @@
   .launcher-template-card,
   .launcher-feedback-card { transition: none; }
   .launcher-project-open-cue { transition: none; }
+}
+
+/* AI CLI stays below the production shelf as a quiet, opt-in tool. */
+.launcher-agent-workspace {
+  width: min(1400px, calc(100% - 48px));
+  margin: 12px auto 0;
+  border: 1px solid rgba(231, 212, 174, .14);
+  border-radius: 1px 12px 1px 12px;
+  color: var(--launcher-kinari);
+  background: #121410;
+}
+.launcher-agent-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 58px;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  padding: 10px 16px;
+  color: rgba(244, 237, 223, .72);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.launcher-agent-toggle > svg:first-child { color: rgba(200, 168, 120, .72); }
+.launcher-agent-toggle > span { display: grid; flex: 1; gap: 2px; }
+.launcher-agent-toggle strong { font-size: .7rem; }
+.launcher-agent-toggle small { color: rgba(244, 237, 223, .56); font-size: .58rem; font-weight: 500; }
+.launcher-agent-toggle > svg:last-child { transition: transform .18s ease; }
+.launcher-agent-toggle > svg:last-child.is-open { transform: rotate(180deg); }
+.launcher-agent-toggle:hover:not(:disabled) { color: var(--launcher-kinari); background: rgba(244, 237, 223, .035); }
+.launcher-agent-toggle:focus-visible { outline: 3px solid rgba(200, 168, 120, .32); outline-offset: 2px; }
+.launcher-agent-toggle:disabled { cursor: default; }
+.launcher-agent-workspace-content { border-top: 1px solid rgba(231, 212, 174, .12); padding: 0 14px 14px; }
+.launcher-agent-quiet-note { margin: 0; padding: 14px 6px 2px; color: rgba(244, 237, 223, .5); font-size: .63rem; line-height: 1.7; }
+.launcher-agent-quiet-note strong { color: rgba(244, 237, 223, .75); }
+.launcher-agent-inline-status { margin: 10px 6px 0; border-left: 2px solid rgba(200, 168, 120, .55); padding: 8px 11px; color: rgba(244, 237, 223, .62); background: rgba(200, 168, 120, .05); font-size: .63rem; line-height: 1.6; }
+
+.launcher-agent-console { margin-top: 12px; border: 1px solid rgba(231, 212, 174, .2); border-radius: 1px 12px 1px 12px; overflow: hidden; background: #0f110e; }
+.launcher-agent-console-heading {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(231, 212, 174, .16);
+  background: #1d201b;
+}
+.launcher-agent-console-heading > div { display: flex; align-items: center; gap: 11px; }
+.launcher-agent-console-heading > div > svg { color: var(--launcher-mokume); }
+.launcher-agent-console-heading > div > span { display: grid; gap: 3px; }
+.launcher-agent-console-heading strong { color: var(--launcher-kinari); font-size: .77rem; }
+.launcher-agent-console-heading small,
+.launcher-agent-console-heading > span { color: rgba(244, 237, 223, .5); font-size: .62rem; }
+
+.launcher-agent-hosts { display: flex; gap: 8px; margin: 0; border: 0; padding: 16px 20px; }
+.launcher-agent-hosts label { position: relative; flex: 1; cursor: pointer; }
+.launcher-agent-hosts input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.launcher-agent-hosts label > span { display: grid; min-height: 62px; gap: 4px; align-content: center; border: 1px solid rgba(231, 212, 174, .22); border-radius: 1px 10px 1px 10px; padding: 10px 14px; background: rgba(244, 237, 223, .04); }
+.launcher-agent-hosts label > span::before { position: absolute; top: 50%; right: 15px; width: 8px; height: 8px; border: 1px solid rgba(231, 212, 174, .45); border-radius: 50%; content: ""; transform: translateY(-50%); }
+.launcher-agent-hosts input:checked + span { border-color: var(--launcher-mokume); background: rgba(200, 168, 120, .11); }
+.launcher-agent-hosts input:checked + span::before { border-color: var(--launcher-mokume); background: var(--launcher-mokume); box-shadow: 0 0 0 3px rgba(200, 168, 120, .16); }
+.launcher-agent-hosts input:focus-visible + span { outline: 3px solid rgba(200, 168, 120, .3); outline-offset: 2px; }
+.launcher-agent-hosts input:disabled + span { opacity: .46; cursor: not-allowed; }
+.launcher-agent-hosts strong { color: var(--launcher-kinari); font-size: .72rem; }
+.launcher-agent-hosts small { color: rgba(244, 237, 223, .5); font-size: .61rem; }
+.launcher-agent-capability-note { margin: -5px 20px 15px; color: rgba(244, 237, 223, .5); font-size: .61rem; line-height: 1.6; }
+
+.launcher-agent-terminal { margin: 0 20px 20px; overflow: hidden; border: 1px solid rgba(231, 212, 174, .2); border-radius: 1px 12px 1px 12px; background: #111310; }
+.launcher-agent-terminal-bar { display: flex; min-height: 54px; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 12px 8px 16px; border-bottom: 1px solid rgba(231, 212, 174, .14); background: #252821; }
+.launcher-agent-terminal-bar > div { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.launcher-agent-terminal-bar strong { color: var(--launcher-kinari); font-size: .7rem; }
+.launcher-agent-terminal-bar small { overflow: hidden; color: rgba(244, 237, 223, .45); font-size: .58rem; text-overflow: ellipsis; white-space: nowrap; }
+.launcher-agent-terminal-lamps { display: flex; gap: 5px; }
+.launcher-agent-terminal-lamps i { display: block; width: 7px; height: 7px; border-radius: 50%; background: #70554c; }
+.launcher-agent-terminal-lamps i:nth-child(2) { background: #856f45; }
+.launcher-agent-terminal-lamps i:nth-child(3) { background: #53664b; }
+.launcher-agent-terminal-bar button { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; border: 1px solid rgba(200, 168, 120, .48); border-radius: 1px 8px 1px 8px; padding: 0 12px; color: var(--launcher-kinari); background: rgba(200, 168, 120, .08); font-size: .66rem; font-weight: 800; cursor: pointer; }
+.launcher-agent-terminal-bar button:hover:not(:disabled) { border-color: var(--launcher-mokume); background: rgba(200, 168, 120, .15); }
+.launcher-agent-terminal-bar button:focus-visible { outline: 3px solid rgba(200, 168, 120, .32); outline-offset: 2px; }
+.launcher-agent-terminal-bar button:disabled { opacity: .56; cursor: progress; }
+.launcher-agent-terminal-screen { height: min(46vh, 380px); min-height: 240px; padding: 10px 8px; outline: none; }
+.launcher-agent-terminal-screen:focus-visible { box-shadow: inset 0 0 0 2px var(--launcher-mokume); }
+.launcher-agent-terminal-screen .xterm { height: 100%; }
+.launcher-agent-terminal-status { margin: 0; border-top: 1px solid rgba(231, 212, 174, .12); padding: 9px 14px; color: rgba(244, 237, 223, .55); font-size: .61rem; line-height: 1.5; }
+.launcher-agent-terminal-status[data-state="running"] { color: #b9d2ad; }
+.launcher-agent-terminal-status[data-state="error"] { color: #e5a095; }
+.launcher-agent-no-host { margin: 0 20px 20px; border-left: 3px solid var(--launcher-urushi); padding: 12px 14px; color: rgba(244, 237, 223, .66); background: rgba(166, 61, 47, .1); font-size: .69rem; }
+
+@media (max-width: 760px) {
+  .launcher-agent-workspace { width: calc(100% - 24px); }
+  .launcher-agent-toggle { padding-inline: 13px; }
+  .launcher-agent-console-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .launcher-agent-hosts { flex-direction: column; }
+  .launcher-agent-terminal { margin-inline: 12px; }
+  .launcher-agent-terminal-bar { align-items: flex-start; flex-direction: column; }
+  .launcher-agent-terminal-bar > div { width: 100%; }
+  .launcher-agent-terminal-bar button { width: 100%; justify-content: center; }
+  .launcher-agent-terminal-screen { min-height: 220px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher-agent-toggle > svg:last-child,
+  .launcher-agent-hosts label > span,
+  .launcher-agent-terminal-bar button { transition: none; }
 }

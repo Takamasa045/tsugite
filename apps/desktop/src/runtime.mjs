@@ -136,7 +136,8 @@ export async function prepareWorkspaceDirectories(workspaceRoot) {
   return { root: canonicalRoot, projectsDir, templatesDir };
 }
 
-export function createSecureWindowOptions() {
+export function createSecureWindowOptions({ preloadPath } = {}) {
+  if (!isAbsolute(preloadPath || "")) throw new Error("Desktop requires an absolute preload path");
   return {
     width: 1440,
     height: 960,
@@ -144,7 +145,8 @@ export function createSecureWindowOptions() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true
+      sandbox: true,
+      preload: preloadPath
     }
   };
 }
@@ -159,6 +161,25 @@ function allowedOrigins(launcherUrl, artifactUrl) {
     origins.add(url.origin);
   }
   return origins;
+}
+
+export function createIpcOriginGuard({ launcherUrl, webContents }) {
+  const url = new URL(launcherUrl);
+  if (url.protocol !== "http:" || url.hostname !== LOOPBACK_HOST || url.username || url.password) {
+    throw new Error(`Desktop IPC requires a loopback HTTP origin: ${launcherUrl}`);
+  }
+  const launcherOrigin = url.origin;
+  return (event) => {
+    if (event?.sender !== webContents || event?.senderFrame !== webContents?.mainFrame) return false;
+    const input = event?.senderFrame?.url;
+    if (typeof input !== "string") return false;
+    try {
+      const url = new URL(input);
+      return url.protocol === "http:" && url.hostname === LOOPBACK_HOST && url.origin === launcherOrigin;
+    } catch {
+      return false;
+    }
+  };
 }
 
 export function installNavigationGuards(webContents, {

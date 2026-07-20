@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import {
   assertCanonicalWorkspaceOutsideProtectedDirectory,
   assertWorkspaceOutsideProtectedDirectory,
+  createIpcOriginGuard,
   createSecureWindowOptions,
   denyAllSessionPermissions,
   installNavigationGuards,
@@ -228,17 +229,34 @@ test("workspace preparation rejects symlinked managed directories", {
   );
 });
 
-test("BrowserWindow options keep renderer capabilities disabled", () => {
-  assert.deepEqual(createSecureWindowOptions(), {
+test("BrowserWindow options keep renderer capabilities disabled and load only the trusted preload", () => {
+  assert.deepEqual(createSecureWindowOptions({ preloadPath: "/app/src/preload.mjs" }), {
     width: 1440,
     height: 960,
     show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true
+      sandbox: true,
+      preload: "/app/src/preload.mjs"
     }
   });
+  assert.throws(() => createSecureWindowOptions({ preloadPath: "relative/preload.mjs" }), /absolute preload/);
+});
+
+test("IPC origin guard accepts only the launcher main frame from the owning window", () => {
+  const mainFrame = { url: "http://127.0.0.1:4100/project" };
+  const webContents = { mainFrame };
+  const isTrusted = createIpcOriginGuard({
+    launcherUrl: "http://127.0.0.1:4100",
+    webContents
+  });
+
+  assert.equal(isTrusted({ sender: webContents, senderFrame: mainFrame }), true);
+  assert.equal(isTrusted({ sender: webContents, senderFrame: { url: "http://127.0.0.1:4200/review/index.html" } }), false);
+  assert.equal(isTrusted({ sender: webContents, senderFrame: { url: "http://localhost:4100/project" } }), false);
+  assert.equal(isTrusted({ sender: {}, senderFrame: mainFrame }), false);
+  assert.equal(isTrusted({ sender: webContents, senderFrame: null }), false);
 });
 
 test("navigation guards allow only the exact launcher and artifact origins", () => {

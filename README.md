@@ -41,7 +41,11 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 
 ## Local Workflow Launcher and 3D Viewer
 
-The launcher lists local projects and templates and can refresh or open each project's 3D workflow snapshot. The executable 2D generation-node canvas is deferred to a later release; the current Desktop UI does not expose `run`, `render`, or Gate-decision controls.
+The launcher offers three clear places to work: use your usual Codex or Claude app beside Tsugite, open an installed Codex CLI or Claude Code in the Desktop's built-in terminal, or use Tsugite for inspection only. The browser version cannot use the built-in terminal, so it remains available alongside an external AI app or as an inspection surface.
+
+The built-in terminal does not install an AI CLI and limits the initial program to Codex CLI or Claude Code. After launch, however, each AI CLI keeps its normal permission and approval settings and may read or write workspace files, run commands, or use the network. This is not a separate Tsugite sandbox, so review each CLI's approval prompts. AI CLI authentication or subscriptions are separate from API billing and credits for generation providers such as PixVerse. Opening the launcher or terminal does not start generation, and an AI suggestion never auto-approves a Gate. Gates do not sandbox general file operations; `run`, `render`, and Gate decisions still require explicit human approval and the Coordinator role.
+
+The launcher lists local projects and templates and can refresh or open each project's 3D workflow snapshot. The executable 2D generation-node canvas is deferred to a later release; the current Desktop buttons do not directly execute `run`, `render`, or Gate decisions.
 
 The existing 3D Viewer remains available for detailed, seekable inspection. It turns bundled samples or a refreshed Tsugite snapshot into a navigable production floor with status-aware nodes, dependency lines, node details, and event playback. The 3D artifact itself stays static and read-only.
 

@@ -459,6 +459,7 @@ export type StartWorkflowViewerLauncherOptions = {
   templatesDir?: string;
   port?: number;
   bundleDir?: string;
+  allowProjectActions?: boolean;
   beforeRefresh?: (project: LauncherProject) => void | Promise<void>;
   beforeProjectReloadCommit?: () => void | Promise<void>;
   beforeServeArtifact?: (path: string) => void | Promise<void>;
@@ -503,6 +504,7 @@ export async function startWorkflowViewerLauncher(
   const refreshing = new Set<string>();
   const writer = options.writeViewer ?? writeWorkflowViewer;
   const executePipeline = options.executePipeline ?? executePipelineProcess;
+  const allowProjectActions = options.allowProjectActions ?? true;
   let launcherOrigin = "";
   let artifactOrigin = "";
 
@@ -663,6 +665,7 @@ export async function startWorkflowViewerLauncher(
     }
 
     const projectActionMatch = /^\/api\/projects\/([^/]+)\/action$/.exec(requestUrl.pathname);
+    if (projectActionMatch && !allowProjectActions) return sendNotFound(response);
     if (method === "GET" && projectActionMatch) {
       if (request.headers["x-tsugite-token"] !== token) {
         sendJson(response, 403, {
@@ -3233,6 +3236,7 @@ function contentTypeFor(path: string): string {
   const types: Record<string, string> = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
