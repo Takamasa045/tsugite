@@ -130,9 +130,20 @@ async function startDesktop() {
   installNavigationGuards(mainWindow.webContents, {
     launcherUrl: launcher.url,
     artifactUrl: launcher.artifactUrl,
+    canNavigate: (url) => new URL(url).origin === new URL(launcher.url).origin || !agentTerminals.hasActive(),
     onAllowedWindowOpen: (url) => {
       if (mainWindow && !mainWindow.isDestroyed()) return mainWindow.loadURL(url);
       return undefined;
+    },
+    onNavigationBlocked: () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      void dialog.showMessageBox(mainWindow, {
+        type: "info",
+        title: "AI CLIと作業中です",
+        message: "制作画面へ移動する前に、画面下部の「停止」を押してください。",
+        buttons: ["わかりました"],
+        noLink: true
+      });
     }
   });
   const isTrustedIpcEvent = createIpcOriginGuard({

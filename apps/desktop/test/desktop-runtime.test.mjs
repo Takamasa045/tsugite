@@ -293,6 +293,34 @@ test("navigation guards allow only the exact launcher and artifact origins", () 
   assert.equal(webviewEvent.prevented, true);
 });
 
+test("navigation guards keep an active embedded CLI on the launcher", () => {
+  const listeners = new Map();
+  let openHandler;
+  const blocked = [];
+  const webContents = {
+    on(name, handler) { listeners.set(name, handler); },
+    setWindowOpenHandler(handler) { openHandler = handler; }
+  };
+  installNavigationGuards(webContents, {
+    launcherUrl: "http://127.0.0.1:4100",
+    artifactUrl: "http://127.0.0.1:4200",
+    canNavigate: () => false,
+    onAllowedWindowOpen() {},
+    onNavigationBlocked: (url) => blocked.push(url)
+  });
+
+  const navigateEvent = { prevented: false, preventDefault() { this.prevented = true; } };
+  listeners.get("will-navigate")(navigateEvent, "http://127.0.0.1:4200/viewer/index.html");
+  assert.equal(navigateEvent.prevented, true);
+  assert.deepEqual(blocked, ["http://127.0.0.1:4200/viewer/index.html"]);
+
+  assert.deepEqual(openHandler({ url: "http://127.0.0.1:4200/review/index.html" }), { action: "deny" });
+  assert.deepEqual(blocked, [
+    "http://127.0.0.1:4200/viewer/index.html",
+    "http://127.0.0.1:4200/review/index.html"
+  ]);
+});
+
 test("navigation setup rejects non-loopback base origins", () => {
   assert.throws(() => installNavigationGuards({
     on() {},

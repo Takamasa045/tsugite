@@ -185,7 +185,9 @@ export function createIpcOriginGuard({ launcherUrl, webContents }) {
 export function installNavigationGuards(webContents, {
   launcherUrl,
   artifactUrl,
-  onAllowedWindowOpen
+  onAllowedWindowOpen,
+  canNavigate = () => true,
+  onNavigationBlocked = () => {}
 }) {
   const origins = allowedOrigins(launcherUrl, artifactUrl);
   const isAllowed = (candidate) => {
@@ -197,13 +199,16 @@ export function installNavigationGuards(webContents, {
     }
   };
   const guard = (event, url) => {
-    if (!isAllowed(url)) event.preventDefault();
+    if (isAllowed(url) && canNavigate(url)) return;
+    event.preventDefault();
+    if (isAllowed(url)) onNavigationBlocked(url);
   };
   webContents.on("will-navigate", guard);
   webContents.on("will-redirect", guard);
   webContents.on("will-attach-webview", (event) => event.preventDefault());
   webContents.setWindowOpenHandler(({ url }) => {
-    if (isAllowed(url)) onAllowedWindowOpen(url);
+    if (isAllowed(url) && canNavigate(url)) onAllowedWindowOpen(url);
+    else if (isAllowed(url)) onNavigationBlocked(url);
     return { action: "deny" };
   });
   return { isAllowed };
