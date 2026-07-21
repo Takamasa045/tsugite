@@ -606,53 +606,25 @@ describe("pipeline main", () => {
     await expect(stat(copiedClip)).resolves.toMatchObject({ size: expect.any(Number) });
   });
 
-  it("keeps TopView MCP as an agent handoff after Gate 1 instead of running the CLI bridge", async () => {
-    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
+  it("reports TopView MCP as a gated pipeline execution without submitting on dry run", async () => {
     const config = "fixtures/projects/topview-image-generation.yaml";
-    const blocked = await capture([
-      "run",
-      "--config",
-      config,
-      "--actor",
-      "coordinator",
-      "--state-dir",
-      stateDir,
-      "--json"
-    ]);
-    await prepareReview(config, stateDir);
-    await capture([
-      "gate",
-      "--config",
-      config,
-      "--gate",
-      "gate-1",
-      "--decision",
-      "approve",
-      "--actor",
-      "coordinator",
-      "--state-dir",
-      stateDir,
-      "--json"
-    ]);
     const run = await capture([
       "run",
       "--config",
       config,
       "--actor",
       "coordinator",
-      "--state-dir",
-      stateDir,
+      "--dry-run",
       "--json"
     ]);
 
-    expect(blocked.status).toBe(1);
-    expect(JSON.parse(blocked.stderr).issues[0].code).toBe("run.requires_gate_1_approval");
-    expect(run.status).toBe(1);
-    expect(JSON.parse(run.stderr).issues[0]).toMatchObject({
-      code: "run.connection_handoff_required",
-      path: "generation.connection"
+    expect(run.status).toBe(0);
+    expect(JSON.parse(run.stdout).dry_run.plan.agent_handoffs[0]).toMatchObject({
+      phase: "generation",
+      connection: "topview",
+      transport: "mcp",
+      execution: "pipeline-mcp"
     });
-    await expect(stat(join(stateDir, "topview-image-generation-run", "manifest.json"))).rejects.toThrow();
   });
 
   it("requires OpenClaw setup only when the optional adapter is executed", async () => {

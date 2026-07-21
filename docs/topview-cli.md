@@ -1,15 +1,16 @@
-# TopView CLI生成
+# TopView MCP生成
 
-TopView adapterは、TopView skill同梱の`video_gen.py`を呼ぶ実行可能なCLI adapterです。通常は`~/.agents/skills/topview-skill/scripts/video_gen.py`を検出し、必要な場合だけ`TSUGITE_TOPVIEW_VIDEO_COMMAND`へJSON配列形式のcommandを設定します。
+TopView adapterは、固定HTTPS endpointの公式TopView MCPを呼ぶ実行bridgeです。生成キャンバスでは「TopView MCP」と表示し、画像・動画・音声のモデルと必須parameterを実行時の`topview_get_generation_config`から取得します。静的なモデル一覧だけを実行可否の根拠にはしません。
 
 ## 単一画像から動画を生成する
 
 ```yaml
 generation:
+  connection: topview
   adapter: topview
   requests:
     - id: opening-shot
-      mode: image-to-video
+      input_mode: image-to-video
       first_frame: assets/opening.png
       prompt: "人物がゆっくり振り向き、カメラが少し前進する"
       model: Standard
@@ -30,6 +31,25 @@ node bin/pipeline review --config <project.yaml> --json
 node bin/pipeline run --config <project.yaml> --dry-run --json
 ```
 
-`run --dry-run`はadapterを起動せず、クレジット見積もりだけを返します。実生成はレビュー済みのGate 1をCoordinatorが承認した後だけ実行できます。生成済み動画は`dist/<run-id>/`へ取得され、assembled manifestの`clips`と`provenance`に記録されます。
+`run --dry-run`はMCPへ生成タスクを送らず、クレジット見積もりだけを返します。実生成はレビュー済みのGate 1をCoordinatorが承認した後だけ実行できます。生成済みメディアは`dist/<run-id>/`へ取得され、assembled manifestの`clips`、`images`、`audio`と`provenance`に記録されます。
 
-現行契約は単一`first_frame`のi2vと既存t2vです。`end_frame`、複数参照画像、omniは未対応です。
+対応する生成種別は次の通りです。
+
+- `operation: image`: text-to-image、画像編集
+- `operation: image` + `params.task_type: storyboard`: ストーリーボード画像
+- `operation: video`: text-to-video、image-to-video
+- `operation: reference`: 画像・動画参照によるomni reference
+- `operation: motion-control`: 画像と動画を使うmotion control
+- `operation: music`: 音楽生成
+- `operation: voice`: `params.voice_id`による音声合成。`input_audios`を指定した場合は参照音声によるinstant voice生成
+- `operation: template`: `params.template_id`に`remove-background`、`product-avatar`、`avatar-video`を指定するTopView専用処理
+
+TopView側のモデル・必須parameterが変わり得るため、具体的な選択肢はMCPの実行時configを正本にします。未対応の入力組み合わせや、選択モデルが実行時configにない場合は課金前に停止します。
+
+専用templateでは、`remove-background`は`first_frame`を対象画像、`product-avatar`は`first_frame`を背景除去済み商品画像・最初の`input_images`をモデル画像、`avatar-video`は`first_frame`をアバター画像として扱います。既存avatar IDを使う場合は`params.avatar_id`を指定します。すべてのローカル入力はrun内へ固定してから送信します。
+
+## 認証と秘密情報
+
+- TopViewのログインで作成されたprivate credential file、または`TOPVIEW_UID`と`TOPVIEW_API_KEY`を使う。
+- `doctor`はMCP tool availabilityだけを非課金で確認する。契約権限と残高はGate 1前に別途確認する。
+- credential、署名付きupload/download URL、認証headerをmanifestやログへ保存しない。

@@ -33,6 +33,27 @@ export async function validateGenerationAssets(
       );
       if (!result.ok) issues.push(...result.issues);
     }
+    const extraAssets = [
+      ...(request.input_images ?? []).map((source, assetIndex) => ({ source, field: "input_images", assetIndex })),
+      ...(request.input_video ? [{ source: request.input_video, field: "input_video", assetIndex: 0 }] : []),
+      ...(request.input_videos ?? []).map((source, assetIndex) => ({ source, field: "input_videos", assetIndex })),
+      ...(request.input_audios ?? []).map((source, assetIndex) => ({ source, field: "input_audios", assetIndex }))
+    ];
+    for (const field of ["image", "video"] as const) {
+      const source = localProviderInput(request.params[field]);
+      if (source) extraAssets.push({ source, field: `params.${field}`, assetIndex: 0 });
+    }
+    for (const asset of extraAssets) {
+      const result = await resolveGenerationAsset(
+        asset.source,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.${asset.field}${asset.field === "input_video" || asset.field.startsWith("params.") ? "" : `.${asset.assetIndex}`}`,
+        `generation.${asset.field}`,
+        asset.field.startsWith("params.")
+      );
+      if (!result.ok) issues.push(...result.issues);
+    }
   }
   return issues.length > 0 ? { ok: false, issues } : { ok: true, issues: [] };
 }
@@ -106,6 +127,69 @@ export async function pinGenerationAssets(
       pinnedRequest = { ...pinnedRequest, reference_images: pinnedReferences };
       referenceManifestPaths.set(request.id, referencePaths);
     }
+    for (const field of ["input_images", "input_videos", "input_audios"] as const) {
+      const sources = request[field] ?? [];
+      if (sources.length === 0) continue;
+      const pinned: string[] = [];
+      for (const [assetIndex, source] of sources.entries()) {
+        const resolved = await resolveGenerationAsset(
+          source,
+          configDir,
+          assetRoot,
+          `generation.requests.${index}.${field}.${assetIndex}`,
+          `generation.${field}`
+        );
+        if (!resolved.ok) return resolved;
+        const relativePath = toPortablePath(join(
+          "assets", "generation-inputs", request.id,
+          `${field}-${String(assetIndex + 1).padStart(3, "0")}${extension(source)}`
+        ));
+        const target = join(runDir, relativePath);
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(resolved.path, target);
+        pinned.push(target);
+      }
+      pinnedRequest = { ...pinnedRequest, [field]: pinned };
+    }
+    if (request.input_video) {
+      const resolved = await resolveGenerationAsset(
+        request.input_video,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.input_video`,
+        "generation.input_video"
+      );
+      if (!resolved.ok) return resolved;
+      const relativePath = toPortablePath(join(
+        "assets", "generation-inputs", request.id, `input-video${extension(request.input_video)}`
+      ));
+      const target = join(runDir, relativePath);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(resolved.path, target);
+      pinnedRequest = { ...pinnedRequest, input_video: target };
+    }
+    let pinnedParams = pinnedRequest.params;
+    for (const field of ["image", "video"] as const) {
+      const source = localProviderInput(request.params[field]);
+      if (!source) continue;
+      const resolved = await resolveGenerationAsset(
+        source,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.params.${field}`,
+        `generation.params.${field}`,
+        true
+      );
+      if (!resolved.ok) return resolved;
+      const relativePath = toPortablePath(join(
+        "assets", "generation-inputs", request.id, `legacy-${field}${extension(source)}`
+      ));
+      const target = join(runDir, relativePath);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(resolved.path, target);
+      pinnedParams = { ...pinnedParams, [field]: target };
+    }
+    if (pinnedParams !== pinnedRequest.params) pinnedRequest = { ...pinnedRequest, params: pinnedParams };
     prepared.push(pinnedRequest);
   }
 
@@ -143,19 +227,22 @@ async function resolveGenerationAsset(
   baseDir: string,
   assetRoot: string,
   path: string,
-  codePrefix: string
+  codePrefix: string,
+  allowAbsoluteWithinRoot = false
 ): Promise<Result<{ path: string }>> {
-  if (isAbsolute(source) || source.includes("\\")) {
+  if ((isAbsolute(source) && !allowAbsoluteWithinRoot) || source.includes("\\")) {
     return failure(`${codePrefix}.safe`, "generation asset must be a relative local path", path);
   }
 
   const root = resolve(assetRoot);
-  const candidate = resolve(baseDir, source);
-  if (!isWithin(root, candidate)) {
+  const candidates = [resolve(baseDir, source)];
+  if (allowAbsoluteWithinRoot && !isAbsolute(source)) candidates.push(resolve(process.cwd(), source));
+  const candidate = candidates.find((item) => isWithin(root, item)) ?? candidates[0]!;
+  if (!allowAbsoluteWithinRoot && !isWithin(root, candidate)) {
     return failure(`${codePrefix}.safe`, "generation asset must stay within the project asset root", path);
   }
 
-  const symlink = await containsSymlink(root, candidate);
+  const symlink = !allowAbsoluteWithinRoot && await containsSymlink(root, candidate);
   if (symlink) {
     return failure(`${codePrefix}.symlink`, "generation asset paths must not contain symbolic links", path);
   }
@@ -204,6 +291,12 @@ function extension(path: string): string {
   const name = basename(path);
   const dot = name.lastIndexOf(".");
   return dot >= 0 ? name.slice(dot) : "";
+}
+
+function localProviderInput(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  if (/^https:\/\//i.test(value) || /^[A-Za-z0-9_-]+$/.test(value)) return undefined;
+  return value;
 }
 
 function failure(code: string, message: string, path: string): { ok: false; issues: Issue[] } {

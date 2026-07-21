@@ -112,7 +112,7 @@ function gate1Details(context: DetailContext): ViewerWorkflowNodeDetails {
   const requests = project.generation?.requests ?? [];
   const requestCount = requests.length || plan.clips.length;
   const decision = gateDecision("gate_1", context, `${adapter}による素材生成を開始できる状態にしました。`);
-  const models = unique(requests.map((request) => request.model));
+  const models = unique(requests.flatMap((request) => request.model ? [request.model] : []));
   const modes = unique(requests.map((request) => inputModeLabel(generationRequestMode(request))));
   const creditSummary = artifacts.runLog
     ? `クレジット: 事前見積り${formatNumber(plan.estimated_credits)} / 実績${formatNumber(artifacts.runLog.actualCredits)}`

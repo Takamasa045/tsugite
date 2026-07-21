@@ -9,7 +9,7 @@ import {
   resolveGenerationConnection,
   type GenerationConnectionResolution
 } from "../connections/registry.js";
-import { generationRequestMode, type GenerationRequest, type Project } from "../project/schema.js";
+import { generationRequestCapability, generationRequestMode, generationRequestOutputKind, type GenerationRequest, type Project } from "../project/schema.js";
 import type { Result } from "../types.js";
 import {
   digest,
@@ -324,10 +324,8 @@ async function resolveReviewConnectionSnapshots(project: Project): Promise<
   const snapshots: ReviewConnectionSnapshot[] = [];
   if (project.generation?.connection) {
     const resolution = await resolveGenerationConnection(project.generation.connection, undefined, {
-      models: project.generation.requests.map((request) => request.model),
-      capabilities: [...new Set(project.generation.requests.map((request) =>
-        `video.${generationRequestMode(request) ?? "text-to-video"}`
-      ))]
+      models: project.generation.requests.flatMap((request) => request.model ? [request.model] : []),
+      capabilities: [...new Set(project.generation.requests.map(generationRequestCapability))]
     });
     if (!resolution) {
       return {
@@ -670,15 +668,15 @@ function createFallbackStoryboard(
 ): ReviewShot[] {
   if ((project.generation?.requests.length ?? 0) > 0) {
     let cursor = 0;
-    return project.generation!.requests.map((request, index) => {
+    return project.generation!.requests.filter((request) => generationRequestOutputKind(request) === "video").map((request, index) => {
       const start = cursor;
-      cursor += request.duration;
+      cursor += request.duration ?? 0;
       return {
         id: request.id,
         order: index + 1,
         start,
         end: cursor,
-        duration: request.duration,
+        duration: request.duration ?? 0,
         title: request.id,
         description: request.prompt,
         emphasis: [],

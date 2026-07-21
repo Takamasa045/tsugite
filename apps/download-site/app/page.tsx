@@ -28,6 +28,27 @@ const gates = [
   },
 ] as const;
 
+const knowledgeFeatures = [
+  {
+    label: "STORY GUIDANCE",
+    title: "物語の型を、選ぶ根拠に。",
+    copy: "起承転結、三幕構成、広告・解説・MVなど34種の構成法を収録。目的と尺から第一候補、補助候補、不採用理由、尺配分、映像文法を比較します。",
+    detail: "34 FRAMEWORKS / 35 FILM PRINCIPLES",
+  },
+  {
+    label: "PROMPT GUIDANCE",
+    title: "モデルごとの作法を、計画に。",
+    copy: "PixVerse、Kling、SeedanceのT2V／I2V知識を参照し、プロンプトの組み立て、避ける事項、尺や画角の制約を生成前に確認します。",
+    detail: "MODEL-AWARE / SOURCE-BACKED",
+  },
+  {
+    label: "LEARNING LOOP",
+    title: "判断を、次の制作へ。",
+    copy: "案件をまたいで繰り返された好みや学びを、Codex AutomationやClaudeが昇格候補として整理。人が根拠を確認し、承認したものだけを次の改善へ渡します。",
+    detail: "REVIEW / NOTIFY / APPROVE",
+  },
+] as const;
+
 export default function Home() {
   return (
     <main>
@@ -42,7 +63,9 @@ export default function Home() {
             </span>
           </a>
           <div className="nav-links">
+            <a href="#knowledge">設計知識</a>
             <a href="#workflow">制作工程</a>
+            <a href="#workspace">使い方</a>
             <a href="#download">ダウンロード</a>
             <a href={REPOSITORY_URL} target="_blank" rel="noreferrer">
               GitHub <span aria-hidden="true">↗</span>
@@ -62,9 +85,9 @@ export default function Home() {
               <span>組み上げる。</span>
             </h1>
             <p className="hero-lead">
-              制作案件を見渡す。テンプレートを選ぶ。3D Viewerで工程を確かめる。
+              Codex／Claude Codeでつくる。Desktopで見て決める。
               <br />
-              Tsugite Desktopの最初のベータ版を、MacとWindowsへ。
+              ハイブリッドに、依頼と確認を同じ制作フォルダでつなぎます。
             </p>
             <div className="hero-actions">
               <a className="button button-primary" href={MAC_DOWNLOAD_URL} aria-label="Mac版をダウンロード。Apple silicon、DMG、先行ベータ版">
@@ -80,29 +103,28 @@ export default function Home() {
             </p>
           </div>
 
-          <figure className="product-screen">
-            <div className="product-screen-frame">
-              <picture>
-                <source srcSet="/launcher-screen.avif" type="image/avif" />
-                <source srcSet="/launcher-screen.webp" type="image/webp" />
-                <img
-                  src="/launcher-screen.jpg"
-                  width="1280"
-                  height="720"
-                  alt="Tsugiteランチャーの実画面。制作案件の総数、進行中、確認待ち、完了の状況と制作棚を表示しています。"
-                  fetchPriority="high"
-                  decoding="async"
-                />
-              </picture>
+          <div
+            className="hero-motion"
+            role="img"
+            aria-label="構成を描き、素材を選び、映像を組み上げる。選ぶほど、自分好みの制作環境に育ってくる工程を表すアニメーション"
+          >
+            <div className="motion-stage" aria-hidden="true">
+              <div className="motion-topline"><span>TSUGITE / ROUGH CUT TO CRAFT</span><i /><b>00:14</b></div>
+              <div className="motion-film"><i /><i /><i /><i /></div>
+              <div className="motion-build">
+                <i className="motion-part motion-part-base" />
+                <i className="motion-part motion-part-left" />
+                <i className="motion-part motion-part-right" />
+                <i className="motion-part motion-part-cap" />
+                <i className="motion-lock" />
+              </div>
+              <p className="motion-copy motion-copy-compose"><small>01 / COMPOSE</small><strong>構成を、<em>描く。</em></strong></p>
+              <p className="motion-copy motion-copy-select"><small>02 / SELECT</small><strong>素材を、<em>選ぶ。</em></strong></p>
+              <p className="motion-copy motion-copy-assemble"><small>03 / ASSEMBLE</small><strong>映像を、<br /><em>組み上げる。</em></strong></p>
+              <p className="motion-copy motion-copy-grow"><small>04 / GROW</small><strong>選ぶほど、<em>自分好みに<br />育ってくる。</em></strong></p>
+              <div className="motion-footer"><span>INTENT</span><i /><span>JUDGMENT</span><i /><span>YOUR CRAFT</span></div>
             </div>
-            <figcaption>
-              <span>ACTUAL PRODUCT / v0.6.0 BETA</span>
-              <p>
-                <strong>現行ランチャーの実画面</strong>
-                <small>ローカルの制作案件を実データで表示</small>
-              </p>
-            </figcaption>
-          </figure>
+          </div>
         </div>
 
         <div className="hero-specs" aria-label="Tsugiteの特徴">
@@ -136,6 +158,32 @@ export default function Home() {
         <div className="key-visual-caption">
           <span>TSUGITE / KEY VISUAL</span>
           <p>生成と判断を、ひとつの工程に継ぐ。</p>
+        </div>
+      </section>
+
+      <section className="knowledge-section" id="knowledge" aria-labelledby="knowledge-title">
+        <header className="knowledge-heading">
+          <div>
+            <span className="kicker">CREATIVE KNOWLEDGE IN THE REPOSITORY</span>
+            <h2 id="knowledge-title">思いつきだけで、<br />構成しない。</h2>
+          </div>
+          <div className="knowledge-intro">
+            <p>
+              リポジトリ側のTsugiteワークフローは、物語構成・映像文法・生成モデル別のプロンプト知識を、企画とGate 1前のレビューで参照します。
+              型を自動で押しつけるのではなく、なぜその設計にするのかを比べて、人が選べるようにします。
+            </p>
+            <small>知識カタログは設計支援です。生成サービスの契約や実行可否とは分けて確認します。</small>
+          </div>
+        </header>
+        <div className="knowledge-grid">
+          {knowledgeFeatures.map((item, index) => (
+            <article className="knowledge-card" key={item.label}>
+              <div className="knowledge-card-top"><span>0{index + 1}</span><small>{item.label}</small></div>
+              <h3>{item.title}</h3>
+              <p>{item.copy}</p>
+              <strong>{item.detail}</strong>
+            </article>
+          ))}
         </div>
       </section>
 
@@ -214,6 +262,53 @@ export default function Home() {
             </a>
           </div>
         </div>
+
+        <section className="workspace-guide" id="workspace" aria-labelledby="workspace-guide-title">
+          <header className="workspace-guide-heading">
+            <span>DESKTOP + CODEX / CLAUDE CODE</span>
+            <h3 id="workspace-guide-title">アプリとエージェントで、<br />ひとつの制作環境。</h3>
+            <p>
+              Desktopは案件・工程・承認を確認する画面。企画や実際の生成・編集の依頼は、これまで通りTsugiteリポジトリを開いたCodex／Claude Codeから進めます。
+            </p>
+          </header>
+
+          <div className="hybrid-roles" aria-label="Tsugiteのハイブリッドな役割分担">
+            <article>
+              <small>MAKE / CODEX・CLAUDE CODE</small>
+              <h4>いつもの対話から、制作を頼む。</h4>
+              <p>Tsugiteリポジトリを開き、「この動画を作りたい」と依頼。物語構成やモデル別のプロンプト知識を参照しながら、企画、検証、生成・編集の手順を進めます。</p>
+            </article>
+            <i aria-hidden="true">↔</i>
+            <article>
+              <small>REVIEW / TSUGITE DESKTOP</small>
+              <h4>アプリで、見て決める。</h4>
+              <p>同じ案件をDesktopで開き、制作案件、テンプレート、3D Viewer、好み・学びの候補を確認。現在のベータ版は、この確認体験を先行して提供します。</p>
+            </article>
+          </div>
+
+          <ol className="start-steps" aria-label="Tsugiteを始める4ステップ">
+            <li><span>01</span><p><strong>アプリをダウンロード</strong><small>上のMac版またはWindows版を選びます。</small></p></li>
+            <li><span>02</span><p><strong>リポジトリを取得</strong><small>GitHubからTsugiteをcloneします。</small></p></li>
+            <li><span>03</span><p><strong>同じrepo rootを開く</strong><small>Codex／Claude CodeとDesktopで同じフォルダを選びます。</small></p></li>
+            <li><span>04</span><p><strong>対話から制作を依頼</strong><small>生成はエージェントへ依頼し、節目をDesktopで確認します。</small></p></li>
+          </ol>
+
+          <div className="learning-notice">
+            <span>OPTIONAL AUTOMATION</span>
+            <p>
+              <strong>通知を入口に、学びを育てる。</strong>
+              Codex Automation、Claude Desktop／CoworkのScheduled task、Claude Codeの反復実行を設定すると、繰り返された好みや学びの候補を自動で整理できます。
+              対応する標準通知を有効にして結果を受け取り、Desktopで根拠を見て承認します。承認だけでルールが自動変更されることはありません。
+            </p>
+          </div>
+
+          <div className="workspace-guide-actions">
+            <a className="button button-dark" href={REPOSITORY_URL} target="_blank" rel="noreferrer">
+              <span>2. GitHubリポジトリを取得</span><b aria-hidden="true">↗</b>
+            </a>
+            <p>アプリ単体でも確認画面は開けます。Codex／Claude Codeと制作する場合は、リポジトリを取得し、両方で同じrepo rootを選んでください。</p>
+          </div>
+        </section>
 
         <section className="security-guide" aria-labelledby="security-title">
           <header>

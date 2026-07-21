@@ -316,14 +316,14 @@ connections:
     expect(result.adapter).toBeUndefined();
   });
 
-  it("stops when an explicit connection cannot run the requested model", async () => {
+  it("stops when a removed legacy connection id is requested", async () => {
     const result = await validateProject("fixtures/projects/generation-connection-incompatible.yaml");
 
     expect(result.ok).toBe(false);
     expect(result.issues).toContainEqual({
-      code: "generation.connection_incompatible",
-      message: "connection 'kling-via-pixverse' does not support every requested model and input mode",
-      path: "generation.requests"
+      code: "generation.connection_unavailable",
+      message: "connection 'kling-via-pixverse' is not integrated for generation",
+      path: "generation.connection"
     });
     expect(result.adapter).toBeUndefined();
   });

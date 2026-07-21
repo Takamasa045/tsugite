@@ -15,7 +15,7 @@ describe("local media run assembly", () => {
     vi.unstubAllEnvs();
   });
 
-  it("fails closed before a pipeline CLI can execute an MCP generation connection", async () => {
+  it("fails closed when an MCP generation connection is explicitly agent-handoff only", async () => {
     const validation = await validateProject("fixtures/projects/generation-connection-topview.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]
     });
@@ -27,7 +27,10 @@ describe("local media run assembly", () => {
       manifestPath: "fixtures/manifests/minimal.valid.json",
       stateDir,
       state: running,
-      generationConnection: validation.generationConnection
+      generationConnection: {
+        ...validation.generationConnection!,
+        execution_mode: "agent-handoff"
+      }
     }, validation.adapter);
 
     expect(result.ok).toBe(false);
@@ -96,7 +99,8 @@ describe("local media run assembly", () => {
       transport: "cli" as const,
       provider: "fixture",
       route_note: "local test adapter",
-      setup_status: "needs-verification" as const
+      setup_status: "needs-verification" as const,
+      execution_mode: "pipeline-adapter" as const
     };
     const blockedStateDir = await mkdtemp(join(tmpdir(), "tsugite-connection-verification-blocked-"));
 
@@ -389,6 +393,65 @@ describe("local media run assembly", () => {
     expect(runLog).toContain("review_data_path: review/review-data.json");
   });
 
+  it("assembles generated images and narration into the project manifest without replacing existing clips", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-run-media-"));
+    const runDir = join(stateDir, "cli-generation-run");
+    await mkdir(runDir, { recursive: true });
+    const imageSrc = join(runDir, "provider-image.png");
+    const audioSrc = join(runDir, "provider-voice.wav");
+    await writeFile(imageSrc, "fixture image");
+    await writeFile(audioSrc, silentWav());
+    const project = {
+      ...validation.project!,
+      generation: {
+        ...validation.project!.generation!,
+        requests: [{
+          id: "generated-image",
+          operation: "image" as const,
+          prompt: "fixture image",
+          model: "fixture-model",
+          params: {
+            output: { request_id: "generated-image", credits: 0.4, clips: [], images: [{ id: "hero-image", src: imageSrc }], audio: [], metadata: {} }
+          }
+        }, {
+          id: "generated-voice",
+          operation: "voice" as const,
+          output_kind: "audio" as const,
+          audio_role: "narration" as const,
+          prompt: "fixture voice",
+          model: "fixture-model",
+          params: {
+            output: { request_id: "generated-voice", credits: 0.6, clips: [], images: [], audio: [{ id: "voice-track", src: audioSrc, role: "narration", start: 0 }], metadata: {} }
+          }
+        }]
+      }
+    };
+    const adapter = {
+      ...validation.adapter!,
+      command: { ...validation.adapter!.command!, args: ["fixtures/adapters/mock-cli/output-from-params.mjs"] }
+    };
+    const running = recordGateDecision(
+      markGateAwaiting(createPlannedState("cli-generation-run"), "gate_1"), "gate_1", "approved"
+    );
+
+    const result = await assembleLocalMediaRun(project, validation.manifest!, {
+      manifestPath: "fixtures/manifests/render-local.valid.json",
+      stateDir,
+      state: running
+    }, adapter);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const manifest = JSON.parse(await readFile(result.manifestPath, "utf8"));
+    expect(manifest.clips).toHaveLength(validation.manifest!.clips.length);
+    expect(manifest.images).toContainEqual(expect.objectContaining({ id: "hero-image", src: "assets/images/generated/001-hero-image.png" }));
+    expect(manifest.audio.narration).toContainEqual(expect.objectContaining({ id: "voice-track", src: "assets/audio/narration/001-voice-track.wav" }));
+    expect(result.actualCredits).toBe(1);
+  });
+
   it("pins audio assets for generated runs so Gate 2 can validate and resume them", async () => {
     const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]
@@ -445,7 +508,8 @@ describe("local media run assembly", () => {
         transport: "cli",
         provider: "fixture",
         route_note: "provider removed after assembly",
-        setup_status: "needs-setup"
+        setup_status: "needs-setup",
+        execution_mode: "pipeline-adapter"
       }
     }, validation.adapter);
     expect(resumed.ok).toBe(true);
@@ -493,7 +557,8 @@ describe("local media run assembly", () => {
           transport: "cli",
           provider: "fixture",
           route_note: "provider removed after assembly",
-          setup_status: "needs-setup"
+          setup_status: "needs-setup",
+          execution_mode: "pipeline-adapter"
         }
       },
       validation.adapter

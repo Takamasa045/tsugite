@@ -8,6 +8,7 @@ import { workflowSamples } from './data'
 import { resolveViewerSamples } from './lib/embedded-workflow'
 import './styles/globals.css'
 import './styles/launcher-yakisugi.css'
+import './styles/generation-canvas.css'
 
 const root = document.getElementById('root')
 const launcherMode = document.querySelector('meta[name="tsugite-launcher"]') !== null

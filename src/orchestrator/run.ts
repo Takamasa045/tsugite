@@ -8,7 +8,7 @@ import { runCliAudioAdapter, type CliAudioResult } from "../adapters/cliAudio.js
 import type { AdapterDefinition } from "../adapters/registry.js";
 import type { Manifest } from "../manifest/schema.js";
 import { validateManifest } from "../manifest/validate.js";
-import { toExecutionProject, type Project } from "../project/schema.js";
+import { generationRequestOutputKind, toExecutionProject, type Project } from "../project/schema.js";
 import type { Result } from "../types.js";
 import { inspectGate2ManifestWithFingerprints, writeGate2QcReport } from "./gate2Qc.js";
 import { markGateAwaiting, writeState, type RunState } from "./state.js";
@@ -112,7 +112,7 @@ export async function assembleLocalMediaRun(
       }]
     };
   }
-  if (audioConnection && audioConnection.transport !== "cli") {
+  if (audioConnection && audioConnection.execution_mode !== "pipeline-adapter") {
     return {
       ok: false,
       issues: [{
@@ -348,7 +348,7 @@ async function assembleGeneratedMediaRun(
       }]
     };
   }
-  if (generationConnection && generationConnection.transport !== "cli") {
+  if (generationConnection && generationConnection.execution_mode !== "pipeline-adapter") {
     return {
       ok: false,
       issues: [{
@@ -449,7 +449,9 @@ async function assembleGeneratedMediaRun(
   if (!pinned.ok) return pinned;
 
   const assembled = cloneManifest(manifest);
-  assembled.clips = [];
+  if (project.generation!.requests.some((request) => generationRequestOutputKind(request) === "video")) {
+    assembled.clips = [];
+  }
   assembled.provenance = [];
   let assetCount = 0;
 
@@ -483,6 +485,25 @@ async function assembleGeneratedMediaRun(
   const generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });
   if (!generation.ok) return generation;
 
+  const existingImageIds = new Set(assembled.images.map((image) => image.id));
+  const duplicateImage = generation.images.find((image) => existingImageIds.has(image.id));
+  const existingAudioIds = new Set(
+    [...assembled.audio.bgm, ...assembled.audio.narration, ...assembled.audio.sfx]
+      .flatMap((track) => track.id ? [track.id] : [])
+  );
+  const duplicateAudio = generation.audio.find((track) => existingAudioIds.has(track.id));
+  if (duplicateImage || duplicateAudio) {
+    const duplicate = duplicateImage ?? duplicateAudio!;
+    return {
+      ok: false,
+      issues: [{
+        code: "run.generated_asset_id_duplicate",
+        message: `generated asset id '${duplicate.id}' already exists in the project manifest`,
+        path: "generation.requests"
+      }]
+    };
+  }
+
   for (const [index, clip] of generation.clips.entries()) {
     const copied = await copyAsset(clip.src, process.cwd(), runDir, "assets/clips", index, clip.id);
     assembled.clips.push({
@@ -492,11 +513,34 @@ async function assembleGeneratedMediaRun(
     assetCount += 1;
   }
 
+  for (const [index, image] of generation.images.entries()) {
+    const copied = await copyAsset(image.src, process.cwd(), runDir, "assets/images/generated", index, image.id);
+    assembled.images.push({ ...image, src: copied.relativePath });
+    assetCount += 1;
+  }
+
+  for (const [index, track] of generation.audio.entries()) {
+    const copied = await copyAsset(track.src, process.cwd(), runDir, `assets/audio/${track.role}`, index, track.id);
+    assembled.audio[track.role === "music" ? "bgm" : track.role].push({
+      id: track.id,
+      src: copied.relativePath,
+      start: track.start,
+      ...(track.end !== undefined ? { end: track.end } : {}),
+      ...(track.volume !== undefined ? { volume: track.volume } : {})
+    });
+    assetCount += 1;
+  }
+
   for (const request of generation.requests) {
     const original = project.generation!.requests.find((candidate) => candidate.id === request.request_id);
-    for (const clip of request.clips) {
+    const generatedAssets = [
+      ...request.clips.map((asset) => ({ id: asset.id, kind: "clip" })),
+      ...request.images.map((asset) => ({ id: asset.id, kind: "image" })),
+      ...request.audio.map((asset) => ({ id: asset.id, kind: "audio" }))
+    ];
+    for (const asset of generatedAssets) {
       assembled.provenance.push({
-        clip_id: clip.id,
+        ...(asset.kind === "clip" ? { clip_id: asset.id } : { asset_id: asset.id, asset_kind: asset.kind }),
         engine: adapter.name,
         model: original?.model,
         params: {
@@ -508,7 +552,7 @@ async function assembleGeneratedMediaRun(
             ? { reference_images: pinned.referenceManifestPaths.get(request.request_id) }
             : {})
         },
-        credits: request.credits / request.clips.length
+        credits: request.credits / generatedAssets.length
       });
     }
   }

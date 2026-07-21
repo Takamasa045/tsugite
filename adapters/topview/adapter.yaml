@@ -24,15 +24,15 @@ input_modes:
 checks:
   setup:
     - type: command
-      name: provider:topview-cli
+      name: provider:topview-mcp
       command: ["node", "adapters/topview/check.mjs"]
       capture_version: true
       remediation:
-        default: "Install the TopView skill CLI or set TSUGITE_TOPVIEW_VIDEO_COMMAND to its JSON command array, then rerun doctor."
+        default: "Sign in with the TopView provider flow, confirm the private credential file, then rerun doctor."
     - type: manual
       name: provider-auth:topview
       blocking: false
-      detail: "Authentication, provider connectivity, and credits are not contacted by doctor."
+      detail: "MCP tool availability is checked, while entitlement and sufficient credits remain a Gate 1 confirmation."
       remediation:
         default: "Confirm TopView login and available credits before Gate 1 approval."
 command:

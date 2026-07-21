@@ -22,7 +22,7 @@ import {
   type GenerationConnectionResolution
 } from "../connections/registry.js";
 import { loadProject } from "./loadProject.js";
-import { generationRequestMode, type AnalysisRequest, type Project } from "./schema.js";
+import { generationRequestCapability, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
 
 export type ValidateProjectOptions = {
@@ -247,16 +247,26 @@ export async function validateProject(
             });
             audioAdapterName = undefined;
           } else {
-            audioConnection = connection;
-            audioAdapterName = connection.adapter;
-            project = {
-              ...project,
-              audio: {
-                ...project.audio,
-                connection: connection.id,
-                adapter: connection.adapter
-              }
-            };
+            const connectionAdapter = await loadAdapterDefinition(connection.adapter, options.adapterDirs);
+            if (connectionAdapter.class !== "audio") {
+              issues.push({
+                code: "audio.connection_incompatible",
+                message: `connection '${connection.id}' exposes audio through generation.requests, not the legacy audio block`,
+                path: "audio"
+              });
+              audioAdapterName = undefined;
+            } else {
+              audioConnection = connection;
+              audioAdapterName = connection.adapter;
+              project = {
+                ...project,
+                audio: {
+                  ...project.audio,
+                  connection: connection.id,
+                  adapter: connection.adapter
+                }
+              };
+            }
           }
         }
       } else if (audioAdapterName) {
@@ -385,10 +395,8 @@ function generationConnectionRequirements(project: Project): {
 } {
   const requests = project.generation?.requests ?? [];
   return {
-    models: uniqueInOrder(requests.map((request) => request.model)),
-    capabilities: uniqueInOrder(
-      requests.map((request) => `video.${generationRequestMode(request) ?? "text-to-video"}`)
-    )
+    models: uniqueInOrder(requests.flatMap((request) => request.model ? [request.model] : [])),
+    capabilities: uniqueInOrder(requests.map(generationRequestCapability))
   };
 }
 

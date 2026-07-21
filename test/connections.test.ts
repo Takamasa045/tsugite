@@ -27,17 +27,25 @@ describe("generation connection registry", () => {
   it("separates model families from authenticated execution connections", async () => {
     const catalog = await loadConnectionCatalog();
     const topview = catalog.connections.find((connection) => connection.id === "topview");
-    const kling = catalog.connections.find((connection) => connection.id === "kling-via-pixverse");
+    const pixverse = catalog.connections.find((connection) => connection.id === "pixverse");
+    const kling = catalog.connections.find((connection) => connection.id === "kling-direct");
 
     expect(topview).toMatchObject({
       provider: "topview",
       transport: "mcp",
       adapter: "topview",
+      execution_mode: "pipeline-adapter",
       model_families: expect.arrayContaining(["kling", "seedance", "vidu"])
     });
-    expect(topview?.automated_capabilities).toEqual(expect.arrayContaining(["video.image-to-video"]));
-    expect(kling).toMatchObject({ provider: "pixverse", adapter: "kling", model_families: ["kling"] });
-    expect(kling?.route_note).toContain("PixVerse CLI");
+    expect(topview?.automated_capabilities).toEqual(expect.arrayContaining([
+      "image.generate", "video.image-to-video", "video.reference-to-video", "audio.text-to-speech", "audio.music"
+    ]));
+    expect(pixverse).toMatchObject({ provider: "pixverse", adapter: "pixverse", model_policy: "runtime" });
+    expect(pixverse?.automated_capabilities).toEqual(expect.arrayContaining([
+      "image.generate", "video.transition", "audio.text-to-speech", "audio.music"
+    ]));
+    expect(kling).toMatchObject({ provider: "kling", adapter: "kling", model_policy: "runtime" });
+    expect(kling?.route_note).toContain("Kling CLI");
     expect(catalog.connections.find((connection) => connection.id === "pixverse")?.aliases)
       .toEqual(expect.arrayContaining(["pixvers", "pixburst"]));
   });
@@ -53,18 +61,18 @@ describe("generation connection registry", () => {
     });
     await expect(resolveGenerationConnection("Pix Burst")).resolves.toMatchObject({ adapter: "pixverse" });
     await expect(resolveGenerationConnection("Cling")).resolves.toMatchObject({
-      id: "kling-via-pixverse",
+      id: "kling-direct",
       adapter: "kling"
     });
     await expect(resolveGenerationConnection("vidu-direct")).resolves.toBeUndefined();
     await expect(resolveGenerationConnection("topview", undefined, {
       models: ["PixVerse V6"],
       capabilities: ["video.image-to-video"]
-    })).resolves.toBeUndefined();
+    })).resolves.toMatchObject({ id: "topview", execution_mode: "pipeline-adapter" });
     await expect(resolveGenerationConnection("pixverse", undefined, {
-      models: ["Seedance 2.0"],
-      capabilities: ["audio.music"]
-    })).resolves.toBeUndefined();
+      models: ["Gemini 3.1 Flash Image", "Kling O3 Pro", "Grok Imagine"],
+      capabilities: ["image.generate", "video.text-to-video", "audio.music"]
+    })).resolves.toMatchObject({ id: "pixverse", adapter: "pixverse" });
     await expect(isConnectionAdapterCompatible("topview", "topview")).resolves.toBe(true);
     await expect(isConnectionAdapterCompatible("topview", "pixverse")).resolves.toBe(false);
   });
@@ -305,8 +313,8 @@ connections:
       commandExists: async () => true
     });
 
-    expect(candidates.map((candidate) => candidate.id)).toEqual(["topview", "kling-via-pixverse"]);
-    expect(candidates.map((candidate) => candidate.transport)).toEqual(["mcp", "cli"]);
+    expect(candidates.map((candidate) => candidate.id)).toEqual(["pixverse", "topview", "kling-direct"]);
+    expect(candidates.map((candidate) => candidate.transport)).toEqual(["cli", "mcp", "cli"]);
   });
 
   it.each([
@@ -316,7 +324,7 @@ connections:
   ])("accepts delimited Kling model variant '%s' without broad prefix matching", async (model) => {
     const candidates = await listConnectionOptions({ model, capability: "video.text-to-video" });
     expect(candidates.map((candidate) => candidate.id)).toEqual(
-      expect.arrayContaining(["topview", "kling-via-pixverse"])
+      expect.arrayContaining(["pixverse", "topview", "kling-direct"])
     );
   });
 
@@ -424,7 +432,7 @@ connections:
     expect(pixverse).toMatchObject({
       id: "pixverse",
       implementation_status: "integrated",
-      automation_status: "available-to-add"
+      automation_status: "integrated"
     });
   });
 
@@ -439,12 +447,12 @@ connections:
       .toHaveLength(0);
     expect(await listConnectionOptions({ model: "Kling3Fake", capability: "video.text-to-video" }))
       .toHaveLength(0);
-    expect(await listConnectionOptions({ model: "Kling 3 Fake", capability: "video.text-to-video" }))
-      .toHaveLength(0);
+    expect((await listConnectionOptions({ model: "Kling 3 Fake", capability: "video.text-to-video" }))
+      .map((candidate) => candidate.id)).toEqual(["pixverse", "topview", "kling-direct"]);
     expect(await listConnectionOptions({ model: "Acme Kling 3", capability: "video.text-to-video" }))
       .toHaveLength(0);
     expect((await listConnectionOptions({ model: "Kling3", capability: "video.text-to-video" }))
-      .map((candidate) => candidate.id)).toEqual(["topview", "kling-via-pixverse"]);
+      .map((candidate) => candidate.id)).toEqual([]);
   });
 
   it("lists connection candidates from the read-only CLI without requiring project config", async () => {
@@ -468,10 +476,11 @@ connections:
         required_when: "connection-unspecified",
         candidates: expect.arrayContaining([
           expect.objectContaining({ id: "topview" }),
-          expect.objectContaining({ id: "kling-via-pixverse" })
+          expect.objectContaining({ id: "pixverse" }),
+          expect.objectContaining({ id: "kling-direct" })
         ])
       }
     });
-    expect(payload.connections).toHaveLength(2);
+    expect(payload.connections).toHaveLength(3);
   });
 });

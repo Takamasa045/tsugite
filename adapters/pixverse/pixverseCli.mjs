@@ -8,7 +8,21 @@ const RATE_LIMITED = 21;
 const INVALID_REQUEST = 40;
 const MAX_OUTPUT = 1024 * 1024 * 20;
 
-export function runPixverseVideo(input, options = {}) {
+export const pixverseOperationContract = Object.freeze({
+  video: { assetType: "video" },
+  image: { assetType: "image" },
+  transition: { assetType: "video" },
+  voice: { assetType: "audio", audioRole: "narration" },
+  music: { assetType: "audio", audioRole: "music" },
+  extend: { assetType: "video" },
+  modify: { assetType: "video" },
+  upscale: { assetType: "video" },
+  reference: { assetType: "video" },
+  "motion-control": { assetType: "video" },
+  template: { assetType: "video" }
+});
+
+export function runPixverseMedia(input, options = {}) {
   const payload = parsePayload(input);
   const request = {
     ...payload.request,
@@ -17,10 +31,10 @@ export function runPixverseVideo(input, options = {}) {
   const runDir = resolve(payload.run_dir);
   const outputDir = resolve(runDir, "generated", request.id);
   const pixverse = process.env.PIXVERSE_CLI || "pixverse";
-  const model = String(request.model || "").trim();
-  if (!model) {
-    throw new AdapterError("request.model is required", INVALID_REQUEST);
-  }
+  const operation = request.operation || "video";
+  const contract = pixverseOperationContract[operation];
+  if (!contract) throw new AdapterError(`unsupported PixVerse create operation '${operation}'`, INVALID_REQUEST);
+  const assetType = operation === "template" ? (request.output_kind || "video") : contract.assetType;
 
   const createArgs = buildPixverseCreateArgs(request, payload.run_id);
 
@@ -30,20 +44,20 @@ export function runPixverseVideo(input, options = {}) {
     throw new AdapterError("PixVerse CLI did not return a task id", TRANSIENT);
   }
 
-  const wait = runJsonCommand(pixverse, ["task", "wait", taskId, "--type", "video", "--timeout", waitTimeout(request), "--json"]);
-  const download = runJsonCommand(pixverse, ["asset", "download", taskId, "--type", "video", "--dest", outputDir, "--json"]);
-  const downloadedPath = findDownloadPath(download, outputDir);
-  const media = probeMedia(downloadedPath, request);
+  const wait = runJsonCommand(pixverse, ["task", "wait", taskId, "--type", assetType, "--timeout", waitTimeout(request), "--json"]);
+  const download = runJsonCommand(pixverse, ["asset", "download", taskId, "--type", assetType, "--dest", outputDir, "--json"]);
+  const downloadedPaths = findDownloadPaths(download, outputDir, assetType);
 
   return {
     request_id: request.id,
     credits: findNumberByKeys(wait, ["credits", "credit", "cost", "cost_credits", "costCredits"])
       ?? findNumberByKeys(create, ["credits", "credit", "cost", "cost_credits", "costCredits"])
       ?? 0,
-    clips: [
-      {
-        id: `${request.id}-clip`,
-        src: downloadedPath,
+    clips: assetType === "video" ? downloadedPaths.map((src, index) => {
+      const media = probeMedia(src, request);
+      return {
+        id: `${request.id}-clip-${index + 1}`,
+        src,
         duration: media.duration,
         fps: media.fps,
         resolution: {
@@ -51,8 +65,17 @@ export function runPixverseVideo(input, options = {}) {
           height: media.height
         },
         audio: request.params?.audio === true
-      }
-    ],
+      };
+    }) : [],
+    images: assetType === "image" ? downloadedPaths.map((src, index) => ({ id: `${request.id}-image-${index + 1}`, src })) : [],
+    audio: assetType === "audio" ? downloadedPaths.map((src, index) => ({
+      id: `${request.id}-audio-${index + 1}`,
+      src,
+      role: request.audio_role || contract.audioRole || "sfx",
+      start: numberParam(request.params?.start, 0),
+      ...(typeof request.params?.end === "number" ? { end: request.params.end } : {}),
+      ...(typeof request.params?.volume === "number" ? { volume: request.params.volume } : {})
+    })) : [],
     metadata: {
       adapter: options.adapterName ?? "pixverse",
       task_id: taskId,
@@ -64,42 +87,103 @@ export function runPixverseVideo(input, options = {}) {
 }
 
 export function buildPixverseCreateArgs(request, runId) {
-  const model = String(request.model || "").trim();
+  const operation = request.operation || "video";
+  if (!pixverseOperationContract[operation]) {
+    throw new AdapterError(`unsupported PixVerse create operation '${operation}'`, INVALID_REQUEST);
+  }
   const args = [
     "create",
-    "video",
-    "--prompt",
-    request.prompt,
-    "--model",
-    model,
-    "--duration",
-    String(request.duration),
-    "--count",
-    String(numberParam(request.params?.count, 1)),
-    "--idempotency-key",
-    safeIdempotencyKey(runId, request.id),
-    "--no-wait",
-    "--json"
+    operation
   ];
+  const params = request.params || {};
+  const listedImages = [...new Set([
+    ...(request.input_images || []),
+    ...(request.reference_images || [])
+  ].filter(Boolean))];
+  const singleImages = [...new Set([
+    request.first_frame,
+    params.image
+  ].filter(Boolean))];
+  const firstImage = singleImages[0];
+  const allowed = PIXVERSE_ALLOWED_OPTIONS[operation];
+  const has = (name) => allowed.has(name);
+  const listImages = has("image")
+    ? [...new Set([...singleImages.slice(1), ...listedImages])].filter((image) => image !== firstImage)
+    : [...new Set([...singleImages, ...listedImages])];
 
-  if (request.input_mode !== "image-to-video") {
-    args.push("--aspect-ratio", request.aspect);
+  if (operation === "voice") pushValue(args, "--text", request.prompt || params.text);
+  else if (has("prompt")) pushValue(args, "--prompt", request.prompt);
+  if (has("model")) pushValue(args, "--model", normalizePixverseCliModel(request.model));
+  if (has("duration")) pushValue(args, operation === "music" ? "--duration-seconds" : "--duration", request.duration);
+  if (has("aspect") && !(operation === "video" && request.input_mode === "image-to-video")) {
+    pushValue(args, "--aspect-ratio", request.aspect);
   }
-  if (typeof request.seed === "number") {
-    args.push("--seed", String(request.seed));
+  if (has("seed")) pushValue(args, "--seed", request.seed);
+  if (has("quality")) pushValue(args, "--quality", params.quality);
+  if (has("count")) pushValue(args, "--count", params.count ?? 1);
+  if (has("detail")) pushValue(args, "--detail-level", params.detail_level);
+  if (has("voice")) {
+    pushValue(args, "--voice-id", params.voice_id); pushValue(args, "--provider-voice-id", params.provider_voice_id);
+    pushValue(args, "--language", params.language); pushValue(args, "--stability", params.stability);
+    pushValue(args, "--similarity-boost", params.similarity_boost); pushValue(args, "--style", params.style);
+    pushValue(args, "--speed", params.speed); pushValue(args, "--volume", params.volume);
+    pushValue(args, "--pitch", params.pitch); pushValue(args, "--emotion", params.emotion);
+    pushBoolean(args, "--use-speaker-boost", params.use_speaker_boost);
   }
-  if (typeof request.params?.quality === "string") {
-    args.push("--quality", request.params.quality);
+  if (has("music")) {
+    pushValue(args, "--lyrics", params.lyrics);
+    pushBoolean(args, "--instrumental", params.instrumental, false);
+    pushBoolean(args, "--auto-lyrics", params.auto_lyrics, false);
   }
-  if (typeof request.params?.image === "string") {
-    args.push("--image", request.params.image);
+  if (has("keyframe")) pushValue(args, "--keyframe-time", params.keyframe_time);
+  if (has("template")) pushValue(args, "--template-id", params.template_id);
+  if (has("video-input")) pushValue(args, "--video", request.input_video || params.video);
+  if (has("images")) pushMany(args, ["template", "music"].includes(operation) ? "--image" : "--images", listImages);
+  if (has("image") && firstImage) pushValue(args, "--image", firstImage);
+  if (has("videos")) pushMany(args, "--videos", request.input_videos);
+  if (has("audios")) pushMany(args, "--audios", request.input_audios);
+  if (has("audio")) pushBoolean(args, "--audio", params.audio);
+  if (has("multi-shot")) pushBoolean(args, "--multi-shot", params.multi_shot);
+  if (has("off-peak")) pushBoolean(args, "--off-peak", params.off_peak, false);
+  if (!["voice", "music"].includes(operation)) {
+    args.push("--idempotency-key", safeIdempotencyKey(runId, request.id));
   }
-  if (request.params?.audio === true) {
-    args.push("--audio");
-  } else {
-    args.push("--no-audio");
-  }
+  args.push("--no-wait", "--json");
   return args;
+}
+
+const PIXVERSE_ALLOWED_OPTIONS = Object.freeze({
+  video: new Set(["prompt", "model", "duration", "aspect", "seed", "quality", "count", "image", "audio", "multi-shot", "off-peak"]),
+  image: new Set(["prompt", "model", "aspect", "seed", "quality", "count", "detail", "image", "images"]),
+  transition: new Set(["prompt", "model", "duration", "seed", "quality", "count", "images", "audio", "off-peak"]),
+  voice: new Set(["model", "voice"]),
+  music: new Set(["prompt", "model", "duration", "music", "image", "images"]),
+  extend: new Set(["prompt", "model", "duration", "seed", "quality", "count", "video-input", "audio", "off-peak"]),
+  modify: new Set(["prompt", "model", "seed", "quality", "count", "video-input", "images", "keyframe", "off-peak"]),
+  upscale: new Set(["quality", "video-input"]),
+  reference: new Set(["prompt", "model", "duration", "aspect", "seed", "quality", "count", "images", "videos", "audios", "audio", "off-peak"]),
+  "motion-control": new Set(["model", "quality", "count", "image", "video-input", "off-peak"]),
+  template: new Set(["prompt", "duration", "aspect", "seed", "quality", "count", "images", "video-input", "template", "off-peak"])
+});
+
+function normalizePixverseCliModel(value) {
+  const model = String(value || "").trim();
+  return model === "c1" ? "pixverse-c1" : model;
+}
+
+function pushValue(args, flag, value) {
+  if (value === undefined || value === null || value === "") return;
+  args.push(flag, String(value));
+}
+
+function pushMany(args, flag, values) {
+  if (!Array.isArray(values) || values.length === 0) return;
+  args.push(flag, ...values.map(String));
+}
+
+function pushBoolean(args, flag, value, includeNegative = true) {
+  if (value === true) args.push(flag);
+  else if (value === false && includeNegative) args.push(`--no-${flag.slice(2)}`);
 }
 
 export function normalizeError(error) {
@@ -162,6 +246,7 @@ function runJsonCommand(executable, args) {
 
 function probeMedia(path, request) {
   const fallback = fallbackResolution(request.aspect);
+  const fallbackDuration = numberParam(request.duration, 5);
   const result = spawnSync("ffprobe", [
     "-v",
     "error",
@@ -178,30 +263,37 @@ function probeMedia(path, request) {
   });
 
   if (result.status !== 0) {
-    return { duration: request.duration, fps: numberParam(request.params?.fps, 30), ...fallback };
+    return { duration: fallbackDuration, fps: numberParam(request.params?.fps, 30), ...fallback };
   }
 
   try {
     const parsed = JSON.parse(result.stdout);
     const stream = parsed.streams?.[0] ?? {};
     return {
-      duration: Number(parsed.format?.duration) || request.duration,
+      duration: Number(parsed.format?.duration) || fallbackDuration,
       fps: parseFrameRate(stream.r_frame_rate) || numberParam(request.params?.fps, 30),
       width: Number(stream.width) || fallback.width,
       height: Number(stream.height) || fallback.height
     };
   } catch {
-    return { duration: request.duration, fps: numberParam(request.params?.fps, 30), ...fallback };
+    return { duration: fallbackDuration, fps: numberParam(request.params?.fps, 30), ...fallback };
   }
 }
 
-function findDownloadPath(output, outputDir) {
+function findDownloadPaths(output, outputDir, assetType) {
+  const downloaded = findDownloadedAssets(outputDir, assetType);
+  if (downloaded.length > 0) return downloaded;
   const candidate = findFirstString(output, ["path", "file", "file_path", "output", "output_path", "downloaded_path"]);
-  if (candidate) return resolve(candidate);
-  return findDownloadedVideo(outputDir);
+  if (candidate) return [resolve(candidate)];
+  throw new AdapterError(`PixVerse CLI did not produce a downloadable ${assetType} file`, TRANSIENT);
 }
 
-function findDownloadedVideo(outputDir) {
+function findDownloadedAssets(outputDir, assetType) {
+  const pattern = assetType === "image"
+    ? "\\.(png|jpe?g|webp|gif|avif)$"
+    : assetType === "audio"
+      ? "\\.(mp3|wav|m4a|aac|ogg|flac)$"
+      : "\\.(mp4|mov|webm)$";
   const script = `
     const { readdirSync, statSync } = require("node:fs");
     const { join } = require("node:path");
@@ -211,22 +303,24 @@ function findDownloadedVideo(outputDir) {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);
         if (entry.isDirectory()) walk(path);
-        else if (/\\.(mp4|mov|webm)$/i.test(entry.name)) files.push({ path, mtime: statSync(path).mtimeMs });
+        else if (new RegExp(process.argv[2], "i").test(entry.name)) files.push({ path, mtime: statSync(path).mtimeMs });
       }
     }
     walk(root);
-    files.sort((a, b) => b.mtime - a.mtime);
-    if (!files[0]) process.exit(2);
-    process.stdout.write(files[0].path);
+    files.sort((a, b) => a.path.localeCompare(b.path));
+    process.stdout.write(JSON.stringify(files.map((entry) => entry.path)));
   `;
-  const result = spawnSync(process.execPath, ["-e", script, outputDir], {
+  const result = spawnSync(process.execPath, ["-e", script, outputDir, pattern], {
     encoding: "utf8",
     maxBuffer: MAX_OUTPUT
   });
-  if (result.status !== 0 || !result.stdout.trim()) {
-    throw new AdapterError("PixVerse CLI did not produce a downloadable video file", TRANSIENT);
+  if (result.status !== 0 || !result.stdout.trim()) return [];
+  try {
+    const paths = JSON.parse(result.stdout);
+    return Array.isArray(paths) ? paths.map((path) => resolve(path)) : [];
+  } catch {
+    return [];
   }
-  return resolve(result.stdout.trim());
 }
 
 function findFirstString(value, keys) {

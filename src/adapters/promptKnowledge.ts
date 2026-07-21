@@ -288,7 +288,7 @@ export function resolvePromptGuidance(
   asOf = new Date().toISOString().slice(0, 10)
 ): PromptGuidance {
   const inputMode: PromptMode | "unspecified" = generationRequestMode(request) ?? "unspecified";
-  const advisoryModel = request.prompt_guide?.model ?? request.model;
+  const advisoryModel = request.prompt_guide?.model ?? request.model ?? "provider-default";
   const model = guide.models.find((candidate) =>
     [candidate.id, ...candidate.aliases].some(
       (alias) => normalizeModelName(alias) === normalizeModelName(advisoryModel)
@@ -298,7 +298,7 @@ export function resolvePromptGuidance(
     request_id: request.id,
     catalog_id: guide.catalog_id,
     input_mode: inputMode,
-    model: request.model,
+    model: request.model ?? "provider-default",
     guide_path: guide.path,
     available_model_profiles: guide.models.map((candidate) => candidate.id),
     model_notes: model?.notes ?? [],
@@ -358,7 +358,7 @@ function missingGuidance(request: GenerationRequest, catalogId: string): PromptG
     request_id: request.id,
     catalog_id: catalogId,
     input_mode: generationRequestMode(request) ?? "unspecified",
-    model: request.model,
+    model: request.model ?? "provider-default",
     status: "catalog-missing",
     available_model_profiles: [],
     model_notes: [],

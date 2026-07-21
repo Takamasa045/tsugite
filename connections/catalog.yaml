@@ -23,17 +23,35 @@ connections:
     adapter: pixverse
     capabilities:
       - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
+      - video.transition
       - video.extend
+      - video.modify
+      - video.upscale
+      - video.reference-to-video
+      - video.motion-control
+      - media.template
       - audio.text-to-speech
       - audio.music
-      - audio.sound-effects
     automated_capabilities:
+      - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
-    model_families: [pixverse, seedance]
-    route_note: "PixVerse CLIとPixVerseのサブスク認証を使う。PixVerse・Seedanceの動画生成を現行アダプターで引き渡し、その他のcapabilityは追加接続が必要。"
+      - video.transition
+      - video.extend
+      - video.modify
+      - video.upscale
+      - video.reference-to-video
+      - video.motion-control
+      - media.template
+      - audio.text-to-speech
+      - audio.music
+    model_policy: runtime
+    model_families: [pixverse, seedance, kling, grok, veo, sora, gemini, qwen, seedream, gpt-image, minimax, elevenlabs, lyria]
+    route_note: "PixVerse CLIとPixVerseサブスクを使う。Gemini、Kling、Grok等を含む現在の画像・動画・音声モデルはCLIの実行時capabilityを正本にする。"
     setup_checks:
       - type: command
         command: pixverse
@@ -41,47 +59,68 @@ connections:
         detail: "PixVerseのログイン状態とクレジットは生成前に確認する。"
 
   - id: topview
-    display_name: TopViewサブスク
+    aliases: [topview-mcp]
+    display_name: TopView MCP
     provider: topview
     transport: mcp
     auth_kind: subscription
     implementation_status: integrated
     adapter: topview
+    execution_mode: pipeline-adapter
     capabilities:
       - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
+      - video.reference-to-video
+      - video.motion-control
       - video.native-audio
+      - audio.text-to-speech
+      - audio.music
+      - media.template
     automated_capabilities:
+      - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
-    model_families: [standard, kling, seedance, vidu, veo, sora, wan, hailuo]
-    route_note: "TopView MCPとTopViewのサブスク認証を使う。TsugiteはMCP agent-handoffとして扱い、repo-local互換アダプターをCLI実行しない。"
+      - video.reference-to-video
+      - video.motion-control
+      - audio.text-to-speech
+      - audio.music
+      - media.template
+    model_policy: runtime
+    model_families: [standard, kling, seedance, vidu, veo, sora, wan, hailuo, gpt-image, nano-banana, seedream, grok, imagen]
+    route_note: "TopView公式MCPとTopViewサブスクを使う。画像・動画・音声のモデルと必須parameterはMCPの実行時configを正本にし、生成物を案件内へ取得する。"
     setup_checks:
       - type: manual
-        detail: "実行ホストでTopView MCPの接続、ログイン、クレジットを確認する。"
+        detail: "TopViewのログイン、MCP tool availability、利用権限、残クレジットをGate 1前に確認する。"
 
-  - id: kling-via-pixverse
-    aliases: [kling, cling]
-    display_name: Kling（PixVerse経由）
-    provider: pixverse
+  - id: kling-direct
+    aliases: [kling, cling, kling-cli]
+    display_name: Kling直契約
+    provider: kling
     transport: cli
     auth_kind: subscription
     implementation_status: integrated
     adapter: kling
     capabilities:
+      - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
     automated_capabilities:
+      - image.generate
+      - image.image-to-image
       - video.text-to-video
       - video.image-to-video
+    model_policy: runtime
     model_families: [kling]
-    route_note: "KlingモデルをPixVerse CLIとPixVerseのサブスク認証で実行する互換接続。"
+    route_note: "Kling CLIとKling直契約を使う。利用可能モデルとモデル別引数は who_am_i の実行時宣言を正本にする。"
     setup_checks:
       - type: command
-        command: pixverse
+        command: kling
       - type: manual
-        detail: "PixVerseのログイン状態とKlingモデルの利用可否は生成前に確認する。"
+        detail: "Kling CLIのログイン状態、who_am_iの利用可能モデル、クレジットを生成前に確認する。"
 
   - id: elevenlabs
     display_name: ElevenLabs

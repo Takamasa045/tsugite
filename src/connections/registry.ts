@@ -26,9 +26,11 @@ const connectionDefinitionSchema = z.object({
   auth_kind: z.enum(["subscription", "api-key", "local", "none"]),
   implementation_status: z.enum(["integrated", "available-to-add", "manual-import"]),
   adapter: safeId.optional(),
+  execution_mode: z.enum(["pipeline-adapter", "agent-handoff"]).optional(),
   capabilities: z.array(capability).min(1),
   automated_capabilities: z.array(capability).default([]),
-  model_families: z.array(safeId).min(1),
+  model_policy: z.enum(["catalog", "runtime"]).default("catalog"),
+  model_families: z.array(safeId).default([]),
   route_note: z.string().min(1),
   setup_checks: z.array(setupCheckSchema).default([])
 }).superRefine((connection, context) => {
@@ -37,6 +39,13 @@ const connectionDefinitionSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: "integrated connections must declare an adapter",
       path: ["adapter"]
+    });
+  }
+  if (connection.model_policy === "catalog" && connection.model_families.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "catalog model policy requires at least one model family",
+      path: ["model_families"]
     });
   }
   for (const [index, item] of connection.automated_capabilities.entries()) {
@@ -133,6 +142,7 @@ export type GenerationConnectionResolution = {
   auth_kind: ConnectionDefinition["auth_kind"];
   contract_digest: string;
   setup_status: ConnectionSetupStatus;
+  execution_mode: "pipeline-adapter" | "agent-handoff";
 };
 
 export type GenerationConnectionRequirements = {
@@ -181,7 +191,7 @@ export async function resolveGenerationConnection(
     [item.id, ...item.aliases].some((name) => normalizeConnectionName(name) === normalizedId)
   );
   if (!connection?.adapter || connection.implementation_status !== "integrated") return undefined;
-  if (requirements.models?.some((model) => !supportsModel(connection, model))) return undefined;
+  if (connection.model_policy !== "runtime" && requirements.models?.some((model) => !supportsModel(connection, model))) return undefined;
   if (requirements.capabilities?.some((item) => !connection.automated_capabilities.includes(item))) {
     return undefined;
   }
@@ -207,7 +217,7 @@ export async function resolveConnectionsByAdapter(
   const candidates = catalog.connections.filter((connection) =>
     connection.adapter === adapterName
     && connection.implementation_status === "integrated"
-    && !requirements.models?.some((model) => !supportsModel(connection, model))
+    && (connection.model_policy === "runtime" || !requirements.models?.some((model) => !supportsModel(connection, model)))
     && !requirements.capabilities?.some((item) => !connection.automated_capabilities.includes(item))
   );
   return Promise.all(candidates.map((connection) => resolveIntegratedConnection(connection)));
@@ -236,6 +246,7 @@ export async function connectionSelectionPrompt(options: ConnectionListOptions =
       implementation_status: candidate.implementation_status,
       automation_status: candidate.automation_status,
       setup_status: candidate.setup.status,
+      execution_mode: connectionExecutionMode(candidate),
       route_note: candidate.route_note
     }))
   };
@@ -301,8 +312,15 @@ async function resolveIntegratedConnection(
     route_note: connection.route_note,
     auth_kind: connection.auth_kind,
     contract_digest: connectionContractDigest(connection, process.env),
-    setup_status: setup.status
+    setup_status: setup.status,
+    execution_mode: connectionExecutionMode(connection)
   };
+}
+
+export function connectionExecutionMode(
+  connection: Pick<ConnectionDefinition, "transport" | "execution_mode">
+): "pipeline-adapter" | "agent-handoff" {
+  return connection.execution_mode ?? (connection.transport === "cli" ? "pipeline-adapter" : "agent-handoff");
 }
 
 function connectionContractDigest(
@@ -345,6 +363,9 @@ function supportsModel(connection: ConnectionDefinition, model: string): boolean
     const normalizedFamily = normalizeModel(family);
     const tokens = model.toLocaleLowerCase("en-US").split(/[^a-z0-9]+/).filter(Boolean);
     const familyTokens = family.toLocaleLowerCase("en-US").split(/[^a-z0-9]+/).filter(Boolean);
+    if (connection.model_policy === "runtime") {
+      return familyTokens.length > 0 && familyTokens.every((token, offset) => tokens[offset] === token);
+    }
     const delimitedVersionMatch = familyTokens.length > 0 && (() => {
       if (!familyTokens.every((token, offset) => tokens[offset] === token)) return false;
       const suffix = tokens.slice(familyTokens.length);

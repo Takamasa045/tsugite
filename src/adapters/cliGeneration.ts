@@ -26,24 +26,46 @@ const generatedClipSchema = z
   })
   .passthrough();
 
+const generatedImageSchema = z.object({
+  id: safeIdSchema,
+  src: z.string().min(1),
+  alt: z.string().optional()
+}).passthrough();
+
+const generatedAudioSchema = z.object({
+  id: safeIdSchema,
+  src: z.string().min(1),
+  role: z.enum(["music", "narration", "sfx"]),
+  start: z.number().nonnegative().default(0),
+  end: z.number().positive().optional(),
+  volume: z.number().nonnegative().optional()
+}).passthrough();
+
 const cliOutputSchema = z
   .object({
     request_id: safeIdSchema,
     credits: z.number().nonnegative().default(0),
-    clips: z.array(generatedClipSchema).min(1),
+    clips: z.array(generatedClipSchema).default([]),
+    images: z.array(generatedImageSchema).default([]),
+    audio: z.array(generatedAudioSchema).default([]),
     metadata: z.record(z.string(), z.unknown()).default({})
   })
   .superRefine((output, context) => {
+    if (output.clips.length + output.images.length + output.audio.length === 0) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "adapter must return at least one media asset" });
+    }
     const seen = new Set<string>();
-    for (const [index, clip] of output.clips.entries()) {
-      if (seen.has(clip.id)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "clip ids must be unique",
-          path: ["clips", index, "id"]
-        });
+    for (const [kind, assets] of [["clips", output.clips], ["images", output.images], ["audio", output.audio]] as const) {
+      for (const [index, asset] of assets.entries()) {
+        if (seen.has(asset.id)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "generated media ids must be unique",
+            path: [kind, index, "id"]
+          });
+        }
+        seen.add(asset.id);
       }
-      seen.add(clip.id);
     }
   });
 
@@ -52,11 +74,15 @@ export type CliGenerationRequestResult = {
   attempts: number;
   credits: number;
   clips: Array<z.infer<typeof generatedClipSchema>>;
+  images: Array<z.infer<typeof generatedImageSchema>>;
+  audio: Array<z.infer<typeof generatedAudioSchema>>;
   metadata: Record<string, unknown>;
 };
 
 export type CliGenerationResult = {
   clips: Manifest["clips"];
+  images: Manifest["images"];
+  audio: Array<z.infer<typeof generatedAudioSchema>>;
   credits: number;
   requests: CliGenerationRequestResult[];
 };
@@ -87,7 +113,10 @@ export function runCliGenerationAdapter(
 
   const results: CliGenerationRequestResult[] = [];
   const clips: Manifest["clips"] = [];
+  const images: Manifest["images"] = [];
+  const audio: Array<z.infer<typeof generatedAudioSchema>> = [];
   const clipIds = new Set<string>();
+  const mediaIds = new Set<string>();
 
   for (const request of requests) {
     const result = runRequest(adapter, request, options);
@@ -106,14 +135,30 @@ export function runCliGenerationAdapter(
       };
     }
     for (const clip of result.request.clips) clipIds.add(clip.id);
+    const duplicateMedia = [...result.request.images, ...result.request.audio].find((asset) => mediaIds.has(asset.id));
+    if (duplicateMedia) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.adapter_output_media_id_duplicate",
+          message: `adapter returned duplicate media id '${duplicateMedia.id}'`,
+          path: `generation.requests.${request.id}`
+        }]
+      };
+    }
+    for (const asset of [...result.request.images, ...result.request.audio]) mediaIds.add(asset.id);
     results.push(result.request);
     clips.push(...result.request.clips.map((clip) => generatedClipToManifestClip(clip)));
+    images.push(...result.request.images);
+    audio.push(...result.request.audio);
   }
 
   return {
     ok: true,
     issues: [],
     clips,
+    images,
+    audio,
     credits: results.reduce((sum, request) => sum + request.credits, 0),
     requests: results
   };
@@ -155,6 +200,8 @@ function runRequest(
           attempts: attempt,
           credits: parsed.output.credits,
           clips: parsed.output.clips,
+          images: parsed.output.images,
+          audio: parsed.output.audio,
           metadata: parsed.output.metadata
         }
       };
@@ -213,43 +260,54 @@ function validateCliOutput(
     };
   }
 
-  for (const [index, clip] of output.clips.entries()) {
-    const sourcePath = isAbsolute(clip.src) ? clip.src : resolve(process.cwd(), clip.src);
+  const assets = [
+    ...output.clips.map((asset, index) => ({ asset, kind: "clips", index })),
+    ...output.images.map((asset, index) => ({ asset, kind: "images", index })),
+    ...output.audio.map((asset, index) => ({ asset, kind: "audio", index }))
+  ];
+  for (const { asset, kind, index } of assets) {
+    const invalidCode = kind === "clips" ? "run.adapter_output_clip_src_invalid" : "run.adapter_output_asset_src_invalid";
+    const outsideCode = kind === "clips" ? "run.adapter_output_clip_src_outside_run_dir" : "run.adapter_output_asset_src_outside_run_dir";
+    const sourcePath = isAbsolute(asset.src) ? asset.src : resolve(process.cwd(), asset.src);
     let realSourcePath: string;
     try {
       realSourcePath = realpathSync(sourcePath);
     } catch {
-      return clipSourceIssue(
-        "run.adapter_output_clip_src_invalid",
-        "clip src must resolve to an existing regular file inside runDir",
+      return assetSourceIssue(
+        invalidCode,
+        "generated asset src must resolve to an existing regular file inside runDir",
         requestId,
+        kind,
         index
       );
     }
 
     if (!isWithinDirectory(realSourcePath, realRunDir)) {
-      return clipSourceIssue(
-        "run.adapter_output_clip_src_outside_run_dir",
-        "clip src must resolve inside runDir",
+      return assetSourceIssue(
+        outsideCode,
+        "generated asset src must resolve inside runDir",
         requestId,
+        kind,
         index
       );
     }
 
     try {
       if (!statSync(realSourcePath).isFile()) {
-        return clipSourceIssue(
-          "run.adapter_output_clip_src_invalid",
-          "clip src must be a regular file",
+        return assetSourceIssue(
+          invalidCode,
+          "generated asset src must be a regular file",
           requestId,
+          kind,
           index
         );
       }
     } catch {
-      return clipSourceIssue(
-        "run.adapter_output_clip_src_invalid",
-        "clip src could not be inspected safely",
+      return assetSourceIssue(
+        invalidCode,
+        "generated asset src could not be inspected safely",
         requestId,
+        kind,
         index
       );
     }
@@ -268,11 +326,12 @@ function isWithinDirectory(path: string, directory: string): boolean {
   );
 }
 
-function clipSourceIssue(
+function assetSourceIssue(
   code: string,
   message: string,
   requestId: string,
-  clipIndex: number
+  kind: string,
+  assetIndex: number
 ): Result<Record<never, never>> {
   return {
     ok: false,
@@ -280,7 +339,7 @@ function clipSourceIssue(
       {
         code,
         message,
-        path: `generation.requests.${requestId}.clips.${clipIndex}.src`
+        path: `generation.requests.${requestId}.${kind}.${assetIndex}.src`
       }
     ]
   };

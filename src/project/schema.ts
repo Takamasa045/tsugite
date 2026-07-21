@@ -35,6 +35,20 @@ const manifestPathSchema = z
   );
 
 const generationModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
+const generationOperationSchema = z.enum([
+  "video",
+  "image",
+  "transition",
+  "voice",
+  "music",
+  "extend",
+  "modify",
+  "upscale",
+  "reference",
+  "motion-control",
+  "template"
+]);
+const generationOutputKindSchema = z.enum(["video", "image", "audio"]);
 const audioBgmModeSchema = z.union([z.literal("generate"), z.literal("retrieve")]);
 
 const audioTimingSchema = z
@@ -96,15 +110,22 @@ export const analysisOutputSchema = z.union([
 const generationRequestSchema = z
   .object({
     id: safeIdSchema,
-    prompt: z.string().min(1),
-    model: z.string().min(1),
-    duration: z.number().positive(),
-    aspect: z.union([z.literal("16:9"), z.literal("9:16")]),
+    operation: generationOperationSchema.optional(),
+    output_kind: generationOutputKindSchema.optional(),
+    audio_role: z.enum(["music", "narration", "sfx"]).optional(),
+    prompt: z.string().default(""),
+    model: z.string().min(1).optional(),
+    duration: z.number().positive().optional(),
+    aspect: z.string().min(1).optional(),
     seed: z.number().int().optional(),
     mode: generationModeSchema.optional(),
     input_mode: generationModeSchema.optional(),
     first_frame: z.string().min(1).optional(),
     reference_images: z.array(z.string().min(1)).min(1).optional(),
+    input_images: z.array(z.string().min(1)).min(1).optional(),
+    input_video: z.string().min(1).optional(),
+    input_videos: z.array(z.string().min(1)).min(1).optional(),
+    input_audios: z.array(z.string().min(1)).min(1).optional(),
     prompt_guide: z
       .object({
         catalog: safeIdSchema,
@@ -121,6 +142,34 @@ const generationRequestSchema = z
         message: "mode and input_mode must match when both are declared",
         path: ["mode"]
       });
+    }
+    if (request.operation === "voice" && !request.prompt) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "voice requires text in prompt", path: ["prompt"] });
+    }
+    if ([undefined, "video", "image", "music"].includes(request.operation) && !request.prompt) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: `${request.operation ?? "video"} requires a prompt`, path: ["prompt"] });
+    }
+    if (request.operation === "template" && typeof request.params.template_id !== "string") {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "template requires params.template_id", path: ["params", "template_id"] });
+    }
+    const imageCount = (request.first_frame ? 1 : 0)
+      + (request.reference_images?.length ?? 0)
+      + (request.input_images?.length ?? 0)
+      + (typeof request.params.image === "string" ? 1 : 0);
+    if (request.operation === "transition" && imageCount < 2) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "transition requires at least two image inputs", path: ["input_images"] });
+    }
+    if (["extend", "modify", "upscale"].includes(request.operation ?? "")
+      && !request.input_video && typeof request.params.video !== "string") {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: `${request.operation} requires an input video`, path: ["input_video"] });
+    }
+    if (request.operation === "motion-control"
+      && (imageCount < 1 || (!request.input_video && typeof request.params.video !== "string"))) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "motion-control requires an image and an input video", path: ["input_video"] });
+    }
+    if (request.operation === "reference"
+      && imageCount + (request.input_videos?.length ?? 0) + (request.input_audios?.length ?? 0) === 0) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "reference requires at least one media input", path: ["input_images"] });
     }
   });
 
@@ -264,6 +313,37 @@ export function generationRequestMode(
   request: GenerationRequest
 ): "text-to-video" | "image-to-video" | undefined {
   return request.mode ?? request.input_mode;
+}
+
+export function generationRequestOutputKind(request: GenerationRequest): "video" | "image" | "audio" {
+  if (request.output_kind) return request.output_kind;
+  if (request.operation === "image") return "image";
+  if (request.operation === "voice" || request.operation === "music") return "audio";
+  return "video";
+}
+
+export function generationRequestCapability(request: GenerationRequest): string {
+  switch (request.operation) {
+    case "image":
+      return (request.first_frame || request.input_images?.length || request.reference_images?.length)
+        ? "image.image-to-image"
+        : "image.generate";
+    case "transition": return "video.transition";
+    case "voice": return "audio.text-to-speech";
+    case "music": return "audio.music";
+    case "extend": return "video.extend";
+    case "modify": return "video.modify";
+    case "upscale": return "video.upscale";
+    case "reference": return "video.reference-to-video";
+    case "motion-control": return "video.motion-control";
+    case "template": return "media.template";
+    default:
+      return `video.${generationRequestMode(request) ?? (
+        request.first_frame || request.input_images?.length || request.reference_images?.length || typeof request.params.image === "string"
+          ? "image-to-video"
+          : "text-to-video"
+      )}`;
+  }
 }
 
 export function toExecutionGenerationRequest(

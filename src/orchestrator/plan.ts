@@ -27,6 +27,7 @@ export type AgentHandoff = {
   provider?: string;
   route_note?: string;
   auth_kind?: GenerationConnectionResolution["auth_kind"];
+  execution_mode?: GenerationConnectionResolution["execution_mode"];
   connection_contract_digest?: string;
   automatic_fallback?: false;
   kind: AdapterDefinition["kind"];
@@ -34,7 +35,7 @@ export type AgentHandoff = {
   outputs: string[];
   dry_run_estimate_available: boolean;
   batch: boolean;
-  execution: "pipeline-cli" | "agent-handoff";
+  execution: "pipeline-cli" | "pipeline-mcp" | "agent-handoff";
 };
 
 export type ExecutionPlan = {
@@ -228,7 +229,7 @@ function estimateCredits(
   const generation = !project.generation || !adapter
     ? 0
     : project.generation.requests.reduce((sum, request) => {
-        return sum + adapter.credit_estimate.per_request + request.duration * adapter.credit_estimate.per_second;
+        return sum + adapter.credit_estimate.per_request + (request.duration ?? 0) * adapter.credit_estimate.per_second;
       }, 0);
   const audio = !project.audio || !audioAdapter
     ? 0
@@ -282,6 +283,7 @@ function createAgentHandoffs(
                   provider: generationConnection.provider,
                   route_note: generationConnection.route_note,
                   auth_kind: generationConnection.auth_kind,
+                  execution_mode: generationConnection.execution_mode,
                   connection_contract_digest: generationConnection.contract_digest
                 }
               : {})
@@ -293,8 +295,8 @@ function createAgentHandoffs(
       dry_run_estimate_available: adapter.dry_run_estimate,
       batch: adapter.batch,
       execution: generationConnection
-        ? generationConnection.transport === "cli" && adapter.kind === "cli"
-          ? "pipeline-cli"
+        ? generationConnection.execution_mode === "pipeline-adapter" && adapter.kind === "cli"
+          ? generationConnection.transport === "mcp" ? "pipeline-mcp" : "pipeline-cli"
           : "agent-handoff"
         : adapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
     });
@@ -315,6 +317,7 @@ function createAgentHandoffs(
                   provider: audioConnection.provider,
                   route_note: audioConnection.route_note,
                   auth_kind: audioConnection.auth_kind,
+                  execution_mode: audioConnection.execution_mode,
                   connection_contract_digest: audioConnection.contract_digest
                 }
               : {})
@@ -329,8 +332,8 @@ function createAgentHandoffs(
       dry_run_estimate_available: audioAdapter.dry_run_estimate,
       batch: audioAdapter.batch,
       execution: audioConnection
-        ? audioConnection.transport === "cli" && audioAdapter.kind === "cli"
-          ? "pipeline-cli"
+        ? audioConnection.execution_mode === "pipeline-adapter" && audioAdapter.kind === "cli"
+          ? audioConnection.transport === "mcp" ? "pipeline-mcp" : "pipeline-cli"
           : "agent-handoff"
         : audioAdapter.kind === "cli" ? "pipeline-cli" : "agent-handoff"
     });
