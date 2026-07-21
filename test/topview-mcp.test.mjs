@@ -68,7 +68,7 @@ describe("TopView MCP adapter", () => {
     expect(result).toMatchObject({
       request_id: "image-1",
       credits: 2,
-      images: [{ id: "image-1-image-1", src: expect.stringMatching(/generated\/image-1\/001\.png$/) }],
+      images: [{ id: "image-1-image-1", src: expect.stringMatching(/generated[\\/]image-1[\\/]001\.png$/) }],
       metadata: {
         adapter: "topview",
         transport: "mcp",
@@ -275,12 +275,12 @@ describe("TopView MCP adapter", () => {
       balance: 999
     }), { mode: 0o600 });
 
-    await expect(loadTopviewCredentials({ credentialsPath, environment: {} })).resolves.toEqual({
+    await expect(loadTopviewCredentials({ credentialsPath, environment: {}, platform: "win32" })).resolves.toEqual({
       uid: "user-1",
       apiKey: "secret-key"
     });
     await chmod(credentialsPath, 0o644);
-    await expect(loadTopviewCredentials({ credentialsPath, environment: {} }))
+    await expect(loadTopviewCredentials({ credentialsPath, environment: {}, platform: "linux" }))
       .rejects.toMatchObject({ exitCode: 40 });
   });
 

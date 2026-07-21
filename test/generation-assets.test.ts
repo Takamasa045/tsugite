@@ -83,9 +83,10 @@ describe("generation reference image assets", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.requests[0].input_images?.[0]).toContain("assets/generation-inputs/media-request/input_images-001.png");
-    expect(result.requests[0].input_video).toContain("assets/generation-inputs/media-request/input-video.mp4");
-    expect(result.requests[0].input_audios?.[0]).toContain("assets/generation-inputs/media-request/input_audios-001.wav");
+    const portablePath = (value: string | undefined) => value?.replaceAll("\\", "/");
+    expect(portablePath(result.requests[0].input_images?.[0])).toContain("assets/generation-inputs/media-request/input_images-001.png");
+    expect(portablePath(result.requests[0].input_video)).toContain("assets/generation-inputs/media-request/input-video.mp4");
+    expect(portablePath(result.requests[0].input_audios?.[0])).toContain("assets/generation-inputs/media-request/input_audios-001.wav");
   });
 
   it("pins legacy params.image instead of letting a provider CLI read an arbitrary path", async () => {

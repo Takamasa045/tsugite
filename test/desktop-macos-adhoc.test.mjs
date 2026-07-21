@@ -1,12 +1,16 @@
 import { expect, test } from "vitest";
 
-import {
+const macosPackaging = process.platform === "win32"
+  ? null
+  : await import("../scripts/package-macos-adhoc.mjs");
+const macosTest = process.platform === "win32" ? test.skip : test;
+const {
   buildDistributionCommands,
   packageMacosAdhoc,
   parsePackageArguments,
-} from "../scripts/package-macos-adhoc.mjs";
+} = macosPackaging ?? {};
 
-test("parses an explicit app and DMG output without enabling overwrite", () => {
+macosTest("parses an explicit app and DMG output without enabling overwrite", () => {
   expect(
     parsePackageArguments(
       ["--app", "build/Tsugite.app", "--output", "dist/Tsugite.dmg"],
@@ -20,7 +24,7 @@ test("parses an explicit app and DMG output without enabling overwrite", () => {
     });
 });
 
-test("rejects ambiguous or unsafe package targets", () => {
+macosTest("rejects ambiguous or unsafe package targets", () => {
   expect(() => parsePackageArguments([], "/repo")).toThrow(/--app is required/);
   expect(
     () => parsePackageArguments(["--app", "build/Tsugite", "--output", "dist/Tsugite.dmg"], "/repo"),
@@ -33,7 +37,7 @@ test("rejects ambiguous or unsafe package targets", () => {
   ).toThrow(/must not be inside the source app/);
 });
 
-test("builds a free ad-hoc signing and verification sequence", () => {
+macosTest("builds a free ad-hoc signing and verification sequence", () => {
   expect(
     buildDistributionCommands({
       stagedAppPath: "/tmp/stage/Tsugite.app",
@@ -71,7 +75,7 @@ test("builds a free ad-hoc signing and verification sequence", () => {
   ]);
 });
 
-test("replaces an existing DMG atomically from a verified sibling candidate", async () => {
+macosTest("replaces an existing DMG atomically from a verified sibling candidate", async () => {
   const calls = [];
   const removals = [];
   let temporaryDirectoryCount = 0;
@@ -121,7 +125,7 @@ test("replaces an existing DMG atomically from a verified sibling candidate", as
   expect(removals).not.toContain("/repo/dist/Tsugite.dmg");
 });
 
-test("cleans both staging directories when packaging fails", async () => {
+macosTest("cleans both staging directories when packaging fails", async () => {
   const removals = [];
   let temporaryDirectoryCount = 0;
 

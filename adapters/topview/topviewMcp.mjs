@@ -70,6 +70,7 @@ export async function connectTopviewMcp(options = {}) {
 
 export async function loadTopviewCredentials(options = {}) {
   const environment = options.environment ?? process.env;
+  const platform = options.platform ?? process.platform;
   const envUid = environment.TOPVIEW_UID?.trim();
   const envKey = environment.TOPVIEW_API_KEY?.trim();
   if (envUid || envKey) {
@@ -84,7 +85,7 @@ export async function loadTopviewCredentials(options = {}) {
   } catch {
     throw new AdapterError("TopView sign-in is required", INVALID_REQUEST);
   }
-  if (!fileStat.isFile() || (fileStat.mode & 0o077) !== 0) {
+  if (!fileStat.isFile() || (platform !== "win32" && (fileStat.mode & 0o077) !== 0)) {
     throw new AdapterError("TopView credentials must be a private file", INVALID_REQUEST);
   }
   let parsed;
