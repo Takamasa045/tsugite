@@ -1656,6 +1656,29 @@ export function LauncherApp({
                 </span>
               </header>
 
+              <section aria-label="はじめに設定すること" className="launcher-feedback-setup">
+                <header>
+                  <span>はじめに</span>
+                  <h3>好み・学びを自動で整理する</h3>
+                </header>
+                <ol>
+                  <li>
+                    <b>1</b>
+                    <p>Codexでは「Automationを新規作成」を選び、このTsugiteリポジトリを作業フォルダに設定します。</p>
+                  </li>
+                  <li>
+                    <b>2</b>
+                    <p>CodexのAutomationへ、またはClaude Codeの会話で次のように頼みます。</p>
+                    <code>Tsugiteのローカル「好み・学び」昇格候補だけをレビューし、人間の承認待ちを準備して</code>
+                  </li>
+                  <li>
+                    <b>3</b>
+                    <p>Claude Codeでは <code>/tsugite-learning-review</code> でも実行できます。候補が出たら、この棚で根拠を確認して承認または見送ります。</p>
+                  </li>
+                </ol>
+                <p className="launcher-feedback-setup-note"><strong>常設する自動化はCodexかClaudeのどちらか1つだけにします。</strong> 登録用の完全な指示と安全条件は <code>docs/automations/learning-promotion-review.md</code> を使ってください。</p>
+              </section>
+
               {pendingPromotions.length > 0 && (
                 <section
                   aria-labelledby="launcher-feedback-pickup-heading"

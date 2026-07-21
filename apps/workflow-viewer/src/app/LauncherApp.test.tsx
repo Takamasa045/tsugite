@@ -1032,6 +1032,13 @@ describe('LauncherApp', () => {
     expect(within(metrics).getByText('反映済み').parentElement).toHaveTextContent('反映済み / 到達済み1')
     expect(within(metrics).getByText('効果確認済み').parentElement).toHaveTextContent('効果確認済み / 到達済み1')
 
+    const setup = screen.getByRole('region', { name: 'はじめに設定すること' })
+    expect(within(setup).getByRole('heading', { name: '好み・学びを自動で整理する' })).toBeVisible()
+    expect(within(setup).getByText('Codexでは「Automationを新規作成」を選び、このTsugiteリポジトリを作業フォルダに設定します。')).toBeVisible()
+    expect(within(setup).getByText('Tsugiteのローカル「好み・学び」昇格候補だけをレビューし、人間の承認待ちを準備して')).toBeVisible()
+    expect(within(setup).getByText('/tsugite-learning-review')).toBeVisible()
+    expect(within(setup).getByText('常設する自動化はCodexかClaudeのどちらか1つだけにします。')).toBeVisible()
+
     const stageGuide = screen.getByRole('region', { name: '記録の状態' })
     expect(within(stageGuide).getByText('まず1件を記録')).toBeVisible()
     expect(within(stageGuide).getByText('同じ傾向を確認中')).toBeVisible()
