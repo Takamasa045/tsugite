@@ -9,6 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  download-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/download-site/package-lock.json
+      - run: npm --prefix apps/download-site ci
+      - run: npm --prefix apps/download-site test
+      - run: npm --prefix apps/download-site run lint
+      - run: npm --prefix apps/download-site audit --omit=dev --audit-level=high
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15

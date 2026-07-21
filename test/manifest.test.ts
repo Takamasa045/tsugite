@@ -97,6 +97,29 @@ describe("manifest validation", () => {
     );
   });
 
+  it("enforces declared presentation aspect and timing for non-dialogue presets", async () => {
+    const manifest = (await readJsonFile("fixtures/manifests/captions-chapters.valid.json")) as Record<string, any>;
+    manifest.presentation = {
+      preset: "image-first-9x16",
+      title: "Image first"
+    };
+    manifest.captions = [
+      { text: "First", start: 0, end: 1 },
+      { text: "Second", start: 0.8, end: manifest.meta.target_duration_seconds + 1 }
+    ];
+
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "manifest.presentation.aspect",
+        "manifest.caption.overlap",
+        "manifest.caption.range"
+      ])
+    );
+  });
+
   it("requires silent article dialogue presentations to remain marked as drafts", async () => {
     const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
     manifest.presentation.draft = false;

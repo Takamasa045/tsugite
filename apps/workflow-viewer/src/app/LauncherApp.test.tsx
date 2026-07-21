@@ -4,30 +4,75 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { LauncherApp } from './LauncherApp'
 
+const terminalWrite = vi.fn()
+const terminalDispose = vi.fn()
+let terminalInputListener: ((data: string) => void) | undefined
+const terminalOnData = vi.fn((listener: (data: string) => void) => {
+  terminalInputListener = listener
+  return { dispose: vi.fn() }
+})
+const terminalOpen = vi.fn()
+const terminalFocus = vi.fn()
+
+vi.mock('@xterm/xterm', () => ({
+  Terminal: vi.fn(function Terminal() {
+    return {
+      cols: 96,
+      rows: 28,
+      dispose: terminalDispose,
+      focus: terminalFocus,
+      loadAddon: vi.fn(),
+      onData: terminalOnData,
+      open: terminalOpen,
+      write: terminalWrite,
+    }
+  }),
+}))
+
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: vi.fn(function FitAddon() {
+    return { dispose: vi.fn(), fit: vi.fn() }
+  }),
+}))
+
 const projects = [
   {
     id: 'project-alpha',
     name: 'サンプル映像A',
     slug: 'project-alpha',
     runId: 'project-alpha-r3',
+    revision: 'revision-alpha',
     status: 'completed',
     updatedAt: '2026-07-15T09:30:00+09:00',
     hasViewer: true,
     viewerUrl: '/viewers/project-alpha/',
+    gate1ReviewUrl: '/reviews/project-alpha/gate-1/',
+    gate2ReviewUrl: '/reviews/project-alpha/gate-2/',
     thumbnailUrl: '/thumbnail/project-alpha',
     valid: true,
     refreshable: true,
+    workflowNodes: [
+      { id: 'validate', label: '検証', status: 'completed' as const, action: 'validate' as const },
+      { id: 'gate-3', label: '完成確認', status: 'completed' as const, action: 'gate-3-approve' as const },
+    ],
+    availableActions: ['validate', 'review'] as const,
   },
   {
     id: 'codex-goal-talk-paper',
     name: 'Codex Goal Talk',
     slug: 'codex-goal-talk-paper',
     runId: 'codex-goal-talk-paper-r6',
+    revision: 'revision-codex',
     status: 'running',
     updatedAt: '2026-07-15T10:00:00+09:00',
     hasViewer: false,
     valid: true,
     refreshable: true,
+    workflowNodes: [
+      { id: 'validate', label: '検証', status: 'completed' as const, action: 'validate' as const },
+      { id: 'run', label: '素材生成', status: 'pending' as const, action: 'run' as const },
+    ],
+    availableActions: ['validate', 'run'] as const,
   },
 ]
 
@@ -42,6 +87,38 @@ const templates = [
     aspectRatio: '16:9',
     speakers: 2,
     requiredInputs: ['記事本文と出典', '2人分のキャラクター画像'],
+    requiredInputDetails: [
+      { type: 'text' as const, label: '記事本文と出典' },
+      { type: 'image' as const, label: '2人分のキャラクター画像' },
+    ],
+    preview: {
+      frames: [
+        { kind: 'text' as const, label: '記事の要点' },
+        { kind: 'person' as const, label: '初心者の質問' },
+        { kind: 'interface' as const, label: '解説とまとめ' },
+      ],
+      flow: ['記事の要点', '疑問を代弁', '専門家が解説', '要点を回収'],
+    },
+    notFor: ['実演だけで魅力が伝わる商品'],
+    variants: [
+      {
+        id: 'cast',
+        label: 'キャラクター構成',
+        defaultOptionId: 'beginner-expert',
+        options: [
+          { id: 'beginner-expert', label: '初心者＋専門家', description: '初心者が問い、専門家が答える定番構成です。' },
+          { id: 'peer-dialogue', label: '同僚同士', description: '同じ目線の二人で事例を整理します。' },
+        ],
+      },
+      {
+        id: 'background',
+        label: '背景',
+        options: [
+          { id: 'paper-cutout', label: '紙の切り絵', description: '紙素材と柔らかな陰影で見せます。' },
+          { id: 'ui-window', label: '画面デモ', description: '製品画面や操作例を背景に表示します。' },
+        ],
+      },
+    ],
     tags: ['掛け合い', '記事', '60秒'],
     audio: '音声とBGMは任意です。',
     status: 'stable' as const,
@@ -58,6 +135,13 @@ const templates = [
     aspectRatio: '16:9',
     speakers: 2,
     requiredInputs: ['質問と回答の一覧', '2人分のキャラクター画像'],
+    requiredInputDetails: [
+      { type: 'text' as const, label: '質問と回答の一覧' },
+      { type: 'image' as const, label: '2人分のキャラクター画像' },
+    ],
+    preview: null,
+    notFor: [],
+    variants: [],
     tags: ['FAQ', '掛け合い'],
     audio: '音声とBGMは任意です。',
     status: 'stable' as const,
@@ -73,6 +157,10 @@ const templates = [
     duration: '',
     aspectRatio: '',
     requiredInputs: [],
+    requiredInputDetails: [],
+    preview: null,
+    notFor: [],
+    variants: [],
     tags: [],
     audio: '',
     status: 'unknown' as const,
@@ -82,6 +170,28 @@ const templates = [
       code: 'template_metadata.invalid',
       message: 'template.yamlの形式が正しくありません。',
     },
+  },
+  {
+    id: 'invalid-preview-shape',
+    name: '旧形式プレビュー',
+    summary: '不完全なプレビューでも安全な構成イメージへ戻します。',
+    category: '記事を動画化',
+    useCases: ['旧形式の確認'],
+    duration: '30秒',
+    aspectRatio: '16:9',
+    requiredInputs: ['台本'],
+    requiredInputDetails: [{ type: 'text' as const, label: '台本' }],
+    preview: {
+      frames: [{ kind: 'text' as const, label: '導入だけ' }],
+      flow: ['導入だけ'],
+    },
+    notFor: [],
+    variants: [],
+    tags: ['旧形式'],
+    audio: '音声は任意です。',
+    status: 'stable' as const,
+    distribution: 'local-only' as const,
+    valid: true,
   },
 ]
 
@@ -250,6 +360,118 @@ describe('LauncherApp', () => {
     expect(screen.getByRole('heading', { name: 'プロンプトから完成動画までをつなぐ' })).toBeVisible()
     expect(await screen.findByRole('button', { name: 'opening-shot' })).toBeVisible()
     expect(screen.getAllByText('TopView MCP')[0]).toBeVisible()
+  })
+
+  it('AI CLIは制作案件だけに控えめに表示し、必要なときだけ説明を開ける', async () => {
+    const user = userEvent.setup()
+    render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+
+    const chooser = await screen.findByRole('region', { name: 'AI CLI（必要なときだけ）' })
+    const toggle = within(chooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(within(chooser).queryByText('ブラウザでは内蔵ターミナルを利用できません')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+    expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+
+    const reopenedChooser = screen.getByRole('region', { name: 'AI CLI（必要なときだけ）' })
+    await user.click(within(reopenedChooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ }))
+    expect(within(reopenedChooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(reopenedChooser).getByText(/ブラウザでは内蔵ターミナルを利用できません/)).toBeVisible()
+    expect(within(reopenedChooser).getByText('普段はこの確認画面だけで使えます。')).toBeVisible()
+  })
+
+  it('Desktopでインストール済みagentを選び、端末を開始・停止できる', async () => {
+    const user = userEvent.setup()
+    const stop = vi.fn()
+      .mockRejectedValueOnce(new Error('stop failed'))
+      .mockResolvedValueOnce(undefined)
+    const write = vi.fn().mockResolvedValue(undefined)
+    const removeDataListener = vi.fn()
+    const removeExitListener = vi.fn()
+    let desktopDataListener: ((event: { sessionId: string; data: string }) => void) | undefined
+    let desktopExitListener: ((event: { sessionId: string; exitCode: number }) => void) | undefined
+    const start = vi.fn().mockImplementation(async () => {
+      const sessionId = start.mock.calls.length === 1 ? 'session-claude' : 'session-fast-exit'
+      desktopDataListener?.({ sessionId, data: sessionId === 'session-claude' ? '起動時の案内\r\n' : '終了します\r\n' })
+      if (sessionId === 'session-fast-exit') desktopExitListener?.({ sessionId, exitCode: 0 })
+      return { sessionId }
+    })
+    const desktopWindow = window as Window & { tsugiteDesktop?: unknown }
+    Object.defineProperty(desktopWindow, 'tsugiteDesktop', {
+      configurable: true,
+      value: {
+        agents: {
+          list: vi.fn().mockResolvedValue({
+            workspaceLabel: 'tsugite-hybrid-agent-workspace',
+            hosts: [
+              { id: 'codex', label: 'Codex CLI', installed: false, detail: 'Codex CLIが見つかりません' },
+              { id: 'claude', label: 'Claude Code', installed: true, detail: '利用できます' },
+            ],
+          }),
+          start,
+          write,
+          resize: vi.fn().mockResolvedValue(undefined),
+          stop,
+          onData: vi.fn((listener) => {
+            desktopDataListener = listener
+            return removeDataListener
+          }),
+          onExit: vi.fn((listener) => {
+            desktopExitListener = listener
+            return removeExitListener
+          }),
+        },
+      },
+    })
+
+    try {
+      render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+
+      const chooser = await screen.findByRole('region', { name: 'AI CLI（必要なときだけ）' })
+      await user.click(within(chooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ }))
+      expect((await within(chooser).findAllByText('作業フォルダ：tsugite-hybrid-agent-workspace'))[0]).toBeVisible()
+      expect(within(chooser).getByRole('radio', { name: /Codex CLI/ })).toBeDisabled()
+      const claude = within(chooser).getByRole('radio', { name: /Claude Code/ })
+      expect(claude).toBeChecked()
+
+      await user.click(await within(chooser).findByRole('button', { name: 'Claude Codeを開始' }))
+      await waitFor(() => expect(start).toHaveBeenCalledWith({ hostId: 'claude', cols: 96, rows: 28 }))
+      expect(terminalWrite).toHaveBeenCalledWith('起動時の案内\r\n')
+      expect(within(chooser).getByRole('region', { name: 'Claude Codeの端末' })).toBeVisible()
+      expect(within(chooser).getByText('Claude Codeと作業中')).toBeVisible()
+      expect(claude).toBeDisabled()
+      desktopDataListener?.({ sessionId: 'session-claude', data: 'Claudeからの応答\r\n' })
+      expect(terminalWrite).toHaveBeenCalledWith('Claudeからの応答\r\n')
+      terminalInputListener?.('質問を入力\r')
+      expect(write).toHaveBeenCalledWith({ sessionId: 'session-claude', data: '質問を入力\r' })
+
+      await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+      expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
+      expect(stop).not.toHaveBeenCalled()
+      await user.click(screen.getByRole('tab', { name: '制作案件' }))
+      const reopenedChooser = screen.getByRole('region', { name: 'AI CLI（必要なときだけ）' })
+      expect(within(reopenedChooser).getByText('Claude Codeと作業中')).toBeVisible()
+
+      await user.click(within(reopenedChooser).getByRole('button', { name: 'Claude Codeを停止' }))
+      await waitFor(() => expect(stop).toHaveBeenCalledWith({ sessionId: 'session-claude' }))
+      expect(within(reopenedChooser).getByText('Claude Codeを停止できませんでした。もう一度停止してください。')).toBeVisible()
+      expect(claude).toBeDisabled()
+      await user.click(within(reopenedChooser).getByRole('button', { name: 'Claude Codeを停止' }))
+      await waitFor(() => expect(stop).toHaveBeenCalledTimes(2))
+      expect(claude).toBeEnabled()
+      expect(removeDataListener).toHaveBeenCalledTimes(1)
+      expect(removeExitListener).toHaveBeenCalledTimes(1)
+
+      await user.click(within(chooser).getByRole('button', { name: 'Claude Codeを開始' }))
+      expect(await within(chooser).findByText('Claude Codeは終了しました（終了コード 0）。もう一度開始できます。')).toBeVisible()
+      expect(within(chooser).getByRole('button', { name: 'Claude Codeを開始' })).toBeEnabled()
+    } finally {
+      delete desktopWindow.tsugiteDesktop
+    }
   })
 
   it('初回起動で dedicated workflow の確認待ちだけをタブとピックアップへ表示する', async () => {
@@ -495,9 +717,12 @@ describe('LauncherApp', () => {
 
     expect(screen.getByText('制作案件を読み込んでいます…')).toBeVisible()
     expect(await screen.findByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
+    expect(document.querySelector('img.launcher-favicon-mark[src="./assets/tsugite-favicon.png"]')).toBeInTheDocument()
     expect(screen.getByText('全2件 / 表示2件')).toBeVisible()
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
     expect(within(selectedPanel).getByRole('heading', { name: 'Codex Goal Talk' })).toBeVisible()
+    expect(within(selectedPanel).queryByRole('region', { name: 'Codex Goal Talkの制作工程' })).not.toBeInTheDocument()
+    expect(within(selectedPanel).queryByRole('button', { name: '生成キャンバスを開く' })).not.toBeInTheDocument()
     expect(within(selectedPanel).getByText('制作中')).toBeVisible()
     expect(within(selectedPanel).getByText(/2026\/07\/15/)).toBeVisible()
     expect(document.querySelector('img[src="/thumbnail/project-alpha"]')).toBeInTheDocument()
@@ -589,7 +814,7 @@ describe('LauncherApp', () => {
     expect(refreshingButton).toHaveAttribute('aria-busy', 'true')
     expect(screen.getByRole('heading', { name: '制作の見取図を開く' })).toBeVisible()
     expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'サンプル映像Aの制作記録を開く' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' })).toBeDisabled()
     expect(within(selectedPanel).getByRole('button', { name: '最新状態に更新して開く' })).toBeDisabled()
 
     resolveRefresh(jsonResponse({
@@ -598,6 +823,7 @@ describe('LauncherApp', () => {
     }))
 
     expect(await screen.findByRole('heading', { name: '新しく更新された案件' })).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('制作案件を再読み込みしました。2件見つかりました。')
     expect(within(selectedPanel).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
     expect(screen.getByRole('button', { name: '制作案件を再読み込み' })).toBeEnabled()
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(2)
@@ -624,6 +850,20 @@ describe('LauncherApp', () => {
     expect(within(selectedPanel).getByRole('heading', { name: 'Codex Goal Talk' })).toBeVisible()
   })
 
+  it('0件の制作workspaceを再読み込みした結果と確認先を表示する', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher({ projectList: [] })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByText('表示できる制作案件はまだありません。')
+    await user.click(screen.getByRole('button', { name: '制作案件を再読み込み' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '再読み込みしましたが、このworkspaceには制作案件がありません。projectsフォルダとworkspaceを確認してください。',
+    )
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(2)
+  })
+
   it('大量の案件を最近更新順に12件ずつ表示し、状態で絞り込める', async () => {
     const user = userEvent.setup()
     const manyProjects = Array.from({ length: 14 }, (_, index) => ({
@@ -631,27 +871,30 @@ describe('LauncherApp', () => {
       name: `案件${String(index + 1).padStart(2, '0')}`,
       slug: `project-${index + 1}`,
       runId: `run-${index + 1}`,
+      revision: `revision-${index + 1}`,
       status: index % 2 === 0 ? 'completed' : 'running',
       updatedAt: `2026-07-${String(index + 1).padStart(2, '0')}T00:00:00+09:00`,
       hasViewer: false,
       valid: true,
       refreshable: true,
+      workflowNodes: [],
+      availableActions: [],
     }))
     const fetcher = createLauncherFetcher({ projectList: manyProjects })
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
-    await screen.findByRole('button', { name: '案件14の制作記録を開く' })
+    await screen.findByRole('button', { name: '案件14の制作工程を選ぶ' })
 
     expect(screen.getByText('全14件 / 表示12件')).toBeVisible()
-    expect(screen.queryByRole('button', { name: '案件02の制作記録を開く' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '案件02の制作工程を選ぶ' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '残り2件を表示' }))
     expect(screen.getByText('全14件 / 表示14件')).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: '制作中で絞り込む' }))
     expect(screen.getByText('全14件 / 表示7件')).toBeVisible()
-    expect(screen.queryByRole('button', { name: '案件13の制作記録を開く' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '案件14の制作記録を開く' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '案件02の制作記録を開く' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '案件13の制作工程を選ぶ' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '案件14の制作工程を選ぶ' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '案件02の制作工程を選ぶ' })).toBeVisible()
   })
 
   it('テンプレート棚を必要時に読み込み、検索・用途絞り込み・詳細確認ができる', async () => {
@@ -667,22 +910,66 @@ describe('LauncherApp', () => {
     expect(fetcher).toHaveBeenLastCalledWith('/api/templates', {
       headers: { accept: 'application/json' },
     })
-    expect(screen.getByText('全3件 / 表示3件')).toBeVisible()
+    expect(screen.getByText('全4件 / 表示4件')).toBeVisible()
+
+    const storyboardCard = screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })
+    expect(within(storyboardCard).getByText('構成イメージ')).toBeVisible()
+    expect(within(storyboardCard).getAllByRole('img')).toHaveLength(3)
+    expect(within(storyboardCard).getByText('60秒 · 16:9')).toBeVisible()
+    expect(within(storyboardCard).getByText('記事の要点 → 疑問を代弁 → 専門家が解説 → 要点を回収')).toBeVisible()
+    expect(within(storyboardCard).getByText('テキスト')).toBeVisible()
+    expect(within(storyboardCard).getByText('画像')).toBeVisible()
+    expect(storyboardCard).toHaveAttribute('aria-describedby', 'launcher-template-card-a11y-blog-dialogue-60s')
+    expect(document.getElementById('launcher-template-card-a11y-blog-dialogue-60s')).toHaveTextContent(
+      '60秒、16:9。構成: 記事の要点、疑問を代弁、専門家が解説、要点を回収。必要素材: テキスト、画像。',
+    )
+
+    const fallbackCard = screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ })
+    expect(within(fallbackCard).getByText('構成イメージ')).toBeVisible()
+    expect(within(fallbackCard).getAllByRole('img')).toHaveLength(3)
+    expect(within(fallbackCard).getByText('プレビュー準備中')).toBeVisible()
+
+    const invalidPreviewCard = screen.getByRole('button', { name: /旧形式プレビューを選ぶ/ })
+    expect(within(invalidPreviewCard).getAllByRole('img')).toHaveLength(3)
+    expect(within(invalidPreviewCard).getByText('プレビュー準備中')).toBeVisible()
 
     const detail = screen.getByRole('complementary', { name: '選択したテンプレート' })
     expect(within(detail).getByRole('heading', { name: 'ブログ掛け合い 60秒' })).toBeVisible()
     expect(within(detail).getByText('ブログ記事を初心者役と解説役の会話で伝える動画です。')).toBeVisible()
     expect(within(detail).getByText('記事本文と出典')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '選べるバリエーション' })).toBeVisible()
+    expect(within(detail).getByText('キャラクター構成')).toBeVisible()
+    expect(within(detail).getByText('初心者＋専門家')).toBeVisible()
+    expect(within(detail).getByText('紙の切り絵')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '構成の流れ' })).toBeVisible()
+    expect(within(detail).getByText('専門家が解説')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '向いている用途' })).toBeVisible()
+    expect(within(detail).getByText('初心者向け解説')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '向かない用途' })).toBeVisible()
+    expect(within(detail).getByText('実演だけで魅力が伝わる商品')).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '同じ系統のテンプレート' })).toBeVisible()
+    expect(within(detail).getByText('Q&A掛け合い')).toBeVisible()
     expect(within(detail).getByText('閲覧専用')).toBeVisible()
 
+    const relatedTemplate = within(detail).getByRole('button', {
+      name: 'Q&A掛け合い Q&A件数に応じて可変 · 16:9',
+    })
+    await user.click(relatedTemplate)
+    expect(await within(detail).findByRole('heading', { name: 'Q&A掛け合い' })).toHaveFocus()
+
+    await user.type(screen.getByRole('searchbox', { name: 'テンプレートを検索' }), '紙の切り絵')
+    expect(screen.getByText('全4件 / 表示1件')).toBeVisible()
+    expect(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })).toBeVisible()
+
+    await user.clear(screen.getByRole('searchbox', { name: 'テンプレートを検索' }))
     await user.type(screen.getByRole('searchbox', { name: 'テンプレートを検索' }), 'FAQ')
-    expect(screen.getByText('全3件 / 表示1件')).toBeVisible()
+    expect(screen.getByText('全4件 / 表示1件')).toBeVisible()
     expect(screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ })).toBeVisible()
     expect(screen.queryByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })).not.toBeInTheDocument()
 
     await user.clear(screen.getByRole('searchbox', { name: 'テンプレートを検索' }))
     await user.click(screen.getByRole('button', { name: 'Q&A・FAQで絞り込む' }))
-    expect(screen.getByText('全3件 / 表示1件')).toBeVisible()
+    expect(screen.getByText('全4件 / 表示1件')).toBeVisible()
     await user.click(screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ }))
     expect(within(detail).getByText(/Q&A件数に応じて可変/)).toBeVisible()
 
@@ -957,9 +1244,12 @@ describe('LauncherApp', () => {
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
-    const projectCard = await screen.findByRole('button', { name: 'サンプル映像Aの制作記録を開く' })
+    const projectCard = await screen.findByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' })
 
     await user.click(projectCard)
+    expect(navigate).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('complementary', { name: '選択した制作案件' }))
+      .getByRole('button', { name: '最新状態に更新して開く' }))
 
     await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(
       '/api/projects/project-alpha/refresh',
@@ -977,6 +1267,75 @@ describe('LauncherApp', () => {
       project: projects[0],
     }))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/?updated=1'))
+  })
+
+  it('選択した案件に存在するGate確認画面だけを閲覧専用導線から開く', async () => {
+    const user = userEvent.setup()
+    const navigate = vi.fn()
+    const fetcher = createLauncherFetcher()
+
+    render(<LauncherApp fetcher={fetcher} navigate={navigate} />)
+    await user.click(await screen.findByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' }))
+
+    const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
+    const gateActions = within(selectedPanel).getByRole('group', { name: 'Gate確認（閲覧専用）' })
+    expect(within(gateActions).getByText('Gate確認（閲覧専用）')).toBeVisible()
+    const gate1Button = within(gateActions).getByRole('button', { name: 'Gate 1 確認画面を開く' })
+    const gate2Button = within(gateActions).getByRole('button', { name: 'Gate 2 素材確認を開く' })
+
+    expect(gate1Button).toHaveAttribute('type', 'button')
+    expect(gate2Button).toHaveAttribute('type', 'button')
+    await user.click(gate1Button)
+    expect(navigate).toHaveBeenLastCalledWith('/reviews/project-alpha/gate-1/')
+    await user.click(gate2Button)
+    expect(navigate).toHaveBeenLastCalledWith('/reviews/project-alpha/gate-2/')
+
+    await user.click(screen.getByRole('button', { name: 'Codex Goal Talkの制作工程を選ぶ' }))
+    expect(within(selectedPanel).queryByRole('group', { name: 'Gate確認（閲覧専用）' })).not.toBeInTheDocument()
+    expect(within(selectedPanel).queryByRole('button', { name: 'Gate 1 確認画面を開く' })).not.toBeInTheDocument()
+    expect(within(selectedPanel).queryByRole('button', { name: 'Gate 2 素材確認を開く' })).not.toBeInTheDocument()
+  })
+
+  it('左のサムネイルから最新の3Dワークフローへ直接移動する', async () => {
+    const user = userEvent.setup()
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects/project-alpha/refresh') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          viewerUrl: '/viewers/project-alpha/?from=thumbnail',
+          project: projects[0],
+        }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+    const navigate = vi.fn()
+
+    render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
+
+    await user.click(await screen.findByRole('button', {
+      name: 'サンプル映像Aの3Dワークフローを最新にして開く',
+    }))
+
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/projects/project-alpha/refresh',
+      expect.objectContaining({ method: 'POST' }),
+    ))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/?from=thumbnail'))
+  })
+
+  it('variantsが欠けたテンプレート応答を棚のエラーとして扱う', async () => {
+    const user = userEvent.setup()
+    const malformedTemplate = { ...templates[0] } as Record<string, unknown>
+    delete malformedTemplate.variants
+    const fetcher = createLauncherFetcher({ templateList: [malformedTemplate] })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('テンプレートを読み込めませんでした。')
   })
 
   it('無効な案件と検索の空状態を、次の行動が分かる日本語で表示する', async () => {
@@ -1027,6 +1386,10 @@ describe('LauncherApp', () => {
     expect(reasonCard).toHaveTextContent('最新状態に更新できません')
     expect(reasonCard).toHaveTextContent("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")
     expect(reasonCard).toHaveAccessibleDescription("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")
+
+    await user.click(screen.getByRole('button', { name: '未対応ショーリールの前回の3Dワークフローを開く' }))
+    expect(navigate).toHaveBeenCalledWith('/viewers/unsupported-showreel/')
+    navigate.mockClear()
 
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
     expect(within(selectedPanel).getByText("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")).toBeVisible()
@@ -1085,7 +1448,7 @@ describe('LauncherApp', () => {
     const navigate = vi.fn()
 
     render(<LauncherApp fetcher={fetcher} navigate={navigate} />)
-    await screen.findByRole('button', { name: 'サンプル映像Aの制作記録を開く' })
+    await screen.findByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' })
     await user.click(screen.getByRole('button', { name: '最新状態に更新して開く' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(

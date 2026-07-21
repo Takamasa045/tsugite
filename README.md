@@ -37,11 +37,17 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 - Remotion and HyperFrames backend contracts.
 - A Gate-bound audio adapter contract and an official HyperFrames `media-use` integration for BGM/SFX.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
-- A standalone, read-only 3D workflow viewer under `apps/workflow-viewer/`.
+- A loopback-only project launcher and an optional, read-only 3D detail viewer under `apps/workflow-viewer/`.
 
-## 3D Workflow Viewer
+## Local Workflow Launcher and 3D Viewer
 
-The viewer turns bundled samples or CLI-generated Tsugite snapshots into a navigable 3D production floor with status-aware nodes, dependency lines, node details, and seekable event playback. Default labels and summaries use plain, non-technical Japanese; internal names, references, timestamps, and logs stay under the collapsed details section. The CLI can export current state into it, while the Viewer itself keeps no backend, provider calls, project mutation, or execution authority.
+The launcher offers three clear places to work: use your usual Codex or Claude app beside Tsugite, open an installed Codex CLI or Claude Code in the Desktop's built-in terminal, or use Tsugite for inspection only. The browser version cannot use the built-in terminal, so it remains available alongside an external AI app or as an inspection surface.
+
+The built-in terminal does not install an AI CLI and limits the initial program to Codex CLI or Claude Code. After launch, however, each AI CLI keeps its normal permission and approval settings and may read or write workspace files, run commands, or use the network. This is not a separate Tsugite sandbox, so review each CLI's approval prompts. AI CLI authentication or subscriptions are separate from API billing and credits for generation providers such as PixVerse. Opening the launcher or terminal does not start generation, and an AI suggestion never auto-approves a Gate. Gates do not sandbox general file operations; `run`, `render`, and Gate decisions still require explicit human approval and the Coordinator role.
+
+The launcher lists local projects and templates and can refresh or open each project's 3D workflow snapshot. The executable 2D generation-node canvas is deferred to a later release; the current Desktop buttons do not directly execute `run`, `render`, or Gate decisions.
+
+The existing 3D Viewer remains available for detailed, seekable inspection. It turns bundled samples or a refreshed Tsugite snapshot into a navigable production floor with status-aware nodes, dependency lines, node details, and event playback. The 3D artifact itself stays static and read-only.
 
 For a non-technical local entry point, install the nested Viewer dependencies once and then open the project launcher:
 
@@ -50,7 +56,9 @@ npm --prefix apps/workflow-viewer ci  # first time only
 npm run viewer:open
 ```
 
-The launcher binds only to an available `127.0.0.1` port, lists direct `projects/*/project.yaml` entries, and can refresh or open their read-only snapshots. Refreshed snapshots are written only to a private `0700` temporary directory for the current launcher session, never back through a project output path, and are removed when the launcher closes. At startup, its **Preferences & Learnings** shelf reads local `feedback.jsonl` records across those projects and summarizes their `observed` / `recurring` / `promoted` / `verified` status. It reads at most 128 projects and fairly selects up to 1,000 of their latest records and diagnostics, reporting when either limit is reached. Pending proposals created by the dedicated learning-promotion automation are surfaced in an unread-style tab badge and a local pickup; manual proposals and other workflow results remain in the normal shelf and do not enter the pickup. The badge is a current approval-waiting count, not a separate read-state tracker. A human can review the target, change summary, evidence, and verification plan, then approve or reject the proposal. Either decision clears that pending item by appending a local decision to `feedback.jsonl`. Approval only permits a separate implementation task: it never rewrites prompts, templates, rules, Gates, or state, runs production adapters, or publishes the server externally. The launcher does not request browser notification permission, send desktop notifications, run as a resident service, or use an external notification destination. Stop it with `Ctrl+C` in the launching terminal.
+Use the CLI for `validate`, `plan`, `review`, `run --dry-run`, `run`, `render`, and Gate decisions. The existing Gate prerequisites, explicit approvals, and Coordinator actor checks still apply. Opening the launcher itself does not consume provider credits, send prompts or assets, start generation, render media, or change a Gate.
+
+The launcher and its artifact server bind only to dynamically selected `127.0.0.1` ports. It lists direct `projects/*/project.yaml` entries and can refresh or open their read-only 3D snapshots. Refreshed snapshots are written only to a private `0700` temporary directory for the current launcher session, never back through a project output path, and are removed when the launcher closes. At startup, its **Preferences & Learnings** shelf reads local `feedback.jsonl` records across those projects and summarizes their `observed` / `recurring` / `promoted` / `verified` status. It reads at most 128 projects and fairly selects up to 1,000 of their latest records and diagnostics, reporting when either limit is reached. Pending proposals created by the dedicated learning-promotion automation are surfaced in an unread-style tab badge and a local pickup; manual proposals and other workflow results remain in the normal shelf and do not enter the pickup. The badge is a current approval-waiting count, not a separate read-state tracker. A human can review the target, change summary, evidence, and verification plan, then approve or reject the proposal. Either decision clears that pending item by appending a local decision to `feedback.jsonl`. Approval only permits a separate implementation task: it never rewrites prompts, templates, rules, Gates, or state. The launcher does not request browser notification permission, send desktop notifications, run as a resident service, or use an external notification destination. Stop it with `Ctrl+C` in the launching terminal.
 
 ```sh
 cd apps/workflow-viewer
@@ -91,6 +99,8 @@ npm run viewer:open
 Use `node bin/pipeline ...` in PowerShell instead of invoking the extensionless `bin/pipeline` file directly. Reopen PowerShell after installing or updating Node.js, FFmpeg, or a provider CLI so the updated `PATH` and `PATHEXT` are visible. Provider authentication, entitlements, and billing remain separate manual setup.
 
 Provider CLIs such as PixVerse/Kling, external TopView/OpenClaw/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. For TopView, doctor probes the skill's `video_gen.py` with the non-charging `list-models` command. It does not submit generation tasks; authentication and credits remain manual checks. Any unresolved blocking check makes the overall `ok` value `false`.
+
+After a successful local first-time setup, Codex and Claude Code ask once, before the next substantive proposal, whether to add the optional learning-promotion automation and its host-standard completion notification. Choosing it requires selecting one primary host (Codex, Claude Desktop/Cowork, or Claude Code) and a cadence; choosing not to set it up suppresses the repeat question for that setup flow. The automation stays local, creates only human-approval candidates, and never enables browser/OS notifications or external destinations. See [Learning Promotion Review Automation](docs/automations/learning-promotion-review.md).
 
 See [`docs/hyperframes-audio.md`](docs/hyperframes-audio.md) for HyperFrames-first BGM generation and SFX resolution. This path never falls back to ElevenLabs automatically.
 

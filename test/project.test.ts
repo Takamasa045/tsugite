@@ -558,7 +558,6 @@ connections:
       }));
     }
   });
-
   it.each(["generation", "analysis"] as const)("rejects duplicate %s request ids", (requestKind) => {
     const project = validProjectDefinition();
     project[requestKind] = {

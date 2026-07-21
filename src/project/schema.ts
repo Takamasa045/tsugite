@@ -1,15 +1,23 @@
 import { z } from "zod";
+import { win32 } from "node:path";
 
 const safeIdSchema = z
   .string()
   .min(1)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "must be a safe id");
 
+function hasWindowsPathRoot(value: string): boolean {
+  return win32.parse(value).root.length > 0;
+}
+
 const safeRelativePathSchema = z
   .string()
   .min(1)
   .refine(
-    (value) => !value.startsWith("/") && !value.includes("..") && !value.includes("\\"),
+    (value) => !value.startsWith("/")
+      && !hasWindowsPathRoot(value)
+      && !value.includes("..")
+      && !value.includes("\\"),
     "must be a safe relative path"
   );
 
@@ -18,7 +26,7 @@ const manifestPathSchema = z
   .min(1)
   .refine(
     (value) => {
-      if (value.startsWith("/") || value.includes("\\")) return false;
+      if (value.startsWith("/") || hasWindowsPathRoot(value) || value.includes("\\")) return false;
       const parts = value.split("/");
       const parentRefs = parts.filter((part) => part === "..");
       return parentRefs.length === 0 || (parentRefs.length === 1 && parts[0] === "..");

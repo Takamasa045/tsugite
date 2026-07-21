@@ -1,6 +1,6 @@
-import { execFile } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { constants, type Stats } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { constants, type BigIntStats, type Stats } from "node:fs";
 import {
   chmod,
   lstat,
@@ -14,7 +14,7 @@ import {
   type FileHandle
 } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -31,9 +31,18 @@ import {
 } from "../feedback/index.js";
 import { connectionExecutionMode, listConnectionOptions } from "../connections/registry.js";
 import { createPlan } from "../orchestrator/plan.js";
-import { readState } from "../orchestrator/state.js";
+import { inspectGate1Review } from "../orchestrator/review.js";
+import { inspectGate2RunForApproval } from "../orchestrator/run.js";
+import {
+  acquireRunLock,
+  LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV,
+  readState,
+  RUN_LOCK_INHERIT_ENV,
+  type RunLock,
+  type RunState
+} from "../orchestrator/state.js";
 import { loadProject } from "../project/loadProject.js";
-import { validateProject } from "../project/validateProject.js";
+import { validateProject, type ValidateProjectOptions } from "../project/validateProject.js";
 import {
   generationRequestCapability,
   generationRequestMode,
@@ -42,30 +51,86 @@ import {
 } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import {
+  digestWorkflowViewerReview,
   getWorkflowViewerOpenCommand,
   prepareWorkflowViewerBundle,
+  WORKFLOW_VIEWER_EVIDENCE_FILE,
   writeWorkflowViewer,
   type WorkflowViewerResult,
   type WriteWorkflowViewerOptions
 } from "./artifact.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
+const TSUGITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const PIPELINE_ENTRY = join(TSUGITE_ROOT, "bin", "pipeline");
 
 export type LauncherProject = {
   id: string;
   name: string;
   slug: string;
   runId: string;
+  revision: string;
   status: string;
   updatedAt: string | null;
   hasViewer: boolean;
   viewerUrl?: string;
+  gate1ReviewUrl?: string;
+  gate2ReviewUrl?: string;
   thumbnailUrl?: string;
   valid: boolean;
   refreshable: boolean;
+  workflowNodes: LauncherWorkflowNode[];
+  availableActions: LauncherAction[];
   issues: Issue[];
   issue?: string;
 };
+
+export type LauncherAction =
+  | "validate"
+  | "plan"
+  | "review"
+  | "dry-run"
+  | "run"
+  | "render"
+  | "gate-1-approve"
+  | "gate-1-revise"
+  | "gate-1-abort"
+  | "gate-2-approve-all"
+  | "gate-2-revise"
+  | "gate-2-abort"
+  | "gate-3-approve"
+  | "gate-3-re-render"
+  | "gate-3-abort";
+
+export type LauncherWorkflowNode = {
+  id: "validate" | "plan" | "review" | "gate-1" | "run" | "gate-2" | "render" | "gate-3";
+  label: string;
+  status: "pending" | "running" | "waiting_approval" | "completed" | "error";
+  action: LauncherAction;
+};
+
+export type LauncherJob = {
+  id: string;
+  action: LauncherAction;
+  status: "running" | "succeeded" | "failed";
+  startedAt: string;
+  completedAt?: string;
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+};
+
+export type LauncherProcessResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+export type LauncherProcessRunner = (
+  command: string,
+  args: readonly string[],
+  options: { cwd: string; env?: NodeJS.ProcessEnv }
+) => Promise<LauncherProcessResult>;
 
 export type LauncherTemplate = {
   id: string;
@@ -77,12 +142,40 @@ export type LauncherTemplate = {
   aspectRatio: string;
   speakers?: number;
   requiredInputs: string[];
+  requiredInputDetails: LauncherTemplateInput[];
+  preview: LauncherTemplatePreview | null;
+  notFor: string[];
+  variants: LauncherTemplateVariant[];
   tags: string[];
   audio: string;
   status: "stable" | "experimental" | "deprecated" | "unknown";
   distribution: "bundled" | "local-only" | "unknown";
   valid: boolean;
   issue?: { code: string; message: string };
+};
+
+export type LauncherTemplateInput = {
+  type: "text" | "image" | "audio" | "video" | "data" | "other";
+  label: string;
+};
+
+export type LauncherTemplatePreview = {
+  frames: Array<{
+    kind: "product" | "person" | "interface" | "parts" | "hands" | "result" | "event" | "text";
+    label: string;
+  }>;
+  flow: string[];
+};
+
+export type LauncherTemplateVariant = {
+  id: string;
+  label: string;
+  defaultOptionId?: string;
+  options: Array<{
+    id: string;
+    label: string;
+    description: string;
+  }>;
 };
 
 export type LauncherFeedback = FeedbackAggregate;
@@ -94,6 +187,50 @@ const LAUNCHER_FEEDBACK_NOTICE_RESERVE = 3;
 const REVIEW_PREVIEW_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
 const LAUNCHER_DECISION_BODY_MAX_BYTES = 8 * 1024;
 const LAUNCHER_GENERATION_BODY_MAX_BYTES = 2 * 1024;
+const LAUNCHER_JOB_OUTPUT_MAX_BYTES = 16 * 1024;
+const LAUNCHER_VIEWER_EVIDENCE_MAX_BYTES = 512 * 1024;
+const WORKFLOW_VIEWER_SNAPSHOT_FILE_LIMIT = 512;
+const WORKFLOW_VIEWER_SNAPSHOT_BYTE_LIMIT = 16 * 1024 * 1024 * 1024;
+const WORKFLOW_VIEWER_SNAPSHOT_PATH_BYTE_LIMIT = 512;
+const WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT = 16 * 1024 * 1024;
+const LAUNCHER_GATE2_QC_MAX_BYTES = 8 * 1024 * 1024;
+const LAUNCHER_GATE2_ASSET_LIMIT = 1024;
+const LAUNCHER_GATE2_ASSET_DIGEST_CACHE_MAX_ENTRIES = 2048;
+const LAUNCHER_SNAPSHOT_DIGEST_CACHE_MAX_ENTRIES = 2048;
+const LAUNCHER_REVIEW_DIGEST_CACHE_MAX_ENTRIES = 256;
+const LAUNCHER_REVIEW_FILE_LIMIT = 64;
+const LAUNCHER_REVIEW_BYTE_LIMIT = 64 * 1024 * 1024;
+const LAUNCHER_REVIEW_ENTRY_LIMIT = 512;
+const LAUNCHER_REVIEW_DIRECTORY_DEPTH_LIMIT = 32;
+const REGULAR_FILE_DIGEST_CACHE_MAX_ENTRIES = 512;
+const regularFileDigestCache = new Map<string, {
+  dev: number;
+  ino: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+  digest: string;
+}>();
+const gate2AssetDigestCache = new Map<string, {
+  dev: bigint;
+  ino: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+  digest: string;
+}>();
+const snapshotArtifactDigestCache = new Map<string, {
+  dev: bigint;
+  ino: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+  digest: string;
+}>();
+const reviewAggregateDigestCache = new Map<string, {
+  signature: string;
+  digest: string;
+}>();
 const VIEWER_REFRESH_CAPABILITY_ISSUES = new Set([
   "backend.capability.captions",
   "backend.capability.vertical",
@@ -110,9 +247,111 @@ const promotionDecisionSchema = z.object({
 const generationConnectionSchema = z.object({
   connection: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/)
 }).strict();
+const safeLauncherActionSchema = z.object({
+  action: z.enum(["validate", "plan", "review", "dry-run"]),
+  expectedRunId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).max(128),
+  revision: z.string().regex(/^[a-f0-9]{64}$/)
+}).strict();
+const confirmedLauncherActionSchema = z.object({
+  action: z.enum([
+    "run",
+    "render",
+    "gate-1-approve",
+    "gate-1-revise",
+    "gate-1-abort",
+    "gate-2-approve-all",
+    "gate-2-revise",
+    "gate-2-abort",
+    "gate-3-approve",
+    "gate-3-re-render",
+    "gate-3-abort"
+  ]),
+  expectedRunId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).max(128),
+  revision: z.string().regex(/^[a-f0-9]{64}$/),
+  confirmed: z.literal(true)
+}).strict();
+const launcherActionSchema = z.union([
+  safeLauncherActionSchema,
+  confirmedLauncherActionSchema
+]);
+const viewerEvidenceSchema = z.object({
+  schema_version: z.literal(1),
+  review_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  gate2_qc_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  viewer_index_digest: z.string().regex(/^[a-f0-9]{64}$/),
+  workflow_digest: z.string().regex(/^[a-f0-9]{64}$/),
+  files: z.array(z.object({
+    path: z.string().min(1).max(WORKFLOW_VIEWER_SNAPSHOT_PATH_BYTE_LIMIT)
+      .refine(isSafeViewerManifestPath),
+    size: z.number().int().nonnegative().max(WORKFLOW_VIEWER_SNAPSHOT_BYTE_LIMIT),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/)
+  }).strict()).min(2).max(WORKFLOW_VIEWER_SNAPSHOT_FILE_LIMIT)
+}).strict().superRefine((evidence, context) => {
+  const paths = new Set<string>();
+  let totalBytes = 0;
+  for (const [index, file] of evidence.files.entries()) {
+    if (Buffer.byteLength(file.path) > WORKFLOW_VIEWER_SNAPSHOT_PATH_BYTE_LIMIT) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "snapshot path is too long", path: ["files", index, "path"] });
+    }
+    if (paths.has(file.path)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "snapshot paths must be unique", path: ["files", index, "path"] });
+    }
+    paths.add(file.path);
+    totalBytes += file.size;
+  }
+  if (totalBytes > WORKFLOW_VIEWER_SNAPSHOT_BYTE_LIMIT) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "snapshot is too large", path: ["files"] });
+  }
+  for (const required of ["index.html", "workflow.json"]) {
+    if (!paths.has(required)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: `snapshot is missing ${required}`, path: ["files"] });
+    }
+  }
+});
 const templateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const nonEmptyText = z.string().trim().min(1).max(240);
 const descriptionText = z.string().trim().min(1).max(600);
+const templatePreviewFrameSchema = z.object({
+  kind: z.enum(["product", "person", "interface", "parts", "hands", "result", "event", "text"]),
+  label: nonEmptyText
+}).strict();
+const templatePreviewSchema = z.object({
+  frames: z.tuple([
+    templatePreviewFrameSchema,
+    templatePreviewFrameSchema,
+    templatePreviewFrameSchema
+  ]),
+  flow: z.array(nonEmptyText).min(3).max(5)
+}).strict();
+const templateVariantSchema = z.object({
+  id: templateIdSchema,
+  label: nonEmptyText,
+  default_option: templateIdSchema.optional(),
+  options: z.array(z.object({
+    id: templateIdSchema,
+    label: nonEmptyText,
+    description: descriptionText
+  }).strict()).min(2).max(12)
+}).strict().superRefine((variant, context) => {
+  const optionIds = new Set<string>();
+  for (const [index, option] of variant.options.entries()) {
+    if (optionIds.has(option.id)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "variant option ids must be unique",
+        path: ["options", index, "id"]
+      });
+    }
+    optionIds.add(option.id);
+  }
+  if (variant.default_option && !optionIds.has(variant.default_option)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "default_option must reference an option in the same variant",
+      path: ["default_option"]
+    });
+  }
+});
 const templateMetadataSchema = z.object({
   schema_version: z.literal(1),
   kind: z.literal("tsugite-template"),
@@ -138,6 +377,21 @@ const templateMetadataSchema = z.object({
     label: nonEmptyText,
     required: z.boolean()
   }).strict()).min(1).max(16),
+  preview: templatePreviewSchema.optional(),
+  not_for: z.array(nonEmptyText).max(6).default([]),
+  variants: z.array(templateVariantSchema).max(8).default([]).superRefine((variants, context) => {
+    const variantIds = new Set<string>();
+    for (const [index, variant] of variants.entries()) {
+      if (variantIds.has(variant.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "variant ids must be unique",
+          path: [index, "id"]
+        });
+      }
+      variantIds.add(variant.id);
+    }
+  }),
   tags: z.array(nonEmptyText).max(16).default([]),
   audio: z.object({
     narration: z.enum(["required", "optional", "unsupported"]),
@@ -165,7 +419,13 @@ type LauncherProjectRecord = {
   project?: Project;
   outputDir?: string;
   viewerRoot?: LauncherDirectoryIdentity;
+  evidenceExpected?: boolean;
+  evidenceInvalid?: boolean;
   thumbnailPath?: string;
+  approvalDigests?: Partial<Record<
+    "gate-1-approve" | "gate-2-approve-all" | "gate-3-approve",
+    string
+  >>;
   public: LauncherProject;
 };
 
@@ -196,16 +456,30 @@ type LauncherViewerSnapshot = {
   root: LauncherDirectoryIdentity;
 };
 
+function preserveViewerEvidenceRequirement(
+  previous: LauncherProjectRecord | undefined,
+  next: LauncherProjectRecord
+): void {
+  if (next.evidenceExpected || next.evidenceInvalid) return;
+  if (previous?.evidenceExpected) next.evidenceExpected = true;
+  if (previous?.evidenceInvalid) next.evidenceInvalid = true;
+}
+
 export type StartWorkflowViewerLauncherOptions = {
   projectsDir?: string;
   templatesDir?: string;
   port?: number;
   bundleDir?: string;
+  allowProjectActions?: boolean;
   beforeRefresh?: (project: LauncherProject) => void | Promise<void>;
   beforeProjectReloadCommit?: () => void | Promise<void>;
   beforeServeArtifact?: (path: string) => void | Promise<void>;
+  onSnapshotFingerprint?: (path: string) => void | Promise<void>;
+  onReviewFingerprint?: (root: string) => void | Promise<void>;
   writeViewer?: (options: WriteWorkflowViewerOptions) => Promise<WorkflowViewerResult>;
   runGeneration?: (configPath: string) => Promise<unknown>;
+  executePipeline?: LauncherProcessRunner;
+  validationOptions?: ValidateProjectOptions;
 };
 
 export type WorkflowViewerLauncher = {
@@ -237,10 +511,13 @@ export async function startWorkflowViewerLauncher(
   const token = randomBytes(24).toString("hex");
   const idsByConfig = new Map<string, string>();
   const viewerSnapshots = new Map<string, LauncherViewerSnapshot>();
+  const jobs = new Map<string, LauncherJob>();
   let projects = new Map<string, LauncherProjectRecord>();
   const refreshing = new Set<string>();
   const generating = new Set<string>();
   const writer = options.writeViewer ?? writeWorkflowViewer;
+  const executePipeline = options.executePipeline ?? executePipelineProcess;
+  const allowProjectActions = options.allowProjectActions ?? true;
   let launcherOrigin = "";
   let artifactOrigin = "";
 
@@ -251,7 +528,8 @@ export async function startWorkflowViewerLauncher(
       idsByConfig,
       artifactOrigin,
       launcherOrigin,
-      viewerSnapshots
+      viewerSnapshots,
+      options.validationOptions
     );
     await options.beforeProjectReloadCommit?.();
     const nextProjects = new Map(discovered.map((project) => [project.id, project]));
@@ -259,6 +537,10 @@ export async function startWorkflowViewerLauncher(
       if (viewerSnapshots.get(projectId) !== snapshotsAtStart.get(projectId)) {
         nextProjects.set(projectId, currentRecord);
       }
+    }
+    for (const [projectId, record] of nextProjects) {
+      preserveViewerEvidenceRequirement(projects.get(projectId), record);
+      record.public = withLauncherJob(record.public, jobs.get(projectId));
     }
     projects = nextProjects;
     return [...nextProjects.values()].map((project) => project.public);
@@ -349,8 +631,14 @@ export async function startWorkflowViewerLauncher(
         record.identity
       );
       if (!thumbnailFile) return sendNotFound(response);
-      await beforeServeArtifact(thumbnailFile);
-      return serveFile(request, response, thumbnailFile);
+      let handedToFileServer = false;
+      try {
+        await beforeServeArtifact(thumbnailFile);
+        handedToFileServer = true;
+        return serveFile(request, response, thumbnailFile);
+      } finally {
+        if (!handedToFileServer) await thumbnailFile.handle.close();
+      }
     }
 
     if (method === "GET" && requestUrl.pathname === "/api/projects") {
@@ -571,6 +859,164 @@ export async function startWorkflowViewerLauncher(
       return;
     }
 
+    const projectStatusMatch = /^\/api\/projects\/([^/]+)\/status$/.exec(requestUrl.pathname);
+    if (method === "GET" && projectStatusMatch) {
+      if (request.headers["x-tsugite-token"] !== token) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const record = projects.get(projectStatusMatch[1]!);
+      if (!record) return sendNotFound(response);
+      const inspected = await inspectProject(
+        record.name,
+        record.configPath,
+        record.id,
+        artifactOrigin,
+        launcherOrigin,
+        viewerSnapshots.get(record.id),
+        options.validationOptions
+      );
+      preserveViewerEvidenceRequirement(record, inspected);
+      inspected.public = withLauncherJob(inspected.public, jobs.get(record.id));
+      projects.set(record.id, inspected);
+      sendJson(response, 200, {
+        ok: true,
+        project: inspected.public,
+        job: jobs.get(record.id) ?? null
+      });
+      return;
+    }
+
+    const projectActionMatch = /^\/api\/projects\/([^/]+)\/action$/.exec(requestUrl.pathname);
+    if (projectActionMatch && !allowProjectActions) return sendNotFound(response);
+    if (method === "GET" && projectActionMatch) {
+      if (request.headers["x-tsugite-token"] !== token) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const record = projects.get(projectActionMatch[1]!);
+      if (!record) return sendNotFound(response);
+      sendJson(response, 200, { ok: true, job: jobs.get(record.id) ?? null });
+      return;
+    }
+
+    if (method === "POST" && projectActionMatch) {
+      if (
+        request.headers.origin !== launcherOrigin
+        || request.headers["x-tsugite-token"] !== token
+      ) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      await reloadProjects();
+      const record = projects.get(projectActionMatch[1]!);
+      if (!record) return sendNotFound(response);
+      let input: z.infer<typeof launcherActionSchema>;
+      try {
+        const parsed = launcherActionSchema.safeParse(
+          await readJsonRequest(request, LAUNCHER_DECISION_BODY_MAX_BYTES)
+        );
+        if (!parsed.success) throw new Error("invalid action request");
+        input = parsed.data;
+      } catch {
+        sendJson(response, 400, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.action_invalid",
+            message: "Project action request was invalid"
+          }
+        });
+        return;
+      }
+      if (!record.identity || !record.public.valid) {
+        sendJson(response, 422, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.project_invalid",
+            message: record.public.issue ?? "Project cannot be executed safely"
+          }
+        });
+        return;
+      }
+      if (
+        input.expectedRunId !== record.public.runId
+        || input.revision !== record.public.revision
+      ) {
+        sendJson(response, 409, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.project_stale",
+            message: "Project state changed after it was displayed. Refresh before continuing."
+          }
+        });
+        return;
+      }
+      const action = input.action;
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+      // Do not add an await between this final per-project check and reserving the job slot.
+      // Concurrent POST handlers then serialize on the jobs map in the JavaScript turn queue.
+      if (jobs.get(record.id)?.status === "running") {
+        sendJson(response, 409, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.job_in_progress",
+            message: "This project already has a running job"
+          }
+        });
+        return;
+      }
+      if (!record.public.availableActions.includes(action)) {
+        sendJson(response, 422, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.action_unavailable",
+            message: "This action is not available for the current project state"
+          }
+        });
+        return;
+      }
+      const job: LauncherJob = {
+        id: randomBytes(16).toString("hex"),
+        action,
+        status: "running",
+        startedAt: new Date().toISOString()
+      };
+      jobs.set(record.id, job);
+      projects.set(record.id, {
+        ...record,
+        public: withLauncherJob(record.public, job)
+      });
+      sendJson(response, 202, { ok: true, job });
+      void executeLauncherJob({
+        record,
+        job,
+        executePipeline,
+        inspectCurrent: () => inspectProject(
+          record.name,
+          record.configPath,
+          record.id,
+          artifactOrigin,
+          launcherOrigin,
+          viewerSnapshots.get(record.id),
+          options.validationOptions
+        ),
+        onComplete: (completedJob) => jobs.set(record.id, completedJob)
+      });
+      return;
+    }
+
     if (method === "GET" && requestUrl.pathname === "/api/templates") {
       sendJson(response, 200, { ok: true, templates: await discoverTemplates(templatesDir) });
       return;
@@ -759,7 +1205,7 @@ export async function startWorkflowViewerLauncher(
           sendProjectChanged(response);
           return;
         }
-        const validation = await validateProject(record.configPath);
+        const validation = await validateProject(record.configPath, options.validationOptions);
         if (
           !validation.project
           || !validation.manifest
@@ -833,7 +1279,8 @@ export async function startWorkflowViewerLauncher(
           record.id,
           artifactOrigin,
           launcherOrigin,
-          snapshot
+          snapshot,
+          options.validationOptions
         );
         if (!refreshedRecord.outputDir || !refreshedRecord.viewerRoot) {
           sendJson(response, 422, {
@@ -894,23 +1341,32 @@ export async function startWorkflowViewerLauncher(
         record.viewerRoot.realPath
       );
       if (!file) return sendNotFound(response);
-      if (relativePath.startsWith("review/")) {
-        response.setHeader("content-security-policy", REVIEW_PREVIEW_CSP);
+      let handedToFileServer = false;
+      try {
+        await beforeServeArtifact(file);
+        if (!await validateViewerArtifactRequest(
+          requestUrl,
+          record,
+          file,
+          options.onSnapshotFingerprint,
+          options.onReviewFingerprint
+        )) return sendNotFound(response);
+        const servedReference = relative(await realpath(record.outputDir), file.path).replaceAll("\\", "/");
+        if (servedReference.startsWith("review/")) {
+          response.setHeader("content-security-policy", REVIEW_PREVIEW_CSP);
+        }
+        handedToFileServer = true;
+        return serveFile(request, response, file);
+      } finally {
+        if (!handedToFileServer) await file.handle.close();
       }
-      await beforeServeArtifact(file);
-      return serveFile(request, response, file);
     }
 
     sendNotFound(response);
   }
 
   async function beforeServeArtifact(file: OpenedStaticFile): Promise<void> {
-    try {
-      await options.beforeServeArtifact?.(file.path);
-    } catch (error) {
-      await file.handle.close();
-      throw error;
-    }
+    await options.beforeServeArtifact?.(file.path);
   }
 
   try {
@@ -953,6 +1409,231 @@ export async function startWorkflowViewerLauncher(
     await cleanupLauncherPrivateRoot(privateRoot);
     throw error;
   }
+}
+
+async function executeLauncherJob(input: {
+  record: LauncherProjectRecord;
+  job: LauncherJob;
+  executePipeline: LauncherProcessRunner;
+  inspectCurrent: () => Promise<LauncherProjectRecord>;
+  onComplete: (job: LauncherJob) => void;
+}): Promise<void> {
+  let completedJob: LauncherJob;
+  let runLock: RunLock | undefined;
+  try {
+    const expectedIdentity = input.record.identity;
+    if (!expectedIdentity) throw new Error("Project files changed before the action started");
+    if (requiresLauncherMutationLock(input.job.action)) {
+      if (!input.record.project) throw new Error("Project metadata is unavailable");
+      runLock = await acquireRunLock(
+        resolve(dirname(input.record.configPath), input.record.project.dist_dir),
+        input.record.public.runId
+      );
+    }
+    const current = await input.inspectCurrent();
+    if (
+      !current.identity
+      || current.public.revision !== input.record.public.revision
+      || current.public.runId !== input.record.public.runId
+      || !current.public.availableActions.includes(input.job.action)
+      || !await matchesProjectIdentity(input.record.configPath, expectedIdentity)
+    ) throw new Error("Project files changed before the action started");
+    const actionInputDigest = await digestLauncherActionInputs(input.record);
+    if (!actionInputDigest) throw new Error("Project inputs could not be fingerprinted");
+    const result = await input.executePipeline(
+      process.execPath,
+      [PIPELINE_ENTRY, ...launcherPipelineArgs(input.record.configPath, input.job.action)],
+      {
+        cwd: TSUGITE_ROOT,
+        ...launcherJobEnvironment(input.record, input.job.action, runLock)
+      }
+    );
+    if (
+      !await matchesProjectIdentity(input.record.configPath, expectedIdentity)
+      || await digestLauncherActionInputs(input.record) !== actionInputDigest
+    ) {
+      throw new Error("Project files changed while the action was running");
+    }
+    completedJob = {
+      ...input.job,
+      status: result.exitCode === 0 ? "succeeded" : "failed",
+      completedAt: new Date().toISOString(),
+      exitCode: result.exitCode,
+      stdout: sanitizeLauncherJobOutput(result.stdout, input.record),
+      stderr: sanitizeLauncherJobOutput(result.stderr, input.record)
+    };
+  } catch (error) {
+    completedJob = {
+      ...input.job,
+      status: "failed",
+      completedAt: new Date().toISOString(),
+      exitCode: 1,
+      stdout: "",
+      stderr: sanitizeLauncherJobOutput(
+        error instanceof Error ? error.message : "Pipeline action failed",
+        input.record
+      )
+    };
+  } finally {
+    await runLock?.release();
+  }
+  input.onComplete(completedJob);
+}
+
+function requiresLauncherMutationLock(action: LauncherAction): boolean {
+  return action === "review"
+    || action === "run"
+    || action === "render"
+    || action.startsWith("gate-");
+}
+
+async function digestLauncherActionInputs(record: LauncherProjectRecord): Promise<string | undefined> {
+  if (!record.project) return undefined;
+  return digestRegularFiles([
+    record.configPath,
+    resolve(dirname(record.configPath), record.project.manifest)
+  ]);
+}
+
+function launcherJobEnvironment(
+  record: LauncherProjectRecord,
+  action: LauncherAction,
+  runLock: RunLock | undefined
+): { env?: NodeJS.ProcessEnv } {
+  const expectedApprovalDigest = action === "gate-1-approve"
+    || action === "gate-2-approve-all"
+    || action === "gate-3-approve"
+    ? record.approvalDigests?.[action]
+    : undefined;
+  if (!runLock && !expectedApprovalDigest) return {};
+  return {
+    env: {
+      ...process.env,
+      ...(runLock ? { [RUN_LOCK_INHERIT_ENV]: runLock.token } : {}),
+      ...(expectedApprovalDigest
+        ? { [LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV]: expectedApprovalDigest }
+        : {})
+    }
+  };
+}
+
+export function launcherPipelineArgs(configPath: string, action: LauncherAction): string[] {
+  const common = ["--config", configPath];
+  if (action === "validate") return ["validate", ...common, "--json"];
+  if (action === "plan") return ["plan", ...common, "--json"];
+  if (action === "review") return ["review", ...common, "--json"];
+  if (action === "dry-run") return ["run", ...common, "--dry-run", "--json"];
+  if (action === "run" || action === "render") {
+    return [action, ...common, "--actor", "coordinator", "--json"];
+  }
+  const gateActions: Record<Exclude<LauncherAction,
+    "validate" | "plan" | "review" | "dry-run" | "run" | "render"
+  >, { gate: "gate-1" | "gate-2" | "gate-3"; decision: string }> = {
+    "gate-1-approve": { gate: "gate-1", decision: "approve" },
+    "gate-1-revise": { gate: "gate-1", decision: "revise" },
+    "gate-1-abort": { gate: "gate-1", decision: "abort" },
+    "gate-2-approve-all": { gate: "gate-2", decision: "approve_all" },
+    "gate-2-revise": { gate: "gate-2", decision: "revise" },
+    "gate-2-abort": { gate: "gate-2", decision: "abort" },
+    "gate-3-approve": { gate: "gate-3", decision: "approve" },
+    "gate-3-re-render": { gate: "gate-3", decision: "re-render" },
+    "gate-3-abort": { gate: "gate-3", decision: "abort" }
+  };
+  const gateAction = gateActions[action];
+  return [
+    "gate",
+    ...common,
+    "--actor", "coordinator",
+    "--gate", gateAction.gate,
+    "--decision", gateAction.decision,
+    "--json"
+  ];
+}
+
+function sanitizeLauncherJobOutput(output: string, record: LauncherProjectRecord): string {
+  let sanitized = output;
+  const replacements = [
+    [record.configPath, "<project>/project.yaml"],
+    [dirname(record.configPath), "<project>"],
+    [TSUGITE_ROOT, "<tsugite>"],
+    [homedir(), "<home>"]
+  ] as const;
+  for (const [sensitive, replacement] of replacements) {
+    sanitized = sanitized.replaceAll(sensitive, replacement);
+    sanitized = sanitized.replaceAll(sensitive.replaceAll("\\", "/"), replacement);
+  }
+  sanitized = sanitized
+    .replace(/-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]*?-----END \1-----/g, "<redacted-private-key>")
+    .replace(/(authorization\s*[=:]\s*["']?(?:basic|bearer)\s+)[^\s,"'}]+/gi, "$1<redacted>")
+    .replace(/(bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, "$1<redacted>")
+    .replace(/(["']?(?:api[_-]?key|token|secret|password|authorization)["']?\s*[=:]\s*["']?)[^\s,"'}]+/gi, "$1<redacted>")
+    .replace(/((?:[A-Z0-9_]*(?:API_KEY|ACCESS_KEY|SECRET|TOKEN|PASSWORD|PRIVATE_KEY|DATABASE_URL)[A-Z0-9_]*)\s*[=:]\s*["']?)[^\s,"'}]+/gi, "$1<redacted>")
+    .replace(/(["']?(?:cookie|set-cookie|session(?:id|_id)?|csrf(?:_token)?)["']?\s*[=:]\s*["']?)[^\r\n,"'}]+/gi, "$1<redacted>")
+    .replace(/([a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)[^@\s/]+@/gi, "$1<redacted>@")
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "<redacted>")
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "<redacted>");
+  return boundUtf8(sanitized, LAUNCHER_JOB_OUTPUT_MAX_BYTES);
+}
+
+function boundUtf8(value: string, maximumBytes: number): string {
+  const bytes = Buffer.from(value);
+  if (bytes.length <= maximumBytes) return value;
+  const suffix = Buffer.from("\n[output truncated]\n");
+  return Buffer.concat([
+    bytes.subarray(0, Math.max(0, maximumBytes - suffix.length)),
+    suffix
+  ]).toString("utf8");
+}
+
+async function executePipelineProcess(
+  command: string,
+  args: readonly string[],
+  options: { cwd: string; env?: NodeJS.ProcessEnv }
+): Promise<LauncherProcessResult> {
+  return await new Promise<LauncherProcessResult>((resolveProcess, reject) => {
+    const child = spawn(command, [...args], {
+      cwd: options.cwd,
+      ...(options.env ? { env: options.env } : {}),
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+    const collect = (chunks: Buffer[], chunk: Buffer, currentBytes: number) => {
+      const remaining = Math.max(0, LAUNCHER_JOB_OUTPUT_MAX_BYTES - currentBytes);
+      if (remaining > 0) chunks.push(chunk.subarray(0, remaining));
+      return {
+        bytes: currentBytes + Math.min(chunk.length, remaining),
+        truncated: chunk.length > remaining
+      };
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      const result = collect(stdout, chunk, stdoutBytes);
+      stdoutBytes = result.bytes;
+      stdoutTruncated ||= result.truncated;
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      const result = collect(stderr, chunk, stderrBytes);
+      stderrBytes = result.bytes;
+      stderrTruncated ||= result.truncated;
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      const withTruncation = (chunks: Buffer[], truncated: boolean) => {
+        const output = Buffer.concat(chunks).toString("utf8");
+        return truncated ? `${output}\n[output truncated]\n` : output;
+      };
+      resolveProcess({
+        exitCode: code ?? 1,
+        stdout: withTruncation(stdout, stdoutTruncated),
+        stderr: withTruncation(stderr, stderrTruncated)
+      });
+    });
+  });
 }
 
 function selectRecentFeedbackEntries(entries: FeedbackRecord[], limit: number): FeedbackRecord[] {
@@ -1053,7 +1734,8 @@ async function discoverProjects(
   idsByConfig: Map<string, string>,
   artifactOrigin: string,
   launcherOrigin: string,
-  viewerSnapshots: Map<string, LauncherViewerSnapshot>
+  viewerSnapshots: Map<string, LauncherViewerSnapshot>,
+  validationOptions?: ValidateProjectOptions
 ): Promise<LauncherProjectRecord[]> {
   let entries;
   try {
@@ -1084,7 +1766,8 @@ async function discoverProjects(
             id,
             artifactOrigin,
             launcherOrigin,
-            viewerSnapshots.get(id)
+            viewerSnapshots.get(id),
+            validationOptions
           );
         })
     );
@@ -1195,6 +1878,29 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
       requiredInputs: metadata.required_inputs
         .filter((input) => input.required)
         .map((input) => input.label),
+      requiredInputDetails: metadata.required_inputs
+        .filter((input) => input.required)
+        .map((input) => ({ type: input.type, label: input.label })),
+      preview: metadata.preview
+        ? {
+            frames: metadata.preview.frames.map((frame) => ({
+              kind: frame.kind,
+              label: frame.label
+            })),
+            flow: metadata.preview.flow
+          }
+        : null,
+      notFor: metadata.not_for,
+      variants: metadata.variants.map((variant) => ({
+        id: variant.id,
+        label: variant.label,
+        ...(variant.default_option ? { defaultOptionId: variant.default_option } : {}),
+        options: variant.options.map((option) => ({
+          id: option.id,
+          label: option.label,
+          description: option.description
+        }))
+      })),
       tags: metadata.tags,
       audio: metadata.audio.notes,
       status: metadata.status,
@@ -1225,6 +1931,10 @@ function invalidTemplate(
     duration: "",
     aspectRatio: "",
     requiredInputs: [],
+    requiredInputDetails: [],
+    preview: null,
+    notFor: [],
+    variants: [],
     tags: [],
     audio: "",
     status: "unknown",
@@ -1240,13 +1950,15 @@ async function inspectProject(
   id: string,
   artifactOrigin: string,
   launcherOrigin: string,
-  knownSnapshot?: LauncherViewerSnapshot
+  knownSnapshot?: LauncherViewerSnapshot,
+  validationOptions?: ValidateProjectOptions
 ): Promise<LauncherProjectRecord> {
   let sourceModifiedAtMs = 0;
   try {
     const captured = await captureProjectIdentity(configPath);
     const feedbackIdentity = await captureFeedbackFileIdentity(configPath);
     sourceModifiedAtMs = captured.sourceModifiedAtMs;
+    const configDigest = createHash("sha256").update(await readFile(configPath)).digest("hex");
     const project = await loadProject(configPath);
     const runId = project.run_id ?? project.slug;
     const projectDir = dirname(configPath);
@@ -1270,9 +1982,10 @@ async function inspectProject(
     const statePath = join(runDir, "state.json");
     let status = "planned";
     let updatedAt: string | null = null;
+    let state: RunState | undefined;
     let stateIssue: Issue | undefined;
     try {
-      const state = await readState(statePath);
+      state = await readState(statePath);
       if (state.run_id !== runId) {
         throw new Error(`state run_id '${state.run_id}' does not match project run_id '${runId}'`);
       }
@@ -1292,7 +2005,97 @@ async function inspectProject(
       : false;
     const viewerUrl = hasViewer ? createViewerUrl(artifactOrigin, launcherOrigin, id) : undefined;
     const thumbnailUrl = thumbnailPath ? `${launcherOrigin}/thumbnail/${id}` : undefined;
-    const validation = await validateProject(configPath);
+    const validation = await validateProject(configPath, validationOptions);
+    const reviewInspection = validation.project && validation.manifest
+      ? await inspectGate1Review({
+          configPath,
+          project: validation.project,
+          manifest: validation.manifest
+        })
+      : undefined;
+    let hasReview = reviewInspection?.ok === true;
+    const gate1ApprovalCurrent = state?.gates.gate_1.status !== "approved"
+      || Boolean(
+        reviewInspection?.ok
+        && reviewInspection.approvalDigest
+        && state.gates.gate_1.approved_input_digest === reviewInspection.approvalDigest
+      );
+    const reviewAssetPaths = hasReview
+      ? await listRegularFiles(join(runDir, "review", "assets"))
+      : undefined;
+    const [
+      manifestDigest,
+      reviewDigest,
+      viewerReviewDigest,
+      gate2Digest,
+      gate3Digest
+    ] = await Promise.all([
+      digestRegularFiles([resolve(projectDir, project.manifest)]),
+      hasReview && reviewAssetPaths
+        ? digestRegularFiles([
+            join(runDir, "review", "index.html"),
+            join(runDir, "review", "review-data.json"),
+            ...reviewAssetPaths
+          ])
+        : undefined,
+      hasReview ? digestReviewAggregateCached(runDir) : undefined,
+      digestRegularFiles([join(runDir, "gate2-qc.json")]),
+      digestRegularFiles([
+        join(runDir, "render-report.json"),
+        join(runDir, "gate3-qc.json"),
+        join(runDir, "final.mp4")
+      ])
+    ]);
+    hasReview &&= reviewDigest !== undefined;
+    let hasGate2Evidence = gate2Digest !== undefined;
+    const hasGate3Evidence = gate3Digest !== undefined;
+    let gate2ApprovalDigest: string | undefined;
+    if (
+      hasGate2Evidence
+      && state?.gates.gate_2.status === "awaiting_approval"
+      && validation.project
+      && validation.manifest
+    ) {
+      const inspected = await inspectGate2RunForApproval(
+        validation.project,
+        validation.manifest,
+        resolve(projectDir, project.dist_dir),
+        validation.adapter,
+        validation.project.edit.editorial && reviewInspection?.ok
+          ? reviewInspection.compilation
+          : undefined,
+        validation.audioAdapter
+      );
+      if (inspected.ok) gate2ApprovalDigest = inspected.approvalDigest;
+      else hasGate2Evidence = false;
+    }
+    const gate3ApprovalDigest = hasGate3Evidence
+      ? await digestRegularFile(join(runDir, "final.mp4"))
+      : undefined;
+    const currentGate2Qc = gate2Digest !== undefined
+      ? await inspectGate2QcSource(
+        configPath,
+        join(runDir, "gate2-qc.json"),
+        captured.identity
+      )
+      : undefined;
+    const gate2QcDigest = currentGate2Qc?.digest;
+    const gate2SourceAssetsCurrent = currentGate2Qc?.assetsCurrent === true;
+    const viewerReviewInspection = hasViewer && outputDir && viewerRoot
+      ? await inspectViewerReviewLinks({
+          outputDir,
+          viewerRoot,
+          currentReviewDigest: viewerReviewDigest,
+          currentGate2QcDigest: gate2QcDigest,
+          gate2SourceAssetsCurrent
+        })
+      : { evidenceStatus: "absent" as const };
+    if (
+      !await matchesProjectIdentity(configPath, captured.identity)
+      || createHash("sha256").update(await readFile(configPath)).digest("hex") !== configDigest
+    ) {
+      throw new Error("Project config changed while it was being inspected");
+    }
     const safetyIssues = validation.issues.filter(isProjectSafetyIssue);
     const issues = [
       ...safetyIssues,
@@ -1309,22 +2112,67 @@ async function inspectProject(
       project,
       ...(outputDir ? { outputDir } : {}),
       ...(viewerRoot ? { viewerRoot } : {}),
+      ...(viewerReviewInspection.evidenceStatus === "valid" ? { evidenceExpected: true } : {}),
+      ...(viewerReviewInspection.evidenceStatus === "invalid" ? { evidenceInvalid: true } : {}),
       thumbnailPath,
+      approvalDigests: {
+        ...(reviewInspection?.ok && reviewInspection.approvalDigest
+          ? { "gate-1-approve": reviewInspection.approvalDigest }
+          : {}),
+        ...(gate2ApprovalDigest ? { "gate-2-approve-all": gate2ApprovalDigest } : {}),
+        ...(gate3ApprovalDigest ? { "gate-3-approve": gate3ApprovalDigest } : {})
+      },
       public: {
         id,
         name,
         slug: project.slug,
         runId,
+        revision: createLauncherProjectRevision({
+          configDigest,
+          sourceModifiedAtMs,
+          runId,
+          state,
+          manifestDigest,
+          reviewDigest,
+          reviewInputDigest: reviewInspection?.ok ? reviewInspection.approvalDigest : undefined,
+          gate2Digest,
+          gate3Digest
+        }),
         status,
         updatedAt,
         hasViewer,
         ...(viewerUrl ? { viewerUrl } : {}),
+        ...(viewerReviewInspection.gate1
+          ? { gate1ReviewUrl: createGate1ReviewUrl(artifactOrigin, id) }
+          : {}),
+        ...(viewerReviewInspection.gate2
+          ? { gate2ReviewUrl: createGate2ReviewUrl(artifactOrigin, launcherOrigin, id) }
+          : {}),
         ...(thumbnailUrl ? { thumbnailUrl } : {}),
         valid: safetyIssues.length === 0,
         refreshable: validation.project !== undefined
           && validation.manifest !== undefined
           && validation.issues.every(isExecutionCapabilityIssue)
           && stateIssue === undefined,
+        workflowNodes: createLauncherWorkflowNodes({
+          valid: safetyIssues.length === 0,
+          validationOk: validation.issues.length === 0 && stateIssue === undefined,
+          state,
+          hasReview,
+          gate1ApprovalCurrent,
+          hasGate2Evidence,
+          hasGate3Evidence,
+          stateIssue
+        }),
+        availableActions: createAvailableLauncherActions({
+          valid: safetyIssues.length === 0,
+          validationOk: validation.issues.length === 0 && stateIssue === undefined,
+          state,
+          hasReview,
+          gate1ApprovalCurrent,
+          hasGate2Evidence,
+          hasGate3Evidence
+        }),
         issues,
         ...(issues[0] ? { issue: issues[0].message } : {})
       }
@@ -1344,16 +2192,170 @@ async function inspectProject(
         name,
         slug: name,
         runId: name,
+        revision: createHash("sha256").update(`${id}:${sourceModifiedAtMs}:invalid`).digest("hex"),
         status: "error",
         updatedAt: null,
         hasViewer: false,
         valid: false,
         refreshable: false,
+        workflowNodes: createLauncherWorkflowNodes({ valid: false }),
+        availableActions: [],
         issues: [issue],
         issue: issue.message
       }
     };
   }
+}
+
+type LauncherWorkflowContext = {
+  valid: boolean;
+  validationOk?: boolean;
+  state?: RunState;
+  hasReview?: boolean;
+  gate1ApprovalCurrent?: boolean;
+  hasGate2Evidence?: boolean;
+  hasGate3Evidence?: boolean;
+  stateIssue?: Issue;
+};
+
+function createLauncherProjectRevision(input: {
+  configDigest: string;
+  sourceModifiedAtMs: number;
+  runId: string;
+  state?: RunState;
+  manifestDigest?: string;
+  reviewDigest?: string;
+  reviewInputDigest?: string;
+  gate2Digest?: string;
+  gate3Digest?: string;
+}): string {
+  return createHash("sha256").update(JSON.stringify({
+    configDigest: input.configDigest,
+    sourceModifiedAtMs: input.sourceModifiedAtMs,
+    runId: input.runId,
+    state: input.state ?? null,
+    manifestDigest: input.manifestDigest ?? null,
+    reviewDigest: input.reviewDigest ?? null,
+    reviewInputDigest: input.reviewInputDigest ?? null,
+    gate2Digest: input.gate2Digest ?? null,
+    gate3Digest: input.gate3Digest ?? null
+  })).digest("hex");
+}
+
+function createLauncherWorkflowNodes(context: LauncherWorkflowContext): LauncherWorkflowNode[] {
+  const nodes: LauncherWorkflowNode[] = [
+    { id: "validate", label: "検証", status: context.valid && context.validationOk ? "completed" : "error", action: "validate" },
+    { id: "plan", label: "構成", status: "pending", action: "plan" },
+    { id: "review", label: "レビュー", status: "pending", action: "review" },
+    { id: "gate-1", label: "Gate 1", status: "pending", action: "gate-1-approve" },
+    { id: "run", label: "素材生成", status: "pending", action: "run" },
+    { id: "gate-2", label: "Gate 2", status: "pending", action: "gate-2-approve-all" },
+    { id: "render", label: "編集・書き出し", status: "pending", action: "render" },
+    { id: "gate-3", label: "Gate 3", status: "pending", action: "gate-3-approve" }
+  ];
+  if (!context.valid) return nodes;
+
+  const setStatus = (id: LauncherWorkflowNode["id"], status: LauncherWorkflowNode["status"]) => {
+    const node = nodes.find((candidate) => candidate.id === id);
+    if (node) node.status = status;
+  };
+  if (context.state || context.hasReview) setStatus("plan", "completed");
+  if (context.hasReview || (context.state && context.state.gates.gate_1.status !== "pending")) {
+    setStatus("review", "completed");
+  }
+  if (context.stateIssue) setStatus("validate", "error");
+
+  const state = context.state;
+  if (!state) return nodes;
+  for (const [gateId, nodeId] of [
+    ["gate_1", "gate-1"],
+    ["gate_2", "gate-2"],
+    ["gate_3", "gate-3"]
+  ] as const) {
+    const gateStatus = state.gates[gateId].status;
+    if (gateStatus === "approved") setStatus(nodeId, "completed");
+    else if (gateStatus === "awaiting_approval") setStatus(nodeId, "waiting_approval");
+    else if (gateStatus === "abort" || gateStatus === "revise") setStatus(nodeId, "error");
+  }
+  if (state.gates.gate_1.status === "approved" && !context.gate1ApprovalCurrent) {
+    setStatus("gate-1", "error");
+  }
+  if (
+    state.gates.gate_2.status === "awaiting_approval"
+    || state.gates.gate_2.status === "approved"
+    || state.gates.gate_2.status === "abort"
+  ) {
+    setStatus("run", "completed");
+  }
+  if (
+    state.gates.gate_3.status === "awaiting_approval"
+    || state.gates.gate_3.status === "approved"
+    || state.gates.gate_3.status === "abort"
+  ) {
+    setStatus("render", "completed");
+  }
+  return nodes;
+}
+
+function createAvailableLauncherActions(context: LauncherWorkflowContext): LauncherAction[] {
+  if (!context.valid || context.stateIssue) return [];
+  if (!context.validationOk) return ["validate"];
+  const actions: LauncherAction[] = ["validate", "plan", "review", "dry-run"];
+  const state = context.state;
+  const gate1Status = state?.gates.gate_1.status ?? "pending";
+  if (context.hasReview && (gate1Status === "pending" || gate1Status === "revise")) {
+    actions.push("gate-1-approve", "gate-1-revise", "gate-1-abort");
+  } else if (gate1Status === "awaiting_approval") {
+    if (context.hasReview) actions.push("gate-1-approve");
+    actions.push("gate-1-revise", "gate-1-abort");
+  } else if (gate1Status === "approved" && !context.gate1ApprovalCurrent) {
+    actions.push("gate-1-revise");
+  }
+  if (
+    state?.status === "running"
+    && gate1Status === "approved"
+    && context.gate1ApprovalCurrent
+  ) actions.push("run");
+  if (state?.gates.gate_2.status === "awaiting_approval") {
+    if (context.hasGate2Evidence) actions.push("gate-2-approve-all");
+    actions.push("gate-2-revise", "gate-2-abort");
+  }
+  if (state?.status === "rendering" && state.gates.gate_2.status === "approved") {
+    actions.push("render");
+  }
+  if (state?.gates.gate_3.status === "awaiting_approval") {
+    if (context.hasGate3Evidence) actions.push("gate-3-approve");
+    actions.push("gate-3-re-render", "gate-3-abort");
+  }
+  return actions;
+}
+
+function withLauncherJob(project: LauncherProject, job: LauncherJob | undefined): LauncherProject {
+  if (!job) return project;
+  const nodeId = launcherActionNodeId(job.action);
+  return {
+    ...project,
+    availableActions: job.status === "running" ? [] : project.availableActions,
+    workflowNodes: project.workflowNodes.map((node) => node.id === nodeId
+      && job.status !== "succeeded" ? {
+          ...node,
+          status: job.status === "running"
+            ? "running"
+            : "error"
+        }
+      : node)
+  };
+}
+
+function launcherActionNodeId(action: LauncherAction): LauncherWorkflowNode["id"] {
+  if (action.startsWith("gate-1-")) return "gate-1";
+  if (action.startsWith("gate-2-")) return "gate-2";
+  if (action.startsWith("gate-3-")) return "gate-3";
+  if (action === "dry-run") return "run";
+  if (action === "validate" || action === "plan" || action === "review" || action === "run" || action === "render") {
+    return action;
+  }
+  return "validate";
 }
 
 function isProjectSafetyIssue(issue: Issue): boolean {
@@ -1376,6 +2378,533 @@ function createViewerUrl(
   const viewerUrl = new URL(`/viewer/${projectId}/`, artifactOrigin);
   viewerUrl.searchParams.set("launcher", launcherOrigin);
   return viewerUrl.toString();
+}
+
+function createGate1ReviewUrl(
+  artifactOrigin: string,
+  projectId: string
+): string {
+  return new URL(`/viewer/${projectId}/review/index.html`, artifactOrigin).toString();
+}
+
+function createGate2ReviewUrl(
+  artifactOrigin: string,
+  launcherOrigin: string,
+  projectId: string
+): string {
+  const viewerUrl = new URL(createViewerUrl(artifactOrigin, launcherOrigin, projectId));
+  viewerUrl.searchParams.set("node", "gate-2");
+  return viewerUrl.toString();
+}
+
+type ViewerReviewLinks = {
+  gate1?: true;
+  gate2?: true;
+};
+
+type ViewerEvidence = z.infer<typeof viewerEvidenceSchema>;
+
+type ViewerEvidenceRead =
+  | { status: "absent" }
+  | { status: "invalid" }
+  | { status: "valid"; evidence: ViewerEvidence };
+
+type ViewerReviewInspection = ViewerReviewLinks & {
+  evidenceStatus: ViewerEvidenceRead["status"];
+};
+
+async function inspectGate2QcSource(
+  configPath: string,
+  gate2QcPath: string,
+  identity: LauncherProjectIdentity
+): Promise<{ digest: string; assetsCurrent: boolean } | undefined> {
+  const projectDir = dirname(configPath);
+  const qcReference = relative(projectDir, gate2QcPath);
+  const qcFile = await openContainedStaticFile(
+    projectDir,
+    process.platform === "win32" ? qcReference.replaceAll("\\", "/") : qcReference,
+    identity.realProjectDir
+  );
+  if (!qcFile || qcFile.stats.size > LAUNCHER_GATE2_QC_MAX_BYTES) {
+    await qcFile?.handle.close();
+    return undefined;
+  }
+  let qc: unknown;
+  let rawQc: Buffer;
+  try {
+    rawQc = await readOpenedFileBounded(
+      qcFile.handle,
+      qcFile.stats,
+      LAUNCHER_GATE2_QC_MAX_BYTES
+    );
+    qc = JSON.parse(rawQc.toString("utf8")) as unknown;
+  } catch {
+    return undefined;
+  } finally {
+    await qcFile.handle.close();
+  }
+  const digest = createHash("sha256").update(rawQc).digest("hex");
+  if (typeof qc !== "object" || qc === null || Array.isArray(qc)) return undefined;
+  const input = qc as Record<string, unknown>;
+  if (typeof input.ok !== "boolean") return undefined;
+  if (input.assets === undefined) return { digest, assetsCurrent: true };
+  if (!Array.isArray(input.assets) || input.assets.length > LAUNCHER_GATE2_ASSET_LIMIT) {
+    return { digest, assetsCurrent: false };
+  }
+
+  for (const asset of input.assets) {
+    if (typeof asset !== "object" || asset === null || Array.isArray(asset)) {
+      return { digest, assetsCurrent: false };
+    }
+    const record = asset as Record<string, unknown>;
+    if (record.sha256 === undefined) {
+      if (input.ok === false) continue;
+      return { digest, assetsCurrent: false };
+    }
+    if (typeof record.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.sha256)) {
+      return { digest, assetsCurrent: false };
+    }
+    const declaredPath = typeof record.path === "string"
+      ? record.path
+      : typeof record.src === "string"
+        ? record.src
+        : undefined;
+    if (!declaredPath) return { digest, assetsCurrent: false };
+    const candidate = isAbsolute(declaredPath)
+      ? resolve(declaredPath)
+      : resolve(projectDir, declaredPath);
+    if (!isContained(projectDir, candidate)) return { digest, assetsCurrent: false };
+    const assetReference = relative(projectDir, candidate);
+    const file = await openContainedStaticFile(
+      projectDir,
+      process.platform === "win32" ? assetReference.replaceAll("\\", "/") : assetReference,
+      identity.realProjectDir
+    );
+    if (!file) return { digest, assetsCurrent: false };
+    try {
+      const assetDigest = await digestGate2AssetCached(file.path, file.handle);
+      if (assetDigest !== record.sha256) return { digest, assetsCurrent: false };
+    } finally {
+      await file.handle.close();
+    }
+  }
+  return { digest, assetsCurrent: true };
+}
+
+async function digestGate2AssetCached(path: string, handle: FileHandle): Promise<string> {
+  return digestOpenedFileCached(
+    path,
+    handle,
+    gate2AssetDigestCache,
+    LAUNCHER_GATE2_ASSET_DIGEST_CACHE_MAX_ENTRIES
+  );
+}
+
+async function digestSnapshotArtifactCached(
+  path: string,
+  handle: FileHandle,
+  onCacheMiss?: (path: string) => void | Promise<void>
+): Promise<string> {
+  return digestOpenedFileCached(
+    path,
+    handle,
+    snapshotArtifactDigestCache,
+    LAUNCHER_SNAPSHOT_DIGEST_CACHE_MAX_ENTRIES,
+    onCacheMiss
+  );
+}
+
+async function digestReviewAggregateCached(
+  root: string,
+  onCacheMiss?: (root: string) => void | Promise<void>
+): Promise<string | undefined> {
+  const cacheKey = resolve(root);
+  const before = await captureReviewAggregateIdentity(cacheKey);
+  if (!before) return undefined;
+  const cached = reviewAggregateDigestCache.get(cacheKey);
+  if (cached?.signature === before) return cached.digest;
+  await onCacheMiss?.(cacheKey);
+  const digest = await digestWorkflowViewerReview(cacheKey);
+  if (!digest) return undefined;
+  const after = await captureReviewAggregateIdentity(cacheKey);
+  if (!after || after !== before) return undefined;
+  reviewAggregateDigestCache.set(cacheKey, { signature: after, digest });
+  if (reviewAggregateDigestCache.size > LAUNCHER_REVIEW_DIGEST_CACHE_MAX_ENTRIES) {
+    const oldest = reviewAggregateDigestCache.keys().next().value as string | undefined;
+    if (oldest) reviewAggregateDigestCache.delete(oldest);
+  }
+  return digest;
+}
+
+async function captureReviewAggregateIdentity(root: string): Promise<string | undefined> {
+  try {
+    const reviewDir = join(root, "review");
+    const [rootStats, reviewStats, realRoot, realReviewDir] = await Promise.all([
+      lstat(root, { bigint: true }),
+      lstat(reviewDir, { bigint: true }),
+      realpath(root),
+      realpath(reviewDir)
+    ]);
+    if (
+      !rootStats.isDirectory()
+      || rootStats.isSymbolicLink()
+      || !reviewStats.isDirectory()
+      || reviewStats.isSymbolicLink()
+      || !isContained(realRoot, realReviewDir)
+    ) return undefined;
+
+    const identities = [reviewIdentityPart("directory", "review", reviewStats)];
+    let fileCount = 0;
+    let totalBytes = 0n;
+    let visitedEntries = 0;
+    const addFile = async (source: string, reference: string): Promise<boolean> => {
+      let handle: FileHandle | undefined;
+      try {
+        handle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+        const [openedStats, pathStats, realSource] = await Promise.all([
+          handle.stat({ bigint: true }),
+          lstat(source, { bigint: true }),
+          realpath(source)
+        ]);
+        if (
+          !openedStats.isFile()
+          || pathStats.isSymbolicLink()
+          || openedStats.dev !== pathStats.dev
+          || openedStats.ino !== pathStats.ino
+          || !isContained(realReviewDir, realSource)
+        ) return false;
+        const realStats = await lstat(realSource, { bigint: true });
+        if (openedStats.dev !== realStats.dev || openedStats.ino !== realStats.ino) return false;
+        fileCount += 1;
+        totalBytes += openedStats.size;
+        if (
+          fileCount > LAUNCHER_REVIEW_FILE_LIMIT
+          || totalBytes > BigInt(LAUNCHER_REVIEW_BYTE_LIMIT)
+        ) return false;
+        identities.push(reviewIdentityPart(
+          "file",
+          reference.replaceAll("\\", "/"),
+          openedStats
+        ));
+        return true;
+      } finally {
+        await handle?.close();
+      }
+    };
+
+    if (!await addFile(join(reviewDir, "index.html"), "index.html")) return undefined;
+    const walkAssets = async (
+      directory: string,
+      reference: string,
+      depth: number
+    ): Promise<boolean> => {
+      if (depth > LAUNCHER_REVIEW_DIRECTORY_DEPTH_LIMIT) return false;
+      let directoryStats;
+      try {
+        directoryStats = await lstat(directory, { bigint: true });
+      } catch (error) {
+        if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) {
+          return reference === "assets";
+        }
+        throw error;
+      }
+      if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) return false;
+      const realDirectory = await realpath(directory);
+      if (!isContained(realReviewDir, realDirectory)) return false;
+      identities.push(reviewIdentityPart("directory", reference, directoryStats));
+      const entries = await readdir(directory, { withFileTypes: true });
+      for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        visitedEntries += 1;
+        if (visitedEntries > LAUNCHER_REVIEW_ENTRY_LIMIT) return false;
+        if (entry.isSymbolicLink()) return false;
+        const source = join(directory, entry.name);
+        const childReference = `${reference}/${entry.name}`;
+        if (entry.isDirectory()) {
+          if (!await walkAssets(source, childReference, depth + 1)) return false;
+        } else if (entry.isFile()) {
+          if (!await addFile(source, childReference)) return false;
+        } else {
+          return false;
+        }
+      }
+      return true;
+    };
+    if (!await walkAssets(join(reviewDir, "assets"), "assets", 1)) return undefined;
+    return identities.sort((left, right) => left.localeCompare(right)).join("\n");
+  } catch {
+    return undefined;
+  }
+}
+
+function reviewIdentityPart(
+  kind: "directory" | "file",
+  reference: string,
+  stats: BigIntStats
+): string {
+  return JSON.stringify([
+    kind,
+    reference,
+    stats.dev.toString(),
+    stats.ino.toString(),
+    stats.size.toString(),
+    stats.mtimeNs.toString(),
+    stats.ctimeNs.toString()
+  ]);
+}
+
+async function digestOpenedFileCached(
+  path: string,
+  handle: FileHandle,
+  cache: Map<string, {
+    dev: bigint;
+    ino: bigint;
+    size: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
+    digest: string;
+  }>,
+  maximumEntries: number,
+  onCacheMiss?: (path: string) => void | Promise<void>
+): Promise<string> {
+  const before = await handle.stat({ bigint: true });
+  if (!before.isFile()) throw new Error("Fingerprint target must be a regular file");
+  const cached = cache.get(path);
+  if (
+    cached
+    && cached.dev === before.dev
+    && cached.ino === before.ino
+    && cached.size === before.size
+    && cached.mtimeNs === before.mtimeNs
+    && cached.ctimeNs === before.ctimeNs
+  ) return cached.digest;
+  await onCacheMiss?.(path);
+  const digest = createHash("sha256");
+  const stream = handle.createReadStream({ start: 0, autoClose: false });
+  for await (const chunk of stream) digest.update(chunk as Buffer);
+  const after = await handle.stat({ bigint: true });
+  if (
+    before.dev !== after.dev
+    || before.ino !== after.ino
+    || before.size !== after.size
+    || before.mtimeNs !== after.mtimeNs
+    || before.ctimeNs !== after.ctimeNs
+  ) throw new Error("File changed while it was being fingerprinted");
+  const sha256 = digest.digest("hex");
+  cache.set(path, {
+    dev: after.dev,
+    ino: after.ino,
+    size: after.size,
+    mtimeNs: after.mtimeNs,
+    ctimeNs: after.ctimeNs,
+    digest: sha256
+  });
+  if (cache.size > maximumEntries) {
+    const oldest = cache.keys().next().value as string | undefined;
+    if (oldest) cache.delete(oldest);
+  }
+  return sha256;
+}
+
+async function inspectViewerReviewLinks(input: {
+  outputDir: string;
+  viewerRoot: LauncherDirectoryIdentity;
+  currentReviewDigest?: string;
+  currentGate2QcDigest?: string;
+  gate2SourceAssetsCurrent: boolean;
+}): Promise<ViewerReviewInspection> {
+  const evidenceRead = await readViewerEvidence(input.outputDir, input.viewerRoot);
+  if (evidenceRead.status !== "valid") return { evidenceStatus: evidenceRead.status };
+  const evidence = evidenceRead.evidence;
+  const gate2SnapshotCurrent = evidence.gate2_qc_digest
+    ? await validateGate2ViewerSnapshot(input.outputDir, input.viewerRoot, evidence)
+    : false;
+  const snapshotReviewDigest = evidence.review_digest
+    ? await digestReviewAggregateCached(input.outputDir)
+    : undefined;
+  const gate1Current = Boolean(
+    evidence.review_digest === snapshotReviewDigest
+    && evidence.review_digest === input.currentReviewDigest
+  );
+  const viewerIndexEntry = evidence.files.find((file) => file.path === "index.html");
+  const workflowEntry = evidence.files.find((file) => file.path === "workflow.json");
+  return {
+    evidenceStatus: "valid",
+    ...(gate1Current ? { gate1: true as const } : {}),
+    ...(gate2SnapshotCurrent
+      && evidence.viewer_index_digest === viewerIndexEntry?.sha256
+      && evidence.workflow_digest === workflowEntry?.sha256
+      && evidence.gate2_qc_digest === input.currentGate2QcDigest
+      && input.gate2SourceAssetsCurrent
+      ? { gate2: true as const }
+      : {})
+  };
+}
+
+async function validateGate2ViewerSnapshot(
+  outputDir: string,
+  viewerRoot: LauncherDirectoryIdentity,
+  evidence: ViewerEvidence
+): Promise<boolean> {
+  const gate2Entries = evidence.files.filter((entry) =>
+    entry.path === "index.html"
+    || entry.path === "workflow.json"
+    || entry.path.startsWith("assets/")
+    || entry.path.startsWith("previews/")
+  );
+  for (const entry of gate2Entries) {
+    const file = await openContainedStaticFile(outputDir, entry.path, viewerRoot.realPath);
+    if (!file) return false;
+    try {
+      if (
+        entry.size !== file.stats.size
+        || (
+          (entry.path === "index.html" || entry.path === "workflow.json")
+          && file.stats.size > WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT
+        )
+      ) return false;
+      if (await digestSnapshotArtifactCached(file.path, file.handle) !== entry.sha256) return false;
+    } catch {
+      return false;
+    } finally {
+      await file.handle.close();
+    }
+  }
+  return true;
+}
+
+async function readViewerEvidence(
+  outputDir: string,
+  viewerRoot: LauncherDirectoryIdentity
+): Promise<ViewerEvidenceRead> {
+  const evidencePath = resolve(outputDir, WORKFLOW_VIEWER_EVIDENCE_FILE);
+  try {
+    const evidenceStats = await lstat(evidencePath);
+    if (!evidenceStats.isFile() || evidenceStats.isSymbolicLink()) return { status: "invalid" };
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) {
+      return { status: "absent" };
+    }
+    return { status: "invalid" };
+  }
+  const evidenceFile = await openContainedStaticFile(
+    outputDir,
+    WORKFLOW_VIEWER_EVIDENCE_FILE,
+    viewerRoot.realPath
+  );
+  if (!evidenceFile || evidenceFile.stats.size > LAUNCHER_VIEWER_EVIDENCE_MAX_BYTES) {
+    await evidenceFile?.handle.close();
+    return { status: "invalid" };
+  }
+  try {
+    const contents = await readOpenedFileBounded(
+      evidenceFile.handle,
+      evidenceFile.stats,
+      LAUNCHER_VIEWER_EVIDENCE_MAX_BYTES
+    );
+    return {
+      status: "valid",
+      evidence: viewerEvidenceSchema.parse(JSON.parse(contents.toString("utf8")))
+    };
+  } catch {
+    return { status: "invalid" };
+  } finally {
+    await evidenceFile.handle.close();
+  }
+}
+
+async function validateViewerArtifactRequest(
+  requestUrl: URL,
+  record: LauncherProjectRecord,
+  file: OpenedStaticFile,
+  onSnapshotFingerprint?: (path: string) => void | Promise<void>,
+  onReviewFingerprint?: (root: string) => void | Promise<void>
+): Promise<boolean> {
+  if (!record.outputDir || !record.viewerRoot || !record.identity || !record.project) return false;
+  const reference = relative(await realpath(record.outputDir), file.path).replaceAll("\\", "/");
+  if (!isSafeViewerManifestPath(reference) || reference === WORKFLOW_VIEWER_EVIDENCE_FILE) return false;
+  const evidenceRead = await readViewerEvidence(record.outputDir, record.viewerRoot);
+  if (evidenceRead.status === "invalid") {
+    record.evidenceInvalid = true;
+    return false;
+  }
+  if (evidenceRead.status === "absent") {
+    if (record.evidenceExpected || record.evidenceInvalid) return false;
+    const requestedNodes = requestUrl.searchParams.getAll("node");
+    return !reference.startsWith("review/")
+      && !(reference === "index.html" && requestedNodes.length === 1 && requestedNodes[0] === "gate-2");
+  }
+  record.evidenceExpected = true;
+  record.evidenceInvalid = false;
+  const evidence = evidenceRead.evidence;
+  const manifestEntry = evidence.files.find((entry) => entry.path === reference);
+  if (!manifestEntry || manifestEntry.size !== file.stats.size) return false;
+  if (
+    (reference === "index.html" || reference === "workflow.json")
+    && file.stats.size > WORKFLOW_VIEWER_DOCUMENT_BYTE_LIMIT
+  ) return false;
+  const snapshotDigest = await digestSnapshotArtifactCached(
+    file.path,
+    file.handle,
+    onSnapshotFingerprint
+  );
+  if (snapshotDigest !== manifestEntry.sha256) return false;
+
+  if (reference.startsWith("review/")) {
+    if (!evidence.review_digest) return false;
+    const runDir = join(
+      dirname(record.configPath),
+      record.project.dist_dir,
+      record.project.run_id ?? record.project.slug
+    );
+    const [sourceReviewDigest, snapshotReviewDigest] = await Promise.all([
+      digestReviewAggregateCached(runDir, onReviewFingerprint),
+      digestReviewAggregateCached(record.outputDir, onReviewFingerprint)
+    ]);
+    if (
+      !sourceReviewDigest
+      || evidence.review_digest !== sourceReviewDigest
+      || evidence.review_digest !== snapshotReviewDigest
+    ) return false;
+  }
+
+  const requestedNodes = requestUrl.searchParams.getAll("node");
+  const gate2DeepLink = reference === "index.html"
+    && requestedNodes.length === 1
+    && requestedNodes[0] === "gate-2";
+  if (
+    gate2DeepLink
+    && !evidence.gate2_qc_digest
+  ) return false;
+  if (
+    gate2DeepLink
+    && !await validateGate2ViewerSnapshot(record.outputDir, record.viewerRoot, evidence)
+  ) return false;
+  if (
+    evidence.gate2_qc_digest
+    && (
+      reference === "index.html"
+      || reference === "workflow.json"
+      || reference.startsWith("assets/")
+      || reference.startsWith("previews/")
+    )
+  ) {
+    const gate2QcPath = join(
+      dirname(record.configPath),
+      record.project.dist_dir,
+      record.project.run_id ?? record.project.slug,
+      "gate2-qc.json"
+    );
+    const currentGate2Qc = await inspectGate2QcSource(
+      record.configPath,
+      gate2QcPath,
+      record.identity
+    );
+    if (
+      currentGate2Qc?.digest !== evidence.gate2_qc_digest
+      || currentGate2Qc.assetsCurrent !== true
+    ) return false;
+  }
+  return true;
 }
 
 function toPublicLauncherIssue(issue: Issue): Issue {
@@ -1763,12 +3292,136 @@ function isContained(root: string, candidate: string): boolean {
   return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
 }
 
+function isSafeViewerManifestPath(reference: string): boolean {
+  if (
+    reference.startsWith("/")
+    || reference.includes("\\")
+    || reference.includes("\0")
+    || reference.split("/").some((part) => !part || part === "." || part === "..")
+  ) return false;
+  return reference === "index.html"
+    || reference === "workflow.json"
+    || reference.startsWith("assets/")
+    || reference.startsWith("previews/")
+    || reference.startsWith("review/");
+}
+
 async function isRegularFile(path: string): Promise<boolean> {
   try {
     const fileStats = await lstat(path);
     return fileStats.isFile() && !fileStats.isSymbolicLink();
   } catch (error) {
     if (isFileSystemError(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
+async function digestRegularFiles(paths: string[]): Promise<string | undefined> {
+  const digest = createHash("sha256");
+  for (const path of paths) {
+    const fileDigest = await digestRegularFile(path);
+    if (!fileDigest) return undefined;
+    digest.update(resolve(path));
+    digest.update("\0");
+    digest.update(fileDigest);
+    digest.update("\0");
+  }
+  return digest.digest("hex");
+}
+
+async function digestRegularFile(path: string): Promise<string | undefined> {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const before = await handle.stat();
+    if (!before.isFile()) return undefined;
+    const cached = regularFileDigestCache.get(path);
+    if (cached && sameDigestIdentity(cached, before)) return cached.digest;
+    const digest = await digestOpenedFileHandle(handle, before);
+    const after = await handle.stat();
+    regularFileDigestCache.set(path, {
+      dev: after.dev,
+      ino: after.ino,
+      size: after.size,
+      mtimeMs: after.mtimeMs,
+      ctimeMs: after.ctimeMs,
+      digest
+    });
+    if (regularFileDigestCache.size > REGULAR_FILE_DIGEST_CACHE_MAX_ENTRIES) {
+      const oldest = regularFileDigestCache.keys().next().value as string | undefined;
+      if (oldest) regularFileDigestCache.delete(oldest);
+    }
+    return digest;
+  } catch (error) {
+    if (
+      isFileSystemError(error, "ENOENT")
+      || isFileSystemError(error, "ENOTDIR")
+      || isFileSystemError(error, "ELOOP")
+    ) return undefined;
+    throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
+async function digestOpenedFileHandle(handle: FileHandle, before: Stats): Promise<string> {
+  const digest = createHash("sha256");
+  const stream = handle.createReadStream({ start: 0, autoClose: false });
+  for await (const chunk of stream) digest.update(chunk as Buffer);
+  const after = await handle.stat();
+  if (!sameFileIdentity(before, after) || !sameDigestIdentity(before, after)) {
+    throw new Error("File changed while it was being fingerprinted");
+  }
+  return digest.digest("hex");
+}
+
+async function readOpenedFileBounded(
+  handle: FileHandle,
+  before: Stats,
+  maximumBytes: number
+): Promise<Buffer> {
+  if (before.size > maximumBytes) throw new Error("File exceeds the read limit");
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  const stream = handle.createReadStream({ start: 0, autoClose: false });
+  for await (const chunk of stream) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > maximumBytes) {
+      stream.destroy();
+      throw new Error("File exceeds the read limit");
+    }
+    chunks.push(buffer);
+  }
+  const after = await handle.stat();
+  if (!sameFileIdentity(before, after) || !sameDigestIdentity(before, after)) {
+    throw new Error("File changed while it was being read");
+  }
+  return Buffer.concat(chunks, totalBytes);
+}
+
+function sameDigestIdentity(
+  left: Pick<Stats, "dev" | "ino" | "size" | "mtimeMs" | "ctimeMs">,
+  right: Pick<Stats, "dev" | "ino" | "size" | "mtimeMs" | "ctimeMs">
+): boolean {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs;
+}
+
+async function listRegularFiles(directory: string): Promise<string[] | undefined> {
+  try {
+    const directoryStats = await lstat(directory);
+    if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) return undefined;
+    const entries = await readdir(directory, { withFileTypes: true });
+    if (entries.some((entry) => !entry.isFile() || entry.isSymbolicLink())) return undefined;
+    return entries
+      .map((entry) => join(directory, entry.name))
+      .sort((left, right) => left.localeCompare(right));
+  } catch (error) {
+    if (isFileSystemError(error, "ENOENT") || isFileSystemError(error, "ENOTDIR")) return undefined;
     throw error;
   }
 }
@@ -1857,6 +3510,7 @@ function contentTypeFor(path: string): string {
   const types: Record<string, string> = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",

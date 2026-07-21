@@ -26,6 +26,7 @@ export interface ViewerSample {
 export interface AppProps {
   samples?: ViewerSample[]
   launcherHref?: string
+  initialNodeId?: string
 }
 
 function currentLauncherHref(): string | undefined {
@@ -41,6 +42,16 @@ function currentLauncherHref(): string | undefined {
   return port <= 65_535 ? `http://127.0.0.1:${port}/` : undefined
 }
 
+export function nodeIdFromSearch(search: string): string | undefined {
+  const nodeHints = new URLSearchParams(search).getAll('node')
+  if (nodeHints.length !== 1 || nodeHints[0].length === 0) return undefined
+  return nodeHints[0]
+}
+
+function currentNodeId(): string | undefined {
+  return nodeIdFromSearch(window.location.search)
+}
+
 function isEditableTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
@@ -48,7 +59,11 @@ function isEditableTarget(target: EventTarget | null): boolean {
   )
 }
 
-export function App({ samples = workflowSamples, launcherHref = currentLauncherHref() }: AppProps) {
+export function App({
+  samples = workflowSamples,
+  launcherHref = currentLauncherHref(),
+  initialNodeId = currentNodeId(),
+}: AppProps) {
   const [activeSampleId, setActiveSampleId] = useState(samples[0]?.id ?? '')
   const [resetSignal, setResetSignal] = useState(0)
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
@@ -80,10 +95,16 @@ export function App({ samples = workflowSamples, launcherHref = currentLauncherH
       if (activeSample?.initialTime !== undefined) {
         store.setCurrentTime(activeSample.initialTime)
       }
+
+      if (initialNodeId && validation.data.nodes.some((node) => node.id === initialNodeId)) {
+        store.selectNode(initialNodeId)
+        focusNonce.current += 1
+        setFocusRequest({ nodeId: initialNodeId, nonce: focusNonce.current })
+      }
     } else {
       useWorkflowStore.getState().clearWorkflow()
     }
-  }, [activeSample?.initialTime, validation])
+  }, [activeSample?.initialTime, initialNodeId, validation])
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {

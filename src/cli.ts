@@ -26,6 +26,9 @@ import {
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
+  acquireRunLock,
+  LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV,
+  RUN_LOCK_INHERIT_ENV,
   createPlannedState,
   markGateAwaiting,
   readState,
@@ -33,6 +36,7 @@ import {
   writeState,
   type GateDecision,
   type GateId,
+  type RunLock,
   type RunState
 } from "./orchestrator/state.js";
 import { validateProject } from "./project/validateProject.js";
@@ -90,11 +94,14 @@ type ParsedArgs = {
   open: boolean;
   apply: boolean;
   allowExternalAnalysis: boolean;
+  expectedApprovalDigest?: string;
   issues: Issue[];
 };
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const args = parseArgs(argv);
+  args.expectedApprovalDigest = process.env[LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV];
+  delete process.env[LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV];
   if (args.issues.length > 0) {
     return output(args, 1, { ok: false, command: args.command, issues: args.issues });
   }
@@ -504,6 +511,35 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       issues: validation.issues
     });
   }
+
+  let runLock: RunLock | undefined;
+  if (shouldAcquireRunLock(args)) {
+    const location = getStateLocation(args, validation.project!);
+    const inheritedRunLockToken = process.env[RUN_LOCK_INHERIT_ENV];
+    delete process.env[RUN_LOCK_INHERIT_ENV];
+    try {
+      runLock = await acquireRunLock(
+        location.stateDir,
+        validation.project!.run_id ?? validation.project!.slug,
+        inheritedRunLockToken
+      );
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: args.command,
+        issues: [
+          {
+            code: "run.locked",
+            message: error instanceof Error && "code" in error && error.code === "run.locked"
+              ? error.message
+              : "run lock is unavailable"
+          }
+        ]
+      });
+    }
+  }
+
+  try {
 
   if (args.command === "finalize") {
     if (args.apply) {
@@ -917,6 +953,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     command: args.command,
     issues: [{ code: "cli.command_unknown", message: `unknown command '${args.command}'` }]
   });
+  } finally {
+    await runLock?.release();
+  }
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -1282,6 +1321,18 @@ function requireCoordinator(args: ParsedArgs): Issue | undefined {
   };
 }
 
+function shouldAcquireRunLock(args: ParsedArgs): boolean {
+  if (args.command === "review") return true;
+  if (args.command === "finalize" && args.apply) return args.actor === "coordinator";
+  if ((args.command === "run" && !args.dryRun) || args.command === "render") {
+    return args.actor === "coordinator";
+  }
+  if (args.command !== "gate" || args.actor !== "coordinator") return false;
+
+  const gate = parseGate(args.gate);
+  return Boolean(gate && !isUnsupportedDecision(gate, args.decision) && parseDecision(gate, args.decision));
+}
+
 async function recordGate(
   args: ParsedArgs,
   project: Project,
@@ -1370,6 +1421,25 @@ async function recordGate(
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
+    gateApprovalDigest = inspected.approvalDigest;
+  }
+
+  if (
+    decision === "approved"
+    && args.expectedApprovalDigest
+    && gateApprovalDigest !== args.expectedApprovalDigest
+  ) {
+    return {
+      ok: false,
+      issues: [{
+        code: "gate.approval_artifacts_changed",
+        message: "approval artifacts changed after the launcher confirmation"
+      }],
+      state,
+      statePath: stateLocation.statePath,
+      reviewPath,
+      reviewDataPath
+    };
   }
 
   let nextState: RunState;

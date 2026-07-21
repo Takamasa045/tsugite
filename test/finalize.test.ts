@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -174,6 +175,8 @@ async function completionFixture(options: { completed?: boolean; omitFinal?: boo
     images: [],
     speakers: []
   } as Manifest;
+  const finalContent = "canonical final video";
+  const finalDigest = createHash("sha256").update(finalContent).digest("hex");
 
   await Promise.all([
     writeFile(configPath, "slug: demo\n"),
@@ -185,7 +188,10 @@ async function completionFixture(options: { completed?: boolean; omitFinal?: boo
       gates: {
         gate_1: { status: "approved" },
         gate_2: { status: "approved" },
-        gate_3: { status: options.completed === false ? "awaiting_approval" : "approved" }
+        gate_3: {
+          status: options.completed === false ? "awaiting_approval" : "approved",
+          ...(options.completed === false ? {} : { approved_input_digest: finalDigest })
+        }
       }
     })}\n`),
     writeFile(join(runDir, "render-report.json"), "{}\n"),
@@ -198,7 +204,7 @@ async function completionFixture(options: { completed?: boolean; omitFinal?: boo
     writeFile(join(root, "qa/v1/contact-sheet.jpg"), "old qa image"),
     writeFile(join(root, "marketing/logo.png"), "unrelated project media")
   ]);
-  if (!options.omitFinal) await writeFile(join(runDir, "final.mp4"), "canonical final video");
+  if (!options.omitFinal) await writeFile(join(runDir, "final.mp4"), finalContent);
 
   return { root, configPath, manifest };
 }

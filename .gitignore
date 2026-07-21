@@ -1,5 +1,7 @@
 node_modules/
 build/
+!apps/download-site/build/
+!apps/download-site/build/sites-vite-plugin.ts
 dist/
 coverage/
 .DS_Store
