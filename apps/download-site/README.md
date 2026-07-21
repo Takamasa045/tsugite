@@ -8,9 +8,9 @@ npm run dev
 npm run build
 ```
 
-CTAは GitHub prerelease `v0.6.0-beta.1` の固定asset URLを参照します。リリースを公開する際は、LPに記載したファイル名とSHA-256をリリースassetおよびリリースノートと一致させてください。
+CTAは GitHub prerelease `v0.6.0-beta.1` の固定asset URLを参照します。リリースを公開する際は、LPが参照するファイル名と`SHA256SUMS.txt`をリリースassetおよびリリースノートと一致させてください。
 
-本ベータ版はコード署名なしで配布します。macOS版はnotarizationも未実施です。LPではOSの保護機能を恒久的に無効化せず、公式ReleaseとSHA-256を確認する手順を案内します。
+macOS版はアプリ全体をアドホック署名して配布しますが、Developer ID署名とnotarizationは未実施です。Windows版はコード署名なしで配布します。LPではOSの保護機能を恒久的に無効化せず、公式ReleaseとSHA-256を確認する手順を案内します。
 
 ## Desktopとエージェントの説明契約
 
