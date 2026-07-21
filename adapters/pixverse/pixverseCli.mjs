@@ -96,10 +96,20 @@ export function buildPixverseCreateArgs(request, runId) {
     operation
   ];
   const params = request.params || {};
-  const images = request.input_images || request.reference_images || [];
-  const firstImage = request.first_frame || params.image;
+  const listedImages = [...new Set([
+    ...(request.input_images || []),
+    ...(request.reference_images || [])
+  ].filter(Boolean))];
+  const singleImages = [...new Set([
+    request.first_frame,
+    params.image
+  ].filter(Boolean))];
+  const firstImage = singleImages[0];
   const allowed = PIXVERSE_ALLOWED_OPTIONS[operation];
   const has = (name) => allowed.has(name);
+  const listImages = has("image")
+    ? [...new Set([...singleImages.slice(1), ...listedImages])].filter((image) => image !== firstImage)
+    : [...new Set([...singleImages, ...listedImages])];
 
   if (operation === "voice") pushValue(args, "--text", request.prompt || params.text);
   else if (has("prompt")) pushValue(args, "--prompt", request.prompt);
@@ -128,7 +138,7 @@ export function buildPixverseCreateArgs(request, runId) {
   if (has("keyframe")) pushValue(args, "--keyframe-time", params.keyframe_time);
   if (has("template")) pushValue(args, "--template-id", params.template_id);
   if (has("video-input")) pushValue(args, "--video", request.input_video || params.video);
-  if (has("images")) pushMany(args, ["template", "music"].includes(operation) ? "--image" : "--images", images.length > 0 ? images : undefined);
+  if (has("images")) pushMany(args, ["template", "music"].includes(operation) ? "--image" : "--images", listImages);
   if (has("image") && firstImage) pushValue(args, "--image", firstImage);
   if (has("videos")) pushMany(args, "--videos", request.input_videos);
   if (has("audios")) pushMany(args, "--audios", request.input_audios);

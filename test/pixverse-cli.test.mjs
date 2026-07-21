@@ -102,6 +102,72 @@ describe("PixVerse CLI request mapping", () => {
     expect(args).not.toContain("--aspect-ratio");
   });
 
+  it("includes first_frame in image lists for list-based operations", () => {
+    const args = buildPixverseCreateArgs({
+      id: "transition-shot",
+      operation: "transition",
+      prompt: "move between frames",
+      model: "v6",
+      first_frame: "/run/first.png",
+      input_images: ["/run/last.png"],
+      params: {}
+    }, "demo-run");
+
+    const imagesIndex = args.indexOf("--images");
+    expect(imagesIndex).toBeGreaterThan(-1);
+    expect(args.slice(imagesIndex + 1, imagesIndex + 3)).toEqual([
+      "/run/first.png",
+      "/run/last.png"
+    ]);
+  });
+
+  it("keeps both first_frame and legacy params.image in list-based operations", () => {
+    const args = buildPixverseCreateArgs({
+      id: "legacy-transition",
+      operation: "transition",
+      prompt: "move between frames",
+      model: "v6",
+      first_frame: "/run/first.png",
+      params: { image: "/run/last.png" }
+    }, "demo-run");
+
+    const imagesIndex = args.indexOf("--images");
+    expect(args.slice(imagesIndex + 1, imagesIndex + 3)).toEqual([
+      "/run/first.png",
+      "/run/last.png"
+    ]);
+  });
+
+  it("deduplicates the same image across modern and legacy fields", () => {
+    const args = buildPixverseCreateArgs({
+      id: "deduplicated-transition",
+      operation: "transition",
+      prompt: "hold the frame",
+      model: "v6",
+      first_frame: "/run/frame.png",
+      input_images: ["/run/frame.png"],
+      params: { image: "/run/frame.png" }
+    }, "demo-run");
+
+    expect(args.filter((value) => value === "/run/frame.png")).toHaveLength(1);
+  });
+
+  it("does not repeat a primary image in single-image and image-list flags", () => {
+    const args = buildPixverseCreateArgs({
+      id: "deduplicated-image",
+      operation: "image",
+      prompt: "refine the frame",
+      model: "gemini-3.1-flash-image",
+      first_frame: "/run/frame.png",
+      input_images: ["/run/frame.png"],
+      params: {}
+    }, "demo-run");
+
+    expect(args).toEqual(expect.arrayContaining(["--image", "/run/frame.png"]));
+    expect(args).not.toContain("--images");
+    expect(args.filter((value) => value === "/run/frame.png")).toHaveLength(1);
+  });
+
   it("keeps aspect-ratio for text-to-video", () => {
     const args = buildPixverseCreateArgs({
       id: "t2v-shot",

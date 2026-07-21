@@ -44,4 +44,19 @@ describe("Kling CLI request mapping", () => {
       params: {}
     })[0]).toBe("image_to_video");
   });
+
+  it("keeps legacy params.image requests on the image-to-video tool", () => {
+    const args = buildKlingCreateArgs({
+      id: "legacy-image-video",
+      mode: "image-to-video",
+      operation: "video",
+      prompt: "camera pushes in",
+      model: "kling-video-v2_5",
+      params: { image: "/run/legacy.png" }
+    });
+
+    expect(args[0]).toBe("image_to_video");
+    expect(args.filter((value) => value === "--image")).toHaveLength(1);
+    expect(args).toEqual(expect.arrayContaining(["--image", "/run/legacy.png"]));
+  });
 });

@@ -16,7 +16,12 @@ export const klingOperationContract = Object.freeze({
 });
 
 export function buildKlingCreateArgs(request) {
-  const images = [request.first_frame, ...(request.input_images || request.reference_images || [])].filter(Boolean);
+  const images = [...new Set([
+    request.first_frame,
+    request.params?.image,
+    ...(request.input_images || []),
+    ...(request.reference_images || [])
+  ].filter(Boolean))];
   const output = request.output_kind || (request.operation === "image" ? "image" : "video");
   const capability = output === "image"
     ? (images.length > 0 ? "image-to-image" : "text-to-image")
@@ -27,11 +32,12 @@ export function buildKlingCreateArgs(request) {
 
   const args = [tool, "--model", String(request.model)];
   for (const image of images) args.push("--image", String(image));
+  const { image: _legacyImage, ...requestParams } = request.params || {};
   const params = {
     ...(request.duration !== undefined ? { duration: request.duration } : {}),
     ...(request.aspect ? { aspectRatio: request.aspect } : {}),
     ...(request.seed !== undefined ? { seed: request.seed } : {}),
-    ...(request.params || {})
+    ...requestParams
   };
   for (const [name, value] of Object.entries(params)) {
     if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(name) || value === undefined || value === null) continue;
