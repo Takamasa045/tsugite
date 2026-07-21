@@ -21,6 +21,23 @@
     var(--launcher-yakisugi);
 }
 
+.launcher-shell[data-theme="light"] {
+  --launcher-yakisugi: #f3efe8;
+  --launcher-sumi: #fffdf8;
+  --launcher-hinoki: #efe2cc;
+  --launcher-kinari: #1b2832;
+  --launcher-mokume: #765138;
+  --launcher-urushi: #b64b3d;
+  --launcher-brass: #a9743a;
+  color-scheme: light;
+  background:
+    radial-gradient(circle at 10% 0, rgba(182, 75, 61, .1), transparent 26rem),
+    repeating-linear-gradient(90deg, transparent 0 119px, rgba(82, 65, 45, .035) 119px 120px),
+    var(--launcher-yakisugi);
+}
+
+.launcher-shell[data-theme="dark"] { color-scheme: dark; }
+
 .launcher-hero {
   width: min(1400px, calc(100% - 48px));
   margin: 24px auto 0;
@@ -47,14 +64,13 @@
     var(--launcher-yakisugi);
 }
 
+.launcher-nav-actions { display: flex; min-width: 0; align-items: stretch; gap: 12px; }
+
 .launcher-wordmark { display: flex; min-width: 220px; align-items: center; gap: 13px; }
 .launcher-wordmark > span:last-child { display: grid; gap: 3px; }
 .launcher-wordmark strong { font-family: Georgia, "Yu Mincho", serif; font-size: .87rem; letter-spacing: .18em; }
 .launcher-wordmark small { color: rgba(244, 237, 223, .52); font-size: .52rem; letter-spacing: .14em; }
-.launcher-joinery-mark { position: relative; display: block; width: 42px; height: 42px; flex: 0 0 42px; transform: rotate(45deg); }
-.launcher-joinery-mark i { position: absolute; inset: 16px 0; display: block; background: var(--launcher-mokume); }
-.launcher-joinery-mark i:last-child { transform: rotate(90deg); }
-.launcher-joinery-mark::after { position: absolute; inset: 13px; border: 2px solid var(--launcher-urushi); content: ""; }
+.launcher-brand-mark { display: block; width: 42px; height: 42px; flex: 0 0 42px; }
 
 .launcher-hero .launcher-shelf-tabs {
   display: flex;
@@ -79,6 +95,58 @@
 }
 .launcher-hero .launcher-shelf-tabs button:hover { color: var(--launcher-kinari); background: rgba(255,255,255,.035); }
 .launcher-hero .launcher-shelf-tabs button[aria-selected="true"] { color: var(--launcher-kinari); border-color: var(--launcher-urushi); background: rgba(255,255,255,.055); }
+
+.launcher-theme-switch {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin: auto 0;
+  padding: 3px;
+  border: 1px solid rgba(231, 212, 174, .2);
+  border-radius: 2px 11px 2px 11px;
+  background: rgba(255,255,255,.035);
+}
+
+.launcher-theme-switch button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 2px 8px 2px 8px;
+  padding: 0;
+  color: color-mix(in srgb, var(--launcher-kinari) 58%, transparent);
+  background: transparent;
+}
+
+.launcher-theme-switch button:hover { color: var(--launcher-kinari); }
+.launcher-theme-switch button[aria-pressed="true"] { color: var(--launcher-kinari); background: color-mix(in srgb, var(--launcher-mokume) 22%, transparent); }
+
+.launcher-shell[data-theme="light"] .launcher-hero-nav {
+  border-bottom: 1px solid rgba(74, 57, 36, .16);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 83px, rgba(74, 57, 36, .025) 83px 84px),
+    #fffdf8;
+}
+
+.launcher-shell[data-theme="light"] .launcher-wordmark small,
+.launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button { color: #59636a; }
+.launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button:hover,
+.launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button[aria-selected="true"] { color: #17212a; background: rgba(182, 75, 61, .08); }
+.launcher-shell[data-theme="light"] .launcher-theme-switch { border-color: rgba(74,57,36,.18); background: rgba(128,106,73,.07); }
+
+.launcher-shell[data-theme="light"] .launcher-hero {
+  border-color: rgba(95, 72, 46, .24);
+  box-shadow: 0 24px 64px rgba(48, 38, 29, .18);
+}
+.launcher-shell[data-theme="light"] .launcher-hero-note {
+  border-color: rgba(94, 67, 41, .2);
+  color: #1b2832;
+  background: #fffdf8;
+  box-shadow: 12px 12px 0 rgba(182, 75, 61, .12);
+}
+.launcher-shell[data-theme="light"] .launcher-hero-note span { color: #59636a; }
+.launcher-shell[data-theme="light"] .launcher-hero-note small { color: #8a5c37; }
 
 .launcher-hero-content {
   position: relative;
@@ -136,6 +204,14 @@
 .launcher-joinery li[data-active="true"] { color: var(--launcher-kinari); background: rgba(231, 212, 174, .06); }
 .launcher-joinery li[data-active="true"] span { color: var(--launcher-mokume); }
 
+.launcher-shell[data-theme="light"] .launcher-joinery {
+  border-color: rgba(74,57,36,.16);
+  color: #697176;
+  background: #fffdf8;
+}
+.launcher-shell[data-theme="light"] .launcher-joinery li { border-color: rgba(74,57,36,.12); }
+.launcher-shell[data-theme="light"] .launcher-joinery li[data-active="true"] { color: #17212a; background: rgba(182,75,61,.07); }
+
 .launcher-workbench,
 .launcher-feedback-panel { width: min(1400px, calc(100% - 48px)); max-width: none; margin: 0 auto; padding: 0 0 64px; }
 .launcher-workbench { grid-template-columns: minmax(0, 2fr) minmax(300px, .72fr); gap: 18px; }
@@ -169,6 +245,84 @@
 .launcher-selection .launcher-project-issue p,
 .launcher-selection .launcher-project-issue small { color: #65362f; }
 .launcher-selection .launcher-secondary { border-color: rgba(231,212,174,.35); color: var(--launcher-kinari); }
+
+.launcher-shell[data-theme="light"] .launcher-selection p,
+.launcher-shell[data-theme="light"] .launcher-selection dt,
+.launcher-shell[data-theme="light"] .launcher-selection small,
+.launcher-shell[data-theme="light"] .launcher-selection-empty { color: rgba(37,42,36,.62); }
+.launcher-shell[data-theme="light"] .launcher-selection .launcher-project-issue,
+.launcher-shell[data-theme="light"] .launcher-selection .launcher-refresh-error,
+.launcher-shell[data-theme="light"] .launcher-selection .launcher-project-issue strong,
+.launcher-shell[data-theme="light"] .launcher-selection .launcher-project-issue p,
+.launcher-shell[data-theme="light"] .launcher-selection .launcher-project-issue small { color: #7d342a; }
+
+/* Light mode is a working desk: white paper carries all scan-critical controls. */
+.launcher-shell[data-theme="light"] .launcher-projects {
+  border-color: #d9d1c5;
+  color: #1b2832;
+  background: #fffdfa;
+  box-shadow: 0 18px 48px rgba(48, 38, 29, .14);
+}
+.launcher-shell[data-theme="light"] .launcher-section-heading h2 {
+  color: #17212a;
+  font-size: clamp(1.45rem, 2.2vw, 1.9rem);
+  letter-spacing: -.025em;
+}
+.launcher-shell[data-theme="light"] .launcher-section-heading .eyebrow,
+.launcher-shell[data-theme="light"] .launcher-count { color: #765138; }
+.launcher-shell[data-theme="light"] .launcher-search { color: #765138; }
+.launcher-shell[data-theme="light"] .launcher-search input {
+  border-color: #cfc5b8;
+  color: #17212a;
+  background: #fff;
+}
+.launcher-shell[data-theme="light"] .launcher-search input::placeholder { color: #727b80; }
+.launcher-shell[data-theme="light"] .launcher-project-filter button {
+  border-color: #d3c8bb;
+  color: #4f5b62;
+  background: #fff;
+}
+.launcher-shell[data-theme="light"] .launcher-project-filter button:hover {
+  border-color: #765138;
+  color: #17212a;
+}
+.launcher-shell[data-theme="light"] .launcher-project-filter button[aria-pressed="true"] {
+  border-color: #b64b3d;
+  color: #fff;
+  background: #b64b3d;
+}
+.launcher-shell[data-theme="light"] .launcher-project-card {
+  border-color: #d9d1c5;
+  background: #fff;
+}
+.launcher-shell[data-theme="light"] .launcher-project-card:hover {
+  border-color: #a9743a;
+  box-shadow: 0 10px 24px rgba(118, 81, 56, .15);
+}
+.launcher-shell[data-theme="light"] .launcher-project-card[aria-pressed="true"] {
+  border-color: #b64b3d;
+  background: linear-gradient(135deg, #fff, #f8e9e2);
+  box-shadow: inset 4px 0 #b64b3d, 0 8px 22px rgba(118, 81, 56, .15);
+}
+.launcher-shell[data-theme="light"] .launcher-project-name,
+.launcher-shell[data-theme="light"] .launcher-empty strong { color: #17212a; }
+.launcher-shell[data-theme="light"] .launcher-project-copy small,
+.launcher-shell[data-theme="light"] .launcher-empty { color: #5e686e; }
+.launcher-shell[data-theme="light"] .launcher-project-card-footer { color: #765138; }
+.launcher-shell[data-theme="light"] .launcher-secondary {
+  border-color: #cfc5b8;
+  color: #38464e;
+}
+.launcher-shell[data-theme="light"] .launcher-secondary:hover:not(:disabled) {
+  color: #fff;
+  background: #1b2832;
+}
+.launcher-shell[data-theme="light"] .launcher-primary {
+  border-color: #b64b3d;
+  background: #b64b3d;
+  box-shadow: 0 8px 18px rgba(182, 75, 61, .2);
+}
+.launcher-shell[data-theme="light"] .launcher-primary:hover:not(:disabled) { background: #96382d; }
 
 .launcher-section-heading h2,
 .launcher-feedback-heading h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }
@@ -794,7 +948,7 @@
   .launcher-hero-nav { min-height: 64px; gap: 14px; padding: 0 16px; }
   .launcher-wordmark { width: 42px; min-width: 42px; }
   .launcher-wordmark > span:last-child { display: none; }
-  .launcher-joinery-mark { flex: 0 0 38px; width: 38px; height: 38px; }
+  .launcher-brand-mark { flex: 0 0 38px; width: 38px; height: 38px; }
   .launcher-hero .launcher-shelf-tabs { min-width: 0; }
   .launcher-hero .launcher-shelf-tabs button { min-width: 50px; padding: 0 13px; font-size: 0; }
   .launcher-hero .launcher-shelf-tabs button svg { width: 18px; height: 18px; }
@@ -821,6 +975,9 @@
   .launcher-joinery li { flex-direction: column; gap: 4px; font-size: .64rem; letter-spacing: .02em; }
   .launcher-projects,
   .launcher-selection { padding: 20px 16px; }
+  .launcher-nav-actions { gap: 4px; }
+  .launcher-theme-switch { flex-direction: column; justify-content: center; gap: 0; margin-block: 5px; padding: 1px; }
+  .launcher-theme-switch button { width: 27px; height: 27px; }
 }
 
 @media (max-width: 460px) {

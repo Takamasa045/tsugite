@@ -9,6 +9,12 @@ const launcherStyleSheet = readFileSync(
 )
 
 describe('launcher readability contract', () => {
+  it('uses a high-contrast paper shelf in light mode', () => {
+    expect(launcherStyleSheet).toContain('--launcher-yakisugi: #f3efe8')
+    expect(launcherStyleSheet).toMatch(/\.launcher-shell\[data-theme="light"\] \.launcher-projects \{[\s\S]*?background: #fffdfa/)
+    expect(launcherStyleSheet).toMatch(/\.launcher-shell\[data-theme="light"\] \.launcher-section-heading h2 \{[\s\S]*?color: #17212a/)
+  })
+
   it('uses a smooth Japanese UI font and solid paper surfaces for learning content', () => {
     expect(launcherStyleSheet).toContain('font-family: "Hiragino Sans"')
     expect(launcherStyleSheet).toContain('--launcher-feedback-paper: #faf7ef')

@@ -5,8 +5,10 @@ import {
   Clock3,
   FolderOpen,
   LayoutTemplate,
+  Moon,
   RefreshCw,
   Search,
+  Sun,
   Users,
   Workflow,
 } from 'lucide-react'
@@ -144,6 +146,7 @@ interface LauncherAppProps {
 }
 
 type Shelf = 'projects' | 'templates' | 'canvas' | 'feedback'
+type LauncherTheme = 'light' | 'dark'
 type TemplateLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
@@ -273,6 +276,13 @@ const FEEDBACK_PROPOSAL_DECISION_LABELS: Record<FeedbackPromotionProposal['decis
 
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
 const SHELVES: Shelf[] = ['projects', 'templates', 'canvas', 'feedback']
+const THEME_STORAGE_KEY = 'tsugite-launcher-theme'
+
+function initialLauncherTheme(): LauncherTheme {
+  if (typeof window === 'undefined') return 'dark'
+  const saved = window.localStorage.getItem(THEME_STORAGE_KEY)
+  return saved === 'light' || saved === 'dark' ? saved : 'dark'
+}
 
 function feedbackNextStageLabel(preference: FeedbackPreference): string {
   if (preference.stage !== 'recurring' || !preference.promotionProposal) {
@@ -438,6 +448,7 @@ export function LauncherApp({
   token = launcherToken(),
 }: LauncherAppProps) {
   const [activeShelf, setActiveShelf] = useState<Shelf>('projects')
+  const [theme, setTheme] = useState<LauncherTheme>(initialLauncherTheme)
   const [projects, setProjects] = useState<LauncherProject[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -463,6 +474,10 @@ export function LauncherApp({
   const [visibleFeedbackCount, setVisibleFeedbackCount] = useState(FEEDBACK_PAGE_SIZE)
   const [promotionDecisionState, setPromotionDecisionState] = useState<PromotionDecisionState>('idle')
   const [promotionDecisionError, setPromotionDecisionError] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+  }, [theme])
 
   const acceptFeedback = useCallback((nextFeedback: FeedbackAggregate) => {
     setFeedback(nextFeedback)
@@ -760,15 +775,16 @@ export function LauncherApp({
   }
 
   return (
-    <main className="launcher-shell">
+    <main className="launcher-shell" data-theme={theme}>
       <section aria-label="制作の見取図" className="launcher-hero">
         <nav className="launcher-hero-nav">
           <div className="launcher-wordmark">
-            <span aria-hidden="true" className="launcher-joinery-mark"><i /><i /></span>
+            <img alt="Tsugite" className="launcher-brand-mark" src="./assets/tsugite-favicon.svg" />
             <span><strong>TSUGITE</strong><small>PRODUCTION ARCHIVE</small></span>
           </div>
-          <div aria-label="表示する棚" className="launcher-shelf-tabs" role="tablist">
-            <button
+          <div className="launcher-nav-actions">
+            <div aria-label="表示する棚" className="launcher-shelf-tabs" role="tablist">
+              <button
               aria-controls="launcher-projects-panel"
               aria-selected={activeShelf === 'projects'}
               id="launcher-projects-tab"
@@ -779,8 +795,8 @@ export function LauncherApp({
               type="button"
             >
               <FolderOpen aria-hidden="true" size={17} />制作案件
-            </button>
-            <button
+              </button>
+              <button
               aria-controls="launcher-templates-panel"
               aria-selected={activeShelf === 'templates'}
               id="launcher-templates-tab"
@@ -791,20 +807,20 @@ export function LauncherApp({
               type="button"
             >
               <LayoutTemplate aria-hidden="true" size={17} />テンプレート
-            </button>
-            <button
-              aria-controls="launcher-canvas-panel"
-              aria-selected={activeShelf === 'canvas'}
-              id="launcher-canvas-tab"
-              onClick={() => selectShelf('canvas')}
-              onKeyDown={(event) => handleShelfKeyDown(event, 'canvas')}
-              role="tab"
-              tabIndex={activeShelf === 'canvas' ? 0 : -1}
-              type="button"
-            >
-              <Workflow aria-hidden="true" size={17} />生成キャンバス
-            </button>
-            <button
+              </button>
+              <button
+                aria-controls="launcher-canvas-panel"
+                aria-selected={activeShelf === 'canvas'}
+                id="launcher-canvas-tab"
+                onClick={() => selectShelf('canvas')}
+                onKeyDown={(event) => handleShelfKeyDown(event, 'canvas')}
+                role="tab"
+                tabIndex={activeShelf === 'canvas' ? 0 : -1}
+                type="button"
+              >
+                <Workflow aria-hidden="true" size={17} />生成キャンバス
+              </button>
+              <button
               aria-label="好み・学び"
               aria-controls="launcher-feedback-panel"
               aria-describedby={pendingPromotionCount > 0 ? 'launcher-feedback-pending-count' : undefined}
@@ -823,7 +839,28 @@ export function LauncherApp({
                   <span className="sr-only">確認待ちの学び {pendingPromotionCount}件</span>
                 </span>
               )}
-            </button>
+              </button>
+            </div>
+            <div aria-label="テーマを選ぶ" className="launcher-theme-switch" role="group">
+              <button
+                aria-label="ライトモード"
+                aria-pressed={theme === 'light'}
+                onClick={() => setTheme('light')}
+                title="ライトモード"
+                type="button"
+              >
+                <Sun aria-hidden="true" size={16} />
+              </button>
+              <button
+                aria-label="ダークモード"
+                aria-pressed={theme === 'dark'}
+                onClick={() => setTheme('dark')}
+                title="ダークモード"
+                type="button"
+              >
+                <Moon aria-hidden="true" size={16} />
+              </button>
+            </div>
           </div>
         </nav>
 

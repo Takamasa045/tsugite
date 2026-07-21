@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { LauncherApp } from './LauncherApp'
 
@@ -239,6 +239,29 @@ function createLauncherFetcher({
 }
 
 describe('LauncherApp', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('ライト／ダークテーマを選び、次回起動用に保存する', async () => {
+    window.localStorage.setItem('tsugite-launcher-theme', 'dark')
+    const user = userEvent.setup()
+
+    render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+
+    const shell = await screen.findByRole('main')
+    expect(shell).toHaveAttribute('data-theme', 'dark')
+    await user.click(screen.getByRole('button', { name: 'ライトモード' }))
+    expect(shell).toHaveAttribute('data-theme', 'light')
+    expect(window.localStorage.getItem('tsugite-launcher-theme')).toBe('light')
+  })
+
+  it('左上にTsugiteの公式Tマークを表示する', async () => {
+    render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+
+    const logo = await screen.findByRole('img', { name: 'Tsugite' })
+    expect(logo).toHaveAttribute('src', './assets/tsugite-favicon.svg')
+  })
   it('生成キャンバスを棚として開き、TopView MCPの生成工程を確認できる', async () => {
     const user = userEvent.setup()
     render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)

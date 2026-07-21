@@ -14,6 +14,18 @@
   color: var(--canvas-text);
 }
 
+.launcher-shell[data-theme="light"] .generation-canvas-shell {
+  --canvas-bg: #e9e2d5;
+  --canvas-grid: rgba(66, 55, 40, .1);
+  --canvas-panel: #fffaf1;
+  --canvas-panel-raised: #fffdf8;
+  --canvas-border: rgba(78, 60, 37, .2);
+  --canvas-text: #20251f;
+  --canvas-muted: #657069;
+  --canvas-edge: rgba(112, 85, 48, .36);
+  --canvas-edge-active: #9b4939;
+}
+
 .generation-canvas-header {
   display: flex;
   align-items: end;
