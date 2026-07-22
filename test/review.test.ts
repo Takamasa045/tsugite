@@ -275,6 +275,67 @@ describe("creative review", () => {
     );
   });
 
+  it("uses the single clip motion plan when caption and clip ids differ", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    manifest.clips[0]!.motion = {
+      entrance: {
+        preset: "zoom-in",
+        description: "背景映像をゆっくり寄せる",
+        target: "footage",
+        duration_seconds: 1.2
+      },
+      implementation_notes: []
+    };
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+
+    expect(review.storyboard[0]?.motion?.cues).toContainEqual(
+      expect.objectContaining({ phase: "entrance", preset: "zoom-in", target: "footage" })
+    );
+    expect(review.storyboard[1]?.motion?.cues).toContainEqual(
+      expect.objectContaining({ phase: "entrance", preset: "zoom-in", target: "footage" })
+    );
+  });
+
+  it("uses the motion plan from the clip covering the caption time range", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    delete manifest.captions[1]!.id;
+    manifest.clips = [
+      {
+        ...manifest.clips[0]!,
+        id: "clip-001",
+        out: 4,
+        duration: 4
+      },
+      {
+        ...manifest.clips[0]!,
+        id: "clip-002",
+        src: "media/answer.mp4",
+        in: 0,
+        out: 6,
+        duration: 6,
+        motion: {
+          entrance: {
+            preset: "slide-right",
+            description: "答えの映像を右から入れる",
+            target: "footage",
+            duration_seconds: 0.4
+          },
+          implementation_notes: []
+        }
+      }
+    ];
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+
+    expect(review.storyboard[0]?.motion).toBeUndefined();
+    expect(review.storyboard[1]?.motion?.cues).toContainEqual(
+      expect.objectContaining({ phase: "entrance", preset: "slide-right", target: "footage" })
+    );
+  });
+
   it("shows an MCP generation connection as an agent handoff in Gate 1 review data", async () => {
     const validation = await validateProject("fixtures/projects/generation-connection-topview.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]

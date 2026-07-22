@@ -173,6 +173,11 @@ type WriteCreativeReviewOptions = {
 };
 
 type ManifestMotionPlan = NonNullable<Manifest["clips"][number]["motion"]>;
+type TimedManifestClip = {
+  clip: Manifest["clips"][number];
+  start: number;
+  end: number;
+};
 
 export type CreativeReviewResult = {
   reviewPath: string;
@@ -547,6 +552,7 @@ export function createReviewDocument(
   const images = new Map(manifest.images.map((image) => [image.id, image]));
   const speakers = new Map(manifest.speakers.map((speaker) => [speaker.id, speaker]));
   const clips = new Map(manifest.clips.map((clip) => [clip.id, clip]));
+  const clipTimeline = createClipTimeline(manifest.clips);
   const generationRequests = new Map(
     (project.generation?.requests ?? []).map((request) => [request.id, request])
   );
@@ -593,7 +599,11 @@ export function createReviewDocument(
           prompt: request?.prompt,
           model: request?.model,
           input_mode: request ? generationRequestMode(request) : undefined,
-          motion: toReviewMotion(caption.visual?.motion ?? clips.get(id)?.motion)
+          motion: toReviewMotion(
+            caption.visual?.motion
+              ?? clips.get(id)?.motion
+              ?? clipMotionForTimeRange(clipTimeline, caption.start, caption.end)
+          )
         } satisfies ReviewShot;
       })
     : createFallbackStoryboard(project, manifest, images);
@@ -748,6 +758,33 @@ function createFallbackStoryboard(
       motion: toReviewMotion(clip.motion)
     };
   });
+}
+
+function createClipTimeline(clips: Manifest["clips"]): TimedManifestClip[] {
+  let cursor = 0;
+  return clips.map((clip) => {
+    const start = cursor;
+    cursor += clip.duration;
+    return { clip, start, end: cursor };
+  });
+}
+
+function clipMotionForTimeRange(
+  timeline: TimedManifestClip[],
+  captionStart: number,
+  captionEnd: number
+): ManifestMotionPlan | undefined {
+  if (timeline.length === 1) return timeline[0]!.clip.motion;
+
+  let bestMatch: { clip: TimedManifestClip; overlap: number } | undefined;
+  for (const timedClip of timeline) {
+    const overlap = Math.max(
+      0,
+      Math.min(captionEnd, timedClip.end) - Math.max(captionStart, timedClip.start)
+    );
+    if (overlap > (bestMatch?.overlap ?? 0)) bestMatch = { clip: timedClip, overlap };
+  }
+  return bestMatch?.clip.clip.motion;
 }
 
 function toReviewMotion(motion: ManifestMotionPlan | undefined): ReviewMotionPlan | undefined {
