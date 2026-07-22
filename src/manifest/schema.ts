@@ -2,6 +2,50 @@ import { z } from "zod";
 
 const aspectSchema = z.union([z.literal("16:9"), z.literal("9:16")]);
 
+const motionPreviewPresetSchema = z.enum([
+  "none",
+  "fade",
+  "slide-left",
+  "slide-right",
+  "rise",
+  "zoom-in",
+  "zoom-out",
+  "pan-left",
+  "pan-right",
+  "parallax",
+  "pulse",
+  "wipe"
+]);
+
+const motionCueSchema = z
+  .object({
+    preset: motionPreviewPresetSchema,
+    label: z.string().min(1).optional(),
+    description: z.string().min(1),
+    target: z.string().min(1).default("frame"),
+    duration_seconds: z.number().positive().max(60).optional(),
+    easing: z.string().min(1).optional()
+  })
+  .passthrough();
+
+const shotMotionSchema = z
+  .object({
+    entrance: motionCueSchema.optional(),
+    emphasis: motionCueSchema.optional(),
+    exit: motionCueSchema.optional(),
+    transition_to_next: motionCueSchema.optional(),
+    implementation_notes: z.array(z.string().min(1)).max(12).default([])
+  })
+  .passthrough();
+
+const motionDesignSchema = z
+  .object({
+    summary: z.string().min(1),
+    pacing: z.string().min(1).optional(),
+    principles: z.array(z.string().min(1)).max(12).default([])
+  })
+  .passthrough();
+
 const imageSchema = z
   .object({
     id: z.string().min(1),
@@ -29,7 +73,8 @@ const presentationSchema = z
     title: z.string().min(1).optional(),
     source_title: z.string().min(1).optional(),
     source_url: z.string().url().optional(),
-    draft: z.boolean().default(false)
+    draft: z.boolean().default(false),
+    motion_design: motionDesignSchema.optional()
   })
   .passthrough();
 
@@ -39,7 +84,8 @@ const captionVisualSchema = z
     kicker: z.string().optional(),
     headline: z.string().min(1),
     detail: z.string().optional(),
-    badges: z.array(z.string().min(1)).max(4).default([])
+    badges: z.array(z.string().min(1)).max(4).default([]),
+    motion: shotMotionSchema.optional()
   })
   .passthrough();
 
@@ -65,7 +111,8 @@ const clipSchema = z
       width: z.number().int().positive(),
       height: z.number().int().positive()
     }),
-    audio: z.boolean()
+    audio: z.boolean(),
+    motion: shotMotionSchema.optional()
   })
   .passthrough();
 

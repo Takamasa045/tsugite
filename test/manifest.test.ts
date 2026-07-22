@@ -39,6 +39,52 @@ describe("manifest validation", () => {
     expect(result.manifest?.captions[0]?.visual?.headline).toContain("answer");
   });
 
+  it("accepts backend-neutral presentation and shot motion direction", async () => {
+    const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
+    manifest.presentation.motion_design = {
+      summary: "情報を段階的に組み立てる",
+      pacing: "導入は軽快、結論は静止",
+      principles: ["主役を一つに絞る"]
+    };
+    manifest.captions[0].visual.motion = {
+      entrance: {
+        preset: "rise",
+        label: "見出しを立ち上げる",
+        description: "下から短く入れる",
+        target: "headline",
+        duration_seconds: 0.4,
+        easing: "ease-out"
+      },
+      implementation_notes: ["背景は固定"]
+    };
+
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(true);
+    expect(result.manifest?.presentation?.motion_design).toMatchObject({
+      summary: "情報を段階的に組み立てる"
+    });
+    expect(result.manifest?.captions[0]?.visual?.motion?.entrance).toMatchObject({
+      preset: "rise",
+      duration_seconds: 0.4
+    });
+  });
+
+  it("rejects unsupported motion preview presets", async () => {
+    const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
+    manifest.captions[0].visual.motion = {
+      entrance: {
+        preset: "unsafe-css-expression",
+        description: "invalid"
+      }
+    };
+
+    const result = validateManifest(manifest);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("manifest.schema");
+  });
+
   it("accepts three mouth-state images and rejects unresolved mouth frames", async () => {
     const manifest = (await readJsonFile("fixtures/manifests/dialogue.valid.json")) as Record<string, any>;
     manifest.speakers[0].mouth_frames = ["left-neutral", "left-neutral", "left-neutral"];

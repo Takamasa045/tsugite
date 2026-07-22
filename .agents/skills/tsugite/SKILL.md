@@ -32,7 +32,7 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 3. For generation requests, make the input mode explicit and run `bin/pipeline guides --json` to discover available prompt knowledge.
 4. Run `bin/pipeline validate --config <project.yaml> --json`.
 5. Run `bin/pipeline plan --config <project.yaml> --json` and inspect every `prompt_guidance` status before finalizing prompts.
-6. Run `bin/pipeline review --config <project.yaml> --open --json`, inspect the storyboard HTML and `review-data.json`, then stop at Gate 1 and ask for approve / revise / abort.
+6. Run `bin/pipeline review --config <project.yaml> --open --json`, inspect the storyboard HTML and `review-data.json`, including the motion/animation plan and production conditions, then stop at Gate 1. Ask for the Gate 1 decision exactly once, after those checks, with approve / revise / abort; do not present an earlier Gate 1 prompt during planning or review preparation.
 7. Run generation or render commands only after explicit approval.
 8. Before Gate 2 approval, inspect `gate2-qc.json`; use `approve_all` only when the report and artifacts are acceptable.
 9. Before Gate 3 approval, inspect `render-report.json`, `gate3-qc.json`, and the final artifact.

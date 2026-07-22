@@ -627,7 +627,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.promptGuides,
         validation.audioAdapter,
         validation.generationConnection,
-        validation.audioConnection
+        validation.audioConnection,
+        validation.backend
       )
     });
   }
@@ -666,7 +667,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.promptGuides,
       validation.audioAdapter,
       validation.generationConnection,
-      validation.audioConnection
+      validation.audioConnection,
+      validation.backend
     );
     try {
       const viewer = await writeWorkflowViewer({
@@ -728,7 +730,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.promptGuides,
       validation.audioAdapter,
       validation.generationConnection,
-      validation.audioConnection
+      validation.audioConnection,
+      validation.backend
     );
     try {
       const review = await writeCreativeReview({
