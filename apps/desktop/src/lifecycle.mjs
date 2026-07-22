@@ -1,4 +1,5 @@
 export function createBeforeQuitCoordinator({
+  beginShutdown = () => () => {},
   runner,
   confirmActiveQuit,
   closeLauncher,
@@ -12,14 +13,21 @@ export function createBeforeQuitCoordinator({
     event.preventDefault();
     if (quitting) return;
     quitting = true;
+    let resumeWork = () => {};
+    let cleanupStarted = false;
     try {
+      resumeWork = beginShutdown();
       if (runner.hasActive() && !await confirmActiveQuit()) return;
+      cleanupStarted = true;
       await runner.dispose();
       await closeLauncher();
       ready = true;
       quit();
     } finally {
-      if (!ready) quitting = false;
+      if (!ready) {
+        if (!cleanupStarted) resumeWork();
+        quitting = false;
+      }
     }
   };
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, lstat, readFile, realpath, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, lstat, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, parse, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
@@ -12,6 +12,7 @@ import {
   createSecureWindowOptions,
   denyAllSessionPermissions,
   installNavigationGuards,
+  prepareDesktopWorkspace,
   prepareWorkspaceDirectories,
   readWorkspacePreference,
   requestedWorkspaceRoot,
@@ -166,6 +167,51 @@ test("packaged resources cannot be selected as a writable workspace", () => {
     /outside the packaged application resources/
   );
   assert.doesNotThrow(() => assertWorkspaceOutsideProtectedDirectory(resolve("user-workspace"), resources));
+});
+
+test("desktop workspace rejects a protected destination before creating managed directories", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tsugite-protected-workspace-"));
+  const protectedRoot = join(parent, "resources");
+  const workspaceRoot = join(protectedRoot, "new-workspace");
+  await mkdir(protectedRoot);
+
+  await assert.rejects(
+    prepareDesktopWorkspace(workspaceRoot, { protectedRoot }),
+    /outside the packaged application resources/
+  );
+  await assert.rejects(access(workspaceRoot));
+});
+
+test("desktop workspace resolves a symlinked ancestor before creating below protected resources", {
+  skip: process.platform === "win32" ? "Windows CI may not grant symlink privileges" : false
+}, async () => {
+  const parent = await mkdtemp(join(tmpdir(), "tsugite-protected-workspace-link-"));
+  const protectedRoot = join(parent, "real-resources");
+  const protectedAlias = join(parent, "resources-alias");
+  const workspaceRoot = join(protectedAlias, "existing", "new-workspace");
+  await mkdir(join(protectedRoot, "existing"), { recursive: true });
+  await symlink(protectedRoot, protectedAlias);
+
+  await assert.rejects(
+    prepareDesktopWorkspace(workspaceRoot, { protectedRoot }),
+    /outside the packaged application resources/
+  );
+  await assert.rejects(access(join(protectedRoot, "existing", "new-workspace")));
+});
+
+test("desktop workspace rejects filesystem and home roots before creating managed directories", async () => {
+  const homeRoot = await mkdtemp(join(tmpdir(), "tsugite-home-root-"));
+
+  await assert.rejects(
+    prepareDesktopWorkspace(resolve(homeRoot), { homeRoot }),
+    /dedicated subdirectory/
+  );
+  await assert.rejects(
+    prepareDesktopWorkspace(parse(homeRoot).root, { homeRoot }),
+    /filesystem root/
+  );
+  await assert.rejects(access(join(homeRoot, "projects")));
+  await assert.rejects(access(join(homeRoot, "templates")));
 });
 
 test("protected resources are canonicalized before workspace comparison", {

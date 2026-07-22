@@ -129,5 +129,6 @@ QA 판단 규칙           -> Gate 2 / Gate 3 checks + report schema/tests
 - `examples/local-fixture/project.yaml`은 fixture style의 로컬 검증 config입니다. 편집하기 전에 `projects/`로 복사하세요.
 - `projects/*`는 git에서 무시되므로 로컬 prompt, media, manifest, `dist/`, run state가 배포 commit에 섞이지 않습니다.
 - npm 11에서는 platform-specific parent가 건너뛰어져도 optional wasm child package가 lockfile에 남아 `npm ci` 후 `npm ls`가 `@emnapi/runtime`을 extraneous로 표시할 수 있습니다. `npm ci`, `npm audit`, build, tests, `validate`, `plan`, `run --dry-run`이 모두 통과할 때만 non-blocking으로 봅니다.
-- `npm run check`는 vendor boundary, TypeScript build, 전체 테스트와 함께 `src/`의 statements, branches, functions, lines가 각각 80% 이상인지 강제합니다.
+- `npm run check`는 vendor boundary, TypeScript build, 전체 테스트와 함께 `src/`의 statements, functions, lines는 80% 이상, branches는 75% 이상인지 강제합니다. 높은 core 환경과 CI runner에서도 process-heavy fixture를 안정적으로 실행하도록 coverage는 Vitest worker를 최대 4개 사용합니다.
+- `npm run security:audit`는 production dependency tree와 전체 development tree를 각각 검사하고, moderate 이상의 advisory가 있으면 실패합니다.
 - 현재 workspace path에는 `*`가 포함되어 있어 Vite가 warning을 낼 수 있습니다. 이 path에서도 tests는 통과하지만, 운영상 거슬리면 `*`가 없는 path로 repo를 옮기세요.

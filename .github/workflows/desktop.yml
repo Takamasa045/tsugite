@@ -71,10 +71,16 @@ jobs:
           npm ci
           npm --prefix apps/workflow-viewer ci
           npm --prefix apps/desktop ci
+      - name: Audit root dependencies
+        run: npm run security:audit
+      - name: Audit Desktop dependencies
+        run: npm --prefix apps/desktop run security:audit
       - name: Test Desktop package boundary
         run: npm --prefix apps/desktop test
       - name: Build unsigned installers
         run: npm --prefix apps/desktop run make
+      - name: Verify packaged workspace recovery
+        run: npm --prefix apps/desktop run test:packaged-workspace
       - name: Upload unsigned installers
         uses: actions/upload-artifact@v7
         with:

@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AgentWorkspaceChooser } from '../components/agent/AgentWorkspaceChooser'
 
 import { GenerationCanvas } from '../components/generation/GenerationCanvas'
+import { DesktopWorkspaceRecovery } from '../components/workspace/DesktopWorkspaceRecovery'
 
 export interface LauncherProject {
   id: string
@@ -1157,6 +1158,7 @@ export function LauncherApp({
                 <FolderOpen aria-hidden="true" size={24} />
                 <strong>表示できる制作案件はまだありません。</strong>
                 <p>projectsフォルダにproject.yamlを用意すると、ここに表示されます。</p>
+                <DesktopWorkspaceRecovery />
               </div>
             ) : filteredProjects.length === 0 ? (
               <div className="launcher-empty"><strong>検索条件に合う制作案件はありません。</strong></div>

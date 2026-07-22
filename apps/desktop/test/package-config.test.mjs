@@ -10,9 +10,11 @@ const desktopRoot = new URL("../", import.meta.url);
 
 test("Electron and Forge stay build-time dependencies at the pinned versions", async () => {
   const manifest = JSON.parse(await readFile(new URL("package.json", desktopRoot), "utf8"));
+  const mainSource = await readFile(new URL("src/main.mjs", desktopRoot), "utf8");
 
   assert.equal(manifest.main, "src/main.mjs");
   assert.equal(manifest.devDependencies.electron, "43.1.1");
+  assert.equal(manifest.devDependencies["playwright-core"], "1.61.1");
   assert.equal(manifest.devDependencies["@electron-forge/cli"], "7.11.2");
   assert.equal(manifest.dependencies?.electron, undefined);
   assert.match(manifest.dependencies["node-pty"], /^\^\d+\.\d+\.\d+$/);
@@ -23,6 +25,15 @@ test("Electron and Forge stay build-time dependencies at the pinned versions", a
   assert.match(manifest.scripts.package, /package:audit/);
   assert.match(manifest.scripts.make, /package:audit/);
   assert.equal(manifest.scripts.test, "node --test test/*.test.mjs");
+  assert.equal(
+    manifest.scripts["test:packaged-workspace"],
+    "node --test test/packaged-workspace.e2e.mjs"
+  );
+  assert.equal(
+    manifest.scripts["security:audit"],
+    "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate"
+  );
+  assert.doesNotMatch(mainSource, /TSUGITE_DESKTOP_TEST_|test-hooks/);
 });
 
 test("Viewer keeps terminal rendering dependencies in its runtime manifest", async () => {
@@ -47,6 +58,10 @@ test("Forge makes macOS ZIP/DMG and Windows Squirrel with an external runtime", 
   assert.equal(config.packagerConfig.ignore("/src/main.mjs"), false);
   assert.equal(config.packagerConfig.ignore("/src/preload.mjs"), false);
   assert.equal(config.packagerConfig.ignore("/src/agent-terminal.mjs"), false);
+  assert.equal(config.packagerConfig.ignore("/src/workspace.mjs"), false);
+  assert.equal(config.packagerConfig.ignore("/src/test-hooks.mjs"), true);
+  assert.equal(config.packagerConfig.ignore("/node_modules/.bin/playwright-core"), true);
+  assert.equal(config.packagerConfig.ignore("/node_modules/playwright-core/index.js"), true);
   assert.equal(config.packagerConfig.ignore("/node_modules/electron-squirrel-startup/index.js"), false);
   assert.equal(config.packagerConfig.ignore("/node_modules/node-pty/build/Release/pty.node"), false);
   assert.equal(config.packagerConfig.ignore("/runtime/secret.mov"), true);
@@ -120,6 +135,11 @@ test("Desktop CI uploads unsigned macOS and Windows installers", async () => {
   assert.match(workflow, /os: windows-2022/);
   assert.match(workflow, /artifact: windows-x64/);
   assert.match(workflow, /npm --prefix apps\/desktop run make/);
+  assert.match(workflow, /npm --prefix apps\/desktop run security:audit/);
+  assert.match(
+    workflow,
+    /- name: Verify packaged workspace recovery\n\s+run: npm --prefix apps\/desktop run test:packaged-workspace/
+  );
   assert.match(workflow, /actions\/upload-artifact@v7/);
   assert.match(workflow, /path: apps\/desktop\/out\/make\/\*\*/);
   assert.match(workflow, /retention-days: 14/);

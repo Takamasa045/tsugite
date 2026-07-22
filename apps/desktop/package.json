@@ -10,6 +10,8 @@
   "scripts": {
     "start": "npm --prefix ../.. run build && npm --prefix ../workflow-viewer run build && electron .",
     "test": "node --test test/*.test.mjs",
+    "test:packaged-workspace": "node --test test/packaged-workspace.e2e.mjs",
+    "security:audit": "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
     "prepare-runtime": "node scripts/prepare-runtime.mjs",
     "package:audit": "node scripts/audit-package.mjs",
     "build:runtime": "node scripts/clean-generated.mjs && npm --prefix ../.. run build && npm --prefix ../workflow-viewer run build && npm run prepare-runtime -- --install",
@@ -26,7 +28,8 @@
     "@electron-forge/maker-squirrel": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
     "@electron/asar": "3.4.1",
-    "electron": "43.1.1"
+    "electron": "43.1.1",
+    "playwright-core": "1.61.1"
   },
   "overrides": {
     "tar": "7.5.20",

@@ -478,6 +478,7 @@ export type StartWorkflowViewerLauncherOptions = {
   onReviewFingerprint?: (root: string) => void | Promise<void>;
   writeViewer?: (options: WriteWorkflowViewerOptions) => Promise<WorkflowViewerResult>;
   runGeneration?: (configPath: string) => Promise<unknown>;
+  canStartWork?: () => boolean;
   executePipeline?: LauncherProcessRunner;
   validationOptions?: ValidateProjectOptions;
 };
@@ -489,6 +490,9 @@ export type WorkflowViewerLauncher = {
   port: number;
   token: string;
   projectCount: number;
+  hasActive: () => boolean;
+  hasBlockingWork: () => boolean;
+  suspendWork: () => () => void;
   closed: Promise<void>;
   close: () => Promise<void>;
 };
@@ -515,6 +519,10 @@ export async function startWorkflowViewerLauncher(
   let projects = new Map<string, LauncherProjectRecord>();
   const refreshing = new Set<string>();
   const generating = new Set<string>();
+  let activeMutations = 0;
+  let activeBlockingMutations = 0;
+  let workPauseCount = 0;
+  let closing = false;
   const writer = options.writeViewer ?? writeWorkflowViewer;
   const executePipeline = options.executePipeline ?? executePipelineProcess;
   const allowProjectActions = options.allowProjectActions ?? true;
@@ -600,7 +608,58 @@ export async function startWorkflowViewerLauncher(
     }
     const requestUrl = new URL(request.url ?? "/", launcherOrigin || `http://${LOOPBACK_HOST}`);
     const method = request.method ?? "GET";
+    const mutationRequest = method === "POST" && (
+      /^\/api\/projects\/[^/]+\/generation-connection$/.test(requestUrl.pathname)
+      || /^\/api\/projects\/[^/]+\/generate$/.test(requestUrl.pathname)
+      || (allowProjectActions && /^\/api\/projects\/[^/]+\/action$/.test(requestUrl.pathname))
+      || /^\/api\/feedback\/[^/]+\/promotion-decision$/.test(requestUrl.pathname)
+      || /^\/api\/projects\/[^/]+\/refresh$/.test(requestUrl.pathname)
+    );
+    const interruptibleMutation = method === "POST"
+      && /^\/api\/projects\/[^/]+\/generate$/.test(requestUrl.pathname);
+    let mutationReserved = false;
+    if (mutationRequest) {
+      if (
+        request.headers.origin !== launcherOrigin
+        || request.headers["x-tsugite-token"] !== token
+      ) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      if (closing || workPauseCount > 0 || (options.canStartWork && !options.canStartWork())) {
+        sendJson(response, 409, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.work_blocked",
+            message: "New work cannot start while Desktop is changing workspace or shutting down"
+          }
+        });
+        return;
+      }
+      activeMutations += 1;
+      if (!interruptibleMutation) activeBlockingMutations += 1;
+      mutationReserved = true;
+    }
 
+    try {
+      await handleLauncherRoute(request, response, requestUrl, method);
+    } finally {
+      if (mutationReserved) {
+        activeMutations -= 1;
+        if (!interruptibleMutation) activeBlockingMutations -= 1;
+      }
+    }
+  }
+
+  async function handleLauncherRoute(
+    request: IncomingMessage,
+    response: ServerResponse,
+    requestUrl: URL,
+    method: string
+  ): Promise<void> {
     if (method === "GET" && requestUrl.pathname === "/") {
       response.statusCode = 200;
       response.setHeader("content-type", "text/html; charset=utf-8");
@@ -1384,6 +1443,7 @@ export async function startWorkflowViewerLauncher(
       .then(cleanupPrivateRoot);
     let closePromise: Promise<void> | undefined;
     const close = (): Promise<void> => {
+      closing = true;
       closePromise ??= Promise.all([
         closeServer(launcherServer),
         closeServer(artifactServer)
@@ -1397,6 +1457,20 @@ export async function startWorkflowViewerLauncher(
       port: launcherPort,
       token,
       projectCount: initialProjects.length,
+      hasActive: () => activeMutations > 0
+        || generating.size > 0
+        || refreshing.size > 0
+        || [...jobs.values()].some((job) => job.status === "running"),
+      hasBlockingWork: () => activeBlockingMutations > 0,
+      suspendWork: () => {
+        workPauseCount += 1;
+        let resumed = false;
+        return () => {
+          if (resumed) return;
+          resumed = true;
+          if (!closing) workPauseCount = Math.max(0, workPauseCount - 1);
+        };
+      },
       ...(privateRoot ? { privateRoot: privateRoot.path } : {}),
       closed,
       close

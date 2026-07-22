@@ -69,6 +69,64 @@ test("runner uses the selected Node, strips only the pipeline entry, and capture
   }]);
 });
 
+test("generation runs through the managed pipeline process and returns parsed JSON", async () => {
+  const calls = [];
+  const child = fakeChild(4567);
+  const runner = createPipelineRunner({
+    nodeExecutable: "/runtime/bin/node",
+    cliModulePath: "/runtime/build/cli.js",
+    runtimeRoot: "/runtime",
+    platform: "darwin",
+    maxOutputBytes: 16,
+    baseEnv: { PATH: "/bin" },
+    spawnProcess(executable, args, options) {
+      calls.push({ executable, args, options });
+      return child;
+    }
+  });
+
+  const pending = runner.runGeneration("/workspace/projects/a/project.yaml");
+  assert.equal(runner.hasActive(), true);
+  const payload = { ok: true, command: "run", detail: "x".repeat(20_000) };
+  child.stdout.end(`${JSON.stringify(payload)}\n`);
+  child.emit("close", 0);
+
+  assert.deepEqual(await pending, payload);
+  assert.equal(runner.hasActive(), false);
+  assert.deepEqual(calls[0].args, [
+    "/runtime/build/cli.js",
+    "run",
+    "--config", "/workspace/projects/a/project.yaml",
+    "--actor", "coordinator",
+    "--json"
+  ]);
+});
+
+test("dispose terminates a managed generation process", async () => {
+  const child = fakeChild(4568);
+  const signals = [];
+  const runner = createPipelineRunner({
+    nodeExecutable: "/runtime/bin/node",
+    cliModulePath: "/runtime/build/cli.js",
+    runtimeRoot: "/runtime",
+    platform: "linux",
+    terminationGraceMs: 0,
+    spawnProcess: () => child,
+    killProcess(pid, signal) {
+      signals.push([pid, signal]);
+      if (signal === "SIGKILL") child.emit("close", null, signal);
+    }
+  });
+
+  const generation = runner.runGeneration("/workspace/projects/a/project.yaml");
+  const rejected = assert.rejects(generation, /generation failed/);
+  await runner.dispose();
+
+  await rejected;
+  assert.deepEqual(signals, [[-4568, "SIGTERM"], [-4568, "SIGKILL"]]);
+  assert.equal(runner.hasActive(), false);
+});
+
 test("runner caps retained stdout and stderr without stopping stream draining", async () => {
   const child = fakeChild();
   const runner = createPipelineRunner({

@@ -47,6 +47,8 @@ The built-in terminal does not install an AI CLI and limits the initial program 
 
 The launcher lists local projects and templates and can refresh or open each project's 3D workflow snapshot. The executable 2D generation-node canvas is deferred to a later release; the current Desktop buttons do not directly execute `run`, `render`, or Gate decisions.
 
+When Desktop finds no projects, the empty project shelf can reopen the native workspace chooser. Switching is blocked while a pipeline or embedded AI CLI is active; Desktop validates and saves the selected directory before restarting the whole shell. The browser launcher does not expose this machine-local action.
+
 The existing 3D Viewer remains available for detailed, seekable inspection. It turns bundled samples or a refreshed Tsugite snapshot into a navigable production floor with status-aware nodes, dependency lines, node details, and event playback. The 3D artifact itself stays static and read-only.
 
 For a non-technical local entry point, install the nested Viewer dependencies once and then open the project launcher:
@@ -105,6 +107,15 @@ After a successful local first-time setup, Codex and Claude Code ask once, befor
 See [`docs/hyperframes-audio.md`](docs/hyperframes-audio.md) for HyperFrames-first BGM generation and SFX resolution. This path never falls back to ElevenLabs automatically.
 
 ## Commands
+
+Start with the built-in command catalog. General help lists every command and its safety level; command-specific help shows the accepted options without reading a project or contacting a provider.
+
+```sh
+node bin/pipeline --help
+node bin/pipeline help validate
+```
+
+Add `--json` to help or operational commands when a script needs stable machine-readable output.
 
 ```sh
 npm ci
@@ -253,5 +264,6 @@ This is how the repo can grow toward your taste while still staying safe for dis
 - `examples/local-fixture/project.yaml` is a fixture-style local validation config. Copy it into `projects/` before editing.
 - `projects/*` is ignored by git so local prompts, media, manifests, `dist/`, and run state stay out of distributable commits.
 - `npm ls` may report `@emnapi/runtime` as extraneous after `npm ci` on npm 11 because optional wasm child packages remain in the lockfile while their platform-specific parents are skipped. Treat this as non-blocking only when `npm ci`, `npm audit`, build, tests, `validate`, `plan`, and `run --dry-run` all pass.
-- `npm run check` enforces the vendor boundary, TypeScript build, the full test suite, and 80% minimum statement, branch, function, and line coverage for `src/`.
+- `npm run check` enforces the vendor boundary, TypeScript build, the full test suite, and minimum coverage of 80% statements, functions, and lines, plus 75% branches for `src/`. Coverage uses at most four Vitest workers so process-heavy fixtures remain stable on high-core machines and CI runners.
+- `npm run security:audit` checks both the production dependency tree and the full development tree, failing on moderate-or-higher advisories.
 - Vite may warn because this workspace path contains `*`. Tests currently pass in this path; move the repo to a path without `*` if that warning becomes operationally noisy.

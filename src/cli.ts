@@ -49,9 +49,20 @@ import {
   openWorkflowViewerLauncher,
   startWorkflowViewerLauncher
 } from "./viewer/launcher.js";
+import {
+  GLOBAL_OPTIONS,
+  commandRequiresConfig,
+  getCommandHelp,
+  isCommandOptionAllowed,
+  isKnownCommand,
+  listCommandHelp,
+  suggestCommands,
+  type CommandSpec
+} from "./cli/commandCatalog.js";
 
 type ParsedArgs = {
   command: string;
+  helpTopic?: string;
   config?: string;
   json: boolean;
   dryRun: boolean;
@@ -102,11 +113,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const args = parseArgs(argv);
   args.expectedApprovalDigest = process.env[LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV];
   delete process.env[LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV];
+  if (!args.command) {
+    return output(args, 1, {
+      ok: false,
+      issues: [{ code: "cli.command_missing", message: "command is required" }],
+      next_actions: ["node bin/pipeline --help"]
+    });
+  }
+
+  if (args.command === "help") {
+    if (args.issues.length > 0) {
+      return output(args, 1, { ok: false, command: "help", issues: args.issues });
+    }
+    return outputHelp(args);
+  }
+
+  if (!isKnownCommand(args.command)) {
+    const suggestedCommands = suggestCommands(args.command);
+    return output(args, 1, {
+      ok: false,
+      command: args.command,
+      issues: [{ code: "cli.command_unknown", message: `unknown command '${args.command}'` }],
+      suggested_commands: suggestedCommands,
+      next_actions: [
+        ...(suggestedCommands[0] ? [`node bin/pipeline help ${suggestedCommands[0]}`] : []),
+        "node bin/pipeline --help"
+      ]
+    });
+  }
+
   if (args.issues.length > 0) {
     return output(args, 1, { ok: false, command: args.command, issues: args.issues });
-  }
-  if (!args.command) {
-    return output(args, 1, { ok: false, issues: [{ code: "cli.command_missing", message: "command is required" }] });
   }
 
   if (args.command === "doctor") {
@@ -277,10 +314,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   if (!args.config) {
+    if (commandRequiresConfig(args.command)) {
+      return output(args, 1, {
+        ok: false,
+        command: args.command,
+        issues: [{ code: "cli.config_missing", message: "--config is required" }],
+        next_actions: [`node bin/pipeline help ${args.command}`]
+      });
+    }
     return output(args, 1, {
       ok: false,
       command: args.command,
-      issues: [{ code: "cli.config_missing", message: "--config is required" }]
+      issues: [{ code: "cli.command_unhandled", message: `command '${args.command}' has no CLI handler` }]
     });
   }
 
@@ -959,8 +1004,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
+  const helpRequest = parseHelpRequest(argv);
+  if (helpRequest) {
+    return {
+      command: "help",
+      ...(helpRequest.topic ? { helpTopic: helpRequest.topic } : {}),
+      json: argv.includes("--json"),
+      dryRun: false,
+      open: false,
+      apply: false,
+      allowExternalAnalysis: false,
+      issues: helpRequest.issues
+    };
+  }
+
+  const commandIndex = argv.findIndex((arg) => arg !== "--json");
   const parsed: ParsedArgs = {
-    command: argv[0] ?? "",
+    command: commandIndex >= 0 ? argv[commandIndex] : "",
     json: argv.includes("--json"),
     dryRun: false,
     open: false,
@@ -969,11 +1029,12 @@ function parseArgs(argv: string[]): ParsedArgs {
     issues: []
   };
 
-  for (let index = 1; index < argv.length; index += 1) {
+  for (let index = 0; index < argv.length; index += 1) {
+    if (index === commandIndex) continue;
     const arg = argv[index];
     if (arg === "--json") continue;
     if (arg === "--dry-run") {
-      if (isOptionAllowed(parsed.command, arg)) {
+      if (isCommandOptionAllowed(parsed.command, arg)) {
         parsed.dryRun = true;
       } else {
         parsed.issues.push({
@@ -985,7 +1046,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     if (arg === "--open") {
-      if (isOptionAllowed(parsed.command, arg)) {
+      if (isCommandOptionAllowed(parsed.command, arg)) {
         parsed.open = true;
       } else {
         parsed.issues.push({
@@ -997,7 +1058,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     if (arg === "--apply") {
-      if (isOptionAllowed(parsed.command, arg)) {
+      if (isCommandOptionAllowed(parsed.command, arg)) {
         parsed.apply = true;
       } else {
         parsed.issues.push({
@@ -1009,7 +1070,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     if (arg === "--allow-external-analysis") {
-      if (isOptionAllowed(parsed.command, arg)) {
+      if (isCommandOptionAllowed(parsed.command, arg)) {
         parsed.allowExternalAnalysis = true;
       } else {
         parsed.issues.push({
@@ -1066,7 +1127,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     const target = valueOptions[arg];
     if (target) {
       const value = argv[index + 1];
-      if (!isOptionAllowed(parsed.command, arg)) {
+      if (!isCommandOptionAllowed(parsed.command, arg)) {
         parsed.issues.push({
           code: "cli.option_unsupported",
           message: `${arg} is not supported by '${parsed.command}'`,
@@ -1094,27 +1155,105 @@ function parseArgs(argv: string[]): ParsedArgs {
   return parsed;
 }
 
-function isOptionAllowed(command: string, option: string): boolean {
-  const allowedByCommand: Record<string, Set<string>> = {
-    doctor: new Set(["--config"]),
-    guides: new Set(["--catalog", "--model", "--input-mode"]),
-    connections: new Set(["--model", "--capability"]),
-    "story-guides": new Set(["--request", "--duration"]),
-    presets: new Set(["--backend"]),
-    "viewer-launcher": new Set(["--projects-dir", "--port", "--open"]),
-    "shitate-import": new Set(["--config", "--shitate-root", "--character", "--run-id", "--anchor", "--request-id", "--speaker-id", "--display-name", "--side", "--accent"]),
-    feedback: new Set(["--config", "--key", "--category", "--signal", "--stage", "--summary", "--run-id", "--gate", "--evidence", "--promotion-kind", "--target", "--proposal-summary", "--verification", "--proposal-workflow", "--proposal-run-id", "--proposal-source"]),
-    validate: new Set(["--config"]),
-    plan: new Set(["--config"]),
-    analyze: new Set(["--config", "--actor", "--state-dir", "--allow-external-analysis"]),
-    viewer: new Set(["--config", "--output", "--state-dir", "--open"]),
-    review: new Set(["--config", "--output", "--state-dir", "--open"]),
-    finalize: new Set(["--config", "--state-dir", "--actor", "--apply"]),
-    run: new Set(["--config", "--dry-run", "--actor", "--state-dir"]),
-    gate: new Set(["--config", "--actor", "--gate", "--decision", "--state-dir"]),
-    render: new Set(["--config", "--actor", "--state-dir"])
+type HelpRequest = { topic?: string; issues: Issue[] };
+
+function parseHelpRequest(argv: string[]): HelpRequest | undefined {
+  const firstCommandIndex = argv.findIndex((arg) => arg !== "--json");
+  const explicitHelpIndex = argv[firstCommandIndex] === "help" ? firstCommandIndex : -1;
+  const helpOptionIndex = argv.findIndex((arg) => arg === "--help" || arg === "-h");
+  if (explicitHelpIndex < 0 && helpOptionIndex < 0) return undefined;
+  if (explicitHelpIndex >= 0) return parseExplicitHelpRequest(argv, explicitHelpIndex);
+
+  return parseCommandHelpRequest(argv, helpOptionIndex);
+}
+
+function parseExplicitHelpRequest(argv: string[], explicitHelpIndex: number): HelpRequest {
+  let topic: string | undefined;
+  const issues: Issue[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--json" || index === explicitHelpIndex) continue;
+
+    if (arg.startsWith("-")) {
+      issues.push(unsupportedHelpOption(arg));
+      const possibleValue = argv[index + 1];
+      if (possibleValue && !possibleValue.startsWith("-")) index += 1;
+      continue;
+    }
+
+    if (!topic) topic = arg;
+    else issues.push(extraHelpArgument(arg));
+  }
+  return { ...(topic ? { topic } : {}), issues };
+}
+
+function parseCommandHelpRequest(argv: string[], helpOptionIndex: number): HelpRequest {
+  const firstCommandIndex = argv.findIndex((arg) => arg !== "--json");
+  let topicIndex = firstCommandIndex >= 0 &&
+    firstCommandIndex !== helpOptionIndex &&
+    !argv[firstCommandIndex].startsWith("-")
+    ? firstCommandIndex
+    : -1;
+  if (topicIndex < 0 && firstCommandIndex === helpOptionIndex) {
+    for (let index = helpOptionIndex + 1; index < argv.length; index += 1) {
+      const arg = argv[index];
+      if (arg === "--json") continue;
+      if (arg.startsWith("-")) break;
+      topicIndex = index;
+      break;
+    }
+  }
+
+  const topic = topicIndex >= 0 ? argv[topicIndex] : undefined;
+  const command = topic ? getCommandHelp(topic) : undefined;
+  const issues: Issue[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (
+      arg === "--json" ||
+      arg === "--help" ||
+      arg === "-h" ||
+      index === topicIndex
+    ) continue;
+
+    if (arg.startsWith("-")) {
+      if (topic && !command) {
+        const possibleValue = argv[index + 1];
+        if (possibleValue && !possibleValue.startsWith("-")) index += 1;
+        continue;
+      }
+      const option = command?.options.find(({ name }) => name === arg) ??
+        GLOBAL_OPTIONS.find(({ name }) => name === arg);
+      if (option) {
+        const possibleValue = argv[index + 1];
+        if (option.value && possibleValue && !possibleValue.startsWith("-")) index += 1;
+        continue;
+      }
+      issues.push(unsupportedHelpOption(arg));
+      const possibleValue = argv[index + 1];
+      if (possibleValue && !possibleValue.startsWith("-")) index += 1;
+      continue;
+    }
+
+    issues.push(extraHelpArgument(arg));
+  }
+  return { ...(topic ? { topic } : {}), issues };
+}
+
+function unsupportedHelpOption(option: string): Issue {
+  return {
+    code: "cli.help_option_unsupported",
+    message: `${option} is not supported by help`,
+    path: option
   };
-  return allowedByCommand[command]?.has(option) ?? true;
+}
+
+function extraHelpArgument(argument: string): Issue {
+  return {
+    code: "cli.help_argument_extra",
+    message: "help accepts at most one command",
+    path: argument
+  };
 }
 
 async function outputStoryGuides(args: ParsedArgs): Promise<number> {
@@ -1570,6 +1709,107 @@ function isUnsupportedDecision(gate: GateId | undefined, value: string | undefin
     };
   }
   return undefined;
+}
+
+type SerializableCommandHelp = {
+  name: string;
+  summary: string;
+  usage: string;
+  requires_config: boolean;
+  safety: CommandSpec["safety"];
+  options: Array<{ name: string; value?: string; summary: string }>;
+};
+
+function outputHelp(args: ParsedArgs): number {
+  if (args.helpTopic) {
+    const command = getCommandHelp(args.helpTopic);
+    if (!command) {
+      const suggestedCommands = suggestCommands(args.helpTopic);
+      return output(args, 1, {
+        ok: false,
+        command: "help",
+        topic: args.helpTopic,
+        issues: [{ code: "cli.help_topic_unknown", message: `unknown command '${args.helpTopic}'` }],
+        suggested_commands: suggestedCommands,
+        next_actions: [
+          ...(suggestedCommands[0] ? [`node bin/pipeline help ${suggestedCommands[0]}`] : []),
+          "node bin/pipeline --help"
+        ]
+      });
+    }
+
+    const commandHelp = serializeCommandHelp(command);
+    const payload = {
+      ok: true,
+      command: "help",
+      topic: command.name,
+      command_help: commandHelp
+    };
+    if (args.json) return output(args, 0, payload);
+    console.log(formatCommandHelp(commandHelp));
+    return 0;
+  }
+
+  const commands = listCommandHelp().map(serializeCommandHelp);
+  const payload = {
+    ok: true,
+    command: "help",
+    usage: "node bin/pipeline <command> [options]",
+    global_options: GLOBAL_OPTIONS,
+    commands
+  };
+  if (args.json) return output(args, 0, payload);
+  console.log(formatCommandCatalogHelp(payload.usage, commands));
+  return 0;
+}
+
+function serializeCommandHelp(command: CommandSpec): SerializableCommandHelp {
+  return {
+    name: command.name,
+    summary: command.summary,
+    usage: command.usage,
+    requires_config: command.requiresConfig,
+    safety: command.safety,
+    options: [...command.options, ...GLOBAL_OPTIONS].map((option) => ({ ...option }))
+  };
+}
+
+function formatCommandCatalogHelp(usage: string, commands: SerializableCommandHelp[]): string {
+  const longestName = Math.max(...commands.map((command) => command.name.length));
+  const lines = [
+    "Tsugite pipeline",
+    `Usage: ${usage}`,
+    "",
+    "Commands:",
+    ...commands.map((command) => (
+      `  ${command.name.padEnd(longestName)}  ${command.summary} [${command.safety}]`
+    )),
+    "",
+    "Safety:",
+    "  read-only       Does not change project or Gate state.",
+    "  local-write     Writes local artifacts or project records.",
+    "  approval-gated  Human approval and the required actor remain mandatory.",
+    "",
+    "Run `node bin/pipeline help <command>` for command-specific options.",
+    "Add `--json` for machine-readable output."
+  ];
+  return lines.join("\n");
+}
+
+function formatCommandHelp(command: SerializableCommandHelp): string {
+  const optionLines = command.options.map((option) => {
+    const signature = [option.name, option.value].filter(Boolean).join(" ");
+    return `  ${signature.padEnd(32)} ${option.summary}`;
+  });
+  return [
+    `${command.name} - ${command.summary}`,
+    `Usage: ${command.usage}`,
+    `Safety: ${command.safety}`,
+    `Project config required: ${command.requires_config ? "yes" : "no"}`,
+    "",
+    "Options:",
+    ...optionLines
+  ].join("\n");
 }
 
 function isMissingFile(error: unknown): boolean {

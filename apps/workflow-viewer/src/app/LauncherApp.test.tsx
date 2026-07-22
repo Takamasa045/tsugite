@@ -856,12 +856,41 @@ describe('LauncherApp', () => {
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByText('表示できる制作案件はまだありません。')
+    expect(screen.queryByRole('button', { name: 'workspaceを選び直す' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '制作案件を再読み込み' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       '再読み込みしましたが、このworkspaceには制作案件がありません。projectsフォルダとworkspaceを確認してください。',
     )
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(2)
+  })
+
+  it('Desktopの0件状態では現在のworkspaceと安全な再選択導線を表示する', async () => {
+    const user = userEvent.setup()
+    const current = vi.fn().mockResolvedValue({ label: '選択中の制作フォルダ' })
+    const select = vi.fn().mockResolvedValue({
+      status: 'busy',
+      workspace: { label: '選択中の制作フォルダ' },
+    })
+    const desktopWindow = window as Window & { tsugiteDesktop?: unknown }
+    Object.defineProperty(desktopWindow, 'tsugiteDesktop', {
+      configurable: true,
+      value: { workspace: { current, select } },
+    })
+
+    try {
+      render(<LauncherApp fetcher={createLauncherFetcher({ projectList: [] })} token="session-token" />)
+
+      expect(await screen.findByText('現在のworkspace：選択中の制作フォルダ')).toBeVisible()
+      await user.click(screen.getByRole('button', { name: 'workspaceを選び直す' }))
+
+      expect(select).toHaveBeenCalledOnce()
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        '実行中の処理があります。AI CLIや制作処理を停止してから選び直してください。',
+      )
+    } finally {
+      delete desktopWindow.tsugiteDesktop
+    }
   })
 
   it('大量の案件を最近更新順に12件ずつ表示し、状態で絞り込める', async () => {

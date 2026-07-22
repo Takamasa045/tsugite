@@ -6,7 +6,12 @@ Tsugite Desktop の紹介と、macOS / Windows 向けベータ版の配布導線
 npm ci
 npm run dev
 npm run build
+npm test
+npm run lint
+npm run security:audit
 ```
+
+`security:audit` はproduction依存と開発依存の両方を検査し、moderate以上の既知脆弱性があれば失敗します。Next、Cloudflare、ESLint系の上流が安全版へ追従するまでは、検証済みの推移依存を`overrides`で固定します。
 
 CTAは GitHub prerelease `v0.6.0-beta.1` の固定asset URLを参照します。リリースを公開する際は、LPが参照するファイル名と`SHA256SUMS.txt`をリリースassetおよびリリースノートと一致させてください。
 

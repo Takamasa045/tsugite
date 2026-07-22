@@ -929,6 +929,10 @@ select {
 .launcher-empty strong { color: var(--sumi-900); }
 .launcher-empty p,
 .launcher-selection-empty { margin: 0; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+.launcher-workspace-recovery { display: grid; justify-items: center; gap: 9px; width: min(100%, 430px); margin-top: 8px; border-top: 1px solid rgba(36, 77, 73, 0.14); padding-top: 15px; }
+.launcher-workspace-recovery > p { overflow-wrap: anywhere; }
+.launcher-workspace-recovery-status { color: #34452f !important; }
+.launcher-workspace-recovery-error { color: #65362f !important; }
 
 .launcher-category-filter { display: flex; flex-wrap: wrap; gap: 7px; margin: -4px 0 16px; }
 .launcher-category-filter button {

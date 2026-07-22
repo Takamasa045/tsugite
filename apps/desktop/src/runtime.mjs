@@ -1,5 +1,5 @@
 import { lstat, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, posix, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const LOOPBACK_HOST = "127.0.0.1";
@@ -134,6 +134,69 @@ export async function prepareWorkspaceDirectories(workspaceRoot) {
   await ensureRealDirectory(projectsDir);
   await ensureRealDirectory(templatesDir);
   return { root: canonicalRoot, projectsDir, templatesDir };
+}
+
+async function canonicalPathIfExisting(path) {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function canonicalProspectivePath(path) {
+  let current = resolve(path);
+  const missingSegments = [];
+  while (true) {
+    try {
+      return resolve(await realpath(current), ...missingSegments);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      missingSegments.unshift(basename(current));
+      current = parent;
+    }
+  }
+}
+
+function assertDedicatedWorkspaceRoot(workspaceRoot, homeRoot) {
+  const root = resolve(workspaceRoot);
+  if (root === parse(root).root) {
+    throw new Error("Workspace must not use a filesystem root");
+  }
+  if (homeRoot && root === resolve(homeRoot)) {
+    throw new Error("Workspace must use a dedicated subdirectory instead of the home directory");
+  }
+}
+
+export async function prepareDesktopWorkspace(workspaceRoot, {
+  protectedRoot,
+  homeRoot
+} = {}) {
+  const root = resolve(workspaceRoot);
+  const canonicalHome = homeRoot
+    ? await canonicalPathIfExisting(resolve(homeRoot)) ?? resolve(homeRoot)
+    : undefined;
+  assertDedicatedWorkspaceRoot(root, homeRoot);
+  if (protectedRoot) assertWorkspaceOutsideProtectedDirectory(root, protectedRoot);
+
+  const canonicalDestination = await canonicalProspectivePath(root);
+  assertDedicatedWorkspaceRoot(canonicalDestination, canonicalHome);
+  if (protectedRoot) {
+    assertWorkspaceOutsideProtectedDirectory(
+      canonicalDestination,
+      await realpath(protectedRoot)
+    );
+  }
+
+  const workspace = await prepareWorkspaceDirectories(root);
+  assertDedicatedWorkspaceRoot(workspace.root, canonicalHome);
+  if (protectedRoot) {
+    await assertCanonicalWorkspaceOutsideProtectedDirectory(workspace.root, protectedRoot);
+  }
+  return workspace;
 }
 
 export function createSecureWindowOptions({ preloadPath } = {}) {

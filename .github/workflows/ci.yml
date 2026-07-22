@@ -22,7 +22,7 @@ jobs:
       - run: npm --prefix apps/download-site ci
       - run: npm --prefix apps/download-site test
       - run: npm --prefix apps/download-site run lint
-      - run: npm --prefix apps/download-site audit --omit=dev --audit-level=high
+      - run: npm --prefix apps/download-site run security:audit
 
   check:
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
       - run: node bin/pipeline validate --config examples/local-fixture/project.yaml --json
       - run: node bin/pipeline plan --config examples/local-fixture/project.yaml --json
       - run: node bin/pipeline run --config examples/local-fixture/project.yaml --dry-run --json
-      - run: npm audit --audit-level=high
+      - run: npm run security:audit
 
   windows-smoke:
     runs-on: windows-latest
@@ -86,6 +86,7 @@ jobs:
           ffmpeg -version
           ffprobe -version
       - run: npm ci
+      - run: npm run security:audit
       - run: npm --prefix apps/workflow-viewer ci
       - run: npm run check
       - run: npm run viewer:check

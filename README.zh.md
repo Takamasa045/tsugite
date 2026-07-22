@@ -129,5 +129,6 @@ QA 判断规则            -> Gate 2 / Gate 3 checks + report schema/tests
 - `examples/local-fixture/project.yaml` 是 fixture style 的本地验证 config。编辑前请先复制到 `projects/`。
 - `projects/*` 会被 git 忽略，因此本地 prompt、media、manifest、`dist/` 和 run state 不会混入可分发 commit。
 - npm 11 中，platform-specific parent 被跳过时，optional wasm child package 仍可能留在 lockfile，导致 `npm ci` 后 `npm ls` 报告 `@emnapi/runtime` 为 extraneous。只有当 `npm ci`、`npm audit`、build、tests、`validate`、`plan`、`run --dry-run` 全部通过时，才把它当作 non-blocking。
-- `npm run check` 会执行vendor boundary、TypeScript build、完整测试，并强制`src/`的statements、branches、functions和lines均达到80%以上。
+- `npm run check` 会执行vendor boundary、TypeScript build和完整测试，并强制`src/`的statements、functions和lines至少达到80%，branches至少达到75%。为了让process-heavy fixture在高core环境和CI runner中保持稳定，coverage最多使用4个Vitest worker。
+- `npm run security:audit` 会分别检查production依赖树和完整开发依赖树；发现moderate或更高等级的advisory时即失败。
 - 当前 workspace path 包含 `*`，Vite 可能会提示 warning。测试目前可以通过；如果该 warning 影响运行，请把 repo 移到不含 `*` 的路径。

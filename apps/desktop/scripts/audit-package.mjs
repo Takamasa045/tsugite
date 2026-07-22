@@ -29,8 +29,13 @@ const ALLOWED_ASAR_SOURCE_FILES = new Set([
   "src/agent-terminal.mjs",
   "src/lifecycle.mjs",
   "src/process-runner.mjs",
-  "src/runtime.mjs"
+  "src/runtime.mjs",
+  "src/workspace.mjs"
 ]);
+const FORBIDDEN_ASAR_NODE_MODULE_ROOTS = [
+  "node_modules/.bin",
+  "node_modules/playwright-core"
+];
 const NODE_PTY_TARGET = `${process.platform}-${process.arch}`;
 const NODE_PTY_NATIVE_ROOTS = [
   "node_modules/node-pty/build/Release",
@@ -150,6 +155,9 @@ function assertAsarBoundary(asarPath) {
   const entries = listPackage(asarPath).map((path) => path.replace(/^[/\\]+/, "").replaceAll("\\", "/"));
   const forbidden = entries.filter((path) => {
     if (path === "src" || path === "node_modules") return false;
+    if (FORBIDDEN_ASAR_NODE_MODULE_ROOTS.some(
+      (root) => path === root || path.startsWith(`${root}/`)
+    )) return true;
     if (path.startsWith("node_modules/")) return false;
     return !ALLOWED_ASAR_SOURCE_FILES.has(path);
   });

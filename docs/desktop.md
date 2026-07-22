@@ -24,9 +24,13 @@ workspace の中で主に使うディレクトリは次の2つです。
 
 `projects/` は各動画の project、プロンプト、state、出力を保持する private 領域です。`templates/` はその workspace で管理する再利用用テンプレート用です。project 検出は選択した workspace root を基準にしますが、`project.yaml` の manifest や asset の相対 path はその config directory から解決します。
 
+Desktopで制作案件が0件の場合は、空の制作棚に現在のworkspace名と「workspaceを選び直す」を表示します。OSのフォルダ選択で専用フォルダを選ぶと、`projects/`と`templates/`を安全に用意できることを検証し、設定へ保存してからDesktop全体を再起動します。ブラウザ版のランチャーにはこの操作を表示しません。
+
+filesystem root、home directoryそのもの、パッケージ版のapplication resourcesはworkspaceにできません。AI CLIや制作処理が実行中の場合も切替を開始しないため、先に画面上で停止してから選び直してください。保存済みworkspaceを利用できず検証に失敗した場合、次回起動時に選択画面へ戻り、検証に成功した代替先だけを保存します。
+
 ## 起動と終了
 
-配布版は通常のアプリと同様に起動します。初回だけ workspace の保存先を選び、次回からその場所を再利用します。workspace を起動ごとに固定したい場合はターミナルから次のように開きます。path に空白がある場合は引用符で囲みます。
+配布版は通常のアプリと同様に起動します。初回に workspace の保存先を選び、次回からその場所を再利用します。後から変更する場合は空の制作棚にある再選択ボタンを使えます。workspace を起動ごとに固定したい場合はターミナルから次のように開きます。path に空白がある場合は引用符で囲みます。
 
 ```sh
 # macOSの例
@@ -38,7 +42,7 @@ open -a "Tsugite" --args --workspace "/Users/me/Tsugite Workspace"
 & "<install-directory>\Tsugite.exe" --workspace "D:\Tsugite Workspace"
 ```
 
-環境変数を使う場合は、起動前に `TSUGITE_WORKSPACE_ROOT` を absolute path で設定します。開発版は起動したターミナルで `Ctrl+C` を押して終了します。パッケージ版は macOS で `Cmd+Q`、Windows でウィンドウを閉じるか `Alt+F4` を使います。終了時はローカルランチャーの停止を待ってからアプリを閉じます。
+環境変数を使う場合は、起動前に `TSUGITE_WORKSPACE_ROOT` を absolute path で設定します。開発版は起動したターミナルで `Ctrl+C` を押して終了します。パッケージ版は macOS で `Cmd+Q`、Windows でウィンドウを閉じるか `Alt+F4` を使います。生成処理やAI CLIの実行中は確認後に停止して終了できます。workspaceの更新処理中は安全に完了するまで終了を開始せず、完了後にもう一度終了します。
 
 ## 安全境界
 
@@ -91,10 +95,12 @@ npm --prefix apps/desktop start
 
 ```sh
 npm --prefix apps/desktop run test
+npm --prefix apps/desktop run security:audit
 npm --prefix apps/desktop run package
+npm --prefix apps/desktop run test:packaged-workspace
 ```
 
-unsigned build は原則として開発者のローカル確認用です。macOS Gatekeeper や Windows SmartScreen の警告が表示されます。インストーラー等の配布形式は `npm --prefix apps/desktop run make` で作成します。
+`test:packaged-workspace` は作成済みの実アプリを起動し、空のworkspaceから再選択、設定保存、再起動後の案件表示までを検証します。OSの選択画面だけをPlaywrightからElectron main process上で一時的に置き換えるため、製品ASARには試験用環境変数やtest hookを含めません。unsigned build は原則として開発者のローカル確認用です。macOS Gatekeeper や Windows SmartScreen の警告が表示されます。インストーラー等の配布形式は `npm --prefix apps/desktop run make` で作成します。
 
 正式版の公開時はバージョンを固定し、macOS では Developer ID Application による code signing と Apple notarization、Windows ではコードサイン証明書による署名を行います。署名と notarization の credential は CI secret で管理し、repository、ログ、配布物に含めません。PR / 通常 push の Desktop CI は secret なしの unsigned package smoke のみを行い、GitHub Releaseへは自動公開しません。
 
@@ -102,7 +108,7 @@ unsigned build は原則として開発者のローカル確認用です。macOS
 
 ベータ版のassetは、mainへmergeした同一sourceをtag付けした後、レビュー済みの成果物だけを`Tsugite-0.6.0-macos-arm64.dmg`、`Tsugite-0.6.0-windows-x64-setup.exe`へリネームして手動公開します。LPはこの固定asset名を参照します。tag、Release、asset、SHA-256、LPの公開は別の状態として検証します。
 
-Desktop CI はmacOS Arm64のDMG/ZIPとWindows x64のSquirrelインストーラーを作成し、GitHub Actionsのrun artifactとして14日間保持します。これは動作確認用の未署名成果物です。対象runのArtifacts欄から、`tsugite-macos-arm64-<sha>` または `tsugite-windows-x64-<sha>` を取得してください。Actions artifactの一時URLは公開LPから参照しません。
+Desktop CI はmacOS Arm64とWindows x64で実パッケージE2Eを実行した後、macOSのDMG/ZIPとWindowsのSquirrelインストーラーをGitHub Actionsのrun artifactとして14日間保持します。これは動作確認用の未署名成果物です。対象runのArtifacts欄から、`tsugite-macos-arm64-<sha>` または `tsugite-windows-x64-<sha>` を取得してください。Actions artifactの一時URLは公開LPから参照しません。
 
 Desktop runtime は tracked な実行コードと必要 resource の allowlist から作成します。workspace や repository の `projects/`、private `templates/`、`media/`、`output/`、`tmp/`、`.env` は梱包しません。内蔵端末のpreload bridgeだけをDesktop sourceのallowlistへ加え、native PTY moduleは対象OS / architectureに必要なbinaryとhelperだけをASAR外へ展開します。ビルド前後の package test で、必要 runtime resource、native module、禁止 pathを確認します。
 
