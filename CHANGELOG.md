@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.0-beta.2 - 2026-07-22
+
+- Added guarded PixVerse, Kling, and TopView generation routes plus an optional in-app AI CLI workspace without weakening the existing run, render, or Gate boundaries.
+- Added launcher Gate review links, safer artifact navigation during active CLI work, and Windows portability fixes for the new agent and review flows.
+- Added the Tsugite Desktop download landing page, refined its motion and safety guidance, and added a reproducible macOS ad-hoc packaging path for limited beta distribution.
+- Added host-specific setup guidance for the learning-promotion review automation while keeping notification and approval boundaries explicit.
+- Added a typed CLI command catalog with general and command-specific help, safer unknown-command guidance, and aligned cross-platform onboarding examples.
+- Added a Desktop-only recovery path for empty project shelves that safely validates, saves, and restarts into a newly selected workspace without accepting renderer-supplied paths or interrupting active work, plus packaged macOS and Windows E2E coverage for the full recovery flow.
+- Patched transitive Hono, URI parsing, and image-processing dependencies, added compatibility regression tests, and made CI reject moderate-or-higher production and development advisories.
+- Patched the download site's transitive build and image dependencies, added runtime security contracts, and made its CI audit production and development dependencies independently from the root install.
+
 ## 0.4.0 - 2026-07-18
 
 - Added a Gate-bound audio adapter contract and HyperFrames `media-use` integration for HyperFrames-first BGM generation and SFX resolution, with no automatic ElevenLabs fallback.

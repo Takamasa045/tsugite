@@ -10,6 +10,10 @@ function quitEvent() {
 test("active work can cancel quit without disposing or closing the launcher", async () => {
   const calls = [];
   const coordinator = createBeforeQuitCoordinator({
+    beginShutdown: () => {
+      calls.push("pause");
+      return () => calls.push("resume");
+    },
     runner: { hasActive: () => true, dispose: async () => calls.push("dispose") },
     confirmActiveQuit: async () => { calls.push("confirm"); return false; },
     closeLauncher: async () => calls.push("close"),
@@ -20,13 +24,17 @@ test("active work can cancel quit without disposing or closing the launcher", as
   await coordinator.beforeQuit(event);
 
   assert.equal(event.prevented, true);
-  assert.deepEqual(calls, ["confirm"]);
+  assert.deepEqual(calls, ["pause", "confirm", "resume"]);
   assert.equal(coordinator.readyToQuit(), false);
 });
 
 test("confirmed quit stops children before closing the launcher and quitting", async () => {
   const calls = [];
   const coordinator = createBeforeQuitCoordinator({
+    beginShutdown: () => {
+      calls.push("pause");
+      return () => calls.push("resume");
+    },
     runner: { hasActive: () => true, dispose: async () => calls.push("dispose") },
     confirmActiveQuit: async () => { calls.push("confirm"); return true; },
     closeLauncher: async () => calls.push("close"),
@@ -36,8 +44,46 @@ test("confirmed quit stops children before closing the launcher and quitting", a
 
   await coordinator.beforeQuit(event);
 
-  assert.deepEqual(calls, ["confirm", "dispose", "close", "quit"]);
+  assert.deepEqual(calls, ["pause", "confirm", "dispose", "close", "quit"]);
   assert.equal(coordinator.readyToQuit(), true);
+});
+
+test("cleanup failure keeps new launcher work paused", async () => {
+  const calls = [];
+  const confirmations = [true, false];
+  let pauseCount = 0;
+  const coordinator = createBeforeQuitCoordinator({
+    beginShutdown: () => {
+      calls.push("pause");
+      pauseCount += 1;
+      let resumed = false;
+      return () => {
+        if (resumed) return;
+        resumed = true;
+        pauseCount -= 1;
+        calls.push("resume");
+      };
+    },
+    runner: {
+      hasActive: () => true,
+      dispose: async () => {
+        calls.push("dispose");
+        throw new Error("child did not stop");
+      }
+    },
+    confirmActiveQuit: async () => confirmations.shift() ?? false,
+    closeLauncher: async () => calls.push("close"),
+    quit: () => calls.push("quit")
+  });
+
+  await assert.rejects(coordinator.beforeQuit(quitEvent()), /child did not stop/);
+
+  assert.deepEqual(calls, ["pause", "dispose"]);
+  assert.equal(pauseCount, 1);
+  await coordinator.beforeQuit(quitEvent());
+  assert.deepEqual(calls, ["pause", "dispose", "pause", "resume"]);
+  assert.equal(pauseCount, 1);
+  assert.equal(coordinator.readyToQuit(), false);
 });
 
 test("quit without active work skips confirmation", async () => {

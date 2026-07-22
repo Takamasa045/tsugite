@@ -10,7 +10,7 @@ import {
   resolveAgentExecutable
 } from "../src/agent-terminal.mjs";
 
-test("preload exposes only the narrow window.tsugiteDesktop.agents bridge", async () => {
+test("preload exposes only narrow agents and workspace bridges", async () => {
   const source = await readFile(new URL("../src/preload.mjs", import.meta.url), "utf8");
   assert.match(source, /exposeInMainWorld\("tsugiteDesktop"/);
   assert.match(source, /require\("electron"\)/);
@@ -18,6 +18,9 @@ test("preload exposes only the narrow window.tsugiteDesktop.agents bridge", asyn
   for (const method of ["list", "start", "write", "resize", "stop", "onData", "onExit"]) {
     assert.match(source, new RegExp(`\\b${method}:`));
   }
+  assert.match(source, /workspace/);
+  assert.match(source, /current:\s*\(\)\s*=>\s*ipcRenderer\.invoke/);
+  assert.match(source, /select:\s*\(\)\s*=>\s*ipcRenderer\.invoke/);
   assert.doesNotMatch(source, /sendSync|sendTo|executeJavaScript|readFile|process\.env/);
 });
 

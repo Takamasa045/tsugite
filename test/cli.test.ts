@@ -9,6 +9,98 @@ function runPipeline(args: string[]) {
 }
 
 describe("pipeline CLI", () => {
+  it("shows concise human help without requiring a project config", () => {
+    const result = runPipeline(["--help"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Usage: node bin/pipeline <command> [options]");
+    expect(result.stdout).toContain("validate");
+    expect(result.stdout).toContain("run");
+    expect(result.stdout).toContain("Human approval");
+  });
+
+  it("returns machine-readable command catalog help", () => {
+    const result = runPipeline(["help", "--json"]);
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toMatchObject({
+      ok: true,
+      command: "help",
+      usage: "node bin/pipeline <command> [options]"
+    });
+    expect(parsed.commands).toContainEqual(expect.objectContaining({
+      name: "validate",
+      requires_config: true,
+      safety: "read-only"
+    }));
+    expect(parsed.commands).toContainEqual(expect.objectContaining({
+      name: "run",
+      requires_config: true,
+      safety: "approval-gated"
+    }));
+  });
+
+  it.each([
+    ["help subcommand", ["help", "validate", "--json"]],
+    ["command help option", ["validate", "--help", "--json"]],
+    ["command options before help", ["validate", "--config", "project.yaml", "--help", "--json"]]
+  ])("shows command-specific help through %s", (_label, args) => {
+    const result = runPipeline(args);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: "help",
+      topic: "validate",
+      command_help: {
+        name: "validate",
+        usage: "node bin/pipeline validate --config <project.yaml> [--json]",
+        requires_config: true,
+        options: expect.arrayContaining([
+          expect.objectContaining({ name: "--config", value: "<project.yaml>" })
+        ])
+      }
+    });
+  });
+
+  it("reports an unknown command before config validation and suggests the closest command", () => {
+    const result = runPipeline(["validte", "--bogus", "--json"]);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      ok: false,
+      command: "validte",
+      issues: [{ code: "cli.command_unknown" }],
+      suggested_commands: ["validate"],
+      next_actions: [
+        "node bin/pipeline help validate",
+        "node bin/pipeline --help"
+      ]
+    });
+  });
+
+  it.each([
+    [
+      ["help", "validate", "extra", "--json"],
+      { code: "cli.help_argument_extra", path: "extra" }
+    ],
+    [
+      ["help", "--config", "fixtures/projects/local-valid.yaml", "--json"],
+      { code: "cli.help_option_unsupported", path: "--config" }
+    ]
+  ])("rejects unsupported help arguments instead of silently ignoring them", (args, issue) => {
+    const result = runPipeline(args);
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      ok: false,
+      command: "help",
+      issues: [issue]
+    });
+  });
+
   it("streams the complete expanded story catalog before exiting", () => {
     const result = runPipeline(["story-guides", "--json"]);
 

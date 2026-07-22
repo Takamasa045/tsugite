@@ -1128,22 +1128,46 @@ distribution: local-only
       "approved"
     );
     await writeState(join(fixture.projectDir, "dist"), running);
-    const runGeneration = vi.fn(async () => ({ ok: true, command: "run", state: { status: "awaiting_gate_2" } }));
+    let finishGeneration!: (result: unknown) => void;
+    const generationResult = new Promise<unknown>((resolve) => {
+      finishGeneration = resolve;
+    });
+    const runGeneration = vi.fn(() => generationResult);
+    let canStartWork = true;
     const launcher = await launch({
       projectsDir: fixture.projectsDir,
       bundleDir: fixture.bundleDir,
       port: 0,
-      runGeneration
+      runGeneration,
+      canStartWork: () => canStartWork
     });
     const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
     const project = listing.projects[0];
     const endpoint = `${launcher.url}/api/projects/${project.id}/generate`;
 
     expect((await fetch(endpoint, { method: "POST", headers: { origin: launcher.url } })).status).toBe(403);
-    const response = await fetch(endpoint, {
+    canStartWork = false;
+    const blocked = await fetch(endpoint, {
       method: "POST",
       headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
     });
+    expect(blocked.status).toBe(409);
+    await expect(blocked.json()).resolves.toMatchObject({
+      issue: { code: "viewer_launcher.work_blocked" }
+    });
+    expect(runGeneration).not.toHaveBeenCalled();
+    canStartWork = true;
+    expect(launcher.hasActive()).toBe(false);
+    const responsePromise = fetch(endpoint, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+
+    await vi.waitFor(() => expect(runGeneration).toHaveBeenCalledOnce());
+    expect(launcher.hasActive()).toBe(true);
+    expect(launcher.hasBlockingWork()).toBe(false);
+    finishGeneration({ ok: true, command: "run", state: { status: "awaiting_gate_2" } });
+    const response = await responsePromise;
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -1152,14 +1176,70 @@ distribution: local-only
     });
     expect(runGeneration).toHaveBeenCalledOnce();
     expect(runGeneration).toHaveBeenCalledWith(configPath);
+    expect(launcher.hasActive()).toBe(false);
   });
 
-  it("requires the launcher token and same origin before refreshing a snapshot", async () => {
+  it("rejects every mutation route while new work is suspended", async () => {
     const fixture = await createFixture();
     const launcher = await launch({
       projectsDir: fixture.projectsDir,
       bundleDir: fixture.bundleDir,
       port: 0
+    });
+    const resumeWork = launcher.suspendWork();
+    const resumeNestedWork = launcher.suspendWork();
+    const paths = [
+      "/api/projects/missing/generation-connection",
+      "/api/projects/missing/generate",
+      "/api/projects/missing/action",
+      "/api/feedback/missing/promotion-decision",
+      "/api/projects/missing/refresh"
+    ];
+
+    for (const path of paths) {
+      const response = await fetch(`${launcher.url}${path}`, {
+        method: "POST",
+        headers: {
+          origin: launcher.url,
+          "x-tsugite-token": launcher.token
+        }
+      });
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({
+        issue: { code: "viewer_launcher.work_blocked" }
+      });
+    }
+
+    resumeNestedWork();
+    expect((await fetch(`${launcher.url}/api/projects/missing/generate`, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "x-tsugite-token": launcher.token
+      }
+    })).status).toBe(409);
+    resumeWork();
+    expect((await fetch(`${launcher.url}/api/projects/missing/generate`, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "x-tsugite-token": launcher.token
+      }
+    })).status).toBe(404);
+  });
+
+  it("requires the launcher token and same origin before refreshing a snapshot", async () => {
+    const fixture = await createFixture();
+    let finishRefresh!: () => void;
+    const refreshPaused = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    const beforeRefresh = vi.fn(() => refreshPaused);
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      beforeRefresh
     });
     const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
     const project = listing.projects[0];
@@ -1178,13 +1258,18 @@ distribution: local-only
     });
     expect(foreignOrigin.status).toBe(403);
 
-    const refreshed = await fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
+    const refreshedPromise = fetch(`${launcher.url}/api/projects/${project.id}/refresh`, {
       method: "POST",
       headers: {
         origin: launcher.url,
         "x-tsugite-token": launcher.token
       }
     });
+    await vi.waitFor(() => expect(beforeRefresh).toHaveBeenCalledOnce());
+    expect(launcher.hasActive()).toBe(true);
+    expect(launcher.hasBlockingWork()).toBe(true);
+    finishRefresh();
+    const refreshed = await refreshedPromise;
     const payload = await refreshed.json();
     expect(refreshed.status).toBe(200);
     expect(payload).toMatchObject({
@@ -1197,6 +1282,7 @@ distribution: local-only
         viewerUrl: expectedViewerUrl(launcher, project.id)
       }
     });
+    expect(launcher.hasActive()).toBe(false);
     const viewerResponse = await fetch(payload.viewerUrl);
     expect(viewerResponse.status).toBe(200);
     await expect(viewerResponse.text()).resolves.toContain('id="tsugite-workflow-data"');

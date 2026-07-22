@@ -64,7 +64,8 @@ async function packagedFixture({
     "src/agent-terminal.mjs",
     "src/lifecycle.mjs",
     "src/process-runner.mjs",
-    "src/runtime.mjs"
+    "src/runtime.mjs",
+    "src/workspace.mjs"
   ]) {
     if (path !== omitAppFile) await put(appRoot, path);
   }
@@ -153,4 +154,17 @@ test("rejects an arbitrary untracked file in app.asar", async () => {
   const resourcesRoot = await packagedFixture({ extraAppFile: "notes/private.txt" });
 
   await assert.rejects(auditPackagedResources(resourcesRoot), /forbidden app\.asar entries/);
+});
+
+test("rejects build-only command shims and Playwright from app.asar", async () => {
+  for (const extraAppFile of [
+    "node_modules/.bin/playwright-core",
+    "node_modules/playwright-core/index.js"
+  ]) {
+    const resourcesRoot = await packagedFixture({ extraAppFile });
+    await assert.rejects(
+      auditPackagedResources(resourcesRoot),
+      /forbidden app\.asar entries.*playwright/i
+    );
+  }
 });

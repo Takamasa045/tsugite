@@ -19,7 +19,11 @@ const ALLOWED_UNTRACKED_BUILD_INPUTS = new Set([
   "apps/workflow-viewer/src/components/launcher/WorkflowCanvas.test.tsx",
   "apps/workflow-viewer/src/components/launcher/WorkflowCanvas.tsx",
   "apps/workflow-viewer/src/components/launcher/index.ts",
-  "apps/workflow-viewer/src/components/launcher/workflow-canvas.css"
+  "apps/workflow-viewer/src/components/launcher/workflow-canvas.css",
+  "apps/workflow-viewer/src/components/workspace/DesktopWorkspaceRecovery.test.tsx",
+  "apps/workflow-viewer/src/components/workspace/DesktopWorkspaceRecovery.tsx",
+  "apps/workflow-viewer/src/components/workspace/workspace-bridge.ts",
+  "src/cli/commandCatalog.ts"
 ]);
 
 function assertSafeGeneratedPath(repoRoot, path) {

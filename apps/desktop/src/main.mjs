@@ -8,12 +8,11 @@ import { createAgentTerminalManager, registerAgentTerminalIpc } from "./agent-te
 import { createBeforeQuitCoordinator } from "./lifecycle.mjs";
 import { createPipelineRunner } from "./process-runner.mjs";
 import {
-  assertCanonicalWorkspaceOutsideProtectedDirectory,
   createIpcOriginGuard,
   createSecureWindowOptions,
   denyAllSessionPermissions,
   installNavigationGuards,
-  prepareWorkspaceDirectories,
+  prepareDesktopWorkspace,
   readWorkspacePreference,
   requestedWorkspaceRoot,
   resolveNodeExecutable,
@@ -22,6 +21,11 @@ import {
   resolveWorkspaceRoot,
   writeWorkspacePreference
 } from "./runtime.mjs";
+import {
+  choosePackagedWorkspace,
+  createDesktopWorkspaceController,
+  registerDesktopWorkspaceIpc
+} from "./workspace.mjs";
 
 const shouldStart = !squirrelStartup;
 if (!shouldStart) app.quit();
@@ -31,6 +35,8 @@ let launcher;
 let runner;
 let agentTerminals;
 let agentTerminalIpc;
+let workspaceIpc;
+let workspaceController;
 let quitCoordinator;
 
 function logDevelopmentStatus(message) {
@@ -53,11 +59,7 @@ async function startDesktop() {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath
   });
-  const workspaceRoot = await chooseWorkspaceRoot(paths);
-  const workspace = await prepareWorkspaceDirectories(workspaceRoot);
-  if (app.isPackaged) {
-    await assertCanonicalWorkspaceOutsideProtectedDirectory(workspace.root, process.resourcesPath);
-  }
+  const workspace = await chooseWorkspace(paths);
   logDevelopmentStatus("workspace ready");
   const nodeExecutable = resolveNodeExecutable({
     isPackaged: app.isPackaged,
@@ -84,12 +86,14 @@ async function startDesktop() {
     bundleDir: paths.viewerBundleDir,
     validationOptions: resolveRuntimeValidationOptions(paths.runtimeRoot),
     allowProjectActions: false,
-    executePipeline: runner.run
+    executePipeline: runner.run,
+    runGeneration: runner.runGeneration,
+    canStartWork: () => Boolean(workspaceController && !workspaceController.isSwitching())
   });
   logDevelopmentStatus(`launcher ready at ${launcher.url}`);
 
   const desktopProcesses = {
-    hasActive: () => runner.hasActive() || agentTerminals.hasActive(),
+    hasActive: () => launcher.hasActive() || runner.hasActive() || agentTerminals.hasActive(),
     dispose: async () => {
       const results = await Promise.allSettled([
         agentTerminals.dispose(),
@@ -100,11 +104,28 @@ async function startDesktop() {
         .map((result) => result.reason);
       if (failures.length > 0) throw new AggregateError(failures, "Desktop processes could not be stopped");
       agentTerminalIpc?.dispose();
+      workspaceIpc?.dispose();
     }
   };
   quitCoordinator = createBeforeQuitCoordinator({
+    beginShutdown: () => launcher.suspendWork(),
     runner: desktopProcesses,
     confirmActiveQuit: async () => {
+      if (launcher.hasBlockingWork()) {
+        const options = {
+          type: "info",
+          title: "更新処理の完了を待っています",
+          message: "workspaceの更新処理が完了してから、もう一度終了してください。",
+          buttons: ["わかりました"],
+          noLink: true
+        };
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          await dialog.showMessageBox(mainWindow, options);
+        } else {
+          await dialog.showMessageBox(options);
+        }
+        return false;
+      }
       const options = {
         type: "warning",
         title: "実行中の処理があります",
@@ -150,10 +171,28 @@ async function startDesktop() {
     launcherUrl: launcher.url,
     webContents: mainWindow.webContents
   });
+  workspaceController = createDesktopWorkspaceController({
+    workspaceRoot: workspace.root,
+    argv: process.argv,
+    isBusy: () => desktopProcesses.hasActive(),
+    chooseWorkspace: () => showWorkspaceDialog(mainWindow),
+    prepareWorkspace: (workspaceRoot) => prepareDesktopWorkspace(workspaceRoot, {
+      ...(app.isPackaged ? { protectedRoot: process.resourcesPath } : {}),
+      homeRoot: app.getPath("home")
+    }),
+    persistWorkspace: (workspaceRoot) => writeWorkspacePreference(
+      join(app.getPath("userData"), "desktop-config.json"),
+      workspaceRoot
+    ),
+    relaunch: (options) => app.relaunch(options),
+    quit: () => app.quit()
+  });
   agentTerminalIpc = registerAgentTerminalIpc({
     ipcMain,
     manager: agentTerminals,
-    isTrustedEvent: isTrustedIpcEvent,
+    isTrustedEvent: (event) => (
+      isTrustedIpcEvent(event) && !workspaceController.isSwitching()
+    ),
     send: (channel, payload) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       const eventLike = {
@@ -163,6 +202,11 @@ async function startDesktop() {
       if (isTrustedIpcEvent(eventLike)) mainWindow.webContents.send(channel, payload);
     }
   });
+  workspaceIpc = registerDesktopWorkspaceIpc({
+    ipcMain,
+    controller: workspaceController,
+    isTrustedEvent: isTrustedIpcEvent
+  });
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.on("close", (event) => quitCoordinator?.requestWindowClose(event));
   mainWindow.on("closed", () => { mainWindow = undefined; });
@@ -170,14 +214,14 @@ async function startDesktop() {
   logDevelopmentStatus("window ready");
 }
 
-async function chooseWorkspaceRoot(paths) {
+async function chooseWorkspace(paths) {
   const requested = requestedWorkspaceRoot({
     argv: process.argv,
     env: process.env,
     cwd: process.cwd()
   });
   if (requested || !app.isPackaged) {
-    return requested ?? resolveWorkspaceRoot({
+    const workspaceRoot = requested ?? resolveWorkspaceRoot({
       argv: process.argv,
       env: process.env,
       isPackaged: false,
@@ -185,22 +229,36 @@ async function chooseWorkspaceRoot(paths) {
       repoRoot: paths.runtimeRoot,
       userDataPath: app.getPath("userData")
     });
+    return prepareDesktopWorkspace(workspaceRoot, {
+      ...(app.isPackaged ? { protectedRoot: process.resourcesPath } : {}),
+      homeRoot: app.getPath("home")
+    });
   }
 
   const preferencePath = join(app.getPath("userData"), "desktop-config.json");
   const persisted = await readWorkspacePreference(preferencePath);
-  if (persisted) return persisted;
+  return choosePackagedWorkspace({
+    persistedWorkspaceRoot: persisted,
+    fallbackWorkspaceRoot: join(app.getPath("userData"), "workspace"),
+    chooseWorkspace: () => showWorkspaceDialog(),
+    prepareWorkspace: (workspaceRoot) => prepareDesktopWorkspace(workspaceRoot, {
+      protectedRoot: process.resourcesPath,
+      homeRoot: app.getPath("home")
+    }),
+    persistWorkspace: (workspaceRoot) => writeWorkspacePreference(preferencePath, workspaceRoot)
+  });
+}
 
-  const selection = await dialog.showOpenDialog({
+async function showWorkspaceDialog(parentWindow) {
+  const options = {
     title: "Tsugite workspaceを選択",
     message: "projects と templates を保存するフォルダを選択してください。",
     properties: ["openDirectory", "createDirectory"]
-  });
-  const selected = selection.canceled || !selection.filePaths[0]
-    ? join(app.getPath("userData"), "workspace")
-    : selection.filePaths[0];
-  await writeWorkspacePreference(preferencePath, selected);
-  return selected;
+  };
+  const selection = parentWindow && !parentWindow.isDestroyed()
+    ? await dialog.showOpenDialog(parentWindow, options)
+    : await dialog.showOpenDialog(options);
+  return selection.canceled || !selection.filePaths[0] ? undefined : selection.filePaths[0];
 }
 
 app.on("before-quit", (event) => {
@@ -218,6 +276,7 @@ if (hasSingleInstanceLock) {
     .catch(async (error) => {
       if (!quitCoordinator) {
         agentTerminalIpc?.dispose();
+        workspaceIpc?.dispose();
         await agentTerminals?.dispose().catch(() => {});
         await runner?.dispose().catch(() => {});
         await launcher?.close().catch(() => {});

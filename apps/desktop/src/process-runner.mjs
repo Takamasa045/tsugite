@@ -1,7 +1,8 @@
 import { execFile, spawn } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 
 const DEFAULT_MAX_OUTPUT_BYTES = 16 * 1024;
+const DEFAULT_GENERATION_MAX_OUTPUT_BYTES = 20 * 1024 * 1024;
 
 function cappedCollector(maximumBytes) {
   const chunks = [];
@@ -33,6 +34,7 @@ export function createPipelineRunner({
   platform = process.platform,
   baseEnv = process.env,
   maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
+  generationMaxOutputBytes = DEFAULT_GENERATION_MAX_OUTPUT_BYTES,
   terminationGraceMs = 1_500,
   spawnProcess = spawn,
   execFileProcess = execFile,
@@ -43,6 +45,10 @@ export function createPipelineRunner({
 
   const run = async (_command, args, options = {}) => {
     if (disposed) throw new Error("Desktop pipeline runner is disposed");
+    const outputLimit = options.maxOutputBytes ?? maxOutputBytes;
+    if (!Number.isSafeInteger(outputLimit) || outputLimit <= 0) {
+      throw new TypeError("Desktop pipeline output limit must be a positive safe integer");
+    }
     const requestedArgs = Array.isArray(args) ? args.slice(1) : [];
     const environment = { ...baseEnv, ...(options.env ?? {}) };
     const runtimeBin = dirname(nodeExecutable);
@@ -59,8 +65,8 @@ export function createPipelineRunner({
       detached: platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"]
     });
-    const stdout = cappedCollector(maxOutputBytes);
-    const stderr = cappedCollector(maxOutputBytes);
+    const stdout = cappedCollector(outputLimit);
+    const stderr = cappedCollector(outputLimit);
     child.stdout?.on("data", (chunk) => stdout.write(chunk));
     child.stderr?.on("data", (chunk) => stderr.write(chunk));
 
@@ -79,6 +85,33 @@ export function createPipelineRunner({
         stderr: stderr.text()
       }));
     });
+  };
+
+  const runGeneration = async (configPath) => {
+    if (typeof configPath !== "string" || !isAbsolute(configPath)) {
+      throw new TypeError("Desktop generation config path must be absolute");
+    }
+    const result = await run(nodeExecutable, [
+      cliModulePath,
+      "run",
+      "--config", configPath,
+      "--actor", "coordinator",
+      "--json"
+    ], { maxOutputBytes: generationMaxOutputBytes });
+    if (result.exitCode !== 0) {
+      const error = new Error("Desktop generation failed");
+      if (result.stdout) error.stdout = result.stdout;
+      if (result.stderr) error.stderr = result.stderr;
+      throw error;
+    }
+    try {
+      return JSON.parse(result.stdout);
+    } catch (cause) {
+      const error = new Error("Desktop generation returned invalid JSON", { cause });
+      if (result.stdout) error.stdout = result.stdout;
+      if (result.stderr) error.stderr = result.stderr;
+      throw error;
+    }
   };
 
   const terminate = async (child) => {
@@ -129,6 +162,7 @@ export function createPipelineRunner({
 
   return {
     run,
+    runGeneration,
     dispose,
     hasActive: () => active.size > 0
   };

@@ -23,12 +23,22 @@ const appSourceFiles = new Set([
   "/src/agent-terminal.mjs",
   "/src/lifecycle.mjs",
   "/src/process-runner.mjs",
-  "/src/runtime.mjs"
+  "/src/runtime.mjs",
+  "/src/workspace.mjs"
 ]);
+const buildOnlyNodeModuleRoots = [
+  "/node_modules/.bin",
+  "/node_modules/playwright-core"
+];
+
+function isBuildOnlyNodeModulePath(path) {
+  return buildOnlyNodeModuleRoots.some((root) => path === root || path.startsWith(`${root}/`));
+}
 
 function ignoreOutsideAppAllowlist(path) {
   const normalized = path.replaceAll("\\", "/");
   if (!normalized || normalized === "/src") return false;
+  if (isBuildOnlyNodeModulePath(normalized)) return true;
   if (normalized === "/node_modules" || normalized.startsWith("/node_modules/")) return false;
   return !appSourceFiles.has(normalized);
 }

@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --exclude=\"apps/**\"",
-    "test:coverage": "vitest run --exclude=\"apps/**\" --coverage --coverage.include=\"src/**/*.ts\" --coverage.thresholds.statements=80 --coverage.thresholds.branches=75 --coverage.thresholds.functions=80 --coverage.thresholds.lines=80",
+    "test:coverage": "vitest run --exclude=\"apps/**\" --coverage --coverage.include=\"src/**/*.ts\" --coverage.thresholds.statements=80 --coverage.thresholds.branches=75 --coverage.thresholds.functions=80 --coverage.thresholds.lines=80 --maxWorkers=4",
     "pipeline": "node bin/pipeline",
     "viewer:dev": "npm --prefix apps/workflow-viewer run dev",
     "viewer:open": "node bin/pipeline viewer-launcher --open",
@@ -25,6 +25,7 @@
     "desktop:package": "npm --prefix apps/desktop run package",
     "desktop:make": "npm --prefix apps/desktop run make",
     "desktop:audit": "npm --prefix apps/desktop run package:audit",
+    "security:audit": "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
     "vendor:check": "node scripts/check-vendor-boundary.mjs",
     "check": "npm run vendor:check && npm run build && npm run test:coverage"
   },
@@ -51,6 +52,9 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
-    "adm-zip": "^0.6.0"
+    "@hono/node-server": "2.0.11",
+    "adm-zip": "^0.6.0",
+    "fast-uri": "3.1.4",
+    "sharp": "0.35.3"
   }
 }

@@ -133,7 +133,11 @@ test("cleans only root build and Viewer dist before packaging builds", async () 
 test("rejects untracked build inputs outside the explicit Desktop source allowlist", () => {
   assert.doesNotThrow(() => assertUntrackedBuildInputsAllowed([
     "apps/workflow-viewer/public/assets/tsugite-favicon.png",
-    "apps/workflow-viewer/src/components/launcher/WorkflowCanvas.tsx"
+    "apps/workflow-viewer/src/components/launcher/WorkflowCanvas.tsx",
+    "apps/workflow-viewer/src/components/workspace/DesktopWorkspaceRecovery.test.tsx",
+    "apps/workflow-viewer/src/components/workspace/DesktopWorkspaceRecovery.tsx",
+    "apps/workflow-viewer/src/components/workspace/workspace-bridge.ts",
+    "src/cli/commandCatalog.ts"
   ]));
   assert.throws(
     () => assertUntrackedBuildInputsAllowed(["apps/workflow-viewer/public/customer-private.json"]),
