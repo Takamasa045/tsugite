@@ -15,6 +15,7 @@ describe("Tsugite agent skill configuration", () => {
     expect(skill).toContain("run --dry-run");
     expect(skill).toContain("finalize");
     expect(skill).toContain("LESSONS.md");
+    expect(skill).toContain("Ask for the Gate 1 decision exactly once");
   });
 
   it("provides Codex UI metadata with an explicit skill invocation", async () => {

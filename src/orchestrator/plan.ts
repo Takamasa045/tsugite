@@ -10,7 +10,8 @@ import {
 import {
   renderPreflightCommands,
   type BackendCapabilities,
-  type BackendExternalCommand
+  type BackendExternalCommand,
+  type BackendMotionReview
 } from "../backends/capabilities.js";
 
 export type PlanStep = {
@@ -42,6 +43,7 @@ export type ExecutionPlan = {
   run_id: string;
   slug: string;
   backend: string;
+  motion_review?: BackendMotionReview;
   target_duration_seconds: number;
   total_clip_duration_seconds: number;
   estimated_credits: number;
@@ -87,7 +89,8 @@ export function createPlan(
   promptGuides: PromptGuide[] = [],
   audioAdapter?: AdapterDefinition,
   generationConnection?: GenerationConnectionResolution,
-  audioConnection?: GenerationConnectionResolution
+  audioConnection?: GenerationConnectionResolution,
+  backend?: BackendCapabilities
 ): ExecutionPlan {
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
@@ -106,6 +109,7 @@ export function createPlan(
     run_id: project.run_id ?? project.slug,
     slug: project.slug,
     backend: project.edit.backend,
+    ...(backend?.motion_review ? { motion_review: { ...backend.motion_review } } : {}),
     target_duration_seconds: manifest.meta.target_duration_seconds,
     total_clip_duration_seconds: totalClipDuration,
     estimated_credits: estimatedCredits,
@@ -208,7 +212,8 @@ export function createDryRun(
     promptGuides,
     audioAdapter,
     generationConnection,
-    audioConnection
+    audioConnection,
+    backend
   );
   return {
     executed: false,

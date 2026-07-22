@@ -1,4 +1,8 @@
 name: remotion
+motion_review:
+  surface: React / Remotion
+  method: Reactコンポーネントをフレーム値、interpolate、springで制御
+  preview: html-css-approximation
 capabilities:
   captions: true
   transitions: true

@@ -174,6 +174,107 @@ describe("creative review", () => {
     expect(JSON.stringify(plan)).toBe(before);
   });
 
+  it("carries an explicit motion plan into review data and an HTML/CSS approximation", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    manifest.presentation!.motion_design = {
+      summary: "木組みが噛み合うように、情報を順番に組み立てる",
+      pacing: "前半は素早く、結論は静かに止める",
+      principles: ["一度に動かす主役は一つ", "文字の可読性を優先"]
+    };
+    manifest.captions[0]!.visual!.motion = {
+      entrance: {
+        preset: "slide-left",
+        label: "問いを差し込む",
+        description: "見出しを左から短く入れて停止する",
+        target: "headline",
+        duration_seconds: 0.45,
+        easing: "ease-out"
+      },
+      emphasis: {
+        preset: "pulse",
+        label: "キーワードを一度だけ強調",
+        description: "問いかけの語だけを小さく拡大する",
+        target: "keyword",
+        duration_seconds: 0.3,
+        easing: "ease-in-out"
+      },
+      implementation_notes: ["背景は固定し、テキストレイヤーだけを動かす"]
+    };
+
+    const plan = createPlan(project, manifest);
+    plan.motion_review = {
+      surface: "React / Remotion",
+      method: "Reactコンポーネントをフレーム値、interpolate、springで制御",
+      preview: "html-css-approximation"
+    };
+    const review = createReviewDocument(project, manifest, plan);
+    const html = renderReviewHtml(review);
+
+    expect(review.motion_design).toMatchObject({
+      status: "declared",
+      summary: "木組みが噛み合うように、情報を順番に組み立てる",
+      pacing: "前半は素早く、結論は静かに止める",
+      implementation: {
+        backend: "remotion",
+        surface: "React / Remotion",
+        preview: "HTML / CSS approximation"
+      }
+    });
+    expect(review.storyboard[0]?.motion?.cues).toEqual([
+      expect.objectContaining({ phase: "entrance", preset: "slide-left", target: "headline" }),
+      expect.objectContaining({ phase: "emphasis", preset: "pulse", target: "keyword" })
+    ]);
+    expect(html).toContain('data-testid="motion-design"');
+    expect(html).toContain('data-motion-preset="slide-left"');
+    expect(html).toContain("React / Remotion");
+    expect(html).toContain("問いを差し込む");
+    expect(html).toContain("HTML / CSSによる近似プレビュー");
+  });
+
+  it("shows an honest empty motion state when animation direction is not declared", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    const plan = createPlan(project, manifest);
+    plan.motion_review = {
+      surface: "React / Remotion",
+      method: "Reactコンポーネントをフレーム値、interpolate、springで制御",
+      preview: "html-css-approximation"
+    };
+
+    const review = createReviewDocument(project, manifest, plan);
+    const html = renderReviewHtml(review);
+
+    expect(review.motion_design).toMatchObject({
+      status: "unspecified",
+      implementation: { backend: "remotion", surface: "React / Remotion" }
+    });
+    expect(review.warnings).toContain("動き・アニメーション設計が未指定です。最終確認前に、全体方針またはカット別モーションを確認してください。");
+    expect(html).toContain("個別モーションは未指定です");
+    expect(html).not.toContain('data-motion-preset="undefined"');
+  });
+
+  it("uses a matching clip motion plan when a caption does not override it", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    manifest.clips[0]!.id = "s01";
+    manifest.clips[0]!.motion = {
+      entrance: {
+        preset: "zoom-in",
+        description: "映像レイヤーをゆっくり寄せる",
+        target: "footage",
+        duration_seconds: 1.2
+      },
+      implementation_notes: []
+    };
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+
+    expect(review.storyboard[0]?.motion?.cues).toContainEqual(
+      expect.objectContaining({ phase: "entrance", preset: "zoom-in", target: "footage" })
+    );
+  });
+
   it("shows an MCP generation connection as an agent handoff in Gate 1 review data", async () => {
     const validation = await validateProject("fixtures/projects/generation-connection-topview.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]
@@ -204,7 +305,7 @@ describe("creative review", () => {
     expect(html).toContain("SETUP: NEEDS-VERIFICATION");
     expect(html).toContain("AUTO FALLBACK OFF");
     expect(review.warnings).toContain(
-      "接続 'topview' の状態は needs-verification です。Gate 1承認前にログイン、利用権限、残クレジットを確認してください。"
+      "接続 'topview' の状態は needs-verification です。最終承認前にログイン、利用権限、残クレジットを確認してください。"
     );
   });
 
@@ -278,7 +379,7 @@ describe("creative review", () => {
       setup_status: "needs-verification"
     }));
     expect(review.warnings).toContain(
-      "接続 'hyperframes-media' の状態は needs-verification です。Gate 1承認前にログイン、利用権限、残クレジットを確認してください。"
+      "接続 'hyperframes-media' の状態は needs-verification です。最終承認前にログイン、利用権限、残クレジットを確認してください。"
     );
     expect(html).toContain("hyperframes-media via CLI · SETUP: NEEDS-VERIFICATION");
   });
@@ -401,7 +502,13 @@ describe("creative review", () => {
     expect(html).toContain('class="screening-room"');
     expect(html).toContain('class="film-strip"');
     expect(html).toContain('class="shot-index"');
-    expect(html).toContain('aria-label="Gate 1 承認待ち"');
+    expect(html).not.toContain('aria-label="Gate 1 承認待ち"');
+    expect(html).toContain('data-testid="review-progress"');
+    expect(html).toContain('data-testid="gate-1-final-decision"');
+    expect(html.match(/Gate 1/g)).toHaveLength(1);
+    expect(html.indexOf('data-testid="gate-1-final-decision"')).toBeGreaterThan(
+      html.indexOf('id="conditions-title"')
+    );
     expect(html).toContain('data-design="joinery-review"');
     expect(html).toContain('data-material="hinoki-yakisugi"');
     expect(html).toContain('data-aspect="16:9"');

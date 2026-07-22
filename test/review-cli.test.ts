@@ -36,7 +36,9 @@ describe("pipeline review", () => {
       gate_state: "unchanged",
       opened: false
     });
-    expect(await readFile(payload.review_path, "utf8")).toContain("Gate 1");
+    const html = await readFile(payload.review_path, "utf8");
+    expect(html).toContain("Gate 1");
+    expect(html).toContain("React / Remotion");
     expect(JSON.parse(await readFile(payload.review_data_path, "utf8")).storyboard).toHaveLength(2);
     await expect(stat(join(outputDir, "state.json"))).rejects.toThrow();
   });

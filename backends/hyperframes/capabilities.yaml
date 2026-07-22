@@ -1,4 +1,8 @@
 name: hyperframes
+motion_review:
+  surface: HTML / CSS / HyperFrames
+  method: DOMレイヤーをCSSとタイムラインで制御
+  preview: html-css-approximation
 capabilities:
   captions: true
   transitions: true

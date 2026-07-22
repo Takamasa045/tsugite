@@ -9,6 +9,13 @@ import { setupCheckSchema } from "../setupChecks.js";
 
 const capabilitiesSchema = z.object({
   name: z.string().min(1),
+  motion_review: z
+    .object({
+      surface: z.string().min(1),
+      method: z.string().min(1),
+      preview: z.enum(["html-css-approximation", "specification-only"])
+    })
+    .optional(),
   capabilities: z.object({
     captions: z.boolean(),
     transitions: z.boolean(),
@@ -33,6 +40,7 @@ const capabilitiesSchema = z.object({
 });
 
 export type BackendCapabilities = z.infer<typeof capabilitiesSchema>;
+export type BackendMotionReview = NonNullable<BackendCapabilities["motion_review"]>;
 export type BackendExternalCommand = {
   phase: "render_preflight";
   backend: string;

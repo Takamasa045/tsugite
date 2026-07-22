@@ -25,6 +25,11 @@ describe("backend capabilities", () => {
       blocking: true,
       remediation: expect.any(Object)
     });
+    expect(backend?.motion_review).toEqual({
+      surface: "HTML / CSS / HyperFrames",
+      method: "DOMレイヤーをCSSとタイムラインで制御",
+      preview: "html-css-approximation"
+    });
   });
 
   it("rejects captions, vertical, and fps demands unsupported by a backend", async () => {
