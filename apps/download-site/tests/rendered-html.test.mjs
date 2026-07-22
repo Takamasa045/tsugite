@@ -60,6 +60,20 @@ test("server-renders the Tsugite download landing page", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
 
+test("highlights the third summer camp session and keeps earlier updates collapsible", async () => {
+  const response = await render();
+  const html = await response.text();
+
+  assert.match(html, /id="pickup"/);
+  assert.match(html, /第3回目、<br\s*\/>全部で3回やります。/);
+  assert.match(html, /2026年8月11日（火）21:00/);
+  assert.match(html, /<details[^>]*class="pickup-history"/);
+  assert.match(html, /<summary>[^<]*<span>前の更新を見る（2件）<\/span>/);
+  assert.match(html, /第2回｜2026年8月4日（火）21:00/);
+  assert.match(html, /第1回｜2026年7月28日（火）21:00/);
+  assert.match(html, /https:\/\/brain-market\.com\/u\/itopan\/a\/b1kjM3UjMgoTZsNWa0JXY/);
+});
+
 test("ships site-specific metadata, assets, and accessibility styles", async () => {
   const [page, layout, css, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -85,6 +99,8 @@ test("ships site-specific metadata, assets, and accessibility styles", async () 
   assert.match(page, /id="download"/);
   assert.match(page, /id="knowledge"/);
   assert.match(page, /id="workspace"/);
+  assert.match(page, /id="pickup"/);
+  assert.match(page, /<details className="pickup-history">/);
   assert.match(page, /MAKE \/ CODEX・CLAUDE CODE/);
   assert.match(page, /className="platform-card platform-download/);
   assert.match(page, /APPLE_SUPPORT_URL/);
@@ -96,6 +112,8 @@ test("ships site-specific metadata, assets, and accessibility styles", async () 
   assert.match(css, /\.key-visual/);
   assert.match(css, /\.knowledge-section/);
   assert.match(css, /\.hybrid-roles/);
+  assert.match(css, /\.pickup-section/);
+  assert.match(css, /\.pickup-history\[open\]/);
   assert.match(css, /\.hero-motion\s*\{/);
   assert.match(css, /repeating-linear-gradient\(97deg/);
   assert.match(css, /\.motion-build\s*\{/);
