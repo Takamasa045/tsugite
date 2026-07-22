@@ -60,15 +60,20 @@ test("server-renders the Tsugite download landing page", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
 
-test("highlights the third summer camp session and keeps earlier updates collapsible", async () => {
+test("highlights the latest release and keeps the third summer camp update", async () => {
   const response = await render();
   const html = await response.text();
 
   assert.match(html, /id="pickup"/);
-  assert.match(html, /第3回目、<br\s*\/>全部で3回やります。/);
+  assert.match(html, /Tsugite<br\s*\/>v0\.6\.0 Beta 2/);
+  assert.match(html, /最新バージョンを公開しました/);
+  assert.match(html, /PixVerse・Kling・TopViewの生成経路を追加/);
+  assert.match(html, /アプリ版は現在も先行ベータで、不安定な挙動が残っています/);
+  assert.match(html, /新しい体験を試してみたい方だけお使いください/);
+  assert.match(html, /第3回目、全部で3回やります。/);
   assert.match(html, /2026年8月11日（火）21:00/);
   assert.match(html, /<details[^>]*class="pickup-history"/);
-  assert.match(html, /<summary>[^<]*<span>前の更新を見る（2件）<\/span>/);
+  assert.match(html, /<summary>[^<]*<span>前の更新を見る（3件）<\/span>/);
   assert.match(html, /第2回｜2026年8月4日（火）21:00/);
   assert.match(html, /第1回｜2026年7月28日（火）21:00/);
   assert.match(html, /https:\/\/brain-market\.com\/u\/itopan\/a\/b1kjM3UjMgoTZsNWa0JXY/);

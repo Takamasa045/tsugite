@@ -1,6 +1,7 @@
 const RELEASE_TAG = "v0.6.0-beta.1";
 const RELEASE_URL = `https://github.com/Takamasa045/tsugite/releases/tag/${RELEASE_TAG}`;
 const REPOSITORY_URL = "https://github.com/Takamasa045/tsugite";
+const LATEST_VERSION_URL = `${REPOSITORY_URL}/tree/v0.6.0-beta.2`;
 const FEEDBACK_URL = `${REPOSITORY_URL}/issues/new`;
 const MAC_DOWNLOAD_URL = `${REPOSITORY_URL}/releases/download/${RELEASE_TAG}/Tsugite-0.6.0-macos-arm64.dmg`;
 const WINDOWS_DOWNLOAD_URL = `${REPOSITORY_URL}/releases/download/${RELEASE_TAG}/Tsugite-0.6.0-windows-x64-setup.exe`;
@@ -64,7 +65,7 @@ export default function Home() {
             </span>
           </a>
           <div className="nav-links">
-            <a href="#pickup">ピックアップ</a>
+            <a href="#pickup">更新ログ</a>
             <a href="#knowledge">設計知識</a>
             <a href="#workflow">制作工程</a>
             <a href="#workspace">使い方</a>
@@ -138,35 +139,50 @@ export default function Home() {
 
       <section className="pickup-section" id="pickup" aria-labelledby="pickup-title">
         <div className="pickup-topline">
-          <span>PICK UP / TSUGITE SUMMER CAMP</span>
+          <span>UPDATE LOG / TSUGITE RELEASES</span>
           <i />
           <time dateTime="2026-07-22">2026.07.22 UPDATE</time>
         </div>
 
         <article className="pickup-current">
           <div className="pickup-number" aria-hidden="true">
-            <span>03</span>
-            <small>FINAL NIGHT / 3 OF 3</small>
+            <span>B2</span>
+            <small>LATEST / v0.6.0-beta.2</small>
           </div>
           <div className="pickup-copy">
-            <p className="pickup-status"><span aria-hidden="true" /> 第3回を追加しました</p>
-            <h2 id="pickup-title">第3回目、<br />全部で3回やります。</h2>
+            <p className="pickup-status"><span aria-hidden="true" /> 最新バージョンを公開しました</p>
+            <h2 id="pickup-title">Tsugite<br />v0.6.0 Beta 2</h2>
             <p className="pickup-date">
-              <time dateTime="2026-08-11T21:00:00+09:00">2026年8月11日（火）21:00</time>
-              <span>ONLINE / 60–90 MIN</span>
+              <time dateTime="2026-07-22">2026年7月22日 公開</time>
+              <span>LATEST BETA</span>
             </p>
             <p className="pickup-description">
-              最終夜は、一本を完成させ、次の一本が作りやすい環境へ育てます。テロップ、カット、BGM、音量を整え、好きだった点や修正理由を次回のテンプレートと確認項目へつなげます。
+              AI映像制作をより安全に進めやすくする最新版です。生成・確認・セットアップまわりを中心に更新しました。
             </p>
-            <a className="pickup-link" href={SUMMER_CAMP_URL} target="_blank" rel="noreferrer">
-              Brainで全3回の内容を見る <span aria-hidden="true">↗</span>
+            <ul className="pickup-features">
+              <li>PixVerse・Kling・TopViewの生成経路を追加</li>
+              <li>CLIヘルプと初回セットアップの案内を改善</li>
+              <li>Desktopの作業フォルダ復旧、Windows対応、安全性を強化</li>
+            </ul>
+            <aside className="pickup-beta-note">
+              <strong>Desktopアプリ版について</strong>
+              <p>アプリ版は現在も先行ベータで、不安定な挙動が残っています。安定運用にはまだ向かないため、新しい体験を試してみたい方だけお使いください。</p>
+            </aside>
+            <a className="pickup-link" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
+              GitHubで v0.6.0-beta.2 を見る <span aria-hidden="true">↗</span>
             </a>
           </div>
         </article>
 
         <details className="pickup-history">
-          <summary><span>前の更新を見る（2件）</span><i aria-hidden="true">＋</i></summary>
+          <summary><span>前の更新を見る（3件）</span><i aria-hidden="true">＋</i></summary>
           <div className="pickup-history-list">
+            <article>
+              <span>03 / 2026.07.22</span>
+              <h3>第3回目、全部で3回やります。</h3>
+              <p>2026年8月11日（火）21:00。最終夜は、一本を完成させ、次の一本が作りやすい環境へ育てます。</p>
+              <a href={SUMMER_CAMP_URL} target="_blank" rel="noreferrer">Brainで全3回の内容を見る <span aria-hidden="true">↗</span></a>
+            </article>
             <article>
               <span>02 / PREVIOUS UPDATE</span>
               <h3>第2回｜2026年8月4日（火）21:00</h3>
