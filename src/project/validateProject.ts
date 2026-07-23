@@ -71,6 +71,7 @@ export async function validateProject(
   const manifestResult = validateManifest(manifestInput.input);
   issues.push(...manifestResult.issues);
   if (manifestResult.manifest) {
+    issues.push(...validateCompositionBrief(project, manifestResult.manifest));
     issues.push(
       ...(await validateManifestAssets(manifestResult.manifest, manifestDir, {
         assetRoot: projectRoot
@@ -408,6 +409,77 @@ function audioConnectionRequirements(project: Project): { capabilities: string[]
       ...(project.audio.sfx.length > 0 ? ["audio.sound-effects"] : [])
     ]
   };
+}
+
+function validateCompositionBrief(project: Project, manifest: Manifest): Issue[] {
+  if (!project.composition) return [];
+
+  const issues: Issue[] = [];
+  const clipCounts = new Map<string, number>();
+  for (const [index, clip] of manifest.clips.entries()) {
+    if (clipCounts.has(clip.id)) {
+      issues.push({
+        code: "composition.clip_id_duplicate",
+        message: `composition source clip id '${clip.id}' must be unique`,
+        path: `clips.${index}.id`
+      });
+    }
+    clipCounts.set(clip.id, (clipCounts.get(clip.id) ?? 0) + 1);
+  }
+
+  const required = project.composition.brief.required_clip_ids;
+  const excluded = project.composition.brief.excluded_clip_ids;
+  const requiredSet = new Set<string>();
+  const excludedSet = new Set<string>();
+
+  validateCompositionClipList("required", required, requiredSet, clipCounts, issues);
+  validateCompositionClipList("excluded", excluded, excludedSet, clipCounts, issues);
+
+  for (const [index, clipId] of excluded.entries()) {
+    if (!requiredSet.has(clipId)) continue;
+    issues.push({
+      code: "composition.clip_conflict",
+      message: `composition clip '${clipId}' cannot be both required and excluded`,
+      path: `composition.brief.excluded_clip_ids.${index}`
+    });
+  }
+
+  return issues;
+}
+
+function validateCompositionClipList(
+  kind: "required" | "excluded",
+  clipIds: string[],
+  seen: Set<string>,
+  clipCounts: Map<string, number>,
+  issues: Issue[]
+): void {
+  for (const [index, clipId] of clipIds.entries()) {
+    const path = `composition.brief.${kind}_clip_ids.${index}`;
+    if (seen.has(clipId)) {
+      issues.push({
+        code: `composition.${kind}_clip_duplicate`,
+        message: `composition ${kind} clip '${clipId}' is duplicated`,
+        path
+      });
+    }
+    seen.add(clipId);
+
+    const count = clipCounts.get(clipId) ?? 0;
+    if (count === 0) {
+      issues.push({
+        code: "composition.clip_not_found",
+        message: `composition ${kind} clip '${clipId}' was not found`,
+        path
+      });
+    } else if (count > 1) {
+      issues.push({
+        code: "composition.clip_ambiguous",
+        message: `composition ${kind} clip '${clipId}' is not unique`,
+        path
+      });
+    }
+  }
 }
 
 function validateAnalysisRequestAdapter(

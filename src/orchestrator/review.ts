@@ -21,6 +21,17 @@ import {
   compileEditorial,
   type EditorialDecisionList
 } from "./editorialCompile.js";
+import {
+  compileComposition,
+  type CompositionCompilation,
+  type CompositionProposalArtifactInput
+} from "./compositionCompile.js";
+import { verifyCompositionAnalysisInputs } from "./compose.js";
+import {
+  verifyCompositionProposals,
+  type CompositionProposalsArtifact,
+  type RawAnalysisForComposition
+} from "./compositionProposal.js";
 import type { ExecutionPlan } from "./plan.js";
 
 export type EditorialCompilation = {
@@ -114,8 +125,27 @@ export type ReviewShot = {
   motion?: ReviewMotionPlan;
 };
 
+export type ReviewCompositionProposal = {
+  id: string;
+  title: string;
+  rationale: string;
+  estimated_duration_seconds: number;
+  selected: boolean;
+  segments: Array<{
+    id: string;
+    source_clip_id: string;
+    source_src?: string;
+    source_start: number;
+    source_end: number;
+    role: string;
+    reason: string;
+    observation_ids: string[];
+  }>;
+  warnings: string[];
+};
+
 export type ReviewDocument = {
-  schema_version: 1 | 2;
+  schema_version: 1 | 2 | 3;
   run_id: string;
   slug: string;
   summary: {
@@ -156,11 +186,25 @@ export type ReviewDocument = {
       chapter_count: number;
     };
   };
+  composition?: {
+    status: "ready" | "selection-required" | "missing";
+    proposals_digest?: string;
+    selected_proposal_id?: string;
+    approval_digest?: string;
+    edl_digest?: string;
+    proposals: ReviewCompositionProposal[];
+  };
   approval_commands: {
     approve: string;
     revise: string;
     abort: string;
   };
+};
+
+type CompositionReview = {
+  artifact: CompositionProposalArtifactInput;
+  approvalDigest: string;
+  compilation?: CompositionCompilation;
 };
 
 type WriteCreativeReviewOptions = {
@@ -203,7 +247,7 @@ export async function inspectGate1Review(options: {
   dataPath: string;
   approvalDigest?: string;
   proposal?: EditorialProposal;
-  compilation?: EditorialCompilation;
+  compilation?: EditorialCompilation | CompositionCompilation;
 }>> {
   const outputDir = getCreativeReviewDir(options.configPath, options.project, options.stateDir);
   const reviewPath = resolve(outputDir, "index.html");
@@ -283,6 +327,49 @@ export async function inspectGate1Review(options: {
         };
       }
     }
+    let currentComposition: CompositionReview | undefined;
+    if (options.project.composition) {
+      const composition = await loadCompositionReview(
+        options.configPath,
+        options.project,
+        options.manifest,
+        options.stateDir
+      );
+      if (!composition.ok) {
+        return { ok: false, issues: composition.issues, reviewPath, dataPath };
+      }
+      if (!composition.compilation || !options.project.edit.composition?.proposal_id) {
+        return {
+          ok: false,
+          issues: [{
+            code: "gate.composition_selection_required",
+            message: "Gate 1 requires one composition proposal to be selected in edit.composition.proposal_id",
+            path: "edit.composition.proposal_id"
+          }],
+          reviewPath,
+          dataPath
+        };
+      }
+      currentComposition = composition;
+      const reviewed = (data as ReviewDocument).composition;
+      if (
+        reviewed?.approval_digest !== composition.approvalDigest
+        || reviewed.proposals_digest !== composition.artifact.proposals_digest
+        || reviewed.selected_proposal_id !== options.project.edit.composition.proposal_id
+        || reviewed.edl_digest !== composition.compilation.edl.digest
+      ) {
+        return {
+          ok: false,
+          issues: [{
+            code: "gate.composition_changed",
+            message: "composition artifacts or selection changed after the Gate 1 review",
+            path: dataPath
+          }],
+          reviewPath,
+          dataPath
+        };
+      }
+    }
     const document = data as ReviewDocument;
     const currentConnections = await resolveReviewConnectionSnapshots(options.project);
     if (!currentConnections.ok) {
@@ -313,7 +400,8 @@ export async function inspectGate1Review(options: {
         options.manifest
       ),
       connections: currentConnections.snapshots,
-      editorial_approval_digest: editorialApprovalDigest
+      editorial_approval_digest: editorialApprovalDigest,
+      composition_approval_digest: currentComposition?.approvalDigest
     });
     return {
       ok: true,
@@ -322,7 +410,11 @@ export async function inspectGate1Review(options: {
       dataPath,
       approvalDigest,
       ...(currentEditorial ? { proposal: currentEditorial.proposal } : {}),
-      ...(currentEditorial?.compilation ? { compilation: currentEditorial.compilation } : {})
+      ...(currentComposition?.compilation
+        ? { compilation: currentComposition.compilation }
+        : currentEditorial?.compilation
+          ? { compilation: currentEditorial.compilation }
+          : {})
     };
   } catch (error) {
     return {
@@ -547,7 +639,8 @@ export function createReviewDocument(
   project: Project,
   manifest: Manifest,
   plan: ExecutionPlan,
-  editorial?: EditorialReview
+  editorial?: EditorialReview,
+  composition?: CompositionReview
 ): ReviewDocument {
   const images = new Map(manifest.images.map((image) => [image.id, image]));
   const speakers = new Map(manifest.speakers.map((speaker) => [speaker.id, speaker]));
@@ -648,7 +741,7 @@ export function createReviewDocument(
   }
 
   return {
-    schema_version: project.analysis ? 2 : 1,
+    schema_version: project.composition ? 3 : project.analysis ? 2 : 1,
     run_id: project.run_id ?? project.slug,
     slug: project.slug,
     summary: {
@@ -702,11 +795,57 @@ export function createReviewDocument(
               }
         }
       : {}),
+    ...(project.composition
+      ? {
+          composition: composition
+            ? createReviewComposition(project, manifest, composition)
+            : {
+                status: "missing" as const,
+                proposals: []
+              }
+        }
+      : {}),
     approval_commands: {
       approve: `${gateBase} --decision approve --json`,
       revise: `${gateBase} --decision revise --json`,
       abort: `${gateBase} --decision abort --json`
     }
+  };
+}
+
+function createReviewComposition(
+  project: Project,
+  manifest: Manifest,
+  composition: CompositionReview
+): NonNullable<ReviewDocument["composition"]> {
+  const selectedProposalId = project.edit.composition?.proposal_id;
+  const sourceById = new Map(manifest.clips.map((clip) => [clip.id, clip.src]));
+  return {
+    status: selectedProposalId ? "ready" : "selection-required",
+    proposals_digest: composition.artifact.proposals_digest,
+    ...(selectedProposalId ? { selected_proposal_id: selectedProposalId } : {}),
+    approval_digest: composition.approvalDigest,
+    ...(composition.compilation ? { edl_digest: composition.compilation.edl.digest } : {}),
+    proposals: composition.artifact.proposals.map((proposal) => ({
+      id: proposal.id,
+      title: proposal.title,
+      rationale: proposal.rationale,
+      estimated_duration_seconds: proposal.estimated_duration_seconds,
+      selected: proposal.id === selectedProposalId,
+      segments: proposal.segments.map((segment, index) => ({
+        id: segment.id ?? `${proposal.id}--segment-${String(index + 1).padStart(4, "0")}`,
+        source_clip_id: segment.source_clip_id,
+        ...(sourceById.get(segment.source_clip_id)
+          ? { source_src: sourceById.get(segment.source_clip_id) }
+          : {}),
+        source_start: segment.source_start,
+        source_end: segment.source_end,
+        role: segment.role,
+        reason: segment.reason,
+        observation_ids: segment.observation_ids
+      })),
+      warnings: proposal.warnings ?? []
+    }))
   };
 }
 
@@ -875,6 +1014,9 @@ export async function writeCreativeReview(
   const loadedEditorial = options.project.analysis
     ? await loadEditorialReview(configPath, options.project, options.manifest, options.stateDir)
     : undefined;
+  const loadedComposition = options.project.composition
+    ? await loadCompositionReview(configPath, options.project, options.manifest, options.stateDir)
+    : undefined;
   const document = createReviewDocument(
     options.project,
     options.manifest,
@@ -884,6 +1026,13 @@ export async function writeCreativeReview(
           proposal: loadedEditorial.proposal,
           approvalDigest: loadedEditorial.approvalDigest,
           ...(loadedEditorial.compilation ? { compilation: loadedEditorial.compilation } : {})
+        }
+      : undefined,
+    loadedComposition?.ok
+      ? {
+          artifact: loadedComposition.artifact,
+          approvalDigest: loadedComposition.approvalDigest,
+          ...(loadedComposition.compilation ? { compilation: loadedComposition.compilation } : {})
         }
       : undefined
   );
@@ -993,6 +1142,118 @@ async function loadEditorialReview(
   }
 }
 
+async function loadCompositionReview(
+  configPath: string,
+  project: Project,
+  manifest: Manifest,
+  stateDir?: string
+): Promise<Result<CompositionReview>> {
+  const distDir = stateDir
+    ? resolve(stateDir)
+    : resolve(dirname(resolve(configPath)), project.dist_dir);
+  const analysisDir = join(distDir, project.run_id ?? project.slug, "analysis");
+  try {
+    const [rawText, artifactText] = await Promise.all([
+      readFile(join(analysisDir, "raw-analysis.json"), "utf8"),
+      readFile(join(analysisDir, "composition-proposals.json"), "utf8")
+    ]);
+    const raw = JSON.parse(rawText) as RawAnalysisForComposition;
+    const artifact = JSON.parse(artifactText) as CompositionProposalsArtifact;
+    const currentAnalysis = await verifyCompositionAnalysisInputs(
+      configPath,
+      project,
+      manifest,
+      raw
+    );
+    if (!currentAnalysis.ok) {
+      return {
+        ok: false,
+        issues: currentAnalysis.issues.map((issue) => ({
+          ...issue,
+          code: "gate.composition_stale",
+          path: issue.path ?? analysisDir
+        }))
+      };
+    }
+    const expectedBrief = project.composition?.brief;
+    const verified = expectedBrief
+      ? verifyCompositionProposals(
+          raw,
+          manifest,
+          expectedBrief,
+          artifact,
+          project.composition!.proposals.max_count
+        )
+      : { ok: false as const, issues: [] };
+    if (
+      !expectedBrief
+      || artifact.run_id !== (project.run_id ?? project.slug)
+      || !verified.ok
+    ) {
+      return {
+        ok: false,
+        issues: [{
+          code: "gate.composition_stale",
+          message: "composition proposals do not match the current analysis, brief, or source manifest",
+          path: analysisDir
+        }]
+      };
+    }
+
+    const selectedProposalId = project.edit.composition?.proposal_id;
+    let compilation: CompositionCompilation | undefined;
+    if (selectedProposalId) {
+      const compiled = compileComposition(
+        manifest,
+        artifact as CompositionProposalArtifactInput,
+        selectedProposalId,
+        digest(raw)
+      );
+      if (!compiled.ok) {
+        return {
+          ok: false,
+          issues: compiled.issues.map((issue) => ({
+            ...issue,
+            path: issue.path ?? join(analysisDir, "composition-proposals.json")
+          }))
+        };
+      }
+      compilation = {
+        manifest: compiled.manifest,
+        edl: compiled.edl,
+        sourceDigests: Object.fromEntries(
+          raw.results.map((result) => [result.source.clip_id, result.source.sha256!])
+        )
+      };
+    }
+
+    return {
+      ok: true,
+      issues: [],
+      artifact,
+      approvalDigest: digest({
+        project_composition: project.composition,
+        selected_proposal_id: selectedProposalId,
+        source_manifest_digest: artifact.source_manifest_digest,
+        analysis_digest: artifact.analysis_digest,
+        brief_digest: artifact.brief_digest,
+        proposals_digest: artifact.proposals_digest,
+        composition_edl_digest: compilation?.edl.digest
+      }),
+      ...(compilation ? { compilation } : {})
+    };
+  } catch {
+    return {
+      ok: false,
+      issues: [{
+        code: "gate.composition_stale",
+        message: "composition proposal artifacts are missing or invalid",
+        path: analysisDir
+      }]
+    };
+  }
+}
+
 function emptyEditorialOutputs(): EditorialProposal["outputs"] {
   return {
     transcripts: [],
@@ -1045,6 +1306,34 @@ function renderAnalysisReview(analysis: ReviewDocument["analysis"]): string {
   </section>`;
 }
 
+function renderCompositionReview(composition: ReviewDocument["composition"]): string {
+  if (!composition) return "";
+  if (composition.status === "missing") {
+    return `<section class="warnings" aria-labelledby="composition-title" data-testid="composition-review"><h2 id="composition-title">構成案比較</h2><p>構成案が未生成または不整合です。composeを再実行してください。</p></section>`;
+  }
+  const proposals = composition.proposals.map((proposal) => {
+    const segments = proposal.segments.map((segment, index) =>
+      `<li data-source-clip="${escapeAttribute(segment.source_clip_id)}" data-source-start="${segment.source_start}" data-source-end="${segment.source_end}"><b>${index + 1}. ${escapeHtml(segment.role)}</b> <code>${escapeHtml(segment.source_clip_id)} ${formatTime(segment.source_start)}–${formatTime(segment.source_end)}</code><p>${escapeHtml(segment.reason)}</p>${segment.source_src ? `<small>素材: ${escapeHtml(segment.source_src)}</small>` : ""}${segment.observation_ids.length > 0 ? `<small>根拠: ${segment.observation_ids.map(escapeHtml).join(", ")}</small>` : ""}</li>`
+    ).join("");
+    const warnings = proposal.warnings.length > 0
+      ? `<ul class="warnings">${proposal.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`
+      : "";
+    return `<article class="motion-shot" data-proposal-id="${escapeAttribute(proposal.id)}" data-selected="${proposal.selected}">
+      <header><span>${proposal.selected ? "SELECTED" : "PROPOSAL"}</span><h3>${escapeHtml(proposal.title)}</h3><time>${formatSeconds(proposal.estimated_duration_seconds)}</time></header>
+      <p>${escapeHtml(proposal.rationale)}</p>
+      <ol>${segments}</ol>
+      ${warnings}
+    </article>`;
+  }).join("");
+  const status = composition.status === "selection-required"
+    ? "比較後、project.yaml の edit.composition.proposal_id に採用案を明示し、reviewを再生成してください。"
+    : `採用案 ${escapeHtml(composition.selected_proposal_id ?? "")} をGate 1の対象として固定します。`;
+  return `<section class="motion-section" aria-labelledby="composition-title" data-testid="composition-review">
+    <div class="section-heading"><div><p class="eyebrow">MULTI-SOURCE / PROPOSALS</p><h2 id="composition-title">構成案比較</h2></div><p>${status}</p></div>
+    <div class="motion-score">${proposals}</div>
+  </section>`;
+}
+
 function numericField(value: Record<string, unknown>, key: string): number {
   return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : 0;
 }
@@ -1070,8 +1359,9 @@ function isReviewDocumentForProject(value: unknown, project: Project): boolean {
     storyboard?: unknown;
     summary?: { gate?: unknown };
   };
+  const expectedSchemaVersion = project.composition ? 3 : project.analysis ? 2 : 1;
   return (
-    document.schema_version === (project.analysis ? 2 : 1) &&
+    document.schema_version === expectedSchemaVersion &&
     document.run_id === (project.run_id ?? project.slug) &&
     document.slug === project.slug &&
     document.summary?.gate === "gate-1" &&
@@ -1216,6 +1506,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
       }).join("")
     : "<li>外部エージェントへの引き継ぎはありません。</li>";
   const analysis = renderAnalysisReview(document.analysis);
+  const compositionReview = renderCompositionReview(document.composition);
   const motionReview = renderMotionReview(document);
   const audioReview = document.audio
     ? `<section class="audio-section" aria-labelledby="audio-title" data-testid="audio-review">
@@ -1251,7 +1542,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     <header class="hero">
       <nav class="review-nav" aria-label="レビュー内ナビゲーション">
         <a class="wordmark" href="#main"><span class="joinery-mark" aria-hidden="true"><i></i><i></i></span><span class="wordmark-copy">TSUGITE<small>CREATIVE REVIEW</small></span></a>
-        <div>${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
+        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
       </nav>
       <div class="hero-content">
         <div class="hero-joinery" aria-hidden="true"><span></span><i></i></div>
@@ -1268,6 +1559,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     </header>
     ${warnings}
     ${analysis}
+    ${compositionReview}
     ${backgroundReview}
     ${audioReview}
     <section class="storyboard-section" aria-labelledby="storyboard-title">

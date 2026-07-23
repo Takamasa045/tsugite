@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-07-23
+
+- Added deterministic multi-source composition proposals for three or more local videos, with brief constraints, story guidance, scene and transcript evidence, similarity suppression, and human comparison of up to three strategy-preserving alternatives.
+- Added the Coordinator-controlled `compose` command, ReviewDocument v3 composition comparison, explicit proposal selection, Gate 1 digest binding, and stale rejection when source bytes, analysis settings, brief, manifest, or proposal artifacts change.
+- Added a backend-neutral composition EDL compiler that reorders source-aware clips, captions, and chapters only after Gate 1 approval, then reuses the existing Gate 2, render, and Gate 3 integrity checks.
+- Added local FFmpeg scene observations and representative frames without network or credential access, including indirect playlist rejection, contained writes, source SHA-256 verification, and malformed-artifact fail-closed checks.
+- Includes the guarded generation routes, Desktop and launcher improvements, onboarding, automation guidance, dependency hardening, and cross-platform fixes introduced during the `0.6.0-beta.1` and `0.6.0-beta.2` prereleases.
+
 ## 0.6.0-beta.2 - 2026-07-22
 
 - Added guarded PixVerse, Kling, and TopView generation routes plus an optional in-app AI CLI workspace without weakening the existing run, render, or Gate boundaries.

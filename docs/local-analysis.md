@@ -37,7 +37,21 @@ node bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coor
 - `dist/<run-id>/analysis/editorial-proposal.json`
 - `dist/<run-id>/analysis/agent-handoff.md`
 
-`analyze` は元素材・manifest・Gate stateを変更しません。入力ファイルのSHA-256を成果物へ保持し、解析対象を識別します。adapterプロセスへは `PATH` / `HOME` / temp / locale系の最小環境変数だけを渡し、APIキー、token、proxy設定は引き継ぎません。FFmpegの入力protocolもローカルの `file` / `pipe` に限定するため、ローカルplaylistからネットワーク素材を取得しません。
+`analyze` は元素材・manifest・Gate stateを変更しません。入力ファイルのSHA-256を成果物へ保持し、解析対象を識別します。adapterプロセスへは `PATH` / `HOME` / temp / locale系の最小環境変数だけを渡し、APIキー、token、proxy設定は引き継ぎません。FFmpegの入力protocolはローカルの `file` / `pipe` に限定し、playlistや間接参照形式はFFmpegへ渡す前に拒否するため、別のローカル媒体やネットワーク素材を追跡しません。
+
+## 複数素材の構成案
+
+`composition` を持つprojectでは、3本以上のローカル素材を解析した後に `compose` を実行します。
+
+```sh
+node bin/pipeline analyze --config projects/my-composition/project.yaml --actor coordinator --json
+node bin/pipeline compose --config projects/my-composition/project.yaml --actor coordinator --json
+node bin/pipeline review --config projects/my-composition/project.yaml --open --json
+```
+
+`compose` はbrief、story-guides、固定済みの `raw-analysis.json` から最大3件の構成案を `analysis/composition-proposals.json` へ決定的に生成します。元素材、manifest、Gate stateは変更しません。レビューで各案の素材順、採用区間、役割、理由、注意点を比較し、`edit.composition.proposal_id` に1件だけ選択してレビューを再生成します。未選択、解析やbriefの変更、古いレビューはGate 1で拒否されます。
+
+Gate 1承認後にCoordinatorが `run` した時だけ、`composition-edl.json` と並べ替え済みの共通manifestを生成します。`compose`、`review`、Gate 1承認だけでは素材の切り出しやmanifest変更を行いません。
 
 `local` modeのCLI analysis adapterは `offline: true` を明示し、対応する `outputs` を宣言します。ただし、Tsugite自体はOSレベルのnetwork namespaceを作りません。同梱のlocal-media-analysisはnetwork clientとprovider credential参照を持たないことをテストしていますが、独自adapterを追加する場合はコードレビューが必要です。
 

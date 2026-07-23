@@ -14,7 +14,7 @@ describe("local media analysis distribution contract", () => {
       kind: "cli",
       class: "analysis",
       offline: true,
-      outputs: ["cut_points"]
+      outputs: ["cut_points", "scene_observations"]
     });
     expect(validation.project?.edit.backend).toBe("remotion");
 

@@ -2,7 +2,7 @@ name: local-media-analysis
 kind: cli
 class: analysis
 offline: true
-outputs: [cut_points]
+outputs: [cut_points, scene_observations]
 dry_run_estimate: true
 batch: true
 credit_estimate:
