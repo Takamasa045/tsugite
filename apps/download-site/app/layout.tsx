@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 
 const title = "Tsugite — 映像づくりを、組み上げる。";
-const description = "制作案件、テンプレート、3D Viewerをひとつの工房で確認するTsugite Desktop v0.6.0 Beta。Mac・Windows向け先行ベータ版。";
+const description = "GitHubのソースをCodex／Claude Codeで使い、制作案件、テンプレート、Gate、3D Viewerをひとつのローカルワークフローで確認するTsugite。";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -21,13 +21,13 @@ export async function generateMetadata(): Promise<Metadata> {
       locale: "ja_JP",
       siteName: "Tsugite",
       title,
-      description: "映像制作の流れを、まず見えるところから。Mac・Windows向け先行ベータ版。",
+      description: "GitHubとCodex／Claude Codeから始める、ローカル中心のAI映像制作ワークフロー。",
       images: [{ url: `${origin}/og.png`, width: 1200, height: 630, alt: "TSUGITE AI VIDEO WORKSHOP" }],
     },
     twitter: {
       card: "summary_large_image",
       title,
-      description: "映像制作の流れを、まず見えるところから。Mac・Windows向け先行ベータ版。",
+      description: "GitHubとCodex／Claude Codeから始める、ローカル中心のAI映像制作ワークフロー。",
       images: [`${origin}/og.png`],
     },
   };

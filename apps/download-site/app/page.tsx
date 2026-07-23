@@ -1,13 +1,7 @@
-const RELEASE_TAG = "v0.6.0-beta.1";
-const RELEASE_URL = `https://github.com/Takamasa045/tsugite/releases/tag/${RELEASE_TAG}`;
 const REPOSITORY_URL = "https://github.com/Takamasa045/tsugite";
 const LATEST_VERSION_TAG = "v0.6.0";
-const LATEST_VERSION_URL = `${REPOSITORY_URL}/tree/${LATEST_VERSION_TAG}`;
+const LATEST_VERSION_URL = `${REPOSITORY_URL}/releases/tag/${LATEST_VERSION_TAG}`;
 const FEEDBACK_URL = `${REPOSITORY_URL}/issues/new`;
-const MAC_DOWNLOAD_URL = `${REPOSITORY_URL}/releases/download/${RELEASE_TAG}/Tsugite-0.6.0-macos-arm64.dmg`;
-const WINDOWS_DOWNLOAD_URL = `${REPOSITORY_URL}/releases/download/${RELEASE_TAG}/Tsugite-0.6.0-windows-x64-setup.exe`;
-const APPLE_SUPPORT_URL = "https://support.apple.com/guide/mac-help/open-an-app-by-overriding-security-settings-mh40617/mac";
-const MICROSOFT_SUPPORT_URL = "https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions";
 const SUMMER_CAMP_URL = "https://brain-market.com/u/itopan/a/b1kjM3UjMgoTZsNWa0JXY";
 
 const gates = [
@@ -70,7 +64,7 @@ export default function Home() {
             <a href="#knowledge">設計知識</a>
             <a href="#workflow">制作工程</a>
             <a href="#workspace">使い方</a>
-            <a href="#download">ダウンロード</a>
+            <a href="#start">使い始める</a>
             <a href={REPOSITORY_URL} target="_blank" rel="noreferrer">
               GitHub <span aria-hidden="true">↗</span>
             </a>
@@ -80,30 +74,30 @@ export default function Home() {
         <div className="hero-grid">
           <div className="hero-copy">
             <div className="release-line">
-              <span>DESKTOP APP</span>
-              <b>v0.6.0 Beta</b>
-              <em>先行ベータ版</em>
+              <span>SOURCE WORKFLOW</span>
+              <b>v0.6.0</b>
+              <em>CODEX / CLAUDE CODE</em>
             </div>
             <h1>
               映像づくりを、
               <span>組み上げる。</span>
             </h1>
             <p className="hero-lead">
-              Codex／Claude Codeでつくる。Desktopで見て決める。
+              Codex／Claude Codeでつくる。ローカルViewerで見て決める。
               <br />
-              ハイブリッドに、依頼と確認を同じ制作フォルダでつなぎます。
+              GitHubのソースと、いつもの制作フォルダで進めます。
             </p>
             <div className="hero-actions">
-              <a className="button button-primary" href={MAC_DOWNLOAD_URL} aria-label="Mac版をダウンロード。Apple silicon、DMG、先行ベータ版">
-                <span>Mac版をダウンロード</span>
-                <b aria-hidden="true">↓</b>
+              <a className="button button-primary" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
+                <span>最新版をGitHubで見る</span>
+                <b aria-hidden="true">↗</b>
               </a>
-              <a className="text-link" href={WINDOWS_DOWNLOAD_URL} aria-label="Windows版をダウンロード。x64、EXE、先行ベータ版">
-                Windows版をダウンロード <span aria-hidden="true">↓</span>
+              <a className="text-link" href="#workspace">
+                Codex／Claude Codeでの使い方 <span aria-hidden="true">↓</span>
               </a>
             </div>
             <p className="availability">
-              <span aria-hidden="true" /> 先行ベータ版。macOS Apple silicon / Windows x64
+              <span aria-hidden="true" /> Desktopアプリの一般配布は終了しました
             </p>
           </div>
 
@@ -161,13 +155,13 @@ export default function Home() {
               AI映像制作をより安全に進めやすくする更新を含む、現在のソースタグです。生成・確認・セットアップまわりを中心に更新しました。
             </p>
             <ul className="pickup-features">
-              <li>PixVerse・Kling・TopViewの生成経路を追加</li>
-              <li>CLIヘルプと初回セットアップの案内を改善</li>
-              <li>Desktopの作業フォルダ復旧、Windows対応、安全性を強化</li>
+              <li>複数の手持ち動画から構成案を最大3案提示</li>
+              <li>Codex／Claude Codeで使うCLIとレビューを改善</li>
+              <li>素材・解析・Gateの整合性検査を強化</li>
             </ul>
             <aside className="pickup-beta-note">
-              <strong>Desktopアプリ版について</strong>
-              <p>アプリ版は現在も先行ベータで、不安定な挙動が残っています。安定運用にはまだ向かないため、新しい体験を試してみたい方だけお使いください。</p>
+              <strong>Desktopアプリの配布について</strong>
+              <p>Mac／Windows向けインストーラーの一般配布は終了しました。今後はGitHubのソースを取得し、CodexまたはClaude Codeから利用する方法を案内します。</p>
             </aside>
             <a className="pickup-link" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
               GitHubで v0.6.0 タグを見る <span aria-hidden="true">↗</span>
@@ -254,10 +248,10 @@ export default function Home() {
       <section className="workflow-section" id="workflow" aria-labelledby="workflow-title">
         <header className="section-heading">
           <div>
-            <span className="kicker">WORKFLOW DESIGN / BETA VIEWER</span>
+            <span className="kicker">WORKFLOW DESIGN / LOCAL VIEWER</span>
             <h2 id="workflow-title">止まるから、迷わない。</h2>
           </div>
-          <p>このベータ版では工程を3D Viewerで確認できます。生成・実行操作は今後のアップデートで追加します。</p>
+          <p>制作工程はローカルの3D Viewerで確認できます。生成・実行はCodex／Claude Codeと既存CLIから安全なGateを通して進めます。</p>
         </header>
 
         <div className="gate-list">
@@ -273,17 +267,17 @@ export default function Home() {
 
       <section className="tools-section" aria-labelledby="tools-title">
         <div className="tools-copy">
-          <span className="kicker">ROADMAP / NOT IN THIS BETA</span>
-          <h2 id="tools-title">生成する道具は、<br />次の継ぎ目へ。</h2>
+          <span className="kicker">LOCAL FIRST / AGENT WORKFLOW</span>
+          <h2 id="tools-title">いつものAIから、<br />制作工程へ。</h2>
           <p>
-            動画・画像・音声を生成するランチャーと生成ノードは、今回のベータ版には含まれていません。安全な実行境界と操作フローを整えたうえで、今後のアップデートで追加予定です。
+            CodexまたはClaude CodeでTsugiteのリポジトリを開き、企画、素材解析、構成提案、編集、確認を進めます。専用アプリの導入は必要ありません。
           </p>
           <div className="tool-tags" aria-label="対応する制作領域">
-            <span>NEXT / GENERATION NODES</span><span>PROVIDER CONNECTION</span><span>GATED RUN</span>
+            <span>CODEX / CLAUDE CODE</span><span>LOCAL VIEWER</span><span>GATED RUN</span>
           </div>
         </div>
         <div className="joinery-diagram" aria-hidden="true">
-          <div className="beam beam-horizontal"><span>NEXT UPDATE</span></div>
+          <div className="beam beam-horizontal"><span>LOCAL WORKFLOW</span></div>
           <div className="beam beam-vertical"><span>REVIEW</span></div>
           <div className="joint-core"><i /><b>TSUGITE</b></div>
           <small className="diagram-label label-input">TOOLS IN</small>
@@ -291,37 +285,37 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="download-section" id="download" aria-labelledby="download-title">
-        <div className="download-topline"><span>DOWNLOAD / v0.6.0 BETA 1</span><i /></div>
+      <section className="download-section" id="start" aria-labelledby="start-title">
+        <div className="download-topline"><span>GET STARTED / GITHUB SOURCE</span><i /></div>
         <div className="download-grid">
           <div className="download-copy">
-            <h2 id="download-title">Macにも、Windowsにも、<br />映像制作の工房を。</h2>
+            <h2 id="start-title">GitHubから、<br />制作を始める。</h2>
             <p>
-              制作案件の一覧、制作テンプレート、3D Viewerなど、制作を整理して確認する機能を先行してお試しいただけます。
+              Tsugiteは、GitHubのソースを取得し、CodexまたはClaude Codeで開いて使います。制作案件の確認には、同梱のローカルViewerを利用できます。
             </p>
             <aside className="beta-notice" aria-labelledby="beta-notice-title">
-              <span>IMPORTANT / BETA SCOPE</span>
-              <h3 id="beta-notice-title">ベータ版をご利用になる前に</h3>
-              <p>現在は先行ベータ版です。初回起動時に、MacやWindowsの確認画面が表示される場合があります。画面の案内をご確認のうえお試しください。</p>
-              <p>動画生成などを行う生成ランチャー／生成ノード機能は、今回のベータ版には含まれていません。後日あらためて実装・提供予定です。</p>
+              <span>IMPORTANT / DISTRIBUTION UPDATE</span>
+              <h3 id="beta-notice-title">Desktopアプリの一般配布は終了しました</h3>
+              <p>Mac／Windows向けインストーラーの新規案内と更新は行いません。過去のベータ版はサポート対象外です。</p>
+              <p>今後は最新版のソースと、Codex／Claude Codeを使うローカルワークフローを提供します。</p>
             </aside>
-            <a className="button button-light" href={RELEASE_URL} target="_blank" rel="noreferrer">
-              <span>リリース内容を見る</span><b aria-hidden="true">↗</b>
+            <a className="button button-light" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
+              <span>最新版のReleaseを見る</span><b aria-hidden="true">↗</b>
             </a>
-            <small className="download-note">初回起動の手順は、下記の案内をご確認ください。</small>
+            <small className="download-note">インストーラーではなく、GitHubのSource codeを取得してください。</small>
           </div>
 
           <div className="platform-list">
-            <a className="platform-card platform-download" href={MAC_DOWNLOAD_URL} aria-label="Mac版をダウンロード。Apple silicon arm64、DMG、先行ベータ版">
-              <div><span className="platform-icon" aria-hidden="true">⌘</span><p><strong>macOS</strong><small>macOS 12+ · Apple silicon (arm64) · DMG</small></p></div>
-              <span className="download-state"><small>EARLY BETA</small><b>ダウンロード ↓</b></span>
-            </a>
-            <a className="platform-card platform-download" href={WINDOWS_DOWNLOAD_URL} aria-label="Windows版をダウンロード。x64、EXE、先行ベータ版">
-              <div><span className="platform-icon windows-icon" aria-hidden="true"><i /><i /><i /><i /></span><p><strong>Windows</strong><small>Windows 10+ · x64 · EXE</small></p></div>
-              <span className="download-state"><small>EARLY BETA</small><b>ダウンロード ↓</b></span>
-            </a>
             <a className="platform-card platform-github" href={REPOSITORY_URL} target="_blank" rel="noreferrer">
-              <div><span className="platform-icon">⌁</span><p><strong>GitHub</strong><small>Source & release notes</small></p></div>
+              <div><span className="platform-icon">⌁</span><p><strong>Repository</strong><small>Clone or download source</small></p></div>
+              <span className="platform-arrow" aria-hidden="true">↗</span>
+            </a>
+            <a className="platform-card platform-github" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
+              <div><span className="platform-icon">06</span><p><strong>Latest Release</strong><small>v0.6.0 · Source code</small></p></div>
+              <span className="platform-arrow" aria-hidden="true">↗</span>
+            </a>
+            <a className="platform-card platform-github" href={FEEDBACK_URL} target="_blank" rel="noreferrer">
+              <div><span className="platform-icon">?</span><p><strong>Issues</strong><small>Questions and feedback</small></p></div>
               <span className="platform-arrow" aria-hidden="true">↗</span>
             </a>
           </div>
@@ -329,10 +323,10 @@ export default function Home() {
 
         <section className="workspace-guide" id="workspace" aria-labelledby="workspace-guide-title">
           <header className="workspace-guide-heading">
-            <span>DESKTOP + CODEX / CLAUDE CODE</span>
-            <h3 id="workspace-guide-title">アプリとエージェントで、<br />ひとつの制作環境。</h3>
+            <span>GITHUB + CODEX / CLAUDE CODE</span>
+            <h3 id="workspace-guide-title">リポジトリとエージェントで、<br />ひとつの制作環境。</h3>
             <p>
-              Desktopは案件・工程・承認を確認する画面。企画や実際の生成・編集の依頼は、これまで通りTsugiteリポジトリを開いたCodex／Claude Codeから進めます。
+              企画、素材解析、構成提案、生成・編集の依頼は、Tsugiteリポジトリを開いたCodex／Claude Codeから進めます。確認画面はブラウザで開くローカルViewerを使います。
             </p>
           </header>
 
@@ -344,69 +338,49 @@ export default function Home() {
             </article>
             <i aria-hidden="true">↔</i>
             <article>
-              <small>REVIEW / TSUGITE DESKTOP</small>
-              <h4>アプリで、見て決める。</h4>
-              <p>同じ案件をDesktopで開き、制作案件、テンプレート、3D Viewer、好み・学びの候補を確認。現在のベータ版は、この確認体験を先行して提供します。</p>
+              <small>REVIEW / LOCAL VIEWER</small>
+              <h4>ブラウザで、見て決める。</h4>
+              <p>同じリポジトリからローカルランチャーと3D Viewerを開き、制作案件、テンプレート、Gate、好み・学びの候補を確認します。</p>
             </article>
           </div>
 
           <ol className="start-steps" aria-label="Tsugiteを始める4ステップ">
-            <li><span>01</span><p><strong>アプリをダウンロード</strong><small>上のMac版またはWindows版を選びます。</small></p></li>
-            <li><span>02</span><p><strong>リポジトリを取得</strong><small>GitHubからTsugiteをcloneします。</small></p></li>
-            <li><span>03</span><p><strong>同じrepo rootを開く</strong><small>Codex／Claude CodeとDesktopで同じフォルダを選びます。</small></p></li>
-            <li><span>04</span><p><strong>対話から制作を依頼</strong><small>生成はエージェントへ依頼し、節目をDesktopで確認します。</small></p></li>
+            <li><span>01</span><p><strong>リポジトリを取得</strong><small>GitHubから最新版をclone、またはSource codeを取得します。</small></p></li>
+            <li><span>02</span><p><strong>依存関係を準備</strong><small>READMEの手順に沿ってNode.js、FFmpeg、npm packageを確認します。</small></p></li>
+            <li><span>03</span><p><strong>repo rootを開く</strong><small>CodexまたはClaude CodeでTsugiteのフォルダを選びます。</small></p></li>
+            <li><span>04</span><p><strong>対話から制作を依頼</strong><small>節目はローカルのReview／Viewerで確認します。</small></p></li>
           </ol>
+
+          <div className="learning-notice usage-notice">
+            <span>USAGE NOTE / LONG VIDEOS</span>
+            <p>
+              <strong>長尺・大量の動画解析は、利用量にご注意ください。</strong>
+              数十分の動画や数十本の素材をまとめて解析すると、Codex／Claude側のコンテキストやトークンを多く使用する場合があります。
+              最初は対象本数や時間範囲を絞り、構成案を確認してから追加素材を渡すと安心です。生成サービスのcreditsとは別に確認してください。
+            </p>
+          </div>
 
           <div className="learning-notice">
             <span>OPTIONAL AUTOMATION</span>
             <p>
               <strong>通知を入口に、学びを育てる。</strong>
               Codex Automation、Claude Desktop／CoworkのScheduled task、Claude Codeの反復実行を設定すると、繰り返された好みや学びの候補を自動で整理できます。
-              対応する標準通知を有効にして結果を受け取り、Desktopで根拠を見て承認します。承認だけでルールが自動変更されることはありません。
+              対応する標準通知を有効にして結果を受け取り、ローカルランチャーで根拠を見て承認します。承認だけでルールが自動変更されることはありません。
             </p>
           </div>
 
           <div className="workspace-guide-actions">
             <a className="button button-dark" href={REPOSITORY_URL} target="_blank" rel="noreferrer">
-              <span>2. GitHubリポジトリを取得</span><b aria-hidden="true">↗</b>
+              <span>GitHubリポジトリを開く</span><b aria-hidden="true">↗</b>
             </a>
-            <p>アプリ単体でも確認画面は開けます。Codex／Claude Codeと制作する場合は、リポジトリを取得し、両方で同じrepo rootを選んでください。</p>
+            <p>専用アプリのインストールは不要です。リポジトリを取得し、Codex／Claude CodeとローカルViewerを同じrepo rootで使ってください。</p>
           </div>
         </section>
 
-        <section className="security-guide" aria-labelledby="security-title">
-          <header>
-            <span>FIRST LAUNCH / SECURITY</span>
-            <h3 id="security-title">初回起動の前に、必ずご確認ください。</h3>
-            <p>初回起動時に、MacやWindowsの確認画面が表示される場合があります。画面の案内と下記の手順をご確認ください。</p>
-          </header>
-          <div className="security-grid">
-            <article>
-              <span>01 / macOS</span>
-              <h4>Macで初めて開くとき</h4>
-              <ol>
-                <li>DMGを開き、Tsugiteを「アプリケーション」へ移動します。</li>
-                <li>一度Tsugiteを開き、警告が表示されたら閉じます。</li>
-                <li>「システム設定」→「プライバシーとセキュリティ」で、出所を再確認してから「このまま開く」を選びます。</li>
-              </ol>
-              <a href={APPLE_SUPPORT_URL} target="_blank" rel="noreferrer">Apple公式の案内を見る <span aria-hidden="true">↗</span></a>
-            </article>
-            <article>
-              <span>02 / Windows</span>
-              <h4>Windowsで初めて開くとき</h4>
-              <ol>
-                <li>ダウンロードしたインストーラーを起動します。</li>
-                <li>確認画面が表示されたら、内容をご確認のうえ進めてください。</li>
-                <li>Smart App Controlや組織のポリシーでブロックされた場合は、保護機能を無効化せず起動を中止してください。</li>
-              </ol>
-              <a href={MICROSOFT_SUPPORT_URL} target="_blank" rel="noreferrer">Microsoft公式の案内を見る <span aria-hidden="true">↗</span></a>
-            </article>
-          </div>
-          <div className="feedback-line">
-            <p>不具合報告には、アプリのバージョン、OS、発生した操作を添えてください。APIキー・個人情報・制作素材は送らないでください。</p>
-            <a href={FEEDBACK_URL} target="_blank" rel="noreferrer">不具合・ご意見を送る <span aria-hidden="true">↗</span></a>
-          </div>
-        </section>
+        <div className="feedback-line">
+          <p>不具合報告には、Tsugiteのバージョン、OS、実行したコマンドを添えてください。APIキー・個人情報・制作素材は送らないでください。</p>
+          <a href={FEEDBACK_URL} target="_blank" rel="noreferrer">不具合・ご意見を送る <span aria-hidden="true">↗</span></a>
+        </div>
       </section>
 
       <footer>

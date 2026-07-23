@@ -16,7 +16,7 @@ async function render() {
   );
 }
 
-test("server-renders the Tsugite download landing page", async () => {
+test("server-renders the source-first Tsugite landing page", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -25,29 +25,25 @@ test("server-renders the Tsugite download landing page", async () => {
   assert.match(html, /<title>Tsugite — 映像づくりを、組み上げる。<\/title>/);
   assert.match(html, /映像づくりを、/);
   assert.match(html, /組み上げる。/);
-  assert.match(html, /v0\.6\.0 Beta/);
-  assert.match(html, /先行ベータ版/);
-  assert.match(html, /Codex／Claude Codeでつくる。Desktopで見て決める。/);
+  assert.match(html, /SOURCE WORKFLOW/);
+  assert.match(html, /Codex／Claude Codeでつくる。ローカルViewerで見て決める。/);
   assert.match(html, /34種の構成法/);
   assert.match(html, /PixVerse、Kling、Seedance/);
   assert.match(html, /Codex AutomationやClaudeが昇格候補として整理/);
-  assert.match(html, /Desktopは案件・工程・承認を確認する画面/);
-  assert.match(html, /Codex／Claude CodeとDesktopで同じフォルダを選びます/);
+  assert.match(html, /確認画面はブラウザで開くローカルViewerを使います/);
+  assert.match(html, /CodexまたはClaude CodeでTsugiteのフォルダを選びます/);
   assert.match(html, /通知を入口に、学びを育てる/);
   assert.match(html, /承認だけでルールが自動変更されることはありません/);
-  assert.match(html, /MacやWindowsの確認画面が表示される場合があります/);
-  assert.match(html, /生成ランチャー／生成ノード機能は、今回のベータ版には含まれていません/);
+  assert.match(html, /長尺・大量の動画解析は、利用量にご注意ください/);
+  assert.match(html, /Codex／Claude側のコンテキストやトークンを多く使用する場合があります/);
+  assert.match(html, /生成サービスのcreditsとは別に確認してください/);
+  assert.match(html, /Desktopアプリの一般配布は終了しました/);
+  assert.match(html, /今後は最新版のソースと、Codex／Claude Codeを使うローカルワークフローを提供します/);
   assert.match(html, /TSUGITE \/ KEY VISUAL/);
   assert.match(html, /生成と判断を、ひとつの工程に継ぐ。/);
-  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/tag\/v0\.6\.0-beta\.1/);
-  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/download\/v0\.6\.0-beta\.1\/Tsugite-0\.6\.0-macos-arm64\.dmg/);
-  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/download\/v0\.6\.0-beta\.1\/Tsugite-0\.6\.0-windows-x64-setup\.exe/);
-  assert.match(html, /Mac版をダウンロード/);
-  assert.match(html, /Windows版をダウンロード/);
-  assert.match(html, /macOS 12\+/);
-  assert.match(html, /Windows 10\+/);
-  assert.match(html, /システム設定/);
-  assert.match(html, /Smart App Control/);
+  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/tag\/v0\.6\.0/);
+  assert.match(html, /GitHubのSource codeを取得してください/);
+  assert.doesNotMatch(html, /releases\/download|\.dmg|\.exe|Mac版をダウンロード|Windows版をダウンロード/);
   assert.match(html, /https:\/\/tsugite\.example\/og\.png/);
   assert.match(html, /TSUGITE \/ ROUGH CUT TO CRAFT/);
   assert.match(html, /映像を、<br\s*\/><em>組み上げる。<\/em>/);
@@ -70,10 +66,10 @@ test("highlights the latest release and keeps the third summer camp update", asy
   assert.match(html, /v0\.6\.0 タグを公開しました/);
   assert.match(html, /2026年7月23日 タグ作成/);
   assert.match(html, /LATEST TAG/);
-  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/tree\/v0\.6\.0/);
-  assert.match(html, /PixVerse・Kling・TopViewの生成経路を追加/);
-  assert.match(html, /アプリ版は現在も先行ベータで、不安定な挙動が残っています/);
-  assert.match(html, /新しい体験を試してみたい方だけお使いください/);
+  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/tag\/v0\.6\.0/);
+  assert.match(html, /複数の手持ち動画から構成案を最大3案提示/);
+  assert.match(html, /Mac／Windows向けインストーラーの一般配布は終了しました/);
+  assert.match(html, /CodexまたはClaude Codeから利用する方法を案内します/);
   assert.match(html, /第3回目、全部で3回やります。/);
   assert.match(html, /2026年8月11日（火）21:00/);
   assert.match(html, /<details[^>]*class="pickup-history"/);
@@ -105,15 +101,13 @@ test("ships site-specific metadata, assets, and accessibility styles", async () 
   assert.match(page, /aria-label="構成を描き、素材を選び、映像を組み上げる。選ぶほど、自分好みの制作環境に育ってくる工程を表すアニメーション"/);
   assert.doesNotMatch(page, /launcher-screen\.(?:avif|webp|jpg)/);
   assert.doesNotMatch(page, /レビューを開く|3本の生成映像|新しい映像を組み上げる/);
-  assert.match(page, /id="download"/);
+  assert.match(page, /id="start"/);
   assert.match(page, /id="knowledge"/);
   assert.match(page, /id="workspace"/);
   assert.match(page, /id="pickup"/);
   assert.match(page, /<details className="pickup-history">/);
   assert.match(page, /MAKE \/ CODEX・CLAUDE CODE/);
-  assert.match(page, /className="platform-card platform-download/);
-  assert.match(page, /APPLE_SUPPORT_URL/);
-  assert.match(page, /MICROSOFT_SUPPORT_URL/);
+  assert.doesNotMatch(page, /platform-download|MAC_DOWNLOAD_URL|WINDOWS_DOWNLOAD_URL|APPLE_SUPPORT_URL|MICROSOFT_SUPPORT_URL/);
   assert.match(layout, /generateMetadata/);
   assert.match(layout, /summary_large_image/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
@@ -139,7 +133,7 @@ test("ships site-specific metadata, assets, and accessibility styles", async () 
   assert.match(css, /\.key-visual\s*\{[^}]*image-set\([^}]*og-background\.avif/s);
   assert.match(css, /:focus-visible/);
   assert.match(css, /\.beta-notice/);
-  assert.match(css, /\.platform-download/);
+  assert.doesNotMatch(css, /\.platform-download|\.download-state|\.windows-icon/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|drizzle/);
   await assert.rejects(
     access(new URL("../app/_sites-preview", import.meta.url)),

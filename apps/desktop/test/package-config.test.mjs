@@ -126,24 +126,22 @@ test("ships the Tsugite joinery icon in source, macOS, and Windows formats", asy
   assert.equal(ico.readUInt16LE(4), 6);
 });
 
-test("Desktop CI packages only release tags or manual runs", async () => {
+test("Desktop CI keeps packaging manual and developer-only", async () => {
   const workflow = await readFile(new URL("../../.github/workflows/desktop.yml", desktopRoot), "utf8");
 
   assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /push:\r?\n\s+tags: \["v\*"\]/);
+  assert.doesNotMatch(workflow, /^\s+push:/m);
   assert.doesNotMatch(workflow, /^\s+pull_request:/m);
   assert.doesNotMatch(workflow, /^\s+branches:/m);
+  assert.doesNotMatch(workflow, /^\s+tags:/m);
   assert.match(workflow, /os: macos-15/);
-  assert.match(workflow, /artifact: macos-arm64/);
   assert.match(workflow, /os: windows-2022/);
-  assert.match(workflow, /artifact: windows-x64/);
-  assert.match(workflow, /npm --prefix apps\/desktop run make/);
+  assert.match(workflow, /npm --prefix apps\/desktop run package/);
+  assert.doesNotMatch(workflow, /npm --prefix apps\/desktop run make/);
   assert.match(workflow, /npm --prefix apps\/desktop run security:audit/);
   assert.match(
     workflow,
     /- name: Verify packaged workspace recovery\r?\n\s+run: npm --prefix apps\/desktop run test:packaged-workspace/
   );
-  assert.match(workflow, /actions\/upload-artifact@v7/);
-  assert.match(workflow, /path: apps\/desktop\/out\/make\/\*\*/);
-  assert.match(workflow, /retention-days: 14/);
+  assert.doesNotMatch(workflow, /actions\/upload-artifact|out\/make|retention-days/);
 });

@@ -1,6 +1,8 @@
 # Tsugite Desktop
 
-Tsugite Desktop は、ローカルの Tsugite workspace を開く Electron 版ランチャーです。macOS / Windows 向けの配布物に Electron runtime を同梱するため、利用者が Electron や npm package を別途インストールする必要はありません。`npm ci` はソースから開発・ビルドする人だけが実行します。
+> 状態: 一般配布終了。macOS / Windows向けインストーラーの新規公開・更新・利用者サポートは行いません。通常利用はGitHubのリポジトリをCodex / Claude Codeで開き、ブラウザ版のローカルランチャー／Viewerを使ってください。
+
+Tsugite Desktop は、ローカルの Tsugite workspace を開く Electron 版ランチャーの開発用ソースです。機能検証のためコードとテストは残しますが、配布アプリとしては扱いません。
 
 ## Workspace
 
@@ -30,23 +32,11 @@ filesystem root、home directoryそのもの、パッケージ版のapplication 
 
 ## 起動と終了
 
-配布版は通常のアプリと同様に起動します。初回に workspace の保存先を選び、次回からその場所を再利用します。後から変更する場合は空の制作棚にある再選択ボタンを使えます。workspace を起動ごとに固定したい場合はターミナルから次のように開きます。path に空白がある場合は引用符で囲みます。
-
-```sh
-# macOSの例
-open -a "Tsugite" --args --workspace "/Users/me/Tsugite Workspace"
-```
-
-```powershell
-# Windowsの例
-& "<install-directory>\Tsugite.exe" --workspace "D:\Tsugite Workspace"
-```
-
-環境変数を使う場合は、起動前に `TSUGITE_WORKSPACE_ROOT` を absolute path で設定します。開発版は起動したターミナルで `Ctrl+C` を押して終了します。パッケージ版は macOS で `Cmd+Q`、Windows でウィンドウを閉じるか `Alt+F4` を使います。生成処理やAI CLIの実行中は確認後に停止して終了できます。workspaceの更新処理中は安全に完了するまで終了を開始せず、完了後にもう一度終了します。
+開発版はrepository rootから起動します。workspaceを固定する場合は`--workspace`または`TSUGITE_WORKSPACE_ROOT`を使います。起動したターミナルで`Ctrl+C`を押すと終了します。生成処理やAI CLIの実行中は確認後に停止して終了できます。
 
 ## 安全境界
 
-今回の Desktop 配布版は、案件一覧、テンプレート、制作記録の更新、3D Viewerの閲覧に加え、インストール済みのCodex CLIまたはClaude Codeを開く内蔵端末を提供します。画面では、作業場所を次の3つから選べます。
+Desktop開発版は、案件一覧、テンプレート、制作記録の更新、3D Viewerの閲覧に加え、インストール済みのCodex CLIまたはClaude Codeを開く内蔵端末を提供します。画面では、作業場所を次の3つから選べます。
 
 1. **いつものAIで作業**: CodexやClaudeの外部アプリを、Tsugiteの確認画面と並べて使います。
 2. **このアプリでAIと作業**: 内蔵端末で、PCに導入済みのCodex CLIまたはClaude Codeを選んで起動します。最初に起動できる対象をこの2つに限定した端末です。
@@ -89,7 +79,7 @@ npm --prefix apps/desktop start
 
 開発時は repository の `build/` と `apps/workflow-viewer/dist/` を使います。パッケージ版は `resources/runtime/tsugite/` の実行コードと `resources/runtime/viewer/` の Viewer bundle を使います。adapter / backend 探索を安定させるため child process の cwd は runtime root に固定し、project config は absolute path で渡します。
 
-## パッケージと公開
+## 開発者向けパッケージ検証
 
 ローカル確認用の unsigned build は次で作成します。出力先は `apps/desktop/out/` です。
 
@@ -100,15 +90,11 @@ npm --prefix apps/desktop run package
 npm --prefix apps/desktop run test:packaged-workspace
 ```
 
-`test:packaged-workspace` は作成済みの実アプリを起動し、空のworkspaceから再選択、設定保存、再起動後の案件表示までを検証します。OSの選択画面だけをPlaywrightからElectron main process上で一時的に置き換えるため、製品ASARには試験用環境変数やtest hookを含めません。unsigned build は原則として開発者のローカル確認用です。macOS Gatekeeper や Windows SmartScreen の警告が表示されます。インストーラー等の配布形式は `npm --prefix apps/desktop run make` で作成します。
+`test:packaged-workspace` は作成済みの実アプリを起動し、空のworkspaceから再選択、設定保存、再起動後の案件表示までを検証します。OSの選択画面だけをPlaywrightからElectron main process上で一時的に置き換えるため、製品ASARには試験用環境変数やtest hookを含めません。unsigned buildは開発者のローカル確認だけに使い、配布しません。
 
-正式版の公開時はバージョンを固定し、macOS では Developer ID Application による code signing と Apple notarization、Windows ではコードサイン証明書による署名を行います。署名と notarization の credential は CI secret で管理し、repository、ログ、配布物に含めません。通常のbranch push、PR、`main`へのmergeではDesktop workflowを実行せず、dependency audit、package boundary test、unsigned package smokeは`v*`リリースタグまたは手動実行時にまとめて行います。GitHub Releaseへは自動公開しません。
+GitHub ActionsのDesktop workflowは手動実行だけです。macOS Arm64とWindows x64でdependency audit、Desktop test、開発者向けpackage smokeを行いますが、インストーラーやActions artifactは公開しません。リリースタグでも自動実行しません。
 
-`v0.6.0-beta.1` は、この通常方針の例外として未署名のまま限定公開するベータ版です。GitHub prereleaseと公式LPの両方で、コード署名なし、macOS notarization未実施、対応architecture、初回起動時の警告、生成ランチャー／生成ノード非搭載を明示します。利用者には公式GitHub Releaseからのみ取得し、同じReleaseの`SHA256SUMS.txt`と照合するよう案内します。OSの保護機能を常時無効にする案内は行いません。
-
-ベータ版のassetは、mainへmergeした同一sourceをtag付けした後、レビュー済みの成果物だけを`Tsugite-0.6.0-macos-arm64.dmg`、`Tsugite-0.6.0-windows-x64-setup.exe`へリネームして手動公開します。LPはこの固定asset名を参照します。tag、Release、asset、SHA-256、LPの公開は別の状態として検証します。
-
-`v*`リリースタグまたは手動実行時のDesktop CIは、macOS Arm64とWindows x64で実パッケージE2Eを実行した後、macOSのDMG/ZIPとWindowsのSquirrelインストーラーをGitHub Actionsのrun artifactとして14日間保持します。これは動作確認用の未署名成果物です。対象runのArtifacts欄から、`tsugite-macos-arm64-<sha>` または `tsugite-windows-x64-<sha>` を取得してください。Actions artifactの一時URLは公開LPから参照しません。
+`v0.6.0-beta.1`の配布物は過去の試験記録として残しますが、サポート対象外であり、公式LPから案内しません。再公開、差し替え、新規インストーラー追加は行いません。
 
 Desktop runtime は tracked な実行コードと必要 resource の allowlist から作成します。workspace や repository の `projects/`、private `templates/`、`media/`、`output/`、`tmp/`、`.env` は梱包しません。内蔵端末のpreload bridgeだけをDesktop sourceのallowlistへ加え、native PTY moduleは対象OS / architectureに必要なbinaryとhelperだけをASAR外へ展開します。ビルド前後の package test で、必要 runtime resource、native module、禁止 pathを確認します。
 
