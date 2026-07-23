@@ -1,6 +1,6 @@
 import { copyFile, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
@@ -215,7 +215,7 @@ async function createCompositionProject() {
     meta: { aspect: "16:9", fps: 30, target_duration_seconds: 2, slug: "composition-cli" },
     clips: sourcePaths.map((path, index) => ({
       id: `clip-${String.fromCharCode(97 + index)}`,
-      src: path.split("/").at(-1),
+      src: basename(path),
       in: 0,
       out: 1,
       duration: 1,
