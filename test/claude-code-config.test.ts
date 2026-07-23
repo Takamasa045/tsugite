@@ -99,6 +99,17 @@ describe("Claude Code project configuration", () => {
     expect(command).toContain("finalize");
     expect(command).toContain("--apply");
     expect(command).toContain("completion-record.json");
+    expect(command).toContain("promotion_proposal.decision");
+    expect(command).toContain("node bin/pipeline feedback");
+    expect(command).toContain("--config <project.yaml>");
+    expect(command).toContain("--key <failure-key>");
+    expect(command).toContain("--category <category>");
+    expect(command).toContain("--signal <prefer|avoid|keep>");
+    expect(command).toContain("--summary <summary>");
+    expect(command).toContain("--proposal-workflow tsugite-learning-promotion-review");
+    expect(command).toContain("--proposal-source claude-code");
+    expect(command).toContain("entry.promotion_proposal.source.workflow_id");
+    expect(command).toContain("entry.promotion_proposal.source.kind: claude_code_automation");
   });
 
   it("keeps Claude entry guidance synchronized with the canonical workflow", async () => {
