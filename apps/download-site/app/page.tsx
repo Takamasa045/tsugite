@@ -1,11 +1,14 @@
 const RELEASE_TAG = "v0.6.0-beta.1";
 const RELEASE_URL = `https://github.com/Takamasa045/tsugite/releases/tag/${RELEASE_TAG}`;
 const REPOSITORY_URL = "https://github.com/Takamasa045/tsugite";
+const LATEST_VERSION_TAG = "v0.6.0";
+const LATEST_VERSION_URL = `${REPOSITORY_URL}/tree/${LATEST_VERSION_TAG}`;
 const FEEDBACK_URL = `${REPOSITORY_URL}/issues/new`;
 const MAC_DOWNLOAD_URL = `${REPOSITORY_URL}/releases/download/${RELEASE_TAG}/Tsugite-0.6.0-macos-arm64.dmg`;
 const WINDOWS_DOWNLOAD_URL = `${REPOSITORY_URL}/releases/download/${RELEASE_TAG}/Tsugite-0.6.0-windows-x64-setup.exe`;
 const APPLE_SUPPORT_URL = "https://support.apple.com/guide/mac-help/open-an-app-by-overriding-security-settings-mh40617/mac";
 const MICROSOFT_SUPPORT_URL = "https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions";
+const SUMMER_CAMP_URL = "https://brain-market.com/u/itopan/a/b1kjM3UjMgoTZsNWa0JXY";
 
 const gates = [
   {
@@ -63,6 +66,7 @@ export default function Home() {
             </span>
           </a>
           <div className="nav-links">
+            <a href="#pickup">更新ログ</a>
             <a href="#knowledge">設計知識</a>
             <a href="#workflow">制作工程</a>
             <a href="#workspace">使い方</a>
@@ -132,6 +136,66 @@ export default function Home() {
           <div><small>02 / TEMPLATE</small><strong>制作テンプレートを参照</strong></div>
           <div><small>03 / VIEWER</small><strong>3Dで工程を見渡す</strong></div>
         </div>
+      </section>
+
+      <section className="pickup-section" id="pickup" aria-labelledby="pickup-title">
+        <div className="pickup-topline">
+          <span>UPDATE LOG / TSUGITE RELEASES</span>
+          <i />
+          <time dateTime="2026-07-23">2026.07.23 UPDATE</time>
+        </div>
+
+        <article className="pickup-current">
+          <div className="pickup-number" aria-hidden="true">
+            <span>06</span>
+            <small>LATEST TAG / v0.6.0</small>
+          </div>
+          <div className="pickup-copy">
+            <p className="pickup-status"><span aria-hidden="true" /> v0.6.0 タグを公開しました</p>
+            <h2 id="pickup-title">Tsugite<br />v0.6.0</h2>
+            <p className="pickup-date">
+              <time dateTime="2026-07-23">2026年7月23日 タグ作成</time>
+              <span>LATEST TAG</span>
+            </p>
+            <p className="pickup-description">
+              AI映像制作をより安全に進めやすくする更新を含む、現在のソースタグです。生成・確認・セットアップまわりを中心に更新しました。
+            </p>
+            <ul className="pickup-features">
+              <li>PixVerse・Kling・TopViewの生成経路を追加</li>
+              <li>CLIヘルプと初回セットアップの案内を改善</li>
+              <li>Desktopの作業フォルダ復旧、Windows対応、安全性を強化</li>
+            </ul>
+            <aside className="pickup-beta-note">
+              <strong>Desktopアプリ版について</strong>
+              <p>アプリ版は現在も先行ベータで、不安定な挙動が残っています。安定運用にはまだ向かないため、新しい体験を試してみたい方だけお使いください。</p>
+            </aside>
+            <a className="pickup-link" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
+              GitHubで v0.6.0 タグを見る <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+        </article>
+
+        <details className="pickup-history">
+          <summary><span>前の更新を見る（3件）</span><i aria-hidden="true">＋</i></summary>
+          <div className="pickup-history-list">
+            <article>
+              <span>03 / 2026.07.22</span>
+              <h3>第3回目、全部で3回やります。</h3>
+              <p>2026年8月11日（火）21:00。最終夜は、一本を完成させ、次の一本が作りやすい環境へ育てます。</p>
+              <a href={SUMMER_CAMP_URL} target="_blank" rel="noreferrer">Brainで全3回の内容を見る <span aria-hidden="true">↗</span></a>
+            </article>
+            <article>
+              <span>02 / PREVIOUS UPDATE</span>
+              <h3>第2回｜2026年8月4日（火）21:00</h3>
+              <p>キャラクターと生成素材を、一本の制作案件へつなぐ夜。Shitateからの取り込みと、AI動画・音楽・AI音声を編集工程へ渡す流れを扱います。</p>
+            </article>
+            <article>
+              <span>01 / PREVIOUS UPDATE</span>
+              <h3>第1回｜2026年7月28日（火）21:00</h3>
+              <p>テンプレートから、最初の一本を自分のPCで動かす夜。キャラクター、台本、画像、音声を差し替え、無料プレビューまで進めます。</p>
+            </article>
+          </div>
+        </details>
       </section>
 
       <section className="statement" aria-labelledby="statement-title">
