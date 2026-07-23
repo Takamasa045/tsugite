@@ -1,0 +1,19 @@
+slug: analysis-similarity-cross-source-invalid
+run_id: analysis-similarity-cross-source-invalid-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+analysis:
+  adapter: mock-cli-analysis
+  requests:
+    - id: scenes-a
+      output: scene_observations
+      source_clip_id: clip-001
+    - id: summary-b
+      output: summary
+      source_clip_id: clip-002
+    - id: similarities
+      output: similarity_groups
+      source_clip_id: clip-001
+      depends_on: [scenes-a, summary-b]

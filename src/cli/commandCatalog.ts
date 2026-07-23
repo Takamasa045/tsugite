@@ -13,6 +13,7 @@ export type CommandName =
   | "finalize"
   | "plan"
   | "analyze"
+  | "compose"
   | "viewer"
   | "review"
   | "run"
@@ -220,6 +221,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "approval-gated",
     options: [OPTIONS.config, OPTIONS.actor, OPTIONS.stateDir, OPTIONS.allowExternalAnalysis]
+  }),
+  defineCommand({
+    name: "compose",
+    summary: "Create coordinator-controlled local multi-source composition proposals from analysis artifacts.",
+    usage: "node bin/pipeline compose --config <project.yaml> --actor coordinator [--state-dir <directory>] [--json]",
+    requiresConfig: true,
+    safety: "local-write",
+    options: [OPTIONS.config, OPTIONS.actor, OPTIONS.stateDir]
   }),
   defineCommand({
     name: "viewer",

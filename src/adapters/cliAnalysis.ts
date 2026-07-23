@@ -113,6 +113,77 @@ const subtitleCaptionSchema = sourceRangeSchema.extend({
   text: z.string().min(1)
 });
 
+const safeRelativeArtifactPathSchema = z
+  .string()
+  .min(1)
+  .refine((path) => {
+    if (isAbsolute(path) || /^[A-Za-z]:/.test(path) || path.includes("\\") || path.includes("\0")) {
+      return false;
+    }
+    return path.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+  }, "must be a safe relative artifact path");
+
+const sceneObservationSchema = sourceRangeSchema
+  .extend({
+    description: z.string().min(1),
+    technical_notes: z.array(z.string().min(1)),
+    selection_reasons: z.array(z.string().min(1)),
+    confidence: z.number().min(0).max(1),
+    evidence: z
+      .object({
+        representative_frame: safeRelativeArtifactPathSchema.optional(),
+        timestamp_seconds: z.number().nonnegative().optional()
+      })
+      .passthrough()
+  })
+  .superRefine((observation, context) => {
+    const timestamp = observation.evidence.timestamp_seconds;
+    if (timestamp !== undefined && (timestamp < observation.source_start || timestamp > observation.source_end)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "evidence timestamp must stay inside its scene observation",
+        path: ["evidence", "timestamp_seconds"]
+      });
+    }
+  });
+
+const similarityGroupSchema = z
+  .object({
+    id: safeIdSchema,
+    member_observation_ids: z
+      .array(safeIdSchema)
+      .min(2)
+      .superRefine((ids, context) => {
+        const seen = new Set<string>();
+        for (const [index, id] of ids.entries()) {
+          if (seen.has(id)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "similarity group member observation ids must be unique",
+              path: [index]
+            });
+          }
+          seen.add(id);
+        }
+      }),
+    reason: z.string().min(1)
+  })
+  .passthrough();
+
+const similarityGroupsSchema = z.array(similarityGroupSchema).superRefine((groups, context) => {
+  const seen = new Set<string>();
+  for (const [index, group] of groups.entries()) {
+    if (seen.has(group.id)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "similarity group ids must be unique",
+        path: [index, "id"]
+      });
+    }
+    seen.add(group.id);
+  }
+});
+
 const outputBase = {
   schema_version: z.literal(1),
   request_id: safeIdSchema,
@@ -159,6 +230,20 @@ export const analysisAdapterOutputSchema = z.discriminatedUnion("output", [
       source_language: languageSchema,
       target_language: languageSchema,
       captions: orderedRanges(subtitleCaptionSchema)
+    })
+  }),
+  z.object({
+    ...outputBase,
+    output: z.literal("scene_observations"),
+    data: z.object({
+      scene_observations: orderedRanges(sceneObservationSchema)
+    })
+  }),
+  z.object({
+    ...outputBase,
+    output: z.literal("similarity_groups"),
+    data: z.object({
+      similarity_groups: similarityGroupsSchema
     })
   })
 ]);
@@ -278,7 +363,19 @@ export function runCliAnalysisRequest(
 
   const source = resolveSource(request, manifest, options.manifestDir);
   if (!source.ok) return source;
-  if (inputs.some((input) => !sameSource(input.source, source.source))) {
+  const allowsCrossSourceDependencies = request.output === "similarity_groups"
+    && inputs.every((input) => input.output === "scene_observations");
+  const dependenciesMatchCurrentSources = allowsCrossSourceDependencies
+    ? inputs.every((input) => {
+        const current = resolveSource(
+          { ...request, source_clip_id: input.source.clip_id },
+          manifest,
+          options.manifestDir
+        );
+        return current.ok && sameSource(input.source, current.source);
+      })
+    : inputs.every((input) => sameSource(input.source, source.source));
+  if (!dependenciesMatchCurrentSources) {
     return failure(
       "analysis.dependency_source_mismatch",
       "analysis request dependencies must use the same source clip and fingerprint",
@@ -723,6 +820,32 @@ function validateOutput(
       }
     }
   }
+  if (output.output === "similarity_groups") {
+    const observationCounts = new Map<string, number>();
+    for (const input of inputs) {
+      if (input.output !== "scene_observations") continue;
+      for (const observation of input.data.scene_observations) {
+        observationCounts.set(observation.id, (observationCounts.get(observation.id) ?? 0) + 1);
+      }
+    }
+    for (const group of output.data.similarity_groups) {
+      for (const observationId of group.member_observation_ids) {
+        const count = observationCounts.get(observationId) ?? 0;
+        if (count === 0) {
+          return failure(
+            "analysis.adapter_output_similarity_reference_missing",
+            `similarity group references unknown scene observation '${observationId}'`
+          );
+        }
+        if (count > 1) {
+          return failure(
+            "analysis.adapter_output_similarity_reference_ambiguous",
+            `similarity group reference '${observationId}' is ambiguous across dependencies`
+          );
+        }
+      }
+    }
+  }
   return { ok: true, issues: [] };
 }
 
@@ -734,6 +857,8 @@ function outputRanges(output: z.infer<typeof analysisAdapterOutputSchema>): Arra
     case "transcript": return output.data.segments;
     case "summary": return output.data.summaries;
     case "subtitle_track": return output.data.captions;
+    case "scene_observations": return output.data.scene_observations;
+    case "similarity_groups": return [];
   }
 }
 

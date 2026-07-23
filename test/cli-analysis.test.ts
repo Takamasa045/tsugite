@@ -1,8 +1,12 @@
-import { mkdtemp } from "node:fs/promises";
+import { appendFile, copyFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { runCliAnalysisAdapter } from "../src/adapters/cliAnalysis.js";
+import {
+  analysisAdapterOutputSchema,
+  runCliAnalysisAdapter,
+  runCliAnalysisRequest
+} from "../src/adapters/cliAnalysis.js";
 import { loadAdapterDefinition } from "../src/adapters/registry.js";
 import { readJsonFile } from "../src/io.js";
 import type { Manifest } from "../src/manifest/schema.js";
@@ -83,6 +87,148 @@ describe("CLI analysis adapter", () => {
     if (parsed.success) {
       expect(parsed.data.analysis?.requests[0]).toMatchObject({ adapter: "mock-cli-analysis", depends_on: [] });
     }
+  });
+
+  it("accepts scene observations and similarity groups with auditable evidence", () => {
+    const sceneResult = analysisAdapterOutputSchema.safeParse(contractOutput("scene_observations", {
+      scene_observations: [{
+        id: "scene-001",
+        source_start: 0,
+        source_end: 1,
+        description: "Opening scene",
+        technical_notes: ["Static camera"],
+        selection_reasons: ["Clear establishing view"],
+        confidence: 0.8,
+        evidence: {
+          representative_frame: "analysis/representative-frames/scene-001.jpg",
+          timestamp_seconds: 0.5
+        }
+      }]
+    }));
+    const similarityResult = analysisAdapterOutputSchema.safeParse(contractOutput("similarity_groups", {
+      similarity_groups: [{
+        id: "similar-001",
+        member_observation_ids: ["scene-001", "scene-002"],
+        reason: "Same location and framing"
+      }]
+    }));
+
+    expect(sceneResult.success).toBe(true);
+    expect(similarityResult.success).toBe(true);
+  });
+
+  it.each([
+    [
+      "duplicate scene observation ids",
+      "scene_observations",
+      {
+        scene_observations: [
+          sceneObservation({ id: "duplicate", source_start: 0, source_end: 0.4 }),
+          sceneObservation({ id: "duplicate", source_start: 0.5, source_end: 1 })
+        ]
+      }
+    ],
+    [
+      "invalid scene confidence",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ confidence: 1.1 })] }
+    ],
+    [
+      "evidence timestamp outside the scene",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ evidence: { timestamp_seconds: 1.1 } })] }
+    ],
+    [
+      "unsafe representative frame traversal",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ evidence: { representative_frame: "../frame.jpg" } })] }
+    ],
+    [
+      "unsafe absolute representative frame",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ evidence: { representative_frame: "/tmp/frame.jpg" } })] }
+    ],
+    [
+      "unsafe Windows drive-relative representative frame",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ evidence: { representative_frame: "C:frame.jpg" } })] }
+    ],
+    [
+      "similarity group with fewer than two members",
+      "similarity_groups",
+      {
+        similarity_groups: [{
+          id: "similar-001",
+          member_observation_ids: ["scene-001"],
+          reason: "Insufficient group"
+        }]
+      }
+    ],
+    [
+      "duplicate similarity group members",
+      "similarity_groups",
+      {
+        similarity_groups: [{
+          id: "similar-001",
+          member_observation_ids: ["scene-001", "scene-001"],
+          reason: "Duplicate member"
+        }]
+      }
+    ],
+    [
+      "duplicate similarity group ids",
+      "similarity_groups",
+      {
+        similarity_groups: [
+          {
+            id: "similar-001",
+            member_observation_ids: ["scene-001", "scene-002"],
+            reason: "First"
+          },
+          {
+            id: "similar-001",
+            member_observation_ids: ["scene-003", "scene-004"],
+            reason: "Second"
+          }
+        ]
+      }
+    ]
+  ])("rejects %s", (_label, output, data) => {
+    expect(analysisAdapterOutputSchema.safeParse(contractOutput(output, data)).success).toBe(false);
+  });
+
+  it("rejects scene observations outside the selected source range", async () => {
+    const loaded = await loadAdapterDefinition("mock-cli-analysis", ["fixtures/adapters", "adapters"]);
+    const adapter = { ...loaded, outputs: [...(loaded.outputs ?? []), "scene_observations"] };
+    const manifestPath = resolve("fixtures/manifests/render-local.valid.json");
+    const manifest = (await readJsonFile(manifestPath)) as Manifest;
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-analysis-scene-range-"));
+    const result = runCliAnalysisAdapter(
+      adapter,
+      [{
+        id: "scene-scan",
+        output: "scene_observations",
+        source_clip_id: "render-001",
+        depends_on: [],
+        params: {
+          output_override: {
+            output: "scene_observations",
+            data: {
+              scene_observations: [sceneObservation({
+                id: "outside",
+                source_start: 0,
+                source_end: manifest.clips[0]!.out + 1
+              })]
+            }
+          }
+        }
+      }] as unknown as AnalysisRequest[],
+      manifest,
+      { runId: "analysis-scene-range", runDir, manifestDir: dirname(manifestPath) }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("analysis.adapter_output_timestamp_out_of_range");
   });
 
   it("passes validated dependency results to later adapter requests", async () => {
@@ -171,6 +317,193 @@ describe("CLI analysis adapter", () => {
 
     expect(result.ok).toBe(false);
     expect(result.issues[0]?.code).toBe("analysis.dependency_source_mismatch");
+  });
+
+  it("passes cross-source scene observations to a similarity-groups request", async () => {
+    const loaded = await loadAdapterDefinition("mock-cli-analysis", ["fixtures/adapters", "adapters"]);
+    const manifestPath = resolve("fixtures/manifests/render-local.valid.json");
+    const original = (await readJsonFile(manifestPath)) as Manifest;
+    const manifest = {
+      ...original,
+      clips: [original.clips[0]!, { ...original.clips[0]!, id: "render-002" }]
+    };
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-analysis-cross-source-similarity-"));
+    const scene = (id: string) => ({
+      scene_observations: [{
+        id,
+        source_start: 0.1,
+        source_end: 0.9,
+        description: id,
+        technical_notes: [],
+        selection_reasons: ["fixture"],
+        confidence: 1,
+        evidence: {}
+      }]
+    });
+    const requests = [
+      {
+        id: "scenes-a",
+        output: "scene_observations",
+        source_clip_id: "render-001",
+        depends_on: [],
+        params: { output_override: { data: scene("scene-a") } }
+      },
+      {
+        id: "scenes-b",
+        output: "scene_observations",
+        source_clip_id: "render-002",
+        depends_on: [],
+        params: { output_override: { data: scene("scene-b") } }
+      },
+      {
+        id: "similarities",
+        output: "similarity_groups",
+        source_clip_id: "render-001",
+        depends_on: ["scenes-a", "scenes-b"],
+        params: {
+          output_override: {
+            data: {
+              similarity_groups: [{
+                id: "similar-001",
+                member_observation_ids: ["scene-a", "scene-b"],
+                reason: "same framing"
+              }]
+            }
+          }
+        }
+      }
+    ] as unknown as AnalysisRequest[];
+
+    const result = runCliAnalysisAdapter(loaded, requests, manifest, {
+      runId: "analysis-cross-source-similarity",
+      runDir,
+      manifestDir: dirname(manifestPath)
+    });
+
+    expect(result.ok, JSON.stringify(result.issues)).toBe(true);
+    expect(result.results?.[2]).toMatchObject({
+      output: "similarity_groups",
+      metadata: { input_request_ids: ["scenes-a", "scenes-b"] }
+    });
+
+    if (!result.ok || !result.results) return;
+    const badReference = runCliAnalysisRequest(
+      loaded,
+      {
+        ...requests[2]!,
+        id: "unknown-similarity-reference",
+        params: {
+          output_override: {
+            data: {
+              similarity_groups: [{
+                id: "similar-unknown",
+                member_observation_ids: ["scene-a", "scene-c"],
+                reason: "unknown member"
+              }]
+            }
+          }
+        }
+      },
+      manifest,
+      result.results.slice(0, 2),
+      { runId: "analysis-cross-source-similarity", runDir, manifestDir: dirname(manifestPath) }
+    );
+    expect(badReference.ok).toBe(false);
+    expect(badReference.issues[0]?.code).toBe("analysis.adapter_output_similarity_reference_missing");
+
+    const ambiguousInputs = [
+      result.results[0]!,
+      {
+        ...result.results[1]!,
+        data: {
+          scene_observations: result.results[1]!.output === "scene_observations"
+            ? result.results[1]!.data.scene_observations.map((observation) => ({ ...observation, id: "scene-a" }))
+            : []
+        }
+      }
+    ] as typeof result.results;
+    const ambiguousReference = runCliAnalysisRequest(
+      loaded,
+      requests[2]!,
+      manifest,
+      ambiguousInputs,
+      { runId: "analysis-cross-source-similarity", runDir, manifestDir: dirname(manifestPath) }
+    );
+    expect(ambiguousReference.ok).toBe(false);
+    expect(ambiguousReference.issues[0]?.code).toBe("analysis.adapter_output_similarity_reference_ambiguous");
+  });
+
+  it("rejects stale cross-source scene observations after a dependency source changes", async () => {
+    const loaded = await loadAdapterDefinition("mock-cli-analysis", ["fixtures/adapters", "adapters"]);
+    const root = await mkdtemp(join(tmpdir(), "tsugite-analysis-stale-cross-source-"));
+    const sourceA = join(root, "a.mp4");
+    const sourceB = join(root, "b.mp4");
+    await copyFile(resolve("fixtures/media/render-001.mp4"), sourceA);
+    await copyFile(resolve("fixtures/media/render-001.mp4"), sourceB);
+    const manifest = {
+      ...((await readJsonFile(resolve("fixtures/manifests/render-local.valid.json"))) as Manifest),
+      clips: [
+        { ...((await readJsonFile(resolve("fixtures/manifests/render-local.valid.json"))) as Manifest).clips[0]!, id: "clip-a", src: sourceA },
+        { ...((await readJsonFile(resolve("fixtures/manifests/render-local.valid.json"))) as Manifest).clips[0]!, id: "clip-b", src: sourceB }
+      ]
+    };
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-analysis-stale-cross-source-run-"));
+    const sceneRequest = (id: string, clipId: string, observationId: string) => ({
+      id,
+      output: "scene_observations",
+      source_clip_id: clipId,
+      depends_on: [],
+      params: {
+        output_override: {
+          data: {
+            scene_observations: [{
+              id: observationId,
+              source_start: 0.1,
+              source_end: 0.9,
+              description: observationId,
+              technical_notes: [],
+              selection_reasons: ["fixture"],
+              confidence: 1,
+              evidence: {}
+            }]
+          }
+        }
+      }
+    }) as unknown as AnalysisRequest;
+    const options = { runId: "analysis-stale-cross-source", runDir, manifestDir: root };
+    const sceneA = runCliAnalysisRequest(loaded, sceneRequest("scenes-a", "clip-a", "scene-a"), manifest, [], options);
+    const sceneB = runCliAnalysisRequest(loaded, sceneRequest("scenes-b", "clip-b", "scene-b"), manifest, [], options);
+    expect(sceneA.ok).toBe(true);
+    expect(sceneB.ok).toBe(true);
+    if (!sceneA.ok || !sceneB.ok) return;
+
+    await appendFile(sourceB, "changed");
+    const similarity = runCliAnalysisRequest(
+      loaded,
+      {
+        id: "similarities",
+        output: "similarity_groups",
+        source_clip_id: "clip-a",
+        depends_on: ["scenes-a", "scenes-b"],
+        params: {
+          output_override: {
+            data: {
+              similarity_groups: [{
+                id: "similar-001",
+                member_observation_ids: ["scene-a", "scene-b"],
+                reason: "same framing"
+              }]
+            }
+          }
+        }
+      } as unknown as AnalysisRequest,
+      manifest,
+      [sceneA.result, sceneB.result],
+      options
+    );
+
+    expect(similarity.ok).toBe(false);
+    expect(similarity.issues[0]?.code).toBe("analysis.dependency_source_mismatch");
   });
 
   it.each([
@@ -368,4 +701,48 @@ function deepMerge(base: Record<string, unknown>, override: Record<string, unkno
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function contractOutput(output: string, data: Record<string, unknown>): Record<string, unknown> {
+  return {
+    schema_version: 1,
+    request_id: "contract-test",
+    output,
+    source: {
+      clip_id: "source-001",
+      analysis_start_seconds: 0,
+      analysis_end_seconds: 1,
+      duration_seconds: 1,
+      sha256: "a".repeat(64)
+    },
+    data,
+    metadata: {
+      engine: "contract-fixture",
+      api_used: false,
+      network_used: false
+    }
+  };
+}
+
+function sceneObservation(
+  override: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const base = {
+    id: "scene-001",
+    source_start: 0,
+    source_end: 1,
+    description: "Scene",
+    technical_notes: [],
+    selection_reasons: [],
+    confidence: 0.5,
+    evidence: {}
+  };
+  return {
+    ...base,
+    ...override,
+    evidence: {
+      ...base.evidence,
+      ...(isRecord(override.evidence) ? override.evidence : {})
+    }
+  };
 }
