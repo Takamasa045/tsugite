@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { runCliAnalysisAdapter } from "../src/adapters/cliAnalysis.js";
+import { analysisAdapterOutputSchema, runCliAnalysisAdapter } from "../src/adapters/cliAnalysis.js";
 import { loadAdapterDefinition } from "../src/adapters/registry.js";
 import { readJsonFile } from "../src/io.js";
 import type { Manifest } from "../src/manifest/schema.js";
@@ -83,6 +83,148 @@ describe("CLI analysis adapter", () => {
     if (parsed.success) {
       expect(parsed.data.analysis?.requests[0]).toMatchObject({ adapter: "mock-cli-analysis", depends_on: [] });
     }
+  });
+
+  it("accepts scene observations and similarity groups with auditable evidence", () => {
+    const sceneResult = analysisAdapterOutputSchema.safeParse(contractOutput("scene_observations", {
+      scene_observations: [{
+        id: "scene-001",
+        source_start: 0,
+        source_end: 1,
+        description: "Opening scene",
+        technical_notes: ["Static camera"],
+        selection_reasons: ["Clear establishing view"],
+        confidence: 0.8,
+        evidence: {
+          representative_frame: "analysis/representative-frames/scene-001.jpg",
+          timestamp_seconds: 0.5
+        }
+      }]
+    }));
+    const similarityResult = analysisAdapterOutputSchema.safeParse(contractOutput("similarity_groups", {
+      similarity_groups: [{
+        id: "similar-001",
+        member_observation_ids: ["scene-001", "scene-002"],
+        reason: "Same location and framing"
+      }]
+    }));
+
+    expect(sceneResult.success).toBe(true);
+    expect(similarityResult.success).toBe(true);
+  });
+
+  it.each([
+    [
+      "duplicate scene observation ids",
+      "scene_observations",
+      {
+        scene_observations: [
+          sceneObservation({ id: "duplicate", source_start: 0, source_end: 0.4 }),
+          sceneObservation({ id: "duplicate", source_start: 0.5, source_end: 1 })
+        ]
+      }
+    ],
+    [
+      "invalid scene confidence",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ confidence: 1.1 })] }
+    ],
+    [
+      "evidence timestamp outside the scene",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ evidence: { timestamp_seconds: 1.1 } })] }
+    ],
+    [
+      "unsafe representative frame traversal",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ evidence: { representative_frame: "../frame.jpg" } })] }
+    ],
+    [
+      "unsafe absolute representative frame",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ evidence: { representative_frame: "/tmp/frame.jpg" } })] }
+    ],
+    [
+      "unsafe Windows drive-relative representative frame",
+      "scene_observations",
+      { scene_observations: [sceneObservation({ evidence: { representative_frame: "C:frame.jpg" } })] }
+    ],
+    [
+      "similarity group with fewer than two members",
+      "similarity_groups",
+      {
+        similarity_groups: [{
+          id: "similar-001",
+          member_observation_ids: ["scene-001"],
+          reason: "Insufficient group"
+        }]
+      }
+    ],
+    [
+      "duplicate similarity group members",
+      "similarity_groups",
+      {
+        similarity_groups: [{
+          id: "similar-001",
+          member_observation_ids: ["scene-001", "scene-001"],
+          reason: "Duplicate member"
+        }]
+      }
+    ],
+    [
+      "duplicate similarity group ids",
+      "similarity_groups",
+      {
+        similarity_groups: [
+          {
+            id: "similar-001",
+            member_observation_ids: ["scene-001", "scene-002"],
+            reason: "First"
+          },
+          {
+            id: "similar-001",
+            member_observation_ids: ["scene-003", "scene-004"],
+            reason: "Second"
+          }
+        ]
+      }
+    ]
+  ])("rejects %s", (_label, output, data) => {
+    expect(analysisAdapterOutputSchema.safeParse(contractOutput(output, data)).success).toBe(false);
+  });
+
+  it("rejects scene observations outside the selected source range", async () => {
+    const loaded = await loadAdapterDefinition("mock-cli-analysis", ["fixtures/adapters", "adapters"]);
+    const adapter = { ...loaded, outputs: [...(loaded.outputs ?? []), "scene_observations"] };
+    const manifestPath = resolve("fixtures/manifests/render-local.valid.json");
+    const manifest = (await readJsonFile(manifestPath)) as Manifest;
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-analysis-scene-range-"));
+    const result = runCliAnalysisAdapter(
+      adapter,
+      [{
+        id: "scene-scan",
+        output: "scene_observations",
+        source_clip_id: "render-001",
+        depends_on: [],
+        params: {
+          output_override: {
+            output: "scene_observations",
+            data: {
+              scene_observations: [sceneObservation({
+                id: "outside",
+                source_start: 0,
+                source_end: manifest.clips[0]!.out + 1
+              })]
+            }
+          }
+        }
+      }] as unknown as AnalysisRequest[],
+      manifest,
+      { runId: "analysis-scene-range", runDir, manifestDir: dirname(manifestPath) }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("analysis.adapter_output_timestamp_out_of_range");
   });
 
   it("passes validated dependency results to later adapter requests", async () => {
@@ -368,4 +510,48 @@ function deepMerge(base: Record<string, unknown>, override: Record<string, unkno
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function contractOutput(output: string, data: Record<string, unknown>): Record<string, unknown> {
+  return {
+    schema_version: 1,
+    request_id: "contract-test",
+    output,
+    source: {
+      clip_id: "source-001",
+      analysis_start_seconds: 0,
+      analysis_end_seconds: 1,
+      duration_seconds: 1,
+      sha256: "a".repeat(64)
+    },
+    data,
+    metadata: {
+      engine: "contract-fixture",
+      api_used: false,
+      network_used: false
+    }
+  };
+}
+
+function sceneObservation(
+  override: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const base = {
+    id: "scene-001",
+    source_start: 0,
+    source_end: 1,
+    description: "Scene",
+    technical_notes: [],
+    selection_reasons: [],
+    confidence: 0.5,
+    evidence: {}
+  };
+  return {
+    ...base,
+    ...override,
+    evidence: {
+      ...base.evidence,
+      ...(isRecord(override.evidence) ? override.evidence : {})
+    }
+  };
 }

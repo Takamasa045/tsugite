@@ -5,6 +5,7 @@ import { inspectEnvironment } from "./doctor.js";
 import { loadBackendCapabilities } from "./backends/capabilities.js";
 import type { AdapterDefinition } from "./adapters/registry.js";
 import { analyzeProject } from "./orchestrator/analyze.js";
+import { composeProject } from "./orchestrator/compose.js";
 import {
   loadPromptGuideCatalog,
   loadPromptGuideById,
@@ -658,6 +659,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
+  if (args.command === "compose") {
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) return output(args, 1, { ok: false, command: "compose", issues: [coordinatorIssue] });
+    const composed = await composeProject(
+      args.config,
+      validation.project!,
+      validation.manifest!,
+      args.stateDir
+    );
+    return output(args, composed.ok ? 0 : 1, {
+      ok: composed.ok,
+      command: "compose",
+      issues: composed.issues,
+      proposal_path: composed.proposalPath,
+      proposal_count: composed.proposalCount,
+      source_manifest_digest: composed.sourceManifestDigest,
+      analysis_digest: composed.analysisDigest,
+      gate_state: "unchanged"
+    });
+  }
+
   if (args.command === "viewer") {
     const plan = createPlan(
       validation.project!,
@@ -882,7 +904,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       audioConnection: validation.audioConnection,
       connectionVerificationApproved: true,
       audioConnectionVerificationApproved: true,
-      ...(review.compilation ? { editorial: review.compilation } : {}),
+      ...(review.compilation ? { compilation: review.compilation } : {}),
       verifyApprovedInputs: async () => {
         const currentReview = await inspectGate1Review({
           configPath: args.config!,
@@ -934,8 +956,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    let editorialCompilation;
-    if (validation.project!.edit.editorial) {
+    let approvedCompilation;
+    if (validation.project!.edit.editorial || validation.project!.edit.composition) {
       const review = await inspectGate1Review({
         configPath: args.config!,
         project: validation.project!,
@@ -950,17 +972,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return output(args, 1, {
           ok: false,
           command: "render",
-          issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current editorial EDL" }]
+          issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current edit EDL" }]
         });
       }
-      editorialCompilation = review.compilation;
+      approvedCompilation = review.compilation;
     }
     const gate2Inspection = await inspectGate2RunForApproval(
       validation.project!,
       validation.manifest!,
       stateResult.stateDir,
       validation.adapter,
-      editorialCompilation,
+      approvedCompilation,
       validation.audioAdapter
     );
     if (!gate2Inspection.ok) {
@@ -1464,7 +1486,7 @@ function requireCoordinator(args: ParsedArgs): Issue | undefined {
 }
 
 function shouldAcquireRunLock(args: ParsedArgs): boolean {
-  if (args.command === "review") return true;
+  if (args.command === "review" || args.command === "compose") return true;
   if (args.command === "finalize" && args.apply) return args.actor === "coordinator";
   if ((args.command === "run" && !args.dryRun) || args.command === "render") {
     return args.actor === "coordinator";
@@ -1520,8 +1542,8 @@ async function recordGate(
   let gateApprovalDigest = reviewApprovalDigest;
 
   if (decision === "approved" && gate === "gate_2") {
-    let editorialCompilation;
-    if (project.edit.editorial) {
+    let approvedCompilation;
+    if (project.edit.editorial || project.edit.composition) {
       const review = await inspectGate1Review({
         configPath: args.config!,
         project,
@@ -1537,19 +1559,19 @@ async function recordGate(
       ) {
         return {
           ok: false,
-          issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current editorial EDL" }],
+          issues: [{ code: "gate.analysis_changed", message: "Gate 1 approval does not match the current edit EDL" }],
           state,
           statePath: stateLocation.statePath
         };
       }
-      editorialCompilation = review.compilation;
+      approvedCompilation = review.compilation;
     }
     const inspected = await inspectGate2RunForApproval(
       project,
       manifest,
       existing.stateDir,
       adapter,
-      editorialCompilation,
+      approvedCompilation,
       audioAdapter
     );
     if (!inspected.ok) {

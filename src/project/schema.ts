@@ -102,6 +102,8 @@ export const analysisOutputSchema = z.union([
   z.literal("captions"),
   z.literal("chapters"),
   z.literal("cut_points"),
+  z.literal("scene_observations"),
+  z.literal("similarity_groups"),
   z.literal("transcript"),
   z.literal("summary"),
   z.literal("subtitle_track")
@@ -209,6 +211,24 @@ const editorialPolicySchema = z
     }
   });
 
+const compositionBriefSchema = z.object({
+  goal: z.string().min(1),
+  audience: z.string().min(1),
+  target_duration_seconds: z.number().positive(),
+  priority: z.enum(["chronological", "highlight", "explanatory", "atmosphere"]),
+  required_clip_ids: z.array(safeIdSchema).max(10_000).default([]),
+  excluded_clip_ids: z.array(safeIdSchema).max(10_000).default([])
+});
+
+const compositionSchema = z.object({
+  brief: compositionBriefSchema,
+  proposals: z
+    .object({
+      max_count: z.number().int().min(1).max(3).default(3)
+    })
+    .default({ max_count: 3 })
+});
+
 export const projectSchema = z
   .object({
     slug: safeIdSchema,
@@ -217,7 +237,12 @@ export const projectSchema = z
     dist_dir: safeRelativePathSchema.default("dist"),
     edit: z.object({
       backend: safeIdSchema,
-      editorial: editorialPolicySchema.optional()
+      editorial: editorialPolicySchema.optional(),
+      composition: z
+        .object({
+          proposal_id: safeIdSchema.optional()
+        })
+        .optional()
     }),
     generation: z
       .object({
@@ -234,7 +259,8 @@ export const projectSchema = z
         confidence_threshold: z.number().min(0).max(1).default(0.7),
         requests: z.array(analysisRequestSchema).min(1).superRefine(rejectDuplicateRequestIds)
       })
-      .optional()
+      .optional(),
+    composition: compositionSchema.optional()
   })
   .passthrough()
   .superRefine((project, context) => {
@@ -276,10 +302,38 @@ export const projectSchema = z
       });
       return;
     }
+    if (project.composition && !project.analysis) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "composition requires analysis requests",
+        path: ["analysis"]
+      });
+    }
+    if (project.edit.composition && !project.composition) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "edit.composition requires composition settings",
+        path: ["composition"]
+      });
+    }
+    if (project.edit.editorial && project.edit.composition) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "edit.editorial cannot be combined with edit.composition",
+        path: ["edit", "composition"]
+      });
+    }
     if (project.edit.editorial && project.generation?.requests.length) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: "edit.editorial cannot be combined with generation requests",
+        path: ["generation"]
+      });
+    }
+    if (project.composition && project.generation) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "composition cannot be combined with generation",
         path: ["generation"]
       });
     }

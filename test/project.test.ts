@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { loadProject } from "../src/project/loadProject.js";
-import { projectSchema, toExecutionProject } from "../src/project/schema.js";
+import {
+  analysisOutputSchema,
+  projectSchema,
+  toExecutionProject
+} from "../src/project/schema.js";
 import { validateProject } from "../src/project/validateProject.js";
 
 describe("project validation", () => {
@@ -46,6 +50,197 @@ describe("project validation", () => {
         chapters: { request_id: "chapters-ja" }
       });
     }
+  });
+
+  it("loads a composition brief with bounded proposal defaults", () => {
+    const project = validProjectDefinition();
+    project.edit = {
+      backend: "remotion",
+      composition: { proposal_id: "highlight-v1" }
+    };
+    project.analysis = {
+      adapter: "fixture-adapter",
+      requests: [
+        { ...requestDefinition("analysis", "scene-scan"), output: "scene_observations" },
+        { ...requestDefinition("analysis", "similarity-scan"), output: "similarity_groups" }
+      ]
+    };
+    project.composition = {
+      brief: {
+        goal: "活動を初めての人へ紹介する",
+        audience: "Webサイト訪問者",
+        target_duration_seconds: 120,
+        priority: "highlight"
+      }
+    };
+
+    const parsed = projectSchema.safeParse(project);
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.composition).toEqual({
+        brief: {
+          goal: "活動を初めての人へ紹介する",
+          audience: "Webサイト訪問者",
+          target_duration_seconds: 120,
+          priority: "highlight",
+          required_clip_ids: [],
+          excluded_clip_ids: []
+        },
+        proposals: { max_count: 3 }
+      });
+      expect(parsed.data.edit.composition).toEqual({ proposal_id: "highlight-v1" });
+    }
+    expect(analysisOutputSchema.safeParse("scene_observations").success).toBe(true);
+    expect(analysisOutputSchema.safeParse("similarity_groups").success).toBe(true);
+  });
+
+  it("bounds composition proposal count and priority", () => {
+    const definition = {
+      ...validProjectDefinition(),
+      analysis: {
+        adapter: "fixture-adapter",
+        requests: [requestDefinition("analysis", "scene-scan")]
+      },
+      composition: {
+        brief: {
+          goal: "紹介する",
+          audience: "来訪者",
+          target_duration_seconds: 30,
+          priority: "highlight"
+        },
+        proposals: { max_count: 3 }
+      }
+    };
+
+    expect(projectSchema.safeParse(definition).success).toBe(true);
+    expect(projectSchema.safeParse({
+      ...definition,
+      composition: {
+        ...definition.composition,
+        proposals: { max_count: 4 }
+      }
+    }).success).toBe(false);
+    expect(projectSchema.safeParse({
+      ...definition,
+      composition: {
+        ...definition.composition,
+        brief: { ...definition.composition.brief, priority: "best" }
+      }
+    }).success).toBe(false);
+  });
+
+  it("requires analysis for composition and keeps editing modes mutually exclusive", () => {
+    const composition = {
+      brief: {
+        goal: "紹介する",
+        audience: "来訪者",
+        target_duration_seconds: 30,
+        priority: "highlight"
+      }
+    };
+    const withoutAnalysis = {
+      ...validProjectDefinition(),
+      composition
+    };
+    const conflictingEditorial = {
+      ...validProjectDefinition(),
+      edit: {
+        backend: "remotion",
+        editorial: { remove_kinds: [] },
+        composition: { proposal_id: "highlight-v1" }
+      },
+      analysis: {
+        adapter: "fixture-adapter",
+        requests: [requestDefinition("analysis", "scene-scan")]
+      },
+      composition
+    };
+    const conflictingGeneration = {
+      ...validProjectDefinition(),
+      generation: {},
+      analysis: {
+        adapter: "fixture-adapter",
+        requests: [requestDefinition("analysis", "scene-scan")]
+      },
+      composition
+    };
+
+    const missingAnalysis = projectSchema.safeParse(withoutAnalysis);
+    const editorialConflict = projectSchema.safeParse(conflictingEditorial);
+    const generationConflict = projectSchema.safeParse(conflictingGeneration);
+
+    expect(missingAnalysis.success).toBe(false);
+    expect(editorialConflict.success).toBe(false);
+    expect(generationConflict.success).toBe(false);
+    if (!missingAnalysis.success) {
+      expect(missingAnalysis.error.issues).toContainEqual(expect.objectContaining({
+        message: "composition requires analysis requests",
+        path: ["analysis"]
+      }));
+    }
+    if (!editorialConflict.success) {
+      expect(editorialConflict.error.issues).toContainEqual(expect.objectContaining({
+        message: "edit.editorial cannot be combined with edit.composition",
+        path: ["edit", "composition"]
+      }));
+    }
+    if (!generationConflict.success) {
+      expect(generationConflict.error.issues).toContainEqual(expect.objectContaining({
+        message: "composition cannot be combined with generation",
+        path: ["generation"]
+      }));
+    }
+  });
+
+  it("validates required and excluded composition clip ids against the manifest", async () => {
+    const validConfigPath = await createCompositionProject({
+      requiredClipIds: ["clip-a"],
+      excludedClipIds: ["clip-b"]
+    });
+    const configPath = await createCompositionProject({
+      requiredClipIds: ["clip-a", "missing-required", "clip-a"],
+      excludedClipIds: ["clip-b", "missing-excluded", "clip-b", "clip-a"]
+    });
+    const duplicateManifestConfigPath = await createCompositionProject({
+      requiredClipIds: ["clip-a"],
+      excludedClipIds: [],
+      duplicateUnreferencedClipId: true
+    });
+
+    const valid = await validateProject(validConfigPath);
+    const result = await validateProject(configPath);
+    const duplicateManifest = await validateProject(duplicateManifestConfigPath);
+
+    expect(valid.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(duplicateManifest.ok).toBe(false);
+    expect(duplicateManifest.issues).toContainEqual(expect.objectContaining({
+      code: "composition.clip_id_duplicate",
+      path: "clips.2.id"
+    }));
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "composition.clip_not_found",
+        path: "composition.brief.required_clip_ids.1"
+      }),
+      expect.objectContaining({
+        code: "composition.required_clip_duplicate",
+        path: "composition.brief.required_clip_ids.2"
+      }),
+      expect.objectContaining({
+        code: "composition.clip_not_found",
+        path: "composition.brief.excluded_clip_ids.1"
+      }),
+      expect.objectContaining({
+        code: "composition.excluded_clip_duplicate",
+        path: "composition.brief.excluded_clip_ids.2"
+      }),
+      expect.objectContaining({
+        code: "composition.clip_conflict",
+        path: "composition.brief.excluded_clip_ids.3"
+      })
+    ]));
   });
 
   it("rejects editorial execution without analysis and rejects unsafe decision ids", () => {
@@ -1011,6 +1206,72 @@ connections:
     expect(result.issues.map((issue) => issue.code)).toContain("manifest.clip.src.safe");
   });
 });
+
+async function createCompositionProject(options: {
+  requiredClipIds: string[];
+  excludedClipIds: string[];
+  duplicateUnreferencedClipId?: boolean;
+}): Promise<string> {
+  const root = await createProjectRoot();
+  for (const id of ["a", "b", "c"]) {
+    await writeFile(join(root, `media/source-${id}.mp4`), `fixture video ${id}`);
+  }
+  const clips = ["a", "b", "c"].map((id) => ({
+    id: options.duplicateUnreferencedClipId && id === "c" ? "clip-b" : `clip-${id}`,
+    src: `../media/source-${id}.mp4`,
+    in: 0,
+    out: 1,
+    duration: 1,
+    fps: 30,
+    resolution: { width: 320, height: 180 },
+    audio: false
+  }));
+  await writeFile(
+    join(root, "manifests/manifest.json"),
+    `${JSON.stringify({
+      meta: {
+        aspect: "16:9",
+        fps: 30,
+        target_duration_seconds: 3,
+        slug: "composition-validation"
+      },
+      clips,
+      audio: { bgm: [], narration: [], sfx: [] },
+      captions: [],
+      chapters: [],
+      provenance: []
+    }, null, 2)}\n`
+  );
+  const configPath = join(root, "projects/project.yaml");
+  await writeFile(
+    configPath,
+    [
+      "slug: composition-validation",
+      "run_id: composition-validation-run",
+      "manifest: ../manifests/manifest.json",
+      "dist_dir: dist",
+      "edit:",
+      "  backend: remotion",
+      "analysis:",
+      "  adapter: local-media-analysis",
+      "  requests:",
+      "    - id: scene-scan",
+      "      output: cut_points",
+      "      source_clip_id: clip-a",
+      "composition:",
+      "  brief:",
+      '    goal: "活動を紹介する"',
+      '    audience: "Webサイト訪問者"',
+      "    target_duration_seconds: 3",
+      "    priority: highlight",
+      `    required_clip_ids: ${JSON.stringify(options.requiredClipIds)}`,
+      `    excluded_clip_ids: ${JSON.stringify(options.excludedClipIds)}`,
+      "  proposals:",
+      "    max_count: 3"
+    ].join("\n")
+  );
+  return configPath;
+}
 
 async function createProjectRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "tsugite-project-"));

@@ -50,6 +50,7 @@ const expectedOptions = {
   finalize: ["--config", "--state-dir", "--actor", "--apply"],
   plan: ["--config"],
   analyze: ["--config", "--actor", "--state-dir", "--allow-external-analysis"],
+  compose: ["--config", "--actor", "--state-dir"],
   viewer: ["--config", "--output", "--state-dir", "--open"],
   review: ["--config", "--output", "--state-dir", "--open"],
   run: ["--config", "--dry-run", "--actor", "--state-dir"],
@@ -64,6 +65,7 @@ const configCommands = new Set([
   "finalize",
   "plan",
   "analyze",
+  "compose",
   "viewer",
   "review",
   "run",
@@ -121,6 +123,18 @@ describe("CLI command catalog", () => {
     expect(commandRequiresConfig("doctor")).toBe(false);
     expect(commandRequiresConfig("missing")).toBe(false);
     expect(isCommandOptionAllowed("validte", "--config")).toBe(true);
+  });
+
+  it("classifies compose as a config-scoped local write", () => {
+    expect(getCommandHelp("compose")).toMatchObject({
+      requiresConfig: true,
+      safety: "local-write",
+      options: [
+        expect.objectContaining({ name: "--config" }),
+        expect.objectContaining({ name: "--actor" }),
+        expect.objectContaining({ name: "--state-dir" })
+      ]
+    });
   });
 
   it("does not expose mutable catalog data", () => {
