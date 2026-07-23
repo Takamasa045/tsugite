@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@remotion/bundler": "^4.0.490",
+    "@remotion/bundler": "^4.0.498",
     "@remotion/renderer": "^4.0.490",
     "cross-spawn": "^7.0.6",
     "react": "^19.2.7",
