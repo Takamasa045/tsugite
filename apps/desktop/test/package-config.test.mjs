@@ -126,10 +126,13 @@ test("ships the Tsugite joinery icon in source, macOS, and Windows formats", asy
   assert.equal(ico.readUInt16LE(4), 6);
 });
 
-test("Desktop CI uploads unsigned macOS and Windows installers", async () => {
+test("Desktop CI packages only release tags or manual runs", async () => {
   const workflow = await readFile(new URL("../../.github/workflows/desktop.yml", desktopRoot), "utf8");
 
   assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /push:\r?\n\s+tags: \["v\*"\]/);
+  assert.doesNotMatch(workflow, /^\s+pull_request:/m);
+  assert.doesNotMatch(workflow, /^\s+branches:/m);
   assert.match(workflow, /os: macos-15/);
   assert.match(workflow, /artifact: macos-arm64/);
   assert.match(workflow, /os: windows-2022/);
