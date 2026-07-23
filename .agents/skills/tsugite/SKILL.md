@@ -36,7 +36,7 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 7. Run generation or render commands only after explicit approval.
 8. Before Gate 2 approval, inspect `gate2-qc.json`; use `approve_all` only when the report and artifacts are acceptable.
 9. Before Gate 3 approval, inspect `render-report.json`, `gate3-qc.json`, and the final artifact.
-10. When the user explicitly declares the selected video complete, record the canonical output, QA proof, and retrospective; preview `bin/pipeline finalize --config <project.yaml> --json`, then apply it as Coordinator only when the retained run and deletion scope match the completed project.
+10. When the user explicitly declares the selected video complete, record the canonical output, QA proof, and a closeout retrospective covering failures, improvements, and next-run lessons (explicitly record when there were no failures). Append each failure to the project `feedback.jsonl`; append reusable rules to `LESSONS.md`. Check prior feedback by the same failure key and prior lessons by matching symptom and cause: if it recurs, record it as `recurring` and assess it as a promotion candidate. Create a pending promotion proposal only when its target, change summary, and verification plan are concrete; never modify shared rules without human approval. Include the recording and promotion-candidate result in the completion report, then preview `bin/pipeline finalize --config <project.yaml> --json` and apply it as Coordinator only when the retained run and deletion scope match the completed project.
 
 ## Feedback Promotion
 
@@ -49,6 +49,7 @@ Run a vendor-neutral video editing pipeline from a project `project.yaml` throug
 - Record new operating rules in `LESSONS.md`, then promote judgment-based rules into this skill or `AGENTS.md`.
 - Promote QA decision rules into Gate 2 / Gate 3 checks, report schemas, fixtures, and tests.
 - Keep `LESSONS.md` append-only and mark promoted entries with their validation status.
+- Completion closeout must record failures, improvements, and next-run lessons in addition to canonical-output and QA evidence. Use the same failure `key` across projects to detect recurrence and compare lesson symptoms and causes; no matching prior record is a confirmed non-candidate, while a recurring failure needs an explicit promotion-candidate assessment even when there is not yet enough detail to propose a change.
 
 ## Optional Shitate Handoff
 

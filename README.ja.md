@@ -147,7 +147,7 @@ node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coord
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
 Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装です。全体を計画からやり直す場合は `revise` を使います。
 
-ユーザーが対象動画を明示的に「完成」と確定した後だけ、`finalize` で旧メディアを整理できます。引数なしのpreviewは削除予定と保持対象を表示するだけです。内容を確認後、Coordinatorが `--apply` を付けると、最終run、最終manifestが参照する元素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材の動画・音声・画像だけを削除します。実行結果は最終run内の `completion-record.json` に記録されます。
+ユーザーが対象動画を明示的に「完成」と確定した後は、まず正本path・QA証跡と、失敗・改善点・次回への学びを終了記録に残します。失敗は案件の `feedback.jsonl`、再利用できるルールは `LESSONS.md` に追記し、同じfailure keyまたは症状・原因が一致する過去の記録を照合して、再発なら `recurring` と昇格候補の可否を記録します。失敗がなかった場合も明記します。これらを完了報告で示した後だけ、`finalize` で旧メディアを整理できます。引数なしのpreviewは削除予定と保持対象を表示するだけです。内容を確認後、Coordinatorが `--apply` を付けると、最終run、最終manifestが参照する元素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材の動画・音声・画像だけを削除します。実行結果は最終run内の `completion-record.json` に記録されます。
 
 ```sh
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
