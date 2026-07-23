@@ -1,7 +1,8 @@
 const RELEASE_TAG = "v0.6.0-beta.1";
 const RELEASE_URL = `https://github.com/Takamasa045/tsugite/releases/tag/${RELEASE_TAG}`;
 const REPOSITORY_URL = "https://github.com/Takamasa045/tsugite";
-const LATEST_VERSION_URL = `${REPOSITORY_URL}/tree/v0.6.0-beta.2`;
+const LATEST_VERSION_TAG = "v0.6.0";
+const LATEST_VERSION_URL = `${REPOSITORY_URL}/tree/${LATEST_VERSION_TAG}`;
 const FEEDBACK_URL = `${REPOSITORY_URL}/issues/new`;
 const MAC_DOWNLOAD_URL = `${REPOSITORY_URL}/releases/download/${RELEASE_TAG}/Tsugite-0.6.0-macos-arm64.dmg`;
 const WINDOWS_DOWNLOAD_URL = `${REPOSITORY_URL}/releases/download/${RELEASE_TAG}/Tsugite-0.6.0-windows-x64-setup.exe`;
@@ -141,23 +142,23 @@ export default function Home() {
         <div className="pickup-topline">
           <span>UPDATE LOG / TSUGITE RELEASES</span>
           <i />
-          <time dateTime="2026-07-22">2026.07.22 UPDATE</time>
+          <time dateTime="2026-07-23">2026.07.23 UPDATE</time>
         </div>
 
         <article className="pickup-current">
           <div className="pickup-number" aria-hidden="true">
-            <span>B2</span>
-            <small>LATEST / v0.6.0-beta.2</small>
+            <span>06</span>
+            <small>LATEST TAG / v0.6.0</small>
           </div>
           <div className="pickup-copy">
-            <p className="pickup-status"><span aria-hidden="true" /> 最新バージョンを公開しました</p>
-            <h2 id="pickup-title">Tsugite<br />v0.6.0 Beta 2</h2>
+            <p className="pickup-status"><span aria-hidden="true" /> v0.6.0 タグを公開しました</p>
+            <h2 id="pickup-title">Tsugite<br />v0.6.0</h2>
             <p className="pickup-date">
-              <time dateTime="2026-07-22">2026年7月22日 公開</time>
-              <span>LATEST BETA</span>
+              <time dateTime="2026-07-23">2026年7月23日 タグ作成</time>
+              <span>LATEST TAG</span>
             </p>
             <p className="pickup-description">
-              AI映像制作をより安全に進めやすくする最新版です。生成・確認・セットアップまわりを中心に更新しました。
+              AI映像制作をより安全に進めやすくする更新を含む、現在のソースタグです。生成・確認・セットアップまわりを中心に更新しました。
             </p>
             <ul className="pickup-features">
               <li>PixVerse・Kling・TopViewの生成経路を追加</li>
@@ -169,7 +170,7 @@ export default function Home() {
               <p>アプリ版は現在も先行ベータで、不安定な挙動が残っています。安定運用にはまだ向かないため、新しい体験を試してみたい方だけお使いください。</p>
             </aside>
             <a className="pickup-link" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
-              GitHubで v0.6.0-beta.2 を見る <span aria-hidden="true">↗</span>
+              GitHubで v0.6.0 タグを見る <span aria-hidden="true">↗</span>
             </a>
           </div>
         </article>

@@ -65,8 +65,12 @@ test("highlights the latest release and keeps the third summer camp update", asy
   const html = await response.text();
 
   assert.match(html, /id="pickup"/);
-  assert.match(html, /Tsugite<br\s*\/>v0\.6\.0 Beta 2/);
-  assert.match(html, /最新バージョンを公開しました/);
+  assert.match(html, /Tsugite<br\s*\/>v0\.6\.0/);
+  assert.doesNotMatch(html, /Tsugite<br\s*\/>v0\.6\.0 Beta 2/);
+  assert.match(html, /v0\.6\.0 タグを公開しました/);
+  assert.match(html, /2026年7月23日 タグ作成/);
+  assert.match(html, /LATEST TAG/);
+  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/tree\/v0\.6\.0/);
   assert.match(html, /PixVerse・Kling・TopViewの生成経路を追加/);
   assert.match(html, /アプリ版は現在も先行ベータで、不安定な挙動が残っています/);
   assert.match(html, /新しい体験を試してみたい方だけお使いください/);
