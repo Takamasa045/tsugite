@@ -2,7 +2,7 @@ name: mock-cli-analysis
 kind: cli
 class: analysis
 offline: true
-outputs: [cut_points, transcript, summary, subtitle_track]
+outputs: [cut_points, transcript, summary, subtitle_track, scene_observations, similarity_groups]
 dry_run_estimate: true
 batch: true
 credit_estimate:

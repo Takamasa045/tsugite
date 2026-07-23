@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { digest } from "../src/orchestrator/editorialProposal.js";
 
 describe("pipeline analyze", () => {
   it("requires the coordinator role", async () => {
@@ -286,7 +287,48 @@ describe("pipeline analyze", () => {
       "--json"
     ]);
     expect(gate2Approved.status).toBe(0);
-    expect(JSON.parse(gate2Approved.stdout).state.gates.gate_2.approved_input_digest).toMatch(/^[a-f0-9]{64}$/);
+    const modernApprovalDigest = JSON.parse(gate2Approved.stdout).state.gates.gate_2.approved_input_digest;
+    expect(modernApprovalDigest).toMatch(/^[a-f0-9]{64}$/);
+
+    const modernRunLog = await readFile(payload.run_log_path, "utf8");
+    const legacyRunLog = modernRunLog
+      .replace(/^- edl_kind: editorial\n/m, "")
+      .replace(/^- edl_digest: [a-f0-9]{64}\n/m, "");
+    expect(legacyRunLog).toContain("- editorial_edl_digest:");
+    await writeFile(payload.run_log_path, legacyRunLog);
+    const field = (pattern: RegExp): string => {
+      const value = legacyRunLog.match(pattern)?.[1];
+      expect(value).toBeTruthy();
+      return value!;
+    };
+    const legacyApprovalDigest = digest({
+      backend: "remotion",
+      manifest: JSON.parse(manifestText),
+      editorial_edl_digest: edl.digest,
+      run_log: {
+        runId: field(/^# Run Log: (.+)$/m),
+        mode: field(/^- mode: (.+)$/m),
+        assetCount: Number(field(/^- asset_count: (.+)$/m)),
+        actualCredits: Number(field(/^- actual_credits: (.+)$/m)),
+        inputDigest: field(/^- input_digest: ([a-f0-9]{64})$/m),
+        editorialEdlDigest: field(/^- editorial_edl_digest: ([a-f0-9]{64})$/m)
+      },
+      gate2_qc: JSON.parse(await readFile(payload.qc_report_path, "utf8"))
+    });
+    expect(legacyApprovalDigest).not.toBe(modernApprovalDigest);
+    const approvedState = JSON.parse(await readFile(payload.state_path, "utf8"));
+    approvedState.gates.gate_2.approved_input_digest = legacyApprovalDigest;
+    await writeFile(payload.state_path, `${JSON.stringify(approvedState, null, 2)}\n`);
+
+    const legacyRendered = runPipeline([
+      "render",
+      "--config",
+      fixture.configPath,
+      "--actor",
+      "coordinator",
+      "--json"
+    ]);
+    expect(legacyRendered.status).toBe(0);
 
     manifest.meta.slug = "tampered-after-gate-2";
     await writeFile(payload.manifest_path, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -300,7 +342,7 @@ describe("pipeline analyze", () => {
     ]);
     expect(renderTampered.status).toBe(1);
     expect(JSON.parse(renderTampered.stderr).issues[0].code).toBe("run.edl_inconsistent");
-  }, 15_000);
+  }, 45_000);
 });
 
 function runPipeline(args: string[]) {

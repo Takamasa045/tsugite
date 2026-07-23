@@ -363,7 +363,19 @@ export function runCliAnalysisRequest(
 
   const source = resolveSource(request, manifest, options.manifestDir);
   if (!source.ok) return source;
-  if (inputs.some((input) => !sameSource(input.source, source.source))) {
+  const allowsCrossSourceDependencies = request.output === "similarity_groups"
+    && inputs.every((input) => input.output === "scene_observations");
+  const dependenciesMatchCurrentSources = allowsCrossSourceDependencies
+    ? inputs.every((input) => {
+        const current = resolveSource(
+          { ...request, source_clip_id: input.source.clip_id },
+          manifest,
+          options.manifestDir
+        );
+        return current.ok && sameSource(input.source, current.source);
+      })
+    : inputs.every((input) => sameSource(input.source, source.source));
+  if (!dependenciesMatchCurrentSources) {
     return failure(
       "analysis.dependency_source_mismatch",
       "analysis request dependencies must use the same source clip and fingerprint",
@@ -805,6 +817,32 @@ function validateOutput(
           "analysis.adapter_output_translation_range_mismatch",
           "subtitle caption timestamp must stay inside its referenced transcript segment"
         );
+      }
+    }
+  }
+  if (output.output === "similarity_groups") {
+    const observationCounts = new Map<string, number>();
+    for (const input of inputs) {
+      if (input.output !== "scene_observations") continue;
+      for (const observation of input.data.scene_observations) {
+        observationCounts.set(observation.id, (observationCounts.get(observation.id) ?? 0) + 1);
+      }
+    }
+    for (const group of output.data.similarity_groups) {
+      for (const observationId of group.member_observation_ids) {
+        const count = observationCounts.get(observationId) ?? 0;
+        if (count === 0) {
+          return failure(
+            "analysis.adapter_output_similarity_reference_missing",
+            `similarity group references unknown scene observation '${observationId}'`
+          );
+        }
+        if (count > 1) {
+          return failure(
+            "analysis.adapter_output_similarity_reference_ambiguous",
+            `similarity group reference '${observationId}' is ambiguous across dependencies`
+          );
+        }
       }
     }
   }

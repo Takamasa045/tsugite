@@ -616,6 +616,8 @@ function validateAnalysisDependencies(
   const issues: Issue[] = [];
 
   for (const request of project.analysis.requests) {
+    const allowsCrossSourceDependencies = request.output === "similarity_groups"
+      && request.depends_on.every((dependencyId) => requests.get(dependencyId)?.output === "scene_observations");
     for (const dependencyId of request.depends_on) {
       const dependency = requests.get(dependencyId);
       const path = `analysis.requests.${request.id}.depends_on`;
@@ -644,7 +646,10 @@ function validateAnalysisDependencies(
           path
         });
       }
-      if (effectiveSourceClipId(request, manifest) !== effectiveSourceClipId(dependency, manifest)) {
+      if (
+        !allowsCrossSourceDependencies
+        && effectiveSourceClipId(request, manifest) !== effectiveSourceClipId(dependency, manifest)
+      ) {
         issues.push({
           code: "analysis.dependency_source_mismatch",
           message: "analysis dependencies must use the same source clip",

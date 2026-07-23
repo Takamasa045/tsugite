@@ -826,6 +826,23 @@ connections:
     expect(result.issues).toContainEqual(expect.objectContaining({ code }));
   });
 
+  it("allows similarity groups to depend on scene observations from multiple clips", async () => {
+    const result = await validateProject("fixtures/projects/analysis-similarity-cross-source.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects cross-source similarity dependencies that are not scene observations", async () => {
+    const result = await validateProject("fixtures/projects/analysis-similarity-cross-source-invalid.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "analysis.dependency_source_mismatch" }));
+  });
+
   it("accepts explicit prompt guidance metadata without defaulting existing requests", () => {
     const project = validProjectDefinition();
     project.generation = {

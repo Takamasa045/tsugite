@@ -996,19 +996,39 @@ async function inspectAwaitingGate2Artifacts(input: {
     };
   }
 
+  const legacyApprovalRunLog = runLog.legacyEditorialFormat
+    ? {
+        runId: runLog.log.runId,
+        mode: runLog.log.mode,
+        assetCount: runLog.log.assetCount,
+        actualCredits: runLog.log.actualCredits,
+        inputDigest: runLog.log.inputDigest,
+        editorialEdlDigest: runLog.log.editorialEdlDigest
+      }
+    : undefined;
+  const approvalPayload = runLog.legacyEditorialFormat
+    ? {
+        backend: input.backend,
+        manifest: assembledManifest.manifest,
+        editorial_edl_digest: input.edlDigest,
+        run_log: legacyApprovalRunLog,
+        gate2_qc: freshQcReport
+      }
+    : {
+        backend: input.backend,
+        manifest: assembledManifest.manifest,
+        edl_kind: input.edlKind,
+        edl_digest: input.edlDigest,
+        run_log: runLog.log,
+        gate2_qc: freshQcReport
+      };
+
   return {
     ok: true,
     issues: [],
     assetCount: assetReferences.length,
     actualCredits: runLog.log.actualCredits,
-    approvalDigest: digest({
-      backend: input.backend,
-      manifest: assembledManifest.manifest,
-      edl_kind: input.edlKind,
-      edl_digest: input.edlDigest,
-      run_log: runLog.log,
-      gate2_qc: freshQcReport
-    })
+    approvalDigest: digest(approvalPayload)
   };
 }
 
@@ -1052,6 +1072,7 @@ async function readAndValidateQcReport(
 
 async function readAndValidateRunLog(path: string): Promise<
   Result<{
+    legacyEditorialFormat: boolean;
     log: {
       runId: string;
       mode: string;
@@ -1079,6 +1100,7 @@ async function readAndValidateRunLog(path: string): Promise<
       | "composition"
       | undefined;
     const normalizedEdlDigest = edlDigest ?? editorialEdlDigest;
+    const legacyEditorialFormat = Boolean(editorialEdlDigest && !edlKindText && !edlDigest);
     const assetCount = Number(assetCountText);
     const actualCredits = Number(actualCreditsText);
 
@@ -1102,6 +1124,7 @@ async function readAndValidateRunLog(path: string): Promise<
     return {
       ok: true,
       issues: [],
+      legacyEditorialFormat,
       log: {
         runId,
         mode,
