@@ -2,8 +2,6 @@ name: Desktop
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
 
 permissions:
   contents: read
@@ -14,7 +12,7 @@ concurrency:
 
 jobs:
   package-smoke:
-    name: ${{ matrix.name }} unsigned package
+    name: ${{ matrix.name }} developer-only package smoke
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -22,13 +20,11 @@ jobs:
       matrix:
         include:
           - name: macOS Arm64
-            artifact: macos-arm64
             os: macos-15
           - name: Windows x64
-            artifact: windows-x64
             os: windows-2022
     env:
-      # Tag and manual smoke runs must never require or discover signing identities.
+      # Developer smoke runs must never require or discover signing identities.
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - uses: actions/checkout@v7
@@ -53,14 +49,7 @@ jobs:
         run: npm --prefix apps/desktop run security:audit
       - name: Test Desktop package boundary
         run: npm --prefix apps/desktop test
-      - name: Build unsigned installers
-        run: npm --prefix apps/desktop run make
+      - name: Build unsigned app for local verification
+        run: npm --prefix apps/desktop run package
       - name: Verify packaged workspace recovery
         run: npm --prefix apps/desktop run test:packaged-workspace
-      - name: Upload unsigned installers
-        uses: actions/upload-artifact@v7
-        with:
-          name: tsugite-${{ matrix.artifact }}-${{ github.sha }}
-          path: apps/desktop/out/make/**
-          if-no-files-found: error
-          retention-days: 14

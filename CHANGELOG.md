@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Ended public distribution of the Desktop app, removed installer links from the product site, changed the supported entry point to GitHub source with Codex / Claude Code, and limited Desktop packaging CI to manual developer-only smoke checks without uploaded artifacts.
+
 ## 0.6.0 - 2026-07-23
 
 - Added deterministic multi-source composition proposals for three or more local videos, with brief constraints, story guidance, scene and transcript evidence, similarity suppression, and human comparison of up to three strategy-preserving alternatives.

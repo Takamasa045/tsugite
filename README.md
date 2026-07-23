@@ -41,13 +41,13 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 
 ## Local Workflow Launcher and 3D Viewer
 
-The launcher offers three clear places to work: use your usual Codex or Claude app beside Tsugite, open an installed Codex CLI or Claude Code in the Desktop's built-in terminal, or use Tsugite for inspection only. The browser version cannot use the built-in terminal, so it remains available alongside an external AI app or as an inspection surface.
+Public distribution of the Desktop app has ended. Tsugite is now distributed as source through GitHub and used from Codex or Claude Code; use the browser-based local launcher and 3D Viewer for inspection. The Electron source remains for development and regression testing only.
 
-The built-in terminal does not install an AI CLI and limits the initial program to Codex CLI or Claude Code. After launch, however, each AI CLI keeps its normal permission and approval settings and may read or write workspace files, run commands, or use the network. This is not a separate Tsugite sandbox, so review each CLI's approval prompts. AI CLI authentication or subscriptions are separate from API billing and credits for generation providers such as PixVerse. Opening the launcher or terminal does not start generation, and an AI suggestion never auto-approves a Gate. Gates do not sandbox general file operations; `run`, `render`, and Gate decisions still require explicit human approval and the Coordinator role.
+The supported flow is to open the Tsugite repository in your usual Codex or Claude environment, then use the loopback-only browser launcher beside it for project, template, Gate, and Viewer inspection. The launcher does not install an AI CLI, consume provider credits, send assets, start generation, render media, or change a Gate.
 
-The launcher lists local projects and templates and can refresh or open each project's 3D workflow snapshot. The executable 2D generation-node canvas is deferred to a later release; the current Desktop buttons do not directly execute `run`, `render`, or Gate decisions.
+The development-only Electron shell still contains an embedded terminal for installed Codex CLI or Claude Code. Those CLIs retain their normal permissions and may read or write workspace files, run commands, or use the network; the shell is not a separate Tsugite sandbox. AI subscriptions are also separate from generation-provider billing. Gates do not sandbox general file operations, and `run`, `render`, and Gate decisions still require explicit human approval and the Coordinator role.
 
-When Desktop finds no projects, the empty project shelf can reopen the native workspace chooser. Switching is blocked while a pipeline or embedded AI CLI is active; Desktop validates and saves the selected directory before restarting the whole shell. The browser launcher does not expose this machine-local action.
+In the development-only Desktop shell, an empty project shelf can reopen the native workspace chooser. This behavior remains covered by regression tests but is not a supported distribution path.
 
 The existing 3D Viewer remains available for detailed, seekable inspection. It turns bundled samples or a refreshed Tsugite snapshot into a navigable production floor with status-aware nodes, dependency lines, node details, and event playback. The 3D artifact itself stays static and read-only.
 

@@ -1,5 +1,7 @@
 # macOS ad-hoc distribution
 
+> Archived: Desktopアプリの一般配布は終了しました。この文書は`v0.6.0-beta.1`当時の検証記録としてのみ残しており、新しい配布には使用しません。
+
 TsugiteのmacOS先行ベータ版をApple Developer Programなしで配布するときは、
 アプリ全体をアドホック署名してからDMGを作成する。
 
