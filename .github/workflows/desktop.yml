@@ -3,31 +3,7 @@ name: Desktop
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "apps/desktop/**"
-      - "apps/workflow-viewer/**"
-      - "src/**"
-      - "adapters/**"
-      - "backends/**"
-      - "connections/**"
-      - "knowledge/**"
-      - "package.json"
-      - "package-lock.json"
-      - "tsconfig.json"
-      - ".github/workflows/desktop.yml"
-  pull_request:
-    paths:
-      - "apps/desktop/**"
-      - "apps/workflow-viewer/**"
-      - "src/**"
-      - "adapters/**"
-      - "backends/**"
-      - "connections/**"
-      - "knowledge/**"
-      - "package.json"
-      - "package-lock.json"
-      - "tsconfig.json"
-      - ".github/workflows/desktop.yml"
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -52,7 +28,7 @@ jobs:
             artifact: windows-x64
             os: windows-2022
     env:
-      # Pull requests and normal pushes must never require or discover signing identities.
+      # Tag and manual smoke runs must never require or discover signing identities.
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - uses: actions/checkout@v7
