@@ -32,7 +32,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@remotion/bundler": "^4.0.490",
-    "@remotion/renderer": "^4.0.490",
+    "@remotion/renderer": "^4.0.498",
     "cross-spawn": "^7.0.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
