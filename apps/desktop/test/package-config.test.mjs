@@ -138,7 +138,7 @@ test("Desktop CI uploads unsigned macOS and Windows installers", async () => {
   assert.match(workflow, /npm --prefix apps\/desktop run security:audit/);
   assert.match(
     workflow,
-    /- name: Verify packaged workspace recovery\n\s+run: npm --prefix apps\/desktop run test:packaged-workspace/
+    /- name: Verify packaged workspace recovery\r?\n\s+run: npm --prefix apps\/desktop run test:packaged-workspace/
   );
   assert.match(workflow, /actions\/upload-artifact@v7/);
   assert.match(workflow, /path: apps\/desktop\/out\/make\/\*\*/);
