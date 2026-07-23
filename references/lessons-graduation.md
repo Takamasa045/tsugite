@@ -13,3 +13,4 @@
 5. For machine-checkable and QA rules, add or update a fixture plus a test that proves the failure is rejected before execution or reported at the right Gate.
 6. Mark the lesson line with `validate済`, `doctor済`, `qa済`, or `documented`.
 7. Keep `LESSONS.md` append-only; do not delete old lessons after promotion.
+8. At explicit project completion, record the closeout's failures, improvements, and next-run lessons, including an explicit no-failure result when applicable. Search prior feedback by failure key and lessons by matching symptom and cause. Record a repeated failure as `recurring` and state whether it is a promotion candidate; create a pending proposal only when its target, change summary, and verification plan are ready for human review.
