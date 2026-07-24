@@ -401,6 +401,13 @@ function viewerLogsFromGateState(
   if (!gate.updated_at || gate.status === "pending") return [];
   const label = gateLabel(stepName);
   if (gate.status === "approved") {
+    if (gate.decision_source === "auto_qc") {
+      return [{
+        time,
+        level: "success",
+        message: `${label} 自動通過（QC通過・新規生成なし・クレジット0） · ${gate.updated_at}`
+      }];
+    }
     return [{ time, level: "success", message: `${label}を承認 · ${gate.updated_at}` }];
   }
   if (gate.status === "awaiting_approval") {

@@ -998,6 +998,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       asset_count: runResult.assetCount,
       actual_credits: runResult.actualCredits,
       already_assembled: runResult.alreadyAssembled,
+      gate_2_auto_passed: runResult.gate2AutoPassed,
+      gate_2_auto_pass_blocked_reason: runResult.gate2AutoPassBlockedReason,
       state: runResult.state,
       state_path: runResult.statePath
     });

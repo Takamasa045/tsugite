@@ -304,6 +304,34 @@ describe("createViewerWorkflow", () => {
     ]);
   });
 
+  it("marks an automatic Gate 2 approval with its evidence instead of a human approval", () => {
+    const autoPassedState: RunState = {
+      ...state("rendering", "approved", "approved", "pending"),
+      gates: {
+        gate_1: { status: "approved", updated_at: "2026-07-13T09:01:00.000Z" },
+        gate_2: {
+          status: "approved",
+          updated_at: "2026-07-13T09:02:00.000Z",
+          decision_source: "auto_qc"
+        },
+        gate_3: { status: "pending" }
+      }
+    };
+    const workflow = createViewerWorkflow(project, plan, autoPassedState, {
+      reviewPresent: true,
+      gate2Qc: { ok: true }
+    });
+
+    expect(workflow.nodes.find((node) => node.id === "gate-2")?.logs).toEqual([
+      {
+        time: 40,
+        level: "success",
+        message: "Gate 2 自動通過（QC通過・新規生成なし・クレジット0） · 2026-07-13T09:02:00.000Z"
+      },
+      { time: 40, level: "success", message: "Gate 2 QCを通過" }
+    ]);
+  });
+
   it("explains concrete inputs, outcomes, and approval decisions in human-readable Japanese", () => {
     const detailedProject: Project = {
       ...project,

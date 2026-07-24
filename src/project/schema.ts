@@ -229,6 +229,16 @@ const compositionSchema = z.object({
     .default({ max_count: 3 })
 });
 
+export const GATE_2_AUTO_PASS_POLICY = "qc_ok_no_new_assets" as const;
+
+const gatePolicySchema = z.object({
+  gate_2: z
+    .object({
+      auto_pass: z.literal(GATE_2_AUTO_PASS_POLICY)
+    })
+    .optional()
+});
+
 export const projectSchema = z
   .object({
     slug: safeIdSchema,
@@ -260,7 +270,8 @@ export const projectSchema = z
         requests: z.array(analysisRequestSchema).min(1).superRefine(rejectDuplicateRequestIds)
       })
       .optional(),
-    composition: compositionSchema.optional()
+    composition: compositionSchema.optional(),
+    gates: gatePolicySchema.optional()
   })
   .passthrough()
   .superRefine((project, context) => {
@@ -328,6 +339,13 @@ export const projectSchema = z
         code: z.ZodIssueCode.custom,
         message: "edit.editorial cannot be combined with generation requests",
         path: ["generation"]
+      });
+    }
+    if (project.gates?.gate_2?.auto_pass && project.generation?.requests.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "gates.gate_2.auto_pass cannot be combined with generation requests",
+        path: ["gates", "gate_2", "auto_pass"]
       });
     }
     if (project.composition && project.generation) {

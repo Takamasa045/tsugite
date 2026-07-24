@@ -10,15 +10,12 @@ const require = createRequire(import.meta.url);
 
 const EXPECTED_OVERRIDES = {
   "@babel/core": "7.29.7",
-  "minimatch@3.1.5": {
-    "brace-expansion": "1.1.16",
-  },
-  "minimatch@10.2.5": {
-    "brace-expansion": "5.0.7",
-  },
+  "brace-expansion": "5.0.8",
+  "minimatch": "10.2.5",
   "fast-uri": "3.1.4",
   "js-yaml": "4.3.0",
   "postcss": "8.5.21",
+  "react-server-dom-webpack": "19.2.8",
   "sharp": "0.35.3",
 };
 
@@ -41,18 +38,22 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   );
   assert.equal(lockfile.packages["node_modules/next"].version, "16.2.11");
   assert.equal(lockfile.packages["node_modules/@babel/core"].version, "7.29.7");
-  assert.equal(
-    lockfile.packages[
-      "node_modules/@typescript-eslint/typescript-estree/node_modules/brace-expansion"
-    ].version,
-    "5.0.7",
-  );
-  assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "1.1.16");
+  assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "5.0.8");
+  assert.equal(lockfile.packages["node_modules/minimatch"].version, "10.2.5");
+  assert.equal(lockfile.packages["node_modules/react"].version, "19.2.8");
+  assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.2.8");
+  assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.4");
   assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.0");
   assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.21");
   assert.equal(lockfile.packages["node_modules/next/node_modules/postcss"], undefined);
   assert.equal(lockfile.packages["node_modules/sharp"].version, "0.35.3");
+  // No unpatched brace-expansion leftovers after the global override.
+  for (const [path, entry] of Object.entries(lockfile.packages)) {
+    if (path.endsWith("node_modules/brace-expansion")) {
+      assert.equal(entry.version, "5.0.8", path);
+    }
+  }
 
   const sharpPlatformPackages = Object.entries(lockfile.packages).filter(
     ([path]) =>
@@ -93,15 +94,11 @@ test("keeps the patched PostCSS, URI, YAML, glob, and image paths operational", 
     },
   );
 
-  const braceV1 = require("brace-expansion");
-  const braceV5 = require(
-    resolve(
-      ROOT,
-      "node_modules/@typescript-eslint/typescript-estree/node_modules/brace-expansion",
-    ),
-  );
-  assert.deepEqual(braceV1("a{},{},b"), ["a{},{},b"]);
-  assert.deepEqual(braceV5.expand("a{},{},b"), ["a{},{},b"]);
+  // Global override pins brace-expansion@5.0.8 for every consumer (including nested
+  // minimatch trees), so a single hoisted module is the operational path.
+  const braceExpansion = require("brace-expansion");
+  assert.equal(typeof braceExpansion.expand, "function");
+  assert.deepEqual(braceExpansion.expand("a{},{},b"), ["a{},{},b"]);
 
   const image = await sharp({
     create: {

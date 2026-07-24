@@ -783,6 +783,66 @@ describe("pipeline main", () => {
     60000
   );
 
+  it(
+    "renders an opt-in local-media project straight after an automatic Gate 2 approval",
+    async () => {
+      const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-auto-gate2-"));
+      const config = "fixtures/projects/gate2-auto-pass.yaml";
+
+      await prepareReview(config, stateDir);
+      await capture([
+        "gate",
+        "--config",
+        config,
+        "--gate",
+        "gate-1",
+        "--decision",
+        "approve",
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
+      const run = await capture([
+        "run",
+        "--config",
+        config,
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
+      const render = await capture([
+        "render",
+        "--config",
+        config,
+        "--actor",
+        "coordinator",
+        "--state-dir",
+        stateDir,
+        "--json"
+      ]);
+      const runPayload = JSON.parse(run.stdout);
+      const renderPayload = JSON.parse(render.stdout);
+
+      expect(run.status).toBe(0);
+      expect(runPayload.gate_2_auto_passed).toBe(true);
+      expect(runPayload.gate_2_auto_pass_blocked_reason).toBeUndefined();
+      expect(runPayload.actual_credits).toBe(0);
+      expect(runPayload.state.status).toBe("rendering");
+      expect(runPayload.state.gates.gate_2).toMatchObject({
+        status: "approved",
+        decision_source: "auto_qc"
+      });
+      expect(render.status).toBe(0);
+      expect(renderPayload.state.status).toBe("awaiting_gate_3");
+      await expect(stat(renderPayload.output_path)).resolves.toMatchObject({ size: expect.any(Number) });
+    },
+    60000
+  );
+
   it("allows gate 1 to be approved again after revise returns to planning", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     await capture([

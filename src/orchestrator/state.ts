@@ -18,10 +18,13 @@ export type RunStatus =
   | "completed"
   | "aborted";
 
+export type GateDecisionSource = "human" | "auto_qc";
+
 export type GateState = {
   status: GateStatus;
   updated_at?: string;
   approved_input_digest?: string;
+  decision_source?: GateDecisionSource;
 };
 
 export type RunState = {
@@ -62,7 +65,8 @@ const gateStateSchema = z.object({
     z.literal("abort")
   ]),
   updated_at: z.string().optional(),
-  approved_input_digest: z.string().regex(/^[a-f0-9]{64}$/).optional()
+  approved_input_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  decision_source: z.union([z.literal("human"), z.literal("auto_qc")]).optional()
 });
 
 const runStateSchema = z.object({
@@ -116,7 +120,8 @@ export function recordGateDecision(
   gate: GateId,
   decision: GateDecision,
   updatedAt = new Date().toISOString(),
-  approvedInputDigest?: string
+  approvedInputDigest?: string,
+  decisionSource: GateDecisionSource = "human"
 ): RunState {
   if (decision === "re_render" && gate !== "gate_3") {
     throw new Error("re_render is only valid for gate_3");
@@ -139,7 +144,7 @@ export function recordGateDecision(
     ...state,
     status: statusAfterDecision(gate, decision, state.status),
     updated_at: updatedAt,
-    gates: gatesAfterDecision(state, gate, decision, updatedAt, approvedInputDigest)
+    gates: gatesAfterDecision(state, gate, decision, updatedAt, approvedInputDigest, decisionSource)
   };
 }
 
@@ -497,7 +502,8 @@ function gatesAfterDecision(
   gate: GateId,
   decision: GateDecision,
   updatedAt: string,
-  approvedInputDigest?: string
+  approvedInputDigest: string | undefined,
+  decisionSource: GateDecisionSource
 ): Record<GateId, GateState> {
   if (decision === "revise") {
     return defaultGates();
@@ -517,7 +523,8 @@ function gatesAfterDecision(
       updated_at: updatedAt,
       ...(decision === "approved" && approvedInputDigest
         ? { approved_input_digest: approvedInputDigest }
-        : {})
+        : {}),
+      ...(decision === "approved" ? { decision_source: decisionSource } : {})
     }
   };
 }

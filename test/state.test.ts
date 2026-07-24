@@ -342,6 +342,66 @@ describe("run state", () => {
     expect(rerendering.gates.gate_3.status).toBe("pending");
   });
 
+  it("records the decision source of an approval and resets it on revise", () => {
+    const planned = createPlannedState("run-007", "2026-07-09T00:00:00.000Z");
+    const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");
+    const running = recordGateDecision(gate1, "gate_1", "approved", "2026-07-09T00:02:00.000Z");
+    const gate2 = markGateAwaiting(running, "gate_2", "2026-07-09T00:03:00.000Z");
+    const autoApproved = recordGateDecision(
+      gate2,
+      "gate_2",
+      "approved",
+      "2026-07-09T00:04:00.000Z",
+      "a".repeat(64),
+      "auto_qc"
+    );
+    const revised = recordGateDecision(gate2, "gate_2", "revise", "2026-07-09T00:05:00.000Z");
+
+    expect(running.gates.gate_1.decision_source).toBe("human");
+    expect(autoApproved.gates.gate_2.decision_source).toBe("auto_qc");
+    expect(autoApproved.gates.gate_2.approved_input_digest).toBe("a".repeat(64));
+    expect(revised.gates.gate_2.decision_source).toBeUndefined();
+  });
+
+  it("round-trips the decision source and still reads states written without it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-state-source-"));
+    const planned = createPlannedState("run-008", "2026-07-09T00:00:00.000Z");
+    const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");
+    const running = recordGateDecision(gate1, "gate_1", "approved", "2026-07-09T00:02:00.000Z");
+    const gate2 = markGateAwaiting(running, "gate_2", "2026-07-09T00:03:00.000Z");
+    const rendering = recordGateDecision(
+      gate2,
+      "gate_2",
+      "approved",
+      "2026-07-09T00:04:00.000Z",
+      "b".repeat(64),
+      "auto_qc"
+    );
+
+    const written = await readState(await writeState(root, rendering));
+
+    const legacyDir = join(root, "run-legacy");
+    await mkdir(legacyDir, { recursive: true });
+    await writeFile(
+      join(legacyDir, "state.json"),
+      JSON.stringify({
+        run_id: "run-legacy",
+        status: "rendering",
+        updated_at: "2026-07-09T00:00:00.000Z",
+        gates: {
+          gate_1: { status: "approved" },
+          gate_2: { status: "approved" },
+          gate_3: { status: "pending" }
+        }
+      })
+    );
+    const legacy = await readState(join(legacyDir, "state.json"));
+
+    expect(written.gates.gate_2.decision_source).toBe("auto_qc");
+    expect(legacy.gates.gate_2.decision_source).toBeUndefined();
+    expect(legacy.status).toBe("rendering");
+  });
+
   it("rejects a re-render decision outside Gate 3", () => {
     const planned = createPlannedState("run-006", "2026-07-09T00:00:00.000Z");
     const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");

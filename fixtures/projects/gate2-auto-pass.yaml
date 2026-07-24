@@ -1,0 +1,9 @@
+slug: gate2-auto-pass
+run_id: gate2-auto-pass-run
+manifest: ../manifests/render-local.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+gates:
+  gate_2:
+    auto_pass: qc_ok_no_new_assets
