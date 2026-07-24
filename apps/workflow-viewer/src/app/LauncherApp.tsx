@@ -5,8 +5,10 @@ import {
   Clock3,
   FolderOpen,
   LayoutTemplate,
+  Moon,
   RefreshCw,
   Search,
+  Sun,
   Users,
   Workflow,
 } from 'lucide-react'
@@ -173,6 +175,7 @@ interface LauncherAppProps {
 }
 
 type Shelf = 'projects' | 'templates' | 'canvas' | 'feedback'
+type LauncherTheme = 'light' | 'dark'
 type TemplateLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
@@ -343,6 +346,13 @@ const FEEDBACK_PROPOSAL_DECISION_LABELS: Record<FeedbackPromotionProposal['decis
 
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
 const SHELVES: Shelf[] = ['projects', 'templates', 'canvas', 'feedback']
+const THEME_STORAGE_KEY = 'tsugite-launcher-theme'
+
+function initialLauncherTheme(): LauncherTheme {
+  if (typeof window === 'undefined') return 'dark'
+  const saved = window.localStorage.getItem(THEME_STORAGE_KEY)
+  return saved === 'light' || saved === 'dark' ? saved : 'dark'
+}
 
 function feedbackNextStageLabel(preference: FeedbackPreference): string {
   if (preference.stage !== 'recurring' || !preference.promotionProposal) {
@@ -592,6 +602,7 @@ export function LauncherApp({
   token = launcherToken(),
 }: LauncherAppProps) {
   const [activeShelf, setActiveShelf] = useState<Shelf>('projects')
+  const [theme, setTheme] = useState<LauncherTheme>(initialLauncherTheme)
   const [projects, setProjects] = useState<LauncherProject[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -620,6 +631,10 @@ export function LauncherApp({
   const [promotionDecisionError, setPromotionDecisionError] = useState<string | null>(null)
   const templateDetailHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const focusTemplateDetailRef = useRef(false)
+
+  useEffect(() => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+  }, [theme])
 
   const acceptFeedback = useCallback((nextFeedback: FeedbackAggregate) => {
     setFeedback(nextFeedback)
@@ -964,14 +979,14 @@ export function LauncherApp({
   }
 
   return (
-    <main className="launcher-shell">
+    <main className="launcher-shell" data-theme={theme}>
       <section aria-label="制作の見取図" className="launcher-hero">
         <nav className="launcher-hero-nav">
           <div className="launcher-wordmark">
             <img alt="" aria-hidden="true" className="launcher-favicon-mark" src="./assets/tsugite-favicon.png" />
             <span><strong>TSUGITE</strong><small>PRODUCTION ARCHIVE</small></span>
           </div>
-          <div aria-label="表示する棚" className="launcher-shelf-tabs" role="tablist">
+            <div aria-label="表示する棚" className="launcher-shelf-tabs" role="tablist">
             <button
               aria-controls="launcher-projects-panel"
               aria-selected={activeShelf === 'projects'}
@@ -1028,8 +1043,28 @@ export function LauncherApp({
                 </span>
               )}
             </button>
-          </div>
-        </nav>
+            </div>
+            <div aria-label="テーマを選ぶ" className="launcher-theme-switch" role="group">
+              <button
+                aria-label="ライトモード"
+                aria-pressed={theme === 'light'}
+                onClick={() => setTheme('light')}
+                title="ライトモード"
+                type="button"
+              >
+                <Sun aria-hidden="true" size={16} />
+              </button>
+              <button
+                aria-label="ダークモード"
+                aria-pressed={theme === 'dark'}
+                onClick={() => setTheme('dark')}
+                title="ダークモード"
+                type="button"
+              >
+                <Moon aria-hidden="true" size={16} />
+              </button>
+            </div>
+          </nav>
 
         <div className="launcher-hero-content">
           <div aria-hidden="true" className="launcher-hero-joinery"><span /><i /></div>
@@ -1926,6 +1961,30 @@ export function LauncherApp({
                           )}
                           <div><dt>最終記録</dt><dd>{formatUpdatedAt(selectedFeedback.lastSeenAt)}</dd></div>
                         </dl>
+
+                        {selectedFeedback.promotionProposal && selectedFeedback.stage === 'recurring' && (
+                          <section aria-label="この学びの確認ガイド" className="launcher-feedback-detail-section launcher-feedback-review-guide">
+                            <h3>この学びで確認すること</h3>
+                            <ol>
+                              <li>
+                                <strong>何を確認するか</strong>
+                                <span>{selectedFeedback.summary}</span>
+                              </li>
+                              <li>
+                                <strong>どこを確認するか</strong>
+                                <span>{selectedFeedback.promotionProposal.projectName}の根拠と、下の証拠・run IDを照らし合わせます。</span>
+                              </li>
+                              <li>
+                                <strong>どう確認するか</strong>
+                                <span>{selectedFeedback.promotionProposal.verification}</span>
+                              </li>
+                              <li>
+                                <strong>何を決めるか</strong>
+                                <span>反映内容「{selectedFeedback.promotionProposal.changeSummary}」が妥当なら承認し、違和感や根拠不足があれば今回は見送ります。</span>
+                              </li>
+                            </ol>
+                          </section>
+                        )}
 
                         {selectedFeedback.promotionProposal && selectedFeedback.stage === 'recurring' && (
                           <section className="launcher-feedback-detail-section launcher-feedback-approval" aria-live="polite">

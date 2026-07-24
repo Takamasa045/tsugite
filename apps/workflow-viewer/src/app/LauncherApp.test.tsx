@@ -349,6 +349,30 @@ function createLauncherFetcher({
 }
 
 describe('LauncherApp', () => {
+  it('ライト・ダークテーマを切り替え、次回起動にも選択を保存する', async () => {
+    const user = userEvent.setup()
+    window.localStorage.clear()
+
+    const view = render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+
+    const shell = document.querySelector('.launcher-shell')
+    expect(shell).toHaveAttribute('data-theme', 'dark')
+    await user.click(screen.getByRole('button', { name: 'ライトモード' }))
+    expect(shell).toHaveAttribute('data-theme', 'light')
+    expect(window.localStorage.getItem('tsugite-launcher-theme')).toBe('light')
+
+    view.unmount()
+    render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    expect(document.querySelector('.launcher-shell')).toHaveAttribute('data-theme', 'light')
+
+    await user.click(screen.getByRole('button', { name: 'ダークモード' }))
+    expect(document.querySelector('.launcher-shell')).toHaveAttribute('data-theme', 'dark')
+    expect(window.localStorage.getItem('tsugite-launcher-theme')).toBe('dark')
+    window.localStorage.clear()
+  })
+
   it('生成キャンバスを棚として開き、TopView MCPの生成工程を確認できる', async () => {
     const user = userEvent.setup()
     render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
@@ -1117,6 +1141,13 @@ describe('LauncherApp', () => {
     expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('昇格案を確認し、人が承認または見送り')
     const approvalSection = within(detail).getByRole('heading', { name: '昇格承認' }).closest('section')
     expect(approvalSection).not.toBeNull()
+    const reviewGuide = within(detail).getByRole('region', { name: 'この学びの確認ガイド' })
+    expect(within(reviewGuide).getByRole('heading', { name: 'この学びで確認すること' })).toBeVisible()
+    expect(within(reviewGuide).getByText('何を確認するか')).toBeVisible()
+    expect(within(reviewGuide).getByText('どこを確認するか')).toBeVisible()
+    expect(within(reviewGuide).getByText('どう確認するか')).toBeVisible()
+    expect(within(reviewGuide).getByText('何を決めるか')).toBeVisible()
+    expect(within(reviewGuide).getByText('後続案件のgate3-qc.jsonと代表フレームで確認する。')).toBeVisible()
     expect(within(approvalSection!).getByText('字幕のセーフエリア判定をGate 3へ追加する。')).toBeVisible()
     expect(within(approvalSection!).getByText('後続案件のgate3-qc.jsonと代表フレームで確認する。')).toBeVisible()
     expect(within(approvalSection!).getByRole('button', { name: '昇格を承認' })).toBeVisible()
