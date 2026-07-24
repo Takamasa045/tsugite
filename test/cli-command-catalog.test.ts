@@ -53,6 +53,7 @@ const expectedOptions = {
   compose: ["--config", "--actor", "--state-dir"],
   viewer: ["--config", "--output", "--state-dir", "--open"],
   review: ["--config", "--output", "--state-dir", "--open"],
+  "review-preview": ["--config", "--actor", "--shot", "--output", "--state-dir"],
   run: ["--config", "--dry-run", "--actor", "--state-dir"],
   gate: ["--config", "--actor", "--gate", "--decision", "--state-dir"],
   render: ["--config", "--actor", "--state-dir"]
@@ -68,6 +69,7 @@ const configCommands = new Set([
   "compose",
   "viewer",
   "review",
+  "review-preview",
   "run",
   "gate",
   "render"

@@ -16,6 +16,7 @@ export type CommandName =
   | "compose"
   | "viewer"
   | "review"
+  | "review-preview"
   | "run"
   | "gate"
   | "render";
@@ -82,6 +83,7 @@ const OPTIONS = {
     "Allow configured external analysis adapters to run."
   ),
   output: defineOption("--output", "Alternate output directory.", "<directory>"),
+  shot: defineOption("--shot", "Storyboard shot identifier to preview locally.", "<shot-id>"),
   dryRun: defineOption("--dry-run", "Plan the run without executing adapters or writing state."),
   decision: defineOption("--decision", "Decision allowed by the selected gate.", "<decision>")
 } as const satisfies Record<string, CommandOptionSpec>;
@@ -245,6 +247,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "local-write",
     options: [OPTIONS.config, OPTIONS.output, OPTIONS.stateDir, OPTIONS.open]
+  }),
+  defineCommand({
+    name: "review-preview",
+    summary: "Render one local, low-resolution preview for a storyboard shot.",
+    usage: "node bin/pipeline review-preview --config <project.yaml> --actor coordinator --shot <shot-id> [--output <directory>] [--state-dir <directory>] [--json]",
+    requiresConfig: true,
+    safety: "approval-gated",
+    options: [OPTIONS.config, OPTIONS.actor, OPTIONS.shot, OPTIONS.output, OPTIONS.stateDir]
   }),
   defineCommand({
     name: "run",
