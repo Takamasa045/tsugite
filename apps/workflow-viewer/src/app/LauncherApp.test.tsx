@@ -926,6 +926,18 @@ describe('LauncherApp', () => {
     expect(screen.getByRole('button', { name: '案件02の制作工程を選ぶ' })).toBeVisible()
   })
 
+  it('別worktreeから読み込んだ案件を閲覧のみと表示する', async () => {
+    const fetcher = createLauncherFetcher({
+      projectList: [{ ...projects[1], readOnly: true }],
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+
+    expect((await screen.findAllByText('別worktree（閲覧のみ）')).length).toBe(2)
+    const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
+    expect(within(selectedPanel).getByText('別worktree（閲覧のみ）')).toBeVisible()
+  })
+
   it('テンプレート棚を必要時に読み込み、検索・用途絞り込み・詳細確認ができる', async () => {
     const user = userEvent.setup()
     const fetcher = createLauncherFetcher()

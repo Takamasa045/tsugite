@@ -33,6 +33,7 @@ export interface LauncherProject {
   thumbnailUrl?: string
   valid: boolean
   refreshable: boolean
+  readOnly?: boolean
   issue?: string
 }
 
@@ -433,6 +434,7 @@ function isLauncherProject(input: unknown): input is LauncherProject {
     && (!('thumbnailUrl' in input) || input.thumbnailUrl === undefined || typeof input.thumbnailUrl === 'string')
     && 'valid' in input && typeof input.valid === 'boolean'
     && 'refreshable' in input && typeof input.refreshable === 'boolean'
+    && (!('readOnly' in input) || typeof input.readOnly === 'boolean')
     && (!('issue' in input) || input.issue === undefined || typeof input.issue === 'string')
 }
 
@@ -1252,6 +1254,7 @@ export function LauncherApp({
                         )}
                         <span className="launcher-project-card-footer">
                           <small>{formatUpdatedAt(project.updatedAt)}</small>
+                          {project.readOnly && <small>別worktree（閲覧のみ）</small>}
                           <span>工程と操作 <ArrowRight aria-hidden="true" size={17} /></span>
                         </span>
                       </span>
@@ -1280,6 +1283,7 @@ export function LauncherApp({
                   <div><dt>現在の状況</dt><dd>{selected.valid ? statusLabel(selected.status) : '設定の確認が必要'}</dd></div>
                   <div><dt>制作記録</dt><dd>{selected.runId}</dd></div>
                   <div><dt>最終更新</dt><dd><Clock3 aria-hidden="true" size={15} />{formatUpdatedAt(selected.updatedAt)}</dd></div>
+                  {selected.readOnly && <div><dt>操作範囲</dt><dd>別worktree（閲覧のみ）</dd></div>}
                 </dl>
 
                 {(selected.issue || !selected.valid || !selected.refreshable) && (

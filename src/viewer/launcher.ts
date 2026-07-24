@@ -79,6 +79,7 @@ export type LauncherProject = {
   thumbnailUrl?: string;
   valid: boolean;
   refreshable: boolean;
+  readOnly: boolean;
   workflowNodes: LauncherWorkflowNode[];
   availableActions: LauncherAction[];
   issues: Issue[];
@@ -414,6 +415,7 @@ type LauncherProjectRecord = {
   name: string;
   configPath: string;
   sourceModifiedAtMs: number;
+  readOnly: boolean;
   identity?: LauncherProjectIdentity;
   feedbackIdentity?: FeedbackFileIdentity;
   project?: Project;
@@ -427,6 +429,11 @@ type LauncherProjectRecord = {
     string
   >>;
   public: LauncherProject;
+};
+
+type LauncherProjectDirectory = {
+  path: string;
+  readOnly: boolean;
 };
 
 type LauncherProjectIdentity = {
@@ -467,6 +474,7 @@ function preserveViewerEvidenceRequirement(
 
 export type StartWorkflowViewerLauncherOptions = {
   projectsDir?: string;
+  additionalProjectsDirs?: string[];
   templatesDir?: string;
   port?: number;
   bundleDir?: string;
@@ -505,8 +513,9 @@ export async function startWorkflowViewerLauncher(
     throw new Error("Viewer launcher port must be an integer between 0 and 65535");
   }
 
-  const projectsDir = resolve(
-    options.projectsDir ?? fileURLToPath(new URL("../../projects", import.meta.url))
+  const projectDirectories = await discoverLauncherProjectDirectories(
+    options.projectsDir,
+    options.additionalProjectsDirs
   );
   const templatesDir = resolve(
     options.templatesDir ?? fileURLToPath(new URL("../../templates", import.meta.url))
@@ -532,7 +541,7 @@ export async function startWorkflowViewerLauncher(
   const reloadProjects = async (): Promise<LauncherProject[]> => {
     const snapshotsAtStart = new Map(viewerSnapshots);
     const discovered = await discoverProjects(
-      projectsDir,
+      projectDirectories,
       idsByConfig,
       artifactOrigin,
       launcherOrigin,
@@ -809,6 +818,16 @@ export async function startWorkflowViewerLauncher(
       }
       const record = projects.get(generationConnectionMatch[1]!);
       if (!record?.identity || !record.project?.generation || !record.public.valid) return sendNotFound(response);
+      if (record.readOnly) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.worktree_read_only",
+            message: "別worktreeの案件はこのランチャーから変更できません"
+          }
+        });
+        return;
+      }
       if (!["planned", "dry_run", "awaiting_gate_1"].includes(record.public.status)) {
         sendJson(response, 409, {
           ok: false,
@@ -872,6 +891,16 @@ export async function startWorkflowViewerLauncher(
       const projectId = generationRunMatch[1]!;
       const record = projects.get(projectId);
       if (!record?.identity || !record.project?.generation || !record.public.valid) return sendNotFound(response);
+      if (record.readOnly) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.worktree_read_only",
+            message: "別worktreeの案件はこのランチャーから変更できません"
+          }
+        });
+        return;
+      }
       if (record.public.status !== "running") {
         sendJson(response, 409, {
           ok: false,
@@ -936,7 +965,8 @@ export async function startWorkflowViewerLauncher(
         artifactOrigin,
         launcherOrigin,
         viewerSnapshots.get(record.id),
-        options.validationOptions
+        options.validationOptions,
+        record.readOnly
       );
       preserveViewerEvidenceRequirement(record, inspected);
       inspected.public = withLauncherJob(inspected.public, jobs.get(record.id));
@@ -1002,6 +1032,16 @@ export async function startWorkflowViewerLauncher(
           issue: {
             code: "viewer_launcher.project_invalid",
             message: record.public.issue ?? "Project cannot be executed safely"
+          }
+        });
+        return;
+      }
+      if (record.readOnly) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.worktree_read_only",
+            message: "別worktreeの案件はこのランチャーから変更できません"
           }
         });
         return;
@@ -1167,6 +1207,16 @@ export async function startWorkflowViewerLauncher(
       }
       const record = projects.get(promotionDecisionMatch[1]!);
       if (!record?.public.valid) return sendNotFound(response);
+      if (record.readOnly) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.worktree_read_only",
+            message: "別worktreeの案件はこのランチャーから変更できません"
+          }
+        });
+        return;
+      }
       let input: z.infer<typeof promotionDecisionSchema>;
       try {
         const parsed = promotionDecisionSchema.safeParse(await readJsonRequest(request, LAUNCHER_DECISION_BODY_MAX_BYTES));
@@ -1804,50 +1854,102 @@ export async function openWorkflowViewerLauncher(url: string): Promise<void> {
   await promisify(execFile)(target.command, target.args);
 }
 
+async function discoverLauncherProjectDirectories(
+  projectsDir?: string,
+  additionalProjectsDirs: string[] = []
+): Promise<LauncherProjectDirectory[]> {
+  if (projectsDir) {
+    return appendReadOnlyProjectDirectories(
+      [{ path: resolve(projectsDir), readOnly: false }],
+      additionalProjectsDirs
+    );
+  }
+
+  const primaryWorkspace = resolve(TSUGITE_ROOT);
+  const directories: LauncherProjectDirectory[] = [{
+    path: join(primaryWorkspace, "projects"),
+    readOnly: false
+  }];
+  const knownWorktrees = new Set([primaryWorkspace]);
+  try {
+    const { stdout } = await promisify(execFile)("git", ["worktree", "list", "--porcelain"], {
+      cwd: primaryWorkspace
+    });
+    for (const line of String(stdout).split(/\r?\n/)) {
+      if (!line.startsWith("worktree ")) continue;
+      const worktreePath = line.slice("worktree ".length);
+      if (!isAbsolute(worktreePath)) continue;
+      const workspace = resolve(worktreePath);
+      if (knownWorktrees.has(workspace)) continue;
+      knownWorktrees.add(workspace);
+      directories.push({ path: join(workspace, "projects"), readOnly: true });
+    }
+  } catch {
+    // Git metadata is optional for the launcher. The current workspace remains available.
+  }
+  return appendReadOnlyProjectDirectories(directories, additionalProjectsDirs);
+}
+
+function appendReadOnlyProjectDirectories(
+  directories: LauncherProjectDirectory[],
+  additionalProjectsDirs: string[]
+): LauncherProjectDirectory[] {
+  const knownDirectories = new Set(directories.map((directory) => directory.path));
+  for (const additionalProjectsDir of additionalProjectsDirs) {
+    const path = resolve(additionalProjectsDir);
+    if (knownDirectories.has(path)) continue;
+    knownDirectories.add(path);
+    directories.push({ path, readOnly: true });
+  }
+  return directories;
+}
+
 async function discoverProjects(
-  projectsDir: string,
+  projectDirectories: LauncherProjectDirectory[],
   idsByConfig: Map<string, string>,
   artifactOrigin: string,
   launcherOrigin: string,
   viewerSnapshots: Map<string, LauncherViewerSnapshot>,
   validationOptions?: ValidateProjectOptions
 ): Promise<LauncherProjectRecord[]> {
-  let entries;
-  try {
-    entries = await readdir(projectsDir, { withFileTypes: true });
-  } catch (error) {
-    if (isFileSystemError(error, "ENOENT")) return [];
-    throw error;
-  }
-
   const projects: LauncherProjectRecord[] = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isDirectory()) continue;
-    const projectDir = join(projectsDir, entry.name);
-    const configEntries = await readdir(projectDir, { withFileTypes: true });
-    if (!configEntries.some((candidate) => candidate.isFile() && candidate.name === "project.yaml")) {
-      continue;
+  for (const projectDirectory of projectDirectories) {
+    let entries;
+    try {
+      entries = await readdir(projectDirectory.path, { withFileTypes: true });
+    } catch (error) {
+      if (isFileSystemError(error, "ENOENT")) continue;
+      throw error;
     }
-    const candidates = await Promise.all(
-      configEntries
-        .filter((candidate) => candidate.isFile() && isProjectConfigName(candidate.name))
-        .map(async (candidate) => {
-          const configPath = join(projectDir, candidate.name);
-          const id = idsByConfig.get(configPath) ?? randomBytes(16).toString("hex");
-          idsByConfig.set(configPath, id);
-          return await inspectProject(
-            entry.name,
-            configPath,
-            id,
-            artifactOrigin,
-            launcherOrigin,
-            viewerSnapshots.get(id),
-            validationOptions
-          );
-        })
-    );
-    const latest = selectLatestProjectRecord(candidates);
-    if (latest) projects.push(latest);
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (!entry.isDirectory()) continue;
+      const projectDir = join(projectDirectory.path, entry.name);
+      const configEntries = await readdir(projectDir, { withFileTypes: true });
+      if (!configEntries.some((candidate) => candidate.isFile() && candidate.name === "project.yaml")) {
+        continue;
+      }
+      const candidates = await Promise.all(
+        configEntries
+          .filter((candidate) => candidate.isFile() && isProjectConfigName(candidate.name))
+          .map(async (candidate) => {
+            const configPath = join(projectDir, candidate.name);
+            const id = idsByConfig.get(configPath) ?? randomBytes(16).toString("hex");
+            idsByConfig.set(configPath, id);
+            return await inspectProject(
+              entry.name,
+              configPath,
+              id,
+              artifactOrigin,
+              launcherOrigin,
+              viewerSnapshots.get(id),
+              validationOptions,
+              projectDirectory.readOnly
+            );
+          })
+      );
+      const latest = selectLatestProjectRecord(candidates);
+      if (latest) projects.push(latest);
+    }
   }
   return projects;
 }
@@ -2026,7 +2128,8 @@ async function inspectProject(
   artifactOrigin: string,
   launcherOrigin: string,
   knownSnapshot?: LauncherViewerSnapshot,
-  validationOptions?: ValidateProjectOptions
+  validationOptions?: ValidateProjectOptions,
+  readOnly = false
 ): Promise<LauncherProjectRecord> {
   let sourceModifiedAtMs = 0;
   try {
@@ -2182,6 +2285,7 @@ async function inspectProject(
       name,
       configPath,
       sourceModifiedAtMs,
+      readOnly,
       identity: captured.identity,
       ...(feedbackIdentity ? { feedbackIdentity } : {}),
       project,
@@ -2229,6 +2333,7 @@ async function inspectProject(
           && validation.manifest !== undefined
           && validation.issues.every(isExecutionCapabilityIssue)
           && stateIssue === undefined,
+        readOnly,
         workflowNodes: createLauncherWorkflowNodes({
           valid: safetyIssues.length === 0,
           validationOk: validation.issues.length === 0 && stateIssue === undefined,
@@ -2239,7 +2344,7 @@ async function inspectProject(
           hasGate3Evidence,
           stateIssue
         }),
-        availableActions: createAvailableLauncherActions({
+        availableActions: readOnly ? [] : createAvailableLauncherActions({
           valid: safetyIssues.length === 0,
           validationOk: validation.issues.length === 0 && stateIssue === undefined,
           state,
@@ -2262,6 +2367,7 @@ async function inspectProject(
       name,
       configPath,
       sourceModifiedAtMs,
+      readOnly,
       public: {
         id,
         name,
@@ -2273,6 +2379,7 @@ async function inspectProject(
         hasViewer: false,
         valid: false,
         refreshable: false,
+        readOnly,
         workflowNodes: createLauncherWorkflowNodes({ valid: false }),
         availableActions: [],
         issues: [issue],

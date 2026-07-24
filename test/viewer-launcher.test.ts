@@ -913,6 +913,54 @@ distribution: local-only
     await expect(statusWithHost(launcher.artifactUrl, "viewer.attacker.invalid")).resolves.toBe(403);
   });
 
+  it("lists projects from additional worktrees as read-only without enabling project actions", async () => {
+    const fixture = await createFixture();
+    const worktreeProjectsDir = join(fixture.root, "worktree-projects");
+    const worktreeProjectDir = join(worktreeProjectsDir, "in-progress-project");
+    await cp(fixture.projectDir, worktreeProjectDir, { recursive: true });
+    await writeFile(
+      join(worktreeProjectDir, "project.yaml"),
+      (await readFile(join(worktreeProjectDir, "project.yaml"), "utf8"))
+        .replace("slug: local-fixture", "slug: in-progress-project")
+        .replace("run_id: local-fixture-run", "run_id: in-progress-project-run")
+    );
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      additionalProjectsDirs: [worktreeProjectsDir],
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    expect(payload.projects).toHaveLength(2);
+    const worktreeProject = payload.projects.find((project: { name: string }) => project.name === "in-progress-project");
+    expect(worktreeProject).toMatchObject({
+      name: "in-progress-project",
+      status: "planned",
+      readOnly: true,
+      availableActions: []
+    });
+    const action = await fetch(`${launcher.url}/api/projects/${worktreeProject.id}/action`, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({
+        action: "validate",
+        expectedRunId: worktreeProject.runId,
+        revision: worktreeProject.revision
+      })
+    });
+    await expect(action.json()).resolves.toMatchObject({
+      ok: false,
+      issue: { code: "viewer_launcher.worktree_read_only" }
+    });
+    expect(action.status).toBe(403);
+  });
+
   it("uses configured runtime validation paths when listing and refreshing a project", async () => {
     const fixture = await createFixture();
     const backendName = "packaged-remotion";
