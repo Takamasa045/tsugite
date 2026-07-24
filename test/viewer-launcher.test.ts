@@ -606,6 +606,9 @@ variants:
       - id: ui-window
         label: 画面デモ
         description: 背景に製品画面や操作例を表示する
+starter:
+  source: examples/local-fixture
+  instructions: 同梱のローカル素材サンプルをコピーして、2カットの構成を安全に試せます。
 tags:
   - 掛け合い
   - 60秒
@@ -680,6 +683,10 @@ distribution: local-only
           ]
         }
       ],
+      starter: {
+        source: "examples/local-fixture",
+        instructions: "同梱のローカル素材サンプルをコピーして、2カットの構成を安全に試せます。"
+      },
       tags: ["掛け合い", "60秒"],
       audio: "音声は任意。未指定時は無音ドラフト",
       status: "stable",
@@ -701,6 +708,38 @@ distribution: local-only
         message: expect.stringMatching(/シンボリックリンク/)
       }
     });
+  });
+
+  it("lists the shipped template families and the local runnable starter", async () => {
+    const fixture = await createFixture();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: join(process.cwd(), "templates"),
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+
+    expect(payload.templates.map((template: { id: string }) => template.id)).toEqual([
+      "commerce-showcase",
+      "creative-short",
+      "explainer-talk",
+      "footage-editorial",
+      "local-video-two-cut"
+    ]);
+    expect(payload.templates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "commerce-showcase", valid: true, status: "experimental", distribution: "local-only" }),
+      expect.objectContaining({ id: "creative-short", valid: true, status: "experimental", distribution: "local-only" }),
+      expect.objectContaining({ id: "explainer-talk", valid: true, status: "experimental", distribution: "local-only" }),
+      expect.objectContaining({ id: "footage-editorial", valid: true, status: "experimental", distribution: "local-only" }),
+      expect.objectContaining({
+        id: "local-video-two-cut",
+        valid: true,
+        status: "stable",
+        distribution: "bundled",
+        starter: expect.objectContaining({ source: "examples/local-fixture" })
+      })
+    ]));
   });
 
   it("rejects a template variant whose recommended option is not declared", async () => {
@@ -746,6 +785,47 @@ distribution: local-only
 
     expect(payload.templates[0]).toMatchObject({
       id: "invalid-variant",
+      valid: false,
+      issue: { code: "template_metadata.invalid" }
+    });
+  });
+
+  it("rejects a template starter that traverses outside the vetted examples directory", async () => {
+    const fixture = await createFixture();
+    const invalidDir = join(fixture.templatesDir, "unsafe-starter");
+    await mkdir(invalidDir);
+    await writeFile(join(invalidDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: unsafe-starter
+name: 不正な開始元
+summary: リポジトリ外を開始元にしないことを確認するテンプレート
+category: 解説
+use_cases: [解説動画]
+output:
+  duration: { mode: fixed, min_seconds: 30, max_seconds: 30, label: 30秒 }
+  aspect_ratios: ["16:9"]
+required_inputs:
+  - { type: text, label: 台本, required: true }
+starter:
+  source: examples/local-fixture/../../projects/private
+  instructions: リポジトリ外の素材を参照します。
+tags: []
+audio: { narration: unsupported, bgm: unsupported, silent_draft: true, notes: 音声は使いません。 }
+status: stable
+distribution: bundled
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+
+    expect(payload.templates[0]).toMatchObject({
+      id: "unsafe-starter",
       valid: false,
       issue: { code: "template_metadata.invalid" }
     });

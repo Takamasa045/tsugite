@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -119,6 +119,10 @@ const templates = [
         ],
       },
     ],
+    starter: {
+      source: 'examples/local-fixture',
+      instructions: '同梱のローカル素材サンプルをコピーして、2カットの構成を安全に試せます。',
+    },
     tags: ['掛け合い', '記事', '60秒'],
     audio: '音声とBGMは任意です。',
     status: 'stable' as const,
@@ -1001,14 +1005,17 @@ describe('LauncherApp', () => {
     const detail = screen.getByRole('complementary', { name: '選択したテンプレート' })
     expect(within(detail).getByRole('heading', { name: 'ブログ掛け合い 60秒' })).toBeVisible()
     expect(within(detail).getByText('ブログ記事を初心者役と解説役の会話で伝える動画です。')).toBeVisible()
-    expect(within(detail).getByText('記事本文と出典')).toBeVisible()
+    expect(within(detail).getAllByText('記事本文と出典').length).toBeGreaterThan(0)
+    expect(within(detail).getByRole('heading', { name: 'このテンプレートで作れるもの' })).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: '安全なローカル開始元があります' })).toBeVisible()
+    expect(within(detail).getByText('cp -R examples/local-fixture projects/my-video')).toBeVisible()
     expect(within(detail).getByRole('heading', { name: '選べるバリエーション' })).toBeVisible()
-    expect(within(detail).getByText('キャラクター構成')).toBeVisible()
-    expect(within(detail).getByText('初心者＋専門家')).toBeVisible()
-    expect(within(detail).getByText('紙の切り絵')).toBeVisible()
+    expect(within(detail).getAllByText('キャラクター構成').length).toBeGreaterThan(0)
+    expect(within(detail).getAllByText('初心者＋専門家').length).toBeGreaterThan(0)
+    expect(within(detail).getAllByText('紙の切り絵').length).toBeGreaterThan(0)
     expect(within(detail).getByRole('heading', { name: '構成の流れ' })).toBeVisible()
     expect(within(detail).getByText('専門家が解説')).toBeVisible()
-    expect(within(detail).getByRole('heading', { name: '向いている用途' })).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: 'このテンプレートで作れるもの' })).toBeVisible()
     expect(within(detail).getByText('初心者向け解説')).toBeVisible()
     expect(within(detail).getByRole('heading', { name: '向かない用途' })).toBeVisible()
     expect(within(detail).getByText('実演だけで魅力が伝わる商品')).toBeVisible()
@@ -1043,6 +1050,51 @@ describe('LauncherApp', () => {
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
+  it('テンプレートの選択肢と必須入力からCodexへの依頼文を作成・コピーし、切替時に初期化する', async () => {
+    const user = userEvent.setup()
+    const copyText = vi.fn().mockResolvedValue(undefined)
+    render(<LauncherApp copyText={copyText} fetcher={createLauncherFetcher()} token="session-token" />)
+
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+
+    const howTo = screen.getByRole('region', { name: 'テンプレートの使い方' })
+    expect(within(howTo).getAllByRole('listitem')).toHaveLength(3)
+    const detail = screen.getByRole('complementary', { name: '選択したテンプレート' })
+    expect(within(detail).getByText('まだ足りないもの')).toBeVisible()
+    expect(within(detail).getAllByText('記事本文と出典').length).toBeGreaterThan(0)
+    expect(within(detail).getByRole('button', { name: '依頼文を作る' })).toBeDisabled()
+
+    await user.click(within(detail).getByRole('button', { name: /^同僚同士/ }))
+    fireEvent.change(within(detail).getByRole('textbox', { name: '記事本文と出典を入力' }), {
+      target: { value: '記事本文は /docs/article.md、出典は公式資料です。' },
+    })
+    fireEvent.change(within(detail).getByRole('textbox', { name: '2人分のキャラクター画像を入力' }), {
+      target: { value: 'media/characters/a.png と media/characters/b.png' },
+    })
+    expect(within(detail).getByRole('button', { name: '依頼文を作る' })).toBeEnabled()
+
+    await user.click(within(detail).getByRole('button', { name: '依頼文を作る' }))
+    const prompt = within(detail).getByRole('textbox', { name: '生成したCodexへの依頼文' })
+    expect((prompt as HTMLTextAreaElement).value).toContain('キャラクター構成: 同僚同士')
+    expect((prompt as HTMLTextAreaElement).value).toContain('記事本文は /docs/article.md')
+    expect((prompt as HTMLTextAreaElement).value).toContain('生成、外部送信、課金、run、render、Gate更新は実行しないでください。')
+
+    await user.click(within(detail).getByRole('button', { name: '依頼文をコピー' }))
+    expect(copyText).toHaveBeenCalledWith(expect.stringContaining('キャラクター構成: 同僚同士'))
+    expect(within(detail).getByRole('status')).toHaveTextContent('依頼文をコピーしました。Codexへ貼り付けて依頼できます。')
+
+    await user.click(within(detail).getByRole('button', { name: '選び直す' }))
+    expect(within(detail).getByRole('textbox', { name: '記事本文と出典を入力' })).toHaveValue('')
+    expect(within(detail).queryByRole('textbox', { name: '生成したCodexへの依頼文' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを選ぶ' }))
+    expect(await within(detail).findByRole('heading', { name: 'Q&A掛け合い' })).toBeVisible()
+    expect(within(detail).getByText('このテンプレートにはコピー可能な開始元がありません。用途・素材・構成を整理する親テンプレートなので、案件ごとの設定と素材は別途用意します。')).toBeVisible()
+    expect(within(detail).queryByRole('heading', { name: '安全なローカル開始元があります' })).not.toBeInTheDocument()
+    expect(within(detail).getByRole('textbox', { name: '質問と回答の一覧を入力' })).toHaveValue('')
+  })
+
   it('テンプレート一覧の読込失敗から再試行できる', async () => {
     const user = userEvent.setup()
     let templateAttempts = 0
@@ -1063,6 +1115,140 @@ describe('LauncherApp', () => {
     await user.click(screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' }))
     expect(await screen.findByText('表示できるテンプレートはまだありません。')).toBeVisible()
     expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+
+  it('テンプレート棚を画面に残したまま手動再取得し、存在する選択を維持する', async () => {
+    const user = userEvent.setup()
+    const initiallySelected = templates[1]!
+    const newlyAddedTemplate = {
+      ...templates[0]!,
+      id: 'newly-added-template',
+      name: '新しく追加されたテンプレート',
+    }
+    let templateRequestCount = 0
+    let resolveRefresh!: (response: Response) => void
+    const refreshRequest = new Promise<Response>((resolve) => { resolveRefresh = resolve })
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/templates') {
+        templateRequestCount += 1
+        return templateRequestCount === 1
+          ? Promise.resolve(jsonResponse({ ok: true, templates: [templates[0], initiallySelected] }))
+          : refreshRequest
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを選ぶ' }))
+
+    const detail = screen.getByRole('complementary', { name: '選択したテンプレート' })
+    expect(within(detail).getByRole('heading', { name: 'Q&A掛け合い' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'テンプレートを再読み込み' }))
+
+    const refreshingButton = screen.getByRole('button', { name: 'テンプレートを再読み込み中…' })
+    expect(refreshingButton).toBeDisabled()
+    expect(refreshingButton).toHaveAttribute('aria-busy', 'true')
+    expect(within(detail).getByRole('heading', { name: 'Q&A掛け合い' })).toBeVisible()
+
+    resolveRefresh(jsonResponse({ ok: true, templates: [newlyAddedTemplate, initiallySelected] }))
+
+    expect(await screen.findByRole('button', { name: '新しく追加されたテンプレートを選ぶ' })).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('テンプレートを再読み込みしました。2件見つかりました。')
+    expect(within(detail).getByRole('heading', { name: 'Q&A掛け合い' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'テンプレートを再読み込み' })).toBeEnabled()
+    expect(fetcher.mock.calls.filter(([url]) => url === '/api/templates')).toHaveLength(2)
+  })
+
+  it('選択済みテンプレートが無効化された再取得では有効なテンプレートを選び直す', async () => {
+    const user = userEvent.setup()
+    const invalidatedTemplate = {
+      ...templates[0]!,
+      valid: false,
+      issue: { code: 'template_metadata.invalid', message: 'template.yamlを確認してください。' },
+    }
+    let templateRequestCount = 0
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/templates') {
+        templateRequestCount += 1
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          templates: templateRequestCount === 1 ? [templates[0], templates[1]] : [invalidatedTemplate, templates[1]],
+        }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(screen.getByRole('complementary', { name: '選択したテンプレート' }))
+      .toHaveTextContent('ブログ掛け合い 60秒')
+
+    await user.click(screen.getByRole('button', { name: 'テンプレートを再読み込み' }))
+
+    const detail = await screen.findByRole('complementary', { name: '選択したテンプレート' })
+    expect(within(detail).getByRole('heading', { name: 'Q&A掛け合い' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Q&A掛け合いを選ぶ' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('テンプレートの手動再取得に失敗しても現在の棚と選択を残す', async () => {
+    const user = userEvent.setup()
+    let templateRequestCount = 0
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/templates') {
+        templateRequestCount += 1
+        return templateRequestCount === 1
+          ? Promise.resolve(jsonResponse({ ok: true, templates }))
+          : Promise.reject(new Error('offline'))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    const detail = screen.getByRole('complementary', { name: '選択したテンプレート' })
+
+    await user.click(screen.getByRole('button', { name: 'テンプレートを再読み込み' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('テンプレートを再読み込みできませんでした。現在の表示はそのまま利用できます。')
+    expect(screen.getByRole('button', { name: 'ブログ掛け合い 60秒を選ぶ' })).toBeVisible()
+    expect(within(detail).getByRole('heading', { name: 'ブログ掛け合い 60秒' })).toBeVisible()
+  })
+
+  it('空のテンプレート棚から手動再取得して、ZIP展開後のテンプレートを表示できる', async () => {
+    const user = userEvent.setup()
+    let templateRequestCount = 0
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/templates') {
+        templateRequestCount += 1
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          templates: templateRequestCount === 1 ? [] : [templates[0]],
+        }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(await screen.findByText('表示できるテンプレートはまだありません。')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'テンプレートを再読み込み' }))
+
+    expect(await screen.findByRole('button', { name: 'ブログ掛け合い 60秒を選ぶ' })).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('テンプレートを再読み込みしました。1件見つかりました。')
   })
 
   it('初回起動で読み込んだ好み・学びの4段階と根拠を表示する', async () => {

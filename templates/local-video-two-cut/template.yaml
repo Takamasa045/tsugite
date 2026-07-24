@@ -1,0 +1,65 @@
+schema_version: 1
+kind: tsugite-template
+id: local-video-two-cut
+name: ローカル動画 2カット
+summary: 手持ち動画2本を順番につなぎ、外部接続なしでTsugiteの検証・計画・dry-runを確認する開始テンプレートです。
+category: 手持ち動画を整える
+use_cases:
+  - 編集フローの初回確認
+  - 2カットの短い導入動画
+  - 素材差し替え前のローカル検証
+output:
+  duration:
+    mode: fixed
+    min_seconds: 2
+    max_seconds: 2
+    label: 2秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: video
+    label: 16:9のローカル動画2本
+    required: true
+  - type: text
+    label: 2カットで伝える目的
+    required: true
+preview:
+  frames:
+    - kind: event
+      label: 1カット目で導入
+    - kind: result
+      label: 2カット目で要点
+    - kind: text
+      label: 短い流れを確認
+  flow:
+    - 導入を置く
+    - 要点へ切り替える
+    - dry-runで工程を確認
+not_for:
+  - 自動生成が必要な映像
+  - 3カット以上の複雑な編集
+variants:
+  - id: replacement-scope
+    label: 素材の差し替え範囲
+    default_option: keep-two-cuts
+    options:
+      - id: keep-two-cuts
+        label: 2カットを維持
+        description: 初回は同じ16:9・同程度の尺の2本に置き換えて、構成と検証手順を保ちます。
+      - id: replan-structure
+        label: 構成を作り直す
+        description: カット数や尺を変える場合はmanifestを更新し、validateからやり直します。
+starter:
+  source: examples/local-fixture
+  instructions: examples/local-fixtureをprojects配下へコピーすると、同梱のローカル素材で安全な検証を始められます。
+tags:
+  - ローカル素材
+  - 初回確認
+  - 2カット
+audio:
+  narration: unsupported
+  bgm: unsupported
+  silent_draft: true
+  notes: 音声トラックは含みません。外部生成や課金は行いません。
+status: stable
+distribution: bundled

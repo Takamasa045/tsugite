@@ -71,6 +71,10 @@ export interface LauncherTemplate {
       description: string
     }>
   }>
+  starter?: {
+    source: string
+    instructions: string
+  }
   tags: string[]
   audio: string
   status: 'stable' | 'experimental' | 'deprecated' | 'unknown'
@@ -171,6 +175,7 @@ interface RefreshErrorResponse {
 interface LauncherAppProps {
   fetcher?: typeof fetch
   navigate?: (url: string) => void
+  copyText?: (text: string) => Promise<void>
   token?: string
 }
 
@@ -179,10 +184,15 @@ type LauncherTheme = 'light' | 'dark'
 type TemplateLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
+type TemplatePromptCopyState = 'idle' | 'copied' | 'error'
 type ProjectFilter = 'all' | 'active' | 'waiting' | 'completed' | 'invalid'
 type FeedbackFilter = 'all' | FeedbackStage
 
 const defaultFetcher: typeof fetch = (...args) => window.fetch(...args)
+const defaultCopyText = async (text: string): Promise<void> => {
+  if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+  await navigator.clipboard.writeText(text)
+}
 const PROJECT_PAGE_SIZE = 12
 const FEEDBACK_PAGE_SIZE = 24
 const FEEDBACK_ISSUE_DISPLAY_LIMIT = 5
@@ -482,6 +492,22 @@ function isTemplateInputDetail(input: unknown): input is LauncherTemplate['requi
     && 'label' in input && typeof input.label === 'string'
 }
 
+function templatePromptInputKey(input: LauncherTemplate['requiredInputDetails'][number]): string {
+  return `${input.type}:${input.label}`
+}
+
+function defaultTemplateVariantSelections(template: LauncherTemplate): Record<string, string> {
+  return Object.fromEntries(template.variants.flatMap((variant) => {
+    const selected = variant.options.find((option) => option.id === variant.defaultOptionId)
+      ?? variant.options[0]
+    return selected ? [[variant.id, selected.id]] : []
+  }))
+}
+
+function emptyTemplatePromptInputs(template: LauncherTemplate): Record<string, string> {
+  return Object.fromEntries(template.requiredInputDetails.map((input) => [templatePromptInputKey(input), '']))
+}
+
 function isTemplatePreview(input: unknown): input is LauncherTemplate['preview'] {
   if (input === null) return true
   return typeof input === 'object' && input !== null
@@ -599,6 +625,7 @@ function isRefreshErrorResponse(input: unknown): input is RefreshErrorResponse {
 export function LauncherApp({
   fetcher = defaultFetcher,
   navigate = (url) => window.location.assign(url),
+  copyText = defaultCopyText,
   token = launcherToken(),
 }: LauncherAppProps) {
   const [activeShelf, setActiveShelf] = useState<Shelf>('projects')
@@ -619,9 +646,16 @@ export function LauncherApp({
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [templates, setTemplates] = useState<LauncherTemplate[]>([])
   const [templateLoadState, setTemplateLoadState] = useState<TemplateLoadState>('idle')
+  const [templateListRefreshing, setTemplateListRefreshing] = useState(false)
+  const [templateListRefreshError, setTemplateListRefreshError] = useState<string | null>(null)
+  const [templateListRefreshNotice, setTemplateListRefreshNotice] = useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
   const [templateQuery, setTemplateQuery] = useState('')
   const [templateCategory, setTemplateCategory] = useState('すべて')
+  const [templatePromptVariants, setTemplatePromptVariants] = useState<Record<string, string>>({})
+  const [templatePromptInputs, setTemplatePromptInputs] = useState<Record<string, string>>({})
+  const [templatePromptVisible, setTemplatePromptVisible] = useState(false)
+  const [templatePromptCopyState, setTemplatePromptCopyState] = useState<TemplatePromptCopyState>('idle')
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
   const [feedbackLoadState, setFeedbackLoadState] = useState<FeedbackLoadState>('idle')
   const [selectedFeedbackKey, setSelectedFeedbackKey] = useState<string | null>(null)
@@ -685,20 +719,43 @@ export function LauncherApp({
     }
   }, [fetcher])
 
-  const loadTemplates = useCallback(async () => {
-    setTemplateLoadState('loading')
+  const loadTemplates = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
+    if (background) {
+      setTemplateListRefreshing(true)
+      setTemplateListRefreshError(null)
+      setTemplateListRefreshNotice(null)
+    } else {
+      setTemplateLoadState('loading')
+    }
     try {
       const response = await fetcher('/api/templates', { headers: { accept: 'application/json' } })
       const payload: unknown = await response.json()
       if (!response.ok || !isTemplateListResponse(payload)) throw new Error('invalid template list')
       setTemplates(payload.templates)
       setSelectedTemplateId((current) => {
-        if (current && payload.templates.some((template) => template.id === current)) return current
-        return payload.templates.find((template) => template.valid)?.id ?? payload.templates[0]?.id ?? null
+        const currentTemplate = current
+          ? payload.templates.find((template) => template.id === current)
+          : undefined
+        if (currentTemplate?.valid) return current
+        return payload.templates.find((template) => template.valid)?.id
+          ?? currentTemplate?.id
+          ?? payload.templates[0]?.id
+          ?? null
       })
+      if (background) {
+        setTemplateListRefreshNotice(payload.templates.length > 0
+          ? `テンプレートを再読み込みしました。${payload.templates.length}件見つかりました。`
+          : '再読み込みしましたが、templatesフォルダにテンプレートがありません。ZIPの展開先を確認してください。')
+      }
       setTemplateLoadState('ready')
     } catch {
-      setTemplateLoadState('error')
+      if (background) {
+        setTemplateListRefreshError('テンプレートを再読み込みできませんでした。現在の表示はそのまま利用できます。')
+      } else {
+        setTemplateLoadState('error')
+      }
+    } finally {
+      if (background) setTemplateListRefreshing(false)
     }
   }, [fetcher])
 
@@ -787,6 +844,32 @@ export function LauncherApp({
   }, { observed: 0, recurring: 0, promoted: 0, verified: 0 }), [feedback])
   const selected = projects.find((project) => project.id === selectedId) ?? null
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? null
+  const selectedTemplateVariantChoices = selectedTemplate?.variants.flatMap((variant) => {
+    const selectedOption = variant.options.find((option) => option.id === templatePromptVariants[variant.id])
+      ?? variant.options.find((option) => option.id === variant.defaultOptionId)
+      ?? variant.options[0]
+    return selectedOption ? [{ label: variant.label, option: selectedOption }] : []
+  }) ?? []
+  const missingTemplatePromptInputs = selectedTemplate?.requiredInputDetails.filter((input) => (
+    !templatePromptInputs[templatePromptInputKey(input)]?.trim()
+  )) ?? []
+  const generatedTemplatePrompt = selectedTemplate && missingTemplatePromptInputs.length === 0
+    ? [
+        `Tsugiteで「${selectedTemplate.name}」の案件を準備したいです。`,
+        '',
+        '選んだ内容:',
+        ...selectedTemplateVariantChoices.map(({ label, option }) => `- ${label}: ${option.label}`),
+        '',
+        '用意済みの入力:',
+        ...selectedTemplate.requiredInputDetails.map((input) => `- ${input.label}: ${templatePromptInputs[templatePromptInputKey(input)]!.trim()}`),
+        '',
+        selectedTemplate.starter
+          ? `安全なローカル開始元: ${selectedTemplate.starter.source}（${selectedTemplate.starter.instructions}）`
+          : 'このテンプレートには、ランチャーからコピーできる開始元は指定されていません。案件ごとのproject.yaml、manifest、素材は別途用意してください。',
+        '',
+        'まず、上記をもとに構成案と案件準備の手順を提案してください。生成、外部送信、課金、run、render、Gate更新は実行しないでください。',
+      ].join('\n')
+    : null
   const relatedTemplates = selectedTemplate?.valid
     ? templates.filter((template) => (
       template.valid
@@ -814,6 +897,28 @@ export function LauncherApp({
     focusTemplateDetailRef.current = false
     templateDetailHeadingRef.current?.focus()
   }, [selectedTemplateId])
+
+  const resetTemplatePrompt = useCallback((template: LauncherTemplate | null) => {
+    setTemplatePromptVariants(template ? defaultTemplateVariantSelections(template) : {})
+    setTemplatePromptInputs(template ? emptyTemplatePromptInputs(template) : {})
+    setTemplatePromptVisible(false)
+    setTemplatePromptCopyState('idle')
+  }, [])
+
+  useEffect(() => {
+    resetTemplatePrompt(selectedTemplate)
+  }, [resetTemplatePrompt, selectedTemplateId])
+
+  const copyTemplatePrompt = useCallback(async () => {
+    if (!generatedTemplatePrompt) return
+    setTemplatePromptCopyState('idle')
+    try {
+      await copyText(generatedTemplatePrompt)
+      setTemplatePromptCopyState('copied')
+    } catch {
+      setTemplatePromptCopyState('error')
+    }
+  }, [copyText, generatedTemplatePrompt])
 
   const projectSummary = useMemo(() => ({
     active: projects.filter((project) => projectMatchesFilter(project, 'active')).length,
@@ -1393,16 +1498,49 @@ export function LauncherApp({
         </>
       ) : activeShelf === 'templates' ? (
         <section aria-labelledby="launcher-templates-tab" className="launcher-workbench" id="launcher-templates-panel" role="tabpanel">
-          <section aria-labelledby="template-list-title" className="launcher-projects launcher-template-shelf">
+          <section aria-busy={templateListRefreshing} aria-labelledby="template-list-title" className="launcher-projects launcher-template-shelf">
             <div className="launcher-section-heading">
               <div>
                 <span className="eyebrow">型の棚</span>
                 <h2 id="template-list-title">テンプレートを選ぶ</h2>
               </div>
               {templateLoadState === 'ready' && (
-                <span className="launcher-count">全{templates.length}件 / 表示{filteredTemplates.length}件</span>
+                <div className="launcher-template-list-actions">
+                  <span className="launcher-count">全{templates.length}件 / 表示{filteredTemplates.length}件</span>
+                  <button
+                    aria-busy={templateListRefreshing}
+                    className="launcher-secondary launcher-template-list-refresh"
+                    disabled={templateListRefreshing}
+                    onClick={() => void loadTemplates({ background: true })}
+                    type="button"
+                  >
+                    <RefreshCw aria-hidden="true" className={templateListRefreshing ? 'is-spinning' : undefined} size={15} />
+                    {templateListRefreshing ? 'テンプレートを再読み込み中…' : 'テンプレートを再読み込み'}
+                  </button>
+                </div>
               )}
             </div>
+
+            {templateListRefreshError && (
+              <p className="launcher-template-list-refresh-error" role="alert">{templateListRefreshError}</p>
+            )}
+            {templateListRefreshNotice && (
+              <p className="launcher-template-list-refresh-notice" role="status">{templateListRefreshNotice}</p>
+            )}
+
+            {templateLoadState === 'ready' && (
+              <section aria-label="テンプレートの使い方" className="launcher-template-howto">
+                <header>
+                  <span>使い方 / HOW TO</span>
+                  <h3>選んで、必要なことを書き、Codexへ依頼します</h3>
+                </header>
+                <ol>
+                  <li><b>1</b><div><strong>型を選ぶ</strong><p>作りたい動画に近いテンプレートを選びます。</p></div></li>
+                  <li><b>2</b><div><strong>選択と素材を記入</strong><p>右側で形式を選び、必須の情報を埋めます。</p></div></li>
+                  <li><b>3</b><div><strong>依頼文をコピー</strong><p>作成した文をCodexへ渡します。ここではコピー以外を実行しません。</p></div></li>
+                </ol>
+              </section>
+            )}
 
             {templateLoadState === 'loading' && (
               <div className="launcher-empty" aria-live="polite">
@@ -1569,7 +1707,7 @@ export function LauncherApp({
                   </section>
                   <div className="launcher-template-fit-grid">
                     <section className="launcher-template-requirements">
-                      <h3>向いている用途</h3>
+                      <h3>このテンプレートで作れるもの</h3>
                       <ul>
                         {selectedTemplate.useCases.map((useCase) => <li key={useCase}>{useCase}</li>)}
                       </ul>
@@ -1615,6 +1753,121 @@ export function LauncherApp({
                       </div>
                     </section>
                   )}
+                  <section aria-label="次にすること" className="launcher-template-prompt-builder">
+                    <header>
+                      <span>次にすること</span>
+                      <h3>選んだ内容で、Codexへの依頼文を作る</h3>
+                      <p>ランチャーは案件のコピー・生成・実行をしません。ここで作るのは、次の準備をCodexへ頼むための文章だけです。</p>
+                    </header>
+
+                    {selectedTemplate.starter ? (
+                      <section className="launcher-template-starter">
+                        <h4>安全なローカル開始元があります</h4>
+                        <p>{selectedTemplate.starter.instructions}</p>
+                        <code>cp -R {selectedTemplate.starter.source} projects/my-video</code>
+                        <small>この画面はコピーを実行しません。開始元を使うかどうかは、依頼文を確認してから決めます。</small>
+                      </section>
+                    ) : (
+                      <p className="launcher-template-no-starter">このテンプレートにはコピー可能な開始元がありません。用途・素材・構成を整理する親テンプレートなので、案件ごとの設定と素材は別途用意します。</p>
+                    )}
+
+                    <div className="launcher-template-prompt-steps">
+                      {selectedTemplate.variants.length > 0 && (
+                        <section>
+                          <h4>1. どんな動画にするか選ぶ</h4>
+                          {selectedTemplate.variants.map((variant) => (
+                            <fieldset key={variant.id}>
+                              <legend>{variant.label}</legend>
+                              <div className="launcher-template-prompt-options">
+                                {variant.options.map((option) => (
+                                  <button
+                                    aria-pressed={templatePromptVariants[variant.id] === option.id}
+                                    key={option.id}
+                                    onClick={() => {
+                                      setTemplatePromptVariants((current) => ({ ...current, [variant.id]: option.id }))
+                                      setTemplatePromptVisible(false)
+                                      setTemplatePromptCopyState('idle')
+                                    }}
+                                    type="button"
+                                  >
+                                    <strong>{option.label}</strong>
+                                    <small>{option.description}</small>
+                                  </button>
+                                ))}
+                              </div>
+                            </fieldset>
+                          ))}
+                        </section>
+                      )}
+
+                      <section>
+                        <h4>{selectedTemplate.variants.length > 0 ? '2' : '1'}. 用意した情報を書く</h4>
+                        <p>すべて必須です。素材そのものではなく、内容・保存場所・確認済みの条件を書いてください。</p>
+                        <div className="launcher-template-prompt-inputs">
+                          {selectedTemplate.requiredInputDetails.map((input) => {
+                            const inputKey = templatePromptInputKey(input)
+                            return (
+                              <label key={inputKey}>
+                                <span><b>{TEMPLATE_INPUT_TYPE_LABELS[input.type]}</b>{input.label}</span>
+                                <textarea
+                                  aria-label={`${input.label}を入力`}
+                                  onChange={(event) => {
+                                    const value = event.target.value
+                                    setTemplatePromptInputs((current) => ({ ...current, [inputKey]: value }))
+                                    setTemplatePromptVisible(false)
+                                    setTemplatePromptCopyState('idle')
+                                  }}
+                                  placeholder="分かる範囲で具体的に書く"
+                                  rows={3}
+                                  value={templatePromptInputs[inputKey] ?? ''}
+                                />
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </section>
+
+                      <section>
+                        <h4>{selectedTemplate.variants.length > 0 ? '3' : '2'}. 依頼文を作ってコピーする</h4>
+                        {missingTemplatePromptInputs.length > 0 ? (
+                          <div aria-live="polite" className="launcher-template-prompt-missing">
+                            <strong>まだ足りないもの</strong>
+                            <ul>{missingTemplatePromptInputs.map((input) => <li key={templatePromptInputKey(input)}>{input.label}</li>)}</ul>
+                          </div>
+                        ) : (
+                          <p className="launcher-template-prompt-ready">必要な情報がそろいました。依頼文を確認してからコピーできます。</p>
+                        )}
+                        <div className="launcher-template-prompt-actions">
+                          <button
+                            className="launcher-secondary"
+                            disabled={!generatedTemplatePrompt}
+                            onClick={() => {
+                              setTemplatePromptVisible(true)
+                              setTemplatePromptCopyState('idle')
+                            }}
+                            type="button"
+                          >
+                            依頼文を作る
+                          </button>
+                          <button
+                            className="launcher-secondary"
+                            onClick={() => resetTemplatePrompt(selectedTemplate)}
+                            type="button"
+                          >
+                            選び直す
+                          </button>
+                        </div>
+                        {templatePromptVisible && generatedTemplatePrompt && (
+                          <div className="launcher-template-prompt-output">
+                            <textarea aria-label="生成したCodexへの依頼文" readOnly rows={14} value={generatedTemplatePrompt} />
+                            <button className="launcher-primary" onClick={() => void copyTemplatePrompt()} type="button">依頼文をコピー</button>
+                            {templatePromptCopyState === 'copied' && <p role="status">依頼文をコピーしました。Codexへ貼り付けて依頼できます。</p>}
+                            {templatePromptCopyState === 'error' && <p role="alert">コピーできませんでした。依頼文を選択して手動でコピーしてください。</p>}
+                          </div>
+                        )}
+                      </section>
+                    </div>
+                  </section>
                   <section className="launcher-template-requirements">
                     <h3>音声</h3>
                     <p>{selectedTemplate.audio}</p>
@@ -1642,7 +1895,7 @@ export function LauncherApp({
                   )}
                   <div className="launcher-readonly-note">
                     <strong>閲覧専用</strong>
-                    <p>この棚からコピー・生成・実行は行いません。内容を確認してからREADMEの手順で制作案件を用意してください。</p>
+                    <p>この棚からコピー・生成・実行は行いません。依頼文のコピーだけを行い、案件の準備は内容を確認してから進めます。</p>
                   </div>
                 </>
               ) : (

@@ -1,0 +1,130 @@
+schema_version: 1
+kind: tsugite-template
+id: footage-editorial
+name: 実写編集｜ニュース・店舗・リール・工程
+summary: 撮影済みの実写映像を、事実確認済みの情報・字幕・編集方針に沿って15〜180秒の報告、店舗紹介、切り抜き、工程動画へ整える親テンプレートです。
+category: 実写編集・案内
+use_cases:
+  - 実写映像をニュース番組風に要点から伝える報告動画
+  - 店舗への道順、駐車場、入口、店内、スタッフを紹介する動画
+  - 長尺動画から承認済み区間を切り出すリール
+  - 製品の組み立て全工程、要点、タイムラプス
+  - プロフィールや現場紹介の実写動画
+preview:
+  frames:
+    - kind: event
+      label: 事実と見どころを先に提示
+    - kind: hands
+      label: 現場、道順、手元を実写で見せる
+    - kind: result
+      label: 要点、次の行動、完成状態を確認
+  flow:
+    - 目的と正確な事実を確認
+    - 使用区間と伝える順番を選ぶ
+    - 字幕・注釈・地図を重ねる
+    - 要点と次の行動を確認
+not_for:
+  - 素材や事実を確認せずにニュース風の演出だけを作る用途
+  - 自動選定だけで最良の切り抜きと断定する用途
+  - 未検証の安全手順や道順を案内する用途
+  - 実写素材なしで組み立て手順を再現する用途
+output:
+  duration:
+    mode: variable
+    min_seconds: 15
+    max_seconds: 180
+    label: 15〜180秒
+  aspect_ratios:
+    - "16:9"
+    - "9:16"
+required_inputs:
+  - type: video
+    label: 利用許諾を確認した実写の元動画と、使用不可区間の指定
+    required: true
+  - type: text
+    label: 視聴者、伝える事実、公開先、希望する次の行動
+    required: true
+  - type: data
+    label: 道順・駐車場・営業時間、工程・安全条件、または切り抜き根拠など用途ごとの正本情報
+    required: true
+  - type: image
+    label: 地図、ロゴ、完成品、部品表、字幕に使う補助画像
+    required: false
+  - type: audio
+    label: ナレーション、現場音、BGMとして使用許諾のある音声
+    required: false
+variants:
+  - id: purpose
+    label: 用途
+    default_option: store-intro
+    options:
+      - id: news-report
+        label: ニュース・要点報告
+        description: 最重要事実、根拠、背景の順で要点を先に伝えます。
+      - id: store-intro
+        label: 店舗紹介
+        description: 外観、入口、店内、商品・サービス、スタッフを順に見せます。
+      - id: route-guide
+        label: 道順・駐車場案内
+        description: 出発地点、曲がり角、駐車場、入口を誤認なく案内します。
+      - id: highlight-reel
+        label: リール切り抜き
+        description: 承認した見どころ区間へ字幕と冒頭フックを加えます。
+      - id: assembly-full
+        label: 組み立て全工程
+        description: 完成像、部品、全工程、安全、完成確認を順番に見せます。
+      - id: assembly-key-steps
+        label: 組み立て要点
+        description: 間違えやすい部品、難所、正しい完成状態に絞ります。
+      - id: assembly-timelapse
+        label: 組み立てタイムラプス
+        description: 単純工程を圧縮し、重要工程だけ通常速度で見せます。
+  - id: cut-style
+    label: 編集の見せ方
+    default_option: clear-captions
+    options:
+      - id: clear-captions
+        label: 読みやすい字幕
+        description: 音声なしでも要点、固有名詞、注意事項を読めるようにします。
+      - id: reporter-graphics
+        label: ニュース図版
+        description: 見出し、日付、場所、根拠を整理した情報表示にします。
+      - id: route-markers
+        label: 道順マーカー
+        description: 方向、目印、駐車位置、入口を固定した記号で示します。
+      - id: numbered-steps
+        label: 工程番号
+        description: 現在の工程、部品番号、向き、安全条件を対応させます。
+      - id: hook-subtitles
+        label: ショート字幕
+        description: 冒頭で価値を伝え、縦型画面で要点を短く表示します。
+  - id: delivery
+    label: 納品尺
+    default_option: standard-60
+    options:
+      - id: short-15
+        label: 15秒ショート
+        description: 一つの要点だけを強く見せます。
+      - id: short-30
+        label: 30秒ショート
+        description: 導入、要点、次の行動を短くまとめます。
+      - id: standard-60
+        label: 60秒紹介
+        description: 複数の見どころを字幕と実写で案内します。
+      - id: detailed-180
+        label: 3分以内の詳細版
+        description: 講義の要点、店舗案内、工程説明を章立てで見せます。
+tags:
+  - 実写
+  - ニュース
+  - 店舗紹介
+  - リール
+  - 道順
+  - 組み立て
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 切り抜き候補は人が確認して選びます。所在地、営業時間、価格、安全条件など変動・重要情報は公開前に再確認します。
+status: experimental
+distribution: local-only
