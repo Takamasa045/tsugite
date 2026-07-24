@@ -959,6 +959,16 @@ distribution: local-only
       issue: { code: "viewer_launcher.worktree_read_only" }
     });
     expect(action.status).toBe(403);
+
+    const refreshed = await fetch(`${launcher.url}/api/projects/${worktreeProject.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+    expect(refreshed.status).toBe(200);
+    await expect(refreshed.json()).resolves.toMatchObject({
+      ok: true,
+      project: { readOnly: true, availableActions: [] }
+    });
   });
 
   it("uses configured runtime validation paths when listing and refreshing a project", async () => {

@@ -1390,7 +1390,8 @@ export async function startWorkflowViewerLauncher(
           artifactOrigin,
           launcherOrigin,
           snapshot,
-          options.validationOptions
+          options.validationOptions,
+          record.readOnly
         );
         if (!refreshedRecord.outputDir || !refreshedRecord.viewerRoot) {
           sendJson(response, 422, {
