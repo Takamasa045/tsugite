@@ -114,7 +114,7 @@ export function buildPixverseCreateArgs(request, runId) {
   if (operation === "voice") pushValue(args, "--text", request.prompt || params.text);
   else if (has("prompt")) pushValue(args, "--prompt", request.prompt);
   if (has("model")) pushValue(args, "--model", normalizePixverseCliModel(request.model));
-  if (has("duration")) pushValue(args, operation === "music" ? "--duration-seconds" : "--duration", request.duration);
+  if (has("duration")) pushValue(args, "--duration", request.duration);
   if (has("aspect") && !(operation === "video" && request.input_mode === "image-to-video")) {
     pushValue(args, "--aspect-ratio", request.aspect);
   }
@@ -157,7 +157,7 @@ const PIXVERSE_ALLOWED_OPTIONS = Object.freeze({
   image: new Set(["prompt", "model", "aspect", "seed", "quality", "count", "detail", "image", "images"]),
   transition: new Set(["prompt", "model", "duration", "seed", "quality", "count", "images", "audio", "off-peak"]),
   voice: new Set(["model", "voice"]),
-  music: new Set(["prompt", "model", "duration", "music", "image", "images"]),
+  music: new Set(["prompt", "model", "music", "image", "images"]),
   extend: new Set(["prompt", "model", "duration", "seed", "quality", "count", "video-input", "audio", "off-peak"]),
   modify: new Set(["prompt", "model", "seed", "quality", "count", "video-input", "images", "keyframe", "off-peak"]),
   upscale: new Set(["quality", "video-input"]),

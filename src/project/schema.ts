@@ -35,7 +35,7 @@ const manifestPathSchema = z
   );
 
 const generationModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
-const generationOperationSchema = z.enum([
+export const generationOperationSchema = z.enum([
   "video",
   "image",
   "transition",

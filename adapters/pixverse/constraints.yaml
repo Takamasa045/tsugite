@@ -2,12 +2,14 @@ checks:
   - id: duration-supported
     scope: generation
     field: duration
+    operations: [video, transition, extend, reference, template]
     operator: in
     values: [3, 5, 10]
     message: duration must be 3, 5, or 10 seconds
   - id: aspect-supported
     scope: generation
     field: aspect
+    operations: [video, reference, template]
     operator: in
     values: ["16:9", "9:16"]
     message: aspect must be 16:9 or 9:16

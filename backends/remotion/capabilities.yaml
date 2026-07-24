@@ -9,7 +9,7 @@ capabilities:
   audio_mix: true
   vertical: true
   fps: [24, 30, 60]
-  presets: [article-dialogue-16x9, street-dialogue-16x9, miraichi-lastcall-9x16, orbital-showreel-16x9]
+  presets: [article-dialogue-16x9, street-dialogue-16x9, tsugite-summer-camp-generated-16x9, miraichi-lastcall-9x16, orbital-showreel-16x9]
 checks:
   setup:
     - type: command
