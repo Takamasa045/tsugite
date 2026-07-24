@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadBackendCapabilities } from "../src/backends/capabilities.js";
@@ -736,11 +736,7 @@ describe("pipeline main", () => {
   it("does not surface optional OpenClaw bridge stderr on failure", async () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-cli-state-"));
     const wrapperName = process.platform === "win32" ? "openclaw-fail.cmd" : "openclaw-fail";
-    const wrapperPath = join(stateDir, wrapperName);
-    await copyFile(join(process.cwd(), "fixtures/tools", wrapperName), wrapperPath);
-    if (process.platform !== "win32") {
-      await chmod(wrapperPath, 0o755);
-    }
+    const wrapperPath = join(process.cwd(), "fixtures/tools", wrapperName);
     const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
     process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = JSON.stringify([wrapperPath]);
     let run;

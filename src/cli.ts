@@ -24,6 +24,7 @@ import {
   openCreativeReview,
   writeCreativeReview
 } from "./orchestrator/review.js";
+import { renderReviewPreview } from "./orchestrator/reviewPreview.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
@@ -76,6 +77,7 @@ type ParsedArgs = {
   capability?: string;
   inputMode?: string;
   output?: string;
+  shot?: string;
   request?: string;
   duration?: string;
   shitateRoot?: string;
@@ -808,6 +810,66 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
   }
 
+  if (args.command === "review-preview") {
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) {
+      return output(args, 1, { ok: false, command: "review-preview", issues: [coordinatorIssue] });
+    }
+    const plan = createPlan(
+      validation.project!,
+      validation.manifest!,
+      validation.adapter,
+      validation.analysisAdapters ?? validation.analysisAdapter,
+      validation.promptGuides,
+      validation.audioAdapter,
+      validation.generationConnection,
+      validation.audioConnection,
+      validation.backend
+    );
+    const preview = await renderReviewPreview({
+      configPath: args.config!,
+      project: validation.project!,
+      manifest: validation.manifest!,
+      shotId: args.shot,
+      outputDir: args.output,
+      stateDir: args.stateDir
+    });
+    if (!preview.ok) {
+      return output(args, 1, { ok: false, command: "review-preview", issues: preview.issues });
+    }
+    try {
+      const review = await writeCreativeReview({
+        configPath: args.config!,
+        project: validation.project!,
+        manifest: validation.manifest!,
+        plan,
+        outputDir: args.output,
+        stateDir: args.stateDir
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "review-preview",
+        preview_path: preview.previewPath,
+        reused: preview.reused,
+        digest: preview.digest,
+        shot_id: preview.shotId,
+        review_path: review.reviewPath,
+        review_data_path: review.dataPath,
+        gate_state: "unchanged"
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "review-preview",
+        issues: [{
+          code: "review_preview.review_write_failed",
+          message: error instanceof Error ? error.message : String(error),
+          path: args.output
+        }]
+      });
+    }
+  }
+
   if (args.command === "run" && args.dryRun) {
     return output(args, 0, {
       ok: true,
@@ -1109,7 +1171,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -1121,6 +1183,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--capability": "capability",
       "--input-mode": "inputMode",
       "--output": "output",
+      "--shot": "shot",
       "--request": "request",
       "--duration": "duration",
       "--shitate-root": "shitateRoot",
@@ -1486,7 +1549,7 @@ function requireCoordinator(args: ParsedArgs): Issue | undefined {
 }
 
 function shouldAcquireRunLock(args: ParsedArgs): boolean {
-  if (args.command === "review" || args.command === "compose") return true;
+  if (args.command === "review" || args.command === "review-preview" || args.command === "compose") return true;
   if (args.command === "finalize" && args.apply) return args.actor === "coordinator";
   if ((args.command === "run" && !args.dryRun) || args.command === "render") {
     return args.actor === "coordinator";

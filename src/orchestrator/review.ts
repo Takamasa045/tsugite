@@ -33,6 +33,7 @@ import {
   type RawAnalysisForComposition
 } from "./compositionProposal.js";
 import type { ExecutionPlan } from "./plan.js";
+import { computeReviewPreviewDigest } from "./reviewPreview.js";
 
 export type EditorialCompilation = {
   manifest: Manifest;
@@ -123,6 +124,7 @@ export type ReviewShot = {
   model?: string;
   input_mode?: string;
   motion?: ReviewMotionPlan;
+  preview_video_src?: string;
 };
 
 export type ReviewCompositionProposal = {
@@ -618,9 +620,10 @@ async function fingerprintReviewAssets(
 ): Promise<Array<{ path: string; sha256: string }>> {
   const realOutputDir = await realpath(outputDir);
   const previewPaths = [...new Set(
-    collectReferencedAssets(document)
-      .map((asset) => asset.preview_src)
-      .filter((path): path is string => Boolean(path))
+    [
+      ...collectReferencedAssets(document).map((asset) => asset.preview_src),
+      ...document.storyboard.map((shot) => shot.preview_video_src)
+    ].filter((path): path is string => Boolean(path))
   )].sort();
   const fingerprints: Array<{ path: string; sha256: string }> = [];
   for (const previewPath of previewPaths) {
@@ -1036,6 +1039,11 @@ export async function writeCreativeReview(
         }
       : undefined
   );
+  await attachReviewPreviewVideos(outputDir, document, {
+    configPath,
+    project: options.project,
+    manifest: options.manifest
+  });
   const configArgument = shellQuote(relative(process.cwd(), configPath) || configPath);
   document.approval_commands = {
     approve: document.approval_commands.approve.replace("<project.yaml>", configArgument),
@@ -1273,6 +1281,50 @@ function collectReferencedAssets(document: ReviewDocument): ReviewAsset[] {
   ];
 }
 
+async function attachReviewPreviewVideos(
+  outputDir: string,
+  document: ReviewDocument,
+  source: { configPath: string; project: Project; manifest: Manifest }
+): Promise<void> {
+  const previewsDir = resolve(outputDir, "previews");
+  for (const shot of document.storyboard) {
+    const safeShotId = safeBasename(shot.id);
+    const recordPath = resolve(previewsDir, `${safeShotId}.json`);
+    const previewPath = resolve(previewsDir, `${safeShotId}.mp4`);
+    if (!isPathWithin(outputDir, recordPath) || !isPathWithin(outputDir, previewPath)) continue;
+    try {
+      const record = JSON.parse(await readFile(recordPath, "utf8")) as {
+        schema_version?: unknown;
+        shot_id?: unknown;
+        digest?: unknown;
+        source_digest?: unknown;
+        preview_path?: unknown;
+        preview_sha256?: unknown;
+      };
+      const previewSrc = typeof record.preview_path === "string" ? record.preview_path : "";
+      const current = await computeReviewPreviewDigest({ ...source, shotId: shot.id });
+      if (
+        current.ok
+        &&
+        record.schema_version === 1
+        && record.shot_id === shot.id
+        && record.digest === current.digest
+        && record.source_digest === current.sourceDigest
+        && previewSrc === `previews/${safeShotId}.mp4`
+        && !isExternalAsset(previewSrc)
+        && isPathWithin(outputDir, resolve(outputDir, previewSrc))
+        && await isFile(previewPath)
+        && typeof record.preview_sha256 === "string"
+        && record.preview_sha256 === createHash("sha256").update(await readFile(previewPath)).digest("hex")
+      ) {
+        shot.preview_video_src = previewSrc;
+      }
+    } catch {
+      // Preview artifacts are optional and must never prevent the normal review path.
+    }
+  }
+}
+
 function renderAnalysisReview(analysis: ReviewDocument["analysis"]): string {
   if (!analysis) return "";
   if (analysis.status !== "ready") {
@@ -1467,7 +1519,9 @@ export function renderReviewHtml(document: ReviewDocument): string {
     ? `<section class="warnings" aria-labelledby="warnings-title"><h2 id="warnings-title">確認ポイント</h2><ul>${document.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></section>`
     : "";
   const storyboard = document.storyboard.map((shot) => {
-    const image = shot.image?.preview_src
+    const image = shot.preview_video_src
+      ? `<video controls muted playsinline preload="metadata" src="${escapeAttribute(shot.preview_video_src)}" aria-label="${escapeAttribute(`${shot.title}のローカル動画プレビュー`)}"></video>`
+      : shot.image?.preview_src
       ? `<img src="${escapeAttribute(shot.image.preview_src)}" alt="${escapeAttribute(shot.image.alt ?? `${shot.title}の絵コンテ`)}">`
       : `<div class="wireframe" role="img" aria-label="${escapeAttribute(`${shot.title}の構成ワイヤー`)}"><span>${escapeHtml(shot.speaker ?? "VISUAL")}</span><strong>${escapeHtml(shot.title)}</strong></div>`;
     const barWidth = Math.max(12, (shot.duration / maxShotDuration) * 100);
@@ -1532,7 +1586,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; img-src &#39;self&#39; data:; style-src &#39;unsafe-inline&#39;;">
+  <meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; img-src &#39;self&#39; data:; media-src &#39;self&#39;; style-src &#39;unsafe-inline&#39;;">
   <title>${escapeHtml(document.summary.title)} · Creative Review</title>
   <style>${reviewStyles()}</style>
 </head>
@@ -1605,6 +1659,7 @@ function renderAudioTrack(
 
 function reviewStyles(): string {
   return `
+.frame video{display:block;width:100%;height:100%;object-fit:cover;background:#000}
 .audio-section{margin-top:66px}.audio-policy{color:var(--ink);background:var(--hinoki);border:1px solid #a58b65;padding:18px 22px}.audio-policy dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:0}.audio-policy dl div{border-left:4px solid var(--urushi);padding-left:12px}.audio-policy dt{font:700 .52rem SFMono-Regular,Consolas,monospace;color:var(--urushi);letter-spacing:.1em}.audio-policy dd{margin:6px 0 0;font:700 .7rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.audio-policy>p{margin:14px 0 0}.audio-tracks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px}.audio-track{color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-top:4px solid var(--shinchu);padding:18px}.audio-track h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.15rem;margin:5px 0}.audio-track p{font-size:.75rem;line-height:1.6}.audio-track dl{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 0}.audio-track dl div{min-width:90px}.audio-track dt{font:700 .5rem SFMono-Regular,Consolas,monospace;color:var(--urushi)}.audio-track dd{margin:4px 0 0;font:700 .62rem SFMono-Regular,Consolas,monospace}
 .reference-images{margin-top:20px;padding-top:13px;border-top:1px solid #d1bfa0}.reference-images>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.reference-images figure{min-width:0;margin:0;background:#e2d3b8;border:1px solid #c5ad86}.reference-images img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#d5c4a6}.reference-images figcaption{padding:6px 7px;font:700 .5rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
 :root{color-scheme:dark;--yakisugi:#171b18;--sumi:#20231e;--sumi-soft:#2d3029;--hinoki:#e7d4ae;--kinari:#f4eddf;--mokume:#c8a878;--urushi:#a63d2f;--shinchu:#b89456;--koke:#5b6655;--ink:#27251f;--ink-soft:#756b5c;--rule:rgba(75,58,36,.25);--light-rule:rgba(244,237,223,.16);--approve:#47725a;--danger:#9e3f35;font-family:"Hiragino Sans","Yu Gothic UI","Yu Gothic",system-ui,sans-serif;line-height:1.68;color:var(--kinari);background:var(--yakisugi)}
