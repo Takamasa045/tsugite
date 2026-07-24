@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { appendFile, copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { runCliGenerationAdapter, type CliGenerationRequestResult } from "../adapters/cliGeneration.js";
@@ -321,7 +321,7 @@ export async function assembleLocalMediaRun(
     await writeFile(edlPath, `${JSON.stringify(approvedCompilation.edl, null, 2)}\n`);
   }
   const qcReport = await writeGate2QcReport(assembled, manifestOutputPath, qcReportPath);
-  await writeRunLog(runLogPath, {
+  const runLogInput = {
     runId,
     mode: "local-media",
     assetCount,
@@ -329,7 +329,7 @@ export async function assembleLocalMediaRun(
     inputDigest,
     reviewPath: "review/index.html",
     reviewDataPath: "review/review-data.json",
-    requests: [],
+    requests: [] as CliGenerationRequestResult[],
     ...(generatedAudio.log ? { audio: generatedAudio.log } : {}),
     ...(approvedCompilation ? {
       edlKind: compilationKind,
@@ -338,7 +338,11 @@ export async function assembleLocalMediaRun(
         ? { editorialEdlDigest: approvedCompilation.edl.digest }
         : {})
     } : {})
-  });
+  };
+  // Write the base log first so inspectGate2RunForApproval can read the same summary fields
+  // the human path uses. If auto-pass succeeds, rewrite with Gate 2 evidence placed before
+  // ## Requests so viewer run-log parsing is not poisoned by a trailing section.
+  await writeRunLog(runLogPath, runLogInput);
 
   const autoPass = await evaluateGate2AutoPass({
     project,
@@ -357,10 +361,13 @@ export async function assembleLocalMediaRun(
     : awaitingState;
   const writtenStatePath = await writeState(options.stateDir, nextState);
   if (autoPass.passed) {
-    await appendGate2AutoPassRunLog(runLogPath, {
-      credits: generatedAudio.credits,
-      generatedAssetCount: generatedAudio.assetCount,
-      qcIssueCount: qcReport.issues.length
+    await writeRunLog(runLogPath, {
+      ...runLogInput,
+      gate2AutoPass: {
+        credits: generatedAudio.credits,
+        generatedAssetCount: generatedAudio.assetCount,
+        qcIssueCount: qcReport.issues.length
+      }
     });
   }
 
@@ -427,22 +434,6 @@ async function evaluateGate2AutoPass(input: {
   }
 
   return { passed: true, approvalDigest: inspected.approvalDigest };
-}
-
-async function appendGate2AutoPassRunLog(
-  path: string,
-  summary: { credits: number; generatedAssetCount: number; qcIssueCount: number }
-): Promise<void> {
-  const lines = [
-    "",
-    "## Gate 2",
-    "",
-    `- gate_2_auto_pass: ${GATE_2_AUTO_PASS_POLICY}`,
-    `- gate_2_auto_pass_credits: ${summary.credits}`,
-    `- gate_2_auto_pass_generated_assets: ${summary.generatedAssetCount}`,
-    `- gate_2_auto_pass_qc_issues: ${summary.qcIssueCount}`
-  ];
-  await appendFile(path, `${lines.join("\n")}\n`);
 }
 
 export async function inspectGate2RunForApproval(
@@ -1301,6 +1292,16 @@ async function writeRunLog(
     edlDigest?: string;
     editorialEdlDigest?: string;
     audio?: AudioRunLog;
+    /**
+     * Opt-in Gate 2 auto-pass evidence. Must be written before ## Requests so that
+     * viewer run-log parsing (which treats everything after Requests as request lines)
+     * does not fail on the Gate 2 section.
+     */
+    gate2AutoPass?: {
+      credits: number;
+      generatedAssetCount: number;
+      qcIssueCount: number;
+    };
   }
 ): Promise<void> {
   const lines = [
@@ -1323,6 +1324,15 @@ async function writeRunLog(
     `- review_path: ${input.reviewPath}`,
     `- review_data_path: ${input.reviewDataPath}`,
     `- generated_at: ${new Date().toISOString()}`,
+    ...(input.gate2AutoPass ? [
+      "",
+      "## Gate 2",
+      "",
+      `- gate_2_auto_pass: ${GATE_2_AUTO_PASS_POLICY}`,
+      `- gate_2_auto_pass_credits: ${input.gate2AutoPass.credits}`,
+      `- gate_2_auto_pass_generated_assets: ${input.gate2AutoPass.generatedAssetCount}`,
+      `- gate_2_auto_pass_qc_issues: ${input.gate2AutoPass.qcIssueCount}`
+    ] : []),
     "",
     "## Requests",
     ...input.requests.map(

@@ -383,6 +383,89 @@ describe("workflow viewer artifact", () => {
     );
   });
 
+  it("accepts Gate 2 auto-pass evidence written before the Requests section", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-viewer-artifact-"));
+    const configPath = join(root, "project.yaml");
+    const runDir = join(root, "dist", "viewer-run");
+    const bundleDir = await createBundle(root);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(configPath, "slug: viewer-project\n");
+    // Mirrors assembleLocalMediaRun: Gate 2 evidence is placed before ## Requests so the
+    // Requests parser does not treat the auto-pass lines as malformed request rows.
+    await writeFile(join(runDir, "run-log.md"), [
+      "# Run Log: viewer-run",
+      "",
+      "- mode: local-media",
+      "- asset_count: 3",
+      "- actual_credits: 0",
+      `- input_digest: ${"b".repeat(64)}`,
+      "- generated_at: 2026-07-25T00:00:00.000Z",
+      "",
+      "## Gate 2",
+      "",
+      "- gate_2_auto_pass: qc_ok_no_new_assets",
+      "- gate_2_auto_pass_credits: 0",
+      "- gate_2_auto_pass_generated_assets: 0",
+      "- gate_2_auto_pass_qc_issues: 0",
+      "",
+      "## Requests",
+      ""
+    ].join("\n"));
+
+    await writeWorkflowViewer({
+      configPath,
+      project: sampleProject(),
+      plan: samplePlan(),
+      bundleDir
+    });
+
+    expect(createViewerWorkflowMock).toHaveBeenCalledWith(
+      sampleProject(),
+      samplePlan(),
+      expect.objectContaining({ run_id: "viewer-run", status: "planned" }),
+      expect.objectContaining({
+        runLog: {
+          runId: "viewer-run",
+          mode: "local-media",
+          assetCount: 3,
+          actualCredits: 0,
+          inputDigest: "b".repeat(64),
+          generatedAt: "2026-07-25T00:00:00.000Z",
+          requests: []
+        }
+      })
+    );
+  });
+
+  it("rejects Gate 2 evidence appended after Requests (viewer request-section poison)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-viewer-artifact-"));
+    const runDir = join(root, "dist", "viewer-run");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(root, "project.yaml"), "slug: viewer-project\n");
+    await writeFile(join(runDir, "run-log.md"), [
+      "# Run Log: viewer-run",
+      "",
+      "- mode: local-media",
+      "- asset_count: 1",
+      "- actual_credits: 0",
+      `- input_digest: ${"c".repeat(64)}`,
+      "",
+      "## Requests",
+      "",
+      "## Gate 2",
+      "",
+      "- gate_2_auto_pass: qc_ok_no_new_assets",
+      ""
+    ].join("\n"));
+
+    await expect(writeWorkflowViewer({
+      configPath: join(root, "project.yaml"),
+      project: sampleProject(),
+      plan: samplePlan(),
+      bundleDir: await createBundle(root)
+    })).rejects.toThrow(/run log request 1 is malformed/i);
+  });
+
   it("rejects malformed or mismatched run logs instead of presenting them as trusted", async () => {
     const invalidLogs = [
       "# Run Log: other-run\n\n- mode: generation\n- asset_count: 1\n- actual_credits: 2\n- input_digest: " + "a".repeat(64) + "\n\n## Requests\n",
