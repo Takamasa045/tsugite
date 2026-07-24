@@ -12,7 +12,7 @@ const setupCheckSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("environment"),
     variable: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
-    direct_route_command: z.boolean().default(false)
+    direct_route_command: z.never().optional()
   }),
   z.object({ type: z.literal("manual"), detail: z.string().min(1) })
 ]);
@@ -54,15 +54,6 @@ const connectionDefinitionSchema = z.object({
         code: z.ZodIssueCode.custom,
         message: "automated capabilities must also be declared as service capabilities",
         path: ["automated_capabilities", index]
-      });
-    }
-  }
-  for (const [index, check] of connection.setup_checks.entries()) {
-    if (check.type === "environment" && check.direct_route_command && !check.variable.endsWith("_COMMAND")) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "direct route commands are limited to *_COMMAND environment variables",
-        path: ["setup_checks", index, "direct_route_command"]
       });
     }
   }
@@ -269,22 +260,10 @@ async function inspectConnectionSetup(
     if (check.type === "environment") {
       const value = options.environment[check.variable];
       const configured = typeof value === "string" && value.trim().length > 0;
-      const directExecutable = check.direct_route_command && configured
-        ? parseDirectRouteCommand(value)
-        : undefined;
-      const directExecutableReady = directExecutable
-        ? await options.commandExists(directExecutable)
-        : false;
-      const ready = check.direct_route_command
-        ? Boolean(directExecutable && directExecutableReady)
-        : configured;
       checks.push({
         type: check.type,
         name: check.variable,
-        status: ready ? "ready" : "missing",
-        ...(check.direct_route_command && !ready
-          ? { detail: "must be a JSON array containing exactly one executable wrapper command" }
-          : {})
+        status: configured ? "ready" : "missing"
       });
       continue;
     }
@@ -311,7 +290,7 @@ async function resolveIntegratedConnection(
     provider: connection.provider,
     route_note: connection.route_note,
     auth_kind: connection.auth_kind,
-    contract_digest: connectionContractDigest(connection, process.env),
+    contract_digest: connectionContractDigest(connection),
     setup_status: setup.status,
     execution_mode: connectionExecutionMode(connection)
   };
@@ -323,38 +302,8 @@ export function connectionExecutionMode(
   return connection.execution_mode ?? (connection.transport === "cli" ? "pipeline-adapter" : "agent-handoff");
 }
 
-function connectionContractDigest(
-  connection: ConnectionDefinition,
-  environment: NodeJS.ProcessEnv
-): string {
-  const pinnedEnvironmentIdentities = connection.setup_checks.flatMap((check) => {
-    if (check.type !== "environment" || !check.direct_route_command) return [];
-    const value = environment[check.variable]?.trim() ?? "";
-    const executable = parseDirectRouteCommand(value) ?? "invalid-direct-route-command";
-    return [{
-      variable: check.variable,
-      executable_sha256: createHash("sha256").update(executable).digest("hex")
-    }];
-  });
-  return createHash("sha256").update(JSON.stringify({
-    connection,
-    pinned_environment_identities: pinnedEnvironmentIdentities
-  })).digest("hex");
-}
-
-function parseDirectRouteCommand(value: string): string | undefined {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (
-      !Array.isArray(parsed)
-      || parsed.length !== 1
-      || typeof parsed[0] !== "string"
-      || parsed[0].length === 0
-    ) return undefined;
-    return parsed[0];
-  } catch {
-    return undefined;
-  }
+function connectionContractDigest(connection: ConnectionDefinition): string {
+  return createHash("sha256").update(JSON.stringify(connection)).digest("hex");
 }
 
 function supportsModel(connection: ConnectionDefinition, model: string): boolean {

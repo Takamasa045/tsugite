@@ -50,6 +50,39 @@ describe("generation connection registry", () => {
       .toEqual(expect.arrayContaining(["pixvers", "pixburst"]));
   });
 
+  it("rejects the removed direct route command setting", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-connections-removed-route-"));
+    const catalogPath = join(root, "catalog.yaml");
+    await writeFile(catalogPath, `
+schema_version: 1
+selection_prompt:
+  id: generation-connection
+  question: choose
+  required_when: connection-unspecified
+  instruction: ask
+  no_subscription_message: none
+  no_subscription_options: [generate-later]
+connections:
+  - id: removed-route
+    display_name: Removed route
+    provider: local
+    transport: cli
+    auth_kind: local
+    implementation_status: integrated
+    adapter: mock
+    capabilities: [video.text-to-video]
+    automated_capabilities: [video.text-to-video]
+    model_families: [local]
+    route_note: test
+    setup_checks:
+      - type: environment
+        variable: LOCAL_COMMAND
+        direct_route_command: true
+`);
+
+    await expect(loadConnectionCatalog(catalogPath)).rejects.toThrow(/never/);
+  });
+
   it("resolves integrated connection ids to existing adapters and rejects mismatches", async () => {
     await expect(resolveGenerationConnection("pixverse")).resolves.toMatchObject({
       adapter: "pixverse",
@@ -231,41 +264,6 @@ connections:
 
     await expect(loadConnectionCatalog(catalogPath)).rejects.toThrow(
       /integrated authenticated connections must declare an environment or manual authentication check/
-    );
-  });
-
-  it("forbids route identity pinning on credential environment variables", async () => {
-    const root = await mkdtemp(join(tmpdir(), "tsugite-connections-secret-pin-"));
-    const catalogPath = join(root, "catalog.yaml");
-    await writeFile(catalogPath, `
-schema_version: 1
-selection_prompt:
-  id: generation-connection
-  question: choose
-  required_when: connection-unspecified
-  instruction: ask
-  no_subscription_message: none
-  no_subscription_options: [generate-later]
-connections:
-  - id: unsafe-pin
-    display_name: Unsafe pin
-    provider: unsafe
-    transport: api
-    auth_kind: api-key
-    implementation_status: integrated
-    adapter: mock
-    capabilities: [video.text-to-video]
-    automated_capabilities: [video.text-to-video]
-    model_families: [unsafe]
-    route_note: test
-    setup_checks:
-      - type: environment
-        variable: UNSAFE_API_KEY
-        direct_route_command: true
-`);
-
-    await expect(loadConnectionCatalog(catalogPath)).rejects.toThrow(
-      /direct route commands are limited to \*_COMMAND environment variables/
     );
   });
 

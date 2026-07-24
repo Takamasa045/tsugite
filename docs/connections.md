@@ -77,7 +77,7 @@ generation:
 | `not-integrated` | 登録枠はあるが、Tsugiteからの自動実行adapterは未接続 | 自動実行せず、setupまたはmanual importを案内 |
 
 `ready`は「現時点で、レジストリが機械確認できるsetup checkを満たした」状態であり、料金、残高、レート制限、プロバイダ障害まで保証しない。manual checkが必要なconnectionは `needs-verification` とし、実行前に確認する。
-subscription/API keyを使うintegrated connectionは、environmentまたはmanualの認証checkを必須とし、command存在だけでreadyにしない。認証方式とsecretを含まない接続契約digestはGate 1 reviewへ固定する。外部実行先を環境変数で選ぶbridgeは`*_COMMAND`だけを直接routeとして宣言でき、JSON arrayには引数なしのwrapper実行ファイル1件だけを許可する。実行ファイルidentityをhashし、資格情報はdigestへ含めない。引数が必要なら、資格情報を別の認証環境へ分離したwrapperを用意する。接続定義または実行先が変わった場合は再レビューする。
+subscription/API keyを使うintegrated connectionは、environmentまたはmanualの認証checkを必須とし、command存在だけでreadyにしない。認証方式とsecretを含まない接続契約digestはGate 1 reviewへ固定する。接続定義が変わった場合は再レビューする。
 
 ## 契約がない場合
 
