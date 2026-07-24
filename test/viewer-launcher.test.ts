@@ -2671,8 +2671,9 @@ distribution: local-only
       ok: true,
       job: { action: "run", status: "running", id: expect.any(String) }
     });
-    for (let attempt = 0; attempt < 30 && calls.length === 0; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
+    // Windows runners can take longer to start the guarded action after the HTTP response.
+    for (let attempt = 0; attempt < 100 && calls.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(calls).toHaveLength(1);
     expect(calls[0]!.command).toBe(process.execPath);

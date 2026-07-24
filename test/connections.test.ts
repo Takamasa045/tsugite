@@ -234,43 +234,6 @@ connections:
     );
   });
 
-  it("pins a declared runtime route identity into the connection contract digest", async () => {
-    const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
-    try {
-      process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = '["provider-one"]';
-      const first = await resolveGenerationConnection("openclaw-bridge");
-      process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = '["provider-two"]';
-      const second = await resolveGenerationConnection("openclaw-bridge");
-
-      expect(first?.contract_digest).toMatch(/^[a-f0-9]{64}$/);
-      expect(second?.contract_digest).toMatch(/^[a-f0-9]{64}$/);
-      expect(second?.contract_digest).not.toBe(first?.contract_digest);
-
-      process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = '["provider-two","--provider","other"]';
-      const invalidArgumentRoute = await resolveGenerationConnection("openclaw-bridge");
-      expect(invalidArgumentRoute?.setup_status).toBe("needs-setup");
-    } finally {
-      if (previous === undefined) delete process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
-      else process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = previous;
-    }
-  });
-
-  it("does not mark a non-executable direct route wrapper as ready", async () => {
-    const root = await mkdtemp(join(tmpdir(), "tsugite-non-executable-route-"));
-    const wrapper = join(root, "provider-wrapper");
-    await writeFile(wrapper, "#!/bin/sh\nexit 0\n", { mode: 0o644 });
-
-    const candidates = await listConnectionOptions({
-      environment: {
-        ...process.env,
-        TSUGITE_OPENCLAW_GENERATE_COMMAND: JSON.stringify([wrapper])
-      }
-    });
-
-    expect(candidates.find((candidate) => candidate.id === "openclaw-bridge")?.setup.status)
-      .toBe(process.platform === "win32" ? "needs-verification" : "needs-setup");
-  });
-
   it("forbids route identity pinning on credential environment variables", async () => {
     const root = await mkdtemp(join(tmpdir(), "tsugite-connections-secret-pin-"));
     const catalogPath = join(root, "catalog.yaml");

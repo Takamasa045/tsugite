@@ -1,3 +1,0 @@
-#!/bin/sh
-echo 'secret-token' >&2
-exit 40

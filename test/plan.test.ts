@@ -234,47 +234,6 @@ describe("plan and dry run", () => {
     ]);
   });
 
-  it("surfaces optional OpenClaw generation as a pipeline-cli adapter", async () => {
-    const validation = await validateProject("fixtures/projects/openclaw-generation.yaml", {
-      adapterDirs: ["fixtures/adapters", "adapters"]
-    });
-    const dryRun = createDryRun(
-      validation.project!,
-      validation.manifest!,
-      validation.adapter,
-      validation.analysisAdapter,
-      validation.backend,
-      [],
-      validation.audioAdapter,
-      validation.generationConnection
-    );
-
-    expect(validation.ok).toBe(true);
-    expect(dryRun.executed).toBe(false);
-    expect(dryRun.estimated_credits).toBe(2);
-    expect(dryRun.agent_handoffs).toEqual([
-      {
-        phase: "generation",
-        adapter: "openclaw",
-        connection: "openclaw-bridge",
-        transport: "cli",
-        setup_status: expect.stringMatching(/^(needs-verification|needs-setup)$/),
-        provider: "openclaw",
-        route_note: expect.stringContaining("TSUGITE_OPENCLAW_GENERATE_COMMAND"),
-        auth_kind: "local",
-        connection_contract_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
-        execution_mode: "pipeline-adapter",
-        automatic_fallback: false,
-        kind: "cli",
-        class: "generation",
-        outputs: ["openclaw-001"],
-        dry_run_estimate_available: true,
-        batch: false,
-        execution: "pipeline-cli"
-      }
-    ]);
-  });
-
   it("keeps an explicit generation connection separate and disables automatic fallback", async () => {
     const validation = await validateProject("fixtures/projects/generation-connection-topview.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]

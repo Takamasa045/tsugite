@@ -432,18 +432,6 @@ describe("project validation", () => {
     expect(result.adapter).toBeUndefined();
   });
 
-  it("asks before using an unregistered external adapter without a connection", async () => {
-    const result = await validateProject("fixtures/projects/openclaw-connection-required.yaml", {
-      adapterDirs: ["fixtures/adapters", "adapters"]
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.issues).toContainEqual(expect.objectContaining({
-      code: "generation.connection_required",
-      path: "generation.connection"
-    }));
-  });
-
   it("asks with every candidate when one adapter has multiple connection routes", async () => {
     const root = await mkdtemp(join(tmpdir(), "tsugite-project-connections-"));
     const catalogPath = join(root, "catalog.yaml");

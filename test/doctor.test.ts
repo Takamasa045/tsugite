@@ -256,67 +256,6 @@ describe("environment doctor", () => {
     expect(JSON.stringify(report)).not.toContain(secret);
   });
 
-  it("checks a declared bridge environment variable without executing the bridge", async () => {
-    const checkedCommands: string[] = [];
-    const probedCommands: string[][] = [];
-    const report = await inspectEnvironment("fixtures/projects/openclaw-generation.yaml", {
-      commandExists: async (command) => {
-        checkedCommands.push(command);
-        return command === "node" || command === "npm" || command === "ffprobe" || command === "ffmpeg";
-      },
-      probeCommand: async (command) => {
-        probedCommands.push([...command]);
-        return { ok: true, version: "test" };
-      },
-      environment: {
-        ...process.env,
-        TSUGITE_OPENCLAW_GENERATE_COMMAND: '["node"]'
-      }
-    });
-
-    expect(report.ok).toBe(true);
-    expect(checkedCommands).toContain("node");
-    expect(probedCommands.flat()).not.toContain("bridge.mjs");
-    expect(report.checks).toContainEqual(
-      expect.objectContaining({ name: "bridge:openclaw (openclaw)", ok: true, status: "ready" })
-    );
-  });
-
-  it("fails closed when a direct bridge command includes arguments", async () => {
-    const report = await inspectEnvironment("fixtures/projects/openclaw-generation.yaml", {
-      commandExists: async () => true,
-      probeCommand: async () => ({ ok: true, version: "test" }),
-      environment: {
-        ...process.env,
-        TSUGITE_OPENCLAW_GENERATE_COMMAND: '["node","bridge.mjs"]'
-      }
-    });
-
-    expect(report.ok).toBe(false);
-    expect(report.checks).toContainEqual(expect.objectContaining({
-      name: "bridge:openclaw (openclaw)",
-      ok: false,
-      status: "missing"
-    }));
-  });
-
-  it("fails closed when a declared bridge environment variable is missing", async () => {
-    const report = await inspectEnvironment("fixtures/projects/openclaw-generation.yaml", {
-      commandExists: async () => true,
-      probeCommand: async () => ({ ok: true, version: "test" }),
-      environment: {}
-    });
-
-    expect(report.ok).toBe(false);
-    expect(report.checks).toContainEqual(
-      expect.objectContaining({
-        name: "bridge:openclaw (openclaw)",
-        ok: false,
-        status: "missing",
-        remediation: expect.stringContaining("TSUGITE_OPENCLAW_GENERATE_COMMAND")
-      })
-    );
-  });
 });
 
 async function projectUsingAdapter(adapterName: string): Promise<string> {

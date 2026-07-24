@@ -28,7 +28,7 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 - Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
 - A story-guide catalog covering 34 narrative, persuasion, documentary, genre, and music-video structures plus 35 contextual film-grammar and AI-video principles.
 - TopView skill CLI generation adapter for T2V and single-frame I2V.
-- Optional OpenClaw CLI bridge and Hermes analysis handoff adapters.
+- Optional Hermes analysis handoff adapter.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
 - Gate-bound editorial EDL compilation that retimes selected cuts, captions, and chapters for both Remotion and HyperFrames without modifying source media.
 - Gate 2 QC report generation using manifest and media probes.
@@ -100,7 +100,7 @@ npm run viewer:open
 
 Use `node bin/pipeline ...` in PowerShell instead of invoking the extensionless `bin/pipeline` file directly. Reopen PowerShell after installing or updating Node.js, FFmpeg, or a provider CLI so the updated `PATH` and `PATHEXT` are visible. Provider authentication, entitlements, and billing remain separate manual setup.
 
-Provider CLIs such as PixVerse/Kling, external TopView/OpenClaw/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. For TopView, doctor probes the skill's `video_gen.py` with the non-charging `list-models` command. It does not submit generation tasks; authentication and credits remain manual checks. Any unresolved blocking check makes the overall `ok` value `false`.
+Provider CLIs such as PixVerse/Kling, external TopView/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. For TopView, doctor probes the skill's `video_gen.py` with the non-charging `list-models` command. It does not submit generation tasks; authentication and credits remain manual checks. Any unresolved blocking check makes the overall `ok` value `false`.
 
 After a successful local first-time setup, Codex and Claude Code ask once, before the next substantive proposal, whether to add the optional learning-promotion automation and its host-standard completion notification. Choosing it requires selecting one primary host (Codex, Claude Desktop/Cowork, or Claude Code) and a cadence; choosing not to set it up suppresses the repeat question for that setup flow. The automation stays local, creates only human-approval candidates, and never enables browser/OS notifications or external destinations. See [Learning Promotion Review Automation](docs/automations/learning-promotion-review.md).
 
@@ -208,7 +208,7 @@ generation:
 
 `plan` returns request-specific `prompt_guidance` when the model and input mode match. Set `prompt_guide.catalog` when the knowledge catalog differs from the execution adapter. A catalog never implies execution capability and never rewrites the prompt. See [Model Prompt Knowledge](docs/prompt-guides.md).
 
-Optional OpenClaw/Hermes adapters are distribution-time opt-ins. The base
+The optional Hermes adapter is a distribution-time opt-in. The base
 install does not require them; set them up only when a `project.yaml` selects
 one of those adapters. See [Optional Adapters](docs/optional-adapters.md).
 
