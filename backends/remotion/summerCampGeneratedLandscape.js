@@ -1,5 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
+import { designScale } from "./presentation.mjs";
 
 export const SUMMER_CAMP_GENERATED_LANDSCAPE_PRESET = "tsugite-summer-camp-generated-16x9";
 
@@ -20,7 +21,7 @@ export function generatedSummerCampMotion(frame, durationFrames) {
 
 export function SummerCampGeneratedLandscape({ manifest }) {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { width, height, fps } = useVideoConfig();
   const second = frame / fps;
   const captions = manifest.captions ?? [];
   const scene = captions.find((caption) => second >= caption.start && second < caption.end);
@@ -36,17 +37,22 @@ export function SummerCampGeneratedLandscape({ manifest }) {
   const accentWidth = interpolate(localFrame, [4, 14], [0, 76], {
     easing: Easing.out(Easing.cubic), extrapolateLeft: "clamp", extrapolateRight: "clamp"
   });
+  const scale = designScale(width, height);
+  const left = (width - 1920 * scale) / 2;
+  const top = (height - 1080 * scale) / 2;
 
   return h(AbsoluteFill, { style: { overflow: "hidden", color: C.paper, fontFamily: SANS, pointerEvents: "none" } },
     h("div", { style: { position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(11,13,11,.84), rgba(11,13,11,.45) 48%, rgba(11,13,11,.08))" } }),
     h("div", { style: { position: "absolute", inset: 0, opacity: .17, background: "repeating-linear-gradient(0deg, transparent 0 7px, rgba(255,248,235,.12) 8px 9px)" } }),
-    h(Brand),
-    h(JoineryLock, { localFrame }),
-    h("div", { style: { position: "absolute", left: 82, right: 82, top: 148, bottom: 110, display: "flex", alignItems: "center", opacity: motion.visible, transform: `translateX(${shift}px)` } },
-      h("div", { style: { maxWidth: "100%" } },
-        h("div", { style: { color: C.brass, fontFamily: "monospace", fontSize: 18, fontWeight: 900, letterSpacing: ".13em", textShadow: "0 2px 12px rgba(0,0,0,.7)" } }, visual.kicker ?? "TSUGITE SUMMER CAMP"),
-        h("div", { style: { width: accentWidth, height: 5, marginTop: 13, background: C.coral } }),
-        isPrice ? h(Price, { visual, localFrame }) : h(Story, { headline, visual, localFrame })
+    h("div", { style: { position: "absolute", left, top, width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: "top left" } },
+      h(Brand),
+      h(JoineryLock, { localFrame }),
+      h("div", { style: { position: "absolute", left: 82, right: 82, top: 148, bottom: 110, display: "flex", alignItems: "center", opacity: motion.visible, transform: `translateX(${shift}px)` } },
+        h("div", { style: { maxWidth: "100%" } },
+          h("div", { style: { color: C.brass, fontFamily: "monospace", fontSize: 18, fontWeight: 900, letterSpacing: ".13em", textShadow: "0 2px 12px rgba(0,0,0,.7)" } }, visual.kicker ?? "TSUGITE SUMMER CAMP"),
+          h("div", { style: { width: accentWidth, height: 5, marginTop: 13, background: C.coral } }),
+          isPrice ? h(Price, { visual, localFrame }) : h(Story, { headline, visual, localFrame })
+        )
       )
     )
   );

@@ -59,6 +59,10 @@ describe("remotion preset contract", () => {
           logLevel: "error",
           timeoutInMilliseconds: 120_000
         });
+        if (entry.id === "tsugite-summer-camp-generated-16x9") {
+          expect(composition.width).toBe(1280);
+          expect(composition.height).toBe(720);
+        }
         const frames = entry.id === "tsugite-summer-camp-generated-16x9" ? [0, 15, 45] : [0];
         const renderedFrames = new Map<number, Buffer>();
         for (const frame of frames) {
@@ -135,7 +139,7 @@ function minimalManifest(preset: string, aspect: "16:9" | "9:16") {
     ...orbitalClips[0],
     out: 2,
     duration: 2,
-    resolution: { width: 1920, height: 1080 }
+    resolution: { width: 1280, height: 720 }
   };
   return {
     meta: {
