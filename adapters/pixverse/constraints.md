@@ -1,7 +1,7 @@
 # PixVerse adapter constraints
 
-- Generation duration must be 3, 5, or 10 seconds.
-- Generation aspect must be 16:9 or 9:16.
+- Video, transition, extend, reference, and template duration must be 3, 5, or 10 seconds. Music always uses provider auto-duration; a project duration is an editorial target and is never forwarded as `--duration-seconds`.
+- Video, reference, and template aspect must be 16:9 or 9:16. Image-to-video framing follows its input image.
 - If a seed is supplied, it must be between 0 and 2147483647.
 - Keep generated assets local under `dist/<run-id>/` before returning success.
 - Normalize transient CLI failures to the shared exit-code contract.

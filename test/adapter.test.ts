@@ -420,6 +420,59 @@ describe("adapter contract", () => {
     );
   });
 
+  it("does not apply video-only PixVerse duration and aspect constraints to music", async () => {
+    const project = await loadProject("fixtures/projects/local-valid.yaml");
+    const musicOnly = {
+      ...project,
+      generation: {
+        adapter: "pixverse",
+        requests: [{
+          id: "music-bed", operation: "music" as const, audio_role: "music" as const,
+          model: "music-2.6", duration: 30, prompt: "instrumental wooden electronic promo bed",
+          params: { instrumental: true }
+        }]
+      }
+    };
+    const result = await validateGenerationConstraints(musicOnly, ["adapters"]);
+    expect(result.ok).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("rejects misspelled operation names in adapter constraints", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-invalid-operations-"));
+    const adapterRoot = join(root, "invalid-operations");
+    await mkdir(adapterRoot, { recursive: true });
+    await writeFile(join(adapterRoot, "adapter.yaml"), [
+      "name: invalid-operations",
+      "kind: cli",
+      "connection_requirement: local-only",
+      "dry_run_estimate: true",
+      "batch: true",
+      "command:",
+      "  executable: node",
+      "  args: [generate.mjs]",
+      "  input: stdin-json"
+    ].join("\n"));
+    await writeFile(join(adapterRoot, "constraints.yaml"), [
+      "checks:",
+      "  - id: duration-supported",
+      "    scope: generation",
+      "    field: duration",
+      "    operations: [musci]",
+      "    operator: in",
+      "    values: [5]",
+      "    message: duration must be 5 seconds"
+    ].join("\n"));
+
+    const project = await loadProject("fixtures/projects/local-valid.yaml");
+    const invalidProject = {
+      ...project,
+      generation: { ...project.generation!, adapter: "invalid-operations" }
+    };
+
+    await expect(validateGenerationConstraints(invalidProject, [root])).rejects.toThrow();
+  });
+
   it("rejects analysis adapters in generation slots", async () => {
     const { validateProject } = await import("../src/project/validateProject.js");
     const result = await validateProject("fixtures/projects/generation-analysis-adapter.yaml", {

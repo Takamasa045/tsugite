@@ -87,6 +87,24 @@ describe("PixVerse CLI request mapping", () => {
     expect(args).not.toContain("--duration");
     expect(args).not.toContain("--aspect-ratio");
   });
+
+  it("keeps PixVerse music on provider auto-duration", () => {
+    const args = buildPixverseCreateArgs({
+      id: "music-bed",
+      operation: "music",
+      prompt: "instrumental wooden electronic promo bed",
+      model: "music-2.6",
+      duration: 30,
+      params: { instrumental: true }
+    }, "run");
+
+    expect(args).toEqual(expect.arrayContaining([
+      "create", "music", "--model", "music-2.6", "--instrumental"
+    ]));
+    expect(args).not.toContain("--duration-seconds");
+    expect(args).not.toContain("--duration");
+  });
+
   it("omits aspect-ratio for image-to-video because framing comes from the image", () => {
     const args = buildPixverseCreateArgs({
       id: "i2v-shot",

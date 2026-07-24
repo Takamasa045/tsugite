@@ -2,7 +2,12 @@ import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { readYamlFile } from "../io.js";
-import { generationRequestMode, type GenerationRequest, type Project } from "../project/schema.js";
+import {
+  generationOperationSchema,
+  generationRequestMode,
+  type GenerationRequest,
+  type Project
+} from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import { loadAdapterDefinition } from "./registry.js";
 
@@ -13,6 +18,7 @@ const constraintSchema = z.object({
         id: z.string().min(1),
         scope: z.union([z.literal("generation"), z.literal("analysis")]),
         field: z.string().min(1),
+        operations: z.array(generationOperationSchema).min(1).optional(),
         operator: z.union([z.literal("in"), z.literal("min"), z.literal("max")]),
         values: z.array(z.union([z.string(), z.number()])).optional(),
         value: z.union([z.string(), z.number()]).optional(),
@@ -40,6 +46,7 @@ export async function validateGenerationConstraints(
     [
       ...constraints.checks.flatMap((check) => {
         if (check.scope !== "generation") return [];
+        if (check.operations && !check.operations.includes(request.operation ?? "video")) return [];
 
         const actual = request[check.field as keyof typeof request] as Comparable;
         const valid = matchesConstraint(actual, check);

@@ -19,7 +19,7 @@ describe("remotion preset contract", () => {
 
     expect(backend?.capabilities.presets).toEqual(registryIds);
     expect(source).toContain(
-      "presets: [article-dialogue-16x9, street-dialogue-16x9, miraichi-lastcall-9x16, orbital-showreel-16x9]"
+      "presets: [article-dialogue-16x9, street-dialogue-16x9, tsugite-summer-camp-generated-16x9, miraichi-lastcall-9x16, orbital-showreel-16x9]"
     );
   });
 
@@ -59,19 +59,57 @@ describe("remotion preset contract", () => {
           logLevel: "error",
           timeoutInMilliseconds: 120_000
         });
-        const output = join(root, `${entry.id}.png`);
-        await renderStill({
-          serveUrl,
-          composition,
-          frame: 0,
-          imageFormat: "png",
-          inputProps,
-          output,
-          overwrite: true,
-          logLevel: "error",
-          timeoutInMilliseconds: 120_000
-        });
-        expect((await stat(output)).size).toBeGreaterThan(0);
+        const frames = entry.id === "tsugite-summer-camp-generated-16x9" ? [0, 15, 45] : [0];
+        const renderedFrames = new Map<number, Buffer>();
+        for (const frame of frames) {
+          const output = join(root, `${entry.id}-${frame}.png`);
+          await renderStill({
+            serveUrl,
+            composition,
+            frame,
+            imageFormat: "png",
+            inputProps,
+            output,
+            overwrite: true,
+            logLevel: "error",
+            timeoutInMilliseconds: 120_000
+          });
+          expect((await stat(output)).size).toBeGreaterThan(0);
+          renderedFrames.set(frame, await readFile(output));
+        }
+        if (entry.id === "tsugite-summer-camp-generated-16x9") {
+          const baselineProps = {
+            manifest: {
+              ...manifest,
+              captions: [],
+              presentation: { ...manifest.presentation, preset: "unregistered-preset" }
+            }
+          };
+          const baselineComposition = await selectComposition({
+            serveUrl,
+            id: "tsugite-render",
+            inputProps: baselineProps,
+            logLevel: "error",
+            timeoutInMilliseconds: 120_000
+          });
+          for (const frame of [15, 45]) {
+            const baselineOutput = join(root, `${entry.id}-${frame}-baseline.png`);
+            await renderStill({
+              serveUrl,
+              composition: baselineComposition,
+              frame,
+              imageFormat: "png",
+              inputProps: baselineProps,
+              output: baselineOutput,
+              overwrite: true,
+              logLevel: "error",
+              timeoutInMilliseconds: 120_000
+            });
+            const overlayFrame = renderedFrames.get(frame);
+            expect(overlayFrame).toBeDefined();
+            expect(overlayFrame!.equals(await readFile(baselineOutput))).toBe(false);
+          }
+        }
       }
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -92,16 +130,26 @@ function minimalManifest(preset: string, aspect: "16:9" | "9:16") {
     audio: false
   }));
   const orbital = preset === "orbital-showreel-16x9";
+  const generatedSummerCamp = preset === "tsugite-summer-camp-generated-16x9";
+  const generatedClip = {
+    ...orbitalClips[0],
+    out: 2,
+    duration: 2,
+    resolution: { width: 1920, height: 1080 }
+  };
   return {
     meta: {
       aspect,
       fps: 30,
-      target_duration_seconds: orbital ? 30 : 1,
+      target_duration_seconds: orbital ? 30 : generatedSummerCamp ? 2 : 1,
       slug: `preset-smoke-${preset}`
     },
-    clips: orbital ? orbitalClips : [],
+    clips: orbital ? orbitalClips : generatedSummerCamp ? [generatedClip] : [],
     audio: { bgm: [], narration: [], sfx: [] },
-    captions: [],
+    captions: generatedSummerCamp ? [
+      { id: "summer-story", text: "第3回、追加決定。", start: 0, end: 1, emphasis: [], visual: { kind: "hook", sale_label: "全3回｜申込受付開始", headline: "第3回、追加決定。", detail: "一本を完成させる。", points: ["8月11日"] } },
+      { id: "summer-price", text: "全3回を、いま。", start: 1, end: 2, emphasis: [], visual: { kind: "price", headline: "全3回を、いま。", today_label: "ウェビナー期間中", today_price: "6,980円", after_label: "終了後", after_price: "9,800円" } }
+    ] : [],
     images: [],
     speakers: [],
     presentation: {
