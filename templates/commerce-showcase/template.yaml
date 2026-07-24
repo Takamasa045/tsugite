@@ -1,0 +1,123 @@
+schema_version: 1
+kind: tsugite-template
+id: commerce-showcase
+name: 商品・サービス紹介｜EC・ブランド
+summary: 商品・サービスの価値、利用場面、根拠、条件、CTAを15〜60秒で示す親テンプレートです。商品・サービス・ブランド・プロフィール紹介へ分岐します。
+category: 商品・サービス紹介
+use_cases:
+  - 商品・サービス紹介動画
+  - アパレルやネットショップ向けの商品訴求
+  - 課題から解決までを伝える紹介動画
+  - ブランドイメージ、プロフィール、サービスの価値紹介
+  - Kindle本のA+用静止画を作る前の素材・構成整理
+preview:
+  frames:
+    - kind: product
+      label: 商品・サービスと価値を提示
+    - kind: person
+      label: 利用場面や悩みの変化を見せる
+    - kind: interface
+      label: 根拠、条件、次の行動を確認
+  flow:
+    - 対象者と価値を明確にする
+    - 商品・サービスを利用場面で見せる
+    - 根拠と条件を照合する
+    - 次の行動を一つに絞る
+not_for:
+  - 実在しない商品画像、レビュー、推薦を作る用途
+  - 根拠のない効果、価格、在庫、期限を表示する用途
+  - Kindle本のA+へ動画を直接アップロードする用途
+output:
+  duration:
+    mode: variable
+    min_seconds: 15
+    max_seconds: 60
+    label: 15〜60秒
+  aspect_ratios:
+    - "9:16"
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 商品・サービス名、対象者、価値、避ける表現、CTA
+    required: true
+  - type: image
+    label: 利用許諾を確認した商品写真、画面、ロゴ、利用場面の素材
+    required: true
+  - type: data
+    label: 仕様、価格、販売・申込条件、実績、推薦を表示する根拠
+    required: true
+  - type: video
+    label: 開封、利用、操作、利用後を見せる実写素材
+    required: false
+  - type: audio
+    label: 許諾済みのナレーション、BGM、効果音
+    required: false
+variants:
+  - id: story
+    label: 訴求構成
+    default_option: benefit-first
+    options:
+      - id: benefit-first
+        label: 価値先行
+        description: 冒頭で商品と利用価値を見せ、実演とCTAへ進みます。
+      - id: problem-solution
+        label: 課題解決
+        description: 悩み、原因、解決の範囲、根拠、次の行動を示します。
+      - id: usage-demo
+        label: 使い方実演
+        description: 開封、準備、使い方、結果、仕様を実物で見せます。
+      - id: brand-image
+        label: ブランドイメージ
+        description: 世界観、素材感、利用場面、価値を印象的に伝えます。
+      - id: profile-service
+        label: プロフィール・サービス
+        description: 誰が、誰のどんな悩みに、どう役立つかを簡潔に示します。
+      - id: evidence-led
+        label: 根拠・推薦中心
+        description: 許諾済みの実績、公開情報、推薦だけを出典とともに示します。
+  - id: sales-surface
+    label: 利用面
+    default_option: own-ec
+    options:
+      - id: own-ec
+        label: 自社EC・申込ページ
+        description: ブランド世界観と詳細ページへの導線を重視します。
+      - id: marketplace
+        label: ECモール
+        description: 商品名、主要仕様、条件、識別情報を読みやすく見せます。
+      - id: social-commerce
+        label: SNSショップ
+        description: 縦型の実演とプロフィール・リンク導線を優先します。
+      - id: aplus-companion
+        label: Kindle A+補助素材
+        description: 動画ではなく、A+の画像・テキスト設計に使う静止画候補を整理します。
+  - id: format
+    label: 尺と画面
+    default_option: short-30
+    options:
+      - id: short-15
+        label: 15秒ショート
+        description: 商品、価値、CTAだけを一つずつ見せます。
+      - id: short-30
+        label: 30秒CM
+        description: 課題または価値、実演、根拠、CTAをまとめます。
+      - id: demo-45
+        label: 45秒デモ
+        description: 開封や使い方を実写で補足します。
+      - id: detail-60
+        label: 60秒紹介
+        description: 仕様、利用場面、根拠、条件まで示します。
+tags:
+  - 商品紹介
+  - サービス紹介
+  - EC
+  - ブランド
+  - 15秒
+  - 30秒
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 第三者の推薦、価格、在庫、配送、返品、期限は正本と照合し、音声なしでも価値と条件を読めるようにします。
+status: experimental
+distribution: local-only

@@ -235,9 +235,12 @@
 
 .launcher-section-heading h2,
 .launcher-feedback-heading h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }
-.launcher-project-list-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.launcher-project-list-refresh { min-height: 36px; padding: 0 12px; white-space: nowrap; }
-.launcher-project-list-refresh-error {
+.launcher-project-list-actions,
+.launcher-template-list-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.launcher-project-list-refresh,
+.launcher-template-list-refresh { min-height: 36px; padding: 0 12px; white-space: nowrap; }
+.launcher-project-list-refresh-error,
+.launcher-template-list-refresh-error {
   margin: 16px 0 0;
   border-left: 3px solid var(--launcher-urushi);
   padding: 10px 12px;
@@ -246,7 +249,8 @@
   font-size: .72rem;
   line-height: 1.6;
 }
-.launcher-project-list-refresh-notice {
+.launcher-project-list-refresh-notice,
+.launcher-template-list-refresh-notice {
   margin: 16px 0 0;
   border-left: 3px solid #758c69;
   padding: 10px 12px;
@@ -255,6 +259,119 @@
   font-size: .72rem;
   line-height: 1.6;
 }
+.launcher-template-howto,
+.launcher-template-prompt-builder {
+  margin: 16px 0;
+  border: 1px solid rgba(200, 168, 120, .42);
+  padding: 16px;
+  color: var(--launcher-kinari);
+  background: rgba(27, 32, 27, .76);
+}
+.launcher-template-howto header,
+.launcher-template-prompt-builder > header { display: grid; gap: 4px; }
+.launcher-template-howto header > span,
+.launcher-template-prompt-builder > header > span {
+  color: var(--launcher-mokume);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+.launcher-template-howto h3,
+.launcher-template-prompt-builder h3 { margin: 0; font-size: 1rem; }
+.launcher-template-prompt-builder > header > p,
+.launcher-template-howto p { margin: 0; color: rgba(244, 237, 223, .72); font-size: .74rem; line-height: 1.6; }
+.launcher-template-howto > ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.launcher-template-howto li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; }
+.launcher-template-howto li > b {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--launcher-sumi);
+  background: var(--launcher-mokume);
+  font-family: Georgia, "Yu Mincho", serif;
+  font-size: .68rem;
+}
+.launcher-template-howto li strong { font-size: .76rem; }
+.launcher-template-howto li p { margin-top: 3px; font-size: .68rem; }
+.launcher-template-prompt-builder { color: var(--launcher-kinari); }
+.launcher-template-starter,
+.launcher-template-no-starter,
+.launcher-template-prompt-missing,
+.launcher-template-prompt-ready {
+  margin: 14px 0 0;
+  border-left: 3px solid var(--launcher-mokume);
+  padding: 10px 12px;
+  color: rgba(244, 237, 223, .82);
+  background: rgba(231, 212, 174, .08);
+  font-size: .74rem;
+  line-height: 1.65;
+}
+.launcher-template-starter h4 { margin: 0; color: var(--launcher-mokume); font-size: .8rem; }
+.launcher-template-starter p,
+.launcher-template-starter small { display: block; margin: 5px 0 0; }
+.launcher-template-starter code { display: block; margin-top: 8px; padding: 7px 8px; overflow-wrap: anywhere; color: var(--launcher-hinoki); background: rgba(231, 212, 174, .1); font-size: .68rem; }
+.launcher-template-prompt-steps { display: grid; gap: 18px; margin-top: 18px; }
+.launcher-template-prompt-steps > section { border-top: 1px solid rgba(231, 212, 174, .18); padding-top: 14px; }
+.launcher-template-prompt-steps h4 { margin: 0 0 8px; color: var(--launcher-kinari); font-size: .82rem; }
+.launcher-template-prompt-steps > section > p { margin: 0; color: rgba(244, 237, 223, .68); font-size: .72rem; line-height: 1.6; }
+.launcher-template-prompt-steps fieldset { margin: 12px 0 0; border: 0; padding: 0; }
+.launcher-template-prompt-steps legend { margin-bottom: 6px; color: var(--launcher-mokume); font-size: .72rem; font-weight: 700; }
+.launcher-template-prompt-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.launcher-template-prompt-options button {
+  display: grid;
+  gap: 3px;
+  min-width: 130px;
+  border: 1px solid rgba(231, 212, 174, .28);
+  padding: 8px 10px;
+  color: var(--launcher-kinari);
+  background: rgba(231, 212, 174, .05);
+  text-align: left;
+}
+.launcher-template-prompt-options button[aria-pressed="true"] { border-color: var(--launcher-mokume); background: rgba(200, 168, 120, .16); }
+.launcher-template-prompt-options button small { color: rgba(244, 237, 223, .62); font-size: .63rem; line-height: 1.45; }
+.launcher-template-prompt-inputs { display: grid; gap: 12px; margin-top: 12px; }
+.launcher-template-prompt-inputs label { display: grid; gap: 6px; }
+.launcher-template-prompt-inputs label > span { color: var(--launcher-kinari); font-size: .72rem; }
+.launcher-template-prompt-inputs label b { margin-right: 7px; color: var(--launcher-mokume); font-size: .62rem; }
+.launcher-template-prompt-inputs textarea,
+.launcher-template-prompt-output textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(231, 212, 174, .3);
+  padding: 9px;
+  color: var(--launcher-kinari);
+  background: rgba(0, 0, 0, .18);
+  font: inherit;
+  font-size: .74rem;
+  line-height: 1.55;
+}
+.launcher-template-prompt-missing { border-left-color: var(--launcher-urushi); }
+.launcher-template-prompt-missing strong { color: #f0b6a8; }
+.launcher-template-prompt-missing ul { margin: 6px 0 0; padding-left: 18px; }
+.launcher-template-prompt-ready { border-left-color: #758c69; }
+.launcher-template-prompt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.launcher-template-prompt-output { display: grid; gap: 10px; margin-top: 12px; }
+.launcher-template-prompt-output p { margin: 0; font-size: .72rem; }
+.launcher-shell[data-theme="light"] .launcher-template-howto,
+.launcher-shell[data-theme="light"] .launcher-template-prompt-builder { border-color: #d9d1c5; color: #17212a; background: #fffdfa; }
+.launcher-shell[data-theme="light"] .launcher-template-howto p,
+.launcher-shell[data-theme="light"] .launcher-template-prompt-builder > header > p,
+.launcher-shell[data-theme="light"] .launcher-template-prompt-steps > section > p,
+.launcher-shell[data-theme="light"] .launcher-template-starter,
+.launcher-shell[data-theme="light"] .launcher-template-no-starter,
+.launcher-shell[data-theme="light"] .launcher-template-prompt-missing,
+.launcher-shell[data-theme="light"] .launcher-template-prompt-ready { color: #59636a; }
+.launcher-shell[data-theme="light"] .launcher-template-prompt-options button,
+.launcher-shell[data-theme="light"] .launcher-template-prompt-inputs textarea,
+.launcher-shell[data-theme="light"] .launcher-template-prompt-output textarea { border-color: #d9d1c5; color: #24302b; background: #f7f1e8; }
 .launcher-project-card,
 .launcher-template-card,
 .launcher-feedback-card { border-radius: 1px 14px 1px 14px; transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease; }
@@ -923,7 +1040,9 @@
   .launcher-workbench,
   .launcher-feedback-panel { width: calc(100% - 24px); }
   .launcher-section-heading { align-items: flex-start; flex-direction: column; }
-  .launcher-project-list-actions { width: 100%; justify-content: space-between; }
+  .launcher-project-list-actions,
+  .launcher-template-list-actions { width: 100%; justify-content: space-between; }
+  .launcher-template-howto > ol { grid-template-columns: 1fr; }
   .launcher-feedback-pickup > header { padding: 18px 18px 14px 22px; }
   .launcher-feedback-pickup > header > strong { min-width: 52px; height: 52px; }
   .launcher-feedback-pickup ul { padding: 0 12px 14px 16px; }

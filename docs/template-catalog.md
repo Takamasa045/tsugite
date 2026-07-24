@@ -9,7 +9,7 @@ templates/
 └── my-template/
     ├── template.yaml
     ├── README.md
-    └── project.yaml
+    └── project.yaml # 実行可能なテンプレートだけで使用
 ```
 
 フォルダ名と `id` は一致させ、小文字英数字とハイフンだけを使います。`template.yaml` がない補助フォルダはカタログ対象外です。
@@ -38,6 +38,9 @@ required_inputs:
   - type: text
     label: 記事本文
     required: true
+starter:
+  source: examples/local-fixture
+  instructions: 同梱サンプルをコピーして、まずローカル素材だけで検証します。
 tags:
   - 解説
 audio:
@@ -51,9 +54,14 @@ distribution: local-only
 
 `status` は `stable` / `experimental` / `deprecated`、`distribution` は `bundled` / `local-only` を指定します。`distribution` はランチャー上の表示区分であり、アクセス制御やGit公開判定には使用しません。
 
+`starter` は任意です。`source` はリポジトリ内の `examples/` 配下だけを指定し、ランチャーには相対パスと説明だけを表示します。テンプレート本体がユーザー固有の素材を必要とする場合でも、検証可能な開始元を示せます。開始元は画面からコピー・実行されず、利用者が内容を確認してから手作業で使います。
+
+親テンプレートは用途・入力・構成・制約を比較するためのカタログ項目です。`project.yaml` と素材を含むstarterとは区別し、実行前にはstarterをコピーして案件ごとの素材とmanifestを用意してください。
+
 ## 安全条件
 
 - `template.yaml` は64 KiB以下の通常ファイルにし、symlinkを使用しない
 - 未知フィールド、未知のschema version、ID不一致は無効として表示する
 - APIはメタデータだけを返し、README全文、絶対パス、manifest、成果物を配信しない
-- テンプレート棚からコピー、生成、`run`、`render`、Gate更新は行わない
+- テンプレート棚からテンプレート・projectのコピー、生成、`run`、`render`、Gate更新は行わない
+- 選択内容から作ったCodex向け依頼文だけを、利用者の操作でローカルクリップボードへコピーできる。外部送信や実行は行わない

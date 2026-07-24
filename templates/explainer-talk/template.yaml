@@ -1,0 +1,120 @@
+schema_version: 1
+kind: tsugite-template
+id: explainer-talk
+name: 解説・講義｜一人・掛け合い・セミナー
+summary: 記事、サービス、講義、FAQ、セミナーの価値を、一人解説または二人の掛け合いで15〜180秒に整理する親テンプレートです。
+category: 解説・講義・告知
+use_cases:
+  - サービス・コンテンツの解説動画
+  - 一人の講師による短い講義
+  - 二人の掛け合い解説
+  - 豆知識ショート、FAQ、誤解の整理
+  - セミナー告知、登壇者紹介、開催後ハイライト
+preview:
+  frames:
+    - kind: person
+      label: 問い、結論、参加価値を提示
+    - kind: interface
+      label: 図解、資料、画面、実例で説明
+    - kind: text
+      label: 要点と次の行動を整理
+  flow:
+    - 視聴者の問いか参加価値を示す
+    - 結論と理由を伝える
+    - 資料、画面、実例で補強する
+    - 要点または申込導線を一つに絞る
+not_for:
+  - 出典のない専門情報を断定する用途
+  - 一人解説を二人用の既存16対9プリセットへそのまま当てはめる用途
+  - 未確定のイベント日時や申込条件を告知する用途
+output:
+  duration:
+    mode: variable
+    min_seconds: 15
+    max_seconds: 180
+    label: 15〜180秒
+  aspect_ratios:
+    - "16:9"
+    - "9:16"
+required_inputs:
+  - type: text
+    label: 正本資料・出典、視聴後に理解してほしい結論、CTA
+    required: true
+  - type: text
+    label: 話者別または講師用の台本、表示する固有名詞と数値
+    required: true
+  - type: image
+    label: 話者画像、スライド、図解、画面デモ、イベント素材
+    required: true
+  - type: audio
+    label: 発話ごとの音声または収録済み講義音声
+    required: false
+  - type: data
+    label: 告知時の正式な日時、会場、登壇者、申込条件、実績根拠
+    required: false
+variants:
+  - id: format
+    label: 話し方
+    default_option: solo-guide
+    options:
+      - id: solo-guide
+        label: 一人解説
+        description: 結論、理由、例、まとめを一人の案内役で伝えます。
+      - id: beginner-expert
+        label: 初心者＋専門家
+        description: 初心者の疑問に専門家が結論と具体例で答えます。
+      - id: peer-dialogue
+        label: 二人の掛け合い
+        description: 同じ目線の二人が体験、比較、要点を整理します。
+      - id: presenter-demo
+        label: 講師＋画面デモ
+        description: 講師を軸に資料や実画面の差し込みで説明します。
+  - id: purpose
+    label: 内容
+    default_option: service-explainer
+    options:
+      - id: service-explainer
+        label: サービス解説
+        description: 誰のどんな課題に役立つかを根拠とともに説明します。
+      - id: content-lesson
+        label: 講義・コンテンツ解説
+        description: 一つのテーマを結論先行で学べる形に整理します。
+      - id: faq-short
+        label: 豆知識・FAQショート
+        description: よくある疑問を一つ選び、短く正確に回答します。
+      - id: seminar-promo
+        label: セミナー告知
+        description: 参加価値、登壇者、日時、会場、申込導線を示します。
+      - id: seminar-highlight
+        label: セミナーハイライト
+        description: 承認済みの見どころと次回案内を短く見せます。
+  - id: visual-style
+    label: 見せ方
+    default_option: slide-ui-window
+    options:
+      - id: slide-ui-window
+        label: スライド・画面窓
+        description: 図解や画面デモを読みやすい固定領域へ表示します。
+      - id: live-presenter
+        label: 実写講師
+        description: 講師の表情と字幕を中心に、補助資料を差し込みます。
+      - id: character-dialogue
+        label: キャラクター会話
+        description: 許諾済みのキャラクター差分を使って対話を見せます。
+      - id: kinetic-text
+        label: 文字中心
+        description: 写真や図形と大きな文字で短い要点を伝えます。
+tags:
+  - 解説
+  - 講義
+  - 掛け合い
+  - 一人解説
+  - セミナー
+  - ショート
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 既存の二人対話プリセットは16対9専用です。話者数・画角・実写講師の組合せに応じて個別projectで確認します。
+status: experimental
+distribution: local-only

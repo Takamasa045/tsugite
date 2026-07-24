@@ -1,0 +1,116 @@
+schema_version: 1
+kind: tsugite-template
+id: creative-short
+name: クリエイティブ短尺｜MV・キャラクター・マンガ
+summary: 自作曲、自作キャラクター、イラスト、実写素材をもとに、MV、マンガ調映像、ブランド短編、15秒ショートを設計する親テンプレートです。
+category: クリエイティブ・ショート
+use_cases:
+  - 自作曲と自作キャラクターのMV
+  - マンガ調の解説・商品紹介動画
+  - キャラクターを使うサービス紹介
+  - 15秒ショート、30秒CM、ブランドイメージ短編
+preview:
+  frames:
+    - kind: person
+      label: 主役となる人物・キャラクター・商品を提示
+    - kind: text
+      label: 音楽、台詞、マンガの要点を重ねる
+    - kind: result
+      label: 印象的な締めと次の行動を残す
+  flow:
+    - 主役と伝える感情・価値を固定
+    - 反復するモチーフや重要な台詞を決める
+    - 素材の権利と表現範囲を確認
+    - 尺に合わせて印象的に回収する
+not_for:
+  - 権利者の許可がない音楽、キャラクター、漫画表現を使う用途
+  - 外部生成サービス、モデル、課金経路を未選択のまま実行する用途
+  - 実在人物の推薦や発言を創作する用途
+output:
+  duration:
+    mode: variable
+    min_seconds: 15
+    max_seconds: 180
+    label: 15〜180秒
+  aspect_ratios:
+    - "9:16"
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 目的、視聴者、主役、伝える感情または価値、公開先
+    required: true
+  - type: image
+    label: 利用許諾を確認したキャラクター、商品、背景、マンガ素材
+    required: true
+  - type: audio
+    label: 自作または利用許諾を確認した楽曲、台詞、ナレーション
+    required: false
+  - type: video
+    label: 既存の実写・アニメーション・演奏・利用シーン素材
+    required: false
+  - type: data
+    label: 権利者、利用範囲、クレジット、禁止表現の確認結果
+    required: true
+variants:
+  - id: form
+    label: 形式
+    default_option: original-mv
+    options:
+      - id: original-mv
+        label: 自作曲MV
+        description: 楽曲の主題、反復モチーフ、サビの見せ場を組みます。
+      - id: character-mv
+        label: キャラクターMV
+        description: 固定したキャラクター設定と楽曲に沿って物語や演技を見せます。
+      - id: manga-explainer
+        label: マンガ調解説
+        description: コマ割り、吹き出し、強調線で説明内容を読みやすくします。
+      - id: manga-product
+        label: マンガ調商品紹介
+        description: 商品の悩み、利用場面、価値をマンガ表現で示します。
+      - id: brand-short
+        label: ブランド短編
+        description: 商品やブランドの質感を台詞を絞って印象的に伝えます。
+  - id: material-mode
+    label: 素材の作り方
+    default_option: existing-media
+    options:
+      - id: existing-media
+        label: 手元の素材を編集
+        description: 実写、イラスト、音楽、キャラクター素材を編集して構成します。
+      - id: planned-generation
+        label: 生成を計画して使う
+        description: 生成は別途、モデルと接続先を選び、Gate 1承認後にだけ実行します。
+      - id: hybrid-media
+        label: 実写とイラストを組み合わせる
+        description: 現実の素材と許諾済みの図版を役割ごとに組み合わせます。
+  - id: delivery
+    label: 尺
+    default_option: short-30
+    options:
+      - id: short-15
+        label: 15秒ショート
+        description: 一つのフックと印象的な終わりに絞ります。
+      - id: short-30
+        label: 30秒CM
+        description: 主役、価値、見せ場、次の行動を短く見せます。
+      - id: music-60
+        label: 60秒MV
+        description: 楽曲の展開と反復するモチーフを見せます。
+      - id: story-180
+        label: 3分以内の短編
+        description: 物語、解説、パフォーマンスを複数の場面で展開します。
+tags:
+  - MV
+  - キャラクター
+  - マンガ調
+  - 15秒
+  - 30秒
+  - ブランド
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 生成素材を使う場合も、モデルと接続先の選定、利用権、Gate承認を別途確認します。音楽とキャラクターの権利は案件ごとに記録します。
+status: experimental
+distribution: local-only

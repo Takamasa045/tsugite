@@ -179,6 +179,11 @@ export type LauncherTemplateVariant = {
   }>;
 };
 
+export type LauncherTemplateStarter = {
+  source: string;
+  instructions: string;
+};
+
 export type LauncherFeedback = FeedbackAggregate;
 
 const TEMPLATE_METADATA_MAX_BYTES = 64 * 1024;
@@ -312,6 +317,11 @@ const viewerEvidenceSchema = z.object({
 const templateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const nonEmptyText = z.string().trim().min(1).max(240);
 const descriptionText = z.string().trim().min(1).max(600);
+const templateStarterSourceSchema = z.string()
+  .regex(
+    /^examples(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)+$/,
+    "starter source must be a non-traversing example path"
+  );
 const templatePreviewFrameSchema = z.object({
   kind: z.enum(["product", "person", "interface", "parts", "hands", "result", "event", "text"]),
   label: nonEmptyText
@@ -393,6 +403,10 @@ const templateMetadataSchema = z.object({
       variantIds.add(variant.id);
     }
   }),
+  starter: z.object({
+    source: templateStarterSourceSchema,
+    instructions: descriptionText
+  }).strict().optional(),
   tags: z.array(nonEmptyText).max(16).default([]),
   audio: z.object({
     narration: z.enum(["required", "optional", "unsupported"]),
@@ -2079,6 +2093,14 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
           description: option.description
         }))
       })),
+      ...(metadata.starter
+        ? {
+            starter: {
+              source: metadata.starter.source,
+              instructions: metadata.starter.instructions
+            }
+          }
+        : {}),
       tags: metadata.tags,
       audio: metadata.audio.notes,
       status: metadata.status,
