@@ -13,7 +13,7 @@ Use `/tsugite` or `.claude/skills/tsugite/SKILL.md` to load the canonical workfl
 - Use `/tsugite-finalize <project.yaml>` only after the user explicitly declares that selected video complete.
 - `.claude/settings.json` allows routine checks, asks before gated execution or Git publication, and denies secret-file access and destructive commands.
 - Never use `--dangerously-skip-permissions` for this repository.
-- Stop at each Gate until the human chooses approve, revise, or abort.
+- Stop at each Gate until the human chooses approve, revise, or abort. The only exception is Gate 2 auto-pass for a project that opted in with `gates.gate_2.auto_pass: qc_ok_no_new_assets`, and only when the run consumed 0 credits, generated 0 new assets, and QC reported no issue; report that evidence instead of asking for approval.
 - Keep core files neutral and move engine-specific behavior into adapter directories.
 
 ## Optional Shitate handoff

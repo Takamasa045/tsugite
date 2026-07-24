@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { runCliGenerationAdapter, type CliGenerationRequestResult } from "../adapters/cliGeneration.js";
@@ -8,10 +8,19 @@ import { runCliAudioAdapter, type CliAudioResult } from "../adapters/cliAudio.js
 import type { AdapterDefinition } from "../adapters/registry.js";
 import type { Manifest } from "../manifest/schema.js";
 import { validateManifest } from "../manifest/validate.js";
-import { generationRequestOutputKind, toExecutionProject, type Project } from "../project/schema.js";
+import {
+  GATE_2_AUTO_PASS_POLICY,
+  generationRequestOutputKind,
+  toExecutionProject,
+  type Project
+} from "../project/schema.js";
 import type { Result } from "../types.js";
-import { inspectGate2ManifestWithFingerprints, writeGate2QcReport } from "./gate2Qc.js";
-import { markGateAwaiting, writeState, type RunState } from "./state.js";
+import {
+  inspectGate2ManifestWithFingerprints,
+  writeGate2QcReport,
+  type Gate2QcReport
+} from "./gate2Qc.js";
+import { markGateAwaiting, recordGateDecision, writeState, type RunState } from "./state.js";
 import { digest } from "./editorialProposal.js";
 import type { EditorialCompilation } from "./review.js";
 import { pinGenerationAssets, projectAssetRoot } from "../project/generationAssets.js";
@@ -29,6 +38,8 @@ export type LocalRunResult = {
   assetCount: number;
   actualCredits: number;
   alreadyAssembled: boolean;
+  gate2AutoPassed: boolean;
+  gate2AutoPassBlockedReason?: string;
   state: RunState;
   statePath: string;
 };
@@ -215,6 +226,8 @@ export async function assembleLocalMediaRun(
       assetCount: resumed.assetCount,
       actualCredits: resumed.actualCredits,
       alreadyAssembled: true,
+      gate2AutoPassed: false,
+      gate2AutoPassBlockedReason: "already_assembled",
       state: options.state,
       statePath
     };
@@ -307,7 +320,7 @@ export async function assembleLocalMediaRun(
   if (edlPath && approvedCompilation) {
     await writeFile(edlPath, `${JSON.stringify(approvedCompilation.edl, null, 2)}\n`);
   }
-  await writeGate2QcReport(assembled, manifestOutputPath, qcReportPath);
+  const qcReport = await writeGate2QcReport(assembled, manifestOutputPath, qcReportPath);
   await writeRunLog(runLogPath, {
     runId,
     mode: "local-media",
@@ -327,8 +340,29 @@ export async function assembleLocalMediaRun(
     } : {})
   });
 
-  const nextState = markGateAwaiting(options.state, "gate_2");
+  const autoPass = await evaluateGate2AutoPass({
+    project,
+    manifest,
+    stateDir: options.stateDir,
+    qcReport,
+    credits: generatedAudio.credits,
+    generatedAssetCount: generatedAudio.assetCount,
+    ...(approvedCompilation ? { compilation: approvedCompilation } : {}),
+    ...(audioAdapter ? { audioAdapter } : {})
+  });
+
+  const awaitingState = markGateAwaiting(options.state, "gate_2");
+  const nextState = autoPass.passed
+    ? recordGateDecision(awaitingState, "gate_2", "approved", undefined, autoPass.approvalDigest, "auto_qc")
+    : awaitingState;
   const writtenStatePath = await writeState(options.stateDir, nextState);
+  if (autoPass.passed) {
+    await appendGate2AutoPassRunLog(runLogPath, {
+      credits: generatedAudio.credits,
+      generatedAssetCount: generatedAudio.assetCount,
+      qcIssueCount: qcReport.issues.length
+    });
+  }
 
   return {
     ok: true,
@@ -340,9 +374,75 @@ export async function assembleLocalMediaRun(
     assetCount,
     actualCredits: generatedAudio.credits,
     alreadyAssembled: false,
+    gate2AutoPassed: autoPass.passed,
+    ...(autoPass.passed ? {} : { gate2AutoPassBlockedReason: autoPass.reason }),
     state: nextState,
     statePath: writtenStatePath
   };
+}
+
+type Gate2AutoPassEvaluation =
+  | { passed: true; approvalDigest: string }
+  | { passed: false; reason: string };
+
+/**
+ * Gate 2 may only be auto-approved when the project explicitly opted in and the run
+ * consumed no credits, generated no new assets, and passed every QC check. The approval
+ * digest is taken from the same inspection the human approval path uses so that render
+ * verifies it identically.
+ */
+async function evaluateGate2AutoPass(input: {
+  project: Project;
+  manifest: Manifest;
+  stateDir: string;
+  qcReport: Gate2QcReport;
+  credits: number;
+  generatedAssetCount: number;
+  compilation?: EditorialCompilation | ApprovedCompilation;
+  audioAdapter?: AdapterDefinition;
+}): Promise<Gate2AutoPassEvaluation> {
+  if (input.project.gates?.gate_2?.auto_pass !== GATE_2_AUTO_PASS_POLICY) {
+    return { passed: false, reason: "not_configured" };
+  }
+  if (input.credits !== 0) {
+    return { passed: false, reason: `credits: ${input.credits}` };
+  }
+  if (input.generatedAssetCount !== 0) {
+    return { passed: false, reason: `generated_assets: ${input.generatedAssetCount}` };
+  }
+  if (!input.qcReport.ok) {
+    return { passed: false, reason: `qc_issues: ${input.qcReport.issues.length}` };
+  }
+
+  const inspected = await inspectGate2RunForApproval(
+    input.project,
+    input.manifest,
+    input.stateDir,
+    undefined,
+    input.compilation,
+    input.audioAdapter
+  );
+  if (!inspected.ok) {
+    return { passed: false, reason: `inspection_failed: ${inspected.issues[0]?.code ?? "unknown"}` };
+  }
+
+  return { passed: true, approvalDigest: inspected.approvalDigest };
+}
+
+async function appendGate2AutoPassRunLog(
+  path: string,
+  summary: { credits: number; generatedAssetCount: number; qcIssueCount: number }
+): Promise<void> {
+  const lines = [
+    "",
+    "## Gate 2",
+    "",
+    `- gate_2_auto_pass: ${GATE_2_AUTO_PASS_POLICY}`,
+    `- gate_2_auto_pass_credits: ${summary.credits}`,
+    `- gate_2_auto_pass_generated_assets: ${summary.generatedAssetCount}`,
+    `- gate_2_auto_pass_qc_issues: ${summary.qcIssueCount}`
+  ];
+  await appendFile(path, `${lines.join("\n")}\n`);
 }
 
 export async function inspectGate2RunForApproval(
@@ -473,6 +573,8 @@ async function assembleGeneratedMediaRun(
       assetCount: resumed.assetCount,
       actualCredits: resumed.actualCredits,
       alreadyAssembled: true,
+      gate2AutoPassed: false,
+      gate2AutoPassBlockedReason: "already_assembled",
       state: options.state,
       statePath
     };
@@ -645,6 +747,8 @@ async function assembleGeneratedMediaRun(
     assetCount,
     actualCredits,
     alreadyAssembled: false,
+    gate2AutoPassed: false,
+    gate2AutoPassBlockedReason: "generation_run",
     state: nextState,
     statePath: writtenStatePath
   };
