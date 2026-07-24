@@ -159,28 +159,6 @@ connections:
       - type: manual
         detail: "media-use skillと、選択した外部providerの認証・契約・クレジットを確認する。"
 
-  - id: openclaw-bridge
-    display_name: OpenClaw生成ブリッジ
-    provider: openclaw
-    transport: cli
-    auth_kind: local
-    implementation_status: integrated
-    adapter: openclaw
-    capabilities:
-      - video.text-to-video
-    automated_capabilities:
-      - video.text-to-video
-    model_families: [optional-runtime]
-    route_note: "TSUGITE_OPENCLAW_GENERATE_COMMANDで明示したOpenClaw生成経路を使う。実際の提供元と課金契約は実行前に確認する。"
-    setup_checks:
-      - type: command
-        command: node
-      - type: environment
-        variable: TSUGITE_OPENCLAW_GENERATE_COMMAND
-        direct_route_command: true
-      - type: manual
-        detail: "OpenClaw bridge設定が引数なしwrapper 1件のJSON command arrayで、実際のprovider契約が正しいことを確認する。"
-
   - id: fish-audio
     display_name: Fish Audio
     provider: fish-audio

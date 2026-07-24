@@ -50,6 +50,39 @@ describe("generation connection registry", () => {
       .toEqual(expect.arrayContaining(["pixvers", "pixburst"]));
   });
 
+  it("rejects the removed direct route command setting", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-connections-removed-route-"));
+    const catalogPath = join(root, "catalog.yaml");
+    await writeFile(catalogPath, `
+schema_version: 1
+selection_prompt:
+  id: generation-connection
+  question: choose
+  required_when: connection-unspecified
+  instruction: ask
+  no_subscription_message: none
+  no_subscription_options: [generate-later]
+connections:
+  - id: removed-route
+    display_name: Removed route
+    provider: local
+    transport: cli
+    auth_kind: local
+    implementation_status: integrated
+    adapter: mock
+    capabilities: [video.text-to-video]
+    automated_capabilities: [video.text-to-video]
+    model_families: [local]
+    route_note: test
+    setup_checks:
+      - type: environment
+        variable: LOCAL_COMMAND
+        direct_route_command: true
+`);
+
+    await expect(loadConnectionCatalog(catalogPath)).rejects.toThrow(/never/);
+  });
+
   it("resolves integrated connection ids to existing adapters and rejects mismatches", async () => {
     await expect(resolveGenerationConnection("pixverse")).resolves.toMatchObject({
       adapter: "pixverse",
@@ -231,78 +264,6 @@ connections:
 
     await expect(loadConnectionCatalog(catalogPath)).rejects.toThrow(
       /integrated authenticated connections must declare an environment or manual authentication check/
-    );
-  });
-
-  it("pins a declared runtime route identity into the connection contract digest", async () => {
-    const previous = process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
-    try {
-      process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = '["provider-one"]';
-      const first = await resolveGenerationConnection("openclaw-bridge");
-      process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = '["provider-two"]';
-      const second = await resolveGenerationConnection("openclaw-bridge");
-
-      expect(first?.contract_digest).toMatch(/^[a-f0-9]{64}$/);
-      expect(second?.contract_digest).toMatch(/^[a-f0-9]{64}$/);
-      expect(second?.contract_digest).not.toBe(first?.contract_digest);
-
-      process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = '["provider-two","--provider","other"]';
-      const invalidArgumentRoute = await resolveGenerationConnection("openclaw-bridge");
-      expect(invalidArgumentRoute?.setup_status).toBe("needs-setup");
-    } finally {
-      if (previous === undefined) delete process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND;
-      else process.env.TSUGITE_OPENCLAW_GENERATE_COMMAND = previous;
-    }
-  });
-
-  it("does not mark a non-executable direct route wrapper as ready", async () => {
-    const root = await mkdtemp(join(tmpdir(), "tsugite-non-executable-route-"));
-    const wrapper = join(root, "provider-wrapper");
-    await writeFile(wrapper, "#!/bin/sh\nexit 0\n", { mode: 0o644 });
-
-    const candidates = await listConnectionOptions({
-      environment: {
-        ...process.env,
-        TSUGITE_OPENCLAW_GENERATE_COMMAND: JSON.stringify([wrapper])
-      }
-    });
-
-    expect(candidates.find((candidate) => candidate.id === "openclaw-bridge")?.setup.status)
-      .toBe(process.platform === "win32" ? "needs-verification" : "needs-setup");
-  });
-
-  it("forbids route identity pinning on credential environment variables", async () => {
-    const root = await mkdtemp(join(tmpdir(), "tsugite-connections-secret-pin-"));
-    const catalogPath = join(root, "catalog.yaml");
-    await writeFile(catalogPath, `
-schema_version: 1
-selection_prompt:
-  id: generation-connection
-  question: choose
-  required_when: connection-unspecified
-  instruction: ask
-  no_subscription_message: none
-  no_subscription_options: [generate-later]
-connections:
-  - id: unsafe-pin
-    display_name: Unsafe pin
-    provider: unsafe
-    transport: api
-    auth_kind: api-key
-    implementation_status: integrated
-    adapter: mock
-    capabilities: [video.text-to-video]
-    automated_capabilities: [video.text-to-video]
-    model_families: [unsafe]
-    route_note: test
-    setup_checks:
-      - type: environment
-        variable: UNSAFE_API_KEY
-        direct_route_command: true
-`);
-
-    await expect(loadConnectionCatalog(catalogPath)).rejects.toThrow(
-      /direct route commands are limited to \*_COMMAND environment variables/
     );
   });
 

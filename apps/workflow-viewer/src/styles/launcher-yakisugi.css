@@ -79,6 +79,11 @@
 }
 .launcher-hero .launcher-shelf-tabs button:hover { color: var(--launcher-kinari); background: rgba(255,255,255,.035); }
 .launcher-hero .launcher-shelf-tabs button[aria-selected="true"] { color: var(--launcher-kinari); border-color: var(--launcher-urushi); background: rgba(255,255,255,.055); }
+.launcher-theme-switch { display: inline-flex; align-self: center; gap: 3px; border: 1px solid rgba(231, 212, 174, .2); border-radius: 999px; padding: 3px; }
+.launcher-theme-switch button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 50%; padding: 0; color: rgba(244, 237, 223, .58); background: transparent; cursor: pointer; }
+.launcher-theme-switch button:hover { color: var(--launcher-kinari); background: rgba(244, 237, 223, .1); }
+.launcher-theme-switch button[aria-pressed="true"] { color: #27251f; background: var(--launcher-hinoki); box-shadow: 0 2px 7px rgba(0, 0, 0, .25); }
+.launcher-theme-switch button:focus-visible { outline: 3px solid var(--launcher-mokume); outline-offset: 3px; }
 
 .launcher-hero-content {
   position: relative;
@@ -172,6 +177,61 @@
 .launcher-selection .launcher-secondary { border-color: rgba(231,212,174,.35); color: var(--launcher-kinari); }
 .launcher-selection .launcher-gate-review-actions { display: grid; gap: 9px; }
 .launcher-selection .launcher-gate-review-label { color: var(--launcher-mokume); font-size: .64rem; font-weight: 800; letter-spacing: .08em; }
+
+.launcher-feedback-review-guide { border-left: 3px solid var(--launcher-mokume); background: rgba(200, 168, 120, .08); }
+.launcher-feedback-review-guide h3 { margin-bottom: 10px; }
+.launcher-feedback-review-guide ol { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; counter-reset: review-guide; }
+.launcher-feedback-review-guide li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 9px; }
+.launcher-feedback-review-guide li::before { display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid rgba(200, 168, 120, .55); border-radius: 50%; color: var(--launcher-mokume); content: counter(review-guide); counter-increment: review-guide; font-size: .66rem; font-weight: 800; }
+.launcher-feedback-review-guide li > strong { grid-column: 2; color: var(--launcher-kinari); font-size: .73rem; }
+.launcher-feedback-review-guide li > span { grid-column: 2; color: rgba(244, 237, 223, .72); font-size: .72rem; line-height: 1.65; }
+
+/* Light mode is a calm working desk: paper surfaces, charcoal type, and the same vermilion decision cues. */
+.launcher-shell[data-theme="light"] {
+  --launcher-yakisugi: #f1ece2;
+  --launcher-sumi: #27312d;
+  --launcher-hinoki: #fffaf0;
+  --launcher-kinari: #fffdf8;
+  --launcher-mokume: #8a633f;
+  --launcher-urushi: #9a3d30;
+  --launcher-brass: #806343;
+  color: #24302b;
+  background: linear-gradient(180deg, #f7f2e8, #ede7dc);
+}
+.launcher-shell[data-theme="light"] .launcher-hero { border-color: #cbbca7; color: #24302b; background: linear-gradient(140deg, #fffdf8, #eadfce); box-shadow: 0 28px 70px rgba(71, 52, 31, .16); }
+.launcher-shell[data-theme="light"] .launcher-hero-nav { color: #24302b; background: #fffdf8; }
+.launcher-shell[data-theme="light"] .launcher-wordmark small,
+.launcher-shell[data-theme="light"] .launcher-hero-copy p,
+.launcher-shell[data-theme="light"] .launcher-hero-note span,
+.launcher-shell[data-theme="light"] .launcher-hero-metrics dt { color: rgba(36, 48, 43, .65); }
+.launcher-shell[data-theme="light"] .launcher-wordmark strong,
+.launcher-shell[data-theme="light"] .launcher-hero-copy h1,
+.launcher-shell[data-theme="light"] .launcher-hero-metrics dd { color: #24302b; }
+.launcher-shell[data-theme="light"] .launcher-hero-note { border-color: #cbbca7; color: #24302b; background: #fffdf8; box-shadow: 12px 12px 0 rgba(154, 61, 48, .12); }
+.launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button { color: rgba(36, 48, 43, .66); }
+.launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button:hover,
+.launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button[aria-selected="true"] { color: #24302b; background: rgba(154, 61, 48, .07); }
+.launcher-shell[data-theme="light"] .launcher-theme-switch { border-color: #cbbca7; }
+.launcher-shell[data-theme="light"] .launcher-theme-switch button { color: #59645d; }
+.launcher-shell[data-theme="light"] .launcher-theme-switch button:hover { color: #24302b; background: #eee5d8; }
+.launcher-shell[data-theme="light"] .launcher-theme-switch button[aria-pressed="true"] { color: #fff; background: #9a3d30; }
+.launcher-shell[data-theme="light"] .launcher-joinery { border-color: #cdc1ae; color: #59645d; background: #fffdf8; }
+.launcher-shell[data-theme="light"] .launcher-joinery::before,
+.launcher-shell[data-theme="light"] .launcher-joinery::after { background: #eee5d8; }
+.launcher-shell[data-theme="light"] .launcher-joinery li { border-color: #dfd5c7; }
+.launcher-shell[data-theme="light"] .launcher-joinery li[data-active="true"] { color: #24302b; background: #f7eee3; }
+.launcher-shell[data-theme="light"] .launcher-selection { border-color: #cbbca7; color: #24302b; background: #fffdf8; box-shadow: 0 20px 52px rgba(71, 52, 31, .14); }
+.launcher-shell[data-theme="light"] .launcher-selection h2,
+.launcher-shell[data-theme="light"] .launcher-selection strong,
+.launcher-shell[data-theme="light"] .launcher-selection dd,
+.launcher-shell[data-theme="light"] .launcher-selection h3,
+.launcher-shell[data-theme="light"] .launcher-feedback-review-guide li > strong { color: #24302b; }
+.launcher-shell[data-theme="light"] .launcher-selection p,
+.launcher-shell[data-theme="light"] .launcher-selection dt,
+.launcher-shell[data-theme="light"] .launcher-selection small,
+.launcher-shell[data-theme="light"] .launcher-selection-empty,
+.launcher-shell[data-theme="light"] .launcher-feedback-review-guide li > span { color: #59645d; }
+.launcher-shell[data-theme="light"] .launcher-feedback-review-guide { background: #f7eee3; }
 
 .launcher-section-heading h2,
 .launcher-feedback-heading h2 { font-size: clamp(1.3rem, 2vw, 1.8rem); }

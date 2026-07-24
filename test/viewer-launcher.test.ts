@@ -913,6 +913,64 @@ distribution: local-only
     await expect(statusWithHost(launcher.artifactUrl, "viewer.attacker.invalid")).resolves.toBe(403);
   });
 
+  it("lists projects from additional worktrees as read-only without enabling project actions", async () => {
+    const fixture = await createFixture();
+    const worktreeProjectsDir = join(fixture.root, "worktree-projects");
+    const worktreeProjectDir = join(worktreeProjectsDir, "in-progress-project");
+    await cp(fixture.projectDir, worktreeProjectDir, { recursive: true });
+    await writeFile(
+      join(worktreeProjectDir, "project.yaml"),
+      (await readFile(join(worktreeProjectDir, "project.yaml"), "utf8"))
+        .replace("slug: local-fixture", "slug: in-progress-project")
+        .replace("run_id: local-fixture-run", "run_id: in-progress-project-run")
+    );
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      additionalProjectsDirs: [worktreeProjectsDir],
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+
+    const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    expect(payload.projects).toHaveLength(2);
+    const worktreeProject = payload.projects.find((project: { name: string }) => project.name === "in-progress-project");
+    expect(worktreeProject).toMatchObject({
+      name: "in-progress-project",
+      status: "planned",
+      readOnly: true,
+      availableActions: []
+    });
+    const action = await fetch(`${launcher.url}/api/projects/${worktreeProject.id}/action`, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({
+        action: "validate",
+        expectedRunId: worktreeProject.runId,
+        revision: worktreeProject.revision
+      })
+    });
+    await expect(action.json()).resolves.toMatchObject({
+      ok: false,
+      issue: { code: "viewer_launcher.worktree_read_only" }
+    });
+    expect(action.status).toBe(403);
+
+    const refreshed = await fetch(`${launcher.url}/api/projects/${worktreeProject.id}/refresh`, {
+      method: "POST",
+      headers: { origin: launcher.url, "x-tsugite-token": launcher.token }
+    });
+    expect(refreshed.status).toBe(200);
+    await expect(refreshed.json()).resolves.toMatchObject({
+      ok: true,
+      project: { readOnly: true, availableActions: [] }
+    });
+  });
+
   it("uses configured runtime validation paths when listing and refreshing a project", async () => {
     const fixture = await createFixture();
     const backendName = "packaged-remotion";
@@ -2623,8 +2681,9 @@ distribution: local-only
       ok: true,
       job: { action: "run", status: "running", id: expect.any(String) }
     });
-    for (let attempt = 0; attempt < 30 && calls.length === 0; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
+    // Windows runners can take longer to start the guarded action after the HTTP response.
+    for (let attempt = 0; attempt < 100 && calls.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
     expect(calls).toHaveLength(1);
     expect(calls[0]!.command).toBe(process.execPath);
