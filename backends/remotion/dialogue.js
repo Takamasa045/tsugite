@@ -1,8 +1,12 @@
 import React from "react";
 import { AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-import { activeCaptionAt, designScale, emphasizedTextParts, resolveSpeakerImage } from "./presentation.mjs";
-
-const FONT = '"Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif';
+import {
+  activeCaptionAt,
+  designScale,
+  emphasizedTextParts,
+  resolveArticleDialogueTheme,
+  resolveSpeakerImage
+} from "./presentation.mjs";
 
 export function ArticleDialogue({ manifest }) {
   const frame = useCurrentFrame();
@@ -16,15 +20,15 @@ export function ArticleDialogue({ manifest }) {
   const left = (width - 1920 * scale) / 2;
   const top = (height - 1080 * scale) / 2;
   const stickyVisual = stickyVisualAt(manifest.captions, second);
+  const theme = resolveArticleDialogueTheme(manifest);
 
   return React.createElement(
     AbsoluteFill,
     {
       style: {
-        background:
-          "radial-gradient(circle at 18% 12%, rgba(238, 153, 82, 0.14), transparent 30%), radial-gradient(circle at 82% 10%, rgba(57, 108, 177, 0.14), transparent 32%), #f4efe6",
-        color: "#241f1a",
-        fontFamily: FONT,
+        background: theme.background,
+        color: theme.ink,
+        fontFamily: theme.bodyFontFamily,
         overflow: "hidden"
       }
     },
@@ -42,14 +46,15 @@ export function ArticleDialogue({ manifest }) {
           transformOrigin: "top left"
         }
       },
-      React.createElement(Header, { presentation }),
+      React.createElement(Header, { presentation, theme }),
       React.createElement(CenterVisual, {
         active,
         visual: stickyVisual,
         images: manifest.images ?? [],
         frame,
         fps,
-        second
+        second,
+        theme
       }),
       ...speakers.map((speaker) =>
         React.createElement(Character, {
@@ -58,15 +63,16 @@ export function ArticleDialogue({ manifest }) {
           image: resolveSpeakerImage(speaker, active, manifest.images, frame, fps, 4),
           active: active?.speaker === speaker.id,
           frame,
-          fps
+          fps,
+          theme
         })
       ),
-      React.createElement(DialogueCaption, { active, speakers, frame, fps })
+      React.createElement(DialogueCaption, { active, speakers, frame, fps, theme })
     )
   );
 }
 
-function Header({ presentation }) {
+function Header({ presentation, theme }) {
   return React.createElement(
     "div",
     {
@@ -87,7 +93,7 @@ function Header({ presentation }) {
       { style: { display: "flex", flexDirection: "column", gap: 4, minWidth: 0 } },
       React.createElement(
         "div",
-        { style: { fontSize: 20, fontWeight: 800, letterSpacing: "0.14em", color: "#8a7a68" } },
+        { style: { fontSize: 20, fontWeight: 800, letterSpacing: "0.14em", color: theme.label } },
         presentation.label ?? "ARTICLE DIALOGUE"
       ),
       React.createElement(
@@ -111,13 +117,13 @@ function Header({ presentation }) {
           {
             style: {
               flex: "0 0 auto",
-              border: "2px solid #b87928",
+              border: `2px solid ${theme.draftBorder}`,
               borderRadius: 999,
-              color: "#8a5b1f",
+              color: theme.draftInk,
               fontSize: 20,
               fontWeight: 800,
               padding: "8px 16px",
-              backgroundColor: "rgba(255,255,255,0.72)"
+              backgroundColor: theme.draftBackground
             }
           },
           "SILENT DRAFT"
@@ -126,7 +132,7 @@ function Header({ presentation }) {
   );
 }
 
-function CenterVisual({ active, visual, images, frame, fps, second }) {
+function CenterVisual({ active, visual, images, frame, fps, second, theme }) {
   if (!visual) return null;
   const localFrame = Math.max(0, frame - Math.round((active?.start ?? visual._start ?? 0) * fps));
   const image = visual.image_id ? images.find((entry) => entry.id === visual.image_id) : undefined;
@@ -147,10 +153,10 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
         gridTemplateColumns: image ? "1.15fr 0.85fr" : "1fr",
         gap: 28,
         padding: 28,
-        borderRadius: 36,
-        border: "2px solid rgba(54, 44, 36, 0.1)",
-        backgroundColor: "rgba(255, 255, 255, 0.88)",
-        boxShadow: "0 20px 60px rgba(75, 58, 43, 0.12)",
+        borderRadius: theme.cardRadius,
+        border: theme.cardBorder,
+        backgroundColor: theme.cardBackground,
+        boxShadow: theme.cardShadow,
         opacity: enter.opacity,
         transform: `translateY(${enter.y}px) scale(${enter.scale})`,
         overflow: "hidden"
@@ -162,9 +168,9 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
           {
             style: {
               position: "relative",
-              borderRadius: 28,
+              borderRadius: Math.max(8, theme.cardRadius - 8),
               overflow: "hidden",
-              backgroundColor: "#efe7db",
+              backgroundColor: theme.imagePlaceholder,
               minHeight: 0
             }
           },
@@ -190,9 +196,9 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
                     position: "absolute",
                     top: 18,
                     left: 18,
-                    borderRadius: 999,
-                    backgroundColor: "rgba(255,255,255,0.9)",
-                    color: "#9b6a33",
+                    borderRadius: theme.badgeRadius,
+                    backgroundColor: theme.kickerBackground,
+                    color: theme.kicker,
                     fontSize: 22,
                     fontWeight: 900,
                     letterSpacing: "0.12em",
@@ -221,7 +227,7 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
       !image && visual.kicker
         ? React.createElement(
             "div",
-            { style: { color: "#9b6a33", fontSize: 24, fontWeight: 900, letterSpacing: "0.14em" } },
+            { style: { color: theme.kicker, fontSize: 24, fontWeight: 900, letterSpacing: "0.14em" } },
             visual.kicker
           )
         : null,
@@ -232,8 +238,11 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
             maxWidth: image ? 560 : 900,
             fontSize: image ? 48 : 64,
             lineHeight: 1.18,
-            fontWeight: 900,
-            letterSpacing: "-0.03em"
+            // Display face is scoped to this element; dialogue captions stay on the body sans.
+            fontFamily: theme.headlineFontFamily,
+            fontWeight: theme.headlineWeight,
+            letterSpacing: theme.headlineLetterSpacing,
+            whiteSpace: "pre-line"
           }
         },
         visual.headline
@@ -244,7 +253,7 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
             {
               style: {
                 maxWidth: image ? 520 : 820,
-                color: "#64584e",
+                color: theme.detail,
                 fontSize: image ? 28 : 34,
                 lineHeight: 1.45,
                 fontWeight: 650
@@ -285,7 +294,7 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
                       width: 34,
                       height: 34,
                       borderRadius: 999,
-                      backgroundColor: index <= stepReveal ? "#df7b37" : "#d7cdc0",
+                      backgroundColor: index <= stepReveal ? theme.stepActive : theme.stepIdle,
                       color: "white",
                       display: "flex",
                       alignItems: "center",
@@ -302,9 +311,9 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
                   {
                     style: {
                       flex: 1,
-                      borderRadius: 16,
-                      backgroundColor: "#f3ebe0",
-                      color: "#3c342c",
+                      borderRadius: Math.max(8, theme.cardRadius - 20),
+                      backgroundColor: theme.stepBackground,
+                      color: theme.stepInk,
                       fontSize: 26,
                       fontWeight: 750,
                       padding: "12px 16px"
@@ -339,9 +348,9 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
                 {
                   key: badge,
                   style: {
-                    borderRadius: 999,
-                    backgroundColor: "#efe5d5",
-                    color: "#5d5145",
+                    borderRadius: theme.badgeRadius,
+                    backgroundColor: theme.badgeBackground,
+                    color: theme.badgeInk,
                     fontSize: 24,
                     fontWeight: 800,
                     padding: "10px 16px",
@@ -364,7 +373,7 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
             bottom: 18,
             height: 6,
             borderRadius: 999,
-            backgroundColor: "rgba(36,31,26,0.08)",
+            backgroundColor: theme.progressTrack,
             overflow: "hidden"
           }
         },
@@ -373,7 +382,7 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
             width: `${Math.min(100, Math.max(8, ((second - (active?.start ?? 0)) / Math.max(0.001, (active?.end ?? second + 1) - (active?.start ?? 0))) * 100))}%`,
             height: "100%",
             borderRadius: 999,
-            background: "linear-gradient(90deg, #df7b37, #3972b8)",
+            background: theme.progress,
             transition: "none"
           }
         })
@@ -382,7 +391,7 @@ function CenterVisual({ active, visual, images, frame, fps, second }) {
   );
 }
 
-function Character({ speaker, image, active, frame, fps }) {
+function Character({ speaker, image, active, frame, fps, theme }) {
   // Soft idle sway (~2.4s) instead of fast bounce
   const bob = Math.sin((frame / fps) * Math.PI * 0.85) * (active ? 3.5 : 2);
   const activeScale = active
@@ -416,10 +425,15 @@ function Character({ speaker, image, active, frame, fps }) {
           width: 230,
           height: 230,
           overflow: "hidden",
-          borderRadius: "50% 50% 42% 42%",
+          borderRadius: theme.characterRadius,
           border: `6px solid ${speaker.accent}`,
-          backgroundColor: "white",
-          boxShadow: active ? `0 16px 36px ${speaker.accent}38` : "0 12px 28px rgba(55,45,35,0.14)"
+          backgroundColor: theme.characterBackground,
+          boxShadow:
+            theme.cardShadow === "none"
+              ? "none"
+              : active
+                ? `0 16px 36px ${speaker.accent}38`
+                : "0 12px 28px rgba(55,45,35,0.14)"
         }
       },
       image
@@ -436,7 +450,7 @@ function Character({ speaker, image, active, frame, fps }) {
               transformOrigin: "center 32%"
             }
           })
-        : React.createElement("div", { style: { width: "100%", height: "100%", backgroundColor: "#eee5da" } })
+        : React.createElement("div", { style: { width: "100%", height: "100%", backgroundColor: theme.imagePlaceholder } })
     ),
     React.createElement(
       "div",
@@ -444,13 +458,13 @@ function Character({ speaker, image, active, frame, fps }) {
         style: {
           minWidth: 120,
           borderRadius: 999,
-          backgroundColor: active ? speaker.accent : "#7a7168",
+          backgroundColor: active ? speaker.accent : theme.nameIdle,
           color: "white",
           fontSize: 24,
           fontWeight: 900,
           padding: "8px 16px",
           textAlign: "center",
-          boxShadow: "0 8px 20px rgba(55,45,35,0.14)"
+          boxShadow: theme.cardShadow === "none" ? "none" : "0 8px 20px rgba(55,45,35,0.14)"
         }
       },
       speaker.display_name
@@ -458,7 +472,7 @@ function Character({ speaker, image, active, frame, fps }) {
   );
 }
 
-function DialogueCaption({ active, speakers, frame, fps }) {
+function DialogueCaption({ active, speakers, frame, fps, theme }) {
   if (!active) return null;
   const speaker = speakers.find((candidate) => candidate.id === active.speaker);
   const parts = emphasizedTextParts(active.text, active.emphasis);
@@ -478,11 +492,11 @@ function DialogueCaption({ active, speakers, frame, fps }) {
         alignItems: "center",
         justifyContent: "center",
         gap: 18,
-        borderRadius: 26,
+        borderRadius: theme.captionRadius,
         border: `3px solid ${speaker?.accent ?? "#3f3a35"}`,
-        backgroundColor: "rgba(27, 25, 23, 0.92)",
-        boxShadow: "0 14px 40px rgba(27,25,23,0.22)",
-        color: "white",
+        backgroundColor: theme.captionBackground,
+        boxShadow: theme.captionShadow,
+        color: theme.captionInk,
         padding: "18px 28px",
         textAlign: "center",
         opacity: enter.opacity,
@@ -507,7 +521,10 @@ function DialogueCaption({ active, speakers, frame, fps }) {
       ...parts.map((part, index) =>
         React.createElement(
           "span",
-          { key: `${index}-${part.text}`, style: { color: part.emphasized ? speaker?.accent ?? "#f4b45f" : "white" } },
+          {
+            key: `${index}-${part.text}`,
+            style: { color: part.emphasized ? speaker?.accent ?? "#f4b45f" : theme.captionInk }
+          },
           part.text
         )
       )
