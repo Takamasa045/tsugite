@@ -5,6 +5,10 @@ import {
   buildTemplateBriefMarkdown,
   optionLabelFor,
   partitionRequiredInputs,
+  resolveDirectionLines,
+  resolveExampleLines,
+  resolvePromptGuidesForBrief,
+  resolveRequiredInputDetails,
   TEMPLATE_INPUT_TYPE_LABELS,
   type LauncherTemplate,
 } from './templateShelfModel'
@@ -36,10 +40,28 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
     () => buildTemplateBriefMarkdown(template, choices),
     [choices, template],
   )
-  const { required, optional } = useMemo(
-    () => partitionRequiredInputs(template.requiredInputDetails),
-    [template.requiredInputDetails],
+  const resolvedInputs = useMemo(
+    () => resolveRequiredInputDetails(template, choices),
+    [choices, template],
   )
+  const { required, optional } = useMemo(
+    () => partitionRequiredInputs(resolvedInputs),
+    [resolvedInputs],
+  )
+  const directionLines = useMemo(
+    () => resolveDirectionLines(template, choices),
+    [choices, template],
+  )
+  const exampleLines = useMemo(
+    () => resolveExampleLines(template, choices),
+    [choices, template],
+  )
+  const promptGuides = useMemo(
+    () => resolvePromptGuidesForBrief(template, choices),
+    [choices, template],
+  )
+  const goodExamples = exampleLines.filter((entry) => entry.kind === 'good')
+  const monoExamples = exampleLines.filter((entry) => entry.kind === 'monotonous')
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
@@ -68,7 +90,9 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
     >
       <div className="launcher-template-checklist-heading">
         <h2 id={headingId} ref={headingRef} tabIndex={-1}>チェックリスト</h2>
-        <p>{template.name} の選択内容と用意するものです。生成や実行はこの棚からは行いません。</p>
+        <p>
+          {template.name} の選択内容・演出・用意するものです。コピー前に確認できます。生成や実行はこの棚からは行いません。
+        </p>
       </div>
 
       <div className="launcher-template-checklist-body">
@@ -95,6 +119,89 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
         </section>
 
         <div className="launcher-template-checklist-materials">
+          {directionLines.length > 0 && (
+            <section
+              aria-label="演出指針"
+              className="launcher-template-checklist-direction"
+              role="region"
+            >
+              <h3>演出指針</h3>
+              <ul className="launcher-template-guidance-list">
+                {directionLines.map((entry) => {
+                  const label = entry.source
+                    ? `${entry.label}（${entry.source}）`
+                    : entry.label
+                  return (
+                    <li key={`${label}-${entry.text}`}>
+                      <b>{label}</b>
+                      <span>{entry.text}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          )}
+
+          {(goodExamples.length > 0 || monoExamples.length > 0) && (
+            <section
+              aria-label="具体例"
+              className="launcher-template-checklist-examples"
+              role="region"
+            >
+              <h3>具体例</h3>
+              {goodExamples.length > 0 && (
+                <div className="launcher-template-example-block">
+                  <h4>良い例</h4>
+                  <ul>
+                    {goodExamples.map((entry) => (
+                      <li key={`good-${entry.optionLabel}-${entry.text}`}>
+                        <b>{entry.optionLabel}</b>
+                        <span>{entry.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {monoExamples.length > 0 && (
+                <div className="launcher-template-example-block launcher-template-example-block-mono">
+                  <h4>単調な例（避ける）</h4>
+                  <ul>
+                    {monoExamples.map((entry) => (
+                      <li key={`mono-${entry.optionLabel}-${entry.text}`}>
+                        <b>{entry.optionLabel}</b>
+                        <span>{entry.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
+
+          {promptGuides.length > 0 && (
+            <section
+              aria-label="生成プロンプトの書式"
+              className="launcher-template-checklist-guides"
+              role="region"
+            >
+              <h3>生成プロンプトの書式</h3>
+              {promptGuides.map((guide) => (
+                <div
+                  className="launcher-template-guide-block"
+                  key={guide.catalogId}
+                >
+                  <h4>{guide.displayName}（{guide.catalogId}）</h4>
+                  <p className="launcher-template-guide-disclaimer">{guide.disclaimer}</p>
+                  <ul>
+                    {guide.checklist.map((rule) => (
+                      <li key={rule.id}>{rule.instruction}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </section>
+          )}
+
           <section aria-label="必須の用意するもの" className="launcher-template-requirements" role="region">
             <h3>必須</h3>
             {required.length > 0 ? (

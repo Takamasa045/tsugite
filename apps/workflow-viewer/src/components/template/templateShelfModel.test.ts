@@ -11,6 +11,7 @@ import {
   resolveDirectionLines,
   resolveExampleLines,
   resolvePromptGuidesForBrief,
+  resolveRequiredInputDetails,
   type LauncherTemplate,
   type TemplateVariant,
 } from './templateShelfModel'
@@ -27,6 +28,7 @@ const variants: TemplateVariant[] = [
         label: '同僚同士',
         description: '同僚',
         directionAdd: { camera: '二人を同じ画角で並べすぎない' },
+        requiredInputsAdd: ['任意BGM'],
       },
     ],
   },
@@ -168,6 +170,20 @@ describe('templateShelfModel', () => {
     const { required, optional } = partitionRequiredInputs(template.requiredInputDetails)
     expect(required.map((item) => item.label)).toEqual(['記事本文', '画像（フラグなし）'])
     expect(optional.map((item) => item.label)).toEqual(['任意BGM'])
+  })
+
+  it('resolveRequiredInputDetails は option の requiredInputsAdd で任意を必須へ昇格する', () => {
+    const base = resolveRequiredInputDetails(template, { cast: 'beginner-expert' })
+    expect(base.find((item) => item.label === '任意BGM')?.required).toBe(false)
+
+    const promoted = resolveRequiredInputDetails(template, { cast: 'peer-dialogue' })
+    expect(promoted.find((item) => item.label === '任意BGM')?.required).toBe(true)
+    expect(promoted.find((item) => item.label === '記事本文')?.required).toBe(true)
+
+    const md = buildTemplateBriefMarkdown(template, { cast: 'peer-dialogue' })
+    // 必須側に昇格した任意BGMが載る（任意セクションに残らない）
+    expect(md).toMatch(/### 必須[\s\S]*任意BGM/)
+    expect(md).not.toMatch(/### 任意[\s\S]*任意BGM/)
   })
 
   it('buildTemplateBriefMarkdown に型名・軸・必須/任意を含める', () => {
