@@ -519,6 +519,9 @@ function mapTemplateExamples(
 const PROMPT_GUIDE_DISCLAIMER =
   "カタログの存在は実行能力・利用権・接続状態を証明しません。Gate 1承認と接続確認が別途必要です。";
 
+/** cwd 非依存。Desktop など作業ディレクトリが repo root でない環境でも解決する。 */
+const TEMPLATE_PROMPT_GUIDE_DIRS = [join(TSUGITE_ROOT, "knowledge", "video-models")];
+
 async function loadDocumentedPromptGuides(
   catalogIds: readonly string[]
 ): Promise<LauncherTemplatePromptGuide[]> {
@@ -526,7 +529,7 @@ async function loadDocumentedPromptGuides(
   const guides: LauncherTemplatePromptGuide[] = [];
   for (const catalogId of unique) {
     try {
-      const guide = await loadPromptGuideById(catalogId);
+      const guide = await loadPromptGuideById(catalogId, TEMPLATE_PROMPT_GUIDE_DIRS);
       if (!guide) continue;
       const checklist = guide.common.checklist
         .filter((rule) => rule.evidence === "documented")
