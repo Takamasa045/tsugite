@@ -81,6 +81,13 @@ function jsonResponse(input: unknown, ok = true, status = ok ? 200 : 500): Respo
   } as Response
 }
 
+function historyDetailState(): string | null {
+  const state = window.history.state
+  if (typeof state !== 'object' || state === null) return null
+  const value = (state as { tsugiteCharacterDetail?: string | null }).tsugiteCharacterDetail
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
 describe('CharacterShelf', () => {
   it('loading / error / empty を表示する', async () => {
     const user = userEvent.setup()
@@ -209,6 +216,40 @@ describe('CharacterShelf', () => {
       expect(screen.getByRole('heading', { name: 'キャラクターを選ぶ' })).toBeVisible()
     })
   })
+
+  it('アンマウント時に詳細 history を破棄し、再マウント後の戻るが壊れない', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(
+      <CharacterShelf
+        characters={[sampleCharacter]}
+        loadState="ready"
+        projects={writableProjects}
+        token="session-token"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'ハナの詳細を見る' }))
+    expect(window.history.state).toMatchObject({ tsugiteCharacterDetail: sampleCharacter.groupKey })
+
+    unmount()
+    expect(historyDetailState()).toBeNull()
+
+    render(
+      <CharacterShelf
+        characters={[sampleCharacter]}
+        loadState="ready"
+        projects={writableProjects}
+        token="session-token"
+      />,
+    )
+    expect(screen.getByRole('heading', { name: 'キャラクターを選ぶ' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'ハナの詳細を見る' }))
+    await user.click(screen.getByRole('button', { name: '一覧に戻る' }))
+    await vi.waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'キャラクターを選ぶ' })).toBeVisible()
+    })
+  })
+
 
   it('競合時は conflict メッセージを表示する', async () => {
     const user = userEvent.setup()

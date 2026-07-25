@@ -73,6 +73,21 @@ export function CharacterShelf({
     window.history.pushState({ ...base, [HISTORY_KEY]: groupKey }, '')
   }, [])
 
+  // Restore/sync when the shelf remounts; drop stale detail history when the tab unmounts.
+  useEffect(() => {
+    const currentKey = historyDetailKey(window.history.state)
+    if (currentKey) setSelectedGroupKey(currentKey)
+
+    return () => {
+      if (!historyDetailKey(window.history.state)) return
+      const base =
+        typeof window.history.state === 'object' && window.history.state !== null
+          ? (window.history.state as CharacterHistoryState)
+          : {}
+      window.history.replaceState({ ...base, [HISTORY_KEY]: null }, '')
+    }
+  }, [])
+
   useEffect(() => {
     if (!selectedCharacter) {
       setSelectedSourceKey(null)

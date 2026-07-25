@@ -8,7 +8,7 @@ import {
 import type { CharacterSourceRef } from "../src/characters/types.js";
 
 describe("aggregateCharacters", () => {
-  it("groups local sources by normalized displayName across projects and speaker ids", () => {
+  it("groups local sources by speaker id + normalized displayName (kana variants merge)", () => {
     const sources = [
       source({
         sourceKey: "project\0/a/manifest.json\0hero",
@@ -34,7 +34,7 @@ describe("aggregateCharacters", () => {
         manifestPath: "/c/manifest.json",
         poses: [pose("neutral")]
       }),
-      // Same face, different speaker id / kana form should merge
+      // Same display name, different speaker ids must NOT merge (generic Host risk)
       source({
         sourceKey: "project\0/d/manifest.json\0mike",
         label: "project-d",
@@ -51,6 +51,7 @@ describe("aggregateCharacters", () => {
         manifestPath: "/e/manifest.json",
         poses: [pose("neutral"), pose("smile")]
       }),
+      // Same speaker id with kana/width variants should merge
       source({
         sourceKey: "project\0/f/manifest.json\0itopan",
         label: "project-f",
@@ -70,25 +71,25 @@ describe("aggregateCharacters", () => {
     ];
 
     const groups = aggregateCharacters(sources);
-    expect(groups).toHaveLength(4);
+    expect(groups).toHaveLength(5);
 
     const hero = groups.find((group) => group.displayName === "Hero");
-    expect(hero?.groupKey).toBe("local:hero");
+    expect(hero?.groupKey).toBe("local:hero\0hero");
     expect(hero?.sources).toHaveLength(2);
     // Representative: more poses first
     expect(hero?.sources[0]?.label).toBe("project-b");
     expect(hero?.poseCount).toBe(2);
 
     const other = groups.find((group) => group.displayName === "Other Hero");
-    expect(other?.groupKey).toBe("local:otherhero");
+    expect(other?.groupKey).toBe("local:hero\0otherhero");
 
-    const neruSensei = groups.find((group) => group.displayName === "ネル先生");
-    expect(neruSensei?.groupKey).toBe("local:ネル先生");
-    expect(neruSensei?.sources.map((entry) => entry.id).sort()).toEqual(["mike", "neru"]);
+    const neruCards = groups.filter((group) => group.displayName === "ネル先生");
+    expect(neruCards).toHaveLength(2);
+    expect(neruCards.map((group) => group.id).sort()).toEqual(["mike", "neru"]);
 
-    const itopan = groups.find((group) => group.groupKey === "local:イトパン");
+    const itopan = groups.find((group) => group.id === "itopan");
+    expect(itopan?.groupKey).toBe("local:itopan\0イトパン");
     expect(itopan?.sources).toHaveLength(2);
-    expect(itopan?.sources[0]?.displayName).toBe("イトパン");
   });
 
   it("groups shitate provenance by kind+character+run_id (cross-project same run merges)", () => {
@@ -228,7 +229,7 @@ describe("aggregateCharacters", () => {
       displayName: "A",
       poses: [pose("n")]
     });
-    expect(groupKeyFor(local)).toBe("local:a");
+    expect(groupKeyFor(local)).toBe("local:a\0a");
 
     const remote = source({
       sourceKey: "r",
@@ -243,7 +244,7 @@ describe("aggregateCharacters", () => {
   it("prefers character portraits over review/storyboard reference assets as representative", () => {
     const reference = source({
       sourceKey: "ref",
-      id: "host",
+      id: "itopan",
       displayName: "いとぱん",
       label: "digest",
       manifestPath: "/digest/manifest.json",
@@ -265,6 +266,26 @@ describe("aggregateCharacters", () => {
     expect(groups[0]!.sources[0]!.label).toBe("promo");
     expect(isReferenceAssetSource(reference)).toBe(true);
     expect(isReferenceAssetSource(portrait)).toBe(false);
+  });
+
+  it("does not merge different speaker ids that share a generic display name", () => {
+    const groups = aggregateCharacters([
+      source({
+        sourceKey: "a",
+        id: "host-a",
+        displayName: "Host",
+        label: "proj-a",
+        poses: [pose("neutral")]
+      }),
+      source({
+        sourceKey: "b",
+        id: "host-b",
+        displayName: "Host",
+        label: "proj-b",
+        poses: [pose("neutral")]
+      })
+    ]);
+    expect(groups).toHaveLength(2);
   });
 });
 

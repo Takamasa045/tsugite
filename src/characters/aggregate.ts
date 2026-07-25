@@ -43,8 +43,10 @@ export function aggregateCharacters(sources: CharacterSourceRef[]): AggregatedCh
 /**
  * Deterministic group key.
  * - provenance: kind+character(+run_id)
- * - local: normalized displayName only (same face / same label merges even if speaker id differs;
- *   e.g. イトパン vs いとぱん, mike vs neru both named ネル先生)
+ * - local: speaker id + normalized displayName
+ *   Same speaker with kana/width variants merges (イトパン / いとぱん).
+ *   Different speaker ids stay separate even with the same display name
+ *   (e.g. generic Host / ナレーター collisions across projects).
  */
 export function groupKeyFor(source: CharacterSourceRef): string {
   const provenance = source.provenance;
@@ -54,9 +56,9 @@ export function groupKeyFor(source: CharacterSourceRef): string {
     if (runId !== undefined) {
       return `${provenance.kind}:${character}\0${runId}`;
     }
-    return `${provenance.kind}:${character}\0${normalizeDisplayName(source.displayName)}`;
+    return `${provenance.kind}:${character}\0${source.id}\0${normalizeDisplayName(source.displayName)}`;
   }
-  return `local:${normalizeDisplayName(source.displayName)}`;
+  return `local:${source.id}\0${normalizeDisplayName(source.displayName)}`;
 }
 
 /**
