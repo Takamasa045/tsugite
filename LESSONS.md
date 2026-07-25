@@ -53,4 +53,4 @@ Append-only format:
 2026-07-17 / launcher一覧で正常に見える案件が「最新状態に更新」後にpresentation preset非対応で失敗した / 一覧はproject.yamlの読み込みだけでvalidとし、preset能力宣言とRemotion実装も別管理だった / launcherは一覧時にvalidateProjectまで実行してrefreshableを別表示し、backendのpreset宣言と実装registryの一致をCIで強制する / validate済
 2026-07-17 / 成果物プレビューの縦型動画が16:9の横長枠で表示された / previewのvideoに一律のaspect-ratio: 16/9を適用していた / videoWidthとvideoHeightの実metadataで各動画を独立判定し、縦型は9:16で中央表示、未読み込みと横型は16:9を維持する / qa済
 2026-07-17 / launcherの事前検知を追加してもorbital案件の更新不能は解消しなかった / 完成manifestが要求するpreset実装がGitの到達不能オブジェクトに残り、backend registryと能力宣言へ入っていなかった / 完成案件固有presetも実装・registry・capabilities・有効manifestによるrender smokeを同じ変更単位で揃え、実案件のrefresh成功まで確認する / validate済
-2026-07-25 / ランチャー検索に `projects/<slug>/dist/<runId>/final.mp4` を貼っても案件がヒットしない / name/slug/runId に対して query の片方向 includes だけだった / パス貼り付けは query 側に identity が含まれるかも見る双方向一致にする / validate済
+2026-07-25 / ランチャー検索に `projects/<slug>/dist/<runId>/final.mp4` を貼っても案件がヒットしない / name/slug/runId に対して query の片方向 includes だけだった / 通常検索は部分一致、パス貼り付けは path セグメントと slug/runId の完全一致にして短い slug の誤ヒットを避ける / validate済

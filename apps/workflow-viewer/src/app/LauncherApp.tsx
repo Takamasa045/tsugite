@@ -331,12 +331,15 @@ function projectMatchesFilter(project: LauncherProject, filter: ProjectFilter): 
 export function projectMatchesQuery(project: LauncherProject, rawQuery: string): boolean {
   const normalized = rawQuery.trim().toLocaleLowerCase('ja')
   if (!normalized) return true
-  return [project.name, project.slug, project.runId].some((value) => {
-    const field = value.toLocaleLowerCase('ja')
-    if (!field) return false
-    // Substring either way: "ai-lab" hits slug, and a full path hits slug/runId inside it.
-    return field.includes(normalized) || normalized.includes(field)
-  })
+  const fields = [project.name, project.slug, project.runId]
+    .map((value) => value.toLocaleLowerCase('ja'))
+    .filter(Boolean)
+  // Path paste: exact path segments only, so short slugs do not steal longer siblings.
+  if (/[/\\]/.test(normalized)) {
+    const segments = normalized.split(/[/\\]+/).filter(Boolean)
+    return fields.some((field) => segments.includes(field))
+  }
+  return fields.some((field) => field.includes(normalized))
 }
 
 function projectUpdatedAtMs(project: LauncherProject): number {

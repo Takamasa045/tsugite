@@ -776,6 +776,7 @@ describe('LauncherApp', () => {
     expect(projectMatchesQuery(project, 'project-alpha-r3')).toBe(true)
     expect(projectMatchesQuery(project, 'projects/project-alpha/dist/project-alpha-r3/final.mp4')).toBe(true)
     expect(projectMatchesQuery(project, 'projects/other-slug/dist/other-r1/final.mp4')).toBe(false)
+    expect(projectMatchesQuery(project, 'projects/project-alpha-extra/dist/project-alpha-extra-r1/final.mp4')).toBe(false)
     expect(projectMatchesQuery(project, 'final.mp4')).toBe(false)
   })
 
