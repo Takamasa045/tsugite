@@ -600,7 +600,7 @@ describe('LauncherApp', () => {
     const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
     await waitFor(() => expect(feedbackTab).toHaveAccessibleDescription('確認待ちの学び 3件'))
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/feedback')).toHaveLength(1)
-    expect(screen.getByRole('heading', { name: '制作案件を選ぶ' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
     await user.click(feedbackTab)
 
     expect(await screen.findByRole('heading', { name: '制作に活かす学び' })).toBeVisible()
@@ -786,7 +786,7 @@ describe('LauncherApp', () => {
 
     await user.type(screen.getByRole('searchbox', { name: '制作案件を検索' }), 'サンプル映像A')
     expect(screen.getByText('全2件 / 表示1件')).toBeVisible()
-    const projectList = screen.getByRole('region', { name: '制作案件を選ぶ' })
+    const projectList = screen.getByRole('region', { name: '作品を選ぶ' })
     expect(within(projectList).queryByRole('heading', { name: 'Codex Goal Talk' })).not.toBeInTheDocument()
 
     await user.clear(screen.getByRole('searchbox', { name: '制作案件を検索' }))
@@ -840,7 +840,7 @@ describe('LauncherApp', () => {
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
 
-    const projectList = await screen.findByRole('region', { name: '制作案件を選ぶ' })
+    const projectList = await screen.findByRole('region', { name: '作品を選ぶ' })
     expect(within(projectList).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
       '最新の要確認案件',
       '最新の有効案件',
@@ -1109,7 +1109,7 @@ describe('LauncherApp', () => {
     expect(screen.getByText('質問と回答の一覧')).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: '制作案件' }))
-    expect(screen.getByRole('heading', { name: '制作案件を選ぶ' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
@@ -1125,7 +1125,7 @@ describe('LauncherApp', () => {
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: '制作案件' }))
-    expect(screen.getByRole('heading', { name: '制作案件を選ぶ' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
@@ -1464,7 +1464,7 @@ describe('LauncherApp', () => {
     expect(within(selectedPanel).queryByRole('button', { name: 'Gate 2 素材確認を開く' })).not.toBeInTheDocument()
   })
 
-  it('左のサムネイルから最新の3Dワークフローへ直接移動する', async () => {
+  it('左のサムネイルから最新の制作工程へ直接移動する', async () => {
     const user = userEvent.setup()
     const fetcher = vi.fn().mockImplementation((url: string) => {
       if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
@@ -1483,7 +1483,7 @@ describe('LauncherApp', () => {
     render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
 
     await user.click(await screen.findByRole('button', {
-      name: 'サンプル映像Aの3Dワークフローを最新にして開く',
+      name: 'サンプル映像Aの制作工程を最新にして開く',
     }))
 
     await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
@@ -1649,7 +1649,7 @@ describe('LauncherApp', () => {
     expect(reasonCard).toHaveTextContent("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")
     expect(reasonCard).toHaveAccessibleDescription("manifest requires presentation preset 'unsupported-showreel-16x9', but backend does not support it")
 
-    await user.click(screen.getByRole('button', { name: '未対応ショーリールの前回の3Dワークフローを開く' }))
+    await user.click(screen.getByRole('button', { name: '未対応ショーリールの前回の制作工程を開く' }))
     expect(navigate).toHaveBeenCalledWith('/viewers/unsupported-showreel/')
     navigate.mockClear()
 

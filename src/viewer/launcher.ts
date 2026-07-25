@@ -3818,10 +3818,21 @@ async function isSymbolicLink(path: string): Promise<boolean> {
 function injectLauncherMeta(html: string, token: string): string {
   const head = /<head(?:\s[^>]*)?>/i;
   if (!head.test(html)) throw new Error("Viewer bundle index.html does not contain a head element");
-  return html.replace(
+  let next = html.replace(
     head,
     (opening) => `${opening}\n    <meta name="tsugite-launcher" content="true">\n    <meta name="tsugite-launcher-token" content="${token}">`
   );
+  // Launcher mode should read as a Japanese production shelf, not the generic 3D viewer tab title.
+  if (/<title>[\s\S]*?<\/title>/i.test(next)) {
+    next = next.replace(/<title>[\s\S]*?<\/title>/i, "<title>Tsugite 制作ランチャー</title>");
+  }
+  if (/<meta\s+name=["']description["'][^>]*>/i.test(next)) {
+    next = next.replace(
+      /<meta\s+name=["']description["'][^>]*>/i,
+      '<meta name="description" content="制作案件の見取図を開き、作品ごとの工程と完成動画へ進むTsugiteランチャー">'
+    );
+  }
+  return next;
 }
 
 async function writeProjectGenerationConnection(

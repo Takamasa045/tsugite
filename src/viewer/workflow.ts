@@ -184,10 +184,13 @@ export function createViewerWorkflow(
   );
   const duration = nodes.length * STEP_SECONDS;
 
+  // Prefer the human display name so each work shows a Japanese title in the viewer.
+  const displayName = project.name.trim() || project.slug;
+
   return {
     id: plan.run_id,
-    name: `${project.slug} 制作フロー`,
-    description: `${project.slug}の制作準備から完成確認までを、順番にたどれる記録です。`,
+    name: displayName,
+    description: `${displayName}の制作準備から完成確認までを、順番にたどれる記録です。`,
     status: resolveWorkflowStatus(nodes),
     duration,
     nodes,

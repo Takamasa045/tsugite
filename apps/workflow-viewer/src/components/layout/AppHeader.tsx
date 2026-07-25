@@ -38,7 +38,7 @@ export function AppHeader({
       <div className="brand-block">
         <span aria-hidden="true" className="brand-mark">継</span>
         <div>
-          <span className="product-name">TSUGITE / 制作の見取図</span>
+          <span className="product-name">Tsugite 制作の見取図</span>
           <h1>{workflow.name}</h1>
         </div>
       </div>

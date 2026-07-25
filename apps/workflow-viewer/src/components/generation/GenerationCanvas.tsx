@@ -555,7 +555,7 @@ export function GenerationCanvas({
           <p>選択した案件の project.yaml を正本として、画像・動画・音声の工程を表示します。</p>
         </div>
         <label className="generation-canvas-project-picker">
-          <span>制作案件を選ぶ</span>
+          <span>作品を選ぶ</span>
           <select
             aria-label="キャンバスの制作案件"
             disabled={projects.length === 0}
