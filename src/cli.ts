@@ -552,8 +552,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       })
     : undefined;
   if (args.command === "validate") {
-    return output(args, validation.ok ? 0 : 1, {
-      ok: validation.ok,
+    const ok = validation.ok && (launcherShelf?.ok ?? true);
+    return output(args, ok ? 0 : 1, {
+      ok,
       command: "validate",
       issues: [
         ...validation.issues,

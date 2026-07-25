@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -91,7 +91,7 @@ describe("durable launcher projects home", () => {
     expect(marker).toMatchObject({
       schema_version: 1,
       project_slug: "myth-battle",
-      source_project_root: projectRoot
+      source_project_root: await realpath(projectRoot)
     });
   });
 
@@ -113,7 +113,7 @@ describe("durable launcher projects home", () => {
     expect(result.ok).toBe(true);
     expect(result.alreadyHome).toBe(true);
     expect(result.promoted).toBe(false);
-    expect(result.destinationRoot).toBe(projectRoot);
+    expect(result.destinationRoot).toBe(await realpath(projectRoot));
   });
 
   it("registers a pre-production worktree project onto the durable shelf via directory link", async () => {
@@ -235,5 +235,43 @@ describe("durable launcher projects home", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.issues[0]?.code).toBe("launcher_home.register_failed");
+  });
+
+  it("replaces a dangling shelf link and promotes through an existing shelf symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-dangling-"));
+    const projectsHome = join(root, "durable-projects");
+    const gone = join(root, "gone-worktree", "projects", "myth");
+    const projectRoot = join(root, "feature-worktree", "projects", "myth");
+    const shelf = join(projectsHome, "myth");
+    await mkdir(gone, { recursive: true });
+    await mkdir(join(projectRoot, "dist", "myth-r1"), { recursive: true });
+    await mkdir(projectsHome, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: myth\n", "utf8");
+    await writeFile(join(projectRoot, "dist", "myth-r1", "final.mp4"), "final", "utf8");
+    await symlink(gone, shelf, "dir");
+    await rm(gone, { recursive: true, force: true });
+
+    const linked = await ensureProjectVisibleOnLauncherShelf({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "myth",
+      env: { TSUGITE_PROJECTS_HOME: projectsHome }
+    });
+    expect(linked.ok).toBe(true);
+    expect(linked.linked).toBe(true);
+
+    // Config path via shelf symlink must still promote a real durable copy.
+    const promoted = await ensureFinalizedProjectInLauncherHome({
+      configPath: join(shelf, "project.yaml"),
+      projectSlug: "myth",
+      apply: true,
+      env: { TSUGITE_PROJECTS_HOME: projectsHome },
+      now: "2026-07-25T12:00:00.000Z"
+    });
+    expect(promoted.ok).toBe(true);
+    expect(promoted.promoted).toBe(true);
+    const { lstat } = await import("node:fs/promises");
+    expect((await lstat(shelf)).isSymbolicLink()).toBe(false);
+    await expect(stat(join(shelf, "dist", "myth-r1", "final.mp4"))).resolves.toBeDefined();
+    await expect(stat(join(shelf, "launcher-home.json"))).resolves.toBeDefined();
   });
 });

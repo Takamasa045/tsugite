@@ -1,6 +1,19 @@
 import { execFile } from "node:child_process";
-import { cp, lstat, mkdir, readFile, readlink, realpath, symlink, writeFile } from "node:fs/promises";
-import { platform } from "node:os";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  unlink,
+  writeFile
+} from "node:fs/promises";
+import { platform, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { Issue } from "../types.js";
@@ -84,10 +97,14 @@ export async function planLauncherHome(
   projectSlug: string,
   options: ResolveDurableProjectsHomeOptions = {}
 ): Promise<LauncherHomePlan> {
-  const projectRoot = dirname(resolve(configPath));
+  const lexicalProjectRoot = dirname(resolve(configPath));
+  const projectRoot = await resolveExistingPath(lexicalProjectRoot);
   const projectsHome = await resolveDurableProjectsHome(options);
+  const projectsHomeReal = await resolveExistingPath(projectsHome);
   const destinationRoot = join(projectsHome, sanitizeProjectDirName(projectSlug, projectRoot));
-  const alreadyHome = isWithinDirectory(projectsHome, projectRoot);
+  // Use real paths so a shelf symlink into a worktree is not treated as already-home.
+  const alreadyHome = !await isSymbolicLinkPath(lexicalProjectRoot)
+    && isWithinDirectory(projectsHomeReal, projectRoot);
   return {
     projectsHome,
     projectRoot,
@@ -209,15 +226,9 @@ export async function ensureFinalizedProjectInLauncherHome(
   try {
     await assertSafePromotion(plan.projectRoot, plan.destinationRoot, plan.projectsHome, options.projectSlug);
     await mkdir(plan.projectsHome, { recursive: true });
-    await cp(plan.projectRoot, plan.destinationRoot, {
-      recursive: true,
-      force: true,
-      errorOnExist: false,
-      filter: (source) => {
-        const name = basename(source);
-        return name !== "node_modules" && name !== ".git";
-      }
-    });
+    // Replace the destination atomically from a temp tree so deleted media does not linger.
+    // Also replaces a pre-production shelf symlink with a real completed copy.
+    await replaceDirectoryWithCopy(plan.projectRoot, plan.destinationRoot);
     const destinationConfigPath = join(
       plan.destinationRoot,
       basename(resolve(options.configPath))
@@ -261,13 +272,36 @@ async function assertSafePromotion(
   if (!isWithinDirectory(projectsHome, destinationRoot) || resolve(destinationRoot) === resolve(projectsHome)) {
     throw new Error("launcher home destination must stay inside the durable projects directory");
   }
-  if (isWithinDirectory(sourceRoot, destinationRoot) || isWithinDirectory(destinationRoot, sourceRoot)) {
-    if (resolve(sourceRoot) !== resolve(destinationRoot)) {
+  const sourceReal = await resolveExistingPath(sourceRoot);
+  if (isWithinDirectory(sourceReal, destinationRoot) || isWithinDirectory(destinationRoot, sourceReal)) {
+    // Destination may currently be a symlink into source (pre-production shelf link). That is OK
+    // because replaceDirectoryWithCopy removes the link before writing a real tree.
+    if (
+      resolve(sourceReal) !== resolve(destinationRoot)
+      && !await isSymbolicLinkPath(destinationRoot)
+    ) {
       throw new Error("launcher home destination must not nest inside the source project");
     }
   }
   try {
     const stats = await lstat(destinationRoot);
+    if (stats.isSymbolicLink()) {
+      const linked = await readlink(destinationRoot);
+      const resolvedLink = isAbsolute(linked) ? resolve(linked) : resolve(dirname(destinationRoot), linked);
+      let linkedReal = resolvedLink;
+      try {
+        linkedReal = await realpath(resolvedLink);
+      } catch {
+        // Dangling link is replaceable.
+        return;
+      }
+      if (linkedReal !== sourceReal && resolvedLink !== resolve(sourceRoot)) {
+        throw new Error(
+          `launcher shelf path already links elsewhere: ${destinationRoot} -> ${resolvedLink}`
+        );
+      }
+      return;
+    }
     if (!stats.isDirectory()) {
       throw new Error(`launcher home destination exists and is not a directory: ${destinationRoot}`);
     }
@@ -285,6 +319,48 @@ async function assertSafePromotion(
     }
   } catch (error) {
     if (!isNodeError(error, "ENOENT")) throw error;
+  }
+}
+
+async function replaceDirectoryWithCopy(sourceRoot: string, destinationRoot: string): Promise<void> {
+  const parent = dirname(destinationRoot);
+  await mkdir(parent, { recursive: true });
+  const staging = await mkdtemp(join(parent, `.promote-${basename(destinationRoot)}-`));
+  const stagedProject = join(staging, "project");
+  try {
+    await cp(sourceRoot, stagedProject, {
+      recursive: true,
+      filter: (source) => {
+        const name = basename(source);
+        return name !== "node_modules" && name !== ".git";
+      }
+    });
+    const backup = `${destinationRoot}.replaced-${Date.now()}`;
+    let hadDestination = false;
+    try {
+      await lstat(destinationRoot);
+      hadDestination = true;
+      await rename(destinationRoot, backup);
+    } catch (error) {
+      if (!isNodeError(error, "ENOENT")) throw error;
+    }
+    try {
+      await rename(stagedProject, destinationRoot);
+    } catch (error) {
+      if (hadDestination) {
+        try {
+          await rename(backup, destinationRoot);
+        } catch {
+          // best effort restore
+        }
+      }
+      throw error;
+    }
+    if (hadDestination) {
+      await rm(backup, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(staging, { recursive: true, force: true });
   }
 }
 
@@ -324,10 +400,11 @@ async function ensureDirectoryLink(
       const current = await readlink(destination);
       const resolvedCurrent = isAbsolute(current) ? resolve(current) : resolve(dirname(destination), current);
       let currentReal = resolvedCurrent;
+      let dangling = false;
       try {
         currentReal = await realpath(resolvedCurrent);
       } catch {
-        // dangling link — replace below
+        dangling = true;
       }
       let sourceReal = source;
       try {
@@ -335,12 +412,10 @@ async function ensureDirectoryLink(
       } catch {
         // source may be mid-create
       }
-      if (currentReal === sourceReal || resolvedCurrent === source) return false;
-      throw new Error(
-        `launcher shelf path already links elsewhere: ${destination} -> ${resolvedCurrent}`
-      );
-    }
-    if (existing.isDirectory()) {
+      if (!dangling && (currentReal === sourceReal || resolvedCurrent === source)) return false;
+      // Replace dangling or mismatched links so a new project with the same slug can register.
+      await unlink(destination);
+    } else if (existing.isDirectory()) {
       try {
         const text = await readFile(join(destination, "project.yaml"), "utf8");
         const match = /^slug:\s*["']?([^\s"']+)/m.exec(text);
@@ -352,8 +427,9 @@ async function ensureDirectoryLink(
         if (isNodeError(error, "ENOENT")) return false;
         throw error;
       }
+    } else {
+      throw new Error(`launcher shelf path exists and is not a project directory: ${destination}`);
     }
-    throw new Error(`launcher shelf path exists and is not a project directory: ${destination}`);
   } catch (error) {
     if (!isNodeError(error, "ENOENT")) throw error;
   }
@@ -361,6 +437,22 @@ async function ensureDirectoryLink(
   const linkType = platform() === "win32" ? "junction" : "dir";
   await symlink(source, destination, linkType);
   return true;
+}
+
+async function resolveExistingPath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+async function isSymbolicLinkPath(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 function isNodeError(error: unknown, code: string): boolean {
