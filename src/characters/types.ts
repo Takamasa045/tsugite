@@ -32,6 +32,8 @@ export type CharacterSourceRef = {
   poses: CharacterPoseRef[];
   mouthFrames?: CharacterPoseRef[];
   provenance?: CharacterProvenance;
+  /** sha256 of the primary portrait file (neutral preferred), when readable. */
+  primaryImageSha256?: string;
   manifestModifiedAtMs: number;
 };
 

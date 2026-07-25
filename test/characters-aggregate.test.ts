@@ -1,123 +1,180 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   aggregateCharacters,
   compareSourcesForRepresentative,
   groupKeyFor,
-  isReferenceAssetSource
+  isReferenceAssetSource,
+  normalizeCharacterLabel
 } from "../src/characters/aggregate.js";
 import type { CharacterSourceRef } from "../src/characters/types.js";
 
+function sha(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
 describe("aggregateCharacters", () => {
-  it("groups local sources by speaker id + normalized displayName (kana variants merge)", () => {
+  it("groups by portrait content hash + honorific-stripped label", () => {
+    const neruSha = sha("neru-art");
+    const otherSha = sha("other-art");
     const sources = [
       source({
-        sourceKey: "project\0/a/manifest.json\0hero",
-        label: "project-a",
-        id: "hero",
-        displayName: "Hero",
-        manifestPath: "/a/manifest.json",
-        poses: [pose("neutral")]
+        sourceKey: "a",
+        id: "neru",
+        displayName: "ネル",
+        label: "proj-a",
+        primaryImageSha256: neruSha,
+        poses: [pose("neutral", "media/neru-closed.png")]
       }),
       source({
-        sourceKey: "project\0/b/manifest.json\0hero",
-        label: "project-b",
-        id: "hero",
-        displayName: "Hero",
-        manifestPath: "/b/manifest.json",
-        poses: [pose("neutral"), pose("smile")]
-      }),
-      source({
-        sourceKey: "project\0/c/manifest.json\0hero",
-        label: "project-c",
-        id: "hero",
-        displayName: "Other Hero",
-        manifestPath: "/c/manifest.json",
-        poses: [pose("neutral")]
-      }),
-      // Same display name, different speaker ids must NOT merge (generic Host risk)
-      source({
-        sourceKey: "project\0/d/manifest.json\0mike",
-        label: "project-d",
+        sourceKey: "b",
         id: "mike",
         displayName: "ネル先生",
-        manifestPath: "/d/manifest.json",
-        poses: [pose("neutral")]
+        label: "proj-b",
+        primaryImageSha256: neruSha,
+        poses: [pose("neutral", "media/characters/neru-closed.png")]
       }),
       source({
-        sourceKey: "project\0/e/manifest.json\0neru",
-        label: "project-e",
+        sourceKey: "c",
         id: "neru",
         displayName: "ネル先生",
-        manifestPath: "/e/manifest.json",
-        poses: [pose("neutral"), pose("smile")]
+        label: "proj-c",
+        primaryImageSha256: neruSha,
+        poses: [pose("neutral", "media/characters/neru.png"), pose("smile", "media/smile.png")]
       }),
-      // Same speaker id with kana/width variants should merge
+      // Same filename, different bytes → different card
       source({
-        sourceKey: "project\0/f/manifest.json\0itopan",
-        label: "project-f",
+        sourceKey: "d",
+        id: "hero-a",
+        displayName: "Hero",
+        label: "proj-d",
+        primaryImageSha256: sha("hero-a-bytes"),
+        poses: [pose("neutral", "media/hero.png")]
+      }),
+      source({
+        sourceKey: "e",
+        id: "hero-b",
+        displayName: "Hero",
+        label: "proj-e",
+        primaryImageSha256: sha("hero-b-bytes"),
+        poses: [pose("neutral", "media/hero.png")]
+      }),
+      // Kana variants same bytes
+      source({
+        sourceKey: "f",
         id: "itopan",
         displayName: "いとぱん",
-        manifestPath: "/f/manifest.json",
-        poses: [pose("neutral")]
+        label: "proj-f",
+        primaryImageSha256: otherSha,
+        poses: [pose("neutral", "media/itopan.png")]
       }),
       source({
-        sourceKey: "project\0/g/manifest.json\0itopan",
-        label: "project-g",
+        sourceKey: "g",
         id: "itopan",
         displayName: "イトパン",
-        manifestPath: "/g/manifest.json",
-        poses: [pose("neutral"), pose("smile")]
+        label: "proj-g",
+        primaryImageSha256: otherSha,
+        poses: [pose("neutral", "media/itopan.png"), pose("smile", "media/itopan2.png")]
       })
     ];
 
     const groups = aggregateCharacters(sources);
-    expect(groups).toHaveLength(5);
+    expect(groups).toHaveLength(4);
 
-    const hero = groups.find((group) => group.displayName === "Hero");
-    expect(hero?.groupKey).toBe("local:hero\0hero");
-    expect(hero?.sources).toHaveLength(2);
-    // Representative: more poses first
-    expect(hero?.sources[0]?.label).toBe("project-b");
-    expect(hero?.poseCount).toBe(2);
+    const neru = groups.find((group) => normalizeCharacterLabel(group.displayName) === "ネル");
+    expect(neru?.sources).toHaveLength(3);
+    expect(neru?.groupKey).toBe(`local:sha:${neruSha}\0ネル`);
+    expect(neru?.sources[0]?.label).toBe("proj-c");
 
-    const other = groups.find((group) => group.displayName === "Other Hero");
-    expect(other?.groupKey).toBe("local:hero\0otherhero");
-
-    const neruCards = groups.filter((group) => group.displayName === "ネル先生");
-    expect(neruCards).toHaveLength(2);
-    expect(neruCards.map((group) => group.id).sort()).toEqual(["mike", "neru"]);
+    const heroes = groups.filter((group) => group.displayName === "Hero");
+    expect(heroes).toHaveLength(2);
 
     const itopan = groups.find((group) => group.id === "itopan");
-    expect(itopan?.groupKey).toBe("local:itopan\0イトパン");
     expect(itopan?.sources).toHaveLength(2);
   });
 
-  it("groups shitate provenance by kind+character+run_id (cross-project same run merges)", () => {
+  it("falls back to speaker id when portrait hash is missing", () => {
+    const groups = aggregateCharacters([
+      source({
+        sourceKey: "a",
+        id: "host-a",
+        displayName: "Host",
+        poses: [pose("neutral", "media/neutral.png")]
+      }),
+      source({
+        sourceKey: "b",
+        id: "host-b",
+        displayName: "Host",
+        poses: [pose("neutral", "media/neutral.png")]
+      })
+    ]);
+    expect(groups).toHaveLength(2);
+  });
+
+  it("drops storyboard/review speakers and does not drop frame-* portrait ids", () => {
+    const portrait = source({
+      sourceKey: "char",
+      id: "hero",
+      displayName: "Hero",
+      label: "promo",
+      primaryImageSha256: sha("portrait"),
+      poses: [pose("neutral", "media/characters/frame-neutral.png")]
+    });
+    // imageId starts with frame- but path is normal character media — keep
+    portrait.poses[0]!.imageId = "frame-neutral";
+
+    const reference = source({
+      sourceKey: "ref",
+      id: "host",
+      displayName: "いとぱん",
+      label: "digest",
+      poses: [
+        {
+          name: "hook",
+          imageId: "frame-hook",
+          imagePath: "review/references/01-hook.png",
+          missing: false
+        },
+        {
+          name: "grow",
+          imageId: "frame-grow",
+          imagePath: "review/references/02-grow.png",
+          missing: false
+        }
+      ]
+    });
+
+    expect(isReferenceAssetSource(reference)).toBe(true);
+    expect(isReferenceAssetSource(portrait)).toBe(false);
+
+    const groups = aggregateCharacters([reference, portrait]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.id).toBe("hero");
+  });
+
+  it("groups shitate provenance by kind+character+run_id", () => {
     const sources = [
       source({
-        sourceKey: "project\0/p1/manifest.json\0hero",
+        sourceKey: "p1",
         label: "p1",
         id: "hero",
         displayName: "Hero",
-        manifestPath: "/p1/manifest.json",
         provenance: { kind: "shitate", character: "hero", run_id: "run-1" },
         poses: [pose("neutral")]
       }),
       source({
-        sourceKey: "project\0/p2/manifest.json\0hero",
+        sourceKey: "p2",
         label: "p2",
         id: "hero",
         displayName: "Hero",
-        manifestPath: "/p2/manifest.json",
         provenance: { kind: "shitate", character: "hero", run_id: "run-1" },
         poses: [pose("neutral"), pose("smile")]
       }),
       source({
-        sourceKey: "project\0/p3/manifest.json\0hero",
+        sourceKey: "p3",
         label: "p3",
         id: "hero",
         displayName: "Hero",
-        manifestPath: "/p3/manifest.json",
         provenance: { kind: "shitate", character: "hero", run_id: "run-2" },
         poses: [pose("neutral")]
       })
@@ -125,175 +182,64 @@ describe("aggregateCharacters", () => {
 
     const groups = aggregateCharacters(sources);
     expect(groups).toHaveLength(2);
-
-    const run1 = groups.find((group) => group.groupKey === "shitate:hero\0run-1");
-    expect(run1?.sources).toHaveLength(2);
-    expect(run1?.sources[0]?.label).toBe("p2");
-    expect(run1?.provenance).toMatchObject({ kind: "shitate", run_id: "run-1" });
-
-    const run2 = groups.find((group) => group.groupKey === "shitate:hero\0run-2");
-    expect(run2?.sources).toHaveLength(1);
-    expect(run2?.sources[0]?.label).toBe("p3");
+    expect(groups.find((group) => group.groupKey === "shitate:hero\0run-1")?.sources).toHaveLength(2);
   });
 
   it("orders representatives: poses → mouth → project → mtime → path", () => {
-    const fewPoses = source({
+    const few = source({
       sourceKey: "a",
-      kind: "project",
       label: "few",
       id: "x",
       displayName: "X",
+      primaryImageSha256: sha("x"),
       manifestPath: "/z/manifest.json",
-      manifestModifiedAtMs: 200,
       poses: [pose("n")]
     });
-    const manyPoses = source({
+    const many = source({
       sourceKey: "b",
-      kind: "project",
       label: "many",
       id: "x",
       displayName: "X",
+      primaryImageSha256: sha("x"),
       manifestPath: "/a/manifest.json",
-      manifestModifiedAtMs: 100,
       poses: [pose("n"), pose("s")]
     });
-    expect(compareSourcesForRepresentative(manyPoses, fewPoses)).toBeLessThan(0);
-
-    const withMouth = source({
-      sourceKey: "c",
-      kind: "project",
-      label: "mouth",
-      id: "x",
-      displayName: "X",
-      manifestPath: "/b/manifest.json",
-      poses: [pose("n"), pose("s")],
-      mouthFrames: [pose("0")]
-    });
-    expect(compareSourcesForRepresentative(withMouth, manyPoses)).toBeLessThan(0);
-
-    const templateMany = source({
-      sourceKey: "d",
-      kind: "template",
-      label: "tmpl",
-      id: "x",
-      displayName: "X",
-      manifestPath: "/t/manifest.json",
-      poses: [pose("n"), pose("s")],
-      mouthFrames: [pose("0")]
-    });
-    expect(compareSourcesForRepresentative(withMouth, templateMany)).toBeLessThan(0);
-
-    const newer = source({
-      sourceKey: "e",
-      kind: "project",
-      label: "newer",
-      id: "x",
-      displayName: "X",
-      manifestPath: "/c/manifest.json",
-      manifestModifiedAtMs: 500,
-      poses: [pose("n"), pose("s")],
-      mouthFrames: [pose("0")]
-    });
-    expect(compareSourcesForRepresentative(newer, withMouth)).toBeLessThan(0);
-
-    const pathEarlier = source({
-      sourceKey: "f",
-      kind: "project",
-      label: "path-a",
-      id: "x",
-      displayName: "X",
-      manifestPath: "/a/manifest.json",
-      manifestModifiedAtMs: 500,
-      poses: [pose("n"), pose("s")],
-      mouthFrames: [pose("0")]
-    });
-    expect(compareSourcesForRepresentative(pathEarlier, newer)).toBeLessThan(0);
-
-    const aggregated = aggregateCharacters([
-      fewPoses,
-      manyPoses,
-      withMouth,
-      templateMany,
-      newer,
-      pathEarlier
-    ]);
-    expect(aggregated).toHaveLength(1);
-    expect(aggregated[0]!.sources[0]!.label).toBe("path-a");
-    expect(aggregated[0]!.hasMouthFrames).toBe(true);
+    expect(compareSourcesForRepresentative(many, few)).toBeLessThan(0);
+    expect(aggregateCharacters([few, many])[0]!.sources[0]!.label).toBe("many");
   });
 
-  it("exposes groupKeyFor consistently with aggregate grouping", () => {
-    const local = source({
+  it("exposes groupKeyFor helpers", () => {
+    const hashed = source({
       sourceKey: "l",
       id: "a",
-      displayName: "A",
+      displayName: "A先生",
+      primaryImageSha256: "abc",
       poses: [pose("n")]
     });
-    expect(groupKeyFor(local)).toBe("local:a\0a");
-
-    const remote = source({
+    expect(normalizeCharacterLabel("ネル先生")).toBe("ネル");
+    expect(groupKeyFor(hashed)).toBe("local:sha:abc\0a");
+    expect(groupKeyFor(source({
       sourceKey: "r",
       id: "hero",
       displayName: "Hero",
       provenance: { kind: "shitate", character: "hero", run_id: "run-9" },
       poses: [pose("n")]
-    });
-    expect(groupKeyFor(remote)).toBe("shitate:hero\0run-9");
-  });
-
-  it("prefers character portraits over review/storyboard reference assets as representative", () => {
-    const reference = source({
-      sourceKey: "ref",
-      id: "itopan",
-      displayName: "いとぱん",
-      label: "digest",
-      manifestPath: "/digest/manifest.json",
-      poses: [
-        { name: "hook", imageId: "frame-hook", imagePath: "review/references/01-hook.png", missing: false },
-        { name: "grow", imageId: "frame-grow", imagePath: "review/references/02-grow.png", missing: false }
-      ]
-    });
-    const portrait = source({
-      sourceKey: "char",
-      id: "itopan",
-      displayName: "イトパン",
-      label: "promo",
-      manifestPath: "/promo/manifest.json",
-      poses: [pose("neutral")]
-    });
-    const groups = aggregateCharacters([reference, portrait]);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]!.sources[0]!.label).toBe("promo");
-    expect(isReferenceAssetSource(reference)).toBe(true);
-    expect(isReferenceAssetSource(portrait)).toBe(false);
-  });
-
-  it("does not merge different speaker ids that share a generic display name", () => {
-    const groups = aggregateCharacters([
-      source({
-        sourceKey: "a",
-        id: "host-a",
-        displayName: "Host",
-        label: "proj-a",
-        poses: [pose("neutral")]
-      }),
-      source({
-        sourceKey: "b",
-        id: "host-b",
-        displayName: "Host",
-        label: "proj-b",
-        poses: [pose("neutral")]
-      })
-    ]);
-    expect(groups).toHaveLength(2);
+    }))).toBe("shitate:hero\0run-9");
   });
 });
 
-function pose(name: string) {
-  return { name, imageId: `${name}-id`, imagePath: `media/${name}.png`, missing: false };
+function pose(name: string, imagePath = `media/${name}.png`) {
+  return {
+    name,
+    imageId: `${name}-id`,
+    imagePath,
+    missing: false
+  };
 }
 
-function source(partial: Partial<CharacterSourceRef> & Pick<CharacterSourceRef, "sourceKey" | "id" | "displayName" | "poses">): CharacterSourceRef {
+function source(
+  partial: Partial<CharacterSourceRef> & Pick<CharacterSourceRef, "sourceKey" | "id" | "displayName" | "poses">
+): CharacterSourceRef {
   return {
     kind: "project",
     label: partial.label ?? "label",

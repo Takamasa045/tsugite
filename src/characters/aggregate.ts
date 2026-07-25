@@ -7,11 +7,13 @@ import type {
 /**
  * Group scanned character sources for gallery display.
  * Selection for "use" must target a concrete sourceKey (+ speaker id), not the merge.
+ * Reference/storyboard speakers are excluded entirely.
  */
 export function aggregateCharacters(sources: CharacterSourceRef[]): AggregatedCharacter[] {
   const groups = new Map<string, CharacterSourceRef[]>();
 
   for (const source of sources) {
+    if (isReferenceAssetSource(source)) continue;
     const key = groupKeyFor(source);
     const bucket = groups.get(key);
     if (bucket) bucket.push(source);
@@ -43,10 +45,8 @@ export function aggregateCharacters(sources: CharacterSourceRef[]): AggregatedCh
 /**
  * Deterministic group key.
  * - provenance: kind+character(+run_id)
- * - local: speaker id + normalized displayName
- *   Same speaker with kana/width variants merges (イトパン / いとぱん).
- *   Different speaker ids stay separate even with the same display name
- *   (e.g. generic Host / ナレーター collisions across projects).
+ * - local with primary image hash: same portrait bytes + honorific-stripped label
+ * - local without hash: speaker id + label (safe fallback; no cross-id merge)
  */
 export function groupKeyFor(source: CharacterSourceRef): string {
   const provenance = source.provenance;
@@ -56,22 +56,24 @@ export function groupKeyFor(source: CharacterSourceRef): string {
     if (runId !== undefined) {
       return `${provenance.kind}:${character}\0${runId}`;
     }
-    return `${provenance.kind}:${character}\0${source.id}\0${normalizeDisplayName(source.displayName)}`;
+    return `${provenance.kind}:${character}\0${source.id}\0${normalizeCharacterLabel(source.displayName)}`;
   }
-  return `local:${source.id}\0${normalizeDisplayName(source.displayName)}`;
+
+  const label = normalizeCharacterLabel(source.displayName);
+  if (source.primaryImageSha256) {
+    return `local:sha:${source.primaryImageSha256}\0${label}`;
+  }
+  return `local:id:${source.id}\0${label}`;
 }
 
 /**
  * Representative order inside a group:
- * real character assets first → poseCount desc → mouth_frames → project over template → newer mtime → path.
+ * poseCount desc → mouth_frames → project over template → newer mtime → path.
  */
 export function compareSourcesForRepresentative(
   left: CharacterSourceRef,
   right: CharacterSourceRef
 ): number {
-  const assetDiff = Number(isReferenceAssetSource(left)) - Number(isReferenceAssetSource(right));
-  if (assetDiff !== 0) return assetDiff;
-
   const poseDiff = right.poses.length - left.poses.length;
   if (poseDiff !== 0) return poseDiff;
 
@@ -90,9 +92,7 @@ export function compareSourcesForRepresentative(
   return left.id.localeCompare(right.id);
 }
 
-/**
- * NFKC + ひらがな→カタカナ + 空白除去。ギャラリー上の「見た目同名」統合用。
- */
+/** NFKC + ひらがな→カタカナ + 空白除去。 */
 export function normalizeDisplayName(name: string): string {
   const compact = name.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, "");
   return compact.replace(/[\u3041-\u3096]/g, (char) =>
@@ -100,19 +100,26 @@ export function normalizeDisplayName(name: string): string {
   );
 }
 
+/** 表示名から敬称を除いて正規化（ネル先生 → ネル）。 */
+export function normalizeCharacterLabel(name: string): string {
+  const withoutHonorific = name
+    .normalize("NFKC")
+    .trim()
+    .replace(/(先生|さん|くん|ちゃん|様|氏)+$/u, "");
+  return normalizeDisplayName(withoutHonorific);
+}
+
 /**
- * Detect storyboard / review / non-portrait assets that were stored as speakers.
- * Example: after-session-rerun-digest host poses point at review/references frames.
+ * Storyboard / review assets stored as speakers.
+ * Must be path/pose-role based — never exclude only because an image id starts with "frame-".
  */
 export function isReferenceAssetSource(source: CharacterSourceRef): boolean {
   const paths = source.poses.map((pose) => pose.imagePath ?? "");
   if (paths.some((path) => /(^|\/)review\//.test(path) || /\/references\//.test(path))) {
     return true;
   }
-  if (source.poses.some((pose) => /^frame[-_]/.test(pose.imageId) || /^frame[-_]/.test(pose.name))) {
-    return true;
-  }
-  const storyboardPose = /^(hook|grow|safe|rules|agents|frame)([-_]|$)/i;
+  // All poses are storyboard roles (digest-style speakers), not character portraits.
+  const storyboardPose = /^(hook|grow|safe|rules|agents)([-_]|$)/i;
   if (source.poses.length > 0 && source.poses.every((pose) => storyboardPose.test(pose.name))) {
     return true;
   }

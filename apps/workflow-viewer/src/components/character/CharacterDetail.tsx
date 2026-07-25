@@ -137,12 +137,6 @@ export function CharacterDetail({
           {character.hasMouthFrames ? ' · 口パクあり' : ''}
           {' · '}id {speakerIds.join(' / ')}
         </p>
-        {referenceOnly && (
-          <p className="launcher-character-detail-hint">
-            このカードの画像はキャラ立ち絵ではなく、レビュー用の参考フレーム（画面キャプチャ等）です。
-            案件の speakers[] にそう登録されているため一覧に出ています。
-          </p>
-        )}
       </div>
 
       <section aria-label="ポーズ" className="launcher-character-detail-section">
