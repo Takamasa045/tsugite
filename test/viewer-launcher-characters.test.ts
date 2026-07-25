@@ -145,6 +145,7 @@ describe("viewer launcher characters API", () => {
           speakerId: string;
           readOnly: boolean;
           canUse: boolean;
+          assetRole?: "character" | "reference";
           poses: Array<{ name: string; imageId: string; imageKey?: string; missing: boolean }>;
         }>;
         representativeImageKey?: string;

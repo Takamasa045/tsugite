@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { addCharacterToProject, type AddCharacterResult } from "../characters/addToProject.js";
-import { aggregateCharacters } from "../characters/aggregate.js";
+import { aggregateCharacters, isReferenceAssetSource } from "../characters/aggregate.js";
 import { scanCharacterSources } from "../characters/scan.js";
 import type {
   CharacterPoseRef,
@@ -33,6 +33,11 @@ export type LauncherCharacterSource = {
   mouthFrames?: LauncherCharacterPose[];
   /** False when any pose/mouth frame is missing, or there are no poses. */
   canUse: boolean;
+  /**
+   * Storyboard / review frames stored as speakers (not a portrait character).
+   * Still listed so authors can inspect the source project.
+   */
+  assetRole: "character" | "reference";
   provenance?: CharacterProvenance;
 };
 
@@ -46,6 +51,8 @@ export type LauncherCharacter = {
   provenance?: CharacterProvenance;
   sources: LauncherCharacterSource[];
   representativeImageKey?: string;
+  /** True when every usable representative path is a non-character reference asset. */
+  referenceOnly: boolean;
 };
 
 /** Server-side image resolution for /character-image/:key (not sent to the client). */
@@ -123,6 +130,7 @@ export async function buildLauncherCharacterCatalog(
       toWireSource(source, shelves, images, sourcesByKey)
     );
     const representativeImageKey = findRepresentativeImageKey(sources);
+    const referenceOnly = sources.length > 0 && sources.every((source) => source.assetRole === "reference");
     return {
       groupKey: group.groupKey,
       id: group.id,
@@ -131,6 +139,7 @@ export async function buildLauncherCharacterCatalog(
       hasMouthFrames: group.hasMouthFrames,
       ...(group.provenance ? { provenance: group.provenance } : {}),
       sources,
+      referenceOnly,
       ...(representativeImageKey ? { representativeImageKey } : {})
     } satisfies LauncherCharacter;
   });
@@ -194,6 +203,7 @@ function toWireSource(
   sourcesByKey: Map<string, CharacterSourceLocation>
 ): LauncherCharacterSource {
   const readOnly = source.kind === "template" || isUnderReadOnlyShelf(source.rootDir, shelves);
+  const assetRole = isReferenceAssetSource(source) ? "reference" : "character";
   const poses = wirePoses(source.poses, source.rootDir, readOnly, images);
   const mouthFrames = source.mouthFrames
     ? wirePoses(source.mouthFrames, source.rootDir, readOnly, images)
@@ -223,6 +233,7 @@ function toWireSource(
     poses,
     ...(mouthFrames ? { mouthFrames } : {}),
     canUse,
+    assetRole,
     ...(source.provenance ? { provenance: source.provenance } : {})
   };
 }
@@ -255,10 +266,15 @@ function wirePoses(
 }
 
 function findRepresentativeImageKey(sources: LauncherCharacterSource[]): string | undefined {
-  for (const source of sources) {
-    for (const pose of source.poses) {
-      if (pose.imageKey) return pose.imageKey;
-    }
+  const ordered = [
+    ...sources.filter((source) => source.assetRole === "character"),
+    ...sources.filter((source) => source.assetRole !== "character")
+  ];
+  for (const source of ordered) {
+    const preferred =
+      source.poses.find((pose) => pose.name === "neutral" && pose.imageKey && !pose.missing)
+      ?? source.poses.find((pose) => pose.imageKey && !pose.missing);
+    if (preferred?.imageKey) return preferred.imageKey;
   }
   return undefined;
 }

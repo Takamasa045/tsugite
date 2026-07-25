@@ -40,7 +40,14 @@ export function aggregateCharacters(sources: CharacterSourceRef[]): AggregatedCh
   });
 }
 
-/** Deterministic group key: provenance identity when present, else local id+displayName. */
+/**
+ * Deterministic group key.
+ * - provenance: kind+character(+run_id)
+ * - local: speaker id + normalized displayName
+ *   Same speaker with kana/width variants merges (イトパン / いとぱん).
+ *   Different speaker ids stay separate even with the same display name
+ *   (e.g. generic Host / ナレーター collisions across projects).
+ */
 export function groupKeyFor(source: CharacterSourceRef): string {
   const provenance = source.provenance;
   if (provenance && typeof provenance.kind === "string" && provenance.kind.length > 0) {
@@ -49,19 +56,22 @@ export function groupKeyFor(source: CharacterSourceRef): string {
     if (runId !== undefined) {
       return `${provenance.kind}:${character}\0${runId}`;
     }
-    return `${provenance.kind}:${character}\0${source.id}\0${source.displayName}`;
+    return `${provenance.kind}:${character}\0${source.id}\0${normalizeDisplayName(source.displayName)}`;
   }
-  return `local:${source.id}\0${source.displayName}`;
+  return `local:${source.id}\0${normalizeDisplayName(source.displayName)}`;
 }
 
 /**
  * Representative order inside a group:
- * poseCount desc → mouth_frames present → project over template → newer mtime → manifestPath.
+ * real character assets first → poseCount desc → mouth_frames → project over template → newer mtime → path.
  */
 export function compareSourcesForRepresentative(
   left: CharacterSourceRef,
   right: CharacterSourceRef
 ): number {
+  const assetDiff = Number(isReferenceAssetSource(left)) - Number(isReferenceAssetSource(right));
+  if (assetDiff !== 0) return assetDiff;
+
   const poseDiff = right.poses.length - left.poses.length;
   if (poseDiff !== 0) return poseDiff;
 
@@ -78,6 +88,35 @@ export function compareSourcesForRepresentative(
   if (pathDiff !== 0) return pathDiff;
 
   return left.id.localeCompare(right.id);
+}
+
+/**
+ * NFKC + ひらがな→カタカナ + 空白除去。ギャラリー上の「見た目同名」統合用。
+ */
+export function normalizeDisplayName(name: string): string {
+  const compact = name.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, "");
+  return compact.replace(/[\u3041-\u3096]/g, (char) =>
+    String.fromCharCode(char.charCodeAt(0) + 0x60)
+  );
+}
+
+/**
+ * Detect storyboard / review / non-portrait assets that were stored as speakers.
+ * Example: after-session-rerun-digest host poses point at review/references frames.
+ */
+export function isReferenceAssetSource(source: CharacterSourceRef): boolean {
+  const paths = source.poses.map((pose) => pose.imagePath ?? "");
+  if (paths.some((path) => /(^|\/)review\//.test(path) || /\/references\//.test(path))) {
+    return true;
+  }
+  if (source.poses.some((pose) => /^frame[-_]/.test(pose.imageId) || /^frame[-_]/.test(pose.name))) {
+    return true;
+  }
+  const storyboardPose = /^(hook|grow|safe|rules|agents|frame)([-_]|$)/i;
+  if (source.poses.length > 0 && source.poses.every((pose) => storyboardPose.test(pose.name))) {
+    return true;
+  }
+  return false;
 }
 
 function hasMouth(source: CharacterSourceRef): boolean {

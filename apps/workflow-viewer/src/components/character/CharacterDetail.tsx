@@ -1,7 +1,11 @@
 import { ArrowLeft, AlertTriangle } from 'lucide-react'
 
 import {
+  assetRoleLabel,
   characterImageUrl,
+  characterIsReferenceOnly,
+  characterSpeakerIds,
+  isReferenceSource,
   provenanceLabel,
   sideLabel,
   sourceKindLabel,
@@ -71,7 +75,11 @@ function SourceRow({
           <span>speaker: {source.speakerId}</span>
           <span>{sideLabel(source.side)}</span>
           <span style={{ color: source.accent }}>accent</span>
+          <span>{assetRoleLabel(source.assetRole)}</span>
           {source.readOnly && <span>読取専用</span>}
+          {isReferenceSource(source) && (
+            <span className="launcher-character-badge launcher-character-badge-reference">キャラ以外</span>
+          )}
           {!source.canUse && (
             <span className="launcher-character-badge launcher-character-badge-warning">使用不可</span>
           )}
@@ -100,6 +108,8 @@ export function CharacterDetail({
   const poseList = selectedSource?.poses ?? character.sources[0]?.poses ?? []
   const mouthFrames = (selectedSource?.mouthFrames ?? character.sources[0]?.mouthFrames ?? []).slice(0, 3)
   const useEnabled = Boolean(selectedSource?.canUse)
+  const speakerIds = characterSpeakerIds(character)
+  const referenceOnly = characterIsReferenceOnly(character)
 
   return (
     <section className="launcher-character-detail" aria-labelledby="character-detail-title">
@@ -114,10 +124,25 @@ export function CharacterDetail({
           <span className="launcher-character-badge launcher-character-badge-provenance">
             {provenanceLabel(character.provenance)}
           </span>
+          {referenceOnly && (
+            <>
+              {' '}
+              <span className="launcher-character-badge launcher-character-badge-reference">
+                キャラ以外
+              </span>
+            </>
+          )}
           {' '}
           pose {character.poseCount} · 使用先 {character.sources.length}件
           {character.hasMouthFrames ? ' · 口パクあり' : ''}
+          {' · '}id {speakerIds.join(' / ')}
         </p>
+        {referenceOnly && (
+          <p className="launcher-character-detail-hint">
+            このカードの画像はキャラ立ち絵ではなく、レビュー用の参考フレーム（画面キャプチャ等）です。
+            案件の speakers[] にそう登録されているため一覧に出ています。
+          </p>
+        )}
       </div>
 
       <section aria-label="ポーズ" className="launcher-character-detail-section">
