@@ -432,7 +432,7 @@ describe('LauncherApp', () => {
     expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: '好み・学び' }))
     expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
 
     const reopenedChooser = screen.getByRole('region', { name: 'AI CLI（必要なときだけ）' })
     await user.click(within(reopenedChooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ }))
@@ -509,7 +509,7 @@ describe('LauncherApp', () => {
       await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
       expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
       expect(stop).not.toHaveBeenCalled()
-      await user.click(screen.getByRole('tab', { name: '制作案件' }))
+      await user.click(screen.getByRole('tab', { name: '制作作品' }))
       const reopenedChooser = screen.getByRole('region', { name: 'AI CLI（必要なときだけ）' })
       expect(within(reopenedChooser).getByText('Claude Codeと作業中')).toBeVisible()
 
@@ -733,7 +733,7 @@ describe('LauncherApp', () => {
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
-    const projectsTab = screen.getByRole('tab', { name: '制作案件' })
+    const projectsTab = screen.getByRole('tab', { name: '制作作品' })
     const templatesTab = screen.getByRole('tab', { name: 'テンプレート' })
     const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
 
@@ -1033,7 +1033,7 @@ describe('LauncherApp', () => {
     expect(screen.getByText('Shitate取込')).toBeVisible()
 
     // 再オープンでは再fetchしない（idle からの1回だけ）
-    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
     await user.click(screen.getByRole('tab', { name: 'キャラクター' }))
     const characterCalls = fetcher.mock.calls.filter(([url]) => url === '/api/characters')
     expect(characterCalls).toHaveLength(1)
@@ -1108,7 +1108,7 @@ describe('LauncherApp', () => {
     expect(await screen.findByRole('heading', { name: /チェックリスト/ })).toBeVisible()
     expect(screen.getByText('質問と回答の一覧')).toBeVisible()
 
-    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
     expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
@@ -1124,7 +1124,7 @@ describe('LauncherApp', () => {
     await user.click(await screen.findByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
 
-    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
     expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
@@ -1261,7 +1261,7 @@ describe('LauncherApp', () => {
     expect(screen.queryByRole('region', { name: '確認してほしい学び' })).not.toBeInTheDocument()
     expect(feedbackTab).not.toHaveAttribute('aria-describedby')
 
-    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
     await user.click(feedbackTab)
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
@@ -1367,7 +1367,7 @@ describe('LauncherApp', () => {
     await user.click(screen.getByRole('button', { name: '残り1件を表示' }))
     expect(screen.getByRole('button', { name: '好み・学び 25の詳細を見る' })).toBeVisible()
 
-    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
     await user.click(feedbackTab)
     expect(screen.getByText('全25件 / 表示24件')).toBeVisible()
     expect(screen.queryByRole('button', { name: '好み・学び 25の詳細を見る' })).not.toBeInTheDocument()
