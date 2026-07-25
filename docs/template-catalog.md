@@ -96,6 +96,35 @@ variants:
 - API では `directionAdd`（camelCase）として透過
 - ブリーフでは option 由来の行に `（option ラベル）` を付けて区別する
 
+### `examples`（option 任意）
+
+選択 option の**良い例 / 単調な例**です。抽象指針より具体例のほうがコピペ先に効きます。
+
+```yaml
+examples:
+  good:
+    - 0.5秒で商品を出し、価値とCTAを各1カットに絞る
+  monotonous:
+    - 全カット3秒均等で同じズームを3連続させる
+```
+
+- `good` / `monotonous` は各1〜2件（どちらか一方だけでも可）
+- ブリーフの `## 具体例` に載る
+
+### `prompt_guide_catalog`（template または option 任意）
+
+`knowledge/video-models/<id>/prompt-guide.yaml` の **documented** 共通チェックリストをブリーフへ載せるための catalog id です。
+
+```yaml
+prompt_guide_catalog: pixverse   # template 既定（任意）
+# または option:
+# prompt_guide_catalog: pixverse
+```
+
+- API は `promptGuideCatalog` と、解決済み要約 `promptGuides[]`（`catalogId` / `displayName` / `checklist` / `disclaimer`）を返す
+- ブリーフの `## 生成プロンプトの書式` に disclaimer 付きで載る
+- **カタログの存在は実行能力・利用権・接続状態を証明しない**（既存方針）
+
 ## 安全条件
 
 - `template.yaml` は64 KiB以下の通常ファイルにし、symlinkを使用しない

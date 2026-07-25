@@ -12,7 +12,16 @@ import {
 /** Final チェックリストが参照する最小 shape（テスト契約と API 応答の両方を受ける） */
 export type TemplateChecklistTemplate = Pick<
   LauncherTemplate,
-  'id' | 'name' | 'summary' | 'variants' | 'requiredInputDetails' | 'notFor' | 'audio' | 'direction'
+  | 'id'
+  | 'name'
+  | 'summary'
+  | 'variants'
+  | 'requiredInputDetails'
+  | 'notFor'
+  | 'audio'
+  | 'direction'
+  | 'promptGuideCatalog'
+  | 'promptGuides'
 >
 
 export interface TemplateChecklistProps {

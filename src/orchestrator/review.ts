@@ -34,6 +34,10 @@ import {
 } from "./compositionProposal.js";
 import type { ExecutionPlan } from "./plan.js";
 import { computeReviewPreviewDigest } from "./reviewPreview.js";
+import {
+  lintShotlistMonotony,
+  monotonyFindingsToWarningMessages
+} from "./shotlistMonotony.js";
 
 export type EditorialCompilation = {
   manifest: Manifest;
@@ -743,6 +747,14 @@ export function createReviewDocument(
     }
   }
 
+  // 字幕区間は映像カットと一致しないことがあるため、クリップ/生成リクエストの視覚境界だけで判定する。
+  const monotonyShots = monotonyShotsFromVisualCuts(project, manifest);
+  if (monotonyShots) {
+    warnings.push(
+      ...monotonyFindingsToWarningMessages(lintShotlistMonotony(monotonyShots))
+    );
+  }
+
   return {
     schema_version: project.composition ? 3 : project.analysis ? 2 : 1,
     run_id: project.run_id ?? project.slug,
@@ -927,6 +939,62 @@ function clipMotionForTimeRange(
     if (overlap > (bestMatch?.overlap ?? 0)) bestMatch = { clip: timedClip, overlap };
   }
   return bestMatch?.clip.clip.motion;
+}
+
+function primaryMotionPreset(motion: ReviewMotionPlan | undefined): string | undefined {
+  const cue = motion?.cues.find((entry) => entry.preset !== "none") ?? motion?.cues[0];
+  return cue?.preset;
+}
+
+/**
+ * 単調さ lint 用のショット列。
+ * 字幕ストーリーボードは使わず、生成ビデオ request または manifest.clips の境界を優先する。
+ */
+function monotonyShotsFromVisualCuts(
+  project: Project,
+  manifest: Manifest
+): Array<{
+  id: string;
+  start: number;
+  end: number;
+  duration: number;
+  camera?: string;
+  title: string;
+}> | undefined {
+  const videoRequests = (project.generation?.requests ?? []).filter(
+    (request) => generationRequestOutputKind(request) === "video"
+  );
+  if (videoRequests.length > 0) {
+    let cursor = 0;
+    return videoRequests.map((request) => {
+      const duration = request.duration ?? 0;
+      const start = cursor;
+      cursor += duration;
+      return {
+        id: request.id,
+        start,
+        end: cursor,
+        duration,
+        title: request.id
+      };
+    });
+  }
+
+  if (manifest.clips.length === 0) return undefined;
+
+  let cursor = 0;
+  return manifest.clips.map((clip) => {
+    const start = cursor;
+    cursor += clip.duration;
+    return {
+      id: clip.id,
+      start,
+      end: cursor,
+      duration: clip.duration,
+      camera: primaryMotionPreset(toReviewMotion(clip.motion)),
+      title: clip.id
+    };
+  });
 }
 
 function toReviewMotion(motion: ManifestMotionPlan | undefined): ReviewMotionPlan | undefined {

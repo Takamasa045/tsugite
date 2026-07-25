@@ -880,6 +880,87 @@ distribution: local-only
     });
   });
 
+  it("passes option examples and documented prompt guides through API", async () => {
+    const fixture = await createFixture();
+    const templateDir = join(fixture.templatesDir, "examples-guide-template");
+    await mkdir(templateDir);
+    await writeFile(join(templateDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: examples-guide-template
+name: 具体例とガイド
+summary: examples と prompt_guide_catalog が API に残る
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+variants:
+  - id: material
+    label: 素材
+    default_option: planned-generation
+    options:
+      - id: planned-generation
+        label: 生成を計画して使う
+        description: モデルは別途選ぶ
+        prompt_guide_catalog: pixverse
+        examples:
+          good:
+            - 0.5秒で主役を出し、1カメラベクトルだけ動かす
+          monotonous:
+            - 全カット同じズームを3連続させる
+      - id: existing-media
+        label: 手元の素材
+        description: 既存素材
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+    const template = payload.templates.find(
+      (entry: { id: string }) => entry.id === "examples-guide-template"
+    );
+    expect(template).toBeDefined();
+    expect(template.valid).toBe(true);
+    expect(template.variants[0].options[0].examples).toEqual({
+      good: ["0.5秒で主役を出し、1カメラベクトルだけ動かす"],
+      monotonous: ["全カット同じズームを3連続させる"]
+    });
+    expect(template.variants[0].options[0].promptGuideCatalog).toBe("pixverse");
+    expect(template.promptGuides).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          catalogId: "pixverse",
+          displayName: "PixVerse",
+          checklist: expect.arrayContaining([
+            expect.objectContaining({ id: "one-camera-vector" })
+          ])
+        })
+      ])
+    );
+  });
+
   it("passes option direction_add through API as directionAdd", async () => {
     const fixture = await createFixture();
     const templateDir = join(fixture.templatesDir, "direction-add-template");

@@ -9,6 +9,8 @@ import {
   initialChoicesForTemplate,
   partitionRequiredInputs,
   resolveDirectionLines,
+  resolveExampleLines,
+  resolvePromptGuidesForBrief,
   type LauncherTemplate,
   type TemplateVariant,
 } from './templateShelfModel'
@@ -47,6 +49,11 @@ const variants: TemplateVariant[] = [
         label: 'テンポ良く',
         description: '早め',
         directionAdd: { pacing: 'フックは0.5秒以内、最長カット2秒' },
+        examples: {
+          good: ['0.5秒で問いを出し、2秒以内に答えの輪郭を見せる'],
+          monotonous: ['全カット3秒均等で同じプッシュインを繰り返す'],
+        },
+        promptGuideCatalog: 'pixverse',
       },
     ],
   },
@@ -67,9 +74,26 @@ const template = {
     pacing: '冒頭2秒以内にフック',
     camera: '1ショット1カメラベクトル',
   },
+  promptGuides: [
+    {
+      catalogId: 'pixverse',
+      displayName: 'PixVerse',
+      disclaimer: 'カタログの存在は実行能力を証明しません。',
+      checklist: [
+        { id: 'one-camera-vector', instruction: 'Use one primary camera movement.' },
+      ],
+    },
+  ],
 } satisfies Pick<
   LauncherTemplate,
-  'name' | 'summary' | 'variants' | 'requiredInputDetails' | 'notFor' | 'audio' | 'direction'
+  | 'name'
+  | 'summary'
+  | 'variants'
+  | 'requiredInputDetails'
+  | 'notFor'
+  | 'audio'
+  | 'direction'
+  | 'promptGuides'
 >
 
 describe('templateShelfModel', () => {
@@ -191,5 +215,32 @@ describe('templateShelfModel', () => {
     })
     expect(md).toContain('**カメラ（同僚同士）**: 二人を同じ画角で並べすぎない')
     expect(md).toContain('**テンポ（テンポ良く）**: フックは0.5秒以内、最長カット2秒')
+  })
+
+  it('examples と prompt guide をブリーフへ合流する', () => {
+    const examples = resolveExampleLines(template, { pace: 'brisk' })
+    expect(examples).toEqual([
+      {
+        kind: 'good',
+        optionLabel: 'テンポ良く',
+        text: '0.5秒で問いを出し、2秒以内に答えの輪郭を見せる',
+      },
+      {
+        kind: 'monotonous',
+        optionLabel: 'テンポ良く',
+        text: '全カット3秒均等で同じプッシュインを繰り返す',
+      },
+    ])
+
+    const guides = resolvePromptGuidesForBrief(template, { pace: 'brisk' })
+    expect(guides.map((guide) => guide.catalogId)).toEqual(['pixverse'])
+
+    const md = buildTemplateBriefMarkdown(template, { pace: 'brisk' })
+    expect(md).toContain('## 具体例')
+    expect(md).toContain('### 良い例')
+    expect(md).toContain('### 単調な例（避ける）')
+    expect(md).toContain('## 生成プロンプトの書式')
+    expect(md).toContain('Use one primary camera movement.')
+    expect(md).toContain('カタログの存在は実行能力を証明しません。')
   })
 })
