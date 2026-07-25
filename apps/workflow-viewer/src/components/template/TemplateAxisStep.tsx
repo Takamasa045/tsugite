@@ -24,7 +24,8 @@ export function TemplateAxisStep({
   })
 
   useEffect(() => {
-    headingRef.current?.focus()
+    // 軸切替でページ先頭へスクロールしない（選択画面を安定させる）
+    headingRef.current?.focus({ preventScroll: true })
   }, [variant.id])
 
   useEffect(() => {

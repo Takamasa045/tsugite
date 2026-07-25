@@ -792,9 +792,15 @@ export function LauncherApp({
     )
   }
 
+  const compactHero = activeShelf !== 'projects'
+
   return (
-    <main className="launcher-shell" data-theme={theme}>
-      <section aria-label="制作の見取図" className="launcher-hero">
+    <main className="launcher-shell" data-theme={theme} data-shelf={activeShelf}>
+      <section
+        aria-label={compactHero ? 'ランチャー' : '制作の見取図'}
+        className="launcher-hero"
+        data-compact={compactHero || undefined}
+      >
         <nav className="launcher-hero-nav">
           <div className="launcher-wordmark">
             <img alt="" aria-hidden="true" className="launcher-favicon-mark" src="./assets/tsugite-favicon.png" />
@@ -892,42 +898,52 @@ export function LauncherApp({
             </div>
           </nav>
 
-        <div className="launcher-hero-content">
-          <div aria-hidden="true" className="launcher-hero-joinery"><span /><i /></div>
-          <div className="launcher-hero-copy">
-            <span className="eyebrow">映像制作の玄関 / PRODUCTION LAUNCHER</span>
-            <h1>制作の見取図を開く</h1>
-            <p>案件の現在地を見渡し、最新の制作記録へ。作りたい映像に合う型も、同じ棚から探せます。</p>
-          </div>
-          <aside aria-label="現在の棚" className="launcher-hero-note">
-            <small>現在の棚 / CURRENT SHELF</small>
-            <strong>{activeShelf === 'projects'
-              ? '制作案件'
-              : activeShelf === 'templates'
+        {!compactHero && (
+          <>
+            <div className="launcher-hero-content">
+              <div aria-hidden="true" className="launcher-hero-joinery"><span /><i /></div>
+              <div className="launcher-hero-copy">
+                <span className="eyebrow">映像制作の玄関 / PRODUCTION LAUNCHER</span>
+                <h1>制作の見取図を開く</h1>
+                <p>案件の現在地を見渡し、最新の制作記録へ。作りたい映像に合う型も、同じ棚から探せます。</p>
+              </div>
+              <aside aria-label="現在の棚" className="launcher-hero-note">
+                <small>現在の棚 / CURRENT SHELF</small>
+                <strong>制作案件</strong>
+                <span>最近更新した順に並んでいます</span>
+              </aside>
+            </div>
+
+            <dl aria-label="制作案件の状況" className="launcher-hero-metrics">
+              <div><dt>全案件</dt><dd>{projects.length}</dd></div>
+              <div><dt>進行中</dt><dd>{projectSummary.active}</dd></div>
+              <div><dt>確認待ち</dt><dd>{projectSummary.waiting}</dd></div>
+              <div><dt>完了</dt><dd>{projectSummary.completed}</dd></div>
+            </dl>
+          </>
+        )}
+
+        {compactHero && (
+          <div className="launcher-hero-compact-bar" aria-label="現在の棚">
+            <div>
+              <small>現在の棚</small>
+              <strong>{activeShelf === 'templates'
                 ? 'テンプレート'
                 : activeShelf === 'characters'
                   ? 'キャラクター'
                   : activeShelf === 'canvas'
                     ? '生成キャンバス'
                     : '好み・学び'}</strong>
-            <span>{activeShelf === 'projects'
-              ? '最近更新した順に並んでいます'
-              : activeShelf === 'templates'
-                ? '型→軸→チェックリストで確認できます'
-                : activeShelf === 'characters'
-                  ? '案件・テンプレのキャラを共有できます'
-                  : activeShelf === 'canvas'
-                    ? '画像・動画の工程をつないで設計します'
-                    : '制作から育った知見を確認できます'}</span>
-          </aside>
-        </div>
-
-        <dl aria-label="制作案件の状況" className="launcher-hero-metrics">
-          <div><dt>全案件</dt><dd>{projects.length}</dd></div>
-          <div><dt>進行中</dt><dd>{projectSummary.active}</dd></div>
-          <div><dt>確認待ち</dt><dd>{projectSummary.waiting}</dd></div>
-          <div><dt>完了</dt><dd>{projectSummary.completed}</dd></div>
-        </dl>
+            </div>
+            <p>{activeShelf === 'templates'
+              ? '型を選び、軸を決め、ブリーフをコピーします'
+              : activeShelf === 'characters'
+                ? 'キャラを確認し、依頼メモをコピーします'
+                : activeShelf === 'canvas'
+                  ? '画像・動画の工程をつないで設計します'
+                  : '制作から育った知見を確認できます'}</p>
+          </div>
+        )}
       </section>
 
       <ol aria-label="見取図を開く手順" className="launcher-joinery">

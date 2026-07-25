@@ -134,6 +134,56 @@
 .launcher-hero-metrics dt { color: rgba(244, 237, 223, .52); font-size: .67rem; font-weight: 750; }
 .launcher-hero-metrics dd { margin: 0; color: var(--launcher-hinoki); font-family: Georgia, "Yu Mincho", serif; font-size: 1.8rem; }
 
+/* テンプレ / キャラ / キャンバスなど: 見取図ヒーローを畳んで作業面を上に */
+.launcher-hero[data-compact] {
+  margin-top: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .42), 12px 12px 0 rgba(166, 61, 47, .06);
+}
+.launcher-hero[data-compact] .launcher-hero-nav {
+  min-height: 60px;
+  padding: 0 20px;
+}
+.launcher-hero-compact-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px 24px;
+  padding: 12px 28px 14px;
+  border-top: 1px solid rgba(244, 237, 223, .1);
+  background: rgba(255, 255, 255, .02);
+}
+.launcher-hero-compact-bar > div {
+  display: grid;
+  gap: 3px;
+}
+.launcher-hero-compact-bar small {
+  color: var(--launcher-mokume);
+  font-size: .55rem;
+  letter-spacing: .14em;
+}
+.launcher-hero-compact-bar strong {
+  color: var(--launcher-kinari);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.launcher-hero-compact-bar p {
+  max-width: 42ch;
+  margin: 0;
+  color: rgba(244, 237, 223, .58);
+  font-size: .68rem;
+  line-height: 1.55;
+}
+
+.launcher-shell[data-shelf="templates"] .launcher-joinery,
+.launcher-shell[data-shelf="characters"] .launcher-joinery,
+.launcher-shell[data-shelf="canvas"] .launcher-joinery,
+.launcher-shell[data-shelf="feedback"] .launcher-joinery {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
 .launcher-joinery { width: min(1400px, calc(100% - 48px)); max-width: none; margin: 18px auto; border-color: rgba(231, 212, 174, .2); color: rgba(244, 237, 223, .44); background: #20231e; }
 .launcher-joinery::before,
 .launcher-joinery::after { background: var(--launcher-yakisugi); }
@@ -199,6 +249,15 @@
   background: linear-gradient(180deg, #f7f2e8, #ede7dc);
 }
 .launcher-shell[data-theme="light"] .launcher-hero { border-color: #cbbca7; color: #24302b; background: linear-gradient(140deg, #fffdf8, #eadfce); box-shadow: 0 28px 70px rgba(71, 52, 31, .16); }
+.launcher-shell[data-theme="light"] .launcher-hero-compact-bar {
+  border-top-color: rgba(36, 48, 43, .1);
+  background: rgba(255, 253, 248, .55);
+}
+.launcher-shell[data-theme="light"] .launcher-hero-compact-bar strong { color: #24302b; }
+.launcher-shell[data-theme="light"] .launcher-hero-compact-bar p { color: rgba(36, 48, 43, .62); }
+.launcher-shell[data-theme="light"] .launcher-template-wizard-steps {
+  background: color-mix(in srgb, #fffdf8 92%, #eadfce);
+}
 .launcher-shell[data-theme="light"] .launcher-hero-nav { color: #24302b; background: #fffdf8; }
 .launcher-shell[data-theme="light"] .launcher-wordmark small,
 .launcher-shell[data-theme="light"] .launcher-hero-copy p,
@@ -1097,11 +1156,18 @@
   gap: 14px;
 }
 .launcher-template-wizard-steps {
+  position: sticky;
+  top: 0;
+  z-index: 6;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 14px;
   margin: 0 0 18px;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid rgba(75, 55, 32, .1);
+  background: color-mix(in srgb, var(--launcher-kinari) 94%, #fff);
+  backdrop-filter: blur(6px);
 }
 .launcher-template-wizard-steps ol {
   display: flex;

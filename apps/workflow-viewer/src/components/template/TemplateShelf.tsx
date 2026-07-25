@@ -56,7 +56,7 @@ export function TemplateShelf({
   useEffect(() => {
     if (!focusTypeHeadingRef.current) return
     focusTypeHeadingRef.current = false
-    typeHeadingRef.current?.focus()
+    typeHeadingRef.current?.focus({ preventScroll: true })
   }, [state.step])
 
   function commit(next: TemplateWizardState) {
