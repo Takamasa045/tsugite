@@ -140,12 +140,26 @@ describe('CharacterShelf', () => {
     expect(screen.getByRole('heading', { name: '口パク（最大3コマ）' })).toBeVisible()
     expect(screen.getByText('使用元（sources）')).toBeVisible()
 
-    const useButton = screen.getByRole('button', { name: 'このキャラクターを使う' })
-    expect(useButton).toBeEnabled()
-    await user.click(useButton)
+    const handoffButton = screen.getByRole('button', { name: '依頼メモをコピー' })
+    expect(handoffButton).toBeEnabled()
+    expect(screen.getByRole('button', { name: '短い依頼文をコピー' })).toBeEnabled()
+    expect(screen.getByLabelText('短い依頼文のプレビュー')).toHaveTextContent(/speaker-a/)
+    expect(screen.getByLabelText('短い依頼文のプレビュー')).toHaveTextContent(/project:alpha:speaker-a/)
 
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    await user.click(handoffButton)
+    expect(writeText).toHaveBeenCalled()
+    expect(String(writeText.mock.calls[0]?.[0] ?? '')).toMatch(/キャラクター依頼メモ/)
+    expect(String(writeText.mock.calls[0]?.[0] ?? '')).toMatch(/sourceKey/)
+
+    await user.click(screen.getByRole('button', { name: /既存の案件へ追加/ }))
     const dialog = screen.getByRole('dialog', { name: 'ハナ' })
     expect(dialog).toBeVisible()
+    expect(within(dialog).getByText(/既存の案件へ追加/)).toBeVisible()
     expect(within(dialog).getByText('サンプル映像A')).toBeVisible()
     expect(within(dialog).queryByText('他worktree')).not.toBeInTheDocument()
 
@@ -167,7 +181,7 @@ describe('CharacterShelf', () => {
     }))
   })
 
-  it('missing のみのキャラは Use を無効にする', async () => {
+  it('missing のみのキャラは受け渡し操作を無効にする', async () => {
     const user = userEvent.setup()
     render(
       <CharacterShelf
@@ -178,7 +192,8 @@ describe('CharacterShelf', () => {
       />,
     )
     await user.click(screen.getByRole('button', { name: '不足ちゃんの詳細を見る' }))
-    expect(screen.getByRole('button', { name: 'このキャラクターを使う' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '依頼メモをコピー' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /既存の案件へ追加/ })).toBeDisabled()
     expect(screen.getByRole('status')).toHaveTextContent('使用できる元データがありません')
   })
 
@@ -271,7 +286,7 @@ describe('CharacterShelf', () => {
       />,
     )
     await user.click(screen.getByRole('button', { name: 'ハナの詳細を見る' }))
-    await user.click(screen.getByRole('button', { name: 'このキャラクターを使う' }))
+    await user.click(screen.getByRole('button', { name: /既存の案件へ追加/ }))
     const dialog = screen.getByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: 'この案件へ追加する' }))
     expect(await within(dialog).findByText('競合のため追加できませんでした。')).toBeVisible()

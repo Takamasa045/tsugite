@@ -162,6 +162,57 @@ export function isWritableTargetProject(project: CharacterUseTargetProject): boo
   return project.readOnly !== true && project.valid !== false
 }
 
+/**
+ * 制作前でも渡せる依頼メモ。案件選択ダイアログより先にコピーする本筋。
+ * 絶対 path は出さない（ランチャーは opaque key / id のみ）。
+ */
+export function buildCharacterHandoffMarkdown(
+  character: Pick<LauncherCharacter, 'displayName' | 'groupKey' | 'provenance'>,
+  source: Pick<
+    LauncherCharacterSource,
+    'sourceKey' | 'speakerId' | 'label' | 'kind' | 'side' | 'provenance' | 'canUse'
+  >,
+): string {
+  const lines: string[] = [
+    `# キャラクター依頼メモ: ${character.displayName}`,
+    '',
+    '制作を始める前に、このキャラクターを案件へ取り込むときの控えです。',
+    'ランチャーから案件を選ぶ必要はありません。Codex / Claude にこのメモを渡してください。',
+    '',
+    '## 識別子',
+    `- 表示名: ${character.displayName}`,
+    `- speakerId: \`${source.speakerId}\``,
+    `- sourceKey: \`${source.sourceKey}\``,
+    `- 使用元: ${source.label}（${sourceKindLabel(source.kind)} / ${sideLabel(source.side)}）`,
+    `- 由来: ${provenanceLabel(source.provenance ?? character.provenance)}`,
+    `- 取込可否: ${source.canUse ? '可' : '不可（画像不足など）'}`,
+    '',
+    '## Codex / Claude への依頼例',
+    '',
+    buildCharacterAgentPrompt(character, source),
+    '',
+    '## 補足',
+    '- 案件がまだ無いときは、新規 project を作ってからこのキャラクターを取り込む。',
+    '- 既に案件があるときだけ、ランチャーの「既存の案件へ追加」でもコピーできる。',
+    '- 生成・run・render・Gate は人間が承認するまで実行しない。',
+    '',
+  ]
+  return lines.join('\n')
+}
+
+/** チャットにそのまま貼れる短い自然言語依頼。 */
+export function buildCharacterAgentPrompt(
+  character: Pick<LauncherCharacter, 'displayName'>,
+  source: Pick<LauncherCharacterSource, 'sourceKey' | 'speakerId' | 'label'>,
+): string {
+  return [
+    `キャラクター「${character.displayName}」を使って制作を進めたい。`,
+    `speakerId は \`${source.speakerId}\`、sourceKey は \`${source.sourceKey}\`（使用元: ${source.label}）。`,
+    'まだ制作案件が無ければ新しく作り、あればその案件へこのキャラクターを取り込んで。',
+    '生成・run・render・Gate はこちらが承認するまで実行しないで。',
+  ].join('')
+}
+
 function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === 'object' && input !== null
 }
