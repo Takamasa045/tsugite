@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  buildCharacterAgentPrompt,
+  buildCharacterHandoffMarkdown,
   characterHasMissingAssets,
   characterImageUrl,
   isCharacterListResponse,
@@ -119,5 +121,22 @@ describe('characterShelfModel', () => {
       ok: false, issue: { code: 'character_add.speaker_conflict', message: '衝突' },
     })).toBe(true)
     expect(isCharacterUseResponse({ ok: true, speakerId: 'x' })).toBe(false)
+  })
+
+  it('buildCharacterHandoffMarkdown は依頼メモに識別子と自然言語依頼を含める', () => {
+    const md = buildCharacterHandoffMarkdown(sampleCharacter, usableSource)
+    expect(md).toContain('# キャラクター依頼メモ: ハナ')
+    expect(md).toContain('speakerId: `speaker-a`')
+    expect(md).toContain('sourceKey: `project:alpha:speaker-a`')
+    expect(md).toContain('生成・run・render・Gate')
+    expect(md).not.toMatch(/\/Users\//)
+  })
+
+  it('buildCharacterAgentPrompt は短い自然言語依頼になる', () => {
+    const prompt = buildCharacterAgentPrompt(sampleCharacter, usableSource)
+    expect(prompt).toContain('「ハナ」')
+    expect(prompt).toContain('speaker-a')
+    expect(prompt).toContain('project:alpha:speaker-a')
+    expect(prompt).toContain('承認するまで実行しない')
   })
 })

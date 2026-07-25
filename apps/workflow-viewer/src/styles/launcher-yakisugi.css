@@ -1662,12 +1662,65 @@
   font-size: .64rem;
   font-weight: 750;
 }
-.launcher-character-detail-actions {
-  display: grid;
-  gap: 10px;
-  justify-items: start;
+.launcher-character-handoff {
+  border-top: 1px solid rgba(75, 55, 32, .12);
+  padding-top: 14px;
 }
-
+.launcher-character-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.launcher-character-detail-actions-secondary {
+  margin-top: 10px;
+}
+.launcher-character-id-row {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.launcher-character-id-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(75, 55, 32, .14);
+  border-radius: 2px 10px 2px 10px;
+  padding: 8px 10px;
+  background: #fffaf0;
+}
+.launcher-character-id-chip span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.launcher-character-id-chip small {
+  color: #6a6256;
+  font-size: .62rem;
+  letter-spacing: .04em;
+}
+.launcher-character-id-chip code {
+  overflow: hidden;
+  color: #2a241c;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: .68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.launcher-character-handoff-preview {
+  overflow: auto;
+  margin: 0 0 4px;
+  border: 1px solid rgba(75, 55, 32, .14);
+  border-radius: 2px 10px 2px 10px;
+  padding: 12px 14px;
+  color: #2a241c;
+  background: #f7f2e8;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: .68rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
 .launcher-character-dialog-backdrop {
   position: fixed;
   inset: 0;

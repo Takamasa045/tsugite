@@ -1,7 +1,10 @@
-import { ArrowLeft, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, Check, ClipboardCopy, FolderInput } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import {
   assetRoleLabel,
+  buildCharacterAgentPrompt,
+  buildCharacterHandoffMarkdown,
   characterImageUrl,
   characterIsReferenceOnly,
   characterSpeakerIds,
@@ -20,8 +23,11 @@ export interface CharacterDetailProps {
   selectedSourceKey: string | null
   onSelectSource: (sourceKey: string) => void
   onBack: () => void
-  onUse: () => void
+  /** 既存の書込可能案件へコピーする補助（制作前の本筋ではない）。 */
+  onAddToProject: () => void
 }
+
+type CopyKind = 'handoff' | 'prompt' | 'speakerId' | 'sourceKey'
 
 function PoseThumb({ pose, label }: { pose: LauncherCharacterPose; label?: string }) {
   return (
@@ -99,7 +105,7 @@ export function CharacterDetail({
   selectedSourceKey,
   onSelectSource,
   onBack,
-  onUse,
+  onAddToProject,
 }: CharacterDetailProps) {
   const canUseList = usableSources(character)
   const selectedSource = character.sources.find((source) => source.sourceKey === selectedSourceKey)
@@ -110,6 +116,32 @@ export function CharacterDetail({
   const useEnabled = Boolean(selectedSource?.canUse)
   const speakerIds = characterSpeakerIds(character)
   const referenceOnly = characterIsReferenceOnly(character)
+  const [copyKind, setCopyKind] = useState<CopyKind | null>(null)
+  const [copyFailed, setCopyFailed] = useState(false)
+
+  useEffect(() => {
+    if (!copyKind) return
+    const timer = window.setTimeout(() => setCopyKind(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [copyKind])
+
+  async function copyText(kind: CopyKind, text: string) {
+    setCopyFailed(false)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyKind(kind)
+    } catch {
+      setCopyFailed(true)
+      setCopyKind(null)
+    }
+  }
+
+  const handoff = selectedSource
+    ? buildCharacterHandoffMarkdown(character, selectedSource)
+    : ''
+  const agentPrompt = selectedSource
+    ? buildCharacterAgentPrompt(character, selectedSource)
+    : ''
 
   return (
     <section className="launcher-character-detail" aria-labelledby="character-detail-title">
@@ -172,7 +204,7 @@ export function CharacterDetail({
       <section aria-label="使用元" className="launcher-character-detail-section">
         <h3>使用元（sources）</h3>
         <p className="launcher-character-detail-hint">
-          案件へ追加する元データを選んでください。画像不足の元は選べません。
+          依頼メモに載せる元データを選んでください。画像不足の元は選べません。
         </p>
         <ul className="launcher-character-source-list">
           {character.sources.map((source) => (
@@ -186,21 +218,121 @@ export function CharacterDetail({
         </ul>
       </section>
 
-      <div className="launcher-character-detail-actions">
-        <button
-          className="launcher-primary"
-          disabled={!useEnabled}
-          onClick={onUse}
-          type="button"
-        >
-          このキャラクターを使う
-        </button>
+      <section
+        aria-label="制作前の受け渡し"
+        className="launcher-character-detail-section launcher-character-handoff"
+        role="region"
+      >
+        <h3>制作前の受け渡し</h3>
+        <p className="launcher-character-detail-hint">
+          案件がまだ無い段階では、ここで依頼メモや識別子をコピーして Codex / Claude に渡すのが本筋です。
+          既存案件への直接コピーは補助です。
+        </p>
+
+        <div className="launcher-character-detail-actions">
+          <button
+            className="launcher-primary"
+            disabled={!useEnabled || !selectedSource}
+            onClick={() => void copyText('handoff', handoff)}
+            type="button"
+          >
+            {copyKind === 'handoff' ? (
+              <>
+                <Check aria-hidden="true" size={16} />
+                依頼メモをコピーしました
+              </>
+            ) : (
+              <>
+                <ClipboardCopy aria-hidden="true" size={16} />
+                依頼メモをコピー
+              </>
+            )}
+          </button>
+          <button
+            className="launcher-secondary"
+            disabled={!useEnabled || !selectedSource}
+            onClick={() => void copyText('prompt', agentPrompt)}
+            type="button"
+          >
+            {copyKind === 'prompt' ? (
+              <>
+                <Check aria-hidden="true" size={16} />
+                短い依頼文をコピーしました
+              </>
+            ) : (
+              <>
+                <ClipboardCopy aria-hidden="true" size={16} />
+                短い依頼文をコピー
+              </>
+            )}
+          </button>
+        </div>
+
+        {selectedSource && (
+          <div className="launcher-character-id-row" aria-label="識別子">
+            <div className="launcher-character-id-chip">
+              <span>
+                <small>speakerId</small>
+                <code>{selectedSource.speakerId}</code>
+              </span>
+              <button
+                className="launcher-secondary"
+                disabled={!useEnabled}
+                onClick={() => void copyText('speakerId', selectedSource.speakerId)}
+                type="button"
+              >
+                {copyKind === 'speakerId' ? 'コピー済' : 'コピー'}
+              </button>
+            </div>
+            <div className="launcher-character-id-chip">
+              <span>
+                <small>sourceKey</small>
+                <code>{selectedSource.sourceKey}</code>
+              </span>
+              <button
+                className="launcher-secondary"
+                disabled={!useEnabled}
+                onClick={() => void copyText('sourceKey', selectedSource.sourceKey)}
+                type="button"
+              >
+                {copyKind === 'sourceKey' ? 'コピー済' : 'コピー'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {selectedSource && (
+          <pre
+            aria-label="短い依頼文のプレビュー"
+            className="launcher-character-handoff-preview"
+          >
+            {agentPrompt}
+          </pre>
+        )}
+
+        <div className="launcher-character-detail-actions launcher-character-detail-actions-secondary">
+          <button
+            className="launcher-secondary"
+            disabled={!useEnabled}
+            onClick={onAddToProject}
+            type="button"
+          >
+            <FolderInput aria-hidden="true" size={16} />
+            既存の案件へ追加…
+          </button>
+        </div>
+
         {!useEnabled && (
           <p className="launcher-character-detail-disabled-hint" role="status">
             使用できる元データがありません。不足画像を補ってから再度お試しください。
           </p>
         )}
-      </div>
+        {copyFailed && (
+          <p className="launcher-character-detail-disabled-hint" role="alert">
+            クリップボードへコピーできませんでした。プレビューを選択して手動でコピーしてください。
+          </p>
+        )}
+      </section>
     </section>
   )
 }

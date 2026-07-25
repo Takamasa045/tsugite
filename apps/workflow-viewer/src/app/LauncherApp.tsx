@@ -960,7 +960,7 @@ export function LauncherApp({
           <>
             <li data-active="true"><span>一</span><strong>選ぶ</strong></li>
             <li data-active={characterLoadState === 'ready'}><span>二</span><strong>元を確認</strong></li>
-            <li data-active="false"><span>三</span><strong>案件へ使う</strong></li>
+            <li data-active="false"><span>三</span><strong>依頼する</strong></li>
           </>
         ) : activeShelf === 'canvas' ? (
           <>

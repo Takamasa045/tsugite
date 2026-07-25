@@ -137,7 +137,7 @@ export function UseCharacterDialog({
       >
         <header className="launcher-character-dialog-header">
           <div>
-            <span className="eyebrow">キャラクターを使う</span>
+            <span className="eyebrow">既存の案件へ追加</span>
             <h2 id={titleId}>{character.displayName}</h2>
           </div>
           <button
@@ -153,7 +153,8 @@ export function UseCharacterDialog({
         </header>
 
         <p id={descId} className="launcher-character-dialog-summary">
-          元: {source.label}（{source.speakerId}）を、書込可能な制作案件へコピーします。
+          制作前の本筋は詳細画面の依頼メモコピーです。ここは、すでに書込可能な制作案件があるときの補助です。
+          元: {source.label}（{source.speakerId}）
         </p>
 
         {!isResultPhase && (

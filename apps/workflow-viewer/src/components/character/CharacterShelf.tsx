@@ -204,9 +204,9 @@ export function CharacterShelf({
         {loadState === 'ready' && selectedCharacter && (
           <CharacterDetail
             character={selectedCharacter}
+            onAddToProject={() => setUseDialogOpen(true)}
             onBack={goBack}
             onSelectSource={setSelectedSourceKey}
-            onUse={() => setUseDialogOpen(true)}
             selectedSourceKey={selectedSourceKey}
           />
         )}
