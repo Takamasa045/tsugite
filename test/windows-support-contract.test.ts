@@ -23,6 +23,12 @@ describe("Windows support contract", () => {
     expect(workflow).toContain("node bin/pipeline doctor");
     expect(workflow).toContain("npm --prefix apps/workflow-viewer ci");
     expect(workflow).toContain("npm run viewer:build");
+    // Keep Windows as a platform smoke: full coverage stays on Ubuntu `check`.
+    expect(workflow).not.toMatch(/windows-smoke:[\s\S]*npm run check\b/);
+    expect(workflow).not.toMatch(/windows-smoke:[\s\S]*npm run viewer:check\b/);
+    expect(workflow).toMatch(/windows-smoke:[\s\S]*npm run build\b/);
+    // Viewer unit tests must remain required on Ubuntu after leaving Windows smoke.
+    expect(workflow).toMatch(/^\s{2}check:[\s\S]*?npm run viewer:check\b/m);
   });
 
   it("links English and Japanese setup docs to the PowerShell guide", async () => {
