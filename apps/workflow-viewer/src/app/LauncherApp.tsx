@@ -327,6 +327,18 @@ function projectMatchesFilter(project: LauncherProject, filter: ProjectFilter): 
     && !project.status.startsWith('awaiting_gate_')
 }
 
+/** Match name/slug/runId, including pasted paths like projects/<slug>/dist/<runId>/final.mp4. */
+export function projectMatchesQuery(project: LauncherProject, rawQuery: string): boolean {
+  const normalized = rawQuery.trim().toLocaleLowerCase('ja')
+  if (!normalized) return true
+  return [project.name, project.slug, project.runId].some((value) => {
+    const field = value.toLocaleLowerCase('ja')
+    if (!field) return false
+    // Substring either way: "ai-lab" hits slug, and a full path hits slug/runId inside it.
+    return field.includes(normalized) || normalized.includes(field)
+  })
+}
+
 function projectUpdatedAtMs(project: LauncherProject): number {
   const timestamp = project.updatedAt ? Date.parse(project.updatedAt) : Number.NaN
   return Number.isFinite(timestamp) ? timestamp : 0
@@ -560,11 +572,9 @@ export function LauncherApp({
   }, [loadFeedback])
 
   const filteredProjects = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase('ja')
     return projects
       .filter((project) => projectMatchesFilter(project, projectFilter))
-      .filter((project) => !normalized || [project.name, project.slug, project.runId]
-        .some((value) => value.toLocaleLowerCase('ja').includes(normalized)))
+      .filter((project) => projectMatchesQuery(project, query))
       .sort(compareProjectsByRecentUpdate)
   }, [projectFilter, projects, query])
 
@@ -960,7 +970,7 @@ export function LauncherApp({
                   <input
                     aria-label="制作案件を検索"
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder="名前やrun IDで絞り込む"
+                    placeholder="名前・run ID・パスで絞り込む"
                     type="search"
                     value={query}
                   />

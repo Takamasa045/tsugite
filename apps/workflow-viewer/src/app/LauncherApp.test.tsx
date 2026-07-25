@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
-import { LauncherApp } from './LauncherApp'
+import { LauncherApp, projectMatchesQuery } from './LauncherApp'
 
 const terminalWrite = vi.fn()
 const terminalDispose = vi.fn()
@@ -757,6 +757,26 @@ describe('LauncherApp', () => {
     expect(within(projectList).queryByRole('heading', { name: 'Codex Goal Talk' })).not.toBeInTheDocument()
 
     await user.clear(screen.getByRole('searchbox', { name: '制作案件を検索' }))
+    await user.type(
+      screen.getByRole('searchbox', { name: '制作案件を検索' }),
+      'projects/project-alpha/dist/project-alpha-r3/final.mp4',
+    )
+    expect(screen.getByText('全2件 / 表示1件')).toBeVisible()
+    expect(within(projectList).getByRole('heading', { name: 'サンプル映像A' })).toBeVisible()
+    expect(within(projectList).queryByRole('heading', { name: 'Codex Goal Talk' })).not.toBeInTheDocument()
+
+    await user.clear(screen.getByRole('searchbox', { name: '制作案件を検索' }))
+  })
+
+  it('projectMatchesQueryはパス貼り付けと部分一致の両方で案件を拾う', () => {
+    const project = projects[0]!
+    expect(projectMatchesQuery(project, '')).toBe(true)
+    expect(projectMatchesQuery(project, '  ')).toBe(true)
+    expect(projectMatchesQuery(project, 'サンプル')).toBe(true)
+    expect(projectMatchesQuery(project, 'project-alpha-r3')).toBe(true)
+    expect(projectMatchesQuery(project, 'projects/project-alpha/dist/project-alpha-r3/final.mp4')).toBe(true)
+    expect(projectMatchesQuery(project, 'projects/other-slug/dist/other-r1/final.mp4')).toBe(false)
+    expect(projectMatchesQuery(project, 'final.mp4')).toBe(false)
   })
 
   it('初期選択は表示順と同じupdatedAt降順で最新のvalid案件にする', async () => {
