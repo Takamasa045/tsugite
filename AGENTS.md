@@ -18,6 +18,10 @@
 - Output QA は manifest と成果物検査のみ。編集や実行はしない。
 - ユーザーが対象動画を明示的に「完成」と確定したら、正本path・QA・振り返りに加え、今回の失敗・改善点・次回への学びを終了記録として残す。失敗は案件の `feedback.jsonl` と、再利用できるルールなら追記専用の `LESSONS.md` に記録し、過去の同じ `feedback key` または `LESSONS.md` の症状・原因と照合して再発なら `recurring` として昇格候補かを確認する。昇格候補は反映先・変更内容・検証方法が揃う場合だけ pending proposal にし、人間承認なしに共有ルールを変更しない。記録結果（失敗なしを含む）を完了報告に示した後に `finalize` をpreviewする。completed / Gate 3 approved / 最終成果物を確認し、対象が一致する場合だけapplyする。
 - `finalize` は最終runと最終manifest参照素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材のメディアファイルだけを削除する。Gate 3承認だけを完成宣言の代わりにしない。
+- 制作案件の正本置き場は durable projects home（通常は main worktree の `projects/`。`TSUGITE_PROJECTS_HOME` または git common dir で解決）。**制作前から**ここに置く。feature worktree だけで完結させない。
+- `validate` / 以降の pipeline は、案件が durable home の外にあれば shelf へディレクトリリンクしてランチャーに即表示する。`finalize --apply` は完成コピーを durable home へ昇格し、worktree 削除後も残す。
+- ランチャーは durable home・指定 projectsDir・他 worktree の `projects/` をまとめて読む（テスト隔離時のみ link を切る）。
+- `git worktree remove` 前に、完成品・QA・completion-record が durable `projects/` にあることを確認する。worktree 内だけに正本がある状態で remove しない。
 - 任意の `shitate-import` はShitateの選定済みrunをproject内へコピーするだけで、生成・Gate更新・外部送信を行わない。
 - Shitateの外部pathやsymlinkをmanifestから直接参照せず、`character-lock.json` 付きsnapshotを使う。
 - core にはエンジン固有名や固有コードを入れない。

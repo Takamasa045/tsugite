@@ -2,8 +2,15 @@ import { copyFile, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/pro
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
+
+const originalProjectsHome = process.env.TSUGITE_PROJECTS_HOME;
+
+afterEach(() => {
+  if (originalProjectsHome === undefined) delete process.env.TSUGITE_PROJECTS_HOME;
+  else process.env.TSUGITE_PROJECTS_HOME = originalProjectsHome;
+});
 
 describe("pipeline finalize command", () => {
   it("previews safely and requires coordinator authority before applying deletion", async () => {
@@ -39,7 +46,10 @@ describe("pipeline finalize command", () => {
     expect(JSON.parse(applied.stdout)).toMatchObject({
       command: "finalize",
       applied: true,
-      deleted_files: 1
+      deleted_files: 1,
+      launcher_visible: true,
+      launcher_already_home: true,
+      promoted_to_launcher_home: false
     });
     await expect(stat(fixture.oldMedia)).rejects.toThrow();
     await expect(stat(join(fixture.root, "dist/demo-v2/completion-record.json"))).resolves.toBeDefined();
@@ -58,7 +68,10 @@ async function capture(args: string[]) {
 }
 
 async function cliFixture() {
-  const root = await mkdtemp(join(tmpdir(), "tsugite-finalize-cli-"));
+  const base = await mkdtemp(join(tmpdir(), "tsugite-finalize-cli-"));
+  const projectsHome = join(base, "projects");
+  const root = join(projectsHome, "demo");
+  process.env.TSUGITE_PROJECTS_HOME = projectsHome;
   const configPath = join(root, "project.yaml");
   const runDir = join(root, "dist/demo-v2");
   const oldMedia = join(root, "dist/demo-v1/old.mp4");

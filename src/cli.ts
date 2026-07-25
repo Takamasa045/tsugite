@@ -41,6 +41,7 @@ import {
   type RunLock,
   type RunState
 } from "./orchestrator/state.js";
+import { ensureProjectVisibleOnLauncherShelf } from "./project/projectsHome.js";
 import { validateProject } from "./project/validateProject.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import type { Project } from "./project/schema.js";
@@ -544,11 +545,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   const validation = await validateProject(args.config);
+  const launcherShelf = validation.ok && validation.project
+    ? await ensureProjectVisibleOnLauncherShelf({
+        configPath: args.config,
+        projectSlug: validation.project.slug
+      })
+    : undefined;
   if (args.command === "validate") {
     return output(args, validation.ok ? 0 : 1, {
       ok: validation.ok,
       command: "validate",
-      issues: validation.issues
+      issues: [
+        ...validation.issues,
+        ...(launcherShelf && !launcherShelf.ok ? launcherShelf.issues : [])
+      ],
+      launcher_visible: launcherShelf?.ok ?? false,
+      launcher_already_home: launcherShelf?.alreadyHome,
+      launcher_linked: launcherShelf?.linked,
+      launcher_projects_home: launcherShelf?.projectsHome,
+      launcher_project_root: launcherShelf?.launcherProjectRoot,
+      launcher_config_path: launcherShelf?.launcherConfigPath
     });
   }
 
@@ -614,7 +630,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       retained_media: finalized.retainedMedia,
       planned_bytes: finalized.plannedBytes,
       deleted_files: finalized.deletedFiles,
-      deleted_bytes: finalized.deletedBytes
+      deleted_bytes: finalized.deletedBytes,
+      launcher_projects_home: finalized.launcherProjectsHome,
+      launcher_project_root: finalized.launcherProjectRoot,
+      launcher_already_home: finalized.launcherAlreadyHome,
+      promoted_to_launcher_home: finalized.promotedToLauncherHome,
+      launcher_config_path: finalized.launcherConfigPath,
+      launcher_visible: Boolean(finalized.launcherProjectRoot)
     });
   }
 

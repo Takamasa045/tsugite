@@ -2,10 +2,17 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { finalizeCompletedProject } from "../src/orchestrator/finalize.js";
 import type { Manifest } from "../src/manifest/schema.js";
 import type { Project } from "../src/project/schema.js";
+
+const originalProjectsHome = process.env.TSUGITE_PROJECTS_HOME;
+
+afterEach(() => {
+  if (originalProjectsHome === undefined) delete process.env.TSUGITE_PROJECTS_HOME;
+  else process.env.TSUGITE_PROJECTS_HOME = originalProjectsHome;
+});
 
 const project: Project = {
   slug: "demo",
@@ -56,6 +63,8 @@ describe("completed project finalization", () => {
 
     expect(result.ok).toBe(true);
     expect(result.applied).toBe(true);
+    expect(result.launcherAlreadyHome).toBe(true);
+    expect(result.promotedToLauncherHome).toBe(false);
     expect(result.deletedFiles).toBe(3);
     await expect(stat(join(fixture.root, "dist/demo-v1/assets/old.mp4"))).rejects.toThrow();
     await expect(stat(join(fixture.root, "media/unused-draft.wav"))).rejects.toThrow();
@@ -143,10 +152,51 @@ describe("completed project finalization", () => {
     expect(result.ok).toBe(false);
     expect(result.issues[0]?.code).toBe("finalize.state_dir_unsafe");
   });
+
+  it("promotes a worktree project into the durable launcher home on apply", async () => {
+    const fixture = await completionFixture({ outsideLauncherHome: true });
+
+    const preview = await finalizeCompletedProject({
+      configPath: fixture.configPath,
+      project,
+      manifest: fixture.manifest,
+      apply: false,
+      now: "2026-07-14T00:00:00.000Z"
+    });
+    expect(preview.ok).toBe(true);
+    expect(preview.launcherAlreadyHome).toBe(false);
+    expect(preview.promotedToLauncherHome).toBe(false);
+    expect(preview.launcherProjectRoot).toBe(join(fixture.projectsHome!, "demo"));
+
+    const result = await finalizeCompletedProject({
+      configPath: fixture.configPath,
+      project,
+      manifest: fixture.manifest,
+      apply: true,
+      now: "2026-07-14T00:00:00.000Z"
+    });
+    expect(result.ok).toBe(true);
+    expect(result.promotedToLauncherHome).toBe(true);
+    expect(result.launcherProjectRoot).toBe(join(fixture.projectsHome!, "demo"));
+    await expect(stat(join(fixture.projectsHome!, "demo", "dist/demo-v2/final.mp4"))).resolves.toBeDefined();
+    await expect(stat(join(fixture.projectsHome!, "demo", "launcher-home.json"))).resolves.toBeDefined();
+    await expect(stat(join(fixture.projectsHome!, "demo", "dist/demo-v1/assets/old.mp4"))).rejects.toThrow();
+  });
 });
 
-async function completionFixture(options: { completed?: boolean; omitFinal?: boolean } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "tsugite-finalize-"));
+async function completionFixture(options: {
+  completed?: boolean;
+  omitFinal?: boolean;
+  outsideLauncherHome?: boolean;
+} = {}) {
+  const base = await mkdtemp(join(tmpdir(), "tsugite-finalize-"));
+  const projectsHome = options.outsideLauncherHome
+    ? join(base, "durable-projects")
+    : join(base, "projects");
+  const root = options.outsideLauncherHome
+    ? join(base, "feature-worktree", "projects", "demo")
+    : join(projectsHome, "demo");
+  process.env.TSUGITE_PROJECTS_HOME = projectsHome;
   const configPath = join(root, "project.yaml");
   const runDir = join(root, "dist/demo-v2");
   const oldRunDir = join(root, "dist/demo-v1");
@@ -155,7 +205,8 @@ async function completionFixture(options: { completed?: boolean; omitFinal?: boo
     mkdir(join(oldRunDir, "assets"), { recursive: true }),
     mkdir(join(root, "media"), { recursive: true }),
     mkdir(join(root, "qa/v1"), { recursive: true }),
-    mkdir(join(root, "marketing"), { recursive: true })
+    mkdir(join(root, "marketing"), { recursive: true }),
+    mkdir(projectsHome, { recursive: true })
   ]);
 
   const manifest = {
@@ -206,5 +257,5 @@ async function completionFixture(options: { completed?: boolean; omitFinal?: boo
   ]);
   if (!options.omitFinal) await writeFile(join(runDir, "final.mp4"), finalContent);
 
-  return { root, configPath, manifest };
+  return { root, configPath, manifest, projectsHome };
 }
