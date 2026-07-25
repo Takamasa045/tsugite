@@ -158,6 +158,7 @@ export type LauncherTemplate = {
 export type LauncherTemplateInput = {
   type: "text" | "image" | "audio" | "video" | "data" | "other";
   label: string;
+  required: boolean;
 };
 
 export type LauncherTemplatePreview = {
@@ -2057,8 +2058,7 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
         .filter((input) => input.required)
         .map((input) => input.label),
       requiredInputDetails: metadata.required_inputs
-        .filter((input) => input.required)
-        .map((input) => ({ type: input.type, label: input.label })),
+        .map((input) => ({ type: input.type, label: input.label, required: input.required })),
       preview: metadata.preview
         ? {
             frames: metadata.preview.frames.map((frame) => ({
