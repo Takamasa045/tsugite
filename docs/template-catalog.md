@@ -73,6 +73,29 @@ distribution: local-only
 
 ランチャーの制作ブリーフ（コピー用 Markdown）に `## 演出指針` として出ます。生成・実行・Gate を起動する能力ではありません。
 
+### `direction_add`（option 任意・schema_version 1）
+
+`variants[].options[]` に付けられる演出の**追加行**です。テンプレート単位の `direction` を base とし、選択中 option の `direction_add` を**和集合**でブリーフへ並べます（上書きではなく追記。同じキーでも base と option を別行で出します）。
+
+```yaml
+variants:
+  - id: format
+    label: 尺と画面
+    options:
+      - id: short-15
+        label: 15秒ショート
+        description: 商品、価値、CTAだけを一つずつ見せます。
+        direction_add:
+          pacing: フックは0.5秒以内、最長カット2秒
+      - id: short-30
+        label: 30秒CM
+        description: 課題または価値、実演、根拠、CTAをまとめます。
+```
+
+- フィールド形状は `direction` と同じ（1つ以上必須、各最大600文字）
+- API では `directionAdd`（camelCase）として透過
+- ブリーフでは option 由来の行に `（option ラベル）` を付けて区別する
+
 ## 安全条件
 
 - `template.yaml` は64 KiB以下の通常ファイルにし、symlinkを使用しない

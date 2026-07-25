@@ -40,6 +40,8 @@ export interface LauncherTemplate {
       id: string
       label: string
       description: string
+      /** この option 選択時に base direction へ足す演出行（任意）。 */
+      directionAdd?: LauncherTemplateDirection
     }>
   }>
   tags: string[]
@@ -151,6 +153,9 @@ function isTemplateVariant(input: unknown): input is LauncherTemplate['variants'
       && 'id' in option && typeof option.id === 'string'
       && 'label' in option && typeof option.label === 'string'
       && 'description' in option && typeof option.description === 'string'
+      && (!('directionAdd' in option)
+        || option.directionAdd === undefined
+        || isTemplateDirection(option.directionAdd))
     ))
 }
 
@@ -326,6 +331,40 @@ export function listDirectionLines(
   return lines
 }
 
+/**
+ * base direction + 選択中 option の direction_add の和集合。
+ * 同一キーは上書きせず、base を先に・各 option 追加を後に並べる。
+ */
+export function resolveDirectionLines(
+  template: Pick<LauncherTemplate, 'direction' | 'variants'>,
+  choices: Readonly<Record<string, string>>,
+): Array<{ label: string; text: string; source?: string }> {
+  const lines: Array<{ label: string; text: string; source?: string }> = []
+
+  for (const entry of listDirectionLines(template.direction)) {
+    lines.push(entry)
+  }
+
+  for (const variant of template.variants) {
+    const optionId = choices[variant.id]
+    if (!optionId) continue
+    const option = variant.options.find((entry) => entry.id === optionId)
+    if (!option?.directionAdd) continue
+    for (const field of TEMPLATE_DIRECTION_FIELDS) {
+      const text = option.directionAdd[field.key]
+      if (typeof text === 'string' && text.trim() !== '') {
+        lines.push({
+          label: field.label,
+          text: text.trim(),
+          source: option.label,
+        })
+      }
+    }
+  }
+
+  return lines
+}
+
 export function buildTemplateBriefMarkdown(
   template: Pick<
     LauncherTemplate,
@@ -348,11 +387,12 @@ export function buildTemplateBriefMarkdown(
     lines.push(`- **${variant.label}**: ${option?.label ?? '（未選択）'}`)
   }
 
-  const directionLines = listDirectionLines(template.direction)
+  const directionLines = resolveDirectionLines(template, choices)
   if (directionLines.length > 0) {
     lines.push('', '## 演出指針')
     for (const entry of directionLines) {
-      lines.push(`- **${entry.label}**: ${entry.text}`)
+      const label = entry.source ? `${entry.label}（${entry.source}）` : entry.label
+      lines.push(`- **${label}**: ${entry.text}`)
     }
   }
 

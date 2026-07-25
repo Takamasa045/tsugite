@@ -195,6 +195,8 @@ export type LauncherTemplateVariant = {
     id: string;
     label: string;
     description: string;
+    /** この option 選択時に base direction へ足す演出行（任意）。 */
+    directionAdd?: LauncherTemplateDirection;
   }>;
 };
 
@@ -374,7 +376,8 @@ const templateVariantSchema = z.object({
   options: z.array(z.object({
     id: templateIdSchema,
     label: nonEmptyText,
-    description: descriptionText
+    description: descriptionText,
+    direction_add: templateDirectionSchema.optional()
   }).strict()).min(2).max(12)
 }).strict().superRefine((variant, context) => {
   const optionIds = new Set<string>();
@@ -2346,11 +2349,15 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
         id: variant.id,
         label: variant.label,
         ...(variant.default_option ? { defaultOptionId: variant.default_option } : {}),
-        options: variant.options.map((option) => ({
-          id: option.id,
-          label: option.label,
-          description: option.description
-        }))
+        options: variant.options.map((option) => {
+          const directionAdd = mapTemplateDirection(option.direction_add);
+          return {
+            id: option.id,
+            label: option.label,
+            description: option.description,
+            ...(directionAdd ? { directionAdd } : {})
+          };
+        })
       })),
       tags: metadata.tags,
       audio: metadata.audio.notes,
