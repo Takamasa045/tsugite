@@ -1,6 +1,10 @@
 import { lstat, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Manifest } from "../manifest/schema.js";
+import {
+  ensureFinalizedProjectInLauncherHome,
+  planLauncherHome
+} from "../project/projectsHome.js";
 import type { Project } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import { readState } from "./state.js";
@@ -33,6 +37,16 @@ export type FinalizeCompletedProjectResult = {
   plannedBytes: number;
   deletedFiles: number;
   deletedBytes: number;
+  /** Durable launcher projects directory (main shelf). */
+  launcherProjectsHome?: string;
+  /** Project root the launcher should list after finalize. */
+  launcherProjectRoot?: string;
+  /** True when the project was already under the durable launcher home. */
+  launcherAlreadyHome?: boolean;
+  /** True when finalize copied the project into the durable launcher home. */
+  promotedToLauncherHome?: boolean;
+  /** Config path under the durable launcher home after promotion. */
+  launcherConfigPath?: string;
 };
 
 export async function finalizeCompletedProject(
@@ -136,6 +150,7 @@ export async function finalizeCompletedProject(
     .sort();
   const sizes = await Promise.all(candidates.map(async (path) => (await lstat(path)).size));
   const plannedBytes = sizes.reduce((total, size) => total + size, 0);
+  const launcherPlan = await planLauncherHome(options.configPath, options.project.slug);
 
   const base = {
     ok: true,
@@ -147,10 +162,19 @@ export async function finalizeCompletedProject(
     retainedMedia,
     plannedBytes,
     deletedFiles: 0,
-    deletedBytes: 0
+    deletedBytes: 0,
+    launcherProjectsHome: launcherPlan.projectsHome,
+    launcherProjectRoot: launcherPlan.destinationRoot,
+    launcherAlreadyHome: launcherPlan.alreadyHome,
+    promotedToLauncherHome: false,
+    launcherConfigPath: launcherPlan.alreadyHome
+      ? resolve(options.configPath)
+      : join(launcherPlan.destinationRoot, "project.yaml")
   } satisfies FinalizeCompletedProjectResult;
   if (!options.apply) return base;
-  if (candidates.length === 0 && await isRegularFile(recordPath)) return base;
+  if (candidates.length === 0 && await isRegularFile(recordPath) && launcherPlan.alreadyHome) {
+    return base;
+  }
 
   try {
     for (const path of candidates) await unlink(path);
@@ -169,13 +193,43 @@ export async function finalizeCompletedProject(
         media_files_deleted: candidates.length,
         bytes_reclaimed: plannedBytes,
         deleted_media_paths: mediaFiles
+      },
+      launcher: {
+        projects_home: launcherPlan.projectsHome,
+        project_root: launcherPlan.destinationRoot,
+        source_project_root: projectRoot,
+        already_home: launcherPlan.alreadyHome,
+        will_promote: launcherPlan.willPromote
       }
     };
     await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const launcherHome = await ensureFinalizedProjectInLauncherHome({
+      configPath: options.configPath,
+      projectSlug: options.project.slug,
+      apply: true,
+      now: options.now
+    });
+    if (!launcherHome.ok) {
+      return {
+        ...base,
+        ok: false,
+        deletedFiles: candidates.length,
+        deletedBytes: plannedBytes,
+        issues: launcherHome.issues,
+        promotedToLauncherHome: launcherHome.promoted,
+        launcherProjectRoot: launcherHome.destinationRoot,
+        launcherConfigPath: launcherHome.destinationConfigPath
+      };
+    }
+
     return {
       ...base,
       deletedFiles: candidates.length,
-      deletedBytes: plannedBytes
+      deletedBytes: plannedBytes,
+      promotedToLauncherHome: launcherHome.promoted,
+      launcherProjectRoot: launcherHome.destinationRoot,
+      launcherConfigPath: launcherHome.destinationConfigPath
     };
   } catch (error) {
     return failure(base, {

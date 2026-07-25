@@ -42,6 +42,7 @@ import {
   type RunState
 } from "../orchestrator/state.js";
 import { loadProject } from "../project/loadProject.js";
+import { resolveDurableProjectsHome } from "../project/projectsHome.js";
 import { validateProject, type ValidateProjectOptions } from "../project/validateProject.js";
 import {
   generationRequestCapability,
@@ -476,6 +477,12 @@ function preserveViewerEvidenceRequirement(
 export type StartWorkflowViewerLauncherOptions = {
   projectsDir?: string;
   additionalProjectsDirs?: string[];
+  /**
+   * When true (default), also scan the durable main projects home and other git
+   * worktree projects/ shelves so in-progress work is visible before finalize.
+   * Tests should set false for an isolated projectsDir fixture.
+   */
+  linkProjectShelves?: boolean;
   templatesDir?: string;
   port?: number;
   bundleDir?: string;
@@ -516,7 +523,8 @@ export async function startWorkflowViewerLauncher(
 
   const projectDirectories = await discoverLauncherProjectDirectories(
     options.projectsDir,
-    options.additionalProjectsDirs
+    options.additionalProjectsDirs,
+    options.linkProjectShelves ?? true
   );
   const templatesDir = resolve(
     options.templatesDir ?? fileURLToPath(new URL("../../templates", import.meta.url))
@@ -1858,37 +1866,52 @@ export async function openWorkflowViewerLauncher(url: string): Promise<void> {
 
 async function discoverLauncherProjectDirectories(
   projectsDir?: string,
-  additionalProjectsDirs: string[] = []
+  additionalProjectsDirs: string[] = [],
+  linkProjectShelves = true
 ): Promise<LauncherProjectDirectory[]> {
-  if (projectsDir) {
-    return appendReadOnlyProjectDirectories(
-      [{ path: resolve(projectsDir), readOnly: false }],
-      additionalProjectsDirs
-    );
+  const directories: LauncherProjectDirectory[] = [];
+  const knownDirectories = new Set<string>();
+
+  const addDirectory = (path: string, readOnly: boolean) => {
+    const resolved = resolve(path);
+    if (knownDirectories.has(resolved)) return;
+    knownDirectories.add(resolved);
+    directories.push({ path: resolved, readOnly });
+  };
+
+  if (linkProjectShelves) {
+    const durableProjectsHome = await resolveDurableProjectsHome({ cwd: TSUGITE_ROOT });
+    // Durable main shelf first so production and pre-production links win over duplicates.
+    addDirectory(durableProjectsHome, false);
   }
 
-  const primaryWorkspace = resolve(TSUGITE_ROOT);
-  const directories: LauncherProjectDirectory[] = [{
-    path: join(primaryWorkspace, "projects"),
-    readOnly: false
-  }];
-  const knownWorktrees = new Set([primaryWorkspace]);
-  try {
-    const { stdout } = await promisify(execFile)("git", ["worktree", "list", "--porcelain"], {
-      cwd: primaryWorkspace
-    });
-    for (const line of String(stdout).split(/\r?\n/)) {
-      if (!line.startsWith("worktree ")) continue;
-      const worktreePath = line.slice("worktree ".length);
-      if (!isAbsolute(worktreePath)) continue;
-      const workspace = resolve(worktreePath);
-      if (knownWorktrees.has(workspace)) continue;
-      knownWorktrees.add(workspace);
-      directories.push({ path: join(workspace, "projects"), readOnly: true });
-    }
-  } catch {
-    // Git metadata is optional for the launcher. The current workspace remains available.
+  if (projectsDir) {
+    addDirectory(projectsDir, false);
+  } else {
+    addDirectory(join(TSUGITE_ROOT, "projects"), false);
   }
+
+  if (linkProjectShelves) {
+    const primaryWorkspace = resolve(TSUGITE_ROOT);
+    const knownWorktrees = new Set([primaryWorkspace]);
+    try {
+      const { stdout } = await promisify(execFile)("git", ["worktree", "list", "--porcelain"], {
+        cwd: primaryWorkspace
+      });
+      for (const line of String(stdout).split(/\r?\n/)) {
+        if (!line.startsWith("worktree ")) continue;
+        const worktreePath = line.slice("worktree ".length);
+        if (!isAbsolute(worktreePath)) continue;
+        const workspace = resolve(worktreePath);
+        if (knownWorktrees.has(workspace)) continue;
+        knownWorktrees.add(workspace);
+        addDirectory(join(workspace, "projects"), true);
+      }
+    } catch {
+      // Git metadata is optional. Durable + primary shelves remain available.
+    }
+  }
+
   return appendReadOnlyProjectDirectories(directories, additionalProjectsDirs);
 }
 
@@ -1915,6 +1938,8 @@ async function discoverProjects(
   validationOptions?: ValidateProjectOptions
 ): Promise<LauncherProjectRecord[]> {
   const projects: LauncherProjectRecord[] = [];
+  const seenProjectRoots = new Set<string>();
+  const multiShelf = projectDirectories.length > 1;
   for (const projectDirectory of projectDirectories) {
     let entries;
     try {
@@ -1924,9 +1949,52 @@ async function discoverProjects(
       throw error;
     }
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      if (!entry.isDirectory()) continue;
       const projectDir = join(projectDirectory.path, entry.name);
-      const configEntries = await readdir(projectDir, { withFileTypes: true });
+      // Fast path for isolated single-shelf fixtures: avoid per-entry lstat/realpath.
+      // Multi-shelf / symlink discovery needs the slower identity path.
+      const maybeLink = entry.isSymbolicLink();
+      if (!entry.isDirectory() && !maybeLink) continue;
+
+      let identityRoot = resolve(projectDir);
+      if (multiShelf || maybeLink) {
+        let entryStats;
+        try {
+          entryStats = await lstat(projectDir);
+        } catch (error) {
+          if (isFileSystemError(error, "ENOENT")) continue;
+          throw error;
+        }
+        if (!entryStats.isDirectory() && !entryStats.isSymbolicLink()) continue;
+        try {
+          identityRoot = await realpath(projectDir);
+        } catch {
+          // Dangling links are skipped when readdir of the target fails below.
+        }
+        if (seenProjectRoots.has(identityRoot)) continue;
+        // Same-shelf alias: prefer the real directory entry over a local symlink to it.
+        if (entryStats.isSymbolicLink()) {
+          let shelfRoot = resolve(projectDirectory.path);
+          try {
+            shelfRoot = await realpath(projectDirectory.path);
+          } catch {
+            // keep resolved path
+          }
+          if (
+            isContained(shelfRoot, identityRoot)
+            && resolve(identityRoot) !== resolve(projectDir)
+          ) {
+            continue;
+          }
+        }
+      }
+
+      let configEntries;
+      try {
+        configEntries = await readdir(projectDir, { withFileTypes: true });
+      } catch (error) {
+        if (isFileSystemError(error, "ENOENT")) continue;
+        throw error;
+      }
       if (!configEntries.some((candidate) => candidate.isFile() && candidate.name === "project.yaml")) {
         continue;
       }
@@ -1950,7 +2018,10 @@ async function discoverProjects(
           })
       );
       const latest = selectLatestProjectRecord(candidates);
-      if (latest) projects.push(latest);
+      if (latest) {
+        if (multiShelf || maybeLink) seenProjectRoots.add(identityRoot);
+        projects.push(latest);
+      }
     }
   }
   return projects;

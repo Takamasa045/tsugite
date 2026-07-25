@@ -1,4 +1,4 @@
-import { LayoutTemplate, RefreshCw } from 'lucide-react'
+import { ArrowLeft, LayoutTemplate, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { TemplateAxisStep } from './TemplateAxisStep'
@@ -121,6 +121,11 @@ export function TemplateShelf({
     commit({ ...state, step: Math.min(step, maxStep) })
   }
 
+  function handleBack() {
+    if (state.step <= 0) return
+    handleGoToStep(state.step - 1)
+  }
+
   const axisIndex = state.step >= 1 && selectedTemplate?.valid
     ? state.step - 1
     : -1
@@ -131,11 +136,13 @@ export function TemplateShelf({
     selectedTemplate?.valid
     && state.step === checklistStep(selectedTemplate.variants),
   )
+  const backLabel = state.step === 1 ? '型一覧に戻る' : '戻る'
 
   return (
     <section
       aria-labelledby="launcher-templates-tab"
       className="launcher-workbench launcher-template-wizard"
+      data-wizard-step={state.step}
       id="launcher-templates-panel"
       role="tabpanel"
     >
@@ -143,8 +150,18 @@ export function TemplateShelf({
         aria-labelledby="template-list-title"
         className="launcher-projects launcher-template-shelf launcher-template-wizard-main"
       >
-        <div className="launcher-section-heading">
+        <div className="launcher-section-heading launcher-template-wizard-heading">
           <div>
+            {state.step > 0 && (
+              <button
+                className="launcher-template-back"
+                onClick={handleBack}
+                type="button"
+              >
+                <ArrowLeft aria-hidden="true" size={16} />
+                {backLabel}
+              </button>
+            )}
             <span className="eyebrow">型の棚</span>
             <h2
               id="template-list-title"

@@ -62,74 +62,78 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
         <p>{template.name} の選択内容と用意するものです。生成や実行はこの棚からは行いません。</p>
       </div>
 
-      <section className="launcher-template-checklist-summary" aria-label="選択の要約">
-        <h3>選択内容</h3>
-        <dl>
-          <div>
-            <dt>型</dt>
-            <dd>{template.name}</dd>
-          </div>
-          {template.variants.map((variant) => {
-            const optionId = choices[variant.id]
-            const label = optionId
-              ? optionLabelFor(template, variant.id, optionId) ?? optionId
-              : '（未選択）'
-            return (
-              <div key={variant.id}>
-                <dt>{variant.label}</dt>
-                <dd>{label}</dd>
-              </div>
-            )
-          })}
-        </dl>
-      </section>
+      <div className="launcher-template-checklist-body">
+        <section className="launcher-template-checklist-summary" aria-label="選択の要約">
+          <h3>選択内容</h3>
+          <dl>
+            <div>
+              <dt>型</dt>
+              <dd>{template.name}</dd>
+            </div>
+            {template.variants.map((variant) => {
+              const optionId = choices[variant.id]
+              const label = optionId
+                ? optionLabelFor(template, variant.id, optionId) ?? optionId
+                : '（未選択）'
+              return (
+                <div key={variant.id}>
+                  <dt>{variant.label}</dt>
+                  <dd>{label}</dd>
+                </div>
+              )
+            })}
+          </dl>
+        </section>
 
-      <section aria-label="必須の用意するもの" className="launcher-template-requirements" role="region">
-        <h3>必須</h3>
-        {required.length > 0 ? (
-          <ul className="launcher-template-materials">
-            {required.map((input) => (
-              <li key={`required-${input.type}-${input.label}`}>
-                <b>{TEMPLATE_INPUT_TYPE_LABELS[input.type]}</b>
-                <span>{input.label}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>必須の素材指定はありません。</p>
-        )}
-      </section>
+        <div className="launcher-template-checklist-materials">
+          <section aria-label="必須の用意するもの" className="launcher-template-requirements" role="region">
+            <h3>必須</h3>
+            {required.length > 0 ? (
+              <ul className="launcher-template-materials">
+                {required.map((input) => (
+                  <li key={`required-${input.type}-${input.label}`}>
+                    <b>{TEMPLATE_INPUT_TYPE_LABELS[input.type]}</b>
+                    <span>{input.label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>必須の素材指定はありません。</p>
+            )}
+          </section>
 
-      <section aria-label="任意の用意するもの" className="launcher-template-requirements" role="region">
-        <h3>任意</h3>
-        {optional.length > 0 ? (
-          <ul className="launcher-template-materials">
-            {optional.map((input) => (
-              <li key={`optional-${input.type}-${input.label}`}>
-                <b>{TEMPLATE_INPUT_TYPE_LABELS[input.type]}</b>
-                <span>{input.label}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>任意の素材指定はありません。</p>
-        )}
-      </section>
+          <section aria-label="任意の用意するもの" className="launcher-template-requirements" role="region">
+            <h3>任意</h3>
+            {optional.length > 0 ? (
+              <ul className="launcher-template-materials">
+                {optional.map((input) => (
+                  <li key={`optional-${input.type}-${input.label}`}>
+                    <b>{TEMPLATE_INPUT_TYPE_LABELS[input.type]}</b>
+                    <span>{input.label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>任意の素材指定はありません。</p>
+            )}
+          </section>
 
-      {template.notFor.length > 0 && (
-        <div
-          aria-label="向かない用途の警告"
-          className="launcher-template-checklist-warning"
-          role="status"
-        >
-          <strong>向かない用途</strong>
-          <ul>
-            {template.notFor.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
+          {template.notFor.length > 0 && (
+            <div
+              aria-label="向かない用途の警告"
+              className="launcher-template-checklist-warning"
+              role="status"
+            >
+              <strong>向かない用途</strong>
+              <ul>
+                {template.notFor.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       <section
         aria-label="制作ブリーフ Markdown"

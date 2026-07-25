@@ -445,4 +445,35 @@ describe('TemplateShelf', () => {
     expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
     expect(latestState(onStateChange).step).toBe(2)
   })
+
+  it('戻るボタンで1つ前のステップへ戻れる', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
+
+    expect(screen.queryByRole('button', { name: /型一覧に戻る|戻る/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
+
+    const backToList = screen.getByRole('button', { name: '型一覧に戻る' })
+    expect(backToList).toBeVisible()
+    await user.click(backToList)
+
+    expect(await screen.findByRole('heading', { name: /型を選ぶ|テンプレートを選ぶ/ })).toBeVisible()
+    expect(latestState(onStateChange).step).toBe(0)
+    expect(screen.queryByRole('button', { name: '型一覧に戻る' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await screen.findByRole('heading', { name: 'キャラクター構成' })
+    await user.click(screen.getByRole('button', { name: /同僚同士/ }))
+    expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '戻る' }))
+    expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
+    expect(latestState(onStateChange)).toMatchObject({
+      step: 1,
+      choices: expect.objectContaining({ cast: 'peer-dialogue' }),
+    })
+  })
 })

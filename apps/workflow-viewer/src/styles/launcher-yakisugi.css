@@ -1051,11 +1051,61 @@
   .launcher-agent-terminal-bar button { transition: none; }
 }
 
-/* Template wizard (Phase 2/3) */
-.launcher-template-wizard-main { max-width: 960px; }
-.launcher-template-wizard-steps { margin: 0 0 18px; }
+/* Template wizard: single full-width column (no empty right rail) */
+.launcher-workbench.launcher-template-wizard {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+.launcher-template-wizard-main {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+.launcher-template-wizard-heading {
+  align-items: flex-start;
+}
+.launcher-template-wizard-heading > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.launcher-template-back {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(75, 55, 32, .22);
+  border-radius: 999px;
+  padding: 0 12px 0 10px;
+  color: #3a3328;
+  background: #fffaf0;
+  font-size: .72rem;
+  font-weight: 750;
+}
+.launcher-template-back:hover {
+  border-color: var(--launcher-urushi);
+  color: #6f2b22;
+  background: rgba(166, 61, 47, .06);
+}
+.launcher-template-back:focus-visible {
+  outline: 3px solid rgba(166, 61, 47, .35);
+  outline-offset: 2px;
+}
+.launcher-template-wizard .launcher-template-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.launcher-template-wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 18px;
+}
 .launcher-template-wizard-steps ol {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   gap: 8px;
   margin: 0;
@@ -1109,16 +1159,16 @@
 }
 .launcher-template-axis-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
 }
 .launcher-template-axis-option {
   display: grid;
   gap: 6px;
-  min-height: 96px;
+  min-height: 108px;
   border: 1px solid rgba(75, 55, 32, .2);
   border-radius: 3px 12px 3px 12px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   color: inherit;
   text-align: left;
   background: #fffaf0;
@@ -1153,7 +1203,7 @@
   font-size: .7rem;
   line-height: 1.55;
 }
-.launcher-template-checklist { display: grid; gap: 16px; }
+.launcher-template-checklist { display: grid; gap: 18px; }
 .launcher-template-checklist-heading h2 {
   margin: 0;
   color: var(--launcher-sumi, #171817);
@@ -1166,21 +1216,51 @@
   font-size: .74rem;
   line-height: 1.6;
 }
+.launcher-template-checklist-body {
+  display: grid;
+  grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr);
+  gap: 16px 20px;
+  align-items: start;
+}
+.launcher-template-checklist-summary,
+.launcher-template-checklist-materials {
+  min-width: 0;
+  border: 1px solid rgba(75, 55, 32, .14);
+  border-radius: 3px 14px 3px 14px;
+  padding: 14px 16px;
+  background: rgba(255, 250, 240, .72);
+}
+.launcher-template-checklist-materials {
+  display: grid;
+  gap: 14px;
+}
+.launcher-template-checklist-summary h3,
+.launcher-template-checklist-materials h3 {
+  margin: 0 0 8px;
+  color: var(--launcher-sumi, #171817);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: .9rem;
+}
 .launcher-template-checklist-summary dl {
   display: grid;
   gap: 8px;
-  margin: 8px 0 0;
+  margin: 0;
 }
 .launcher-template-checklist-summary dl > div {
   display: grid;
-  grid-template-columns: 9rem minmax(0, 1fr);
+  grid-template-columns: 8.5rem minmax(0, 1fr);
   gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(75, 55, 32, .1);
   font-size: .74rem;
 }
+.launcher-template-checklist-summary dl > div:last-child { border-bottom: 0; }
 .launcher-template-checklist-summary dt { color: #6a6256; font-weight: 700; }
 .launcher-template-checklist-summary dd { margin: 0; color: #1f1a14; font-weight: 700; }
+.launcher-template-checklist .launcher-template-requirements { margin: 0; }
 .launcher-template-checklist-warning {
   border-left: 3px solid rgba(166, 61, 47, .55);
+  border-radius: 0 8px 8px 0;
   padding: 10px 12px;
   color: #6f2b22;
   background: rgba(166, 61, 47, .07);
@@ -1207,11 +1287,16 @@
   margin: 0;
   border: 1px solid rgba(75, 55, 32, .16);
   border-radius: 3px 10px 3px 10px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   color: #2a241c;
   background: #f7f2e8;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: .68rem;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+@media (max-width: 840px) {
+  .launcher-template-checklist-body { grid-template-columns: 1fr; }
+  .launcher-template-wizard .launcher-template-list { grid-template-columns: 1fr; }
 }

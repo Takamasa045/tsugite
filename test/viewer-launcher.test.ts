@@ -87,7 +87,11 @@ async function writeApprovedGate1State(
 }
 
 async function launch(options: Parameters<typeof startWorkflowViewerLauncher>[0]) {
-  const launcher = await startWorkflowViewerLauncher(options);
+  // Isolate fixtures from the real durable projects home / other worktrees.
+  const launcher = await startWorkflowViewerLauncher({
+    linkProjectShelves: false,
+    ...options
+  });
   launchers.push(launcher);
   return launcher;
 }

@@ -4,6 +4,8 @@ Append-only format:
 
 `YYYY-MM-DD / symptom / cause / rule / status`
 
+2026-07-25 / 完成済み r13 正本がランチャーに出ず worktree 削除で消失した / 制作を feature worktree の projects/ だけで完結させ、finalize も durable home へ載せず、後から git worktree remove した / 制作案件は制作前から main の durable projects home に置き、validate で shelf 登録、finalize で完成コピー昇格、ランチャーは durable+worktree を横断表示し、worktree remove 前に正本が durable home にあることを確認する / validate済
+
 2026-07-09 / mcp-agent adapter could not be handed off safely / adapter had no SKILL.md instructions / mcp-agent adapters must include SKILL.md / validate済
 2026-07-09 / npm ls reports @emnapi/runtime as extraneous after npm ci / npm 11 keeps optional wasm child packages from platform-skipped lockfile entries / treat as non-blocking only when npm ci, npm audit, build, tests, validate, plan, and dry-run pass; do not add a direct dependency just to silence npm ls / documented
 2026-07-10 / generation request id could escape the adapter output directory / request ids and adapter output paths were not enforced at the core boundary / require safe unique request and clip ids, matching request_id, and realpath containment inside runDir / validate済
