@@ -1050,3 +1050,166 @@
   .launcher-agent-hosts label > span,
   .launcher-agent-terminal-bar button { transition: none; }
 }
+
+/* Template wizard (Phase 2/3) */
+.launcher-template-wizard-main { max-width: 960px; }
+.launcher-template-wizard-steps { margin: 0 0 18px; }
+.launcher-template-wizard-steps ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.launcher-template-wizard-steps button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(75, 55, 32, .22);
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: #3a3328;
+  background: #fffaf0;
+  font-size: .68rem;
+  font-weight: 750;
+}
+.launcher-template-wizard-steps button:disabled {
+  opacity: .72;
+  cursor: default;
+}
+.launcher-template-wizard-steps li[data-current] button {
+  border-color: var(--launcher-urushi);
+  color: #6f2b22;
+  background: rgba(166, 61, 47, .08);
+}
+.launcher-template-wizard-steps button:not(:disabled):hover {
+  border-color: var(--launcher-urushi);
+}
+.launcher-template-wizard-steps small {
+  color: #6a6256;
+  font-size: .6rem;
+  font-weight: 650;
+}
+.launcher-template-axis-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.launcher-template-axis-heading h2 {
+  margin: 0;
+  color: var(--launcher-kinari, #1f1a14);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: 1.15rem;
+}
+.launcher-template-axis-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.launcher-template-axis-option {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  border: 1px solid rgba(75, 55, 32, .2);
+  border-radius: 3px 12px 3px 12px;
+  padding: 12px 14px;
+  color: inherit;
+  text-align: left;
+  background: #fffaf0;
+}
+.launcher-template-axis-option[aria-pressed="true"] {
+  border-color: var(--launcher-urushi);
+  box-shadow: inset 3px 0 var(--launcher-urushi);
+  background: #fff6ea;
+}
+.launcher-template-axis-option:focus-visible {
+  outline: 3px solid rgba(166, 61, 47, .35);
+  outline-offset: 2px;
+}
+.launcher-template-axis-option-topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.launcher-template-axis-option-topline strong {
+  font-size: .84rem;
+}
+.launcher-template-axis-option-topline small {
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #275e58;
+  background: rgba(39, 94, 88, .12);
+  font-size: .58rem;
+  font-weight: 800;
+}
+.launcher-template-axis-option-description {
+  color: #5c564b;
+  font-size: .7rem;
+  line-height: 1.55;
+}
+.launcher-template-checklist { display: grid; gap: 16px; }
+.launcher-template-checklist-heading h2 {
+  margin: 0;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: 1.15rem;
+}
+.launcher-template-checklist-heading p {
+  margin: 6px 0 0;
+  color: #5c564b;
+  font-size: .74rem;
+  line-height: 1.6;
+}
+.launcher-template-checklist-summary dl {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.launcher-template-checklist-summary dl > div {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 8px;
+  font-size: .74rem;
+}
+.launcher-template-checklist-summary dt { color: #6a6256; font-weight: 700; }
+.launcher-template-checklist-summary dd { margin: 0; color: #1f1a14; font-weight: 700; }
+.launcher-template-checklist-warning {
+  border-left: 3px solid rgba(166, 61, 47, .55);
+  padding: 10px 12px;
+  color: #6f2b22;
+  background: rgba(166, 61, 47, .07);
+}
+.launcher-template-checklist-warning strong { display: block; margin-bottom: 6px; font-size: .72rem; }
+.launcher-template-checklist-warning ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 1em;
+  font-size: .72rem;
+}
+.launcher-template-checklist-brief-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.launcher-template-checklist-brief-toolbar h3 { margin: 0; font-size: .86rem; }
+.launcher-template-checklist-brief pre {
+  overflow: auto;
+  margin: 0;
+  border: 1px solid rgba(75, 55, 32, .16);
+  border-radius: 3px 10px 3px 10px;
+  padding: 12px 14px;
+  color: #2a241c;
+  background: #f7f2e8;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: .68rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}

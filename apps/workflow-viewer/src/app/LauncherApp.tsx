@@ -9,16 +9,23 @@ import {
   RefreshCw,
   Search,
   Sun,
-  Users,
   Workflow,
 } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { AgentWorkspaceChooser } from '../components/agent/AgentWorkspaceChooser'
 
 import { GenerationCanvas } from '../components/generation/GenerationCanvas'
+import { TemplateShelf } from '../components/template/TemplateShelf'
+import {
+  isTemplateListResponse,
+  type LauncherTemplate,
+  type TemplateLoadState,
+} from '../components/template/templateShelfModel'
 import { DesktopWorkspaceRecovery } from '../components/workspace/DesktopWorkspaceRecovery'
+
+export type { LauncherTemplate }
 
 export interface LauncherProject {
   id: string
@@ -39,54 +46,9 @@ export interface LauncherProject {
   issue?: string
 }
 
-export interface LauncherTemplate {
-  id: string
-  name: string
-  summary: string
-  category: string
-  useCases: string[]
-  duration: string
-  aspectRatio: string
-  speakers?: number
-  requiredInputs: string[]
-  requiredInputDetails: Array<{
-    type: 'text' | 'image' | 'audio' | 'video' | 'data' | 'other'
-    label: string
-  }>
-  preview: {
-    frames: Array<{
-      kind: 'product' | 'person' | 'interface' | 'parts' | 'hands' | 'result' | 'event' | 'text'
-      label: string
-    }>
-    flow: string[]
-  } | null
-  notFor: string[]
-  variants: Array<{
-    id: string
-    label: string
-    defaultOptionId?: string
-    options: Array<{
-      id: string
-      label: string
-      description: string
-    }>
-  }>
-  tags: string[]
-  audio: string
-  status: 'stable' | 'experimental' | 'deprecated' | 'unknown'
-  distribution: 'bundled' | 'local-only' | 'unknown'
-  valid: boolean
-  issue?: { code: string; message: string }
-}
-
 interface ProjectListResponse {
   ok: true
   projects: LauncherProject[]
-}
-
-interface TemplateListResponse {
-  ok: true
-  templates: LauncherTemplate[]
 }
 
 type FeedbackStage = 'observed' | 'recurring' | 'promoted' | 'verified'
@@ -176,7 +138,6 @@ interface LauncherAppProps {
 
 type Shelf = 'projects' | 'templates' | 'canvas' | 'feedback'
 type LauncherTheme = 'light' | 'dark'
-type TemplateLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
 type ProjectFilter = 'all' | 'active' | 'waiting' | 'completed' | 'invalid'
@@ -225,60 +186,6 @@ const STATUS_LABELS: Record<string, string> = {
   completed: '完了',
   aborted: '中止',
   error: '要確認',
-}
-
-const TEMPLATE_STATUS_LABELS: Record<LauncherTemplate['status'], string> = {
-  stable: '安定版',
-  experimental: '試験中',
-  deprecated: '非推奨',
-  unknown: '要確認',
-}
-
-const DISTRIBUTION_LABELS: Record<LauncherTemplate['distribution'], string> = {
-  bundled: '同梱',
-  'local-only': 'ローカル限定',
-  unknown: '区分を確認',
-}
-
-type TemplateTone = 'product' | 'explainer' | 'assembly' | 'seminar'
-type TemplateInputType = LauncherTemplate['requiredInputDetails'][number]['type']
-
-const TEMPLATE_INPUT_TYPE_LABELS: Record<TemplateInputType, string> = {
-  text: 'テキスト',
-  image: '画像',
-  audio: '音声',
-  video: '動画',
-  data: 'データ',
-  other: 'その他',
-}
-
-const FALLBACK_TEMPLATE_PREVIEW: NonNullable<LauncherTemplate['preview']> = {
-  frames: [
-    { kind: 'text', label: '導入' },
-    { kind: 'interface', label: '本編' },
-    { kind: 'result', label: 'まとめ' },
-  ],
-  flow: ['導入', '本編', 'まとめ'],
-}
-
-function templateTone(category: string): TemplateTone {
-  if (/(商品|EC|サービス)/i.test(category)) return 'product'
-  if (/(組み立て|手順|組立)/.test(category)) return 'assembly'
-  if (/(セミナー|イベント|告知|ショート|シュート)/.test(category)) return 'seminar'
-  return 'explainer'
-}
-
-function hasUsableTemplatePreview(
-  preview: LauncherTemplate['preview'],
-): preview is NonNullable<LauncherTemplate['preview']> {
-  return preview !== null
-    && preview.frames.length === 3
-    && preview.flow.length >= 3
-    && preview.flow.length <= 5
-}
-
-function templatePreview(template: LauncherTemplate): NonNullable<LauncherTemplate['preview']> {
-  return hasUsableTemplatePreview(template.preview) ? template.preview : FALLBACK_TEMPLATE_PREVIEW
 }
 
 const FEEDBACK_STAGE_LABELS: Record<FeedbackStage, string> = {
@@ -453,74 +360,6 @@ function isProjectListResponse(input: unknown): input is ProjectListResponse {
     && 'projects' in input && Array.isArray(input.projects) && input.projects.every(isLauncherProject)
 }
 
-function isTemplateListResponse(input: unknown): input is TemplateListResponse {
-  return typeof input === 'object' && input !== null && 'ok' in input && input.ok === true
-    && 'templates' in input && Array.isArray(input.templates) && input.templates.every(isLauncherTemplate)
-}
-
-function isStringArray(input: unknown): input is string[] {
-  return Array.isArray(input) && input.every((value) => typeof value === 'string')
-}
-
-function isTemplateVariant(input: unknown): input is LauncherTemplate['variants'][number] {
-  return typeof input === 'object' && input !== null
-    && 'id' in input && typeof input.id === 'string'
-    && 'label' in input && typeof input.label === 'string'
-    && (!('defaultOptionId' in input) || input.defaultOptionId === undefined || typeof input.defaultOptionId === 'string')
-    && 'options' in input && Array.isArray(input.options) && input.options.every((option) => (
-      typeof option === 'object' && option !== null
-      && 'id' in option && typeof option.id === 'string'
-      && 'label' in option && typeof option.label === 'string'
-      && 'description' in option && typeof option.description === 'string'
-    ))
-}
-
-function isTemplateInputDetail(input: unknown): input is LauncherTemplate['requiredInputDetails'][number] {
-  return typeof input === 'object' && input !== null
-    && 'type' in input && typeof input.type === 'string'
-    && ['text', 'image', 'audio', 'video', 'data', 'other'].includes(input.type)
-    && 'label' in input && typeof input.label === 'string'
-}
-
-function isTemplatePreview(input: unknown): input is LauncherTemplate['preview'] {
-  if (input === null) return true
-  return typeof input === 'object' && input !== null
-    && 'frames' in input && Array.isArray(input.frames) && input.frames.every((frame) => (
-      typeof frame === 'object' && frame !== null
-      && 'kind' in frame && typeof frame.kind === 'string'
-      && ['product', 'person', 'interface', 'parts', 'hands', 'result', 'event', 'text'].includes(frame.kind)
-      && 'label' in frame && typeof frame.label === 'string'
-    ))
-    && 'flow' in input && isStringArray(input.flow)
-}
-
-function isLauncherTemplate(input: unknown): input is LauncherTemplate {
-  return typeof input === 'object' && input !== null
-    && 'id' in input && typeof input.id === 'string'
-    && 'name' in input && typeof input.name === 'string'
-    && 'summary' in input && typeof input.summary === 'string'
-    && 'category' in input && typeof input.category === 'string'
-    && 'useCases' in input && isStringArray(input.useCases)
-    && 'duration' in input && typeof input.duration === 'string'
-    && 'aspectRatio' in input && typeof input.aspectRatio === 'string'
-    && (!('speakers' in input) || input.speakers === undefined || typeof input.speakers === 'number')
-    && 'requiredInputs' in input && isStringArray(input.requiredInputs)
-    && 'requiredInputDetails' in input && Array.isArray(input.requiredInputDetails) && input.requiredInputDetails.every(isTemplateInputDetail)
-    && 'preview' in input && isTemplatePreview(input.preview)
-    && 'notFor' in input && isStringArray(input.notFor)
-    && 'variants' in input && Array.isArray(input.variants) && input.variants.every(isTemplateVariant)
-    && 'tags' in input && isStringArray(input.tags)
-    && 'audio' in input && typeof input.audio === 'string'
-    && 'status' in input && ['stable', 'experimental', 'deprecated', 'unknown'].includes(String(input.status))
-    && 'distribution' in input && ['bundled', 'local-only', 'unknown'].includes(String(input.distribution))
-    && 'valid' in input && typeof input.valid === 'boolean'
-    && (!('issue' in input) || input.issue === undefined || (
-      typeof input.issue === 'object' && input.issue !== null
-      && 'code' in input.issue && typeof input.issue.code === 'string'
-      && 'message' in input.issue && typeof input.issue.message === 'string'
-    ))
-}
-
 function isFeedbackPromotion(input: unknown): input is FeedbackPromotion {
   return typeof input === 'object' && input !== null
     && 'projectId' in input && typeof input.projectId === 'string'
@@ -619,9 +458,7 @@ export function LauncherApp({
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [templates, setTemplates] = useState<LauncherTemplate[]>([])
   const [templateLoadState, setTemplateLoadState] = useState<TemplateLoadState>('idle')
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
-  const [templateQuery, setTemplateQuery] = useState('')
-  const [templateCategory, setTemplateCategory] = useState('すべて')
+  const [selectedTemplate, setSelectedTemplate] = useState<LauncherTemplate | null>(null)
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
   const [feedbackLoadState, setFeedbackLoadState] = useState<FeedbackLoadState>('idle')
   const [selectedFeedbackKey, setSelectedFeedbackKey] = useState<string | null>(null)
@@ -629,8 +466,6 @@ export function LauncherApp({
   const [visibleFeedbackCount, setVisibleFeedbackCount] = useState(FEEDBACK_PAGE_SIZE)
   const [promotionDecisionState, setPromotionDecisionState] = useState<PromotionDecisionState>('idle')
   const [promotionDecisionError, setPromotionDecisionError] = useState<string | null>(null)
-  const templateDetailHeadingRef = useRef<HTMLHeadingElement | null>(null)
-  const focusTemplateDetailRef = useRef(false)
 
   useEffect(() => {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme)
@@ -692,10 +527,6 @@ export function LauncherApp({
       const payload: unknown = await response.json()
       if (!response.ok || !isTemplateListResponse(payload)) throw new Error('invalid template list')
       setTemplates(payload.templates)
-      setSelectedTemplateId((current) => {
-        if (current && payload.templates.some((template) => template.id === current)) return current
-        return payload.templates.find((template) => template.valid)?.id ?? payload.templates[0]?.id ?? null
-      })
       setTemplateLoadState('ready')
     } catch {
       setTemplateLoadState('error')
@@ -740,44 +571,6 @@ export function LauncherApp({
     setVisibleProjectCount(PROJECT_PAGE_SIZE)
   }, [projectFilter, query])
 
-  const templateCategories = useMemo(() => [
-    'すべて',
-    ...Array.from(new Set(templates.filter((template) => template.valid).map((template) => template.category))),
-  ], [templates])
-
-  const filteredTemplates = useMemo(() => {
-    const normalized = templateQuery.trim().toLocaleLowerCase('ja')
-    return templates.filter((template) => {
-      if (templateCategory !== 'すべて' && template.category !== templateCategory) return false
-      if (!normalized) return true
-      return [
-        template.name,
-        template.summary,
-        template.category,
-        template.duration,
-        ...template.useCases,
-        ...template.tags,
-        ...template.notFor,
-        ...template.requiredInputDetails.flatMap((input) => [input.label, TEMPLATE_INPUT_TYPE_LABELS[input.type]]),
-        ...(template.preview?.frames.map((frame) => frame.label) ?? []),
-        ...(template.preview?.flow ?? []),
-        ...template.variants.flatMap((variant) => [
-          variant.label,
-          ...variant.options.flatMap((option) => [option.label, option.description]),
-        ]),
-      ].some((value) => value.toLocaleLowerCase('ja').includes(normalized))
-    })
-  }, [templateCategory, templateQuery, templates])
-
-  useEffect(() => {
-    if (activeShelf !== 'templates' || filteredTemplates.length === 0) return
-    setSelectedTemplateId((current) => (
-      current && filteredTemplates.some((template) => template.id === current)
-        ? current
-        : filteredTemplates.find((template) => template.valid)?.id ?? filteredTemplates[0]!.id
-    ))
-  }, [activeShelf, filteredTemplates])
-
   const filteredFeedback = useMemo(() => (
     feedback?.preferences.filter((preference) => feedbackFilter === 'all' || preference.stage === feedbackFilter) ?? []
   ), [feedback, feedbackFilter])
@@ -786,19 +579,6 @@ export function LauncherApp({
     return counts
   }, { observed: 0, recurring: 0, promoted: 0, verified: 0 }), [feedback])
   const selected = projects.find((project) => project.id === selectedId) ?? null
-  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? null
-  const relatedTemplates = selectedTemplate?.valid
-    ? templates.filter((template) => (
-      template.valid
-      && template.id !== selectedTemplate.id
-      && template.category === selectedTemplate.category
-    )).concat(templates.filter((template) => (
-      template.valid
-      && template.id !== selectedTemplate.id
-      && template.category !== selectedTemplate.category
-      && templateTone(template.category) === templateTone(selectedTemplate.category)
-    ))).slice(0, 3)
-    : []
   const selectedFeedback = filteredFeedback.find((preference) => preference.key === selectedFeedbackKey)
     ?? filteredFeedback[0]
     ?? null
@@ -808,12 +588,6 @@ export function LauncherApp({
     feedback ? pendingPromotionPreferences(feedback) : []
   ), [feedback])
   const pendingPromotionCount = pendingPromotions.length
-
-  useEffect(() => {
-    if (!focusTemplateDetailRef.current || !selectedTemplateId) return
-    focusTemplateDetailRef.current = false
-    templateDetailHeadingRef.current?.focus()
-  }, [selectedTemplateId])
 
   const projectSummary = useMemo(() => ({
     active: projects.filter((project) => projectMatchesFilter(project, 'active')).length,
@@ -1392,274 +1166,12 @@ export function LauncherApp({
           </section>
         </>
       ) : activeShelf === 'templates' ? (
-        <section aria-labelledby="launcher-templates-tab" className="launcher-workbench" id="launcher-templates-panel" role="tabpanel">
-          <section aria-labelledby="template-list-title" className="launcher-projects launcher-template-shelf">
-            <div className="launcher-section-heading">
-              <div>
-                <span className="eyebrow">型の棚</span>
-                <h2 id="template-list-title">テンプレートを選ぶ</h2>
-              </div>
-              {templateLoadState === 'ready' && (
-                <span className="launcher-count">全{templates.length}件 / 表示{filteredTemplates.length}件</span>
-              )}
-            </div>
-
-            {templateLoadState === 'loading' && (
-              <div className="launcher-empty" aria-live="polite">
-                <RefreshCw aria-hidden="true" className="is-spinning" size={22} />
-                <strong>テンプレートを読み込んでいます…</strong>
-              </div>
-            )}
-            {templateLoadState === 'error' && (
-              <div className="launcher-catalog-error" role="alert">
-                <strong>テンプレートを読み込めませんでした。</strong>
-                <p>カタログを確認して、もう一度読み込んでください。</p>
-                <button className="launcher-secondary" onClick={() => void loadTemplates()} type="button">
-                  <RefreshCw aria-hidden="true" size={16} />テンプレートをもう一度読み込む
-                </button>
-              </div>
-            )}
-            {templateLoadState === 'ready' && templates.length === 0 && (
-              <div className="launcher-empty">
-                <LayoutTemplate aria-hidden="true" size={24} />
-                <strong>表示できるテンプレートはまだありません。</strong>
-                <p>templates直下にtemplate.yamlを用意すると、ここに表示されます。</p>
-              </div>
-            )}
-            {templateLoadState === 'ready' && templates.length > 0 && (
-              <>
-                <label className="launcher-search">
-                  <Search aria-hidden="true" size={17} />
-                  <span className="sr-only">テンプレートを検索</span>
-                  <input
-                    aria-label="テンプレートを検索"
-                    onChange={(event) => setTemplateQuery(event.target.value)}
-                    placeholder="用途・名前・タグで絞り込む"
-                    type="search"
-                    value={templateQuery}
-                  />
-                </label>
-                <div aria-label="用途で絞り込む" className="launcher-category-filter">
-                  {templateCategories.map((category) => (
-                    <button
-                      aria-pressed={templateCategory === category}
-                      key={category}
-                      onClick={() => setTemplateCategory(category)}
-                      type="button"
-                      aria-label={category === 'すべて' ? 'すべての用途を表示' : `${category}で絞り込む`}
-                    >
-                      {category}
-                    </button>
-                  ))}
-                </div>
-
-                {filteredTemplates.length === 0 ? (
-                  <div className="launcher-empty"><strong>条件に合うテンプレートはありません。</strong></div>
-                ) : (
-                  <div className="launcher-template-list">
-                    {filteredTemplates.map((template) => {
-                      const preview = template.valid ? templatePreview(template) : null
-                      const inputTypes = template.valid
-                        ? Array.from(new Set(template.requiredInputDetails.map((input) => input.type)))
-                        : []
-                      const previewIsReady = template.valid && hasUsableTemplatePreview(template.preview)
-                      const a11yDescriptionId = `launcher-template-card-a11y-${template.id}`
-                      return (
-                        <button
-                          aria-describedby={template.valid ? a11yDescriptionId : undefined}
-                          aria-label={`${template.name}を選ぶ`}
-                          aria-pressed={template.id === selectedTemplateId}
-                          className="launcher-template-card"
-                          data-category={template.valid ? template.category : '要確認'}
-                          data-invalid={!template.valid}
-                          data-status={template.status}
-                          data-tone={template.valid ? templateTone(template.category) : undefined}
-                          key={template.id}
-                          onClick={() => setSelectedTemplateId(template.id)}
-                          type="button"
-                        >
-                          <span className="launcher-template-card-topline">
-                            <span>{template.valid ? TEMPLATE_STATUS_LABELS[template.status] : '設定を確認'}</span>
-                            <small>{template.valid ? `${template.duration} · ${template.aspectRatio}` : template.id}</small>
-                          </span>
-                          <span className="launcher-template-card-name" role="heading" aria-level={3}>{template.name}</span>
-                          <span className="launcher-template-card-summary">
-                            {template.valid ? template.summary : template.issue?.message ?? 'メタデータを読み込めませんでした。'}
-                          </span>
-                          {template.valid && preview && (
-                            <span className="launcher-template-storyboard">
-                              <span className="launcher-template-storyboard-heading">
-                                <b>構成イメージ</b>
-                                {!previewIsReady && <small>プレビュー準備中</small>}
-                              </span>
-                              <span className="launcher-template-frames">
-                                {preview.frames.slice(0, 3).map((frame, index) => (
-                                  <span
-                                    aria-label={`${index + 1}コマ目: ${frame.label}`}
-                                    className="launcher-template-frame"
-                                    data-kind={frame.kind}
-                                    key={`${frame.kind}-${frame.label}`}
-                                    role="img"
-                                  >
-                                    <span aria-hidden="true" className="launcher-template-frame-visual" />
-                                    <small aria-hidden="true">{frame.label}</small>
-                                  </span>
-                                ))}
-                              </span>
-                              <span className="launcher-template-flow">
-                                {preview.flow.join(' → ')}
-                              </span>
-                            </span>
-                          )}
-                          {template.valid && (
-                            <>
-                              <span className="sr-only" id={a11yDescriptionId}>
-                                {template.duration}、{template.aspectRatio}。構成: {preview?.flow.join('、')}。必要素材: {inputTypes.length > 0
-                                  ? inputTypes.map((type) => TEMPLATE_INPUT_TYPE_LABELS[type]).join('、')
-                                  : '指定なし'}。
-                              </span>
-                              <span className="launcher-template-card-footer">
-                                <span className="launcher-template-card-tags">
-                                  <b>{template.category}</b>
-                                  {template.tags.slice(0, 1).map((tag) => <i key={tag}>{tag}</i>)}
-                                </span>
-                                <span aria-label="必要素材タイプ" className="launcher-template-input-types">
-                                  {inputTypes.map((type) => <i key={type}>{TEMPLATE_INPUT_TYPE_LABELS[type]}</i>)}
-                                </span>
-                              </span>
-                            </>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-
-          <aside aria-label="選択したテンプレート" className="launcher-selection launcher-template-detail">
-            <span className="eyebrow">選択中の型</span>
-            {selectedTemplate ? (
-              selectedTemplate.valid ? (
-                <>
-                  <div className="launcher-template-detail-heading">
-                    <h2 ref={templateDetailHeadingRef} tabIndex={-1}>{selectedTemplate.name}</h2>
-                    <span>{TEMPLATE_STATUS_LABELS[selectedTemplate.status]}</span>
-                  </div>
-                  <p className="launcher-template-summary">{selectedTemplate.summary}</p>
-                  <dl className="launcher-project-meta">
-                    <div><dt>用途</dt><dd>{selectedTemplate.category}</dd></div>
-                    <div><dt>出力</dt><dd>{selectedTemplate.duration} / {selectedTemplate.aspectRatio}</dd></div>
-                    {selectedTemplate.speakers !== undefined && (
-                      <div><dt>登場人数</dt><dd><Users aria-hidden="true" size={15} />{selectedTemplate.speakers}人</dd></div>
-                    )}
-                    <div><dt>配布区分</dt><dd>{DISTRIBUTION_LABELS[selectedTemplate.distribution]}</dd></div>
-                  </dl>
-                  <section className="launcher-template-timeline">
-                    <div>
-                      <h3>構成の流れ</h3>
-                      <small>構成イメージです。実際の成果を保証する表示ではありません。</small>
-                    </div>
-                    <ol>
-                      {templatePreview(selectedTemplate).flow.slice(0, 5).map((step, index) => (
-                        <li key={`${index}-${step}`}><span>{String(index + 1).padStart(2, '0')}</span><strong>{step}</strong></li>
-                      ))}
-                    </ol>
-                  </section>
-                  <div className="launcher-template-fit-grid">
-                    <section className="launcher-template-requirements">
-                      <h3>向いている用途</h3>
-                      <ul>
-                        {selectedTemplate.useCases.map((useCase) => <li key={useCase}>{useCase}</li>)}
-                      </ul>
-                    </section>
-                    <section className="launcher-template-requirements launcher-template-not-for">
-                      <h3>向かない用途</h3>
-                      {selectedTemplate.notFor.length > 0 ? (
-                        <ul>{selectedTemplate.notFor.map((useCase) => <li key={useCase}>{useCase}</li>)}</ul>
-                      ) : <p>指定なし。素材と構成を確認して判断します。</p>}
-                    </section>
-                  </div>
-                  <section className="launcher-template-requirements">
-                    <h3>用意するもの</h3>
-                    <ul className="launcher-template-materials">
-                      {selectedTemplate.requiredInputDetails.map((input) => (
-                        <li key={`${input.type}-${input.label}`}>
-                          <b>{TEMPLATE_INPUT_TYPE_LABELS[input.type]}</b>
-                          <span>{input.label}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                  {selectedTemplate.variants.length > 0 && (
-                    <section className="launcher-template-variants">
-                      <h3>選べるバリエーション</h3>
-                      <div>
-                        {selectedTemplate.variants.map((variant) => (
-                          <article key={variant.id}>
-                            <h4>{variant.label}</h4>
-                            <ul>
-                              {variant.options.map((option) => (
-                                <li key={option.id}>
-                                  <strong>
-                                    {option.label}
-                                    {option.id === variant.defaultOptionId && <small>推奨</small>}
-                                  </strong>
-                                  <span>{option.description}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </article>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                  <section className="launcher-template-requirements">
-                    <h3>音声</h3>
-                    <p>{selectedTemplate.audio}</p>
-                  </section>
-                  {relatedTemplates.length > 0 && (
-                    <section className="launcher-template-related">
-                      <h3>同じ系統のテンプレート</h3>
-                      <div>
-                        {relatedTemplates.map((template) => (
-                          <button
-                            aria-label={`${template.name} ${template.duration} · ${template.aspectRatio}`}
-                            key={template.id}
-                            onClick={() => {
-                              focusTemplateDetailRef.current = true
-                              setSelectedTemplateId(template.id)
-                            }}
-                            type="button"
-                          >
-                            <span>{template.name}</span>
-                            <small>{template.duration} · {template.aspectRatio}</small>
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                  <div className="launcher-readonly-note">
-                    <strong>閲覧専用</strong>
-                    <p>この棚からコピー・生成・実行は行いません。内容を確認してからREADMEの手順で制作案件を用意してください。</p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h2>{selectedTemplate.name}</h2>
-                  <div className="launcher-project-issue" role="status">
-                    <strong>このテンプレートは表示情報を確認できません</strong>
-                    <p>{selectedTemplate.issue?.message ?? 'template.yamlを読み込めませんでした。'}</p>
-                    <small>{selectedTemplate.issue?.code ?? 'template_metadata.invalid'}</small>
-                  </div>
-                </>
-              )
-            ) : (
-              <p className="launcher-selection-empty">左の型の棚から、用途に合うテンプレートを選んでください。</p>
-            )}
-          </aside>
-        </section>
+        <TemplateShelf
+          loadState={templateLoadState}
+          onRetry={() => void loadTemplates()}
+          onSelectedTemplateChange={setSelectedTemplate}
+          templates={templates}
+        />
       ) : activeShelf === 'canvas' ? (
         <GenerationCanvas
           fetcher={fetcher}
