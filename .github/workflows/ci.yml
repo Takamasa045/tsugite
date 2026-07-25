@@ -42,7 +42,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y ffmpeg
       - run: npm ci
+      - run: npm --prefix apps/workflow-viewer ci
       - run: npm run check
+      # Root check excludes apps/**; keep Viewer unit/coverage required on Ubuntu.
+      - run: npm run viewer:check
       - run: node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
       - run: node bin/pipeline doctor --config fixtures/projects/hyperframes-local-media.yaml --json
       - run: node bin/pipeline validate --config examples/local-fixture/project.yaml --json
