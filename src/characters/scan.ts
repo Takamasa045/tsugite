@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { readJsonFile } from "../io.js";
 import type { Manifest } from "../manifest/schema.js";
 import { validateManifest } from "../manifest/validate.js";
-import { isWithin, pathExists, portableRelative } from "../platform/fsSafe.js";
+import { isWithin, pathExists, portableRelative, sha256File } from "../platform/fsSafe.js";
 import { loadProject } from "../project/loadProject.js";
 import type {
   CharacterPoseRef,
@@ -244,6 +244,7 @@ async function extractFromManifest(
     }
 
     const provenance = extractProvenance(speaker);
+    const primaryImageSha256 = await hashPrimaryPose(poses, context.assetRoot);
     sources.push({
       sourceKey: makeSourceKey(context.kind, portableManifest, speaker.id),
       kind: context.kind,
@@ -258,6 +259,7 @@ async function extractFromManifest(
       poses,
       ...(mouthFrames ? { mouthFrames } : {}),
       ...(provenance ? { provenance } : {}),
+      ...(primaryImageSha256 ? { primaryImageSha256 } : {}),
       manifestModifiedAtMs
     });
   }
@@ -334,6 +336,21 @@ export function makeSourceKey(
   speakerId: string
 ): string {
   return `${kind}\0${portableManifestPath}\0${speakerId}`;
+}
+
+async function hashPrimaryPose(
+  poses: CharacterPoseRef[],
+  assetRoot: string
+): Promise<string | undefined> {
+  const primary =
+    poses.find((pose) => pose.name === "neutral" && pose.imagePath && !pose.missing)
+    ?? poses.find((pose) => Boolean(pose.imagePath) && !pose.missing);
+  if (!primary?.imagePath) return undefined;
+  try {
+    return await sha256File(resolve(assetRoot, primary.imagePath));
+  } catch {
+    return undefined;
+  }
 }
 
 function extractProvenance(speaker: Manifest["speakers"][number]): CharacterProvenance | undefined {

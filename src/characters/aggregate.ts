@@ -7,6 +7,7 @@ import type {
 /**
  * Group scanned character sources for gallery display.
  * Selection for "use" must target a concrete sourceKey (+ speaker id), not the merge.
+ * Reference/storyboard speakers are excluded entirely.
  */
 export function aggregateCharacters(sources: CharacterSourceRef[]): AggregatedCharacter[] {
   const groups = new Map<string, CharacterSourceRef[]>();
@@ -44,10 +45,8 @@ export function aggregateCharacters(sources: CharacterSourceRef[]): AggregatedCh
 /**
  * Deterministic group key.
  * - provenance: kind+character(+run_id)
- * - local: image-family stem + normalized character label
- *   (e.g. neru-closed / neru.png / ネル先生 / ネル → one card when art family matches)
- * - weak generic image names (neutral.png) fall back to speaker id + label
- *   so unrelated Host/ナレーター cards do not merge.
+ * - local with primary image hash: same portrait bytes + honorific-stripped label
+ * - local without hash: speaker id + label (safe fallback; no cross-id merge)
  */
 export function groupKeyFor(source: CharacterSourceRef): string {
   const provenance = source.provenance;
@@ -61,11 +60,10 @@ export function groupKeyFor(source: CharacterSourceRef): string {
   }
 
   const label = normalizeCharacterLabel(source.displayName);
-  const stem = primaryImageFamilyStem(source);
-  if (!stem || stem === "missing" || isWeakImageStem(stem)) {
-    return `local:${source.id}\0${label}`;
+  if (source.primaryImageSha256) {
+    return `local:sha:${source.primaryImageSha256}\0${label}`;
   }
-  return `local:${stem}\0${label}`;
+  return `local:id:${source.id}\0${label}`;
 }
 
 /**
@@ -112,46 +110,20 @@ export function normalizeCharacterLabel(name: string): string {
 }
 
 /**
- * Detect storyboard / review / non-portrait assets that were stored as speakers.
- * These must not appear in the character gallery.
+ * Storyboard / review assets stored as speakers.
+ * Must be path/pose-role based — never exclude only because an image id starts with "frame-".
  */
 export function isReferenceAssetSource(source: CharacterSourceRef): boolean {
   const paths = source.poses.map((pose) => pose.imagePath ?? "");
   if (paths.some((path) => /(^|\/)review\//.test(path) || /\/references\//.test(path))) {
     return true;
   }
-  if (source.poses.some((pose) => /^frame[-_]/.test(pose.imageId) || /^frame[-_]/.test(pose.name))) {
-    return true;
-  }
-  const storyboardPose = /^(hook|grow|safe|rules|agents|frame)([-_]|$)/i;
+  // All poses are storyboard roles (digest-style speakers), not character portraits.
+  const storyboardPose = /^(hook|grow|safe|rules|agents)([-_]|$)/i;
   if (source.poses.length > 0 && source.poses.every((pose) => storyboardPose.test(pose.name))) {
     return true;
   }
   return false;
-}
-
-/** Primary pose path basename with mouth/pose suffixes stripped (neru-closed → neru). */
-export function primaryImageFamilyStem(source: CharacterSourceRef): string {
-  const primary =
-    source.poses.find((pose) => pose.name === "neutral" && pose.imagePath && !pose.missing)
-    ?? source.poses.find((pose) => Boolean(pose.imagePath) && !pose.missing)
-    ?? source.poses.find((pose) => Boolean(pose.imagePath));
-  if (!primary?.imagePath) return "missing";
-  const file = primary.imagePath.split("/").pop() ?? primary.imagePath;
-  const stem = file.replace(/\.[^.]+$/, "").toLowerCase();
-  return stripPoseSuffix(stem);
-}
-
-function stripPoseSuffix(stem: string): string {
-  const stripped = stem
-    .replace(/[-_]mouth([-_]?(closed|open|half))?$/i, "")
-    .replace(/[-_](closed|open|half|neutral|smile|explain|serious|wave|happy|sad)$/i, "");
-  return stripped || stem;
-}
-
-function isWeakImageStem(stem: string): boolean {
-  return /^(neutral|pose|image|img|speaker|char|character|host|default|portrait|avatar|icon|ref|reference|frame)$/i
-    .test(stem);
 }
 
 function hasMouth(source: CharacterSourceRef): boolean {
