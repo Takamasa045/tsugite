@@ -11,6 +11,13 @@ import {
 } from "../src/project/projectsHome.js";
 
 describe("durable launcher projects home", () => {
+  it("detects path containment for relative and absolute comparisons", () => {
+    const parent = resolve("/tmp/tsugite-home");
+    expect(isWithinDirectory(parent, join(parent, "child"))).toBe(true);
+    expect(isWithinDirectory(parent, parent)).toBe(true);
+    expect(isWithinDirectory(parent, resolve("/tmp/other"))).toBe(false);
+  });
+
   it("prefers TSUGITE_PROJECTS_HOME over workspace and cwd", async () => {
     const home = await resolveDurableProjectsHome({
       cwd: resolve("/tmp/not-used"),
