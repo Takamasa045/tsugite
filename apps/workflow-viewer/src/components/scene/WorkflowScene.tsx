@@ -148,7 +148,7 @@ export function WorkflowScene(props: WorkflowSceneProps) {
 
   return (
     <div
-      aria-label={`${props.workflow.name}の3Dワークフロー。ノードは${props.workflow.nodes.length}件です。`}
+      aria-label={`${props.workflow.name}の制作工程。ノードは${props.workflow.nodes.length}件です。`}
       role="img"
       style={{ height: '100%', minHeight: 320, position: 'relative', width: '100%' }}
     >

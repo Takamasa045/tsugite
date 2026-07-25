@@ -618,6 +618,10 @@ export function LauncherApp({
   }, [acceptFeedback, fetcher])
 
   useEffect(() => {
+    document.title = 'Tsugite 制作ランチャー'
+  }, [])
+
+  useEffect(() => {
     void loadProjects()
   }, [loadAttempt, loadProjects])
 
@@ -889,8 +893,8 @@ export function LauncherApp({
   if (loadError) {
     return (
       <main className="launcher-state launcher-state-error" role="alert">
-        <span className="eyebrow">TSUGITE / 制作の見取図</span>
-        <h1>制作案件を開けません</h1>
+        <span className="eyebrow">Tsugite 制作の見取図</span>
+        <h1>制作作品を開けません</h1>
         <p>{loadError}</p>
         <button className="launcher-primary" onClick={() => setLoadAttempt((value) => value + 1)} type="button">
           <RefreshCw aria-hidden="true" size={17} />
@@ -912,7 +916,7 @@ export function LauncherApp({
         <nav className="launcher-hero-nav">
           <div className="launcher-wordmark">
             <img alt="" aria-hidden="true" className="launcher-favicon-mark" src="./assets/tsugite-favicon.png" />
-            <span><strong>TSUGITE</strong><small>PRODUCTION ARCHIVE</small></span>
+            <span><strong>TSUGITE</strong><small>制作アーカイブ</small></span>
           </div>
             <div aria-label="表示する棚" className="launcher-shelf-tabs" role="tablist">
             <button
@@ -925,7 +929,7 @@ export function LauncherApp({
               tabIndex={activeShelf === 'projects' ? 0 : -1}
               type="button"
             >
-              <FolderOpen aria-hidden="true" size={17} />制作案件
+              <FolderOpen aria-hidden="true" size={17} />制作作品
             </button>
             <button
               aria-controls="launcher-templates-panel"
@@ -1011,19 +1015,19 @@ export function LauncherApp({
             <div className="launcher-hero-content">
               <div aria-hidden="true" className="launcher-hero-joinery"><span /><i /></div>
               <div className="launcher-hero-copy">
-                <span className="eyebrow">映像制作の玄関 / PRODUCTION LAUNCHER</span>
+                <span className="eyebrow">映像制作の玄関</span>
                 <h1>制作の見取図を開く</h1>
-                <p>案件の現在地を見渡し、最新の制作記録へ。作りたい映像に合う型も、同じ棚から探せます。</p>
+                <p>作品ごとの現在地を見渡し、最新の制作記録へ。作りたい映像に合う型も、同じ棚から探せます。</p>
               </div>
               <aside aria-label="現在の棚" className="launcher-hero-note">
-                <small>現在の棚 / CURRENT SHELF</small>
-                <strong>制作案件</strong>
+                <small>現在の棚</small>
+                <strong>制作作品</strong>
                 <span>最近更新した順に並んでいます</span>
               </aside>
             </div>
 
-            <dl aria-label="制作案件の状況" className="launcher-hero-metrics">
-              <div><dt>全案件</dt><dd>{projects.length}</dd></div>
+            <dl aria-label="作品の状況" className="launcher-hero-metrics">
+              <div><dt>全作品</dt><dd>{projects.length}</dd></div>
               <div><dt>進行中</dt><dd>{projectSummary.active}</dd></div>
               <div><dt>確認待ち</dt><dd>{projectSummary.waiting}</dd></div>
               <div><dt>完了</dt><dd>{projectSummary.completed}</dd></div>
@@ -1035,21 +1039,21 @@ export function LauncherApp({
           <div className="launcher-hero-compact-bar" aria-label="現在の棚">
             <div>
               <small>現在の棚</small>
-              <strong>{activeShelf === 'templates'
-                ? 'テンプレート'
-                : activeShelf === 'characters'
-                  ? 'キャラクター'
-                  : activeShelf === 'canvas'
-                    ? '生成キャンバス'
-                    : '好み・学び'}</strong>
+              <strong>{{
+                projects: '制作作品',
+                templates: 'テンプレート',
+                characters: 'キャラクター',
+                canvas: '生成キャンバス',
+                feedback: '好み・学び',
+              }[activeShelf]}</strong>
             </div>
-            <p>{activeShelf === 'templates'
-              ? '型を選び、軸を決め、ブリーフをコピーします'
-              : activeShelf === 'characters'
-                ? 'キャラを確認し、依頼メモをコピーします'
-                : activeShelf === 'canvas'
-                  ? '画像・動画の工程をつないで設計します'
-                  : '制作から育った知見を確認できます'}</p>
+            <p>{{
+              projects: '作品を選び、最新の制作記録を開きます',
+              templates: '型を選び、軸を決め、ブリーフをコピーします',
+              characters: 'キャラを確認し、依頼メモをコピーします',
+              canvas: '画像・動画の工程をつないで設計します',
+              feedback: '制作から育った知見を確認できます',
+            }[activeShelf]}</p>
           </div>
         )}
       </section>
@@ -1108,7 +1112,7 @@ export function LauncherApp({
             <div className="launcher-section-heading">
               <div>
                 <span className="eyebrow">制作棚</span>
-                <h2 id="project-list-title">制作案件を選ぶ</h2>
+                <h2 id="project-list-title">作品を選ぶ</h2>
               </div>
               <div className="launcher-project-list-actions">
                 <span className="launcher-count">全{projects.length}件 / 表示{visibleProjects.length}件</span>
@@ -1188,10 +1192,10 @@ export function LauncherApp({
                     <button
                       aria-busy={openingProjectId === project.id}
                       aria-label={project.valid && project.refreshable
-                        ? `${project.name}の3Dワークフローを最新にして開く`
+                        ? `${project.name}の制作工程を最新にして開く`
                         : project.hasViewer && project.viewerUrl
-                          ? `${project.name}の前回の3Dワークフローを開く`
-                          : `${project.name}の3Dワークフローはまだ開けません`}
+                          ? `${project.name}の前回の制作工程を開く`
+                          : `${project.name}の制作工程はまだ開けません`}
                       className="launcher-project-thumbnail-button"
                       disabled={
                         refreshing
@@ -1211,7 +1215,7 @@ export function LauncherApp({
                           </span>
                         )}
                         <span className="launcher-project-open-cue">
-                          3Dワークフローを開く
+                          制作工程を開く
                         </span>
                         <span className="launcher-project-status">
                           {openingProjectId === project.id
@@ -1243,7 +1247,7 @@ export function LauncherApp({
                     >
                       <span className="launcher-project-copy">
                         <span className="launcher-project-name" role="heading" aria-level={3}>{project.name}</span>
-                        <small>{project.slug}</small>
+                        <small className="launcher-project-id">作品ID: {project.slug}</small>
                         <span className="sr-only">
                           {!project.valid
                             ? '設定の確認が必要'

@@ -10,7 +10,7 @@ import {
 
 const project: Project = {
   slug: "viewer-fixture",
-  name: "viewer-fixture",
+  name: "ビューア検証用サンプル",
   run_id: "viewer-fixture-run",
   manifest: "manifest.yaml",
   dist_dir: "dist",
@@ -79,8 +79,11 @@ describe("createViewerWorkflow", () => {
     expect(second).toEqual(first);
     expect(first).toMatchObject({
       id: "viewer-fixture-run",
+      name: "ビューア検証用サンプル",
+      description: "ビューア検証用サンプルの制作準備から完成確認までを、順番にたどれる記録です。",
       status: "pending"
     });
+    expect(first.name).not.toContain(project.slug);
     expect(first.nodes.map((node) => node.id)).toEqual([
       "validate",
       "creative-review",

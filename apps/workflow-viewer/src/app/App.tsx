@@ -91,6 +91,9 @@ export function App({
     if (validation.success) {
       const store = useWorkflowStore.getState()
       store.setWorkflow(validation.data)
+      document.title = validation.data.name
+        ? `${validation.data.name} · Tsugite 制作ビューア`
+        : 'Tsugite 制作ビューア'
       setFocusRequest(null)
       if (activeSample?.initialTime !== undefined) {
         store.setCurrentTime(activeSample.initialTime)
@@ -103,6 +106,7 @@ export function App({
       }
     } else {
       useWorkflowStore.getState().clearWorkflow()
+      document.title = 'Tsugite 制作ビューア'
     }
   }, [activeSample?.initialTime, initialNodeId, validation])
 
