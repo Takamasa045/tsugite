@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ensureFinalizedProjectInLauncherHome,
@@ -13,23 +13,23 @@ import {
 describe("durable launcher projects home", () => {
   it("prefers TSUGITE_PROJECTS_HOME over workspace and cwd", async () => {
     const home = await resolveDurableProjectsHome({
-      cwd: "/tmp/not-used",
+      cwd: resolve("/tmp/not-used"),
       env: {
-        TSUGITE_PROJECTS_HOME: "/var/tsugite/projects-home",
-        TSUGITE_WORKSPACE_ROOT: "/var/tsugite-workspace"
+        TSUGITE_PROJECTS_HOME: resolve("/var/tsugite/projects-home"),
+        TSUGITE_WORKSPACE_ROOT: resolve("/var/tsugite-workspace")
       }
     });
-    expect(home).toBe("/var/tsugite/projects-home");
+    expect(home).toBe(resolve("/var/tsugite/projects-home"));
   });
 
   it("uses TSUGITE_WORKSPACE_ROOT/projects when home env is unset", async () => {
     const home = await resolveDurableProjectsHome({
-      cwd: "/tmp/not-used",
+      cwd: resolve("/tmp/not-used"),
       env: {
-        TSUGITE_WORKSPACE_ROOT: "/Users/me/workspace"
+        TSUGITE_WORKSPACE_ROOT: resolve("/Users/me/workspace")
       }
     });
-    expect(home).toBe("/Users/me/workspace/projects");
+    expect(home).toBe(join(resolve("/Users/me/workspace"), "projects"));
   });
 
   it("plans promotion when the project is outside the durable home", async () => {
@@ -144,5 +144,96 @@ describe("durable launcher projects home", () => {
     });
     expect(second.ok).toBe(true);
     expect(second.linked).toBe(false);
+  });
+
+  it("treats an already-registered durable directory with the same slug as visible without re-link", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-existing-"));
+    const projectsHome = join(root, "durable-projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "draft-a");
+    const existing = join(projectsHome, "draft-a");
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(existing, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: draft-a\n", "utf8");
+    await writeFile(join(existing, "project.yaml"), "slug: draft-a\n", "utf8");
+
+    const result = await ensureProjectVisibleOnLauncherShelf({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "draft-a",
+      env: { TSUGITE_PROJECTS_HOME: projectsHome }
+    });
+    expect(result.ok).toBe(true);
+    expect(result.linked).toBe(false);
+    expect(result.launcherProjectRoot).toBe(existing);
+  });
+
+  it("refuses to overwrite a durable shelf directory that belongs to another slug", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-conflict-"));
+    const projectsHome = join(root, "durable-projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "draft-b");
+    const existing = join(projectsHome, "draft-b");
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(existing, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: draft-b\n", "utf8");
+    await writeFile(join(existing, "project.yaml"), "slug: other-project\n", "utf8");
+
+    const result = await ensureProjectVisibleOnLauncherShelf({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "draft-b",
+      env: { TSUGITE_PROJECTS_HOME: projectsHome }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("launcher_home.register_failed");
+  });
+
+  it("uses the project folder name when the slug is not path-safe", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-slug-"));
+    const projectsHome = join(root, "durable-projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "weird folder");
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: 変な slug\n", "utf8");
+
+    const plan = await planLauncherHome(join(projectRoot, "project.yaml"), "変な slug", {
+      env: { TSUGITE_PROJECTS_HOME: projectsHome }
+    });
+    expect(plan.destinationRoot).toBe(join(projectsHome, "weird folder"));
+  });
+
+  it("refuses finalize promotion when the durable destination belongs to another slug", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-promote-conflict-"));
+    const projectsHome = join(root, "durable-projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "myth");
+    const existing = join(projectsHome, "myth");
+    await mkdir(join(projectRoot, "dist", "myth-r1"), { recursive: true });
+    await mkdir(existing, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: myth\n", "utf8");
+    await writeFile(join(projectRoot, "dist", "myth-r1", "final.mp4"), "final", "utf8");
+    await writeFile(join(existing, "project.yaml"), "slug: other\n", "utf8");
+
+    const result = await ensureFinalizedProjectInLauncherHome({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "myth",
+      apply: true,
+      env: { TSUGITE_PROJECTS_HOME: projectsHome }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("finalize.launcher_home_promote_failed");
+  });
+
+  it("refuses shelf registration when the destination path is an ordinary file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-file-"));
+    const projectsHome = join(root, "durable-projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "draft-c");
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(projectsHome, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: draft-c\n", "utf8");
+    await writeFile(join(projectsHome, "draft-c"), "not-a-directory", "utf8");
+
+    const result = await ensureProjectVisibleOnLauncherShelf({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "draft-c",
+      env: { TSUGITE_PROJECTS_HOME: projectsHome }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("launcher_home.register_failed");
   });
 });
