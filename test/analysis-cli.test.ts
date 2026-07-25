@@ -396,7 +396,7 @@ async function createAnalysisProject(options: {
   );
   await writeFile(
     configPath,
-    `slug: offline-analysis\nrun_id: offline-analysis-run\nmanifest: manifest.json\ndist_dir: dist\nedit:\n  backend: remotion\n${options.editorial ? "  editorial:\n    remove_kinds: [silence]\n" : ""}analysis:\n  adapter: local-media-analysis\n  requests:\n    - id: silence-scan\n      output: cut_points\n      source_clip_id: seminar-source\n      params:\n        silence_noise_db: -35\n        silence_min_duration_seconds: 0.25\n`
+    `slug: offline-analysis\nname: オフライン解析\nrun_id: offline-analysis-run\nmanifest: manifest.json\ndist_dir: dist\nedit:\n  backend: remotion\n${options.editorial ? "  editorial:\n    remove_kinds: [silence]\n" : ""}analysis:\n  adapter: local-media-analysis\n  requests:\n    - id: silence-scan\n      output: cut_points\n      source_clip_id: seminar-source\n      params:\n        silence_noise_db: -35\n        silence_min_duration_seconds: 0.25\n`
   );
 
   return { root, sourcePath, manifestPath, configPath, distDir };

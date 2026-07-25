@@ -907,12 +907,92 @@ select {
 .launcher-load-more { display: flex; width: 100%; min-height: 43px; align-items: center; justify-content: center; margin-top: 15px; border: 1px dashed rgba(36, 77, 73, 0.3); border-radius: var(--radius-sm); color: var(--ai-700); background: rgba(255, 255, 255, 0.58); font-size: 0.73rem; font-weight: 800; }
 .launcher-load-more:hover { border-style: solid; background: var(--seiji-100); }
 
+.launcher-selection-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 5px 0 0;
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--line);
+}
+.launcher-selection-title-row h2 {
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: 1.35rem;
+  line-height: 1.45;
+}
+.launcher-rename-form + .launcher-project-meta,
+.launcher-selection-title-row + .launcher-project-meta {
+  margin-top: 7px;
+}
+.launcher-rename-start {
+  flex: 0 0 auto;
+  min-height: 32px;
+  border: 1px solid rgba(36, 77, 73, 0.22);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  color: var(--ai-700);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+.launcher-rename-start:hover:not(:disabled) { background: var(--seiji-100); }
+.launcher-rename-start:disabled { cursor: not-allowed; opacity: 0.48; }
+.launcher-rename-form {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.launcher-rename-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.launcher-rename-input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(36, 77, 73, 0.22);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  color: var(--sumi-900);
+  background: white;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+.launcher-rename-input:focus {
+  outline: 3px solid rgba(36, 77, 73, 0.18);
+  outline-offset: 1px;
+  border-color: var(--ai-600);
+}
+.launcher-rename-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.launcher-rename-hint {
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
 .launcher-project-meta { display: grid; gap: 0; margin: 7px 0 22px; }
 .launcher-project-meta div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(36, 77, 73, 0.1); }
 .launcher-project-meta dt { color: var(--muted); font-size: 0.7rem; font-weight: 700; }
 .launcher-project-meta dd { display: flex; min-width: 0; align-items: center; gap: 6px; overflow-wrap: anywhere; margin: 0; color: var(--sumi-900); font-size: 0.76rem; font-weight: 700; }
 .launcher-project-issue,
 .launcher-refresh-error { margin: 0 0 18px; border-left: 3px solid var(--bengara-500); padding: 12px 13px; color: #65362f; background: #fff4f0; font-size: 0.76rem; line-height: 1.6; }
+.launcher-refresh-notice {
+  margin: 0 0 18px;
+  border-left: 3px solid var(--ai-600);
+  padding: 12px 13px;
+  color: #2b4a3f;
+  background: #eef8f3;
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
 .launcher-project-issue strong { display: block; }
 .launcher-project-issue p { margin: 5px 0; }
 .launcher-project-issue small { color: #7e5a54; }

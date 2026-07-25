@@ -504,6 +504,7 @@ describe("workflow viewer launcher", () => {
       await mkdir(projectDir);
       await writeFile(join(projectDir, "project.yaml"), [
         `slug: project-${index + 1}`,
+        `name: 案件${index + 1}`,
         "manifest: manifest.json",
         "edit:",
         "  backend: remotion",
@@ -1523,6 +1524,7 @@ distribution: local-only
         project: {
           id: project.id,
           slug: "local-fixture",
+          name: "ローカル検証フィクスチャ",
           runId: "local-fixture-run"
         },
         generation: {
@@ -1608,6 +1610,63 @@ distribution: local-only
     const updated = await readFile(configPath, "utf8");
     expect(updated).toContain("connection: topview");
     expect(updated).toContain("adapter: topview");
+  });
+
+  it("requires same-origin authorization and renames the project display name in project.yaml", async () => {
+    const fixture = await createFixture();
+    const configPath = join(fixture.projectDir, "project.yaml");
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+    const project = listing.projects[0];
+    const endpoint = `${launcher.url}/api/projects/${project.id}/rename`;
+
+    expect((await fetch(endpoint, { method: "POST" })).status).toBe(403);
+    expect((await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: "https://example.com",
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({ name: "改名テスト" })
+    })).status).toBe(403);
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({ name: "  改名テスト  " })
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      name: "改名テスト",
+      project: expect.objectContaining({
+        name: "改名テスト",
+        slug: "local-fixture"
+      })
+    });
+    const updated = await readFile(configPath, "utf8");
+    expect(updated).toMatch(/^name:\s*改名テスト\s*$/m);
+    expect(updated).toMatch(/^slug:\s*local-fixture\s*$/m);
+
+    const blank = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        origin: launcher.url,
+        "content-type": "application/json",
+        "x-tsugite-token": launcher.token
+      },
+      body: JSON.stringify({ name: "   " })
+    });
+    expect(blank.status).toBe(400);
   });
 
   it("starts generation only for a Gate 1 approved project and delegates to the coordinator runner", async () => {
@@ -2860,7 +2919,7 @@ distribution: local-only
     manifest.speakers = [{
       id: "review-speaker",
       display_name: "Review speaker",
-      side: "left",
+          side: "left",
       accent: "#334455",
       poses: { neutral: "review-preview" }
     }];

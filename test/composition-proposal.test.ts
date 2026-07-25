@@ -339,7 +339,8 @@ describe("composition proposals", () => {
       configPath,
       {
         slug: "composition-fixture",
-        run_id: "composition-run",
+        name: "composition-fixture",
+      run_id: "composition-run",
         manifest: "manifest.json",
         dist_dir: "dist",
         composition: {
@@ -368,7 +369,8 @@ describe("composition proposals", () => {
       configPath,
       {
         slug: "composition-fixture",
-        run_id: "composition-run",
+        name: "composition-fixture",
+      run_id: "composition-run",
         manifest: "manifest.json",
         dist_dir: "dist",
         composition: {
@@ -388,7 +390,8 @@ describe("composition proposals", () => {
       configPath,
       {
         slug: "composition-fixture",
-        run_id: "composition-run",
+        name: "composition-fixture",
+      run_id: "composition-run",
         manifest: "manifest.json",
         dist_dir: "dist",
         composition: {

@@ -1,4 +1,5 @@
 slug: audio-generation
+name: audio-generation
 run_id: audio-generation-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

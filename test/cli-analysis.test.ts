@@ -71,6 +71,7 @@ describe("CLI analysis adapter", () => {
   it("accepts the additive analysis request outputs, adapter, and dependency contract", () => {
     const parsed = projectSchema.safeParse({
       slug: "analysis-contract",
+      name: "analysis-contract",
       manifest: "manifest.json",
       edit: { backend: "remotion" },
       analysis: {

@@ -1,4 +1,5 @@
 slug: hyperframes-local-media
+name: hyperframes-local-media
 run_id: hyperframes-local-media-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

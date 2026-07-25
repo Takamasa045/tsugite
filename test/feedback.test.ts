@@ -631,5 +631,5 @@ function record(
 }
 
 async function writeProjectConfig(path: string): Promise<void> {
-  await writeFile(path, "slug: example\nmanifest: manifest.json\nedit:\n  backend: remotion\n");
+  await writeFile(path, "slug: example\nname: サンプル\nmanifest: manifest.json\nedit:\n  backend: remotion\n");
 }

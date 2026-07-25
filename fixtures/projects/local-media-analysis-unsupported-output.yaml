@@ -1,4 +1,5 @@
 slug: local-media-analysis-unsupported-output
+name: local-media-analysis-unsupported-output
 run_id: local-media-analysis-unsupported-output-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

@@ -1,4 +1,5 @@
 slug: topview-image-generation
+name: topview-image-generation
 run_id: topview-image-generation-run
 manifest: ../manifests/topview-image.valid.json
 dist_dir: dist

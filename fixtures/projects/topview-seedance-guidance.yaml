@@ -1,4 +1,5 @@
 slug: topview-seedance-guidance
+name: topview-seedance-guidance
 run_id: topview-seedance-guidance-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

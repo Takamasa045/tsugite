@@ -48,6 +48,7 @@ describe("launcherCharacters helpers", () => {
       join(projectDir, "project.yaml"),
       [
         "slug: digest",
+        "name: digest",
         "run_id: digest-r1",
         "manifest: manifest.json",
         "dist_dir: dist",
@@ -66,7 +67,7 @@ describe("launcherCharacters helpers", () => {
             {
               id: "host",
               display_name: "いとぱん",
-              side: "left",
+          side: "left",
               accent: "#a63d2f",
               poses: { hook: "frame-hook" }
             }
@@ -93,6 +94,7 @@ describe("launcherCharacters helpers", () => {
       join(projectDir, "project.yaml"),
       [
         "slug: ghost",
+        "name: ghost",
         "run_id: ghost-r1",
         "manifest: manifest.json",
         "dist_dir: dist",
@@ -180,6 +182,7 @@ async function writeProject(dir: string, speakerId: string, displayName: string)
     join(dir, "project.yaml"),
     [
       `slug: ${speakerId}`,
+      `name: ${displayName}`,
       `run_id: ${speakerId}-r1`,
       "manifest: manifest.json",
       "dist_dir: dist",

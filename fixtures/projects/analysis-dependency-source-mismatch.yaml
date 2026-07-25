@@ -1,4 +1,5 @@
 slug: analysis-dependency-source-mismatch
+name: analysis-dependency-source-mismatch
 run_id: analysis-dependency-source-mismatch-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

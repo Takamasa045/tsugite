@@ -1,4 +1,5 @@
 slug: analysis-similarity-cross-source-invalid
+name: analysis-similarity-cross-source-invalid
 run_id: analysis-similarity-cross-source-invalid-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

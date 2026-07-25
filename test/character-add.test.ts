@@ -82,7 +82,7 @@ describe("addCharacterToProject", () => {
       expect.objectContaining({
         id: "hero",
         display_name: "Hero",
-        side: "left",
+          side: "left",
         accent: "#111111",
         poses: {
           neutral: "hero-neutral",
@@ -714,7 +714,8 @@ async function createFixture(options: FixtureOptions) {
     `${JSON.stringify(
       buildManifest({
         slug: "source-cast",
-        speakers: options.sourceSpeakers,
+        name: "source-cast",
+      speakers: options.sourceSpeakers,
         images: options.sourceImages
       }),
       null,
@@ -727,6 +728,7 @@ async function createFixture(options: FixtureOptions) {
   await writeFile(
     targetConfigPath,
     `slug: target-cast
+name: ターゲットキャスト
 run_id: target-cast-r1
 manifest: manifest.json
 dist_dir: dist

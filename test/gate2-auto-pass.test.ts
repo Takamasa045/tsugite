@@ -18,6 +18,7 @@ describe("Gate 2 auto-pass opt-in schema", () => {
   it("accepts the documented auto-pass policy on a local-media project", () => {
     const parsed = projectSchema.safeParse({
       slug: "auto-pass",
+      name: "auto-pass",
       manifest: "manifest.json",
       edit: { backend: "remotion" },
       gates: { gate_2: { auto_pass: "qc_ok_no_new_assets" } }
@@ -30,6 +31,7 @@ describe("Gate 2 auto-pass opt-in schema", () => {
   it("rejects an unknown auto-pass policy value", () => {
     const parsed = projectSchema.safeParse({
       slug: "auto-pass",
+      name: "auto-pass",
       manifest: "manifest.json",
       edit: { backend: "remotion" },
       gates: { gate_2: { auto_pass: true } }
@@ -41,6 +43,7 @@ describe("Gate 2 auto-pass opt-in schema", () => {
   it("rejects auto-pass on a project that always consumes credits through generation", () => {
     const parsed = projectSchema.safeParse({
       slug: "auto-pass",
+      name: "auto-pass",
       manifest: "manifest.json",
       edit: { backend: "remotion" },
       generation: {

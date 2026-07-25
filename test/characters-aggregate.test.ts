@@ -131,13 +131,13 @@ describe("aggregateCharacters", () => {
       poses: [
         {
           name: "hook",
-          imageId: "frame-hook",
+      imageId: "frame-hook",
           imagePath: "review/references/01-hook.png",
           missing: false
         },
         {
           name: "grow",
-          imageId: "frame-grow",
+      imageId: "frame-grow",
           imagePath: "review/references/02-grow.png",
           missing: false
         }

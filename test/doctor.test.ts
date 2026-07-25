@@ -52,7 +52,7 @@ describe("environment doctor", () => {
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         name: "ffprobe",
-        ok: false,
+      ok: false,
         status: "missing",
         remediation: expect.stringMatching(/ffmpeg/i)
       })
@@ -118,7 +118,7 @@ describe("environment doctor", () => {
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         name: "tool:hyperframes",
-        ok: false,
+      ok: false,
         detail: expect.stringContaining("hyperframes executable was not found"),
         remediation: expect.stringMatching(/npm (ci|install)/)
       })
@@ -141,7 +141,7 @@ describe("environment doctor", () => {
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         name: "tool:hyperframes-media-use (hyperframes-media)",
-        ok: true
+      ok: true
       })
     );
   });
@@ -195,7 +195,7 @@ describe("environment doctor", () => {
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         name: "provider:pixverse (pixverse)",
-        ok: true,
+      ok: true,
         version: "pixverse 1.2.3"
       })
     );
@@ -217,7 +217,7 @@ describe("environment doctor", () => {
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         name: "provider:topview-mcp (topview)",
-        ok: true,
+      ok: true,
         status: "ready",
         version: "topview-mcp ready"
       })

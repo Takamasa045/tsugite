@@ -18,7 +18,7 @@ describe("project validation", () => {
     expect(project.edit.backend).toBe("remotion");
   });
 
-  it("accepts an optional Japanese display name", () => {
+  it("requires a non-empty display name", () => {
     const project = validProjectDefinition();
     project.name = "北アルプス シネマ20秒";
 
@@ -27,6 +27,14 @@ describe("project validation", () => {
     if (parsed.success) {
       expect(parsed.data.name).toBe("北アルプス シネマ20秒");
     }
+
+    const missing = validProjectDefinition();
+    delete missing.name;
+    expect(projectSchema.safeParse(missing).success).toBe(false);
+
+    const blank = validProjectDefinition();
+    blank.name = "   ";
+    expect(projectSchema.safeParse(blank).success).toBe(false);
   });
 
   it("accepts an explicit editorial policy for analysis-derived cuts and captions", () => {
@@ -333,6 +341,7 @@ describe("project validation", () => {
       join(root, "projects/project.yaml"),
       [
         "slug: unsafe-backend",
+        "name: 危険なbackend検証",
         "run_id: unsafe-backend-run",
         "manifest: ../manifests/manifest.json",
         "dist_dir: dist",
@@ -1091,6 +1100,7 @@ connections:
       join(root, "projects/project.yaml"),
       [
         "slug: unsafe-manifest",
+        "name: 危険なmanifest検証",
         "run_id: unsafe-manifest-run",
         "manifest: ../../outside/manifest.json",
         "dist_dir: dist",
@@ -1263,6 +1273,7 @@ async function createCompositionProject(options: {
     configPath,
     [
       "slug: composition-validation",
+      "name: 構成バリデーション",
       "run_id: composition-validation-run",
       "manifest: ../manifests/manifest.json",
       "dist_dir: dist",
@@ -1305,6 +1316,7 @@ async function createGenerationProjectRoot(firstFrame: string): Promise<string> 
     join(root, "projects/project.yaml"),
     [
       "slug: topview-image",
+      "name: TopView画像検証",
       "run_id: topview-image-run",
       "manifest: ../manifests/manifest.json",
       "dist_dir: dist",
@@ -1341,6 +1353,7 @@ async function writeProject(
     join(root, "projects/project.yaml"),
     [
       "slug: safe-assets",
+      "name: 安全な素材検証",
       "run_id: safe-assets-run",
       "manifest: ../manifests/manifest.json",
       "dist_dir: dist",
@@ -1388,6 +1401,7 @@ function clip(overrides: { src: string }) {
 function validProjectDefinition(): Record<string, unknown> {
   return {
     slug: "request-validation",
+    name: "リクエスト検証",
     run_id: "request-validation-run",
     manifest: "../manifests/manifest.json",
     dist_dir: "dist",

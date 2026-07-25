@@ -14,7 +14,7 @@ describe("backend capabilities", () => {
     expect(backend?.checks.render_preflight).toEqual([
       {
         name: "lint",
-        command: ["npx", "--no-install", "hyperframes", "lint", "--json"]
+      command: ["npx", "--no-install", "hyperframes", "lint", "--json"]
       }
     ]);
     expect(backend?.checks.setup).toContainEqual({

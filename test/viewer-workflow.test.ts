@@ -10,6 +10,7 @@ import {
 
 const project: Project = {
   slug: "viewer-fixture",
+  name: "viewer-fixture",
   run_id: "viewer-fixture-run",
   manifest: "manifest.yaml",
   dist_dir: "dist",
@@ -23,6 +24,7 @@ const project: Project = {
 const plan: ExecutionPlan = {
   run_id: "viewer-fixture-run",
   slug: "viewer-fixture",
+  name: "viewer-fixture",
   backend: "remotion",
   target_duration_seconds: 30,
   total_clip_duration_seconds: 30,

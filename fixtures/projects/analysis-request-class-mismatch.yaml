@@ -1,4 +1,5 @@
 slug: analysis-request-class-mismatch
+name: analysis-request-class-mismatch
 run_id: analysis-request-class-mismatch-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

@@ -61,13 +61,13 @@ describe("scanCharacterSources", () => {
     expect(source.poses).toEqual([
       expect.objectContaining({
         name: "neutral",
-        imageId: "hero-neutral",
+      imageId: "hero-neutral",
         imagePath: "media/hero-neutral.png",
         missing: false
       }),
       expect.objectContaining({
         name: "smile",
-        imageId: "hero-smile",
+      imageId: "hero-smile",
         imagePath: "media/hero-smile.png",
         missing: false
       })
@@ -119,6 +119,7 @@ describe("scanCharacterSources", () => {
     await writeFile(
       join(projectDir, "project.yaml"),
       `slug: broken
+name: broken
 manifest: manifest.json
 dist_dir: dist
 edit:
@@ -231,6 +232,7 @@ edit:
   it("carries speaker provenance through for shitate-style sources", async () => {
     const fixture = await createProjectFixture({
       slug: "with-prov",
+      name: "with-prov",
       speakers: [
         {
           id: "hero",
@@ -306,7 +308,7 @@ edit:
             {
               id: "hero",
               display_name: "Soft Hero",
-              side: "left",
+          side: "left",
               accent: "#123456",
               poses: { neutral: "hero-n" }
             }
@@ -321,6 +323,7 @@ edit:
     await writeFile(
       join(projectDir, "project.yaml"),
       `slug: soft-child
+name: soft-child
 run_id: soft-child-r1
 manifest: ../soft-manifest.json
 dist_dir: dist
@@ -357,6 +360,7 @@ type SpeakerFixture = {
 
 type ProjectFixtureOptions = {
   slug: string;
+  name?: string;
   speakers: SpeakerFixture[];
   images: Array<{ id: string; src: string; alt?: string }>;
   mediaFiles: string[];
@@ -379,6 +383,7 @@ async function createProjectFixture(options: ProjectFixtureOptions) {
   await writeFile(
     join(projectDir, "project.yaml"),
     `slug: ${options.slug}
+name: ${options.name ?? options.slug}
 run_id: ${options.slug}-r1
 manifest: manifest.json
 dist_dir: dist

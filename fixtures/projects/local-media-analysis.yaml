@@ -1,4 +1,5 @@
 slug: local-media-analysis
+name: local-media-analysis
 run_id: local-media-analysis-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

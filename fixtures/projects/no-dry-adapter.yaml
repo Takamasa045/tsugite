@@ -1,4 +1,5 @@
 slug: no-dry-adapter
+name: no-dry-adapter
 run_id: no-dry-adapter-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

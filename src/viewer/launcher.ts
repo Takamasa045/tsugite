@@ -297,6 +297,10 @@ const promotionDecisionSchema = z.object({
 const generationConnectionSchema = z.object({
   connection: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/)
 }).strict();
+/** project.yaml の name（表示名）。必須・1〜120文字。日本語可。 */
+const projectRenameSchema = z.object({
+  name: z.string().trim().min(1).max(120)
+}).strict();
 const characterUseSchema = z.object({
   sourceKey: z.string().min(1).max(4_096),
   speakerId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
@@ -813,6 +817,7 @@ export async function startWorkflowViewerLauncher(
     const mutationRequest = method === "POST" && (
       /^\/api\/projects\/[^/]+\/generation-connection$/.test(requestUrl.pathname)
       || /^\/api\/projects\/[^/]+\/generate$/.test(requestUrl.pathname)
+      || /^\/api\/projects\/[^/]+\/rename$/.test(requestUrl.pathname)
       || (allowProjectActions && /^\/api\/projects\/[^/]+\/action$/.test(requestUrl.pathname))
       || /^\/api\/feedback\/[^/]+\/promotion-decision$/.test(requestUrl.pathname)
       || /^\/api\/projects\/[^/]+\/refresh$/.test(requestUrl.pathname)
@@ -1087,6 +1092,74 @@ export async function startWorkflowViewerLauncher(
         connection: selected.id,
         adapter: selected.adapter,
         requiresReview: true
+      });
+      return;
+    }
+
+    const renameMatch = /^\/api\/projects\/([^/]+)\/rename$/.exec(requestUrl.pathname);
+    if (method === "POST" && renameMatch) {
+      if (request.headers.origin !== launcherOrigin || request.headers["x-tsugite-token"] !== token) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const record = projects.get(renameMatch[1]!);
+      if (!record) return sendNotFound(response);
+      if (record.readOnly) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.worktree_read_only",
+            message: "別worktreeの案件はこのランチャーから変更できません"
+          }
+        });
+        return;
+      }
+      let input: z.infer<typeof projectRenameSchema>;
+      try {
+        input = projectRenameSchema.parse(await readJsonRequest(request, LAUNCHER_GENERATION_BODY_MAX_BYTES));
+      } catch {
+        sendJson(response, 400, {
+          ok: false,
+          issue: {
+            code: "project.name_invalid",
+            message: "案件名は1〜120文字で入力してください（前後の空白は除きます）"
+          }
+        });
+        return;
+      }
+      let identity = record.identity;
+      if (!identity) {
+        try {
+          identity = (await captureProjectIdentity(record.configPath)).identity;
+        } catch {
+          sendJson(response, 409, {
+            ok: false,
+            issue: {
+              code: "viewer_launcher.project_changed",
+              message: "案件ファイルを確認できないため、名前を変更できませんでした"
+            }
+          });
+          return;
+        }
+      }
+      if (!await matchesProjectIdentity(record.configPath, identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+      const updated = await writeProjectDisplayName(record.configPath, identity, input.name);
+      if (!updated) {
+        sendProjectChanged(response);
+        return;
+      }
+      await reloadProjects();
+      const reloaded = projects.get(renameMatch[1]!);
+      sendJson(response, 200, {
+        ok: true,
+        name: input.name,
+        ...(reloaded ? { project: reloaded.public } : {})
       });
       return;
     }
@@ -2542,7 +2615,7 @@ async function inspectProject(
     sourceModifiedAtMs = captured.sourceModifiedAtMs;
     const configDigest = createHash("sha256").update(await readFile(configPath)).digest("hex");
     const project = await loadProject(configPath);
-    const displayName = project.name?.trim() || name;
+    const displayName = project.name.trim();
     const runId = project.run_id ?? project.slug;
     const projectDir = dirname(configPath);
     const runDir = join(projectDir, project.dist_dir, runId);
@@ -3765,6 +3838,39 @@ async function writeProjectGenerationConnection(
   document.setIn(["generation", "adapter"], adapter);
   const output = document.toString({ lineWidth: 0 });
   const temporaryPath = join(dirname(configPath), `.project-connection-${randomBytes(12).toString("hex")}.tmp`);
+  const handle = await open(
+    temporaryPath,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+    0o600
+  );
+  try {
+    await handle.writeFile(output, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    if (!await matchesProjectIdentity(configPath, identity)) return false;
+    await rename(temporaryPath, configPath);
+    return true;
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
+/** project.yaml の表示名 `name` だけを書き換える。slug / フォルダ名は変えない。 */
+async function writeProjectDisplayName(
+  configPath: string,
+  identity: LauncherProjectIdentity,
+  name: string
+): Promise<boolean> {
+  if (!await matchesProjectIdentity(configPath, identity)) return false;
+  const source = await readFile(configPath, "utf8");
+  const document = parseDocument(source);
+  if (document.errors.length > 0) return false;
+  document.set("name", name);
+  const output = document.toString({ lineWidth: 0 });
+  const temporaryPath = join(dirname(configPath), `.project-name-${randomBytes(12).toString("hex")}.tmp`);
   const handle = await open(
     temporaryPath,
     constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,

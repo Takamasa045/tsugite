@@ -159,7 +159,7 @@ export function formatProjectSelectLabel(project: {
   runId: string
   status: string
 }): string {
-  const title = (project.name || project.slug).trim() || '（名称未設定）'
+  const title = project.name.trim()
   const edition = formatRunEditionLabel(project.runId, project.slug, title)
   const status = statusLabel(project.status)
   return edition ? `${title} ／ ${edition} ／ ${status}` : `${title} ／ ${status}`

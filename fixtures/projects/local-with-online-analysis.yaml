@@ -1,4 +1,5 @@
 slug: local-with-online-analysis
+name: local-with-online-analysis
 run_id: local-with-online-analysis-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

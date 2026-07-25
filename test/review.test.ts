@@ -17,6 +17,7 @@ import { validateProject } from "../src/project/validateProject.js";
 function sampleProject(): Project {
   return {
     slug: "creative-review",
+    name: "creative-review",
     run_id: "creative-review-run",
     manifest: "manifest.json",
     dist_dir: "dist",
@@ -65,7 +66,7 @@ function sampleManifest(): Manifest {
       {
         id: "musuhi",
         display_name: "むすひ",
-        side: "left",
+          side: "left",
         accent: "#176b87",
         poses: { neutral: "musuhi-neutral", curious: "musuhi-neutral" }
       }

@@ -59,7 +59,7 @@ describe("optional Shitate snapshot import", () => {
     expect(manifest.speakers).toContainEqual(expect.objectContaining({
       id: "hero",
       display_name: "Hero",
-      side: "left",
+          side: "left",
       accent: "#6B7A5A",
       poses: { neutral: "hero-anchor" }
     }));
@@ -563,6 +563,7 @@ async function createFixture(options: FixtureOptions = {}) {
   }, null, 2)}\n`);
 
   await writeFile(configPath, `slug: shitate-import-test
+name: Shitate取込テスト
 run_id: shitate-import-test-r1
 manifest: manifest.json
 dist_dir: dist

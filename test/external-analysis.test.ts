@@ -14,6 +14,7 @@ describe("optional external analysis", () => {
   it("keeps local mode as the backwards-compatible default and rejects online adapters", async () => {
     const parsed = projectSchema.parse({
       slug: "local-default",
+      name: "local-default",
       manifest: "manifest.json",
       edit: { backend: "remotion" },
       analysis: { adapter: "local", requests: [{ id: "t", output: "transcript" }] }
@@ -28,6 +29,7 @@ describe("optional external analysis", () => {
   it("rejects credentials embedded in external analysis request params", () => {
     const parsed = projectSchema.safeParse({
       slug: "unsafe-external-params",
+      name: "unsafe-external-params",
       manifest: "manifest.json",
       edit: { backend: "remotion" },
       analysis: {

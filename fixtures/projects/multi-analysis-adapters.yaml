@@ -1,4 +1,5 @@
 slug: multi-analysis-adapters
+name: multi-analysis-adapters
 run_id: multi-analysis-adapters-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

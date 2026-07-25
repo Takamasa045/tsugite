@@ -119,7 +119,7 @@ describe("plan and dry run", () => {
         phase: "render_preflight",
         backend: "hyperframes",
         name: "lint",
-        command: ["npx", "--no-install", "hyperframes", "lint", "--json"]
+      command: ["npx", "--no-install", "hyperframes", "lint", "--json"]
       }
     ]);
   });

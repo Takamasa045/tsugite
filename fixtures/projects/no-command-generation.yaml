@@ -1,4 +1,5 @@
 slug: no-command-generation
+name: no-command-generation
 run_id: no-command-generation-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

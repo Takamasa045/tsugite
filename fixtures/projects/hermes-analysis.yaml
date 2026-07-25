@@ -1,4 +1,5 @@
 slug: hermes-analysis
+name: hermes-analysis
 run_id: hermes-analysis-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

@@ -56,7 +56,7 @@ describe("pipeline CLI", () => {
       topic: "validate",
       command_help: {
         name: "validate",
-        usage: "node bin/pipeline validate --config <project.yaml> [--json]",
+      usage: "node bin/pipeline validate --config <project.yaml> [--json]",
         requires_config: true,
         options: expect.arrayContaining([
           expect.objectContaining({ name: "--config", value: "<project.yaml>" })

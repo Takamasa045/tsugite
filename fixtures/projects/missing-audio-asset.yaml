@@ -1,4 +1,5 @@
 slug: missing-audio-asset
+name: missing-audio-asset
 run_id: missing-audio-asset-run
 manifest: ../manifests/missing-audio-asset.json
 dist_dir: dist

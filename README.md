@@ -198,12 +198,15 @@ Minimal local-media project, as used by `examples/local-fixture/project.yaml`:
 
 ```yaml
 slug: local-fixture
+name: ローカル検証フィクスチャ
 run_id: local-fixture-run
 manifest: manifest.json
 dist_dir: dist
 edit:
   backend: remotion
 ```
+
+`name` is required (Japanese is fine). The launcher lists projects by this display name; you can rename it later from the selection panel without changing `slug` or the folder name.
 
 Generation projects add a `generation` section:
 
