@@ -821,6 +821,114 @@ distribution: local-only
     expect(template.requiredInputs).toEqual(["台本"]);
   });
 
+  it("passes optional direction through API as camelCase fields", async () => {
+    const fixture = await createFixture();
+    const templateDir = join(fixture.templatesDir, "direction-template");
+    await mkdir(templateDir);
+    await writeFile(join(templateDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: direction-template
+name: 演出指針透過
+summary: direction が API に camelCase で残ることを確認する
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+direction:
+  pacing: 冒頭2秒以内にフック
+  camera: 1ショット1カメラベクトル
+  light_color: 導入は低彩度
+  audio_sync: 句点で切る
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+    const template = payload.templates.find(
+      (entry: { id: string }) => entry.id === "direction-template"
+    );
+    expect(template).toBeDefined();
+    expect(template.valid).toBe(true);
+    expect(template.direction).toEqual({
+      pacing: "冒頭2秒以内にフック",
+      camera: "1ショット1カメラベクトル",
+      lightColor: "導入は低彩度",
+      audioSync: "句点で切る"
+    });
+  });
+
+  it("rejects empty direction objects", async () => {
+    const fixture = await createFixture();
+    const templateDir = join(fixture.templatesDir, "empty-direction");
+    await mkdir(templateDir);
+    await writeFile(join(templateDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: empty-direction
+name: 空の演出指針
+summary: direction が空なら無効
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+direction: {}
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+    expect(payload.templates[0]).toMatchObject({
+      id: "empty-direction",
+      valid: false,
+      issue: { code: "template_metadata.invalid" }
+    });
+  });
+
 
   it("rejects a storyboard preview that does not contain exactly three frames", async () => {
     const fixture = await createFixture();

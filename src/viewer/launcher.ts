@@ -153,6 +153,8 @@ export type LauncherTemplate = {
   requiredInputDetails: LauncherTemplateInput[];
   preview: LauncherTemplatePreview | null;
   notFor: string[];
+  /** テンプレート単位の演出指針（任意）。ブリーフへ載せる説明であり実行能力ではない。 */
+  direction?: LauncherTemplateDirection;
   variants: LauncherTemplateVariant[];
   tags: string[];
   audio: string;
@@ -166,6 +168,15 @@ export type LauncherTemplateInput = {
   type: "text" | "image" | "audio" | "video" | "data" | "other";
   label: string;
   required: boolean;
+};
+
+export type LauncherTemplateDirection = {
+  pacing?: string;
+  camera?: string;
+  lightColor?: string;
+  motif?: string;
+  transitions?: string;
+  audioSync?: string;
 };
 
 export type LauncherTemplatePreview = {
@@ -340,6 +351,22 @@ const templatePreviewSchema = z.object({
   ]),
   flow: z.array(nonEmptyText).min(3).max(5)
 }).strict();
+/** schema_version 1 の optional 拡張。単調な演出を防ぐテンプレ固定の指針。 */
+const templateDirectionSchema = z.object({
+  pacing: descriptionText.optional(),
+  camera: descriptionText.optional(),
+  light_color: descriptionText.optional(),
+  motif: descriptionText.optional(),
+  transitions: descriptionText.optional(),
+  audio_sync: descriptionText.optional()
+}).strict().superRefine((direction, context) => {
+  if (!Object.values(direction).some((value) => value !== undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "direction must include at least one field"
+    });
+  }
+});
 const templateVariantSchema = z.object({
   id: templateIdSchema,
   label: nonEmptyText,
@@ -396,6 +423,7 @@ const templateMetadataSchema = z.object({
   }).strict()).min(1).max(16),
   preview: templatePreviewSchema.optional(),
   not_for: z.array(nonEmptyText).max(6).default([]),
+  direction: templateDirectionSchema.optional(),
   variants: z.array(templateVariantSchema).max(8).default([]).superRefine((variants, context) => {
     const variantIds = new Set<string>();
     for (const [index, variant] of variants.entries()) {
@@ -419,6 +447,21 @@ const templateMetadataSchema = z.object({
   status: z.enum(["stable", "experimental", "deprecated"]),
   distribution: z.enum(["bundled", "local-only"])
 }).strict();
+
+function mapTemplateDirection(
+  direction: z.infer<typeof templateDirectionSchema> | undefined
+): LauncherTemplateDirection | undefined {
+  if (!direction) return undefined;
+  const mapped: LauncherTemplateDirection = {
+    ...(direction.pacing !== undefined ? { pacing: direction.pacing } : {}),
+    ...(direction.camera !== undefined ? { camera: direction.camera } : {}),
+    ...(direction.light_color !== undefined ? { lightColor: direction.light_color } : {}),
+    ...(direction.motif !== undefined ? { motif: direction.motif } : {}),
+    ...(direction.transitions !== undefined ? { transitions: direction.transitions } : {}),
+    ...(direction.audio_sync !== undefined ? { audioSync: direction.audio_sync } : {})
+  };
+  return Object.keys(mapped).length > 0 ? mapped : undefined;
+}
 
 class TemplateMetadataError extends Error {
   constructor(readonly code: string, message: string) {
@@ -2271,6 +2314,7 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
         "template.yamlのidをフォルダ名と一致させてください。"
       );
     }
+    const direction = mapTemplateDirection(metadata.direction);
     return {
       id,
       name: metadata.name,
@@ -2297,6 +2341,7 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
           }
         : null,
       notFor: metadata.not_for,
+      ...(direction ? { direction } : {}),
       variants: metadata.variants.map((variant) => ({
         id: variant.id,
         label: variant.label,
