@@ -1939,6 +1939,7 @@ async function discoverProjects(
 ): Promise<LauncherProjectRecord[]> {
   const projects: LauncherProjectRecord[] = [];
   const seenProjectRoots = new Set<string>();
+  const multiShelf = projectDirectories.length > 1;
   for (const projectDirectory of projectDirectories) {
     let entries;
     try {
@@ -1949,35 +1950,41 @@ async function discoverProjects(
     }
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       const projectDir = join(projectDirectory.path, entry.name);
-      let entryStats;
-      try {
-        entryStats = await lstat(projectDir);
-      } catch (error) {
-        if (isFileSystemError(error, "ENOENT")) continue;
-        throw error;
-      }
-      // Include directory symlinks/junctions used to surface worktree projects on the durable shelf.
-      if (!entryStats.isDirectory() && !entryStats.isSymbolicLink()) continue;
+      // Fast path for isolated single-shelf fixtures: avoid per-entry lstat/realpath.
+      // Multi-shelf / symlink discovery needs the slower identity path.
+      const maybeLink = entry.isSymbolicLink();
+      if (!entry.isDirectory() && !maybeLink) continue;
+
       let identityRoot = resolve(projectDir);
-      try {
-        identityRoot = await realpath(projectDir);
-      } catch {
-        // Dangling links are skipped when readdir of the target fails below.
-      }
-      if (seenProjectRoots.has(identityRoot)) continue;
-      // Same-shelf alias: prefer the real directory entry over a local symlink to it.
-      if (entryStats.isSymbolicLink()) {
-        let shelfRoot = resolve(projectDirectory.path);
+      if (multiShelf || maybeLink) {
+        let entryStats;
         try {
-          shelfRoot = await realpath(projectDirectory.path);
-        } catch {
-          // keep resolved path
+          entryStats = await lstat(projectDir);
+        } catch (error) {
+          if (isFileSystemError(error, "ENOENT")) continue;
+          throw error;
         }
-        if (
-          isContained(shelfRoot, identityRoot)
-          && resolve(identityRoot) !== resolve(projectDir)
-        ) {
-          continue;
+        if (!entryStats.isDirectory() && !entryStats.isSymbolicLink()) continue;
+        try {
+          identityRoot = await realpath(projectDir);
+        } catch {
+          // Dangling links are skipped when readdir of the target fails below.
+        }
+        if (seenProjectRoots.has(identityRoot)) continue;
+        // Same-shelf alias: prefer the real directory entry over a local symlink to it.
+        if (entryStats.isSymbolicLink()) {
+          let shelfRoot = resolve(projectDirectory.path);
+          try {
+            shelfRoot = await realpath(projectDirectory.path);
+          } catch {
+            // keep resolved path
+          }
+          if (
+            isContained(shelfRoot, identityRoot)
+            && resolve(identityRoot) !== resolve(projectDir)
+          ) {
+            continue;
+          }
         }
       }
 
@@ -2012,7 +2019,7 @@ async function discoverProjects(
       );
       const latest = selectLatestProjectRecord(candidates);
       if (latest) {
-        seenProjectRoots.add(identityRoot);
+        if (multiShelf || maybeLink) seenProjectRoots.add(identityRoot);
         projects.push(latest);
       }
     }
