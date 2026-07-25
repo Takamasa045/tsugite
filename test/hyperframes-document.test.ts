@@ -22,11 +22,29 @@ function baseManifest(presentation?: Record<string, unknown>): Manifest {
     ],
     images: [
       { id: "left-closed", src: "media/characters/left-closed.png", alt: "左・口閉じ", alpha_required: true },
-      { id: "right-closed", src: "media/characters/right-closed.png", alt: "右・口閉じ", alpha_required: true }
+      { id: "left-half", src: "media/characters/left-half.png", alt: "左・口半開き", alpha_required: true },
+      { id: "left-open", src: "media/characters/left-open.png", alt: "左・口開き", alpha_required: true },
+      { id: "right-closed", src: "media/characters/right-closed.png", alt: "右・口閉じ", alpha_required: true },
+      { id: "right-half", src: "media/characters/right-half.png", alt: "右・口半開き", alpha_required: true },
+      { id: "right-open", src: "media/characters/right-open.png", alt: "右・口開き", alpha_required: true }
     ],
     speakers: [
-      { id: "shiba", display_name: "シバ", side: "left", accent: "#8C8880", poses: { neutral: "left-closed" } },
-      { id: "neru", display_name: "ネル先生", side: "right", accent: "#D97757", poses: { neutral: "right-closed" } }
+      {
+        id: "shiba",
+        display_name: "シバ",
+        side: "left",
+        accent: "#8C8880",
+        poses: { neutral: "left-closed" },
+        mouth_frames: ["left-closed", "left-half", "left-open"]
+      },
+      {
+        id: "neru",
+        display_name: "ネル先生",
+        side: "right",
+        accent: "#D97757",
+        poses: { neutral: "right-closed" },
+        mouth_frames: ["right-closed", "right-half", "right-open"]
+      }
     ],
     audio: { bgm: [], narration: [], sfx: [] },
     ...(presentation ? { presentation } : {}),
@@ -73,11 +91,21 @@ describe("hyperframes document", () => {
 
     expect(html).toContain("#F0EEE6");
     expect(html).toContain('data-role="headline"');
-    expect(html).toContain("80%以上、削除");
+    // Impact layout splits the numeric claim into a poster stat + label.
+    expect(html).toContain('data-role="stat"');
+    expect(html).toContain("80%以上");
+    expect(html).toContain("削除");
     expect(html).toContain("ANTHROPIC 公式");
     expect(html).toContain("評価に低下はなかった");
     expect(html).toContain("出典あり");
     expect(html).toContain("ルールで縛る → 判断に委ねる");
+    // Rich Claude stage dressing — ambient paper wash + progress bar.
+    expect(html).toContain('class="ambient"');
+    expect(html).toContain('id="progress-fill"');
+    expect(html).toContain("stage-disc");
+    expect(html).toContain("side-glow");
+    expect(html).toContain('data-impact="true"');
+    expect(html).toContain("speaker-chip");
   });
 
   it("gives every timed visual layer the attributes the HyperFrames runtime needs", () => {
@@ -139,8 +167,13 @@ describe("hyperframes document", () => {
     const html = renderIndexHtml(baseManifest({ theme: "claude" }));
     // The caption box is a flex container; bare text nodes beside <em> would each
     // become their own flex item and sit side by side instead of reading as a sentence.
+    // Dialogue chips sit beside the line; the spoken line itself stays one span
+    // so emphasis does not become its own flex column.
     const caption = html.match(/<div id="s01" class="clip caption"[^>]*>(.*?)<\/div>/s);
-    expect(caption?.[1]).toMatch(/^<span class="line">.*<\/span>$/s);
+    expect(caption?.[1]).toMatch(
+      /^(?:<span class="speaker-chip">[^<]*<\/span>)?<span class="line">.*<\/span>$/s
+    );
+    expect(caption?.[1]).toContain('<em class="emphasis">8割</em>、消したんだって');
   });
 });
 
@@ -184,6 +217,32 @@ describe("hyperframes cast", () => {
     const html = renderIndexHtml(manifest);
 
     expect(html).not.toContain('class="clip cast"');
-    expect(html).not.toContain("data-speaker");
+    expect(html).not.toContain("data-speaker=");
+    expect(html).not.toContain('class="speaker-chip"');
+  });
+
+  it("stacks three mouth frames only on the active speaker so the runtime can lip-sync", () => {
+    const html = renderIndexHtml(baseManifest({ theme: "claude" }));
+
+    // s01: neru talks — right mouth stack, left stays a single idle pose.
+    expect(html).toContain('data-mouth-sync="true"');
+    expect(html).toContain('data-mouth-index="0"');
+    expect(html).toContain('data-mouth-index="1"');
+    expect(html).toContain('data-mouth-index="2"');
+    expect(html).toContain("media/characters/right-closed.png");
+    expect(html).toContain("media/characters/right-half.png");
+    expect(html).toContain("media/characters/right-open.png");
+    // Listener still appears, but without a mouth stack for that line.
+    expect(html).toContain("media/characters/left-closed.png");
+
+    // Without mouth_frames the active speaker falls back to a single pose image.
+    // (CSS still mentions the attribute selector; only the markup must stay clear.)
+    const plain = baseManifest({ theme: "claude" }) as {
+      speakers: Array<{ mouth_frames?: string[] }>;
+    };
+    for (const speaker of plain.speakers) delete speaker.mouth_frames;
+    const plainHtml = renderIndexHtml(plain);
+    expect(plainHtml).not.toMatch(/class="portrait"[^>]*data-mouth-sync/);
+    expect(plainHtml).not.toContain('data-mouth-index="');
   });
 });

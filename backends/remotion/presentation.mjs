@@ -1,3 +1,5 @@
+import { mouthFrameIndex } from "../mouth.mjs";
+
 export const ARTICLE_DIALOGUE_PRESET = "article-dialogue-16x9";
 
 export {
@@ -5,6 +7,8 @@ export {
   ARTICLE_DIALOGUE_DEFAULT_THEME,
   resolveArticleDialogueTheme
 } from "../articleThemes.mjs";
+
+export { mouthFrameIndex };
 
 export function resolveCharacterFrame(image) {
   return image?.alpha_required === true ? "cutout" : "circle";
@@ -16,13 +20,6 @@ export function designScale(width, height) {
 
 export function activeCaptionAt(captions, second) {
   return (captions ?? []).find((caption) => second >= caption.start && second < caption.end);
-}
-
-const MOUTH_PATTERN = [0, 1, 2, 1];
-
-export function mouthFrameIndex(localFrame, fps, mouthFps = 8) {
-  const framesPerMouthState = Math.max(1, Math.round(fps / mouthFps));
-  return MOUTH_PATTERN[Math.floor(Math.max(0, localFrame) / framesPerMouthState) % MOUTH_PATTERN.length];
 }
 
 export function resolveSpeakerImage(speaker, caption, images, frame = 0, fps = 30, mouthFps = 8) {

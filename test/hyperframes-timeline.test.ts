@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error backend modules are plain ESM without type declarations
-import { buildTimelineProgram, sampleTween } from "../backends/hyperframes/timeline.mjs";
+import { buildTimelineProgram, mouthVisibilityAt, renderTimelineRuntime, sampleTween } from "../backends/hyperframes/timeline.mjs";
+// @ts-expect-error backend modules are plain ESM without type declarations
+import { mouthFrameIndex, mouthIndexAtSeconds } from "../backends/mouth.mjs";
 
 type Caption = { id: string; start: number; end: number; speaker?: string; visual?: Record<string, unknown> };
 
@@ -40,13 +42,33 @@ describe("timeline sampling", () => {
 
 describe("timeline program", () => {
   it("gives every visual card an entrance anchored to its own line", () => {
-    const program = buildTimelineProgram({ captions: captions(), speakers: [] });
+    const program = buildTimelineProgram({
+      meta: { target_duration_seconds: 12 },
+      captions: captions(),
+      speakers: []
+    });
     const card = program.find((t: { selector: string }) => t.selector === "#s01-visual");
 
     expect(card).toBeDefined();
     expect(card.at).toBe(0);
     expect(card.from.opacity).toBe(0);
     expect(card.to.opacity).toBe(1);
+    expect(card.from.y).toBeGreaterThan(0);
+  });
+
+  it("drives a top progress bar across the full duration", () => {
+    const program = buildTimelineProgram({
+      meta: { target_duration_seconds: 90 },
+      captions: captions(),
+      speakers: []
+    });
+    const progress = program.find((t: { selector: string }) => t.selector === "#progress-fill");
+
+    expect(progress).toBeDefined();
+    expect(progress.at).toBe(0);
+    expect(progress.duration).toBe(90);
+    expect(progress.from.scaleX).toBe(0);
+    expect(progress.to.scaleX).toBe(1);
   });
 
   it("staggers steps so a list reveals one line at a time", () => {
@@ -80,5 +102,28 @@ describe("timeline program", () => {
   it("skips captions that carry no visual so a bare line does not animate an empty card", () => {
     const program = buildTimelineProgram({ captions: captions(), speakers: [] });
     expect(program.some((t: { selector: string }) => t.selector === "#s03-visual")).toBe(false);
+  });
+});
+
+describe("mouth frame cycling", () => {
+  it("walks closed → half → open → half on both frame and second clocks", () => {
+    expect(mouthFrameIndex(0, 30, 8)).toBe(0);
+    expect(mouthFrameIndex(4, 30, 8)).toBe(1);
+    expect(mouthFrameIndex(8, 30, 8)).toBe(2);
+    expect(mouthFrameIndex(12, 30, 8)).toBe(1);
+
+    expect(mouthIndexAtSeconds(0)).toBe(0);
+    expect(mouthIndexAtSeconds(0.125)).toBe(1);
+    expect(mouthIndexAtSeconds(0.25)).toBe(2);
+    expect(mouthIndexAtSeconds(0.375)).toBe(1);
+    expect(mouthVisibilityAt(0.25)).toBe(2);
+  });
+
+  it("embeds the mouth flipper in the runtime so seek time drives lip sync", () => {
+    const source = renderTimelineRuntime([]);
+    expect(source).toContain("mouthIndexAtSeconds");
+    expect(source).toContain('data-mouth-sync="true"');
+    expect(source).toContain("data-mouth-index");
+    expect(source).toContain("MOUTH_PATTERN");
   });
 });

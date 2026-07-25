@@ -54,3 +54,5 @@ Append-only format:
 2026-07-17 / 成果物プレビューの縦型動画が16:9の横長枠で表示された / previewのvideoに一律のaspect-ratio: 16/9を適用していた / videoWidthとvideoHeightの実metadataで各動画を独立判定し、縦型は9:16で中央表示、未読み込みと横型は16:9を維持する / qa済
 2026-07-17 / launcherの事前検知を追加してもorbital案件の更新不能は解消しなかった / 完成manifestが要求するpreset実装がGitの到達不能オブジェクトに残り、backend registryと能力宣言へ入っていなかった / 完成案件固有presetも実装・registry・capabilities・有効manifestによるrender smokeを同じ変更単位で揃え、実案件のrefresh成功まで確認する / validate済
 2026-07-25 / ランチャー検索に `projects/<slug>/dist/<runId>/final.mp4` を貼っても案件がヒットしない / name/slug/runId に対して query の片方向 includes だけだった / 通常検索は部分一致、パス貼り付けは path セグメントと slug/runId の完全一致にして短い slug の誤ヒットを避ける / validate済
+2026-07-25 / HyperFramesがBGM+ナレーション同時でoverlapping_clips_same_trackエラー / renderAudioがroleごとにindex+2を付け直しtrackが衝突した / bgm・narration・sfxの全audio要素に一意のdata-track-indexを割り当てる / validate済
+2026-07-25 / エンジン制約と誤って話者・モーション不可と説明した / backends/hyperframesジェネレータがspeakers/visual/timelineを出していなかっただけ / 能力欠如を報告する前に当該backendジェネレータの実装を確認し、不足なら実装か明示的な未対応として切り分ける / observed

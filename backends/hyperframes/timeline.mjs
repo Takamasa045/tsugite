@@ -8,12 +8,17 @@
  *
  * `buildTimelineProgram` produces plain data, and the browser runtime applies it.
  * Both sides share `sampleTween`, so what the tests assert is what renders.
+ *
+ * Mouth frames are not tweens: they flip by discrete index via the shared
+ * `mouthIndexAtSeconds` helper, matching the Remotion cycle.
  */
 
-const ENTRANCE_SECONDS = 0.45;
-const STEP_STAGGER_SECONDS = 0.55;
-const STEP_LEAD_SECONDS = 0.3;
-const CAST_LIFT_SECONDS = 0.35;
+import { mouthIndexAtSeconds, DEFAULT_MOUTH_FPS } from "../mouth.mjs";
+
+const ENTRANCE_SECONDS = 0.55;
+const STEP_STAGGER_SECONDS = 0.42;
+const STEP_LEAD_SECONDS = 0.22;
+const CAST_LIFT_SECONDS = 0.42;
 
 /** Ease-out cubic: quick to arrive, slow to settle. */
 export function easeOutCubic(t) {
@@ -42,6 +47,18 @@ export function buildTimelineProgram(manifest) {
   const program = [];
   const captions = manifest?.captions ?? [];
   const speakers = manifest?.speakers ?? [];
+  const total = Number(manifest?.meta?.target_duration_seconds) || 0;
+
+  // Top progress bar: scaleX from the left over the whole piece.
+  if (total > 0) {
+    program.push({
+      selector: "#progress-fill",
+      at: 0,
+      duration: total,
+      from: { scaleX: 0 },
+      to: { scaleX: 1 }
+    });
+  }
 
   for (const caption of captions) {
     const id = caption.id;
@@ -53,8 +70,16 @@ export function buildTimelineProgram(manifest) {
         selector: `#${id}-visual`,
         at: caption.start,
         duration: ENTRANCE_SECONDS,
-        from: { opacity: 0, y: 18, scale: 0.985 },
+        from: { opacity: 0, y: 36, scale: 0.9 },
         to: { opacity: 1, y: 0, scale: 1 }
+      });
+      // Stat punch: the giant number pops a beat after the card lands.
+      program.push({
+        selector: `#${id}-visual [data-role="stat"]`,
+        at: caption.start + 0.08,
+        duration: Math.min(0.4, ENTRANCE_SECONDS),
+        from: { opacity: 0, scale: 0.82, y: 18 },
+        to: { opacity: 1, scale: 1, y: 0 }
       });
 
       const steps = Array.isArray(caption.visual.steps) ? caption.visual.steps : [];
@@ -67,8 +92,8 @@ export function buildTimelineProgram(manifest) {
           selector: `#${id}-visual [data-step-index="${index}"]`,
           at,
           duration: ENTRANCE_SECONDS,
-          from: { opacity: 0, x: 16 },
-          to: { opacity: 1, x: 0 }
+          from: { opacity: 0, x: 28, y: 10 },
+          to: { opacity: 1, x: 0, y: 0 }
         });
       });
     }
@@ -78,13 +103,28 @@ export function buildTimelineProgram(manifest) {
         selector: `#${id}-cast [data-speaker="${caption.speaker}"]`,
         at: caption.start,
         duration: CAST_LIFT_SECONDS,
-        from: { y: 10 },
-        to: { y: 0 }
+        from: { y: 22, scale: 0.94 },
+        to: { y: 0, scale: 1 }
+      });
+      program.push({
+        selector: `#${id}-cast .side-glow[data-active="true"]`,
+        at: caption.start,
+        duration: CAST_LIFT_SECONDS,
+        from: { opacity: 0 },
+        to: { opacity: 1 }
       });
     }
   }
 
   return program;
+}
+
+/**
+ * Which mouth-frame image should be visible on a lip-synced portrait at `time`.
+ * Pure helper so tests and the runtime stay identical.
+ */
+export function mouthVisibilityAt(elapsedSeconds, mouthFps = DEFAULT_MOUTH_FPS) {
+  return mouthIndexAtSeconds(elapsedSeconds, mouthFps);
 }
 
 /**
@@ -94,6 +134,8 @@ export function buildTimelineProgram(manifest) {
 export function renderTimelineRuntime(program) {
   return `(() => {
   const PROGRAM = ${JSON.stringify(program)};
+  const MOUTH_PATTERN = [0, 1, 2, 1];
+  const DEFAULT_MOUTH_FPS = ${DEFAULT_MOUTH_FPS};
 
   ${easeOutCubic.toString()}
 
@@ -101,12 +143,33 @@ export function renderTimelineRuntime(program) {
 
   ${round.toString()}
 
+  function mouthIndexAtSeconds(elapsedSeconds, mouthFps) {
+    const fps = mouthFps === undefined ? DEFAULT_MOUTH_FPS : mouthFps;
+    const state = Math.floor(Math.max(0, elapsedSeconds) * fps);
+    return MOUTH_PATTERN[state % MOUTH_PATTERN.length];
+  }
+
   const targets = new Map();
   function resolve(selector) {
     if (!targets.has(selector)) {
       targets.set(selector, Array.from(document.querySelectorAll(selector)));
     }
     return targets.get(selector);
+  }
+
+  function applyMouthAt(time) {
+    const portraits = document.querySelectorAll('.cast .portrait[data-mouth-sync="true"]');
+    for (const portrait of portraits) {
+      const cast = portrait.closest(".cast");
+      if (!cast) continue;
+      const start = Number(cast.getAttribute("data-start"));
+      if (!Number.isFinite(start)) continue;
+      const index = mouthIndexAtSeconds(Math.max(0, time - start));
+      for (const img of portrait.querySelectorAll("img[data-mouth-index]")) {
+        const mouthIndex = Number(img.getAttribute("data-mouth-index"));
+        img.style.opacity = mouthIndex === index ? "1" : "0";
+      }
+    }
   }
 
   function applyAt(time) {
@@ -117,11 +180,21 @@ export function renderTimelineRuntime(program) {
         const x = state.x ?? 0;
         const y = state.y ?? 0;
         const scale = state.scale ?? 1;
-        if (state.x !== undefined || state.y !== undefined || state.scale !== undefined) {
-          element.style.transform = "translate(" + x + "px," + y + "px) scale(" + scale + ")";
+        const scaleX = state.scaleX ?? scale;
+        const scaleY = state.scaleY ?? scale;
+        if (
+          state.x !== undefined ||
+          state.y !== undefined ||
+          state.scale !== undefined ||
+          state.scaleX !== undefined ||
+          state.scaleY !== undefined
+        ) {
+          element.style.transform =
+            "translate(" + x + "px," + y + "px) scale(" + scaleX + "," + scaleY + ")";
         }
       }
     }
+    applyMouthAt(time);
   }
 
   class TsugiteTimeline {

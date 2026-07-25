@@ -25,11 +25,13 @@ describe("article dialogue theme", () => {
     const theme = resolveArticleDialogueTheme({ presentation: { preset: "article-dialogue-16x9", theme: "claude" } });
 
     expect(theme).toBe(ARTICLE_DIALOGUE_CLAUDE_THEME);
-    expect(theme.background).toBe("#F0EEE6");
+    expect(theme.background).toContain("#F0EEE6");
+    expect(theme.background).toContain("radial-gradient");
     expect(theme.stepActive).toBe("#D97757");
-    expect(theme.progress).toBe("#D97757");
-    expect(theme.cardRadius).toBe(16);
-    expect(theme.cardShadow).toBe("none");
+    expect(theme.progress).toContain("#D97757");
+    expect(theme.cardRadius).toBe(22);
+    expect(theme.cardShadow).not.toBe("none");
+    expect(theme.captionShadow).not.toBe("none");
   });
 
   it("keeps dialogue body text sans-serif in every theme and only styles the headline", () => {

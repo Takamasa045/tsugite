@@ -48,12 +48,14 @@ export const ARTICLE_DIALOGUE_DEFAULT_THEME = Object.freeze({
 });
 
 /**
- * Anthropic-leaning palette: flat paper ground, one clay accent, serif display.
+ * Anthropic-leaning palette: warm paper ground, one clay accent, serif display.
+ * Depth stays soft (no neon, no multi-hue chrome) so it still reads as Claude UI.
  * The serif is scoped to the centre headline; dialogue captions stay sans for legibility.
  */
 export const ARTICLE_DIALOGUE_CLAUDE_THEME = Object.freeze({
   id: "claude",
-  background: "#F0EEE6",
+  background:
+    "radial-gradient(ellipse 70% 55% at 12% 18%, rgba(217, 119, 87, 0.14), transparent 55%), radial-gradient(ellipse 55% 50% at 88% 12%, rgba(120, 140, 160, 0.10), transparent 50%), radial-gradient(ellipse 80% 60% at 50% 100%, rgba(217, 119, 87, 0.07), transparent 55%), #F0EEE6",
   ink: "#191919",
   bodyFontFamily: SANS,
   headlineFontFamily: SERIF,
@@ -61,33 +63,33 @@ export const ARTICLE_DIALOGUE_CLAUDE_THEME = Object.freeze({
   headlineLetterSpacing: "-0.01em",
   label: "#6A6A63",
   kicker: "#D97757",
-  kickerBackground: "rgba(250,249,245,0.94)",
+  kickerBackground: "rgba(217, 119, 87, 0.12)",
   detail: "#3D3D3A",
-  cardBackground: "#FAF9F5",
-  cardBorder: "1px solid rgba(25, 25, 25, 0.12)",
-  cardRadius: 16,
-  cardShadow: "none",
+  cardBackground: "linear-gradient(180deg, #FFFEFA 0%, #FAF9F5 100%)",
+  cardBorder: "1px solid rgba(25, 25, 25, 0.08)",
+  cardRadius: 22,
+  cardShadow: "0 28px 70px rgba(25, 25, 25, 0.08), 0 4px 14px rgba(25, 25, 25, 0.04)",
   imagePlaceholder: "#E8E5DC",
   stepActive: "#D97757",
   stepIdle: "#CFCCC0",
-  stepBackground: "#F0EEE6",
+  stepBackground: "rgba(240, 238, 230, 0.92)",
   stepInk: "#3D3D3A",
-  badgeBackground: "#E8E5DC",
-  badgeInk: "#6A6A63",
-  badgeRadius: 8,
+  badgeBackground: "rgba(232, 229, 220, 0.95)",
+  badgeInk: "#5A5A54",
+  badgeRadius: 999,
   progressTrack: "rgba(25,25,25,0.08)",
-  progress: "#D97757",
+  progress: "linear-gradient(90deg, #E8A090 0%, #D97757 55%, #C45D3E 100%)",
   characterBackground: "#FAF9F5",
   nameIdle: "#6A6A63",
   characterRadius: "50%",
-  captionBackground: "#1F1E1D",
+  captionBackground: "rgba(31, 30, 29, 0.94)",
   captionInk: "#F0EEE6",
   captionEmphasis: "#D97757",
-  captionRadius: 14,
-  captionShadow: "none",
+  captionRadius: 18,
+  captionShadow: "0 18px 48px rgba(25, 25, 25, 0.22)",
   draftBorder: "#D97757",
   draftInk: "#B4573A",
-  draftBackground: "rgba(250,249,245,0.9)"
+  draftBackground: "rgba(250,249,245,0.92)"
 });
 
 const ARTICLE_DIALOGUE_THEMES = new Map([

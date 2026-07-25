@@ -50,7 +50,7 @@ ${themed ? themedStyles(manifest, size, theme) : plainStyles(manifest, size)}
 ${renderClips(manifest.clips)}
 ${renderAudio(manifest.audio)}
 ${themed ? renderVisualLayers(manifest) : ""}
-${renderCaptions(manifest.captions, themed)}
+${renderCaptions(manifest.captions, themed, manifest.speakers)}
   </div>
   <script>
     window.__timelines = window.__timelines || {};
@@ -126,6 +126,7 @@ export function fontFaceDeclarations(...stacks) {
 function themedStyles(manifest, size, theme) {
   const vertical = manifest.meta.aspect === "9:16";
   const scale = Math.min(size.width / 1920, size.height / 1080);
+  const isClaude = theme.id === "claude";
   return `${fontFaceDeclarations(theme.bodyFontFamily, theme.headlineFontFamily)}
     html, body {
       margin: 0;
@@ -143,6 +144,64 @@ function themedStyles(manifest, size, theme) {
       overflow: hidden;
       background: ${theme.background};
     }
+    /* Soft paper atmosphere — static, so frame-by-frame capture stays deterministic. */
+    .ambient {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .ambient .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(${round(40 * scale)}px);
+      opacity: ${isClaude ? 1 : 0.7};
+    }
+    .ambient .blob-a {
+      width: ${round(620 * scale)}px;
+      height: ${round(620 * scale)}px;
+      left: ${round(-120 * scale)}px;
+      top: ${round(-80 * scale)}px;
+      background: radial-gradient(circle, rgba(217, 119, 87, 0.22) 0%, rgba(217, 119, 87, 0) 70%);
+    }
+    .ambient .blob-b {
+      width: ${round(540 * scale)}px;
+      height: ${round(540 * scale)}px;
+      right: ${round(-100 * scale)}px;
+      top: ${round(40 * scale)}px;
+      background: radial-gradient(circle, rgba(120, 140, 160, 0.16) 0%, rgba(120, 140, 160, 0) 70%);
+    }
+    .ambient .blob-c {
+      width: ${round(760 * scale)}px;
+      height: ${round(420 * scale)}px;
+      left: 50%;
+      bottom: ${round(-120 * scale)}px;
+      transform: translateX(-50%);
+      background: radial-gradient(ellipse, rgba(217, 119, 87, 0.12) 0%, rgba(217, 119, 87, 0) 70%);
+    }
+    .ambient .vignette {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 78% 70% at 50% 42%, transparent 40%, rgba(25, 25, 25, 0.045) 100%);
+    }
+    .progress-track {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: ${round(5 * scale)}px;
+      background: ${theme.progressTrack};
+      z-index: 8;
+      overflow: hidden;
+    }
+    .progress-fill {
+      width: 100%;
+      height: 100%;
+      background: ${theme.progress};
+      transform-origin: left center;
+      transform: scaleX(0);
+    }
     /* The plate sits under an opaque ground and only carries duration. */
     video {
       position: absolute;
@@ -154,7 +213,7 @@ function themedStyles(manifest, size, theme) {
     }
     .header {
       position: absolute;
-      top: ${round(36 * scale)}px;
+      top: ${round(28 * scale)}px;
       left: ${round(56 * scale)}px;
       right: ${round(56 * scale)}px;
       display: flex;
@@ -162,15 +221,18 @@ function themedStyles(manifest, size, theme) {
       align-items: center;
       gap: ${round(24 * scale)}px;
       z-index: 5;
+      padding-bottom: ${round(18 * scale)}px;
+      border-bottom: ${round(1 * scale)}px solid rgba(25, 25, 25, 0.08);
     }
     .header .label {
-      font-size: ${round(20 * scale)}px;
+      font-size: ${round(18 * scale)}px;
       font-weight: 800;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.16em;
       color: ${theme.label};
     }
     .header .title {
-      font-size: ${round(30 * scale)}px;
+      margin-top: ${round(4 * scale)}px;
+      font-size: ${round(28 * scale)}px;
       font-weight: 800;
       white-space: nowrap;
       overflow: hidden;
@@ -178,21 +240,23 @@ function themedStyles(manifest, size, theme) {
     }
     .header .draft {
       flex: 0 0 auto;
-      border: ${round(2 * scale)}px solid ${theme.draftBorder};
+      border: ${round(1.5 * scale)}px solid ${theme.draftBorder};
       border-radius: 999px;
       color: ${theme.draftInk};
       background: ${theme.draftBackground};
-      font-size: ${round(20 * scale)}px;
+      font-size: ${round(18 * scale)}px;
       font-weight: 800;
+      letter-spacing: 0.04em;
       padding: ${round(8 * scale)}px ${round(16 * scale)}px;
+      box-shadow: 0 ${round(6 * scale)}px ${round(18 * scale)}px rgba(217, 119, 87, 0.12);
     }
     /* The card hugs its content and stays centred in the space above the caption bar. */
     .visual {
       position: absolute;
-      top: ${round(96 * scale)}px;
+      top: ${round(108 * scale)}px;
       left: ${round((vertical ? 80 : 340) * scale)}px;
       right: ${round((vertical ? 80 : 340) * scale)}px;
-      height: ${round((vertical ? 560 : 700) * scale)}px;
+      height: ${round((vertical ? 540 : 680) * scale)}px;
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -203,77 +267,149 @@ function themedStyles(manifest, size, theme) {
       background: none;
       box-shadow: none;
       text-align: center;
+      z-index: 3;
     }
     /* The visible panel is the inner block, so it can shrink to the copy it holds. */
     .visual > .panel {
+      position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: ${round(18 * scale)}px;
+      gap: ${round(20 * scale)}px;
       width: 100%;
-      padding: ${round(48 * scale)}px ${round(56 * scale)}px;
+      padding: ${round(52 * scale)}px ${round(60 * scale)}px ${round(48 * scale)}px;
       border-radius: ${round(theme.cardRadius * scale)}px;
       border: ${theme.cardBorder};
       background: ${theme.cardBackground};
       box-shadow: ${theme.cardShadow};
+      overflow: hidden;
+    }
+    .visual > .panel::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: ${round(48 * scale)}px;
+      right: ${round(48 * scale)}px;
+      height: ${round(3 * scale)}px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, transparent, ${theme.kicker} 20%, ${theme.kicker} 80%, transparent);
+      opacity: 0.9;
     }
     .visual [data-role="kicker"] {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       color: ${theme.kicker};
-      font-size: ${round(24 * scale)}px;
+      background: ${theme.kickerBackground};
+      border: ${round(1 * scale)}px solid rgba(217, 119, 87, 0.22);
+      border-radius: 999px;
+      font-size: ${round(20 * scale)}px;
       font-weight: 900;
       letter-spacing: 0.14em;
+      padding: ${round(8 * scale)}px ${round(18 * scale)}px;
     }
     .visual [data-role="headline"] {
-      max-width: ${round(1200 * scale)}px;
+      max-width: ${round(1180 * scale)}px;
       font-family: ${theme.headlineFontFamily};
-      font-size: ${round(64 * scale)}px;
+      font-size: ${round(62 * scale)}px;
       font-weight: ${theme.headlineWeight};
       letter-spacing: ${theme.headlineLetterSpacing};
-      line-height: 1.18;
+      line-height: 1.14;
       white-space: pre-line;
+    }
+    /* Impact cards: pull a stat into a poster-size number for dialogue punch. */
+    .visual[data-impact="true"] > .panel {
+      gap: ${round(14 * scale)}px;
+      padding: ${round(40 * scale)}px ${round(48 * scale)}px ${round(44 * scale)}px;
+      box-shadow:
+        0 ${round(36 * scale)}px ${round(90 * scale)}px rgba(25, 25, 25, 0.12),
+        0 0 0 ${round(1 * scale)}px rgba(217, 119, 87, 0.18),
+        0 ${round(4 * scale)}px ${round(18 * scale)}px rgba(217, 119, 87, 0.12);
+    }
+    .visual[data-impact="true"] [data-role="stat"] {
+      font-family: ${theme.headlineFontFamily};
+      font-size: ${round(148 * scale)}px;
+      font-weight: 800;
+      line-height: 0.92;
+      letter-spacing: -0.04em;
+      color: ${theme.kicker};
+      text-shadow: 0 ${round(12 * scale)}px ${round(40 * scale)}px rgba(217, 119, 87, 0.22);
+    }
+    .visual[data-impact="true"] [data-role="stat-label"] {
+      max-width: ${round(980 * scale)}px;
+      font-family: ${theme.headlineFontFamily};
+      font-size: ${round(40 * scale)}px;
+      font-weight: 700;
+      line-height: 1.25;
+      white-space: pre-line;
+      color: ${theme.ink};
+    }
+    .visual[data-mood="myth"] > .panel {
+      background: linear-gradient(180deg, #FFFEFA 0%, #F3F1EA 100%);
+      border: ${round(1 * scale)}px dashed rgba(25, 25, 25, 0.18);
+    }
+    .visual[data-mood="myth"] [data-role="kicker"] {
+      color: #6A6A63;
+      background: rgba(25, 25, 25, 0.06);
+      border-color: rgba(25, 25, 25, 0.1);
+    }
+    .visual[data-mood="now"] > .panel,
+    .visual[data-mood="proof"] > .panel {
+      border: ${round(1.5 * scale)}px solid rgba(217, 119, 87, 0.28);
+    }
+    .visual[data-mood="next"] > .panel {
+      background: linear-gradient(165deg, #FFF8F4 0%, #FAF9F5 55%, #F0EEE6 100%);
+      box-shadow:
+        0 ${round(32 * scale)}px ${round(80 * scale)}px rgba(217, 119, 87, 0.14),
+        0 ${round(4 * scale)}px ${round(14 * scale)}px rgba(25, 25, 25, 0.04);
+    }
+    .visual[data-mood="turn"] [data-role="headline"] {
+      font-size: ${round(56 * scale)}px;
     }
     .visual [data-role="detail"] {
       max-width: ${round(1000 * scale)}px;
       color: ${theme.detail};
-      font-size: ${round(34 * scale)}px;
+      font-size: ${round(30 * scale)}px;
       font-weight: 650;
-      line-height: 1.45;
+      line-height: 1.5;
       white-space: pre-line;
     }
     .visual [data-role="steps"] {
       display: flex;
       flex-direction: column;
-      gap: ${round(10 * scale)}px;
+      gap: ${round(12 * scale)}px;
       width: 100%;
       max-width: ${round(1200 * scale)}px;
     }
     .visual [data-role="step"] {
       display: flex;
       align-items: center;
-      gap: ${round(12 * scale)}px;
+      gap: ${round(14 * scale)}px;
       text-align: left;
     }
     .visual [data-role="step"] .index {
       flex: 0 0 auto;
-      width: ${round(34 * scale)}px;
-      height: ${round(34 * scale)}px;
+      width: ${round(40 * scale)}px;
+      height: ${round(40 * scale)}px;
       border-radius: 999px;
       background: ${theme.stepActive};
       color: #ffffff;
-      font-size: ${round(18 * scale)}px;
+      font-size: ${round(20 * scale)}px;
       font-weight: 900;
       display: flex;
       align-items: center;
       justify-content: center;
+      box-shadow: 0 ${round(8 * scale)}px ${round(18 * scale)}px rgba(217, 119, 87, 0.32);
     }
     .visual [data-role="step"] .body {
       flex: 1;
-      border-radius: ${round(Math.max(8, theme.cardRadius - 4) * scale)}px;
+      border-radius: ${round(Math.max(10, theme.cardRadius - 6) * scale)}px;
       background: ${theme.stepBackground};
       color: ${theme.stepInk};
       font-size: ${round(26 * scale)}px;
       font-weight: 750;
-      padding: ${round(12 * scale)}px ${round(16 * scale)}px;
+      padding: ${round(14 * scale)}px ${round(18 * scale)}px;
+      border: ${round(1 * scale)}px solid rgba(25, 25, 25, 0.05);
     }
     .visual [data-role="badges"] {
       display: flex;
@@ -285,83 +421,152 @@ function themedStyles(manifest, size, theme) {
       border-radius: ${round(theme.badgeRadius * scale)}px;
       background: ${theme.badgeBackground};
       color: ${theme.badgeInk};
-      font-size: ${round(24 * scale)}px;
+      font-size: ${round(22 * scale)}px;
       font-weight: 800;
-      padding: ${round(10 * scale)}px ${round(16 * scale)}px;
+      padding: ${round(10 * scale)}px ${round(18 * scale)}px;
+      border: ${round(1 * scale)}px solid rgba(25, 25, 25, 0.06);
     }
-    /* Cast: full-body cutouts standing either side of the card. */
+    /* Cast: dialogue energy — active speaker steps forward, idle steps back. */
     .cast {
       position: absolute;
       inset: 0;
       pointer-events: none;
+      z-index: 2;
     }
+    .cast .side-glow {
+      position: absolute;
+      top: ${round(120 * scale)}px;
+      bottom: ${round(140 * scale)}px;
+      width: ${round(420 * scale)}px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .cast .side-glow[data-side="left"] {
+      left: 0;
+      background: radial-gradient(ellipse at 20% 55%, rgba(217, 119, 87, 0.2) 0%, rgba(217, 119, 87, 0) 68%);
+    }
+    .cast .side-glow[data-side="right"] {
+      right: 0;
+      background: radial-gradient(ellipse at 80% 55%, rgba(217, 119, 87, 0.22) 0%, rgba(217, 119, 87, 0) 68%);
+    }
+    .cast .side-glow[data-active="true"] { opacity: 1; }
     .cast .figure {
       position: absolute;
-      bottom: ${round(180 * scale)}px;
-      width: ${round(300 * scale)}px;
+      bottom: ${round(150 * scale)}px;
+      width: ${round(360 * scale)}px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: ${round(10 * scale)}px;
+      gap: ${round(6 * scale)}px;
+      z-index: 1;
     }
-    .cast .figure[data-side="left"] { left: ${round(24 * scale)}px; }
-    .cast .figure[data-side="right"] { right: ${round(24 * scale)}px; }
-    .cast .figure[data-active="true"] { opacity: 1; }
-    .cast .figure[data-active="false"] { opacity: 0.5; }
-    .cast .figure[data-active="false"] .portrait { transform: scale(0.9); transform-origin: center bottom; }
-    .cast .figure[data-active="false"] .portrait img { filter: saturate(0.72); }
+    .cast .figure[data-side="left"] { left: ${round(8 * scale)}px; }
+    .cast .figure[data-side="right"] { right: ${round(8 * scale)}px; }
+    .cast .figure[data-active="true"] { opacity: 1; z-index: 3; }
+    .cast .figure[data-active="false"] { opacity: 0.38; z-index: 1; }
+    .cast .figure[data-active="false"] .portrait { transform: scale(0.78) translateY(${round(18 * scale)}px); transform-origin: center bottom; }
+    .cast .figure[data-active="false"] .portrait img { filter: saturate(0.55) brightness(0.94); }
+    .cast .figure[data-active="true"] .portrait { transform: scale(1.08); transform-origin: center bottom; }
+    .cast .stage-disc {
+      width: ${round(220 * scale)}px;
+      height: ${round(34 * scale)}px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(25, 25, 25, 0.14) 0%, rgba(25, 25, 25, 0) 72%);
+      margin-bottom: ${round(-4 * scale)}px;
+      order: 3;
+    }
+    .cast .figure[data-active="true"] .stage-disc {
+      width: ${round(250 * scale)}px;
+      background: radial-gradient(ellipse, rgba(217, 119, 87, 0.3) 0%, rgba(217, 119, 87, 0) 72%);
+    }
     .cast .portrait {
+      position: relative;
       width: 100%;
-      height: ${round(380 * scale)}px;
+      height: ${round(440 * scale)}px;
       display: flex;
       align-items: flex-end;
       justify-content: center;
+      order: 1;
     }
     .cast .portrait img {
       max-width: 100%;
       max-height: 100%;
       object-fit: contain;
       object-position: center bottom;
+      filter: drop-shadow(0 ${round(18 * scale)}px ${round(36 * scale)}px rgba(25, 25, 25, 0.16));
+    }
+    /* Mouth frames stack in one box; the timeline runtime flips opacity by time. */
+    .cast .portrait[data-mouth-sync="true"] img {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      margin: 0 auto;
+      width: 100%;
+      height: 100%;
     }
     .cast .name {
+      order: 2;
       border-radius: 999px;
-      padding: ${round(8 * scale)}px ${round(18 * scale)}px;
+      padding: ${round(10 * scale)}px ${round(22 * scale)}px;
       font-size: ${round(24 * scale)}px;
       font-weight: 900;
       color: #ffffff;
       background: ${theme.nameIdle};
+      box-shadow: 0 ${round(8 * scale)}px ${round(18 * scale)}px rgba(25, 25, 25, 0.12);
     }
-    .cast .figure[data-active="true"] .name { background: var(--accent); }
+    .cast .figure[data-active="true"] .name {
+      background: var(--accent);
+      transform: scale(1.06);
+      box-shadow: 0 ${round(12 * scale)}px ${round(28 * scale)}px color-mix(in srgb, var(--accent) 40%, transparent);
+    }
+    /* Caption reads as a dialogue balloon, rimmed with the active speaker accent. */
     .caption {
       position: absolute;
-      left: ${round((vertical ? 80 : 360) * scale)}px;
-      right: ${round((vertical ? 80 : 360) * scale)}px;
-      bottom: ${round(36 * scale)}px;
-      min-height: ${round(96 * scale)}px;
+      left: ${round((vertical ? 72 : 300) * scale)}px;
+      right: ${round((vertical ? 72 : 300) * scale)}px;
+      bottom: ${round(28 * scale)}px;
+      min-height: ${round(108 * scale)}px;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: ${round(18 * scale)}px ${round(28 * scale)}px;
+      gap: ${round(18 * scale)}px;
+      padding: ${round(22 * scale)}px ${round(34 * scale)}px;
       border-radius: ${round(theme.captionRadius * scale)}px;
       background: ${theme.captionBackground};
       color: ${theme.captionInk};
-      box-shadow: ${theme.captionShadow};
+      box-shadow: ${theme.captionShadow}, 0 0 0 ${round(1 * scale)}px rgba(255,255,255,0.04);
+      border: ${round(2 * scale)}px solid color-mix(in srgb, var(--speaker-accent, ${theme.kicker}) 55%, transparent);
       font-size: ${round(40 * scale)}px;
       font-weight: 800;
-      line-height: 1.35;
+      line-height: 1.32;
       letter-spacing: -0.02em;
       text-align: center;
       text-wrap: balance;
+      z-index: 6;
+    }
+    .caption .speaker-chip {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: ${round(8 * scale)}px ${round(16 * scale)}px;
+      font-size: ${round(20 * scale)}px;
+      font-weight: 900;
+      color: #ffffff;
+      background: var(--speaker-accent, ${theme.kicker});
+      letter-spacing: 0.02em;
     }
     .caption .line {
       display: block;
+      flex: 1;
     }
     .caption .emphasis {
       font-style: normal;
       color: ${theme.captionEmphasis ?? theme.kicker};
-    }`;
+      text-shadow: 0 0 ${round(18 * scale)}px rgba(217, 119, 87, 0.35);
+    }
+`;
 }
-
 function round(value) {
   return Math.round(value * 100) / 100;
 }
@@ -394,14 +599,18 @@ export function renderAudio(audio) {
     ["sfx", audio?.sfx ?? []]
   ];
   const elements = [];
+  // HyperFrames forbids overlapping clips on the same data-track-index, so every
+  // audio element — BGM, each narration line, SFX — gets its own track.
+  let trackIndex = 2;
   for (const [track, entries] of tracks) {
     for (const [index, entry] of entries.entries()) {
       if (!entry.src) continue;
       const start = entry.start ?? 0;
       const duration = entry.end && entry.end > start ? entry.end - start : undefined;
       elements.push(
-        `    <audio id="${escapeAttr(entry.id ?? `${track}-${index + 1}`)}" class="clip" data-start="${start}"${duration ? ` data-duration="${duration}"` : ""} data-track-index="${index + 2}"${entry.volume === undefined ? "" : ` data-volume="${entry.volume}"`} src="${escapeAttr(entry.src)}"></audio>`
+        `    <audio id="${escapeAttr(entry.id ?? `${track}-${index + 1}`)}" class="clip" data-start="${start}"${duration ? ` data-duration="${duration}"` : ""} data-track-index="${trackIndex}"${entry.volume === undefined ? "" : ` data-volume="${entry.volume}"`} src="${escapeAttr(entry.src)}"></audio>`
       );
+      trackIndex += 1;
     }
   }
   return elements.join("\n");
@@ -409,6 +618,15 @@ export function renderAudio(audio) {
 
 function renderVisualLayers(manifest) {
   const presentation = manifest.presentation ?? {};
+  const ambient = [
+    '    <div class="ambient" aria-hidden="true">',
+    '      <div class="blob blob-a"></div>',
+    '      <div class="blob blob-b"></div>',
+    '      <div class="blob blob-c"></div>',
+    '      <div class="vignette"></div>',
+    "    </div>",
+    '    <div class="progress-track" aria-hidden="true"><div id="progress-fill" class="progress-fill"></div></div>'
+  ];
   const header = [
     '    <div class="header">',
     "      <div>",
@@ -424,12 +642,13 @@ function renderVisualLayers(manifest) {
     .filter(Boolean);
   const cast = renderCast(manifest);
 
-  return [...header, ...cards, ...cast].join("\n");
+  return [...ambient, ...header, ...cards, ...cast].join("\n");
 }
 
 /**
  * Both speakers stay on stage for the whole line; only `data-active` moves.
- * One layer per line keeps the staging in data attributes, so it needs no runtime logic.
+ * The active speaker with three `mouth_frames` stacks closed/half/open images so the
+ * timeline runtime can flip opacity as a pure function of seek time.
  */
 function renderCast(manifest) {
   const speakers = manifest.speakers ?? [];
@@ -438,26 +657,53 @@ function renderCast(manifest) {
 
   return (manifest.captions ?? []).map((caption, index) => {
     const duration = Math.max(0.01, caption.end - caption.start);
+    const glows = speakers.map((speaker) => {
+      const active = caption.speaker === speaker.id;
+      return `      <div class="side-glow" data-side="${escapeAttr(speaker.side)}" data-active="${active}" aria-hidden="true"></div>`;
+    });
     const figures = speakers.map((speaker) => {
       const active = caption.speaker === speaker.id;
-      const image = resolveSpeakerPose(speaker, active ? caption.pose : undefined, images);
-      const portrait = image
-        ? `<img src="${escapeAttr(image.src)}" alt="${escapeAttr(image.alt ?? speaker.display_name)}">`
-        : "";
+      const portrait = renderPortrait(speaker, active, caption.pose, images);
       return [
         `      <div class="figure" data-speaker="${escapeAttr(speaker.id)}" data-side="${escapeAttr(speaker.side)}" data-active="${active}" style="--accent: ${escapeAttr(speaker.accent)}">`,
-        `        <div class="portrait">${portrait}</div>`,
+        `        <div class="portrait"${portrait.mouthSync ? ' data-mouth-sync="true"' : ""}>${portrait.html}</div>`,
         `        <div class="name">${escapeHtml(speaker.display_name)}</div>`,
+        '        <div class="stage-disc" aria-hidden="true"></div>',
         "      </div>"
       ].join("\n");
     });
 
     return [
       `    <div id="${escapeAttr(`${caption.id ?? `cast-${index + 1}`}-cast`)}" class="clip cast" data-start="${caption.start}" data-duration="${duration}" data-track-index="${CAST_TRACK_BASE + index}">`,
+      ...glows,
       ...figures,
       "    </div>"
     ].join("\n");
   });
+}
+
+function renderPortrait(speaker, active, pose, images) {
+  const mouthFrames = speaker.mouth_frames;
+  if (active && Array.isArray(mouthFrames) && mouthFrames.length === 3) {
+    const frames = mouthFrames
+      .map((imageId, mouthIndex) => {
+        const image = images.find((entry) => entry.id === imageId);
+        if (!image) return "";
+        // Start on closed (index 0); the runtime owns later frames.
+        const opacity = mouthIndex === 0 ? 1 : 0;
+        return `<img data-mouth-index="${mouthIndex}" src="${escapeAttr(image.src)}" alt="${escapeAttr(image.alt ?? speaker.display_name)}" style="opacity: ${opacity}">`;
+      })
+      .filter(Boolean)
+      .join("");
+    if (frames) return { html: frames, mouthSync: true };
+  }
+
+  const image = resolveSpeakerPose(speaker, active ? pose : undefined, images);
+  if (!image) return { html: "", mouthSync: false };
+  return {
+    html: `<img src="${escapeAttr(image.src)}" alt="${escapeAttr(image.alt ?? speaker.display_name)}">`,
+    mouthSync: false
+  };
 }
 
 function resolveSpeakerPose(speaker, pose, images) {
@@ -473,10 +719,17 @@ function renderVisualCard(caption, index) {
   if (!visual?.headline) return "";
   const duration = Math.max(0.01, caption.end - caption.start);
   const id = escapeAttr(`${caption.id ?? `visual-${index + 1}`}-visual`);
+  const mood = resolveVisualMood(visual.kicker);
+  const impact = splitImpactHeadline(visual.headline);
   const parts = [];
 
   if (visual.kicker) parts.push(`      <div data-role="kicker">${escapeHtml(visual.kicker)}</div>`);
-  parts.push(`      <div data-role="headline">${escapeHtml(visual.headline)}</div>`);
+  if (impact) {
+    parts.push(`      <div data-role="stat">${escapeHtml(impact.stat)}</div>`);
+    if (impact.label) parts.push(`      <div data-role="stat-label">${escapeHtml(impact.label)}</div>`);
+  } else {
+    parts.push(`      <div data-role="headline">${escapeHtml(visual.headline)}</div>`);
+  }
   if (visual.detail) parts.push(`      <div data-role="detail">${escapeHtml(visual.detail)}</div>`);
 
   const steps = Array.isArray(visual.steps) ? visual.steps : [];
@@ -500,7 +753,7 @@ function renderVisualCard(caption, index) {
   }
 
   return [
-    `    <div id="${id}" class="clip visual" data-start="${caption.start}" data-duration="${duration}" data-track-index="${VISUAL_TRACK_BASE + index}">`,
+    `    <div id="${id}" class="clip visual" data-start="${caption.start}" data-duration="${duration}" data-track-index="${VISUAL_TRACK_BASE + index}" data-mood="${escapeAttr(mood)}" data-impact="${impact ? "true" : "false"}">`,
     '      <div class="panel">',
     ...parts.map((part) => `  ${part}`),
     "      </div>",
@@ -508,14 +761,55 @@ function renderVisualCard(caption, index) {
   ].join("\n");
 }
 
-export function renderCaptions(captions, themed = false) {
+/**
+ * Poster-style stats for dialogue punch. Matches numbers that carry the claim
+ * (80%, 8割) without rewriting the authored Japanese copy wholesale.
+ */
+export function splitImpactHeadline(headline) {
+  const text = String(headline ?? "");
+  const match = text.match(/(80%以上|80%|\d+\s*%|\d+割|8割)/);
+  if (!match) return null;
+  const stat = match[1].replace(/\s+/g, "");
+  // Pull the stat out, then scrub commas/spaces left behind on either side of the hole.
+  const label = `${text.slice(0, match.index)}${text.slice(match.index + match[0].length)}`
+    .replace(/[、,，]\s*$/gm, "")
+    .replace(/^\s*[、,，]/gm, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+  return { stat, label: label || null };
+}
+
+export function resolveVisualMood(kicker) {
+  const key = String(kicker ?? "").toUpperCase();
+  if (key.includes("MYTH") || key.includes("前提") || key.includes("よくある")) return "myth";
+  if (key.includes("NOW") || key.includes("新システム")) return "now";
+  if (key.includes("TURN") || key.includes("転換") || key.includes("THEN")) return "turn";
+  if (key.includes("EVIDENCE") || key.includes("証拠")) return "evidence";
+  if (key.includes("NEXT") || key.includes("次")) return "next";
+  if (key.includes("ANTHROPIC") || key.includes("公式")) return "proof";
+  return "default";
+}
+
+export function renderCaptions(captions, themed = false, speakers = []) {
+  const speakerList = speakers ?? [];
+  const speakerById = new Map(speakerList.map((speaker) => [speaker.id, speaker]));
+  const dialogueMode = themed && speakerList.length > 0;
   return (captions ?? [])
     .map((caption, index) => {
       const duration = Math.max(0.01, caption.end - caption.start);
+      const speaker = speakerById.get(caption.speaker);
+      const accent = speaker?.accent ?? "#D97757";
+      const chip =
+        dialogueMode && speaker
+          ? `<span class="speaker-chip">${escapeHtml(speaker.display_name)}</span>`
+          : "";
       const body = themed
-        ? `<span class="line">${emphasizedHtml(caption.text, caption.emphasis)}</span>`
+        ? `${chip}<span class="line">${emphasizedHtml(caption.text, caption.emphasis)}</span>`
         : escapeHtml(caption.text);
-      return `    <div id="${escapeAttr(caption.id ?? `caption-${index + 1}`)}" class="clip caption" data-start="${caption.start}" data-duration="${duration}" data-track-index="${index + 20}">${body}</div>`;
+      const style = dialogueMode ? ` style="--speaker-accent: ${escapeAttr(accent)}"` : "";
+      const speakerAttr = dialogueMode ? ` data-speaker="${escapeAttr(caption.speaker ?? "")}"` : "";
+      return `    <div id="${escapeAttr(caption.id ?? `caption-${index + 1}`)}" class="clip caption" data-start="${caption.start}" data-duration="${duration}" data-track-index="${index + 20}"${speakerAttr}${style}>${body}</div>`;
     })
     .join("\n");
 }
