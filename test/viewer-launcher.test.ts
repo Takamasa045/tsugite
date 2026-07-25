@@ -199,6 +199,7 @@ describe("workflow viewer launcher", () => {
       secondConfig
         .replace("slug: local-fixture", "slug: second-project")
         .replace("run_id: local-fixture-run", "run_id: second-project-run")
+        .replace("name: ローカル検証フィクスチャ", "name: 第二の案件")
     );
     await writeFile(join(fixture.projectDir, "feedback.jsonl"), [
       JSON.stringify({
@@ -249,7 +250,7 @@ describe("workflow viewer launcher", () => {
           signal: "prefer",
           stage: "verified",
           projectCount: 2,
-          projectNames: ["second-project", "valid-project"],
+          projectNames: expect.arrayContaining(["第二の案件", "ローカル検証フィクスチャ"]),
           runIds: ["local-fixture-run", "second-project-run"],
           promotion: {
             kind: "qa",
@@ -260,11 +261,12 @@ describe("workflow viewer launcher", () => {
         }],
         issues: [expect.objectContaining({
           code: "feedback.invalid_json",
-          projectName: "valid-project",
+          projectName: "ローカル検証フィクスチャ",
           path: "feedback.jsonl"
         })]
       }
     });
+    expect(payload.feedback.preferences[0].projectNames).toHaveLength(2);
     expect(JSON.stringify(payload)).not.toContain(fixture.root);
   });
 
@@ -1303,13 +1305,9 @@ distribution: local-only
     const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
     expect(payload).toMatchObject({ ok: true });
     expect(payload.projects).toHaveLength(2);
-    expect(payload.projects.map((project: { name: string }) => project.name)).toEqual([
-      "invalid-project",
-      "valid-project"
-    ]);
-    const valid = payload.projects.find((project: { name: string }) => project.name === "valid-project");
+    const valid = payload.projects.find((project: { slug: string }) => project.slug === "local-fixture");
     expect(valid).toMatchObject({
-      name: "valid-project",
+      name: "ローカル検証フィクスチャ",
       slug: "local-fixture",
       runId: "local-fixture-run",
       status: "planned",
@@ -1363,6 +1361,7 @@ distribution: local-only
       (await readFile(join(worktreeProjectDir, "project.yaml"), "utf8"))
         .replace("slug: local-fixture", "slug: in-progress-project")
         .replace("run_id: local-fixture-run", "run_id: in-progress-project-run")
+        .replace("name: ローカル検証フィクスチャ", "name: 作業中の案件")
     );
 
     const launcher = await launch({
@@ -1374,9 +1373,12 @@ distribution: local-only
 
     const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
     expect(payload.projects).toHaveLength(2);
-    const worktreeProject = payload.projects.find((project: { name: string }) => project.name === "in-progress-project");
+    const worktreeProject = payload.projects.find(
+      (project: { slug: string }) => project.slug === "in-progress-project"
+    );
     expect(worktreeProject).toMatchObject({
-      name: "in-progress-project",
+      name: "作業中の案件",
+      slug: "in-progress-project",
       status: "planned",
       readOnly: true,
       availableActions: []
@@ -1479,7 +1481,7 @@ distribution: local-only
     const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
     expect(payload.projects).toHaveLength(1);
     expect(payload.projects[0]).toMatchObject({
-      name: "valid-project",
+      name: "ローカル検証フィクスチャ",
       runId: latestRunId,
       updatedAt: "2026-07-17T00:00:00.000Z",
       valid: true

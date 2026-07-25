@@ -1,4 +1,5 @@
 slug: local-fixture
+name: ローカル検証フィクスチャ
 run_id: local-fixture-run
 manifest: manifest.json
 dist_dir: dist
