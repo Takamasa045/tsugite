@@ -38,6 +38,13 @@ required_inputs:
   - type: text
     label: 記事本文
     required: true
+direction:
+  pacing: 冒頭2秒以内にフック。カット尺は均等割りせず、見せ場前に短カットを密集させる
+  camera: 1ショットにつきカメラの動きは1つ。隣接ショットで画角（引き/寄り）を交互にする
+  light_color: 導入は低彩度→結論で彩度と光量を上げる
+  motif: 反復モチーフは3回登場し、3回目は変化をつけて回収する
+  transitions: 使うトランジションは2種類まで。意味のある場面転換にだけ使う
+  audio_sync: カット点をBGMのビートまたはナレーションの句点に合わせる
 tags:
   - 解説
 audio:
@@ -50,6 +57,21 @@ distribution: local-only
 ```
 
 `status` は `stable` / `experimental` / `deprecated`、`distribution` は `bundled` / `local-only` を指定します。`distribution` はランチャー上の表示区分であり、アクセス制御やGit公開判定には使用しません。
+
+### `direction`（任意・schema_version 1）
+
+制作ブリーフへ載せる**演出指針**です。何を作るか（summary / variants / required_inputs）に対し、どう見せるかをテンプレート作成時に固定します。未指定でも有効です。1つ以上のフィールドが必要です。各値は最大600文字です。
+
+| YAML | API / ブリーフ表示 |
+|---|---|
+| `pacing` | `direction.pacing` / テンポ |
+| `camera` | `direction.camera` / カメラ |
+| `light_color` | `direction.lightColor` / 光と色 |
+| `motif` | `direction.motif` / モチーフ |
+| `transitions` | `direction.transitions` / トランジション |
+| `audio_sync` | `direction.audioSync` / 音との同期 |
+
+ランチャーの制作ブリーフ（コピー用 Markdown）に `## 演出指針` として出ます。生成・実行・Gate を起動する能力ではありません。
 
 ## 安全条件
 

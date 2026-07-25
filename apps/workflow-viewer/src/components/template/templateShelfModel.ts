@@ -1,3 +1,12 @@
+export interface LauncherTemplateDirection {
+  pacing?: string
+  camera?: string
+  lightColor?: string
+  motif?: string
+  transitions?: string
+  audioSync?: string
+}
+
 export interface LauncherTemplate {
   id: string
   name: string
@@ -21,6 +30,8 @@ export interface LauncherTemplate {
     flow: string[]
   } | null
   notFor: string[]
+  /** テンプレート単位の演出指針（任意）。制作ブリーフへ載せる。 */
+  direction?: LauncherTemplateDirection
   variants: Array<{
     id: string
     label: string
@@ -87,6 +98,16 @@ export const TEMPLATE_INPUT_TYPE_LABELS: Record<TemplateInputType, string> = {
   other: 'その他',
 }
 
+/** ブリーフ「演出指針」の表示順と日本語ラベル */
+export const TEMPLATE_DIRECTION_FIELDS = [
+  { key: 'pacing', label: 'テンポ' },
+  { key: 'camera', label: 'カメラ' },
+  { key: 'lightColor', label: '光と色' },
+  { key: 'motif', label: 'モチーフ' },
+  { key: 'transitions', label: 'トランジション' },
+  { key: 'audioSync', label: '音との同期' },
+] as const satisfies ReadonlyArray<{ key: keyof LauncherTemplateDirection; label: string }>
+
 export const FALLBACK_TEMPLATE_PREVIEW: NonNullable<LauncherTemplate['preview']> = {
   frames: [
     { kind: 'text', label: '導入' },
@@ -141,6 +162,21 @@ function isTemplateInputDetail(input: unknown): input is LauncherTemplate['requi
     && (!('required' in input) || input.required === undefined || typeof input.required === 'boolean')
 }
 
+function isTemplateDirection(input: unknown): input is LauncherTemplateDirection {
+  if (typeof input !== 'object' || input === null) return false
+  const record = input as Record<string, unknown>
+  const keys = TEMPLATE_DIRECTION_FIELDS.map((field) => field.key)
+  let hasField = false
+  for (const [key, value] of Object.entries(record)) {
+    if (!(keys as string[]).includes(key)) return false
+    if (value !== undefined) {
+      if (typeof value !== 'string' || value.trim() === '') return false
+      hasField = true
+    }
+  }
+  return hasField
+}
+
 function isTemplatePreview(input: unknown): input is LauncherTemplate['preview'] {
   if (input === null) return true
   return typeof input === 'object' && input !== null
@@ -167,6 +203,7 @@ export function isLauncherTemplate(input: unknown): input is LauncherTemplate {
     && 'requiredInputDetails' in input && Array.isArray(input.requiredInputDetails) && input.requiredInputDetails.every(isTemplateInputDetail)
     && 'preview' in input && isTemplatePreview(input.preview)
     && 'notFor' in input && isStringArray(input.notFor)
+    && (!('direction' in input) || input.direction === undefined || isTemplateDirection(input.direction))
     && 'variants' in input && Array.isArray(input.variants) && input.variants.every(isTemplateVariant)
     && 'tags' in input && isStringArray(input.tags)
     && 'audio' in input && typeof input.audio === 'string'
@@ -275,8 +312,25 @@ export function partitionRequiredInputs(details: readonly TemplateInputDetail[])
   return { required, optional }
 }
 
+export function listDirectionLines(
+  direction: LauncherTemplateDirection | undefined,
+): Array<{ label: string; text: string }> {
+  if (!direction) return []
+  const lines: Array<{ label: string; text: string }> = []
+  for (const field of TEMPLATE_DIRECTION_FIELDS) {
+    const text = direction[field.key]
+    if (typeof text === 'string' && text.trim() !== '') {
+      lines.push({ label: field.label, text: text.trim() })
+    }
+  }
+  return lines
+}
+
 export function buildTemplateBriefMarkdown(
-  template: Pick<LauncherTemplate, 'name' | 'summary' | 'variants' | 'requiredInputDetails' | 'notFor' | 'audio'>,
+  template: Pick<
+    LauncherTemplate,
+    'name' | 'summary' | 'variants' | 'requiredInputDetails' | 'notFor' | 'audio' | 'direction'
+  >,
   choices: Readonly<Record<string, string>>,
 ): string {
   const { required, optional } = partitionRequiredInputs(template.requiredInputDetails)
@@ -292,6 +346,14 @@ export function buildTemplateBriefMarkdown(
     const optionId = choices[variant.id]
     const option = variant.options.find((entry) => entry.id === optionId)
     lines.push(`- **${variant.label}**: ${option?.label ?? '（未選択）'}`)
+  }
+
+  const directionLines = listDirectionLines(template.direction)
+  if (directionLines.length > 0) {
+    lines.push('', '## 演出指針')
+    for (const entry of directionLines) {
+      lines.push(`- **${entry.label}**: ${entry.text}`)
+    }
   }
 
   lines.push('', '## 用意するもの', '', '### 必須')

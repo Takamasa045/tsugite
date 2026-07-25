@@ -52,9 +52,13 @@ const template = {
   ],
   notFor: ['無言の商品映像'],
   audio: '音声は任意です。',
+  direction: {
+    pacing: '冒頭2秒以内にフック',
+    camera: '1ショット1カメラベクトル',
+  },
 } satisfies Pick<
   LauncherTemplate,
-  'name' | 'summary' | 'variants' | 'requiredInputDetails' | 'notFor' | 'audio'
+  'name' | 'summary' | 'variants' | 'requiredInputDetails' | 'notFor' | 'audio' | 'direction'
 >
 
 describe('templateShelfModel', () => {
@@ -143,5 +147,18 @@ describe('templateShelfModel', () => {
     expect(md).toContain('記事本文')
     expect(md).toContain('任意BGM')
     expect(md).toContain('無言の商品映像')
+  })
+
+  it('buildTemplateBriefMarkdown に演出指針を含める（無い場合はセクションを出さない）', () => {
+    const withDirection = buildTemplateBriefMarkdown(template, { cast: 'peer-dialogue' })
+    expect(withDirection).toContain('## 演出指針')
+    expect(withDirection).toContain('**テンポ**: 冒頭2秒以内にフック')
+    expect(withDirection).toContain('**カメラ**: 1ショット1カメラベクトル')
+
+    const withoutDirection = buildTemplateBriefMarkdown(
+      { ...template, direction: undefined },
+      { cast: 'peer-dialogue' },
+    )
+    expect(withoutDirection).not.toContain('## 演出指針')
   })
 })
