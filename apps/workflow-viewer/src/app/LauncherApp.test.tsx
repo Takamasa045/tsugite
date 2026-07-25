@@ -1036,6 +1036,25 @@ describe('LauncherApp', () => {
     expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
+  it('テンプレート棚を離れてもウィザードの進行を保持する', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await user.click(await screen.findByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
+
+    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    expect(screen.getByRole('heading', { name: '制作案件を選ぶ' })).toBeVisible()
+
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /初心者＋専門家/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('テンプレート一覧の読込失敗から再試行できる', async () => {
     const user = userEvent.setup()
     let templateAttempts = 0

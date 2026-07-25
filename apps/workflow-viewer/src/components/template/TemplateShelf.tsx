@@ -114,12 +114,10 @@ export function TemplateShelf({
       commit({ ...state, step: 0 })
       return
     }
+    // 未来ステップへの前進はパンくずでは許可しない（到達済み / 現在以下のみ）
+    if (step > state.step) return
     if (!selectedTemplate?.valid) return
     const maxStep = checklistStep(selectedTemplate.variants)
-    if (step > maxStep || step > state.step) {
-      // 未来ステップへの前進はパンくずでは許可しない（到達済み / 現在以下のみ）
-      if (step > state.step) return
-    }
     commit({ ...state, step: Math.min(step, maxStep) })
   }
 

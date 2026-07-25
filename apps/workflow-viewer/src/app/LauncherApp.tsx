@@ -19,9 +19,11 @@ import { AgentWorkspaceChooser } from '../components/agent/AgentWorkspaceChooser
 import { GenerationCanvas } from '../components/generation/GenerationCanvas'
 import { TemplateShelf } from '../components/template/TemplateShelf'
 import {
+  INITIAL_WIZARD_STATE,
   isTemplateListResponse,
   type LauncherTemplate,
   type TemplateLoadState,
+  type TemplateWizardState,
 } from '../components/template/templateShelfModel'
 import { DesktopWorkspaceRecovery } from '../components/workspace/DesktopWorkspaceRecovery'
 
@@ -459,6 +461,8 @@ export function LauncherApp({
   const [templates, setTemplates] = useState<LauncherTemplate[]>([])
   const [templateLoadState, setTemplateLoadState] = useState<TemplateLoadState>('idle')
   const [selectedTemplate, setSelectedTemplate] = useState<LauncherTemplate | null>(null)
+  /** 棚タブ離脱後もウィザード進行を保持する */
+  const [templateWizardState, setTemplateWizardState] = useState<TemplateWizardState>(INITIAL_WIZARD_STATE)
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
   const [feedbackLoadState, setFeedbackLoadState] = useState<FeedbackLoadState>('idle')
   const [selectedFeedbackKey, setSelectedFeedbackKey] = useState<string | null>(null)
@@ -859,7 +863,7 @@ export function LauncherApp({
             <span>{activeShelf === 'projects'
               ? '最近更新した順に並んでいます'
               : activeShelf === 'templates'
-                ? '用途と必要素材を比較できます'
+                ? '型→軸→チェックリストで確認できます'
                 : activeShelf === 'canvas'
                   ? '画像・動画の工程をつないで設計します'
                   : '制作から育った知見を確認できます'}</span>
@@ -883,9 +887,22 @@ export function LauncherApp({
           </>
         ) : activeShelf === 'templates' ? (
           <>
-            <li data-active="true"><span>一</span><strong>見つける</strong></li>
-            <li data-active={selectedTemplate !== null}><span>二</span><strong>比べる</strong></li>
-            <li data-active={selectedTemplate?.valid === true}><span>三</span><strong>必要素材を見る</strong></li>
+            <li data-active={templateWizardState.step === 0}><span>一</span><strong>型を選ぶ</strong></li>
+            <li data-active={Boolean(
+              selectedTemplate?.valid
+              && templateWizardState.step >= 1
+              && templateWizardState.step <= selectedTemplate.variants.length,
+            )}
+            >
+              <span>二</span><strong>軸を選ぶ</strong>
+            </li>
+            <li data-active={Boolean(
+              selectedTemplate?.valid
+              && templateWizardState.step > selectedTemplate.variants.length,
+            )}
+            >
+              <span>三</span><strong>準備を確認</strong>
+            </li>
           </>
         ) : activeShelf === 'canvas' ? (
           <>
@@ -1167,9 +1184,11 @@ export function LauncherApp({
         </>
       ) : activeShelf === 'templates' ? (
         <TemplateShelf
+          initialState={templateWizardState}
           loadState={templateLoadState}
           onRetry={() => void loadTemplates()}
           onSelectedTemplateChange={setSelectedTemplate}
+          onStateChange={setTemplateWizardState}
           templates={templates}
         />
       ) : activeShelf === 'canvas' ? (
