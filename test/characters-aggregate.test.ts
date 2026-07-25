@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateCharacters,
   compareSourcesForRepresentative,
-  groupKeyFor
+  groupKeyFor,
+  isReferenceAssetSource
 } from "../src/characters/aggregate.js";
 import type { CharacterSourceRef } from "../src/characters/types.js";
 
 describe("aggregateCharacters", () => {
-  it("groups local sources by id + displayName across projects", () => {
+  it("groups local sources by normalized displayName across projects and speaker ids", () => {
     const sources = [
       source({
         sourceKey: "project\0/a/manifest.json\0hero",
@@ -32,21 +33,62 @@ describe("aggregateCharacters", () => {
         displayName: "Other Hero",
         manifestPath: "/c/manifest.json",
         poses: [pose("neutral")]
+      }),
+      // Same face, different speaker id / kana form should merge
+      source({
+        sourceKey: "project\0/d/manifest.json\0mike",
+        label: "project-d",
+        id: "mike",
+        displayName: "ネル先生",
+        manifestPath: "/d/manifest.json",
+        poses: [pose("neutral")]
+      }),
+      source({
+        sourceKey: "project\0/e/manifest.json\0neru",
+        label: "project-e",
+        id: "neru",
+        displayName: "ネル先生",
+        manifestPath: "/e/manifest.json",
+        poses: [pose("neutral"), pose("smile")]
+      }),
+      source({
+        sourceKey: "project\0/f/manifest.json\0itopan",
+        label: "project-f",
+        id: "itopan",
+        displayName: "いとぱん",
+        manifestPath: "/f/manifest.json",
+        poses: [pose("neutral")]
+      }),
+      source({
+        sourceKey: "project\0/g/manifest.json\0itopan",
+        label: "project-g",
+        id: "itopan",
+        displayName: "イトパン",
+        manifestPath: "/g/manifest.json",
+        poses: [pose("neutral"), pose("smile")]
       })
     ];
 
     const groups = aggregateCharacters(sources);
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(4);
 
     const hero = groups.find((group) => group.displayName === "Hero");
-    expect(hero?.groupKey).toBe("local:hero\0Hero");
+    expect(hero?.groupKey).toBe("local:hero");
     expect(hero?.sources).toHaveLength(2);
     // Representative: more poses first
     expect(hero?.sources[0]?.label).toBe("project-b");
     expect(hero?.poseCount).toBe(2);
 
     const other = groups.find((group) => group.displayName === "Other Hero");
-    expect(other?.groupKey).toBe("local:hero\0Other Hero");
+    expect(other?.groupKey).toBe("local:otherhero");
+
+    const neruSensei = groups.find((group) => group.displayName === "ネル先生");
+    expect(neruSensei?.groupKey).toBe("local:ネル先生");
+    expect(neruSensei?.sources.map((entry) => entry.id).sort()).toEqual(["mike", "neru"]);
+
+    const itopan = groups.find((group) => group.groupKey === "local:イトパン");
+    expect(itopan?.sources).toHaveLength(2);
+    expect(itopan?.sources[0]?.displayName).toBe("イトパン");
   });
 
   it("groups shitate provenance by kind+character+run_id (cross-project same run merges)", () => {
@@ -186,7 +228,7 @@ describe("aggregateCharacters", () => {
       displayName: "A",
       poses: [pose("n")]
     });
-    expect(groupKeyFor(local)).toBe("local:a\0A");
+    expect(groupKeyFor(local)).toBe("local:a");
 
     const remote = source({
       sourceKey: "r",
@@ -196,6 +238,33 @@ describe("aggregateCharacters", () => {
       poses: [pose("n")]
     });
     expect(groupKeyFor(remote)).toBe("shitate:hero\0run-9");
+  });
+
+  it("prefers character portraits over review/storyboard reference assets as representative", () => {
+    const reference = source({
+      sourceKey: "ref",
+      id: "host",
+      displayName: "いとぱん",
+      label: "digest",
+      manifestPath: "/digest/manifest.json",
+      poses: [
+        { name: "hook", imageId: "frame-hook", imagePath: "review/references/01-hook.png", missing: false },
+        { name: "grow", imageId: "frame-grow", imagePath: "review/references/02-grow.png", missing: false }
+      ]
+    });
+    const portrait = source({
+      sourceKey: "char",
+      id: "itopan",
+      displayName: "イトパン",
+      label: "promo",
+      manifestPath: "/promo/manifest.json",
+      poses: [pose("neutral")]
+    });
+    const groups = aggregateCharacters([reference, portrait]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.sources[0]!.label).toBe("promo");
+    expect(isReferenceAssetSource(reference)).toBe(true);
+    expect(isReferenceAssetSource(portrait)).toBe(false);
   });
 });
 

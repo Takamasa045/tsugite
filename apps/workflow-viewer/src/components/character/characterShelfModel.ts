@@ -14,6 +14,8 @@ export interface LauncherCharacterPose {
   missing: boolean
 }
 
+export type CharacterAssetRole = 'character' | 'reference'
+
 export interface LauncherCharacterSource {
   sourceKey: string
   kind: 'project' | 'template'
@@ -23,6 +25,8 @@ export interface LauncherCharacterSource {
   accent: string
   readOnly: boolean
   canUse: boolean
+  /** Storyboard / review frames stored as speakers (not a portrait character). */
+  assetRole?: CharacterAssetRole
   poses: LauncherCharacterPose[]
   mouthFrames?: LauncherCharacterPose[]
   provenance?: CharacterProvenance
@@ -36,6 +40,8 @@ export interface LauncherCharacter {
   hasMouthFrames: boolean
   provenance?: CharacterProvenance
   representativeImageKey?: string
+  /** True when every source is a non-character reference asset. */
+  referenceOnly?: boolean
   sources: LauncherCharacterSource[]
 }
 
@@ -114,6 +120,30 @@ export function sideLabel(side: LauncherCharacterSource['side']): string {
   return side === 'left' ? '左' : '右'
 }
 
+export function assetRoleLabel(role: CharacterAssetRole | undefined): string {
+  return role === 'reference' ? '参考画像（キャラ以外）' : 'キャラクター'
+}
+
+export function isReferenceSource(source: LauncherCharacterSource): boolean {
+  return source.assetRole === 'reference'
+}
+
+export function characterIsReferenceOnly(character: LauncherCharacter): boolean {
+  if (character.referenceOnly === true) return true
+  return character.sources.length > 0 && character.sources.every(isReferenceSource)
+}
+
+/** Unique speaker ids shown on a card (same face may appear under multiple ids). */
+export function characterSpeakerIds(character: LauncherCharacter): string[] {
+  return [...new Set(character.sources.map((source) => source.speakerId))].sort((a, b) => a.localeCompare(b))
+}
+
+/** Short source labels for the card meta line. */
+export function characterSourceLabels(character: LauncherCharacter, limit = 3): string[] {
+  const labels = [...new Set(character.sources.map((source) => source.label))]
+  return labels.slice(0, limit)
+}
+
 /** いずれかの pose / mouth frame が missing、または canUse な source が無い */
 export function characterHasMissingAssets(character: LauncherCharacter): boolean {
   if (character.sources.length === 0) return true
@@ -166,6 +196,13 @@ function isLauncherCharacterSource(input: unknown): input is LauncherCharacterSo
   if (typeof input.accent !== 'string') return false
   if (typeof input.readOnly !== 'boolean') return false
   if (typeof input.canUse !== 'boolean') return false
+  if (
+    input.assetRole !== undefined
+    && input.assetRole !== 'character'
+    && input.assetRole !== 'reference'
+  ) {
+    return false
+  }
   if (!Array.isArray(input.poses) || !input.poses.every(isLauncherCharacterPose)) return false
   if (
     input.mouthFrames !== undefined
@@ -185,6 +222,7 @@ export function isLauncherCharacter(input: unknown): input is LauncherCharacter 
   if (typeof input.poseCount !== 'number') return false
   if (typeof input.hasMouthFrames !== 'boolean') return false
   if (input.representativeImageKey !== undefined && typeof input.representativeImageKey !== 'string') return false
+  if (input.referenceOnly !== undefined && typeof input.referenceOnly !== 'boolean') return false
   if (input.provenance !== undefined && !isCharacterProvenance(input.provenance)) return false
   if (!Array.isArray(input.sources) || !input.sources.every(isLauncherCharacterSource)) return false
   void isStringArrayLike(input.sources)

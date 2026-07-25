@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -173,6 +173,41 @@ describe('CharacterShelf', () => {
     await user.click(screen.getByRole('button', { name: '不足ちゃんの詳細を見る' }))
     expect(screen.getByRole('button', { name: 'このキャラクターを使う' })).toBeDisabled()
     expect(screen.getByRole('status')).toHaveTextContent('使用できる元データがありません')
+  })
+
+  it('一覧に戻る / ブラウザ戻る / Esc で詳細から一覧へ戻る', async () => {
+    const user = userEvent.setup()
+    render(
+      <CharacterShelf
+        characters={[sampleCharacter]}
+        loadState="ready"
+        projects={writableProjects}
+        token="session-token"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'ハナの詳細を見る' }))
+    expect(screen.getByRole('heading', { name: 'ハナ' })).toBeVisible()
+    expect(window.history.state).toMatchObject({ tsugiteCharacterDetail: sampleCharacter.groupKey })
+
+    await user.click(screen.getByRole('button', { name: '一覧に戻る' }))
+    await vi.waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'キャラクターを選ぶ' })).toBeVisible()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'ハナの詳細を見る' }))
+    expect(screen.getByRole('heading', { name: 'ハナ' })).toBeVisible()
+    window.dispatchEvent(new PopStateEvent('popstate', { state: {} }))
+    await vi.waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'キャラクターを選ぶ' })).toBeVisible()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'ハナの詳細を見る' }))
+    expect(screen.getByRole('heading', { name: 'ハナ' })).toBeVisible()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await vi.waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'キャラクターを選ぶ' })).toBeVisible()
+    })
   })
 
   it('競合時は conflict メッセージを表示する', async () => {

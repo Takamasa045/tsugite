@@ -1404,6 +1404,10 @@
   color: #6f2b22;
   background: rgba(166, 61, 47, .12);
 }
+.launcher-character-badge-reference {
+  color: #4a3f18;
+  background: rgba(196, 160, 48, .18);
+}
 .launcher-character-card-name {
   color: #1f1a14;
   font-family: Georgia, "Yu Mincho", "Hiragino Mincho ProN", serif;
@@ -1429,6 +1433,16 @@
 .launcher-character-card-meta small {
   color: var(--launcher-mokume);
   font-size: .62rem;
+}
+.launcher-character-card-sources {
+  color: #6a6358;
+  font-size: .62rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.launcher-character-card[data-reference="true"] .launcher-character-card-image {
+  filter: saturate(.85);
+  opacity: .92;
 }
 
 .launcher-character-detail {

@@ -1,5 +1,5 @@
 import { RefreshCw, Users } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { CharacterCard } from './CharacterCard'
 import { CharacterDetail } from './CharacterDetail'
@@ -11,6 +11,12 @@ import {
   type LauncherCharacter,
 } from './characterShelfModel'
 
+const HISTORY_KEY = 'tsugiteCharacterDetail'
+
+type CharacterHistoryState = {
+  [HISTORY_KEY]?: string | null
+}
+
 export interface CharacterShelfProps {
   characters: LauncherCharacter[]
   loadState?: CharacterLoadState
@@ -18,6 +24,12 @@ export interface CharacterShelfProps {
   projects?: CharacterUseTargetProject[]
   token?: string
   fetcher?: typeof fetch
+}
+
+function historyDetailKey(state: unknown): string | null {
+  if (typeof state !== 'object' || state === null) return null
+  const value = (state as CharacterHistoryState)[HISTORY_KEY]
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 export function CharacterShelf({
@@ -37,6 +49,30 @@ export function CharacterShelf({
     [characters, selectedGroupKey],
   )
 
+  const clearDetail = useCallback(() => {
+    setSelectedGroupKey(null)
+    setSelectedSourceKey(null)
+    setUseDialogOpen(false)
+  }, [])
+
+  const goBack = useCallback(() => {
+    // Clear UI immediately so click / Esc work even when history.back() is a no-op (jsdom).
+    clearDetail()
+    if (historyDetailKey(window.history.state)) {
+      window.history.back()
+    }
+  }, [clearDetail])
+
+  const openDetail = useCallback((groupKey: string) => {
+    setSelectedGroupKey(groupKey)
+    setUseDialogOpen(false)
+    const base =
+      typeof window.history.state === 'object' && window.history.state !== null
+        ? (window.history.state as CharacterHistoryState)
+        : {}
+    window.history.pushState({ ...base, [HISTORY_KEY]: groupKey }, '')
+  }, [])
+
   useEffect(() => {
     if (!selectedCharacter) {
       setSelectedSourceKey(null)
@@ -52,20 +88,40 @@ export function CharacterShelf({
     })
   }, [selectedCharacter])
 
+  // Browser / mouse back button + Esc return from detail to list.
+  useEffect(() => {
+    function onPopState(event: PopStateEvent) {
+      const nextKey = historyDetailKey(event.state)
+      setSelectedGroupKey(nextKey)
+      if (!nextKey) {
+        setSelectedSourceKey(null)
+        setUseDialogOpen(false)
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      if (useDialogOpen) {
+        setUseDialogOpen(false)
+        return
+      }
+      if (selectedGroupKey) {
+        event.preventDefault()
+        goBack()
+      }
+    }
+
+    window.addEventListener('popstate', onPopState)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('popstate', onPopState)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [goBack, selectedGroupKey, useDialogOpen])
+
   const selectedSource = selectedCharacter
     ? selectedCharacter.sources.find((source) => source.sourceKey === selectedSourceKey) ?? null
     : null
-
-  function handleSelect(groupKey: string) {
-    setSelectedGroupKey(groupKey)
-    setUseDialogOpen(false)
-  }
-
-  function handleBack() {
-    setSelectedGroupKey(null)
-    setSelectedSourceKey(null)
-    setUseDialogOpen(false)
-  }
 
   return (
     <section
@@ -124,7 +180,7 @@ export function CharacterShelf({
               <CharacterCard
                 key={character.groupKey}
                 character={character}
-                onSelect={handleSelect}
+                onSelect={openDetail}
               />
             ))}
           </div>
@@ -133,7 +189,7 @@ export function CharacterShelf({
         {loadState === 'ready' && selectedCharacter && (
           <CharacterDetail
             character={selectedCharacter}
-            onBack={handleBack}
+            onBack={goBack}
             onSelectSource={setSelectedSourceKey}
             onUse={() => setUseDialogOpen(true)}
             selectedSourceKey={selectedSourceKey}
