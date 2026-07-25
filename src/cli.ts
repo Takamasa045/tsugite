@@ -90,6 +90,8 @@ type ParsedArgs = {
   displayName?: string;
   side?: string;
   accent?: string;
+  fromManifest?: string;
+  speaker?: string;
   projectsDir?: string;
   port?: string;
   backend?: string;
@@ -541,6 +543,50 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       request_image_path: imported.requestImagePath,
       already_imported: imported.alreadyImported,
       warnings: imported.warnings
+    });
+  }
+
+  if (args.command === "character-add") {
+    const requiredIssues = [
+      ...(args.fromManifest
+        ? []
+        : [{ code: "character_add.from_manifest_required", message: "--from-manifest is required", path: "--from-manifest" }]),
+      ...(args.speaker
+        ? []
+        : [{ code: "character_add.speaker_required", message: "--speaker is required", path: "--speaker" }])
+    ];
+    if (requiredIssues.length > 0) {
+      return output(args, 1, { ok: false, command: "character-add", issues: requiredIssues });
+    }
+    const { addCharacterToProject } = await import("./characters/addToProject.js");
+    const sourceManifestPath = args.fromManifest!;
+    const result = await addCharacterToProject({
+      sourceManifestPath,
+      sourceRootDir: dirname(sourceManifestPath),
+      speakerId: args.speaker!,
+      targetConfigPath: args.config
+    });
+    if (!result.ok) {
+      return output(args, 1, {
+        ok: false,
+        command: "character-add",
+        speaker_id: args.speaker,
+        issues: [result.issue]
+      });
+    }
+    return output(args, 0, {
+      ok: true,
+      command: "character-add",
+      speaker_id: result.speakerId,
+      added: result.added,
+      already_present: result.alreadyPresent,
+      manifest_path: result.manifestPath,
+      ...(result.added
+        ? {
+            destination_dir: result.destinationDir,
+            image_id_map: result.imageIdMap
+          }
+        : {})
     });
   }
 
@@ -1196,7 +1242,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -1220,6 +1266,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--display-name": "displayName",
       "--side": "side",
       "--accent": "accent",
+      "--from-manifest": "fromManifest",
+      "--speaker": "speaker",
       "--projects-dir": "projectsDir",
       "--port": "port",
       "--backend": "backend",

@@ -9,6 +9,7 @@ export type CommandName =
   | "viewer-launcher"
   | "feedback"
   | "shitate-import"
+  | "character-add"
   | "validate"
   | "finalize"
   | "plan"
@@ -75,6 +76,12 @@ const OPTIONS = {
   displayName: defineOption("--display-name", "Display name for the imported character.", "<name>"),
   side: defineOption("--side", "Character layout side: left or right.", "<side>"),
   accent: defineOption("--accent", "Character accent color.", "<color>"),
+  fromManifest: defineOption(
+    "--from-manifest",
+    "Source manifest whose speaker images are copied into the target project.",
+    "<manifest.json>"
+  ),
+  speaker: defineOption("--speaker", "Speaker identifier to copy from the source manifest.", "<speaker-id>"),
   stateDir: defineOption("--state-dir", "Alternate pipeline state directory.", "<directory>"),
   actor: defineOption("--actor", "Pipeline actor; gated actions require coordinator.", "<role>"),
   apply: defineOption("--apply", "Apply the inspected finalize deletion plan."),
@@ -191,6 +198,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
       OPTIONS.side,
       OPTIONS.accent
     ]
+  }),
+  defineCommand({
+    name: "character-add",
+    summary: "Copy a speaker and its images from a source manifest into a project.",
+    usage: "node bin/pipeline character-add --config <project.yaml> --from-manifest <manifest.json> --speaker <speaker-id> [--json]",
+    requiresConfig: true,
+    safety: "local-write",
+    options: [OPTIONS.config, OPTIONS.fromManifest, OPTIONS.speaker]
   }),
   defineCommand({
     name: "validate",

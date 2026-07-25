@@ -60,6 +60,12 @@ import {
   type WorkflowViewerResult,
   type WriteWorkflowViewerOptions
 } from "./artifact.js";
+import {
+  buildLauncherCharacterCatalog,
+  useCharacterFromCatalog,
+  type CharacterImageLocation,
+  type LauncherCharacterCatalog
+} from "./launcherCharacters.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const TSUGITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -190,6 +196,7 @@ const LAUNCHER_FEEDBACK_NOTICE_RESERVE = 3;
 const REVIEW_PREVIEW_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'";
 const LAUNCHER_DECISION_BODY_MAX_BYTES = 8 * 1024;
 const LAUNCHER_GENERATION_BODY_MAX_BYTES = 2 * 1024;
+const LAUNCHER_CHARACTER_USE_BODY_MAX_BYTES = 4 * 1024;
 const LAUNCHER_JOB_OUTPUT_MAX_BYTES = 16 * 1024;
 const LAUNCHER_VIEWER_EVIDENCE_MAX_BYTES = 512 * 1024;
 const WORKFLOW_VIEWER_SNAPSHOT_FILE_LIMIT = 512;
@@ -249,6 +256,13 @@ const promotionDecisionSchema = z.object({
 }).strict();
 const generationConnectionSchema = z.object({
   connection: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/)
+}).strict();
+const characterUseSchema = z.object({
+  sourceKey: z.string().min(1).max(4_096),
+  speakerId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+  targetProjectId: z.string().min(1).max(256),
+  expectedRunId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).max(128).optional(),
+  revision: z.string().regex(/^[a-f0-9]{64}$/).optional()
 }).strict();
 const safeLauncherActionSchema = z.object({
   action: z.enum(["validate", "plan", "review", "dry-run"]),
@@ -537,6 +551,7 @@ export async function startWorkflowViewerLauncher(
   let projects = new Map<string, LauncherProjectRecord>();
   const refreshing = new Set<string>();
   const generating = new Set<string>();
+  let characterCatalog: LauncherCharacterCatalog | null = null;
   let activeMutations = 0;
   let activeBlockingMutations = 0;
   let workPauseCount = 0;
@@ -570,6 +585,26 @@ export async function startWorkflowViewerLauncher(
     }
     projects = nextProjects;
     return [...nextProjects.values()].map((project) => project.public);
+  };
+
+  const rebuildCharacterCatalog = async (): Promise<LauncherCharacterCatalog> => {
+    const catalog = await buildLauncherCharacterCatalog({
+      projectDirectories,
+      templatesDir
+    });
+    characterCatalog = catalog;
+    return catalog;
+  };
+
+  const resolveCharacterImage = async (
+    key: string
+  ): Promise<CharacterImageLocation | undefined> => {
+    const normalized = key.toLowerCase();
+    const cached = characterCatalog?.images.get(normalized)
+      ?? characterCatalog?.images.get(key);
+    if (cached) return cached;
+    const catalog = await rebuildCharacterCatalog();
+    return catalog.images.get(normalized) ?? catalog.images.get(key);
   };
   const rootHtml = injectLauncherMeta(
     await readFile(join(bundleDir, "index.html"), "utf8"),
@@ -632,6 +667,7 @@ export async function startWorkflowViewerLauncher(
       || (allowProjectActions && /^\/api\/projects\/[^/]+\/action$/.test(requestUrl.pathname))
       || /^\/api\/feedback\/[^/]+\/promotion-decision$/.test(requestUrl.pathname)
       || /^\/api\/projects\/[^/]+\/refresh$/.test(requestUrl.pathname)
+      || requestUrl.pathname === "/api/characters/use"
     );
     const interruptibleMutation = method === "POST"
       && /^\/api\/projects\/[^/]+\/generate$/.test(requestUrl.pathname);
@@ -715,6 +751,24 @@ export async function startWorkflowViewerLauncher(
         return serveFile(request, response, thumbnailFile);
       } finally {
         if (!handedToFileServer) await thumbnailFile.handle.close();
+      }
+    }
+
+    const characterImageMatch = /^\/character-image\/([^/]+)$/.exec(requestUrl.pathname);
+    if ((method === "GET" || method === "HEAD") && characterImageMatch) {
+      const key = characterImageMatch[1]!;
+      if (!/^[a-f0-9]{32}$/i.test(key)) return sendNotFound(response);
+      const location = await resolveCharacterImage(key);
+      if (!location) return sendNotFound(response);
+      const imageFile = await openContainedStaticFile(location.rootDir, location.relativePath);
+      if (!imageFile) return sendNotFound(response);
+      let handedToFileServer = false;
+      try {
+        await beforeServeArtifact(imageFile);
+        handedToFileServer = true;
+        return serveFile(request, response, imageFile);
+      } finally {
+        if (!handedToFileServer) await imageFile.handle.close();
       }
     }
 
@@ -1127,6 +1181,109 @@ export async function startWorkflowViewerLauncher(
 
     if (method === "GET" && requestUrl.pathname === "/api/templates") {
       sendJson(response, 200, { ok: true, templates: await discoverTemplates(templatesDir) });
+      return;
+    }
+
+    if (method === "GET" && requestUrl.pathname === "/api/characters") {
+      const catalog = await rebuildCharacterCatalog();
+      sendJson(response, 200, { ok: true, characters: catalog.characters });
+      return;
+    }
+
+    if (method === "POST" && requestUrl.pathname === "/api/characters/use") {
+      if (
+        request.headers.origin !== launcherOrigin
+        || request.headers["x-tsugite-token"] !== token
+      ) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      let input: z.infer<typeof characterUseSchema>;
+      try {
+        const parsed = characterUseSchema.safeParse(
+          await readJsonRequest(request, LAUNCHER_CHARACTER_USE_BODY_MAX_BYTES)
+        );
+        if (!parsed.success) throw new Error("invalid character use request");
+        input = parsed.data;
+      } catch {
+        sendJson(response, 400, {
+          ok: false,
+          issue: {
+            code: "character_use.invalid",
+            message: "Character use request was invalid"
+          }
+        });
+        return;
+      }
+
+      await reloadProjects();
+      const record = projects.get(input.targetProjectId);
+      if (!record?.identity || !record.public.valid) return sendNotFound(response);
+      if (record.readOnly) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.worktree_read_only",
+            message: "別worktreeの案件はこのランチャーから変更できません"
+          }
+        });
+        return;
+      }
+      if (
+        (input.expectedRunId !== undefined && input.expectedRunId !== record.public.runId)
+        || (input.revision !== undefined && input.revision !== record.public.revision)
+      ) {
+        sendJson(response, 409, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.project_stale",
+            message: "Project state changed after it was displayed. Refresh before continuing."
+          }
+        });
+        return;
+      }
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+
+      const catalog = await rebuildCharacterCatalog();
+      const result = await useCharacterFromCatalog({
+        sourceKey: input.sourceKey,
+        speakerId: input.speakerId,
+        targetConfigPath: record.configPath,
+        catalog
+      });
+
+      if (!result.ok) {
+        const status = result.issue.code === "character_add.speaker_conflict"
+          || result.issue.code === "character_add.destination_conflict"
+          ? 409
+          : result.issue.code === "character_use.source_not_found"
+            ? 404
+            : 422;
+        sendJson(response, status, { ok: false, issue: result.issue });
+        return;
+      }
+
+      await reloadProjects();
+      characterCatalog = null;
+      sendJson(response, 200, {
+        ok: true,
+        added: result.added,
+        alreadyPresent: result.alreadyPresent,
+        speakerId: result.speakerId,
+        ...(result.added
+          ? {
+              destinationDir: result.destinationDir,
+              imageIdMap: result.imageIdMap,
+              manifestPath: result.manifestPath
+            }
+          : { manifestPath: result.manifestPath })
+      });
       return;
     }
 

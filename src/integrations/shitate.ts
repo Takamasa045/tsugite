@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from "node:crypto";
 import {
   copyFile,
   lstat,
@@ -9,12 +8,22 @@ import {
   realpath,
   rename,
   rm,
-  stat,
   writeFile
 } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { parse, parseDocument } from "yaml";
 import { validateManifest } from "../manifest/validate.js";
+import {
+  SafePathError,
+  containedDirectory,
+  containedFile,
+  existingDirectory,
+  isWithin,
+  pathExists,
+  portableRelative,
+  sha256File,
+  writeAtomic
+} from "../platform/fsSafe.js";
 import { projectSchema } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 
@@ -109,10 +118,16 @@ export async function importShitateSnapshot(
   } catch (error) {
     const issue = error instanceof ShitateImportError
       ? error.issue
-      : {
-          code: "shitate_import.failed",
-          message: error instanceof Error ? error.message : String(error)
-        };
+      : error instanceof SafePathError
+        ? {
+            code: error.code,
+            message: error.message,
+            ...(error.path !== undefined ? { path: error.path } : {})
+          }
+        : {
+            code: "shitate_import.failed",
+            message: error instanceof Error ? error.message : String(error)
+          };
     return { ok: false, issues: [issue] };
   }
 }
@@ -266,8 +281,9 @@ async function snapshotFiles(input: {
     { role: "shitate-manifest", sourcePath: input.shitateManifestPath, destinationName: "shitate-manifest.json" },
     { role: "anchor", sourcePath: input.anchorPath, destinationName: `anchor${input.anchorExtension}` }
   ];
-  return Promise.all(definitions.map(async (file) => ({ ...file, sha256: await sha256(file.sourcePath) })));
+  return Promise.all(definitions.map(async (file) => ({ ...file, sha256: await sha256File(file.sourcePath) })));
 }
+
 
 async function prepareProject(
   options: ShitateImportOptions,
@@ -523,11 +539,12 @@ async function assertExistingSnapshot(destination: string, expected: SnapshotLoc
     } catch {
       fail("shitate_import.destination_conflict", "existing snapshot contains an unsafe file", candidate);
     }
-    if (await sha256(resolvedCandidate!) !== file.sha256) {
+    if (await sha256File(resolvedCandidate!) !== file.sha256) {
       fail("shitate_import.destination_conflict", "existing snapshot checksum does not match its lock", candidate);
     }
   }
 }
+
 
 async function assertSafeDestination(destination: string, root: string): Promise<void> {
   const [entry, resolvedDestination, resolvedRoot] = await Promise.all([
@@ -561,16 +578,6 @@ async function writeProjectUpdates(prepared: PreparedProject): Promise<void> {
   }
 }
 
-async function writeAtomic(path: string, contents: string): Promise<void> {
-  const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-  try {
-    await writeFile(temporary, contents);
-    await rename(temporary, path);
-  } finally {
-    await rm(temporary, { force: true });
-  }
-}
-
 function parseShitateManifest(input: unknown, options: ShitateImportOptions): ShitateManifest {
   if (!isRecord(input)
     || typeof input.run_id !== "string"
@@ -593,65 +600,14 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
-async function existingDirectory(path: string, code: string): Promise<string> {
-  try {
-    const resolved = await realpath(resolve(path));
-    if (!(await stat(resolved)).isDirectory()) fail(code, "directory is required", path);
-    return resolved;
-  } catch (error) {
-    if (error instanceof ShitateImportError) throw error;
-    fail(code, "directory was not found", path);
-  }
-}
-
-async function containedDirectory(candidate: string, root: string, code: string): Promise<string> {
-  const resolved = await existingDirectory(candidate, code);
-  if (!isWithin(resolved, root)) fail(code, "directory escapes its allowed root", candidate);
-  return resolved;
-}
-
-async function containedFile(candidate: string, root: string, code: string): Promise<string> {
-  try {
-    const [resolvedRoot, resolvedFile] = await Promise.all([realpath(root), realpath(candidate)]);
-    if (!isWithin(resolvedFile, resolvedRoot)) fail(code, "file escapes its allowed root", candidate);
-    if (!(await stat(resolvedFile)).isFile()) fail(code, "regular file is required", candidate);
-    return resolvedFile;
-  } catch (error) {
-    if (error instanceof ShitateImportError) throw error;
-    fail(code, "file was not found", candidate);
-  }
-}
-
-function isWithin(candidate: string, root: string): boolean {
-  const fromRoot = relative(resolve(root), resolve(candidate));
-  return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
-}
-
 function isSafeRelativePath(path: string): boolean {
   if (!path || isAbsolute(path) || path.includes("\\")) return false;
   return !path.split("/").some((part) => part === ".." || part === "" || part === ".");
 }
 
-function portableRelative(from: string, to: string): string {
-  return relative(from, to).split("\\").join("/");
-}
-
 function executionPath(path: string): string {
   const fromCwd = portableRelative(process.cwd(), path);
   return fromCwd.startsWith("../") ? path : fromCwd;
-}
-
-async function sha256(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

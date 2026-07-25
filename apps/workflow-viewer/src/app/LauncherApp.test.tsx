@@ -299,14 +299,44 @@ function jsonResponse(input: unknown, ok = true, status = ok ? 200 : 500): Respo
   return { ok, status, json: async () => input } as Response
 }
 
+const characters = [
+  {
+    groupKey: 'grp-hana',
+    id: 'hana',
+    displayName: 'ハナ',
+    poseCount: 1,
+    hasMouthFrames: true,
+    provenance: { kind: 'shitate', character: 'hana', run_id: 'run-1' },
+    representativeImageKey: 'a'.repeat(32),
+    sources: [{
+      sourceKey: 'project:alpha:speaker-a',
+      kind: 'project' as const,
+      label: 'サンプル映像A',
+      speakerId: 'speaker-a',
+      side: 'left' as const,
+      accent: '#c45c26',
+      readOnly: false,
+      canUse: true,
+      poses: [{
+        name: 'neutral',
+        imageId: 'img-neutral',
+        imageKey: 'a'.repeat(32),
+        missing: false,
+      }],
+    }],
+  },
+]
+
 function createLauncherFetcher({
   projectList = projects,
   feedbackAggregate = feedback,
   templateList = templates,
+  characterList = characters,
 }: {
   projectList?: unknown
   feedbackAggregate?: unknown
   templateList?: unknown
+  characterList?: unknown
 } = {}) {
   return vi.fn().mockImplementation((url: string) => {
     if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects: projectList }))
@@ -344,6 +374,7 @@ function createLauncherFetcher({
     }))
     if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback: feedbackAggregate }))
     if (url === '/api/templates') return Promise.resolve(jsonResponse({ ok: true, templates: templateList }))
+    if (url === '/api/characters') return Promise.resolve(jsonResponse({ ok: true, characters: characterList }))
     return Promise.resolve(jsonResponse({ ok: false }, false))
   })
 }
@@ -396,6 +427,8 @@ describe('LauncherApp', () => {
     expect(within(chooser).queryByText('ブラウザでは内蔵ターミナルを利用できません')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'キャラクター' }))
     expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: '好み・学び' }))
     expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
@@ -981,6 +1014,29 @@ describe('LauncherApp', () => {
     expect((await screen.findAllByText('別worktree（閲覧のみ）')).length).toBe(2)
     const selectedPanel = screen.getByRole('complementary', { name: '選択した制作案件' })
     expect(within(selectedPanel).getByText('別worktree（閲覧のみ）')).toBeVisible()
+  })
+
+  it('キャラクター棚を必要時に遅延読み込みし、カードを表示する', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    expect(fetcher).not.toHaveBeenCalledWith('/api/characters', expect.anything())
+
+    await user.click(screen.getByRole('tab', { name: 'キャラクター' }))
+    expect(await screen.findByRole('heading', { name: 'キャラクターを選ぶ' })).toBeVisible()
+    expect(fetcher).toHaveBeenCalledWith('/api/characters', {
+      headers: { accept: 'application/json' },
+    })
+    expect(screen.getByRole('button', { name: 'ハナの詳細を見る' })).toBeVisible()
+    expect(screen.getByText('Shitate取込')).toBeVisible()
+
+    // 再オープンでは再fetchしない（idle からの1回だけ）
+    await user.click(screen.getByRole('tab', { name: '制作案件' }))
+    await user.click(screen.getByRole('tab', { name: 'キャラクター' }))
+    const characterCalls = fetcher.mock.calls.filter(([url]) => url === '/api/characters')
+    expect(characterCalls).toHaveLength(1)
   })
 
   it('テンプレート棚を必要時に読み込み、ウィザードで軸選択とチェックリスト確認ができる', async () => {
