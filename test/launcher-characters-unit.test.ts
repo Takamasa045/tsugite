@@ -36,6 +36,53 @@ describe("launcherCharacters helpers", () => {
     expect(byId["w-hero"]?.representativeImageKey).toMatch(/^[a-f0-9]{32}$/);
   });
 
+  it("excludes storyboard/reference speakers from the catalog", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-launcher-chars-ref-"));
+    const shelf = join(root, "projects");
+    const projectDir = join(shelf, "digest");
+    await mkdir(join(projectDir, "media"), { recursive: true });
+    await mkdir(join(projectDir, "review/references"), { recursive: true });
+    await writeFile(join(projectDir, "media/background.mp4"), Buffer.from("video"));
+    await writeFile(join(projectDir, "review/references/01-hook.png"), Buffer.from("hook"));
+    await writeFile(
+      join(projectDir, "project.yaml"),
+      [
+        "slug: digest",
+        "run_id: digest-r1",
+        "manifest: manifest.json",
+        "dist_dir: dist",
+        "edit:",
+        "  backend: remotion",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    await writeFile(
+      join(projectDir, "manifest.json"),
+      `${JSON.stringify(
+        buildManifest(
+          "digest",
+          [
+            {
+              id: "host",
+              display_name: "いとぱん",
+              side: "left",
+              accent: "#a63d2f",
+              poses: { hook: "frame-hook" }
+            }
+          ],
+          [{ id: "frame-hook", src: "review/references/01-hook.png", alt: "hook" }]
+        ),
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const catalog = await buildLauncherCharacterCatalog({ projectDirectories: [shelf] });
+    expect(catalog.characters).toEqual([]);
+  });
+
   it("marks canUse false when a pose is missing and useCharacterFromCatalog rejects it", async () => {
     const root = await mkdtemp(join(tmpdir(), "tsugite-launcher-chars-missing-"));
     const shelf = join(root, "projects");

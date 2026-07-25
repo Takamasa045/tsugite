@@ -3,12 +3,14 @@ import {
   aggregateCharacters,
   compareSourcesForRepresentative,
   groupKeyFor,
-  isReferenceAssetSource
+  isReferenceAssetSource,
+  normalizeCharacterLabel,
+  primaryImageFamilyStem
 } from "../src/characters/aggregate.js";
 import type { CharacterSourceRef } from "../src/characters/types.js";
 
 describe("aggregateCharacters", () => {
-  it("groups local sources by speaker id + normalized displayName (kana variants merge)", () => {
+  it("groups same character art across speaker ids and honorific/kana variants", () => {
     const sources = [
       source({
         sourceKey: "project\0/a/manifest.json\0hero",
@@ -16,7 +18,7 @@ describe("aggregateCharacters", () => {
         id: "hero",
         displayName: "Hero",
         manifestPath: "/a/manifest.json",
-        poses: [pose("neutral")]
+        poses: [pose("neutral", "media/hero-closed.png")]
       }),
       source({
         sourceKey: "project\0/b/manifest.json\0hero",
@@ -24,7 +26,10 @@ describe("aggregateCharacters", () => {
         id: "hero",
         displayName: "Hero",
         manifestPath: "/b/manifest.json",
-        poses: [pose("neutral"), pose("smile")]
+        poses: [
+          pose("neutral", "media/hero-closed.png"),
+          pose("smile", "media/hero-smile.png")
+        ]
       }),
       source({
         sourceKey: "project\0/c/manifest.json\0hero",
@@ -32,16 +37,16 @@ describe("aggregateCharacters", () => {
         id: "hero",
         displayName: "Other Hero",
         manifestPath: "/c/manifest.json",
-        poses: [pose("neutral")]
+        poses: [pose("neutral", "media/other-hero.png")]
       }),
-      // Same display name, different speaker ids must NOT merge (generic Host risk)
+      // Same neru art family, different ids / honorifics → one card
       source({
         sourceKey: "project\0/d/manifest.json\0mike",
         label: "project-d",
         id: "mike",
         displayName: "ネル先生",
         manifestPath: "/d/manifest.json",
-        poses: [pose("neutral")]
+        poses: [pose("neutral", "media/characters/neru-closed.png")]
       }),
       source({
         sourceKey: "project\0/e/manifest.json\0neru",
@@ -49,7 +54,23 @@ describe("aggregateCharacters", () => {
         id: "neru",
         displayName: "ネル先生",
         manifestPath: "/e/manifest.json",
-        poses: [pose("neutral"), pose("smile")]
+        poses: [pose("neutral", "media/characters/neru-closed.png")]
+      }),
+      source({
+        sourceKey: "project\0/e2/manifest.json\0neru",
+        label: "project-e2",
+        id: "neru",
+        displayName: "ネル",
+        manifestPath: "/e2/manifest.json",
+        poses: [pose("neutral", "media/neru.png")]
+      }),
+      source({
+        sourceKey: "project\0/e3/manifest.json\0neru",
+        label: "project-e3",
+        id: "neru",
+        displayName: "ネル",
+        manifestPath: "/e3/manifest.json",
+        poses: [pose("neutral", "media/characters/cutout/neru-mouth-closed.png")]
       }),
       // Same speaker id with kana/width variants should merge
       source({
@@ -58,7 +79,7 @@ describe("aggregateCharacters", () => {
         id: "itopan",
         displayName: "いとぱん",
         manifestPath: "/f/manifest.json",
-        poses: [pose("neutral")]
+        poses: [pose("neutral", "media/characters/itopan-mouth-closed.png")]
       }),
       source({
         sourceKey: "project\0/g/manifest.json\0itopan",
@@ -66,30 +87,90 @@ describe("aggregateCharacters", () => {
         id: "itopan",
         displayName: "イトパン",
         manifestPath: "/g/manifest.json",
-        poses: [pose("neutral"), pose("smile")]
+        poses: [
+          pose("neutral", "media/characters/itopan-mouth-closed.png"),
+          pose("smile", "media/characters/itopan-mouth-half.png")
+        ]
       })
     ];
 
     const groups = aggregateCharacters(sources);
-    expect(groups).toHaveLength(5);
+    expect(groups).toHaveLength(4);
 
     const hero = groups.find((group) => group.displayName === "Hero");
     expect(hero?.groupKey).toBe("local:hero\0hero");
     expect(hero?.sources).toHaveLength(2);
-    // Representative: more poses first
     expect(hero?.sources[0]?.label).toBe("project-b");
-    expect(hero?.poseCount).toBe(2);
 
     const other = groups.find((group) => group.displayName === "Other Hero");
-    expect(other?.groupKey).toBe("local:hero\0otherhero");
+    expect(other?.groupKey).toBe("local:other-hero\0otherhero");
 
-    const neruCards = groups.filter((group) => group.displayName === "ネル先生");
-    expect(neruCards).toHaveLength(2);
-    expect(neruCards.map((group) => group.id).sort()).toEqual(["mike", "neru"]);
+    const neru = groups.find((group) => normalizeCharacterLabel(group.displayName) === "ネル");
+    expect(neru?.sources).toHaveLength(4);
+    expect(neru?.groupKey).toBe("local:neru\0ネル");
 
     const itopan = groups.find((group) => group.id === "itopan");
     expect(itopan?.groupKey).toBe("local:itopan\0イトパン");
     expect(itopan?.sources).toHaveLength(2);
+  });
+
+  it("does not merge generic Host cards that only share weak image names", () => {
+    const groups = aggregateCharacters([
+      source({
+        sourceKey: "a",
+        id: "host-a",
+        displayName: "Host",
+        label: "proj-a",
+        poses: [pose("neutral", "media/neutral.png")]
+      }),
+      source({
+        sourceKey: "b",
+        id: "host-b",
+        displayName: "Host",
+        label: "proj-b",
+        poses: [pose("neutral", "media/neutral.png")]
+      })
+    ]);
+    expect(groups).toHaveLength(2);
+  });
+
+  it("drops storyboard/reference speakers from the gallery entirely", () => {
+    const portrait = source({
+      sourceKey: "char",
+      id: "itopan",
+      displayName: "イトパン",
+      label: "promo",
+      poses: [pose("neutral", "media/characters/itopan-mouth-closed.png")]
+    });
+    const reference = source({
+      sourceKey: "ref",
+      id: "host",
+      displayName: "いとぱん",
+      label: "digest",
+      poses: [
+        {
+          name: "hook",
+          imageId: "frame-hook",
+          imagePath: "review/references/01-hook.png",
+          missing: false
+        },
+        {
+          name: "grow",
+          imageId: "frame-grow",
+          imagePath: "review/references/02-grow.png",
+          missing: false
+        }
+      ]
+    });
+
+    expect(isReferenceAssetSource(reference)).toBe(true);
+    expect(isReferenceAssetSource(portrait)).toBe(false);
+
+    const groups = aggregateCharacters([reference, portrait]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.id).toBe("itopan");
+    expect(groups[0]!.sources).toHaveLength(1);
+    expect(groups[0]!.sources[0]!.label).toBe("promo");
   });
 
   it("groups shitate provenance by kind+character+run_id (cross-project same run merges)", () => {
@@ -222,13 +303,15 @@ describe("aggregateCharacters", () => {
     expect(aggregated[0]!.hasMouthFrames).toBe(true);
   });
 
-  it("exposes groupKeyFor consistently with aggregate grouping", () => {
+  it("exposes helpers consistently", () => {
     const local = source({
       sourceKey: "l",
       id: "a",
-      displayName: "A",
-      poses: [pose("n")]
+      displayName: "A先生",
+      poses: [pose("n", "media/a-closed.png")]
     });
+    expect(normalizeCharacterLabel("ネル先生")).toBe("ネル");
+    expect(primaryImageFamilyStem(local)).toBe("a");
     expect(groupKeyFor(local)).toBe("local:a\0a");
 
     const remote = source({
@@ -240,60 +323,20 @@ describe("aggregateCharacters", () => {
     });
     expect(groupKeyFor(remote)).toBe("shitate:hero\0run-9");
   });
-
-  it("prefers character portraits over review/storyboard reference assets as representative", () => {
-    const reference = source({
-      sourceKey: "ref",
-      id: "itopan",
-      displayName: "いとぱん",
-      label: "digest",
-      manifestPath: "/digest/manifest.json",
-      poses: [
-        { name: "hook", imageId: "frame-hook", imagePath: "review/references/01-hook.png", missing: false },
-        { name: "grow", imageId: "frame-grow", imagePath: "review/references/02-grow.png", missing: false }
-      ]
-    });
-    const portrait = source({
-      sourceKey: "char",
-      id: "itopan",
-      displayName: "イトパン",
-      label: "promo",
-      manifestPath: "/promo/manifest.json",
-      poses: [pose("neutral")]
-    });
-    const groups = aggregateCharacters([reference, portrait]);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]!.sources[0]!.label).toBe("promo");
-    expect(isReferenceAssetSource(reference)).toBe(true);
-    expect(isReferenceAssetSource(portrait)).toBe(false);
-  });
-
-  it("does not merge different speaker ids that share a generic display name", () => {
-    const groups = aggregateCharacters([
-      source({
-        sourceKey: "a",
-        id: "host-a",
-        displayName: "Host",
-        label: "proj-a",
-        poses: [pose("neutral")]
-      }),
-      source({
-        sourceKey: "b",
-        id: "host-b",
-        displayName: "Host",
-        label: "proj-b",
-        poses: [pose("neutral")]
-      })
-    ]);
-    expect(groups).toHaveLength(2);
-  });
 });
 
-function pose(name: string) {
-  return { name, imageId: `${name}-id`, imagePath: `media/${name}.png`, missing: false };
+function pose(name: string, imagePath = `media/${name}.png`) {
+  return {
+    name,
+    imageId: `${name}-id`,
+    imagePath,
+    missing: false
+  };
 }
 
-function source(partial: Partial<CharacterSourceRef> & Pick<CharacterSourceRef, "sourceKey" | "id" | "displayName" | "poses">): CharacterSourceRef {
+function source(
+  partial: Partial<CharacterSourceRef> & Pick<CharacterSourceRef, "sourceKey" | "id" | "displayName" | "poses">
+): CharacterSourceRef {
   return {
     kind: "project",
     label: partial.label ?? "label",

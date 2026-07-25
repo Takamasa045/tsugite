@@ -123,14 +123,15 @@ export async function buildLauncherCharacterCatalog(
 
   const images = new Map<string, CharacterImageLocation>();
   const sourcesByKey = new Map<string, CharacterSourceLocation>();
-  const aggregated = aggregateCharacters(scan.sources);
+  // Storyboard / review frames must not appear in the character gallery.
+  const portraitSources = scan.sources.filter((source) => !isReferenceAssetSource(source));
+  const aggregated = aggregateCharacters(portraitSources);
 
   const characters = aggregated.map((group) => {
     const sources = group.sources.map((source) =>
       toWireSource(source, shelves, images, sourcesByKey)
     );
     const representativeImageKey = findRepresentativeImageKey(sources);
-    const referenceOnly = sources.length > 0 && sources.every((source) => source.assetRole === "reference");
     return {
       groupKey: group.groupKey,
       id: group.id,
@@ -139,7 +140,7 @@ export async function buildLauncherCharacterCatalog(
       hasMouthFrames: group.hasMouthFrames,
       ...(group.provenance ? { provenance: group.provenance } : {}),
       sources,
-      referenceOnly,
+      referenceOnly: false,
       ...(representativeImageKey ? { representativeImageKey } : {})
     } satisfies LauncherCharacter;
   });
@@ -266,11 +267,7 @@ function wirePoses(
 }
 
 function findRepresentativeImageKey(sources: LauncherCharacterSource[]): string | undefined {
-  const ordered = [
-    ...sources.filter((source) => source.assetRole === "character"),
-    ...sources.filter((source) => source.assetRole !== "character")
-  ];
-  for (const source of ordered) {
+  for (const source of sources) {
     const preferred =
       source.poses.find((pose) => pose.name === "neutral" && pose.imageKey && !pose.missing)
       ?? source.poses.find((pose) => pose.imageKey && !pose.missing);
