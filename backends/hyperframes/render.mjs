@@ -1,7 +1,7 @@
 import crossSpawn from "cross-spawn";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { resolveOutputDimensions } from "../outputDimensions.mjs";
+import { LOCAL_TIMELINE_RUNTIME, renderIndexHtml } from "./document.mjs";
 
 const spawnSync = crossSpawn.sync;
 
@@ -15,7 +15,7 @@ const HYPERFRAMES_LINT_COMMAND = ["npx", "hyperframes", "lint", "--json"];
 const HYPERFRAMES_SAFE_LINT_COMMAND = ["npx", "--no-install", "hyperframes", "lint", "--json"];
 const HYPERFRAMES_RENDER_COMMAND = ["npx", "--no-install", "hyperframes", "render"];
 const HYPERFRAMES_VERSION_COMMAND = ["npx", "--no-install", "hyperframes", "--version"];
-const LOCAL_GSAP_RUNTIME = "tsugite-gsap-runtime.js";
+const LOCAL_GSAP_RUNTIME = LOCAL_TIMELINE_RUNTIME;
 
 class RunnerError extends Error {
   constructor(message, exitCode) {
@@ -294,120 +294,6 @@ async function writeHyperFramesProject(runDir, manifest) {
   await writeFile(join(runDir, "index.html"), renderIndexHtml(manifest));
 }
 
-function renderIndexHtml(manifest) {
-  const size = compositionSize(manifest);
-  const duration = manifest.meta.target_duration_seconds;
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=${size.width},height=${size.height},initial-scale=1">
-  <style>
-    html, body {
-      margin: 0;
-      width: ${size.width}px;
-      height: ${size.height}px;
-      overflow: hidden;
-      background: #050505;
-      font-family: Arial, sans-serif;
-    }
-    #tsugite-render {
-      position: relative;
-      width: ${size.width}px;
-      height: ${size.height}px;
-      overflow: hidden;
-      background: #050505;
-    }
-    video {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      background: #050505;
-    }
-    .caption {
-      position: absolute;
-      left: 7%;
-      right: 7%;
-      bottom: 8%;
-      padding: 24px 32px;
-      color: #ffffff;
-      background: rgba(0, 0, 0, 0.68);
-      border-radius: 8px;
-      font-size: ${manifest.meta.aspect === "9:16" ? 48 : 36}px;
-      line-height: 1.28;
-      text-align: center;
-      text-wrap: balance;
-    }
-  </style>
-  <script src="./${LOCAL_GSAP_RUNTIME}"></script>
-</head>
-<body>
-  <div id="tsugite-render" data-composition-id="tsugite-render" data-start="0" data-duration="${duration}" data-width="${size.width}" data-height="${size.height}">
-${renderClips(manifest.clips)}
-${renderAudio(manifest.audio)}
-${renderCaptions(manifest.captions)}
-  </div>
-  <script>
-    window.__timelines = window.__timelines || {};
-    window.__timelines["tsugite-render"] = gsap.timeline({ paused: true });
-  </script>
-</body>
-</html>
-`;
-}
-
-function renderClips(clips) {
-  let start = 0;
-  return clips
-    .flatMap((clip) => {
-      const duration = clip.out - clip.in;
-      const id = escapeAttr(clip.id);
-      const src = escapeAttr(clip.src);
-      const elements = [
-        `    <video id="${id}" class="clip" data-start="${start}" data-duration="${duration}" data-track-index="0" data-media-start="${clip.in}" src="${src}" muted playsinline></video>`
-      ];
-      if (clip.audio) {
-        elements.push(
-          `    <audio id="${id}-audio" class="clip" data-start="${start}" data-duration="${duration}" data-track-index="1" data-media-start="${clip.in}" data-volume="1" src="${src}"></audio>`
-        );
-      }
-      start += duration;
-      return elements;
-    })
-    .join("\n");
-}
-
-function renderAudio(audio) {
-  const tracks = [
-    ["bgm", audio?.bgm ?? []],
-    ["narration", audio?.narration ?? []],
-    ["sfx", audio?.sfx ?? []]
-  ];
-  const elements = [];
-  for (const [track, entries] of tracks) {
-    for (const [index, entry] of entries.entries()) {
-      if (!entry.src) continue;
-      const start = entry.start ?? 0;
-      const duration = entry.end && entry.end > start ? entry.end - start : undefined;
-      elements.push(
-        `    <audio id="${escapeAttr(entry.id ?? `${track}-${index + 1}`)}" class="clip" data-start="${start}"${duration ? ` data-duration="${duration}"` : ""} data-track-index="${index + 2}"${entry.volume === undefined ? "" : ` data-volume="${entry.volume}"`} src="${escapeAttr(entry.src)}"></audio>`
-      );
-    }
-  }
-  return elements.join("\n");
-}
-
-function renderCaptions(captions) {
-  return (captions ?? [])
-    .map((caption, index) => {
-      const duration = Math.max(0.01, caption.end - caption.start);
-      return `    <div id="${escapeAttr(caption.id ?? `caption-${index + 1}`)}" class="clip caption" data-start="${caption.start}" data-duration="${duration}" data-track-index="${index + 20}">${escapeHtml(caption.text)}</div>`;
-    })
-    .join("\n");
-}
-
 function renderLocalGsapRuntime() {
   return `(() => {
   class StaticTimeline {
@@ -435,10 +321,6 @@ function renderLocalGsapRuntime() {
   window.gsap = { timeline: () => new StaticTimeline() };
 })();
 `;
-}
-
-function compositionSize(manifest) {
-  return resolveOutputDimensions(manifest);
 }
 
 async function writeSuccessResult(input, manifest, render) {
@@ -541,17 +423,4 @@ function parseFrameRate(value) {
   return num / den;
 }
 
-function escapeAttr(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
 
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}

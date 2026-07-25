@@ -9,6 +9,7 @@ capabilities:
   audio_mix: true
   vertical: true
   fps: [24, 30]
+  presets: [article-explainer-16x9, article-explainer-9x16]
 checks:
   setup:
     - type: command
