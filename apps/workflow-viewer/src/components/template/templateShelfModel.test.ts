@@ -8,6 +8,7 @@ import {
   fillDefaultsToChecklist,
   initialChoicesForTemplate,
   partitionRequiredInputs,
+  resolveDirectionLines,
   type LauncherTemplate,
   type TemplateVariant,
 } from './templateShelfModel'
@@ -19,7 +20,12 @@ const variants: TemplateVariant[] = [
     defaultOptionId: 'beginner-expert',
     options: [
       { id: 'beginner-expert', label: '初心者＋専門家', description: '定番' },
-      { id: 'peer-dialogue', label: '同僚同士', description: '同僚' },
+      {
+        id: 'peer-dialogue',
+        label: '同僚同士',
+        description: '同僚',
+        directionAdd: { camera: '二人を同じ画角で並べすぎない' },
+      },
     ],
   },
   {
@@ -36,7 +42,12 @@ const variants: TemplateVariant[] = [
     label: 'テンポ',
     options: [
       { id: 'calm', label: '落ち着いた', description: '余白' },
-      { id: 'brisk', label: 'テンポ良く', description: '早め' },
+      {
+        id: 'brisk',
+        label: 'テンポ良く',
+        description: '早め',
+        directionAdd: { pacing: 'フックは0.5秒以内、最長カット2秒' },
+      },
     ],
   },
 ]
@@ -157,8 +168,28 @@ describe('templateShelfModel', () => {
 
     const withoutDirection = buildTemplateBriefMarkdown(
       { ...template, direction: undefined },
-      { cast: 'peer-dialogue' },
+      { cast: 'beginner-expert' },
     )
     expect(withoutDirection).not.toContain('## 演出指針')
+  })
+
+  it('resolveDirectionLines は base と選択 option の direction_add を和集合で並べる', () => {
+    const lines = resolveDirectionLines(template, {
+      cast: 'peer-dialogue',
+      pace: 'brisk',
+    })
+    expect(lines).toEqual([
+      { label: 'テンポ', text: '冒頭2秒以内にフック' },
+      { label: 'カメラ', text: '1ショット1カメラベクトル' },
+      { label: 'カメラ', text: '二人を同じ画角で並べすぎない', source: '同僚同士' },
+      { label: 'テンポ', text: 'フックは0.5秒以内、最長カット2秒', source: 'テンポ良く' },
+    ])
+
+    const md = buildTemplateBriefMarkdown(template, {
+      cast: 'peer-dialogue',
+      pace: 'brisk',
+    })
+    expect(md).toContain('**カメラ（同僚同士）**: 二人を同じ画角で並べすぎない')
+    expect(md).toContain('**テンポ（テンポ良く）**: フックは0.5秒以内、最長カット2秒')
   })
 })

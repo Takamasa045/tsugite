@@ -880,6 +880,74 @@ distribution: local-only
     });
   });
 
+  it("passes option direction_add through API as directionAdd", async () => {
+    const fixture = await createFixture();
+    const templateDir = join(fixture.templatesDir, "direction-add-template");
+    await mkdir(templateDir);
+    await writeFile(join(templateDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: direction-add-template
+name: 演出差分透過
+summary: option の direction_add が API に残ることを確認する
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+direction:
+  pacing: 冒頭2秒以内にフック
+variants:
+  - id: format
+    label: 尺
+    default_option: short-15
+    options:
+      - id: short-15
+        label: 15秒ショート
+        description: 短い尺
+        direction_add:
+          pacing: フックは0.5秒以内、最長カット2秒
+      - id: short-30
+        label: 30秒
+        description: 標準
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+    const template = payload.templates.find(
+      (entry: { id: string }) => entry.id === "direction-add-template"
+    );
+    expect(template).toBeDefined();
+    expect(template.valid).toBe(true);
+    expect(template.direction).toEqual({ pacing: "冒頭2秒以内にフック" });
+    expect(template.variants[0].options[0].directionAdd).toEqual({
+      pacing: "フックは0.5秒以内、最長カット2秒"
+    });
+    expect(template.variants[0].options[1].directionAdd).toBeUndefined();
+  });
+
   it("rejects empty direction objects", async () => {
     const fixture = await createFixture();
     const templateDir = join(fixture.templatesDir, "empty-direction");
