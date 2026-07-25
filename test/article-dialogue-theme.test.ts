@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   ARTICLE_DIALOGUE_CLAUDE_THEME,
   ARTICLE_DIALOGUE_DEFAULT_THEME,
-  resolveArticleDialogueTheme
+  resolveArticleDialogueTheme,
+  resolveCharacterFrame
 } from "../backends/remotion/presentation.mjs";
 
 describe("article dialogue theme", () => {
@@ -41,6 +42,14 @@ describe("article dialogue theme", () => {
     expect(ARTICLE_DIALOGUE_CLAUDE_THEME.headlineFontFamily).toContain("Mincho");
   });
 
+  it("brightens caption emphasis on the dark bar instead of dimming it", () => {
+    // Default keeps the historical behaviour: emphasis takes the speaker accent.
+    expect(ARTICLE_DIALOGUE_DEFAULT_THEME.captionEmphasis).toBeNull();
+    // Claude's neutral speaker accent is darker than the caption ink, so emphasis
+    // would read as de-emphasis. Pin it to the clay accent instead.
+    expect(ARTICLE_DIALOGUE_CLAUDE_THEME.captionEmphasis).toBe("#D97757");
+  });
+
   it("falls back to the default palette for an unknown theme id", () => {
     expect(resolveArticleDialogueTheme({ presentation: { theme: "does-not-exist" } })).toBe(
       ARTICLE_DIALOGUE_DEFAULT_THEME
@@ -50,5 +59,20 @@ describe("article dialogue theme", () => {
   it("declares every token the composition reads so a theme cannot be partially defined", () => {
     const tokens = Object.keys(ARTICLE_DIALOGUE_DEFAULT_THEME).sort();
     expect(Object.keys(ARTICLE_DIALOGUE_CLAUDE_THEME).sort()).toEqual(tokens);
+  });
+});
+
+describe("character frame", () => {
+  it("keeps opaque face art in the circular avatar frame", () => {
+    expect(resolveCharacterFrame({ id: "a", src: "media/a.png" })).toBe("circle");
+    expect(resolveCharacterFrame({ id: "a", src: "media/a.png", alpha_required: false })).toBe("circle");
+  });
+
+  it("renders alpha cutout art as a standing figure instead of cropping it to a circle", () => {
+    expect(resolveCharacterFrame({ id: "a", src: "media/a.png", alpha_required: true })).toBe("cutout");
+  });
+
+  it("falls back to the circular frame when the image is missing", () => {
+    expect(resolveCharacterFrame(undefined)).toBe("circle");
   });
 });

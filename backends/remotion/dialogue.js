@@ -5,6 +5,7 @@ import {
   designScale,
   emphasizedTextParts,
   resolveArticleDialogueTheme,
+  resolveCharacterFrame,
   resolveSpeakerImage
 } from "./presentation.mjs";
 
@@ -256,7 +257,9 @@ function CenterVisual({ active, visual, images, frame, fps, second, theme }) {
                 color: theme.detail,
                 fontSize: image ? 28 : 34,
                 lineHeight: 1.45,
-                fontWeight: 650
+                fontWeight: 650,
+                // Japanese wraps mid-phrase and strands single characters; authored breaks win.
+                whiteSpace: "pre-line"
               }
             },
             visual.detail
@@ -394,6 +397,7 @@ function CenterVisual({ active, visual, images, frame, fps, second, theme }) {
 function Character({ speaker, image, active, frame, fps, theme }) {
   // Soft idle sway (~2.4s) instead of fast bounce
   const bob = Math.sin((frame / fps) * Math.PI * 0.85) * (active ? 3.5 : 2);
+  const cutout = resolveCharacterFrame(image) === "cutout";
   const activeScale = active
     ? interpolate(Math.sin((frame / fps) * Math.PI * 0.6), [-1, 1], [1.0, 1.02])
     : 0.94;
@@ -404,8 +408,8 @@ function Character({ speaker, image, active, frame, fps, theme }) {
       style: {
         position: "absolute",
         bottom: 118,
-        width: 280,
-        height: 300,
+        width: cutout ? 300 : 280,
+        height: cutout ? 400 : 300,
         [speaker.side]: 48,
         display: "flex",
         flexDirection: "column",
@@ -422,14 +426,14 @@ function Character({ speaker, image, active, frame, fps, theme }) {
       "div",
       {
         style: {
-          width: 230,
-          height: 230,
+          width: cutout ? "100%" : 230,
+          height: cutout ? 330 : 230,
           overflow: "hidden",
-          borderRadius: theme.characterRadius,
-          border: `6px solid ${speaker.accent}`,
-          backgroundColor: theme.characterBackground,
+          borderRadius: cutout ? 0 : theme.characterRadius,
+          border: cutout ? "none" : `6px solid ${speaker.accent}`,
+          backgroundColor: cutout ? "transparent" : theme.characterBackground,
           boxShadow:
-            theme.cardShadow === "none"
+            cutout || theme.cardShadow === "none"
               ? "none"
               : active
                 ? `0 16px 36px ${speaker.accent}38`
@@ -443,10 +447,10 @@ function Character({ speaker, image, active, frame, fps, theme }) {
             style: {
               width: "100%",
               height: "100%",
-              objectFit: "cover",
-              // Face-closeup assets already fill the circle; keep mild top bias for hair/bun.
-              objectPosition: speaker.id === "itopan" ? "center 30%" : "center 20%",
-              transform: speaker.id === "itopan" ? "scale(1.06)" : "none",
+              // Cutouts must stay whole; face closeups fill the circle.
+              objectFit: cutout ? "contain" : "cover",
+              objectPosition: cutout ? "center bottom" : speaker.id === "itopan" ? "center 30%" : "center 20%",
+              transform: !cutout && speaker.id === "itopan" ? "scale(1.06)" : "none",
               transformOrigin: "center 32%"
             }
           })
@@ -523,7 +527,11 @@ function DialogueCaption({ active, speakers, frame, fps, theme }) {
           "span",
           {
             key: `${index}-${part.text}`,
-            style: { color: part.emphasized ? speaker?.accent ?? "#f4b45f" : theme.captionInk }
+            style: {
+              color: part.emphasized
+                ? theme.captionEmphasis ?? speaker?.accent ?? "#f4b45f"
+                : theme.captionInk
+            }
           },
           part.text
         )

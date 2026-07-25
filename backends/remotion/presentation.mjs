@@ -36,6 +36,7 @@ export const ARTICLE_DIALOGUE_DEFAULT_THEME = Object.freeze({
   characterRadius: "50% 50% 42% 42%",
   captionBackground: "rgba(27, 25, 23, 0.92)",
   captionInk: "white",
+  captionEmphasis: null,
   captionRadius: 26,
   captionShadow: "0 14px 40px rgba(27,25,23,0.22)",
   draftBorder: "#b87928",
@@ -78,6 +79,7 @@ export const ARTICLE_DIALOGUE_CLAUDE_THEME = Object.freeze({
   characterRadius: "50%",
   captionBackground: "#1F1E1D",
   captionInk: "#F0EEE6",
+  captionEmphasis: "#D97757",
   captionRadius: 14,
   captionShadow: "none",
   draftBorder: "#D97757",
@@ -92,6 +94,15 @@ const ARTICLE_DIALOGUE_THEMES = new Map([
 
 export function resolveArticleDialogueTheme(manifest) {
   return ARTICLE_DIALOGUE_THEMES.get(manifest?.presentation?.theme) ?? ARTICLE_DIALOGUE_DEFAULT_THEME;
+}
+
+/**
+ * Speaker art comes in two shapes. Opaque face closeups are cropped into the
+ * circular avatar; alpha cutouts are full-body art, so cropping them to a circle
+ * would cut the head off — render those as a standing figure instead.
+ */
+export function resolveCharacterFrame(image) {
+  return image?.alpha_required === true ? "cutout" : "circle";
 }
 
 export function designScale(width, height) {
