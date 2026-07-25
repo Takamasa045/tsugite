@@ -1,4 +1,5 @@
 slug: analysis-request-adapter-not-found
+name: analysis-request-adapter-not-found
 run_id: analysis-request-adapter-not-found-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

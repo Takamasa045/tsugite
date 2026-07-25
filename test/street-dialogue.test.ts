@@ -43,7 +43,7 @@ function streetManifest() {
       {
         id: "chill",
         display_name: "チル",
-        side: "left",
+          side: "left",
         accent: "#ff8a3d",
         poses: { neutral: "l-closed" },
         mouth_frames: ["l-closed", "l-half", "l-open"]
@@ -51,7 +51,7 @@ function streetManifest() {
       {
         id: "neru",
         display_name: "ネル",
-        side: "right",
+          side: "right",
         accent: "#3ec6b8",
         poses: { neutral: "r-closed" },
         mouth_frames: ["r-closed", "r-half", "r-open"]

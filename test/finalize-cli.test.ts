@@ -94,6 +94,7 @@ async function cliFixture() {
   await Promise.all([
     writeFile(configPath, [
       "slug: demo",
+      "name: デモ",
       "run_id: demo-v2",
       "manifest: manifest.json",
       "dist_dir: dist",

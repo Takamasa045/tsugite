@@ -1,4 +1,5 @@
 slug: topview-generation
+name: topview-generation
 run_id: topview-generation-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

@@ -1,4 +1,5 @@
 slug: audio-connection-incompatible
+name: audio-connection-incompatible
 run_id: audio-connection-incompatible-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

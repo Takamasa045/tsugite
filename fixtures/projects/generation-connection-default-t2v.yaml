@@ -1,4 +1,5 @@
 slug: generation-connection-default-t2v
+name: generation-connection-default-t2v
 run_id: generation-connection-default-t2v-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

@@ -1,4 +1,5 @@
 slug: generation-known-adapter-connection-required
+name: generation-known-adapter-connection-required
 run_id: generation-known-adapter-connection-required-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

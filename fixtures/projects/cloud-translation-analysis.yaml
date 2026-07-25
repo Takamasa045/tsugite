@@ -1,4 +1,5 @@
 slug: cloud-translation-analysis
+name: cloud-translation-analysis
 run_id: cloud-translation-analysis-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

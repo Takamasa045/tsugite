@@ -1,4 +1,5 @@
 slug: local-media-only
+name: local-media-only
 run_id: local-media-only-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

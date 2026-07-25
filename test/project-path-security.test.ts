@@ -5,7 +5,8 @@ import { projectSchema } from "../src/project/schema.js";
 function projectWithPaths(manifest: string, distDir: string) {
   return {
     slug: "windows-path-check",
-    manifest,
+    name: "windows-path-check",
+      manifest,
     dist_dir: distDir,
     edit: { backend: "remotion" }
   };

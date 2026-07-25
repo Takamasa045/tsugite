@@ -1,4 +1,5 @@
 slug: captions-limited
+name: captions-limited
 run_id: captions-limited-run
 manifest: ../manifests/render-manifest.compat.json
 dist_dir: dist

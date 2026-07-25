@@ -49,7 +49,7 @@ describe("adapter contract", () => {
         expect.objectContaining({
           type: "command",
           name: "provider:pixverse",
-          command: ["pixverse", "--version"],
+      command: ["pixverse", "--version"],
           capture_version: true
         })
       ])

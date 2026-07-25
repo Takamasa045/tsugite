@@ -1,4 +1,5 @@
 slug: generation-connection-topview
+name: generation-connection-topview
 run_id: generation-connection-topview-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

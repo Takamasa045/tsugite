@@ -1,4 +1,5 @@
 slug: analysis-similarity-cross-source
+name: analysis-similarity-cross-source
 run_id: analysis-similarity-cross-source-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

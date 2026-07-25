@@ -1,4 +1,5 @@
 slug: generation-connection-pixburst-alias
+name: generation-connection-pixburst-alias
 run_id: generation-connection-pixburst-alias-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

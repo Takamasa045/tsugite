@@ -1,4 +1,5 @@
 slug: gate2-auto-pass
+name: gate2-auto-pass
 run_id: gate2-auto-pass-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

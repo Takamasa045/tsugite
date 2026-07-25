@@ -1,4 +1,5 @@
 slug: editorial-captions-limited
+name: editorial-captions-limited
 run_id: editorial-captions-limited-run
 manifest: ../manifests/editorial-no-captions.valid.json
 dist_dir: dist

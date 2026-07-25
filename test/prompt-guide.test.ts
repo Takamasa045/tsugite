@@ -92,6 +92,7 @@ describe("adapter prompt knowledge", () => {
     const stale = resolvePromptGuidance(imageRequest("v6"), guide!, "2026-10-11");
     const project = projectSchema.parse({
       slug: "missing-guide",
+      name: "missing-guide",
       manifest: "manifest.json",
       edit: { backend: "fixture" },
       generation: {

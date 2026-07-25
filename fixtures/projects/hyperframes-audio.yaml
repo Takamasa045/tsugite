@@ -1,4 +1,5 @@
 slug: hyperframes-audio
+name: hyperframes-audio
 run_id: hyperframes-audio-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

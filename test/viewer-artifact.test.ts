@@ -24,6 +24,7 @@ import {
 function sampleProject(): Project {
   return {
     slug: "viewer-project",
+    name: "viewer-project",
     run_id: "viewer-run",
     manifest: "manifest.json",
     dist_dir: "dist",
@@ -35,6 +36,7 @@ function samplePlan(): ExecutionPlan {
   return {
     run_id: "viewer-run",
     slug: "viewer-project",
+    name: "viewer-project",
     backend: "remotion",
     target_duration_seconds: 30,
     total_clip_duration_seconds: 30,

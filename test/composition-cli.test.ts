@@ -244,6 +244,7 @@ async function writeProject(configPath: string, proposalId?: string, goal = "Int
   await writeFile(
     configPath,
     `slug: composition-cli
+name: 構成CLI
 run_id: composition-cli-run
 manifest: manifest.json
 dist_dir: dist

@@ -459,6 +459,30 @@ function isRefreshErrorResponse(input: unknown): input is RefreshErrorResponse {
     && 'message' in input.issue && typeof input.issue.message === 'string'
 }
 
+interface RenameResponse {
+  ok: true
+  name: string
+  project?: LauncherProject
+}
+
+interface RenameErrorResponse {
+  ok: false
+  issue: { code: string; message: string }
+}
+
+function isRenameResponse(input: unknown): input is RenameResponse {
+  return typeof input === 'object' && input !== null
+    && 'ok' in input && input.ok === true
+    && 'name' in input && typeof input.name === 'string'
+}
+
+function isRenameErrorResponse(input: unknown): input is RenameErrorResponse {
+  if (typeof input !== 'object' || input === null || !('ok' in input) || input.ok !== false) return false
+  if (!('issue' in input) || typeof input.issue !== 'object' || input.issue === null) return false
+  return 'code' in input.issue && typeof input.issue.code === 'string'
+    && 'message' in input.issue && typeof input.issue.message === 'string'
+}
+
 export function LauncherApp({
   fetcher = defaultFetcher,
   navigate = (url) => window.location.assign(url),
@@ -494,6 +518,11 @@ export function LauncherApp({
   const [visibleFeedbackCount, setVisibleFeedbackCount] = useState(FEEDBACK_PAGE_SIZE)
   const [promotionDecisionState, setPromotionDecisionState] = useState<PromotionDecisionState>('idle')
   const [promotionDecisionError, setPromotionDecisionError] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState(false)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [renameSaving, setRenameSaving] = useState(false)
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const [renameNotice, setRenameNotice] = useState<string | null>(null)
 
   useEffect(() => {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme)
@@ -618,6 +647,12 @@ export function LauncherApp({
     return counts
   }, { observed: 0, recurring: 0, promoted: 0, verified: 0 }), [feedback])
   const selected = projects.find((project) => project.id === selectedId) ?? null
+  useEffect(() => {
+    setRenaming(false)
+    setRenameDraft('')
+    setRenameError(null)
+    // 選択切替時は編集中の下書きだけ捨てる。成功メッセージは残して確認できるようにする。
+  }, [selectedId])
   const selectedFeedback = filteredFeedback.find((preference) => preference.key === selectedFeedbackKey)
     ?? filteredFeedback[0]
     ?? null
@@ -708,6 +743,79 @@ export function LauncherApp({
   const selectProject = (project: LauncherProject) => {
     setSelectedId(project.id)
     setRefreshError(null)
+    setRenaming(false)
+    setRenameDraft('')
+    setRenameError(null)
+    setRenameNotice(null)
+  }
+
+  const beginRename = () => {
+    if (!selected || selected.readOnly || renameSaving) return
+    setRenaming(true)
+    setRenameDraft(selected.name)
+    setRenameError(null)
+    setRenameNotice(null)
+  }
+
+  const cancelRename = () => {
+    if (renameSaving) return
+    setRenaming(false)
+    setRenameDraft('')
+    setRenameError(null)
+  }
+
+  const saveRename = async () => {
+    if (!selected || selected.readOnly || renameSaving) return
+    const nextName = renameDraft.trim()
+    if (!nextName) {
+      setRenameError('案件名を入力してください。')
+      return
+    }
+    if (nextName.length > 120) {
+      setRenameError('案件名は120文字以内にしてください。')
+      return
+    }
+    if (nextName === selected.name) {
+      setRenaming(false)
+      setRenameDraft('')
+      setRenameError(null)
+      return
+    }
+    setRenameSaving(true)
+    setRenameError(null)
+    setRenameNotice(null)
+    try {
+      const response = await fetcher(`/api/projects/${encodeURIComponent(selected.id)}/rename`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'x-tsugite-token': token,
+        },
+        body: JSON.stringify({ name: nextName }),
+      })
+      const payload: unknown = await response.json()
+      if (!response.ok || !isRenameResponse(payload)) {
+        const message = isRenameErrorResponse(payload)
+          ? payload.issue.message
+          : '案件名を変更できませんでした。'
+        throw new Error(message)
+      }
+      if (payload.project && isLauncherProject(payload.project)) {
+        setProjects((current) => current.map((project) => (
+          project.id === payload.project!.id ? payload.project! : project
+        )))
+      } else {
+        await loadProjects({ background: true })
+      }
+      setRenaming(false)
+      setRenameDraft('')
+      setRenameNotice(`案件名を「${payload.name}」に変更しました。`)
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : '案件名を変更できませんでした。')
+    } finally {
+      setRenameSaving(false)
+    }
   }
 
   const openProjectFromThumbnail = async (project: LauncherProject) => {
@@ -1178,7 +1286,59 @@ export function LauncherApp({
             <span className="eyebrow">選択中の木札</span>
             {selected ? (
               <>
-                <h2>{selected.name}</h2>
+                {renaming ? (
+                  <form
+                    className="launcher-rename-form"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void saveRename()
+                    }}
+                  >
+                    <label className="launcher-rename-label" htmlFor="launcher-project-rename-input">
+                      案件名
+                    </label>
+                    <input
+                      autoFocus
+                      className="launcher-rename-input"
+                      disabled={renameSaving}
+                      id="launcher-project-rename-input"
+                      maxLength={120}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.preventDefault()
+                          cancelRename()
+                        }
+                      }}
+                      placeholder="例: 北アルプス シネマ20秒"
+                      type="text"
+                      value={renameDraft}
+                    />
+                    <div className="launcher-rename-actions">
+                      <button className="launcher-primary" disabled={renameSaving || !renameDraft.trim()} type="submit">
+                        {renameSaving ? '保存しています…' : '名前を保存'}
+                      </button>
+                      <button className="launcher-secondary" disabled={renameSaving} onClick={cancelRename} type="button">
+                        やめる
+                      </button>
+                    </div>
+                    <small className="launcher-rename-hint">slug・フォルダ名は変わりません。表示名だけを書き換えます。</small>
+                  </form>
+                ) : (
+                  <div className="launcher-selection-title-row">
+                    <h2>{selected.name}</h2>
+                    {!selected.readOnly && (
+                      <button
+                        className="launcher-rename-start"
+                        disabled={refreshing || projectListRefreshing || renameSaving}
+                        onClick={beginRename}
+                        type="button"
+                      >
+                        名前を変更
+                      </button>
+                    )}
+                  </div>
+                )}
                 <dl className="launcher-project-meta">
                   <div><dt>現在の状況</dt><dd>{selected.valid ? statusLabel(selected.status) : '設定の確認が必要'}</dd></div>
                   <div><dt>制作記録</dt><dd>{selected.runId}</dd></div>
@@ -1197,12 +1357,14 @@ export function LauncherApp({
                       ? '現在のバックエンドではこの案件を更新できません。'
                       : '設定ファイルを読み込めませんでした。')}</p>
                     <small>{!selected.valid
-                      ? 'project.yamlと参照ファイルを確認してください。'
+                      ? 'project.yamlと参照ファイルを確認してください。name（案件名）が無い場合は「名前を変更」で付けられます。'
                       : selected.refreshable
                         ? 'Viewer表示だけを安全に更新します。制作実行前にバックエンド能力を確認してください。'
                         : '前回の表示がある場合は、更新せずに開けます。'}</small>
                   </div>
                 )}
+                {renameError && <p className="launcher-refresh-error" role="alert">{renameError}</p>}
+                {renameNotice && <p className="launcher-refresh-notice" role="status">{renameNotice}</p>}
                 {refreshError && <p className="launcher-refresh-error" role="alert">{refreshError}</p>}
 
                 <div className="launcher-actions">

@@ -1,4 +1,5 @@
 slug: audio-connection
+name: audio-connection
 run_id: audio-connection-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

@@ -1,4 +1,5 @@
 slug: local-editorial-analysis
+name: ローカル編集解析サンプル
 run_id: local-editorial-analysis-run
 manifest: manifest.json
 dist_dir: dist

@@ -1,4 +1,5 @@
 slug: no-skill-agent
+name: no-skill-agent
 run_id: no-skill-agent-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

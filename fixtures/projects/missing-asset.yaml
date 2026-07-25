@@ -1,4 +1,5 @@
 slug: missing-asset
+name: missing-asset
 run_id: missing-asset-run
 manifest: ../manifests/missing-asset.json
 dist_dir: dist

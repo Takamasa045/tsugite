@@ -1,4 +1,5 @@
 slug: audio-transition-limited
+name: audio-transition-limited
 run_id: audio-transition-limited-run
 manifest: ../manifests/audio-transition.json
 dist_dir: dist

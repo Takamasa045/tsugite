@@ -1,4 +1,5 @@
 slug: analysis-dependency-unknown
+name: analysis-dependency-unknown
 run_id: analysis-dependency-unknown-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

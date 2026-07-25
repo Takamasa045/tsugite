@@ -1,4 +1,5 @@
 slug: dialogue-limited
+name: dialogue-limited
 run_id: dialogue-limited-run
 manifest: ../manifests/dialogue.valid.json
 dist_dir: dist

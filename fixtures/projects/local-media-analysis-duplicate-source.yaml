@@ -1,4 +1,5 @@
 slug: local-media-analysis-duplicate-source
+name: local-media-analysis-duplicate-source
 run_id: local-media-analysis-duplicate-source-run
 manifest: ../manifests/analysis-duplicate-clips.json
 dist_dir: dist

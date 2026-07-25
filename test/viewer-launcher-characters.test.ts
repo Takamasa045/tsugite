@@ -27,6 +27,7 @@ async function createFixture() {
   await writeFile(
     join(targetDir, "project.yaml"),
     `slug: target-project
+name: ターゲット案件
 run_id: target-project-run
 manifest: manifest.json
 dist_dir: dist
@@ -42,7 +43,7 @@ edit:
       {
         id: "hero",
         display_name: "Hero",
-        side: "left",
+          side: "left",
         accent: "#111111",
         poses: { neutral: "hero-neutral", smile: "hero-smile" },
         mouth_frames: ["hero-m0", "hero-m1", "hero-m2"]
@@ -73,7 +74,7 @@ edit:
       {
         id: "host",
         display_name: "Host",
-        side: "right",
+          side: "right",
         accent: "#abcdef",
         poses: { neutral: "host-n" }
       }
@@ -290,7 +291,7 @@ describe("viewer launcher characters API", () => {
       {
         id: "hero",
         display_name: "Different Hero",
-        side: "right",
+          side: "right",
         accent: "#ffffff",
         poses: { neutral: "other-hero" }
       }
@@ -345,6 +346,7 @@ describe("viewer launcher characters API", () => {
     await writeFile(
       join(readOnlyProject, "project.yaml"),
       `slug: ro-target
+name: 読み取り専用ターゲット
 run_id: ro-target-run
 manifest: manifest.json
 dist_dir: dist
@@ -439,6 +441,7 @@ async function writeSpeakerProject(
   projectDir: string,
   options: {
     slug: string;
+    name?: string;
     asTemplate?: boolean;
     speakers: Array<{
       id: string;
@@ -468,6 +471,7 @@ async function writeSpeakerProject(
     await writeFile(
       join(projectDir, "project.yaml"),
       `slug: ${options.slug}
+name: ${options.name ?? options.slug}
 run_id: ${options.slug}-run
 manifest: manifest.json
 dist_dir: dist

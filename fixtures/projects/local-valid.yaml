@@ -1,4 +1,5 @@
 slug: local-fixture
+name: local-fixture
 run_id: local-fixture-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

@@ -1527,10 +1527,104 @@ describe('LauncherApp', () => {
     expect(within(selectedPanel).getByText('設定の確認が必要')).toBeVisible()
     expect(within(selectedPanel).getByText('manifest.jsonが見つかりません。')).toBeVisible()
     expect(screen.getByRole('button', { name: '最新状態に更新して開く' })).toBeDisabled()
-    expect(screen.getByText('project.yamlと参照ファイルを確認してください。')).toBeVisible()
+    expect(screen.getByText('project.yamlと参照ファイルを確認してください。name（案件名）が無い場合は「名前を変更」で付けられます。')).toBeVisible()
+    expect(screen.getByRole('button', { name: '名前を変更' })).toBeVisible()
 
     await user.type(screen.getByRole('searchbox', { name: '制作案件を検索' }), '存在しない')
     expect(screen.getByText('検索条件に合う制作案件はありません。')).toBeVisible()
+  })
+
+  it('選択中の案件名を変更でき、同じ名前は保存せずAPIも呼ばない', async () => {
+    const user = userEvent.setup()
+    const fetcher = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/projects') {
+        return Promise.resolve(jsonResponse({ ok: true, projects }))
+      }
+      if (url === `/api/projects/${projects[0]!.id}/rename` && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body ?? '{}')) as { name?: string }
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          name: body.name,
+          project: { ...projects[0]!, name: body.name },
+        }))
+      }
+      return createLauncherFetcher()(url, init)
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await user.click(await screen.findByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' }))
+
+    await user.click(screen.getByRole('button', { name: '名前を変更' }))
+    const input = screen.getByLabelText('案件名')
+    expect(input).toHaveValue('サンプル映像A')
+    expect(screen.getByRole('button', { name: '名前を保存' })).toBeEnabled()
+
+    await user.clear(input)
+    expect(screen.getByRole('button', { name: '名前を保存' })).toBeDisabled()
+
+    await user.type(input, 'サンプル映像A')
+    await user.click(screen.getByRole('button', { name: '名前を保存' }))
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('/rename'))).toBe(false)
+    expect(screen.queryByLabelText('案件名')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '名前を変更' }))
+    await user.clear(screen.getByLabelText('案件名'))
+    await user.type(screen.getByLabelText('案件名'), '改名後の案件')
+    await user.click(screen.getByRole('button', { name: '名前を保存' }))
+
+    expect(await screen.findByText('案件名を「改名後の案件」に変更しました。')).toBeVisible()
+    expect(screen.getByRole('heading', { level: 2, name: '改名後の案件' })).toBeVisible()
+    expect(fetcher).toHaveBeenCalledWith(
+      `/api/projects/${projects[0]!.id}/rename`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'x-tsugite-token': 'session-token' }),
+        body: JSON.stringify({ name: '改名後の案件' }),
+      }),
+    )
+  })
+
+  it('名前変更をやめると下書きを捨て、API失敗時は理由を出す', async () => {
+    const user = userEvent.setup()
+    const fetcher = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/projects') {
+        return Promise.resolve(jsonResponse({ ok: true, projects }))
+      }
+      if (String(url).includes('/rename')) {
+        return Promise.resolve(jsonResponse({
+          ok: false,
+          issue: { code: 'viewer_launcher.worktree_read_only', message: '別worktreeの案件はこのランチャーから変更できません' },
+        }, false))
+      }
+      return createLauncherFetcher()(url, init)
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await user.click(await screen.findByRole('button', { name: 'サンプル映像Aの制作工程を選ぶ' }))
+    await user.click(screen.getByRole('button', { name: '名前を変更' }))
+    await user.type(screen.getByLabelText('案件名'), '途中')
+    await user.click(screen.getByRole('button', { name: 'やめる' }))
+    expect(screen.queryByLabelText('案件名')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'サンプル映像A' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '名前を変更' }))
+    await user.clear(screen.getByLabelText('案件名'))
+    await user.type(screen.getByLabelText('案件名'), '失敗する名前')
+    await user.click(screen.getByRole('button', { name: '名前を保存' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('別worktreeの案件はこのランチャーから変更できません')
+  })
+
+  it('別worktreeの案件では名前変更ボタンを出さない', async () => {
+    const readOnlyProject = {
+      ...projects[0],
+      id: 'other-worktree',
+      name: '別worktree案件',
+      readOnly: true,
+    }
+    const fetcher = createLauncherFetcher({ projectList: [readOnlyProject] })
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('button', { name: '別worktree案件の制作工程を選ぶ' })
+    expect(screen.queryByRole('button', { name: '名前を変更' })).not.toBeInTheDocument()
   })
 
   it('更新不能な理由を事前表示し、前回のViewerは開ける', async () => {

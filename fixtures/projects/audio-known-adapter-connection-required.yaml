@@ -1,4 +1,5 @@
 slug: audio-known-adapter-connection-required
+name: audio-known-adapter-connection-required
 run_id: audio-known-adapter-connection-required-run
 manifest: ../manifests/minimal.valid.json
 dist_dir: dist

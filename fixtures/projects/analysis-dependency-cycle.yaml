@@ -1,4 +1,5 @@
 slug: analysis-dependency-cycle
+name: analysis-dependency-cycle
 run_id: analysis-dependency-cycle-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

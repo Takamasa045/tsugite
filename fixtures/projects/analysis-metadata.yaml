@@ -1,4 +1,5 @@
 slug: analysis-metadata
+name: analysis-metadata
 run_id: analysis-metadata-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

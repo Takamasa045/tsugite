@@ -16,6 +16,7 @@ afterEach(() => {
 
 const project: Project = {
   slug: "demo",
+  name: "demo",
   run_id: "demo-v2",
   manifest: "manifest.json",
   dist_dir: "dist",

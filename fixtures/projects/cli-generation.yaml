@@ -1,4 +1,5 @@
 slug: cli-generation
+name: cli-generation
 run_id: cli-generation-run
 manifest: ../manifests/render-local.valid.json
 dist_dir: dist

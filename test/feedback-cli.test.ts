@@ -292,5 +292,5 @@ async function capture(args: string[]) {
 }
 
 async function writeProjectConfig(path: string): Promise<void> {
-  await writeFile(path, "slug: feedback-cli\nmanifest: manifest.json\nedit:\n  backend: remotion\n");
+  await writeFile(path, "slug: feedback-cli\nname: フィードバックCLI\nmanifest: manifest.json\nedit:\n  backend: remotion\n");
 }

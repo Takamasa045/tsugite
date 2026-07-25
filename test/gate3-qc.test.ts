@@ -92,7 +92,7 @@ describe("gate 3 qc", () => {
           {
             codec_type: "video",
             codec_name: "h264",
-            width: 1920,
+      width: 1920,
             height: 1080,
             avg_frame_rate: "30000/1001"
           },

@@ -239,14 +239,14 @@ const gatePolicySchema = z.object({
     .optional()
 });
 
-/** ランチャー表示用の案件名。日本語可。未設定時はフォルダ名を表示する。 */
+/** ランチャー表示用の案件名。日本語可。必須。後から変更できる。 */
 const projectDisplayNameSchema = z.string().trim().min(1).max(120);
 
 export const projectSchema = z
   .object({
     slug: safeIdSchema,
-    /** 人向け表示名（日本語推奨）。slug / フォルダ名とは別に持てる。 */
-    name: projectDisplayNameSchema.optional(),
+    /** 人向け表示名（日本語）。必須。slug / フォルダ名とは別に持つ。 */
+    name: projectDisplayNameSchema,
     run_id: safeIdSchema.optional(),
     manifest: manifestPathSchema,
     dist_dir: safeRelativePathSchema.default("dist"),
