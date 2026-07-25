@@ -66,6 +66,7 @@ import {
   type CharacterImageLocation,
   type LauncherCharacterCatalog
 } from "./launcherCharacters.js";
+import { loadPromptGuideById } from "../adapters/promptKnowledge.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const TSUGITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -155,6 +156,10 @@ export type LauncherTemplate = {
   notFor: string[];
   /** テンプレート単位の演出指針（任意）。ブリーフへ載せる説明であり実行能力ではない。 */
   direction?: LauncherTemplateDirection;
+  /** テンプレート既定の prompt-guide catalog（任意・実行能力ではない）。 */
+  promptGuideCatalog?: string;
+  /** 参照 catalog の documented チェックリスト（読み取り専用要約）。 */
+  promptGuides?: LauncherTemplatePromptGuide[];
   variants: LauncherTemplateVariant[];
   tags: string[];
   audio: string;
@@ -179,6 +184,19 @@ export type LauncherTemplateDirection = {
   audioSync?: string;
 };
 
+export type LauncherTemplateExamples = {
+  good: string[];
+  monotonous: string[];
+};
+
+export type LauncherTemplatePromptGuide = {
+  catalogId: string;
+  displayName: string;
+  /** evidence: documented のみ。カタログは実行能力を証明しない。 */
+  checklist: Array<{ id: string; instruction: string }>;
+  disclaimer: string;
+};
+
 export type LauncherTemplatePreview = {
   frames: Array<{
     kind: "product" | "person" | "interface" | "parts" | "hands" | "result" | "event" | "text";
@@ -197,6 +215,10 @@ export type LauncherTemplateVariant = {
     description: string;
     /** この option 選択時に base direction へ足す演出行（任意）。 */
     directionAdd?: LauncherTemplateDirection;
+    /** 良い例 / 単調な例（ブリーフ用。1〜2件想定）。 */
+    examples?: LauncherTemplateExamples;
+    /** 選択時にブリーフへ載せる prompt-guide catalog id（実行能力ではない）。 */
+    promptGuideCatalog?: string;
   }>;
 };
 
@@ -369,6 +391,21 @@ const templateDirectionSchema = z.object({
     });
   }
 });
+const templateExamplesSchema = z.object({
+  good: z.array(descriptionText).min(1).max(2).optional(),
+  monotonous: z.array(descriptionText).min(1).max(2).optional()
+}).strict().superRefine((examples, context) => {
+  if ((examples.good?.length ?? 0) === 0 && (examples.monotonous?.length ?? 0) === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "examples must include good and/or monotonous"
+    });
+  }
+});
+const promptGuideCatalogIdSchema = z.string().trim().min(1).max(64).regex(
+  /^[A-Za-z0-9][A-Za-z0-9._-]*$/,
+  "must be a safe catalog id"
+);
 const templateVariantSchema = z.object({
   id: templateIdSchema,
   label: nonEmptyText,
@@ -377,7 +414,9 @@ const templateVariantSchema = z.object({
     id: templateIdSchema,
     label: nonEmptyText,
     description: descriptionText,
-    direction_add: templateDirectionSchema.optional()
+    direction_add: templateDirectionSchema.optional(),
+    examples: templateExamplesSchema.optional(),
+    prompt_guide_catalog: promptGuideCatalogIdSchema.optional()
   }).strict()).min(2).max(12)
 }).strict().superRefine((variant, context) => {
   const optionIds = new Set<string>();
@@ -427,6 +466,7 @@ const templateMetadataSchema = z.object({
   preview: templatePreviewSchema.optional(),
   not_for: z.array(nonEmptyText).max(6).default([]),
   direction: templateDirectionSchema.optional(),
+  prompt_guide_catalog: promptGuideCatalogIdSchema.optional(),
   variants: z.array(templateVariantSchema).max(8).default([]).superRefine((variants, context) => {
     const variantIds = new Set<string>();
     for (const [index, variant] of variants.entries()) {
@@ -464,6 +504,45 @@ function mapTemplateDirection(
     ...(direction.audio_sync !== undefined ? { audioSync: direction.audio_sync } : {})
   };
   return Object.keys(mapped).length > 0 ? mapped : undefined;
+}
+
+function mapTemplateExamples(
+  examples: z.infer<typeof templateExamplesSchema> | undefined
+): LauncherTemplateExamples | undefined {
+  if (!examples) return undefined;
+  const good = examples.good ?? [];
+  const monotonous = examples.monotonous ?? [];
+  if (good.length === 0 && monotonous.length === 0) return undefined;
+  return { good, monotonous };
+}
+
+const PROMPT_GUIDE_DISCLAIMER =
+  "カタログの存在は実行能力・利用権・接続状態を証明しません。Gate 1承認と接続確認が別途必要です。";
+
+async function loadDocumentedPromptGuides(
+  catalogIds: readonly string[]
+): Promise<LauncherTemplatePromptGuide[]> {
+  const unique = [...new Set(catalogIds.filter(Boolean))];
+  const guides: LauncherTemplatePromptGuide[] = [];
+  for (const catalogId of unique) {
+    try {
+      const guide = await loadPromptGuideById(catalogId);
+      if (!guide) continue;
+      const checklist = guide.common.checklist
+        .filter((rule) => rule.evidence === "documented")
+        .map((rule) => ({ id: rule.id, instruction: rule.instruction }));
+      if (checklist.length === 0) continue;
+      guides.push({
+        catalogId: guide.catalog_id,
+        displayName: guide.display_name,
+        checklist,
+        disclaimer: PROMPT_GUIDE_DISCLAIMER
+      });
+    } catch {
+      // カタログ欠落はテンプレ無効にしない（閲覧メタデータ）
+    }
+  }
+  return guides;
 }
 
 class TemplateMetadataError extends Error {
@@ -2318,6 +2397,15 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
       );
     }
     const direction = mapTemplateDirection(metadata.direction);
+    const catalogIds = [
+      ...(metadata.prompt_guide_catalog ? [metadata.prompt_guide_catalog] : []),
+      ...metadata.variants.flatMap((variant) =>
+        variant.options.flatMap((option) =>
+          option.prompt_guide_catalog ? [option.prompt_guide_catalog] : []
+        )
+      )
+    ];
+    const promptGuides = await loadDocumentedPromptGuides(catalogIds);
     return {
       id,
       name: metadata.name,
@@ -2345,17 +2433,26 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
         : null,
       notFor: metadata.not_for,
       ...(direction ? { direction } : {}),
+      ...(metadata.prompt_guide_catalog
+        ? { promptGuideCatalog: metadata.prompt_guide_catalog }
+        : {}),
+      ...(promptGuides.length > 0 ? { promptGuides } : {}),
       variants: metadata.variants.map((variant) => ({
         id: variant.id,
         label: variant.label,
         ...(variant.default_option ? { defaultOptionId: variant.default_option } : {}),
         options: variant.options.map((option) => {
           const directionAdd = mapTemplateDirection(option.direction_add);
+          const examples = mapTemplateExamples(option.examples);
           return {
             id: option.id,
             label: option.label,
             description: option.description,
-            ...(directionAdd ? { directionAdd } : {})
+            ...(directionAdd ? { directionAdd } : {}),
+            ...(examples ? { examples } : {}),
+            ...(option.prompt_guide_catalog
+              ? { promptGuideCatalog: option.prompt_guide_catalog }
+              : {})
           };
         })
       })),

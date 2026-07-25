@@ -7,6 +7,18 @@ export interface LauncherTemplateDirection {
   audioSync?: string
 }
 
+export interface LauncherTemplateExamples {
+  good: string[]
+  monotonous: string[]
+}
+
+export interface LauncherTemplatePromptGuide {
+  catalogId: string
+  displayName: string
+  checklist: Array<{ id: string; instruction: string }>
+  disclaimer: string
+}
+
 export interface LauncherTemplate {
   id: string
   name: string
@@ -32,6 +44,8 @@ export interface LauncherTemplate {
   notFor: string[]
   /** テンプレート単位の演出指針（任意）。制作ブリーフへ載せる。 */
   direction?: LauncherTemplateDirection
+  promptGuideCatalog?: string
+  promptGuides?: LauncherTemplatePromptGuide[]
   variants: Array<{
     id: string
     label: string
@@ -42,6 +56,8 @@ export interface LauncherTemplate {
       description: string
       /** この option 選択時に base direction へ足す演出行（任意）。 */
       directionAdd?: LauncherTemplateDirection
+      examples?: LauncherTemplateExamples
+      promptGuideCatalog?: string
     }>
   }>
   tags: string[]
@@ -143,6 +159,33 @@ function isStringArray(input: unknown): input is string[] {
   return Array.isArray(input) && input.every((value) => typeof value === 'string')
 }
 
+function isTemplateExamples(input: unknown): input is LauncherTemplateExamples {
+  if (typeof input !== 'object' || input === null) return false
+  const record = input as Record<string, unknown>
+  const good = record.good
+  const monotonous = record.monotonous
+  const goodOk = good === undefined || (Array.isArray(good) && good.every((item) => typeof item === 'string'))
+  const monoOk = monotonous === undefined
+    || (Array.isArray(monotonous) && monotonous.every((item) => typeof item === 'string'))
+  if (!goodOk || !monoOk) return false
+  const goodCount = Array.isArray(good) ? good.length : 0
+  const monoCount = Array.isArray(monotonous) ? monotonous.length : 0
+  return goodCount + monoCount > 0
+}
+
+function isTemplatePromptGuide(input: unknown): input is LauncherTemplatePromptGuide {
+  return typeof input === 'object' && input !== null
+    && 'catalogId' in input && typeof input.catalogId === 'string'
+    && 'displayName' in input && typeof input.displayName === 'string'
+    && 'disclaimer' in input && typeof input.disclaimer === 'string'
+    && 'checklist' in input && Array.isArray(input.checklist)
+    && input.checklist.every((item) => (
+      typeof item === 'object' && item !== null
+      && 'id' in item && typeof item.id === 'string'
+      && 'instruction' in item && typeof item.instruction === 'string'
+    ))
+}
+
 function isTemplateVariant(input: unknown): input is LauncherTemplate['variants'][number] {
   return typeof input === 'object' && input !== null
     && 'id' in input && typeof input.id === 'string'
@@ -156,6 +199,12 @@ function isTemplateVariant(input: unknown): input is LauncherTemplate['variants'
       && (!('directionAdd' in option)
         || option.directionAdd === undefined
         || isTemplateDirection(option.directionAdd))
+      && (!('examples' in option)
+        || option.examples === undefined
+        || isTemplateExamples(option.examples))
+      && (!('promptGuideCatalog' in option)
+        || option.promptGuideCatalog === undefined
+        || typeof option.promptGuideCatalog === 'string')
     ))
 }
 
@@ -209,6 +258,12 @@ export function isLauncherTemplate(input: unknown): input is LauncherTemplate {
     && 'preview' in input && isTemplatePreview(input.preview)
     && 'notFor' in input && isStringArray(input.notFor)
     && (!('direction' in input) || input.direction === undefined || isTemplateDirection(input.direction))
+    && (!('promptGuideCatalog' in input)
+      || input.promptGuideCatalog === undefined
+      || typeof input.promptGuideCatalog === 'string')
+    && (!('promptGuides' in input)
+      || input.promptGuides === undefined
+      || (Array.isArray(input.promptGuides) && input.promptGuides.every(isTemplatePromptGuide)))
     && 'variants' in input && Array.isArray(input.variants) && input.variants.every(isTemplateVariant)
     && 'tags' in input && isStringArray(input.tags)
     && 'audio' in input && typeof input.audio === 'string'
@@ -365,10 +420,65 @@ export function resolveDirectionLines(
   return lines
 }
 
+/** base + 選択 option の catalog id 和集合（宣言順・重複除去）。 */
+export function resolvePromptGuideCatalogIds(
+  template: Pick<LauncherTemplate, 'promptGuideCatalog' | 'variants'>,
+  choices: Readonly<Record<string, string>>,
+): string[] {
+  const ids: string[] = []
+  if (template.promptGuideCatalog) ids.push(template.promptGuideCatalog)
+  for (const variant of template.variants) {
+    const optionId = choices[variant.id]
+    if (!optionId) continue
+    const option = variant.options.find((entry) => entry.id === optionId)
+    if (option?.promptGuideCatalog) ids.push(option.promptGuideCatalog)
+  }
+  return [...new Set(ids)]
+}
+
+export function resolvePromptGuidesForBrief(
+  template: Pick<LauncherTemplate, 'promptGuideCatalog' | 'promptGuides' | 'variants'>,
+  choices: Readonly<Record<string, string>>,
+): LauncherTemplatePromptGuide[] {
+  const wanted = new Set(resolvePromptGuideCatalogIds(template, choices))
+  if (wanted.size === 0 || !template.promptGuides) return []
+  return template.promptGuides.filter((guide) => wanted.has(guide.catalogId))
+}
+
+export function resolveExampleLines(
+  template: Pick<LauncherTemplate, 'variants'>,
+  choices: Readonly<Record<string, string>>,
+): Array<{ kind: 'good' | 'monotonous'; optionLabel: string; text: string }> {
+  const lines: Array<{ kind: 'good' | 'monotonous'; optionLabel: string; text: string }> = []
+  for (const variant of template.variants) {
+    const optionId = choices[variant.id]
+    if (!optionId) continue
+    const option = variant.options.find((entry) => entry.id === optionId)
+    if (!option?.examples) continue
+    for (const text of option.examples.good ?? []) {
+      if (text.trim()) lines.push({ kind: 'good', optionLabel: option.label, text: text.trim() })
+    }
+    for (const text of option.examples.monotonous ?? []) {
+      if (text.trim()) {
+        lines.push({ kind: 'monotonous', optionLabel: option.label, text: text.trim() })
+      }
+    }
+  }
+  return lines
+}
+
 export function buildTemplateBriefMarkdown(
   template: Pick<
     LauncherTemplate,
-    'name' | 'summary' | 'variants' | 'requiredInputDetails' | 'notFor' | 'audio' | 'direction'
+    | 'name'
+    | 'summary'
+    | 'variants'
+    | 'requiredInputDetails'
+    | 'notFor'
+    | 'audio'
+    | 'direction'
+    | 'promptGuideCatalog'
+    | 'promptGuides'
   >,
   choices: Readonly<Record<string, string>>,
 ): string {
@@ -393,6 +503,37 @@ export function buildTemplateBriefMarkdown(
     for (const entry of directionLines) {
       const label = entry.source ? `${entry.label}（${entry.source}）` : entry.label
       lines.push(`- **${label}**: ${entry.text}`)
+    }
+  }
+
+  const exampleLines = resolveExampleLines(template, choices)
+  if (exampleLines.length > 0) {
+    lines.push('', '## 具体例')
+    const goods = exampleLines.filter((entry) => entry.kind === 'good')
+    const monos = exampleLines.filter((entry) => entry.kind === 'monotonous')
+    if (goods.length > 0) {
+      lines.push('', '### 良い例')
+      for (const entry of goods) {
+        lines.push(`- （${entry.optionLabel}） ${entry.text}`)
+      }
+    }
+    if (monos.length > 0) {
+      lines.push('', '### 単調な例（避ける）')
+      for (const entry of monos) {
+        lines.push(`- （${entry.optionLabel}） ${entry.text}`)
+      }
+    }
+  }
+
+  const promptGuides = resolvePromptGuidesForBrief(template, choices)
+  if (promptGuides.length > 0) {
+    lines.push('', '## 生成プロンプトの書式')
+    for (const guide of promptGuides) {
+      lines.push('', `### ${guide.displayName}（${guide.catalogId}）`)
+      lines.push(`- ${guide.disclaimer}`)
+      for (const rule of guide.checklist) {
+        lines.push(`- ${rule.instruction}`)
+      }
     }
   }
 

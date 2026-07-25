@@ -34,6 +34,10 @@ import {
 } from "./compositionProposal.js";
 import type { ExecutionPlan } from "./plan.js";
 import { computeReviewPreviewDigest } from "./reviewPreview.js";
+import {
+  lintShotlistMonotony,
+  monotonyFindingsToWarningMessages
+} from "./shotlistMonotony.js";
 
 export type EditorialCompilation = {
   manifest: Manifest;
@@ -743,6 +747,23 @@ export function createReviewDocument(
     }
   }
 
+  const monotonyWarnings = monotonyFindingsToWarningMessages(
+    lintShotlistMonotony(
+      storyboard.map((shot) => ({
+        id: shot.id,
+        start: shot.start,
+        end: shot.end,
+        duration: shot.duration,
+        camera: primaryMotionPreset(shot.motion),
+        role: shot.kicker,
+        title: shot.title,
+        kicker: shot.kicker,
+        badges: shot.badges
+      }))
+    )
+  );
+  warnings.push(...monotonyWarnings);
+
   return {
     schema_version: project.composition ? 3 : project.analysis ? 2 : 1,
     run_id: project.run_id ?? project.slug,
@@ -927,6 +948,11 @@ function clipMotionForTimeRange(
     if (overlap > (bestMatch?.overlap ?? 0)) bestMatch = { clip: timedClip, overlap };
   }
   return bestMatch?.clip.clip.motion;
+}
+
+function primaryMotionPreset(motion: ReviewMotionPlan | undefined): string | undefined {
+  const cue = motion?.cues.find((entry) => entry.preset !== "none") ?? motion?.cues[0];
+  return cue?.preset;
 }
 
 function toReviewMotion(motion: ManifestMotionPlan | undefined): ReviewMotionPlan | undefined {
