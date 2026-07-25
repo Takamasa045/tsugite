@@ -35,14 +35,22 @@ describe("lintShotlistMonotony", () => {
     expect(findings.some((item) => item.code === "shotlist.camera_repeat")).toBe(true);
   });
 
-  it("flags three consecutive static/no-camera shots", () => {
+  it("flags three consecutive explicit static cameras (not unspecified)", () => {
     const findings = lintShotlistMonotony([
       { start: 0, duration: 1, camera: "static", role: "hook" },
-      { start: 1, duration: 2 },
-      { start: 3, duration: 3, camera: "none" },
+      { start: 1, duration: 2, camera: "none" },
+      { start: 3, duration: 3, camera: "fixed" },
       { start: 6, duration: 1, camera: "pan-left" }
     ]);
     expect(findings.some((item) => item.code === "shotlist.static_run")).toBe(true);
+
+    const unspecified = lintShotlistMonotony([
+      { start: 0, duration: 1, role: "hook" },
+      { start: 1, duration: 2 },
+      { start: 3, duration: 3 },
+      { start: 6, duration: 1, camera: "pan-left" }
+    ]);
+    expect(unspecified.some((item) => item.code === "shotlist.static_run")).toBe(false);
   });
 
   it("flags missing early hook when first shot is long and unmarked", () => {

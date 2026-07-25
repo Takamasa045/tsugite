@@ -123,15 +123,16 @@ export function lintShotlistMonotony(
   if (staticRunThreshold >= 2) {
     let run = 0;
     for (const shot of ordered) {
+      // 未指定 (undefined) は「不明」扱い。明示 static/none だけを固定画連続に数える。
       const camera = cameraFamily(shot.camera);
-      if (!camera || camera === "static") {
+      if (camera === "static") {
         run += 1;
         if (run === staticRunThreshold) {
           findings.push({
             code: "shotlist.static_run",
             severity: "warning",
             message:
-              `カメラ動きのない（または static の）ショットが${staticRunThreshold}連続しています。`
+              `カメラが static / none のショットが${staticRunThreshold}連続しています。`
               + "寄り/引きや1ベクトルの動きを挟み、単調な固定画を避けてください。"
           });
           break;
