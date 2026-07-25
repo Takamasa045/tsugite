@@ -2542,6 +2542,7 @@ async function inspectProject(
     sourceModifiedAtMs = captured.sourceModifiedAtMs;
     const configDigest = createHash("sha256").update(await readFile(configPath)).digest("hex");
     const project = await loadProject(configPath);
+    const displayName = project.name?.trim() || name;
     const runId = project.run_id ?? project.slug;
     const projectDir = dirname(configPath);
     const runDir = join(projectDir, project.dist_dir, runId);
@@ -2686,7 +2687,7 @@ async function inspectProject(
     ].map(toPublicLauncherIssue);
     return {
       id,
-      name,
+      name: displayName,
       configPath,
       sourceModifiedAtMs,
       readOnly,
@@ -2707,7 +2708,7 @@ async function inspectProject(
       },
       public: {
         id,
-        name,
+        name: displayName,
         slug: project.slug,
         runId,
         revision: createLauncherProjectRevision({

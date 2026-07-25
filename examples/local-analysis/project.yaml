@@ -1,4 +1,5 @@
 slug: local-analysis
+name: ローカル解析サンプル
 run_id: local-analysis-run
 manifest: manifest.json
 dist_dir: dist

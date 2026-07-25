@@ -18,6 +18,17 @@ describe("project validation", () => {
     expect(project.edit.backend).toBe("remotion");
   });
 
+  it("accepts an optional Japanese display name", () => {
+    const project = validProjectDefinition();
+    project.name = "北アルプス シネマ20秒";
+
+    const parsed = projectSchema.safeParse(project);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.name).toBe("北アルプス シネマ20秒");
+    }
+  });
+
   it("accepts an explicit editorial policy for analysis-derived cuts and captions", () => {
     const project = validProjectDefinition();
     project.edit = {
