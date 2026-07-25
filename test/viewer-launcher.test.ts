@@ -649,8 +649,8 @@ distribution: local-only
       speakers: 2,
       requiredInputs: ["記事本文", "キャラクター画像"],
       requiredInputDetails: [
-        { type: "text", label: "記事本文" },
-        { type: "image", label: "キャラクター画像" }
+        { type: "text", label: "記事本文", required: true },
+        { type: "image", label: "キャラクター画像", required: true }
       ],
       preview: {
         frames: [
@@ -750,6 +750,73 @@ distribution: local-only
       issue: { code: "template_metadata.invalid" }
     });
   });
+
+  it("passes required_inputs.required through requiredInputDetails (including optional inputs)", async () => {
+    // Phase 2/3 契約: checklist の必須/任意振り分けのため、API は required フラグを透過し optional も落とさない。
+    const fixture = await createFixture();
+    const templateDir = join(fixture.templatesDir, "required-flag-template");
+    await mkdir(templateDir);
+    await writeFile(join(templateDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: required-flag-template
+name: 必須フラグ透過
+summary: required の真偽が API に残ることを確認する
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+  - type: image
+    label: 任意の参考画像
+    required: false
+  - type: audio
+    label: 任意のBGM
+    required: false
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const response = await fetch(`${launcher.url}/api/templates`);
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true });
+
+    const template = payload.templates.find(
+      (entry: { id: string }) => entry.id === "required-flag-template"
+    );
+    expect(template).toBeDefined();
+    expect(template.valid).toBe(true);
+    expect(template.requiredInputDetails).toEqual([
+      { type: "text", label: "台本", required: true },
+      { type: "image", label: "任意の参考画像", required: false },
+      { type: "audio", label: "任意のBGM", required: false }
+    ]);
+    // 必須ラベル一覧は required: true のみ
+    expect(template.requiredInputs).toEqual(["台本"]);
+  });
+
 
   it("rejects a storyboard preview that does not contain exactly three frames", async () => {
     const fixture = await createFixture();
