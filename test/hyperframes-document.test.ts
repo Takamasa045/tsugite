@@ -20,13 +20,20 @@ function baseManifest(presentation?: Record<string, unknown>): Manifest {
         audio: false
       }
     ],
-    images: [],
-    speakers: [],
+    images: [
+      { id: "left-closed", src: "media/characters/left-closed.png", alt: "左・口閉じ", alpha_required: true },
+      { id: "right-closed", src: "media/characters/right-closed.png", alt: "右・口閉じ", alpha_required: true }
+    ],
+    speakers: [
+      { id: "shiba", display_name: "シバ", side: "left", accent: "#8C8880", poses: { neutral: "left-closed" } },
+      { id: "neru", display_name: "ネル先生", side: "right", accent: "#D97757", poses: { neutral: "right-closed" } }
+    ],
     audio: { bgm: [], narration: [], sfx: [] },
     ...(presentation ? { presentation } : {}),
     captions: [
       {
         id: "s01",
+        speaker: "neru",
         text: "8割、消したんだって",
         emphasis: ["8割"],
         start: 0,
@@ -35,6 +42,7 @@ function baseManifest(presentation?: Record<string, unknown>): Manifest {
       },
       {
         id: "s02",
+        speaker: "shiba",
         text: "3つの転換がある",
         start: 4,
         end: 10,
@@ -141,5 +149,41 @@ describe("hyperframes preset registration", () => {
     const backend = await loadBackendCapabilities("hyperframes");
     expect(backend?.capabilities.presets).toContain("article-explainer-16x9");
     expect(backend?.capabilities.presets).toContain("article-explainer-9x16");
+  });
+});
+
+describe("hyperframes cast", () => {
+  it("stages both speakers for every line and marks who is talking", () => {
+    const html = renderIndexHtml(baseManifest({ theme: "claude" }));
+    const casts = [...html.matchAll(/<div[^>]*class="clip cast"[^>]*>/g)];
+
+    expect(casts).toHaveLength(2);
+    // Both figures stay on stage the whole line; only the active flag moves.
+    expect(html).toContain('data-speaker="shiba"');
+    expect(html).toContain('data-speaker="neru"');
+    expect(html).toContain('data-active="true"');
+    expect(html).toContain('data-active="false"');
+    expect(html).toContain("media/characters/left-closed.png");
+    expect(html).toContain("media/characters/right-closed.png");
+    expect(html).toContain("ネル先生");
+  });
+
+  it("times each cast layer to its own line", () => {
+    const html = renderIndexHtml(baseManifest({ theme: "claude" }));
+    const casts = [...html.matchAll(/<div[^>]*class="clip cast"[^>]*>/g)].map((match) => match[0]);
+
+    expect(casts[0]).toContain('data-start="0"');
+    expect(casts[0]).toContain('data-duration="4"');
+    expect(casts[1]).toContain('data-start="4"');
+    expect(casts[1]).toContain('data-duration="6"');
+  });
+
+  it("leaves the cast out entirely when a manifest declares no speakers", () => {
+    const manifest = baseManifest({ theme: "claude" }) as { speakers: unknown[] };
+    manifest.speakers = [];
+    const html = renderIndexHtml(manifest);
+
+    expect(html).not.toContain('class="clip cast"');
+    expect(html).not.toContain("data-speaker");
   });
 });

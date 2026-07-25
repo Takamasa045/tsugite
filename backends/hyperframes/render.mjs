@@ -1,7 +1,7 @@
 import crossSpawn from "cross-spawn";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { LOCAL_TIMELINE_RUNTIME, renderIndexHtml } from "./document.mjs";
+import { LOCAL_TIMELINE_RUNTIME, renderIndexHtml, renderRuntimeSource } from "./document.mjs";
 
 const spawnSync = crossSpawn.sync;
 
@@ -290,37 +290,8 @@ function runHyperFramesRender(runDir, outputPath, fps) {
 }
 
 async function writeHyperFramesProject(runDir, manifest) {
-  await writeFile(join(runDir, LOCAL_GSAP_RUNTIME), renderLocalGsapRuntime());
+  await writeFile(join(runDir, LOCAL_GSAP_RUNTIME), renderRuntimeSource(manifest));
   await writeFile(join(runDir, "index.html"), renderIndexHtml(manifest));
-}
-
-function renderLocalGsapRuntime() {
-  return `(() => {
-  class StaticTimeline {
-    constructor() { this.currentTime = 0; this.currentScale = 1; }
-    pause() { return this; }
-    play() { return this; }
-    seek(value) { this.currentTime = Number(value) || 0; return this; }
-    totalTime(value) { if (value === undefined) return this.currentTime; return this.seek(value); }
-    time(value) { if (value === undefined) return this.currentTime; return this.seek(value); }
-    duration() { return 0; }
-    totalDuration() { return 0; }
-    timeScale(value) { if (value === undefined) return this.currentScale; this.currentScale = Number(value) || 1; return this; }
-    getChildren() { return []; }
-    getTweensOf() { return []; }
-    eventCallback() { return this; }
-    progress(value) { if (value === undefined) return 0; return this; }
-    add() { return this; }
-    set() { return this; }
-    to() { return this; }
-    from() { return this; }
-    fromTo() { return this; }
-    clear() { return this; }
-    kill() { return this; }
-  }
-  window.gsap = { timeline: () => new StaticTimeline() };
-})();
-`;
 }
 
 async function writeSuccessResult(input, manifest, render) {

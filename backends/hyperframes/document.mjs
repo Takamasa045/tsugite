@@ -13,11 +13,21 @@
  */
 
 import { resolveArticleDialogueTheme } from "../articleThemes.mjs";
+import { buildTimelineProgram, renderTimelineRuntime } from "./timeline.mjs";
 import { resolveOutputDimensions } from "../outputDimensions.mjs";
 
 export const LOCAL_TIMELINE_RUNTIME = "tsugite-gsap-runtime.js";
 
+/**
+ * Motion is only wired up for themed documents; a plain manifest keeps the inert
+ * runtime it has always had, so nothing moves that did not move before.
+ */
+export function renderRuntimeSource(manifest) {
+  return renderTimelineRuntime(isThemed(manifest) ? buildTimelineProgram(manifest) : []);
+}
+
 const VISUAL_TRACK_BASE = 40;
+const CAST_TRACK_BASE = 100;
 
 export function renderIndexHtml(manifest) {
   const size = compositionSize(manifest);
@@ -180,9 +190,9 @@ function themedStyles(manifest, size, theme) {
     .visual {
       position: absolute;
       top: ${round(96 * scale)}px;
-      left: ${round(120 * scale)}px;
-      right: ${round(120 * scale)}px;
-      height: ${round((vertical ? 560 : 764) * scale)}px;
+      left: ${round((vertical ? 80 : 340) * scale)}px;
+      right: ${round((vertical ? 80 : 340) * scale)}px;
+      height: ${round((vertical ? 560 : 700) * scale)}px;
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -279,11 +289,54 @@ function themedStyles(manifest, size, theme) {
       font-weight: 800;
       padding: ${round(10 * scale)}px ${round(16 * scale)}px;
     }
+    /* Cast: full-body cutouts standing either side of the card. */
+    .cast {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .cast .figure {
+      position: absolute;
+      bottom: ${round(180 * scale)}px;
+      width: ${round(300 * scale)}px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: ${round(10 * scale)}px;
+    }
+    .cast .figure[data-side="left"] { left: ${round(24 * scale)}px; }
+    .cast .figure[data-side="right"] { right: ${round(24 * scale)}px; }
+    .cast .figure[data-active="true"] { opacity: 1; }
+    .cast .figure[data-active="false"] { opacity: 0.5; }
+    .cast .figure[data-active="false"] .portrait { transform: scale(0.9); transform-origin: center bottom; }
+    .cast .figure[data-active="false"] .portrait img { filter: saturate(0.72); }
+    .cast .portrait {
+      width: 100%;
+      height: ${round(380 * scale)}px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+    }
+    .cast .portrait img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      object-position: center bottom;
+    }
+    .cast .name {
+      border-radius: 999px;
+      padding: ${round(8 * scale)}px ${round(18 * scale)}px;
+      font-size: ${round(24 * scale)}px;
+      font-weight: 900;
+      color: #ffffff;
+      background: ${theme.nameIdle};
+    }
+    .cast .figure[data-active="true"] .name { background: var(--accent); }
     .caption {
       position: absolute;
-      left: ${round(240 * scale)}px;
-      right: ${round(240 * scale)}px;
-      bottom: ${round(48 * scale)}px;
+      left: ${round((vertical ? 80 : 360) * scale)}px;
+      right: ${round((vertical ? 80 : 360) * scale)}px;
+      bottom: ${round(36 * scale)}px;
       min-height: ${round(96 * scale)}px;
       display: flex;
       align-items: center;
@@ -369,8 +422,50 @@ function renderVisualLayers(manifest) {
   const cards = (manifest.captions ?? [])
     .map((caption, index) => renderVisualCard(caption, index))
     .filter(Boolean);
+  const cast = renderCast(manifest);
 
-  return [...header, ...cards].join("\n");
+  return [...header, ...cards, ...cast].join("\n");
+}
+
+/**
+ * Both speakers stay on stage for the whole line; only `data-active` moves.
+ * One layer per line keeps the staging in data attributes, so it needs no runtime logic.
+ */
+function renderCast(manifest) {
+  const speakers = manifest.speakers ?? [];
+  if (speakers.length === 0) return [];
+  const images = manifest.images ?? [];
+
+  return (manifest.captions ?? []).map((caption, index) => {
+    const duration = Math.max(0.01, caption.end - caption.start);
+    const figures = speakers.map((speaker) => {
+      const active = caption.speaker === speaker.id;
+      const image = resolveSpeakerPose(speaker, active ? caption.pose : undefined, images);
+      const portrait = image
+        ? `<img src="${escapeAttr(image.src)}" alt="${escapeAttr(image.alt ?? speaker.display_name)}">`
+        : "";
+      return [
+        `      <div class="figure" data-speaker="${escapeAttr(speaker.id)}" data-side="${escapeAttr(speaker.side)}" data-active="${active}" style="--accent: ${escapeAttr(speaker.accent)}">`,
+        `        <div class="portrait">${portrait}</div>`,
+        `        <div class="name">${escapeHtml(speaker.display_name)}</div>`,
+        "      </div>"
+      ].join("\n");
+    });
+
+    return [
+      `    <div id="${escapeAttr(`${caption.id ?? `cast-${index + 1}`}-cast`)}" class="clip cast" data-start="${caption.start}" data-duration="${duration}" data-track-index="${CAST_TRACK_BASE + index}">`,
+      ...figures,
+      "    </div>"
+    ].join("\n");
+  });
+}
+
+function resolveSpeakerPose(speaker, pose, images) {
+  const imageId =
+    (pose ? speaker.poses?.[pose] : undefined) ??
+    speaker.poses?.neutral ??
+    Object.values(speaker.poses ?? {})[0];
+  return images.find((image) => image.id === imageId);
 }
 
 function renderVisualCard(caption, index) {
