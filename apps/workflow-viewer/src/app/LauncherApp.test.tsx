@@ -1527,7 +1527,8 @@ describe('LauncherApp', () => {
     expect(within(selectedPanel).getByText('設定の確認が必要')).toBeVisible()
     expect(within(selectedPanel).getByText('manifest.jsonが見つかりません。')).toBeVisible()
     expect(screen.getByRole('button', { name: '最新状態に更新して開く' })).toBeDisabled()
-    expect(screen.getByText('project.yamlと参照ファイルを確認してください。')).toBeVisible()
+    expect(screen.getByText('project.yamlと参照ファイルを確認してください。name（案件名）が無い場合は「名前を変更」で付けられます。')).toBeVisible()
+    expect(screen.getByRole('button', { name: '名前を変更' })).toBeVisible()
 
     await user.type(screen.getByRole('searchbox', { name: '制作案件を検索' }), '存在しない')
     expect(screen.getByText('検索条件に合う制作案件はありません。')).toBeVisible()
