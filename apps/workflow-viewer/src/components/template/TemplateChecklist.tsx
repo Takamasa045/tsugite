@@ -65,7 +65,7 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {
-    headingRef.current?.focus()
+    headingRef.current?.focus({ preventScroll: true })
   }, [template.id])
 
   useEffect(() => {
