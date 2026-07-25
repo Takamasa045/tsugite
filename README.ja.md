@@ -190,6 +190,20 @@ node bin/pipeline shitate-import \
 
 ローカルファイルのコピー、manifestへのanchor/speaker追加、任意requestのI2V化だけを行い、生成やGate更新は行いません。`negative.txt` は保存しますが、現行PixVerse video CLIに対応引数がないため黙って適用しません。詳しくは [Shitate連携](docs/shitate.md) を参照してください。
 
+## キャラクター追加
+
+任意の source manifest から speaker（poses / mouth frames / images）を target project へコピーします。テンプレートや他 project のキャラを Shitate なしで再利用する用途向けです。
+
+```sh
+node bin/pipeline character-add \
+  --config projects/my-project/project.yaml \
+  --from-manifest templates/blog-dialogue/dist/example/manifest.json \
+  --speaker hero \
+  --json
+```
+
+source の画像パスは manifest と同じディレクトリを基準に解決します。完全一致時は冪等、競合時は上書きせず拒否し、生成や Gate 更新は行いません。
+
 ## project ファイル
 
 `examples/local-fixture/project.yaml` で使っている最小の local-media project:

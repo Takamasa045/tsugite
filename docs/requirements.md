@@ -68,7 +68,7 @@ pipeline
 ### 2.1 やること（in scope）
 
 - manifest（EDL）スキーマの定義と検証
-- `bin/pipeline` CLI（doctor / validate / plan / analyze / compose / review / feedback / run / render。Shitate連携時のみ任意の `shitate-import`）
+- `bin/pipeline` CLI（doctor / validate / plan / analyze / compose / review / feedback / run / render。任意の `character-add`、Shitate連携時のみ任意の `shitate-import`）
 - 生成アダプタ機構（kind: cli / mcp-agent / mcp-client）
   - 初期実装: `adapters/kling/`、`adapters/pixverse/`
 - 解析アダプタ機構（class: analysis — 出力がクリップではなく manifest メタデータ）
@@ -192,6 +192,7 @@ projectを扱うサブコマンドは `--config <project.yaml>` を受け取り�
 | `presets` | `--backend <name>` でinstall済みbackendのcapabilitiesからpresentation preset一覧を返す。project・manifest・Gateを変更せず、未登録backendと不正なbackend IDを拒否する |
 | `validate` | project.yaml / manifest のスキーマ検証 + constraints 由来の機械チェック |
 | `shitate-import`（任意） | Shitateの選定済みrunとanchorをproject内のSHA-256 lock付きsnapshotへコピーし、manifestと任意のI2V requestへ安全に割り当てる。通常のTsugite利用には不要で、生成・Gate更新・外部送信はしない |
+| `character-add`（任意） | source manifestのspeakerと画像をtarget projectへコピーする。生成・Gate更新はせず、完全一致は冪等、競合は上書き拒否 |
 | `plan` | 実行計画の提示（カット一覧、工程、推定クレジット、推定尺 vs 目標尺） |
 | `analyze` | 選択したanalysis adapterをCoordinatorが実行し、元素材を変更せず解析成果物を生成する。外部adapterには実行ごとの明示許可を要求する |
 | `compose` | 固定済みの解析成果物、複数素材、brief、story-guidesから最大3件の構成案を決定的に生成する。manifest、元素材、Gate stateは変更しない |

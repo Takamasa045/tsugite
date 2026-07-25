@@ -178,6 +178,20 @@ node bin/pipeline shitate-import \
 
 The command copies local files, adds the anchor and speaker to the manifest, and optionally changes one request to I2V. It never runs generation or changes a Gate. `negative.txt` is preserved but not silently applied because the current PixVerse video CLI has no negative-prompt option. See [Shitate Integration](docs/shitate.md).
 
+## Character Add
+
+Copy a speaker (poses, mouth frames, and images) from any source manifest into a target project. Useful for reusing characters from templates or other projects without Shitate.
+
+```sh
+node bin/pipeline character-add \
+  --config projects/my-project/project.yaml \
+  --from-manifest templates/blog-dialogue/dist/example/manifest.json \
+  --speaker hero \
+  --json
+```
+
+Image paths in the source manifest are resolved relative to the manifest directory. The command is idempotent on exact match, refuses conflicting speakers, and never runs generation or changes a Gate.
+
 ## Project File
 
 Minimal local-media project, as used by `examples/local-fixture/project.yaml`:

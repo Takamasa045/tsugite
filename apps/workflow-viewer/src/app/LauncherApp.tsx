@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   Sun,
+  Users,
   Workflow,
 } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
@@ -16,6 +17,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { AgentWorkspaceChooser } from '../components/agent/AgentWorkspaceChooser'
 
+import { CharacterShelf } from '../components/character/CharacterShelf'
+import {
+  isCharacterListResponse,
+  type CharacterLoadState,
+  type LauncherCharacter,
+} from '../components/character/characterShelfModel'
 import { GenerationCanvas } from '../components/generation/GenerationCanvas'
 import { TemplateShelf } from '../components/template/TemplateShelf'
 import {
@@ -138,7 +145,7 @@ interface LauncherAppProps {
   token?: string
 }
 
-type Shelf = 'projects' | 'templates' | 'canvas' | 'feedback'
+type Shelf = 'projects' | 'templates' | 'characters' | 'canvas' | 'feedback'
 type LauncherTheme = 'light' | 'dark'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
@@ -254,7 +261,7 @@ const FEEDBACK_PROPOSAL_DECISION_LABELS: Record<FeedbackPromotionProposal['decis
 }
 
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
-const SHELVES: Shelf[] = ['projects', 'templates', 'canvas', 'feedback']
+const SHELVES: Shelf[] = ['projects', 'templates', 'characters', 'canvas', 'feedback']
 const THEME_STORAGE_KEY = 'tsugite-launcher-theme'
 
 function initialLauncherTheme(): LauncherTheme {
@@ -478,6 +485,8 @@ export function LauncherApp({
   const [selectedTemplate, setSelectedTemplate] = useState<LauncherTemplate | null>(null)
   /** 棚タブ離脱後もウィザード進行を保持する */
   const [templateWizardState, setTemplateWizardState] = useState<TemplateWizardState>(INITIAL_WIZARD_STATE)
+  const [characters, setCharacters] = useState<LauncherCharacter[]>([])
+  const [characterLoadState, setCharacterLoadState] = useState<CharacterLoadState>('idle')
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
   const [feedbackLoadState, setFeedbackLoadState] = useState<FeedbackLoadState>('idle')
   const [selectedFeedbackKey, setSelectedFeedbackKey] = useState<string | null>(null)
@@ -549,6 +558,19 @@ export function LauncherApp({
       setTemplateLoadState('ready')
     } catch {
       setTemplateLoadState('error')
+    }
+  }, [fetcher])
+
+  const loadCharacters = useCallback(async () => {
+    setCharacterLoadState('loading')
+    try {
+      const response = await fetcher('/api/characters', { headers: { accept: 'application/json' } })
+      const payload: unknown = await response.json()
+      if (!response.ok || !isCharacterListResponse(payload)) throw new Error('invalid character list')
+      setCharacters(payload.characters)
+      setCharacterLoadState('ready')
+    } catch {
+      setCharacterLoadState('error')
     }
   }, [fetcher])
 
@@ -624,6 +646,7 @@ export function LauncherApp({
   const selectShelf = (shelf: Shelf) => {
     setActiveShelf(shelf)
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
+    if (shelf === 'characters' && characterLoadState === 'idle') void loadCharacters()
     if (shelf === 'feedback') {
       setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
       setSelectedFeedbackKey((current) => (
@@ -803,6 +826,18 @@ export function LauncherApp({
               <LayoutTemplate aria-hidden="true" size={17} />テンプレート
             </button>
             <button
+              aria-controls="launcher-characters-panel"
+              aria-selected={activeShelf === 'characters'}
+              id="launcher-characters-tab"
+              onClick={() => selectShelf('characters')}
+              onKeyDown={(event) => handleShelfKeyDown(event, 'characters')}
+              role="tab"
+              tabIndex={activeShelf === 'characters' ? 0 : -1}
+              type="button"
+            >
+              <Users aria-hidden="true" size={17} />キャラクター
+            </button>
+            <button
               aria-controls="launcher-canvas-panel"
               aria-selected={activeShelf === 'canvas'}
               id="launcher-canvas-tab"
@@ -870,16 +905,20 @@ export function LauncherApp({
               ? '制作案件'
               : activeShelf === 'templates'
                 ? 'テンプレート'
-                : activeShelf === 'canvas'
-                  ? '生成キャンバス'
-                  : '好み・学び'}</strong>
+                : activeShelf === 'characters'
+                  ? 'キャラクター'
+                  : activeShelf === 'canvas'
+                    ? '生成キャンバス'
+                    : '好み・学び'}</strong>
             <span>{activeShelf === 'projects'
               ? '最近更新した順に並んでいます'
               : activeShelf === 'templates'
                 ? '型→軸→チェックリストで確認できます'
-                : activeShelf === 'canvas'
-                  ? '画像・動画の工程をつないで設計します'
-                  : '制作から育った知見を確認できます'}</span>
+                : activeShelf === 'characters'
+                  ? '案件・テンプレのキャラを共有できます'
+                  : activeShelf === 'canvas'
+                    ? '画像・動画の工程をつないで設計します'
+                    : '制作から育った知見を確認できます'}</span>
           </aside>
         </div>
 
@@ -916,6 +955,12 @@ export function LauncherApp({
             >
               <span>三</span><strong>準備を確認</strong>
             </li>
+          </>
+        ) : activeShelf === 'characters' ? (
+          <>
+            <li data-active="true"><span>一</span><strong>選ぶ</strong></li>
+            <li data-active={characterLoadState === 'ready'}><span>二</span><strong>元を確認</strong></li>
+            <li data-active="false"><span>三</span><strong>案件へ使う</strong></li>
           </>
         ) : activeShelf === 'canvas' ? (
           <>
@@ -1203,6 +1248,15 @@ export function LauncherApp({
           onSelectedTemplateChange={setSelectedTemplate}
           onStateChange={setTemplateWizardState}
           templates={templates}
+        />
+      ) : activeShelf === 'characters' ? (
+        <CharacterShelf
+          characters={characters}
+          fetcher={fetcher}
+          loadState={characterLoadState}
+          onRetry={() => void loadCharacters()}
+          projects={projects}
+          token={token}
         />
       ) : activeShelf === 'canvas' ? (
         <GenerationCanvas

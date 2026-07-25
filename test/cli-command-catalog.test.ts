@@ -46,6 +46,7 @@ const expectedOptions = {
     "--side",
     "--accent"
   ],
+  "character-add": ["--config", "--from-manifest", "--speaker"],
   validate: ["--config"],
   finalize: ["--config", "--state-dir", "--actor", "--apply"],
   plan: ["--config"],
@@ -62,6 +63,7 @@ const expectedOptions = {
 const configCommands = new Set([
   "feedback",
   "shitate-import",
+  "character-add",
   "validate",
   "finalize",
   "plan",
