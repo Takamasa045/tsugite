@@ -1101,8 +1101,9 @@
   margin-bottom: 14px;
 }
 .launcher-template-axis-heading h2 {
+  /* 紙地（kinari）上なので墨色。kinari を文字色にすると背景と同色で潰れる */
   margin: 0;
-  color: var(--launcher-kinari, #1f1a14);
+  color: var(--launcher-sumi, #171817);
   font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
   font-size: 1.15rem;
 }
@@ -1155,6 +1156,7 @@
 .launcher-template-checklist { display: grid; gap: 16px; }
 .launcher-template-checklist-heading h2 {
   margin: 0;
+  color: var(--launcher-sumi, #171817);
   font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
   font-size: 1.15rem;
 }
