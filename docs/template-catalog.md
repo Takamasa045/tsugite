@@ -111,6 +111,30 @@ examples:
 - `good` / `monotonous` は各1〜2件（どちらか一方だけでも可）
 - ブリーフの `## 具体例` に載る
 
+### `required_inputs_add`（option 任意・Phase 4）
+
+base の `required_inputs` のうち **任意** を、この option 選択時に必須へ昇格する label 一覧です。
+
+```yaml
+required_inputs:
+  - type: video
+    label: 開封・利用の実写素材
+    required: false
+variants:
+  - id: story
+    options:
+      - id: usage-demo
+        label: 使い方実演
+        description: ...
+        required_inputs_add:
+          - 開封・利用の実写素材
+```
+
+- label は同一 template の `required_inputs[].label` と一致必須（不一致は metadata 無効）
+- 既に `required: true` でも冪等
+- 複数 option の add は和集合。必須は下がらない
+- API: `requiredInputsAdd`。UI / ブリーフは選択に応じて必須・任意を再計算
+
 ### `prompt_guide_catalog`（template または option 任意）
 
 `knowledge/video-models/<id>/prompt-guide.yaml` の **documented** 共通チェックリストをブリーフへ載せるための catalog id です。

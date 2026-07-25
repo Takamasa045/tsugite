@@ -1258,6 +1258,63 @@
 .launcher-template-checklist-summary dt { color: #6a6256; font-weight: 700; }
 .launcher-template-checklist-summary dd { margin: 0; color: #1f1a14; font-weight: 700; }
 .launcher-template-checklist .launcher-template-requirements { margin: 0; }
+.launcher-template-checklist-direction,
+.launcher-template-checklist-examples,
+.launcher-template-checklist-guides {
+  margin: 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(75, 55, 32, .1);
+}
+.launcher-template-checklist-direction h3,
+.launcher-template-checklist-examples h3,
+.launcher-template-checklist-guides h3 {
+  margin: 0 0 8px;
+  color: #6a6256;
+  font-size: .72rem;
+  letter-spacing: .04em;
+}
+.launcher-template-guidance-list,
+.launcher-template-example-block ul,
+.launcher-template-guide-block ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.launcher-template-guidance-list li,
+.launcher-template-example-block li {
+  display: grid;
+  gap: 2px;
+  font-size: .74rem;
+  line-height: 1.45;
+  color: #2a241c;
+}
+.launcher-template-guidance-list b,
+.launcher-template-example-block b {
+  color: #6a6256;
+  font-size: .68rem;
+}
+.launcher-template-example-block { margin-bottom: 10px; }
+.launcher-template-example-block h4,
+.launcher-template-guide-block h4 {
+  margin: 0 0 6px;
+  font-size: .7rem;
+  color: #4a4034;
+}
+.launcher-template-example-block-mono h4 { color: #6f2b22; }
+.launcher-template-guide-disclaimer {
+  margin: 0 0 8px;
+  color: #6a6256;
+  font-size: .68rem;
+  line-height: 1.45;
+}
+.launcher-template-guide-block ul {
+  padding-left: 1.1em;
+  list-style: disc;
+  font-size: .72rem;
+  color: #2a241c;
+}
 .launcher-template-checklist-warning {
   border-left: 3px solid rgba(166, 61, 47, .55);
   border-radius: 0 8px 8px 0;

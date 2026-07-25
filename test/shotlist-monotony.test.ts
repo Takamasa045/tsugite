@@ -25,6 +25,26 @@ describe("lintShotlistMonotony", () => {
     expect(findings.some((item) => item.code === "shotlist.camera_repeat")).toBe(true);
   });
 
+  it("treats zoom/push family as the same camera system", () => {
+    const findings = lintShotlistMonotony([
+      { start: 0, duration: 1, camera: "zoom-in", role: "hook" },
+      { start: 1, duration: 2, camera: "push" },
+      { start: 3, duration: 2, camera: "dolly-in" },
+      { start: 5, duration: 1, camera: "pan-left" }
+    ]);
+    expect(findings.some((item) => item.code === "shotlist.camera_repeat")).toBe(true);
+  });
+
+  it("flags three consecutive static/no-camera shots", () => {
+    const findings = lintShotlistMonotony([
+      { start: 0, duration: 1, camera: "static", role: "hook" },
+      { start: 1, duration: 2 },
+      { start: 3, duration: 3, camera: "none" },
+      { start: 6, duration: 1, camera: "pan-left" }
+    ]);
+    expect(findings.some((item) => item.code === "shotlist.static_run")).toBe(true);
+  });
+
   it("flags missing early hook when first shot is long and unmarked", () => {
     const findings = lintShotlistMonotony([
       { start: 0, duration: 5, camera: "static", title: "長い導入" },

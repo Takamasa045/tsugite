@@ -21,6 +21,7 @@ export type ShotlistMonotonyFinding = {
   code:
     | "shotlist.duration_low_variance"
     | "shotlist.camera_repeat"
+    | "shotlist.static_run"
     | "shotlist.missing_early_hook";
   message: string;
   severity: "warning";
@@ -29,8 +30,12 @@ export type ShotlistMonotonyFinding = {
 export type LintShotlistMonotonyOptions = {
   /** 尺の相対レンジ (max-min)/mean がこれ未満なら均等割り疑い。既定 0.12 */
   durationRangeRatioMax?: number;
+  /** 変動係数 (std/mean) がこれ未満なら均等割り疑い。既定 0.1 */
+  durationCvMax?: number;
   /** 同カメラ連続の閾値。既定 3 */
   cameraRepeatThreshold?: number;
+  /** 無カメラ/static 連続の閾値。既定 3 */
+  staticRunThreshold?: number;
   /** フックを期待する冒頭秒。既定 2 */
   earlyHookSeconds?: number;
   /** 均等判定に必要な最小ショット数。既定 3 */
@@ -39,7 +44,9 @@ export type LintShotlistMonotonyOptions = {
 
 const DEFAULTS = {
   durationRangeRatioMax: 0.12,
+  durationCvMax: 0.1,
   cameraRepeatThreshold: 3,
+  staticRunThreshold: 3,
   earlyHookSeconds: 2,
   minShotsForDuration: 3
 } as const;
@@ -51,7 +58,9 @@ export function lintShotlistMonotony(
   if (shots.length === 0) return [];
 
   const durationRangeRatioMax = options.durationRangeRatioMax ?? DEFAULTS.durationRangeRatioMax;
+  const durationCvMax = options.durationCvMax ?? DEFAULTS.durationCvMax;
   const cameraRepeatThreshold = options.cameraRepeatThreshold ?? DEFAULTS.cameraRepeatThreshold;
+  const staticRunThreshold = options.staticRunThreshold ?? DEFAULTS.staticRunThreshold;
   const earlyHookSeconds = options.earlyHookSeconds ?? DEFAULTS.earlyHookSeconds;
   const minShotsForDuration = options.minShotsForDuration ?? DEFAULTS.minShotsForDuration;
 
@@ -64,12 +73,18 @@ export function lintShotlistMonotony(
       const mean = durations.reduce((sum, value) => sum + value, 0) / durations.length;
       const max = Math.max(...durations);
       const min = Math.min(...durations);
-      if (mean > 0 && (max - min) / mean < durationRangeRatioMax) {
+      const variance =
+        durations.reduce((sum, value) => sum + (value - mean) ** 2, 0) / durations.length;
+      const cv = mean > 0 ? Math.sqrt(variance) / mean : 0;
+      const lowRange = mean > 0 && (max - min) / mean < durationRangeRatioMax;
+      const lowCv = mean > 0 && cv < durationCvMax;
+      if (lowRange || lowCv) {
         findings.push({
           code: "shotlist.duration_low_variance",
           severity: "warning",
           message:
-            `ショット尺がほぼ均等です（最短 ${formatSeconds(min)} / 最長 ${formatSeconds(max)}）。`
+            `ショット尺がほぼ均等です（最短 ${formatSeconds(min)} / 最長 ${formatSeconds(max)}`
+            + `${lowCv ? `、ばらつき小` : ""}）。`
             + "見せ場前に短カットを密集させ、均等割りを避けてください。"
         });
       }
@@ -80,8 +95,8 @@ export function lintShotlistMonotony(
     let run = 0;
     let previous: string | undefined;
     for (const shot of ordered) {
-      const camera = normalizeCamera(shot.camera);
-      if (!camera) {
+      const camera = cameraFamily(shot.camera);
+      if (!camera || camera === "static") {
         run = 0;
         previous = undefined;
         continue;
@@ -97,10 +112,32 @@ export function lintShotlistMonotony(
           code: "shotlist.camera_repeat",
           severity: "warning",
           message:
-            `同じカメラ/モーション「${camera}」が${cameraRepeatThreshold}連続しています。`
+            `同じカメラ系統「${camera}」が${cameraRepeatThreshold}連続しています。`
             + "1ショット1ベクトルを保ちつつ、隣接ショットで画角や動きを変えてください。"
         });
         break;
+      }
+    }
+  }
+
+  if (staticRunThreshold >= 2) {
+    let run = 0;
+    for (const shot of ordered) {
+      const camera = cameraFamily(shot.camera);
+      if (!camera || camera === "static") {
+        run += 1;
+        if (run === staticRunThreshold) {
+          findings.push({
+            code: "shotlist.static_run",
+            severity: "warning",
+            message:
+              `カメラ動きのない（または static の）ショットが${staticRunThreshold}連続しています。`
+              + "寄り/引きや1ベクトルの動きを挟み、単調な固定画を避けてください。"
+          });
+          break;
+        }
+      } else {
+        run = 0;
       }
     }
   }
@@ -138,6 +175,18 @@ export function monotonyFindingsToWarningMessages(
   return findings.map((finding) => `[単調さ] ${finding.message}`);
 }
 
+/** カメラ表記を系統に正規化（zoom/push など近縁を同一視）。 */
+export function cameraFamily(value: string | undefined): string | undefined {
+  const normalized = normalizeCamera(value);
+  if (!normalized) return undefined;
+  if (/^(none|static|fixed|hold|still)$/.test(normalized)) return "static";
+  if (/^(zoom|push|dolly|truck-in|truck_in)/.test(normalized)) return "push-zoom";
+  if (/^(pan|slide|track|orbit|swish)/.test(normalized)) return "pan-track";
+  if (/^(tilt|crane|boom|pedestal)/.test(normalized)) return "tilt-crane";
+  if (/^(rise|parallax|pulse|wipe|fade)/.test(normalized)) return normalized.split("-")[0] ?? normalized;
+  return normalized;
+}
+
 function normalizeCamera(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const normalized = value.trim().toLowerCase().replace(/\s+/g, "-");
@@ -154,7 +203,7 @@ function looksLikeHook(shot: ShotlistMonotonyShot): boolean {
     .filter((value): value is string => typeof value === "string")
     .join(" ")
     .toLowerCase();
-  return /(hook|フック|掴み|問い|衝撃|冒頭)/i.test(haystack);
+  return /(hook|フック|掴み|問い|衝撃|冒頭|見どころ)/i.test(haystack);
 }
 
 function formatSeconds(value: number): string {

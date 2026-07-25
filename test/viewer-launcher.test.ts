@@ -880,6 +880,118 @@ distribution: local-only
     });
   });
 
+  it("passes option required_inputs_add and rejects unknown labels", async () => {
+    const fixture = await createFixture();
+    const validDir = join(fixture.templatesDir, "required-add-template");
+    const invalidDir = join(fixture.templatesDir, "required-add-bad");
+    await mkdir(validDir);
+    await mkdir(invalidDir);
+    await writeFile(join(validDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: required-add-template
+name: 必須昇格
+summary: required_inputs_add が API に残る
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+  - type: video
+    label: 実写素材
+    required: false
+variants:
+  - id: story
+    label: 構成
+    default_option: demo
+    options:
+      - id: demo
+        label: 実演
+        description: 実写が要る
+        required_inputs_add:
+          - 実写素材
+      - id: talk
+        label: 会話
+        description: 実写不要
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+    await writeFile(join(invalidDir, "template.yaml"), `
+schema_version: 1
+kind: tsugite-template
+id: required-add-bad
+name: 不正な必須昇格
+summary: 存在しない label
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+variants:
+  - id: story
+    label: 構成
+    options:
+      - id: demo
+        label: 実演
+        description: 不正 label
+        required_inputs_add:
+          - 存在しない素材
+      - id: talk
+        label: 会話
+        description: 通常
+audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+    const valid = payload.templates.find((entry: { id: string }) => entry.id === "required-add-template");
+    const invalid = payload.templates.find((entry: { id: string }) => entry.id === "required-add-bad");
+    expect(valid.valid).toBe(true);
+    expect(valid.variants[0].options[0].requiredInputsAdd).toEqual(["実写素材"]);
+    expect(valid.variants[0].options[1].requiredInputsAdd).toBeUndefined();
+    expect(invalid).toMatchObject({
+      id: "required-add-bad",
+      valid: false,
+      issue: { code: "template_metadata.invalid" }
+    });
+  });
+
   it("passes option examples and documented prompt guides through API", async () => {
     const fixture = await createFixture();
     const templateDir = join(fixture.templatesDir, "examples-guide-template");

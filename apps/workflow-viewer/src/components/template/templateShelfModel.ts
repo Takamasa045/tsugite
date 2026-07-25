@@ -58,6 +58,8 @@ export interface LauncherTemplate {
       directionAdd?: LauncherTemplateDirection
       examples?: LauncherTemplateExamples
       promptGuideCatalog?: string
+      /** base 任意入力を必須へ昇格する label 一覧（Phase 4）。 */
+      requiredInputsAdd?: string[]
     }>
   }>
   tags: string[]
@@ -205,6 +207,10 @@ function isTemplateVariant(input: unknown): input is LauncherTemplate['variants'
       && (!('promptGuideCatalog' in option)
         || option.promptGuideCatalog === undefined
         || typeof option.promptGuideCatalog === 'string')
+      && (!('requiredInputsAdd' in option)
+        || option.requiredInputsAdd === undefined
+        || (Array.isArray(option.requiredInputsAdd)
+          && option.requiredInputsAdd.every((label: unknown) => typeof label === 'string')))
     ))
 }
 
@@ -372,6 +378,32 @@ export function partitionRequiredInputs(details: readonly TemplateInputDetail[])
   return { required, optional }
 }
 
+/**
+ * Phase 4: base required_inputs + 選択 option の required_inputs_add 和集合。
+ * 未選択軸は default（無ければ先頭）で埋めて解決する。
+ */
+export function resolveRequiredInputDetails(
+  template: Pick<LauncherTemplate, 'requiredInputDetails' | 'variants'>,
+  choices: Readonly<Record<string, string>>,
+): TemplateInputDetail[] {
+  const promoted = new Set<string>()
+  for (const variant of template.variants) {
+    const optionId = choices[variant.id] ?? defaultOptionIdFor(variant)
+    if (!optionId) continue
+    const option = variant.options.find((entry) => entry.id === optionId)
+    for (const label of option?.requiredInputsAdd ?? []) {
+      if (label.trim()) promoted.add(label.trim())
+    }
+  }
+  return template.requiredInputDetails.map((input) => {
+    const baseRequired = input.required !== false
+    return {
+      ...input,
+      required: baseRequired || promoted.has(input.label),
+    }
+  })
+}
+
 export function listDirectionLines(
   direction: LauncherTemplateDirection | undefined,
 ): Array<{ label: string; text: string }> {
@@ -482,7 +514,9 @@ export function buildTemplateBriefMarkdown(
   >,
   choices: Readonly<Record<string, string>>,
 ): string {
-  const { required, optional } = partitionRequiredInputs(template.requiredInputDetails)
+  const { required, optional } = partitionRequiredInputs(
+    resolveRequiredInputDetails(template, choices),
+  )
   const lines: string[] = [
     `# ${template.name}`,
     '',

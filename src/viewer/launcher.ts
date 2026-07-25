@@ -219,6 +219,11 @@ export type LauncherTemplateVariant = {
     examples?: LauncherTemplateExamples;
     /** 選択時にブリーフへ載せる prompt-guide catalog id（実行能力ではない）。 */
     promptGuideCatalog?: string;
+    /**
+     * base の任意 required_inputs のうち、この option 選択時に必須へ昇格する label。
+     * Phase 4。存在しない label は metadata 無効。
+     */
+    requiredInputsAdd?: string[];
   }>;
 };
 
@@ -416,7 +421,8 @@ const templateVariantSchema = z.object({
     description: descriptionText,
     direction_add: templateDirectionSchema.optional(),
     examples: templateExamplesSchema.optional(),
-    prompt_guide_catalog: promptGuideCatalogIdSchema.optional()
+    prompt_guide_catalog: promptGuideCatalogIdSchema.optional(),
+    required_inputs_add: z.array(nonEmptyText).min(1).max(16).optional()
   }).strict()).min(2).max(12)
 }).strict().superRefine((variant, context) => {
   const optionIds = new Set<string>();
@@ -489,7 +495,22 @@ const templateMetadataSchema = z.object({
   }).strict(),
   status: z.enum(["stable", "experimental", "deprecated"]),
   distribution: z.enum(["bundled", "local-only"])
-}).strict();
+}).strict().superRefine((metadata, context) => {
+  const labels = new Set(metadata.required_inputs.map((input) => input.label));
+  for (const [variantIndex, variant] of metadata.variants.entries()) {
+    for (const [optionIndex, option] of variant.options.entries()) {
+      for (const [addIndex, label] of (option.required_inputs_add ?? []).entries()) {
+        if (!labels.has(label)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `required_inputs_add label '${label}' is not declared in required_inputs`,
+            path: ["variants", variantIndex, "options", optionIndex, "required_inputs_add", addIndex]
+          });
+        }
+      }
+    }
+  }
+});
 
 function mapTemplateDirection(
   direction: z.infer<typeof templateDirectionSchema> | undefined
@@ -2447,6 +2468,7 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
         options: variant.options.map((option) => {
           const directionAdd = mapTemplateDirection(option.direction_add);
           const examples = mapTemplateExamples(option.examples);
+          const requiredInputsAdd = option.required_inputs_add ?? [];
           return {
             id: option.id,
             label: option.label,
@@ -2455,7 +2477,8 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
             ...(examples ? { examples } : {}),
             ...(option.prompt_guide_catalog
               ? { promptGuideCatalog: option.prompt_guide_catalog }
-              : {})
+              : {}),
+            ...(requiredInputsAdd.length > 0 ? { requiredInputsAdd } : {})
           };
         })
       })),
