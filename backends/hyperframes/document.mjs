@@ -269,6 +269,27 @@ function themedStyles(manifest, size, theme) {
       text-align: center;
       z-index: 3;
     }
+    .visual[data-has-media="true"] {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      align-items: center;
+      gap: ${round(28 * scale)}px;
+    }
+    .visual .visual-media {
+      width: 100%;
+      height: 100%;
+      max-height: ${round(620 * scale)}px;
+      border-radius: ${round(theme.cardRadius * scale)}px;
+      overflow: hidden;
+      background: ${theme.imagePlaceholder};
+      box-shadow: ${theme.cardShadow};
+    }
+    .visual .visual-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
     /* The visible panel is the inner block, so it can shrink to the copy it holds. */
     .visual > .panel {
       position: relative;
@@ -637,8 +658,9 @@ function renderVisualLayers(manifest) {
     "    </div>"
   ].filter(Boolean);
 
+  const images = manifest.images ?? [];
   const cards = (manifest.captions ?? [])
-    .map((caption, index) => renderVisualCard(caption, index))
+    .map((caption, index) => renderVisualCard(caption, index, images))
     .filter(Boolean);
   const cast = renderCast(manifest);
 
@@ -714,13 +736,16 @@ function resolveSpeakerPose(speaker, pose, images) {
   return images.find((image) => image.id === imageId);
 }
 
-function renderVisualCard(caption, index) {
+function renderVisualCard(caption, index, images = []) {
   const visual = caption.visual;
   if (!visual?.headline) return "";
   const duration = Math.max(0.01, caption.end - caption.start);
   const id = escapeAttr(`${caption.id ?? `visual-${index + 1}`}-visual`);
   const mood = resolveVisualMood(visual.kicker);
   const impact = splitImpactHeadline(visual.headline);
+  const media = visual.image_id
+    ? images.find((image) => image.id === visual.image_id)
+    : undefined;
   const parts = [];
 
   if (visual.kicker) parts.push(`      <div data-role="kicker">${escapeHtml(visual.kicker)}</div>`);
@@ -752,8 +777,17 @@ function renderVisualCard(caption, index) {
     parts.push("      </div>");
   }
 
+  const mediaBlock = media
+    ? [
+        '      <div class="visual-media">',
+        `        <img src="${escapeAttr(media.src)}" alt="${escapeAttr(media.alt ?? visual.headline)}">`,
+        "      </div>"
+      ]
+    : [];
+
   return [
-    `    <div id="${id}" class="clip visual" data-start="${caption.start}" data-duration="${duration}" data-track-index="${VISUAL_TRACK_BASE + index}" data-mood="${escapeAttr(mood)}" data-impact="${impact ? "true" : "false"}">`,
+    `    <div id="${id}" class="clip visual" data-start="${caption.start}" data-duration="${duration}" data-track-index="${VISUAL_TRACK_BASE + index}" data-mood="${escapeAttr(mood)}" data-impact="${impact ? "true" : "false"}"${media ? ' data-has-media="true"' : ""}>`,
+    ...mediaBlock,
     '      <div class="panel">',
     ...parts.map((part) => `  ${part}`),
     "      </div>",

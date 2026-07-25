@@ -156,7 +156,8 @@ function CenterVisual({ active, visual, images, frame, fps, second, theme }) {
         padding: 28,
         borderRadius: theme.cardRadius,
         border: theme.cardBorder,
-        backgroundColor: theme.cardBackground,
+        // Gradients (Claude theme) must use `background`, not backgroundColor.
+        background: theme.cardBackground,
         boxShadow: theme.cardShadow,
         opacity: enter.opacity,
         transform: `translateY(${enter.y}px) scale(${enter.scale})`,

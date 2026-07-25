@@ -43,6 +43,16 @@ function round(value) {
   return Math.round(value * 10000) / 10000;
 }
 
+/** Escape a value for use as a CSS identifier (#id). */
+export function cssEscapeIdent(value) {
+  return String(value ?? "").replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
+}
+
+/** Escape a value for use inside a double-quoted CSS attribute selector. */
+export function cssEscapeAttr(value) {
+  return String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 export function buildTimelineProgram(manifest) {
   const program = [];
   const captions = manifest?.captions ?? [];
@@ -63,11 +73,12 @@ export function buildTimelineProgram(manifest) {
   for (const caption of captions) {
     const id = caption.id;
     if (!id) continue;
+    const safeId = cssEscapeIdent(id);
     const lineEnd = caption.end;
 
     if (caption.visual?.headline) {
       program.push({
-        selector: `#${id}-visual`,
+        selector: `#${safeId}-visual`,
         at: caption.start,
         duration: ENTRANCE_SECONDS,
         from: { opacity: 0, y: 36, scale: 0.9 },
@@ -75,7 +86,7 @@ export function buildTimelineProgram(manifest) {
       });
       // Stat punch: the giant number pops a beat after the card lands.
       program.push({
-        selector: `#${id}-visual [data-role="stat"]`,
+        selector: `#${safeId}-visual [data-role="stat"]`,
         at: caption.start + 0.08,
         duration: Math.min(0.4, ENTRANCE_SECONDS),
         from: { opacity: 0, scale: 0.82, y: 18 },
@@ -89,7 +100,7 @@ export function buildTimelineProgram(manifest) {
           Math.max(caption.start, lineEnd - ENTRANCE_SECONDS)
         );
         program.push({
-          selector: `#${id}-visual [data-step-index="${index}"]`,
+          selector: `#${safeId}-visual [data-step-index="${index}"]`,
           at,
           duration: ENTRANCE_SECONDS,
           from: { opacity: 0, x: 28, y: 10 },
@@ -99,15 +110,16 @@ export function buildTimelineProgram(manifest) {
     }
 
     if (speakers.length > 0 && caption.speaker) {
+      const safeSpeaker = cssEscapeAttr(caption.speaker);
       program.push({
-        selector: `#${id}-cast [data-speaker="${caption.speaker}"]`,
+        selector: `#${safeId}-cast [data-speaker="${safeSpeaker}"]`,
         at: caption.start,
         duration: CAST_LIFT_SECONDS,
         from: { y: 22, scale: 0.94 },
         to: { y: 0, scale: 1 }
       });
       program.push({
-        selector: `#${id}-cast .side-glow[data-active="true"]`,
+        selector: `#${safeId}-cast .side-glow[data-active="true"]`,
         at: caption.start,
         duration: CAST_LIFT_SECONDS,
         from: { opacity: 0 },
