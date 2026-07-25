@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { GenerationCanvas } from './GenerationCanvas'
+import { formatProjectSelectLabel, GenerationCanvas } from './GenerationCanvas'
 
 const projects = [
   {
@@ -102,6 +102,22 @@ describe('GenerationCanvas', () => {
     window.localStorage.clear()
   })
 
+  it('案件プルダウンは日本語の版・状況付きラベルにする', () => {
+    expect(formatProjectSelectLabel(projects[0]!)).toBe('北アルプス映像 ／ 2回目 ／ 方針確認待ち')
+    expect(formatProjectSelectLabel({
+      name: 'codex-goal-talk-paper',
+      slug: 'codex-goal-talk-paper',
+      runId: 'codex-goal-talk-paper-r6',
+      status: 'planned',
+    })).toBe('codex-goal-talk-paper ／ 6回目 ／ 準備中')
+    expect(formatProjectSelectLabel({
+      name: 'local-analysis',
+      slug: 'local-analysis',
+      runId: 'local-analysis',
+      status: 'completed',
+    })).toBe('local-analysis ／ 完了')
+  })
+
   it('選択案件のproject.yamlにある生成要求と接続状態を表示する', async () => {
     render(<GenerationCanvas fetcher={createFetcher()} projects={projects} selectedProjectId="project-alpha" />)
 
@@ -110,8 +126,10 @@ describe('GenerationCanvas', () => {
     expect(screen.getAllByText('PixVerseサブスク')[0]).toBeVisible()
     expect(screen.getByText('画像・動画・音声')).toBeVisible()
     expect(screen.getByText('動画')).toBeVisible()
-    expect(screen.getByText('Gate 1 確認待ち')).toBeVisible()
+    expect(screen.getAllByText(/方針確認待ち/)[0]).toBeVisible()
+    expect(screen.getByRole('option', { name: '北アルプス映像 ／ 2回目 ／ 方針確認待ち' })).toBeInTheDocument()
     expect(screen.queryByText('assets/alps.png')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'キャンバスの制作案件' })).toHaveValue('project-alpha')
     expect(screen.getByRole('combobox', { name: '生成に使う接続を選択' })).toHaveValue('pixverse')
     expect(screen.getByText('モデル一覧はCLIから取得')).toBeVisible()
   })

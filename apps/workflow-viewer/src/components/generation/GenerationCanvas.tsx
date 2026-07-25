@@ -137,16 +137,54 @@ const STATUS_LABELS: Record<string, string> = {
   pending: '準備中',
   running: '生成中',
   rendering: '書き出し中',
-  awaiting_gate_1: 'Gate 1 確認待ち',
-  awaiting_gate_2: 'Gate 2 確認待ち',
-  awaiting_gate_3: 'Gate 3 確認待ち',
+  awaiting_gate_1: '方針確認待ち',
+  awaiting_gate_2: '素材確認待ち',
+  awaiting_gate_3: '完成確認待ち',
   completed: '完了',
   error: '要確認',
   aborted: '中止',
 }
 
 function statusLabel(status: string): string {
-  return STATUS_LABELS[status] ?? status
+  return STATUS_LABELS[status] ?? '状況確認中'
+}
+
+/**
+ * ネイティブ select 用の案件ラベル。
+ * 英語 slug の羅列を避け、版・状況を日本語で添える。
+ */
+export function formatProjectSelectLabel(project: {
+  name: string
+  slug: string
+  runId: string
+  status: string
+}): string {
+  const title = (project.name || project.slug).trim() || '（名称未設定）'
+  const edition = formatRunEditionLabel(project.runId, project.slug, title)
+  const status = statusLabel(project.status)
+  return edition ? `${title} ／ ${edition} ／ ${status}` : `${title} ／ ${status}`
+}
+
+function formatRunEditionLabel(runId: string, slug: string, title: string): string | null {
+  const value = runId.trim()
+  if (!value) return null
+
+  const rMatch = value.match(/(?:^|[-_])r(\d+)$/i)
+  if (rMatch) return `${Number(rMatch[1])}回目`
+
+  const vMatch = value.match(/(?:^|[-_])v(\d+)$/i)
+  if (vMatch) return `第${Number(vMatch[1])}版`
+
+  if (value === slug || value === title) return null
+
+  if (slug && value.startsWith(`${slug}-`)) {
+    const suffix = value.slice(slug.length + 1)
+    return formatRunEditionLabel(suffix, '', suffix) ?? `版 ${suffix}`
+  }
+
+  // タイトルと同じ英語識別子の繰り返しは出さない
+  if (value === title || title.includes(value) || value.includes(title)) return null
+  return value
 }
 
 function edgePath(from: GenerationNode, to: GenerationNode): string {
@@ -517,16 +555,31 @@ export function GenerationCanvas({
           <p>選択した案件の project.yaml を正本として、画像・動画・音声の工程を表示します。</p>
         </div>
         <label className="generation-canvas-project-picker">
-          <span>制作案件</span>
+          <span>制作案件を選ぶ</span>
           <select
             aria-label="キャンバスの制作案件"
             disabled={projects.length === 0}
             onChange={(event) => chooseProject(event.target.value)}
             value={projectId}
           >
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name} · {project.runId}</option>)}
+            {projects.length === 0 ? (
+              <option value="">制作案件がありません</option>
+            ) : (
+              [...projects]
+                .sort((left, right) => left.name.localeCompare(right.name, 'ja'))
+                .map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {formatProjectSelectLabel(project)}
+                  </option>
+                ))
+            )}
           </select>
-          <small>ノード配置は案件別に、この端末へ保存</small>
+          {projects.find((project) => project.id === projectId) && (
+            <small className="generation-canvas-project-picker-summary">
+              いま選択中: {formatProjectSelectLabel(projects.find((project) => project.id === projectId)!)}
+            </small>
+          )}
+          <small>ノード配置は案件ごとに、この端末へ保存されます</small>
         </label>
       </header>
 
