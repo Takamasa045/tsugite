@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed Viewer run-log compatibility for limited annotated `## Requests (...)` headings and assembly detail rows that omit `attempts`, showing `試行回数記録なし` instead of inventing values, while still rejecting malformed request lines and Gate 2 sections placed after Requests.
+
 - Added `character-add` CLI (`node bin/pipeline character-add --config <project.yaml> --from-manifest <manifest.json> --speaker <id>`) to copy a speaker and its images from a source manifest into a target project without generation or Gate changes.
 
 - Added an opt-in conditional Gate 2 auto-pass (`gates.gate_2.auto_pass: qc_ok_no_new_assets`) for local-media projects, applied only when the run consumed no credits, generated no new assets, and passed every Gate 2 QC check; the approval is recorded through the same inspection and digest the human path uses, with `decision_source: auto_qc`, and `run` always reports why an auto-pass did not apply.

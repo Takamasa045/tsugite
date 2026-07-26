@@ -253,8 +253,7 @@ async function readOptionalRunLog(
     throw new Error("Run log is missing valid summary fields");
   }
 
-  const requestSection = text.match(/^## Requests\s*\n([\s\S]*)$/m)?.[1];
-  if (requestSection === undefined) throw new Error("Run log is missing the Requests section");
+  const requestSection = extractRunLogRequestsSection(text);
   const requestLines = requestSection
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -272,22 +271,88 @@ async function readOptionalRunLog(
   };
 }
 
+/**
+ * Extract the Requests section body.
+ *
+ * Accepts the canonical heading `## Requests` and a limited compatibility form
+ * with a single parenthetical annotation, e.g.
+ * `## Requests (selected local assembly; credits preserved from prior generation)`.
+ *
+ * Body ends at the next ATX heading (`## ...`) so later sections are not parsed
+ * as request rows. A Gate 2 section after Requests remains rejected as poison
+ * (writers must place Gate 2 evidence before Requests).
+ */
+function extractRunLogRequestsSection(text: string): string {
+  // Limited annotation: no nested parentheses, no newlines.
+  const headingMatch = text.match(/^## Requests(?: \([^)\n]*\))?[ \t]*$/m);
+  if (!headingMatch || headingMatch.index === undefined) {
+    throw new Error("Run log is missing the Requests section");
+  }
+
+  const afterHeading = text.slice(headingMatch.index + headingMatch[0].length);
+  // Drop the newline that ends the heading line when present.
+  const rest = afterHeading.replace(/^\r?\n/, "");
+  const lines = rest.split(/\r?\n/);
+  const bodyLines: string[] = [];
+  let trailing = "";
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (/^##[ \t]/.test(line)) {
+      trailing = lines.slice(index).join("\n");
+      break;
+    }
+    bodyLines.push(line);
+  }
+
+  if (/^##[ \t]+Gate[ \t]+2\b/m.test(trailing)) {
+    throw new Error("Run log must not place Gate 2 after Requests");
+  }
+
+  return bodyLines.join("\n");
+}
+
 function parseRunLogRequest(
   line: string,
   index: number
 ): ViewerRunLogEvidence["requests"][number] {
-  const match = line.match(
+  // Canonical generation rows always record attempts.
+  const canonical = line.match(
     /^- ([A-Za-z0-9._-]+): attempts=(\d+), credits=(\d+(?:\.\d+)?), clips=(\d+)$/
   );
-  if (!match) throw new Error(`Run log request ${index + 1} is malformed`);
-  const [, id, attemptsText, creditsText, clipsText] = match;
-  const attempts = Number(attemptsText);
-  const credits = Number(creditsText);
-  const clips = Number(clipsText);
-  if (!id || !Number.isSafeInteger(attempts) || !Number.isFinite(credits) || !Number.isSafeInteger(clips)) {
-    throw new Error(`Run log request ${index + 1} is malformed`);
+  if (canonical) {
+    const [, id, attemptsText, creditsText, clipsText] = canonical;
+    const attempts = Number(attemptsText);
+    const credits = Number(creditsText);
+    const clips = Number(clipsText);
+    if (
+      !id
+      || !Number.isSafeInteger(attempts)
+      || !Number.isFinite(credits)
+      || !Number.isSafeInteger(clips)
+    ) {
+      throw new Error(`Run log request ${index + 1} is malformed`);
+    }
+    return { id, attempts, credits, clips };
   }
-  return { id, attempts, credits, clips };
+
+  // Compatibility rows from selected local assembly preserve credits without attempts.
+  // Example: `- clip-01-rope-snaps (latest variant selected): credits=70, clips=1`
+  const compatible = line.match(
+    /^- ([A-Za-z0-9._-]+) \([^)\n]*\): credits=(\d+(?:\.\d+)?), clips=(\d+)$/
+  );
+  if (compatible) {
+    const [, id, creditsText, clipsText] = compatible;
+    const credits = Number(creditsText);
+    const clips = Number(clipsText);
+    if (!id || !Number.isFinite(credits) || !Number.isSafeInteger(clips)) {
+      throw new Error(`Run log request ${index + 1} is malformed`);
+    }
+    // Do not invent attempts when the log never recorded them.
+    return { id, credits, clips };
+  }
+
+  throw new Error(`Run log request ${index + 1} is malformed`);
 }
 
 async function readOptionalGate2Qc(path: string): Promise<{

@@ -341,7 +341,7 @@ export async function assembleLocalMediaRun(
   };
   // Write the base log first so inspectGate2RunForApproval can read the same summary fields
   // the human path uses. If auto-pass succeeds, rewrite with Gate 2 evidence placed before
-  // ## Requests so viewer run-log parsing is not poisoned by a trailing section.
+  // ## Requests; viewer parsing still rejects a trailing Gate 2 section as poison.
   await writeRunLog(runLogPath, runLogInput);
 
   const autoPass = await evaluateGate2AutoPass({
@@ -1293,9 +1293,8 @@ async function writeRunLog(
     editorialEdlDigest?: string;
     audio?: AudioRunLog;
     /**
-     * Opt-in Gate 2 auto-pass evidence. Must be written before ## Requests so that
-     * viewer run-log parsing (which treats everything after Requests as request lines)
-     * does not fail on the Gate 2 section.
+     * Opt-in Gate 2 auto-pass evidence. Must be written before ## Requests.
+     * Viewer run-log parsing rejects a Gate 2 section placed after Requests as poison.
      */
     gate2AutoPass?: {
       credits: number;

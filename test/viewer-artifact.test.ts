@@ -439,6 +439,66 @@ describe("workflow viewer artifact", () => {
     );
   });
 
+  it("reads annotated Requests headings and assembly rows without inventing attempts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-viewer-artifact-"));
+    const configPath = join(root, "project.yaml");
+    const runDir = join(root, "dist", "viewer-run");
+    const bundleDir = await createBundle(root);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(configPath, "slug: viewer-project\n");
+    // Real completed assembly logs keep mode: generation, omit attempts, and annotate
+    // selected variants (including timeline trim notes) inside parentheses.
+    await writeFile(join(runDir, "run-log.md"), [
+      "# Run Log: viewer-run",
+      "",
+      "- mode: generation",
+      "- asset_count: 17",
+      "- actual_credits: 350",
+      `- input_digest: ${"d".repeat(64)}`,
+      "- generated_at: 2026-07-26T00:00:00.000Z",
+      "",
+      "## Requests (selected local assembly; credits preserved from prior generation)",
+      "- clip-01-rope-snaps (latest variant selected): credits=70, clips=1",
+      "- clip-03-mud-brake (original, timeline trim 0-3s): credits=70, clips=1",
+      "- clip-04-drum-stops-r2 (latest): credits=140, clips=1",
+      "- clip-05-accidental-boom (latest variant selected): credits=70, clips=1",
+      "",
+      "## Notes",
+      "",
+      "- trailing markdown must not be parsed as Requests",
+      ""
+    ].join("\n"));
+
+    await writeWorkflowViewer({
+      configPath,
+      project: sampleProject(),
+      plan: samplePlan(),
+      bundleDir
+    });
+
+    expect(createViewerWorkflowMock).toHaveBeenCalledWith(
+      sampleProject(),
+      samplePlan(),
+      expect.objectContaining({ run_id: "viewer-run", status: "planned" }),
+      expect.objectContaining({
+        runLog: {
+          runId: "viewer-run",
+          mode: "generation",
+          assetCount: 17,
+          actualCredits: 350,
+          inputDigest: "d".repeat(64),
+          generatedAt: "2026-07-26T00:00:00.000Z",
+          requests: [
+            { id: "clip-01-rope-snaps", credits: 70, clips: 1 },
+            { id: "clip-03-mud-brake", credits: 70, clips: 1 },
+            { id: "clip-04-drum-stops-r2", credits: 140, clips: 1 },
+            { id: "clip-05-accidental-boom", credits: 70, clips: 1 }
+          ]
+        }
+      })
+    );
+  });
+
   it("rejects Gate 2 evidence appended after Requests (viewer request-section poison)", async () => {
     const root = await mkdtemp(join(tmpdir(), "tsugite-viewer-artifact-"));
     const runDir = join(root, "dist", "viewer-run");
@@ -465,14 +525,20 @@ describe("workflow viewer artifact", () => {
       project: sampleProject(),
       plan: samplePlan(),
       bundleDir: await createBundle(root)
-    })).rejects.toThrow(/run log request 1 is malformed/i);
+    })).rejects.toThrow(/run log must not place gate 2 after requests/i);
   });
 
   it("rejects malformed or mismatched run logs instead of presenting them as trusted", async () => {
     const invalidLogs = [
       "# Run Log: other-run\n\n- mode: generation\n- asset_count: 1\n- actual_credits: 2\n- input_digest: " + "a".repeat(64) + "\n\n## Requests\n",
       "# Run Log: viewer-run\n\n- mode: generation\n- asset_count: many\n- actual_credits: 2\n- input_digest: " + "a".repeat(64) + "\n\n## Requests\n",
-      "# Run Log: viewer-run\n\n- mode: generation\n- asset_count: 1\n- actual_credits: 2\n- input_digest: " + "a".repeat(64) + "\n\n## Requests\n- broken request\n"
+      "# Run Log: viewer-run\n\n- mode: generation\n- asset_count: 1\n- actual_credits: 2\n- input_digest: " + "a".repeat(64) + "\n\n## Requests\n- broken request\n",
+      // Bare credits/clips without attempts or the limited annotation form stays rejected.
+      "# Run Log: viewer-run\n\n- mode: generation\n- asset_count: 1\n- actual_credits: 2\n- input_digest: " + "a".repeat(64) + "\n\n## Requests\n- clip-01: credits=70, clips=1\n",
+      // Free-form heading annotation is not accepted as Requests.
+      "# Run Log: viewer-run\n\n- mode: generation\n- asset_count: 1\n- actual_credits: 2\n- input_digest: " + "a".repeat(64) + "\n\n## Requests selected assembly\n- mountain-omen: attempts=1, credits=1, clips=1\n",
+      // Arbitrary prose inside Requests must not become request evidence.
+      "# Run Log: viewer-run\n\n- mode: generation\n- asset_count: 1\n- actual_credits: 2\n- input_digest: " + "a".repeat(64) + "\n\n## Requests\nplease accept this markdown\n"
     ];
 
     for (const runLog of invalidLogs) {
