@@ -274,6 +274,43 @@ describe("createViewerWorkflow", () => {
     ]);
   });
 
+  it("shows missing attempt counts without inventing a value", () => {
+    const workflow = createViewerWorkflow(
+      project,
+      plan,
+      state("completed", "approved", "approved", "approved"),
+      {
+        reviewPresent: true,
+        gate2Qc: { ok: true },
+        gate3Qc: { ok: true },
+        runLog: {
+          runId: "viewer-fixture-run",
+          mode: "local-media",
+          assetCount: 1,
+          actualCredits: 70,
+          inputDigest: "a".repeat(64),
+          requests: [
+            { id: "clip-01-rope-snaps", credits: 70, clips: 1 }
+          ]
+        }
+      }
+    );
+    const assembly = workflow.nodes.find((node) => node.id === "assemble-manifest");
+
+    expect(assembly?.logs).toEqual([
+      {
+        time: assembly.startedAt,
+        level: "success",
+        message: "実行ログ: local-media / 1素材 / 70 credits"
+      },
+      {
+        time: assembly.startedAt,
+        level: "info",
+        message: "clip-01-rope-snaps: 試行回数記録なし / 70 credits / 1 clips"
+      }
+    ]);
+  });
+
   it("exposes review, Gate decisions, and successful QC as inspectable work records", () => {
     const completedState: RunState = {
       ...state("completed", "approved", "approved", "approved"),

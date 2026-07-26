@@ -135,7 +135,8 @@ export type ViewerRunLogEvidence = {
   generatedAt?: string;
   requests: Array<{
     id: string;
-    attempts: number;
+    /** Present only when the run-log recorded attempts. Compatibility rows omit this. */
+    attempts?: number;
     credits: number;
     clips: number;
   }>;
@@ -440,11 +441,16 @@ function viewerLogsFromRunLog(
     level: "success",
     message: `実行ログ: ${runLog.mode} / ${runLog.assetCount}素材 / ${numberFormatter.format(runLog.actualCredits)} credits`
   };
-  const requestLogs = runLog.requests.map((request) => ({
-    time,
-    level: "info" as const,
-    message: `${request.id}: ${request.attempts}回試行 / ${numberFormatter.format(request.credits)} credits / ${request.clips} clips`
-  }));
+  const requestLogs = runLog.requests.map((request) => {
+    const attemptsLabel = request.attempts === undefined
+      ? "試行回数記録なし"
+      : `${request.attempts}回試行`;
+    return {
+      time,
+      level: "info" as const,
+      message: `${request.id}: ${attemptsLabel} / ${numberFormatter.format(request.credits)} credits / ${request.clips} clips`
+    };
+  });
   return [summary, ...requestLogs];
 }
 

@@ -84,8 +84,8 @@ describe("Gate 2 auto-pass during local media run", () => {
     expect(runLog).toContain("- gate_2_auto_pass_credits: 0");
     expect(runLog).toContain("- gate_2_auto_pass_generated_assets: 0");
     expect(runLog).toContain("- gate_2_auto_pass_qc_issues: 0");
-    // Gate 2 evidence must precede ## Requests. Viewer parsing treats everything after
-    // Requests as request lines, so a trailing section breaks pipeline viewer rebuilds.
+    // Gate 2 evidence must precede ## Requests. Viewer parsing rejects a trailing Gate 2
+    // section as poison so pipeline viewer rebuilds stay valid.
     const gate2Section = runLog.indexOf("## Gate 2");
     const requestsSection = runLog.indexOf("## Requests");
     expect(gate2Section).toBeGreaterThan(-1);
