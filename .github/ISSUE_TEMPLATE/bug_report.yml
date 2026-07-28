@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible problem in Tsugite.
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Do not include credentials, private media, or security-sensitive details.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Explain the actual behavior and the behavior you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest safe sequence of commands or actions.
+      placeholder: |
+        1. Run ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Node.js version, Tsugite revision, and relevant adapter or backend. Redact sensitive values.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Add only redacted output that helps reproduce the problem.
