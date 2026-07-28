@@ -3,14 +3,14 @@
 対象: Tsugite v0.6.0
 入口: `scripts/bootstrap.mjs`
 
-この文書は、公式Bootstrap、Codex用セットアップ依頼文、Bootstrapテストに共通する安全仕様です。
+この文書は、公式Bootstrap、Codex・Claude Codeなどで使うセットアップ依頼文、Bootstrapテストに共通する安全仕様です。
 
 ## 適用範囲
 
 - 公式リポジトリは `https://github.com/Takamasa045/tsugite` とする。
 - Bootstrapはクローン済みのTsugiteリポジトリルートで実行する。
-- クローン前の作業先確認と`git clone`はCodexが担当し、Bootstrapは担当しない。
-- 作業先が空でない、同名の`tsugite`がある、または既存ファイルと衝突する場合、Codexはクローン前に停止する。
+- クローン前の作業先確認と`git clone`は、セットアップを担当するコーディングエージェントが行い、Bootstrapは担当しない。
+- 作業先が空でない、同名の`tsugite`がある、または既存ファイルと衝突する場合、コーディングエージェントはクローン前に停止する。
 - Bootstrapが書き込める範囲は、実行中のTsugiteリポジトリ内だけとする。
 
 ## 自動実行してよい操作

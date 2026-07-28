@@ -1,7 +1,5 @@
 import { ArticleDialogue } from "./dialogue.js";
-import { MATRIX_CODE_FORM_PRESET, MatrixCodeForm } from "./matrixCodeForm.js";
 import { MiraichiLastCall } from "./miraichiLastCall.js";
-import { NATURE_VIBE_VISUALIZER_PRESET, NatureVibeVisualizer } from "./natureVibeVisualizer.js";
 import { ORBITAL_SHOWREEL_PRESET } from "./orbitalPresentation.mjs";
 import { OrbitalShowreel } from "./orbitalShowreel.js";
 import { ARTICLE_DIALOGUE_PRESET } from "./presentation.mjs";
@@ -14,9 +12,7 @@ export const PRESET_REGISTRY = Object.freeze([
   Object.freeze({ id: STREET_DIALOGUE_PRESET, handler: StreetDialogue }),
   Object.freeze({ id: SUMMER_CAMP_GENERATED_LANDSCAPE_PRESET, handler: SummerCampGeneratedLandscape }),
   Object.freeze({ id: "miraichi-lastcall-9x16", handler: MiraichiLastCall }),
-  Object.freeze({ id: ORBITAL_SHOWREEL_PRESET, handler: OrbitalShowreel }),
-  Object.freeze({ id: MATRIX_CODE_FORM_PRESET, handler: MatrixCodeForm }),
-  Object.freeze({ id: NATURE_VIBE_VISUALIZER_PRESET, handler: NatureVibeVisualizer })
+  Object.freeze({ id: ORBITAL_SHOWREEL_PRESET, handler: OrbitalShowreel })
 ]);
 
 export const REMOTION_PRESET_REGISTRY = PRESET_REGISTRY;

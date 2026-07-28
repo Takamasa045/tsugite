@@ -1,6 +1,6 @@
-# Codex用 Tsugiteセットアップ依頼文
+# Codex・Claude Codeなどで使う Tsugiteセットアップ依頼文
 
-Codexで空の作業フォルダを開き、次の全文を貼り付けてください。
+Codexで空の作業フォルダを開くか、そのフォルダでClaude Codeを起動し、次の全文を貼り付けてください。リポジトリをクローンでき、リポジトリ内の指示を読み、承認を確認しながらローカルコマンドを実行できるほかのコーディングエージェントでも利用できます。
 
 ```text
 このフォルダ内に、公式のTsugiteを安全にセットアップしてください。
@@ -22,7 +22,8 @@ ffprobeの状態を読み取り専用で確認してください。
 外部サービスへのログイン、APIキー設定、課金を伴う生成、
 run、render、Gate承認、commit、pushは行わないでください。
 
-クローン後はAGENTS.mdとTsugite Skillを読み、
+クローン後は、利用中のツールに対応するAGENTS.mdまたはCLAUDE.mdと、
+Tsugite Skillの正本（.agents/skills/tsugite/SKILL.md）を読み、
 docs/onboarding/setup-contract.ja.mdの安全境界を守って、
 公式Bootstrapのsetup:checkを実行してください。
 必須環境が揃っている場合だけsetupを使い、依存関係、Viewer、
