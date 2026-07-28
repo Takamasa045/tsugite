@@ -11,6 +11,7 @@ import {
   fillDefaultsToChecklist,
   INITIAL_WIZARD_STATE,
   initialChoicesForTemplate,
+  optionLabelFor,
   type LauncherTemplate,
   type TemplateLoadState,
   type TemplateWizardState,
@@ -37,6 +38,7 @@ export function TemplateShelf({
 }: TemplateShelfProps) {
   const [state, setState] = useState<TemplateWizardState>(() => initialState ?? INITIAL_WIZARD_STATE)
   const [selectionError, setSelectionError] = useState<string | null>(null)
+  const [selectionConfirm, setSelectionConfirm] = useState<string | null>(null)
   const typeHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const focusTypeHeadingRef = useRef(false)
 
@@ -63,33 +65,67 @@ export function TemplateShelf({
     setState(next)
   }
 
-  function handleSelectTemplate(templateId: string) {
+  function announceSelection(label: string) {
+    setSelectionConfirm(`${label}を選びました。戻って変更できます。`)
+  }
+
+  function rejectInvalid(template: LauncherTemplate) {
+    setSelectionError(
+      template.issue?.message
+        ?? 'このテンプレートは表示情報を確認できません。選択できません。',
+    )
+    setSelectionConfirm(null)
+    commit({ templateId: null, choices: {}, step: 0 })
+  }
+
+  function handleSelectDetail(templateId: string) {
     const template = templates.find((entry) => entry.id === templateId)
     if (!template) return
 
     if (!template.valid) {
-      setSelectionError(
-        template.issue?.message
-          ?? 'このテンプレートは表示情報を確認できません。選択できません。',
-      )
-      commit({ templateId: null, choices: {}, step: 0 })
+      rejectInvalid(template)
       return
     }
 
     setSelectionError(null)
+    announceSelection(template.name)
     const choices = initialChoicesForTemplate(template)
     const step = template.variants.length === 0 ? checklistStep(template.variants) : 1
     commit({ templateId: template.id, choices, step })
   }
 
+  function handleQuickStart(templateId: string) {
+    const template = templates.find((entry) => entry.id === templateId)
+    if (!template) return
+
+    if (!template.valid) {
+      rejectInvalid(template)
+      return
+    }
+
+    setSelectionError(null)
+    announceSelection(template.name)
+    const result = fillDefaultsToChecklist(template.variants, {})
+    commit({
+      templateId: template.id,
+      choices: result.choices,
+      step: result.step,
+    })
+  }
+
   function handleAxisSelect(axisIndex: number, optionId: string) {
     if (!selectedTemplate?.valid) return
+    const axis = selectedTemplate.variants[axisIndex]
+    const optionLabel = axis
+      ? optionLabelFor(selectedTemplate, axis.id, optionId) ?? optionId
+      : optionId
     const result = applyAxisChoice(
       selectedTemplate.variants,
       state.choices,
       axisIndex,
       optionId,
     )
+    announceSelection(optionLabel)
     commit({
       templateId: selectedTemplate.id,
       choices: result.choices,
@@ -100,6 +136,7 @@ export function TemplateShelf({
   function handleSkipWithDefaults() {
     if (!selectedTemplate?.valid) return
     const result = fillDefaultsToChecklist(selectedTemplate.variants, state.choices)
+    setSelectionConfirm('おすすめ設定を使います。戻って変更できます。')
     commit({
       templateId: selectedTemplate.id,
       choices: result.choices,
@@ -136,7 +173,13 @@ export function TemplateShelf({
     selectedTemplate?.valid
     && state.step === checklistStep(selectedTemplate.variants),
   )
-  const backLabel = state.step === 1 ? '型一覧に戻る' : '戻る'
+  const backLabel = state.step === 1 ? '一覧に戻る' : '戻る'
+  // 軸見出しは TemplateAxisStep / 成果見出しは TemplateChecklist が担う（「制作プロンプト」連呼を避ける）
+  const headingText = state.step === 0
+    ? '何を作りたい？'
+    : onChecklist
+      ? '確認してコピー'
+      : '条件を選ぶ'
 
   return (
     <section
@@ -162,19 +205,27 @@ export function TemplateShelf({
                 {backLabel}
               </button>
             )}
-            <span className="eyebrow">型の棚</span>
+            <span className="eyebrow">動画づくり</span>
             <h2
               id="template-list-title"
               ref={typeHeadingRef}
               tabIndex={state.step === 0 ? -1 : undefined}
             >
-              {state.step === 0 ? 'テンプレートを選ぶ' : '型のウィザード'}
+              {headingText}
             </h2>
           </div>
           {loadState === 'ready' && state.step === 0 && (
             <span className="launcher-count">全{templates.length}件</span>
           )}
         </div>
+
+        <p
+          aria-live="polite"
+          className="launcher-template-selection-confirm"
+          data-empty={!selectionConfirm || undefined}
+        >
+          {selectionConfirm ?? ''}
+        </p>
 
         {loadState === 'loading' && (
           <div className="launcher-empty" aria-live="polite">
@@ -221,11 +272,16 @@ export function TemplateShelf({
                     <p>{selectionError}</p>
                   </div>
                 )}
+                <p className="launcher-template-wizard-lead">
+                  作りたい動画を選んでください。おすすめ設定ならすぐプロンプトを作れます。
+                  この画面では生成・実行・Gate更新はしません。
+                </p>
                 <div className="launcher-template-list">
                   {templates.map((template) => (
                     <TemplateTypeCard
                       key={template.id}
-                      onSelect={handleSelectTemplate}
+                      onQuickStart={handleQuickStart}
+                      onSelectDetail={handleSelectDetail}
                       selected={template.id === state.templateId}
                       template={template}
                     />

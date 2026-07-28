@@ -1048,64 +1048,80 @@ describe('LauncherApp', () => {
     expect(fetcher).toHaveBeenCalledTimes(2)
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    expect(await screen.findByRole('heading', { name: 'テンプレートを選ぶ' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '何を作りたい？' })).toBeVisible()
     expect(fetcher).toHaveBeenLastCalledWith('/api/templates', {
       headers: { accept: 'application/json' },
     })
     expect(screen.getByText('全4件')).toBeVisible()
+    // テンプレート棚では外側の3段階を出さず、ウィザード内進捗に一本化
+    expect(screen.queryByRole('list', { name: '見取図を開く手順' })).not.toBeInTheDocument()
 
     // 検索ボックス・カテゴリチップは置かない
     expect(screen.queryByRole('searchbox', { name: 'テンプレートを検索' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('用途で絞り込む')).not.toBeInTheDocument()
 
-    const storyboardCard = screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })
+    const storyboardCard = screen.getByRole('heading', { name: 'ブログ掛け合い 60秒' }).closest('article') as HTMLElement
     expect(within(storyboardCard).getByText('構成イメージ')).toBeVisible()
     expect(within(storyboardCard).getAllByRole('img')).toHaveLength(3)
     expect(within(storyboardCard).getByText('60秒 · 16:9')).toBeVisible()
     expect(within(storyboardCard).getByText('記事の要点 → 疑問を代弁 → 専門家が解説 → 要点を回収')).toBeVisible()
     expect(within(storyboardCard).getByText('テキスト')).toBeVisible()
     expect(within(storyboardCard).getByText('画像')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'ブログ掛け合い 60秒を詳しく選ぶ' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'ブログ掛け合い 60秒のおすすめ設定でプロンプトを作る' })).toBeVisible()
+    expect(within(storyboardCard).getByText('詳しく選ぶ')).toBeVisible()
+    expect(within(storyboardCard).getByText('おすすめ設定でプロンプトを作る')).toBeVisible()
     expect(storyboardCard).toHaveAttribute('aria-describedby', 'launcher-template-card-a11y-blog-dialogue-60s')
     expect(document.getElementById('launcher-template-card-a11y-blog-dialogue-60s')).toHaveTextContent(
       '60秒、16:9。構成: 記事の要点、疑問を代弁、専門家が解説、要点を回収。必要素材: テキスト、画像。',
     )
 
-    const fallbackCard = screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ })
+    const fallbackCard = screen.getByRole('heading', { name: 'Q&A掛け合い' }).closest('article') as HTMLElement
     expect(within(fallbackCard).getByText('構成イメージ')).toBeVisible()
     expect(within(fallbackCard).getAllByRole('img')).toHaveLength(3)
     expect(within(fallbackCard).getByText('プレビュー準備中')).toBeVisible()
 
-    const invalidPreviewCard = screen.getByRole('button', { name: /旧形式プレビューを選ぶ/ })
+    const invalidPreviewCard = screen.getByRole('heading', { name: '旧形式プレビュー' }).closest('article') as HTMLElement
     expect(within(invalidPreviewCard).getAllByRole('img')).toHaveLength(3)
     expect(within(invalidPreviewCard).getByText('プレビュー準備中')).toBeVisible()
 
     // 右パネル一括表示ではなくウィザードへ
     expect(screen.queryByRole('complementary', { name: '選択したテンプレート' })).not.toBeInTheDocument()
 
-    await user.click(storyboardCard)
+    await user.click(screen.getByRole('button', { name: 'ブログ掛け合い 60秒を詳しく選ぶ' }))
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /初心者＋専門家/ })).toHaveAttribute('aria-pressed', 'true')
+    const recommended = screen.getAllByRole('button', { name: /初心者＋専門家/ })
+      .find((el) => el.classList.contains('launcher-template-axis-option'))
+    expect(recommended).toHaveAttribute('aria-pressed', 'true')
 
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    expect(await screen.findByRole('heading', { name: /チェックリスト/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '確認してコピー' })).toBeVisible()
+    expect(screen.getAllByRole('button', { name: /プロンプトをコピー/ })[0]).toBeVisible()
+    expect(screen.getByLabelText('プロンプト本文')).toBeVisible()
+    expect(screen.getByText('閲覧専用')).toBeVisible()
+    expect(screen.getByText(/この画面では生成・実行・Gate更新はしません/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: /生成|実行|run|render/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getByText('素材・演出の詳細を見る'))
     expect(screen.getByText('記事本文と出典')).toBeVisible()
     expect(screen.getByText('2人分のキャラクター画像')).toBeVisible()
     expect(screen.getByText('実演だけで魅力が伝わる商品')).toBeVisible()
-    expect(screen.getByText('閲覧専用')).toBeVisible()
-    expect(screen.getByRole('button', { name: /ブリーフをコピー|コピー/ })).toBeVisible()
-    expect(screen.queryByRole('button', { name: /生成|実行|run|render/i })).not.toBeInTheDocument()
 
     // invalid は選択不可のまま
     const progressNav = screen.getByRole('navigation', { name: 'ウィザードの進捗' })
-    await user.click(within(progressNav).getByRole('button', { name: /型|テンプレート|ブログ掛け合い/ }))
-    expect(await screen.findByRole('heading', { name: 'テンプレートを選ぶ' })).toBeVisible()
-    const invalidCard = screen.getByRole('button', { name: /broken-template/ })
+    await user.click(within(progressNav).getByRole('button', { name: /動画|ブログ掛け合い/ }))
+    expect(await screen.findByRole('heading', { name: '何を作りたい？' })).toBeVisible()
+    const invalidCard = screen.getByRole('heading', { name: 'broken-template' }).closest('article') as HTMLElement
     expect(invalidCard).toHaveAttribute('data-invalid', 'true')
-    expect(invalidCard).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'broken-template（選択不可）を詳しく選ぶ' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'broken-template（選択不可）のおすすめ設定でプロンプトを作る' })).toBeDisabled()
 
-    // 軸なしテンプレートは型選択直後チェックリスト
-    await user.click(screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ }))
-    expect(await screen.findByRole('heading', { name: /チェックリスト/ })).toBeVisible()
+    // 軸なしテンプレートは型選択直後最終画面（2/2 完了）
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
+    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(within(screen.getByRole('navigation', { name: 'ウィザードの進捗' })).getByText(/2 \/ 2 · 完了/)).toBeVisible()
+    await user.click(screen.getByText('素材・演出の詳細を見る'))
     expect(screen.getByText('質問と回答の一覧')).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
@@ -1121,7 +1137,8 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    await user.click(await screen.findByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await screen.findByRole('heading', { name: 'ブログ掛け合い 60秒' })
+    await user.click(screen.getByRole('button', { name: 'ブログ掛け合い 60秒を詳しく選ぶ' }))
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
@@ -1129,7 +1146,9 @@ describe('LauncherApp', () => {
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /初心者＋専門家/ })).toHaveAttribute('aria-pressed', 'true')
+    const restored = screen.getAllByRole('button', { name: /初心者＋専門家/ })
+      .find((el) => el.classList.contains('launcher-template-axis-option'))
+    expect(restored).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('テンプレート一覧の読込失敗から再試行できる', async () => {

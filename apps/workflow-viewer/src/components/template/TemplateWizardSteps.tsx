@@ -20,7 +20,7 @@ function buildChips(
   const chips: ProgressChip[] = [
     {
       step: 0,
-      label: '型',
+      label: '動画',
       detail: template?.valid ? template.name : undefined,
     },
   ]
@@ -38,7 +38,7 @@ function buildChips(
 
   chips.push({
     step: checklistStep(template.variants),
-    label: 'チェックリスト',
+    label: 'プロンプト',
   })
 
   return chips
@@ -48,15 +48,37 @@ export function TemplateWizardSteps({ template, state, onGoToStep }: TemplateWiz
   if (state.step === 0 && !state.templateId) return null
 
   const chips = buildChips(template, state)
+  const totalSteps = chips.length
+  const currentStepNumber = Math.min(state.step + 1, totalSteps)
+  const remaining = Math.max(totalSteps - currentStepNumber, 0)
+  const progressLabel = remaining === 0
+    ? `${currentStepNumber} / ${totalSteps} · 完了`
+    : `${currentStepNumber} / ${totalSteps} · あと${remaining}つ`
 
   return (
     <nav aria-label="ウィザードの進捗" className="launcher-template-wizard-steps">
-      <ol>
+      <div className="launcher-template-wizard-progress-meta" aria-live="polite">
+        <strong className="launcher-template-wizard-progress-count">{progressLabel}</strong>
+        <ol aria-hidden="true" className="launcher-template-wizard-joinery">
+          {chips.map((chip) => {
+            const isDone = chip.step < state.step
+            const isCurrent = chip.step === state.step
+            return (
+              <li
+                data-current={isCurrent || undefined}
+                data-done={isDone || undefined}
+                key={`joinery-${chip.step}-${chip.label}`}
+              />
+            )
+          })}
+        </ol>
+      </div>
+      <ol className="launcher-template-wizard-step-list">
         {chips.map((chip) => {
           const isCurrent = chip.step === state.step
           // 過去ステップのみ戻れる（現在・未来は disabled）
           const canGo = chip.step < state.step
-          // 型チップだけ詳細名を a11y 名に含める（軸 option 名と衝突させない）
+          // 動画チップだけ詳細名を a11y 名に含める（条件 option 名と衝突させない）
           const buttonLabel = chip.step === 0 && chip.detail
             ? `${chip.label}: ${chip.detail}`
             : chip.label
