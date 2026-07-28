@@ -19,6 +19,7 @@ import {
 import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
 import { finalizeCompletedProject } from "./orchestrator/finalize.js";
+import { auditAndCleanupWorktrees } from "./worktree/lifecycle.js";
 import {
   inspectGate1Review,
   openCreativeReview,
@@ -111,6 +112,7 @@ type ParsedArgs = {
   open: boolean;
   apply: boolean;
   allowExternalAnalysis: boolean;
+  paths: string[];
   expectedApprovalDigest?: string;
   issues: Issue[];
 };
@@ -315,6 +317,53 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           code: "viewer_launcher.start_failed",
           message: error instanceof Error ? error.message : String(error)
         }]
+      });
+    }
+  }
+
+  if (args.command === "worktrees") {
+    if (args.apply) {
+      const coordinatorIssue = requireCoordinator(args);
+      if (coordinatorIssue) {
+        return output(args, 1, { ok: false, command: "worktrees", issues: [coordinatorIssue] });
+      }
+      if (args.paths.length === 0) {
+        return output(args, 1, {
+          ok: false,
+          command: "worktrees",
+          issues: [{
+            code: "worktrees.path_required",
+            message: "--path is required when applying worktree cleanup",
+            path: "--path"
+          }]
+        });
+      }
+    }
+
+    try {
+      const result = await auditAndCleanupWorktrees({
+        cwd: process.cwd(),
+        apply: args.apply,
+        paths: args.paths
+      });
+      return output(args, result.ok ? 0 : 1, {
+        ok: result.ok,
+        command: "worktrees",
+        issues: result.issues,
+        applied: result.applied ?? false,
+        git_common_dir: result.git_common_dir,
+        primary_path: result.primary_path,
+        current_path: result.current_path,
+        main_branch: result.main_branch,
+        worktrees: result.worktrees ?? [],
+        targets: result.targets ?? [],
+        removed: result.removed ?? []
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "worktrees",
+        issues: cliIssuesFromError(error)
       });
     }
   }
@@ -1172,6 +1221,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       open: false,
       apply: false,
       allowExternalAnalysis: false,
+      paths: [],
       issues: helpRequest.issues
     };
   }
@@ -1184,6 +1234,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     open: false,
     apply: false,
     allowExternalAnalysis: false,
+    paths: [],
     issues: []
   };
 
@@ -1237,6 +1288,30 @@ function parseArgs(argv: string[]): ParsedArgs {
           path: arg
         });
       }
+      continue;
+    }
+    if (arg === "--path") {
+      if (!isCommandOptionAllowed(parsed.command, arg)) {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+        const skipped = argv[index + 1];
+        if (skipped && !skipped.startsWith("--")) index += 1;
+        continue;
+      }
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) {
+        parsed.issues.push({
+          code: "cli.option_value_missing",
+          message: `${arg} requires a value`,
+          path: arg
+        });
+        continue;
+      }
+      parsed.paths.push(value);
+      index += 1;
       continue;
     }
 

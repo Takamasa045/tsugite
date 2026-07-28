@@ -214,6 +214,13 @@ node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
 ```
 
+After a coding task is explicitly marked complete, audit leftover Git worktrees before removing any of them. The default `worktrees` command is read-only JSON preview. Apply requires the Coordinator actor and one or more explicit `--path` values; it never uses `git worktree remove --force`, never deletes branches, and refuses primary/current, dirty, unmerged, locked, missing, or protected ignored content such as `projects/` and `.env`.
+
+```sh
+node bin/pipeline worktrees --json
+node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
+```
+
 ## Optional Shitate Import
 
 When using the separate Shitate repository, optionally import a selected run and anchor as an immutable, SHA-256-locked project snapshot. Shitate is not required for normal Tsugite usage.
