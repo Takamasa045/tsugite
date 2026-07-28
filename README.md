@@ -6,18 +6,18 @@ Tsugite is a local video-production workshop that carries assets, production log
 
 ## What it solves
 
-Tsugite connects generation services, local media, and editing backends through one manifest contract while preserving planning, approvals, QA, and logs per project. Codex can prepare the first local workspace without requiring the user to understand Git or terminal commands first.
+Tsugite connects generation services, local media, and editing backends through one manifest contract while preserving planning, approvals, QA, and logs per project. Codex, Claude Code, or another compatible coding agent can prepare the first local workspace without requiring the user to understand Git or terminal commands first.
 
 ## Easiest way to start
 
-1. Open an empty working folder in Codex.
-2. Paste the short setup request below.
+1. Open an empty working folder in Codex, start Claude Code in that folder, or use another coding agent that can work with local files and run shell commands.
+2. Paste the short setup request below into the agent.
 3. Review the environment and setup result.
 4. Approve only the system changes that are actually required.
 
 You do not need to type `git clone` or npm commands yourself.
 
-## Codex setup request
+## Setup request for Codex, Claude Code, or another coding agent
 
 ```text
 Safely set up the official Tsugite repository
@@ -28,7 +28,7 @@ After cloning, use the official setup:check and setup commands through doctor, v
 Do not overwrite existing files, log in, configure secrets, spend credits, run generation, render, approve Gates, commit, or push.
 ```
 
-The canonical copy-ready Japanese request is in [Codex用 Tsugiteセットアップ依頼文](docs/onboarding/codex-setup-prompt.ja.md).
+The canonical copy-ready Japanese request is in [Codex・Claude Codeなどで使う Tsugiteセットアップ依頼文](docs/onboarding/codex-setup-prompt.ja.md).
 
 ## After setup
 
