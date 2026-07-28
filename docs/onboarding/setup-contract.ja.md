@@ -1,6 +1,6 @@
 # Tsugite 初回セットアップ契約
 
-対象: Tsugite v0.6.0
+対象: Tsugite v0.7.1
 入口: `scripts/bootstrap.mjs`
 
 この文書は、公式Bootstrap、Codex・Claude Codeなどで使うセットアップ依頼文、Bootstrapテストに共通する安全仕様です。

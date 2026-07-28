@@ -1,6 +1,6 @@
 {
   "name": "tsugite",
-  "version": "0.6.0",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "packageManager": "npm@10.9.8",
