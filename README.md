@@ -1,8 +1,61 @@
-# tsugite
+# Tsugite
 
 [English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-Vendor-neutral video pipeline that connects generation adapters and editing backends through a single manifest contract.
+Tsugite is a local video-production workshop that carries assets, production logs, decisions, and preferences forward instead of treating each AI video as a disposable result.
+
+## What it solves
+
+Tsugite connects generation services, local media, and editing backends through one manifest contract while preserving planning, approvals, QA, and logs per project. Codex can prepare the first local workspace without requiring the user to understand Git or terminal commands first.
+
+## Easiest way to start
+
+1. Open an empty working folder in Codex.
+2. Paste the short setup request below.
+3. Review the environment and setup result.
+4. Approve only the system changes that are actually required.
+
+You do not need to type `git clone` or npm commands yourself.
+
+## Codex setup request
+
+```text
+Safely set up the official Tsugite repository
+https://github.com/Takamasa045/tsugite
+inside this empty folder.
+Start with read-only environment checks and wait for my approval before any system installation.
+After cloning, use the official setup:check and setup commands through doctor, validate, and plan for the zero-credit sample.
+Do not overwrite existing files, log in, configure secrets, spend credits, run generation, render, approve Gates, commit, or push.
+```
+
+The canonical copy-ready Japanese request is in [Codex用 Tsugiteセットアップ依頼文](docs/onboarding/codex-setup-prompt.ja.md).
+
+## After setup
+
+- Inspect the bundled “はじめての継手” sample in the local launcher.
+- Try `validate`, `plan`, and `review` using only local media.
+- Create a personal project under `projects/`.
+- Select and configure only the generation provider you actually need.
+
+## Safety boundary
+
+The official Bootstrap automates only repository-local dependencies, the zero-credit sample, `doctor`, `validate`, and `plan`. It does not install system packages, change `PATH`, log in to external services, configure secrets, spend credits, invoke `run` or `render`, change a Gate, commit, push, or publish. See the [Japanese setup contract](docs/onboarding/setup-contract.ja.md).
+
+## Developer and manual setup
+
+From an already cloned repository root, the dependency-free Bootstrap can start before `node_modules` exists:
+
+```sh
+npm run setup:check
+npm run setup
+npm run setup:open  # only when you also want the launcher
+```
+
+Append `-- --json` for a machine-readable report. `setup:check` is read-only. See [detailed setup](#detailed-setup-and-os-notes) for OS-specific prerequisites.
+
+## Safe production flow
+
+Tsugite is a vendor-neutral video pipeline that connects generation adapters and editing backends through a single manifest contract.
 
 Each video job has its own `project.yaml`. For distribution, the repository keeps copyable examples under `examples/` and ignores user projects under `projects/`. The safe flow is:
 
@@ -72,7 +125,7 @@ npm run build
 
 See [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) for the JSON contract, controls, samples, and current limitations.
 
-## Setup
+## Detailed setup and OS notes
 
 Prerequisites are Git, Node.js 22.12 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`.
 

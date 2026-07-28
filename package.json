@@ -14,8 +14,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run --exclude=\"apps/**\"",
-    "test:coverage": "vitest run --exclude=\"apps/**\" --coverage --coverage.include=\"src/**/*.ts\" --coverage.thresholds.statements=80 --coverage.thresholds.branches=74.4 --coverage.thresholds.functions=80 --coverage.thresholds.lines=80 --maxWorkers=4",
+    "test:coverage": "vitest run --exclude=\"apps/**\" --coverage --coverage.include=\"src/**/*.{ts,mjs}\" --coverage.thresholds.statements=80 --coverage.thresholds.branches=74.4 --coverage.thresholds.functions=80 --coverage.thresholds.lines=80 --maxWorkers=4",
     "pipeline": "node bin/pipeline",
+    "setup:check": "node scripts/bootstrap.mjs --check",
+    "setup": "node scripts/bootstrap.mjs",
+    "setup:open": "node scripts/bootstrap.mjs --open",
     "viewer:dev": "npm --prefix apps/workflow-viewer run dev",
     "viewer:open": "node bin/pipeline viewer-launcher --open",
     "viewer:check": "npm --prefix apps/workflow-viewer run test:coverage && npm --prefix apps/workflow-viewer run typecheck",
