@@ -1,8 +1,61 @@
-# tsugite
+# Tsugite
 
 [English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-生成アダプタと編集バックエンドを、単一の manifest 契約で接続するベンダー中立の動画パイプラインです。
+AI動画を作って終わりにせず、素材、制作ログ、判断、好みを次の制作へ継いでいくローカル動画制作工房です。
+
+## どんな問題を解決するか
+
+生成サービス、ローカル素材、編集バックエンドを単一のmanifest契約で接続し、制作計画、承認、QA、ログを案件ごとに残します。Gitやターミナルに詳しくなくても、安全境界を確認しながらCodexへ初回準備を任せられます。
+
+## 一番簡単な始め方
+
+1. Codexで空の作業フォルダを開きます。
+2. 下の短いセットアップ依頼文をCodexへ貼り付けます。
+3. 環境確認とセットアップ結果を確認します。
+4. 必要なシステム変更がある場合だけ、内容を確認して承認します。
+
+`git clone`やnpmコマンドを自分で入力する必要はありません。
+
+## Codex用セットアップ依頼文
+
+```text
+この空のフォルダ内に、公式のTsugite
+https://github.com/Takamasa045/tsugite
+を安全にセットアップしてください。
+最初は読み取り専用で環境を確認し、不足ソフトのシステム導入前には私の承認を待ってください。
+クローン後は公式のsetup:checkとsetupを使い、課金不要サンプルのdoctor、validate、planまで進めてください。
+既存ファイルの上書き、ログイン、APIキー設定、課金、run、render、Gate承認、commit、pushは行わないでください。
+```
+
+安全条件をすべて含むコピー用全文は[Codex用 Tsugiteセットアップ依頼文](docs/onboarding/codex-setup-prompt.ja.md)です。
+
+## セットアップ後にできること
+
+- 「はじめての継手」サンプルをランチャーで確認する。
+- ローカル素材だけで`validate`、`plan`、`review`を試す。
+- 自分の動画案件を`projects/`に作る。
+- 必要なProviderだけを後から選び、認証・課金を別途確認する。
+
+## 安全上の注意
+
+公式Bootstrapはリポジトリ内の依存導入、課金不要サンプル、`doctor`、`validate`、`plan`だけを自動実行します。システムソフトの導入、PATH変更、外部ログイン、secret設定、課金、`run`、`render`、Gate判断、commit、push、公開は行いません。詳しい境界は[初回セットアップ契約](docs/onboarding/setup-contract.ja.md)を参照してください。
+
+## 開発者向け・手動セットアップ
+
+クローン済みのrepo rootで、依存導入前からNode.js標準モジュールだけで公式Bootstrapを起動できます。
+
+```sh
+npm run setup:check
+npm run setup
+npm run setup:open  # セットアップ後にランチャーも開く場合だけ
+```
+
+機械可読な結果が必要な場合は各コマンドに`-- --json`を追加します。`setup:check`は読み取り専用です。OS別の導入コマンドを含む詳細は[セットアップ詳細](#セットアップ詳細とos別の注意)へ進んでください。
+
+## 安全な制作フロー
+
+生成アダプタと編集バックエンドを、単一のmanifest契約で接続するベンダー中立の動画パイプラインです。
 
 動画 job ごとに `project.yaml` を持ちます。配布用 repo として、コピー可能なサンプルは `examples/` に置き、ユーザー作業用の `projects/` は git 管理から外します。安全な基本フローは次の通りです。
 
@@ -63,7 +116,7 @@ npm run build
 
 JSON仕様、操作、サンプル、現在の制限は [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) を参照してください。
 
-## セットアップ
+## セットアップ詳細とOS別の注意
 
 必要環境は Git、Node.js 22.12以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。
 

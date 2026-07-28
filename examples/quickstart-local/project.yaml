@@ -1,0 +1,7 @@
+slug: my-first-tsugite
+name: はじめての継手
+run_id: my-first-tsugite-run
+manifest: manifest.json
+dist_dir: dist
+edit:
+  backend: remotion
