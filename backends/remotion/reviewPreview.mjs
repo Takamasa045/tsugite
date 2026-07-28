@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { stageNatureVibePublicAssets } from "./publicAssets.mjs";
 
 try {
   const input = parsePayload(JSON.parse(await readStdin()));
@@ -25,6 +26,7 @@ try {
   const renderedPath = join(mediaDir, "render.mp4");
   const finalizedPath = join(mediaDir, "final.mp4");
   try {
+    await stageNatureVibePublicAssets({ runDir: realReviewDir, manifest: input.manifest });
     const serveUrl = await bundle({
       entryPoint: fileURLToPath(new URL("./root.js", import.meta.url)),
       publicDir: input.reviewDir,
