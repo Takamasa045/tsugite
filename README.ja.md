@@ -226,6 +226,13 @@ node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
 ```
 
+実装タスクを明示的に完了としたあとは、残った Git worktree を削除する前に監査します。`worktrees` の既定は読み取り専用の JSON preview です。apply には Coordinator と明示的な `--path` が必要で、`git worktree remove --force` や branch 削除は行いません。primary/current・dirty・未統合・locked・missing、および `projects/` や `.env` などの保護対象は拒否します。
+
+```sh
+node bin/pipeline worktrees --json
+node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
+```
+
 ## Shitate連携（任意）
 
 別リポジトリのShitateを使う場合だけ、選定済みrunとanchorをSHA-256 lock付きの不変snapshotとしてprojectへ取り込めます。通常のTsugite利用にはShitateの導入・設定は不要です。
