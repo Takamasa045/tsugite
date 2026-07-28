@@ -56,4 +56,3 @@ Append-only format:
 2026-07-25 / ランチャー検索に `projects/<slug>/dist/<runId>/final.mp4` を貼っても案件がヒットしない / name/slug/runId に対して query の片方向 includes だけだった / 通常検索は部分一致、パス貼り付けは path セグメントと slug/runId の完全一致にして短い slug の誤ヒットを避ける / validate済
 2026-07-25 / HyperFramesがBGM+ナレーション同時でoverlapping_clips_same_trackエラー / renderAudioがroleごとにindex+2を付け直しtrackが衝突した / bgm・narration・sfxの全audio要素に一意のdata-track-indexを割り当てる / validate済
 2026-07-25 / エンジン制約と誤って話者・モーション不可と説明した / backends/hyperframesジェネレータがspeakers/visual/timelineを出していなかっただけ / 能力欠如を報告する前に当該backendジェネレータの実装を確認し、不足なら実装か明示的な未対応として切り分ける / observed
-2026-07-28 / 文字を含むキービジュアル上の歌詞が背景の微細な動きと黒いカード型テロップで主題を損ね、レゲエ表現も単なる丸ゴの傾きに見えた / 背景遮蔽・文字の役割・文化的な書体参照を原寸静止画で確認せず、UI的な処理と未調査の装飾を先に実装した / ポスター背景の歌詞はまず静止・枠なし・羽根状暗幕で画面階層を作り、ジャンル表現は実例を調査した書体と手描きの不揃いへ落とし、ユーザー承認前にフルレンダーしない / qa済

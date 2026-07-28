@@ -4,12 +4,10 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stageNatureVibePublicAssets } from "./publicAssets.mjs";
 
 try {
   const input = parsePayload(JSON.parse(await readStdin()));
   const manifest = JSON.parse(await readFile(input.manifestPath, "utf8"));
-  await stageNatureVibePublicAssets({ runDir: input.runDir, manifest });
   const entryPoint = fileURLToPath(new URL("./root.js", import.meta.url));
   const bundleDir = await mkdtemp(join(tmpdir(), "tsugite-remotion-"));
 
