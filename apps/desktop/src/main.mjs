@@ -10,7 +10,7 @@ import { createPipelineRunner } from "./process-runner.mjs";
 import {
   createIpcOriginGuard,
   createSecureWindowOptions,
-  denyAllSessionPermissions,
+  installSessionPermissions,
   installNavigationGuards,
   prepareDesktopWorkspace,
   readWorkspacePreference,
@@ -144,7 +144,7 @@ async function startDesktop() {
     quit: () => app.quit()
   });
 
-  denyAllSessionPermissions(session.defaultSession);
+  installSessionPermissions(session.defaultSession, { launcherUrl: launcher.url });
   mainWindow = new BrowserWindow(createSecureWindowOptions({
     preloadPath: fileURLToPath(new URL("./preload.mjs", import.meta.url))
   }));

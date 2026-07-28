@@ -174,7 +174,7 @@ export function TemplateShelf({
     && state.step === checklistStep(selectedTemplate.variants),
   )
   const backLabel = state.step === 1 ? '一覧に戻る' : '戻る'
-  // 軸見出しは TemplateAxisStep / 成果見出しは TemplateChecklist が担う（「制作プロンプト」連呼を避ける）
+  // 軸見出しは TemplateAxisStep / 成果見出しは TemplateChecklist が担う。
   const headingText = state.step === 0
     ? '何を作りたい？'
     : onChecklist
@@ -273,7 +273,7 @@ export function TemplateShelf({
                   </div>
                 )}
                 <p className="launcher-template-wizard-lead">
-                  作りたい動画を選んでください。おすすめ設定ならすぐプロンプトを作れます。
+                  作りたい動画を選んでください。おすすめ設定ならすぐ制作依頼を作れます。
                   この画面では生成・実行・Gate更新はしません。
                 </p>
                 <div className="launcher-template-list">

@@ -30,7 +30,7 @@ export function TemplateTypeCard({
     ? template.name
     : `${template.name}（選択不可）`
   const detailActionLabel = `${cardLabel}を詳しく選ぶ`
-  const quickStartActionLabel = `${cardLabel}のおすすめ設定でプロンプトを作る`
+  const quickStartActionLabel = `${cardLabel}のおすすめ設定で制作依頼を作る`
 
   return (
     <article
@@ -128,7 +128,7 @@ export function TemplateTypeCard({
           }}
           type="button"
         >
-          おすすめ設定でプロンプトを作る
+          おすすめ設定で制作依頼を作る
         </button>
       </div>
     </article>

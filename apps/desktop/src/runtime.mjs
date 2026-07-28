@@ -277,7 +277,53 @@ export function installNavigationGuards(webContents, {
   return { isAllowed };
 }
 
-export function denyAllSessionPermissions(session) {
-  session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-  session.setPermissionCheckHandler(() => false);
+export function installSessionPermissions(session, { launcherUrl }) {
+  const launcher = new URL(launcherUrl);
+  if (
+    launcher.protocol !== "http:"
+    || launcher.hostname !== LOOPBACK_HOST
+    || launcher.username
+    || launcher.password
+  ) {
+    throw new Error(`Desktop permissions require a loopback HTTP origin: ${launcherUrl}`);
+  }
+  const launcherOrigin = launcher.origin;
+  const matchesLauncherOrigin = (input) => {
+    if (typeof input !== "string") return false;
+    try {
+      const url = new URL(input);
+      return (
+        url.protocol === "http:"
+        && url.hostname === LOOPBACK_HOST
+        && !url.username
+        && !url.password
+        && url.origin === launcherOrigin
+      );
+    } catch {
+      return false;
+    }
+  };
+  const canWriteClipboard = (webContents, permission, requestingUrl, isMainFrame) => (
+    permission === "clipboard-sanitized-write"
+    && isMainFrame === true
+    && matchesLauncherOrigin(requestingUrl)
+    && matchesLauncherOrigin(webContents?.getURL?.())
+  );
+
+  session.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(canWriteClipboard(
+      webContents,
+      permission,
+      details?.requestingUrl,
+      details?.isMainFrame
+    ));
+  });
+  session.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => (
+    canWriteClipboard(
+      webContents,
+      permission,
+      details?.requestingUrl ?? requestingOrigin,
+      details?.isMainFrame
+    )
+  ));
 }

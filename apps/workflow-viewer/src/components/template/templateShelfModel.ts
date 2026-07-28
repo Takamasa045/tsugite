@@ -499,104 +499,113 @@ export function resolveExampleLines(
   return lines
 }
 
-export function buildTemplateBriefMarkdown(
+export function materialDeliveryInstruction(input: TemplateInputDetail): string {
+  switch (input.type) {
+    case 'text':
+      return '本文を貼り付けるか、参照できるテキストファイルのパスを記載してください。'
+    case 'image':
+      return '画像を添付するか、参照できるファイルパスを記載してください。'
+    case 'audio':
+      return '音声ファイルを添付するか、参照できるファイルパスと使用範囲を記載してください。'
+    case 'video':
+      return '動画ファイルを添付するか、参照できるファイルパスと使用したい範囲を記載してください。'
+    case 'data':
+      return '正本のファイル・URL、または数値と出典を記載してください。'
+    default:
+      return '内容を記載するか、参照できるファイルパスを記載してください。'
+  }
+}
+
+export function requiredMaterialNotices(
+  inputs: readonly TemplateInputDetail[],
+): string[] {
+  const notices = [
+    'この制作依頼と一緒に共有された素材だけを正本として扱います。',
+  ]
+  if (inputs.some((input) => input.type === 'image')) {
+    notices.push('画像は提供されたファイルを正本として使い、似た画像を生成して置き換えません。')
+  }
+  if (inputs.some((input) => input.type === 'image' && /ロゴ|logo/i.test(input.label))) {
+    notices.push('商品ロゴは提供された正本を使い、ロゴの文字・形・配色・余白を変更しないでください。')
+  }
+  if (inputs.some((input) => input.type === 'data')) {
+    notices.push('価格・仕様・条件・実績などの事実は、共有された正本と出典だけを使います。')
+  }
+  notices.push('未提供の素材や事実を推測・生成で補わないでください。')
+  return notices
+}
+
+export function buildTemplateProductionPrompt(
   template: Pick<
     LauncherTemplate,
     | 'name'
     | 'summary'
     | 'variants'
     | 'requiredInputDetails'
-    | 'notFor'
-    | 'audio'
     | 'direction'
-    | 'promptGuideCatalog'
-    | 'promptGuides'
   >,
   choices: Readonly<Record<string, string>>,
 ): string {
-  const { required, optional } = partitionRequiredInputs(
+  const { required } = partitionRequiredInputs(
     resolveRequiredInputDetails(template, choices),
   )
   const lines: string[] = [
-    `# ${template.name}`,
+    '# 制作依頼',
+    '',
+    `以下の条件で「${template.name}」を制作してください。`,
+    '',
+    '## 目的',
     '',
     template.summary,
     '',
-    '## 選択内容',
+    '## 今回の設定',
   ]
 
   for (const variant of template.variants) {
-    const optionId = choices[variant.id]
+    const optionId = choices[variant.id] ?? defaultOptionIdFor(variant)
     const option = variant.options.find((entry) => entry.id === optionId)
     lines.push(`- **${variant.label}**: ${option?.label ?? '（未選択）'}`)
   }
 
+  lines.push(
+    '',
+    '## 一緒に渡す必須素材',
+    '',
+    '次の素材を、この制作依頼と同じ会話に添付するか、参照できるファイルパス・本文・URLで共有してください。',
+  )
+  if (required.length === 0) {
+    lines.push('- 特別な必須素材はありません。')
+  } else {
+    for (const input of required) {
+      lines.push(
+        `- **${input.label}**（${TEMPLATE_INPUT_TYPE_LABELS[input.type]}）`,
+        `  - 渡し方: ${materialDeliveryInstruction(input)}`,
+      )
+    }
+  }
+
+  lines.push('', '## 素材の扱い')
+  for (const notice of requiredMaterialNotices(required)) {
+    lines.push(`- ${notice}`)
+  }
+
   const directionLines = resolveDirectionLines(template, choices)
   if (directionLines.length > 0) {
-    lines.push('', '## 演出指針')
+    lines.push('', '## 制作条件')
     for (const entry of directionLines) {
       const label = entry.source ? `${entry.label}（${entry.source}）` : entry.label
       lines.push(`- **${label}**: ${entry.text}`)
     }
   }
 
-  const exampleLines = resolveExampleLines(template, choices)
-  if (exampleLines.length > 0) {
-    lines.push('', '## 具体例')
-    const goods = exampleLines.filter((entry) => entry.kind === 'good')
-    const monos = exampleLines.filter((entry) => entry.kind === 'monotonous')
-    if (goods.length > 0) {
-      lines.push('', '### 良い例')
-      for (const entry of goods) {
-        lines.push(`- （${entry.optionLabel}） ${entry.text}`)
-      }
-    }
-    if (monos.length > 0) {
-      lines.push('', '### 単調な例（避ける）')
-      for (const entry of monos) {
-        lines.push(`- （${entry.optionLabel}） ${entry.text}`)
-      }
-    }
-  }
-
-  const promptGuides = resolvePromptGuidesForBrief(template, choices)
-  if (promptGuides.length > 0) {
-    lines.push('', '## 生成プロンプトの書式')
-    for (const guide of promptGuides) {
-      lines.push('', `### ${guide.displayName}（${guide.catalogId}）`)
-      lines.push(`- ${guide.disclaimer}`)
-      for (const rule of guide.checklist) {
-        lines.push(`- ${rule.instruction}`)
-      }
-    }
-  }
-
-  lines.push('', '## 用意するもの', '', '### 必須')
-  if (required.length === 0) {
-    lines.push('- （なし）')
-  } else {
-    for (const input of required) {
-      lines.push(`- ${input.label}（${TEMPLATE_INPUT_TYPE_LABELS[input.type]}）`)
-    }
-  }
-
-  lines.push('', '### 任意')
-  if (optional.length === 0) {
-    lines.push('- （なし）')
-  } else {
-    for (const input of optional) {
-      lines.push(`- ${input.label}（${TEMPLATE_INPUT_TYPE_LABELS[input.type]}）`)
-    }
-  }
-
-  if (template.notFor.length > 0) {
-    lines.push('', '## 向かない用途')
-    for (const item of template.notFor) lines.push(`- ${item}`)
-  }
-
-  if (template.audio) {
-    lines.push('', '## 音声', template.audio)
-  }
+  lines.push(
+    '',
+    '## 最初に行うこと',
+    '',
+    '1. 必須素材が揃っているか確認してください。',
+    '2. 不足している項目だけを質問し、回答を待ってください。',
+    '3. 素材が揃ったら、制作方針と進め方を短く提示してください。',
+  )
 
   return `${lines.join('\n')}\n`
 }

@@ -176,7 +176,7 @@ function detailActionName(name: string) {
 }
 
 function quickStartActionName(name: string) {
-  return `${name}のおすすめ設定でプロンプトを作る`
+  return `${name}のおすすめ設定で制作依頼を作る`
 }
 
 async function chooseDetail(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -196,7 +196,7 @@ describe('TemplateShelf', () => {
     expect(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') })).toBeVisible()
     // 見た目の短い文言は維持
     expect(within(templateCard('ブログ掛け合い 60秒')).getByText('詳しく選ぶ')).toBeVisible()
-    expect(within(templateCard('ブログ掛け合い 60秒')).getByText('おすすめ設定でプロンプトを作る')).toBeVisible()
+    expect(within(templateCard('ブログ掛け合い 60秒')).getByText('おすすめ設定で制作依頼を作る')).toBeVisible()
 
     expect(screen.queryByRole('searchbox', { name: 'テンプレートを検索' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('用途で絞り込む')).not.toBeInTheDocument()
@@ -204,7 +204,7 @@ describe('TemplateShelf', () => {
 
     // 軸・チェックリストはまだ出さない
     expect(screen.queryByRole('heading', { name: 'キャラクター構成' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /制作プロンプトができました|チェックリスト|用意するもの/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /制作依頼ができました|チェックリスト|用意するもの/ })).not.toBeInTheDocument()
 
     expect(latestState(onStateChange)).toMatchObject({
       templateId: null,
@@ -217,7 +217,7 @@ describe('TemplateShelf', () => {
     render(<TemplateShelf templates={templates} />)
 
     const detailButtons = screen.getAllByRole('button', { name: /を詳しく選ぶ$/ })
-    const quickButtons = screen.getAllByRole('button', { name: /のおすすめ設定でプロンプトを作る$/ })
+    const quickButtons = screen.getAllByRole('button', { name: /のおすすめ設定で制作依頼を作る$/ })
     expect(detailButtons).toHaveLength(2)
     expect(quickButtons).toHaveLength(2)
 
@@ -258,7 +258,7 @@ describe('TemplateShelf', () => {
     })
 
     await user.click(screen.getByRole('button', { name: /落ち着いた/ }))
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(latestState(onStateChange)).toMatchObject({
       step: 4,
       choices: {
@@ -317,7 +317,7 @@ describe('TemplateShelf', () => {
 
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
 
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(latestState(onStateChange)).toMatchObject({
       templateId: 'blog-dialogue-60s',
       step: 4,
@@ -330,15 +330,15 @@ describe('TemplateShelf', () => {
     })
   })
 
-  it('カードから「おすすめ設定でプロンプトを作る」で既定値のまま最終画面へ進む', async () => {
+  it('カードから「おすすめ設定で制作依頼を作る」で既定値のまま最終画面へ進む', async () => {
     const user = userEvent.setup()
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
     await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
 
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
-    expect(screen.getAllByRole('button', { name: /プロンプトをコピー/ })[0]).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: '制作依頼だけをコピー' })).toBeVisible()
     expect(latestState(onStateChange)).toMatchObject({
       templateId: 'blog-dialogue-60s',
       step: 4,
@@ -384,7 +384,7 @@ describe('TemplateShelf', () => {
     await screen.findByRole('heading', { name: 'キャラクター構成' })
 
     const nav = progressNav()
-    // 3軸テンプレート = 動画 + 3軸 + プロンプト の5段階。軸1到達時は 2/5
+    // 3軸テンプレート = 動画 + 3軸 + 制作依頼 の5段階。軸1到達時は 2/5
     expect(within(nav).getByText(/2 \/ 5 · あと3つ/)).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: /同僚同士/ }))
@@ -392,7 +392,7 @@ describe('TemplateShelf', () => {
     expect(within(progressNav()).getByText(/3 \/ 5 · あと2つ/)).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(within(progressNav()).getByText(/5 \/ 5 · 完了/)).toBeVisible()
   })
 
@@ -407,9 +407,9 @@ describe('TemplateShelf', () => {
     render(<TemplateShelf templates={[noAxisTemplate]} />)
 
     await chooseDetail(user, 'Q&A掛け合い')
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
 
-    // 軸なし = 動画 + プロンプト の2段階。最終画面は 2/2 · 完了（固定5ではない）
+    // 軸なし = 動画 + 制作依頼 の2段階。最終画面は 2/2 · 完了（固定5ではない）
     const nav = progressNav()
     expect(within(nav).getByText(/2 \/ 2 · 完了/)).toBeVisible()
     expect(within(nav).queryByText(/\/ 5/)).not.toBeInTheDocument()
@@ -428,7 +428,7 @@ describe('TemplateShelf', () => {
     await user.click(screen.getByRole('button', { name: /画面デモ/ }))
     await screen.findByRole('heading', { name: 'テンポ' })
     await user.click(screen.getByRole('button', { name: /テンポよく/ }))
-    await screen.findByRole('heading', { name: /制作プロンプトができました/ })
+    await screen.findByRole('heading', { name: /制作依頼ができました/ })
 
     expect(latestState(onStateChange).choices).toEqual({
       cast: 'peer-dialogue',
@@ -522,7 +522,7 @@ describe('TemplateShelf', () => {
 
     // 残りは「おすすめのまま進む」でチェックリストまで
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(latestState(onStateChange).step).toBe(4)
   })
 
@@ -534,7 +534,7 @@ describe('TemplateShelf', () => {
     await chooseDetail(user, 'ブログ掛け合い 60秒')
     await screen.findByRole('heading', { name: 'キャラクター構成' })
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    await screen.findByRole('heading', { name: /制作プロンプトができました/ })
+    await screen.findByRole('heading', { name: /制作依頼ができました/ })
 
     const nav = progressNav()
     const chips = within(nav).getAllByRole('button')
@@ -551,7 +551,7 @@ describe('TemplateShelf', () => {
     await chooseDetail(user, 'ブログ掛け合い 60秒')
     await screen.findByRole('heading', { name: 'キャラクター構成' })
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    await screen.findByRole('heading', { name: /制作プロンプトができました/ })
+    await screen.findByRole('heading', { name: /制作依頼ができました/ })
 
     await user.click(within(progressNav()).getByRole('button', { name: /背景/ }))
     expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
@@ -589,20 +589,21 @@ describe('TemplateShelf', () => {
     })
   })
 
-  it('最終画面ではプロンプトコピーが主操作として見える', async () => {
+  it('最終画面では制作依頼コピーが主操作として見える', async () => {
     const user = userEvent.setup()
     render(<TemplateShelf templates={templates} />)
 
     await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(screen.getByRole('heading', { name: '確認してコピー' })).toBeVisible()
 
-    const copyButtons = screen.getAllByRole('button', { name: /プロンプトをコピー/ })
-    expect(copyButtons.length).toBeGreaterThanOrEqual(1)
-    expect(copyButtons[0]).toBeVisible()
-    expect(copyButtons[0]).toHaveClass('launcher-primary')
-    expect(screen.getByLabelText('プロンプト本文')).toBeVisible()
-    expect(screen.getByText(/この画面では生成・実行・Gate更新はしません/)).toBeVisible()
+    const copyButton = screen.getByRole('button', { name: '制作依頼だけをコピー' })
+    expect(copyButton).toBeVisible()
+    expect(copyButton).toHaveClass('launcher-primary')
+    expect(screen.getByLabelText('制作依頼本文')).toBeVisible()
+    expect(
+      screen.getByText((content) => content.includes('この画面では生成・実行・Gate更新をしません')),
+    ).toBeVisible()
     expect(screen.getByText('素材・演出の詳細を見る')).toBeVisible()
   })
 })
