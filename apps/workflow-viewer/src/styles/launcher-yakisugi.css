@@ -1155,21 +1155,80 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
+.launcher-template-wizard-lead {
+  margin: 0 0 14px;
+  color: #5c564b;
+  font-size: .78rem;
+  line-height: 1.65;
+}
+.launcher-template-selection-confirm {
+  min-height: 1.4em;
+  margin: 0 0 12px;
+  color: #6f2b22;
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.launcher-template-selection-confirm[data-empty] {
+  margin: 0;
+  min-height: 0;
+}
 .launcher-template-wizard-steps {
   position: sticky;
   top: 0;
   z-index: 6;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
+  display: grid;
+  gap: 10px;
   margin: 0 0 18px;
   padding: 10px 0 12px;
   border-bottom: 1px solid rgba(75, 55, 32, .1);
   background: color-mix(in srgb, var(--launcher-kinari) 94%, #fff);
   backdrop-filter: blur(6px);
 }
-.launcher-template-wizard-steps ol {
+.launcher-template-wizard-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.launcher-template-wizard-progress-count {
+  color: #6f2b22;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: .9rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.launcher-template-wizard-joinery {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: 280px;
+}
+.launcher-template-wizard-joinery li {
+  flex: 1 1 0;
+  min-width: 18px;
+  height: 10px;
+  border: 1px solid rgba(75, 55, 32, .22);
+  border-radius: 1px 6px 1px 6px;
+  background: #fffaf0;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+.launcher-template-wizard-joinery li[data-done] {
+  border-color: color-mix(in srgb, var(--launcher-urushi) 55%, #8a6a4a);
+  background: linear-gradient(90deg, #8a6a4a, color-mix(in srgb, var(--launcher-urushi) 70%, #c4a574));
+}
+.launcher-template-wizard-joinery li[data-current] {
+  border-color: var(--launcher-urushi);
+  background: var(--launcher-urushi);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 2px rgba(166, 61, 47, .16);
+}
+.launcher-template-wizard-step-list {
   display: flex;
   flex: 1 1 auto;
   flex-wrap: wrap;
@@ -1195,6 +1254,10 @@
   opacity: .72;
   cursor: default;
 }
+.launcher-template-wizard-steps button:focus-visible {
+  outline: 3px solid rgba(166, 61, 47, .35);
+  outline-offset: 2px;
+}
 .launcher-template-wizard-steps li[data-current] button {
   border-color: var(--launcher-urushi);
   color: #6f2b22;
@@ -1207,6 +1270,12 @@
   color: #6a6256;
   font-size: .6rem;
   font-weight: 650;
+}
+@media (prefers-reduced-motion: reduce) {
+  .launcher-template-wizard-joinery li,
+  .launcher-template-card {
+    transition: none;
+  }
 }
 .launcher-template-axis-heading {
   display: flex;
@@ -1281,6 +1350,56 @@
   color: #5c564b;
   font-size: .74rem;
   line-height: 1.6;
+}
+.launcher-template-checklist-primary {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.launcher-template-checklist-primary .launcher-primary {
+  min-height: 48px;
+  padding-inline: 20px;
+  font-size: .84rem;
+}
+.launcher-template-checklist-copy-status {
+  margin: 0;
+  color: #275e58;
+  font-size: .72rem;
+  font-weight: 700;
+}
+.launcher-template-checklist-details {
+  border: 1px solid rgba(75, 55, 32, .14);
+  border-radius: 3px 14px 3px 14px;
+  padding: 0;
+  background: rgba(255, 250, 240, .45);
+}
+.launcher-template-checklist-details > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 14px 16px;
+  color: #3a3328;
+  font-size: .8rem;
+  font-weight: 750;
+}
+.launcher-template-checklist-details > summary::-webkit-details-marker { display: none; }
+.launcher-template-checklist-details > summary::before {
+  content: "▸ ";
+  color: var(--launcher-urushi);
+}
+.launcher-template-checklist-details[open] > summary::before { content: "▾ "; }
+.launcher-template-checklist-details > summary:focus-visible {
+  outline: 3px solid rgba(166, 61, 47, .35);
+  outline-offset: 2px;
+}
+.launcher-template-checklist-details[open] > summary {
+  border-bottom: 1px solid rgba(75, 55, 32, .1);
+}
+.launcher-template-checklist-details .launcher-template-checklist-body {
+  margin: 0;
+  padding: 14px 16px 16px;
+}
+.launcher-template-checklist-brief {
+  margin: 0;
 }
 .launcher-template-checklist-body {
   display: grid;

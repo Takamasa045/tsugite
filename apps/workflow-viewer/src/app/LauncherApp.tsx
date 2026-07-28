@@ -506,7 +506,6 @@ export function LauncherApp({
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [templates, setTemplates] = useState<LauncherTemplate[]>([])
   const [templateLoadState, setTemplateLoadState] = useState<TemplateLoadState>('idle')
-  const [selectedTemplate, setSelectedTemplate] = useState<LauncherTemplate | null>(null)
   /** 棚タブ離脱後もウィザード進行を保持する */
   const [templateWizardState, setTemplateWizardState] = useState<TemplateWizardState>(INITIAL_WIZARD_STATE)
   const [characters, setCharacters] = useState<LauncherCharacter[]>([])
@@ -1049,7 +1048,7 @@ export function LauncherApp({
             </div>
             <p>{{
               projects: '作品を選び、最新の制作記録を開きます',
-              templates: '型を選び、軸を決め、ブリーフをコピーします',
+              templates: '作りたい動画を選び、制作プロンプトをコピーします',
               characters: 'キャラを確認し、依頼メモをコピーします',
               canvas: '画像・動画の工程をつないで設計します',
               feedback: '制作から育った知見を確認できます',
@@ -1058,31 +1057,14 @@ export function LauncherApp({
         )}
       </section>
 
+      {/* テンプレート棚はウィザード内の進捗に一本化（ここでの3段階は出さない） */}
+      {activeShelf !== 'templates' && (
       <ol aria-label="見取図を開く手順" className="launcher-joinery">
         {activeShelf === 'projects' ? (
           <>
             <li data-active="true"><span>一</span><strong>選ぶ</strong></li>
             <li data-active={selected !== null}><span>二</span><strong>最新にする</strong></li>
             <li data-active="false"><span>三</span><strong>見る</strong></li>
-          </>
-        ) : activeShelf === 'templates' ? (
-          <>
-            <li data-active={templateWizardState.step === 0}><span>一</span><strong>型を選ぶ</strong></li>
-            <li data-active={Boolean(
-              selectedTemplate?.valid
-              && templateWizardState.step >= 1
-              && templateWizardState.step <= selectedTemplate.variants.length,
-            )}
-            >
-              <span>二</span><strong>軸を選ぶ</strong>
-            </li>
-            <li data-active={Boolean(
-              selectedTemplate?.valid
-              && templateWizardState.step > selectedTemplate.variants.length,
-            )}
-            >
-              <span>三</span><strong>準備を確認</strong>
-            </li>
           </>
         ) : activeShelf === 'characters' ? (
           <>
@@ -1104,6 +1086,7 @@ export function LauncherApp({
           </>
         )}
       </ol>
+      )}
 
       {activeShelf === 'projects' ? (
         <>
@@ -1427,7 +1410,6 @@ export function LauncherApp({
           initialState={templateWizardState}
           loadState={templateLoadState}
           onRetry={() => void loadTemplates()}
-          onSelectedTemplateChange={setSelectedTemplate}
           onStateChange={setTemplateWizardState}
           templates={templates}
         />
