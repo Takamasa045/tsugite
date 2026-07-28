@@ -1048,7 +1048,7 @@ export function LauncherApp({
             </div>
             <p>{{
               projects: '作品を選び、最新の制作記録を開きます',
-              templates: '作りたい動画を選び、制作プロンプトをコピーします',
+              templates: '作りたい動画を選び、制作依頼を確認してコピーします',
               characters: 'キャラを確認し、依頼メモをコピーします',
               canvas: '画像・動画の工程をつないで設計します',
               feedback: '制作から育った知見を確認できます',

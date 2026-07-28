@@ -1068,9 +1068,9 @@ describe('LauncherApp', () => {
     expect(within(storyboardCard).getByText('テキスト')).toBeVisible()
     expect(within(storyboardCard).getByText('画像')).toBeVisible()
     expect(screen.getByRole('button', { name: 'ブログ掛け合い 60秒を詳しく選ぶ' })).toBeVisible()
-    expect(screen.getByRole('button', { name: 'ブログ掛け合い 60秒のおすすめ設定でプロンプトを作る' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'ブログ掛け合い 60秒のおすすめ設定で制作依頼を作る' })).toBeVisible()
     expect(within(storyboardCard).getByText('詳しく選ぶ')).toBeVisible()
-    expect(within(storyboardCard).getByText('おすすめ設定でプロンプトを作る')).toBeVisible()
+    expect(within(storyboardCard).getByText('おすすめ設定で制作依頼を作る')).toBeVisible()
     expect(storyboardCard).toHaveAttribute('aria-describedby', 'launcher-template-card-a11y-blog-dialogue-60s')
     expect(document.getElementById('launcher-template-card-a11y-blog-dialogue-60s')).toHaveTextContent(
       '60秒、16:9。構成: 記事の要点、疑問を代弁、専門家が解説、要点を回収。必要素材: テキスト、画像。',
@@ -1095,18 +1095,22 @@ describe('LauncherApp', () => {
     expect(recommended).toHaveAttribute('aria-pressed', 'true')
 
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(screen.getByRole('heading', { name: '確認してコピー' })).toBeVisible()
-    expect(screen.getAllByRole('button', { name: /プロンプトをコピー/ })[0]).toBeVisible()
-    expect(screen.getByLabelText('プロンプト本文')).toBeVisible()
+    expect(screen.getByRole('button', { name: '制作依頼だけをコピー' })).toBeVisible()
+    expect(screen.getByLabelText('制作依頼本文')).toBeVisible()
     expect(screen.getByText('閲覧専用')).toBeVisible()
-    expect(screen.getByText(/この画面では生成・実行・Gate更新はしません/)).toBeVisible()
+    expect(
+      screen.getByText((content) => content.includes('この画面では生成・実行・Gate更新をしません')),
+    ).toBeVisible()
     expect(screen.queryByRole('button', { name: /生成|実行|run|render/i })).not.toBeInTheDocument()
 
-    await user.click(screen.getByText('素材・演出の詳細を見る'))
-    expect(screen.getByText('記事本文と出典')).toBeVisible()
-    expect(screen.getByText('2人分のキャラクター画像')).toBeVisible()
-    expect(screen.getByText('実演だけで魅力が伝わる商品')).toBeVisible()
+    const detailsSummary = screen.getByText('素材・演出の詳細を見る')
+    const details = detailsSummary.closest('details') as HTMLElement
+    await user.click(detailsSummary)
+    expect(within(details).getByText('記事本文と出典')).toBeVisible()
+    expect(within(details).getByText('2人分のキャラクター画像')).toBeVisible()
+    expect(within(details).getByText('実演だけで魅力が伝わる商品')).toBeVisible()
 
     // invalid は選択不可のまま
     const progressNav = screen.getByRole('navigation', { name: 'ウィザードの進捗' })
@@ -1115,14 +1119,16 @@ describe('LauncherApp', () => {
     const invalidCard = screen.getByRole('heading', { name: 'broken-template' }).closest('article') as HTMLElement
     expect(invalidCard).toHaveAttribute('data-invalid', 'true')
     expect(screen.getByRole('button', { name: 'broken-template（選択不可）を詳しく選ぶ' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'broken-template（選択不可）のおすすめ設定でプロンプトを作る' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'broken-template（選択不可）のおすすめ設定で制作依頼を作る' })).toBeDisabled()
 
     // 軸なしテンプレートは型選択直後最終画面（2/2 完了）
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
-    expect(await screen.findByRole('heading', { name: /制作プロンプトができました/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(within(screen.getByRole('navigation', { name: 'ウィザードの進捗' })).getByText(/2 \/ 2 · 完了/)).toBeVisible()
-    await user.click(screen.getByText('素材・演出の詳細を見る'))
-    expect(screen.getByText('質問と回答の一覧')).toBeVisible()
+    const zeroAxisDetailsSummary = screen.getByText('素材・演出の詳細を見る')
+    const zeroAxisDetails = zeroAxisDetailsSummary.closest('details') as HTMLElement
+    await user.click(zeroAxisDetailsSummary)
+    expect(within(zeroAxisDetails).getByText('質問と回答の一覧')).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
     expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()

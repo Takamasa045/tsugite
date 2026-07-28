@@ -10,7 +10,7 @@ import {
   assertWorkspaceOutsideProtectedDirectory,
   createIpcOriginGuard,
   createSecureWindowOptions,
-  denyAllSessionPermissions,
+  installSessionPermissions,
   installNavigationGuards,
   prepareDesktopWorkspace,
   prepareWorkspaceDirectories,
@@ -378,16 +378,69 @@ test("navigation setup rejects non-loopback base origins", () => {
   }), /loopback HTTP origin/);
 });
 
-test("session permission handlers always deny requests and checks", () => {
+test("session permissions allow only clipboard writes from the launcher main frame", () => {
   let requestHandler;
   let checkHandler;
-  denyAllSessionPermissions({
+  installSessionPermissions({
     setPermissionRequestHandler(handler) { requestHandler = handler; },
     setPermissionCheckHandler(handler) { checkHandler = handler; }
+  }, {
+    launcherUrl: "http://127.0.0.1:4100"
   });
 
   let result;
-  requestHandler({}, "camera", (allowed) => { result = allowed; });
+  requestHandler(
+    { getURL: () => "http://127.0.0.1:4100/" },
+    "clipboard-sanitized-write",
+    (allowed) => { result = allowed; },
+    { requestingUrl: "http://127.0.0.1:4100/templates", isMainFrame: true }
+  );
+  assert.equal(result, true);
+
+  requestHandler(
+    { getURL: () => "http://127.0.0.1:4100/" },
+    "clipboard-read",
+    (allowed) => { result = allowed; },
+    { requestingUrl: "http://127.0.0.1:4100/templates", isMainFrame: true }
+  );
   assert.equal(result, false);
+  requestHandler(
+    { getURL: () => "http://127.0.0.1:4100/" },
+    "clipboard-sanitized-write",
+    (allowed) => { result = allowed; },
+    { requestingUrl: "https://example.com/", isMainFrame: true }
+  );
+  assert.equal(result, false);
+  requestHandler(
+    { getURL: () => "http://127.0.0.1:4100/" },
+    "camera",
+    (allowed) => { result = allowed; },
+    { requestingUrl: "http://127.0.0.1:4100/", isMainFrame: true }
+  );
+  assert.equal(result, false);
+
+  assert.equal(checkHandler(
+    { getURL: () => "http://127.0.0.1:4100/" },
+    "clipboard-sanitized-write",
+    "http://127.0.0.1:4100",
+    { requestingUrl: "http://127.0.0.1:4100/templates", isMainFrame: true }
+  ), true);
+  assert.equal(checkHandler(
+    { getURL: () => "http://127.0.0.1:4100/" },
+    "clipboard-sanitized-write",
+    "http://127.0.0.1:4100",
+    { requestingUrl: "http://127.0.0.1:4100/templates", isMainFrame: false }
+  ), false);
   assert.equal(checkHandler({}, "clipboard-read", "http://127.0.0.1:4100"), false);
+  assert.equal(checkHandler({}, "clipboard-sanitized-write", "https://example.com/"), false);
+
+  assert.throws(
+    () => installSessionPermissions({
+      setPermissionRequestHandler() {},
+      setPermissionCheckHandler() {}
+    }, {
+      launcherUrl: "https://example.com/"
+    }),
+    /loopback HTTP origin/
+  );
 });

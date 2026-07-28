@@ -2,9 +2,11 @@ import { Check, ClipboardCopy } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
-  buildTemplateBriefMarkdown,
+  buildTemplateProductionPrompt,
+  materialDeliveryInstruction,
   optionLabelFor,
   partitionRequiredInputs,
+  requiredMaterialNotices,
   resolveDirectionLines,
   resolveExampleLines,
   resolvePromptGuidesForBrief,
@@ -33,12 +35,53 @@ export interface TemplateChecklistProps {
   choices: Readonly<Record<string, string>>
 }
 
+const CLIPBOARD_WRITE_TIMEOUT_MS = 1_500
+
+function copyWithHiddenTextarea(text: string): boolean {
+  if (typeof document.execCommand !== 'function') return false
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('aria-hidden', 'true')
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  textarea.style.pointerEvents = 'none'
+  document.body.append(textarea)
+  textarea.select()
+
+  try {
+    return document.execCommand('copy')
+  } finally {
+    textarea.remove()
+  }
+}
+
+function writeClipboardText(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(new Error('Clipboard write timed out'))
+    }, CLIPBOARD_WRITE_TIMEOUT_MS)
+
+    Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(
+      () => {
+        window.clearTimeout(timeout)
+        resolve()
+      },
+      (error) => {
+        window.clearTimeout(timeout)
+        reject(error)
+      },
+    )
+  })
+}
+
 export function TemplateChecklist({ template, choices }: TemplateChecklistProps) {
   const headingId = useId()
   const detailsId = useId()
   const headingRef = useRef<HTMLHeadingElement | null>(null)
-  const brief = useMemo(
-    () => buildTemplateBriefMarkdown(template, choices),
+  const productionPrompt = useMemo(
+    () => buildTemplateProductionPrompt(template, choices),
     [choices, template],
   )
   const resolvedInputs = useMemo(
@@ -48,6 +91,10 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
   const { required, optional } = useMemo(
     () => partitionRequiredInputs(resolvedInputs),
     [resolvedInputs],
+  )
+  const materialNotices = useMemo(
+    () => requiredMaterialNotices(required),
+    [required],
   )
   const directionLines = useMemo(
     () => resolveDirectionLines(template, choices),
@@ -77,7 +124,13 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(brief)
+      // ローカルのアプリ内ブラウザでは Clipboard API が応答しない場合がある。
+      // ユーザー操作中に使える同期コピーを先に試し、未対応なら標準 API へ戻す。
+      if (copyWithHiddenTextarea(productionPrompt)) {
+        setCopyState('copied')
+        return
+      }
+      await writeClipboardText(productionPrompt)
       setCopyState('copied')
     } catch {
       setCopyState('failed')
@@ -90,12 +143,46 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
       className="launcher-template-checklist"
     >
       <div className="launcher-template-checklist-heading">
-        <h2 id={headingId} ref={headingRef} tabIndex={-1}>制作プロンプトができました</h2>
+        <h2 id={headingId} ref={headingRef} tabIndex={-1}>制作依頼ができました</h2>
         <p>
-          {template.name} の制作プロンプトです。コピーして README の手順で案件を用意してください。
-          この画面では生成・実行・Gate更新はしません。
+          {template.name} の制作依頼です。先に必須素材を確認し、本文と一緒に画像やファイルを渡してください。
         </p>
       </div>
+
+      <section
+        aria-label="コピー前に用意する必須素材"
+        className="launcher-template-checklist-handoff"
+        role="region"
+      >
+        <div className="launcher-template-checklist-handoff-heading">
+          <span>コピーする前に</span>
+          <h3>この制作依頼と一緒に渡す素材</h3>
+          <p>
+            画像やファイル自体はコピーされません。貼り付け先の会話へ添付するか、
+            AIが参照できるファイルパスを伝えてください。
+          </p>
+        </div>
+        {required.length > 0 ? (
+          <ul className="launcher-template-handoff-materials">
+            {required.map((input) => (
+              <li key={`handoff-${input.type}-${input.label}`}>
+                <b>{TEMPLATE_INPUT_TYPE_LABELS[input.type]}</b>
+                <div>
+                  <strong>{input.label}</strong>
+                  <span>{materialDeliveryInstruction(input)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="launcher-template-handoff-empty">必須の素材指定はありません。</p>
+        )}
+        <ul className="launcher-template-handoff-notices">
+          {materialNotices.map((notice) => (
+            <li key={notice}>{notice}</li>
+          ))}
+        </ul>
+      </section>
 
       <div className="launcher-template-checklist-primary">
         <button
@@ -106,60 +193,45 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
           {copyState === 'copied' ? (
             <>
               <Check aria-hidden="true" size={16} />
-              プロンプトをコピーしました
+              制作依頼をコピーしました
             </>
           ) : (
             <>
               <ClipboardCopy aria-hidden="true" size={16} />
-              プロンプトをコピー
+              制作依頼だけをコピー
             </>
           )}
         </button>
+        <p className="launcher-template-checklist-copy-scope">
+          目的・選択内容・必須素材・制作条件だけをコピーします。
+          任意素材や「向かない用途」はコピーしません。
+        </p>
         {copyState === 'failed' && (
           <p role="alert">
-            プロンプトをクリップボードへコピーできませんでした。本文を選択して手動でコピーしてください。
+            制作依頼をクリップボードへコピーできませんでした。本文を選択して手動でコピーしてください。
           </p>
         )}
         {copyState === 'copied' && (
           <p aria-live="polite" className="launcher-template-checklist-copy-status">
-            プロンプトをコピーしました
+            制作依頼をコピーしました
           </p>
         )}
       </div>
 
       <section
-        aria-label="制作プロンプト Markdown"
+        aria-label="制作依頼 Markdown"
         className="launcher-template-checklist-brief"
         role="region"
       >
-        <div className="launcher-template-checklist-brief-toolbar">
-          <h3>制作プロンプト本文</h3>
-          <button
-            className="launcher-secondary"
-            onClick={() => void handleCopy()}
-            type="button"
-          >
-            {copyState === 'copied' ? (
-              <>
-                <Check aria-hidden="true" size={16} />
-                プロンプトをコピーしました
-              </>
-            ) : (
-              <>
-                <ClipboardCopy aria-hidden="true" size={16} />
-                プロンプトをコピー
-              </>
-            )}
-          </button>
-        </div>
-        <pre aria-label="プロンプト本文">{brief}</pre>
+        <h3>そのまま貼れる制作依頼</h3>
+        <pre aria-label="制作依頼本文">{productionPrompt}</pre>
       </section>
 
       <div className="launcher-readonly-note">
         <strong>閲覧専用</strong>
         <p>
-          この画面では生成・実行・Gate更新をしません。制作プロンプトの控えコピーだけできます。
-          控えたら README の手順で制作案件を用意してください。
+          この画面では生成・実行・Gate更新をしません。制作依頼の控えコピーだけできます。
+          コピー後、必須素材と一緒に制作担当のAIへ渡してください。
         </p>
       </div>
 
@@ -320,6 +392,17 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
                   ))}
                 </ul>
               </div>
+            )}
+
+            {template.audio && (
+              <section
+                aria-label="音声と表示の注意"
+                className="launcher-template-checklist-audio"
+                role="region"
+              >
+                <h3>音声と表示の注意</h3>
+                <p>{template.audio}</p>
+              </section>
             )}
           </div>
         </div>

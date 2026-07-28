@@ -38,7 +38,7 @@ function buildChips(
 
   chips.push({
     step: checklistStep(template.variants),
-    label: 'プロンプト',
+    label: '制作依頼',
   })
 
   return chips

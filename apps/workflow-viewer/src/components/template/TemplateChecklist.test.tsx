@@ -3,10 +3,10 @@
  * - export: TemplateChecklist
  * - props: template, choices（axisId → optionId）
  * - 必須/任意の振り分け（requiredInputDetails[].required）
- * - notFor 警告、ブリーフ Markdown、コピーボタン
+ * - notFor 警告、制作依頼 Markdown、コピーボタン
  * - 生成・実行ボタンは置かない（閲覧専用）
  */
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -84,21 +84,25 @@ describe('TemplateChecklist', () => {
     vi.restoreAllMocks()
   })
 
-  it('見出しと主操作を制作プロンプト導線にする', () => {
+  it('見出しと主操作を制作依頼だけのコピー導線にする', () => {
     render(<TemplateChecklist template={template} choices={choices} />)
 
-    expect(screen.getByRole('heading', { name: '制作プロンプトができました' })).toBeVisible()
-    const primaryCopy = screen.getAllByRole('button', { name: 'プロンプトをコピー' })[0]
+    expect(screen.getByRole('heading', { name: '制作依頼ができました' })).toBeVisible()
+    const primaryCopy = screen.getByRole('button', { name: '制作依頼だけをコピー' })
     expect(primaryCopy).toBeVisible()
     expect(primaryCopy).toHaveClass('launcher-primary')
-    expect(screen.getByText(/この画面では生成・実行・Gate更新はしません/)).toBeVisible()
+    expect(screen.getAllByRole('button', { name: '制作依頼だけをコピー' })).toHaveLength(1)
+    expect(screen.getByText(/任意素材や「向かない用途」はコピーしません/)).toBeVisible()
+    expect(
+      screen.getByText((content) => content.includes('この画面では生成・実行・Gate更新をしません')),
+    ).toBeVisible()
     expect(screen.getByText('素材・演出の詳細を見る')).toBeVisible()
   })
 
-  it('初期状態で制作プロンプト本文が見え、詳細 details を開かなくても確認できる', () => {
+  it('初期状態でそのまま貼れる制作依頼が見え、詳細 details を開かなくても確認できる', () => {
     render(<TemplateChecklist template={template} choices={choices} />)
 
-    const brief = screen.getByLabelText('プロンプト本文')
+    const brief = screen.getByLabelText('制作依頼本文')
     expect(brief).toBeVisible()
     expect(brief.textContent).toMatch(/ブログ掛け合い 60秒/)
     expect(brief.textContent).toMatch(/同僚同士/)
@@ -111,12 +115,43 @@ describe('TemplateChecklist', () => {
     expect(details?.textContent).toMatch(/選択内容|必須|向かない用途/)
   })
 
+  it('コピー前に必須素材と画像の渡し方を常時表示する', () => {
+    render(
+      <TemplateChecklist
+        template={{
+          ...template,
+          id: 'commerce-showcase',
+          name: '商品紹介',
+          requiredInputDetails: [
+            {
+              type: 'image',
+              label: '商品写真、利用画面、商品ロゴ',
+              required: true,
+            },
+            {
+              type: 'data',
+              label: '価格、仕様、販売条件の正本',
+              required: true,
+            },
+          ],
+        }}
+        choices={choices}
+      />,
+    )
+
+    const materials = screen.getByRole('region', { name: 'コピー前に用意する必須素材' })
+    expect(materials).toBeVisible()
+    expect(within(materials).getByText('商品写真、利用画面、商品ロゴ')).toBeVisible()
+    expect(within(materials).getByText(/画像を添付するか、参照できるファイルパス/)).toBeVisible()
+    expect(within(materials).getByText(/ロゴの文字・形・配色・余白を変更しないでください/)).toBeVisible()
+  })
+
   it('必須と任意の入力を振り分けて表示する', async () => {
     const user = userEvent.setup()
     render(<TemplateChecklist template={template} choices={{ cast: 'beginner-expert', background: 'ui-window' }} />)
     await openDetails(user)
 
-    const requiredSection = screen.getByRole('region', { name: /必須/ })
+    const requiredSection = screen.getByRole('region', { name: '必須の用意するもの' })
     expect(within(requiredSection).getByText('記事本文と出典')).toBeVisible()
     expect(within(requiredSection).getByText('2人分のキャラクター画像')).toBeVisible()
     expect(within(requiredSection).queryByText('任意のBGM')).not.toBeInTheDocument()
@@ -133,7 +168,7 @@ describe('TemplateChecklist', () => {
     render(<TemplateChecklist template={template} choices={choices} />)
     await openDetails(user)
 
-    const requiredSection = screen.getByRole('region', { name: /必須/ })
+    const requiredSection = screen.getByRole('region', { name: '必須の用意するもの' })
     expect(within(requiredSection).getByText('任意のBGM')).toBeVisible()
     const optionalSection = screen.getByRole('region', { name: /任意/ })
     expect(within(optionalSection).queryByText('任意のBGM')).not.toBeInTheDocument()
@@ -169,10 +204,10 @@ describe('TemplateChecklist', () => {
     expect(screen.getByText('無言の商品イメージ映像')).toBeVisible()
   })
 
-  it('プロンプト Markdown に型名・各軸・用意するものを含める', () => {
+  it('制作依頼 Markdown に型名・各軸・必須素材を含め、補助情報を除外する', () => {
     render(<TemplateChecklist template={template} choices={choices} />)
 
-    const brief = screen.getByLabelText('プロンプト本文')
+    const brief = screen.getByLabelText('制作依頼本文')
     const text = brief.textContent ?? ''
     expect(brief).toBeVisible()
     expect(text).toMatch(/ブログ掛け合い 60秒/)
@@ -182,11 +217,11 @@ describe('TemplateChecklist', () => {
     expect(text).toMatch(/画面デモ/)
     expect(text).toMatch(/記事本文と出典/)
     expect(text).toMatch(/2人分のキャラクター画像/)
-    // Markdown らしい見出し記号か、少なくとも構造化されたプレーンテキスト
-    expect(text).toMatch(/^#|##|\*\*|型|用意/m)
+    expect(text).not.toMatch(/参考リンク一覧|向かない用途|無言の商品イメージ映像/)
+    expect(text).toMatch(/^# 制作依頼/m)
   })
 
-  it('コピーボタンがあり、クリックでプロンプトを clipboard に渡す', async () => {
+  it('コピーボタンが制作依頼だけを clipboard に渡す', async () => {
     const user = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
@@ -196,7 +231,7 @@ describe('TemplateChecklist', () => {
 
     render(<TemplateChecklist template={template} choices={choices} />)
 
-    const copyButton = screen.getAllByRole('button', { name: 'プロンプトをコピー' })[0]
+    const copyButton = screen.getByRole('button', { name: '制作依頼だけをコピー' })
     await user.click(copyButton)
 
     expect(writeText).toHaveBeenCalledTimes(1)
@@ -205,7 +240,55 @@ describe('TemplateChecklist', () => {
     expect(copied).toMatch(/同僚同士/)
     expect(copied).toMatch(/画面デモ/)
     expect(copied).toMatch(/記事本文と出典/)
-    expect(screen.getAllByText(/プロンプトをコピーしました/).length).toBeGreaterThan(0)
+    expect(copied).toMatch(/未提供の素材や事実を推測・生成で補わない/)
+    expect(copied).not.toMatch(/参考リンク一覧|向かない用途|無言の商品イメージ映像/)
+    expect(screen.getAllByText(/制作依頼をコピーしました/).length).toBeGreaterThan(0)
+  })
+
+  it('標準 clipboard が使えない環境では選択コピーへフォールバックする', async () => {
+    const user = userEvent.setup()
+    const previousExecCommand = Object.getOwnPropertyDescriptor(document, 'execCommand')
+    const execCommand = vi.fn().mockReturnValue(true)
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    })
+
+    try {
+      render(<TemplateChecklist template={template} choices={choices} />)
+      await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
+
+      expect(execCommand).toHaveBeenCalledWith('copy')
+      expect(screen.getByRole('button', { name: '制作依頼をコピーしました' })).toBeVisible()
+      expect(document.querySelector('textarea[aria-hidden="true"]')).not.toBeInTheDocument()
+    } finally {
+      if (previousExecCommand) {
+        Object.defineProperty(document, 'execCommand', previousExecCommand)
+      } else {
+        Reflect.deleteProperty(document, 'execCommand')
+      }
+    }
+  })
+
+  it('clipboard が応答しない場合は手動コピーの案内へ切り替える', async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn(() => new Promise<void>(() => {})) },
+    })
+
+    try {
+      render(<TemplateChecklist template={template} choices={choices} />)
+      fireEvent.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_500)
+      })
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/本文を選択して手動でコピー/)
+      expect(screen.getByLabelText('制作依頼本文')).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('writeText が reject しても閉じた details に依存せず本文選択の導線を示す', async () => {
@@ -221,11 +304,11 @@ describe('TemplateChecklist', () => {
     const details = screen.getByText('素材・演出の詳細を見る').closest('details')
     expect(details).not.toHaveAttribute('open')
 
-    await user.click(screen.getAllByRole('button', { name: 'プロンプトをコピー' })[0])
+    await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/本文を選択して手動でコピー/)
-    const brief = screen.getByLabelText('プロンプト本文')
+    const brief = screen.getByLabelText('制作依頼本文')
     expect(brief).toBeVisible()
     expect(details?.contains(brief)).toBe(false)
     expect(details).not.toHaveAttribute('open')
