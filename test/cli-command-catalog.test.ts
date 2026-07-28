@@ -16,6 +16,7 @@ const expectedOptions = {
   connections: ["--model", "--capability"],
   presets: ["--backend"],
   "viewer-launcher": ["--projects-dir", "--port", "--open"],
+  worktrees: ["--path", "--actor", "--apply"],
   feedback: [
     "--config",
     "--key",

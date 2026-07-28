@@ -7,6 +7,7 @@ export type CommandName =
   | "connections"
   | "presets"
   | "viewer-launcher"
+  | "worktrees"
   | "feedback"
   | "shitate-import"
   | "character-add"
@@ -84,7 +85,8 @@ const OPTIONS = {
   speaker: defineOption("--speaker", "Speaker identifier to copy from the source manifest.", "<speaker-id>"),
   stateDir: defineOption("--state-dir", "Alternate pipeline state directory.", "<directory>"),
   actor: defineOption("--actor", "Pipeline actor; gated actions require coordinator.", "<role>"),
-  apply: defineOption("--apply", "Apply the inspected finalize deletion plan."),
+  apply: defineOption("--apply", "Apply the inspected deletion plan after preview."),
+  path: defineOption("--path", "Absolute or relative worktree path to inspect or remove.", "<worktree-path>"),
   allowExternalAnalysis: defineOption(
     "--allow-external-analysis",
     "Allow configured external analysis adapters to run."
@@ -154,6 +156,15 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: false,
     safety: "local-write",
     options: [OPTIONS.projectsDir, OPTIONS.port, OPTIONS.open]
+  }),
+
+  defineCommand({
+    name: "worktrees",
+    summary: "Audit registered git worktrees and safely remove only clean merged ones.",
+    usage: "node bin/pipeline worktrees [--path <worktree-path>]... [--apply --actor coordinator --path <worktree-path>] [--json]",
+    requiresConfig: false,
+    safety: "approval-gated",
+    options: [OPTIONS.path, OPTIONS.actor, OPTIONS.apply]
   }),
   defineCommand({
     name: "feedback",
