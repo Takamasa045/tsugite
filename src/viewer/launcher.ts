@@ -1633,7 +1633,9 @@ export async function startWorkflowViewerLauncher(
       }
       try {
         await decideProjectFeedbackPromotion(record.configPath, input, {
-          expectedFileIdentity: record.feedbackIdentity
+          expectedFileIdentity: record.feedbackIdentity,
+          // ランチャー経路は UI と同じ trusted automation source を core でも強制する。
+          requireTrustedAutomationSource: true
         });
         sendJson(response, 200, { ok: true, decision: input.decision });
       } catch (error) {

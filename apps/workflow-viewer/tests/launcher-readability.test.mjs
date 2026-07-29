@@ -14,7 +14,11 @@ describe('launcher readability contract', () => {
     expect(launcherStyleSheet).toContain('--launcher-feedback-paper: #faf7ef')
     expect(launcherStyleSheet).toMatch(/\.launcher-feedback-pickup \{[\s\S]*?border: 2px solid #c17b43/)
     expect(launcherStyleSheet).toMatch(/\.launcher-feedback-pickup li button:focus-visible \{[\s\S]*?outline: 3px solid #275e58/)
-    expect(launcherStyleSheet).toMatch(/\.launcher-feedback-stage-guide p,[\s\S]*?font-size: \.75rem/)
-    expect(launcherStyleSheet).toMatch(/\.launcher-feedback-promotion-flow small[\s\S]*?font-size: \.75rem/)
+    // DOM から削除済みの legacy stage-guide / promotion-flow は契約しない
+    expect(launcherStyleSheet).not.toContain('.launcher-feedback-stage-guide')
+    expect(launcherStyleSheet).not.toContain('.launcher-feedback-promotion-flow')
+    // 現行の確認ガイドと summary metric の可読サイズを契約する
+    expect(launcherStyleSheet).toMatch(/\.launcher-feedback-review-guide li > span \{[\s\S]*?font-size: \.72rem/)
+    expect(launcherStyleSheet).toMatch(/\.launcher-feedback-summary-metric > span \{[\s\S]*?font-size: \.8125rem/)
   })
 })
