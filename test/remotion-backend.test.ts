@@ -20,8 +20,20 @@ import {
   captionSegments,
   resolveCaptionStyle
 } from "../backends/remotion/captionMotion.mjs";
+import { resolveRenderMediaSettings } from "../backends/remotion/renderSettings.mjs";
 
 describe("remotion backend helpers", () => {
+  it("reduces temporary JPEG storage only for very long renders", () => {
+    expect(resolveRenderMediaSettings({ durationInFrames: 99_999 })).toEqual({
+      concurrency: 1
+    });
+    expect(resolveRenderMediaSettings({ durationInFrames: 100_000 })).toEqual({
+      concurrency: 4,
+      imageFormat: "jpeg",
+      jpegQuality: 50
+    });
+  });
+
   it("opts into cinematic impact captions without changing the default style", () => {
     expect(resolveCaptionStyle({ meta: {} })).toBe("standard");
     expect(resolveCaptionStyle({ meta: { caption_style: "cinematic-impact" } })).toBe("cinematic-impact");

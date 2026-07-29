@@ -56,3 +56,4 @@ Append-only format:
 2026-07-25 / ランチャー検索に `projects/<slug>/dist/<runId>/final.mp4` を貼っても案件がヒットしない / name/slug/runId に対して query の片方向 includes だけだった / 通常検索は部分一致、パス貼り付けは path セグメントと slug/runId の完全一致にして短い slug の誤ヒットを避ける / validate済
 2026-07-25 / HyperFramesがBGM+ナレーション同時でoverlapping_clips_same_trackエラー / renderAudioがroleごとにindex+2を付け直しtrackが衝突した / bgm・narration・sfxの全audio要素に一意のdata-track-indexを割り当てる / validate済
 2026-07-25 / エンジン制約と誤って話者・モーション不可と説明した / backends/hyperframesジェネレータがspeakers/visual/timelineを出していなかっただけ / 能力欠如を報告する前に当該backendジェネレータの実装を確認し、不足なら実装か明示的な未対応として切り分ける / observed
+2026-07-29 / 元Zoom録画と同一の7.48秒無音だけを含む完成動画がGate 3で承認不能になった / Gate 3が出力単体の固定3秒閾値だけを見て元素材から継承された自然な無音と新規音声欠損を区別しない / 単一素材を音声ごと保持する案件では元入力と最終出力の無音区間を同一閾値で比較し、時刻と長さが一致する継承無音は欠損と分けて人へ提示する / documented
