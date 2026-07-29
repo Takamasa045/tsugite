@@ -246,6 +246,135 @@ describe("feedback contract", () => {
     expect(await readFile(pending.path, "utf8")).toBe(originalContents);
   });
 
+  it("enforces requireTrustedAutomationSource on decideProjectFeedbackPromotion", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-feedback-"));
+    const configPath = join(root, "project.yaml");
+    await writeProjectConfig(configPath);
+    const pendingProposal = {
+      kind: "qa" as const,
+      target: "src/orchestrator/gate3Qc.ts",
+      change_summary: "冒頭音声をGate 3で確認する",
+      verification: "後続案件のgate3-qc.jsonで確認する",
+      decision: "pending" as const
+    };
+    const feedbackPath = join(root, "feedback.jsonl");
+
+    await appendProjectFeedback(configPath, {
+      ...base,
+      key: "opening-audio-default",
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: { ...pendingProposal, id: "default-v1" }
+    });
+    const defaultDecided = await decideProjectFeedbackPromotion(configPath, {
+      key: "opening-audio-default",
+      proposalId: "default-v1",
+      decision: "approved"
+    });
+    expect(defaultDecided.entry.promotion_proposal).toMatchObject({
+      decision: "approved",
+      decided_by: "human"
+    });
+    expect(defaultDecided.entry.promotion_proposal?.source).toBeUndefined();
+
+    await appendProjectFeedback(configPath, {
+      ...base,
+      key: "opening-audio-explicit-false",
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: { ...pendingProposal, id: "explicit-false-v1" }
+    });
+    await expect(decideProjectFeedbackPromotion(configPath, {
+      key: "opening-audio-explicit-false",
+      proposalId: "explicit-false-v1",
+      decision: "approved"
+    }, {
+      requireTrustedAutomationSource: false
+    })).resolves.toMatchObject({
+      entry: {
+        promotion_proposal: {
+          decision: "approved",
+          decided_by: "human"
+        }
+      }
+    });
+
+    await appendProjectFeedback(configPath, {
+      ...base,
+      key: "opening-audio-no-source",
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: { ...pendingProposal, id: "no-source-v1" }
+    });
+    const beforeNoSource = await readFile(feedbackPath, "utf8");
+    await expect(decideProjectFeedbackPromotion(configPath, {
+      key: "opening-audio-no-source",
+      proposalId: "no-source-v1",
+      decision: "approved"
+    }, {
+      requireTrustedAutomationSource: true
+    })).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "feedback.proposal_source_untrusted" })]
+    });
+    expect(await readFile(feedbackPath, "utf8")).toBe(beforeNoSource);
+
+    await appendProjectFeedback(configPath, {
+      ...base,
+      key: "opening-audio-other-workflow",
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: {
+        ...pendingProposal,
+        id: "other-workflow-v1",
+        source: {
+          kind: "codex_automation" as const,
+          workflow_id: "other-workflow"
+        }
+      }
+    });
+    const beforeOtherWorkflow = await readFile(feedbackPath, "utf8");
+    await expect(decideProjectFeedbackPromotion(configPath, {
+      key: "opening-audio-other-workflow",
+      proposalId: "other-workflow-v1",
+      decision: "approved"
+    }, {
+      requireTrustedAutomationSource: true
+    })).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "feedback.proposal_source_untrusted" })]
+    });
+    expect(await readFile(feedbackPath, "utf8")).toBe(beforeOtherWorkflow);
+
+    await appendProjectFeedback(configPath, {
+      ...base,
+      key: "opening-audio-trusted",
+      stage: "recurring",
+      evidence: ["dist/run-1/gate3-qc.json"],
+      promotion_proposal: {
+        ...pendingProposal,
+        id: "trusted-v1",
+        source: {
+          kind: "codex_automation" as const,
+          workflow_id: "tsugite-learning-promotion-review"
+        }
+      }
+    });
+    const trusted = await decideProjectFeedbackPromotion(configPath, {
+      key: "opening-audio-trusted",
+      proposalId: "trusted-v1",
+      decision: "approved"
+    }, {
+      requireTrustedAutomationSource: true
+    });
+    expect(trusted.entry.promotion_proposal).toMatchObject({
+      decision: "approved",
+      decided_by: "human",
+      source: {
+        kind: "codex_automation",
+        workflow_id: "tsugite-learning-promotion-review"
+      }
+    });
+  });
+
   it("atomically rejects duplicate automation proposals and allows a new proposal after a decision", async () => {
     const root = await mkdtemp(join(tmpdir(), "tsugite-feedback-"));
     const configPath = join(root, "project.yaml");
