@@ -78,6 +78,34 @@ describe("local Whisper analysis adapter", () => {
     expect(output.metadata.model_sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("clamps Whisper word alignment drift to its owning transcript segment", async () => {
+    const fixture = await whisperFixture({ secondWordEnd: 1.3 });
+    const result = runAdapter(
+      {
+        request: {
+          id: "transcript-ja",
+          output: "transcript",
+          params: {
+            model_path: fixture.modelPath,
+            model_sha256: fixture.modelSha256,
+            language: "ja",
+            no_speech_threshold: 0.8
+          }
+        },
+        source: source(fixture.sourcePath)
+      },
+      fixture.binDir
+    );
+
+    expect(result.status).toBe(0);
+    const output = JSON.parse(result.stdout);
+    expect(output.data.segments[0].words.at(-1)).toMatchObject({
+      text: "です",
+      source_start: 10.6,
+      source_end: 11.25
+    });
+  });
+
   it("creates an English subtitle track with source timestamps", async () => {
     const fixture = await whisperFixture();
     const result = runAdapter(
@@ -295,7 +323,7 @@ function transcriptDependency() {
   };
 }
 
-async function whisperFixture() {
+async function whisperFixture(options: { secondWordEnd?: number } = {}) {
   const root = await mkdtemp(join(tmpdir(), "tsugite-local-whisper-"));
   const binDir = join(root, "bin");
   const { mkdir } = await import("node:fs/promises");
@@ -328,7 +356,7 @@ async function whisperFixture() {
       `const result = { language: "ja", text: translated ? "Main topic" : "本題です", segments: [\n` +
       `  { id: 0, start: 0, end: 1.25, text: translated ? " Main topic" : " 本題です", avg_logprob: -0.1, no_speech_prob: 0.1, words: translated ? [] : [\n` +
       `    { word: "本題", start: 0, end: 0.6, probability: 0.97 },\n` +
-      `    { word: "です", start: 0.6, end: 1.25, probability: 0.95 }\n` +
+      `    { word: "です", start: 0.6, end: ${options.secondWordEnd ?? 1.25}, probability: 0.95 }\n` +
       `  ] },\n` +
       `  { id: 1, start: 1.25, end: 2, text: " ご視聴ありがとうございました", avg_logprob: -0.2, no_speech_prob: 0.91, words: [] }\n` +
       `] };\n` +
