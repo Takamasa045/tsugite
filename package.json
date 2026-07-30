@@ -33,7 +33,7 @@
     "check": "npm run vendor:check && npm run build && npm run test:coverage"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@remotion/bundler": "^4.0.498",
     "@remotion/renderer": "^4.0.490",
     "cross-spawn": "^7.0.6",
