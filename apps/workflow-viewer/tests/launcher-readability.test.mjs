@@ -21,4 +21,43 @@ describe('launcher readability contract', () => {
     expect(launcherStyleSheet).toMatch(/\.launcher-feedback-review-guide li > span \{[\s\S]*?font-size: \.72rem/)
     expect(launcherStyleSheet).toMatch(/\.launcher-feedback-summary-metric > span \{[\s\S]*?font-size: \.8125rem/)
   })
+
+  it('keeps expression shelf readable in dark and light themes', () => {
+    // dark default: light ink on dark panels
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-expression-shelf \{[\s\S]*?color: var\(--launcher-kinari\)/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-expression-heading h2,[\s\S]*?color: var\(--launcher-kinari\)/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-expression-intent-free textarea,[\s\S]*?color: var\(--launcher-kinari\)/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-expression-card \{[\s\S]*?color: var\(--launcher-kinari\)/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-expression-tray-list strong \{[\s\S]*?color: var\(--launcher-kinari\)/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-template-checklist-expressions \{[\s\S]*?color: var\(--launcher-kinari\)/,
+    )
+
+    // light: dark ink on paper
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-expression-shelf \{[\s\S]*?color: #24302b/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-expression-heading h2,[\s\S]*?color: #24302b/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-expression-intent-free textarea,[\s\S]*?color: #24302b/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-expression-card \{[\s\S]*?color: #24302b/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-template-checklist-expressions \{[\s\S]*?color: #24302b/,
+    )
+  })
 })

@@ -616,6 +616,14 @@ describe('TemplateShelf', () => {
       description: '記事やテーマを、会話のやりとりでわかりやすく伝える向きです。',
       aspectRatio: '16:9' as const,
     },
+    {
+      backend: 'remotion',
+      backendLabel: 'Remotion',
+      id: 'street-dialogue-16x9',
+      label: '横型・テンポ重視の会話解説',
+      description: 'テンポよく会話が進む解説向きです。',
+      aspectRatio: '16:9' as const,
+    },
   ]
 
   it('戻る→再度最終画面でも仕上げの動きの選択を保持する', async () => {
@@ -657,6 +665,78 @@ describe('TemplateShelf', () => {
       backend: 'remotion',
       presetId: 'article-dialogue-16x9',
     })
+  })
+
+  it('最終画面で別presetを選ぶと表現のfull-compositionを置換し、コピー本文に矛盾したfullが2つ出ない', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    const initialState: TemplateWizardState = {
+      templateId: validTemplate.id,
+      choices: { cast: 'beginner-expert', background: 'paper-cutout', pace: 'calm' },
+      step: 4, // checklistStep(3 variants) = 4
+      presentationPreset: { backend: 'remotion', presetId: 'article-dialogue-16x9' },
+      expressionSelections: [
+        {
+          key: 'remotion::article-dialogue-16x9',
+          provider: 'remotion',
+          nativeId: 'article-dialogue-16x9',
+          title: '横型・会話で解説',
+          role: 'full-composition',
+          capability: 'declared-executable-candidate',
+          previewFidelity: 'composition-storyboard',
+          reason: '表現棚で選択',
+          source: 'presentation-preset',
+        },
+        {
+          key: 'hyperframes::data-chart',
+          provider: 'hyperframes',
+          nativeId: 'data-chart',
+          title: 'Data Chart',
+          role: 'data-viz',
+          capability: 'reference-only',
+          previewFidelity: 'motion-hint',
+          reason: '補助',
+          source: 'reference-catalog',
+        },
+      ],
+      expressionSelectionMode: 'explicit',
+    }
+
+    render(
+      <TemplateShelf
+        initialState={initialState}
+        onStateChange={onStateChange}
+        presentationPresetLoadState="ready"
+        presentationPresets={presentationPresets}
+        templates={templates}
+      />,
+    )
+
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+
+    await user.click(screen.getByRole('button', { name: /横型・テンポ重視の会話解説/ }))
+    const state = latestState(onStateChange)
+    expect(state.presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'street-dialogue-16x9',
+    })
+    const fulls = state.expressionSelections.filter((entry) => entry.role === 'full-composition')
+    expect(fulls).toHaveLength(1)
+    expect(fulls[0]?.nativeId).toBe('street-dialogue-16x9')
+    expect(state.expressionSelections.some((entry) => entry.nativeId === 'data-chart')).toBe(true)
+
+    const brief = screen.getByLabelText('制作依頼本文').textContent ?? ''
+    expect(brief).toMatch(/street-dialogue-16x9/)
+    expect(brief).not.toMatch(/article-dialogue-16x9/)
+
+    await user.click(screen.getByRole('button', { name: /おすすめに任せる/ }))
+    const cleared = latestState(onStateChange)
+    expect(cleared.presentationPreset).toBeNull()
+    expect(cleared.expressionSelections.every((entry) => entry.role !== 'full-composition')).toBe(true)
+    expect(cleared.expressionSelections.some((entry) => entry.nativeId === 'data-chart')).toBe(true)
+    expect(cleared.expressionSelectionMode).toBe('explicit')
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9|street-dialogue-16x9/)
   })
 
   it('別テンプレートに切り替えたら仕上げの動きを「おすすめに任せる」へ戻す', async () => {

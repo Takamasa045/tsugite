@@ -1,7 +1,8 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { resetExpressionCatalogSessionCacheForTests } from '../components/expression/ExpressionShelf'
 import { LauncherApp, projectMatchesQuery } from './LauncherApp'
 
 async function readLauncherStyleSheet(): Promise<string> {
@@ -491,6 +492,10 @@ function createLauncherFetcher({
 }
 
 describe('LauncherApp', () => {
+  beforeEach(() => {
+    resetExpressionCatalogSessionCacheForTests()
+  })
+
   it('ライト・ダークテーマを切り替え、次回起動にも選択を保存する', async () => {
     const user = userEvent.setup()
     window.localStorage.clear()
@@ -1225,8 +1230,9 @@ describe('LauncherApp', () => {
     expect(screen.getByText(/ここでは制作依頼に追加するだけ/)).toBeVisible()
     expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('横型・会話で解説')).toBeVisible()
-    expect(screen.getByText('表現のヒントを探す')).toBeVisible()
-    expect(screen.getByText('表現のヒントを探す').closest('details')).not.toHaveAttribute('open')
+    expect(screen.queryByText('表現のヒントを探す')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '選んだ表現' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '表現を変更' })).toBeVisible()
     expect(fetcher).not.toHaveBeenCalledWith('/api/reference-catalogs/hyperframes', expect.anything())
     expect(screen.queryByRole('button', { name: /生成|実行|run|render/i })).not.toBeInTheDocument()
 
@@ -1288,8 +1294,22 @@ describe('LauncherApp', () => {
     await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
     expect(String(writeText.mock.calls[0]?.[0] ?? '')).toMatch(/article-dialogue-16x9/)
 
-    // 表現ヒントは開いた時だけ1回取得し、制作依頼には混ざらない
-    await user.click(screen.getByText('表現のヒントを探す'))
+    // 表現棚は独立タブ。実行候補（未検証）は通信なし。catalog は明示ボタンでのみ取得
+    await user.click(screen.getByRole('tab', { name: '表現' }))
+    expect(await screen.findByRole('heading', { name: '動きの見本札から選ぶ' })).toBeVisible()
+    const expressionPanel = screen.getByRole('tabpanel')
+    expect(expressionPanel).toHaveAttribute('id', 'launcher-expressions-panel')
+    expect(expressionPanel).toHaveAttribute('aria-labelledby', 'launcher-expressions-tab')
+    expect(screen.getByRole('tab', { name: '表現' })).toHaveAttribute('id', 'launcher-expressions-tab')
+    expect(screen.getByRole('region', { name: '実行候補（未検証）' })).toBeVisible()
+    expect(screen.getByRole('region', { name: '参考表現' })).toBeVisible()
+    expect(screen.getAllByText(/動きのイメージ・実際の出力ではありません|構成イメージ/).length).toBeGreaterThan(0)
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('reference-catalogs'))).toHaveLength(0)
+    expect(screen.queryByText('Data Chart')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', {
+      name: 'HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）',
+    }))
     expect(await screen.findByText('Data Chart')).toBeVisible()
     expect(fetcher).toHaveBeenCalledWith('/api/reference-catalogs/hyperframes', {
       headers: {
@@ -1297,12 +1317,20 @@ describe('LauncherApp', () => {
         'x-tsugite-token': 'session-token',
       },
     })
+
+    // 閲覧だけでは制作依頼へ混ざらない（テンプレート最終画面へ戻って確認）
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(await screen.findByLabelText('制作依頼本文')).toBeVisible()
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
     expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/data-chart|Data Chart/)
 
-    // 棚を離れても再fetchしない
+    // 棚を離れても preset 再fetchしない。catalog も表現棚再訪で再fetchしない（session cache）
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
     expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/presets'))).toHaveLength(2)
+    await user.click(screen.getByRole('tab', { name: '表現' }))
+    expect(await screen.findByText('Data Chart')).toBeVisible()
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('reference-catalogs'))).toHaveLength(1)
   })
 
   it('仕上げの動きの選択は戻る→最終画面と棚の往復でも同一テンプレートなら保持する', async () => {

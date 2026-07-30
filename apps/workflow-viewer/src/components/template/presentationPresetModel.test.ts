@@ -93,7 +93,7 @@ describe('presentationPresetModel', () => {
       backend: 'remotion',
       presetId: 'article-dialogue-16x9',
     })
-    expect(section).toContain('## 仕上げの動き（presentation preset）')
+    expect(section).toContain('## 仕上げの動き（実行候補）')
     expect(section).toContain('remotion')
     expect(section).toContain('article-dialogue-16x9')
     expect(section).toContain('横型・会話で解説')

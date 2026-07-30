@@ -1,9 +1,15 @@
 import {
+  formatExpressionCandidatesPromptSection,
+  type ExpressionSelection,
+  type ExpressionSelectionMode,
+} from '../expression/expressionLibraryModel'
+import {
   formatPresentationPresetPromptSection,
   type PresentationPresetSelection,
 } from './presentationPresetModel'
 
 export type { PresentationPresetSelection }
+export type { ExpressionSelection, ExpressionSelectionMode }
 
 export interface LauncherTemplateDirection {
   pacing?: string
@@ -88,9 +94,13 @@ export interface TemplateWizardState {
   step: number
   /**
    * 仕上げの動き。TemplateChecklist の unmount（戻る・別棚）でも同一テンプレートなら保持する。
-   * 別テンプレート選択時は null（おすすめに任せる）へ戻す。
+   * 別テンプレート選択時は null（おすすめ候補を未選択）へ戻す。
    */
   presentationPreset: PresentationPresetSelection
+  /** 表現棚で明示選択した候補（全体構成1 + 補助最大2）。棚をまたいでも保持する。 */
+  expressionSelections: ExpressionSelection[]
+  /** unset=おすすめ候補を未選択 / explicit=表現棚または最終画面で明示選択 */
+  expressionSelectionMode: ExpressionSelectionMode
 }
 
 export const INITIAL_WIZARD_STATE: TemplateWizardState = {
@@ -98,6 +108,8 @@ export const INITIAL_WIZARD_STATE: TemplateWizardState = {
   choices: {},
   step: 0,
   presentationPreset: null,
+  expressionSelections: [],
+  expressionSelectionMode: 'unset',
 }
 
 export interface TemplateListResponse {
@@ -548,6 +560,11 @@ export function requiredMaterialNotices(
   return notices
 }
 
+export type TemplateProductionExpressionInput = {
+  mode: ExpressionSelectionMode
+  selections: readonly ExpressionSelection[]
+}
+
 export function buildTemplateProductionPrompt(
   template: Pick<
     LauncherTemplate,
@@ -559,6 +576,10 @@ export function buildTemplateProductionPrompt(
   >,
   choices: Readonly<Record<string, string>>,
   presentationPreset: PresentationPresetSelection = null,
+  expression: TemplateProductionExpressionInput = {
+    mode: 'unset',
+    selections: [],
+  },
 ): string {
   const { required } = partitionRequiredInputs(
     resolveRequiredInputDetails(template, choices),
@@ -615,6 +636,22 @@ export function buildTemplateProductionPrompt(
   const presetSection = formatPresentationPresetPromptSection(presentationPreset)
   if (presetSection) {
     lines.push('', ...presetSection.trimEnd().split('\n'))
+  } else {
+    lines.push(
+      '',
+      '## 仕上げの動き（実行候補）',
+      '',
+      '- **状態**: おすすめ候補を未選択',
+      '- 仕上げの動き（実行候補）は明示指定されていません。validate と Gate 1 で確認し、勝手に別の実行候補へ切り替えないでください（黙示fallback禁止）。',
+    )
+  }
+
+  const expressionSection = formatExpressionCandidatesPromptSection({
+    mode: expression.mode,
+    selections: expression.selections,
+  })
+  if (expressionSection) {
+    lines.push('', ...expressionSection.trimEnd().split('\n'))
   }
 
   lines.push(
