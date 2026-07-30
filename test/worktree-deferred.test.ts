@@ -19,6 +19,25 @@ afterEach(async () => {
 });
 
 describe("deferred worktree integration", () => {
+  it("reports an empty queue before any completed worktree is authorized", async () => {
+    const fixture = await createFixture();
+
+    const result = await reconcileDeferredWorktrees({
+      cwd: fixture.main,
+      apply: true,
+      verifyCandidate: async () => {
+        throw new Error("verification should not run");
+      }
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      applied: false,
+      status: "empty",
+      entries: []
+    });
+  });
+
   it("records an exact clean worktree identity once", async () => {
     const fixture = await createFixture();
 
@@ -48,6 +67,47 @@ describe("deferred worktree integration", () => {
       status: "pending"
     });
     expect(samePath(queue.entries[0]!.path, fixture.feature)).toBe(true);
+  });
+
+  it("does not silently replace an authorized identity after its HEAD changes", async () => {
+    const fixture = await createFixture();
+    await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+    await writeFile(join(fixture.feature, "later.txt"), "later\n");
+    runGit(fixture.feature, ["add", "later.txt"]);
+    runGit(fixture.feature, ["commit", "-m", "later change"]);
+
+    const result = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.applied).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_identity_changed");
+    expect((await readDeferredWorktreeQueue({ cwd: fixture.main })).entries[0]?.head)
+      .toBe(fixture.featureHead);
+  });
+
+  it("refuses to authorize a dirty worktree", async () => {
+    const fixture = await createFixture();
+    await writeFile(join(fixture.feature, "uncommitted.txt"), "keep\n");
+
+    const result = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.applied).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_target_unsafe");
+    expect((await readDeferredWorktreeQueue({ cwd: fixture.main })).entries).toEqual([]);
+    await expect(access(join(fixture.feature, "uncommitted.txt"))).resolves.toBeUndefined();
   });
 
   it("waits without mutation while main has uncommitted work", async () => {
@@ -320,6 +380,24 @@ describe("deferred worktree integration", () => {
     const payload = JSON.parse(await readFile(queued.queue_path, "utf8"));
     payload.entries[0].branch = `codex/deferred-fixture\n${"x".repeat(300)}`;
     await writeFile(queued.queue_path, `${JSON.stringify(payload)}\n`);
+
+    const result = await readDeferredWorktreeQueue({ cwd: fixture.main });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_invalid");
+  });
+
+  it.each([
+    ["invalid JSON", "{not-json\n"],
+    ["an unsupported schema", `${JSON.stringify({ schema_version: 2, entries: [] })}\n`]
+  ])("rejects %s in the durable queue", async (_label, payload) => {
+    const fixture = await createFixture();
+    const queued = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+    await writeFile(queued.queue_path, payload);
 
     const result = await readDeferredWorktreeQueue({ cwd: fixture.main });
 
