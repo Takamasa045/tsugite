@@ -5,6 +5,11 @@ import { TemplateAxisStep } from './TemplateAxisStep'
 import { TemplateChecklist } from './TemplateChecklist'
 import { TemplateTypeCard } from './TemplateTypeCard'
 import { TemplateWizardSteps } from './TemplateWizardSteps'
+import type {
+  PresentationPresetLoadState,
+  PresentationPresetOption,
+  PresentationPresetSelection,
+} from './presentationPresetModel'
 import {
   applyAxisChoice,
   checklistStep,
@@ -26,6 +31,11 @@ export interface TemplateShelfProps {
   onStateChange?: (state: TemplateWizardState) => void
   initialState?: TemplateWizardState
   onSelectedTemplateChange?: (template: LauncherTemplate | null) => void
+  presentationPresets?: readonly PresentationPresetOption[]
+  presentationPresetLoadState?: PresentationPresetLoadState
+  onRetryPresentationPresets?: () => void
+  /** 片側 backend 不足などの非ブロッキング案内 */
+  presentationPresetNotice?: string | null
 }
 
 export function TemplateShelf({
@@ -35,6 +45,10 @@ export function TemplateShelf({
   onStateChange,
   initialState,
   onSelectedTemplateChange,
+  presentationPresets,
+  presentationPresetLoadState,
+  onRetryPresentationPresets,
+  presentationPresetNotice = null,
 }: TemplateShelfProps) {
   const [state, setState] = useState<TemplateWizardState>(() => initialState ?? INITIAL_WIZARD_STATE)
   const [selectionError, setSelectionError] = useState<string | null>(null)
@@ -75,7 +89,7 @@ export function TemplateShelf({
         ?? 'このテンプレートは表示情報を確認できません。選択できません。',
     )
     setSelectionConfirm(null)
-    commit({ templateId: null, choices: {}, step: 0 })
+    commit({ templateId: null, choices: {}, step: 0, presentationPreset: null })
   }
 
   function handleSelectDetail(templateId: string) {
@@ -91,7 +105,8 @@ export function TemplateShelf({
     announceSelection(template.name)
     const choices = initialChoicesForTemplate(template)
     const step = template.variants.length === 0 ? checklistStep(template.variants) : 1
-    commit({ templateId: template.id, choices, step })
+    // 別テンプレート選択時は仕上げの動きを安全にリセット
+    commit({ templateId: template.id, choices, step, presentationPreset: null })
   }
 
   function handleQuickStart(templateId: string) {
@@ -110,6 +125,7 @@ export function TemplateShelf({
       templateId: template.id,
       choices: result.choices,
       step: result.step,
+      presentationPreset: null,
     })
   }
 
@@ -130,6 +146,7 @@ export function TemplateShelf({
       templateId: selectedTemplate.id,
       choices: result.choices,
       step: result.step,
+      presentationPreset: state.presentationPreset ?? null,
     })
   }
 
@@ -141,6 +158,14 @@ export function TemplateShelf({
       templateId: selectedTemplate.id,
       choices: result.choices,
       step: result.step,
+      presentationPreset: state.presentationPreset ?? null,
+    })
+  }
+
+  function handlePresentationPresetChange(selection: PresentationPresetSelection) {
+    commit({
+      ...state,
+      presentationPreset: selection,
     })
   }
 
@@ -303,6 +328,12 @@ export function TemplateShelf({
             {onChecklist && selectedTemplate?.valid && (
               <TemplateChecklist
                 choices={state.choices}
+                onPresentationPresetChange={handlePresentationPresetChange}
+                onRetryPresentationPresets={onRetryPresentationPresets}
+                presentationPreset={state.presentationPreset ?? null}
+                presentationPresetLoadState={presentationPresetLoadState}
+                presentationPresetNotice={presentationPresetNotice}
+                presentationPresets={presentationPresets}
                 template={selectedTemplate}
               />
             )}

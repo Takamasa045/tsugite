@@ -1364,6 +1364,7 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .launcher-project-card,
   .launcher-template-card,
+  .launcher-template-preset-option,
   .launcher-feedback-card,
   .launcher-project-thumbnail img { transition: none; }
   .is-spinning { animation: none; }
@@ -1394,6 +1395,7 @@ select {
   .launcher-project-list { grid-template-columns: 1fr; }
   .launcher-template-list { grid-template-columns: 1fr; }
   .launcher-template-card { min-height: 330px; }
+  .launcher-template-preset-options { grid-template-columns: 1fr; }
   .launcher-template-fit-grid { grid-template-columns: 1fr; gap: 0; }
   .launcher-template-related button { align-items: start; flex-direction: column; gap: 3px; }
   .launcher-feedback-list { grid-template-columns: 1fr; }

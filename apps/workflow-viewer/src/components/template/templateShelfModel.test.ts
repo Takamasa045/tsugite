@@ -216,6 +216,24 @@ describe('templateShelfModel', () => {
     expect(withoutDirection).not.toContain('## 制作条件')
   })
 
+  it('presentation preset 選択時だけ制作依頼へ backend / preset id / 安全条件を明記する', () => {
+    const without = buildTemplateProductionPrompt(template, { cast: 'beginner-expert' })
+    expect(without).not.toContain('仕上げの動き')
+    expect(without).not.toContain('presentation preset')
+    expect(without).not.toContain('article-dialogue-16x9')
+
+    const withPreset = buildTemplateProductionPrompt(
+      template,
+      { cast: 'beginner-expert' },
+      { backend: 'remotion', presetId: 'article-dialogue-16x9' },
+    )
+    expect(withPreset).toContain('## 仕上げの動き（presentation preset）')
+    expect(withPreset).toContain('remotion')
+    expect(withPreset).toContain('article-dialogue-16x9')
+    expect(withPreset).toMatch(/validate.*Gate 1|Gate 1.*validate/)
+    expect(withPreset).toMatch(/勝手に別presetへ変えず確認/)
+  })
+
   it('resolveDirectionLines は base と選択 option の direction_add を和集合で並べる', () => {
     const lines = resolveDirectionLines(template, {
       cast: 'peer-dialogue',

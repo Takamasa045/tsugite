@@ -1606,7 +1606,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .launcher-template-wizard-joinery li,
-  .launcher-template-card {
+  .launcher-template-card,
+  .launcher-template-preset-option {
     transition: none;
   }
 }
@@ -1683,6 +1684,114 @@
   color: #5c564b;
   font-size: .74rem;
   line-height: 1.6;
+}
+.launcher-template-checklist-presets {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(75, 55, 32, .16);
+  border-radius: 3px 14px 3px 14px;
+  padding: 15px 16px;
+  background:
+    linear-gradient(160deg, rgba(255, 252, 246, .96), rgba(236, 242, 238, .55));
+}
+.launcher-template-checklist-presets-heading {
+  display: grid;
+  gap: 4px;
+}
+.launcher-template-checklist-presets-heading > span {
+  color: #275e58;
+  font-size: .62rem;
+  font-weight: 850;
+  letter-spacing: .12em;
+}
+.launcher-template-checklist-presets-heading h3 {
+  margin: 0;
+  color: var(--launcher-sumi, #171817);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: .98rem;
+}
+.launcher-template-checklist-presets-heading p {
+  margin: 0;
+  color: #5c564b;
+  font-size: .7rem;
+  line-height: 1.6;
+}
+.launcher-template-preset-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
+}
+.launcher-template-preset-option {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  border: 1px solid rgba(75, 55, 32, .18);
+  border-radius: 3px 12px 3px 12px;
+  padding: 12px 14px;
+  color: inherit;
+  text-align: left;
+  background: #fffaf0;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.launcher-template-preset-option[aria-pressed="true"] {
+  border-color: var(--launcher-urushi, #a63d2f);
+  box-shadow: inset 3px 0 var(--launcher-urushi, #a63d2f);
+  background: #fff6ea;
+}
+.launcher-template-preset-option:hover {
+  border-color: rgba(39, 94, 88, .45);
+}
+.launcher-template-preset-option:focus-visible {
+  outline: 3px solid rgba(166, 61, 47, .35);
+  outline-offset: 2px;
+}
+.launcher-template-preset-option-topline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.launcher-template-preset-option-topline strong {
+  color: var(--launcher-sumi, #171817);
+  font-size: .82rem;
+  line-height: 1.4;
+}
+.launcher-template-preset-option-topline small {
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #275e58;
+  background: rgba(39, 94, 88, .12);
+  font-size: .56rem;
+  font-weight: 800;
+}
+.launcher-template-preset-option-description {
+  color: #5c564b;
+  font-size: .66rem;
+  line-height: 1.5;
+}
+.launcher-template-preset-option-description code {
+  overflow-wrap: anywhere;
+  color: #3d4f4c;
+  font-family: SFMono-Regular, Consolas, monospace;
+  font-size: .6rem;
+}
+.launcher-template-preset-state {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin: 0;
+  color: #5c564b;
+  font-size: .72rem;
+  line-height: 1.55;
+}
+.launcher-template-preset-state-error {
+  border-left: 3px solid rgba(166, 61, 47, .55);
+  padding: 10px 12px;
+  color: #65362f;
+  background: rgba(255, 244, 240, .85);
+}
+.launcher-template-preset-state-error p {
+  margin: 0;
 }
 .launcher-template-checklist-handoff {
   display: grid;

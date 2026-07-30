@@ -50,7 +50,9 @@ import {
   generationRequestOutputKind,
   type Project
 } from "../project/schema.js";
+import { loadBackendCapabilities } from "../backends/capabilities.js";
 import type { Issue } from "../types.js";
+import { PipelineError } from "../types.js";
 import {
   digestWorkflowViewerReview,
   getWorkflowViewerOpenCommand,
@@ -67,6 +69,8 @@ import {
   type LauncherCharacterCatalog
 } from "./launcherCharacters.js";
 import { loadPromptGuideById } from "../adapters/promptKnowledge.js";
+
+const SAFE_BACKEND_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const LOOPBACK_HOST = "127.0.0.1";
 const TSUGITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -1403,6 +1407,77 @@ export async function startWorkflowViewerLauncher(
 
     if (method === "GET" && requestUrl.pathname === "/api/templates") {
       sendJson(response, 200, { ok: true, templates: await discoverTemplates(templatesDir) });
+      return;
+    }
+
+    if (method === "GET" && requestUrl.pathname === "/api/presets") {
+      const backendParam = requestUrl.searchParams.get("backend");
+      if (!backendParam) {
+        sendJson(response, 400, {
+          ok: false,
+          issue: {
+            code: "presets.backend_missing",
+            message: "Query parameter backend is required"
+          }
+        });
+        return;
+      }
+      if (!SAFE_BACKEND_ID.test(backendParam)) {
+        sendJson(response, 400, {
+          ok: false,
+          issue: {
+            code: "presets.backend_invalid",
+            message: "backend must be a safe backend id"
+          }
+        });
+        return;
+      }
+      try {
+        const backend = await loadBackendCapabilities(
+          backendParam,
+          options.validationOptions?.backendDirs
+        );
+        if (!backend) {
+          sendJson(response, 404, {
+            ok: false,
+            backend: backendParam,
+            issue: {
+              code: "backend.not_found",
+              message: `backend '${backendParam}' was not found`
+            }
+          });
+          return;
+        }
+        sendJson(response, 200, {
+          ok: true,
+          backend: backendParam,
+          presets: backend.capabilities.presets
+        });
+      } catch (error) {
+        if (error instanceof PipelineError) {
+          const issue = error.issues[0] ?? {
+            code: "backend.schema",
+            message: error.message
+          };
+          sendJson(response, 422, {
+            ok: false,
+            backend: backendParam,
+            issue: {
+              code: issue.code,
+              message: issue.message
+            }
+          });
+          return;
+        }
+        sendJson(response, 500, {
+          ok: false,
+          backend: backendParam,
+          issue: {
+            code: "viewer_launcher.internal",
+            message: "Failed to load presentation presets"
+          }
+        });
+      }
       return;
     }
 
