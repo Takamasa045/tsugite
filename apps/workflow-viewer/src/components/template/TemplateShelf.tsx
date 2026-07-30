@@ -36,6 +36,10 @@ export interface TemplateShelfProps {
   onRetryPresentationPresets?: () => void
   /** 片側 backend 不足などの非ブロッキング案内 */
   presentationPresetNotice?: string | null
+  /** HyperFrames 公式 catalog など、棚内の読み取り専用 fetch に使う */
+  fetcher?: typeof fetch
+  /** ランチャー認証token。catalog GET に渡す */
+  token?: string
 }
 
 export function TemplateShelf({
@@ -49,6 +53,8 @@ export function TemplateShelf({
   presentationPresetLoadState,
   onRetryPresentationPresets,
   presentationPresetNotice = null,
+  fetcher,
+  token = '',
 }: TemplateShelfProps) {
   const [state, setState] = useState<TemplateWizardState>(() => initialState ?? INITIAL_WIZARD_STATE)
   const [selectionError, setSelectionError] = useState<string | null>(null)
@@ -328,6 +334,7 @@ export function TemplateShelf({
             {onChecklist && selectedTemplate?.valid && (
               <TemplateChecklist
                 choices={state.choices}
+                fetcher={fetcher}
                 onPresentationPresetChange={handlePresentationPresetChange}
                 onRetryPresentationPresets={onRetryPresentationPresets}
                 presentationPreset={state.presentationPreset ?? null}
@@ -335,6 +342,7 @@ export function TemplateShelf({
                 presentationPresetNotice={presentationPresetNotice}
                 presentationPresets={presentationPresets}
                 template={selectedTemplate}
+                token={token}
               />
             )}
           </>
