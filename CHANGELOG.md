@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added approval-bound deferred worktree integration: exact clean worktree identities can be queued while local main is busy, then reconciled through an isolated merge, fixed build/test verification, identity revalidation, local fast-forward, and non-force cleanup with fail-closed conflict and drift handling.
+
 - Fixed Viewer run-log compatibility for limited annotated `## Requests (...)` headings and assembly detail rows that omit `attempts`, showing `試行回数記録なし` instead of inventing values, while still rejecting malformed request lines and Gate 2 sections placed after Requests.
 
 - Added `character-add` CLI (`node bin/pipeline character-add --config <project.yaml> --from-manifest <manifest.json> --speaker <id>`) to copy a speaker and its images from a source manifest into a target project without generation or Gate changes.

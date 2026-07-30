@@ -40,6 +40,7 @@
 - Codexアプリでローカル環境として開始されたタスクでも、上記条件に該当する場合は編集前にworktreeへ分離する。既存タスクをアプリ上で自動移動できるとは扱わない。
 - 完了時は、統合状態・未コミット変更・使用中プロセスを確認する。mainへ統合済みでクリーンなworktreeだけを削除し、未統合コミットはブランチに残す。dirtyな変更は破棄せず、削除対象から外す。
 - ユーザーが対象タスクを明示的に「完成」「完了」と確定した発言は、当該タスクの worktree cleanup 実行承認として扱う。Coordinatorは差分確認と `node bin/pipeline worktrees --json` のpreviewで対象path一致を確認したうえで、追加の二重承認なしに安全条件を満たす対象だけ `node bin/pipeline worktrees --apply --actor coordinator --path <worktree>` で非force削除する。primary/current・main未統合・dirty・locked・missing・保護対象（ignore済みの `projects/` / `media/` / `output/` / `tmp/` / `templates/` / env 類）は拒否する。branch削除、stash、rebase、reset、`git clean`、force remove、projects/media/output の削除、repo外やsymlink先の削除はしない。
+- 完成承認済みworktreeがmainのdirty状態だけで統合待ちになった場合は、Coordinatorがpreview後に `node bin/pipeline worktrees --defer --apply --actor coordinator --path <worktree> --json` でexact path・branch・HEADをgit common dirのbounded queueへ固定できる。定期hostはprimary local mainから `--reconcile --apply --actor coordinator` を呼び、mainがcleanな時だけ隔離マージ、固定build/test、mainとtargetの再監査、unchanged mainへのfast-forward、非force削除を行う。競合、検証失敗、identity変化、保護対象、mainの再dirty化は無変更で停止する。キューは完成承認を拡張せず、fetch、push、branch削除、stash、rebase、reset、`git clean`、force操作を許可しない。
 - push・PR・公開・課金・Gate実行の既存承認境界は維持する。worktreeの作成・削除はGit上の作業場所だけを対象とし、durable `projects/` や生成メディアの正本整理へ広げない。
 
 ## 初回セットアップ後の学び自動化
