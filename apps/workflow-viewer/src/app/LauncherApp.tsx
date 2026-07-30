@@ -13,7 +13,7 @@ import {
   Workflow,
 } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AgentWorkspaceChooser } from '../components/agent/AgentWorkspaceChooser'
 
@@ -24,6 +24,15 @@ import {
   type LauncherCharacter,
 } from '../components/character/characterShelfModel'
 import { GenerationCanvas } from '../components/generation/GenerationCanvas'
+import {
+  backendLabelFor,
+  isPresentationPresetListResponse,
+  mergePresentationPresetOptions,
+  PRESENTATION_PRESET_BACKENDS,
+  type PresentationPresetListResponse,
+  type PresentationPresetLoadState,
+  type PresentationPresetOption,
+} from '../components/template/presentationPresetModel'
 import { TemplateShelf } from '../components/template/TemplateShelf'
 import {
   INITIAL_WIZARD_STATE,
@@ -151,10 +160,13 @@ type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
 type ProjectFilter = 'all' | 'active' | 'waiting' | 'completed' | 'invalid'
 type FeedbackFilter = 'all' | FeedbackStage
+type FeedbackListMode = 'focus' | 'all'
 
 const defaultFetcher: typeof fetch = (...args) => window.fetch(...args)
 const PROJECT_PAGE_SIZE = 12
 const FEEDBACK_PAGE_SIZE = 24
+const FEEDBACK_FOCUS_SIZE = 8
+const FEEDBACK_ACTIVE_RULES_LIMIT = 4
 const FEEDBACK_ISSUE_DISPLAY_LIMIT = 5
 const FEEDBACK_AUTOMATION_SOURCE_KINDS = [
   'codex_automation',
@@ -163,17 +175,49 @@ const FEEDBACK_AUTOMATION_SOURCE_KINDS = [
 ] as const
 type FeedbackAutomationSourceKind = typeof FEEDBACK_AUTOMATION_SOURCE_KINDS[number]
 
+const TRUSTED_PROMOTION_WORKFLOW_ID = 'tsugite-learning-promotion-review'
+
 function isFeedbackAutomationSourceKind(input: unknown): input is FeedbackAutomationSourceKind {
   return typeof input === 'string'
     && FEEDBACK_AUTOMATION_SOURCE_KINDS.includes(input as FeedbackAutomationSourceKind)
 }
 
+/** decision とは独立。許可済み Automation かつ専用 workflow のみ信頼する。 */
+function isTrustedPromotionSource(preference: FeedbackPreference): boolean {
+  const source = preference.promotionProposal?.source
+  return isFeedbackAutomationSourceKind(source?.kind)
+    && source.workflowId === TRUSTED_PROMOTION_WORKFLOW_ID
+}
+
+function isTrustedPendingPromotion(preference: FeedbackPreference): boolean {
+  return preference.promotionProposal?.decision === 'pending'
+    && isTrustedPromotionSource(preference)
+}
+
 function pendingPromotionPreferences(feedback: FeedbackAggregate): FeedbackPreference[] {
-  return feedback.preferences.filter((preference) => (
-    preference.promotionProposal?.decision === 'pending'
-    && isFeedbackAutomationSourceKind(preference.promotionProposal.source?.kind)
-    && preference.promotionProposal.source.workflowId === 'tsugite-learning-promotion-review'
-  ))
+  return feedback.preferences.filter(isTrustedPendingPromotion)
+}
+
+function isActiveLearningRule(preference: FeedbackPreference): boolean {
+  return preference.stage === 'promoted' || preference.stage === 'verified'
+}
+
+function focusListPriority(preference: FeedbackPreference): number {
+  // 信頼済みpendingだけを最優先。非trusted pendingでfocus 8枠を埋めてはいけない。
+  if (isTrustedPendingPromotion(preference)) return 0
+  if (preference.stage === 'recurring' && preference.promotionProposal?.decision === 'approved') return 1
+  if (preference.stage === 'promoted') return 2
+  return 3
+}
+
+function focusLearningPreferences(preferences: FeedbackPreference[]): FeedbackPreference[] {
+  return [...preferences]
+    .sort((left, right) => {
+      const priorityDelta = focusListPriority(left) - focusListPriority(right)
+      if (priorityDelta !== 0) return priorityDelta
+      return right.lastSeenAt.localeCompare(left.lastSeenAt) || left.key.localeCompare(right.key)
+    })
+    .slice(0, FEEDBACK_FOCUS_SIZE)
 }
 
 const PROJECT_FILTERS: Array<{ id: ProjectFilter; label: string }> = [
@@ -260,6 +304,16 @@ const FEEDBACK_PROPOSAL_DECISION_LABELS: Record<FeedbackPromotionProposal['decis
   rejected: '見送り済み',
 }
 
+/** 一覧カード用。untrusted pending は承認待ちと誤認させない。 */
+function feedbackCardProposalLabel(preference: FeedbackPreference): string {
+  const proposal = preference.promotionProposal
+  if (!proposal) return '昇格案の準備待ち'
+  if (proposal.decision === 'pending' && !isTrustedPromotionSource(preference)) {
+    return '内容確認のみ'
+  }
+  return FEEDBACK_PROPOSAL_DECISION_LABELS[proposal.decision]
+}
+
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
 const SHELVES: Shelf[] = ['projects', 'templates', 'characters', 'canvas', 'feedback']
 const THEME_STORAGE_KEY = 'tsugite-launcher-theme'
@@ -274,7 +328,11 @@ function feedbackNextStageLabel(preference: FeedbackPreference): string {
   if (preference.stage !== 'recurring' || !preference.promotionProposal) {
     return FEEDBACK_NEXT_STAGE_LABELS[preference.stage]
   }
-  if (preference.promotionProposal.decision === 'pending') return '昇格案を確認し、人が承認または見送り'
+  if (preference.promotionProposal.decision === 'pending') {
+    // untrusted pending はランチャーから承認不可。確認のみの文言に揃える。
+    if (!isTrustedPromotionSource(preference)) return '内容の確認のみ（承認・見送り不可）'
+    return '昇格案を確認し、人が承認または見送り'
+  }
   if (preference.promotionProposal.decision === 'approved') return '共有先へ反映し、テストして反映済みへ'
   return '新しい根拠が集まるまで学習中を継続'
 }
@@ -284,6 +342,9 @@ function feedbackNextAction(preference: FeedbackPreference): string {
     return FEEDBACK_NEXT_ACTIONS[preference.stage]
   }
   if (preference.promotionProposal.decision === 'pending') {
+    if (!isTrustedPromotionSource(preference)) {
+      return 'この提案はランチャーから承認できません。内容の確認のみ行えます。'
+    }
     return '昇格案の根拠、反映先、変更内容、検証方法を確認し、人が承認または見送りを選びます。'
   }
   if (preference.promotionProposal.decision === 'approved') {
@@ -318,6 +379,31 @@ function latestPromotionAt(preference: FeedbackPreference): string | undefined {
   return preference.promotions.reduce<string | undefined>((latest, promotion) => (
     !promotion.promotedAt || (latest && latest >= promotion.promotedAt) ? latest : promotion.promotedAt
   ), undefined)
+}
+
+function promotionRecencyKey(preference: FeedbackPreference): string {
+  return latestPromotionAt(preference) ?? preference.lastSeenAt
+}
+
+function compareActiveRulesByRecency(left: FeedbackPreference, right: FeedbackPreference): number {
+  const leftKey = promotionRecencyKey(left)
+  const rightKey = promotionRecencyKey(right)
+  return rightKey.localeCompare(leftKey) || left.key.localeCompare(right.key)
+}
+
+function activeLearningRules(preferences: FeedbackPreference[]): FeedbackPreference[] {
+  return preferences
+    .filter(isActiveLearningRule)
+    .sort(compareActiveRulesByRecency)
+}
+
+function latestPromotion(preference: FeedbackPreference): FeedbackPromotion | undefined {
+  return preference.promotions.reduce<FeedbackPromotion | undefined>((latest, promotion) => {
+    if (!latest) return promotion
+    if (!promotion.promotedAt) return latest
+    if (!latest.promotedAt || promotion.promotedAt > latest.promotedAt) return promotion
+    return latest
+  }, undefined)
 }
 
 function feedbackDecisionLabel(decision: FeedbackPromotionProposal['decision']): string {
@@ -508,15 +594,25 @@ export function LauncherApp({
   const [templateLoadState, setTemplateLoadState] = useState<TemplateLoadState>('idle')
   /** 棚タブ離脱後もウィザード進行を保持する */
   const [templateWizardState, setTemplateWizardState] = useState<TemplateWizardState>(INITIAL_WIZARD_STATE)
+  const [presentationPresets, setPresentationPresets] = useState<PresentationPresetOption[]>([])
+  const [presentationPresetLoadState, setPresentationPresetLoadState] = useState<PresentationPresetLoadState>('idle')
+  /** 片側 backend だけ失敗したときの非ブロッキング案内（全失敗時は null。loadState=error が担う） */
+  const [presentationPresetNotice, setPresentationPresetNotice] = useState<string | null>(null)
   const [characters, setCharacters] = useState<LauncherCharacter[]>([])
   const [characterLoadState, setCharacterLoadState] = useState<CharacterLoadState>('idle')
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
   const [feedbackLoadState, setFeedbackLoadState] = useState<FeedbackLoadState>('idle')
   const [selectedFeedbackKey, setSelectedFeedbackKey] = useState<string | null>(null)
   const [feedbackFilter, setFeedbackFilter] = useState<FeedbackFilter>('all')
+  const [feedbackListMode, setFeedbackListMode] = useState<FeedbackListMode>('focus')
   const [visibleFeedbackCount, setVisibleFeedbackCount] = useState(FEEDBACK_PAGE_SIZE)
   const [promotionDecisionState, setPromotionDecisionState] = useState<PromotionDecisionState>('idle')
   const [promotionDecisionError, setPromotionDecisionError] = useState<string | null>(null)
+  // decidePromotion の await 後に最新選択/表示modeを読む（stale closure 防止）
+  const selectedFeedbackKeyRef = useRef(selectedFeedbackKey)
+  const feedbackListModeRef = useRef(feedbackListMode)
+  selectedFeedbackKeyRef.current = selectedFeedbackKey
+  feedbackListModeRef.current = feedbackListMode
   const [renaming, setRenaming] = useState(false)
   const [renameDraft, setRenameDraft] = useState('')
   const [renameSaving, setRenameSaving] = useState(false)
@@ -529,13 +625,14 @@ export function LauncherApp({
 
   const acceptFeedback = useCallback((nextFeedback: FeedbackAggregate) => {
     setFeedback(nextFeedback)
-    setSelectedFeedbackKey((current) => (
-      current && nextFeedback.preferences
-        .slice(0, FEEDBACK_PAGE_SIZE)
-        .some((preference) => preference.key === current)
-        ? current
-        : nextFeedback.preferences[0]?.key ?? null
-    ))
+    setSelectedFeedbackKey((current) => {
+      if (current && nextFeedback.preferences.some((preference) => preference.key === current)) {
+        return current
+      }
+      return focusLearningPreferences(nextFeedback.preferences)[0]?.key
+        ?? nextFeedback.preferences[0]?.key
+        ?? null
+    })
   }, [])
 
   const loadProjects = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
@@ -586,6 +683,51 @@ export function LauncherApp({
       setTemplateLoadState('ready')
     } catch {
       setTemplateLoadState('error')
+    }
+  }, [fetcher])
+
+  const loadPresentationPresets = useCallback(async () => {
+    setPresentationPresetLoadState('loading')
+    setPresentationPresetNotice(null)
+    // backend ごとに独立に扱い、片側失敗で成功分を消さない
+    const settled = await Promise.all(
+      PRESENTATION_PRESET_BACKENDS.map(async (backend) => {
+        try {
+          const response = await fetcher(
+            `/api/presets?backend=${encodeURIComponent(backend)}`,
+            { headers: { accept: 'application/json' } },
+          )
+          const payload: unknown = await response.json()
+          if (!response.ok || !isPresentationPresetListResponse(payload)) {
+            return { backend, ok: false as const }
+          }
+          return { backend, ok: true as const, payload }
+        } catch {
+          return { backend, ok: false as const }
+        }
+      }),
+    )
+    const successes = settled.filter(
+      (entry): entry is { backend: typeof entry.backend; ok: true; payload: PresentationPresetListResponse } => (
+        entry.ok
+      ),
+    )
+    const failures = settled.filter((entry) => !entry.ok)
+    if (successes.length === 0) {
+      setPresentationPresets([])
+      setPresentationPresetNotice(null)
+      setPresentationPresetLoadState('error')
+      return
+    }
+    setPresentationPresets(mergePresentationPresetOptions(successes.map((entry) => entry.payload)))
+    setPresentationPresetLoadState('ready')
+    if (failures.length > 0) {
+      const failedLabels = failures.map((entry) => backendLabelFor(entry.backend)).join('・')
+      setPresentationPresetNotice(
+        `${failedLabels}の仕上げの動きを読み込めませんでした。表示中の候補だけで選べます。`,
+      )
+    } else {
+      setPresentationPresetNotice(null)
     }
   }, [fetcher])
 
@@ -649,6 +791,20 @@ export function LauncherApp({
     counts[stage] = feedback?.preferences.filter((preference) => preference.stage === stage).length ?? 0
     return counts
   }, { observed: 0, recurring: 0, promoted: 0, verified: 0 }), [feedback])
+  const focusFeedback = useMemo(
+    () => (feedback ? focusLearningPreferences(feedback.preferences) : []),
+    [feedback],
+  )
+  const listedFeedback = feedbackListMode === 'focus' ? focusFeedback : filteredFeedback
+  const activeRules = useMemo(
+    () => (feedback ? activeLearningRules(feedback.preferences) : []),
+    [feedback],
+  )
+  const activeRuleCount = activeRules.length
+  const recentActiveRules = useMemo(
+    () => activeRules.slice(0, FEEDBACK_ACTIVE_RULES_LIMIT),
+    [activeRules],
+  )
   const selected = projects.find((project) => project.id === selectedId) ?? null
   useEffect(() => {
     setRenaming(false)
@@ -656,15 +812,26 @@ export function LauncherApp({
     setRenameError(null)
     // 選択切替時は編集中の下書きだけ捨てる。成功メッセージは残して確認できるようにする。
   }, [selectedId])
-  const selectedFeedback = filteredFeedback.find((preference) => preference.key === selectedFeedbackKey)
-    ?? filteredFeedback[0]
+  // focus外の選択は all へ逃がすまでの1フレームでも詳細が別項目へ落ちないよう、全件から解決する。
+  const selectedFeedback = listedFeedback.find((preference) => preference.key === selectedFeedbackKey)
+    ?? (
+      feedbackListMode === 'focus' && selectedFeedbackKey
+        ? feedback?.preferences.find((preference) => preference.key === selectedFeedbackKey)
+        : undefined
+    )
+    ?? listedFeedback[0]
     ?? null
-  const visibleFeedback = filteredFeedback.slice(0, visibleFeedbackCount)
-  const remainingFeedbackCount = Math.max(0, filteredFeedback.length - visibleFeedback.length)
+  const visibleFeedback = feedbackListMode === 'focus'
+    ? listedFeedback
+    : listedFeedback.slice(0, visibleFeedbackCount)
+  const remainingFeedbackCount = feedbackListMode === 'focus'
+    ? 0
+    : Math.max(0, listedFeedback.length - visibleFeedback.length)
   const pendingPromotions = useMemo(() => (
     feedback ? pendingPromotionPreferences(feedback) : []
   ), [feedback])
   const pendingPromotionCount = pendingPromotions.length
+  const issueCount = feedback?.issues.length ?? 0
 
   const projectSummary = useMemo(() => ({
     active: projects.filter((project) => projectMatchesFilter(project, 'active')).length,
@@ -672,28 +839,46 @@ export function LauncherApp({
     completed: projects.filter((project) => projectMatchesFilter(project, 'completed')).length,
   }), [projects])
 
+  // 選択が一覧に無いときだけ先頭へ寄せる。別 state は触らない（純粋 effect）。
   useEffect(() => {
     setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
-    setSelectedFeedbackKey((current) => (
-      current && filteredFeedback.some((preference) => preference.key === current)
-        ? current
-        : filteredFeedback[0]?.key ?? null
-    ))
-  }, [feedbackFilter, filteredFeedback])
+    setSelectedFeedbackKey((current) => {
+      if (current && listedFeedback.some((preference) => preference.key === current)) {
+        return current
+      }
+      return listedFeedback[0]?.key ?? null
+    })
+  }, [feedback, feedbackFilter, feedbackListMode, listedFeedback])
 
   const selectShelf = (shelf: Shelf) => {
     setActiveShelf(shelf)
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
+    if (shelf === 'templates' && presentationPresetLoadState === 'idle') void loadPresentationPresets()
     if (shelf === 'characters' && characterLoadState === 'idle') void loadCharacters()
     if (shelf === 'feedback') {
       setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
       setSelectedFeedbackKey((current) => (
-        current && filteredFeedback.slice(0, FEEDBACK_PAGE_SIZE).some((preference) => preference.key === current)
+        current && listedFeedback.some((preference) => preference.key === current)
           ? current
-          : filteredFeedback[0]?.key ?? current
+          : listedFeedback[0]?.key ?? current
       ))
       if (feedbackLoadState === 'idle') void loadFeedback()
     }
+  }
+
+  const selectFeedbackPreference = (key: string) => {
+    setSelectedFeedbackKey(key)
+    // 決定操作の in-flight は選択と分離する。saving 中に idle へ戻すと別項目の承認が再有効になる。
+    if (promotionDecisionState === 'saving') return
+    setPromotionDecisionState('idle')
+    setPromotionDecisionError(null)
+  }
+
+  const openFeedbackPreference = (key: string) => {
+    const inFocus = focusFeedback.some((item) => item.key === key)
+    setFeedbackListMode(inFocus ? 'focus' : 'all')
+    setFeedbackFilter('all')
+    selectFeedbackPreference(key)
   }
 
   const handleShelfKeyDown = (event: KeyboardEvent<HTMLButtonElement>, shelf: Shelf) => {
@@ -831,19 +1016,34 @@ export function LauncherApp({
   }
 
   const decidePromotion = async (decision: 'approved' | 'rejected') => {
-    const proposal = selectedFeedback?.promotionProposal
-    if (!selectedFeedback || !proposal || proposal.decision !== 'pending' || promotionDecisionState === 'saving') return
+    if (promotionDecisionState === 'saving') return
+    // fail-closed: 信頼済み source かつ pending 以外は fetch しない
+    if (!selectedFeedback || !isTrustedPendingPromotion(selectedFeedback)) {
+      setPromotionDecisionState('error')
+      setPromotionDecisionError('この提案はランチャーから承認できません。')
+      return
+    }
+    const proposal = selectedFeedback.promotionProposal
+    if (!proposal) {
+      setPromotionDecisionState('error')
+      setPromotionDecisionError('この提案はランチャーから承認できません。')
+      return
+    }
+    // POST/更新対象は開始時の選択A。応答中にBへ移ってもAのまま。
+    const requestKey = selectedFeedback.key
+    const requestProjectId = proposal.projectId
+    const requestProposalId = proposal.id
     setPromotionDecisionState('saving')
     setPromotionDecisionError(null)
     try {
-      const response = await fetcher(`/api/feedback/${encodeURIComponent(proposal.projectId)}/promotion-decision`, {
+      const response = await fetcher(`/api/feedback/${encodeURIComponent(requestProjectId)}/promotion-decision`, {
         method: 'POST',
         headers: {
           accept: 'application/json',
           'content-type': 'application/json',
           'x-tsugite-token': token,
         },
-        body: JSON.stringify({ key: selectedFeedback.key, proposalId: proposal.id, decision }),
+        body: JSON.stringify({ key: requestKey, proposalId: requestProposalId, decision }),
       })
       const payload: unknown = await response.json()
       if (
@@ -858,22 +1058,39 @@ export function LauncherApp({
       if (!response.ok || typeof payload !== 'object' || payload === null || !('ok' in payload) || payload.ok !== true) {
         throw new Error('promotion decision failed')
       }
-      setFeedback((current) => current ? {
-        ...current,
-        preferences: current.preferences.map((preference) => (
-          preference.key === selectedFeedback.key && preference.promotionProposal
+      const decidedAt = new Date().toISOString()
+      const mergePromotionDecision = (preferences: FeedbackPreference[]) => (
+        preferences.map((preference) => (
+          preference.key === requestKey && preference.promotionProposal
             ? {
                 ...preference,
                 promotionProposal: {
                   ...preference.promotionProposal,
                   decision,
-                  decidedAt: new Date().toISOString(),
+                  decidedAt,
                   decidedBy: 'human' as const,
                 },
               }
             : preference
-        )),
-      } : current)
+        ))
+      )
+      // 応答対象 key だけを最新 preferences へ functional merge。全件スナップショット置換はしない。
+      setFeedback((current) => (
+        current ? { ...current, preferences: mergePromotionDecision(current.preferences) } : current
+      ))
+      // 応答時点で選択がAのまま・modeがfocus・AがnextFocus外のときだけ all へ。
+      // B表示中にAの遅延成功で all に切替しない（ref で最新値を参照）。
+      if (
+        feedbackListModeRef.current === 'focus'
+        && selectedFeedbackKeyRef.current === requestKey
+        && feedback
+      ) {
+        const nextFocus = focusLearningPreferences(mergePromotionDecision(feedback.preferences))
+        if (!nextFocus.some((preference) => preference.key === requestKey)) {
+          setFeedbackListMode('all')
+          setFeedbackFilter('all')
+        }
+      }
       setPromotionDecisionState('idle')
     } catch {
       setPromotionDecisionState('error')
@@ -1410,7 +1627,11 @@ export function LauncherApp({
           initialState={templateWizardState}
           loadState={templateLoadState}
           onRetry={() => void loadTemplates()}
+          onRetryPresentationPresets={() => void loadPresentationPresets()}
           onStateChange={setTemplateWizardState}
+          presentationPresetLoadState={presentationPresetLoadState}
+          presentationPresetNotice={presentationPresetNotice}
+          presentationPresets={presentationPresets}
           templates={templates}
         />
       ) : activeShelf === 'characters' ? (
@@ -1452,35 +1673,138 @@ export function LauncherApp({
                 <div>
                   <span className="eyebrow">学びの棚</span>
                   <h2>制作に活かす学び</h2>
-                  <p>案件で見つけたことを記録し、同じ傾向を確かめ、制作ルールに反映します。</p>
+                  <p>今確認すること、制作に使っているルール、最近の反映を先に把握できます。</p>
                 </div>
                 <span className="launcher-count">
                   全{feedback.preferences.length}件 / 表示{visibleFeedback.length}件
                 </span>
               </header>
 
-              <section aria-label="はじめに設定すること" className="launcher-feedback-setup">
+              <section aria-labelledby="launcher-feedback-summary-heading" className="launcher-feedback-summary">
                 <header>
-                  <span>はじめに</span>
-                  <h3>好み・学びを自動で整理する</h3>
+                  <div>
+                    <span className="launcher-feedback-summary-kicker">3秒で把握</span>
+                    <h3 id="launcher-feedback-summary-heading">いまの学び</h3>
+                  </div>
+                  <p>確認が必要な件数と、制作に使っているルールを先に示します。</p>
                 </header>
-                <ol>
-                  <li>
-                    <b>1</b>
-                    <p>Codexでは「Automationを新規作成」を選び、このTsugiteリポジトリを作業フォルダに設定します。</p>
-                  </li>
-                  <li>
-                    <b>2</b>
-                    <p>CodexのAutomationへ、またはClaude Codeの会話で次のように頼みます。</p>
-                    <code>Tsugiteのローカル「好み・学び」昇格候補だけをレビューし、人間の承認待ちを準備して</code>
-                  </li>
-                  <li>
-                    <b>3</b>
-                    <p>Claude Codeでは <code>/tsugite-learning-review</code> でも実行できます。候補が出たら、この棚で根拠を確認して承認または見送ります。</p>
-                  </li>
-                </ol>
-                <p className="launcher-feedback-setup-note"><strong>常設する自動化はCodexかClaudeのどちらか1つだけにします。</strong> 登録用の完全な指示と安全条件は <code>docs/automations/learning-promotion-review.md</code> を使ってください。</p>
+                <div aria-label="いまの学びの要点" className="launcher-feedback-summary-metrics" role="group">
+                  <button
+                    aria-label={`確認を決める ${pendingPromotionCount}件`}
+                    className="launcher-feedback-summary-metric"
+                    data-emphasis={pendingPromotionCount > 0 ? 'attention' : 'calm'}
+                    disabled={pendingPromotionCount === 0}
+                    onClick={() => {
+                      setFeedbackListMode('focus')
+                      setFeedbackFilter('all')
+                      if (pendingPromotions[0]) selectFeedbackPreference(pendingPromotions[0].key)
+                    }}
+                    type="button"
+                  >
+                    <span>確認を決める</span>
+                    <strong>{pendingPromotionCount}件</strong>
+                  </button>
+                  <button
+                    aria-label={`読み取りを確認 ${issueCount}件`}
+                    className="launcher-feedback-summary-metric"
+                    data-emphasis={issueCount > 0 ? 'attention' : 'calm'}
+                    disabled={issueCount === 0}
+                    onClick={() => {
+                      document.getElementById('launcher-feedback-issues')?.focus()
+                    }}
+                    type="button"
+                  >
+                    <span>読み取りを確認</span>
+                    <strong>{issueCount}件</strong>
+                  </button>
+                  <button
+                    aria-label={`制作に使っているルール ${activeRuleCount}件`}
+                    className="launcher-feedback-summary-metric"
+                    data-emphasis="calm"
+                    disabled={activeRuleCount === 0}
+                    onClick={() => {
+                      document.getElementById('launcher-feedback-active-rules')?.focus()
+                    }}
+                    type="button"
+                  >
+                    <span>制作に使っているルール</span>
+                    <strong>{activeRuleCount}件</strong>
+                  </button>
+                </div>
+                {recentActiveRules.length > 0 && (
+                  <section
+                    aria-labelledby="launcher-feedback-active-rules-heading"
+                    className="launcher-feedback-active-rules"
+                    id="launcher-feedback-active-rules"
+                    tabIndex={-1}
+                  >
+                    <header>
+                      <h4 id="launcher-feedback-active-rules-heading">最近反映したルール</h4>
+                      <p>制作に使っているルールを、最近反映した順に最大{FEEDBACK_ACTIVE_RULES_LIMIT}件示します。</p>
+                    </header>
+                    <ul>
+                      {recentActiveRules.map((preference) => {
+                        const promotion = latestPromotion(preference)
+                        const promotedAt = latestPromotionAt(preference)
+                        return (
+                          <li key={preference.key}>
+                            <button
+                              aria-label={`使用中ルール「${preference.summary}」の詳細を見る`}
+                              onClick={() => openFeedbackPreference(preference.key)}
+                              type="button"
+                            >
+                              <strong>{preference.summary}</strong>
+                              <span className="launcher-feedback-active-rule-meta">
+                                <b data-stage={preference.stage}>
+                                  {preference.stage === 'verified' ? '効果確認済み' : '反映済み'}
+                                </b>
+                                <code>{promotion?.target ?? '反映先未設定'}</code>
+                                <time dateTime={promotedAt ?? preference.lastSeenAt}>
+                                  {formatUpdatedAt(promotedAt ?? preference.lastSeenAt)}
+                                </time>
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </section>
+                )}
               </section>
+
+              <details
+                className="launcher-feedback-setup"
+                key={feedback.preferences.length === 0 ? 'setup-empty' : 'setup-ready'}
+                {...(feedback.preferences.length === 0 ? { open: true } : {})}
+              >
+                <summary>自動整理の設定方法</summary>
+                <div className="launcher-feedback-setup-body">
+                  <ol>
+                    <li>
+                      <b>1</b>
+                      <p>Codexでは「Automationを新規作成」を選び、このTsugiteリポジトリを作業フォルダに設定します。</p>
+                    </li>
+                    <li>
+                      <b>2</b>
+                      <p>CodexのAutomationへ、またはClaude Codeの会話で次のように頼みます。</p>
+                      <code>Tsugiteのローカル「好み・学び」昇格候補だけをレビューし、人間の承認待ちを準備して</code>
+                    </li>
+                    <li>
+                      <b>3</b>
+                      <p>Claude Codeでは <code>/tsugite-learning-review</code> でも実行できます。候補が出たら、この棚で根拠を確認して承認または見送ります。</p>
+                    </li>
+                  </ol>
+                  <p className="launcher-feedback-setup-note">
+                    <strong>常設する自動化はCodexかClaudeのどちらか1つだけにします。</strong>
+                    {' '}
+                    登録用の完全な指示と安全条件は
+                    {' '}
+                    <code>docs/automations/learning-promotion-review.md</code>
+                    {' '}
+                    を使ってください。
+                  </p>
+                </div>
+              </details>
 
               {pendingPromotions.length > 0 && (
                 <section
@@ -1502,12 +1826,7 @@ export function LauncherApp({
                       <li key={preference.promotionProposal!.id}>
                         <button
                           aria-label={`「${preference.summary}」の昇格案を確認`}
-                          onClick={() => {
-                            setFeedbackFilter('all')
-                            setSelectedFeedbackKey(preference.key)
-                            setPromotionDecisionState('idle')
-                            setPromotionDecisionError(null)
-                          }}
+                          onClick={() => openFeedbackPreference(preference.key)}
                           type="button"
                         >
                           <span className="launcher-feedback-pickup-meta">
@@ -1526,68 +1845,37 @@ export function LauncherApp({
                 </section>
               )}
 
-              <dl aria-label="学びの4段階" className="launcher-feedback-metrics">
-                {FEEDBACK_STAGES.map((stage) => (
-                  <div data-stage={stage} key={stage}>
-                    <dt>
-                      <span aria-hidden="true">{FEEDBACK_STAGE_MARKS[stage]}</span>
-                      {FEEDBACK_STAGE_LABELS[stage]} <small>/ 到達済み</small>
-                    </dt>
-                    <dd>{feedback.metrics[stage] ?? 0}</dd>
-                  </div>
-                ))}
-              </dl>
-
-              <div aria-label="状態で絞り込む" className="launcher-feedback-filters" role="group">
-                <button
-                  aria-label={`すべて ${feedback.preferences.length}件`}
-                  aria-pressed={feedbackFilter === 'all'}
-                  onClick={() => setFeedbackFilter('all')}
-                  type="button"
-                >
-                  <span>すべて</span>
-                  <b>{feedback.preferences.length}件</b>
-                </button>
-                {FEEDBACK_STAGES.map((stage) => (
-                  <button
-                    aria-label={`${FEEDBACK_STAGE_LABELS[stage]} ${feedbackStageCounts[stage]}件`}
-                    aria-pressed={feedbackFilter === stage}
-                    data-stage={stage}
-                    key={stage}
-                    onClick={() => setFeedbackFilter(stage)}
-                    type="button"
-                  >
-                    <span>{FEEDBACK_STAGE_LABELS[stage]}</span>
-                    <b>{feedbackStageCounts[stage]}件</b>
-                  </button>
-                ))}
-              </div>
-
-              <section aria-label="記録の状態" className="launcher-feedback-stage-guide">
-                <header>
-                  <div>
-                    <span className="launcher-feedback-guide-kicker">4つの状態</span>
-                    <h3>この記録は今どこ？</h3>
-                  </div>
-                  <p>記録、学習中、反映済み、効果確認済みのどれかが、今の状態です。</p>
-                </header>
-                <ol>
-                  {FEEDBACK_STAGES.map((stage) => (
-                    <li data-stage={stage} key={stage}>
-                      <span>{FEEDBACK_STAGE_MARKS[stage]}</span>
-                      <div>
+              <p aria-label="学びの段階" className="launcher-feedback-lifecycle-line">
+                記録 → 学習中 → 反映済み → 効果確認済み
+              </p>
+              <details className="launcher-feedback-lifecycle-details">
+                <summary>学びが制作ルールになるまで</summary>
+                <div className="launcher-feedback-lifecycle-body">
+                  <ol>
+                    {FEEDBACK_STAGES.map((stage) => (
+                      <li data-stage={stage} key={stage}>
                         <strong>{FEEDBACK_STAGE_LABELS[stage]}</strong>
                         <b>{FEEDBACK_APPLICATION_LABELS[stage]}</b>
                         <p>{FEEDBACK_STAGE_DESCRIPTIONS[stage]}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-                <p className="launcher-feedback-guide-note"><strong>承認は状態ではありません。</strong> 承認日時は、反映前の確認として詳細に表示します。</p>
-              </section>
+                      </li>
+                    ))}
+                  </ol>
+                  <p className="launcher-feedback-guide-note">
+                    <strong>承認は状態ではありません。</strong>
+                    {' '}
+                    承認は反映前の確認記録です。制作ルールへの反映と効果確認は別の段階です。
+                  </p>
+                </div>
+              </details>
 
               {feedback.issues.length > 0 && (
-                <section aria-label="読み取り警告" className="launcher-feedback-issues" role="status">
+                <section
+                  aria-label="読み取り警告"
+                  className="launcher-feedback-issues"
+                  id="launcher-feedback-issues"
+                  role="status"
+                  tabIndex={-1}
+                >
                   <strong>読み取りを確認したい記録が{feedback.issues.length}件あります。</strong>
                   <ul>
                     {feedback.issues.slice(0, FEEDBACK_ISSUE_DISPLAY_LIMIT).map((issue, index) => (
@@ -1610,13 +1898,79 @@ export function LauncherApp({
                 </section>
               )}
 
+              {feedback.preferences.length > 0 && (
+                <div
+                  aria-label="履歴の表示切替"
+                  className="launcher-feedback-list-mode"
+                  role="group"
+                >
+                  <button
+                    aria-pressed={feedbackListMode === 'focus'}
+                    onClick={() => {
+                      // 明示的な focus 切替は先頭へ。focus 外選択のまま切ると effect が all へ戻す不具合になる。
+                      // promotionDecisionState のリセットは selectFeedbackPreference に委譲し、
+                      // saving 中に idle へ戻して別項目の承認が再有効になるのを防ぐ。
+                      setFeedbackListMode('focus')
+                      if (focusFeedback[0]) {
+                        selectFeedbackPreference(focusFeedback[0].key)
+                        return
+                      }
+                      setSelectedFeedbackKey(null)
+                      if (promotionDecisionState === 'saving') return
+                      setPromotionDecisionState('idle')
+                      setPromotionDecisionError(null)
+                    }}
+                    type="button"
+                  >
+                    いま見る
+                    <b>{Math.min(focusFeedback.length, FEEDBACK_FOCUS_SIZE)}件</b>
+                  </button>
+                  <button
+                    aria-label={`すべての記録 ${feedback.preferences.length}件`}
+                    aria-pressed={feedbackListMode === 'all'}
+                    onClick={() => setFeedbackListMode('all')}
+                    type="button"
+                  >
+                    すべての記録
+                    <b>{feedback.preferences.length}件</b>
+                  </button>
+                </div>
+              )}
+
+              {feedbackListMode === 'all' && feedback.preferences.length > 0 && (
+                <div aria-label="状態で絞り込む" className="launcher-feedback-filters" role="group">
+                  <button
+                    aria-label={`すべて ${feedback.preferences.length}件`}
+                    aria-pressed={feedbackFilter === 'all'}
+                    onClick={() => setFeedbackFilter('all')}
+                    type="button"
+                  >
+                    <span>すべて</span>
+                    <b>{feedback.preferences.length}件</b>
+                  </button>
+                  {FEEDBACK_STAGES.map((stage) => (
+                    <button
+                      aria-label={`${FEEDBACK_STAGE_LABELS[stage]} ${feedbackStageCounts[stage]}件`}
+                      aria-pressed={feedbackFilter === stage}
+                      data-stage={stage}
+                      key={stage}
+                      onClick={() => setFeedbackFilter(stage)}
+                      type="button"
+                    >
+                      <span>{FEEDBACK_STAGE_LABELS[stage]}</span>
+                      <b>{feedbackStageCounts[stage]}件</b>
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {feedback.preferences.length === 0 ? (
                 <div className="launcher-empty launcher-feedback-state">
                   <BookOpen aria-hidden="true" size={24} />
                   <strong>まだ整理された好み・学びはありません。</strong>
                   <p><code>pipeline feedback</code>で記録した<code>feedback.jsonl</code>が蓄積すると、ここに表示されます。</p>
                 </div>
-              ) : filteredFeedback.length === 0 ? (
+              ) : listedFeedback.length === 0 ? (
                 <div className="launcher-empty launcher-feedback-state">
                   <BookOpen aria-hidden="true" size={24} />
                   <strong>{feedbackFilter === 'all' ? '該当する好み・学びはありません。' : `${FEEDBACK_STAGE_LABELS[feedbackFilter]}の好み・学びはありません。`}</strong>
@@ -1630,7 +1984,7 @@ export function LauncherApp({
                     {visibleFeedback.map((preference) => {
                       const stageLabel = FEEDBACK_STAGE_LABELS[preference.stage] ?? '段階を確認'
                       const signalLabel = FEEDBACK_SIGNAL_LABELS[preference.signal] ?? '傾向を確認'
-                      const representativePromotion = preference.promotions[0]
+                      const representativePromotion = latestPromotion(preference) ?? preference.promotions[0]
                       const remainingPromotionCount = Math.max(0, preference.promotions.length - 1)
                       return (
                         <button
@@ -1639,11 +1993,7 @@ export function LauncherApp({
                           className="launcher-feedback-card"
                           data-stage={preference.stage}
                           key={preference.key}
-                          onClick={() => {
-                            setSelectedFeedbackKey(preference.key)
-                            setPromotionDecisionState('idle')
-                            setPromotionDecisionError(null)
-                          }}
+                          onClick={() => selectFeedbackPreference(preference.key)}
                           type="button"
                         >
                           <span className="launcher-feedback-card-stage">
@@ -1669,9 +2019,7 @@ export function LauncherApp({
                               className="launcher-feedback-card-approval"
                               data-decision={preference.promotionProposal?.decision ?? 'preparing'}
                             >
-                              {preference.promotionProposal
-                                ? FEEDBACK_PROPOSAL_DECISION_LABELS[preference.promotionProposal.decision]
-                                : '昇格案の準備待ち'}
+                              {feedbackCardProposalLabel(preference)}
                             </span>
                           )}
                           {preference.stage === 'recurring' && preference.promotionProposal?.decidedAt && (
@@ -1724,7 +2072,7 @@ export function LauncherApp({
                           <div><dt>最終記録</dt><dd>{formatUpdatedAt(selectedFeedback.lastSeenAt)}</dd></div>
                         </dl>
 
-                        {selectedFeedback.promotionProposal && selectedFeedback.stage === 'recurring' && (
+                        {selectedFeedback.promotionProposal && selectedFeedback.stage === 'recurring' && isTrustedPromotionSource(selectedFeedback) && (
                           <section aria-label="この学びの確認ガイド" className="launcher-feedback-detail-section launcher-feedback-review-guide">
                             <h3>この学びで確認すること</h3>
                             <ol>
@@ -1748,7 +2096,7 @@ export function LauncherApp({
                           </section>
                         )}
 
-                        {selectedFeedback.promotionProposal && selectedFeedback.stage === 'recurring' && (
+                        {selectedFeedback.promotionProposal && selectedFeedback.stage === 'recurring' && isTrustedPromotionSource(selectedFeedback) && (
                           <section className="launcher-feedback-detail-section launcher-feedback-approval" aria-live="polite">
                             <div className="launcher-feedback-approval-heading">
                               <h3>昇格承認</h3>
@@ -1791,6 +2139,12 @@ export function LauncherApp({
                               </p>
                             )}
                             {promotionDecisionError && <p className="launcher-feedback-approval-error" role="alert">{promotionDecisionError}</p>}
+                          </section>
+                        )}
+
+                        {selectedFeedback.promotionProposal && selectedFeedback.stage === 'recurring' && !isTrustedPromotionSource(selectedFeedback) && (
+                          <section className="launcher-feedback-detail-section launcher-feedback-untrusted-proposal" aria-live="polite">
+                            <p>この提案はランチャーから承認できません。内容の確認のみ行えます。</p>
                           </section>
                         )}
 

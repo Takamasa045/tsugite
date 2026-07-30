@@ -119,8 +119,16 @@ export type FeedbackFileIdentity = {
   inode: number;
 };
 
+/** 許可済み Automation が使う学習昇格レビュー workflow の正本 id。 */
+export const TRUSTED_PROMOTION_WORKFLOW_ID = "tsugite-learning-promotion-review";
+
 export type FeedbackDecisionOptions = {
   expectedFileIdentity?: FeedbackFileIdentity;
+  /**
+   * true のとき、最新 pending proposal が trusted automation source であることを必須化する。
+   * ランチャー HTTP 経路専用。CLI / core 直呼びは default false のまま互換を保つ。
+   */
+  requireTrustedAutomationSource?: boolean;
 };
 
 export type FeedbackProjectInput = {
@@ -220,6 +228,9 @@ export async function decideProjectFeedbackPromotion(
       }
       if (latestProposal.promotion_proposal.decision !== "pending") {
         throw feedbackError("feedback.proposal_already_decided", "promotion proposal was already decided", input.proposalId);
+      }
+      if (options.requireTrustedAutomationSource) {
+        assertTrustedAutomationSource(latestProposal.promotion_proposal, input.proposalId);
       }
       const decidedAt = new Date().toISOString();
       return await appendProjectFeedbackWithLock(path, {
@@ -661,6 +672,34 @@ function fileIssue(path: string, code: string, message: string): FeedbackReadRes
 
 function feedbackError(code: string, message: string, path?: string): PipelineError {
   return new PipelineError({ code, message, ...(path ? { path } : {}) });
+}
+
+function assertTrustedAutomationSource(
+  proposal: NonNullable<FeedbackRecord["promotion_proposal"]>,
+  proposalId: string
+): void {
+  const source = proposal.source;
+  if (!source) {
+    throw feedbackError(
+      "feedback.proposal_source_untrusted",
+      "promotion proposal is missing a trusted automation source",
+      proposalId
+    );
+  }
+  if (!(FEEDBACK_AUTOMATION_SOURCE_KINDS as readonly string[]).includes(source.kind)) {
+    throw feedbackError(
+      "feedback.proposal_source_untrusted",
+      "promotion proposal source kind is not a trusted automation source",
+      proposalId
+    );
+  }
+  if (source.workflow_id !== TRUSTED_PROMOTION_WORKFLOW_ID) {
+    throw feedbackError(
+      "feedback.proposal_source_untrusted",
+      "promotion proposal workflow is not the trusted learning-promotion review",
+      proposalId
+    );
+  }
 }
 
 async function assertRegularConfig(configPath: string): Promise<void> {

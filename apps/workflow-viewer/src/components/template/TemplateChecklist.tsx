@@ -1,6 +1,13 @@
-import { Check, ClipboardCopy } from 'lucide-react'
+import { Check, ClipboardCopy, RefreshCw } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
+import {
+  isSamePresentationPresetSelection,
+  optionKey,
+  type PresentationPresetLoadState,
+  type PresentationPresetOption,
+  type PresentationPresetSelection,
+} from './presentationPresetModel'
 import {
   buildTemplateProductionPrompt,
   materialDeliveryInstruction,
@@ -33,6 +40,18 @@ export type TemplateChecklistTemplate = Pick<
 export interface TemplateChecklistProps {
   template: TemplateChecklistTemplate
   choices: Readonly<Record<string, string>>
+  /** Remotion / HyperFrames の presentation preset 一覧（任意。未指定時は選択 UI を出さない） */
+  presentationPresets?: readonly PresentationPresetOption[]
+  presentationPresetLoadState?: PresentationPresetLoadState
+  onRetryPresentationPresets?: () => void
+  /**
+   * 親（TemplateWizardState）が持つ選択。未指定時は内部 state（単体テスト向け）。
+   * 指定時は controlled。同一テンプレートでは unmount 後も親が保持する。
+   */
+  presentationPreset?: PresentationPresetSelection
+  onPresentationPresetChange?: (selection: PresentationPresetSelection) => void
+  /** 片側 backend 不足など、候補は出せるが一部欠けるときの非ブロッキング案内 */
+  presentationPresetNotice?: string | null
 }
 
 const CLIPBOARD_WRITE_TIMEOUT_MS = 1_500
@@ -76,13 +95,34 @@ function writeClipboardText(text: string): Promise<void> {
   })
 }
 
-export function TemplateChecklist({ template, choices }: TemplateChecklistProps) {
+export function TemplateChecklist({
+  template,
+  choices,
+  presentationPresets,
+  presentationPresetLoadState = 'idle',
+  onRetryPresentationPresets,
+  presentationPreset: presentationPresetProp,
+  onPresentationPresetChange,
+  presentationPresetNotice = null,
+}: TemplateChecklistProps) {
   const headingId = useId()
   const detailsId = useId()
+  const presetHeadingId = useId()
   const headingRef = useRef<HTMLHeadingElement | null>(null)
+  const showPresetPicker = presentationPresets !== undefined
+    || presentationPresetLoadState === 'loading'
+    || presentationPresetLoadState === 'error'
+    || presentationPresetLoadState === 'ready'
+  const isPresetControlled = presentationPresetProp !== undefined
+  const [uncontrolledPreset, setUncontrolledPreset] = useState<PresentationPresetSelection>(null)
+  const presentationPreset = isPresetControlled ? presentationPresetProp : uncontrolledPreset
+  const setPresentationPreset = (next: PresentationPresetSelection) => {
+    if (isPresetControlled) onPresentationPresetChange?.(next)
+    else setUncontrolledPreset(next)
+  }
   const productionPrompt = useMemo(
-    () => buildTemplateProductionPrompt(template, choices),
-    [choices, template],
+    () => buildTemplateProductionPrompt(template, choices, presentationPreset),
+    [choices, presentationPreset, template],
   )
   const resolvedInputs = useMemo(
     () => resolveRequiredInputDetails(template, choices),
@@ -111,16 +151,32 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
   const goodExamples = exampleLines.filter((entry) => entry.kind === 'good')
   const monoExamples = exampleLines.filter((entry) => entry.kind === 'monotonous')
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const presetOptions = presentationPresets ?? []
 
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true })
   }, [template.id])
 
   useEffect(() => {
+    // uncontrolled のみ: 型が変わったら選択をリセット（おすすめに任せる）
+    // controlled 時は親（TemplateWizardState）が別テンプレート選択で null にする
+    if (isPresetControlled) return
+    setUncontrolledPreset(null)
+  }, [isPresetControlled, template.id])
+
+  useEffect(() => {
     if (copyState === 'idle') return
     const timer = window.setTimeout(() => setCopyState('idle'), 2000)
     return () => window.clearTimeout(timer)
   }, [copyState])
+
+  function selectRecommended() {
+    setPresentationPreset(null)
+  }
+
+  function selectPreset(option: PresentationPresetOption) {
+    setPresentationPreset({ backend: option.backend, presetId: option.id })
+  }
 
   async function handleCopy() {
     try {
@@ -184,6 +240,108 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
         </ul>
       </section>
 
+      {showPresetPicker && (
+        <section
+          aria-labelledby={presetHeadingId}
+          className="launcher-template-checklist-presets"
+          role="region"
+        >
+          <div className="launcher-template-checklist-presets-heading">
+            <span>任意</span>
+            <h3 id={presetHeadingId}>仕上げの動きを選ぶ</h3>
+            <p>
+              ここでは制作依頼に追加するだけです。生成・インストール・render・Gate更新はしません。
+              未選択のままなら、おすすめ構成に任せます。
+            </p>
+          </div>
+
+          {presentationPresetLoadState === 'loading' && (
+            <div className="launcher-template-preset-state" aria-live="polite">
+              <RefreshCw aria-hidden="true" className="is-spinning" size={18} />
+              <strong>仕上げの動きを読み込んでいます…</strong>
+            </div>
+          )}
+
+          {presentationPresetLoadState === 'error' && (
+            <div className="launcher-template-preset-state launcher-template-preset-state-error" role="alert">
+              <strong>仕上げの動きを読み込めませんでした。</strong>
+              <p>一覧を確認して、もう一度読み込んでください。未選択のまま制作依頼をコピーできます。</p>
+              {onRetryPresentationPresets && (
+                <button
+                  className="launcher-secondary"
+                  onClick={onRetryPresentationPresets}
+                  type="button"
+                >
+                  <RefreshCw aria-hidden="true" size={16} />
+                  仕上げの動きをもう一度読み込む
+                </button>
+              )}
+            </div>
+          )}
+
+          {presentationPresetLoadState === 'ready' && presetOptions.length === 0 && (
+            <p className="launcher-template-preset-state" role="status">
+              表示できる仕上げの動きはまだありません。おすすめに任せて制作依頼をコピーできます。
+            </p>
+          )}
+
+          {presentationPresetNotice && presentationPresetLoadState === 'ready' && (
+            <p className="launcher-template-preset-state" role="status">
+              {presentationPresetNotice}
+            </p>
+          )}
+
+          {(presentationPresetLoadState === 'ready' || presentationPresetLoadState === 'idle')
+            && presetOptions.length > 0 && (
+            <div
+              aria-label="仕上げの動きの候補"
+              className="launcher-template-preset-options"
+              role="group"
+            >
+              <button
+                aria-pressed={presentationPreset === null}
+                className="launcher-template-preset-option"
+                onClick={selectRecommended}
+                type="button"
+              >
+                <span className="launcher-template-preset-option-topline">
+                  <strong>おすすめに任せる</strong>
+                  <small>既定</small>
+                </span>
+                <span className="launcher-template-preset-option-description">
+                  presentation preset を指定せず、制作担当のおすすめ構成に任せます。
+                </span>
+              </button>
+              {presetOptions.map((option) => {
+                const selected = isSamePresentationPresetSelection(presentationPreset, {
+                  backend: option.backend,
+                  presetId: option.id,
+                })
+                const aspect = option.aspectRatio ?? '比率未記載'
+                return (
+                  <button
+                    aria-pressed={selected}
+                    className="launcher-template-preset-option"
+                    key={optionKey(option)}
+                    onClick={() => selectPreset(option)}
+                    type="button"
+                  >
+                    <span className="launcher-template-preset-option-topline">
+                      <strong>{option.label}</strong>
+                      <small>{option.backendLabel}</small>
+                      <small>{aspect}</small>
+                    </span>
+                    <span className="launcher-template-preset-option-description">
+                      <code>{option.id}</code>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
       <div className="launcher-template-checklist-primary">
         <button
           className="launcher-primary"
@@ -203,7 +361,9 @@ export function TemplateChecklist({ template, choices }: TemplateChecklistProps)
           )}
         </button>
         <p className="launcher-template-checklist-copy-scope">
-          目的・選択内容・必須素材・制作条件だけをコピーします。
+          目的・選択内容・必須素材・制作条件
+          {presentationPreset ? '・仕上げの動き' : ''}
+          だけをコピーします。
           任意素材や「向かない用途」はコピーしません。
         </p>
         {copyState === 'failed' && (

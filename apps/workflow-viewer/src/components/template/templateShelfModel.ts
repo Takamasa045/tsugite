@@ -1,3 +1,10 @@
+import {
+  formatPresentationPresetPromptSection,
+  type PresentationPresetSelection,
+} from './presentationPresetModel'
+
+export type { PresentationPresetSelection }
+
 export interface LauncherTemplateDirection {
   pacing?: string
   camera?: string
@@ -79,12 +86,18 @@ export interface TemplateWizardState {
   choices: Readonly<Record<string, string>>
   /** 0=型, 1..n=軸, n+1=チェックリスト */
   step: number
+  /**
+   * 仕上げの動き。TemplateChecklist の unmount（戻る・別棚）でも同一テンプレートなら保持する。
+   * 別テンプレート選択時は null（おすすめに任せる）へ戻す。
+   */
+  presentationPreset: PresentationPresetSelection
 }
 
 export const INITIAL_WIZARD_STATE: TemplateWizardState = {
   templateId: null,
   choices: {},
   step: 0,
+  presentationPreset: null,
 }
 
 export interface TemplateListResponse {
@@ -545,6 +558,7 @@ export function buildTemplateProductionPrompt(
     | 'direction'
   >,
   choices: Readonly<Record<string, string>>,
+  presentationPreset: PresentationPresetSelection = null,
 ): string {
   const { required } = partitionRequiredInputs(
     resolveRequiredInputDetails(template, choices),
@@ -596,6 +610,11 @@ export function buildTemplateProductionPrompt(
       const label = entry.source ? `${entry.label}（${entry.source}）` : entry.label
       lines.push(`- **${label}**: ${entry.text}`)
     }
+  }
+
+  const presetSection = formatPresentationPresetPromptSection(presentationPreset)
+  if (presetSection) {
+    lines.push('', ...presetSection.trimEnd().split('\n'))
   }
 
   lines.push(

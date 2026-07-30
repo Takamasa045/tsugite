@@ -606,4 +606,91 @@ describe('TemplateShelf', () => {
     ).toBeVisible()
     expect(screen.getByText('素材・演出の詳細を見る')).toBeVisible()
   })
+
+  const presentationPresets = [
+    {
+      backend: 'remotion',
+      backendLabel: 'Remotion',
+      id: 'article-dialogue-16x9',
+      label: '記事の掛け合い解説',
+      aspectRatio: '16:9' as const,
+    },
+  ]
+
+  it('戻る→再度最終画面でも仕上げの動きの選択を保持する', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    render(
+      <TemplateShelf
+        onStateChange={onStateChange}
+        presentationPresetLoadState="ready"
+        presentationPresets={presentationPresets}
+        templates={templates}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /記事の掛け合い解説/ }))
+    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(latestState(onStateChange).presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'article-dialogue-16x9',
+    })
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+
+    await user.click(screen.getByRole('button', { name: '戻る' }))
+    expect(await screen.findByRole('heading', { name: 'テンポ' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '仕上げの動きを選ぶ' })).not.toBeInTheDocument()
+    expect(latestState(onStateChange).presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'article-dialogue-16x9',
+    })
+
+    await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+    expect(latestState(onStateChange).presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'article-dialogue-16x9',
+    })
+  })
+
+  it('別テンプレートに切り替えたら仕上げの動きを「おすすめに任せる」へ戻す', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    const qaTemplate: WizardTemplate = {
+      ...validTemplate,
+      id: 'qa-dialogue',
+      name: 'Q&A掛け合い',
+      variants: [],
+    }
+    render(
+      <TemplateShelf
+        onStateChange={onStateChange}
+        presentationPresetLoadState="ready"
+        presentationPresets={presentationPresets}
+        templates={[validTemplate, qaTemplate, invalidTemplate]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /記事の掛け合い解説/ }))
+    expect(latestState(onStateChange).presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'article-dialogue-16x9',
+    })
+
+    await user.click(within(progressNav()).getByRole('button', { name: /動画|ブログ掛け合い/ }))
+    expect(await screen.findByRole('heading', { name: /何を作りたい/ })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: detailActionName('Q&A掛け合い') }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9/)
+    expect(latestState(onStateChange).presentationPreset).toBeNull()
+  })
 })
