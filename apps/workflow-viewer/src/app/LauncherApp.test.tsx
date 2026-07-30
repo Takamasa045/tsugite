@@ -398,18 +398,42 @@ const defaultPresentationPresetResponses: Record<string, { ok: true; backend: st
   },
 }
 
+const defaultHyperframesCatalogResponse = {
+  ok: true as const,
+  schemaVersion: 1 as const,
+  source: 'hyperframes' as const,
+  advisoryOnly: true as const,
+  capabilityVerified: false as const,
+  summary: {
+    total: 1,
+    returned: 1,
+    omitted: 0,
+    byType: { block: 1, component: 0 },
+  },
+  items: [{
+    id: 'data-chart',
+    type: 'block' as const,
+    title: 'Data Chart',
+    description: 'Animated bar chart',
+    tags: ['data', 'chart'],
+  }],
+  warnings: [] as string[],
+}
+
 function createLauncherFetcher({
   projectList = projects,
   feedbackAggregate = feedback,
   templateList = templates,
   characterList = characters,
   presentationPresetResponses = defaultPresentationPresetResponses,
+  hyperframesCatalogResponse = defaultHyperframesCatalogResponse,
 }: {
   projectList?: unknown
   feedbackAggregate?: unknown
   templateList?: unknown
   characterList?: unknown
   presentationPresetResponses?: Record<string, unknown>
+  hyperframesCatalogResponse?: unknown
 } = {}) {
   return vi.fn().mockImplementation((url: string) => {
     if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects: projectList }))
@@ -448,6 +472,13 @@ function createLauncherFetcher({
     if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback: feedbackAggregate }))
     if (url === '/api/templates') return Promise.resolve(jsonResponse({ ok: true, templates: templateList }))
     if (url === '/api/characters') return Promise.resolve(jsonResponse({ ok: true, characters: characterList }))
+    if (url === '/api/reference-catalogs/hyperframes') {
+      const ok = typeof hyperframesCatalogResponse === 'object'
+        && hyperframesCatalogResponse !== null
+        && 'ok' in hyperframesCatalogResponse
+        && (hyperframesCatalogResponse as { ok?: unknown }).ok === true
+      return Promise.resolve(jsonResponse(hyperframesCatalogResponse, ok))
+    }
     const presetsMatch = /^\/api\/presets\?backend=([^&]+)$/.exec(url)
     if (presetsMatch) {
       const backend = decodeURIComponent(presetsMatch[1] ?? '')
@@ -1190,10 +1221,13 @@ describe('LauncherApp', () => {
       screen.getByText((content) => content.includes('この画面では生成・実行・Gate更新をしません')),
     ).toBeVisible()
     // presentation preset 選択 UI（制作依頼への追記のみ）
-    expect(screen.getByRole('heading', { name: '仕上げの動きを選ぶ' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '仕上げ構成（実行候補）' })).toBeVisible()
     expect(screen.getByText(/ここでは制作依頼に追加するだけ/)).toBeVisible()
     expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('記事の掛け合い解説')).toBeVisible()
+    expect(screen.getByText('横型・会話で解説')).toBeVisible()
+    expect(screen.getByText('表現のヒントを探す')).toBeVisible()
+    expect(screen.getByText('表現のヒントを探す').closest('details')).not.toHaveAttribute('open')
+    expect(fetcher).not.toHaveBeenCalledWith('/api/reference-catalogs/hyperframes', expect.anything())
     expect(screen.queryByRole('button', { name: /生成|実行|run|render/i })).not.toBeInTheDocument()
 
     const detailsSummary = screen.getByText('素材・演出の詳細を見る')
@@ -1244,8 +1278,8 @@ describe('LauncherApp', () => {
     expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/presets'))).toHaveLength(2)
 
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
-    expect(await screen.findByRole('heading', { name: '仕上げの動きを選ぶ' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /記事の掛け合い解説/ }))
+    expect(await screen.findByRole('heading', { name: '仕上げ構成（実行候補）' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
 
     const brief = screen.getByLabelText('制作依頼本文')
     expect(brief.textContent).toMatch(/article-dialogue-16x9/)
@@ -1253,6 +1287,17 @@ describe('LauncherApp', () => {
 
     await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
     expect(String(writeText.mock.calls[0]?.[0] ?? '')).toMatch(/article-dialogue-16x9/)
+
+    // 表現ヒントは開いた時だけ1回取得し、制作依頼には混ざらない
+    await user.click(screen.getByText('表現のヒントを探す'))
+    expect(await screen.findByText('Data Chart')).toBeVisible()
+    expect(fetcher).toHaveBeenCalledWith('/api/reference-catalogs/hyperframes', {
+      headers: {
+        accept: 'application/json',
+        'x-tsugite-token': 'session-token',
+      },
+    })
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/data-chart|Data Chart/)
 
     // 棚を離れても再fetchしない
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
@@ -1270,26 +1315,26 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '何を作りたい？' })
 
     await user.click(screen.getByRole('button', { name: 'ブログ掛け合い 60秒のおすすめ設定で制作依頼を作る' }))
-    expect(await screen.findByRole('heading', { name: '仕上げの動きを選ぶ' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /記事の掛け合い解説/ }))
-    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('heading', { name: '仕上げ構成（実行候補）' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
 
     // 前ステップへ戻って再度最終画面へ → 同一テンプレートなので保持
     await user.click(screen.getByRole('button', { name: '戻る' }))
     expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: '仕上げの動きを選ぶ' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '仕上げ構成（実行候補）' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    expect(await screen.findByRole('heading', { name: '仕上げの動きを選ぶ' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('heading', { name: '仕上げ構成（実行候補）' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
 
     // テンプレート棚 → 別棚 → テンプレート棚でも保持
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
     expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    expect(await screen.findByRole('heading', { name: '仕上げの動きを選ぶ' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('heading', { name: '仕上げ構成（実行候補）' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
   })
 
@@ -1308,14 +1353,14 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '何を作りたい？' })
 
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
-    expect(await screen.findByRole('heading', { name: '仕上げの動きを選ぶ' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '仕上げ構成（実行候補）' })).toBeVisible()
 
     // remotion 成功分は表示
-    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toBeVisible()
-    expect(screen.getByText('記事の掛け合い解説')).toBeVisible()
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toBeVisible()
+    expect(screen.getByText('横型・会話で解説')).toBeVisible()
     // hyperframes 分は無い
-    expect(screen.queryByText('記事の解説スライド')).not.toBeInTheDocument()
-    expect(screen.queryByText('縦型の記事解説')).not.toBeInTheDocument()
+    expect(screen.queryByText('横型・資料付き解説')).not.toBeInTheDocument()
+    expect(screen.queryByText('縦型・資料付き解説')).not.toBeInTheDocument()
     // 全体 error ではない
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     // 片側不足は非ブロッキングで分かる
@@ -1334,7 +1379,7 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '何を作りたい？' })
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/仕上げの動きを読み込めませんでした/)
-    expect(screen.queryByRole('button', { name: /記事の掛け合い解説/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /横型・会話で解説/ })).not.toBeInTheDocument()
   })
 
   it('テンプレート棚を離れてもウィザードの進行を保持する', async () => {

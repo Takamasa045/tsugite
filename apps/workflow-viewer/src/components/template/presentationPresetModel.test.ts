@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   aspectRatioFromPresetId,
+  descriptionForPresentationPreset,
   formatPresentationPresetPromptSection,
   isPresentationPresetListResponse,
   labelForPresentationPreset,
@@ -30,13 +31,23 @@ describe('presentationPresetModel', () => {
     expect(isPresentationPresetListResponse({ ok: true, backend: 'remotion', presets: [1] })).toBe(false)
   })
 
-  it('derives aspect ratio and purpose labels, keeping unknown ids visible', () => {
+  it('uses non-engineer labels and descriptions while keeping unknown ids visible', () => {
     expect(aspectRatioFromPresetId('article-dialogue-16x9')).toBe('16:9')
     expect(aspectRatioFromPresetId('miraichi-lastcall-9x16')).toBe('9:16')
     expect(aspectRatioFromPresetId('custom-unknown')).toBeNull()
 
-    expect(labelForPresentationPreset('article-dialogue-16x9')).toMatch(/記事|掛け合い/)
+    expect(labelForPresentationPreset('article-dialogue-16x9')).toBe('横型・会話で解説')
+    expect(labelForPresentationPreset('street-dialogue-16x9')).toBe('横型・テンポ重視の会話解説')
+    expect(labelForPresentationPreset('tsugite-summer-camp-generated-16x9')).toBe('横型・イベント／サービス告知')
+    expect(labelForPresentationPreset('miraichi-lastcall-9x16')).toBe('縦型・締切／申込案内')
+    expect(labelForPresentationPreset('orbital-showreel-16x9')).toBe('横型・作品ダイジェスト')
+    expect(labelForPresentationPreset('article-explainer-16x9')).toBe('横型・資料付き解説')
+    expect(labelForPresentationPreset('article-explainer-9x16')).toBe('縦型・資料付き解説')
     expect(labelForPresentationPreset('brand-new-unlisted-preset')).toBe('brand-new-unlisted-preset')
+
+    expect(descriptionForPresentationPreset('article-dialogue-16x9')).toMatch(/会話/)
+    expect(descriptionForPresentationPreset('miraichi-lastcall-9x16')).toMatch(/締切|申込/)
+    expect(descriptionForPresentationPreset('brand-new-unlisted-preset')).toBeNull()
   })
 
   it('builds UI options without dropping unknown ids', () => {
@@ -49,7 +60,8 @@ describe('presentationPresetModel', () => {
         backend: 'remotion',
         backendLabel: 'Remotion',
         id: 'article-dialogue-16x9',
-        label: labelForPresentationPreset('article-dialogue-16x9'),
+        label: '横型・会話で解説',
+        description: descriptionForPresentationPreset('article-dialogue-16x9'),
         aspectRatio: '16:9',
       },
       {
@@ -57,6 +69,7 @@ describe('presentationPresetModel', () => {
         backendLabel: 'Remotion',
         id: 'brand-new-unlisted-preset',
         label: 'brand-new-unlisted-preset',
+        description: null,
         aspectRatio: null,
       },
     ])
@@ -83,6 +96,7 @@ describe('presentationPresetModel', () => {
     expect(section).toContain('## 仕上げの動き（presentation preset）')
     expect(section).toContain('remotion')
     expect(section).toContain('article-dialogue-16x9')
+    expect(section).toContain('横型・会話で解説')
     expect(section).toContain(PRESENTATION_PRESET_SAFETY_NOTE)
     expect(section).toMatch(/validate|Gate 1/)
   })
