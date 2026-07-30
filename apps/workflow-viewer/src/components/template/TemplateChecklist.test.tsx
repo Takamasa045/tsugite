@@ -320,4 +320,139 @@ describe('TemplateChecklist', () => {
     expect(screen.queryByRole('button', { name: /生成|実行|run|render|はじめる|作成する/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Gate|ゲート/i })).not.toBeInTheDocument()
   })
+
+  it('仕上げの動きをコピー直前に表示し、未選択はおすすめに任せる', () => {
+    render(
+      <TemplateChecklist
+        choices={choices}
+        presentationPresetLoadState="ready"
+        presentationPresets={[
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: 'article-dialogue-16x9',
+            label: '記事の掛け合い解説',
+            aspectRatio: '16:9',
+          },
+          {
+            backend: 'hyperframes',
+            backendLabel: 'HyperFrames',
+            id: 'article-explainer-9x16',
+            label: '縦型の記事解説',
+            aspectRatio: '9:16',
+          },
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: 'brand-new-unlisted-preset',
+            label: 'brand-new-unlisted-preset',
+            aspectRatio: null,
+          },
+        ]}
+        template={template}
+      />,
+    )
+
+    const section = screen.getByRole('region', { name: '仕上げの動きを選ぶ' })
+    expect(section).toBeVisible()
+    expect(within(section).getByRole('heading', { name: '仕上げの動きを選ぶ' })).toBeVisible()
+    expect(within(section).getByText(/ここでは制作依頼に追加するだけ/)).toBeVisible()
+
+    const recommended = within(section).getByRole('button', { name: /おすすめに任せる/ })
+    expect(recommended).toHaveAttribute('aria-pressed', 'true')
+    expect(within(section).getAllByText('Remotion').length).toBeGreaterThan(0)
+    expect(within(section).getByText('HyperFrames')).toBeVisible()
+    expect(within(section).getByText('16:9')).toBeVisible()
+    expect(within(section).getByText('9:16')).toBeVisible()
+    expect(within(section).getByText('記事の掛け合い解説')).toBeVisible()
+    // 未知 ID も隠さず表示（見出しと code の両方に出る）
+    expect(within(section).getAllByText('brand-new-unlisted-preset').length).toBeGreaterThan(0)
+
+    const brief = screen.getByLabelText('制作依頼本文')
+    expect(brief.textContent).not.toMatch(/article-dialogue-16x9|仕上げの動き/)
+
+    // コピーボタンより前に配置（DOM 順）
+    const primary = screen.getByRole('button', { name: '制作依頼だけをコピー' })
+    expect(
+      (section.compareDocumentPosition(primary) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    ).toBe(true)
+  })
+
+  it('仕上げの動きを選ぶと制作依頼本文とコピー内容へ反映する', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+
+    render(
+      <TemplateChecklist
+        choices={choices}
+        presentationPresetLoadState="ready"
+        presentationPresets={[
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: 'article-dialogue-16x9',
+            label: '記事の掛け合い解説',
+            aspectRatio: '16:9',
+          },
+        ]}
+        template={template}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /記事の掛け合い解説/ }))
+    const brief = screen.getByLabelText('制作依頼本文')
+    expect(brief.textContent).toMatch(/仕上げの動き（presentation preset）/)
+    expect(brief.textContent).toMatch(/remotion/)
+    expect(brief.textContent).toMatch(/article-dialogue-16x9/)
+    expect(brief.textContent).toMatch(/validate|Gate 1/)
+
+    await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
+    const copied = String(writeText.mock.calls[0][0])
+    expect(copied).toMatch(/article-dialogue-16x9/)
+    expect(copied).toMatch(/勝手に別presetへ変えず確認/)
+
+    await user.click(screen.getByRole('button', { name: /おすすめに任せる/ }))
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9/)
+  })
+
+  it('仕上げの動きの loading / error / empty を壊さず表示する', async () => {
+    const user = userEvent.setup()
+    const onRetry = vi.fn()
+    const { rerender } = render(
+      <TemplateChecklist
+        choices={choices}
+        presentationPresetLoadState="loading"
+        presentationPresets={[]}
+        template={template}
+      />,
+    )
+    expect(screen.getByText(/仕上げの動きを読み込んでいます/)).toBeVisible()
+
+    rerender(
+      <TemplateChecklist
+        choices={choices}
+        onRetryPresentationPresets={onRetry}
+        presentationPresetLoadState="error"
+        presentationPresets={[]}
+        template={template}
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(/仕上げの動きを読み込めませんでした/)
+    await user.click(screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <TemplateChecklist
+        choices={choices}
+        presentationPresetLoadState="ready"
+        presentationPresets={[]}
+        template={template}
+      />,
+    )
+    expect(screen.getByText(/表示できる仕上げの動きはまだありません/)).toBeVisible()
+  })
 })

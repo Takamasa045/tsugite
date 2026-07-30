@@ -24,6 +24,15 @@ import {
   type LauncherCharacter,
 } from '../components/character/characterShelfModel'
 import { GenerationCanvas } from '../components/generation/GenerationCanvas'
+import {
+  backendLabelFor,
+  isPresentationPresetListResponse,
+  mergePresentationPresetOptions,
+  PRESENTATION_PRESET_BACKENDS,
+  type PresentationPresetListResponse,
+  type PresentationPresetLoadState,
+  type PresentationPresetOption,
+} from '../components/template/presentationPresetModel'
 import { TemplateShelf } from '../components/template/TemplateShelf'
 import {
   INITIAL_WIZARD_STATE,
@@ -585,6 +594,10 @@ export function LauncherApp({
   const [templateLoadState, setTemplateLoadState] = useState<TemplateLoadState>('idle')
   /** 棚タブ離脱後もウィザード進行を保持する */
   const [templateWizardState, setTemplateWizardState] = useState<TemplateWizardState>(INITIAL_WIZARD_STATE)
+  const [presentationPresets, setPresentationPresets] = useState<PresentationPresetOption[]>([])
+  const [presentationPresetLoadState, setPresentationPresetLoadState] = useState<PresentationPresetLoadState>('idle')
+  /** 片側 backend だけ失敗したときの非ブロッキング案内（全失敗時は null。loadState=error が担う） */
+  const [presentationPresetNotice, setPresentationPresetNotice] = useState<string | null>(null)
   const [characters, setCharacters] = useState<LauncherCharacter[]>([])
   const [characterLoadState, setCharacterLoadState] = useState<CharacterLoadState>('idle')
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
@@ -670,6 +683,51 @@ export function LauncherApp({
       setTemplateLoadState('ready')
     } catch {
       setTemplateLoadState('error')
+    }
+  }, [fetcher])
+
+  const loadPresentationPresets = useCallback(async () => {
+    setPresentationPresetLoadState('loading')
+    setPresentationPresetNotice(null)
+    // backend ごとに独立に扱い、片側失敗で成功分を消さない
+    const settled = await Promise.all(
+      PRESENTATION_PRESET_BACKENDS.map(async (backend) => {
+        try {
+          const response = await fetcher(
+            `/api/presets?backend=${encodeURIComponent(backend)}`,
+            { headers: { accept: 'application/json' } },
+          )
+          const payload: unknown = await response.json()
+          if (!response.ok || !isPresentationPresetListResponse(payload)) {
+            return { backend, ok: false as const }
+          }
+          return { backend, ok: true as const, payload }
+        } catch {
+          return { backend, ok: false as const }
+        }
+      }),
+    )
+    const successes = settled.filter(
+      (entry): entry is { backend: typeof entry.backend; ok: true; payload: PresentationPresetListResponse } => (
+        entry.ok
+      ),
+    )
+    const failures = settled.filter((entry) => !entry.ok)
+    if (successes.length === 0) {
+      setPresentationPresets([])
+      setPresentationPresetNotice(null)
+      setPresentationPresetLoadState('error')
+      return
+    }
+    setPresentationPresets(mergePresentationPresetOptions(successes.map((entry) => entry.payload)))
+    setPresentationPresetLoadState('ready')
+    if (failures.length > 0) {
+      const failedLabels = failures.map((entry) => backendLabelFor(entry.backend)).join('・')
+      setPresentationPresetNotice(
+        `${failedLabels}の仕上げの動きを読み込めませんでした。表示中の候補だけで選べます。`,
+      )
+    } else {
+      setPresentationPresetNotice(null)
     }
   }, [fetcher])
 
@@ -795,6 +853,7 @@ export function LauncherApp({
   const selectShelf = (shelf: Shelf) => {
     setActiveShelf(shelf)
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
+    if (shelf === 'templates' && presentationPresetLoadState === 'idle') void loadPresentationPresets()
     if (shelf === 'characters' && characterLoadState === 'idle') void loadCharacters()
     if (shelf === 'feedback') {
       setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
@@ -1568,7 +1627,11 @@ export function LauncherApp({
           initialState={templateWizardState}
           loadState={templateLoadState}
           onRetry={() => void loadTemplates()}
+          onRetryPresentationPresets={() => void loadPresentationPresets()}
           onStateChange={setTemplateWizardState}
+          presentationPresetLoadState={presentationPresetLoadState}
+          presentationPresetNotice={presentationPresetNotice}
+          presentationPresets={presentationPresets}
           templates={templates}
         />
       ) : activeShelf === 'characters' ? (
