@@ -20,17 +20,44 @@ import {
   captionSegments,
   resolveCaptionStyle
 } from "../backends/remotion/captionMotion.mjs";
-import { resolveRenderMediaSettings } from "../backends/remotion/renderSettings.mjs";
+import {
+  OFFTHREAD_VIDEO_FETCH_GUARD,
+  resolveRenderMediaSettings
+} from "../backends/remotion/renderSettings.mjs";
 
 describe("remotion backend helpers", () => {
-  it("reduces temporary JPEG storage only for very long renders", () => {
-    expect(resolveRenderMediaSettings({ durationInFrames: 99_999 })).toEqual({
+  it("retries transient local frame fetches during video rendering", () => {
+    expect(OFFTHREAD_VIDEO_FETCH_GUARD).toEqual({
+      delayRenderRetries: 10,
+      delayRenderTimeoutInMilliseconds: 180_000
+    });
+  });
+
+  it("reduces temporary storage for high pixel-budget renders", () => {
+    expect(resolveRenderMediaSettings({
+      width: 1920,
+      height: 1080,
+      durationInFrames: 299
+    })).toEqual({
       concurrency: 1
     });
-    expect(resolveRenderMediaSettings({ durationInFrames: 100_000 })).toEqual({
-      concurrency: 4,
+    expect(resolveRenderMediaSettings({
+      width: 1920,
+      height: 1080,
+      durationInFrames: 300
+    })).toEqual({
+      concurrency: 1,
       imageFormat: "jpeg",
-      jpegQuality: 50
+      jpegQuality: 90
+    });
+    expect(resolveRenderMediaSettings({
+      width: 2560,
+      height: 1440,
+      durationInFrames: 724
+    })).toEqual({
+      concurrency: 1,
+      imageFormat: "jpeg",
+      jpegQuality: 90
     });
   });
 

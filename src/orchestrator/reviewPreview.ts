@@ -249,6 +249,7 @@ function digestPreviewInput(
 ): string {
   return createHash("sha256").update(JSON.stringify({
     schema_version: 1,
+    render_contract: "timeline-offset-v1",
     selected,
     clip: selected.clip,
     captions: manifest.captions.filter((caption) => caption.start < selected.start + selected.duration && caption.end > selected.start),
@@ -291,6 +292,13 @@ function createPreviewManifest(manifest: Manifest, selected: SelectedShot, stage
     captions,
     chapters: [],
     presentation: manifest.presentation
+      ? {
+          ...manifest.presentation,
+          timeline_offset_seconds: selected.start,
+          timeline_first_clip_duration_seconds: manifest.clips[0]?.duration ?? 0,
+          timeline_total_duration_seconds: manifest.clips.reduce((sum, clip) => sum + clip.duration, 0)
+        }
+      : undefined
   };
 }
 

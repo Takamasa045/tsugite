@@ -17,8 +17,10 @@ import {
   resolveCaptionLayout
 } from "./captionLayout.mjs";
 import { resolveCaptionStyle } from "./captionMotion.mjs";
+import { createClipVolume } from "./clipAudio.mjs";
 import { resolveRenderDimensions } from "./dimensions.mjs";
 import { resolveRemotionPreset } from "./presetRegistry.mjs";
+import { OFFTHREAD_VIDEO_FETCH_GUARD } from "./renderSettings.mjs";
 import { audioTrackTiming, clipSequenceTimings, secondsToFrames, totalDuration } from "./timing.mjs";
 
 const DEFAULT_MANIFEST = {
@@ -70,6 +72,7 @@ function Timeline({ manifest }) {
   const children = [];
   const clipTimings = clipSequenceTimings(manifest.clips, fps);
   const captionLayout = resolveCaptionLayout(manifest);
+  const registeredPreset = resolveRemotionPreset(manifest.presentation?.preset);
 
   for (const [index, clip] of manifest.clips.entries()) {
     const timing = clipTimings[index];
@@ -79,9 +82,11 @@ function Timeline({ manifest }) {
         Sequence,
         { from: timing.from, durationInFrames: timing.durationInFrames, key: clip.id, name: clip.id },
         React.createElement(OffthreadVideo, {
+          ...OFFTHREAD_VIDEO_FETCH_GUARD,
           src: staticFile(clip.src),
           startFrom: timing.trimBefore,
           muted: !clip.audio,
+          volume: createClipVolume(clip, timing.durationInFrames, fps),
           style: mediaLayout(captionLayout)
         })
       )
@@ -108,7 +113,6 @@ function Timeline({ manifest }) {
     );
   }
 
-  const registeredPreset = resolveRemotionPreset(manifest.presentation?.preset);
   if (registeredPreset) {
     children.push(React.createElement(registeredPreset.handler, { key: registeredPreset.id, manifest }));
   } else {
