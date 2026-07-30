@@ -1624,6 +1624,7 @@ export function LauncherApp({
         </>
       ) : activeShelf === 'templates' ? (
         <TemplateShelf
+          fetcher={fetcher}
           initialState={templateWizardState}
           loadState={templateLoadState}
           onRetry={() => void loadTemplates()}
@@ -1633,6 +1634,7 @@ export function LauncherApp({
           presentationPresetNotice={presentationPresetNotice}
           presentationPresets={presentationPresets}
           templates={templates}
+          token={token}
         />
       ) : activeShelf === 'characters' ? (
         <CharacterShelf

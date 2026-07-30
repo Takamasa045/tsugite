@@ -331,14 +331,16 @@ describe('TemplateChecklist', () => {
             backend: 'remotion',
             backendLabel: 'Remotion',
             id: 'article-dialogue-16x9',
-            label: '記事の掛け合い解説',
+            label: '横型・会話で解説',
+            description: '記事やテーマを、会話のやりとりでわかりやすく伝える向きです。',
             aspectRatio: '16:9',
           },
           {
             backend: 'hyperframes',
             backendLabel: 'HyperFrames',
             id: 'article-explainer-9x16',
-            label: '縦型の記事解説',
+            label: '縦型・資料付き解説',
+            description: '資料や図解を交えて解説する縦型向けです。',
             aspectRatio: '9:16',
           },
           {
@@ -346,6 +348,7 @@ describe('TemplateChecklist', () => {
             backendLabel: 'Remotion',
             id: 'brand-new-unlisted-preset',
             label: 'brand-new-unlisted-preset',
+            description: null,
             aspectRatio: null,
           },
         ]}
@@ -353,9 +356,9 @@ describe('TemplateChecklist', () => {
       />,
     )
 
-    const section = screen.getByRole('region', { name: '仕上げの動きを選ぶ' })
+    const section = screen.getByRole('region', { name: '仕上げ構成（実行候補）' })
     expect(section).toBeVisible()
-    expect(within(section).getByRole('heading', { name: '仕上げの動きを選ぶ' })).toBeVisible()
+    expect(within(section).getByRole('heading', { name: '仕上げ構成（実行候補）' })).toBeVisible()
     expect(within(section).getByText(/ここでは制作依頼に追加するだけ/)).toBeVisible()
 
     const recommended = within(section).getByRole('button', { name: /おすすめに任せる/ })
@@ -364,9 +367,12 @@ describe('TemplateChecklist', () => {
     expect(within(section).getByText('HyperFrames')).toBeVisible()
     expect(within(section).getByText('16:9')).toBeVisible()
     expect(within(section).getByText('9:16')).toBeVisible()
-    expect(within(section).getByText('記事の掛け合い解説')).toBeVisible()
+    expect(within(section).getByText('横型・会話で解説')).toBeVisible()
+    expect(within(section).getByText(/会話のやりとりでわかりやすく/)).toBeVisible()
     // 未知 ID も隠さず表示（見出しと code の両方に出る）
     expect(within(section).getAllByText('brand-new-unlisted-preset').length).toBeGreaterThan(0)
+    // 表現ヒントは初期閉
+    expect(screen.getByText('表現のヒントを探す').closest('details')).not.toHaveAttribute('open')
 
     const brief = screen.getByLabelText('制作依頼本文')
     expect(brief.textContent).not.toMatch(/article-dialogue-16x9|仕上げの動き/)
@@ -378,7 +384,7 @@ describe('TemplateChecklist', () => {
     ).toBe(true)
   })
 
-  it('仕上げの動きを選ぶと制作依頼本文とコピー内容へ反映する', async () => {
+  it('仕上げ構成（実行候補）と制作依頼本文とコピー内容へ反映する', async () => {
     const user = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
@@ -395,7 +401,8 @@ describe('TemplateChecklist', () => {
             backend: 'remotion',
             backendLabel: 'Remotion',
             id: 'article-dialogue-16x9',
-            label: '記事の掛け合い解説',
+            label: '横型・会話で解説',
+            description: '記事やテーマを、会話のやりとりでわかりやすく伝える向きです。',
             aspectRatio: '16:9',
           },
         ]}
@@ -403,7 +410,7 @@ describe('TemplateChecklist', () => {
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: /記事の掛け合い解説/ }))
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
     const brief = screen.getByLabelText('制作依頼本文')
     expect(brief.textContent).toMatch(/仕上げの動き（presentation preset）/)
     expect(brief.textContent).toMatch(/remotion/)

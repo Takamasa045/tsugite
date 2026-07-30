@@ -1,6 +1,7 @@
 import { Check, ClipboardCopy, RefreshCw } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
+import { HyperframesCatalogPanel } from './HyperframesCatalogPanel'
 import {
   isSamePresentationPresetSelection,
   optionKey,
@@ -52,6 +53,10 @@ export interface TemplateChecklistProps {
   onPresentationPresetChange?: (selection: PresentationPresetSelection) => void
   /** 片側 backend 不足など、候補は出せるが一部欠けるときの非ブロッキング案内 */
   presentationPresetNotice?: string | null
+  /** HyperFrames 公式 catalog 参照用。未指定時は window.fetch */
+  fetcher?: typeof fetch
+  /** ランチャー認証token。catalog GET に x-tsugite-token として渡す */
+  token?: string
 }
 
 const CLIPBOARD_WRITE_TIMEOUT_MS = 1_500
@@ -104,6 +109,8 @@ export function TemplateChecklist({
   presentationPreset: presentationPresetProp,
   onPresentationPresetChange,
   presentationPresetNotice = null,
+  fetcher,
+  token = '',
 }: TemplateChecklistProps) {
   const headingId = useId()
   const detailsId = useId()
@@ -248,8 +255,9 @@ export function TemplateChecklist({
         >
           <div className="launcher-template-checklist-presets-heading">
             <span>任意</span>
-            <h3 id={presetHeadingId}>仕上げの動きを選ぶ</h3>
+            <h3 id={presetHeadingId}>仕上げ構成（実行候補）</h3>
             <p>
+              実行候補の presentation preset です。HyperFrames 参考一覧とは別枠です。
               ここでは制作依頼に追加するだけです。生成・インストール・render・Gate更新はしません。
               未選択のままなら、おすすめ構成に任せます。
             </p>
@@ -331,7 +339,12 @@ export function TemplateChecklist({
                       <small>{option.backendLabel}</small>
                       <small>{aspect}</small>
                     </span>
-                    <span className="launcher-template-preset-option-description">
+                    {option.description && (
+                      <span className="launcher-template-preset-option-description">
+                        {option.description}
+                      </span>
+                    )}
+                    <span className="launcher-template-preset-option-tech">
                       <code>{option.id}</code>
                     </span>
                   </button>
@@ -341,6 +354,8 @@ export function TemplateChecklist({
           )}
         </section>
       )}
+
+      <HyperframesCatalogPanel fetcher={fetcher} token={token} />
 
       <div className="launcher-template-checklist-primary">
         <button

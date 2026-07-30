@@ -612,7 +612,8 @@ describe('TemplateShelf', () => {
       backend: 'remotion',
       backendLabel: 'Remotion',
       id: 'article-dialogue-16x9',
-      label: '記事の掛け合い解説',
+      label: '横型・会話で解説',
+      description: '記事やテーマを、会話のやりとりでわかりやすく伝える向きです。',
       aspectRatio: '16:9' as const,
     },
   ]
@@ -631,8 +632,8 @@ describe('TemplateShelf', () => {
 
     await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
     expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /記事の掛け合い解説/ }))
-    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
     expect(latestState(onStateChange).presentationPreset).toEqual({
       backend: 'remotion',
       presetId: 'article-dialogue-16x9',
@@ -641,7 +642,7 @@ describe('TemplateShelf', () => {
 
     await user.click(screen.getByRole('button', { name: '戻る' }))
     expect(await screen.findByRole('heading', { name: 'テンポ' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: '仕上げの動きを選ぶ' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '仕上げ構成（実行候補）' })).not.toBeInTheDocument()
     expect(latestState(onStateChange).presentationPreset).toEqual({
       backend: 'remotion',
       presetId: 'article-dialogue-16x9',
@@ -649,7 +650,7 @@ describe('TemplateShelf', () => {
 
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
     expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
-    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
     expect(latestState(onStateChange).presentationPreset).toEqual({
@@ -678,7 +679,7 @@ describe('TemplateShelf', () => {
 
     await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
     expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /記事の掛け合い解説/ }))
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
     expect(latestState(onStateChange).presentationPreset).toEqual({
       backend: 'remotion',
       presetId: 'article-dialogue-16x9',
@@ -689,7 +690,7 @@ describe('TemplateShelf', () => {
     await user.click(screen.getByRole('button', { name: detailActionName('Q&A掛け合い') }))
     expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: /記事の掛け合い解説/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9/)
     expect(latestState(onStateChange).presentationPreset).toBeNull()
   })

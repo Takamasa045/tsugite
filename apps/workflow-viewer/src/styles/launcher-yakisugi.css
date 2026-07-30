@@ -1672,6 +1672,227 @@
   font-size: .7rem;
   line-height: 1.55;
 }
+.launcher-hyperframes-catalog {
+  border: 1px solid rgba(75, 55, 32, .14);
+  border-radius: 3px 14px 3px 14px;
+  padding: 0;
+  background:
+    linear-gradient(160deg, rgba(255, 252, 246, .9), rgba(241, 246, 250, .5));
+}
+.launcher-hyperframes-catalog > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 14px 16px;
+  color: var(--launcher-sumi, #171817);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  font-size: .95rem;
+  font-weight: 700;
+}
+.launcher-hyperframes-catalog > summary::-webkit-details-marker { display: none; }
+.launcher-hyperframes-catalog > summary::before { content: "▸ "; color: #6a6256; }
+.launcher-hyperframes-catalog[open] > summary::before { content: "▾ "; }
+.launcher-hyperframes-catalog > summary:focus-visible {
+  outline: 2px solid rgba(39, 94, 88, .55);
+  outline-offset: 2px;
+}
+.launcher-hyperframes-catalog[open] > summary {
+  border-bottom: 1px solid rgba(75, 55, 32, .1);
+}
+.launcher-hyperframes-catalog-body {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+.launcher-hyperframes-catalog-advisory {
+  margin: 0;
+  border-left: 3px solid rgba(39, 94, 88, .45);
+  padding: 8px 10px;
+  color: #275e58;
+  background: rgba(232, 244, 241, .7);
+  font-size: .7rem;
+  font-weight: 700;
+  line-height: 1.55;
+}
+.launcher-hyperframes-catalog-note,
+.launcher-hyperframes-catalog-category-note,
+.launcher-hyperframes-catalog-status,
+.launcher-hyperframes-catalog-warnings {
+  margin: 0;
+  color: #5c564b;
+  font-size: .68rem;
+  line-height: 1.55;
+}
+.launcher-hyperframes-catalog-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.launcher-hyperframes-catalog-toolbar label {
+  display: grid;
+  gap: 4px;
+  color: #5c564b;
+  font-size: .66rem;
+  font-weight: 700;
+}
+.launcher-hyperframes-catalog-toolbar select,
+.launcher-hyperframes-catalog-search-field input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid rgba(75, 55, 32, .18);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #1f1a14;
+  background: rgba(255, 255, 255, .92);
+  font: inherit;
+}
+.launcher-hyperframes-catalog-search {
+  grid-column: 1 / -1;
+}
+.launcher-hyperframes-catalog-search-field {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(75, 55, 32, .18);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, .92);
+}
+.launcher-hyperframes-catalog-search-field input {
+  border: 0;
+  padding-inline: 0;
+  background: transparent;
+  outline: none;
+}
+.launcher-hyperframes-catalog-toolbar select:focus-visible,
+.launcher-hyperframes-catalog-search-field:focus-within {
+  outline: 2px solid rgba(39, 94, 88, .45);
+  outline-offset: 1px;
+}
+.launcher-hyperframes-catalog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #5c564b;
+  font-size: .68rem;
+}
+.launcher-hyperframes-catalog-state {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin: 0;
+  color: #5c564b;
+  font-size: .72rem;
+  line-height: 1.55;
+}
+.launcher-hyperframes-catalog-state-error {
+  border-left: 3px solid rgba(166, 61, 47, .55);
+  padding: 10px 12px;
+  color: #65362f;
+  background: rgba(255, 244, 240, .85);
+}
+.launcher-hyperframes-catalog-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.launcher-hyperframes-catalog-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(75, 55, 32, .12);
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, .72);
+}
+.launcher-hyperframes-catalog-item-topline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+}
+.launcher-hyperframes-catalog-item-topline strong {
+  color: #1f1a14;
+  font-size: .82rem;
+}
+.launcher-hyperframes-catalog-item-topline small {
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #3d4f4c;
+  background: rgba(232, 240, 237, .9);
+  font-size: .6rem;
+  font-weight: 700;
+}
+.launcher-hyperframes-catalog-item-description {
+  margin: 0;
+  color: #5c564b;
+  font-size: .68rem;
+  line-height: 1.55;
+}
+.launcher-hyperframes-catalog-item-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.launcher-hyperframes-catalog-tag {
+  border: 1px solid rgba(75, 55, 32, .14);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #4a453c;
+  background: rgba(255, 252, 246, .95);
+  font-size: .6rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.launcher-hyperframes-catalog-tag.is-active,
+.launcher-hyperframes-catalog-tag:hover {
+  border-color: rgba(39, 94, 88, .35);
+  color: #275e58;
+  background: rgba(232, 244, 241, .95);
+}
+.launcher-hyperframes-catalog-tag:focus-visible {
+  outline: 2px solid rgba(39, 94, 88, .5);
+  outline-offset: 1px;
+}
+.launcher-hyperframes-catalog-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.launcher-hyperframes-catalog-item-id {
+  color: #7a7368;
+  font-family: SFMono-Regular, Consolas, monospace;
+  font-size: .58rem;
+}
+.launcher-hyperframes-catalog-item-detail {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  border-top: 1px dashed rgba(75, 55, 32, .14);
+  padding-top: 8px;
+}
+.launcher-hyperframes-catalog-item-detail > div {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 8px;
+  font-size: .66rem;
+}
+.launcher-hyperframes-catalog-item-detail dt {
+  color: #6a6256;
+  font-weight: 700;
+}
+.launcher-hyperframes-catalog-item-detail dd {
+  margin: 0;
+  color: #1f1a14;
+}
+.launcher-hyperframes-catalog-more {
+  justify-self: start;
+}
 .launcher-template-checklist { display: grid; gap: 18px; }
 .launcher-template-checklist-heading h2 {
   margin: 0;
@@ -1769,11 +1990,16 @@
   font-size: .66rem;
   line-height: 1.5;
 }
-.launcher-template-preset-option-description code {
+.launcher-template-preset-option-tech {
+  display: block;
+  margin-top: 2px;
+}
+.launcher-template-preset-option-tech code {
   overflow-wrap: anywhere;
-  color: #3d4f4c;
+  color: #7a7368;
   font-family: SFMono-Regular, Consolas, monospace;
-  font-size: .6rem;
+  font-size: .58rem;
+  opacity: .85;
 }
 .launcher-template-preset-state {
   display: grid;
@@ -2571,6 +2797,18 @@
 
 @media (max-width: 840px) {
   .launcher-character-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Loaded after globals.css: reassert single-column catalog chrome on narrow viewports.
+   Base catalog rules above use 2 columns; without this late media rule they win over
+   the earlier globals.css @media (max-width: 600px) 1-column contract. */
+@media (max-width: 600px) {
+  .launcher-hyperframes-catalog-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .launcher-hyperframes-catalog-list {
     grid-template-columns: 1fr;
   }
 }

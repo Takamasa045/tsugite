@@ -1396,6 +1396,8 @@ select {
   .launcher-template-list { grid-template-columns: 1fr; }
   .launcher-template-card { min-height: 330px; }
   .launcher-template-preset-options { grid-template-columns: 1fr; }
+  .launcher-hyperframes-catalog-toolbar { grid-template-columns: 1fr; }
+  .launcher-hyperframes-catalog-list { grid-template-columns: 1fr; }
   .launcher-template-fit-grid { grid-template-columns: 1fr; gap: 0; }
   .launcher-template-related button { align-items: start; flex-direction: column; gap: 3px; }
   .launcher-feedback-list { grid-template-columns: 1fr; }

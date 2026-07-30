@@ -19,6 +19,8 @@ export interface PresentationPresetOption {
   backendLabel: string
   id: string
   label: string
+  /** 非エンジニア向けの短い説明。未知 ID は null。 */
+  description: string | null
   aspectRatio: PresentationAspectRatio | null
 }
 
@@ -38,17 +40,35 @@ const BACKEND_LABELS: Record<string, string> = {
 }
 
 /**
- * 用途が分かる日本語ラベル。未知 ID は labelForPresentationPreset が ID を返す。
- * API は id だけ返すため、表示用のローカル辞書。
+ * 用途が分かる一般向け表示名。未知 ID は labelForPresentationPreset が ID を返す。
+ * API は id だけ返すため、表示用のローカル辞書。内部 ID / capabilities は不変。
  */
 const PRESET_PURPOSE_LABELS: Record<string, string> = {
-  'article-dialogue-16x9': '記事の掛け合い解説',
-  'street-dialogue-16x9': 'ストリート風の掛け合い',
-  'tsugite-summer-camp-generated-16x9': 'サマーキャンプ風の生成映像',
-  'miraichi-lastcall-9x16': '縦型のラストコール',
-  'orbital-showreel-16x9': 'オービタル・ショーリール',
-  'article-explainer-16x9': '記事の解説スライド',
-  'article-explainer-9x16': '縦型の記事解説',
+  'article-dialogue-16x9': '横型・会話で解説',
+  'street-dialogue-16x9': '横型・テンポ重視の会話解説',
+  'tsugite-summer-camp-generated-16x9': '横型・イベント／サービス告知',
+  'miraichi-lastcall-9x16': '縦型・締切／申込案内',
+  'orbital-showreel-16x9': '横型・作品ダイジェスト',
+  'article-explainer-16x9': '横型・資料付き解説',
+  'article-explainer-9x16': '縦型・資料付き解説',
+}
+
+/** 非エンジニア向けの短い説明。未知 ID は descriptionForPresentationPreset が null を返す。 */
+const PRESET_PURPOSE_DESCRIPTIONS: Record<string, string> = {
+  'article-dialogue-16x9':
+    '記事やテーマを、会話のやりとりでわかりやすく伝える向きです。',
+  'street-dialogue-16x9':
+    'テンポよく会話が進む解説向きです。短くキャッチーに見せたいときに。',
+  'tsugite-summer-camp-generated-16x9':
+    'イベントやサービスの告知・募集を横型で伝える向きです。',
+  'miraichi-lastcall-9x16':
+    '締切や申込案内など、縦型のSNS向け案内向きです。',
+  'orbital-showreel-16x9':
+    '作品や事例をダイジェストで見せる向きです。',
+  'article-explainer-16x9':
+    '資料や図解を交えて解説する横型向けです。',
+  'article-explainer-9x16':
+    '資料や図解を交えて解説する縦型向けです。',
 }
 
 export const PRESENTATION_PRESET_SAFETY_NOTE =
@@ -66,6 +86,10 @@ export function aspectRatioFromPresetId(presetId: string): PresentationAspectRat
 
 export function labelForPresentationPreset(presetId: string): string {
   return PRESET_PURPOSE_LABELS[presetId] ?? presetId
+}
+
+export function descriptionForPresentationPreset(presetId: string): string | null {
+  return PRESET_PURPOSE_DESCRIPTIONS[presetId] ?? null
 }
 
 export function isPresentationPresetListResponse(
@@ -92,6 +116,7 @@ export function toPresentationPresetOptions(
     backendLabel: backendLabelFor(backend),
     id,
     label: labelForPresentationPreset(id),
+    description: descriptionForPresentationPreset(id),
     aspectRatio: aspectRatioFromPresetId(id),
   }))
 }
