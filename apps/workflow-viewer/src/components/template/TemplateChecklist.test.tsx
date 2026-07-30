@@ -321,6 +321,76 @@ describe('TemplateChecklist', () => {
     expect(screen.queryByRole('button', { name: /Gate|ゲート/i })).not.toBeInTheDocument()
   })
 
+  it('ブランド固定 preset 4件を視覚とスクリーンリーダー双方に明示する', () => {
+    render(
+      <TemplateChecklist
+        choices={choices}
+        presentationPresetLoadState="ready"
+        presentationPresets={[
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: 'street-dialogue-16x9',
+            label: '横型・テンポ重視の会話解説',
+            description: 'テンポよく',
+            aspectRatio: '16:9',
+          },
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: 'tsugite-summer-camp-generated-16x9',
+            label: '横型・イベント／サービス告知',
+            description: '告知',
+            aspectRatio: '16:9',
+          },
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: 'miraichi-lastcall-9x16',
+            label: '縦型・締切／申込案内',
+            description: '締切',
+            aspectRatio: '9:16',
+          },
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: 'orbital-showreel-16x9',
+            label: '横型・作品ダイジェスト',
+            description: 'ダイジェスト',
+            aspectRatio: '16:9',
+          },
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: 'article-dialogue-16x9',
+            label: '横型・会話で解説',
+            description: '一般向け',
+            aspectRatio: '16:9',
+          },
+        ]}
+        template={template}
+      />,
+    )
+
+    const section = screen.getByRole('region', { name: '仕上げ構成（実行候補）' })
+    for (const name of [
+      '横型・テンポ重視の会話解説、Remotion、16:9、ブランド固定',
+      '横型・イベント／サービス告知、Remotion、16:9、ブランド固定',
+      '縦型・締切／申込案内、Remotion、9:16、ブランド固定',
+      '横型・作品ダイジェスト、Remotion、16:9、ブランド固定',
+    ]) {
+      expect(within(section).getByRole('button', { name })).toBeVisible()
+    }
+    expect(within(section).getAllByText('ブランド固定')).toHaveLength(4)
+    // 一般 preset も label / backend / aspect を保つ（ブランド固定は付けない）
+    expect(within(section).getByRole('button', {
+      name: '横型・会話で解説、Remotion、16:9',
+    })).toBeVisible()
+    expect(within(section).queryByRole('button', {
+      name: /横型・会話で解説、Remotion、16:9、ブランド固定/,
+    })).not.toBeInTheDocument()
+  })
+
   it('仕上げの動きをコピー直前に表示し、未選択はおすすめに任せる', () => {
     render(
       <TemplateChecklist
@@ -371,11 +441,14 @@ describe('TemplateChecklist', () => {
     expect(within(section).getByText(/会話のやりとりでわかりやすく/)).toBeVisible()
     // 未知 ID も隠さず表示（見出しと code の両方に出る）
     expect(within(section).getAllByText('brand-new-unlisted-preset').length).toBeGreaterThan(0)
-    // 表現ヒントは初期閉
-    expect(screen.getByText('表現のヒントを探す').closest('details')).not.toHaveAttribute('open')
+    // 埋め込み catalog は置かず、選んだ表現セクションへ
+    expect(screen.queryByText('表現のヒントを探す')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '選んだ表現' })).toBeVisible()
+    expect(screen.getByText(/状態: おすすめ候補を未選択/)).toBeVisible()
 
     const brief = screen.getByLabelText('制作依頼本文')
-    expect(brief.textContent).not.toMatch(/article-dialogue-16x9|仕上げの動き/)
+    expect(brief.textContent).toMatch(/おすすめ候補を未選択/)
+    expect(brief.textContent).not.toMatch(/article-dialogue-16x9/)
 
     // コピーボタンより前に配置（DOM 順）
     const primary = screen.getByRole('button', { name: '制作依頼だけをコピー' })
@@ -412,7 +485,7 @@ describe('TemplateChecklist', () => {
 
     await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
     const brief = screen.getByLabelText('制作依頼本文')
-    expect(brief.textContent).toMatch(/仕上げの動き（presentation preset）/)
+    expect(brief.textContent).toMatch(/仕上げの動き（実行候補）/)
     expect(brief.textContent).toMatch(/remotion/)
     expect(brief.textContent).toMatch(/article-dialogue-16x9/)
     expect(brief.textContent).toMatch(/validate|Gate 1/)

@@ -8,6 +8,7 @@ import {
   Moon,
   RefreshCw,
   Search,
+  Sparkles,
   Sun,
   Users,
   Workflow,
@@ -23,6 +24,14 @@ import {
   type CharacterLoadState,
   type LauncherCharacter,
 } from '../components/character/characterShelfModel'
+import { ExpressionShelf } from '../components/expression/ExpressionShelf'
+import {
+  seedIntentFromTemplate,
+  syncPresentationPresetFromExpressions,
+  type ExpressionSelection,
+  type ExpressionSelectionMode,
+  type RecommendationIntentSeed,
+} from '../components/expression/expressionLibraryModel'
 import { GenerationCanvas } from '../components/generation/GenerationCanvas'
 import {
   backendLabelFor,
@@ -154,7 +163,7 @@ interface LauncherAppProps {
   token?: string
 }
 
-type Shelf = 'projects' | 'templates' | 'characters' | 'canvas' | 'feedback'
+type Shelf = 'projects' | 'templates' | 'expressions' | 'characters' | 'canvas' | 'feedback'
 type LauncherTheme = 'light' | 'dark'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
@@ -315,7 +324,7 @@ function feedbackCardProposalLabel(preference: FeedbackPreference): string {
 }
 
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
-const SHELVES: Shelf[] = ['projects', 'templates', 'characters', 'canvas', 'feedback']
+const SHELVES: Shelf[] = ['projects', 'templates', 'expressions', 'characters', 'canvas', 'feedback']
 const THEME_STORAGE_KEY = 'tsugite-launcher-theme'
 
 function initialLauncherTheme(): LauncherTheme {
@@ -598,6 +607,13 @@ export function LauncherApp({
   const [presentationPresetLoadState, setPresentationPresetLoadState] = useState<PresentationPresetLoadState>('idle')
   /** 片側 backend だけ失敗したときの非ブロッキング案内（全失敗時は null。loadState=error が担う） */
   const [presentationPresetNotice, setPresentationPresetNotice] = useState<string | null>(null)
+  /** 表現棚の選択。テンプレート最終画面へ戻っても保持する */
+  const [expressionSelections, setExpressionSelections] = useState<ExpressionSelection[]>([])
+  const [expressionSelectionMode, setExpressionSelectionMode] = useState<ExpressionSelectionMode>('unset')
+  const [expressionIntentSeed, setExpressionIntentSeed] = useState<RecommendationIntentSeed | null>(null)
+  const [expressionReturnShelf, setExpressionReturnShelf] = useState<Shelf | null>(null)
+  const expressionSelectionsRef = useRef(expressionSelections)
+  expressionSelectionsRef.current = expressionSelections
   const [characters, setCharacters] = useState<LauncherCharacter[]>([])
   const [characterLoadState, setCharacterLoadState] = useState<CharacterLoadState>('idle')
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
@@ -853,7 +869,12 @@ export function LauncherApp({
   const selectShelf = (shelf: Shelf) => {
     setActiveShelf(shelf)
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
-    if (shelf === 'templates' && presentationPresetLoadState === 'idle') void loadPresentationPresets()
+    if (
+      (shelf === 'templates' || shelf === 'expressions')
+      && presentationPresetLoadState === 'idle'
+    ) {
+      void loadPresentationPresets()
+    }
     if (shelf === 'characters' && characterLoadState === 'idle') void loadCharacters()
     if (shelf === 'feedback') {
       setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
@@ -864,6 +885,47 @@ export function LauncherApp({
       ))
       if (feedbackLoadState === 'idle') void loadFeedback()
     }
+  }
+
+  const handleTemplateWizardStateChange = useCallback((next: TemplateWizardState) => {
+    // 最終画面での preset 変更が expressionSelections を更新するため、親も追随する
+    setTemplateWizardState(next)
+    setExpressionSelections(next.expressionSelections ?? [])
+    setExpressionSelectionMode(next.expressionSelectionMode ?? 'unset')
+  }, [])
+
+  const handleExpressionSelectionsChange = useCallback((next: {
+    selections: ExpressionSelection[]
+    mode: ExpressionSelectionMode
+  }) => {
+    const previousSelections = expressionSelectionsRef.current
+    setExpressionSelections(next.selections)
+    setExpressionSelectionMode(next.mode)
+    setTemplateWizardState((current) => ({
+      ...current,
+      expressionSelections: next.selections,
+      expressionSelectionMode: next.mode,
+      presentationPreset: syncPresentationPresetFromExpressions(
+        current.presentationPreset,
+        previousSelections,
+        next.selections,
+      ),
+    }))
+  }, [])
+
+  const openExpressionsFromTemplate = (template: LauncherTemplate) => {
+    setExpressionIntentSeed(seedIntentFromTemplate(template))
+    setExpressionReturnShelf('templates')
+    setActiveShelf('expressions')
+    if (presentationPresetLoadState === 'idle') void loadPresentationPresets()
+  }
+
+  const returnFromExpressions = () => {
+    const target = expressionReturnShelf ?? 'templates'
+    setExpressionReturnShelf(null)
+    setActiveShelf(target)
+    if (target === 'templates' && templateLoadState === 'idle') void loadTemplates()
+    if (target === 'templates' && presentationPresetLoadState === 'idle') void loadPresentationPresets()
   }
 
   const selectFeedbackPreference = (key: string) => {
@@ -1160,6 +1222,18 @@ export function LauncherApp({
               <LayoutTemplate aria-hidden="true" size={17} />テンプレート
             </button>
             <button
+              aria-controls="launcher-expressions-panel"
+              aria-selected={activeShelf === 'expressions'}
+              id="launcher-expressions-tab"
+              onClick={() => selectShelf('expressions')}
+              onKeyDown={(event) => handleShelfKeyDown(event, 'expressions')}
+              role="tab"
+              tabIndex={activeShelf === 'expressions' ? 0 : -1}
+              type="button"
+            >
+              <Sparkles aria-hidden="true" size={17} />表現
+            </button>
+            <button
               aria-controls="launcher-characters-panel"
               aria-selected={activeShelf === 'characters'}
               id="launcher-characters-tab"
@@ -1258,6 +1332,7 @@ export function LauncherApp({
               <strong>{{
                 projects: '制作作品',
                 templates: 'テンプレート',
+                expressions: '表現',
                 characters: 'キャラクター',
                 canvas: '生成キャンバス',
                 feedback: '好み・学び',
@@ -1266,6 +1341,7 @@ export function LauncherApp({
             <p>{{
               projects: '作品を選び、最新の制作記録を開きます',
               templates: '作りたい動画を選び、制作依頼を確認してコピーします',
+              expressions: '動きの見本札から実行候補と参考表現を選びます',
               characters: 'キャラを確認し、依頼メモをコピーします',
               canvas: '画像・動画の工程をつないで設計します',
               feedback: '制作から育った知見を確認できます',
@@ -1274,8 +1350,8 @@ export function LauncherApp({
         )}
       </section>
 
-      {/* テンプレート棚はウィザード内の進捗に一本化（ここでの3段階は出さない） */}
-      {activeShelf !== 'templates' && (
+      {/* テンプレート棚・表現棚は専用UIに一本化（ここでの3段階は出さない） */}
+      {activeShelf !== 'templates' && activeShelf !== 'expressions' && (
       <ol aria-label="見取図を開く手順" className="launcher-joinery">
         {activeShelf === 'projects' ? (
           <>
@@ -1625,15 +1701,36 @@ export function LauncherApp({
       ) : activeShelf === 'templates' ? (
         <TemplateShelf
           fetcher={fetcher}
-          initialState={templateWizardState}
+          initialState={{
+            ...templateWizardState,
+            expressionSelections,
+            expressionSelectionMode,
+          }}
           loadState={templateLoadState}
+          onOpenExpressions={openExpressionsFromTemplate}
           onRetry={() => void loadTemplates()}
           onRetryPresentationPresets={() => void loadPresentationPresets()}
-          onStateChange={setTemplateWizardState}
+          onStateChange={handleTemplateWizardStateChange}
           presentationPresetLoadState={presentationPresetLoadState}
           presentationPresetNotice={presentationPresetNotice}
           presentationPresets={presentationPresets}
           templates={templates}
+          token={token}
+        />
+      ) : activeShelf === 'expressions' ? (
+        <ExpressionShelf
+          fetcher={fetcher}
+          intentSeed={expressionIntentSeed}
+          onClearIntentSeed={() => setExpressionIntentSeed(null)}
+          onReturnToTemplate={expressionReturnShelf === 'templates' ? returnFromExpressions : undefined}
+          onSelectionsChange={handleExpressionSelectionsChange}
+          presentationPresetLoadState={presentationPresetLoadState}
+          presentationPresetNotice={presentationPresetNotice}
+          presentationPresets={presentationPresets}
+          onRetryPresentationPresets={() => void loadPresentationPresets()}
+          returnLabel="テンプレートへ戻る"
+          selectionMode={expressionSelectionMode}
+          selections={expressionSelections}
           token={token}
         />
       ) : activeShelf === 'characters' ? (

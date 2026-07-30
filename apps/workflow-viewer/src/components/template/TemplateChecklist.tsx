@@ -1,8 +1,17 @@
-import { Check, ClipboardCopy, RefreshCw } from 'lucide-react'
+import { Check, ClipboardCopy, RefreshCw, Sparkles } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
-import { HyperframesCatalogPanel } from './HyperframesCatalogPanel'
 import {
+  EXPRESSION_SELECTION_COMBINE_NOTE,
+  capabilityLabel,
+  expressionRoleLabel,
+  previewFidelityLabel,
+  selectionModeLabel,
+  type ExpressionSelection,
+  type ExpressionSelectionMode,
+} from '../expression/expressionLibraryModel'
+import {
+  isBrandLockedPresentationPresetId,
   isSamePresentationPresetSelection,
   optionKey,
   type PresentationPresetLoadState,
@@ -53,10 +62,14 @@ export interface TemplateChecklistProps {
   onPresentationPresetChange?: (selection: PresentationPresetSelection) => void
   /** 片側 backend 不足など、候補は出せるが一部欠けるときの非ブロッキング案内 */
   presentationPresetNotice?: string | null
-  /** HyperFrames 公式 catalog 参照用。未指定時は window.fetch */
+  /** 互換のため残す（表現棚へ移したため未使用） */
   fetcher?: typeof fetch
-  /** ランチャー認証token。catalog GET に x-tsugite-token として渡す */
+  /** 互換のため残す（表現棚へ移したため未使用） */
   token?: string
+  expressionSelections?: readonly ExpressionSelection[]
+  expressionSelectionMode?: ExpressionSelectionMode
+  /** 表現棚を開く（埋め込み catalog の代わり） */
+  onOpenExpressions?: () => void
 }
 
 const CLIPBOARD_WRITE_TIMEOUT_MS = 1_500
@@ -109,12 +122,14 @@ export function TemplateChecklist({
   presentationPreset: presentationPresetProp,
   onPresentationPresetChange,
   presentationPresetNotice = null,
-  fetcher,
-  token = '',
+  expressionSelections = [],
+  expressionSelectionMode = 'unset',
+  onOpenExpressions,
 }: TemplateChecklistProps) {
   const headingId = useId()
   const detailsId = useId()
   const presetHeadingId = useId()
+  const expressionHeadingId = useId()
   const headingRef = useRef<HTMLHeadingElement | null>(null)
   const showPresetPicker = presentationPresets !== undefined
     || presentationPresetLoadState === 'loading'
@@ -128,8 +143,11 @@ export function TemplateChecklist({
     else setUncontrolledPreset(next)
   }
   const productionPrompt = useMemo(
-    () => buildTemplateProductionPrompt(template, choices, presentationPreset),
-    [choices, presentationPreset, template],
+    () => buildTemplateProductionPrompt(template, choices, presentationPreset, {
+      mode: expressionSelectionMode,
+      selections: expressionSelections,
+    }),
+    [choices, expressionSelectionMode, expressionSelections, presentationPreset, template],
   )
   const resolvedInputs = useMemo(
     () => resolveRequiredInputDetails(template, choices),
@@ -257,9 +275,9 @@ export function TemplateChecklist({
             <span>任意</span>
             <h3 id={presetHeadingId}>仕上げ構成（実行候補）</h3>
             <p>
-              実行候補の presentation preset です。HyperFrames 参考一覧とは別枠です。
-              ここでは制作依頼に追加するだけです。生成・インストール・render・Gate更新はしません。
-              未選択のままなら、おすすめ構成に任せます。
+              実行候補の仕上げの動きです。参考表現一覧とは別枠です。
+              ここでは制作依頼に追加するだけです。生成・インストール・書き出し・Gate更新はしません。
+              未選択は「おすすめ候補を未選択」として制作依頼に明記します。
             </p>
           </div>
 
@@ -314,10 +332,10 @@ export function TemplateChecklist({
               >
                 <span className="launcher-template-preset-option-topline">
                   <strong>おすすめに任せる</strong>
-                  <small>既定</small>
+                  <small>おすすめ候補を未選択</small>
                 </span>
                 <span className="launcher-template-preset-option-description">
-                  presentation preset を指定せず、制作担当のおすすめ構成に任せます。
+                  仕上げの動きを明示指定しません。制作依頼には「おすすめ候補を未選択」と残します。
                 </span>
               </button>
               {presetOptions.map((option) => {
@@ -326,8 +344,18 @@ export function TemplateChecklist({
                   presetId: option.id,
                 })
                 const aspect = option.aspectRatio ?? '比率未記載'
+                const brandLocked = isBrandLockedPresentationPresetId(option.id)
+                const brandLabel = brandLocked ? 'ブランド固定' : null
+                // 表示中の label / backend / aspect / ブランド固定をすべて accessible name に含める
+                const accessibleName = [
+                  option.label,
+                  option.backendLabel,
+                  aspect,
+                  ...(brandLabel ? [brandLabel] : []),
+                ].join('、')
                 return (
                   <button
+                    aria-label={accessibleName}
                     aria-pressed={selected}
                     className="launcher-template-preset-option"
                     key={optionKey(option)}
@@ -335,9 +363,12 @@ export function TemplateChecklist({
                     type="button"
                   >
                     <span className="launcher-template-preset-option-topline">
-                      <strong>{option.label}</strong>
-                      <small>{option.backendLabel}</small>
-                      <small>{aspect}</small>
+                      <strong aria-hidden="true">{option.label}</strong>
+                      <small aria-hidden="true">{option.backendLabel}</small>
+                      <small aria-hidden="true">{aspect}</small>
+                      {brandLabel && (
+                        <small aria-hidden="true">{brandLabel}</small>
+                      )}
                     </span>
                     {option.description && (
                       <span className="launcher-template-preset-option-description">
@@ -355,7 +386,56 @@ export function TemplateChecklist({
         </section>
       )}
 
-      <HyperframesCatalogPanel fetcher={fetcher} token={token} />
+      <section
+        aria-labelledby={expressionHeadingId}
+        className="launcher-template-checklist-expressions"
+        role="region"
+      >
+        <div className="launcher-template-checklist-presets-heading">
+          <span>任意</span>
+          <h3 id={expressionHeadingId}>選んだ表現</h3>
+          <p>
+            表現棚で選んだ候補です。{EXPRESSION_SELECTION_COMBINE_NOTE}
+            巨大な一覧の埋め込みは置かず、表現タブへ移動して選びます。
+          </p>
+        </div>
+        <p className="launcher-template-preset-state" role="status">
+          状態: {selectionModeLabel(expressionSelectionMode)}
+        </p>
+        {expressionSelections.length === 0 ? (
+          <p className="launcher-template-preset-state">
+            まだ表現候補を明示選択していません。
+          </p>
+        ) : (
+          <ul className="launcher-template-expression-selection-list">
+            {expressionSelections.map((selection) => (
+              <li key={selection.key}>
+                <strong>{selection.title}</strong>
+                <small>{expressionRoleLabel(selection.role)}</small>
+                <small>{selection.provider} / {selection.nativeId}</small>
+                <small>{capabilityLabel(selection.capability)}</small>
+                <small>{previewFidelityLabel(selection.previewFidelity)}</small>
+                <span>{selection.reason}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {onOpenExpressions && (
+          <button
+            className="launcher-secondary"
+            onClick={onOpenExpressions}
+            type="button"
+          >
+            <Sparkles aria-hidden="true" size={16} />
+            表現を変更
+          </button>
+        )}
+        {!onOpenExpressions && (
+          <p className="launcher-template-preset-state">
+            上部ナビの「表現」タブから候補を選べます。
+          </p>
+        )}
+      </section>
 
       <div className="launcher-template-checklist-primary">
         <button
@@ -376,8 +456,7 @@ export function TemplateChecklist({
           )}
         </button>
         <p className="launcher-template-checklist-copy-scope">
-          目的・選択内容・必須素材・制作条件
-          {presentationPreset ? '・仕上げの動き' : ''}
+          目的・選択内容・必須素材・制作条件・仕上げの動き・表現候補
           だけをコピーします。
           任意素材や「向かない用途」はコピーしません。
         </p>
