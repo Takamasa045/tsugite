@@ -19,6 +19,16 @@ afterEach(async () => {
 });
 
 describe("deferred worktree integration", () => {
+  it("reports git-unavailable outside a repository", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "tsugite-deferred-outside-"));
+    temporaryRoots.push(outside);
+
+    const result = await readDeferredWorktreeQueue({ cwd: outside });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.git_unavailable");
+  });
+
   it("reports an empty queue before any completed worktree is authorized", async () => {
     const fixture = await createFixture();
 
@@ -91,6 +101,63 @@ describe("deferred worktree integration", () => {
     expect(result.issues[0]?.code).toBe("worktrees.deferred_identity_changed");
     expect((await readDeferredWorktreeQueue({ cwd: fixture.main })).entries[0]?.head)
       .toBe(fixture.featureHead);
+  });
+
+  it("returns queue-busy instead of racing another queue writer", async () => {
+    const fixture = await createFixture();
+    const first = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+    const second = join(fixture.base, "second-feature");
+    runGit(fixture.main, ["worktree", "add", "-b", "codex/deferred-lock", second]);
+    await writeFile(join(second, "second.txt"), "second\n");
+    runGit(second, ["add", "second.txt"]);
+    runGit(second, ["commit", "-m", "second feature"]);
+    await writeFile(`${first.queue_path}.lock`, "held\n");
+
+    const result = await deferWorktreeIntegration({
+      cwd: second,
+      path: second,
+      apply: true
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.applied).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_busy");
+    expect((await readDeferredWorktreeQueue({ cwd: fixture.main })).entries).toHaveLength(1);
+  });
+
+  it("rejects a queue that has reached its bounded entry limit", async () => {
+    const fixture = await createFixture();
+    const first = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+    const entries = Array.from({ length: 128 }, (_, index) => ({
+      id: `entry-${index}`,
+      path: `/tmp/tsugite-deferred-${index}`,
+      branch: `codex/deferred-${index}`,
+      head: fixture.featureHead,
+      main_branch: "main",
+      authorized_at: "2026-07-30T14:00:00.000Z",
+      status: "pending"
+    }));
+    await writeFile(
+      first.queue_path,
+      `${JSON.stringify({ schema_version: 1, entries })}\n`
+    );
+
+    const result = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_full");
   });
 
   it("refuses to authorize a dirty worktree", async () => {
@@ -335,6 +402,134 @@ describe("deferred worktree integration", () => {
     expect((await readDeferredWorktreeQueue({ cwd: fixture.main })).entries).toHaveLength(1);
   });
 
+  it("does not fast-forward a different branch checked out during verification", async () => {
+    const fixture = await createFixture();
+    await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+
+    const result = await reconcileDeferredWorktrees({
+      cwd: fixture.main,
+      apply: true,
+      verifyCandidate: async () => {
+        runGit(fixture.main, ["switch", "-c", "other-task"]);
+        return { ok: true, checks: ["fixture"] };
+      }
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      applied: false,
+      status: "waiting",
+      waiting_reason: "main_changed"
+    });
+    expect(runGit(fixture.main, ["branch", "--show-current"])).toBe("other-task");
+    expect(runGit(fixture.main, ["rev-parse", "other-task"])).toBe(fixture.mainHead);
+    expect(runGit(fixture.main, ["rev-parse", "main"])).toBe(fixture.mainHead);
+    await expect(access(fixture.feature)).resolves.toBeUndefined();
+    expect((await readDeferredWorktreeQueue({ cwd: fixture.main })).entries).toHaveLength(1);
+  });
+
+  it("preserves a concurrently authorized entry when completing the oldest entry", async () => {
+    const fixture = await createFixture();
+    const second = join(fixture.base, "second-feature");
+    runGit(fixture.main, ["worktree", "add", "-b", "codex/deferred-second", second]);
+    await writeFile(join(second, "second.txt"), "second\n");
+    runGit(second, ["add", "second.txt"]);
+    runGit(second, ["commit", "-m", "second feature"]);
+    const secondHead = runGit(second, ["rev-parse", "HEAD"]);
+    await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+
+    const result = await reconcileDeferredWorktrees({
+      cwd: fixture.main,
+      apply: true,
+      verifyCandidate: async () => {
+        const concurrent = await deferWorktreeIntegration({
+          cwd: second,
+          path: second,
+          apply: true
+        });
+        expect(concurrent.ok).toBe(true);
+        return { ok: true, checks: ["fixture"] };
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe("reconciled");
+    const queue = await readDeferredWorktreeQueue({ cwd: fixture.main });
+    expect(queue.entries).toHaveLength(1);
+    expect(queue.entries[0]).toMatchObject({
+      branch: "codex/deferred-second",
+      head: secondHead
+    });
+    await expect(access(second)).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ["path", "/tmp/changed-after-verification"],
+    ["branch", "codex/changed-after-verification"],
+    ["head", "ffffffffffffffffffffffffffffffffffffffff"],
+    ["main_branch", "trunk"],
+    ["authorized_at", "2026-07-30T15:00:00.000Z"]
+  ])("detects a queue %s change before removing the processed entry", async (field, value) => {
+    const fixture = await createFixture();
+    const queued = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+
+    const result = await reconcileDeferredWorktrees({
+      cwd: fixture.main,
+      apply: true,
+      verifyCandidate: async () => {
+        const payload = JSON.parse(await readFile(queued.queue_path, "utf8"));
+        payload.entries[0][field] = value;
+        await writeFile(queued.queue_path, `${JSON.stringify(payload)}\n`);
+        return { ok: true, checks: ["fixture"] };
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe("blocked");
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_changed");
+    expect(runGit(fixture.main, ["merge-base", "--is-ancestor", fixture.featureHead, "main"], false).status)
+      .toBe(0);
+    await expect(access(fixture.feature)).rejects.toThrow();
+    expect((await readDeferredWorktreeQueue({ cwd: fixture.main })).entries).toHaveLength(1);
+  });
+
+  it("reports queue corruption detected while completing an entry", async () => {
+    const fixture = await createFixture();
+    const queued = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+
+    const result = await reconcileDeferredWorktrees({
+      cwd: fixture.main,
+      apply: true,
+      verifyCandidate: async () => {
+        await writeFile(queued.queue_path, "{broken\n");
+        return { ok: true, checks: ["fixture"] };
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe("blocked");
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_invalid");
+    expect(runGit(fixture.main, ["merge-base", "--is-ancestor", fixture.featureHead, "main"], false).status)
+      .toBe(0);
+    await expect(access(fixture.feature)).rejects.toThrow();
+  });
+
   it("rejects a symlinked queue directory", async () => {
     const fixture = await createFixture();
     const outside = join(fixture.base, "outside-queue");
@@ -350,6 +545,39 @@ describe("deferred worktree integration", () => {
     expect(result.ok).toBe(false);
     expect(result.issues.some((issue) => issue.code === "worktrees.deferred_queue_unsafe")).toBe(true);
     await expect(access(join(outside, "deferred-worktrees.json"))).rejects.toThrow();
+  });
+
+  it("rejects a readable queue reached through a symlinked parent before changing main", async () => {
+    const fixture = await createFixture();
+    const outside = join(fixture.base, "outside-readable-queue");
+    await mkdir(outside, { recursive: true });
+    await writeFile(
+      join(outside, "deferred-worktrees.json"),
+      `${JSON.stringify({
+        schema_version: 1,
+        entries: [{
+          id: "outside-entry",
+          path: fixture.feature,
+          branch: "codex/deferred-fixture",
+          head: fixture.featureHead,
+          main_branch: "main",
+          authorized_at: "2026-07-30T14:00:00.000Z",
+          status: "pending"
+        }]
+      })}\n`
+    );
+    await symlink(outside, join(fixture.main, ".git", "tsugite"), "dir");
+
+    const result = await reconcileDeferredWorktrees({
+      cwd: fixture.main,
+      apply: true,
+      verifyCandidate: async () => ({ ok: true, checks: ["fixture"] })
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_unsafe");
+    expect(runGit(fixture.main, ["rev-parse", "HEAD"])).toBe(fixture.mainHead);
+    await expect(access(fixture.feature)).resolves.toBeUndefined();
   });
 
   it("rejects a symlinked queue file without reading its target", async () => {
@@ -370,6 +598,37 @@ describe("deferred worktree integration", () => {
     expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_unsafe");
   });
 
+  it("rejects a queue path that is a directory", async () => {
+    const fixture = await createFixture();
+    const queued = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+    await rm(queued.queue_path);
+    await mkdir(queued.queue_path);
+
+    const result = await readDeferredWorktreeQueue({ cwd: fixture.main });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_unsafe");
+  });
+
+  it("rejects a queue file larger than one MiB before parsing", async () => {
+    const fixture = await createFixture();
+    const queued = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+    await writeFile(queued.queue_path, "x".repeat((1024 * 1024) + 1));
+
+    const result = await readDeferredWorktreeQueue({ cwd: fixture.main });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_too_large");
+  });
+
   it("rejects malformed bounded queue fields", async () => {
     const fixture = await createFixture();
     const queued = await deferWorktreeIntegration({
@@ -379,6 +638,49 @@ describe("deferred worktree integration", () => {
     });
     const payload = JSON.parse(await readFile(queued.queue_path, "utf8"));
     payload.entries[0].branch = `codex/deferred-fixture\n${"x".repeat(300)}`;
+    await writeFile(queued.queue_path, `${JSON.stringify(payload)}\n`);
+
+    const result = await readDeferredWorktreeQueue({ cwd: fixture.main });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_invalid");
+  });
+
+  it.each([
+    ["branch", "bad\nbranch"],
+    ["main_branch", ""],
+    ["authorized_at", "not-a-date"]
+  ])("rejects an invalid queue %s", async (field, value) => {
+    const fixture = await createFixture();
+    const queued = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+    const payload = JSON.parse(await readFile(queued.queue_path, "utf8"));
+    payload.entries[0][field] = value;
+    await writeFile(queued.queue_path, `${JSON.stringify(payload)}\n`);
+
+    const result = await readDeferredWorktreeQueue({ cwd: fixture.main });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("worktrees.deferred_queue_invalid");
+  });
+
+  it.each(["id", "path"])("rejects duplicate queue %s values", async (duplicateField) => {
+    const fixture = await createFixture();
+    const queued = await deferWorktreeIntegration({
+      cwd: fixture.feature,
+      path: fixture.feature,
+      apply: true
+    });
+    const payload = JSON.parse(await readFile(queued.queue_path, "utf8"));
+    const duplicate = {
+      ...payload.entries[0],
+      id: duplicateField === "id" ? payload.entries[0].id : "second-id",
+      path: duplicateField === "path" ? payload.entries[0].path : "/tmp/second-path"
+    };
+    payload.entries.push(duplicate);
     await writeFile(queued.queue_path, `${JSON.stringify(payload)}\n`);
 
     const result = await readDeferredWorktreeQueue({ cwd: fixture.main });

@@ -4,7 +4,9 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  open,
   readFile,
+  realpath,
   rename,
   stat,
   symlink,
@@ -26,6 +28,7 @@ const execFileAsync = promisify(execFile);
 const QUEUE_SCHEMA_VERSION = 1;
 const MAX_QUEUE_BYTES = 1024 * 1024;
 const MAX_QUEUE_ENTRIES = 128;
+const QUEUE_LOCK_SUFFIX = ".lock";
 
 export type DeferredWorktreeEntry = {
   id: string;
@@ -190,16 +193,72 @@ export async function deferWorktreeIntegration(
       entry
     };
   }
-  const written = await writeQueueFile(base.queue_path, entries);
-  return {
-    ...base,
-    ok: written.ok,
-    issues: written.issues,
-    entries: written.ok ? entries : queue.entries,
-    applied: written.ok,
-    queued: written.ok,
-    entry
-  };
+  const mutation = await withQueueLock(base.queue_path, async () => {
+    const current = await readQueueFile(base.queue_path);
+    if (!current.ok) {
+      return {
+        ok: false,
+        issues: current.issues,
+        entries: current.entries,
+        applied: false,
+        queued: false,
+        entry
+      };
+    }
+    const currentExisting = current.entries.find((item) => samePath(item.path, target.path));
+    if (currentExisting) {
+      if (currentExisting.head !== target.head || currentExisting.branch !== target.branch) {
+        return {
+          ok: false,
+          issues: [{
+            code: "worktrees.deferred_identity_changed",
+            message: "queued worktree HEAD or branch changed; explicit queue replacement is required",
+            path: target.path
+          }],
+          entries: current.entries,
+          applied: false,
+          queued: false,
+          entry: currentExisting
+        };
+      }
+      return {
+        ok: true,
+        issues: [] as Issue[],
+        entries: current.entries,
+        applied: false,
+        queued: false,
+        entry: currentExisting
+      };
+    }
+    if (current.entries.length >= MAX_QUEUE_ENTRIES) {
+      return {
+        ok: false,
+        issues: [{
+          code: "worktrees.deferred_queue_full",
+          message: `deferred worktree queue is limited to ${MAX_QUEUE_ENTRIES} entries`,
+          path: base.queue_path
+        }],
+        entries: current.entries,
+        applied: false,
+        queued: false,
+        entry
+      };
+    }
+    const currentEntries = [...current.entries, entry];
+    const written = await writeQueueFile(base.queue_path, currentEntries);
+    return {
+      ok: written.ok,
+      issues: written.issues,
+      entries: written.ok ? currentEntries : current.entries,
+      applied: written.ok,
+      queued: written.ok,
+      entry
+    };
+  });
+  if (!mutation.ok) {
+    return { ...base, issues: mutation.issues };
+  }
+  return { ...base, ...mutation.value };
 }
 
 export async function reconcileDeferredWorktrees(
@@ -274,13 +333,12 @@ export async function reconcileDeferredWorktrees(
           processed: entry
         };
       }
-      const remaining = queue.entries.slice(1);
-      const written = await writeQueueFile(base.queue_path, remaining);
+      const written = await removeProcessedQueueEntry(base.queue_path, entry);
       return {
         ...base,
         ok: written.ok,
         issues: written.issues,
-        entries: written.ok ? remaining : queue.entries,
+        entries: written.ok ? written.entries : queue.entries,
         applied: written.ok,
         status: written.ok ? "reconciled" : "blocked",
         processed: entry
@@ -322,13 +380,12 @@ export async function reconcileDeferredWorktrees(
         issues: cleanup.issues
       };
     }
-    const remaining = queue.entries.slice(1);
-    const written = await writeQueueFile(base.queue_path, remaining);
+    const written = await removeProcessedQueueEntry(base.queue_path, entry);
     return {
       ...base,
       ok: written.ok,
       issues: written.issues,
-      entries: written.ok ? remaining : queue.entries,
+      entries: written.ok ? written.entries : queue.entries,
       applied: written.ok,
       status: written.ok ? "reconciled" : "blocked",
       processed: entry,
@@ -486,6 +543,22 @@ async function integrateQueuedWorktree(input: {
     }
     candidateRegistered = false;
 
+    const mainImmediatelySafe = await mainStillSafe(
+      input.runGit,
+      input.audit.primary_path!,
+      input.audit.main_branch!,
+      mainHead
+    );
+    if (!mainImmediatelySafe.ok) {
+      return {
+        ...base,
+        ok: true,
+        issues: [],
+        status: "waiting",
+        waiting_reason: mainImmediatelySafe.reason,
+        checks: verification.checks
+      };
+    }
     const fastForward = await input.runGit(["merge", "--ff-only", integrationCommit], {
       cwd: input.audit.primary_path!
     });
@@ -511,13 +584,12 @@ async function integrateQueuedWorktree(input: {
         integration_commit: integrationCommit
       };
     }
-    const remaining = input.queue.entries.slice(1);
-    const written = await writeQueueFile(input.queue.queue_path, remaining);
+    const written = await removeProcessedQueueEntry(input.queue.queue_path, input.entry);
     return {
       ...base,
       ok: written.ok,
       issues: written.issues,
-      entries: written.ok ? remaining : input.queue.entries,
+      entries: written.ok ? written.entries : input.queue.entries,
       applied: written.ok,
       status: written.ok ? "reconciled" : "blocked",
       integration_commit: integrationCommit,
@@ -589,8 +661,16 @@ async function mainStillSafe(
   mainBranch: string,
   expectedHead: string
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const head = await runGit(["rev-parse", mainBranch], { cwd: primaryPath });
-  if (head.status !== 0 || head.stdout.trim() !== expectedHead) {
+  const branch = await runGit(["symbolic-ref", "--quiet", "--short", "HEAD"], {
+    cwd: primaryPath
+  });
+  const head = await runGit(["rev-parse", "HEAD"], { cwd: primaryPath });
+  if (
+    branch.status !== 0
+    || branch.stdout.trim() !== mainBranch
+    || head.status !== 0
+    || head.stdout.trim() !== expectedHead
+  ) {
     return { ok: false, reason: "main_changed" };
   }
   const statusResult = await runGit(
@@ -708,7 +788,17 @@ async function resolveQueueLocation(
       }]
     };
   }
-  return { ok: true, queuePath: queuePathFor(common.stdout.trim()) };
+  try {
+    return { ok: true, queuePath: queuePathFor(await realpath(common.stdout.trim())) };
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [{
+        code: "worktrees.git_unavailable",
+        message: error instanceof Error ? error.message : String(error)
+      }]
+    };
+  }
 }
 
 function queuePathFor(gitCommonDir: string): string {
@@ -716,6 +806,11 @@ function queuePathFor(gitCommonDir: string): string {
 }
 
 async function readQueueFile(queuePath: string): Promise<DeferredWorktreeQueueResult> {
+  const directory = await inspectQueueDirectory(queuePath);
+  if (!directory.ok) return directory.result;
+  if (directory.missing) {
+    return { ok: true, issues: [], queue_path: queuePath, entries: [] };
+  }
   try {
     const fileStat = await lstat(queuePath);
     if (fileStat.isSymbolicLink() || !fileStat.isFile()) {
@@ -745,6 +840,156 @@ async function readQueueFile(queuePath: string): Promise<DeferredWorktreeQueueRe
   } catch {
     return queueFailure(queuePath, "worktrees.deferred_queue_invalid", "queue JSON is invalid");
   }
+}
+
+async function inspectQueueDirectory(
+  queuePath: string
+): Promise<
+  | { ok: true; missing: boolean }
+  | { ok: false; result: DeferredWorktreeQueueResult }
+> {
+  const directory = dirname(queuePath);
+  try {
+    const directoryStat = await lstat(directory);
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+      return {
+        ok: false,
+        result: queueFailure(
+          queuePath,
+          "worktrees.deferred_queue_unsafe",
+          "queue directory must be a real directory"
+        )
+      };
+    }
+    return { ok: true, missing: false };
+  } catch (error) {
+    if (isMissingPathError(error)) return { ok: true, missing: true };
+    return {
+      ok: false,
+      result: queueFailure(
+        queuePath,
+        "worktrees.deferred_queue_unreadable",
+        error instanceof Error ? error.message : String(error)
+      )
+    };
+  }
+}
+
+async function ensureQueueDirectory(
+  queuePath: string
+): Promise<{ ok: true } | { ok: false; issues: Issue[] }> {
+  const inspected = await inspectQueueDirectory(queuePath);
+  if (!inspected.ok) return { ok: false, issues: inspected.result.issues };
+  if (!inspected.missing) return { ok: true };
+  const directory = dirname(queuePath);
+  try {
+    await mkdir(directory, { recursive: false, mode: 0o700 });
+  } catch (error) {
+    if (!isAlreadyExistsError(error)) {
+      return {
+        ok: false,
+        issues: [{
+          code: "worktrees.deferred_queue_write_failed",
+          message: error instanceof Error ? error.message : String(error),
+          path: queuePath
+        }]
+      };
+    }
+  }
+  const rechecked = await inspectQueueDirectory(queuePath);
+  if (!rechecked.ok) return { ok: false, issues: rechecked.result.issues };
+  if (rechecked.missing) {
+    return {
+      ok: false,
+      issues: [{
+        code: "worktrees.deferred_queue_write_failed",
+        message: "queue directory was not created",
+        path: queuePath
+      }]
+    };
+  }
+  return { ok: true };
+}
+
+async function withQueueLock<T>(
+  queuePath: string,
+  action: () => Promise<T>
+): Promise<{ ok: true; value: T } | { ok: false; issues: Issue[] }> {
+  const directory = await ensureQueueDirectory(queuePath);
+  if (!directory.ok) return directory;
+  const lockPath = `${queuePath}${QUEUE_LOCK_SUFFIX}`;
+  const token = `${randomUUID()}\n`;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(lockPath, "wx", 0o600);
+    await handle.writeFile(token, { encoding: "utf8" });
+  } catch (error) {
+    if (handle) {
+      await handle.close();
+      try {
+        await unlink(lockPath);
+      } catch {
+        // The exact lock created by this call could not be cleaned up.
+      }
+    }
+    return {
+      ok: false,
+      issues: [{
+        code: isAlreadyExistsError(error)
+          ? "worktrees.deferred_queue_busy"
+          : "worktrees.deferred_queue_write_failed",
+        message: isAlreadyExistsError(error)
+          ? "another deferred queue update is in progress"
+          : error instanceof Error ? error.message : String(error),
+        path: lockPath
+      }]
+    };
+  }
+  try {
+    return { ok: true, value: await action() };
+  } finally {
+    await handle.close();
+    try {
+      if (await readFile(lockPath, "utf8") === token) await unlink(lockPath);
+    } catch {
+      // Preserve an unexpected replacement instead of deleting another owner's lock.
+    }
+  }
+}
+
+async function removeProcessedQueueEntry(
+  queuePath: string,
+  processed: DeferredWorktreeEntry
+): Promise<{ ok: boolean; issues: Issue[]; entries: readonly DeferredWorktreeEntry[] }> {
+  const mutation = await withQueueLock(queuePath, async () => {
+    const current = await readQueueFile(queuePath);
+    if (!current.ok) {
+      return { ok: false, issues: current.issues, entries: current.entries };
+    }
+    const index = current.entries.findIndex((entry) => entry.id === processed.id);
+    if (index < 0) return { ok: true, issues: [] as Issue[], entries: current.entries };
+    const matched = current.entries[index]!;
+    if (!sameDeferredIdentity(matched, processed)) {
+      return {
+        ok: false,
+        issues: [{
+          code: "worktrees.deferred_queue_changed",
+          message: "processed queue entry identity changed before completion",
+          path: queuePath
+        }],
+        entries: current.entries
+      };
+    }
+    const entries = current.entries.filter((_, entryIndex) => entryIndex !== index);
+    const written = await writeQueueFile(queuePath, entries);
+    return {
+      ok: written.ok,
+      issues: written.issues,
+      entries: written.ok ? entries : current.entries
+    };
+  });
+  if (!mutation.ok) return { ok: false, issues: mutation.issues, entries: [] };
+  return mutation.value;
 }
 
 async function writeQueueFile(
@@ -869,6 +1114,28 @@ function isMissingPathError(error: unknown): boolean {
     && "code" in error
     && (error as { code?: unknown }).code === "ENOENT"
   );
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "code" in error
+    && (error as { code?: unknown }).code === "EEXIST"
+  );
+}
+
+function sameDeferredIdentity(
+  left: DeferredWorktreeEntry,
+  right: DeferredWorktreeEntry
+): boolean {
+  return left.id === right.id
+    && left.path === right.path
+    && left.branch === right.branch
+    && left.head === right.head
+    && left.main_branch === right.main_branch
+    && left.authorized_at === right.authorized_at
+    && left.status === right.status;
 }
 
 function queueFailure(

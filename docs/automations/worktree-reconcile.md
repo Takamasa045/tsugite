@@ -16,7 +16,7 @@ node bin/pipeline worktrees --defer --path /absolute/path/to/worktree --json
 node bin/pipeline worktrees --defer --apply --actor coordinator --path /absolute/path/to/worktree --json
 ```
 
-キューはgit common dir内のTsugite stateへ保存する。最大128件・1MiBで、regular fileとreal directoryだけを許可し、同じpath/branch/HEADは冪等に扱う。登録後にidentityが変わった対象を自動更新しない。
+キューはgit common dir内のTsugite stateへ保存する。最大128件・1MiBで、regular fileとreal directoryだけを許可し、短時間のexclusive lockと再読込で同時更新を直列化する。同じpath/branch/HEADは冪等に扱い、登録後にidentityが変わった対象を自動更新しない。
 
 ## reconcile
 
@@ -39,7 +39,7 @@ node bin/pipeline worktrees --reconcile --apply --actor coordinator --json
 3. queued path・branch・HEAD・repo境界・lock・protected contentを確認する。
 4. temporary detached worktreeで非forceのmergeを作る。
 5. primary worktreeの既存依存だけを一時参照し、`tsc --noEmit`と全Vitestを実行する。installやnetwork accessは行わない。
-6. main HEADとclean状態、queued worktreeのidentityとprotected contentを再検査する。
+6. primary worktreeがmainをcheckoutしていること、main HEADとclean状態、queued worktreeのidentityとprotected contentを再検査し、fast-forward直前にもmain branchとHEADを再確認する。
 7. 検証済みmerge commitへlocal mainを`--ff-only`で進める。
 8. queued commitがmainのancestorになったことを既存worktree lifecycleで確認し、対象worktreeだけを非force削除する。
 9. 成功entryをqueueから除く。すでにmainへ統合・削除済みのentryは冪等に解消する。
