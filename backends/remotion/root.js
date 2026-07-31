@@ -10,9 +10,17 @@ import {
   useCurrentFrame
 } from "remotion";
 import { CinematicImpactCaptions } from "./cinematicImpactCaptions.js";
+import {
+  captionContainerLayout,
+  captionTextLayout,
+  mediaLayout,
+  resolveCaptionLayout
+} from "./captionLayout.mjs";
 import { resolveCaptionStyle } from "./captionMotion.mjs";
+import { createClipVolume } from "./clipAudio.mjs";
 import { resolveRenderDimensions } from "./dimensions.mjs";
 import { resolveRemotionPreset } from "./presetRegistry.mjs";
+import { OFFTHREAD_VIDEO_FETCH_GUARD } from "./renderSettings.mjs";
 import { audioTrackTiming, clipSequenceTimings, secondsToFrames, totalDuration } from "./timing.mjs";
 
 const DEFAULT_MANIFEST = {
@@ -63,6 +71,8 @@ function Timeline({ manifest }) {
   const fps = manifest.meta.fps;
   const children = [];
   const clipTimings = clipSequenceTimings(manifest.clips, fps);
+  const captionLayout = resolveCaptionLayout(manifest);
+  const registeredPreset = resolveRemotionPreset(manifest.presentation?.preset);
 
   for (const [index, clip] of manifest.clips.entries()) {
     const timing = clipTimings[index];
@@ -72,10 +82,12 @@ function Timeline({ manifest }) {
         Sequence,
         { from: timing.from, durationInFrames: timing.durationInFrames, key: clip.id, name: clip.id },
         React.createElement(OffthreadVideo, {
+          ...OFFTHREAD_VIDEO_FETCH_GUARD,
           src: staticFile(clip.src),
           startFrom: timing.trimBefore,
           muted: !clip.audio,
-          style: mediaStyle()
+          volume: createClipVolume(clip, timing.durationInFrames, fps),
+          style: mediaLayout(captionLayout)
         })
       )
     );
@@ -101,7 +113,6 @@ function Timeline({ manifest }) {
     );
   }
 
-  const registeredPreset = resolveRemotionPreset(manifest.presentation?.preset);
   if (registeredPreset) {
     children.push(React.createElement(registeredPreset.handler, { key: registeredPreset.id, manifest }));
   } else {
@@ -113,14 +124,19 @@ function Timeline({ manifest }) {
             captions: manifest.captions ?? [],
             fps
           })
-        : React.createElement(Captions, { key: "captions", captions: manifest.captions ?? [], fps })
+        : React.createElement(Captions, {
+            key: "captions",
+            captions: manifest.captions ?? [],
+            fps,
+            layout: captionLayout
+          })
     );
   }
 
   return React.createElement(AbsoluteFill, { style: { backgroundColor: "black" } }, ...children);
 }
 
-function Captions({ captions, fps }) {
+function Captions({ captions, fps, layout }) {
   const frame = useCurrentFrame();
   const second = frame / fps;
   const active = captions.find((caption) => second >= caption.start && second < caption.end);
@@ -132,23 +148,14 @@ function Captions({ captions, fps }) {
       style: {
         justifyContent: "flex-end",
         alignItems: "center",
-        padding: "6%",
+        ...captionContainerLayout(layout),
         pointerEvents: "none"
       }
     },
     React.createElement(
       "div",
       {
-        style: {
-          maxWidth: "84%",
-          backgroundColor: "rgba(0, 0, 0, 0.68)",
-          color: "white",
-          fontFamily: "Arial, sans-serif",
-          fontSize: 34,
-          lineHeight: 1.25,
-          padding: "14px 20px",
-          textAlign: "center"
-        }
+        style: captionTextLayout(layout)
       },
       active.speaker ? `${active.speaker}: ${active.text}` : active.text
     )
@@ -159,14 +166,6 @@ function audioTracks(manifest) {
   return [...(manifest.audio?.bgm ?? []), ...(manifest.audio?.narration ?? []), ...(manifest.audio?.sfx ?? [])].filter(
     (track) => track.src
   );
-}
-
-function mediaStyle() {
-  return {
-    width: "100%",
-    height: "100%",
-    objectFit: "cover"
-  };
 }
 
 registerRoot(Root);

@@ -1,5 +1,5 @@
 import { ArrowLeft, LayoutTemplate, RefreshCw } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { TemplateAxisStep } from './TemplateAxisStep'
 import { TemplateChecklist } from './TemplateChecklist'
@@ -14,6 +14,7 @@ import type {
   PresentationPresetSelection,
 } from './presentationPresetModel'
 import { isSamePresentationPresetSelection } from './presentationPresetModel'
+import { ownsRetryFocusHandoff } from './retryFocusHandoff'
 import {
   applyAxisChoice,
   checklistStep,
@@ -91,6 +92,64 @@ export function TemplateShelf({
   const [selectionConfirm, setSelectionConfirm] = useState<string | null>(null)
   const typeHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const focusTypeHeadingRef = useRef(false)
+  const catalogRetryButtonRef = useRef<HTMLButtonElement | null>(null)
+  const prevLoadStateRef = useRef(loadState)
+  /** True only after the user starts retry; not the same as catalogRetrySurfaceActive. */
+  const retryHandoffPendingRef = useRef(false)
+  /** True from first catalog error until ready — keeps retry DOM through loading. */
+  const [catalogRetrySurfaceActive, setCatalogRetrySurfaceActive] = useState(
+    () => loadState === 'error',
+  )
+
+  const isCatalogLoading = loadState === 'loading'
+  const isCatalogError = loadState === 'error'
+  const showCatalogRetryControl =
+    Boolean(onRetry)
+    && (isCatalogError || (isCatalogLoading && catalogRetrySurfaceActive))
+
+  // Retry stays mounted error→loading; hand off focus only while user-owned.
+  useLayoutEffect(() => {
+    const prev = prevLoadStateRef.current
+    prevLoadStateRef.current = loadState
+
+    if (loadState === 'error') {
+      setCatalogRetrySurfaceActive(true)
+      // Re-failure after loading: restore only if retry still owns focus.
+      if (prev === 'loading') {
+        if (
+          retryHandoffPendingRef.current
+          && ownsRetryFocusHandoff(catalogRetryButtonRef.current)
+        ) {
+          catalogRetryButtonRef.current?.focus({ preventScroll: true })
+        } else {
+          retryHandoffPendingRef.current = false
+        }
+      }
+      return
+    }
+
+    if (loadState === 'ready') {
+      const pending = retryHandoffPendingRef.current
+      const shouldHandoff = pending
+        && (prev === 'loading' || prev === 'error')
+        && ownsRetryFocusHandoff(catalogRetryButtonRef.current)
+      retryHandoffPendingRef.current = false
+      if (catalogRetrySurfaceActive) setCatalogRetrySurfaceActive(false)
+      if (shouldHandoff) {
+        // Owned success handoff: first valid template action, else type heading.
+        // Initial automatic loading never sets pending, so it does not focus.
+        const section = typeHeadingRef.current?.closest('section')
+        const firstAction = section?.querySelector<HTMLButtonElement>(
+          '.launcher-template-card-actions button:not([disabled])',
+        )
+        if (firstAction) {
+          firstAction.focus()
+        } else {
+          typeHeadingRef.current?.focus()
+        }
+      }
+    }
+  }, [loadState, catalogRetrySurfaceActive])
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === state.templateId) ?? null,
@@ -368,20 +427,53 @@ export function TemplateShelf({
           {selectionConfirm ?? ''}
         </p>
 
-        {loadState === 'loading' && (
+        {/* Initial load only — no retry control (avoids accidental action on first paint). */}
+        {isCatalogLoading && !catalogRetrySurfaceActive && (
           <div className="launcher-empty" aria-live="polite">
             <RefreshCw aria-hidden="true" className="is-spinning" size={22} />
             <strong>テンプレートを読み込んでいます…</strong>
           </div>
         )}
 
-        {loadState === 'error' && (
-          <div className="launcher-catalog-error" role="alert">
-            <strong>テンプレートを読み込めませんでした。</strong>
-            <p>カタログを確認して、もう一度読み込んでください。</p>
+        {/* Keep retry mounted across error → loading so focus does not fall to body. */}
+        {showCatalogRetryControl && (
+          <div
+            className={isCatalogError ? 'launcher-catalog-error' : 'launcher-empty'}
+            role={isCatalogError ? 'alert' : undefined}
+            aria-busy={isCatalogLoading || undefined}
+            aria-live={isCatalogLoading ? 'polite' : undefined}
+          >
+            {isCatalogError && (
+              <>
+                <strong>テンプレートを読み込めませんでした。</strong>
+                <p>カタログを確認して、もう一度読み込んでください。</p>
+              </>
+            )}
+            {isCatalogLoading && (
+              <strong>テンプレートを読み込んでいます…</strong>
+            )}
             {onRetry && (
-              <button className="launcher-secondary" onClick={onRetry} type="button">
-                <RefreshCw aria-hidden="true" size={16} />テンプレートをもう一度読み込む
+              <button
+                ref={catalogRetryButtonRef}
+                aria-busy={isCatalogLoading || undefined}
+                aria-disabled={isCatalogLoading || undefined}
+                className="launcher-secondary"
+                onClick={() => {
+                  // Soft-disable: keep focus on this node (native disabled drops to body in Chromium).
+                  if (isCatalogLoading) return
+                  retryHandoffPendingRef.current = true
+                  onRetry()
+                }}
+                type="button"
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={isCatalogLoading ? 'is-spinning' : undefined}
+                  size={16}
+                />
+                {isCatalogLoading
+                  ? '読み込んでいます…'
+                  : 'テンプレートをもう一度読み込む'}
               </button>
             )}
           </div>
