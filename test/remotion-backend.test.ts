@@ -20,8 +20,47 @@ import {
   captionSegments,
   resolveCaptionStyle
 } from "../backends/remotion/captionMotion.mjs";
+import {
+  OFFTHREAD_VIDEO_FETCH_GUARD,
+  resolveRenderMediaSettings
+} from "../backends/remotion/renderSettings.mjs";
 
 describe("remotion backend helpers", () => {
+  it("retries transient local frame fetches during video rendering", () => {
+    expect(OFFTHREAD_VIDEO_FETCH_GUARD).toEqual({
+      delayRenderRetries: 10,
+      delayRenderTimeoutInMilliseconds: 180_000
+    });
+  });
+
+  it("reduces temporary storage for high pixel-budget renders", () => {
+    expect(resolveRenderMediaSettings({
+      width: 1920,
+      height: 1080,
+      durationInFrames: 299
+    })).toEqual({
+      concurrency: 1
+    });
+    expect(resolveRenderMediaSettings({
+      width: 1920,
+      height: 1080,
+      durationInFrames: 300
+    })).toEqual({
+      concurrency: 1,
+      imageFormat: "jpeg",
+      jpegQuality: 90
+    });
+    expect(resolveRenderMediaSettings({
+      width: 2560,
+      height: 1440,
+      durationInFrames: 724
+    })).toEqual({
+      concurrency: 1,
+      imageFormat: "jpeg",
+      jpegQuality: 90
+    });
+  });
+
   it("opts into cinematic impact captions without changing the default style", () => {
     expect(resolveCaptionStyle({ meta: {} })).toBe("standard");
     expect(resolveCaptionStyle({ meta: { caption_style: "cinematic-impact" } })).toBe("cinematic-impact");
