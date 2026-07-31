@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   loadTopviewCredentials,
+  preflightTopviewRequest,
   prepareTopviewRequest,
   runTopviewMcpMedia,
   selectTopviewModel
@@ -14,6 +15,53 @@ function generationConfig(models) {
 }
 
 describe("TopView MCP adapter", () => {
+  it("preflights a newly advertised runtime model without uploading or submitting media", async () => {
+    const calls = [];
+    const client = {
+      async call(name, args) {
+        calls.push({ name, args });
+        if (name === "topview_get_generation_config") {
+          return generationConfig([{
+            submitModel: "Veo 4",
+            displayName: "Veo 4",
+            requiredSubmitFields: ["taskType", "model", "prompt", "duration", "sound"],
+            defaultSubmitParameters: { duration: 8, sound: "off" },
+            submitParameterOptions: { duration: [8], sound: ["on", "off"] }
+          }]);
+        }
+        throw new Error(`unexpected tool ${name}`);
+      }
+    };
+
+    const result = await preflightTopviewRequest(client, {
+      id: "future-video",
+      operation: "video",
+      input_mode: "image-to-video",
+      first_frame: "/project/frame.png",
+      prompt: "camera rises above the city",
+      model: "Veo 4",
+      duration: 8,
+      params: { sound: "on" }
+    });
+
+    expect(calls).toEqual([{
+      name: "topview_get_generation_config",
+      args: { req: { type: "video", taskType: "image_to_video" } }
+    }]);
+    expect(result).toEqual({
+      request_id: "future-video",
+      status: "compatible",
+      source: "topview-runtime-config",
+      model: "Veo 4",
+      operation: "video",
+      input_mode: "image-to-video",
+      task_type: "image_to_video",
+      required_parameters: ["taskType", "model", "prompt", "duration", "sound"],
+      parameter_options: { duration: [8], sound: ["on", "off"] },
+      checked_parameters: ["duration", "model", "prompt", "sound", "taskType"]
+    });
+  });
+
   it("uses runtime model config and normalizes an image result", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "tsugite-topview-mcp-"));
     const calls = [];
@@ -180,6 +228,35 @@ describe("TopView MCP adapter", () => {
       }
     });
     expect(upload).toHaveBeenCalledWith("/safe/project/reference.wav");
+  });
+
+  it("reports instant voice models as compatible after runtime config validation", async () => {
+    const client = {
+      call: vi.fn(async (name) => {
+        if (name === "topview_get_generation_config") {
+          return generationConfig([{
+            submitModel: "Seed Audio 2.0",
+            requiredSubmitFields: ["taskType", "model", "text", "referenceAudioFileId"]
+          }]);
+        }
+        throw new Error(`unexpected tool ${name}`);
+      })
+    };
+
+    await expect(preflightTopviewRequest(client, {
+      id: "future-voice-clone",
+      operation: "voice",
+      prompt: "参照音声の話者で読み上げる",
+      input_audios: ["/safe/project/reference.wav"],
+      model: "Seed Audio 2.0"
+    })).resolves.toMatchObject({
+      request_id: "future-voice-clone",
+      status: "compatible",
+      source: "topview-runtime-config",
+      model: "Seed Audio 2.0",
+      task_type: "instant_voice_clone"
+    });
+    expect(client.call).toHaveBeenCalledTimes(1);
   });
 
   it("routes explicit TopView templates without guessing from the input file", async () => {

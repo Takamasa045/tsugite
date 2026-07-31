@@ -12,6 +12,7 @@ export type CommandName =
   | "shitate-import"
   | "character-add"
   | "validate"
+  | "models"
   | "finalize"
   | "plan"
   | "analyze"
@@ -224,6 +225,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     name: "validate",
     summary: "Validate a project, manifest, adapters, and safety constraints.",
     usage: "node bin/pipeline validate --config <project.yaml> [--json]",
+    requiresConfig: true,
+    safety: "read-only",
+    options: [OPTIONS.config]
+  }),
+  defineCommand({
+    name: "models",
+    summary: "Preflight configured generation models without submitting generation tasks.",
+    usage: "node bin/pipeline models --config <project.yaml> [--json]",
     requiresConfig: true,
     safety: "read-only",
     options: [OPTIONS.config]

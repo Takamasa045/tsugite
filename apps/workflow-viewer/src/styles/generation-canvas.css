@@ -338,6 +338,8 @@
 .generation-canvas-select-connection:disabled { cursor: not-allowed; opacity: .55; }
 .generation-canvas-action-message { margin: 0; border: 1px solid var(--canvas-border); border-radius: 2px 8px 2px 8px; padding: 9px; color: var(--canvas-muted); font-size: .58rem; line-height: 1.55; }
 .generation-canvas-action-message.is-error { border-color: color-mix(in srgb, #c17858 55%, var(--canvas-border)); color: #c17858; }
+.generation-canvas-model-preflight { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--canvas-edge-active); border-radius: 2px 9px 2px 9px; color: var(--canvas-text); background: color-mix(in srgb, var(--canvas-edge-active) 10%, transparent); font-size: .64rem; font-weight: 750; }
+.generation-canvas-model-preflight:disabled { cursor: not-allowed; opacity: .55; }
 .generation-canvas-issue { display: flex; gap: 8px; border: 1px solid color-mix(in srgb, #c17858 55%, var(--canvas-border)); border-radius: 2px 10px 2px 10px; padding: 10px; color: var(--canvas-muted); font-size: .6rem; line-height: 1.5; }
 .generation-canvas-issue svg { flex: 0 0 auto; color: #c17858; }
 .generation-canvas-issue span { display: grid; gap: 3px; }

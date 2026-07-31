@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added non-billing runtime model preflight for TopView and PixVerse/PixBurst in the CLI and generation canvas, allowing new provider models without a Tsugite static allowlist while preserving provider-side validation and generation approval boundaries.
+
 ## 0.7.2 - 2026-07-30
 
 - Refined the template wizard and copy guidance, added launcher summaries for learning reviews and presentation presets, and introduced browsable HyperFrames references plus an expression library with recommendations and previews.
