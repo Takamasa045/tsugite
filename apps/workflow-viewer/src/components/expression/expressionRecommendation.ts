@@ -256,10 +256,10 @@ function scoreItem(
   // Availability preference
   if (item.capability === 'declared-executable-candidate') {
     score += 8
-    reasons.push('実行候補として宣言されている')
+    reasons.push('制作依頼に指定できる候補として宣言されている')
   } else if (item.capability === 'reference-only') {
     score += 2
-    cautions.push('参考情報で、実行保証はありません')
+    cautions.push('参考のみで、実装・書き出しは未確認です')
   }
 
   if (intent.readiness === 'explore' && item.capability === 'reference-only') {
@@ -281,11 +281,11 @@ function scoreItem(
 
   // Never claim verified
   if (item.capability !== 'verified-executable') {
-    cautions.push('現状は verified-executable ではありません')
+    cautions.push('検証済み実行の保証はありません')
   }
   cautions.push(item.previewFidelity === 'composition-storyboard'
-    ? '表示は構成イメージです'
-    : '表示は動きのイメージで、実際の出力ではありません')
+    ? '表示は候補名や説明から作った概念見本で、実際の構成・動きの再現ではありません'
+    : '表示は概念見本で、公式実装の再現ではありません')
 
   if (reasons.length === 0) {
     reasons.push('メタデータの部分一致')
@@ -364,7 +364,7 @@ export function recommendExpressions(
   if (recommendations.length === 0) {
     return {
       recommendations: [],
-      clarification: '比率・目的・実行候補（未検証）かどうか、どれを優先しますか？',
+      clarification: '比率・目的・制作依頼に指定できる候補かどうか、どれを優先しますか？',
       lexiconVersion: LEXICON_VERSION,
     }
   }
