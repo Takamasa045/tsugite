@@ -34,6 +34,22 @@ export const PRESENTATION_PRESET_BACKENDS = ['remotion', 'hyperframes'] as const
 
 export type PresentationPresetBackendId = (typeof PRESENTATION_PRESET_BACKENDS)[number]
 
+/**
+ * ブランド固有の presentation preset ID。
+ * 汎用推薦から外し、UI では「ブランド固定」と明示する。
+ * street-dialogue は backends/remotion/streetDialogue.js が PAKU PAKU を固定表示。
+ */
+export const BRAND_LOCKED_PRESENTATION_PRESET_IDS = [
+  'street-dialogue-16x9',
+  'tsugite-summer-camp-generated-16x9',
+  'miraichi-lastcall-9x16',
+  'orbital-showreel-16x9',
+] as const
+
+export function isBrandLockedPresentationPresetId(presetId: string): boolean {
+  return (BRAND_LOCKED_PRESENTATION_PRESET_IDS as readonly string[]).includes(presetId)
+}
+
 const BACKEND_LABELS: Record<string, string> = {
   remotion: 'Remotion',
   hyperframes: 'HyperFrames',
@@ -72,7 +88,7 @@ const PRESET_PURPOSE_DESCRIPTIONS: Record<string, string> = {
 }
 
 export const PRESENTATION_PRESET_SAFETY_NOTE =
-  '選択した構成が利用可能か validate と Gate 1 で確認し、非対応なら勝手に別presetへ変えず確認する'
+  '選択した構成が制作開始前に使えるか確認し、非対応なら勝手に別の仕上げへ変えず確認する（黙示fallback禁止）'
 
 export function backendLabelFor(backend: string): string {
   return BACKEND_LABELS[backend] ?? backend
@@ -168,10 +184,10 @@ export function formatPresentationPresetPromptSection(
     ? selection.presetId
     : `${label}${aspectText}`
   const lines = [
-    '## 仕上げの動き（presentation preset）',
+    '## 制作依頼に指定できる仕上げ',
     '',
-    `- **backend**: ${selection.backend}（${backendLabelFor(selection.backend)}）`,
-    `- **preset**: \`${selection.presetId}\` — ${purpose}`,
+    `- **提供元**: ${selection.backend}（${backendLabelFor(selection.backend)}）`,
+    `- **id**: \`${selection.presetId}\` — ${purpose}`,
     `- ${PRESENTATION_PRESET_SAFETY_NOTE}`,
     '',
   ]

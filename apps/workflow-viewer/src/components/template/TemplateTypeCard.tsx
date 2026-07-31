@@ -12,6 +12,7 @@ interface TemplateTypeCardProps {
   selected: boolean
   onSelectDetail: (templateId: string) => void
   onQuickStart: (templateId: string) => void
+  onOpenExpressions?: (templateId: string) => void
 }
 
 export function TemplateTypeCard({
@@ -19,6 +20,7 @@ export function TemplateTypeCard({
   selected,
   onSelectDetail,
   onQuickStart,
+  onOpenExpressions,
 }: TemplateTypeCardProps) {
   const preview = template.valid ? templatePreview(template) : null
   const inputTypes = template.valid
@@ -31,6 +33,7 @@ export function TemplateTypeCard({
     : `${template.name}（選択不可）`
   const detailActionLabel = `${cardLabel}を詳しく選ぶ`
   const quickStartActionLabel = `${cardLabel}のおすすめ設定で制作依頼を作る`
+  const expressionsActionLabel = `${cardLabel}の表現も選ぶ`
 
   return (
     <article
@@ -60,7 +63,7 @@ export function TemplateTypeCard({
         {template.valid && preview && (
           <div className="launcher-template-storyboard">
             <div className="launcher-template-storyboard-heading">
-              <b>構成イメージ</b>
+              <b>動画の流れ</b>
               {!previewIsReady && <small>プレビュー準備中</small>}
             </div>
             <div className="launcher-template-frames">
@@ -130,6 +133,22 @@ export function TemplateTypeCard({
         >
           おすすめ設定で制作依頼を作る
         </button>
+        {onOpenExpressions && (
+          <button
+            aria-label={expressionsActionLabel}
+            className="launcher-secondary"
+            data-expression-return-trigger=""
+            data-template-id={template.id}
+            disabled={!template.valid}
+            onClick={() => {
+              if (!template.valid) return
+              onOpenExpressions(template.id)
+            }}
+            type="button"
+          >
+            表現も選ぶ
+          </button>
+        )}
       </div>
     </article>
   )

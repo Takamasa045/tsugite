@@ -221,6 +221,17 @@ node bin/pipeline worktrees --json
 node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
 ```
 
+If completion is approved while local `main` is busy, record that exact clean worktree identity in the repository-local deferred queue. A single scheduled host task may then call `--reconcile`: it waits while `main` is dirty, builds an isolated merge, runs TypeScript and Vitest checks, revalidates both worktrees, fast-forwards unchanged local `main`, and removes the now-merged worktree without force. Conflicts, failed checks, changed identities, protected content, and a non-primary invocation stop without changing `main`. It never fetches, pushes, rebases, stashes, resets, cleans, deletes branches, or broadens the original completion authorization.
+
+```sh
+node bin/pipeline worktrees --defer --path ../tsugite-feature-task --json
+node bin/pipeline worktrees --defer --apply --actor coordinator --path ../tsugite-feature-task --json
+node bin/pipeline worktrees --reconcile --json
+node bin/pipeline worktrees --reconcile --apply --actor coordinator --json
+```
+
+See [Deferred Worktree Reconcile](docs/automations/worktree-reconcile.md) for the one-run and scheduled-host contract.
+
 ## Optional Shitate Import
 
 When using the separate Shitate repository, optionally import a selected run and anchor as an immutable, SHA-256-locked project snapshot. Shitate is not required for normal Tsugite usage.

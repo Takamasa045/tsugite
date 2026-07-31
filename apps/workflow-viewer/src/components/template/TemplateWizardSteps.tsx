@@ -76,7 +76,9 @@ export function TemplateWizardSteps({ template, state, onGoToStep }: TemplateWiz
       <ol className="launcher-template-wizard-step-list">
         {chips.map((chip) => {
           const isCurrent = chip.step === state.step
-          // 過去ステップのみ戻れる（現在・未来は disabled）
+          // 過去ステップのみ戻れる（現在・未来は操作不可）。native disabled は使わず
+          // aria-disabled + guard + tabIndex=-1 で、クリックした過去 step が current になっても
+          // active element を失わず、未到達/current は tab 順へ入れない。
           const canGo = chip.step < state.step
           // 動画チップだけ詳細名を a11y 名に含める（条件 option 名と衝突させない）
           const buttonLabel = chip.step === 0 && chip.detail
@@ -87,9 +89,13 @@ export function TemplateWizardSteps({ template, state, onGoToStep }: TemplateWiz
             <li data-current={isCurrent || undefined} key={`${chip.step}-${chip.label}`}>
               <button
                 aria-current={isCurrent ? 'step' : undefined}
+                aria-disabled={!canGo || undefined}
                 aria-label={buttonLabel}
-                disabled={!canGo}
-                onClick={() => onGoToStep(chip.step)}
+                onClick={() => {
+                  if (!canGo) return
+                  onGoToStep(chip.step)
+                }}
+                tabIndex={canGo ? 0 : -1}
                 type="button"
               >
                 <span>{chip.label}</span>

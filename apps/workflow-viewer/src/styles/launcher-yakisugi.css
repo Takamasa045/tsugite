@@ -270,6 +270,14 @@
 .launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button { color: rgba(36, 48, 43, .66); }
 .launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button:hover,
 .launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button[aria-selected="true"] { color: #24302b; background: rgba(154, 61, 48, .07); }
+/*
+ * Light hero tab focus ring: globals #d18d39 is ~2.1–2.73:1 on #fffdf8 (UI < 3:1).
+ * Use solid urushi ink ≥3:1 on light paper without changing dark or selected styles.
+ */
+.launcher-shell[data-theme="light"] .launcher-hero .launcher-shelf-tabs button:focus-visible {
+  outline: 3px solid #9a3d30;
+  outline-offset: 2px;
+}
 .launcher-shell[data-theme="light"] .launcher-theme-switch { border-color: #cbbca7; }
 .launcher-shell[data-theme="light"] .launcher-theme-switch button { color: #59645d; }
 .launcher-shell[data-theme="light"] .launcher-theme-switch button:hover { color: #24302b; background: #eee5d8; }
@@ -1448,6 +1456,21 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
 }
+/*
+ * Template shared muted (dark shell): globals #66736f fails AA on paper.
+ * count/empty stay dark-only; light keeps existing pass colors there.
+ */
+.launcher-shell:not([data-theme="light"]) .launcher-template-wizard .launcher-count,
+.launcher-shell:not([data-theme="light"]) .launcher-template-wizard .launcher-empty p {
+  color: #4a534e;
+}
+/*
+ * Readonly note body: light also fails slightly (~4.48:1) on hinoki tint rgba(206,169,121,.12).
+ * Theme-common denser ink for checklist note only.
+ */
+.launcher-template-checklist .launcher-readonly-note p {
+  color: #4a534e;
+}
 .launcher-template-wizard-main {
   width: 100%;
   max-width: none;
@@ -1481,7 +1504,8 @@
   background: rgba(166, 61, 47, .06);
 }
 .launcher-template-back:focus-visible {
-  outline: 3px solid rgba(166, 61, 47, .35);
+  /* Solid urushi ≥ 3:1 on paper #fffaf0 (alpha wash was ~1.7:1). */
+  outline: 3px solid #9a3d30;
   outline-offset: 2px;
 }
 .launcher-template-wizard .launcher-template-list {
@@ -1583,12 +1607,14 @@
   font-size: .68rem;
   font-weight: 750;
 }
-.launcher-template-wizard-steps button:disabled {
+.launcher-template-wizard-steps button:disabled,
+.launcher-template-wizard-steps button[aria-disabled="true"] {
   opacity: .72;
   cursor: default;
 }
 .launcher-template-wizard-steps button:focus-visible {
-  outline: 3px solid rgba(166, 61, 47, .35);
+  /* Past-step chips: solid ≥ 3:1 on paper (do not weaken TemplateChecklist dual-surface rings). */
+  outline: 3px solid #9a3d30;
   outline-offset: 2px;
 }
 .launcher-template-wizard-steps li[data-current] button {
@@ -1596,7 +1622,7 @@
   color: #6f2b22;
   background: rgba(166, 61, 47, .08);
 }
-.launcher-template-wizard-steps button:not(:disabled):hover {
+.launcher-template-wizard-steps button:not(:disabled):not([aria-disabled="true"]):hover {
   border-color: var(--launcher-urushi);
 }
 .launcher-template-wizard-steps small {
@@ -1648,7 +1674,19 @@
   background: #fff6ea;
 }
 .launcher-template-axis-option:focus-visible {
-  outline: 3px solid rgba(166, 61, 47, .35);
+  /* Solid urushi ≥ 3:1 on paper (alpha wash was ~1.74:1). */
+  outline: 3px solid #9a3d30;
+  outline-offset: 2px;
+}
+/* Axis "おすすめのまま進む" uses .launcher-secondary; override globals #d18d39 (~2.66:1). */
+.launcher-template-axis-heading .launcher-secondary:focus-visible {
+  outline: 3px solid #9a3d30;
+  outline-offset: 2px;
+}
+/* TemplateShelf catalog error retry: same solid ring on paper / error surface. */
+.launcher-catalog-error .launcher-secondary:focus-visible,
+.launcher-template-wizard-main .launcher-empty .launcher-secondary:focus-visible {
+  outline: 3px solid #9a3d30;
   outline-offset: 2px;
 }
 .launcher-template-axis-option-topline {
@@ -1692,7 +1730,8 @@
 .launcher-hyperframes-catalog > summary::before { content: "▸ "; color: #6a6256; }
 .launcher-hyperframes-catalog[open] > summary::before { content: "▾ "; }
 .launcher-hyperframes-catalog > summary:focus-visible {
-  outline: 2px solid rgba(39, 94, 88, .55);
+  /* Solid seiji ≥ 3:1 on paper (alpha wash fails UI component floor). */
+  outline: 3px solid #275e58;
   outline-offset: 2px;
 }
 .launcher-hyperframes-catalog[open] > summary {
@@ -1766,7 +1805,7 @@
 }
 .launcher-hyperframes-catalog-toolbar select:focus-visible,
 .launcher-hyperframes-catalog-search-field:focus-within {
-  outline: 2px solid rgba(39, 94, 88, .45);
+  outline: 3px solid #275e58;
   outline-offset: 1px;
 }
 .launcher-hyperframes-catalog-meta {
@@ -1855,8 +1894,23 @@
   background: rgba(232, 244, 241, .95);
 }
 .launcher-hyperframes-catalog-tag:focus-visible {
-  outline: 2px solid rgba(39, 94, 88, .5);
+  outline: 3px solid #275e58;
   outline-offset: 1px;
+}
+/* Catalog reload / item actions: solid ≥ 3:1 regardless of globals #d18d39. */
+.launcher-hyperframes-catalog .launcher-secondary:focus-visible,
+.launcher-hyperframes-catalog .launcher-primary:focus-visible {
+  outline: 3px solid #9a3d30;
+  outline-offset: 2px;
+}
+.launcher-hyperframes-catalog .launcher-secondary[aria-disabled="true"],
+.launcher-hyperframes-catalog .launcher-primary[aria-disabled="true"],
+.launcher-template-checklist .launcher-secondary[aria-disabled="true"],
+.launcher-catalog-error .launcher-secondary[aria-disabled="true"],
+.launcher-template-wizard-main .launcher-empty .launcher-secondary[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.72;
+  box-shadow: none;
 }
 .launcher-hyperframes-catalog-item-actions {
   display: flex;
@@ -1941,10 +1995,15 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 10px;
+  /* 320px でも長い未改行 ID が grid 子を押し広げない */
+  min-width: 0;
+  max-width: 100%;
 }
 .launcher-template-preset-option {
   display: grid;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   min-height: 96px;
   border: 1px solid rgba(75, 55, 32, .18);
   border-radius: 3px 12px 3px 12px;
@@ -1962,8 +2021,26 @@
 .launcher-template-preset-option:hover {
   border-color: rgba(39, 94, 88, .45);
 }
-.launcher-template-preset-option:focus-visible {
-  outline: 3px solid rgba(166, 61, 47, .35);
+/*
+ * TemplateChecklist dual-surface focus ring.
+ * Dark expressions panel is opaque #1c1a16 while preset/details/copy stay on light paper.
+ * #a65f3f is ≥3:1 on both (#fffaf0 ≈4.66:1, #1c1a16 ≈3.58:1) and covers
+ * 表現を変更 / copy / retry / preset options / details summary.
+ * Selected/pressed/open chrome is separate and must not inherit this outline color.
+ */
+.launcher-template-checklist button:focus-visible,
+.launcher-template-preset-option:focus-visible,
+.launcher-template-checklist-details > summary:focus-visible {
+  outline: 3px solid #a65f3f;
+  outline-offset: 2px;
+}
+/*
+ * Light paper override: keep stronger urushi ink #9a3d30 on hinoki/paper
+ * (≥6.5:1 on #fffaf0). Does not replace the dual-surface base used in dark.
+ */
+.launcher-shell[data-theme="light"] .launcher-template-checklist button:focus-visible,
+.launcher-shell[data-theme="light"] .launcher-template-preset-option:focus-visible {
+  outline: 3px solid #9a3d30;
   outline-offset: 2px;
 }
 .launcher-template-preset-option-topline {
@@ -1971,13 +2048,21 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 .launcher-template-preset-option-topline strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   color: var(--launcher-sumi, #171817);
   font-size: .82rem;
   line-height: 1.4;
 }
 .launcher-template-preset-option-topline small {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   border-radius: 999px;
   padding: 2px 7px;
   color: #275e58;
@@ -1986,20 +2071,28 @@
   font-weight: 800;
 }
 .launcher-template-preset-option-description {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   color: #5c564b;
   font-size: .66rem;
   line-height: 1.5;
 }
 .launcher-template-preset-option-tech {
   display: block;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 2px;
 }
 .launcher-template-preset-option-tech code {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
-  color: #7a7368;
+  /* solid ink ≥4.5:1 on #fffaf0; avoid opacity washout (~3.4:1 at .85) */
+  color: #5c564b;
   font-family: SFMono-Regular, Consolas, monospace;
   font-size: .58rem;
-  opacity: .85;
 }
 .launcher-template-preset-state {
   display: grid;
@@ -2148,10 +2241,7 @@
   color: var(--launcher-urushi);
 }
 .launcher-template-checklist-details[open] > summary::before { content: "▾ "; }
-.launcher-template-checklist-details > summary:focus-visible {
-  outline: 3px solid rgba(166, 61, 47, .35);
-  outline-offset: 2px;
-}
+/* summary:focus-visible outline is unified above with checklist dual-surface ring */
 .launcher-template-checklist-details[open] > summary {
   border-bottom: 1px solid rgba(75, 55, 32, .1);
 }

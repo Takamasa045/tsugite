@@ -21,6 +21,10 @@ import { createDryRun, createPlan } from "./orchestrator/plan.js";
 import { finalizeCompletedProject } from "./orchestrator/finalize.js";
 import { auditAndCleanupWorktrees } from "./worktree/lifecycle.js";
 import {
+  deferWorktreeIntegration,
+  reconcileDeferredWorktrees
+} from "./worktree/deferred.js";
+import {
   inspectGate1Review,
   openCreativeReview,
   writeCreativeReview
@@ -111,6 +115,8 @@ type ParsedArgs = {
   proposalSource?: string;
   open: boolean;
   apply: boolean;
+  defer: boolean;
+  reconcile: boolean;
   allowExternalAnalysis: boolean;
   paths: string[];
   expectedApprovalDigest?: string;
@@ -322,12 +328,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   if (args.command === "worktrees") {
+    if (args.defer && args.reconcile) {
+      return output(args, 1, {
+        ok: false,
+        command: "worktrees",
+        issues: [{
+          code: "worktrees.mode_conflict",
+          message: "--defer and --reconcile cannot be used together"
+        }]
+      });
+    }
     if (args.apply) {
       const coordinatorIssue = requireCoordinator(args);
       if (coordinatorIssue) {
         return output(args, 1, { ok: false, command: "worktrees", issues: [coordinatorIssue] });
       }
-      if (args.paths.length === 0) {
+      if (!args.reconcile && args.paths.length === 0) {
         return output(args, 1, {
           ok: false,
           command: "worktrees",
@@ -339,8 +355,69 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
       }
     }
+    if (args.defer && args.paths.length !== 1) {
+      return output(args, 1, {
+        ok: false,
+        command: "worktrees",
+        issues: [{
+          code: "worktrees.defer_path_required",
+          message: "--defer requires exactly one --path",
+          path: "--path"
+        }]
+      });
+    }
+    if (args.reconcile && args.paths.length > 0) {
+      return output(args, 1, {
+        ok: false,
+        command: "worktrees",
+        issues: [{
+          code: "worktrees.reconcile_path_unsupported",
+          message: "--reconcile processes the oldest queued entry and does not accept --path",
+          path: "--path"
+        }]
+      });
+    }
 
     try {
+      if (args.defer) {
+        const result = await deferWorktreeIntegration({
+          cwd: process.cwd(),
+          path: args.paths[0]!,
+          apply: args.apply
+        });
+        return output(args, result.ok ? 0 : 1, {
+          ok: result.ok,
+          command: "worktrees",
+          mode: "defer",
+          issues: result.issues,
+          applied: result.applied,
+          queued: result.queued,
+          queue_path: result.queue_path,
+          entries: result.entries,
+          entry: result.entry
+        });
+      }
+      if (args.reconcile) {
+        const result = await reconcileDeferredWorktrees({
+          cwd: process.cwd(),
+          apply: args.apply
+        });
+        return output(args, result.ok ? 0 : 1, {
+          ok: result.ok,
+          command: "worktrees",
+          mode: "reconcile",
+          issues: result.issues,
+          applied: result.applied,
+          status: result.status,
+          waiting_reason: result.waiting_reason,
+          queue_path: result.queue_path,
+          entries: result.entries,
+          processed: result.processed,
+          integration_commit: result.integration_commit,
+          removed: result.removed,
+          checks: result.checks
+        });
+      }
       const result = await auditAndCleanupWorktrees({
         cwd: process.cwd(),
         apply: args.apply,
@@ -1220,6 +1297,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       dryRun: false,
       open: false,
       apply: false,
+      defer: false,
+      reconcile: false,
       allowExternalAnalysis: false,
       paths: [],
       issues: helpRequest.issues
@@ -1233,6 +1312,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     dryRun: false,
     open: false,
     apply: false,
+    defer: false,
+    reconcile: false,
     allowExternalAnalysis: false,
     paths: [],
     issues: []
@@ -1269,6 +1350,19 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--apply") {
       if (isCommandOptionAllowed(parsed.command, arg)) {
         parsed.apply = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
+    if (arg === "--defer" || arg === "--reconcile") {
+      if (isCommandOptionAllowed(parsed.command, arg)) {
+        if (arg === "--defer") parsed.defer = true;
+        else parsed.reconcile = true;
       } else {
         parsed.issues.push({
           code: "cli.option_unsupported",

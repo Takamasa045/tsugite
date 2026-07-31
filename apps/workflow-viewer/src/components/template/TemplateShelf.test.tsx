@@ -9,6 +9,7 @@
  */
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { TemplateShelf, type TemplateWizardState } from './TemplateShelf'
@@ -616,6 +617,14 @@ describe('TemplateShelf', () => {
       description: '記事やテーマを、会話のやりとりでわかりやすく伝える向きです。',
       aspectRatio: '16:9' as const,
     },
+    {
+      backend: 'remotion',
+      backendLabel: 'Remotion',
+      id: 'street-dialogue-16x9',
+      label: '横型・テンポ重視の会話解説',
+      description: 'テンポよく会話が進む解説向きです。',
+      aspectRatio: '16:9' as const,
+    },
   ]
 
   it('戻る→再度最終画面でも仕上げの動きの選択を保持する', async () => {
@@ -642,7 +651,7 @@ describe('TemplateShelf', () => {
 
     await user.click(screen.getByRole('button', { name: '戻る' }))
     expect(await screen.findByRole('heading', { name: 'テンポ' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: '仕上げ構成（実行候補）' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
     expect(latestState(onStateChange).presentationPreset).toEqual({
       backend: 'remotion',
       presetId: 'article-dialogue-16x9',
@@ -657,6 +666,78 @@ describe('TemplateShelf', () => {
       backend: 'remotion',
       presetId: 'article-dialogue-16x9',
     })
+  })
+
+  it('最終画面で別presetを選ぶと表現のfull-compositionを置換し、コピー本文に矛盾したfullが2つ出ない', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    const initialState: TemplateWizardState = {
+      templateId: validTemplate.id,
+      choices: { cast: 'beginner-expert', background: 'paper-cutout', pace: 'calm' },
+      step: 4, // checklistStep(3 variants) = 4
+      presentationPreset: { backend: 'remotion', presetId: 'article-dialogue-16x9' },
+      expressionSelections: [
+        {
+          key: 'presentation-preset::remotion::article-dialogue-16x9',
+          provider: 'remotion',
+          nativeId: 'article-dialogue-16x9',
+          title: '横型・会話で解説',
+          role: 'full-composition',
+          capability: 'declared-executable-candidate',
+          previewFidelity: 'composition-storyboard',
+          reason: '表現棚で選択',
+          source: 'presentation-preset',
+        },
+        {
+          key: 'reference-catalog::hyperframes::component::data-chart',
+          provider: 'hyperframes',
+          nativeId: 'data-chart',
+          title: 'Data Chart',
+          role: 'data-viz',
+          capability: 'reference-only',
+          previewFidelity: 'motion-hint',
+          reason: '補助',
+          source: 'reference-catalog',
+        },
+      ],
+      expressionSelectionMode: 'explicit',
+    }
+
+    render(
+      <TemplateShelf
+        initialState={initialState}
+        onStateChange={onStateChange}
+        presentationPresetLoadState="ready"
+        presentationPresets={presentationPresets}
+        templates={templates}
+      />,
+    )
+
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+
+    await user.click(screen.getByRole('button', { name: /横型・テンポ重視の会話解説/ }))
+    const state = latestState(onStateChange)
+    expect(state.presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'street-dialogue-16x9',
+    })
+    const fulls = state.expressionSelections.filter((entry) => entry.role === 'full-composition')
+    expect(fulls).toHaveLength(1)
+    expect(fulls[0]?.nativeId).toBe('street-dialogue-16x9')
+    expect(state.expressionSelections.some((entry) => entry.nativeId === 'data-chart')).toBe(true)
+
+    const brief = screen.getByLabelText('制作依頼本文').textContent ?? ''
+    expect(brief).toMatch(/street-dialogue-16x9/)
+    expect(brief).not.toMatch(/article-dialogue-16x9/)
+
+    await user.click(screen.getByRole('button', { name: /おすすめに任せる/ }))
+    const cleared = latestState(onStateChange)
+    expect(cleared.presentationPreset).toBeNull()
+    expect(cleared.expressionSelections.every((entry) => entry.role !== 'full-composition')).toBe(true)
+    expect(cleared.expressionSelections.some((entry) => entry.nativeId === 'data-chart')).toBe(true)
+    expect(cleared.expressionSelectionMode).toBe('explicit')
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9|street-dialogue-16x9/)
   })
 
   it('別テンプレートに切り替えたら仕上げの動きを「おすすめに任せる」へ戻す', async () => {
@@ -693,5 +774,197 @@ describe('TemplateShelf', () => {
     expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9/)
     expect(latestState(onStateChange).presentationPreset).toBeNull()
+  })
+
+  it('catalog error retry stays mounted with aria-disabled during loading and keeps focus', async () => {
+    const user = userEvent.setup()
+    let loadState: 'error' | 'loading' | 'ready' = 'error'
+    const onRetry = vi.fn(() => {
+      loadState = 'loading'
+      rerender(
+        <TemplateShelf
+          loadState={loadState}
+          onRetry={onRetry}
+          templates={[]}
+        />,
+      )
+    })
+    const { rerender } = render(
+      <TemplateShelf
+        loadState={loadState}
+        onRetry={onRetry}
+        templates={[]}
+      />,
+    )
+
+    const retry = screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' })
+    retry.focus()
+    await user.click(retry)
+    expect(onRetry).toHaveBeenCalledTimes(1)
+
+    const busy = screen.getByRole('button', { name: '読み込んでいます…' })
+    expect(busy).toHaveAttribute('aria-disabled', 'true')
+    expect(busy).not.toHaveAttribute('disabled')
+    expect(busy).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+    await user.click(busy)
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(busy).toHaveFocus()
+  })
+
+  it('error→loading→ready: hands focus to first valid template action (not BODY)', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [loadState, setLoadState] = useState<'error' | 'loading' | 'ready'>('error')
+      const list = loadState === 'ready' ? templates : []
+      return (
+        <div>
+          <TemplateShelf
+            loadState={loadState}
+            onRetry={() => setLoadState('loading')}
+            templates={list}
+          />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setLoadState('ready')}
+          >
+            complete-load
+          </button>
+        </div>
+      )
+    }
+    render(<Harness />)
+
+    const retry = screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' })
+    retry.focus()
+    await user.click(retry)
+    expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'complete-load' }))
+
+    const firstAction = screen.getByRole('button', {
+      name: detailActionName('ブログ掛け合い 60秒'),
+    })
+    expect(firstAction).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement?.tagName.toLowerCase()).not.toBe('body')
+    expect(screen.queryByRole('button', { name: 'テンプレートをもう一度読み込む' })).not.toBeInTheDocument()
+  })
+
+  it('error→loading→ready empty: hands focus to type heading (not BODY)', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [loadState, setLoadState] = useState<'error' | 'loading' | 'ready'>('error')
+      return (
+        <div>
+          <TemplateShelf
+            loadState={loadState}
+            onRetry={() => setLoadState('loading')}
+            templates={[]}
+          />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setLoadState('ready')}
+          >
+            complete-load
+          </button>
+        </div>
+      )
+    }
+    render(<Harness />)
+
+    await user.click(screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' }))
+    expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: 'complete-load' }))
+
+    expect(screen.getByRole('heading', { name: /何を作りたい/ })).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('error→loading→error: focus remains on the same catalog retry control', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [loadState, setLoadState] = useState<'error' | 'loading' | 'ready'>('error')
+      return (
+        <div>
+          <TemplateShelf
+            loadState={loadState}
+            onRetry={() => setLoadState('loading')}
+            templates={[]}
+          />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setLoadState('error')}
+          >
+            fail-load
+          </button>
+        </div>
+      )
+    }
+    render(<Harness />)
+
+    const retry = screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' })
+    retry.focus()
+    await user.click(retry)
+    expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'fail-load' }))
+    const retryAgain = screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' })
+    expect(retryAgain).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('initial automatic loading→ready does not programmatically focus', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [loadState, setLoadState] = useState<'loading' | 'ready'>('loading')
+      return (
+        <div>
+          <TemplateShelf loadState={loadState} onRetry={vi.fn()} templates={templates} />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setLoadState('ready')}
+          >
+            complete-initial
+          </button>
+        </div>
+      )
+    }
+    render(<Harness />)
+    expect(screen.getByText('テンプレートを読み込んでいます…')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'テンプレートをもう一度読み込む' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(document.body)
+
+    await user.click(screen.getByRole('button', { name: 'complete-initial' }))
+    expect(screen.getByRole('heading', { name: 'ブログ掛け合い 60秒' })).toBeVisible()
+    // No user-owned retry: do not steal focus to heading or first action.
+    expect(document.activeElement).toBe(document.body)
+    expect(screen.getByRole('heading', { name: /何を作りたい/ })).not.toHaveFocus()
+  })
+
+  it('production source keeps soft-disable catalog retry (no dynamic native disabled)', async () => {
+    const nodeFs = 'node:fs'
+    const nodePath = 'node:path'
+    const fs = await import(/* @vite-ignore */ nodeFs) as {
+      readFileSync: (path: string, encoding: string) => string
+    }
+    const path = await import(/* @vite-ignore */ nodePath) as {
+      resolve: (...parts: string[]) => string
+    }
+    const cwd = (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.()
+    if (!cwd) throw new Error('process.cwd is unavailable')
+    const source = fs.readFileSync(
+      path.resolve(cwd, 'src/components/template/TemplateShelf.tsx'),
+      'utf8',
+    )
+    expect(source).toMatch(/aria-disabled=\{isCatalogLoading \|\| undefined\}/)
+    expect(source).not.toMatch(/disabled=\{isCatalogLoading\}/)
+    expect(source).toMatch(/if \(isCatalogLoading\) return/)
+    expect(source).toMatch(/retryHandoffPendingRef/)
+    expect(source).toMatch(/ownsRetryFocusHandoff/)
   })
 })

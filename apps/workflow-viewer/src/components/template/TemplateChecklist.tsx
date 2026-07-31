@@ -1,14 +1,24 @@
-import { Check, ClipboardCopy, RefreshCw } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Check, ClipboardCopy, RefreshCw, Sparkles } from 'lucide-react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { HyperframesCatalogPanel } from './HyperframesCatalogPanel'
 import {
+  EXPRESSION_SELECTION_COMBINE_NOTE,
+  capabilityLabel,
+  expressionRoleLabel,
+  previewFidelityLabel,
+  selectionModeLabel,
+  type ExpressionSelection,
+  type ExpressionSelectionMode,
+} from '../expression/expressionLibraryModel'
+import {
+  isBrandLockedPresentationPresetId,
   isSamePresentationPresetSelection,
   optionKey,
   type PresentationPresetLoadState,
   type PresentationPresetOption,
   type PresentationPresetSelection,
 } from './presentationPresetModel'
+import { ownsRetryFocusHandoff } from './retryFocusHandoff'
 import {
   buildTemplateProductionPrompt,
   materialDeliveryInstruction,
@@ -53,10 +63,14 @@ export interface TemplateChecklistProps {
   onPresentationPresetChange?: (selection: PresentationPresetSelection) => void
   /** 片側 backend 不足など、候補は出せるが一部欠けるときの非ブロッキング案内 */
   presentationPresetNotice?: string | null
-  /** HyperFrames 公式 catalog 参照用。未指定時は window.fetch */
+  /** 互換のため残す（表現棚へ移したため未使用） */
   fetcher?: typeof fetch
-  /** ランチャー認証token。catalog GET に x-tsugite-token として渡す */
+  /** 互換のため残す（表現棚へ移したため未使用） */
   token?: string
+  expressionSelections?: readonly ExpressionSelection[]
+  expressionSelectionMode?: ExpressionSelectionMode
+  /** 表現棚を開く（埋め込み catalog の代わり） */
+  onOpenExpressions?: () => void
 }
 
 const CLIPBOARD_WRITE_TIMEOUT_MS = 1_500
@@ -64,6 +78,9 @@ const CLIPBOARD_WRITE_TIMEOUT_MS = 1_500
 function copyWithHiddenTextarea(text: string): boolean {
   if (typeof document.execCommand !== 'function') return false
 
+  // textarea.select() moves focus; restore the caller after remove so Chromium
+  // does not leave focus on body (copy success/fail and generation stay unchanged).
+  const previousActive = document.activeElement
   const textarea = document.createElement('textarea')
   textarea.value = text
   textarea.setAttribute('aria-hidden', 'true')
@@ -78,6 +95,12 @@ function copyWithHiddenTextarea(text: string): boolean {
     return document.execCommand('copy')
   } finally {
     textarea.remove()
+    if (
+      previousActive instanceof HTMLElement
+      && previousActive.isConnected
+    ) {
+      previousActive.focus({ preventScroll: true })
+    }
   }
 }
 
@@ -109,13 +132,25 @@ export function TemplateChecklist({
   presentationPreset: presentationPresetProp,
   onPresentationPresetChange,
   presentationPresetNotice = null,
-  fetcher,
-  token = '',
+  expressionSelections = [],
+  expressionSelectionMode = 'unset',
+  onOpenExpressions,
 }: TemplateChecklistProps) {
   const headingId = useId()
   const detailsId = useId()
   const presetHeadingId = useId()
+  const expressionHeadingId = useId()
   const headingRef = useRef<HTMLHeadingElement | null>(null)
+  const presetHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const retryButtonRef = useRef<HTMLButtonElement | null>(null)
+  const recommendedButtonRef = useRef<HTMLButtonElement | null>(null)
+  const prevPresetLoadStateRef = useRef(presentationPresetLoadState)
+  /** True only after the user starts retry; not the same as retrySurfaceActive. */
+  const retryHandoffPendingRef = useRef(false)
+  /** True from first error until ready/idle — keeps retry DOM through loading. */
+  const [retrySurfaceActive, setRetrySurfaceActive] = useState(
+    () => presentationPresetLoadState === 'error',
+  )
   const showPresetPicker = presentationPresets !== undefined
     || presentationPresetLoadState === 'loading'
     || presentationPresetLoadState === 'error'
@@ -127,9 +162,17 @@ export function TemplateChecklist({
     if (isPresetControlled) onPresentationPresetChange?.(next)
     else setUncontrolledPreset(next)
   }
+  const isPresetLoading = presentationPresetLoadState === 'loading'
+  const isPresetError = presentationPresetLoadState === 'error'
+  const showPresetRetryControl =
+    Boolean(onRetryPresentationPresets)
+    && (isPresetError || (isPresetLoading && retrySurfaceActive))
   const productionPrompt = useMemo(
-    () => buildTemplateProductionPrompt(template, choices, presentationPreset),
-    [choices, presentationPreset, template],
+    () => buildTemplateProductionPrompt(template, choices, presentationPreset, {
+      mode: expressionSelectionMode,
+      selections: expressionSelections,
+    }),
+    [choices, expressionSelectionMode, expressionSelections, presentationPreset, template],
   )
   const resolvedInputs = useMemo(
     () => resolveRequiredInputDetails(template, choices),
@@ -158,6 +201,10 @@ export function TemplateChecklist({
   const goodExamples = exampleLines.filter((entry) => entry.kind === 'good')
   const monoExamples = exampleLines.filter((entry) => entry.kind === 'monotonous')
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  /** Bumps when productionPrompt changes; only matching generation may settle copy UI. */
+  const copyGenerationRef = useRef(0)
+  const productionPromptRef = useRef(productionPrompt)
+  productionPromptRef.current = productionPrompt
   const presetOptions = presentationPresets ?? []
 
   useEffect(() => {
@@ -171,11 +218,62 @@ export function TemplateChecklist({
     setUncontrolledPreset(null)
   }, [isPresetControlled, template.id])
 
+  // Prompt body change invalidates in-flight copy UI (stale A must not overwrite B).
+  useEffect(() => {
+    copyGenerationRef.current += 1
+    setCopyState('idle')
+  }, [productionPrompt])
+
   useEffect(() => {
     if (copyState === 'idle') return
     const timer = window.setTimeout(() => setCopyState('idle'), 2000)
     return () => window.clearTimeout(timer)
   }, [copyState])
+
+  // Retry control stays mounted across error → loading; hand off focus only while owned.
+  useLayoutEffect(() => {
+    const prev = prevPresetLoadStateRef.current
+    prevPresetLoadStateRef.current = presentationPresetLoadState
+
+    if (presentationPresetLoadState === 'error') {
+      setRetrySurfaceActive(true)
+      if (prev === 'loading') {
+        if (
+          retryHandoffPendingRef.current
+          && ownsRetryFocusHandoff(retryButtonRef.current)
+        ) {
+          retryButtonRef.current?.focus({ preventScroll: true })
+        } else {
+          retryHandoffPendingRef.current = false
+        }
+      }
+      return
+    }
+
+    if (presentationPresetLoadState === 'ready') {
+      const pending = retryHandoffPendingRef.current
+      const shouldHandoff = pending
+        && (prev === 'loading' || prev === 'error')
+        && ownsRetryFocusHandoff(retryButtonRef.current)
+      retryHandoffPendingRef.current = false
+      if (retrySurfaceActive) setRetrySurfaceActive(false)
+      if (shouldHandoff) {
+        // Owned success handoff: allow browser scroll into view (new DOM may be off-screen).
+        // Re-error restore keeps preventScroll so the same retry control does not jump.
+        if (recommendedButtonRef.current && !(recommendedButtonRef.current as HTMLButtonElement).disabled) {
+          recommendedButtonRef.current.focus()
+        } else {
+          presetHeadingRef.current?.focus()
+        }
+      }
+      return
+    }
+
+    if (presentationPresetLoadState === 'idle') {
+      retryHandoffPendingRef.current = false
+      setRetrySurfaceActive(false)
+    }
+  }, [presentationPresetLoadState, retrySurfaceActive])
 
   function selectRecommended() {
     setPresentationPreset(null)
@@ -186,17 +284,25 @@ export function TemplateChecklist({
   }
 
   async function handleCopy() {
+    // Snapshot body at click; generation must still match on settle.
+    const generation = copyGenerationRef.current
+    const textSnapshot = productionPrompt
+    const settleIfCurrent = (next: 'copied' | 'failed') => {
+      if (generation !== copyGenerationRef.current) return
+      if (textSnapshot !== productionPromptRef.current) return
+      setCopyState(next)
+    }
     try {
       // ローカルのアプリ内ブラウザでは Clipboard API が応答しない場合がある。
       // ユーザー操作中に使える同期コピーを先に試し、未対応なら標準 API へ戻す。
-      if (copyWithHiddenTextarea(productionPrompt)) {
-        setCopyState('copied')
+      if (copyWithHiddenTextarea(textSnapshot)) {
+        settleIfCurrent('copied')
         return
       }
-      await writeClipboardText(productionPrompt)
-      setCopyState('copied')
+      await writeClipboardText(textSnapshot)
+      settleIfCurrent('copied')
     } catch {
-      setCopyState('failed')
+      settleIfCurrent('failed')
     }
   }
 
@@ -255,33 +361,66 @@ export function TemplateChecklist({
         >
           <div className="launcher-template-checklist-presets-heading">
             <span>任意</span>
-            <h3 id={presetHeadingId}>仕上げ構成（実行候補）</h3>
+            <h3 id={presetHeadingId} ref={presetHeadingRef} tabIndex={-1}>
+              制作依頼に指定できる仕上げ
+            </h3>
             <p>
-              実行候補の presentation preset です。HyperFrames 参考一覧とは別枠です。
-              ここでは制作依頼に追加するだけです。生成・インストール・render・Gate更新はしません。
-              未選択のままなら、おすすめ構成に任せます。
+              制作依頼に指定できる仕上げです。参考表現一覧とは別枠です。
+              ここでは制作依頼に追加するだけです。生成・インストール・書き出し・承認状態の更新はしません。
+              未選択は「おすすめ候補を未選択」として制作依頼に明記します。
             </p>
           </div>
 
-          {presentationPresetLoadState === 'loading' && (
-            <div className="launcher-template-preset-state" aria-live="polite">
+          {/* Initial load only — no retry control (avoids accidental action on first paint). */}
+          {isPresetLoading && !retrySurfaceActive && (
+            <div className="launcher-template-preset-state" aria-busy="true" aria-live="polite">
               <RefreshCw aria-hidden="true" className="is-spinning" size={18} />
               <strong>仕上げの動きを読み込んでいます…</strong>
             </div>
           )}
 
-          {presentationPresetLoadState === 'error' && (
-            <div className="launcher-template-preset-state launcher-template-preset-state-error" role="alert">
-              <strong>仕上げの動きを読み込めませんでした。</strong>
-              <p>一覧を確認して、もう一度読み込んでください。未選択のまま制作依頼をコピーできます。</p>
+          {showPresetRetryControl && (
+            <div
+              className={
+                isPresetError
+                  ? 'launcher-template-preset-state launcher-template-preset-state-error'
+                  : 'launcher-template-preset-state'
+              }
+              role={isPresetError ? 'alert' : undefined}
+              aria-busy={isPresetLoading || undefined}
+              aria-live={isPresetLoading ? 'polite' : undefined}
+            >
+              {isPresetError && (
+                <>
+                  <strong>仕上げの動きを読み込めませんでした。</strong>
+                  <p>一覧を確認して、もう一度読み込んでください。未選択のまま制作依頼をコピーできます。</p>
+                </>
+              )}
+              {isPresetLoading && (
+                <strong>仕上げの動きを読み込んでいます…</strong>
+              )}
               {onRetryPresentationPresets && (
                 <button
+                  ref={retryButtonRef}
+                  aria-busy={isPresetLoading || undefined}
+                  aria-disabled={isPresetLoading || undefined}
                   className="launcher-secondary"
-                  onClick={onRetryPresentationPresets}
+                  onClick={() => {
+                    // Soft-disable: keep focus on this node (native disabled drops to body in Chromium).
+                    if (isPresetLoading) return
+                    retryHandoffPendingRef.current = true
+                    onRetryPresentationPresets()
+                  }}
                   type="button"
                 >
-                  <RefreshCw aria-hidden="true" size={16} />
-                  仕上げの動きをもう一度読み込む
+                  <RefreshCw
+                    aria-hidden="true"
+                    className={isPresetLoading ? 'is-spinning' : undefined}
+                    size={16}
+                  />
+                  {isPresetLoading
+                    ? '読み込んでいます…'
+                    : '仕上げの動きをもう一度読み込む'}
                 </button>
               )}
             </div>
@@ -307,6 +446,7 @@ export function TemplateChecklist({
               role="group"
             >
               <button
+                ref={recommendedButtonRef}
                 aria-pressed={presentationPreset === null}
                 className="launcher-template-preset-option"
                 onClick={selectRecommended}
@@ -314,10 +454,10 @@ export function TemplateChecklist({
               >
                 <span className="launcher-template-preset-option-topline">
                   <strong>おすすめに任せる</strong>
-                  <small>既定</small>
+                  <small>おすすめ候補を未選択</small>
                 </span>
                 <span className="launcher-template-preset-option-description">
-                  presentation preset を指定せず、制作担当のおすすめ構成に任せます。
+                  仕上げの動きを明示指定しません。制作依頼には「おすすめ候補を未選択」と残します。
                 </span>
               </button>
               {presetOptions.map((option) => {
@@ -326,8 +466,18 @@ export function TemplateChecklist({
                   presetId: option.id,
                 })
                 const aspect = option.aspectRatio ?? '比率未記載'
+                const brandLocked = isBrandLockedPresentationPresetId(option.id)
+                const brandLabel = brandLocked ? 'ブランド固定' : null
+                // 表示中の label / backend / aspect / ブランド固定をすべて accessible name に含める
+                const accessibleName = [
+                  option.label,
+                  option.backendLabel,
+                  aspect,
+                  ...(brandLabel ? [brandLabel] : []),
+                ].join('、')
                 return (
                   <button
+                    aria-label={accessibleName}
                     aria-pressed={selected}
                     className="launcher-template-preset-option"
                     key={optionKey(option)}
@@ -335,9 +485,12 @@ export function TemplateChecklist({
                     type="button"
                   >
                     <span className="launcher-template-preset-option-topline">
-                      <strong>{option.label}</strong>
-                      <small>{option.backendLabel}</small>
-                      <small>{aspect}</small>
+                      <strong aria-hidden="true">{option.label}</strong>
+                      <small aria-hidden="true">{option.backendLabel}</small>
+                      <small aria-hidden="true">{aspect}</small>
+                      {brandLabel && (
+                        <small aria-hidden="true">{brandLabel}</small>
+                      )}
                     </span>
                     {option.description && (
                       <span className="launcher-template-preset-option-description">
@@ -355,7 +508,58 @@ export function TemplateChecklist({
         </section>
       )}
 
-      <HyperframesCatalogPanel fetcher={fetcher} token={token} />
+      <section
+        aria-labelledby={expressionHeadingId}
+        className="launcher-template-checklist-expressions"
+        role="region"
+      >
+        <div className="launcher-template-checklist-presets-heading">
+          <span>任意</span>
+          <h3 id={expressionHeadingId}>選んだ表現</h3>
+          <p>
+            表現棚で選んだ候補です。{EXPRESSION_SELECTION_COMBINE_NOTE}
+            巨大な一覧の埋め込みは置かず、表現タブへ移動して選びます。
+          </p>
+        </div>
+        <p className="launcher-template-preset-state" role="status">
+          状態: {selectionModeLabel(expressionSelectionMode)}
+        </p>
+        {expressionSelections.length === 0 ? (
+          <p className="launcher-template-preset-state">
+            まだ表現候補を明示選択していません。
+          </p>
+        ) : (
+          <ul className="launcher-template-expression-selection-list">
+            {expressionSelections.map((selection) => (
+              <li key={selection.key}>
+                <strong>{selection.title}</strong>
+                <small>{expressionRoleLabel(selection.role)}</small>
+                <small>{selection.provider} / {selection.nativeId}</small>
+                <small>{capabilityLabel(selection.capability)}</small>
+                <small>{previewFidelityLabel(selection.previewFidelity)}</small>
+                <span>{selection.reason}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {onOpenExpressions && (
+          <button
+            className="launcher-secondary"
+            data-expression-return-trigger=""
+            data-template-id={template.id}
+            onClick={onOpenExpressions}
+            type="button"
+          >
+            <Sparkles aria-hidden="true" size={16} />
+            表現を変更
+          </button>
+        )}
+        {!onOpenExpressions && (
+          <p className="launcher-template-preset-state">
+            上部ナビの「表現」タブから候補を選べます。
+          </p>
+        )}
+      </section>
 
       <div className="launcher-template-checklist-primary">
         <button
@@ -376,8 +580,7 @@ export function TemplateChecklist({
           )}
         </button>
         <p className="launcher-template-checklist-copy-scope">
-          目的・選択内容・必須素材・制作条件
-          {presentationPreset ? '・仕上げの動き' : ''}
+          目的・選択内容・必須素材・制作条件・仕上げの動き・表現候補
           だけをコピーします。
           任意素材や「向かない用途」はコピーしません。
         </p>

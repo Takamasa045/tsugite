@@ -8,6 +8,7 @@ import {
   Moon,
   RefreshCw,
   Search,
+  Sparkles,
   Sun,
   Users,
   Workflow,
@@ -23,6 +24,14 @@ import {
   type CharacterLoadState,
   type LauncherCharacter,
 } from '../components/character/characterShelfModel'
+import { ExpressionShelf } from '../components/expression/ExpressionShelf'
+import {
+  seedIntentFromTemplate,
+  syncPresentationPresetFromExpressions,
+  type ExpressionSelection,
+  type ExpressionSelectionMode,
+  type RecommendationIntentSeed,
+} from '../components/expression/expressionLibraryModel'
 import { GenerationCanvas } from '../components/generation/GenerationCanvas'
 import {
   backendLabelFor,
@@ -154,7 +163,7 @@ interface LauncherAppProps {
   token?: string
 }
 
-type Shelf = 'projects' | 'templates' | 'characters' | 'canvas' | 'feedback'
+type Shelf = 'projects' | 'templates' | 'expressions' | 'characters' | 'canvas' | 'feedback'
 type LauncherTheme = 'light' | 'dark'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
@@ -315,7 +324,7 @@ function feedbackCardProposalLabel(preference: FeedbackPreference): string {
 }
 
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
-const SHELVES: Shelf[] = ['projects', 'templates', 'characters', 'canvas', 'feedback']
+const SHELVES: Shelf[] = ['projects', 'templates', 'expressions', 'characters', 'canvas', 'feedback']
 const THEME_STORAGE_KEY = 'tsugite-launcher-theme'
 
 function initialLauncherTheme(): LauncherTheme {
@@ -598,6 +607,20 @@ export function LauncherApp({
   const [presentationPresetLoadState, setPresentationPresetLoadState] = useState<PresentationPresetLoadState>('idle')
   /** 片側 backend だけ失敗したときの非ブロッキング案内（全失敗時は null。loadState=error が担う） */
   const [presentationPresetNotice, setPresentationPresetNotice] = useState<string | null>(null)
+  /** 表現棚の選択。テンプレート最終画面へ戻っても保持する */
+  const [expressionSelections, setExpressionSelections] = useState<ExpressionSelection[]>([])
+  const [expressionSelectionMode, setExpressionSelectionMode] = useState<ExpressionSelectionMode>('unset')
+  const [expressionIntentSeed, setExpressionIntentSeed] = useState<RecommendationIntentSeed | null>(null)
+  const [expressionReturnShelf, setExpressionReturnShelf] = useState<Shelf | null>(null)
+  const expressionSelectionsRef = useRef(expressionSelections)
+  expressionSelectionsRef.current = expressionSelections
+  /** After template↔expression unmount, restore keyboard focus post-commit. */
+  const pendingShelfFocusRef = useRef<'expressions-entry' | 'templates-return' | null>(null)
+  /**
+   * Prefer restoring the pre-unmount expression trigger by stable template id
+   * (same accessible name can appear on multiple cards).
+   */
+  const expressionReturnFocusTemplateIdRef = useRef<string | null>(null)
   const [characters, setCharacters] = useState<LauncherCharacter[]>([])
   const [characterLoadState, setCharacterLoadState] = useState<CharacterLoadState>('idle')
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
@@ -851,9 +874,17 @@ export function LauncherApp({
   }, [feedback, feedbackFilter, feedbackListMode, listedFeedback])
 
   const selectShelf = (shelf: Shelf) => {
+    // 通常のタブ選択では template return context を破棄する。
+    // 維持するのは openExpressionsFromTemplate（「表現を変更」）経由の直後だけ。
+    setExpressionReturnShelf(null)
     setActiveShelf(shelf)
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
-    if (shelf === 'templates' && presentationPresetLoadState === 'idle') void loadPresentationPresets()
+    if (
+      (shelf === 'templates' || shelf === 'expressions')
+      && presentationPresetLoadState === 'idle'
+    ) {
+      void loadPresentationPresets()
+    }
     if (shelf === 'characters' && characterLoadState === 'idle') void loadCharacters()
     if (shelf === 'feedback') {
       setVisibleFeedbackCount(FEEDBACK_PAGE_SIZE)
@@ -865,6 +896,102 @@ export function LauncherApp({
       if (feedbackLoadState === 'idle') void loadFeedback()
     }
   }
+
+  const handleTemplateWizardStateChange = useCallback((next: TemplateWizardState) => {
+    // 最終画面での preset 変更が expressionSelections を更新するため、親も追随する
+    setTemplateWizardState(next)
+    setExpressionSelections(next.expressionSelections ?? [])
+    setExpressionSelectionMode(next.expressionSelectionMode ?? 'unset')
+  }, [])
+
+  const handleExpressionSelectionsChange = useCallback((next: {
+    selections: ExpressionSelection[]
+    mode: ExpressionSelectionMode
+  }) => {
+    const previousSelections = expressionSelectionsRef.current
+    setExpressionSelections(next.selections)
+    setExpressionSelectionMode(next.mode)
+    setTemplateWizardState((current) => ({
+      ...current,
+      expressionSelections: next.selections,
+      expressionSelectionMode: next.mode,
+      presentationPreset: syncPresentationPresetFromExpressions(
+        current.presentationPreset,
+        previousSelections,
+        next.selections,
+      ),
+    }))
+  }, [])
+
+  const captureExpressionReturnFocusTarget = () => {
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement)) {
+      expressionReturnFocusTemplateIdRef.current = null
+      return
+    }
+    const templateId = active.getAttribute('data-template-id')?.trim()
+    expressionReturnFocusTemplateIdRef.current = templateId || null
+  }
+
+  const openExpressionsFromTemplate = (template: LauncherTemplate) => {
+    captureExpressionReturnFocusTarget()
+    // Fallback: if focus was not on a marked trigger, still bind to this template id.
+    if (!expressionReturnFocusTemplateIdRef.current) {
+      expressionReturnFocusTemplateIdRef.current = template.id
+    }
+    pendingShelfFocusRef.current = 'expressions-entry'
+    setExpressionIntentSeed(seedIntentFromTemplate(template))
+    setExpressionReturnShelf('templates')
+    setActiveShelf('expressions')
+    if (presentationPresetLoadState === 'idle') void loadPresentationPresets()
+  }
+
+  const returnFromExpressions = () => {
+    const target = expressionReturnShelf ?? 'templates'
+    pendingShelfFocusRef.current = target === 'templates' ? 'templates-return' : null
+    setExpressionReturnShelf(null)
+    setActiveShelf(target)
+    if (target === 'templates' && templateLoadState === 'idle') void loadTemplates()
+    if (target === 'templates' && presentationPresetLoadState === 'idle') void loadPresentationPresets()
+  }
+
+  // Focus after tabpanel unmount/remount — only for explicit expression entry/return.
+  // useEffect (not layout) so it wins over child mount focus (e.g. TemplateChecklist h2).
+  // ArrowLeft/Right/Home/End tab roving stays on handleShelfKeyDown (no extra side effects).
+  // Cross-shelf restore uses default focus() so the browser may scroll the target into view
+  // (Focus Not Obscured). Do not pass preventScroll here — deep triggers can leave the
+  // new heading outside the viewport. Avoid a second scrollIntoView to prevent double scroll.
+  useEffect(() => {
+    const pending = pendingShelfFocusRef.current
+    if (!pending) return
+    pendingShelfFocusRef.current = null
+
+    if (pending === 'expressions-entry' && activeShelf === 'expressions') {
+      const heading = document.getElementById('launcher-expressions-heading')
+      if (heading instanceof HTMLElement) {
+        heading.focus()
+        return
+      }
+      document.getElementById('launcher-expressions-tab')?.focus()
+      return
+    }
+
+    if (pending === 'templates-return' && activeShelf === 'templates') {
+      const returnTemplateId = expressionReturnFocusTemplateIdRef.current
+      expressionReturnFocusTemplateIdRef.current = null
+      if (returnTemplateId) {
+        const buttons = Array.from(document.querySelectorAll('button[data-expression-return-trigger]'))
+        const match = buttons.find((button) => {
+          return button.getAttribute('data-template-id') === returnTemplateId
+        })
+        if (match instanceof HTMLElement && document.contains(match)) {
+          match.focus()
+          return
+        }
+      }
+      document.getElementById('launcher-templates-tab')?.focus()
+    }
+  }, [activeShelf])
 
   const selectFeedbackPreference = (key: string) => {
     setSelectedFeedbackKey(key)
@@ -1160,6 +1287,18 @@ export function LauncherApp({
               <LayoutTemplate aria-hidden="true" size={17} />テンプレート
             </button>
             <button
+              aria-controls="launcher-expressions-panel"
+              aria-selected={activeShelf === 'expressions'}
+              id="launcher-expressions-tab"
+              onClick={() => selectShelf('expressions')}
+              onKeyDown={(event) => handleShelfKeyDown(event, 'expressions')}
+              role="tab"
+              tabIndex={activeShelf === 'expressions' ? 0 : -1}
+              type="button"
+            >
+              <Sparkles aria-hidden="true" size={17} />表現
+            </button>
+            <button
               aria-controls="launcher-characters-panel"
               aria-selected={activeShelf === 'characters'}
               id="launcher-characters-tab"
@@ -1258,6 +1397,7 @@ export function LauncherApp({
               <strong>{{
                 projects: '制作作品',
                 templates: 'テンプレート',
+                expressions: '表現',
                 characters: 'キャラクター',
                 canvas: '生成キャンバス',
                 feedback: '好み・学び',
@@ -1266,6 +1406,7 @@ export function LauncherApp({
             <p>{{
               projects: '作品を選び、最新の制作記録を開きます',
               templates: '作りたい動画を選び、制作依頼を確認してコピーします',
+              expressions: '動きや仕上げを見比べて、制作依頼に入れる候補を選びます',
               characters: 'キャラを確認し、依頼メモをコピーします',
               canvas: '画像・動画の工程をつないで設計します',
               feedback: '制作から育った知見を確認できます',
@@ -1274,8 +1415,8 @@ export function LauncherApp({
         )}
       </section>
 
-      {/* テンプレート棚はウィザード内の進捗に一本化（ここでの3段階は出さない） */}
-      {activeShelf !== 'templates' && (
+      {/* テンプレート棚・表現棚は専用UIに一本化（ここでの3段階は出さない） */}
+      {activeShelf !== 'templates' && activeShelf !== 'expressions' && (
       <ol aria-label="見取図を開く手順" className="launcher-joinery">
         {activeShelf === 'projects' ? (
           <>
@@ -1625,15 +1766,36 @@ export function LauncherApp({
       ) : activeShelf === 'templates' ? (
         <TemplateShelf
           fetcher={fetcher}
-          initialState={templateWizardState}
+          initialState={{
+            ...templateWizardState,
+            expressionSelections,
+            expressionSelectionMode,
+          }}
           loadState={templateLoadState}
+          onOpenExpressions={openExpressionsFromTemplate}
           onRetry={() => void loadTemplates()}
           onRetryPresentationPresets={() => void loadPresentationPresets()}
-          onStateChange={setTemplateWizardState}
+          onStateChange={handleTemplateWizardStateChange}
           presentationPresetLoadState={presentationPresetLoadState}
           presentationPresetNotice={presentationPresetNotice}
           presentationPresets={presentationPresets}
           templates={templates}
+          token={token}
+        />
+      ) : activeShelf === 'expressions' ? (
+        <ExpressionShelf
+          fetcher={fetcher}
+          intentSeed={expressionIntentSeed}
+          onClearIntentSeed={() => setExpressionIntentSeed(null)}
+          onReturnToTemplate={expressionReturnShelf === 'templates' ? returnFromExpressions : undefined}
+          onSelectionsChange={handleExpressionSelectionsChange}
+          presentationPresetLoadState={presentationPresetLoadState}
+          presentationPresetNotice={presentationPresetNotice}
+          presentationPresets={presentationPresets}
+          onRetryPresentationPresets={() => void loadPresentationPresets()}
+          returnLabel="テンプレートへ戻る"
+          selectionMode={expressionSelectionMode}
+          selections={expressionSelections}
           token={token}
         />
       ) : activeShelf === 'characters' ? (

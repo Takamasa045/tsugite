@@ -1,15 +1,20 @@
 import { ArrowLeft, LayoutTemplate, RefreshCw } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { TemplateAxisStep } from './TemplateAxisStep'
 import { TemplateChecklist } from './TemplateChecklist'
 import { TemplateTypeCard } from './TemplateTypeCard'
 import { TemplateWizardSteps } from './TemplateWizardSteps'
+import {
+  syncExpressionSelectionsFromPresentationPreset,
+} from '../expression/expressionLibraryModel'
 import type {
   PresentationPresetLoadState,
   PresentationPresetOption,
   PresentationPresetSelection,
 } from './presentationPresetModel'
+import { isSamePresentationPresetSelection } from './presentationPresetModel'
+import { ownsRetryFocusHandoff } from './retryFocusHandoff'
 import {
   applyAxisChoice,
   checklistStep,
@@ -40,6 +45,31 @@ export interface TemplateShelfProps {
   fetcher?: typeof fetch
   /** ランチャー認証token。catalog GET に渡す */
   token?: string
+  /** テンプレートから表現棚へ。intent seed 付きで開く */
+  onOpenExpressions?: (template: LauncherTemplate) => void
+}
+
+function withExpressionState(
+  state: TemplateWizardState,
+  patch: Partial<TemplateWizardState>,
+): TemplateWizardState {
+  const next: TemplateWizardState = {
+    ...state,
+    ...patch,
+    templateId: patch.templateId !== undefined ? patch.templateId : state.templateId,
+    choices: patch.choices ?? state.choices,
+    step: patch.step ?? state.step,
+    presentationPreset: patch.presentationPreset !== undefined
+      ? patch.presentationPreset
+      : (state.presentationPreset ?? null),
+    expressionSelections: patch.expressionSelections
+      ?? state.expressionSelections
+      ?? [],
+    expressionSelectionMode: patch.expressionSelectionMode
+      ?? state.expressionSelectionMode
+      ?? 'unset',
+  }
+  return next
 }
 
 export function TemplateShelf({
@@ -55,12 +85,71 @@ export function TemplateShelf({
   presentationPresetNotice = null,
   fetcher,
   token = '',
+  onOpenExpressions,
 }: TemplateShelfProps) {
   const [state, setState] = useState<TemplateWizardState>(() => initialState ?? INITIAL_WIZARD_STATE)
   const [selectionError, setSelectionError] = useState<string | null>(null)
   const [selectionConfirm, setSelectionConfirm] = useState<string | null>(null)
   const typeHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const focusTypeHeadingRef = useRef(false)
+  const catalogRetryButtonRef = useRef<HTMLButtonElement | null>(null)
+  const prevLoadStateRef = useRef(loadState)
+  /** True only after the user starts retry; not the same as catalogRetrySurfaceActive. */
+  const retryHandoffPendingRef = useRef(false)
+  /** True from first catalog error until ready — keeps retry DOM through loading. */
+  const [catalogRetrySurfaceActive, setCatalogRetrySurfaceActive] = useState(
+    () => loadState === 'error',
+  )
+
+  const isCatalogLoading = loadState === 'loading'
+  const isCatalogError = loadState === 'error'
+  const showCatalogRetryControl =
+    Boolean(onRetry)
+    && (isCatalogError || (isCatalogLoading && catalogRetrySurfaceActive))
+
+  // Retry stays mounted error→loading; hand off focus only while user-owned.
+  useLayoutEffect(() => {
+    const prev = prevLoadStateRef.current
+    prevLoadStateRef.current = loadState
+
+    if (loadState === 'error') {
+      setCatalogRetrySurfaceActive(true)
+      // Re-failure after loading: restore only if retry still owns focus.
+      if (prev === 'loading') {
+        if (
+          retryHandoffPendingRef.current
+          && ownsRetryFocusHandoff(catalogRetryButtonRef.current)
+        ) {
+          catalogRetryButtonRef.current?.focus({ preventScroll: true })
+        } else {
+          retryHandoffPendingRef.current = false
+        }
+      }
+      return
+    }
+
+    if (loadState === 'ready') {
+      const pending = retryHandoffPendingRef.current
+      const shouldHandoff = pending
+        && (prev === 'loading' || prev === 'error')
+        && ownsRetryFocusHandoff(catalogRetryButtonRef.current)
+      retryHandoffPendingRef.current = false
+      if (catalogRetrySurfaceActive) setCatalogRetrySurfaceActive(false)
+      if (shouldHandoff) {
+        // Owned success handoff: first valid template action, else type heading.
+        // Initial automatic loading never sets pending, so it does not focus.
+        const section = typeHeadingRef.current?.closest('section')
+        const firstAction = section?.querySelector<HTMLButtonElement>(
+          '.launcher-template-card-actions button:not([disabled])',
+        )
+        if (firstAction) {
+          firstAction.focus()
+        } else {
+          typeHeadingRef.current?.focus()
+        }
+      }
+    }
+  }, [loadState, catalogRetrySurfaceActive])
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === state.templateId) ?? null,
@@ -74,6 +163,41 @@ export function TemplateShelf({
   useEffect(() => {
     onSelectedTemplateChange?.(selectedTemplate)
   }, [onSelectedTemplateChange, selectedTemplate])
+
+  // 表現棚で更新された候補 / preset を、棚をまたいで最終画面へ反映する
+  useEffect(() => {
+    if (!initialState) return
+    setState((current) => {
+      const nextSelections = initialState.expressionSelections ?? []
+      const nextMode = initialState.expressionSelectionMode ?? 'unset'
+      const nextPreset = initialState.presentationPreset ?? null
+      const sameSelections = current.expressionSelections?.length === nextSelections.length
+        && (current.expressionSelections ?? []).every(
+          (entry, index) => entry.key === nextSelections[index]?.key,
+        )
+      const samePreset = isSamePresentationPresetSelection(
+        current.presentationPreset ?? null,
+        nextPreset,
+      )
+      if (
+        sameSelections
+        && current.expressionSelectionMode === nextMode
+        && samePreset
+      ) {
+        return current
+      }
+      return {
+        ...current,
+        expressionSelections: nextSelections,
+        expressionSelectionMode: nextMode,
+        presentationPreset: nextPreset,
+      }
+    })
+  }, [
+    initialState?.expressionSelectionMode,
+    initialState?.expressionSelections,
+    initialState?.presentationPreset,
+  ])
 
   useEffect(() => {
     if (!focusTypeHeadingRef.current) return
@@ -89,13 +213,35 @@ export function TemplateShelf({
     setSelectionConfirm(`${label}を選びました。戻って変更できます。`)
   }
 
+  function resetPresentationPresetKeepingAuxiliary(
+    base: TemplateWizardState,
+    patch: Partial<TemplateWizardState>,
+  ): TemplateWizardState {
+    // 仕上げの動きを未選択に戻すとき、表現由来 full も落として制作依頼の矛盾を防ぐ。補助は保持。
+    const synced = syncExpressionSelectionsFromPresentationPreset(
+      base.expressionSelections ?? [],
+      null,
+      null,
+    )
+    return withExpressionState(base, {
+      ...patch,
+      presentationPreset: null,
+      expressionSelections: synced.selections,
+      expressionSelectionMode: synced.mode,
+    })
+  }
+
   function rejectInvalid(template: LauncherTemplate) {
     setSelectionError(
       template.issue?.message
         ?? 'このテンプレートは表示情報を確認できません。選択できません。',
     )
     setSelectionConfirm(null)
-    commit({ templateId: null, choices: {}, step: 0, presentationPreset: null })
+    commit(resetPresentationPresetKeepingAuxiliary(state, {
+      templateId: null,
+      choices: {},
+      step: 0,
+    }))
   }
 
   function handleSelectDetail(templateId: string) {
@@ -111,8 +257,12 @@ export function TemplateShelf({
     announceSelection(template.name)
     const choices = initialChoicesForTemplate(template)
     const step = template.variants.length === 0 ? checklistStep(template.variants) : 1
-    // 別テンプレート選択時は仕上げの動きを安全にリセット
-    commit({ templateId: template.id, choices, step, presentationPreset: null })
+    // 別テンプレート選択時は仕上げの動きを安全にリセット。補助表現は保持。
+    commit(resetPresentationPresetKeepingAuxiliary(state, {
+      templateId: template.id,
+      choices,
+      step,
+    }))
   }
 
   function handleQuickStart(templateId: string) {
@@ -127,12 +277,20 @@ export function TemplateShelf({
     setSelectionError(null)
     announceSelection(template.name)
     const result = fillDefaultsToChecklist(template.variants, {})
-    commit({
+    commit(resetPresentationPresetKeepingAuxiliary(state, {
       templateId: template.id,
       choices: result.choices,
       step: result.step,
-      presentationPreset: null,
-    })
+    }))
+  }
+
+  function handleOpenExpressions(templateId: string) {
+    const template = templates.find((entry) => entry.id === templateId)
+    if (!template?.valid) {
+      if (template) rejectInvalid(template)
+      return
+    }
+    onOpenExpressions?.(template)
   }
 
   function handleAxisSelect(axisIndex: number, optionId: string) {
@@ -148,31 +306,42 @@ export function TemplateShelf({
       optionId,
     )
     announceSelection(optionLabel)
-    commit({
+    commit(withExpressionState(state, {
       templateId: selectedTemplate.id,
       choices: result.choices,
       step: result.step,
       presentationPreset: state.presentationPreset ?? null,
-    })
+    }))
   }
 
   function handleSkipWithDefaults() {
     if (!selectedTemplate?.valid) return
     const result = fillDefaultsToChecklist(selectedTemplate.variants, state.choices)
     setSelectionConfirm('おすすめ設定を使います。戻って変更できます。')
-    commit({
+    commit(withExpressionState(state, {
       templateId: selectedTemplate.id,
       choices: result.choices,
       step: result.step,
       presentationPreset: state.presentationPreset ?? null,
-    })
+    }))
   }
 
   function handlePresentationPresetChange(selection: PresentationPresetSelection) {
-    commit({
-      ...state,
+    const option = selection
+      ? (presentationPresets ?? []).find(
+        (entry) => entry.backend === selection.backend && entry.id === selection.presetId,
+      ) ?? null
+      : null
+    const synced = syncExpressionSelectionsFromPresentationPreset(
+      state.expressionSelections ?? [],
+      selection,
+      option,
+    )
+    commit(withExpressionState(state, {
       presentationPreset: selection,
-    })
+      expressionSelections: synced.selections,
+      expressionSelectionMode: synced.mode,
+    }))
   }
 
   function handleGoToStep(step: number) {
@@ -258,20 +427,53 @@ export function TemplateShelf({
           {selectionConfirm ?? ''}
         </p>
 
-        {loadState === 'loading' && (
+        {/* Initial load only — no retry control (avoids accidental action on first paint). */}
+        {isCatalogLoading && !catalogRetrySurfaceActive && (
           <div className="launcher-empty" aria-live="polite">
             <RefreshCw aria-hidden="true" className="is-spinning" size={22} />
             <strong>テンプレートを読み込んでいます…</strong>
           </div>
         )}
 
-        {loadState === 'error' && (
-          <div className="launcher-catalog-error" role="alert">
-            <strong>テンプレートを読み込めませんでした。</strong>
-            <p>カタログを確認して、もう一度読み込んでください。</p>
+        {/* Keep retry mounted across error → loading so focus does not fall to body. */}
+        {showCatalogRetryControl && (
+          <div
+            className={isCatalogError ? 'launcher-catalog-error' : 'launcher-empty'}
+            role={isCatalogError ? 'alert' : undefined}
+            aria-busy={isCatalogLoading || undefined}
+            aria-live={isCatalogLoading ? 'polite' : undefined}
+          >
+            {isCatalogError && (
+              <>
+                <strong>テンプレートを読み込めませんでした。</strong>
+                <p>カタログを確認して、もう一度読み込んでください。</p>
+              </>
+            )}
+            {isCatalogLoading && (
+              <strong>テンプレートを読み込んでいます…</strong>
+            )}
             {onRetry && (
-              <button className="launcher-secondary" onClick={onRetry} type="button">
-                <RefreshCw aria-hidden="true" size={16} />テンプレートをもう一度読み込む
+              <button
+                ref={catalogRetryButtonRef}
+                aria-busy={isCatalogLoading || undefined}
+                aria-disabled={isCatalogLoading || undefined}
+                className="launcher-secondary"
+                onClick={() => {
+                  // Soft-disable: keep focus on this node (native disabled drops to body in Chromium).
+                  if (isCatalogLoading) return
+                  retryHandoffPendingRef.current = true
+                  onRetry()
+                }}
+                type="button"
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={isCatalogLoading ? 'is-spinning' : undefined}
+                  size={16}
+                />
+                {isCatalogLoading
+                  ? '読み込んでいます…'
+                  : 'テンプレートをもう一度読み込む'}
               </button>
             )}
           </div>
@@ -311,6 +513,7 @@ export function TemplateShelf({
                   {templates.map((template) => (
                     <TemplateTypeCard
                       key={template.id}
+                      onOpenExpressions={onOpenExpressions ? handleOpenExpressions : undefined}
                       onQuickStart={handleQuickStart}
                       onSelectDetail={handleSelectDetail}
                       selected={template.id === state.templateId}
@@ -334,7 +537,12 @@ export function TemplateShelf({
             {onChecklist && selectedTemplate?.valid && (
               <TemplateChecklist
                 choices={state.choices}
+                expressionSelectionMode={state.expressionSelectionMode ?? 'unset'}
+                expressionSelections={state.expressionSelections ?? []}
                 fetcher={fetcher}
+                onOpenExpressions={onOpenExpressions
+                  ? () => onOpenExpressions(selectedTemplate)
+                  : undefined}
                 onPresentationPresetChange={handlePresentationPresetChange}
                 onRetryPresentationPresets={onRetryPresentationPresets}
                 presentationPreset={state.presentationPreset ?? null}
