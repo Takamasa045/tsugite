@@ -199,6 +199,7 @@ projectを扱うサブコマンドは `--config <project.yaml>` を受け取り�
 | `review` | 検証済みproject / manifest / planからGate 1前の静的HTML・ReviewDocument JSON・参照画像copyを生成。外部生成、Gate更新、state書き込みは行わない。Gate 1承認はcanonicalなreview artifactを検査する |
 | `viewer` | 検証済みproject / planと現在のstate・run-log・review・Gate QC成果物から、読み取り専用の3D Workflow Viewer静的HTML / JSONを生成する。run-logの実行サマリーと生成リクエストをノード詳細へ表示し、完全な履歴がない場合は工程順からtimelineを決定的に再構成する |
 | `feedback` | `key`、分類、`prefer / avoid / keep` signal、学習状態、要約と任意の相対evidenceを検証し、project直下の `feedback.jsonl` へ1件追記する。prompt、template、check、運用ruleは変更しない |
+| `worktrees` | registered worktreeを監査し、統合済みでcleanな対象だけを非force削除する。完成承認済みだがmainがbusyな対象は`--defer`でexact path/branch/HEADをgit common dirのbounded queueへ記録し、`--reconcile`がprimary local mainのclean時だけ隔離マージ、固定のbuild/test、identity再検査、fast-forward、非force削除を行う。競合・検証失敗・状態変化はmain無変更で停止し、fetch/push/branch削除/stash/rebase/reset/cleanは行わない |
 | `run --dry-run` | 生成・編集を実行せず、全工程の手順とコストを出力 |
 | `run` | 生成アダプタ実行 → QC → manifest 構築（Gate で停止・再開可能） |
 | `render` | 選択された編集バックエンドで最終 MP4 を出力 |
