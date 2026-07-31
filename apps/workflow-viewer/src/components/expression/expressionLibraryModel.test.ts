@@ -8,6 +8,9 @@ import {
   EXPRESSION_SELECTION_LIMITS,
   PRESENTATION_PRESET_FROM_CHECKLIST_REASON,
   capabilityLabel,
+  dedupeExpressionItemsByKey,
+  expressionDisplayTags,
+  expressionGroupDescription,
   expressionItemKey,
   filterExpressionItems,
   formatExpressionCandidatesPromptSection,
@@ -21,6 +24,7 @@ import {
   selectionModeLabel,
   syncExpressionSelectionsFromPresentationPreset,
   syncPresentationPresetFromExpressions,
+  toExpressionSelection,
   tryAddExpressionSelection,
   type ExpressionItem,
   type ExpressionSelection,
@@ -82,7 +86,7 @@ const catalogItems: HyperframesCatalogItem[] = [
 
 function makeSelection(overrides: Partial<ExpressionSelection> = {}): ExpressionSelection {
   return {
-    key: 'remotion::article-dialogue-16x9',
+    key: 'presentation-preset::remotion::article-dialogue-16x9',
     provider: 'remotion',
     nativeId: 'article-dialogue-16x9',
     title: '横型・会話で解説',
@@ -112,9 +116,9 @@ describe('expressionLibraryModel normalization', () => {
     })
     expect(items.every((item) => item.capability !== 'verified-executable')).toBe(true)
     expect(items.map((item) => expressionItemKey(item))).toEqual([
-      'remotion::article-dialogue-16x9',
-      'remotion::miraichi-lastcall-9x16',
-      'hyperframes::article-explainer-16x9',
+      'presentation-preset::remotion::article-dialogue-16x9',
+      'presentation-preset::remotion::miraichi-lastcall-9x16',
+      'presentation-preset::hyperframes::article-explainer-16x9',
     ])
     expect(items.find((item) => item.nativeId === 'miraichi-lastcall-9x16')?.brandLock).toBe(true)
     for (const id of BRAND_LOCKED_PRESENTATION_PRESET_IDS) {
@@ -141,10 +145,199 @@ describe('expressionLibraryModel normalization', () => {
       role: 'data-viz',
       source: 'reference-catalog',
       aspect: '16:9',
+      key: 'reference-catalog::hyperframes::component::data-chart',
+      catalogType: 'component',
     })
     expect(items[1]?.role).toBe('text-overlay')
+    expect(items[1]?.catalogType).toBe('component')
     expect(items[2]?.role).toBe('3d-shader')
+    expect(items[2]?.key).toBe('reference-catalog::hyperframes::block::shader-mesh')
+    expect(items[2]?.catalogType).toBe('block')
     expect(items.every((item) => item.capability === 'reference-only')).toBe(true)
+    // normalized reference: helper key === stored key (catalogType を保持)
+    for (const item of items) {
+      expect(expressionItemKey(item)).toBe(item.key)
+    }
+  })
+
+  it('keeps catalogType on selection and distinguishes block/component in prompt', () => {
+    const block = normalizeHyperframesCatalogItem({
+      id: 'shared-fx',
+      type: 'block',
+      title: 'Shared FX Block',
+      description: 'block side',
+      tags: ['transition'],
+    })
+    const component = normalizeHyperframesCatalogItem({
+      id: 'shared-fx',
+      type: 'component',
+      title: 'Shared FX Component',
+      description: 'component side',
+      tags: ['text', 'caption'],
+    })
+    expect(expressionItemKey(block)).toBe(block.key)
+    expect(expressionItemKey(component)).toBe(component.key)
+    expect(block.key).not.toBe(component.key)
+
+    const blockSelection = toExpressionSelection(block, 'block as aux')
+    const componentSelection = toExpressionSelection(component, 'component as aux')
+    expect(blockSelection.catalogType).toBe('block')
+    expect(componentSelection.catalogType).toBe('component')
+    expect(blockSelection.key).toBe(block.key)
+    expect(componentSelection.key).toBe(component.key)
+
+    const preset = normalizePresentationPreset(presetOptions[0]!)
+    const presetSelection = toExpressionSelection(preset, 'preset')
+    expect(presetSelection.catalogType).toBeUndefined()
+    expect('catalogType' in presetSelection ? presetSelection.catalogType : undefined).toBeUndefined()
+
+    const section = formatExpressionCandidatesPromptSection({
+      mode: 'explicit',
+      selections: [blockSelection, componentSelection],
+    })
+    expect(section).toContain(JSON.stringify('block'))
+    expect(section).toContain(JSON.stringify('component'))
+    expect(section).toContain('catalog type（参考データ）')
+    expect(section).toContain(JSON.stringify('shared-fx'))
+    // same provider/id still distinguishable via catalog type lines
+    expect(section).toMatch(/catalog type（参考データ）.*"block"/)
+    expect(section).toMatch(/catalog type（参考データ）.*"component"/)
+  })
+
+  it('keeps preset and reference keys namespaced so same nativeId does not collide', () => {
+    const preset = normalizePresentationPreset({
+      backend: 'hyperframes',
+      backendLabel: 'HyperFrames',
+      id: 'shared-id',
+      label: 'HyperFrames preset',
+      description: 'preset side',
+      aspectRatio: '16:9',
+    })
+    const reference = normalizeHyperframesCatalogItem({
+      id: 'shared-id',
+      type: 'component',
+      title: 'Shared catalog item',
+      description: 'catalog side',
+      tags: ['data', 'chart'],
+    })
+    expect(preset.key).toBe('presentation-preset::hyperframes::shared-id')
+    expect(reference.key).toBe('reference-catalog::hyperframes::component::shared-id')
+    expect(preset.key).not.toBe(reference.key)
+    expect(preset.provider).toBe('hyperframes')
+    expect(reference.provider).toBe('hyperframes')
+    expect(preset.nativeId).toBe('shared-id')
+    expect(reference.nativeId).toBe('shared-id')
+
+    const withPreset = tryAddExpressionSelection([], {
+      key: preset.key,
+      provider: preset.provider,
+      nativeId: preset.nativeId,
+      title: preset.title,
+      role: preset.role,
+      capability: preset.capability,
+      previewFidelity: preset.previewFidelity,
+      reason: 'preset',
+      source: preset.source,
+    })
+    expect(withPreset.ok).toBe(true)
+    if (!withPreset.ok) return
+    const withBoth = tryAddExpressionSelection(withPreset.selections, {
+      key: reference.key,
+      provider: reference.provider,
+      nativeId: reference.nativeId,
+      title: reference.title,
+      role: reference.role,
+      capability: reference.capability,
+      previewFidelity: reference.previewFidelity,
+      reason: 'reference',
+      source: reference.source,
+    })
+    expect(withBoth.ok).toBe(true)
+    if (!withBoth.ok) return
+    expect(withBoth.selections.map((entry) => entry.key)).toEqual([
+      preset.key,
+      reference.key,
+    ])
+  })
+
+  it('dedupes catalog items with identical type and id without dropping distinct types', () => {
+    const duplicates: HyperframesCatalogItem[] = [
+      {
+        id: 'data-chart',
+        type: 'component',
+        title: 'Data Chart first',
+        description: 'first',
+        tags: ['data', 'chart'],
+      },
+      {
+        id: 'data-chart',
+        type: 'component',
+        title: 'Data Chart duplicate',
+        description: 'duplicate',
+        tags: ['data', 'chart'],
+      },
+      {
+        id: 'data-chart',
+        type: 'block',
+        title: 'Data Chart block',
+        description: 'same id different type',
+        tags: ['data', 'chart'],
+      },
+    ]
+    const items = dedupeExpressionItemsByKey(duplicates.map(normalizeHyperframesCatalogItem))
+    expect(items).toHaveLength(2)
+    expect(items.map((item) => item.key)).toEqual([
+      'reference-catalog::hyperframes::component::data-chart',
+      'reference-catalog::hyperframes::block::data-chart',
+    ])
+    expect(items[0]?.title).toBe('Data Chart first')
+  })
+
+  it('filters internal tags from display while keeping them searchable', () => {
+    const preset = normalizePresentationPreset(presetOptions[0]!)
+    expect(preset.tags).toEqual(expect.arrayContaining([
+      'presentation-preset',
+      'executable-candidate',
+      'remotion',
+      '16:9',
+    ]))
+    expect(expressionDisplayTags(preset.tags)).not.toEqual(
+      expect.arrayContaining(['presentation-preset', 'executable-candidate', 'aspect-unknown']),
+    )
+    expect(expressionDisplayTags(preset.tags).join(' ')).not.toMatch(
+      /presentation-preset|executable-candidate|aspect-unknown/,
+    )
+
+    const unknownAspect = normalizePresentationPreset({
+      backend: 'remotion',
+      backendLabel: 'Remotion',
+      id: 'no-aspect',
+      label: 'aspect missing',
+      description: null,
+      aspectRatio: null,
+    })
+    expect(unknownAspect.tags).toContain('aspect-unknown')
+    expect(expressionDisplayTags(unknownAspect.tags)).not.toContain('aspect-unknown')
+
+    // Search still matches internal plumbing tags on the stored item
+    const found = filterExpressionItems([preset], {
+      query: 'presentation-preset',
+      group: 'all',
+      tag: null,
+      role: 'all',
+    })
+    expect(found.map((item) => item.key)).toEqual([preset.key])
+
+    const catalog = normalizeHyperframesCatalogItem(catalogItems[0]!)
+    expect(expressionDisplayTags(catalog.tags)).toEqual(expect.arrayContaining(['data', 'chart']))
+  })
+
+  it('uses natural Japanese for presentation group description without awkward duplication', () => {
+    const description = expressionGroupDescription('presentation-preset')
+    expect(description).toBe(
+      '制作依頼には指定できますが、実際に使えるかは制作開始前に確認します。検証済み実行の保証ではありません。',
+    )
+    expect(description).not.toMatch(/利用可否は制作開始前に使えるか確認/)
   })
 
   it('partitions executable candidates and reference expressions without mixing', () => {
@@ -162,11 +355,14 @@ describe('expressionLibraryModel normalization', () => {
 
 describe('expressionLibraryModel labels and filters', () => {
   it('labels capability and preview fidelity without overclaiming verified', () => {
-    expect(capabilityLabel('reference-only')).toContain('参考')
-    expect(capabilityLabel('declared-executable-candidate')).toContain('実行候補')
+    expect(capabilityLabel('reference-only')).toMatch(/参考/)
+    expect(capabilityLabel('reference-only')).toMatch(/実装・書き出し未確認|実行保証なし/)
+    expect(capabilityLabel('declared-executable-candidate')).toMatch(/制作依頼に指定できる/)
+    expect(capabilityLabel('declared-executable-candidate')).not.toMatch(/実行候補/)
+    expect(capabilityLabel('declared-executable-candidate')).not.toMatch(/^検証済み/)
     expect(capabilityLabel('verified-executable')).toContain('検証済み')
-    expect(previewFidelityLabel('motion-hint')).toMatch(/動きのイメージ|実際の出力ではありません/)
-    expect(previewFidelityLabel('composition-storyboard')).toMatch(/構成イメージ/)
+    expect(previewFidelityLabel('motion-hint')).toMatch(/概念見本|公式実装の再現ではありません|動きのイメージ/)
+    expect(previewFidelityLabel('composition-storyboard')).toMatch(/候補名や説明から作った概念見本|実際の構成・動きの再現ではありません/)
     expect(previewFidelityLabel('media-preview')).toMatch(/実preview|実映像/)
   })
 
@@ -222,7 +418,7 @@ describe('expressionLibraryModel selection limits', () => {
     const secondFull = tryAddExpressionSelection(
       first.selections,
       makeSelection({
-        key: 'remotion::miraichi-lastcall-9x16',
+        key: 'presentation-preset::remotion::miraichi-lastcall-9x16',
         nativeId: 'miraichi-lastcall-9x16',
         role: 'full-composition',
       }),
@@ -234,7 +430,7 @@ describe('expressionLibraryModel selection limits', () => {
     const aux1 = tryAddExpressionSelection(
       first.selections,
       makeSelection({
-        key: 'hyperframes::data-chart',
+        key: 'reference-catalog::hyperframes::component::data-chart',
         provider: 'hyperframes',
         nativeId: 'data-chart',
         title: 'Data Chart',
@@ -250,7 +446,7 @@ describe('expressionLibraryModel selection limits', () => {
     const aux2 = tryAddExpressionSelection(
       aux1.selections,
       makeSelection({
-        key: 'hyperframes::typewriter',
+        key: 'reference-catalog::hyperframes::component::typewriter',
         provider: 'hyperframes',
         nativeId: 'typewriter',
         title: 'Typewriter',
@@ -266,7 +462,7 @@ describe('expressionLibraryModel selection limits', () => {
     const aux3 = tryAddExpressionSelection(
       aux2.selections,
       makeSelection({
-        key: 'hyperframes::shader-mesh',
+        key: 'reference-catalog::hyperframes::block::shader-mesh',
         provider: 'hyperframes',
         nativeId: 'shader-mesh',
         title: 'Shader Mesh',
@@ -287,7 +483,7 @@ describe('expressionLibraryModel selection limits', () => {
     const sameRole = tryAddExpressionSelection(
       first.selections,
       makeSelection({
-        key: 'remotion::street-dialogue-16x9',
+        key: 'presentation-preset::remotion::street-dialogue-16x9',
         nativeId: 'street-dialogue-16x9',
         title: '横型・テンポ重視',
         role: 'full-composition',
@@ -300,7 +496,7 @@ describe('expressionLibraryModel selection limits', () => {
     const aux = tryAddExpressionSelection(
       first.selections,
       makeSelection({
-        key: 'hyperframes::data-chart',
+        key: 'reference-catalog::hyperframes::component::data-chart',
         provider: 'hyperframes',
         nativeId: 'data-chart',
         title: 'Data Chart',
@@ -319,7 +515,7 @@ describe('expressionLibraryModel selection limits', () => {
       selections: [
         makeSelection(),
         makeSelection({
-          key: 'hyperframes::data-chart',
+          key: 'reference-catalog::hyperframes::component::data-chart',
           provider: 'hyperframes',
           nativeId: 'data-chart',
           title: 'Data Chart',
@@ -343,9 +539,10 @@ describe('expressionLibraryModel selection limits', () => {
     expect(section).toContain(JSON.stringify('remotion'))
     expect(section).toContain(JSON.stringify('article-dialogue-16x9'))
     expect(section).toContain(CATALOG_METADATA_DATA_ONLY_NOTE)
-    expect(section).toMatch(/参考情報|実行保証なし/)
+    expect(section).toMatch(/参考のみ|実装・書き出し未確認|実行保証なし|参考情報/)
     expect(section).toMatch(/自動インストール|自動install/i)
-    expect(section).toMatch(/validate.*Gate 1|Gate 1/)
+    expect(section).toMatch(/制作開始前に使えるか確認/)
+    expect(section).not.toMatch(/\bvalidate\b|Gate 1/)
     expect(section).toMatch(/fallback|黙示/)
   })
 
@@ -363,7 +560,7 @@ describe('expressionLibraryModel selection limits', () => {
       mode: 'explicit',
       selections: [
         makeSelection({
-          key: 'hyperframes::evil',
+          key: 'reference-catalog::hyperframes::unknown::evil',
           provider: 'hyperframes',
           nativeId: 'evil\nid',
           title: malicious,
@@ -385,7 +582,7 @@ describe('expressionLibraryModel selection limits', () => {
   it('syncs presentationPreset only for expression-linked full composition', () => {
     const full = makeSelection()
     const aux = makeSelection({
-      key: 'hyperframes::data-chart',
+      key: 'reference-catalog::hyperframes::component::data-chart',
       provider: 'hyperframes',
       nativeId: 'data-chart',
       title: 'Data Chart',
@@ -424,7 +621,7 @@ describe('expressionLibraryModel selection limits', () => {
   it('syncs expression full-composition when checklist changes presentationPreset (no dual full)', () => {
     const fullA = makeSelection()
     const aux = makeSelection({
-      key: 'hyperframes::data-chart',
+      key: 'reference-catalog::hyperframes::component::data-chart',
       provider: 'hyperframes',
       nativeId: 'data-chart',
       title: 'Data Chart',
@@ -453,10 +650,10 @@ describe('expressionLibraryModel selection limits', () => {
     expect(toB.selections).toHaveLength(2)
     expect(toB.selections.filter((entry) => entry.role === 'full-composition')).toHaveLength(1)
     expect(toB.selections.find((entry) => entry.role === 'full-composition')).toMatchObject({
-      key: 'remotion::street-dialogue-16x9',
+      key: 'presentation-preset::remotion::street-dialogue-16x9',
       reason: PRESENTATION_PRESET_FROM_CHECKLIST_REASON,
     })
-    expect(toB.selections.some((entry) => entry.key === 'hyperframes::data-chart')).toBe(true)
+    expect(toB.selections.some((entry) => entry.key === 'reference-catalog::hyperframes::component::data-chart')).toBe(true)
 
     // 制作依頼に full が2つ出ない
     const promptB = buildTemplateProductionPrompt(
@@ -481,7 +678,7 @@ describe('expressionLibraryModel selection limits', () => {
     )
     expect(cleared.mode).toBe('explicit')
     expect(cleared.selections).toHaveLength(1)
-    expect(cleared.selections[0]?.key).toBe('hyperframes::data-chart')
+    expect(cleared.selections[0]?.key).toBe('reference-catalog::hyperframes::component::data-chart')
 
     // 補助もなし → unset
     const empty = syncExpressionSelectionsFromPresentationPreset([fullA], null, null)
@@ -500,7 +697,7 @@ describe('expressionLibraryModel selection limits', () => {
         aspectRatio: '16:9',
       },
     )
-    expect(same.selections.filter((entry) => entry.key === 'remotion::article-dialogue-16x9')).toHaveLength(1)
+    expect(same.selections.filter((entry) => entry.key === 'presentation-preset::remotion::article-dialogue-16x9')).toHaveLength(1)
     expect(same.selections[0]?.reason).toBe(PRESENTATION_PRESET_FROM_CHECKLIST_REASON)
 
     // brand lock 4件

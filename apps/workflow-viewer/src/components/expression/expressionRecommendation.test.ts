@@ -269,7 +269,7 @@ describe('expressionRecommendation', () => {
     const families = result.recommendations.map((entry) => entry.item.family)
     expect(new Set(families).size).toBe(families.length)
     // flashy shader should not outrank calm explainer matches
-    if (keys.includes('hyperframes::shader-burst')) {
+    if (keys.includes('reference-catalog::hyperframes::block::shader-burst')) {
       const flashy = result.recommendations.find((entry) => entry.item.nativeId === 'shader-burst')
       expect(flashy?.score).toBeLessThan(60)
     }

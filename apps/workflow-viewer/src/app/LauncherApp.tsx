@@ -614,6 +614,13 @@ export function LauncherApp({
   const [expressionReturnShelf, setExpressionReturnShelf] = useState<Shelf | null>(null)
   const expressionSelectionsRef = useRef(expressionSelections)
   expressionSelectionsRef.current = expressionSelections
+  /** After template↔expression unmount, restore keyboard focus post-commit. */
+  const pendingShelfFocusRef = useRef<'expressions-entry' | 'templates-return' | null>(null)
+  /**
+   * Prefer restoring the pre-unmount expression trigger by stable template id
+   * (same accessible name can appear on multiple cards).
+   */
+  const expressionReturnFocusTemplateIdRef = useRef<string | null>(null)
   const [characters, setCharacters] = useState<LauncherCharacter[]>([])
   const [characterLoadState, setCharacterLoadState] = useState<CharacterLoadState>('idle')
   const [feedback, setFeedback] = useState<FeedbackAggregate | null>(null)
@@ -867,6 +874,9 @@ export function LauncherApp({
   }, [feedback, feedbackFilter, feedbackListMode, listedFeedback])
 
   const selectShelf = (shelf: Shelf) => {
+    // 通常のタブ選択では template return context を破棄する。
+    // 維持するのは openExpressionsFromTemplate（「表現を変更」）経由の直後だけ。
+    setExpressionReturnShelf(null)
     setActiveShelf(shelf)
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
     if (
@@ -913,7 +923,23 @@ export function LauncherApp({
     }))
   }, [])
 
+  const captureExpressionReturnFocusTarget = () => {
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement)) {
+      expressionReturnFocusTemplateIdRef.current = null
+      return
+    }
+    const templateId = active.getAttribute('data-template-id')?.trim()
+    expressionReturnFocusTemplateIdRef.current = templateId || null
+  }
+
   const openExpressionsFromTemplate = (template: LauncherTemplate) => {
+    captureExpressionReturnFocusTarget()
+    // Fallback: if focus was not on a marked trigger, still bind to this template id.
+    if (!expressionReturnFocusTemplateIdRef.current) {
+      expressionReturnFocusTemplateIdRef.current = template.id
+    }
+    pendingShelfFocusRef.current = 'expressions-entry'
     setExpressionIntentSeed(seedIntentFromTemplate(template))
     setExpressionReturnShelf('templates')
     setActiveShelf('expressions')
@@ -922,11 +948,50 @@ export function LauncherApp({
 
   const returnFromExpressions = () => {
     const target = expressionReturnShelf ?? 'templates'
+    pendingShelfFocusRef.current = target === 'templates' ? 'templates-return' : null
     setExpressionReturnShelf(null)
     setActiveShelf(target)
     if (target === 'templates' && templateLoadState === 'idle') void loadTemplates()
     if (target === 'templates' && presentationPresetLoadState === 'idle') void loadPresentationPresets()
   }
+
+  // Focus after tabpanel unmount/remount — only for explicit expression entry/return.
+  // useEffect (not layout) so it wins over child mount focus (e.g. TemplateChecklist h2).
+  // ArrowLeft/Right/Home/End tab roving stays on handleShelfKeyDown (no extra side effects).
+  // Cross-shelf restore uses default focus() so the browser may scroll the target into view
+  // (Focus Not Obscured). Do not pass preventScroll here — deep triggers can leave the
+  // new heading outside the viewport. Avoid a second scrollIntoView to prevent double scroll.
+  useEffect(() => {
+    const pending = pendingShelfFocusRef.current
+    if (!pending) return
+    pendingShelfFocusRef.current = null
+
+    if (pending === 'expressions-entry' && activeShelf === 'expressions') {
+      const heading = document.getElementById('launcher-expressions-heading')
+      if (heading instanceof HTMLElement) {
+        heading.focus()
+        return
+      }
+      document.getElementById('launcher-expressions-tab')?.focus()
+      return
+    }
+
+    if (pending === 'templates-return' && activeShelf === 'templates') {
+      const returnTemplateId = expressionReturnFocusTemplateIdRef.current
+      expressionReturnFocusTemplateIdRef.current = null
+      if (returnTemplateId) {
+        const buttons = Array.from(document.querySelectorAll('button[data-expression-return-trigger]'))
+        const match = buttons.find((button) => {
+          return button.getAttribute('data-template-id') === returnTemplateId
+        })
+        if (match instanceof HTMLElement && document.contains(match)) {
+          match.focus()
+          return
+        }
+      }
+      document.getElementById('launcher-templates-tab')?.focus()
+    }
+  }, [activeShelf])
 
   const selectFeedbackPreference = (key: string) => {
     setSelectedFeedbackKey(key)
@@ -1341,7 +1406,7 @@ export function LauncherApp({
             <p>{{
               projects: '作品を選び、最新の制作記録を開きます',
               templates: '作りたい動画を選び、制作依頼を確認してコピーします',
-              expressions: '動きの見本札から実行候補と参考表現を選びます',
+              expressions: '動きや仕上げを見比べて、制作依頼に入れる候補を選びます',
               characters: 'キャラを確認し、依頼メモをコピーします',
               canvas: '画像・動画の工程をつないで設計します',
               feedback: '制作から育った知見を確認できます',
