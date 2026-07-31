@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { inspectEnvironment } from "./doctor.js";
 import { loadBackendCapabilities } from "./backends/capabilities.js";
 import type { AdapterDefinition } from "./adapters/registry.js";
+import { runGenerationModelPreflight } from "./adapters/modelPreflight.js";
 import { analyzeProject } from "./orchestrator/analyze.js";
 import { composeProject } from "./orchestrator/compose.js";
 import {
@@ -746,6 +747,34 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ok: false,
       command: args.command,
       issues: validation.issues
+    });
+  }
+
+  if (args.command === "models") {
+    const generation = validation.project?.generation;
+    if (!generation || !validation.adapter) {
+      return output(args, 1, {
+        ok: false,
+        command: "models",
+        billing_action: false,
+        generation_submitted: false,
+        fully_validated: false,
+        requests: [],
+        issues: [{
+          code: "models.generation_required",
+          message: "project must declare generation requests and an adapter"
+        }]
+      });
+    }
+    const inspected = runGenerationModelPreflight(validation.adapter, generation.requests);
+    return output(args, inspected.ok ? 0 : 1, {
+      ok: inspected.ok,
+      command: "models",
+      billing_action: inspected.billingAction,
+      generation_submitted: inspected.generationSubmitted,
+      fully_validated: inspected.fullyValidated,
+      requests: inspected.requests,
+      issues: inspected.issues
     });
   }
 

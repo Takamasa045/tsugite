@@ -41,7 +41,9 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 ## PixVerse CLIとKling CLI
 
-`pixverse`接続は、インストール済みPixVerse CLIが公開する `create video / image / transition / voice / music / extend / modify / upscale / reference / motion-control / template` をgeneration requestから扱う。Gemini、Kling、Grok等のモデル名をTsugiteの固定allowlistで制限せず、CLIの検証結果を正本にする。
+`PixBurst`は別の接続やモデルではなく、`pixverse`接続の表示用aliasである。どちらの名前で指定しても課金先と実行adapterはPixVerse CLIになる。
+
+`pixverse`接続は、インストール済みPixVerse CLIが公開する `create video / image / transition / voice / music / extend / modify / upscale / reference / motion-control / template` をgeneration requestから扱う。Gemini、Kling、Grok、MiniMax等のモデル名をTsugiteの固定allowlistで制限せず、CLIの検証結果を正本にする。
 
 `kling-direct`接続は、Kling CLIの `text_to_image / image_to_image / text_to_video / image_to_video` を扱う。利用可能モデルとモデル別パラメータは `kling who_am_i` の実行時宣言が正本である。
 
@@ -66,6 +68,22 @@ generation:
 ```
 
 既存の動画requestは`operation`省略時に`video`として扱う。参照素材は`first_frame`、`reference_images`、`input_images`、`input_video`、`input_videos`、`input_audios`でproject内の相対pathを指定し、実行前にrun directoryへ固定する。
+
+## 非課金のモデル互換性確認
+
+生成前に、projectが指定するモデルとparameterを次の読み取り専用コマンドで確認できる。
+
+```sh
+node bin/pipeline models --config <project.yaml> --json
+```
+
+ランチャーの生成キャンバスでは「モデル互換性を確認（非課金）」を使う。どちらも生成タスクを送信せず、クレジットを消費しない。
+
+- TopViewは`topview_get_generation_config`を実行時に取得し、モデルの存在、必須parameter、選択肢を照合する。静的なモデル一覧を実行可否の根拠にしない。
+- PixVerse／PixBurstはCLIのバージョンとTsugiteから渡す引数を確認する。CLIに汎用の非送信モデル検証がないため、モデル自体の受理は生成時のCLI検証まで確定しない。`provider-validation-required`は異常ではなく、この未確定境界を示す。
+- `billing_action: false`と`generation_submitted: false`が、この確認で生成や課金を行っていないことを示す。
+
+互換性確認の成功は、認証、残高、レート制限、Gate 1承認を代替しない。新しいモデルを指定しても、明示されたconnectionから別のサービスへ自動fallbackしない。
 
 ## 接続状態の語彙
 

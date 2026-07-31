@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1681,6 +1681,70 @@ distribution: local-only
     const updated = await readFile(configPath, "utf8");
     expect(updated).toContain("connection: topview");
     expect(updated).toContain("adapter: topview");
+  });
+
+  it("preflights runtime models without submitting generation or returning private request fields", async () => {
+    const fixture = await createFixture();
+    const configPath = join(fixture.projectDir, "project.yaml");
+    await writeFile(configPath, `${await readFile(configPath, "utf8")}generation:
+  connection: pixverse
+  adapter: pixverse
+  requests:
+    - id: future-shot
+      operation: video
+      prompt: private prompt must not be returned
+      model: minimax-h3
+      duration: 10
+      aspect: "16:9"
+      params:
+        private_note: never-return-this
+`);
+    const fakeCli = join(fixture.root, process.platform === "win32" ? "pixverse.cmd" : "pixverse");
+    await writeFile(fakeCli, process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" -e "console.log('1.2.11')"\r\n`
+      : "#!/usr/bin/env node\nconsole.log('1.2.11')\n");
+    if (process.platform !== "win32") await chmod(fakeCli, 0o755);
+    const previousCli = process.env.PIXVERSE_CLI;
+    process.env.PIXVERSE_CLI = fakeCli;
+    try {
+      const launcher = await launch({
+        projectsDir: fixture.projectsDir,
+        bundleDir: fixture.bundleDir,
+        port: 0
+      });
+      const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+      const project = listing.projects[0];
+      const endpoint = `${launcher.url}/api/projects/${project.id}/model-preflight`;
+
+      expect((await fetch(endpoint, { method: "POST" })).status).toBe(403);
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          origin: launcher.url,
+          "x-tsugite-token": launcher.token
+        }
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload).toMatchObject({
+        ok: true,
+        billing_action: false,
+        generation_submitted: false,
+        fully_validated: false,
+        requests: [{
+          request_id: "future-shot",
+          status: "provider-validation-required",
+          source: "pixverse-cli-runtime",
+          model: "minimax-h3",
+          runtime_version: "1.2.11"
+        }]
+      });
+      expect(JSON.stringify(payload)).not.toMatch(/private prompt|private_note|never-return-this/);
+    } finally {
+      if (previousCli === undefined) delete process.env.PIXVERSE_CLI;
+      else process.env.PIXVERSE_CLI = previousCli;
+    }
   });
 
   it("requires same-origin authorization and renames the project display name in project.yaml", async () => {

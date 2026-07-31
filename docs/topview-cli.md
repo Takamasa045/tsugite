@@ -25,11 +25,14 @@ generation:
 
 ```sh
 node bin/pipeline doctor --config <project.yaml> --json
+node bin/pipeline models --config <project.yaml> --json
 node bin/pipeline validate --config <project.yaml> --json
 node bin/pipeline plan --config <project.yaml> --json
 node bin/pipeline review --config <project.yaml> --json
 node bin/pipeline run --config <project.yaml> --dry-run --json
 ```
+
+`models`は`topview_get_generation_config`だけを使い、現在のモデル、必須parameter、選択肢を非課金で照合します。生成タスクの送信、素材upload、Gate更新は行いません。新しいモデルは静的allowlistへのコード変更なしで、TopViewの実行時configに現れた時点から選択できます。
 
 `run --dry-run`はMCPへ生成タスクを送らず、クレジット見積もりだけを返します。実生成はレビュー済みのGate 1をCoordinatorが承認した後だけ実行できます。生成済みメディアは`dist/<run-id>/`へ取得され、assembled manifestの`clips`、`images`、`audio`と`provenance`に記録されます。
 

@@ -205,6 +205,11 @@ describe("adapter contract", () => {
       args: ["adapters/pixverse/generate.mjs"],
       input: "stdin-json"
     });
+    expect(pixverse.model_preflight).toMatchObject({
+      executable: "node",
+      args: ["adapters/pixverse/preflight.mjs"],
+      input: "stdin-json"
+    });
     expect(kling.command).toMatchObject({
       executable: "node",
       args: ["adapters/kling/generate.mjs"],
@@ -221,6 +226,11 @@ describe("adapter contract", () => {
     expect(adapter.command).toMatchObject({
       executable: "node",
       args: ["adapters/topview/generate.mjs"],
+      input: "stdin-json"
+    });
+    expect(adapter.model_preflight).toMatchObject({
+      executable: "node",
+      args: ["adapters/topview/preflight.mjs"],
       input: "stdin-json"
     });
   });
