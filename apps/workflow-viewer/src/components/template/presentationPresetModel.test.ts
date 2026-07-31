@@ -93,11 +93,13 @@ describe('presentationPresetModel', () => {
       backend: 'remotion',
       presetId: 'article-dialogue-16x9',
     })
-    expect(section).toContain('## 仕上げの動き（実行候補）')
+    expect(section).toContain('## 制作依頼に指定できる仕上げ')
     expect(section).toContain('remotion')
     expect(section).toContain('article-dialogue-16x9')
     expect(section).toContain('横型・会話で解説')
     expect(section).toContain(PRESENTATION_PRESET_SAFETY_NOTE)
-    expect(section).toMatch(/validate|Gate 1/)
+    expect(section).toMatch(/制作開始前に使えるか確認/)
+    expect(section).toMatch(/fallback|黙示/)
+    expect(section).not.toMatch(/\bvalidate\b|Gate 1/)
   })
 })

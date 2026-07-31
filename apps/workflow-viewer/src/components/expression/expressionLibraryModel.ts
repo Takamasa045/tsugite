@@ -72,6 +72,11 @@ export interface ExpressionItem {
   features: string[]
   brandLock: boolean
   source: ExpressionSource
+  /**
+   * reference-catalog only (e.g. hyperframes block / component).
+   * presentation-preset items omit this field.
+   */
+  catalogType?: string | null
 }
 
 export interface ExpressionSelection {
@@ -84,6 +89,8 @@ export interface ExpressionSelection {
   previewFidelity: PreviewFidelity
   reason: string
   source: ExpressionSource
+  /** reference-catalog only; kept so prompts can distinguish same provider/id. */
+  catalogType?: string | null
 }
 
 export interface ExpressionFilters {
@@ -146,36 +153,150 @@ export const INITIAL_EXPRESSION_FILTERS: ExpressionFilters = {
   role: 'all',
 }
 
-export function expressionItemKey(item: Pick<ExpressionItem, 'provider' | 'nativeId'>): string {
-  return `${item.provider}::${item.nativeId}`
+/**
+ * Stable expression key with source namespace.
+ * presentation-preset::backend::id
+ * reference-catalog::provider::type::id
+ * provider / nativeId themselves stay unchanged for prompts and sync.
+ */
+export function presentationPresetExpressionKey(backend: string, presetId: string): string {
+  return `presentation-preset::${backend}::${presetId}`
+}
+
+export function referenceCatalogExpressionKey(
+  provider: string,
+  catalogType: string,
+  nativeId: string,
+): string {
+  return `reference-catalog::${provider}::${catalogType}::${nativeId}`
+}
+
+export function expressionItemKey(item: {
+  source: ExpressionSource
+  provider: string
+  nativeId: string
+  /** Required for reference-catalog keys (e.g. block / component). */
+  catalogType?: string | null
+}): string {
+  if (item.source === 'presentation-preset') {
+    return presentationPresetExpressionKey(item.provider, item.nativeId)
+  }
+  return referenceCatalogExpressionKey(
+    item.provider,
+    item.catalogType ?? 'unknown',
+    item.nativeId,
+  )
+}
+
+/**
+ * Internal plumbing tags kept for search / motion, never shown on non-engineer cards.
+ * Provider and aspect are shown via separate badges when relevant.
+ */
+const EXPRESSION_INTERNAL_DISPLAY_TAGS = new Set([
+  'presentation-preset',
+  'executable-candidate',
+  'declared-executable-candidate',
+  'aspect-unknown',
+  'reference-only',
+  'verified-executable',
+  'brand-lock',
+  'brand',
+  'fixed',
+  '16:9',
+  '9:16',
+  '1:1',
+  'remotion',
+  'hyperframes',
+  'editframe',
+])
+
+/** Tags safe to show on non-engineer cards (HyperFrames human tags stay). */
+export function expressionDisplayTags(tags: readonly string[]): string[] {
+  return tags.filter((tag) => {
+    const normalized = tag.trim()
+    if (!normalized) return false
+    return !EXPRESSION_INTERNAL_DISPLAY_TAGS.has(normalized.toLowerCase())
+  })
 }
 
 export function capabilityLabel(capability: ExpressionCapability): string {
   switch (capability) {
     case 'reference-only':
-      return '参考のみ（実行保証なし）'
+      return '参考のみ（実装・書き出し未確認）'
     case 'declared-executable-candidate':
-      return '実行候補（宣言ベース・未検証）'
+      return '制作依頼に指定できる候補（開始前に確認）'
     case 'verified-executable':
-      return '検証済み実行可能'
+      return '検証済み・この環境で実行可能'
   }
 }
 
 export function previewFidelityLabel(fidelity: PreviewFidelity): string {
   switch (fidelity) {
     case 'none':
-      return 'プレビューなし'
+      return '見本なし'
     case 'motion-hint':
-      return '動きのイメージ・実際の出力ではありません'
+      return 'メタデータから作った概念見本・公式実装の再現ではありません'
     case 'composition-storyboard':
-      return '構成イメージ（実際のrenderではありません）'
+      return '候補名や説明から作った概念見本・実際の構成・動きの再現ではありません'
     case 'media-preview':
       return '実preview / 実映像'
   }
 }
 
 export function selectionModeLabel(mode: ExpressionSelectionMode): string {
-  return mode === 'explicit' ? '明示選択' : 'おすすめ候補を未選択'
+  return mode === 'explicit'
+    ? '明示選択（制作依頼へ反映）'
+    : 'おすすめ候補を未選択（制作依頼へ未反映）'
+}
+
+/** Card status badge: who this item is for / how trustworthy it is. */
+export function expressionStatusLabel(item: Pick<ExpressionItem, 'capability' | 'source'>): string {
+  if (item.capability === 'verified-executable') return '検証済み'
+  if (item.source === 'presentation-preset') return '制作依頼に指定できる'
+  return 'アイデア参考'
+}
+
+/** Where a selected item lands in the production brief. */
+export function expressionDestinationLabel(
+  item: Pick<ExpressionItem, 'role' | 'source' | 'capability'>,
+): string {
+  const rolePart = isFullCompositionRole(item.role)
+    ? '全体構成として制作依頼に入ります'
+    : '補助表現として制作依頼に入ります'
+  if (item.source === 'presentation-preset') {
+    return `${rolePart}。制作開始前に使えるか確認します`
+  }
+  return `${rolePart}。参考のみで、自動実行・書き出しはしません`
+}
+
+/** One-line card summary for non-engineers. */
+export function expressionSelectionHint(
+  item: Pick<ExpressionItem, 'role' | 'source' | 'capability'>,
+): string {
+  if (item.capability === 'verified-executable') {
+    return 'この環境で検証済みの候補です。選ぶと制作依頼に入ります。'
+  }
+  if (item.source === 'presentation-preset') {
+    return isFullCompositionRole(item.role)
+      ? 'この環境の仕上げ候補です。選ぶと制作依頼の全体構成へ入ります（開始前に確認）。'
+      : 'この環境の仕上げ候補です。選ぶと制作依頼の補助表現へ入ります（開始前に確認）。'
+  }
+  return isFullCompositionRole(item.role)
+    ? 'アイデアの参考です。選ぶと制作依頼に「参考」として入ります。自動実行しません。'
+    : 'アイデアの参考です。選ぶと制作依頼の補助として入ります。自動実行しません。'
+}
+
+export function expressionGroupHeading(source: ExpressionSource): string {
+  return source === 'presentation-preset'
+    ? '制作依頼に指定できる仕上げ'
+    : 'アイデアとして参照する表現'
+}
+
+export function expressionGroupDescription(source: ExpressionSource): string {
+  if (source === 'presentation-preset') {
+    return '制作依頼には指定できますが、実際に使えるかは制作開始前に確認します。検証済み実行の保証ではありません。'
+  }
+  return '参考一覧です。実装・書き出しは未確認で、自動実行しません。公式の動きの再現ではありません。読み込み時だけ外部通信があります。'
 }
 
 export function roleFromHyperframesTags(tags: readonly string[]): ExpressionRole {
@@ -262,7 +383,7 @@ export function normalizePresentationPreset(option: PresentationPresetOption): E
   ]
   const description = option.description ?? ''
   return {
-    key: `${option.backend}::${option.id}`,
+    key: presentationPresetExpressionKey(option.backend, option.id),
     provider: option.backend,
     nativeId: option.id,
     title: option.label,
@@ -289,7 +410,7 @@ export function normalizeHyperframesCatalogItem(item: HyperframesCatalogItem): E
   const category = estimateHyperframesHintCategory(item.tags)
   const description = item.description
   return {
-    key: `hyperframes::${item.id}`,
+    key: referenceCatalogExpressionKey('hyperframes', item.type, item.id),
     provider: 'hyperframes',
     nativeId: item.id,
     title: item.title,
@@ -308,7 +429,23 @@ export function normalizeHyperframesCatalogItem(item: HyperframesCatalogItem): E
     features: featuresFromTagsAndText(item.tags, item.title, description),
     brandLock: isBrandLock(item.tags, `${item.title} ${description}`),
     source: 'reference-catalog',
+    catalogType: item.type,
   }
+}
+
+/**
+ * Catalog items with the same provider/type/id collapse to one card.
+ * First occurrence wins; duplicates are not shown.
+ */
+export function dedupeExpressionItemsByKey(items: readonly ExpressionItem[]): ExpressionItem[] {
+  const seen = new Set<string>()
+  const result: ExpressionItem[] = []
+  for (const item of items) {
+    if (seen.has(item.key)) continue
+    seen.add(item.key)
+    result.push(item)
+  }
+  return result
 }
 
 export function partitionExpressionItems(items: readonly ExpressionItem[]): {
@@ -343,6 +480,7 @@ export function filterExpressionItems(
       item.role,
       item.provider,
       item.nativeId,
+      item.catalogType ?? '',
       ...item.tags,
       ...item.features,
     ].join(' ').toLowerCase()
@@ -432,7 +570,7 @@ export function toExpressionSelection(
   item: ExpressionItem,
   reason: string,
 ): ExpressionSelection {
-  return {
+  const selection: ExpressionSelection = {
     key: item.key,
     provider: item.provider,
     nativeId: item.nativeId,
@@ -443,6 +581,11 @@ export function toExpressionSelection(
     reason,
     source: item.source,
   }
+  // presentation-preset has no catalogType; reference keeps block/component etc.
+  if (item.source === 'reference-catalog') {
+    selection.catalogType = item.catalogType ?? null
+  }
+  return selection
 }
 
 /** catalog / 外部由来文字列を制作依頼へ載せるときの最大長（単一行） */
@@ -480,7 +623,7 @@ export function formatExpressionCandidatesPromptSection(input: {
   if (input.mode === 'unset' || input.selections.length === 0) {
     if (input.mode === 'unset') {
       lines.push('- おすすめ候補はまだ明示選択されていません。')
-      lines.push('- 制作担当は validate と Gate 1 で構成を確認し、勝手に別候補へ切り替えないでください（黙示fallback禁止）。')
+      lines.push('- 制作担当は制作開始前に使えるか確認し、勝手に別候補へ切り替えないでください（黙示fallback禁止）。')
       lines.push('')
       return lines.join('\n')
     }
@@ -491,8 +634,8 @@ export function formatExpressionCandidatesPromptSection(input: {
 
   lines.push(`- ${EXPRESSION_SELECTION_COMBINE_NOTE}`)
   lines.push('- おすすめ一覧の複数提案は代替提示であり、ここに載った明示選択とは別です。')
-  lines.push('- 自動インストール・自動書き出し・Gate更新はしません。')
-  lines.push('- validate と Gate 1 で確認し、非対応なら勝手に別候補へ変えず確認してください。')
+  lines.push('- 自動インストール・自動書き出し・承認状態の更新はしません。')
+  lines.push('- 制作開始前に使えるか確認し、非対応なら勝手に別候補へ変えず確認してください。')
   lines.push('- 黙示fallback禁止。')
   lines.push(`- ${CATALOG_METADATA_DATA_ONLY_NOTE}`)
   lines.push('')
@@ -525,15 +668,24 @@ function formatSelectionDetailLines(selection: ExpressionSelection): string[] {
   const lines = [
     `- **タイトル（参考データ）**: ${sanitizeCatalogMetadataForPrompt(selection.title)}`,
     `- **提供元 / id**: ${sanitizeCatalogMetadataForPrompt(selection.provider)} / ${sanitizeCatalogMetadataForPrompt(selection.nativeId)}`,
+  ]
+  if (selection.source === 'reference-catalog' && selection.catalogType) {
+    lines.push(
+      `- **catalog type（参考データ）**: ${sanitizeCatalogMetadataForPrompt(selection.catalogType)}`,
+    )
+  }
+  lines.push(
     `- **役割**: ${expressionRoleLabel(selection.role)}（${sanitizeCatalogMetadataForPrompt(selection.role)}）`,
     `- **選定理由**: ${sanitizeCatalogMetadataForPrompt(selection.reason)}`,
     `- **利用可否**: ${capabilityLabel(selection.capability)}`,
     `- **見本の精度**: ${previewFidelityLabel(selection.previewFidelity)}`,
-  ]
-  if (selection.capability === 'reference-only') {
-    lines.push('- **注意**: 参考情報であり、利用可能・導入済み・書き出し可能を保証しません（参考のみ / 実行保証なし）。')
+  )
+  if (selection.capability === 'verified-executable') {
+    lines.push('- **注意**: この環境で検証済みの候補です。')
+  } else if (selection.capability === 'reference-only') {
+    lines.push('- **注意**: 参考のみです。実装・書き出しは未確認で、自動実行しません。')
   } else {
-    lines.push('- **注意**: 宣言ベースの実行候補です。検証済みの実行保証ではありません。')
+    lines.push('- **注意**: 制作依頼に指定できる候補です。利用可否は制作開始前に使えるか確認し、検証済み実行の保証ではありません。')
   }
   return lines
 }
@@ -607,7 +759,10 @@ export function syncExpressionSelectionsFromPresentationPreset(
     }
   }
 
-  const key = `${presentationPreset.backend}::${presentationPreset.presetId}`
+  const key = presentationPresetExpressionKey(
+    presentationPreset.backend,
+    presentationPreset.presetId,
+  )
   const existingSame = current.find((entry) => (
     isExpressionFullCompositionPreset(entry) && entry.key === key
   ))

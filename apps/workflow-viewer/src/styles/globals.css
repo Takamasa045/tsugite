@@ -1036,6 +1036,8 @@ select {
 .launcher-template-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .launcher-template-card {
   --template-accent: #6f9b8d;
+  /* Tag label ink: denser than accent so 0.59rem text stays ≥4.5:1 on accent 13% wash. */
+  --template-tag-ink: #2f5a4d;
   position: relative;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -1054,10 +1056,12 @@ select {
   text-align: left;
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
-.launcher-template-card[data-tone="product"] { --template-accent: #b85c4a; }
-.launcher-template-card[data-tone="explainer"] { --template-accent: #6f9b8d; }
-.launcher-template-card[data-tone="assembly"] { --template-accent: #a86d45; }
-.launcher-template-card[data-tone="seminar"] { --template-accent: #526b83; }
+/* Accents: text ≥4.5:1 on card paper + white label ≥4.5:1 on vertical category bar.
+   Tag ink may be denser than accent (explainer accent fails ~4.29/3.89 on tag wash). */
+.launcher-template-card[data-tone="product"] { --template-accent: #8a3d32; --template-tag-ink: #8a3d32; }
+.launcher-template-card[data-tone="explainer"] { --template-accent: #3d6b5c; --template-tag-ink: #2f5a4d; }
+.launcher-template-card[data-tone="assembly"] { --template-accent: #7a4a28; --template-tag-ink: #7a4a28; }
+.launcher-template-card[data-tone="seminar"] { --template-accent: #3a5166; --template-tag-ink: #3a5166; }
 .launcher-template-card::before {
   position: absolute;
   display: grid;
@@ -1077,20 +1081,27 @@ select {
 }
 .launcher-template-card:hover { border-color: var(--template-accent); transform: translateY(-1px); }
 .launcher-template-card[data-selected="true"] {
+  /* Outer border + inset chrome ≥3:1 on paper (do not rely on label text alone). */
   border-color: var(--template-accent);
   background:
-    linear-gradient(90deg, transparent 0 32px, color-mix(in srgb, var(--template-accent) 22%, transparent) 32px 33px, transparent 33px),
+    linear-gradient(90deg, transparent 0 32px, color-mix(in srgb, var(--template-accent) 28%, transparent) 32px 33px, transparent 33px),
     linear-gradient(145deg, #fff, color-mix(in srgb, var(--template-accent) 11%, #f3eee5));
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--template-accent) 18%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--template-accent) 55%, transparent),
+    0 8px 20px color-mix(in srgb, var(--template-accent) 18%, transparent);
 }
 .launcher-template-card[data-invalid="true"] { border-color: rgba(169, 79, 68, 0.35); }
 .launcher-template-card[data-invalid="true"]::before { color: #6b3029; background: #e2b4aa; }
 .launcher-template-card-body { display: grid; min-width: 0; gap: 8px; align-content: start; }
 .launcher-template-card-topline { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .launcher-template-card-topline > span { color: var(--template-accent); font-size: 0.64rem; font-weight: 850; letter-spacing: 0.06em; }
-.launcher-template-card-topline small { color: var(--muted); font-size: 0.64rem; }
+/* Invalid/default has no data-tone: accent #6f9b8d fails ~3.07–2.61 on card gradient.
+   Topline only — keep accent for hover/selected chrome; bar already overrides ::before. */
+.launcher-template-card[data-invalid="true"] .launcher-template-card-topline > span { color: #6b3029; }
+/* Card muted: globals #66736f fails ~4.15:1 on card gradient dark end; use denser ink. */
+.launcher-template-card-topline small { color: #4a534e; font-size: 0.64rem; }
 .launcher-template-card-name { margin: 0; color: var(--sumi-950); font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 1.02rem; font-weight: 650; line-height: 1.45; }
-.launcher-template-card-summary { display: -webkit-box; margin: 0; overflow: hidden; color: var(--muted); font-size: 0.7rem; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.launcher-template-card-summary { display: -webkit-box; margin: 0; overflow: hidden; color: #4a534e; font-size: 0.7rem; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .launcher-template-card-actions {
   display: grid;
   gap: 8px;
@@ -1107,13 +1118,14 @@ select {
 }
 .launcher-template-card-actions .launcher-primary:focus-visible,
 .launcher-template-card-actions .launcher-secondary:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--template-accent) 62%, white);
+  /* Solid ring ≥3:1 on paper and button fills (tone-mixed wash was 1.6–2.5:1). */
+  outline: 3px solid #9a3d30;
   outline-offset: 2px;
 }
 .launcher-template-storyboard { display: grid; min-width: 0; gap: 6px; margin-top: 1px; }
 .launcher-template-storyboard-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
 .launcher-template-storyboard-heading b { color: var(--template-accent); font-size: 0.63rem; letter-spacing: 0.08em; }
-.launcher-template-storyboard-heading small { overflow: hidden; color: var(--muted); font-size: 0.56rem; text-overflow: ellipsis; white-space: nowrap; }
+.launcher-template-storyboard-heading small { overflow: hidden; color: #4a534e; font-size: 0.56rem; text-overflow: ellipsis; white-space: nowrap; }
 .launcher-template-frames { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .launcher-template-frames::before {
   position: absolute;
@@ -1169,15 +1181,16 @@ select {
 .launcher-template-frame[data-kind="result"] .launcher-template-frame-visual::after { width: 24%; height: 11%; border-bottom: 3px solid var(--template-accent); border-left: 3px solid var(--template-accent); inset: 39% auto auto 39%; transform: rotate(-45deg); }
 .launcher-template-frame[data-kind="event"] .launcher-template-frame-visual::before { inset: 23% 17% 17%; border-top: 8px solid var(--template-accent); border-radius: 4px; background: repeating-linear-gradient(90deg, rgba(255,255,255,.8) 0 8px, transparent 8px 13px), color-mix(in srgb, var(--template-accent) 25%, white); }
 .launcher-template-frame[data-kind="text"] .launcher-template-frame-visual::before { inset: 23% 14%; background: repeating-linear-gradient(180deg, var(--template-accent) 0 3px, transparent 3px 10px); opacity: 0.74; }
-.launcher-template-flow { margin: 0; overflow: hidden; color: var(--muted); font-size: 0.56rem; font-weight: 650; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+/* Card flow: same denser muted as topline/summary — globals --muted fails on card dark end / selected tint. */
+.launcher-template-flow { margin: 0; overflow: hidden; color: #4a534e; font-size: 0.56rem; font-weight: 650; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .launcher-template-card-footer { display: grid; gap: 6px; margin-top: auto; }
 .launcher-template-card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }
 .launcher-template-card-tags b,
 .launcher-template-card-tags i { border-radius: 2px; padding: 3px 6px; font-size: 0.59rem; font-style: normal; }
-.launcher-template-card-tags b { color: var(--template-accent); background: color-mix(in srgb, var(--template-accent) 13%, transparent); }
-.launcher-template-card-tags i { color: var(--muted); background: rgba(47, 43, 35, 0.06); }
+.launcher-template-card-tags b { color: var(--template-tag-ink); background: color-mix(in srgb, var(--template-accent) 13%, transparent); }
+.launcher-template-card-tags i { color: #4a534e; background: rgba(47, 43, 35, 0.06); }
 .launcher-template-input-types { display: flex; flex-wrap: wrap; gap: 4px; }
-.launcher-template-input-types i { border: 1px solid color-mix(in srgb, var(--template-accent) 24%, transparent); border-radius: 999px; padding: 2px 6px; color: var(--muted); background: rgba(255, 255, 255, 0.5); font-size: 0.54rem; font-style: normal; font-weight: 750; }
+.launcher-template-input-types i { border: 1px solid color-mix(in srgb, var(--template-accent) 24%, transparent); border-radius: 999px; padding: 2px 6px; color: #4a534e; background: rgba(255, 255, 255, 0.5); font-size: 0.54rem; font-style: normal; font-weight: 750; }
 
 .launcher-template-detail-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
 .launcher-template-detail-heading h2 { flex: 1; border: 0; }

@@ -1,0 +1,1227 @@
+/* ---- Expression shelf (動き・仕上げの見比べ) ---- */
+.launcher-hero .launcher-shelf-tabs {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  max-width: min(920px, 100%);
+}
+.launcher-hero .launcher-shelf-tabs button {
+  flex: 0 0 auto;
+}
+
+.launcher-expression-shelf {
+  width: min(1400px, calc(100% - 48px));
+  margin: 0 auto 28px;
+  display: grid;
+  gap: 18px;
+  color: var(--launcher-kinari);
+  /*
+   * Theme-scoped expression text tokens (dark default).
+   * Chosen against real composites so normal text stays ≥ WCAG AA 4.5:1:
+   * - label: kinari-ish on dark intent panels
+   * - placeholder: kinari @ .65 on input fill rgba(12,11,9,.88) ≈ 7.4:1
+   * - accent: lightened urushi on dark cards (base --launcher-urushi fails ~3:1)
+   */
+  --launcher-expr-label-text: rgba(244, 237, 223, .92);
+  --launcher-expr-placeholder: rgba(244, 237, 223, .65);
+  --launcher-expr-accent-text: #d0705c;
+  /*
+   * Secondary buttons on dark panel/card (~#131211).
+   * globals --ai-700 (#244d49) fails ~2:1; kinari ink stays ≥4.5:1.
+   */
+  --launcher-expr-secondary-text: #f4eddf;
+  --launcher-expr-secondary-border: rgba(231, 212, 174, .42);
+  --launcher-expr-secondary-disabled-text: rgba(244, 237, 223, .62);
+  --launcher-expr-secondary-surface: #131211;
+}
+.launcher-expression-heading,
+.launcher-expression-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.launcher-expression-heading h2,
+.launcher-expression-section-heading h3 {
+  margin: 4px 0 6px;
+  color: var(--launcher-kinari);
+  font-family: Georgia, "Yu Mincho", serif;
+  letter-spacing: .04em;
+}
+.launcher-expression-heading p,
+.launcher-expression-section-heading p,
+.launcher-expression-intent-note,
+.launcher-expression-intent-grid label,
+.launcher-expression-search > span:first-child,
+.launcher-expression-check,
+.launcher-expression-state,
+.launcher-expression-status,
+.launcher-expression-tray-mode,
+.launcher-expression-card-body p,
+.launcher-expression-reasons,
+.launcher-expression-preview-caption {
+  margin: 0;
+  color: rgba(244, 237, 223, .78);
+  font-size: .78rem;
+  line-height: 1.55;
+}
+.launcher-expression-heading-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  color: rgba(244, 237, 223, .78);
+}
+.launcher-expression-intent,
+.launcher-expression-recommendations,
+.launcher-expression-group,
+.launcher-expression-tray {
+  border: 1px solid rgba(231, 212, 174, .18);
+  border-radius: 2px 18px 2px 18px;
+  color: var(--launcher-kinari);
+  background: rgba(28, 26, 22, .72);
+  padding: 18px 18px 16px;
+}
+.launcher-expression-intent {
+  display: grid;
+  gap: 12px;
+}
+.launcher-expression-intent-free {
+  display: grid;
+  gap: 6px;
+  color: var(--launcher-expr-label-text);
+}
+.launcher-expression-intent-free > span {
+  color: var(--launcher-expr-label-text);
+}
+.launcher-expression-intent-free textarea,
+.launcher-expression-intent-grid select,
+.launcher-expression-search-field input {
+  width: 100%;
+  /* Border ≥3:1 on dark fill (was rgba .28 ~2.0:1). Layout/text colors unchanged. */
+  border: 1px solid rgba(231, 212, 174, .55);
+  border-radius: 8px;
+  background: rgba(12, 11, 9, .88);
+  color: var(--launcher-kinari);
+  padding: 10px 12px;
+  font: inherit;
+}
+.launcher-expression-intent-free textarea:hover,
+.launcher-expression-intent-grid select:hover,
+.launcher-expression-search-field:hover,
+.launcher-expression-role-filter select:hover,
+.launcher-expression-freeform-export-text:hover {
+  border-color: rgba(231, 212, 174, .68);
+}
+.launcher-expression-intent-free textarea:focus-visible,
+.launcher-expression-intent-grid select:focus-visible,
+.launcher-expression-search-field:focus-within,
+.launcher-expression-role-filter select:focus-visible,
+.launcher-expression-freeform-export-text:focus-visible {
+  border-color: rgba(231, 212, 174, .78);
+}
+.launcher-expression-freeform-export-text[readonly],
+.launcher-expression-freeform-export-text:read-only {
+  border-color: rgba(231, 212, 174, .55);
+}
+.launcher-expression-intent-free textarea::placeholder,
+.launcher-expression-search-field input::placeholder {
+  color: var(--launcher-expr-placeholder);
+  opacity: 1; /* keep computed contrast; some UAs dim placeholders */
+}
+/* Expression shelf: all interactive controls get a clear focus ring (dark theme). */
+.launcher-expression-shelf button:focus-visible,
+.launcher-expression-shelf select:focus-visible,
+.launcher-expression-shelf input:focus-visible,
+.launcher-expression-shelf textarea:focus-visible {
+  outline: 3px solid var(--launcher-mokume);
+  outline-offset: 2px;
+}
+/* Dark secondary: override globals --ai-700 so 追加/さらに表示/再読込/外す stay readable. */
+.launcher-expression-shelf .launcher-secondary {
+  border-color: var(--launcher-expr-secondary-border);
+  color: var(--launcher-expr-secondary-text);
+  background: transparent;
+}
+.launcher-expression-shelf .launcher-secondary:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: #171817;
+  background: var(--launcher-expr-secondary-text);
+  border-color: var(--launcher-expr-secondary-text);
+}
+.launcher-expression-shelf .launcher-secondary:disabled,
+.launcher-expression-shelf .launcher-secondary[aria-disabled="true"] {
+  color: var(--launcher-expr-secondary-disabled-text);
+  border-color: rgba(231, 212, 174, .24);
+  background: transparent;
+  opacity: 1; /* override globals .48 so disabled stays readable & distinguishable */
+  cursor: not-allowed;
+}
+/* Catalog load uses launcher-primary while busy; keep focusable aria-disabled look. */
+.launcher-expression-shelf .launcher-primary[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.72;
+  box-shadow: none;
+}
+.launcher-expression-shelf .launcher-primary[aria-disabled="true"]:hover {
+  background: inherit;
+}
+/* Soft-disable secondary (selected / loading retry) also blocks hover invert. */
+.launcher-expression-shelf .launcher-secondary[aria-disabled="true"]:hover {
+  color: var(--launcher-expr-secondary-disabled-text);
+  background: transparent;
+  border-color: rgba(231, 212, 174, .24);
+}
+/*
+ * Heading eyebrow / count on dark shell (#080808–#0d0d0c):
+ * globals .eyebrow #315f59 (~2.7:1) and .launcher-count #66736f (~3.9–4.1:1) fail AA.
+ * Scope to expression shelf only; other screens keep shared globals colors.
+ */
+.launcher-expression-shelf .eyebrow {
+  color: var(--launcher-kinari);
+}
+.launcher-expression-shelf .launcher-count {
+  color: rgba(244, 237, 223, .78);
+}
+.launcher-expression-intent-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.launcher-expression-intent-grid label,
+.launcher-expression-search {
+  display: grid;
+  gap: 5px;
+  color: rgba(244, 237, 223, .82);
+  font-size: .72rem;
+}
+.launcher-expression-check {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  min-height: 42px;
+  color: rgba(244, 237, 223, .86);
+}
+.launcher-expression-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  justify-content: space-between;
+  color: rgba(244, 237, 223, .82);
+}
+.launcher-expression-search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(231, 212, 174, .55);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--launcher-kinari);
+  background: rgba(12, 11, 9, .88);
+}
+.launcher-expression-search-field input {
+  border: 0;
+  background: transparent;
+  color: var(--launcher-kinari);
+  padding-left: 0;
+}
+.launcher-expression-group-toggle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.launcher-expression-group-toggle button {
+  min-height: 36px;
+  border: 1px solid rgba(231, 212, 174, .24);
+  border-radius: 999px;
+  background: rgba(18, 16, 13, .55);
+  color: rgba(244, 237, 223, .86);
+  padding: 0 12px;
+  font-size: .72rem;
+  cursor: pointer;
+}
+.launcher-expression-group-toggle button[aria-pressed="true"] {
+  background: rgba(154, 61, 48, .28);
+  /* dark panel ~#171613: base urushi #a63d2f is ~2.87:1; accent #d0705c is ~5.3:1 */
+  border-color: var(--launcher-expr-accent-text);
+  color: var(--launcher-kinari);
+  box-shadow: inset 0 0 0 1px var(--launcher-expr-accent-text);
+}
+.launcher-expression-grid,
+.launcher-expression-recommend-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+.launcher-expression-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid rgba(231, 212, 174, .16);
+  border-radius: 2px 14px 2px 14px;
+  color: var(--launcher-kinari);
+  background: rgba(18, 16, 13, .72);
+  padding: 12px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 280px;
+}
+.launcher-expression-card-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: rgba(244, 237, 223, .86);
+}
+.launcher-expression-card-topline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+.launcher-expression-card-topline strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--launcher-kinari);
+  font-size: .92rem;
+}
+.launcher-expression-card-topline small,
+.launcher-expression-card-meta,
+.launcher-expression-tags {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: rgba(244, 237, 223, .62);
+  font-size: .68rem;
+}
+.launcher-expression-card-body p {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: rgba(244, 237, 223, .82);
+  font-size: .75rem;
+  line-height: 1.5;
+}
+.launcher-expression-card-meta,
+.launcher-expression-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.launcher-expression-tags span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid rgba(231, 212, 174, .2);
+  border-radius: 999px;
+  color: rgba(244, 237, 223, .72);
+  padding: 2px 8px;
+}
+.launcher-expression-reasons {
+  margin: 0;
+  padding-left: 1.1em;
+  color: rgba(244, 237, 223, .78);
+  font-size: .7rem;
+  line-height: 1.45;
+}
+.launcher-expression-state,
+.launcher-expression-status,
+.launcher-expression-tray-mode {
+  margin: 8px 0 0;
+  color: rgba(244, 237, 223, .8);
+  font-size: .75rem;
+  line-height: 1.5;
+}
+.launcher-expression-state.is-error {
+  color: #f0b4a8;
+}
+.launcher-expression-tray-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: rgba(244, 237, 223, .86);
+}
+.launcher-expression-tray-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+  border-top: 1px solid rgba(231, 212, 174, .14);
+  padding-top: 8px;
+}
+.launcher-expression-tray-item-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.launcher-expression-tray-list strong,
+.launcher-expression-tray-list small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.launcher-expression-tray-list strong {
+  color: var(--launcher-kinari);
+}
+.launcher-expression-tray-list small {
+  color: rgba(244, 237, 223, .62);
+  font-size: .68rem;
+}
+.launcher-expression-tray-list button {
+  flex-shrink: 0;
+}
+
+/* light theme: dark ink on hinoki paper */
+.launcher-shell[data-theme="light"] .launcher-expression-shelf {
+  color: #24302b;
+  /*
+   * Light tokens vs white / hinoki paper (rgba(255,252,245,.92)):
+   * - label #24302b ≥ 13:1
+   * - placeholder ink @ .70 on white ≈ 5.2:1 (was .45 ≈ 2.6:1)
+   * - accent keeps solid urushi (≥6:1 on paper)
+   * - secondary text #244d49 on paper ≈ 9:1 (preserve globals contrast floor)
+   */
+  --launcher-expr-label-text: #24302b;
+  --launcher-expr-placeholder: rgba(36, 48, 43, .70);
+  --launcher-expr-accent-text: #9a3d30;
+  --launcher-expr-secondary-text: #244d49;
+  --launcher-expr-secondary-border: rgba(36, 77, 73, 0.28);
+  --launcher-expr-secondary-disabled-text: rgba(36, 77, 73, 0.62);
+  --launcher-expr-secondary-surface: #fffcf5;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-shelf .launcher-secondary {
+  border-color: var(--launcher-expr-secondary-border);
+  color: var(--launcher-expr-secondary-text);
+  background: transparent;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-shelf .launcher-secondary:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: #fffdf8;
+  background: #244d49;
+  border-color: #244d49;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-shelf .launcher-secondary:disabled,
+.launcher-shell[data-theme="light"] .launcher-expression-shelf .launcher-secondary[aria-disabled="true"] {
+  color: var(--launcher-expr-secondary-disabled-text);
+  border-color: rgba(36, 77, 73, 0.18);
+  background: transparent;
+  opacity: 1;
+  cursor: not-allowed;
+}
+/*
+ * Light heading eyebrow/count: restore design ink on shell paper gradient
+ * (#f7f2e8–#ede7dc). globals #66736f fails ~4.0–4.4:1 on those surfaces;
+ * #2a3832 / seiji #315f59 keep ≥4.5:1 without dark kinari bleed.
+ */
+.launcher-shell[data-theme="light"] .launcher-expression-shelf .eyebrow {
+  color: #315f59;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-shelf .launcher-count {
+  color: #2a3832;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-heading h2,
+.launcher-shell[data-theme="light"] .launcher-expression-section-heading h3,
+.launcher-shell[data-theme="light"] .launcher-expression-card-topline strong,
+.launcher-shell[data-theme="light"] .launcher-expression-tray-list strong {
+  color: #24302b;
+}
+/* Intent heading must not keep dark-theme kinari on paper (was nearly invisible). */
+.launcher-shell[data-theme="light"] .launcher-expression-intent-free,
+.launcher-shell[data-theme="light"] .launcher-expression-intent-free > span {
+  color: var(--launcher-expr-label-text);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-heading p,
+.launcher-shell[data-theme="light"] .launcher-expression-section-heading p,
+.launcher-shell[data-theme="light"] .launcher-expression-intent-note,
+.launcher-shell[data-theme="light"] .launcher-expression-intent-grid label,
+.launcher-shell[data-theme="light"] .launcher-expression-search > span:first-child,
+.launcher-shell[data-theme="light"] .launcher-expression-check,
+.launcher-shell[data-theme="light"] .launcher-expression-state,
+.launcher-shell[data-theme="light"] .launcher-expression-status,
+.launcher-shell[data-theme="light"] .launcher-expression-tray-mode,
+.launcher-shell[data-theme="light"] .launcher-expression-card-body,
+.launcher-shell[data-theme="light"] .launcher-expression-card-body p,
+.launcher-shell[data-theme="light"] .launcher-expression-reasons,
+.launcher-shell[data-theme="light"] .launcher-expression-heading-meta,
+.launcher-shell[data-theme="light"] .launcher-expression-toolbar,
+.launcher-shell[data-theme="light"] .launcher-expression-preview-caption {
+  color: rgba(36, 48, 43, .78);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-intent,
+.launcher-shell[data-theme="light"] .launcher-expression-recommendations,
+.launcher-shell[data-theme="light"] .launcher-expression-group,
+.launcher-shell[data-theme="light"] .launcher-expression-tray {
+  border-color: rgba(154, 61, 48, .14);
+  color: #24302b;
+  background: rgba(255, 252, 245, .92);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-intent-free textarea,
+.launcher-shell[data-theme="light"] .launcher-expression-intent-grid select,
+.launcher-shell[data-theme="light"] .launcher-expression-search-field,
+.launcher-shell[data-theme="light"] .launcher-expression-search-field input,
+.launcher-shell[data-theme="light"] .launcher-expression-role-filter select,
+.launcher-shell[data-theme="light"] .launcher-expression-freeform-export-text {
+  /* Light border ≥3:1 on white fill (was .18 ~1.4:1). */
+  border-color: rgba(52, 43, 30, .55);
+  color: #24302b;
+  background: rgba(255, 255, 255, .92);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-intent-free textarea:hover,
+.launcher-shell[data-theme="light"] .launcher-expression-intent-grid select:hover,
+.launcher-shell[data-theme="light"] .launcher-expression-search-field:hover,
+.launcher-shell[data-theme="light"] .launcher-expression-role-filter select:hover,
+.launcher-shell[data-theme="light"] .launcher-expression-freeform-export-text:hover {
+  border-color: rgba(52, 43, 30, .68);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-intent-free textarea:focus-visible,
+.launcher-shell[data-theme="light"] .launcher-expression-intent-grid select:focus-visible,
+.launcher-shell[data-theme="light"] .launcher-expression-search-field:focus-within,
+.launcher-shell[data-theme="light"] .launcher-expression-role-filter select:focus-visible,
+.launcher-shell[data-theme="light"] .launcher-expression-freeform-export-text:focus-visible {
+  border-color: rgba(52, 43, 30, .78);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-freeform-export-text[readonly],
+.launcher-shell[data-theme="light"] .launcher-expression-freeform-export-text:read-only {
+  border-color: rgba(52, 43, 30, .55);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-intent-free textarea::placeholder,
+.launcher-shell[data-theme="light"] .launcher-expression-search-field input::placeholder {
+  color: var(--launcher-expr-placeholder);
+  opacity: 1;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-group-toggle button {
+  border-color: rgba(154, 61, 48, .18);
+  color: #24302b;
+  background: transparent;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-group-toggle button[aria-pressed="true"] {
+  background: rgba(154, 61, 48, .1);
+  border-color: var(--launcher-urushi);
+  color: #24302b;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-card {
+  border-color: rgba(52, 43, 30, .12);
+  color: #24302b;
+  background: rgba(255, 255, 255, .78);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-card-topline small,
+.launcher-shell[data-theme="light"] .launcher-expression-card-meta,
+.launcher-shell[data-theme="light"] .launcher-expression-tags {
+  color: rgba(36, 48, 43, .72);
+}
+/* tray destination small: ≥4.5:1 on hinoki paper */
+.launcher-shell[data-theme="light"] .launcher-expression-tray-list small {
+  color: #2a3832;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-tags span {
+  border-color: rgba(52, 43, 30, .12);
+  color: rgba(36, 48, 43, .72);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-state.is-error {
+  color: #8b2e22;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-tray-list li {
+  border-top-color: rgba(52, 43, 30, .1);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-badge {
+  border-color: rgba(52, 43, 30, .14);
+  color: rgba(36, 48, 43, .78);
+  background: rgba(255, 255, 255, .72);
+}
+.launcher-shell[data-theme="light"] .launcher-expression-badge[data-kind="status"] {
+  border-color: rgba(154, 61, 48, .28);
+  color: #24302b;
+  background: rgba(154, 61, 48, .08);
+}
+/* destination uses !important on base; light must win with !important + solid ink ≥4.5:1 */
+.launcher-shell[data-theme="light"] .launcher-expression-destination {
+  color: #24302b !important;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-result-count,
+.launcher-shell[data-theme="light"] .launcher-expression-role-filter {
+  color: #2a3832;
+}
+/* role-filter select light border handled with intent/search/export above */
+.launcher-shell[data-theme="light"] .launcher-expression-preview-toggle {
+  border-color: rgba(52, 43, 30, .16);
+  color: #24302b;
+  background: rgba(255, 255, 255, .86);
+}
+/*
+ * Light expression shelf: dual focus indicator (dark ring + white separator).
+ * Works on white surfaces and colored primary/secondary buttons (≥3:1 vs both).
+ * Overrides globals.css #d18d39 which fails contrast on white and red buttons.
+ * Freeform export controls are included via .launcher-expression-shelf.
+ */
+.launcher-shell[data-theme="light"] .launcher-expression-shelf button:focus-visible,
+.launcher-shell[data-theme="light"] .launcher-expression-shelf select:focus-visible,
+.launcher-shell[data-theme="light"] .launcher-expression-shelf input:focus-visible,
+.launcher-shell[data-theme="light"] .launcher-expression-shelf textarea:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #1f1a16;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-preview-stage {
+  border-color: rgba(154, 61, 48, .14);
+  background: linear-gradient(145deg, rgba(255, 252, 245, .98), rgba(231, 212, 174, .28));
+}
+.launcher-shell[data-theme="light"] .launcher-expression-motion-text,
+.launcher-shell[data-theme="light"] .launcher-expression-motion-stack-card {
+  color: #24302b;
+}
+
+.launcher-expression-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(231, 212, 174, .22);
+  border-radius: 999px;
+  color: rgba(244, 237, 223, .78);
+  background: rgba(18, 16, 13, .45);
+  padding: 2px 8px;
+  font-size: .64rem;
+  line-height: 1.4;
+  max-width: 100%;
+}
+.launcher-expression-badge[data-kind="status"] {
+  border-color: rgba(154, 61, 48, .35);
+  color: var(--launcher-kinari);
+  background: rgba(154, 61, 48, .18);
+}
+.launcher-expression-badge[data-kind="fidelity"] {
+  border-color: rgba(231, 212, 174, .28);
+}
+.launcher-expression-destination {
+  margin: 0 !important;
+  color: rgba(244, 237, 223, .72) !important;
+  font-size: .7rem !important;
+  line-height: 1.45 !important;
+}
+.launcher-expression-result-count {
+  margin: 0;
+  color: rgba(244, 237, 223, .78);
+  font-size: .74rem;
+  line-height: 1.45;
+}
+.launcher-expression-role-filter {
+  display: grid;
+  gap: 5px;
+  color: rgba(244, 237, 223, .82);
+  font-size: .72rem;
+  min-width: 10rem;
+}
+.launcher-expression-role-filter select {
+  min-height: 36px;
+  border: 1px solid rgba(231, 212, 174, .55);
+  border-radius: 8px;
+  background: rgba(12, 11, 9, .88);
+  color: var(--launcher-kinari);
+  padding: 8px 10px;
+  font: inherit;
+}
+.launcher-expression-preview {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  --expr-preview-duration: 1800ms;
+  --expr-preview-delay: 0ms;
+  --expr-preview-stagger: 80ms;
+  --expr-preview-distance: 12px;
+  --expr-preview-intensity: .6;
+}
+.launcher-expression-preview-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(154, 61, 48, .16);
+  background:
+    linear-gradient(145deg, rgba(244, 237, 223, .92), rgba(231, 212, 174, .32));
+  min-height: 96px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+.launcher-expression-preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+  min-width: 0;
+}
+.launcher-expression-preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  border: 1px solid rgba(231, 212, 174, .28);
+  border-radius: 999px;
+  background: rgba(18, 16, 13, .55);
+  color: rgba(244, 237, 223, .9);
+  padding: 0 10px;
+  font-size: .68rem;
+  cursor: pointer;
+}
+/* preview toggle inherits shelf-wide focus rules above */
+.launcher-expression-preview-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+  font-size: .68rem;
+  flex: 1;
+}
+.launcher-expression-preview-caption b {
+  /* Theme accent text: lightened urushi on dark cards, solid urushi on paper */
+  color: var(--launcher-expr-accent-text);
+  letter-spacing: .06em;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-preview-caption b {
+  color: var(--launcher-expr-accent-text);
+}
+
+/* Shared motion shell — transform & opacity only */
+.launcher-expression-motion {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  padding: 12px;
+  color: #3a2f28;
+}
+.launcher-expression-motion-text {
+  position: relative;
+  z-index: 1;
+  font-family: Georgia, "Yu Mincho", serif;
+  font-size: .82rem;
+  letter-spacing: .12em;
+  font-weight: 600;
+  color: #3a2f28;
+  text-align: center;
+  white-space: nowrap;
+}
+/* will-change only while playing — compositor hint for active motion elements */
+.launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-text,
+.launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-bar-el,
+.launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-stack-card,
+.launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-orbit-ring,
+.launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-orbit-dot,
+.launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-line-el,
+.launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-cursor-el,
+.launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-wipe-veil {
+  will-change: transform, opacity;
+}
+.launcher-expression-motion-text.is-caption {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  font-size: .68rem;
+  letter-spacing: .08em;
+}
+
+/* Pause when not playing (off-screen or user/OS stop) */
+.launcher-expression-preview-stage[data-playing="false"] .launcher-expression-motion-text,
+.launcher-expression-preview-stage[data-playing="false"] .launcher-expression-motion-bar-el,
+.launcher-expression-preview-stage[data-playing="false"] .launcher-expression-motion-stack-card,
+.launcher-expression-preview-stage[data-playing="false"] .launcher-expression-motion-orbit-ring,
+.launcher-expression-preview-stage[data-playing="false"] .launcher-expression-motion-orbit-dot,
+.launcher-expression-preview-stage[data-playing="false"] .launcher-expression-motion-line-el,
+.launcher-expression-preview-stage[data-playing="false"] .launcher-expression-motion-cursor-el,
+.launcher-expression-preview-stage[data-playing="false"] .launcher-expression-motion-wipe-veil {
+  animation-play-state: paused !important;
+}
+
+/* Families */
+.launcher-expression-motion-fade .launcher-expression-motion-text {
+  animation: expr-fade var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-slide .launcher-expression-motion-text {
+  animation: expr-slide-y var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-slide[data-direction="left"] .launcher-expression-motion-text,
+.launcher-expression-motion-slide[data-direction="right"] .launcher-expression-motion-text {
+  animation-name: expr-slide-x;
+}
+.launcher-expression-motion-scale .launcher-expression-motion-text {
+  animation: expr-scale var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-rotate .launcher-expression-motion-text {
+  animation: expr-rotate var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-pulse .launcher-expression-motion-text {
+  animation: expr-pulse var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-wipe {
+  overflow: hidden;
+}
+.launcher-expression-motion-wipe .launcher-expression-motion-text {
+  animation: expr-fade var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-wipe-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(244, 237, 223, .95) 40%, rgba(244, 237, 223, .95) 100%);
+  transform-origin: left center;
+  animation: expr-wipe var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  pointer-events: none;
+}
+.launcher-expression-motion-typewriter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.launcher-expression-motion-typewriter .launcher-expression-motion-text.is-typewriter {
+  /* clip-path is compositor-friendly; avoid max-width layout animation */
+  overflow: hidden;
+  animation: expr-typewriter var(--expr-preview-duration) steps(12, end) var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-cursor-el {
+  width: 2px;
+  height: 1em;
+  background: rgba(154, 61, 48, .85);
+  animation: expr-cursor .9s step-end infinite;
+}
+.launcher-expression-motion-bars {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  align-items: end;
+  gap: 8px;
+  padding: 16px 20px 28px;
+  width: 100%;
+  min-height: 96px;
+}
+.launcher-expression-motion-bar-el {
+  display: block;
+  height: 48px;
+  border-radius: 3px 3px 0 0;
+  background: rgba(154, 61, 48, .62);
+  transform-origin: bottom center;
+  animation: expr-bars var(--expr-preview-duration) ease-in-out infinite;
+}
+.launcher-expression-motion-bar-el:nth-child(1) { height: 28px; }
+.launcher-expression-motion-bar-el:nth-child(2) { height: 42px; }
+.launcher-expression-motion-bar-el:nth-child(3) { height: 56px; }
+.launcher-expression-motion-bar-el:nth-child(4) { height: 36px; }
+.launcher-expression-motion-stack {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+}
+.launcher-expression-motion-stack-card {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  min-width: 70%;
+  min-height: 42px;
+  border-radius: 6px;
+  border: 1px solid rgba(154, 61, 48, .22);
+  background: rgba(255, 252, 245, .88);
+  color: #3a2f28;
+  font-family: Georgia, "Yu Mincho", serif;
+  font-size: .72rem;
+  letter-spacing: .08em;
+  /* Offsets via CSS vars so keyframes keep per-card x/y during animation */
+  --expr-stack-x: 0px;
+  --expr-stack-y: 0px;
+  --expr-stack-scale: 1;
+  --expr-stack-opacity: 1;
+  transform: translate3d(var(--expr-stack-x), var(--expr-stack-y), 0) scale(var(--expr-stack-scale));
+  opacity: var(--expr-stack-opacity);
+  animation: expr-stack var(--expr-preview-duration) ease-in-out infinite;
+}
+.launcher-expression-motion-stack-card:nth-child(1) {
+  --expr-stack-x: -10px;
+  --expr-stack-y: -8px;
+  --expr-stack-scale: .92;
+  --expr-stack-opacity: .55;
+}
+.launcher-expression-motion-stack-card:nth-child(3) {
+  --expr-stack-x: 10px;
+  --expr-stack-y: 8px;
+  --expr-stack-scale: .92;
+  --expr-stack-opacity: .55;
+}
+.launcher-expression-motion-orbit {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+}
+.launcher-expression-motion-orbit-ring {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(154, 61, 48, .35);
+  animation: expr-orbit-ring var(--expr-preview-duration) linear var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-orbit-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(154, 61, 48, .85);
+  animation: expr-orbit-dot var(--expr-preview-duration) linear var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-line-draw {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  width: 100%;
+  padding: 18px 16px 12px;
+}
+.launcher-expression-motion-line-el {
+  display: block;
+  width: 72%;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(154, 61, 48, .7);
+  transform-origin: left center;
+  animation: expr-line-draw var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-line-el.is-second {
+  width: 52%;
+  animation-delay: calc(var(--expr-preview-delay) + var(--expr-preview-stagger));
+}
+.launcher-expression-motion-glitch {
+  position: relative;
+}
+.launcher-expression-motion-glitch .launcher-expression-motion-text {
+  animation: expr-glitch-main var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-glitch .launcher-expression-motion-text.is-glitch-a,
+.launcher-expression-motion-glitch .launcher-expression-motion-text.is-glitch-b {
+  position: absolute;
+  inset: auto;
+  opacity: .45;
+  pointer-events: none;
+}
+.launcher-expression-motion-glitch .launcher-expression-motion-text.is-glitch-a {
+  color: rgba(154, 61, 48, .7);
+  animation: expr-glitch-a var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) infinite;
+}
+.launcher-expression-motion-glitch .launcher-expression-motion-text.is-glitch-b {
+  color: rgba(60, 90, 110, .55);
+  animation: expr-glitch-b var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) infinite;
+}
+
+@keyframes expr-fade {
+  0%, 100% { opacity: calc(var(--expr-preview-intensity) * .35); transform: translateZ(0); }
+  50% { opacity: 1; transform: translateZ(0); }
+}
+@keyframes expr-slide-y {
+  0%, 100% { opacity: .45; transform: translate3d(0, var(--expr-preview-distance), 0); }
+  50% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes expr-slide-x {
+  0%, 100% { opacity: .45; transform: translate3d(var(--expr-preview-distance), 0, 0); }
+  50% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes expr-scale {
+  0%, 100% { opacity: .5; transform: scale(calc(1 - var(--expr-preview-intensity) * .18)); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes expr-rotate {
+  0%, 100% { opacity: .55; transform: rotate(-6deg) scale(.94); }
+  50% { opacity: 1; transform: rotate(0deg) scale(1); }
+}
+@keyframes expr-pulse {
+  0%, 100% { opacity: .5; transform: scale(.92); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+@keyframes expr-wipe {
+  0% { transform: translate3d(-10%, 0, 0); opacity: .9; }
+  45%, 55% { transform: translate3d(100%, 0, 0); opacity: .2; }
+  100% { transform: translate3d(-10%, 0, 0); opacity: .9; }
+}
+@keyframes expr-typewriter {
+  0% { clip-path: inset(0 100% 0 0); opacity: .4; }
+  40%, 70% { clip-path: inset(0 0 0 0); opacity: 1; }
+  100% { clip-path: inset(0 100% 0 0); opacity: .4; }
+}
+@keyframes expr-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes expr-bars {
+  0%, 100% { transform: scaleY(calc(0.55 + var(--expr-preview-intensity) * .1)); opacity: .65; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+@keyframes expr-stack {
+  /* Preserve per-card --expr-stack-* offsets; only bob on Y and breathe scale/opacity */
+  0%, 100% {
+    transform: translate3d(var(--expr-stack-x), calc(var(--expr-stack-y) + 4px), 0)
+      scale(calc(var(--expr-stack-scale) * .96));
+    opacity: calc(var(--expr-stack-opacity) * .9);
+  }
+  50% {
+    transform: translate3d(var(--expr-stack-x), var(--expr-stack-y), 0)
+      scale(var(--expr-stack-scale));
+    opacity: var(--expr-stack-opacity);
+  }
+}
+@keyframes expr-orbit-ring {
+  0% { transform: rotate(0deg) scale(1); opacity: .7; }
+  50% { transform: rotate(180deg) scale(1.05); opacity: 1; }
+  100% { transform: rotate(360deg) scale(1); opacity: .7; }
+}
+@keyframes expr-orbit-dot {
+  0% { transform: rotate(0deg) translateX(28px) rotate(0deg); }
+  100% { transform: rotate(360deg) translateX(28px) rotate(-360deg); }
+}
+@keyframes expr-line-draw {
+  0%, 100% { transform: scaleX(.15); opacity: .45; }
+  50% { transform: scaleX(1); opacity: 1; }
+}
+@keyframes expr-glitch-main {
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 1; }
+  20% { transform: translate3d(-1px, 0, 0); }
+  40% { transform: translate3d(1px, 0, 0); }
+  60% { transform: translate3d(0, 0, 0); }
+}
+@keyframes expr-glitch-a {
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0; }
+  30% { transform: translate3d(2px, -1px, 0); opacity: .5; }
+  35% { transform: translate3d(0, 0, 0); opacity: 0; }
+}
+@keyframes expr-glitch-b {
+  0%, 100% { transform: translate3d(0, 0, 0); opacity: 0; }
+  55% { transform: translate3d(-2px, 1px, 0); opacity: .45; }
+  60% { transform: translate3d(0, 0, 0); opacity: 0; }
+}
+
+.launcher-template-expression-selection-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.launcher-template-expression-selection-list li {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid rgba(231, 212, 174, .16);
+  border-radius: 8px;
+  color: rgba(244, 237, 223, .86);
+  background: rgba(18, 16, 13, .45);
+  padding: 10px 12px;
+  font-size: .75rem;
+}
+.launcher-template-expression-selection-list strong,
+.launcher-template-expression-selection-list small,
+.launcher-template-expression-selection-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.launcher-template-expression-selection-list strong {
+  color: var(--launcher-kinari);
+}
+/*
+ * Selection small on dark expressions panel (#1c1a16 / li composite).
+ * rgba(244,237,223,.62) composites to ≥4.5:1 once the panel base is opaque.
+ */
+.launcher-template-expression-selection-list small {
+  color: rgba(244, 237, 223, .62);
+}
+/*
+ * Opaque sumi panel: former rgba(28,26,22,.55) over paper --launcher-kinari
+ * composite ~#7d7970 failed heading 3.72 / body 2.92 / small 4.05 / focus 1.57.
+ * Solid #1c1a16 keeps kinari heading, body .78, and small .62 ≥4.5:1.
+ */
+.launcher-template-checklist-expressions {
+  margin: 0 0 16px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid rgba(231, 212, 174, .16);
+  border-radius: 2px 14px 2px 14px;
+  color: var(--launcher-kinari);
+  background: #1c1a16;
+  padding: 16px;
+}
+.launcher-template-checklist-expressions h3,
+.launcher-template-checklist-expressions .launcher-template-checklist-presets-heading h3 {
+  color: var(--launcher-kinari);
+}
+/*
+ * Optional badge ("任意") inherits yakisugi #275e58 (~2.34:1 on #1c1a16).
+ * Kinari ink restores normal-text AA ≥4.5:1 on the opaque sumi panel.
+ */
+.launcher-template-checklist-expressions .launcher-template-checklist-presets-heading span {
+  color: var(--launcher-kinari);
+}
+.launcher-template-checklist-expressions p,
+.launcher-template-checklist-expressions .launcher-template-preset-state {
+  color: rgba(244, 237, 223, .78);
+}
+/*
+ * Secondary CTA (表現を変更) on opaque #1c1a16.
+ * globals --ai-700 (#244d49) is ~1.85:1 on this panel; kinari text ≥4.5:1
+ * and mokume-ish border rgba(231,212,174,.42) ≥3:1. Hover inverts for state.
+ */
+.launcher-template-checklist-expressions .launcher-secondary {
+  border-color: rgba(231, 212, 174, .42);
+  color: var(--launcher-kinari);
+  background: transparent;
+}
+.launcher-template-checklist-expressions .launcher-secondary:hover:not(:disabled) {
+  color: #171817;
+  background: var(--launcher-kinari);
+  border-color: var(--launcher-kinari);
+}
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions {
+  border-color: rgba(154, 61, 48, .12);
+  color: #24302b;
+  background: rgba(255, 252, 245, .92);
+}
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions h3,
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-template-checklist-presets-heading h3 {
+  color: #24302b;
+}
+/* Light: restore yakisugi seiji optional badge (do not keep dark kinari). */
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-template-checklist-presets-heading span {
+  color: #275e58;
+}
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions p,
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-template-preset-state {
+  color: rgba(36, 48, 43, .72);
+}
+/* Light: restore globals #244d49 secondary look (do not keep dark kinari CTA). */
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-secondary {
+  border-color: rgba(36, 77, 73, 0.24);
+  color: #244d49;
+  background: transparent;
+}
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-secondary:hover:not(:disabled) {
+  color: #fffdf8;
+  background: #244d49;
+  border-color: #244d49;
+}
+.launcher-shell[data-theme="light"] .launcher-template-expression-selection-list li {
+  border-color: rgba(52, 43, 30, .1);
+  color: #24302b;
+  background: rgba(255, 255, 255, .72);
+}
+.launcher-shell[data-theme="light"] .launcher-template-expression-selection-list strong {
+  color: #24302b;
+}
+/* selection-list small: ≥4.5:1 on white/hinoki (same ink as tray small) */
+.launcher-shell[data-theme="light"] .launcher-template-expression-selection-list small {
+  color: #2a3832;
+}
+.launcher-template-card-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .launcher-expression-intent-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .launcher-expression-shelf {
+    width: calc(100% - 24px);
+  }
+  .launcher-expression-toolbar {
+    align-items: stretch;
+  }
+  .launcher-expression-role-filter {
+    min-width: 0;
+    flex: 1 1 12rem;
+  }
+}
+@media (max-width: 640px) {
+  .launcher-expression-intent-grid,
+  .launcher-expression-grid,
+  .launcher-expression-recommend-list {
+    grid-template-columns: 1fr;
+  }
+  .launcher-expression-heading,
+  .launcher-expression-section-heading {
+    flex-direction: column;
+  }
+  .launcher-expression-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/*
+ * prefers-reduced-motion: no autoplay (JS sets data-playing=false),
+ * but explicit user play must still animate — never blanket animation:none.
+ *
+ * globals.css applies animation-duration: 0.01ms !important and
+ * animation-iteration-count: 1 !important to * under reduced motion.
+ * Restore real duration/iteration only for expression preview elements while
+ * data-playing=true. data-playing=false stays fully static.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-text,
+  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-bar-el,
+  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-stack-card,
+  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-orbit-ring,
+  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-orbit-dot,
+  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-line-el,
+  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-cursor-el,
+  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-wipe-veil {
+    animation: none !important;
+  }
+
+  /* After globals.css blanket reduce: restore only while explicitly playing */
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-text,
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-bar-el,
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-stack-card,
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-orbit-ring,
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-orbit-dot,
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-line-el,
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-cursor-el,
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-wipe-veil {
+    animation-duration: var(--expr-preview-duration) !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+.launcher-expression-freeform-export {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.launcher-expression-freeform-export h4 {
+  margin: 0;
+  color: var(--launcher-kinari);
+  font-size: .88rem;
+}
+.launcher-expression-freeform-export p {
+  margin: 0;
+  color: rgba(244, 237, 223, .78);
+  font-size: .74rem;
+  line-height: 1.5;
+}
+.launcher-expression-freeform-export-text {
+  width: 100%;
+  min-height: 8rem;
+  border: 1px solid rgba(231, 212, 174, .55);
+  border-radius: 8px;
+  background: rgba(12, 11, 9, .88);
+  color: var(--launcher-kinari);
+  padding: 10px 12px;
+  font: inherit;
+  font-size: .72rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-freeform-export h4 {
+  color: #24302b;
+}
+.launcher-shell[data-theme="light"] .launcher-expression-freeform-export p {
+  color: #2a3832;
+}
