@@ -56,3 +56,7 @@ Append-only format:
 2026-07-25 / ランチャー検索に `projects/<slug>/dist/<runId>/final.mp4` を貼っても案件がヒットしない / name/slug/runId に対して query の片方向 includes だけだった / 通常検索は部分一致、パス貼り付けは path セグメントと slug/runId の完全一致にして短い slug の誤ヒットを避ける / validate済
 2026-07-25 / HyperFramesがBGM+ナレーション同時でoverlapping_clips_same_trackエラー / renderAudioがroleごとにindex+2を付け直しtrackが衝突した / bgm・narration・sfxの全audio要素に一意のdata-track-indexを割り当てる / validate済
 2026-07-25 / エンジン制約と誤って話者・モーション不可と説明した / backends/hyperframesジェネレータがspeakers/visual/timelineを出していなかっただけ / 能力欠如を報告する前に当該backendジェネレータの実装を確認し、不足なら実装か明示的な未対応として切り分ける / observed
+2026-07-29 / 元Zoom録画と同一の7.48秒無音だけを含む完成動画がGate 3で承認不能になった / Gate 3が出力単体の固定3秒閾値だけを見て元素材から継承された自然な無音と新規音声欠損を区別しない / 単一素材を音声ごと保持する案件では元入力と最終出力の無音区間を同一閾値で比較し、時刻と長さが一致する継承無音は欠損と分けて人へ提示する / documented
+2026-07-31 / 640×360レビューで適正だった固定px文字が2560×1440本番との画面比率を一致させられなかった / オーバーレイ寸法をcomposition解像度と独立した固定値で実装した / 文字・余白・線幅は基準解像度に対するcomposition幅で縮放し、レビューと本番の代表フレームを両方確認する / qa済
+2026-07-31 / 同一runのreview-previewを並列実行すると一部がrun.lockedで失敗した / preview生成がrun単位のmutation lockを共有する / 同一runのapproval-gated previewは直列実行し、並列化はrunが異なる場合だけにする / qa済
+2026-07-31 / 2560×1440 Remotion renderがローカル動画fetchで3回失敗した / Data volumeの空きが3.8〜4.8GBしかなく、fetch再試行を増やしても容量不足を解消できなかった / 高解像度render前に空きを確認し、目安15GiB未満なら再取得可能キャッシュを整理してから開始する / qa済

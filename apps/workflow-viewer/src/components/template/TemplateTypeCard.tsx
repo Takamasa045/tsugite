@@ -63,7 +63,7 @@ export function TemplateTypeCard({
         {template.valid && preview && (
           <div className="launcher-template-storyboard">
             <div className="launcher-template-storyboard-heading">
-              <b>構成イメージ</b>
+              <b>動画の流れ</b>
               {!previewIsReady && <small>プレビュー準備中</small>}
             </div>
             <div className="launcher-template-frames">
@@ -137,6 +137,8 @@ export function TemplateTypeCard({
           <button
             aria-label={expressionsActionLabel}
             className="launcher-secondary"
+            data-expression-return-trigger=""
+            data-template-id={template.id}
             disabled={!template.valid}
             onClick={() => {
               if (!template.valid) return

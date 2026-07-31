@@ -249,9 +249,14 @@ export function HyperframesCatalogPanel({
           </span>
           {hasOpened && (
             <button
+              aria-busy={loadState === 'loading' || undefined}
+              aria-disabled={loadState === 'loading' || undefined}
               className="launcher-secondary"
-              disabled={loadState === 'loading'}
-              onClick={() => void loadCatalog({ keepPrevious: items.length > 0 })}
+              onClick={() => {
+                // Soft-disable while loading so Chromium keeps focus on this control.
+                if (loadState === 'loading') return
+                void loadCatalog({ keepPrevious: items.length > 0 })
+              }}
               type="button"
             >
               <RefreshCw aria-hidden="true" className={loadState === 'loading' ? 'is-spinning' : undefined} size={14} />

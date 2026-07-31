@@ -88,7 +88,7 @@ const PRESET_PURPOSE_DESCRIPTIONS: Record<string, string> = {
 }
 
 export const PRESENTATION_PRESET_SAFETY_NOTE =
-  '選択した構成が利用可能か validate と Gate 1 で確認し、非対応なら勝手に別presetへ変えず確認する'
+  '選択した構成が制作開始前に使えるか確認し、非対応なら勝手に別の仕上げへ変えず確認する（黙示fallback禁止）'
 
 export function backendLabelFor(backend: string): string {
   return BACKEND_LABELS[backend] ?? backend
@@ -184,10 +184,10 @@ export function formatPresentationPresetPromptSection(
     ? selection.presetId
     : `${label}${aspectText}`
   const lines = [
-    '## 仕上げの動き（実行候補）',
+    '## 制作依頼に指定できる仕上げ',
     '',
-    `- **backend**: ${selection.backend}（${backendLabelFor(selection.backend)}）`,
-    `- **preset**: \`${selection.presetId}\` — ${purpose}`,
+    `- **提供元**: ${selection.backend}（${backendLabelFor(selection.backend)}）`,
+    `- **id**: \`${selection.presetId}\` — ${purpose}`,
     `- ${PRESENTATION_PRESET_SAFETY_NOTE}`,
     '',
   ]

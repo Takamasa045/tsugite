@@ -1,30 +1,35 @@
-import { ArrowLeft, Check, RefreshCw, Search, Sparkles } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
-
+import { ArrowLeft } from 'lucide-react'
 import {
-  HYPERFRAMES_CATALOG_ENDPOINT,
-  isHyperframesCatalogSuccess,
-  type HyperframesCatalogItem,
-  type HyperframesCatalogLoadState,
-} from '../template/hyperframesCatalogModel'
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+
 import type { PresentationPresetLoadState, PresentationPresetOption } from '../template/presentationPresetModel'
-import { ExpressionPreview } from './ExpressionPreview'
+import {
+  ExpressionBrowseToolbar,
+  type ExpressionBrowseMode,
+} from './ExpressionBrowseToolbar'
+import { ExpressionIntentPanel } from './ExpressionIntentPanel'
+import { ExpressionRecommendations } from './ExpressionRecommendations'
+import { ExecutableExpressionGroup } from './ExecutableExpressionGroup'
+import { ReferenceExpressionGroup } from './ReferenceExpressionGroup'
+import { ExpressionSelectionTray } from './ExpressionSelectionTray'
 import {
   EXPRESSION_PAGE_SIZE,
-  EXPRESSION_SELECTION_COMBINE_NOTE,
-  EXPRESSION_SELECTION_LIMITS,
-  capabilityLabel,
-  expressionRoleLabel,
+  dedupeExpressionItemsByKey,
   filterExpressionItems,
+  formatExpressionCandidatesPromptSection,
   INITIAL_EXPRESSION_FILTERS,
   isFullCompositionRole,
   normalizeHyperframesCatalogItem,
   normalizePresentationPreset,
   pageExpressionItems,
   partitionExpressionItems,
-  previewFidelityLabel,
   removeExpressionSelection,
-  selectionModeLabel,
   toExpressionSelection,
   tryAddExpressionSelection,
   type ExpressionFilters,
@@ -38,6 +43,10 @@ import {
   type RecommendationIntent,
   type RecommendationResult,
 } from './expressionRecommendation'
+import { prefersReducedMotionInitially } from './expressionShelfSession'
+import { useExpressionCatalog } from './useExpressionCatalog'
+
+export { resetExpressionCatalogSessionCacheForTests } from './expressionShelfSession'
 
 export interface ExpressionShelfProps {
   fetcher?: typeof fetch
@@ -59,24 +68,36 @@ export interface ExpressionShelfProps {
   returnLabel?: string
 }
 
-type BrowseMode = 'all' | 'executable' | 'reference'
+const INTENT_CHANGED_STATUS =
+  '条件が変わったため、以前の候補は無効です。もう一度「入力内容から候補を絞り込む」を押してください。'
+const PRESET_POOL_CHANGED_STATUS =
+  '仕上げ候補の一覧が更新されたため、以前の候補は無効です。もう一度「入力内容から候補を絞り込む」を押してください。'
+const PRESET_LOADING_REASON =
+  '制作依頼に指定できる仕上げを読み込んでいます。読み込み後に候補の絞り込みが操作できます。'
 
-/** 棚タブ unmount 後も同一セッションで再取得しない（provider 再取得禁止） */
-const catalogSessionCache: {
-  items: HyperframesCatalogItem[]
-  warnings: string[]
-  ready: boolean
-} = {
-  items: [],
-  warnings: [],
-  ready: false,
-}
-
-/** テスト隔離用。本番 UI からは呼ばない。 */
-export function resetExpressionCatalogSessionCacheForTests(): void {
-  catalogSessionCache.items = []
-  catalogSessionCache.warnings = []
-  catalogSessionCache.ready = false
+/**
+ * Stable fingerprint of presentation presets for stale-recommendation hygiene.
+ *
+ * Includes every field that feeds `normalizePresentationPreset` and thus
+ * recommendation scoring / display (title, description, aspect, tags derived
+ * from backend/id/aspect). Order is part of the fingerprint so list reorders
+ * also invalidate.
+ *
+ * `backendLabel` is intentionally omitted: normalizePresentationPreset never
+ * reads it (provider comes from `backend`; card title from `label`). Including
+ * it would only thrash recommendations when a display-only backend string
+ * changes.
+ */
+function presentationPresetKeyPool(presets: readonly PresentationPresetOption[]): string {
+  return presets
+    .map((preset) => [
+      preset.backend,
+      preset.id,
+      preset.label,
+      preset.description ?? '',
+      preset.aspectRatio ?? '',
+    ].join('\u001f'))
+    .join('\0')
 }
 
 export function ExpressionShelf({
@@ -94,43 +115,87 @@ export function ExpressionShelf({
   onReturnToTemplate,
   returnLabel = 'テンプレートへ戻る',
 }: ExpressionShelfProps) {
-  const headingId = useId()
+  // Stable id so LauncherApp can restore keyboard focus after tabpanel remount.
+  const headingId = 'launcher-expressions-heading'
   const freeTextId = useId()
   const aspectId = useId()
   const purposeId = useId()
   const readinessId = useId()
   const searchId = useId()
+  const roleFilterId = useId()
 
-  const [catalogState, setCatalogState] = useState<HyperframesCatalogLoadState>(
-    catalogSessionCache.ready ? 'ready' : 'idle',
-  )
-  const [catalogItems, setCatalogItems] = useState<HyperframesCatalogItem[]>(
-    () => catalogSessionCache.items,
-  )
-  const [catalogError, setCatalogError] = useState<string | null>(null)
-  const [catalogWarning, setCatalogWarning] = useState<string | null>(
-    () => (catalogSessionCache.warnings.length > 0
-      ? `一部の項目を省略しました（${catalogSessionCache.warnings.length}件の注意）。`
-      : null),
-  )
-  const [hasLoadedCatalog, setHasLoadedCatalog] = useState(catalogSessionCache.ready)
-  const catalogItemsRef = useRef(catalogItems)
-  catalogItemsRef.current = catalogItems
-
+  // Always mounted aria-live region: update from '' so announcements fire.
+  const [statusMessage, setStatusMessage] = useState('')
   const [freeText, setFreeText] = useState(intentSeed?.freeText ?? '')
   const [aspect, setAspect] = useState<RecommendationIntent['aspect']>(intentSeed?.aspect ?? 'any')
   const [purpose, setPurpose] = useState(intentSeed?.purpose ?? '')
   const [readiness, setReadiness] = useState<RecommendationIntent['readiness']>(
     intentSeed?.readiness ?? 'explore',
   )
-  const [reducedMotion, setReducedMotion] = useState(false)
+  // 推薦意図の「動きを抑える」。OS の prefers-reduced-motion を初期値に使うが、
+  // 見本の再生制御とは別物。
+  const [preferCalmMotion, setPreferCalmMotion] = useState(prefersReducedMotionInitially)
   const [recommendation, setRecommendation] = useState<RecommendationResult | null>(null)
-  const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [filters, setFilters] = useState<ExpressionFilters>(INITIAL_EXPRESSION_FILTERS)
-  const [browseMode, setBrowseMode] = useState<BrowseMode>('all')
+  const [browseMode, setBrowseMode] = useState<ExpressionBrowseMode>('all')
   const [visibleExecutable, setVisibleExecutable] = useState(EXPRESSION_PAGE_SIZE)
   const [visibleReference, setVisibleReference] = useState(EXPRESSION_PAGE_SIZE)
   const seededRef = useRef(false)
+  const recommendationRef = useRef(recommendation)
+  recommendationRef.current = recommendation
+  const presetPoolRef = useRef(presentationPresetKeyPool(presentationPresets))
+  const presetPoolMountedRef = useRef(false)
+
+  const clearStaleRecommendation = useCallback((message: string) => {
+    if (!recommendationRef.current) return
+    setRecommendation(null)
+    setStatusMessage(message)
+  }, [])
+
+  /** Drop recommendation without status overwrite (caller sets loading status next). */
+  const dropRecommendationSilently = useCallback(() => {
+    if (!recommendationRef.current) return
+    setRecommendation(null)
+  }, [])
+
+  const handleCatalogLoaded = useCallback(() => {
+    // Success safety net + pagination reset. Start-of-load already cleared recommendation.
+    setRecommendation(null)
+    setVisibleReference(EXPRESSION_PAGE_SIZE)
+  }, [])
+
+  const {
+    catalogState,
+    catalogItems,
+    catalogError,
+    catalogWarning,
+    hasLoadedCatalog,
+    loadCatalog,
+  } = useExpressionCatalog({
+    fetcher,
+    token,
+    onStatusMessage: setStatusMessage,
+    onCatalogLoaded: handleCatalogLoaded,
+  })
+
+  /**
+   * Clear recommendation in the same turn as load/reload click so the focused
+   * catalog action stays put and recommendation play/add controls unmount first.
+   * Do not auto-recommend; failures never restore the old list.
+   */
+  const handleLoadCatalog = useCallback((options?: { keepPrevious?: boolean }) => {
+    dropRecommendationSilently()
+    void loadCatalog(options)
+  }, [dropRecommendationSilently, loadCatalog])
+
+  /**
+   * Clear recommendation when presentation preset retry starts (same turn as
+   * the retry click). Pool success still invalidates via presetPool effect.
+   */
+  const handleRetryPresentationPresets = useCallback(() => {
+    dropRecommendationSilently()
+    onRetryPresentationPresets?.()
+  }, [dropRecommendationSilently, onRetryPresentationPresets])
 
   useEffect(() => {
     if (!intentSeed || seededRef.current) return
@@ -142,50 +207,21 @@ export function ExpressionShelf({
     onClearIntentSeed?.()
   }, [intentSeed, onClearIntentSeed])
 
-  const loadCatalog = async ({ keepPrevious = false }: { keepPrevious?: boolean } = {}) => {
-    setCatalogState('loading')
-    setCatalogError(null)
-    setCatalogWarning(null)
-    setStatusMessage('参考表現を読み込んでいます…')
-    try {
-      const response = await fetcher(HYPERFRAMES_CATALOG_ENDPOINT, {
-        headers: {
-          accept: 'application/json',
-          'x-tsugite-token': token,
-        },
-      })
-      let payload: unknown
-      try {
-        payload = await response.json()
-      } catch {
-        throw new Error('invalid catalog')
-      }
-      if (!response.ok || !isHyperframesCatalogSuccess(payload)) {
-        throw new Error('invalid catalog')
-      }
-      setCatalogItems(payload.items)
-      catalogSessionCache.items = payload.items
-      catalogSessionCache.warnings = payload.warnings
-      catalogSessionCache.ready = true
-      setCatalogState('ready')
-      setHasLoadedCatalog(true)
-      setVisibleReference(EXPRESSION_PAGE_SIZE)
-      setStatusMessage(`${payload.items.length}件の参考表現を表示できます。`)
-      if (payload.warnings.length > 0) {
-        setCatalogWarning(`一部の項目を省略しました（${payload.warnings.length}件の注意）。`)
-      }
-    } catch {
-      if (!keepPrevious || catalogItemsRef.current.length === 0) {
-        setCatalogState('error')
-        setCatalogError('参考表現を読み込めませんでした。実行候補と制作依頼はそのまま使えます。')
-        setStatusMessage('参考表現を読み込めませんでした。')
-        return
-      }
-      setCatalogState('ready')
-      setCatalogError('再読み込みに失敗しました。前回の一覧を表示しています。')
-      setStatusMessage('再読み込みに失敗したため、前回の一覧を表示しています。')
+  // Async presentationPresets key pool change → clear stale recommendation (skip first mount).
+  const presetPool = useMemo(
+    () => presentationPresetKeyPool(presentationPresets),
+    [presentationPresets],
+  )
+  useEffect(() => {
+    if (!presetPoolMountedRef.current) {
+      presetPoolMountedRef.current = true
+      presetPoolRef.current = presetPool
+      return
     }
-  }
+    if (presetPoolRef.current === presetPool) return
+    presetPoolRef.current = presetPool
+    clearStaleRecommendation(PRESET_POOL_CHANGED_STATUS)
+  }, [presetPool, clearStaleRecommendation])
 
   // HyperFrames 公式 catalog は外部 registry 通信があるため、明示ボタンでのみ取得する
 
@@ -194,7 +230,7 @@ export function ExpressionShelf({
     [presentationPresets],
   )
   const referenceItems = useMemo(
-    () => catalogItems.map(normalizeHyperframesCatalogItem),
+    () => dedupeExpressionItemsByKey(catalogItems.map(normalizeHyperframesCatalogItem)),
     [catalogItems],
   )
   const allItems = useMemo(
@@ -202,10 +238,14 @@ export function ExpressionShelf({
     [executableItems, referenceItems],
   )
 
-  const activeFilters: ExpressionFilters = {
+  const activeFilters = useMemo<ExpressionFilters>(() => ({
     ...filters,
-    group: browseMode === 'all' ? filters.group : browseMode === 'executable' ? 'executable' : 'reference',
-  }
+    group: browseMode === 'all'
+      ? filters.group
+      : browseMode === 'executable'
+        ? 'executable'
+        : 'reference',
+  }), [filters, browseMode])
 
   const filteredAll = useMemo(
     () => filterExpressionItems(allItems, activeFilters),
@@ -224,27 +264,101 @@ export function ExpressionShelf({
     [referenceExpressions, visibleReference],
   )
 
+  const freeformExportText = useMemo(
+    () => formatExpressionCandidatesPromptSection({
+      mode: selectionMode,
+      selections,
+    }),
+    [selectionMode, selections],
+  )
+
+  const resultCountMessage = useMemo(() => {
+    const total = executableCandidates.length + referenceExpressions.length
+    const showing =
+      (browseMode === 'reference' ? 0 : visibleExecutableItems.length)
+      + (browseMode === 'executable' ? 0 : visibleReferenceItems.length)
+    if (browseMode === 'executable') {
+      return `制作依頼に指定できる仕上げ: ${executableCandidates.length}件中 ${visibleExecutableItems.length}件を表示`
+    }
+    if (browseMode === 'reference') {
+      return `アイデアとして参照する表現: ${referenceExpressions.length}件中 ${visibleReferenceItems.length}件を表示`
+    }
+    return `表示中 ${showing}件 / 絞り込み結果 ${total}件（仕上げ ${executableCandidates.length}・参考 ${referenceExpressions.length}）`
+  }, [
+    browseMode,
+    executableCandidates.length,
+    referenceExpressions.length,
+    visibleExecutableItems.length,
+    visibleReferenceItems.length,
+  ])
+
+  const recommendDisabled = presentationPresetLoadState === 'loading'
+
   function runRecommendation() {
+    if (recommendDisabled) return
     const intent: RecommendationIntent = {
       freeText,
       aspect: aspect ?? 'any',
       purpose: purpose || null,
       readiness: readiness ?? 'explore',
-      reducedMotion,
+      reducedMotion: preferCalmMotion,
       brandFixed: false,
       avoid: [],
     }
-    const result = recommendExpressions(allItems, intent)
+    // hasLoadedCatalog is truth after a successful load (including 0 items).
+    // Empty catalog ≠ unloaded: only unread catalog limits explore scope.
+    const exploreWithoutCatalog = (readiness ?? 'explore') === 'explore' && !hasLoadedCatalog
+
+    // When "ideas included" but catalog is not loaded, search only finish
+    // candidates and disclose the limited scope — never auto-fetch.
+    // After load (even items=[]), searchPool is allItems.
+    const searchPool = exploreWithoutCatalog ? executableItems : allItems
+    const result = recommendExpressions(searchPool, intent)
+
+    if (exploreWithoutCatalog) {
+      const scopeNote = [
+        '今検索できる範囲は、制作依頼に指定できる仕上げだけです。',
+        '参考表現を含めるには「HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）」が必要です。',
+        '自動では読み込みません。',
+      ].join('')
+      setRecommendation({
+        ...result,
+        clarification: result.clarification
+          ? `${scopeNote} ${result.clarification}`
+          : scopeNote,
+      })
+      setStatusMessage(
+        result.recommendations.length > 0
+          ? `仕上げ候補 ${result.recommendations.length}件を提案しました（参考一覧は未読込）。自動では選ばれません。`
+          : result.clarification ?? scopeNote,
+      )
+      return
+    }
+
     setRecommendation(result)
     setStatusMessage(
       result.recommendations.length > 0
-        ? `おすすめ ${result.recommendations.length}件を表示しました。`
+        ? `候補 ${result.recommendations.length}件を提案しました。自動では選ばれません。`
         : result.clarification ?? '条件に合う候補がありません。',
     )
   }
 
-  function handleSelect(item: ExpressionItem, reason: string) {
-    const result = tryAddExpressionSelection(selections, toExpressionSelection(item, reason))
+  /** Intent field change: clear stale recommendation; never auto-recommend. */
+  function updateIntentField<T>(setter: (value: T) => void, value: T) {
+    clearStaleRecommendation(INTENT_CHANGED_STATUS)
+    setter(value)
+  }
+
+  // Read latest selections via ref so handleSelect identity stays stable and
+  // memoized ExpressionCards do not re-render when only selection set changes.
+  const selectionsRef = useRef(selections)
+  selectionsRef.current = selections
+
+  const handleSelect = useCallback((item: ExpressionItem, reason: string) => {
+    const result = tryAddExpressionSelection(
+      selectionsRef.current,
+      toExpressionSelection(item, reason),
+    )
     if (!result.ok) {
       setStatusMessage(result.reason)
       return
@@ -253,22 +367,26 @@ export function ExpressionShelf({
     const roleNote = isFullCompositionRole(item.role)
       ? '全体構成として追加（補助表現と組み合わせ可）'
       : '補助表現として追加（全体構成と組み合わせ可）'
-    setStatusMessage(`${item.title} を制作依頼候補に追加しました（${roleNote}）`)
-  }
+    setStatusMessage(`${item.title} を制作依頼へ追加しました（${roleNote}）`)
+  }, [onSelectionsChange])
 
-  function handleRemove(key: string) {
-    const next = removeExpressionSelection(selections, key)
+  const handleRemove = useCallback((key: string, title: string) => {
+    const next = removeExpressionSelection(selectionsRef.current, key)
     onSelectionsChange({
       selections: next,
       mode: next.length === 0 ? 'unset' : 'explicit',
     })
-    setStatusMessage('候補を外しました')
+    setStatusMessage(`${title} を制作依頼から外しました`)
+  }, [onSelectionsChange])
+
+  function resetPagination() {
+    setVisibleExecutable(EXPRESSION_PAGE_SIZE)
+    setVisibleReference(EXPRESSION_PAGE_SIZE)
   }
 
   function updateFilter<K extends keyof ExpressionFilters>(key: K, value: ExpressionFilters[K]) {
     setFilters((current) => ({ ...current, [key]: value }))
-    setVisibleExecutable(EXPRESSION_PAGE_SIZE)
-    setVisibleReference(EXPRESSION_PAGE_SIZE)
+    resetPagination()
   }
 
   return (
@@ -280,16 +398,16 @@ export function ExpressionShelf({
     >
       <header className="launcher-expression-heading">
         <div>
-          <span className="eyebrow">表現の棚</span>
-          <h2 id={headingId}>動きの見本札から選ぶ</h2>
+          <span className="eyebrow">表現</span>
+          <h2 id={headingId} tabIndex={-1}>動きや仕上げを見比べて、制作依頼に入れる</h2>
           <p>
-            テンプレートを使わない自由制作でも使えます。実行候補（未検証）と参考表現は分けて表示します。
-            生成・install・render・Gate更新はしません。
+            テンプレートを使わない自由制作でも使えます。
+            制作依頼に指定できる仕上げと、アイデア用の参考表現を分けて見られます。
           </p>
         </div>
         <div className="launcher-expression-heading-meta">
           <span className="launcher-count">
-            実行候補（未検証） {executableItems.length}件 / 参考 {referenceItems.length}件
+            仕上げ {executableItems.length}件 / 参考 {referenceItems.length}件
           </span>
           {onReturnToTemplate && (
             <button className="launcher-secondary" onClick={onReturnToTemplate} type="button">
@@ -300,396 +418,98 @@ export function ExpressionShelf({
         </div>
       </header>
 
-      <section aria-label="どんな動画を作りたいか" className="launcher-expression-intent" role="region">
-        <label className="launcher-expression-intent-free" htmlFor={freeTextId}>
-          <span>どんな動画を作りたいですか</span>
-          <textarea
-            id={freeTextId}
-            onChange={(event) => setFreeText(event.target.value)}
-            placeholder="例: 記事を会話でわかりやすく解説する横型60秒"
-            rows={2}
-            value={freeText}
-          />
-        </label>
-        <div className="launcher-expression-intent-grid">
-          <label htmlFor={aspectId}>
-            <span>比率</span>
-            <select
-              id={aspectId}
-              onChange={(event) => setAspect(event.target.value as RecommendationIntent['aspect'])}
-              value={aspect ?? 'any'}
-            >
-              <option value="any">指定なし</option>
-              <option value="16:9">16:9 横型</option>
-              <option value="9:16">9:16 縦型</option>
-            </select>
-          </label>
-          <label htmlFor={purposeId}>
-            <span>目的</span>
-            <select
-              id={purposeId}
-              onChange={(event) => setPurpose(event.target.value)}
-              value={purpose}
-            >
-              <option value="">指定なし</option>
-              <option value="explainer">解説</option>
-              <option value="dialogue">会話</option>
-              <option value="promo">告知・募集</option>
-              <option value="showreel">ダイジェスト</option>
-              <option value="data">データ</option>
-              <option value="dev">開発・コード</option>
-              <option value="social">SNS・配信</option>
-            </select>
-          </label>
-          <label htmlFor={readinessId}>
-            <span>準備段階</span>
-            <select
-              id={readinessId}
-              onChange={(event) => setReadiness(event.target.value as RecommendationIntent['readiness'])}
-              value={readiness ?? 'explore'}
-            >
-              <option value="explore">参考から探す</option>
-              <option value="ready">実行候補（未検証）</option>
-            </select>
-          </label>
-          <label className="launcher-expression-check">
-            <input
-              checked={reducedMotion}
-              onChange={(event) => setReducedMotion(event.target.checked)}
-              type="checkbox"
-            />
-            <span>動きを抑える</span>
-          </label>
-        </div>
-        <button className="launcher-primary" onClick={runRecommendation} type="button">
-          <Sparkles aria-hidden="true" size={16} />
-          ローカルでおすすめを出す
-        </button>
-        <p className="launcher-expression-intent-note">
-          外部AI通信は使いません。用意済みの日本語・英語の語彙表と表現一覧の情報だけで、毎回同じ結果になるように採点します。
-        </p>
-      </section>
+      <ExpressionIntentPanel
+        freeTextId={freeTextId}
+        aspectId={aspectId}
+        purposeId={purposeId}
+        readinessId={readinessId}
+        freeText={freeText}
+        aspect={aspect}
+        purpose={purpose}
+        readiness={readiness}
+        preferCalmMotion={preferCalmMotion}
+        hasLoadedCatalog={hasLoadedCatalog}
+        recommendDisabled={recommendDisabled}
+        recommendDisabledReason={recommendDisabled ? PRESET_LOADING_REASON : null}
+        onFreeTextChange={(value) => updateIntentField(setFreeText, value)}
+        onAspectChange={(value) => updateIntentField(setAspect, value)}
+        onPurposeChange={(value) => updateIntentField(setPurpose, value)}
+        onReadinessChange={(value) => updateIntentField(setReadiness, value)}
+        onPreferCalmMotionChange={(value) => updateIntentField(setPreferCalmMotion, value)}
+        onRecommend={runRecommendation}
+      />
 
       {recommendation && (
-        <section aria-label="おすすめ候補" className="launcher-expression-recommendations" role="region">
-          <div className="launcher-expression-section-heading">
-            <h3>おすすめ候補</h3>
-            <p>
-              1〜3件は見比べ用の代替提案です。制作依頼へ入れる候補は下のトレイで明示選択してください。
-              全体構成1件と補助表現最大2件は組み合わせできます。
-            </p>
-          </div>
-          {recommendation.clarification && recommendation.recommendations.length === 0 && (
-            <p className="launcher-expression-state" role="status">{recommendation.clarification}</p>
-          )}
-          <ul className="launcher-expression-recommend-list">
-            {recommendation.recommendations.map((entry) => {
-              const selected = selections.some((item) => item.key === entry.item.key)
-              return (
-                <li className="launcher-expression-card" key={`rec-${entry.item.key}`}>
-                  <ExpressionPreview item={entry.item} />
-                  <div className="launcher-expression-card-body">
-                    <div className="launcher-expression-card-topline">
-                      <strong>{entry.item.title}</strong>
-                      <small>{entry.band === 'recommend' ? '推薦' : '参考候補'}</small>
-                      <small>{entry.score}点</small>
-                    </div>
-                    <p>{entry.item.description || '説明なし'}</p>
-                    <ul className="launcher-expression-reasons">
-                      {entry.reasons.map((reason) => <li key={reason}>合う理由: {reason}</li>)}
-                      {entry.cautions.map((caution) => <li key={caution}>注意: {caution}</li>)}
-                    </ul>
-                    <div className="launcher-expression-card-meta">
-                      <span>{capabilityLabel(entry.item.capability)}</span>
-                      <span>{previewFidelityLabel(entry.previewFidelity)}</span>
-                      <span>{entry.executable ? '実行可否: 候補' : '実行可否: 参考のみ'}</span>
-                    </div>
-                    <button
-                      aria-pressed={selected}
-                      className="launcher-secondary"
-                      onClick={() => handleSelect(entry.item, entry.reasons[0] ?? 'おすすめ一致')}
-                      type="button"
-                    >
-                      {selected ? (
-                        <><Check aria-hidden="true" size={14} />選択中</>
-                      ) : '制作依頼へ追加'}
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
+        <ExpressionRecommendations
+          recommendation={recommendation}
+          selections={selections}
+          onSelect={handleSelect}
+        />
       )}
 
-      <div className="launcher-expression-toolbar">
-        <label className="launcher-expression-search" htmlFor={searchId}>
-          <span>検索</span>
-          <span className="launcher-expression-search-field">
-            <Search aria-hidden="true" size={14} />
-            <input
-              id={searchId}
-              onChange={(event) => updateFilter('query', event.target.value)}
-              placeholder="名前・説明・タグ"
-              type="search"
-              value={filters.query}
-            />
-          </span>
-        </label>
-        <div aria-label="表示グループ" className="launcher-expression-group-toggle" role="group">
-          {(
-            [
-              ['all', 'すべて'],
-              ['executable', '実行候補（未検証）'],
-              ['reference', '参考から探す'],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              aria-pressed={browseMode === id}
-              key={id}
-              onClick={() => {
-                setBrowseMode(id)
-                setVisibleExecutable(EXPRESSION_PAGE_SIZE)
-                setVisibleReference(EXPRESSION_PAGE_SIZE)
-              }}
-              type="button"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <ExpressionBrowseToolbar
+        searchId={searchId}
+        roleFilterId={roleFilterId}
+        query={filters.query}
+        role={filters.role}
+        browseMode={browseMode}
+        onQueryChange={(value) => updateFilter('query', value)}
+        onRoleChange={(value) => updateFilter('role', value)}
+        onBrowseModeChange={(mode) => {
+          setBrowseMode(mode)
+          resetPagination()
+        }}
+      />
+
+      <p className="launcher-expression-result-count" role="status">
+        {resultCountMessage}
+      </p>
 
       {(browseMode === 'all' || browseMode === 'executable') && (
-        <section aria-label="実行候補（未検証）" className="launcher-expression-group" role="region">
-          <div className="launcher-expression-section-heading">
-            <h3>実行候補（未検証）</h3>
-            <p>Remotion / HyperFrames が宣言している仕上げ構成です。検証済みの実行保証ではありません。</p>
-          </div>
-          {presentationPresetLoadState === 'loading' && (
-            <div aria-busy="true" aria-live="polite" className="launcher-expression-state">
-              <RefreshCw aria-hidden="true" className="is-spinning" size={16} />
-              <strong>実行候補（未検証）を読み込んでいます…</strong>
-            </div>
-          )}
-          {presentationPresetLoadState === 'error' && (
-            <div className="launcher-expression-state is-error" role="alert">
-              <strong>実行候補（未検証）を読み込めませんでした。</strong>
-              {onRetryPresentationPresets && (
-                <button className="launcher-secondary" onClick={onRetryPresentationPresets} type="button">
-                  <RefreshCw aria-hidden="true" size={14} />
-                  もう一度読み込む
-                </button>
-              )}
-            </div>
-          )}
-          {presentationPresetNotice && presentationPresetLoadState === 'ready' && (
-            <p className="launcher-expression-state" role="status">{presentationPresetNotice}</p>
-          )}
-          {presentationPresetLoadState === 'ready' && executableCandidates.length === 0 && (
-            <p className="launcher-expression-state" role="status">表示できる実行候補（未検証）はありません。</p>
-          )}
-          <ul className="launcher-expression-grid">
-            {visibleExecutableItems.map((item) => (
-              <ExpressionCard
-                key={item.key}
-                item={item}
-                selected={selections.some((entry) => entry.key === item.key)}
-                onSelect={() => handleSelect(item, '実行候補（未検証）として明示選択')}
-              />
-            ))}
-          </ul>
-          {visibleExecutable < executableCandidates.length && (
-            <button
-              className="launcher-secondary"
-              onClick={() => setVisibleExecutable((count) => count + EXPRESSION_PAGE_SIZE)}
-              type="button"
-            >
-              実行候補（未検証）をさらに表示
-            </button>
-          )}
-        </section>
+        <ExecutableExpressionGroup
+          presentationPresetLoadState={presentationPresetLoadState}
+          presentationPresetNotice={presentationPresetNotice}
+          onRetryPresentationPresets={
+            onRetryPresentationPresets ? handleRetryPresentationPresets : undefined
+          }
+          executableCandidates={executableCandidates}
+          visibleItems={visibleExecutableItems}
+          visibleCount={visibleExecutable}
+          selections={selections}
+          onSelect={handleSelect}
+          onShowMore={() => setVisibleExecutable((count) => count + EXPRESSION_PAGE_SIZE)}
+        />
       )}
 
       {(browseMode === 'all' || browseMode === 'reference') && (
-        <section aria-label="参考表現" className="launcher-expression-group" role="region">
-          <div className="launcher-expression-section-heading">
-            <div>
-              <h3>参考表現（HyperFrames 公式 catalog）</h3>
-              <p>
-                実行候補（未検証）と混同しない参考一覧です。利用可能・導入済み・書き出し可能を保証しません。
-                読み込み時のみ公式カタログへ外部通信します。実行候補（未検証）は通信なしで表示します。
-              </p>
-            </div>
-            {hasLoadedCatalog && !catalogError && (
-              <button
-                className="launcher-secondary"
-                disabled={catalogState === 'loading'}
-                onClick={() => void loadCatalog({ keepPrevious: catalogItems.length > 0 })}
-                type="button"
-              >
-                <RefreshCw
-                  aria-hidden="true"
-                  className={catalogState === 'loading' ? 'is-spinning' : undefined}
-                  size={14}
-                />
-                参考一覧を再読み込み（外部通信あり）
-              </button>
-            )}
-          </div>
-          {!hasLoadedCatalog && catalogState === 'idle' && (
-            <div className="launcher-expression-state">
-              <p>
-                HyperFrames の参考一覧はまだ読み込んでいません。
-                ボタンを押すと公式カタログへ外部通信します。
-              </p>
-              <button
-                className="launcher-primary"
-                onClick={() => void loadCatalog()}
-                type="button"
-              >
-                HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）
-              </button>
-            </div>
-          )}
-          {catalogState === 'loading' && catalogItems.length === 0 && (
-            <div aria-busy="true" aria-live="polite" className="launcher-expression-state">
-              <RefreshCw aria-hidden="true" className="is-spinning" size={16} />
-              <strong>参考表現を読み込んでいます…</strong>
-            </div>
-          )}
-          {catalogError && (
-            <div className="launcher-expression-state is-error" role="alert">
-              <strong>{catalogError}</strong>
-              <button
-                className="launcher-secondary"
-                onClick={() => void loadCatalog({ keepPrevious: catalogItems.length > 0 })}
-                type="button"
-              >
-                HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）
-              </button>
-            </div>
-          )}
-          {catalogWarning && catalogState === 'ready' && (
-            <p className="launcher-expression-state" role="status">{catalogWarning}</p>
-          )}
-          {catalogState === 'ready' && referenceExpressions.length === 0 && hasLoadedCatalog && (
-            <p className="launcher-expression-state" role="status">条件に合う参考表現はありません。</p>
-          )}
-          <ul className="launcher-expression-grid">
-            {visibleReferenceItems.map((item) => (
-              <ExpressionCard
-                key={item.key}
-                item={item}
-                selected={selections.some((entry) => entry.key === item.key)}
-                onSelect={() => handleSelect(item, '参考表現として明示選択')}
-              />
-            ))}
-          </ul>
-          {visibleReference < referenceExpressions.length && (
-            <button
-              className="launcher-secondary"
-              onClick={() => setVisibleReference((count) => count + EXPRESSION_PAGE_SIZE)}
-              type="button"
-            >
-              参考表現をさらに表示
-            </button>
-          )}
-        </section>
+        <ReferenceExpressionGroup
+          catalogState={catalogState}
+          catalogError={catalogError}
+          catalogWarning={catalogWarning}
+          hasLoadedCatalog={hasLoadedCatalog}
+          catalogItemCount={catalogItems.length}
+          referenceExpressions={referenceExpressions}
+          visibleItems={visibleReferenceItems}
+          visibleCount={visibleReference}
+          selections={selections}
+          onSelect={handleSelect}
+          onLoadCatalog={handleLoadCatalog}
+          onShowMore={() => setVisibleReference((count) => count + EXPRESSION_PAGE_SIZE)}
+        />
       )}
 
-      <aside aria-label="選んだ候補" className="launcher-expression-tray" role="complementary">
-        <div className="launcher-expression-section-heading">
-          <h3>選んだ候補</h3>
-          <p>
-            最大{EXPRESSION_SELECTION_LIMITS.maxTotal}件
-            （全体構成{EXPRESSION_SELECTION_LIMITS.maxFullComposition}・補助
-            {EXPRESSION_SELECTION_LIMITS.maxAuxiliary}）。
-            {EXPRESSION_SELECTION_COMBINE_NOTE}
-          </p>
-        </div>
-        <p className="launcher-expression-tray-mode" role="status">
-          状態: {selectionModeLabel(selectionMode)}
-        </p>
-        {selections.length === 0 ? (
-          <p className="launcher-expression-state">まだ選んでいません。</p>
-        ) : (
-          <ul className="launcher-expression-tray-list">
-            {selections.map((selection) => (
-              <li key={selection.key}>
-                <div>
-                  <strong>{selection.title}</strong>
-                  <small>{expressionRoleLabel(selection.role)}</small>
-                  <small>{selection.provider} / {selection.nativeId}</small>
-                  <small>{capabilityLabel(selection.capability)}</small>
-                </div>
-                <button
-                  className="launcher-secondary"
-                  onClick={() => handleRemove(selection.key)}
-                  type="button"
-                >
-                  外す
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {onReturnToTemplate && (
-          <button className="launcher-primary" onClick={onReturnToTemplate} type="button">
-            制作依頼へ反映して戻る
-          </button>
-        )}
-      </aside>
+      <ExpressionSelectionTray
+        selections={selections}
+        selectionMode={selectionMode}
+        freeformExportText={freeformExportText}
+        onRemove={handleRemove}
+        onStatusMessage={setStatusMessage}
+        onReturnToTemplate={onReturnToTemplate}
+      />
 
-      {statusMessage && (
-        <p aria-live="polite" className="launcher-expression-status">
-          {statusMessage}
-        </p>
-      )}
+      <p aria-live="polite" className="launcher-expression-status">
+        {statusMessage}
+      </p>
     </section>
-  )
-}
-
-function ExpressionCard({
-  item,
-  selected,
-  onSelect,
-}: {
-  item: ExpressionItem
-  selected: boolean
-  onSelect: () => void
-}) {
-  return (
-    <li className="launcher-expression-card" data-selected={selected || undefined}>
-      <ExpressionPreview item={item} />
-      <div className="launcher-expression-card-body">
-        <div className="launcher-expression-card-topline">
-          <strong>{item.title}</strong>
-          <small>{item.source === 'presentation-preset' ? '実行候補（未検証）' : '参考表現'}</small>
-          <small>{item.category}</small>
-          {item.brandLock && <small>ブランド固定</small>}
-        </div>
-        <p>{item.description || '説明なし'}</p>
-        <div className="launcher-expression-card-meta">
-          <span>{capabilityLabel(item.capability)}</span>
-          <span>{previewFidelityLabel(item.previewFidelity)}</span>
-        </div>
-        <div className="launcher-expression-tags">
-          {item.tags.slice(0, 4).map((tag) => (
-            <span key={`${item.key}-${tag}`}>{tag}</span>
-          ))}
-        </div>
-        <button
-          aria-pressed={selected}
-          className="launcher-secondary"
-          onClick={onSelect}
-          type="button"
-        >
-          {selected ? (
-            <><Check aria-hidden="true" size={14} />選択中</>
-          ) : '制作依頼へ追加'}
-        </button>
-      </div>
-    </li>
   )
 }

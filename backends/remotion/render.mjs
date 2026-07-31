@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveRenderMediaSettings } from "./renderSettings.mjs";
 
 try {
   const input = parsePayload(JSON.parse(await readStdin()));
@@ -35,7 +36,7 @@ try {
       outputLocation: input.outputPath,
       inputProps,
       overwrite: true,
-      concurrency: 1,
+      ...resolveRenderMediaSettings(composition),
       logLevel: "error",
       timeoutInMilliseconds: 120000
     });

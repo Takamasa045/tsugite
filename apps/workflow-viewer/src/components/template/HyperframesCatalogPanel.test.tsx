@@ -210,4 +210,61 @@ describe('HyperframesCatalogPanel', () => {
     expect(mobileMatch!.index).toBeGreaterThan(twoColToolbar)
     expect(mobileMatch!.index).toBeGreaterThan(twoColList)
   })
+
+  it('reload uses aria-disabled while loading and keeps focus without re-entry fetch', async () => {
+    const user = userEvent.setup()
+    let resolveReload: ((value: Response) => void) | null = null
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(catalogPayload))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        resolveReload = resolve
+      }))
+
+    render(<HyperframesCatalogPanel fetcher={fetcher} token="session-token" />)
+    await user.click(screen.getByText('表現のヒントを探す'))
+    await screen.findByText('Data Chart')
+
+    const reload = screen.getByRole('button', { name: '再読み込み' })
+    reload.focus()
+    await user.click(reload)
+
+    const busy = screen.getByRole('button', { name: '再読み込み' })
+    expect(busy).toHaveAttribute('aria-disabled', 'true')
+    expect(busy).not.toHaveAttribute('disabled')
+    expect(busy).toHaveAttribute('aria-busy', 'true')
+    expect(busy).toHaveFocus()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+
+    await user.click(busy)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+
+    await waitFor(async () => {
+      resolveReload?.(jsonResponse(catalogPayload))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '再読み込み' })).not.toHaveAttribute('aria-disabled')
+    })
+    expect(screen.getByRole('button', { name: '再読み込み' })).toHaveFocus()
+  })
+
+  it('production source keeps soft-disable reload (no dynamic native disabled)', async () => {
+    const nodeFs = 'node:fs'
+    const nodePath = 'node:path'
+    const fs = await import(/* @vite-ignore */ nodeFs) as {
+      readFileSync: (path: string, encoding: string) => string
+    }
+    const path = await import(/* @vite-ignore */ nodePath) as {
+      resolve: (...parts: string[]) => string
+    }
+    const cwd = (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.()
+    if (!cwd) throw new Error('process.cwd is unavailable')
+    const source = fs.readFileSync(
+      path.resolve(cwd, 'src/components/template/HyperframesCatalogPanel.tsx'),
+      'utf8',
+    )
+    expect(source).toMatch(/aria-disabled=\{loadState === 'loading' \|\| undefined\}/)
+    expect(source).not.toMatch(/disabled=\{loadState === 'loading'\}/)
+    expect(source).toMatch(/if \(loadState === 'loading'\) return/)
+  })
 })

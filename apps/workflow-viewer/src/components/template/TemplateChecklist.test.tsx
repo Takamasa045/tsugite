@@ -8,6 +8,7 @@
  */
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TemplateChecklist } from './TemplateChecklist'
@@ -321,6 +322,156 @@ describe('TemplateChecklist', () => {
     expect(screen.queryByRole('button', { name: /Gate|ゲート/i })).not.toBeInTheDocument()
   })
 
+  it('copy成功直後に preset 変更で copied 表示が idle に戻る', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+
+    function Harness() {
+      const [preset, setPreset] = useState<null | { backend: string; presetId: string }>(null)
+      return (
+        <>
+          <TemplateChecklist
+            choices={choices}
+            presentationPreset={preset}
+            presentationPresetLoadState="ready"
+            presentationPresets={[
+              {
+                backend: 'remotion',
+                backendLabel: 'Remotion',
+                id: 'article-dialogue-16x9',
+                label: '横型・会話で解説',
+                description: '一般向け',
+                aspectRatio: '16:9',
+              },
+            ]}
+            onPresentationPresetChange={setPreset}
+            template={template}
+          />
+          <button
+            type="button"
+            onClick={() => setPreset({ backend: 'remotion', presetId: 'article-dialogue-16x9' })}
+          >
+            force-preset
+          </button>
+        </>
+      )
+    }
+
+    render(<Harness />)
+    await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
+    expect(await screen.findByRole('button', { name: '制作依頼をコピーしました' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'force-preset' }))
+    expect(screen.getByRole('button', { name: '制作依頼だけをコピー' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '制作依頼をコピーしました' })).not.toBeInTheDocument()
+  })
+
+  it('deferred copy A の遅延 settle は本文 B の copy 状態を上書きしない', async () => {
+    const user = userEvent.setup()
+    let resolveA: (() => void) | null = null
+    let resolveB: (() => void) | null = null
+    let call = 0
+    const writeText = vi.fn((text: string) => {
+      void text
+      call += 1
+      if (call === 1) {
+        return new Promise<void>((resolve) => {
+          resolveA = resolve
+        })
+      }
+      return new Promise<void>((resolve) => {
+        resolveB = resolve
+      })
+    })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    // Force async clipboard path (skip sync textarea fallback)
+    const previousExecCommand = Object.getOwnPropertyDescriptor(document, 'execCommand')
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: undefined,
+    })
+
+    function Harness() {
+      const [preset, setPreset] = useState<null | { backend: string; presetId: string }>(null)
+      return (
+        <>
+          <TemplateChecklist
+            choices={choices}
+            presentationPreset={preset}
+            presentationPresetLoadState="ready"
+            presentationPresets={[
+              {
+                backend: 'remotion',
+                backendLabel: 'Remotion',
+                id: 'article-dialogue-16x9',
+                label: '横型・会話で解説',
+                description: '一般向け',
+                aspectRatio: '16:9',
+              },
+            ]}
+            onPresentationPresetChange={setPreset}
+            template={template}
+          />
+          <button
+            type="button"
+            onClick={() => setPreset({ backend: 'remotion', presetId: 'article-dialogue-16x9' })}
+          >
+            switch-to-b
+          </button>
+        </>
+      )
+    }
+
+    try {
+      render(<Harness />)
+      // Copy A (body without preset)
+      await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
+      expect(writeText).toHaveBeenCalledTimes(1)
+      const textA = String(writeText.mock.calls[0]?.[0] ?? '')
+
+      // Change body to B while A is in flight
+      await user.click(screen.getByRole('button', { name: 'switch-to-b' }))
+      expect(screen.getByRole('button', { name: '制作依頼だけをコピー' })).toBeVisible()
+
+      // Copy B
+      await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
+      expect(writeText).toHaveBeenCalledTimes(2)
+      const textB = String(writeText.mock.calls[1]?.[0] ?? '')
+      expect(textB).not.toBe(textA)
+      expect(textB).toMatch(/article-dialogue-16x9/)
+
+      // B settles first → copied
+      await act(async () => {
+        resolveB?.()
+        await Promise.resolve()
+      })
+      expect(await screen.findByRole('button', { name: '制作依頼をコピーしました' })).toBeVisible()
+
+      // Late A resolve must not clear/overwrite B's success
+      await act(async () => {
+        resolveA?.()
+        await Promise.resolve()
+      })
+      expect(screen.getByRole('button', { name: '制作依頼をコピーしました' })).toBeVisible()
+      // Clipboard still received A then B snapshots at click time
+      expect(String(writeText.mock.calls[0]?.[0] ?? '')).toBe(textA)
+      expect(String(writeText.mock.calls[1]?.[0] ?? '')).toBe(textB)
+    } finally {
+      if (previousExecCommand) {
+        Object.defineProperty(document, 'execCommand', previousExecCommand)
+      } else {
+        Reflect.deleteProperty(document, 'execCommand')
+      }
+    }
+  })
+
   it('ブランド固定 preset 4件を視覚とスクリーンリーダー双方に明示する', () => {
     render(
       <TemplateChecklist
@@ -372,7 +523,7 @@ describe('TemplateChecklist', () => {
       />,
     )
 
-    const section = screen.getByRole('region', { name: '仕上げ構成（実行候補）' })
+    const section = screen.getByRole('region', { name: '制作依頼に指定できる仕上げ' })
     for (const name of [
       '横型・テンポ重視の会話解説、Remotion、16:9、ブランド固定',
       '横型・イベント／サービス告知、Remotion、16:9、ブランド固定',
@@ -426,9 +577,9 @@ describe('TemplateChecklist', () => {
       />,
     )
 
-    const section = screen.getByRole('region', { name: '仕上げ構成（実行候補）' })
+    const section = screen.getByRole('region', { name: '制作依頼に指定できる仕上げ' })
     expect(section).toBeVisible()
-    expect(within(section).getByRole('heading', { name: '仕上げ構成（実行候補）' })).toBeVisible()
+    expect(within(section).getByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
     expect(within(section).getByText(/ここでは制作依頼に追加するだけ/)).toBeVisible()
 
     const recommended = within(section).getByRole('button', { name: /おすすめに任せる/ })
@@ -457,7 +608,7 @@ describe('TemplateChecklist', () => {
     ).toBe(true)
   })
 
-  it('仕上げ構成（実行候補）と制作依頼本文とコピー内容へ反映する', async () => {
+  it('制作依頼に指定できる仕上げと制作依頼本文とコピー内容へ反映する', async () => {
     const user = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
@@ -485,18 +636,72 @@ describe('TemplateChecklist', () => {
 
     await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
     const brief = screen.getByLabelText('制作依頼本文')
-    expect(brief.textContent).toMatch(/仕上げの動き（実行候補）/)
+    expect(brief.textContent).toMatch(/制作依頼に指定できる仕上げ/)
     expect(brief.textContent).toMatch(/remotion/)
     expect(brief.textContent).toMatch(/article-dialogue-16x9/)
-    expect(brief.textContent).toMatch(/validate|Gate 1/)
+    expect(brief.textContent).toMatch(/制作開始前に使えるか確認/)
+    expect(brief.textContent).not.toMatch(/\bvalidate\b|Gate 1/)
 
     await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
     const copied = String(writeText.mock.calls[0][0])
     expect(copied).toMatch(/article-dialogue-16x9/)
-    expect(copied).toMatch(/勝手に別presetへ変えず確認/)
+    expect(copied).toMatch(/勝手に別の仕上げへ変えず確認|黙示fallback禁止/)
 
     await user.click(screen.getByRole('button', { name: /おすすめに任せる/ }))
     expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9/)
+  })
+
+  it('長い unknown preset ID と長い description も切り詰めず表示・選択・制作依頼へ反映する', async () => {
+    const user = userEvent.setup()
+    const longUnknownId =
+      'vendor-experimental-presentation-preset-with-very-long-unbroken-identifier-segment-abcdefghijklmnopqrstuvwxyz0123456789-16x9'
+    const longDescription =
+      'これは辞書にない長い説明文です。連続英数字の補足も混ざる場合があるためUIは切り詰めず折り返して表示する。'
+        + 'extra_long_unbroken_token_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_for_wrap_regression'
+        + '。制作依頼本文へは ID と backend がそのまま載る。'
+
+    render(
+      <TemplateChecklist
+        choices={choices}
+        presentationPresetLoadState="ready"
+        presentationPresets={[
+          {
+            backend: 'remotion',
+            backendLabel: 'Remotion',
+            id: longUnknownId,
+            // 未知 ID は model が label にそのまま出す契約
+            label: longUnknownId,
+            description: longDescription,
+            aspectRatio: '16:9',
+          },
+        ]}
+        template={template}
+      />,
+    )
+
+    const section = screen.getByRole('region', { name: '制作依頼に指定できる仕上げ' })
+    // label（strong）と tech code の両方にフル ID を出す（切り詰め・reject しない）
+    expect(within(section).getAllByText(longUnknownId).length).toBeGreaterThanOrEqual(2)
+    expect(within(section).getByText(longDescription)).toBeVisible()
+
+    const option = within(section).getByRole('button', {
+      name: `${longUnknownId}、Remotion、16:9`,
+    })
+    expect(option).toHaveAttribute('aria-pressed', 'false')
+    expect(option).toHaveClass('launcher-template-preset-option')
+    expect(option.querySelector('.launcher-template-preset-option-topline')).not.toBeNull()
+    expect(option.querySelector('.launcher-template-preset-option-description')?.textContent)
+      .toBe(longDescription)
+    expect(option.querySelector('.launcher-template-preset-option-tech code')?.textContent)
+      .toBe(longUnknownId)
+
+    await user.click(option)
+    expect(option).toHaveAttribute('aria-pressed', 'true')
+
+    const brief = screen.getByLabelText('制作依頼本文')
+    expect(brief.textContent).toMatch(new RegExp(longUnknownId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    expect(brief.textContent).toMatch(/remotion/)
+    expect(brief.textContent).toMatch(/制作依頼に指定できる仕上げ/)
   })
 
   it('仕上げの動きの loading / error / empty を壊さず表示する', async () => {
@@ -511,6 +716,8 @@ describe('TemplateChecklist', () => {
       />,
     )
     expect(screen.getByText(/仕上げの動きを読み込んでいます/)).toBeVisible()
+    // 初回 loading は retry 操作を出さない
+    expect(screen.queryByRole('button', { name: /仕上げの動きをもう一度読み込む|読み込んでいます/ })).not.toBeInTheDocument()
 
     rerender(
       <TemplateChecklist
@@ -534,5 +741,211 @@ describe('TemplateChecklist', () => {
       />,
     )
     expect(screen.getByText(/表示できる仕上げの動きはまだありません/)).toBeVisible()
+  })
+
+  /** Stateful harness: complete/fail は mousedown preventDefault で focus を奪わない */
+  function RetryFocusHarness() {
+    const [state, setState] = useState<'error' | 'loading' | 'ready'>('error')
+    const presets = state === 'ready'
+      ? [{
+          backend: 'remotion' as const,
+          backendLabel: 'Remotion',
+          id: 'article-dialogue-16x9',
+          label: '横型・会話で解説',
+          description: '会話調',
+          aspectRatio: '16:9' as const,
+        }]
+      : []
+    return (
+      <div>
+        <TemplateChecklist
+          choices={choices}
+          onRetryPresentationPresets={() => setState('loading')}
+          presentationPresetLoadState={state}
+          presentationPresets={presets}
+          template={template}
+        />
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setState('ready')}
+        >
+          complete-load
+        </button>
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setState('error')}
+        >
+          fail-load
+        </button>
+        <button type="button">other-control</button>
+      </div>
+    )
+  }
+
+  it('error→loading→ready: retry を同一操作として保ち、成功時は最初の候補へ focus', async () => {
+    const user = userEvent.setup()
+    render(<RetryFocusHarness />)
+    const retry = screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' })
+    retry.focus()
+    await user.click(retry)
+
+    const busy = screen.getByRole('button', { name: '読み込んでいます…' })
+    expect(busy).toHaveAttribute('aria-disabled', 'true')
+    expect(busy).not.toHaveAttribute('disabled')
+    expect(busy).toHaveAttribute('aria-busy', 'true')
+    expect(busy).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+    await user.click(busy)
+    expect(busy).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'complete-load' }))
+
+    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('error→loading→error: 再失敗時も同じ retry へ focus が残る', async () => {
+    const user = userEvent.setup()
+    render(<RetryFocusHarness />)
+    const retry = screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' })
+    retry.focus()
+    await user.click(retry)
+    expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'fail-load' }))
+    const retryAgain = screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' })
+    expect(retryAgain).toHaveFocus()
+    expect(retryAgain).not.toBeDisabled()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('loading中に別controlへ移したら ready でもそのfocusを奪わない', async () => {
+    const user = userEvent.setup()
+    render(<RetryFocusHarness />)
+    await user.click(screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' }))
+    expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
+
+    const other = screen.getByRole('button', { name: 'other-control' })
+    await user.click(other)
+    expect(other).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'complete-load' }))
+
+    expect(other).toHaveFocus()
+    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).not.toHaveFocus()
+  })
+
+  it('loading中に別controlへ移したら re-error でもそのfocusを奪わない', async () => {
+    const user = userEvent.setup()
+    render(<RetryFocusHarness />)
+    await user.click(screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' }))
+
+    const other = screen.getByRole('button', { name: 'other-control' })
+    other.focus()
+    expect(other).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'fail-load' }))
+
+    expect(other).toHaveFocus()
+    expect(screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' })).not.toHaveFocus()
+  })
+
+  it('owned success handoff focuses without preventScroll; re-error keeps preventScroll', async () => {
+    const user = userEvent.setup()
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus')
+    const first = render(<RetryFocusHarness />)
+
+    await user.click(screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' }))
+    focusSpy.mockClear()
+    await user.click(screen.getByRole('button', { name: 'complete-load' }))
+
+    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveFocus()
+    // Success handoff must not pass preventScroll: true
+    expect(
+      focusSpy.mock.calls.every((call) => (call[0] as FocusOptions | undefined)?.preventScroll !== true),
+    ).toBe(true)
+    expect(focusSpy.mock.calls.some((call) => call.length === 0 || call[0] == null)).toBe(true)
+    focusSpy.mockRestore()
+    first.unmount()
+
+    const focusSpy2 = vi.spyOn(HTMLElement.prototype, 'focus')
+    render(<RetryFocusHarness />)
+    await user.click(screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' }))
+    focusSpy2.mockClear()
+    await user.click(screen.getByRole('button', { name: 'fail-load' }))
+    expect(screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' })).toHaveFocus()
+    expect(
+      focusSpy2.mock.calls.some((call) => (call[0] as FocusOptions | undefined)?.preventScroll === true),
+    ).toBe(true)
+    focusSpy2.mockRestore()
+  })
+
+  it('owned success handoff does not steal focus when user already moved to another control', async () => {
+    const user = userEvent.setup()
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus')
+    render(<RetryFocusHarness />)
+    await user.click(screen.getByRole('button', { name: '仕上げの動きをもう一度読み込む' }))
+    const other = screen.getByRole('button', { name: 'other-control' })
+    other.focus()
+    focusSpy.mockClear()
+    await user.click(screen.getByRole('button', { name: 'complete-load' }))
+    expect(other).toHaveFocus()
+    expect(focusSpy).not.toHaveBeenCalled()
+    focusSpy.mockRestore()
+  })
+
+  it('copyWithHiddenTextarea restores focus to the copy button after fallback', async () => {
+    const user = userEvent.setup()
+    const previousExecCommand = Object.getOwnPropertyDescriptor(document, 'execCommand')
+    const execCommand = vi.fn().mockReturnValue(true)
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    })
+    // Force fallback path: no usable clipboard API.
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+
+    try {
+      render(<TemplateChecklist template={template} choices={choices} />)
+      const copyButton = screen.getByRole('button', { name: '制作依頼だけをコピー' })
+      copyButton.focus()
+      await user.click(copyButton)
+      expect(execCommand).toHaveBeenCalledWith('copy')
+      expect(document.querySelector('textarea[aria-hidden="true"]')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '制作依頼をコピーしました' })).toHaveFocus()
+      expect(document.activeElement).not.toBe(document.body)
+    } finally {
+      if (previousExecCommand) {
+        Object.defineProperty(document, 'execCommand', previousExecCommand)
+      } else {
+        Reflect.deleteProperty(document, 'execCommand')
+      }
+    }
+  })
+
+  it('production source keeps soft-disable on preset retry and focus restore on copy fallback', async () => {
+    const nodeFs = 'node:fs'
+    const nodePath = 'node:path'
+    const fs = await import(/* @vite-ignore */ nodeFs) as {
+      readFileSync: (path: string, encoding: string) => string
+    }
+    const path = await import(/* @vite-ignore */ nodePath) as {
+      resolve: (...parts: string[]) => string
+    }
+    const cwd = (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.()
+    if (!cwd) throw new Error('process.cwd is unavailable')
+    const source = fs.readFileSync(
+      path.resolve(cwd, 'src/components/template/TemplateChecklist.tsx'),
+      'utf8',
+    )
+    expect(source).toMatch(/aria-disabled=\{isPresetLoading \|\| undefined\}/)
+    expect(source).not.toMatch(/disabled=\{isPresetLoading\}/)
+    expect(source).toMatch(/previousActive\.focus\(\{ preventScroll: true \}\)/)
+    expect(source).toMatch(/previousActive instanceof HTMLElement/)
   })
 })
