@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added non-billing runtime model preflight for TopView and PixVerse/PixBurst in the CLI and generation canvas, allowing new provider models without a Tsugite static allowlist while preserving provider-side validation and generation approval boundaries.
+
+## 0.7.2 - 2026-07-30
+
+- Refined the template wizard and copy guidance, added launcher summaries for learning reviews and presentation presets, and introduced browsable HyperFrames references plus an expression library with recommendations and previews.
+- Added guarded worktree lifecycle commands and approval-bound deferred reconciliation, including isolated merge verification, identity revalidation, local fast-forward, and non-force cleanup that fails closed on conflicts or drift.
+
+## 0.7.1 - 2026-07-28
+
 - Fixed Viewer run-log compatibility for limited annotated `## Requests (...)` headings and assembly detail rows that omit `attempts`, showing `試行回数記録なし` instead of inventing values, while still rejecting malformed request lines and Gate 2 sections placed after Requests.
 
 - Added `character-add` CLI (`node bin/pipeline character-add --config <project.yaml> --from-manifest <manifest.json> --speaker <id>`) to copy a speaker and its images from a source manifest into a target project without generation or Gate changes.
@@ -9,6 +18,9 @@
 - Added an opt-in conditional Gate 2 auto-pass (`gates.gate_2.auto_pass: qc_ok_no_new_assets`) for local-media projects, applied only when the run consumed no credits, generated no new assets, and passed every Gate 2 QC check; the approval is recorded through the same inspection and digest the human path uses, with `decision_source: auto_qc`, and `run` always reports why an auto-pass did not apply.
 
 - Ended public distribution of the Desktop app, removed installer links from the product site, changed the supported entry point to GitHub source with Codex / Claude Code, and limited Desktop packaging CI to manual developer-only smoke checks without uploaded artifacts.
+
+- Added project naming, template selection, character gallery, durable project shelf, dialogue-production, preview, run-log, and safe Codex setup improvements.
+- Removed local-only presentation presets and their dedicated assets from public source distribution.
 
 ## 0.6.0 - 2026-07-23
 

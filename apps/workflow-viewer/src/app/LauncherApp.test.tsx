@@ -1,8 +1,24 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { resetExpressionCatalogSessionCacheForTests } from '../components/expression/ExpressionShelf'
 import { LauncherApp, projectMatchesQuery } from './LauncherApp'
+
+async function readLauncherStyleSheet(): Promise<string> {
+  // vitest 実行時のみ Node を使う。@types/node なしでも typecheck できるよう動的 import にする。
+  const nodeFs = 'node:fs'
+  const nodePath = 'node:path'
+  const fs = await import(/* @vite-ignore */ nodeFs) as {
+    readFileSync: (path: string, encoding: string) => string
+  }
+  const path = await import(/* @vite-ignore */ nodePath) as {
+    resolve: (...parts: string[]) => string
+  }
+  const cwd = (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.()
+  if (!cwd) throw new Error('process.cwd is unavailable')
+  return fs.readFileSync(path.resolve(cwd, 'src/styles/launcher-yakisugi.css'), 'utf8')
+}
 
 const terminalWrite = vi.fn()
 const terminalDispose = vi.fn()
@@ -174,7 +190,7 @@ const templates = [
   {
     id: 'invalid-preview-shape',
     name: '旧形式プレビュー',
-    summary: '不完全なプレビューでも安全な構成イメージへ戻します。',
+    summary: '不完全なプレビューでも安全な動画の流れへ戻します。',
     category: '記事を動画化',
     useCases: ['旧形式の確認'],
     duration: '30秒',
@@ -295,6 +311,49 @@ const feedback = {
   issues: [],
 }
 
+function trustedPendingPreference(input: {
+  key: string
+  summary: string
+  lastSeenAt: string
+  proposalId?: string
+}) {
+  return {
+    ...feedback.preferences[2]!,
+    key: input.key,
+    summary: input.summary,
+    lastSeenAt: input.lastSeenAt,
+    promotions: [],
+    promotionProposal: {
+      ...feedback.preferences[2]!.promotionProposal!,
+      id: input.proposalId ?? `${input.key}-v1`,
+      source: {
+        kind: 'codex_automation' as const,
+        workflowId: 'tsugite-learning-promotion-review',
+        runId: `review-${input.key}`,
+      },
+    },
+  }
+}
+
+function untrustedPendingPreference(input: {
+  key: string
+  summary: string
+  lastSeenAt: string
+}) {
+  const base = trustedPendingPreference(input)
+  return {
+    ...base,
+    promotionProposal: {
+      ...base.promotionProposal!,
+      source: {
+        kind: 'codex_automation' as const,
+        workflowId: 'another-workflow',
+        runId: `other-${input.key}`,
+      },
+    },
+  }
+}
+
 function jsonResponse(input: unknown, ok = true, status = ok ? 200 : 500): Response {
   return { ok, status, json: async () => input } as Response
 }
@@ -327,16 +386,55 @@ const characters = [
   },
 ]
 
+const defaultPresentationPresetResponses: Record<string, { ok: true; backend: string; presets: string[] }> = {
+  remotion: {
+    ok: true,
+    backend: 'remotion',
+    presets: ['article-dialogue-16x9', 'miraichi-lastcall-9x16'],
+  },
+  hyperframes: {
+    ok: true,
+    backend: 'hyperframes',
+    presets: ['article-explainer-16x9', 'article-explainer-9x16'],
+  },
+}
+
+const defaultHyperframesCatalogResponse = {
+  ok: true as const,
+  schemaVersion: 1 as const,
+  source: 'hyperframes' as const,
+  advisoryOnly: true as const,
+  capabilityVerified: false as const,
+  summary: {
+    total: 1,
+    returned: 1,
+    omitted: 0,
+    byType: { block: 1, component: 0 },
+  },
+  items: [{
+    id: 'data-chart',
+    type: 'block' as const,
+    title: 'Data Chart',
+    description: 'Animated bar chart',
+    tags: ['data', 'chart'],
+  }],
+  warnings: [] as string[],
+}
+
 function createLauncherFetcher({
   projectList = projects,
   feedbackAggregate = feedback,
   templateList = templates,
   characterList = characters,
+  presentationPresetResponses = defaultPresentationPresetResponses,
+  hyperframesCatalogResponse = defaultHyperframesCatalogResponse,
 }: {
   projectList?: unknown
   feedbackAggregate?: unknown
   templateList?: unknown
   characterList?: unknown
+  presentationPresetResponses?: Record<string, unknown>
+  hyperframesCatalogResponse?: unknown
 } = {}) {
   return vi.fn().mockImplementation((url: string) => {
     if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects: projectList }))
@@ -375,11 +473,29 @@ function createLauncherFetcher({
     if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback: feedbackAggregate }))
     if (url === '/api/templates') return Promise.resolve(jsonResponse({ ok: true, templates: templateList }))
     if (url === '/api/characters') return Promise.resolve(jsonResponse({ ok: true, characters: characterList }))
+    if (url === '/api/reference-catalogs/hyperframes') {
+      const ok = typeof hyperframesCatalogResponse === 'object'
+        && hyperframesCatalogResponse !== null
+        && 'ok' in hyperframesCatalogResponse
+        && (hyperframesCatalogResponse as { ok?: unknown }).ok === true
+      return Promise.resolve(jsonResponse(hyperframesCatalogResponse, ok))
+    }
+    const presetsMatch = /^\/api\/presets\?backend=([^&]+)$/.exec(url)
+    if (presetsMatch) {
+      const backend = decodeURIComponent(presetsMatch[1] ?? '')
+      const payload = presentationPresetResponses[backend]
+      if (!payload) return Promise.resolve(jsonResponse({ ok: false, issue: { code: 'backend.not_found' } }, false))
+      return Promise.resolve(jsonResponse(payload))
+    }
     return Promise.resolve(jsonResponse({ ok: false }, false))
   })
 }
 
 describe('LauncherApp', () => {
+  beforeEach(() => {
+    resetExpressionCatalogSessionCacheForTests()
+  })
+
   it('ライト・ダークテーマを切り替え、次回起動にも選択を保存する', async () => {
     const user = userEvent.setup()
     window.localStorage.clear()
@@ -1048,69 +1164,448 @@ describe('LauncherApp', () => {
     expect(fetcher).toHaveBeenCalledTimes(2)
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    expect(await screen.findByRole('heading', { name: 'テンプレートを選ぶ' })).toBeVisible()
-    expect(fetcher).toHaveBeenLastCalledWith('/api/templates', {
+    expect(await screen.findByRole('heading', { name: '何を作りたい？' })).toBeVisible()
+    expect(fetcher).toHaveBeenCalledWith('/api/templates', {
+      headers: { accept: 'application/json' },
+    })
+    expect(fetcher).toHaveBeenCalledWith('/api/presets?backend=remotion', {
+      headers: { accept: 'application/json' },
+    })
+    expect(fetcher).toHaveBeenCalledWith('/api/presets?backend=hyperframes', {
       headers: { accept: 'application/json' },
     })
     expect(screen.getByText('全4件')).toBeVisible()
+    // テンプレート棚では外側の3段階を出さず、ウィザード内進捗に一本化
+    expect(screen.queryByRole('list', { name: '見取図を開く手順' })).not.toBeInTheDocument()
 
     // 検索ボックス・カテゴリチップは置かない
     expect(screen.queryByRole('searchbox', { name: 'テンプレートを検索' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('用途で絞り込む')).not.toBeInTheDocument()
 
-    const storyboardCard = screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })
-    expect(within(storyboardCard).getByText('構成イメージ')).toBeVisible()
+    const storyboardCard = screen.getByRole('heading', { name: 'ブログ掛け合い 60秒' }).closest('article') as HTMLElement
+    expect(within(storyboardCard).getByText('動画の流れ')).toBeVisible()
     expect(within(storyboardCard).getAllByRole('img')).toHaveLength(3)
     expect(within(storyboardCard).getByText('60秒 · 16:9')).toBeVisible()
     expect(within(storyboardCard).getByText('記事の要点 → 疑問を代弁 → 専門家が解説 → 要点を回収')).toBeVisible()
     expect(within(storyboardCard).getByText('テキスト')).toBeVisible()
     expect(within(storyboardCard).getByText('画像')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'ブログ掛け合い 60秒を詳しく選ぶ' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'ブログ掛け合い 60秒のおすすめ設定で制作依頼を作る' })).toBeVisible()
+    expect(within(storyboardCard).getByText('詳しく選ぶ')).toBeVisible()
+    expect(within(storyboardCard).getByText('おすすめ設定で制作依頼を作る')).toBeVisible()
     expect(storyboardCard).toHaveAttribute('aria-describedby', 'launcher-template-card-a11y-blog-dialogue-60s')
     expect(document.getElementById('launcher-template-card-a11y-blog-dialogue-60s')).toHaveTextContent(
       '60秒、16:9。構成: 記事の要点、疑問を代弁、専門家が解説、要点を回収。必要素材: テキスト、画像。',
     )
 
-    const fallbackCard = screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ })
-    expect(within(fallbackCard).getByText('構成イメージ')).toBeVisible()
+    const fallbackCard = screen.getByRole('heading', { name: 'Q&A掛け合い' }).closest('article') as HTMLElement
+    expect(within(fallbackCard).getByText('動画の流れ')).toBeVisible()
     expect(within(fallbackCard).getAllByRole('img')).toHaveLength(3)
     expect(within(fallbackCard).getByText('プレビュー準備中')).toBeVisible()
 
-    const invalidPreviewCard = screen.getByRole('button', { name: /旧形式プレビューを選ぶ/ })
+    const invalidPreviewCard = screen.getByRole('heading', { name: '旧形式プレビュー' }).closest('article') as HTMLElement
     expect(within(invalidPreviewCard).getAllByRole('img')).toHaveLength(3)
     expect(within(invalidPreviewCard).getByText('プレビュー準備中')).toBeVisible()
 
     // 右パネル一括表示ではなくウィザードへ
     expect(screen.queryByRole('complementary', { name: '選択したテンプレート' })).not.toBeInTheDocument()
 
-    await user.click(storyboardCard)
+    await user.click(screen.getByRole('button', { name: 'ブログ掛け合い 60秒を詳しく選ぶ' }))
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /初心者＋専門家/ })).toHaveAttribute('aria-pressed', 'true')
+    const recommended = screen.getAllByRole('button', { name: /初心者＋専門家/ })
+      .find((el) => el.classList.contains('launcher-template-axis-option'))
+    expect(recommended).toHaveAttribute('aria-pressed', 'true')
 
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    expect(await screen.findByRole('heading', { name: /チェックリスト/ })).toBeVisible()
-    expect(screen.getByText('記事本文と出典')).toBeVisible()
-    expect(screen.getByText('2人分のキャラクター画像')).toBeVisible()
-    expect(screen.getByText('実演だけで魅力が伝わる商品')).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '確認してコピー' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '制作依頼だけをコピー' })).toBeVisible()
+    expect(screen.getByLabelText('制作依頼本文')).toBeVisible()
     expect(screen.getByText('閲覧専用')).toBeVisible()
-    expect(screen.getByRole('button', { name: /ブリーフをコピー|コピー/ })).toBeVisible()
+    expect(
+      screen.getByText((content) => content.includes('この画面では生成・実行・Gate更新をしません')),
+    ).toBeVisible()
+    // presentation preset 選択 UI（制作依頼への追記のみ）
+    expect(screen.getByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByText(/ここでは制作依頼に追加するだけ/)).toBeVisible()
+    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('横型・会話で解説')).toBeVisible()
+    expect(screen.queryByText('表現のヒントを探す')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '選んだ表現' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '表現を変更' })).toBeVisible()
+    expect(fetcher).not.toHaveBeenCalledWith('/api/reference-catalogs/hyperframes', expect.anything())
     expect(screen.queryByRole('button', { name: /生成|実行|run|render/i })).not.toBeInTheDocument()
+
+    const detailsSummary = screen.getByText('素材・演出の詳細を見る')
+    const details = detailsSummary.closest('details') as HTMLElement
+    await user.click(detailsSummary)
+    expect(within(details).getByText('記事本文と出典')).toBeVisible()
+    expect(within(details).getByText('2人分のキャラクター画像')).toBeVisible()
+    expect(within(details).getByText('実演だけで魅力が伝わる商品')).toBeVisible()
 
     // invalid は選択不可のまま
     const progressNav = screen.getByRole('navigation', { name: 'ウィザードの進捗' })
-    await user.click(within(progressNav).getByRole('button', { name: /型|テンプレート|ブログ掛け合い/ }))
-    expect(await screen.findByRole('heading', { name: 'テンプレートを選ぶ' })).toBeVisible()
-    const invalidCard = screen.getByRole('button', { name: /broken-template/ })
+    await user.click(within(progressNav).getByRole('button', { name: /動画|ブログ掛け合い/ }))
+    expect(await screen.findByRole('heading', { name: '何を作りたい？' })).toBeVisible()
+    const invalidCard = screen.getByRole('heading', { name: 'broken-template' }).closest('article') as HTMLElement
     expect(invalidCard).toHaveAttribute('data-invalid', 'true')
-    expect(invalidCard).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'broken-template（選択不可）を詳しく選ぶ' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'broken-template（選択不可）のおすすめ設定で制作依頼を作る' })).toBeDisabled()
 
-    // 軸なしテンプレートは型選択直後チェックリスト
-    await user.click(screen.getByRole('button', { name: /Q&A掛け合いを選ぶ/ }))
-    expect(await screen.findByRole('heading', { name: /チェックリスト/ })).toBeVisible()
-    expect(screen.getByText('質問と回答の一覧')).toBeVisible()
+    // 軸なしテンプレートは型選択直後最終画面（2/2 完了）
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(within(screen.getByRole('navigation', { name: 'ウィザードの進捗' })).getByText(/2 \/ 2 · 完了/)).toBeVisible()
+    const zeroAxisDetailsSummary = screen.getByText('素材・演出の詳細を見る')
+    const zeroAxisDetails = zeroAxisDetailsSummary.closest('details') as HTMLElement
+    await user.click(zeroAxisDetailsSummary)
+    expect(within(zeroAxisDetails).getByText('質問と回答の一覧')).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
     expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
-    expect(fetcher).toHaveBeenCalledTimes(3)
+    // projects + feedback + templates + remotion presets + hyperframes presets
+    expect(fetcher).toHaveBeenCalledTimes(5)
+  })
+
+  it('テンプレート棚で presentation preset を読み込み、選択を制作依頼へ反映する', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const fetcher = createLauncherFetcher()
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+
+    expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/presets'))).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
+    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
+
+    const brief = screen.getByLabelText('制作依頼本文')
+    expect(brief.textContent).toMatch(/article-dialogue-16x9/)
+    expect(brief.textContent).toMatch(/勝手に別の仕上げへ変えず確認|黙示fallback禁止/)
+
+    await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
+    expect(String(writeText.mock.calls[0]?.[0] ?? '')).toMatch(/article-dialogue-16x9/)
+
+    // 表現棚は独立タブ。仕上げ候補は通信なし。catalog は明示ボタンでのみ取得
+    await user.click(screen.getByRole('tab', { name: '表現' }))
+    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、制作依頼に入れる' })).toBeVisible()
+    const expressionPanel = screen.getByRole('tabpanel')
+    expect(expressionPanel).toHaveAttribute('id', 'launcher-expressions-panel')
+    expect(expressionPanel).toHaveAttribute('aria-labelledby', 'launcher-expressions-tab')
+    expect(screen.getByRole('tab', { name: '表現' })).toHaveAttribute('id', 'launcher-expressions-tab')
+    expect(screen.getByRole('region', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByRole('region', { name: 'アイデアとして参照する表現' })).toBeVisible()
+    expect(screen.getAllByText(/概念見本|公式実装の再現ではありません|実際の構成・動きの再現ではありません/).length).toBeGreaterThan(0)
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('reference-catalogs'))).toHaveLength(0)
+    expect(screen.queryByText('Data Chart')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', {
+      name: 'HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）',
+    }))
+    expect(await screen.findByText('Data Chart')).toBeVisible()
+    expect(fetcher).toHaveBeenCalledWith('/api/reference-catalogs/hyperframes', {
+      headers: {
+        accept: 'application/json',
+        'x-tsugite-token': 'session-token',
+      },
+    })
+
+    // 閲覧だけでは制作依頼へ混ざらない（テンプレート最終画面へ戻って確認）
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(await screen.findByLabelText('制作依頼本文')).toBeVisible()
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/data-chart|Data Chart/)
+
+    // 棚を離れても preset 再fetchしない。catalog も表現棚再訪で再fetchしない（session cache）
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/presets'))).toHaveLength(2)
+    await user.click(screen.getByRole('tab', { name: '表現' }))
+    expect(await screen.findByText('Data Chart')).toBeVisible()
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes('reference-catalogs'))).toHaveLength(1)
+  })
+
+  it('テンプレートから表現→別タブ→表現を直接選択すると自由制作export表示・戻るbuttonなし', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
+    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '表現を変更' })).toBeVisible()
+
+    // template 内の「表現を変更」→ return context 付き
+    await user.click(screen.getByRole('button', { name: '表現を変更' }))
+    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、制作依頼に入れる' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '制作依頼へ反映して戻る' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '自由制作に貼り付ける表現指定' })).not.toBeInTheDocument()
+
+    // 別タブへ移動（通常の selectShelf）
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
+    expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
+
+    // 上部の表現タブを直接開く → return context 破棄、自由制作 export 表示
+    await user.click(screen.getByRole('tab', { name: '表現' }))
+    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、制作依頼に入れる' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '自由制作に貼り付ける表現指定' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '制作依頼へ反映して戻る' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'テンプレートへ戻る' })).not.toBeInTheDocument()
+  })
+
+  it('keyboard Enterでテンプレート↔表現を往復してもfocusがbodyへ落ちない', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+
+    // カードの「表現も選ぶ」を keyboard Enter で開く
+    const openExpressions = screen.getByRole('button', { name: 'Q&A掛け合いの表現も選ぶ' })
+    openExpressions.focus()
+    expect(openExpressions).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    const expressionHeading = await screen.findByRole('heading', {
+      name: '動きや仕上げを見比べて、制作依頼に入れる',
+    })
+    expect(expressionHeading).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+
+    // 制作依頼へ反映して戻る（keyboard）
+    const returnButton = screen.getByRole('button', { name: '制作依頼へ反映して戻る' })
+    returnButton.focus()
+    await user.keyboard('{Enter}')
+
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+    // 元 trigger を復元、なければ templates tab
+    const restoredTrigger = screen.queryByRole('button', { name: 'Q&A掛け合いの表現も選ぶ' })
+    const templatesTab = screen.getByRole('tab', { name: 'テンプレート' })
+    if (restoredTrigger) {
+      expect(
+        document.activeElement === restoredTrigger || document.activeElement === templatesTab,
+      ).toBe(true)
+    } else {
+      expect(templatesTab).toHaveFocus()
+    }
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement?.tagName.toLowerCase()).not.toBe('body')
+  })
+
+  it('棚跨ぎの focus 復元は preventScroll を使わない（Focus Not Obscured 契約）', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus')
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+
+    focusSpy.mockClear()
+    const openExpressions = screen.getByRole('button', { name: 'Q&A掛け合いの表現も選ぶ' })
+    openExpressions.focus()
+    await user.keyboard('{Enter}')
+
+    const expressionHeading = await screen.findByRole('heading', {
+      name: '動きや仕上げを見比べて、制作依頼に入れる',
+    })
+    expect(expressionHeading).toHaveFocus()
+
+    const entryFocusCalls = focusSpy.mock.calls.filter((_, index) => {
+      return focusSpy.mock.instances[index] === expressionHeading
+    })
+    expect(entryFocusCalls.length).toBeGreaterThan(0)
+    for (const args of entryFocusCalls) {
+      const opts = args[0] as FocusOptions | undefined
+      // 棚跨ぎはブラウザ scroll を許可する（preventScroll 禁止）
+      expect(opts?.preventScroll).not.toBe(true)
+    }
+
+    focusSpy.mockClear()
+    const returnButton = screen.getByRole('button', { name: '制作依頼へ反映して戻る' })
+    returnButton.focus()
+    await user.keyboard('{Enter}')
+
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+    const restoredTrigger = screen.getByRole('button', { name: 'Q&A掛け合いの表現も選ぶ' })
+    expect(restoredTrigger).toHaveFocus()
+
+    const returnFocusCalls = focusSpy.mock.calls.filter((_, index) => {
+      return focusSpy.mock.instances[index] === restoredTrigger
+    })
+    expect(returnFocusCalls.length).toBeGreaterThan(0)
+    for (const args of returnFocusCalls) {
+      const opts = args[0] as FocusOptions | undefined
+      expect(opts?.preventScroll).not.toBe(true)
+    }
+    focusSpy.mockRestore()
+  })
+
+  it('checklist「表現を変更」keyboard往復でもfocusを安定復元する', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
+    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+
+    const changeExpressions = screen.getByRole('button', { name: '表現を変更' })
+    changeExpressions.focus()
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByRole('heading', {
+      name: '動きや仕上げを見比べて、制作依頼に入れる',
+    })).toHaveFocus()
+
+    const returnButton = screen.getByRole('button', { name: '制作依頼へ反映して戻る' })
+    returnButton.focus()
+    await user.keyboard('{Enter}')
+
+    await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })
+    const restored = screen.getByRole('button', { name: '表現を変更' })
+    expect(restored).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('同名別ID template の2件目「表現も選ぶ」から戻ると id=b の trigger へ focus する', async () => {
+    const user = userEvent.setup()
+    const twinTemplates = [
+      {
+        ...templates[1],
+        id: 'qa-dialogue-a',
+        name: '同名掛け合い',
+      },
+      {
+        ...templates[1],
+        id: 'qa-dialogue-b',
+        name: '同名掛け合い',
+      },
+    ]
+    const fetcher = createLauncherFetcher({ templateList: twinTemplates })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+
+    const openTriggers = screen.getAllByRole('button', { name: '同名掛け合いの表現も選ぶ' })
+    expect(openTriggers).toHaveLength(2)
+    expect(openTriggers[0]).toHaveAttribute('data-template-id', 'qa-dialogue-a')
+    expect(openTriggers[1]).toHaveAttribute('data-template-id', 'qa-dialogue-b')
+
+    // Open from the second same-name card
+    openTriggers[1].focus()
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByRole('heading', {
+      name: '動きや仕上げを見比べて、制作依頼に入れる',
+    })).toHaveFocus()
+
+    const returnButton = screen.getByRole('button', { name: '制作依頼へ反映して戻る' })
+    returnButton.focus()
+    await user.keyboard('{Enter}')
+
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+    const restoredTriggers = screen.getAllByRole('button', { name: '同名掛け合いの表現も選ぶ' })
+    expect(restoredTriggers[1]).toHaveFocus()
+    expect(restoredTriggers[1]).toHaveAttribute('data-template-id', 'qa-dialogue-b')
+    expect(document.activeElement).not.toBe(restoredTriggers[0])
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('仕上げの動きの選択は戻る→最終画面と棚の往復でも同一テンプレートなら保持する', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+
+    await user.click(screen.getByRole('button', { name: 'ブログ掛け合い 60秒のおすすめ設定で制作依頼を作る' }))
+    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+
+    // 前ステップへ戻って再度最終画面へ → 同一テンプレートなので保持
+    await user.click(screen.getByRole('button', { name: '戻る' }))
+    expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
+    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+
+    // テンプレート棚 → 別棚 → テンプレート棚でも保持
+    await user.click(screen.getByRole('tab', { name: '制作作品' }))
+    expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+  })
+
+  it('presentation preset は片側backend失敗でも成功分を表示し、全backend失敗時だけ全体errorにする', async () => {
+    const user = userEvent.setup()
+    const partialFetcher = createLauncherFetcher({
+      presentationPresetResponses: {
+        remotion: defaultPresentationPresetResponses.remotion,
+        // hyperframes は意図的に失敗
+      },
+    })
+
+    const partialView = render(<LauncherApp fetcher={partialFetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
+    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+
+    // remotion 成功分は表示
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toBeVisible()
+    expect(screen.getByText('横型・会話で解説')).toBeVisible()
+    // hyperframes 分は無い
+    expect(screen.queryByText('横型・資料付き解説')).not.toBeInTheDocument()
+    expect(screen.queryByText('縦型・資料付き解説')).not.toBeInTheDocument()
+    // 全体 error ではない
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    // 片側不足は非ブロッキングで分かる
+    expect(screen.getByText(/HyperFramesの仕上げの動きを読み込めませんでした/)).toBeVisible()
+    expect(screen.getByText(/表示中の候補だけで選べます/)).toBeVisible()
+
+    partialView.unmount()
+
+    // 全backend失敗
+    const allFailFetcher = createLauncherFetcher({
+      presentationPresetResponses: {},
+    })
+    render(<LauncherApp fetcher={allFailFetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
+    await screen.findByRole('heading', { name: '何を作りたい？' })
+    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/仕上げの動きを読み込めませんでした/)
+    expect(screen.queryByRole('button', { name: /横型・会話で解説/ })).not.toBeInTheDocument()
   })
 
   it('テンプレート棚を離れてもウィザードの進行を保持する', async () => {
@@ -1121,7 +1616,8 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    await user.click(await screen.findByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await screen.findByRole('heading', { name: 'ブログ掛け合い 60秒' })
+    await user.click(screen.getByRole('button', { name: 'ブログ掛け合い 60秒を詳しく選ぶ' }))
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
 
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
@@ -1129,7 +1625,9 @@ describe('LauncherApp', () => {
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /初心者＋専門家/ })).toHaveAttribute('aria-pressed', 'true')
+    const restored = screen.getAllByRole('button', { name: /初心者＋専門家/ })
+      .find((el) => el.classList.contains('launcher-template-axis-option'))
+    expect(restored).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('テンプレート一覧の読込失敗から再試行できる', async () => {
@@ -1138,6 +1636,12 @@ describe('LauncherApp', () => {
     const fetcher = vi.fn().mockImplementation((url: string) => {
       if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
       if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      const presetsMatch = /^\/api\/presets\?backend=([^&]+)$/.exec(url)
+      if (presetsMatch) {
+        const backend = decodeURIComponent(presetsMatch[1] ?? '')
+        const payload = defaultPresentationPresetResponses[backend]
+        return Promise.resolve(jsonResponse(payload ?? { ok: false }, Boolean(payload)))
+      }
       templateAttempts += 1
       return templateAttempts === 1
         ? Promise.reject(new Error('offline'))
@@ -1151,10 +1655,11 @@ describe('LauncherApp', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('テンプレートを読み込めませんでした。')
     await user.click(screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' }))
     expect(await screen.findByText('表示できるテンプレートはまだありません。')).toBeVisible()
-    expect(fetcher).toHaveBeenCalledTimes(4)
+    // projects + feedback + templates fail + remotion + hyperframes + templates retry
+    expect(fetcher).toHaveBeenCalledTimes(6)
   })
 
-  it('初回起動で読み込んだ好み・学びの4段階と根拠を表示する', async () => {
+  it('初回起動でいまの学びサマリーと根拠を表示し、承認POST payloadは不変', async () => {
     const user = userEvent.setup()
     let resolveFeedback!: (response: Response) => void
     const feedbackRequest = new Promise<Response>((resolve) => { resolveFeedback = resolve })
@@ -1180,53 +1685,60 @@ describe('LauncherApp', () => {
     })
 
     resolveFeedback(jsonResponse({ ok: true, feedback }))
-    const metrics = await screen.findByLabelText('学びの4段階')
-    expect(within(metrics).getByText('記録').parentElement).toHaveTextContent('記録 / 到達済み3')
-    expect(within(metrics).getByText('学習中').parentElement).toHaveTextContent('学習中 / 到達済み2')
-    expect(within(metrics).getByText('反映済み').parentElement).toHaveTextContent('反映済み / 到達済み1')
-    expect(within(metrics).getByText('効果確認済み').parentElement).toHaveTextContent('効果確認済み / 到達済み1')
+    const summary = await screen.findByRole('region', { name: 'いまの学び' })
+    expect(within(summary).getByRole('button', { name: '確認を決める 1件' })).toBeEnabled()
+    const zeroIssues = within(summary).getByRole('button', { name: '読み取りを確認 0件' })
+    expect(zeroIssues).toBeVisible()
+    expect(zeroIssues).toBeDisabled()
+    // metrics.promoted の累積値ではなく、現在 stage が promoted/verified の件数
+    expect(within(summary).getByRole('button', { name: '制作に使っているルール 2件' })).toBeEnabled()
+    expect(screen.queryByLabelText('学びの4段階')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'この記録は今どこ？' })).not.toBeInTheDocument()
 
-    const setup = screen.getByRole('region', { name: 'はじめに設定すること' })
-    expect(within(setup).getByRole('heading', { name: '好み・学びを自動で整理する' })).toBeVisible()
-    expect(within(setup).getByText('Codexでは「Automationを新規作成」を選び、このTsugiteリポジトリを作業フォルダに設定します。')).toBeVisible()
-    expect(within(setup).getByText('Tsugiteのローカル「好み・学び」昇格候補だけをレビューし、人間の承認待ちを準備して')).toBeVisible()
-    expect(within(setup).getByText('/tsugite-learning-review')).toBeVisible()
-    expect(within(setup).getByText('常設する自動化はCodexかClaudeのどちらか1つだけにします。')).toBeVisible()
+    const setup = screen.getByText('自動整理の設定方法').closest('details') as HTMLDetailsElement | null
+    expect(setup).not.toBeNull()
+    expect(setup!.open).toBe(false)
+    await user.click(within(setup!).getByText('自動整理の設定方法'))
+    expect(setup!.open).toBe(true)
+    expect(within(setup!).getByText('Codexでは「Automationを新規作成」を選び、このTsugiteリポジトリを作業フォルダに設定します。')).toBeVisible()
+    expect(within(setup!).getByText('Tsugiteのローカル「好み・学び」昇格候補だけをレビューし、人間の承認待ちを準備して')).toBeVisible()
+    expect(within(setup!).getByText('/tsugite-learning-review')).toBeVisible()
+    expect(within(setup!).getByText('常設する自動化はCodexかClaudeのどちらか1つだけにします。')).toBeVisible()
 
-    const stageGuide = screen.getByRole('region', { name: '記録の状態' })
-    expect(within(stageGuide).getByText('まず1件を記録')).toBeVisible()
-    expect(within(stageGuide).getByText('同じ傾向を確認中')).toBeVisible()
-    expect(within(stageGuide).getByText('制作ルールに反映済み')).toBeVisible()
-    expect(within(stageGuide).getByText('反映後の効果を確認済み')).toBeVisible()
-    expect(within(stageGuide).getByRole('heading', { name: 'この記録は今どこ？' })).toBeVisible()
-    expect(within(stageGuide).getByText('承認は状態ではありません。')).toBeVisible()
+    expect(screen.getByLabelText('学びの段階')).toHaveTextContent('記録 → 学習中 → 反映済み → 効果確認済み')
+    const lifecycle = screen.getByText('学びが制作ルールになるまで').closest('details') as HTMLDetailsElement | null
+    expect(lifecycle).not.toBeNull()
+    expect(lifecycle!.open).toBe(false)
+    await user.click(within(lifecycle!).getByText('学びが制作ルールになるまで'))
+    expect(lifecycle!.open).toBe(true)
+    expect(within(lifecycle!).getByText('まず1件を記録')).toBeVisible()
+    expect(within(lifecycle!).getByText('同じ傾向を確認中')).toBeVisible()
+    expect(within(lifecycle!).getByText('制作ルールに反映済み')).toBeVisible()
+    expect(within(lifecycle!).getByText('反映後の効果を確認済み')).toBeVisible()
+    expect(within(lifecycle!).getByText('承認は状態ではありません。')).toBeVisible()
+
+    const listMode = screen.getByRole('group', { name: '履歴の表示切替' })
+    expect(within(listMode).getByRole('button', { name: /いま見る/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('group', { name: '状態で絞り込む' })).not.toBeInTheDocument()
+
+    // いま見るは承認待ちを優先して初期選択
+    const recurringCard = screen.getByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' })
+    expect(recurringCard).toHaveAttribute('aria-pressed', 'true')
+    expect(recurringCard).toHaveTextContent('同じ傾向を確認中')
+    expect(recurringCard).toHaveTextContent('昇格承認待ち')
 
     const promotedCard = screen.getByRole('button', { name: '和モダンの意匠を制作画面に取り入れる。の詳細を見る' })
-    expect(promotedCard).toHaveAttribute('aria-pressed', 'true')
     expect(promotedCard).toHaveTextContent('画面デザイン')
     expect(promotedCard).toHaveTextContent('取り入れたい')
     expect(promotedCard).toHaveTextContent('3案件')
     expect(promotedCard).toHaveTextContent('反映済み')
-    expect(promotedCard).toHaveTextContent('templates/wa-modern-launcher')
-    expect(promotedCard).toHaveTextContent('反映 2026/07/17 08:20')
+    // カードの代表昇格先は最新の promotedAt を使う
+    expect(promotedCard).toHaveTextContent('LESSONS.md#wa-modern')
+    expect(promotedCard).toHaveTextContent('反映 2026/07/17 08:30')
     expect(promotedCard).toHaveTextContent('ほか1件')
     expect(promotedCard).toHaveTextContent('制作ルールに反映済み')
 
     const detail = screen.getByRole('complementary', { name: '選択した好み・学び' })
-    expect(within(detail).getAllByText('サンプル案件A').length).toBeGreaterThan(0)
-    expect(within(detail).getByText('sample-a-r3')).toBeVisible()
-    expect(within(detail).getByText('projects/sample-a/notes.md')).toBeVisible()
-    const promotionSection = within(detail).getByRole('heading', { name: '昇格先' }).closest('section')
-    expect(promotionSection).not.toBeNull()
-    expect(within(promotionSection!).getByText('LESSONS.md#wa-modern')).toBeVisible()
-
-    await user.click(screen.getByRole('button', { name: '冒頭からBGMまたは短いSFXを入れる。の詳細を見る' }))
-    expect(within(detail).getByText('適用確認').parentElement).toHaveTextContent('反映後の効果を確認済み')
-
-    const recurringCard = screen.getByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' })
-    expect(recurringCard).toHaveTextContent('同じ傾向を確認中')
-    expect(recurringCard).toHaveTextContent('昇格承認待ち')
-    await user.click(recurringCard)
     expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('昇格案を確認し、人が承認または見送り')
     const approvalSection = within(detail).getByRole('heading', { name: '昇格承認' }).closest('section')
     expect(approvalSection).not.toBeNull()
@@ -1242,7 +1754,20 @@ describe('LauncherApp', () => {
     expect(within(approvalSection!).getByRole('button', { name: '昇格を承認' })).toBeVisible()
     expect(within(approvalSection!).getByRole('button', { name: '今回は見送る' })).toBeVisible()
 
-    await user.click(within(approvalSection!).getByRole('button', { name: '昇格を承認' }))
+    await user.click(promotedCard)
+    expect(within(detail).getAllByText('サンプル案件A').length).toBeGreaterThan(0)
+    expect(within(detail).getByText('sample-a-r3')).toBeVisible()
+    expect(within(detail).getByText('projects/sample-a/notes.md')).toBeVisible()
+    const promotionSection = within(detail).getByRole('heading', { name: '昇格先' }).closest('section')
+    expect(promotionSection).not.toBeNull()
+    expect(within(promotionSection!).getByText('LESSONS.md#wa-modern')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '冒頭からBGMまたは短いSFXを入れる。の詳細を見る' }))
+    expect(within(detail).getByText('適用確認').parentElement).toHaveTextContent('反映後の効果を確認済み')
+
+    await user.click(recurringCard)
+    const approveButton = await within(detail).findByRole('button', { name: '昇格を承認' })
+    await user.click(approveButton)
     await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(
       '/api/feedback/sample-a/promotion-decision',
       expect.objectContaining({
@@ -1260,6 +1785,7 @@ describe('LauncherApp', () => {
     expect(within(detail).getByRole('heading', { name: '次にすること' }).parentElement).toHaveTextContent('承認は記録済みです。共有先へ実装')
     expect(screen.queryByRole('region', { name: '確認してほしい学び' })).not.toBeInTheDocument()
     expect(feedbackTab).not.toHaveAttribute('aria-describedby')
+    expect(within(summary).getByRole('button', { name: '確認を決める 0件' })).toBeDisabled()
 
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
     await user.click(feedbackTab)
@@ -1288,6 +1814,10 @@ describe('LauncherApp', () => {
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
     await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    expect(await screen.findByRole('group', { name: '履歴の表示切替' })).toBeVisible()
+    expect(screen.queryByRole('group', { name: '状態で絞り込む' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'すべての記録 4件' }))
 
     const filters = await screen.findByRole('group', { name: '状態で絞り込む' })
     const allFilter = within(filters).getByRole('button', { name: 'すべて 4件' })
@@ -1362,6 +1892,12 @@ describe('LauncherApp', () => {
     const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
     await user.click(feedbackTab)
 
+    // 初期は「いま見る」最大8件
+    expect(await screen.findByText('全25件 / 表示8件')).toBeVisible()
+    expect(screen.queryByRole('button', { name: '好み・学び 09の詳細を見る' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '残り1件を表示' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'すべての記録 25件' }))
     expect(await screen.findByText('全25件 / 表示24件')).toBeVisible()
     expect(screen.queryByRole('button', { name: '好み・学び 25の詳細を見る' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '残り1件を表示' }))
@@ -1369,6 +1905,7 @@ describe('LauncherApp', () => {
 
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
     await user.click(feedbackTab)
+    // 表示モードはローカルstateのため棚を離れても保持されるが、件数はページング初期化
     expect(screen.getByText('全25件 / 表示24件')).toBeVisible()
     expect(screen.queryByRole('button', { name: '好み・学び 25の詳細を見る' })).not.toBeInTheDocument()
   })
@@ -1397,7 +1934,640 @@ describe('LauncherApp', () => {
     expect(await screen.findByText('まだ整理された好み・学びはありません。')).toBeVisible()
     expect(screen.getByText('pipeline feedback')).toBeVisible()
     expect(screen.getByText('feedback.jsonl')).toBeVisible()
+    const setup = screen.getByText('自動整理の設定方法').closest('details') as HTMLDetailsElement | null
+    expect(setup).not.toBeNull()
+    expect(setup!.open).toBe(true)
     expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it('使用中ルールは現在stageのpromoted+verifiedから算出し、最近反映順で並べる', async () => {
+    const user = userEvent.setup()
+    const olderPromoted = {
+      ...feedback.preferences[0]!,
+      key: 'older-promoted',
+      stage: 'promoted' as const,
+      summary: '古い反映ルール。',
+      promotions: [{
+        projectId: 'sample-a',
+        projectName: 'サンプル案件A',
+        kind: 'rule' as const,
+        target: 'LESSONS.md#older',
+        promotedAt: '2026-07-10T08:00:00+09:00',
+      }],
+      lastSeenAt: '2026-07-10T08:00:00+09:00',
+    }
+    const noPromotionDate = {
+      ...feedback.preferences[1]!,
+      key: 'no-date-verified',
+      stage: 'verified' as const,
+      summary: '反映日時なしの効果確認済み。',
+      promotions: [{
+        projectId: 'sample-a',
+        projectName: 'サンプル案件A',
+        kind: 'qa' as const,
+        target: 'Gate 3 no-date',
+      }],
+      lastSeenAt: '2026-07-18T10:00:00+09:00',
+    }
+    const sameTimeA = {
+      ...feedback.preferences[0]!,
+      key: 'same-time-a',
+      stage: 'promoted' as const,
+      summary: '同時刻A。',
+      promotions: [{
+        projectId: 'sample-a',
+        projectName: 'サンプル案件A',
+        kind: 'rule' as const,
+        target: 'LESSONS.md#same-a',
+        promotedAt: '2026-07-19T12:00:00+09:00',
+      }],
+      lastSeenAt: '2026-07-19T12:00:00+09:00',
+    }
+    const sameTimeB = {
+      ...sameTimeA,
+      key: 'same-time-b',
+      summary: '同時刻B。',
+      promotions: [{
+        projectId: 'sample-a',
+        projectName: 'サンプル案件A',
+        kind: 'rule' as const,
+        target: 'LESSONS.md#same-b',
+        promotedAt: '2026-07-19T12:00:00+09:00',
+      }],
+    }
+    const observedOnly = {
+      ...feedback.preferences[0]!,
+      key: 'observed-only',
+      stage: 'observed' as const,
+      summary: 'まだ記録だけ。',
+      promotions: [],
+      promotion: undefined,
+      lastSeenAt: '2026-07-20T12:00:00+09:00',
+    }
+    const aggregate = {
+      metrics: {
+        // 累積到達は大きくても使用中ルール数には使わない
+        observed: 40,
+        recurring: 30,
+        promoted: 20,
+        verified: 10,
+        issues: 0,
+      },
+      preferences: [
+        olderPromoted,
+        noPromotionDate,
+        sameTimeB,
+        sameTimeA,
+        observedOnly,
+        feedback.preferences[2]!,
+      ],
+      issues: [],
+    }
+    const fetcher = createLauncherFetcher({ feedbackAggregate: aggregate })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const summary = await screen.findByRole('region', { name: 'いまの学び' })
+    expect(within(summary).getByRole('button', { name: '制作に使っているルール 4件' })).toBeVisible()
+    expect(within(summary).getByRole('button', { name: '確認を決める 1件' })).toBeVisible()
+
+    const rules = within(summary).getByRole('region', { name: '最近反映したルール' })
+    const ruleButtons = within(rules).getAllByRole('button')
+    expect(ruleButtons).toHaveLength(4)
+    // 同日時は key 安定順: same-time-a → same-time-b
+    expect(ruleButtons[0]).toHaveTextContent('同時刻A。')
+    expect(ruleButtons[0]).toHaveTextContent('反映済み')
+    expect(ruleButtons[0]).toHaveTextContent('LESSONS.md#same-a')
+    expect(ruleButtons[1]).toHaveTextContent('同時刻B。')
+    // 日時なしは lastSeenAt を使う
+    expect(ruleButtons[2]).toHaveTextContent('反映日時なしの効果確認済み。')
+    expect(ruleButtons[2]).toHaveTextContent('効果確認済み')
+    expect(ruleButtons[2]).toHaveTextContent('Gate 3 no-date')
+    expect(ruleButtons[3]).toHaveTextContent('古い反映ルール。')
+    expect(within(rules).queryByText('まだ記録だけ。')).not.toBeInTheDocument()
+  })
+
+  it('summaryと表示切替をkeyboard操作できる', async () => {
+    const user = userEvent.setup()
+    const fetcher = createLauncherFetcher()
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const summary = await screen.findByRole('region', { name: 'いまの学び' })
+    const decide = within(summary).getByRole('button', { name: '確認を決める 1件' })
+    decide.focus()
+    expect(decide).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('button', { name: '字幕をセーフエリア内に収める。の詳細を見る' }))
+      .toHaveAttribute('aria-pressed', 'true')
+
+    const allRecords = screen.getByRole('button', { name: 'すべての記録 3件' })
+    allRecords.focus()
+    expect(allRecords).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(allRecords).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('group', { name: '状態で絞り込む' })).toBeVisible()
+
+    const focusMode = screen.getByRole('button', { name: /いま見る/ })
+    focusMode.focus()
+    await user.keyboard(' ')
+    expect(focusMode).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('group', { name: '状態で絞り込む' })).not.toBeInTheDocument()
+  })
+
+  it('信頼済みpendingが9件以上のとき、focus外のpickupクリックはallへ切り替えて対象詳細を表示する', async () => {
+    const user = userEvent.setup()
+    const trustedNine = Array.from({ length: 9 }, (_, index) => trustedPendingPreference({
+      key: `trusted-pending-${index + 1}`,
+      summary: `信頼済み確認待ち ${String(index + 1).padStart(2, '0')}`,
+      // 新しい順: 01が最新 → focusは01-08、09がfocus外
+      lastSeenAt: `2026-07-${String(25 - index).padStart(2, '0')}T12:00:00.000Z`,
+    }))
+    const fetcher = createLauncherFetcher({
+      feedbackAggregate: {
+        metrics: { observed: 0, recurring: 9, promoted: 0, verified: 0, issues: 0 },
+        preferences: trustedNine,
+        issues: [],
+      },
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    expect(await screen.findByText('全9件 / 表示8件')).toBeVisible()
+    expect(screen.getByRole('button', { name: '信頼済み確認待ち 01の詳細を見る' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: '信頼済み確認待ち 09の詳細を見る' })).not.toBeInTheDocument()
+
+    const pickup = screen.getByRole('region', { name: '確認してほしい学び' })
+    expect(within(pickup).getAllByRole('button')).toHaveLength(9)
+    await user.click(within(pickup).getByRole('button', {
+      name: '「信頼済み確認待ち 09」の昇格案を確認',
+    }))
+
+    const allMode = screen.getByRole('button', { name: 'すべての記録 9件' })
+    expect(allMode).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /いま見る/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '信頼済み確認待ち 09の詳細を見る' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' }))
+      .toHaveTextContent('信頼済み確認待ち 09')
+
+    // focus外詳細を見たまま「いま見る」へ戻すと、allへ戻らずfocus先頭を選ぶ
+    const focusMode = screen.getByRole('button', { name: /いま見る/ })
+    await user.click(focusMode)
+    expect(focusMode).toHaveAttribute('aria-pressed', 'true')
+    expect(allMode).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '信頼済み確認待ち 01の詳細を見る' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' }))
+      .toHaveTextContent('信頼済み確認待ち 01')
+    expect(screen.queryByRole('group', { name: '状態で絞り込む' })).not.toBeInTheDocument()
+  })
+
+  it('非trusted pendingはfocus優先にせず、信頼済みpendingをfocus内へ残す', async () => {
+    const user = userEvent.setup()
+    const untrustedEight = Array.from({ length: 8 }, (_, index) => untrustedPendingPreference({
+      key: `untrusted-pending-${index + 1}`,
+      summary: `非trusted確認待ち ${String(index + 1).padStart(2, '0')}`,
+      lastSeenAt: `2026-07-28T${String(10 + index).padStart(2, '0')}:00:00.000Z`,
+    }))
+    const trustedLate = trustedPendingPreference({
+      key: 'trusted-late',
+      summary: '後から来た信頼済み確認待ち',
+      lastSeenAt: '2026-07-01T00:00:00.000Z',
+    })
+    const fetcher = createLauncherFetcher({
+      feedbackAggregate: {
+        metrics: { observed: 0, recurring: 9, promoted: 0, verified: 0, issues: 0 },
+        preferences: [...untrustedEight, trustedLate],
+        issues: [],
+      },
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const pickup = await screen.findByRole('region', { name: '確認してほしい学び' })
+    expect(within(pickup).getAllByRole('button')).toHaveLength(1)
+    expect(within(pickup).getByRole('button', {
+      name: '「後から来た信頼済み確認待ち」の昇格案を確認',
+    })).toBeVisible()
+
+    // 信頼済みだけが最優先され、古い lastSeenAt でも focus 8件に入る
+    expect(screen.getByRole('button', { name: '後から来た信頼済み確認待ちの詳細を見る' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /いま見る/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('complementary', { name: '選択した好み・学び' }))
+      .toHaveTextContent('後から来た信頼済み確認待ち')
+
+    await user.click(within(pickup).getByRole('button', {
+      name: '「後から来た信頼済み確認待ち」の昇格案を確認',
+    }))
+    expect(screen.getByRole('button', { name: /いま見る/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '後から来た信頼済み確認待ちの詳細を見る' }))
+      .toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('承認後も残りpendingが8件以上なら、選択詳細が別項目へ飛ばない', async () => {
+    const user = userEvent.setup()
+    const trustedNine = Array.from({ length: 9 }, (_, index) => trustedPendingPreference({
+      key: `approve-pending-${index + 1}`,
+      summary: `承認対象確認待ち ${String(index + 1).padStart(2, '0')}`,
+      lastSeenAt: `2026-07-${String(25 - index).padStart(2, '0')}T12:00:00.000Z`,
+    }))
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          feedback: {
+            metrics: { observed: 0, recurring: 9, promoted: 0, verified: 0, issues: 0 },
+            preferences: trustedNine,
+            issues: [],
+          },
+        }))
+      }
+      if (url === '/api/feedback/sample-a/promotion-decision') {
+        return Promise.resolve(jsonResponse({ ok: true, decision: 'approved' }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const targetCard = await screen.findByRole('button', { name: '承認対象確認待ち 02の詳細を見る' })
+    await user.click(targetCard)
+    const detail = screen.getByRole('complementary', { name: '選択した好み・学び' })
+    expect(detail).toHaveTextContent('承認対象確認待ち 02')
+
+    await user.click(within(detail).getByRole('button', { name: '昇格を承認' }))
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/feedback/sample-a/promotion-decision',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          key: 'approve-pending-2',
+          proposalId: 'approve-pending-2-v1',
+          decision: 'approved',
+        }),
+      }),
+    ))
+
+    await waitFor(() => expect(detail).toHaveTextContent('承認済み'))
+    expect(detail).toHaveTextContent('承認対象確認待ち 02')
+    expect(detail).not.toHaveTextContent('承認対象確認待ち 01')
+    // 承認で選択がfocus外になった場合は、同じ詳細を保ったまま all へ
+    expect(screen.getByRole('button', { name: 'すべての記録 9件' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /いま見る/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '承認対象確認待ち 02の詳細を見る' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('region', { name: '確認してほしい学び' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: '好み・学び' }))
+      .toHaveAccessibleDescription('確認待ちの学び 8件')
+  })
+
+  it('decidePromotionの遅延応答中に別項目へ移ると、B詳細とfocus modeを維持する', async () => {
+    const user = userEvent.setup()
+    const trustedNine = Array.from({ length: 9 }, (_, index) => trustedPendingPreference({
+      key: `stale-pending-${index + 1}`,
+      summary: `遅延承認確認待ち ${String(index + 1).padStart(2, '0')}`,
+      lastSeenAt: `2026-07-${String(25 - index).padStart(2, '0')}T12:00:00.000Z`,
+    }))
+    let resolveDecision!: (response: Response) => void
+    const decisionRequest = new Promise<Response>((resolve) => { resolveDecision = resolve })
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          feedback: {
+            metrics: { observed: 0, recurring: 9, promoted: 0, verified: 0, issues: 0 },
+            preferences: trustedNine,
+            issues: [],
+          },
+        }))
+      }
+      if (url === '/api/feedback/sample-a/promotion-decision') {
+        return decisionRequest
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    // A: 02 を選んで承認開始（POST対象はAのまま）
+    const targetA = await screen.findByRole('button', { name: '遅延承認確認待ち 02の詳細を見る' })
+    await user.click(targetA)
+    const detail = screen.getByRole('complementary', { name: '選択した好み・学び' })
+    expect(detail).toHaveTextContent('遅延承認確認待ち 02')
+    await user.click(within(detail).getByRole('button', { name: '昇格を承認' }))
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/feedback/sample-a/promotion-decision',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          key: 'stale-pending-2',
+          proposalId: 'stale-pending-2-v1',
+          decision: 'approved',
+        }),
+      }),
+    ))
+
+    // 応答待ち中に「いま見る」→ focus 先頭 B: 01。別項目表示でも承認/見送りは disabled。
+    await user.click(screen.getByRole('button', { name: /いま見る/ }))
+    expect(detail).toHaveTextContent('遅延承認確認待ち 01')
+    expect(screen.getByRole('button', { name: /いま見る/ })).toHaveAttribute('aria-pressed', 'true')
+
+    // A in-flight 中は B の承認/見送りも無効。クリックしても POST は増えない。
+    const approveWhileSaving = within(detail).getByRole('button', { name: '記録中…' })
+    expect(approveWhileSaving).toBeDisabled()
+    expect(within(detail).getByRole('button', { name: '今回は見送る' })).toBeDisabled()
+    const postsBeforeBClick = fetcher.mock.calls.filter((call) => (
+      typeof call[0] === 'string' && call[0].includes('/promotion-decision')
+    )).length
+    expect(postsBeforeBClick).toBe(1)
+    await user.click(approveWhileSaving)
+    const postsAfterImaMiruClick = fetcher.mock.calls.filter((call) => (
+      typeof call[0] === 'string' && call[0].includes('/promotion-decision')
+    )).length
+    expect(postsAfterImaMiruClick).toBe(1)
+
+    // カード選択で別項目へ移っても同様（saving 中は再有効化しない）
+    await user.click(screen.getByRole('button', { name: '遅延承認確認待ち 03の詳細を見る' }))
+    expect(detail).toHaveTextContent('遅延承認確認待ち 03')
+    expect(within(detail).getByRole('button', { name: '記録中…' })).toBeDisabled()
+    expect(within(detail).getByRole('button', { name: '今回は見送る' })).toBeDisabled()
+    await user.click(within(detail).getByRole('button', { name: '記録中…' }))
+    const postsAfterCardClick = fetcher.mock.calls.filter((call) => (
+      typeof call[0] === 'string' && call[0].includes('/promotion-decision')
+    )).length
+    expect(postsAfterCardClick).toBe(1)
+
+    // 以降の遅延成功後は B=01 基準で検証するため focus 先頭へ戻す
+    await user.click(screen.getByRole('button', { name: /いま見る/ }))
+    expect(detail).toHaveTextContent('遅延承認確認待ち 01')
+    expect(within(detail).getByRole('button', { name: '記録中…' })).toBeDisabled()
+
+    // A の遅延成功後も B 詳細と focus mode を維持（A基準で all へ切替しない）
+    // 承認済みAは priority が下がり focus 8枠外へ落ちるため、カードではなく件数で更新完了を見る
+    resolveDecision(jsonResponse({ ok: true, decision: 'approved' }))
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: '好み・学び' }))
+        .toHaveAccessibleDescription('確認待ちの学び 8件')
+    })
+    expect(detail).toHaveTextContent('遅延承認確認待ち 01')
+    expect(detail).not.toHaveTextContent('承認済み')
+    expect(screen.getByRole('button', { name: /いま見る/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'すべての記録 9件' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '遅延承認確認待ち 01の詳細を見る' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: '遅延承認確認待ち 02の詳細を見る' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '状態で絞り込む' })).not.toBeInTheDocument()
+
+    // 明示的に all へ切替えたときだけ A の承認済みが見える（mode は勝手に変わっていない）
+    await user.click(screen.getByRole('button', { name: 'すべての記録 9件' }))
+    expect(screen.getByRole('button', { name: '遅延承認確認待ち 02の詳細を見る' }))
+      .toHaveTextContent('承認済み')
+    expect(screen.getByRole('button', { name: '遅延承認確認待ち 01の詳細を見る' }))
+      .toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('light themeのheadingとfilters overrideが後段CSSに存在し、件数のmokumeを壊さない', async () => {
+    const launcherStyleSheet = await readLauncherStyleSheet()
+    const lightHeadingBlock = launcherStyleSheet.match(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-heading h2 \{[^}]+\}/,
+    )?.[0]
+    const lightHeadingParagraph = launcherStyleSheet.match(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-heading p \{[^}]+\}/,
+    )?.[0]
+    expect(lightHeadingBlock).toContain('color: #24302b')
+    expect(lightHeadingParagraph).toContain('color: #59645d')
+
+    // 件数は light override せず後段 mokume を維持
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-feedback-heading \.launcher-count \{[\s\S]*?color: var\(--launcher-mokume\)/,
+    )
+    expect(launcherStyleSheet).not.toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-heading \.launcher-count/,
+    )
+
+    // 後段ダーク filters（白系テキスト）より後ろに light override があること
+    const lateDarkFilters = /\.launcher-feedback-filters button \{[\s\S]*?color: rgba\(244, 237, 223, \.78\)/.exec(
+      launcherStyleSheet,
+    )
+    expect(lateDarkFilters).not.toBeNull()
+    const lightFiltersIndex = launcherStyleSheet.indexOf(
+      '.launcher-shell[data-theme="light"] .launcher-feedback-filters button {',
+    )
+    expect(lightFiltersIndex).toBeGreaterThan(lateDarkFilters!.index)
+
+    const lightFiltersBlock = launcherStyleSheet.slice(lightFiltersIndex)
+    expect(lightFiltersBlock).toContain('color: #46534e')
+    expect(lightFiltersBlock).toContain('background: #fffdf8')
+    expect(lightFiltersBlock).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-filters button\[aria-pressed="true"\] \{[\s\S]*?background: #9a3d30/,
+    )
+    expect(lightFiltersBlock).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-filters button b \{[\s\S]*?background: rgba\(36, 48, 43, \.08\)/,
+    )
+    expect(lightFiltersBlock).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-filters button\[data-stage="verified"\] \{[\s\S]*?border-left-color: #4f7048/,
+    )
+    expect(lightFiltersBlock).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-filters button:focus-visible \{[\s\S]*?outline: 3px solid #9a3d30/,
+    )
+  })
+
+  it('untrusted pendingは承認UIを出さず、trusted pendingのPOST契約は不変', async () => {
+    const user = userEvent.setup()
+    const manualPending = {
+      ...feedback.preferences[2]!,
+      key: 'manual-untrusted',
+      summary: '手動pendingは承認不可。',
+      lastSeenAt: '2026-07-28T12:00:00.000Z',
+      promotionProposal: {
+        ...feedback.preferences[2]!.promotionProposal!,
+        id: 'manual-untrusted-v1',
+        source: undefined,
+      },
+    }
+    const otherWorkflowPending = untrustedPendingPreference({
+      key: 'other-workflow-ui',
+      summary: '別workflow pendingは承認不可。',
+      lastSeenAt: '2026-07-27T12:00:00.000Z',
+    })
+    const trustedPending = trustedPendingPreference({
+      key: 'trusted-ui-pending',
+      summary: '信頼済みpendingは承認できる。',
+      lastSeenAt: '2026-07-26T12:00:00.000Z',
+    })
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
+      if (url === '/api/feedback') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          feedback: {
+            metrics: { observed: 0, recurring: 3, promoted: 0, verified: 0, issues: 0 },
+            preferences: [manualPending, otherWorkflowPending, trustedPending],
+            issues: [],
+          },
+        }))
+      }
+      if (url === '/api/feedback/sample-a/promotion-decision') {
+        return Promise.resolve(jsonResponse({ ok: true, decision: 'approved' }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const decisionCalls = () => fetcher.mock.calls.filter(([url]) => (
+      typeof url === 'string' && url.includes('/promotion-decision')
+    ))
+
+    const untrustedConfirmOnly = 'この提案はランチャーから承認できません。内容の確認のみ行えます。'
+    // カード文言: sourceなし・別workflowは『内容確認のみ』、trusted pendingは『昇格承認待ち』
+    const manualCard = await screen.findByRole('button', { name: '手動pendingは承認不可。の詳細を見る' })
+    expect(manualCard).toHaveTextContent('内容確認のみ')
+    expect(manualCard).not.toHaveTextContent('昇格承認待ち')
+    const otherWorkflowCard = screen.getByRole('button', { name: '別workflow pendingは承認不可。の詳細を見る' })
+    expect(otherWorkflowCard).toHaveTextContent('内容確認のみ')
+    expect(otherWorkflowCard).not.toHaveTextContent('昇格承認待ち')
+    const trustedCard = screen.getByRole('button', { name: '信頼済みpendingは承認できる。の詳細を見る' })
+    expect(trustedCard).toHaveTextContent('昇格承認待ち')
+    expect(trustedCard).not.toHaveTextContent('内容確認のみ')
+
+    await user.click(manualCard)
+    const detail = screen.getByRole('complementary', { name: '選択した好み・学び' })
+    expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('内容の確認のみ（承認・見送り不可）')
+    expect(within(detail).getByRole('heading', { name: '次にすること' }).parentElement)
+      .toHaveTextContent(untrustedConfirmOnly)
+    // 案内文と「次にすること」の両方に確認のみ文言が出る（getByText の一意依存を避ける）
+    expect(within(detail).getAllByText(untrustedConfirmOnly).length).toBeGreaterThanOrEqual(2)
+    expect(within(detail).queryByRole('heading', { name: '昇格承認' })).not.toBeInTheDocument()
+    expect(within(detail).queryByRole('region', { name: 'この学びの確認ガイド' })).not.toBeInTheDocument()
+    expect(within(detail).queryByRole('button', { name: '昇格を承認' })).not.toBeInTheDocument()
+    expect(within(detail).queryByRole('button', { name: '今回は見送る' })).not.toBeInTheDocument()
+    expect(decisionCalls()).toHaveLength(0)
+
+    await user.click(otherWorkflowCard)
+    expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('内容の確認のみ（承認・見送り不可）')
+    expect(within(detail).getByRole('heading', { name: '次にすること' }).parentElement)
+      .toHaveTextContent(untrustedConfirmOnly)
+    expect(within(detail).getAllByText(untrustedConfirmOnly).length).toBeGreaterThanOrEqual(2)
+    expect(within(detail).queryByRole('button', { name: '昇格を承認' })).not.toBeInTheDocument()
+    expect(decisionCalls()).toHaveLength(0)
+
+    await user.click(trustedCard)
+    expect(within(detail).getByText('次の段階').parentElement).toHaveTextContent('昇格案を確認し、人が承認または見送り')
+    expect(within(detail).getByRole('heading', { name: '次にすること' }).parentElement)
+      .toHaveTextContent('昇格案の根拠、反映先、変更内容、検証方法を確認し、人が承認または見送りを選びます。')
+    expect(within(detail).queryByText(untrustedConfirmOnly)).not.toBeInTheDocument()
+    expect(within(detail).getByRole('heading', { name: '昇格承認' })).toBeVisible()
+    expect(within(detail).getByRole('region', { name: 'この学びの確認ガイド' })).toBeVisible()
+    await user.click(within(detail).getByRole('button', { name: '昇格を承認' }))
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/feedback/sample-a/promotion-decision',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'x-tsugite-token': 'session-token',
+        }),
+        body: JSON.stringify({
+          key: 'trusted-ui-pending',
+          proposalId: 'trusted-ui-pending-v1',
+          decision: 'approved',
+        }),
+      }),
+    ))
+    expect(decisionCalls()).toHaveLength(1)
+    // approved はカードでも『承認済み』を維持
+    expect(await screen.findByRole('button', { name: '信頼済みpendingは承認できる。の詳細を見る' }))
+      .toHaveTextContent('承認済み')
+  })
+
+  it('サマリー指標は0件でdisabled、件数ありでenabledになりCSS契約も満たす', async () => {
+    const user = userEvent.setup()
+    const emptyFetcher = createLauncherFetcher({
+      feedbackAggregate: {
+        metrics: { observed: 0, recurring: 0, promoted: 0, verified: 0, issues: 0 },
+        preferences: [],
+        issues: [],
+      },
+    })
+    const { unmount } = render(<LauncherApp fetcher={emptyFetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const emptySummary = await screen.findByRole('region', { name: 'いまの学び' })
+    expect(within(emptySummary).getByRole('button', { name: '確認を決める 0件' })).toBeDisabled()
+    expect(within(emptySummary).getByRole('button', { name: '読み取りを確認 0件' })).toBeDisabled()
+    expect(within(emptySummary).getByRole('button', { name: '制作に使っているルール 0件' })).toBeDisabled()
+    unmount()
+
+    const populatedFetcher = createLauncherFetcher({
+      feedbackAggregate: {
+        ...feedback,
+        issues: [{
+          code: 'feedback.parse_error',
+          message: '1行読めませんでした',
+          projectName: 'サンプル案件A',
+          path: 'projects/sample-a/feedback.jsonl',
+        }],
+      },
+    })
+    render(<LauncherApp fetcher={populatedFetcher} token="session-token" />)
+    await screen.findByRole('heading', { name: '制作の見取図を開く' })
+    await user.click(screen.getByRole('tab', { name: '好み・学び' }))
+
+    const summary = await screen.findByRole('region', { name: 'いまの学び' })
+    expect(within(summary).getByRole('button', { name: '確認を決める 1件' })).toBeEnabled()
+    expect(within(summary).getByRole('button', { name: '読み取りを確認 1件' })).toBeEnabled()
+    expect(within(summary).getByRole('button', { name: '制作に使っているルール 2件' })).toBeEnabled()
+
+    const launcherStyleSheet = await readLauncherStyleSheet()
+    expect(launcherStyleSheet).toMatch(/\.launcher-feedback-summary-metric:disabled \{[\s\S]*?cursor: not-allowed/)
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-summary-metric:focus-visible \{[\s\S]*?outline: 3px solid #9a3d30/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-active-rules:focus-visible \{[\s\S]*?outline: 3px solid #8a5c37/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-active-rules li button:focus-visible \{[\s\S]*?outline: 3px solid #9a3d30/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-list-mode button:focus-visible \{[\s\S]*?outline: 3px solid #9a3d30/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-lifecycle-details > summary:focus-visible,[\s\S]*?outline: 3px solid #8a5c37/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-approval \.launcher-secondary \{[\s\S]*?color: #24302b/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-approval \.launcher-secondary:hover:not\(:disabled\) \{[\s\S]*?background: #f7eee3/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-approval \.launcher-secondary:focus-visible \{[\s\S]*?outline: 3px solid #9a3d30/,
+    )
+    expect(launcherStyleSheet).toMatch(
+      /\.launcher-shell\[data-theme="light"\] \.launcher-feedback-approval \.launcher-secondary:disabled \{[\s\S]*?color: #6a6254/,
+    )
+    expect(launcherStyleSheet).not.toContain('.launcher-feedback-stage-guide')
+    expect(launcherStyleSheet).not.toContain('.launcher-feedback-promotion-flow')
   })
 
   it('選択した案件をtoken付きで更新し、成功したViewerへ移動する', async () => {

@@ -9,6 +9,7 @@
  */
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { TemplateShelf, type TemplateWizardState } from './TemplateShelf'
@@ -167,14 +168,36 @@ function progressNav() {
   return screen.getByRole('navigation', { name: 'ウィザードの進捗' })
 }
 
+function templateCard(name: string | RegExp) {
+  return screen.getByRole('heading', { level: 3, name }).closest('article') as HTMLElement
+}
+
+function detailActionName(name: string) {
+  return `${name}を詳しく選ぶ`
+}
+
+function quickStartActionName(name: string) {
+  return `${name}のおすすめ設定で制作依頼を作る`
+}
+
+async function chooseDetail(user: ReturnType<typeof userEvent.setup>, name: string) {
+  // カード scope なしでもページ全体で一意に取れるアクセシブル名を使う
+  await user.click(screen.getByRole('button', { name: detailActionName(name) }))
+}
+
 describe('TemplateShelf', () => {
   it('初期は Step 0: 型カードだけを示し、検索ボックスとカテゴリチップは置かない', () => {
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    expect(screen.getByRole('heading', { name: /型を選ぶ|テンプレートを選ぶ/ })).toBeVisible()
-    expect(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })).toBeVisible()
-    expect(screen.getByRole('button', { name: /broken-template/ })).toBeVisible()
+    expect(screen.getByRole('heading', { name: /何を作りたい/ })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'ブログ掛け合い 60秒' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'broken-template' })).toBeVisible()
+    expect(screen.getByRole('button', { name: detailActionName('ブログ掛け合い 60秒') })).toBeVisible()
+    expect(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') })).toBeVisible()
+    // 見た目の短い文言は維持
+    expect(within(templateCard('ブログ掛け合い 60秒')).getByText('詳しく選ぶ')).toBeVisible()
+    expect(within(templateCard('ブログ掛け合い 60秒')).getByText('おすすめ設定で制作依頼を作る')).toBeVisible()
 
     expect(screen.queryByRole('searchbox', { name: 'テンプレートを検索' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('用途で絞り込む')).not.toBeInTheDocument()
@@ -182,7 +205,7 @@ describe('TemplateShelf', () => {
 
     // 軸・チェックリストはまだ出さない
     expect(screen.queryByRole('heading', { name: 'キャラクター構成' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /チェックリスト|用意するもの/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /制作依頼ができました|チェックリスト|用意するもの/ })).not.toBeInTheDocument()
 
     expect(latestState(onStateChange)).toMatchObject({
       templateId: null,
@@ -191,12 +214,27 @@ describe('TemplateShelf', () => {
     })
   })
 
+  it('カード操作はページ全体でテンプレート名込みの固有名として一意に取れる', () => {
+    render(<TemplateShelf templates={templates} />)
+
+    const detailButtons = screen.getAllByRole('button', { name: /を詳しく選ぶ$/ })
+    const quickButtons = screen.getAllByRole('button', { name: /のおすすめ設定で制作依頼を作る$/ })
+    expect(detailButtons).toHaveLength(2)
+    expect(quickButtons).toHaveLength(2)
+
+    // card scope なしで各テンプレートを一意に取得できる
+    expect(screen.getByRole('button', { name: detailActionName('ブログ掛け合い 60秒') })).toBeVisible()
+    expect(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') })).toBeVisible()
+    expect(screen.getByRole('button', { name: detailActionName('broken-template（選択不可）') })).toBeDisabled()
+    expect(screen.getByRole('button', { name: quickStartActionName('broken-template（選択不可）') })).toBeDisabled()
+  })
+
   it('型選択 → 軸1 → 軸2 → 軸3 → チェックリストとナビできる', async () => {
     const user = userEvent.setup()
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
     expect(latestState(onStateChange)).toMatchObject({
       templateId: 'blog-dialogue-60s',
@@ -221,7 +259,7 @@ describe('TemplateShelf', () => {
     })
 
     await user.click(screen.getByRole('button', { name: /落ち着いた/ }))
-    expect(await screen.findByRole('heading', { name: /チェックリスト/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(latestState(onStateChange)).toMatchObject({
       step: 4,
       choices: {
@@ -237,10 +275,11 @@ describe('TemplateShelf', () => {
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
 
-    const recommended = screen.getByRole('button', { name: /初心者＋専門家/ })
+    const recommended = screen.getAllByRole('button', { name: /初心者＋専門家/ })
+      .find((el) => el.classList.contains('launcher-template-axis-option'))!
     expect(within(recommended).getByText('推奨')).toBeVisible()
     expect(recommended).toHaveAttribute('aria-pressed', 'true')
     expect(latestState(onStateChange).choices).toMatchObject({ cast: 'beginner-expert' })
@@ -248,7 +287,8 @@ describe('TemplateShelf', () => {
     // 次の軸（背景）も default あり
     await user.click(recommended)
     expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
-    const bgRecommended = screen.getByRole('button', { name: /紙の切り絵/ })
+    const bgRecommended = screen.getAllByRole('button', { name: /紙の切り絵/ })
+      .find((el) => el.classList.contains('launcher-template-axis-option'))!
     expect(within(bgRecommended).getByText('推奨')).toBeVisible()
     expect(bgRecommended).toHaveAttribute('aria-pressed', 'true')
     expect(latestState(onStateChange).choices).toMatchObject({
@@ -259,8 +299,12 @@ describe('TemplateShelf', () => {
     // default なしの軸は未選択
     await user.click(bgRecommended)
     expect(await screen.findByRole('heading', { name: 'テンポ' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /落ち着いた/ })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: /テンポよく/ })).toHaveAttribute('aria-pressed', 'false')
+    const calm = screen.getAllByRole('button', { name: /落ち着いた/ })
+      .find((el) => el.classList.contains('launcher-template-axis-option'))!
+    const brisk = screen.getAllByRole('button', { name: /テンポよく/ })
+      .find((el) => el.classList.contains('launcher-template-axis-option'))!
+    expect(calm).toHaveAttribute('aria-pressed', 'false')
+    expect(brisk).toHaveAttribute('aria-pressed', 'false')
     expect(latestState(onStateChange).choices.pace).toBeUndefined()
   })
 
@@ -269,12 +313,12 @@ describe('TemplateShelf', () => {
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
 
-    expect(await screen.findByRole('heading', { name: /チェックリスト/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(latestState(onStateChange)).toMatchObject({
       templateId: 'blog-dialogue-60s',
       step: 4,
@@ -287,12 +331,32 @@ describe('TemplateShelf', () => {
     })
   })
 
+  it('カードから「おすすめ設定で制作依頼を作る」で既定値のまま最終画面へ進む', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
+
+    await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
+
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: '制作依頼だけをコピー' })).toBeVisible()
+    expect(latestState(onStateChange)).toMatchObject({
+      templateId: 'blog-dialogue-60s',
+      step: 4,
+      choices: {
+        cast: 'beginner-expert',
+        background: 'paper-cutout',
+        pace: 'calm',
+      },
+    })
+  })
+
   it('軸を選ぶと自動で次ステップへ進む', async () => {
     const user = userEvent.setup()
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     await screen.findByRole('heading', { name: 'キャラクター構成' })
 
     await user.click(screen.getByRole('button', { name: /同僚同士/ }))
@@ -301,19 +365,71 @@ describe('TemplateShelf', () => {
     expect(latestState(onStateChange).step).toBe(2)
   })
 
+  it('条件を選ぶと aria-live で選択確認を出す', async () => {
+    const user = userEvent.setup()
+    render(<TemplateShelf templates={templates} />)
+
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
+    expect(await screen.findByText(/ブログ掛け合い 60秒を選びました。戻って変更できます。/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /同僚同士/ }))
+    expect(await screen.findByText(/同僚同士を選びました。戻って変更できます。/)).toBeInTheDocument()
+    expect(screen.getByText(/同僚同士を選びました。戻って変更できます。/)).toHaveAttribute('aria-live', 'polite')
+  })
+
+  it('進捗は現在地と残りが分かる形で一つに統一する', async () => {
+    const user = userEvent.setup()
+    render(<TemplateShelf templates={templates} />)
+
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
+    await screen.findByRole('heading', { name: 'キャラクター構成' })
+
+    const nav = progressNav()
+    // 3軸テンプレート = 動画 + 3軸 + 制作依頼 の5段階。軸1到達時は 2/5
+    expect(within(nav).getByText(/2 \/ 5 · あと3つ/)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /同僚同士/ }))
+    expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
+    expect(within(progressNav()).getByText(/3 \/ 5 · あと2つ/)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(within(progressNav()).getByText(/5 \/ 5 · 完了/)).toBeVisible()
+  })
+
+  it('軸数に応じて totalSteps が変わり、軸なしは 2/2 完了になる', async () => {
+    const user = userEvent.setup()
+    const noAxisTemplate: WizardTemplate = {
+      ...validTemplate,
+      id: 'qa-dialogue',
+      name: 'Q&A掛け合い',
+      variants: [],
+    }
+    render(<TemplateShelf templates={[noAxisTemplate]} />)
+
+    await chooseDetail(user, 'Q&A掛け合い')
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+
+    // 軸なし = 動画 + 制作依頼 の2段階。最終画面は 2/2 · 完了（固定5ではない）
+    const nav = progressNav()
+    expect(within(nav).getByText(/2 \/ 2 · 完了/)).toBeVisible()
+    expect(within(nav).queryByText(/\/ 5/)).not.toBeInTheDocument()
+    expect(within(nav).getAllByRole('button')).toHaveLength(2)
+  })
+
   it('戻ると下流の選択は保持し、上流を変更したら下流をリセットする', async () => {
     const user = userEvent.setup()
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     await screen.findByRole('heading', { name: 'キャラクター構成' })
     await user.click(screen.getByRole('button', { name: /同僚同士/ }))
     await screen.findByRole('heading', { name: '背景' })
     await user.click(screen.getByRole('button', { name: /画面デモ/ }))
     await screen.findByRole('heading', { name: 'テンポ' })
     await user.click(screen.getByRole('button', { name: /テンポよく/ }))
-    await screen.findByRole('heading', { name: /チェックリスト/ })
+    await screen.findByRole('heading', { name: /制作依頼ができました/ })
 
     expect(latestState(onStateChange).choices).toEqual({
       cast: 'peer-dialogue',
@@ -359,18 +475,14 @@ describe('TemplateShelf', () => {
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    const invalidCard = screen.getByRole('button', { name: /broken-template/ })
+    const invalidCard = templateCard('broken-template')
     expect(invalidCard).toHaveAttribute('data-invalid', 'true')
+    const detailButton = screen.getByRole('button', { name: detailActionName('broken-template（選択不可）') })
+    const quickButton = screen.getByRole('button', { name: quickStartActionName('broken-template（選択不可）') })
+    expect(detailButton).toBeDisabled()
+    expect(quickButton).toBeDisabled()
 
-    if (invalidCard.hasAttribute('disabled') || invalidCard.getAttribute('aria-disabled') === 'true') {
-      expect(invalidCard).toBeDisabled()
-      return
-    }
-
-    await user.click(invalidCard)
-    expect(
-      screen.getByText(/template\.yamlの形式が正しくありません|表示情報を確認できません|選択できません/),
-    ).toBeVisible()
+    await user.click(detailButton)
     expect(screen.queryByRole('heading', { name: 'キャラクター構成' })).not.toBeInTheDocument()
     expect(latestState(onStateChange).step).toBe(0)
   })
@@ -380,15 +492,16 @@ describe('TemplateShelf', () => {
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    const typeCard = screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ })
-    typeCard.focus()
-    expect(typeCard).toHaveFocus()
+    const detailButton = screen.getByRole('button', { name: detailActionName('ブログ掛け合い 60秒') })
+    detailButton.focus()
+    expect(detailButton).toHaveFocus()
     await user.keyboard('{Enter}')
 
     const axisHeading = await screen.findByRole('heading', { name: 'キャラクター構成' })
     expect(axisHeading).toHaveFocus()
 
     const options = screen.getAllByRole('button', { name: /初心者＋専門家|同僚同士/ })
+      .filter((el) => el.classList.contains('launcher-template-axis-option'))
     expect(options.length).toBeGreaterThanOrEqual(2)
 
     // roving tabIndex: 選択中（または先頭）だけ tabIndex=0、他は -1
@@ -410,7 +523,7 @@ describe('TemplateShelf', () => {
 
     // 残りは「おすすめのまま進む」でチェックリストまで
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    expect(await screen.findByRole('heading', { name: /チェックリスト/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(latestState(onStateChange).step).toBe(4)
   })
 
@@ -419,27 +532,27 @@ describe('TemplateShelf', () => {
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     await screen.findByRole('heading', { name: 'キャラクター構成' })
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    await screen.findByRole('heading', { name: /チェックリスト/ })
+    await screen.findByRole('heading', { name: /制作依頼ができました/ })
 
     const nav = progressNav()
     const chips = within(nav).getAllByRole('button')
     expect(chips.length).toBeGreaterThanOrEqual(2)
 
-    // 型選択（step 0）へ
+    // 動画選択（step 0）へ
     await user.click(
-      within(nav).getByRole('button', { name: /型|テンプレート|ブログ掛け合い/ }),
+      within(nav).getByRole('button', { name: /動画|ブログ掛け合い/ }),
     )
-    expect(await screen.findByRole('heading', { name: /型を選ぶ|テンプレートを選ぶ/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /何を作りたい/ })).toBeVisible()
     expect(latestState(onStateChange).step).toBe(0)
 
     // 再度進めて軸ステップのチップへ戻れること
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     await screen.findByRole('heading', { name: 'キャラクター構成' })
     await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    await screen.findByRole('heading', { name: /チェックリスト/ })
+    await screen.findByRole('heading', { name: /制作依頼ができました/ })
 
     await user.click(within(progressNav()).getByRole('button', { name: /背景/ }))
     expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
@@ -451,20 +564,20 @@ describe('TemplateShelf', () => {
     const onStateChange = vi.fn()
     render(<TemplateShelf templates={templates} onStateChange={onStateChange} />)
 
-    expect(screen.queryByRole('button', { name: /型一覧に戻る|戻る/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /一覧に戻る|型一覧に戻る|戻る/ })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     expect(await screen.findByRole('heading', { name: 'キャラクター構成' })).toBeVisible()
 
-    const backToList = screen.getByRole('button', { name: '型一覧に戻る' })
+    const backToList = screen.getByRole('button', { name: '一覧に戻る' })
     expect(backToList).toBeVisible()
     await user.click(backToList)
 
-    expect(await screen.findByRole('heading', { name: /型を選ぶ|テンプレートを選ぶ/ })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /何を作りたい/ })).toBeVisible()
     expect(latestState(onStateChange).step).toBe(0)
-    expect(screen.queryByRole('button', { name: '型一覧に戻る' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '一覧に戻る' })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /ブログ掛け合い 60秒を選ぶ/ }))
+    await chooseDetail(user, 'ブログ掛け合い 60秒')
     await screen.findByRole('heading', { name: 'キャラクター構成' })
     await user.click(screen.getByRole('button', { name: /同僚同士/ }))
     expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
@@ -475,5 +588,383 @@ describe('TemplateShelf', () => {
       step: 1,
       choices: expect.objectContaining({ cast: 'peer-dialogue' }),
     })
+  })
+
+  it('最終画面では制作依頼コピーが主操作として見える', async () => {
+    const user = userEvent.setup()
+    render(<TemplateShelf templates={templates} />)
+
+    await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '確認してコピー' })).toBeVisible()
+
+    const copyButton = screen.getByRole('button', { name: '制作依頼だけをコピー' })
+    expect(copyButton).toBeVisible()
+    expect(copyButton).toHaveClass('launcher-primary')
+    expect(screen.getByLabelText('制作依頼本文')).toBeVisible()
+    expect(
+      screen.getByText((content) => content.includes('この画面では生成・実行・Gate更新をしません')),
+    ).toBeVisible()
+    expect(screen.getByText('素材・演出の詳細を見る')).toBeVisible()
+  })
+
+  const presentationPresets = [
+    {
+      backend: 'remotion',
+      backendLabel: 'Remotion',
+      id: 'article-dialogue-16x9',
+      label: '横型・会話で解説',
+      description: '記事やテーマを、会話のやりとりでわかりやすく伝える向きです。',
+      aspectRatio: '16:9' as const,
+    },
+    {
+      backend: 'remotion',
+      backendLabel: 'Remotion',
+      id: 'street-dialogue-16x9',
+      label: '横型・テンポ重視の会話解説',
+      description: 'テンポよく会話が進む解説向きです。',
+      aspectRatio: '16:9' as const,
+    },
+  ]
+
+  it('戻る→再度最終画面でも仕上げの動きの選択を保持する', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    render(
+      <TemplateShelf
+        onStateChange={onStateChange}
+        presentationPresetLoadState="ready"
+        presentationPresets={presentationPresets}
+        templates={templates}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(latestState(onStateChange).presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'article-dialogue-16x9',
+    })
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+
+    await user.click(screen.getByRole('button', { name: '戻る' }))
+    expect(await screen.findByRole('heading', { name: 'テンポ' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
+    expect(latestState(onStateChange).presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'article-dialogue-16x9',
+    })
+
+    await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+    expect(latestState(onStateChange).presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'article-dialogue-16x9',
+    })
+  })
+
+  it('最終画面で別presetを選ぶと表現のfull-compositionを置換し、コピー本文に矛盾したfullが2つ出ない', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    const initialState: TemplateWizardState = {
+      templateId: validTemplate.id,
+      choices: { cast: 'beginner-expert', background: 'paper-cutout', pace: 'calm' },
+      step: 4, // checklistStep(3 variants) = 4
+      presentationPreset: { backend: 'remotion', presetId: 'article-dialogue-16x9' },
+      expressionSelections: [
+        {
+          key: 'presentation-preset::remotion::article-dialogue-16x9',
+          provider: 'remotion',
+          nativeId: 'article-dialogue-16x9',
+          title: '横型・会話で解説',
+          role: 'full-composition',
+          capability: 'declared-executable-candidate',
+          previewFidelity: 'composition-storyboard',
+          reason: '表現棚で選択',
+          source: 'presentation-preset',
+        },
+        {
+          key: 'reference-catalog::hyperframes::component::data-chart',
+          provider: 'hyperframes',
+          nativeId: 'data-chart',
+          title: 'Data Chart',
+          role: 'data-viz',
+          capability: 'reference-only',
+          previewFidelity: 'motion-hint',
+          reason: '補助',
+          source: 'reference-catalog',
+        },
+      ],
+      expressionSelectionMode: 'explicit',
+    }
+
+    render(
+      <TemplateShelf
+        initialState={initialState}
+        onStateChange={onStateChange}
+        presentationPresetLoadState="ready"
+        presentationPresets={presentationPresets}
+        templates={templates}
+      />,
+    )
+
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
+
+    await user.click(screen.getByRole('button', { name: /横型・テンポ重視の会話解説/ }))
+    const state = latestState(onStateChange)
+    expect(state.presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'street-dialogue-16x9',
+    })
+    const fulls = state.expressionSelections.filter((entry) => entry.role === 'full-composition')
+    expect(fulls).toHaveLength(1)
+    expect(fulls[0]?.nativeId).toBe('street-dialogue-16x9')
+    expect(state.expressionSelections.some((entry) => entry.nativeId === 'data-chart')).toBe(true)
+
+    const brief = screen.getByLabelText('制作依頼本文').textContent ?? ''
+    expect(brief).toMatch(/street-dialogue-16x9/)
+    expect(brief).not.toMatch(/article-dialogue-16x9/)
+
+    await user.click(screen.getByRole('button', { name: /おすすめに任せる/ }))
+    const cleared = latestState(onStateChange)
+    expect(cleared.presentationPreset).toBeNull()
+    expect(cleared.expressionSelections.every((entry) => entry.role !== 'full-composition')).toBe(true)
+    expect(cleared.expressionSelections.some((entry) => entry.nativeId === 'data-chart')).toBe(true)
+    expect(cleared.expressionSelectionMode).toBe('explicit')
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9|street-dialogue-16x9/)
+  })
+
+  it('別テンプレートに切り替えたら仕上げの動きを「おすすめに任せる」へ戻す', async () => {
+    const user = userEvent.setup()
+    const onStateChange = vi.fn()
+    const qaTemplate: WizardTemplate = {
+      ...validTemplate,
+      id: 'qa-dialogue',
+      name: 'Q&A掛け合い',
+      variants: [],
+    }
+    render(
+      <TemplateShelf
+        onStateChange={onStateChange}
+        presentationPresetLoadState="ready"
+        presentationPresets={presentationPresets}
+        templates={[validTemplate, qaTemplate, invalidTemplate]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: quickStartActionName('ブログ掛け合い 60秒') }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
+    expect(latestState(onStateChange).presentationPreset).toEqual({
+      backend: 'remotion',
+      presetId: 'article-dialogue-16x9',
+    })
+
+    await user.click(within(progressNav()).getByRole('button', { name: /動画|ブログ掛け合い/ }))
+    expect(await screen.findByRole('heading', { name: /何を作りたい/ })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: detailActionName('Q&A掛け合い') }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/article-dialogue-16x9/)
+    expect(latestState(onStateChange).presentationPreset).toBeNull()
+  })
+
+  it('catalog error retry stays mounted with aria-disabled during loading and keeps focus', async () => {
+    const user = userEvent.setup()
+    let loadState: 'error' | 'loading' | 'ready' = 'error'
+    const onRetry = vi.fn(() => {
+      loadState = 'loading'
+      rerender(
+        <TemplateShelf
+          loadState={loadState}
+          onRetry={onRetry}
+          templates={[]}
+        />,
+      )
+    })
+    const { rerender } = render(
+      <TemplateShelf
+        loadState={loadState}
+        onRetry={onRetry}
+        templates={[]}
+      />,
+    )
+
+    const retry = screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' })
+    retry.focus()
+    await user.click(retry)
+    expect(onRetry).toHaveBeenCalledTimes(1)
+
+    const busy = screen.getByRole('button', { name: '読み込んでいます…' })
+    expect(busy).toHaveAttribute('aria-disabled', 'true')
+    expect(busy).not.toHaveAttribute('disabled')
+    expect(busy).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+    await user.click(busy)
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(busy).toHaveFocus()
+  })
+
+  it('error→loading→ready: hands focus to first valid template action (not BODY)', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [loadState, setLoadState] = useState<'error' | 'loading' | 'ready'>('error')
+      const list = loadState === 'ready' ? templates : []
+      return (
+        <div>
+          <TemplateShelf
+            loadState={loadState}
+            onRetry={() => setLoadState('loading')}
+            templates={list}
+          />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setLoadState('ready')}
+          >
+            complete-load
+          </button>
+        </div>
+      )
+    }
+    render(<Harness />)
+
+    const retry = screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' })
+    retry.focus()
+    await user.click(retry)
+    expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'complete-load' }))
+
+    const firstAction = screen.getByRole('button', {
+      name: detailActionName('ブログ掛け合い 60秒'),
+    })
+    expect(firstAction).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement?.tagName.toLowerCase()).not.toBe('body')
+    expect(screen.queryByRole('button', { name: 'テンプレートをもう一度読み込む' })).not.toBeInTheDocument()
+  })
+
+  it('error→loading→ready empty: hands focus to type heading (not BODY)', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [loadState, setLoadState] = useState<'error' | 'loading' | 'ready'>('error')
+      return (
+        <div>
+          <TemplateShelf
+            loadState={loadState}
+            onRetry={() => setLoadState('loading')}
+            templates={[]}
+          />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setLoadState('ready')}
+          >
+            complete-load
+          </button>
+        </div>
+      )
+    }
+    render(<Harness />)
+
+    await user.click(screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' }))
+    expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: 'complete-load' }))
+
+    expect(screen.getByRole('heading', { name: /何を作りたい/ })).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('error→loading→error: focus remains on the same catalog retry control', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [loadState, setLoadState] = useState<'error' | 'loading' | 'ready'>('error')
+      return (
+        <div>
+          <TemplateShelf
+            loadState={loadState}
+            onRetry={() => setLoadState('loading')}
+            templates={[]}
+          />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setLoadState('error')}
+          >
+            fail-load
+          </button>
+        </div>
+      )
+    }
+    render(<Harness />)
+
+    const retry = screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' })
+    retry.focus()
+    await user.click(retry)
+    expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'fail-load' }))
+    const retryAgain = screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' })
+    expect(retryAgain).toHaveFocus()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('initial automatic loading→ready does not programmatically focus', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [loadState, setLoadState] = useState<'loading' | 'ready'>('loading')
+      return (
+        <div>
+          <TemplateShelf loadState={loadState} onRetry={vi.fn()} templates={templates} />
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setLoadState('ready')}
+          >
+            complete-initial
+          </button>
+        </div>
+      )
+    }
+    render(<Harness />)
+    expect(screen.getByText('テンプレートを読み込んでいます…')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'テンプレートをもう一度読み込む' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(document.body)
+
+    await user.click(screen.getByRole('button', { name: 'complete-initial' }))
+    expect(screen.getByRole('heading', { name: 'ブログ掛け合い 60秒' })).toBeVisible()
+    // No user-owned retry: do not steal focus to heading or first action.
+    expect(document.activeElement).toBe(document.body)
+    expect(screen.getByRole('heading', { name: /何を作りたい/ })).not.toHaveFocus()
+  })
+
+  it('production source keeps soft-disable catalog retry (no dynamic native disabled)', async () => {
+    const nodeFs = 'node:fs'
+    const nodePath = 'node:path'
+    const fs = await import(/* @vite-ignore */ nodeFs) as {
+      readFileSync: (path: string, encoding: string) => string
+    }
+    const path = await import(/* @vite-ignore */ nodePath) as {
+      resolve: (...parts: string[]) => string
+    }
+    const cwd = (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.()
+    if (!cwd) throw new Error('process.cwd is unavailable')
+    const source = fs.readFileSync(
+      path.resolve(cwd, 'src/components/template/TemplateShelf.tsx'),
+      'utf8',
+    )
+    expect(source).toMatch(/aria-disabled=\{isCatalogLoading \|\| undefined\}/)
+    expect(source).not.toMatch(/disabled=\{isCatalogLoading\}/)
+    expect(source).toMatch(/if \(isCatalogLoading\) return/)
+    expect(source).toMatch(/retryHandoffPendingRef/)
+    expect(source).toMatch(/ownsRetryFocusHandoff/)
   })
 })

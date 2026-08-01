@@ -261,7 +261,7 @@ function normalizeWhisperSegments(segments, source, noSpeechThreshold) {
     const end = clampedWhisperTimestamp(segment.end, source);
     if (!text || start === undefined || end === undefined || end <= start) continue;
     const words = Array.isArray(segment.words)
-      ? segment.words.flatMap((word) => normalizeWhisperWord(word, source))
+      ? segment.words.flatMap((word) => normalizeWhisperWord(word, source, start, end))
       : [];
     kept.push({
       source_start: start,
@@ -274,12 +274,15 @@ function normalizeWhisperSegments(segments, source, noSpeechThreshold) {
   return { segments: kept, filtered };
 }
 
-function normalizeWhisperWord(word, source) {
+function normalizeWhisperWord(word, source, segmentStart, segmentEnd) {
   if (!isRecord(word)) return [];
   const text = typeof word.word === "string" ? word.word.trim() : "";
-  const start = clampedWhisperTimestamp(word.start, source);
-  const end = clampedWhisperTimestamp(word.end, source);
-  if (!text || start === undefined || end === undefined || end <= start) return [];
+  const sourceStart = clampedWhisperTimestamp(word.start, source);
+  const sourceEnd = clampedWhisperTimestamp(word.end, source);
+  if (!text || sourceStart === undefined || sourceEnd === undefined) return [];
+  const start = clamp(sourceStart, segmentStart, segmentEnd);
+  const end = clamp(sourceEnd, segmentStart, segmentEnd);
+  if (end <= start) return [];
   const confidence = finiteNumber(word.probability);
   return [{
     text,

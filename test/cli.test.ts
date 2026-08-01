@@ -40,6 +40,11 @@ describe("pipeline CLI", () => {
       requires_config: true,
       safety: "approval-gated"
     }));
+    expect(parsed.commands).toContainEqual(expect.objectContaining({
+      name: "models",
+      requires_config: true,
+      safety: "read-only"
+    }));
   });
 
   it.each([

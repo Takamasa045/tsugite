@@ -7,10 +7,12 @@ export type CommandName =
   | "connections"
   | "presets"
   | "viewer-launcher"
+  | "worktrees"
   | "feedback"
   | "shitate-import"
   | "character-add"
   | "validate"
+  | "models"
   | "finalize"
   | "plan"
   | "analyze"
@@ -84,7 +86,10 @@ const OPTIONS = {
   speaker: defineOption("--speaker", "Speaker identifier to copy from the source manifest.", "<speaker-id>"),
   stateDir: defineOption("--state-dir", "Alternate pipeline state directory.", "<directory>"),
   actor: defineOption("--actor", "Pipeline actor; gated actions require coordinator.", "<role>"),
-  apply: defineOption("--apply", "Apply the inspected finalize deletion plan."),
+  apply: defineOption("--apply", "Apply the inspected approval-gated worktree action after preview."),
+  path: defineOption("--path", "Absolute or relative worktree path to inspect or remove.", "<worktree-path>"),
+  defer: defineOption("--defer", "Preview or record one clean worktree for deferred integration."),
+  reconcile: defineOption("--reconcile", "Preview or process the oldest deferred worktree integration."),
   allowExternalAnalysis: defineOption(
     "--allow-external-analysis",
     "Allow configured external analysis adapters to run."
@@ -155,6 +160,15 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     safety: "local-write",
     options: [OPTIONS.projectsDir, OPTIONS.port, OPTIONS.open]
   }),
+
+  defineCommand({
+    name: "worktrees",
+    summary: "Audit, defer, reconcile, and safely remove git worktrees.",
+    usage: "node bin/pipeline worktrees [--path <worktree-path>]... [--defer --path <worktree-path>] [--reconcile] [--apply --actor coordinator] [--json]",
+    requiresConfig: false,
+    safety: "approval-gated",
+    options: [OPTIONS.path, OPTIONS.actor, OPTIONS.apply, OPTIONS.defer, OPTIONS.reconcile]
+  }),
   defineCommand({
     name: "feedback",
     summary: "Append project-scoped preference or promotion feedback.",
@@ -211,6 +225,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     name: "validate",
     summary: "Validate a project, manifest, adapters, and safety constraints.",
     usage: "node bin/pipeline validate --config <project.yaml> [--json]",
+    requiresConfig: true,
+    safety: "read-only",
+    options: [OPTIONS.config]
+  }),
+  defineCommand({
+    name: "models",
+    summary: "Preflight configured generation models without submitting generation tasks.",
+    usage: "node bin/pipeline models --config <project.yaml> [--json]",
     requiresConfig: true,
     safety: "read-only",
     options: [OPTIONS.config]

@@ -50,7 +50,9 @@ import {
   generationRequestOutputKind,
   type Project
 } from "../project/schema.js";
+import { loadBackendCapabilities } from "../backends/capabilities.js";
 import type { Issue } from "../types.js";
+import { PipelineError } from "../types.js";
 import {
   digestWorkflowViewerReview,
   getWorkflowViewerOpenCommand,
@@ -66,7 +68,16 @@ import {
   type CharacterImageLocation,
   type LauncherCharacterCatalog
 } from "./launcherCharacters.js";
+import {
+  httpStatusForReferenceCatalogFailure,
+  isSafeReferenceCatalogId,
+  loadReferenceCatalog,
+  type ReferenceCatalogResult
+} from "./referenceCatalog.js";
 import { loadPromptGuideById } from "../adapters/promptKnowledge.js";
+import { runGenerationModelPreflight } from "../adapters/modelPreflight.js";
+
+const SAFE_BACKEND_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const LOOPBACK_HOST = "127.0.0.1";
 const TSUGITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -663,6 +674,8 @@ export type StartWorkflowViewerLauncherOptions = {
   runGeneration?: (configPath: string) => Promise<unknown>;
   canStartWork?: () => boolean;
   executePipeline?: LauncherProcessRunner;
+  /** Test seam for the read-only generic reference catalog endpoint. */
+  loadReferenceCatalog?: (catalogId: string) => Promise<ReferenceCatalogResult>;
   validationOptions?: ValidateProjectOptions;
 };
 
@@ -711,6 +724,8 @@ export async function startWorkflowViewerLauncher(
   let closing = false;
   const writer = options.writeViewer ?? writeWorkflowViewer;
   const executePipeline = options.executePipeline ?? executePipelineProcess;
+  const loadReferenceCatalogHandler = options.loadReferenceCatalog
+    ?? ((catalogId: string) => loadReferenceCatalog(catalogId));
   const allowProjectActions = options.allowProjectActions ?? true;
   let launcherOrigin = "";
   let artifactOrigin = "";
@@ -1025,6 +1040,48 @@ export async function startWorkflowViewerLauncher(
     }
 
     const generationConnectionMatch = /^\/api\/projects\/([^/]+)\/generation-connection$/.exec(requestUrl.pathname);
+    const modelPreflightMatch = /^\/api\/projects\/([^/]+)\/model-preflight$/.exec(requestUrl.pathname);
+    if (method === "POST" && modelPreflightMatch) {
+      if (request.headers.origin !== launcherOrigin || request.headers["x-tsugite-token"] !== token) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const record = projects.get(modelPreflightMatch[1]!);
+      if (!record?.identity || !record.project?.generation) return sendNotFound(response);
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+      const validation = await validateProject(record.configPath, options.validationOptions);
+      if (!validation.ok || !validation.project?.generation || !validation.adapter) {
+        sendJson(response, 422, {
+          ok: false,
+          billing_action: false,
+          generation_submitted: false,
+          fully_validated: false,
+          requests: [],
+          issues: validation.issues
+        });
+        return;
+      }
+      const inspected = runGenerationModelPreflight(
+        validation.adapter,
+        validation.project.generation.requests
+      );
+      sendJson(response, inspected.ok ? 200 : 422, {
+        ok: inspected.ok,
+        billing_action: inspected.billingAction,
+        generation_submitted: inspected.generationSubmitted,
+        fully_validated: inspected.fullyValidated,
+        requests: inspected.requests,
+        issues: inspected.issues
+      });
+      return;
+    }
+
     if (method === "POST" && generationConnectionMatch) {
       if (request.headers.origin !== launcherOrigin || request.headers["x-tsugite-token"] !== token) {
         sendJson(response, 403, {
@@ -1406,6 +1463,124 @@ export async function startWorkflowViewerLauncher(
       return;
     }
 
+    if (method === "GET" && requestUrl.pathname === "/api/presets") {
+      const backendParam = requestUrl.searchParams.get("backend");
+      if (!backendParam) {
+        sendJson(response, 400, {
+          ok: false,
+          issue: {
+            code: "presets.backend_missing",
+            message: "Query parameter backend is required"
+          }
+        });
+        return;
+      }
+      if (!SAFE_BACKEND_ID.test(backendParam)) {
+        sendJson(response, 400, {
+          ok: false,
+          issue: {
+            code: "presets.backend_invalid",
+            message: "backend must be a safe backend id"
+          }
+        });
+        return;
+      }
+      try {
+        const backend = await loadBackendCapabilities(
+          backendParam,
+          options.validationOptions?.backendDirs
+        );
+        if (!backend) {
+          sendJson(response, 404, {
+            ok: false,
+            backend: backendParam,
+            issue: {
+              code: "backend.not_found",
+              message: `backend '${backendParam}' was not found`
+            }
+          });
+          return;
+        }
+        sendJson(response, 200, {
+          ok: true,
+          backend: backendParam,
+          presets: backend.capabilities.presets
+        });
+      } catch (error) {
+        if (error instanceof PipelineError) {
+          const issue = error.issues[0] ?? {
+            code: "backend.schema",
+            message: error.message
+          };
+          sendJson(response, 422, {
+            ok: false,
+            backend: backendParam,
+            issue: {
+              code: issue.code,
+              message: issue.message
+            }
+          });
+          return;
+        }
+        sendJson(response, 500, {
+          ok: false,
+          backend: backendParam,
+          issue: {
+            code: "viewer_launcher.internal",
+            message: "Failed to load presentation presets"
+          }
+        });
+      }
+      return;
+    }
+
+    const referenceCatalogMatch = /^\/api\/reference-catalogs\/([^/]+)$/.exec(requestUrl.pathname);
+    if (method === "GET" && referenceCatalogMatch) {
+      // Host は handleLauncherRequest 先頭で launcherOrigin と照合済み。
+      // 同一 origin の通常 GET は Origin を送らないため、token 必須 + Origin があるときだけ一致必須。
+      const requestOrigin = request.headers.origin;
+      if (
+        request.headers["x-tsugite-token"] !== token
+        || (requestOrigin !== undefined && requestOrigin !== launcherOrigin)
+      ) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const catalogId = referenceCatalogMatch[1] ?? "";
+      // Reject oversized / unsafe ids before the provider handler, filesystem
+      // lookup, or any busy/cache key materialization.
+      if (!isSafeReferenceCatalogId(catalogId)) {
+        sendJson(response, 404, {
+          ok: false,
+          issue: {
+            code: "reference_catalog.not_found",
+            message: "Reference catalog was not found"
+          }
+        });
+        return;
+      }
+      try {
+        const catalog = await loadReferenceCatalogHandler(catalogId);
+        if (!catalog.ok) {
+          sendJson(response, httpStatusForReferenceCatalogFailure(catalog.issue.code), catalog);
+          return;
+        }
+        sendJson(response, 200, catalog);
+      } catch {
+        sendJson(response, 502, {
+          ok: false,
+          issue: {
+            code: "reference_catalog.command_failed",
+            message: "Reference catalog command failed"
+          }
+        });
+      }
+      return;
+    }
+
     if (method === "GET" && requestUrl.pathname === "/api/characters") {
       const catalog = await rebuildCharacterCatalog();
       sendJson(response, 200, { ok: true, characters: catalog.characters });
@@ -1633,7 +1808,9 @@ export async function startWorkflowViewerLauncher(
       }
       try {
         await decideProjectFeedbackPromotion(record.configPath, input, {
-          expectedFileIdentity: record.feedbackIdentity
+          expectedFileIdentity: record.feedbackIdentity,
+          // ランチャー経路は UI と同じ trusted automation source を core でも強制する。
+          requireTrustedAutomationSource: true
         });
         sendJson(response, 200, { ok: true, decision: input.decision });
       } catch (error) {

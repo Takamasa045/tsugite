@@ -3,10 +3,40 @@ import {
   buildPixverseCreateArgs,
   findNumberByKeys,
   findTaskId,
+  preflightPixverseRequest,
   pixverseOperationContract
 } from "../adapters/pixverse/pixverseCli.mjs";
 
 describe("PixVerse CLI request mapping", () => {
+  it("preflights a new model id without running a credit-consuming create command", () => {
+    const commands = [];
+    const result = preflightPixverseRequest({
+      id: "future-shot",
+      operation: "video",
+      prompt: "a robot crossing a summer field",
+      model: "minimax-h3",
+      duration: 10,
+      aspect: "16:9",
+      params: { quality: "1440p", audio: true }
+    }, {
+      runCommand(executable, args) {
+        commands.push([executable, ...args]);
+        return { status: 0, stdout: "1.2.11\n", stderr: "" };
+      }
+    });
+
+    expect(commands).toEqual([["pixverse", "--version"]]);
+    expect(result).toEqual({
+      request_id: "future-shot",
+      status: "provider-validation-required",
+      source: "pixverse-cli-runtime",
+      model: "minimax-h3",
+      operation: "video",
+      runtime_version: "1.2.11",
+      checked_parameters: ["aspect-ratio", "audio", "count", "duration", "idempotency-key", "model", "no-wait", "prompt", "quality"]
+    });
+  });
+
   it("covers every create operation exposed by PixVerse CLI 1.2.6", () => {
     expect(Object.keys(pixverseOperationContract)).toEqual([
       "video",

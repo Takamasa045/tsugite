@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -126,6 +126,63 @@ function expectedGate2ReviewUrl(launcher: WorkflowViewerLauncher, projectId: str
   const viewerUrl = new URL(expectedViewerUrl(launcher, projectId));
   viewerUrl.searchParams.set("node", "gate-2");
   return viewerUrl.toString();
+}
+
+const TRUSTED_PROMOTION_SOURCE = {
+  kind: "codex_automation" as const,
+  workflow_id: "tsugite-learning-promotion-review"
+};
+
+/** Launcher HTTP の promotion-decision 用 pending fixture。source 省略で untrusted、指定で trusted/other を切り替える。 */
+function pendingPromotionFeedbackRecord(
+  source?: { kind: "codex_automation"; workflow_id: string }
+) {
+  return {
+    schema_version: 1 as const,
+    id: "proposal-record",
+    created_at: "2026-07-17T10:00:00.000Z",
+    key: "opening-audio",
+    category: "sound",
+    signal: "prefer" as const,
+    stage: "recurring" as const,
+    summary: "Start the soundtrack at frame zero",
+    evidence: ["dist/local-fixture-run/gate3-qc.json"],
+    promotion_proposal: {
+      id: "opening-audio-v1",
+      kind: "qa" as const,
+      target: "src/orchestrator/gate3Qc.ts",
+      change_summary: "Add an opening-audio Gate 3 check",
+      verification: "Confirm the check on a later project",
+      decision: "pending" as const,
+      ...(source ? { source } : {})
+    }
+  };
+}
+
+function pendingPromotionFeedbackLine(
+  source?: { kind: "codex_automation"; workflow_id: string }
+): string {
+  return `${JSON.stringify(pendingPromotionFeedbackRecord(source))}\n`;
+}
+
+async function postAuthorizedPromotionDecision(
+  launcher: WorkflowViewerLauncher,
+  projectId: string,
+  body: { key: string; proposalId: string; decision: "approved" | "rejected" } = {
+    key: "opening-audio",
+    proposalId: "opening-audio-v1",
+    decision: "approved"
+  }
+) {
+  return fetch(`${launcher.url}/api/feedback/${projectId}/promotion-decision`, {
+    method: "POST",
+    headers: {
+      origin: launcher.url,
+      "content-type": "application/json",
+      "x-tsugite-token": launcher.token
+    },
+    body: JSON.stringify(body)
+  });
 }
 
 describe("workflow viewer launcher", () => {
@@ -272,25 +329,10 @@ describe("workflow viewer launcher", () => {
 
   it("records an authorized human decision for a pending promotion proposal", async () => {
     const fixture = await createFixture();
-    await writeFile(join(fixture.projectDir, "feedback.jsonl"), `${JSON.stringify({
-      schema_version: 1,
-      id: "proposal-record",
-      created_at: "2026-07-17T10:00:00.000Z",
-      key: "opening-audio",
-      category: "sound",
-      signal: "prefer",
-      stage: "recurring",
-      summary: "Start the soundtrack at frame zero",
-      evidence: ["dist/local-fixture-run/gate3-qc.json"],
-      promotion_proposal: {
-        id: "opening-audio-v1",
-        kind: "qa",
-        target: "src/orchestrator/gate3Qc.ts",
-        change_summary: "Add an opening-audio Gate 3 check",
-        verification: "Confirm the check on a later project",
-        decision: "pending"
-      }
-    })}\n`);
+    await writeFile(
+      join(fixture.projectDir, "feedback.jsonl"),
+      pendingPromotionFeedbackLine(TRUSTED_PROMOTION_SOURCE)
+    );
     const launcher = await launch({
       projectsDir: fixture.projectsDir,
       bundleDir: fixture.bundleDir,
@@ -333,15 +375,7 @@ describe("workflow viewer launcher", () => {
       },
       body: JSON.stringify({ padding: "x".repeat(9_000) })
     })).status).toBe(400);
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        origin: launcher.url,
-        "content-type": "application/json",
-        "x-tsugite-token": launcher.token
-      },
-      body: requestBody
-    });
+    const response = await postAuthorizedPromotionDecision(launcher, projectId);
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ ok: true, decision: "approved" });
@@ -354,9 +388,46 @@ describe("workflow viewer launcher", () => {
         id: "opening-audio-v1",
         decision: "approved",
         decided_by: "human",
-        decided_at: expect.any(String)
+        decided_at: expect.any(String),
+        source: TRUSTED_PROMOTION_SOURCE
       }
     });
+  });
+
+  it("rejects untrusted promotion proposal sources without appending feedback.jsonl", async () => {
+    const cases: Array<{
+      label: string;
+      source?: { kind: "codex_automation"; workflow_id: string };
+    }> = [
+      { label: "missing source" },
+      {
+        label: "other workflow",
+        source: { kind: "codex_automation", workflow_id: "other-workflow" }
+      }
+    ];
+
+    for (const testCase of cases) {
+      const fixture = await createFixture();
+      const feedbackPath = join(fixture.projectDir, "feedback.jsonl");
+      const before = pendingPromotionFeedbackLine(testCase.source);
+      await writeFile(feedbackPath, before);
+      const launcher = await launch({
+        projectsDir: fixture.projectsDir,
+        bundleDir: fixture.bundleDir,
+        port: 0
+      });
+      const projects = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+      const projectId = projects.projects[0].id as string;
+
+      const response = await postAuthorizedPromotionDecision(launcher, projectId);
+
+      expect(response.status, testCase.label).toBe(422);
+      await expect(response.json(), testCase.label).resolves.toMatchObject({
+        ok: false,
+        issue: { code: "feedback.proposal_source_untrusted" }
+      });
+      expect(await readFile(feedbackPath, "utf8"), testCase.label).toBe(before);
+    }
   });
 
   it("caps launcher feedback records and reports the read-only display limit", async () => {
@@ -1612,6 +1683,70 @@ distribution: local-only
     expect(updated).toContain("adapter: topview");
   });
 
+  it("preflights runtime models without submitting generation or returning private request fields", async () => {
+    const fixture = await createFixture();
+    const configPath = join(fixture.projectDir, "project.yaml");
+    await writeFile(configPath, `${await readFile(configPath, "utf8")}generation:
+  connection: pixverse
+  adapter: pixverse
+  requests:
+    - id: future-shot
+      operation: video
+      prompt: private prompt must not be returned
+      model: minimax-h3
+      duration: 10
+      aspect: "16:9"
+      params:
+        private_note: never-return-this
+`);
+    const fakeCli = join(fixture.root, process.platform === "win32" ? "pixverse.cmd" : "pixverse");
+    await writeFile(fakeCli, process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" -e "console.log('1.2.11')"\r\n`
+      : "#!/usr/bin/env node\nconsole.log('1.2.11')\n");
+    if (process.platform !== "win32") await chmod(fakeCli, 0o755);
+    const previousCli = process.env.PIXVERSE_CLI;
+    process.env.PIXVERSE_CLI = fakeCli;
+    try {
+      const launcher = await launch({
+        projectsDir: fixture.projectsDir,
+        bundleDir: fixture.bundleDir,
+        port: 0
+      });
+      const listing = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+      const project = listing.projects[0];
+      const endpoint = `${launcher.url}/api/projects/${project.id}/model-preflight`;
+
+      expect((await fetch(endpoint, { method: "POST" })).status).toBe(403);
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          origin: launcher.url,
+          "x-tsugite-token": launcher.token
+        }
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload).toMatchObject({
+        ok: true,
+        billing_action: false,
+        generation_submitted: false,
+        fully_validated: false,
+        requests: [{
+          request_id: "future-shot",
+          status: "provider-validation-required",
+          source: "pixverse-cli-runtime",
+          model: "minimax-h3",
+          runtime_version: "1.2.11"
+        }]
+      });
+      expect(JSON.stringify(payload)).not.toMatch(/private prompt|private_note|never-return-this/);
+    } finally {
+      if (previousCli === undefined) delete process.env.PIXVERSE_CLI;
+      else process.env.PIXVERSE_CLI = previousCli;
+    }
+  });
+
   it("requires same-origin authorization and renames the project display name in project.yaml", async () => {
     const fixture = await createFixture();
     const configPath = join(fixture.projectDir, "project.yaml");
@@ -2536,25 +2671,10 @@ distribution: local-only
 
   it("rejects approval and refresh writes after the project identity is replaced", async () => {
     const fixture = await createFixture();
-    await writeFile(join(fixture.projectDir, "feedback.jsonl"), `${JSON.stringify({
-      schema_version: 1,
-      id: "proposal-record",
-      created_at: "2026-07-17T10:00:00.000Z",
-      key: "opening-audio",
-      category: "sound",
-      signal: "prefer",
-      stage: "recurring",
-      summary: "Start the soundtrack at frame zero",
-      evidence: ["dist/local-fixture-run/gate3-qc.json"],
-      promotion_proposal: {
-        id: "opening-audio-v1",
-        kind: "qa",
-        target: "src/orchestrator/gate3Qc.ts",
-        change_summary: "Add an opening-audio Gate 3 check",
-        verification: "Confirm the check on a later project",
-        decision: "pending"
-      }
-    })}\n`);
+    await writeFile(
+      join(fixture.projectDir, "feedback.jsonl"),
+      pendingPromotionFeedbackLine(TRUSTED_PROMOTION_SOURCE)
+    );
     const writeViewer = vi.fn();
     const launcher = await launch({
       projectsDir: fixture.projectsDir,
@@ -2574,18 +2694,7 @@ distribution: local-only
       "x-tsugite-token": launcher.token
     };
 
-    const decisionResponse = await fetch(
-      `${launcher.url}/api/feedback/${project.id}/promotion-decision`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          key: "opening-audio",
-          proposalId: "opening-audio-v1",
-          decision: "approved"
-        })
-      }
-    );
+    const decisionResponse = await postAuthorizedPromotionDecision(launcher, project.id);
     expect(decisionResponse.status).toBe(422);
     await expect(decisionResponse.json()).resolves.toMatchObject({
       ok: false,
@@ -2610,25 +2719,8 @@ distribution: local-only
   it("rejects approval when feedback.jsonl is replaced after the launcher loads it", async () => {
     const fixture = await createFixture();
     const feedbackPath = join(fixture.projectDir, "feedback.jsonl");
-    const pendingRecord = `${JSON.stringify({
-      schema_version: 1,
-      id: "proposal-record",
-      created_at: "2026-07-17T10:00:00.000Z",
-      key: "opening-audio",
-      category: "sound",
-      signal: "prefer",
-      stage: "recurring",
-      summary: "Start the soundtrack at frame zero",
-      evidence: ["dist/local-fixture-run/gate3-qc.json"],
-      promotion_proposal: {
-        id: "opening-audio-v1",
-        kind: "qa",
-        target: "src/orchestrator/gate3Qc.ts",
-        change_summary: "Add an opening-audio Gate 3 check",
-        verification: "Confirm the check on a later project",
-        decision: "pending"
-      }
-    })}\n`;
+    // trusted source を通し、file identity 不一致まで到達させる
+    const pendingRecord = pendingPromotionFeedbackLine(TRUSTED_PROMOTION_SOURCE);
     await writeFile(feedbackPath, pendingRecord);
     const launcher = await launch({
       projectsDir: fixture.projectsDir,
@@ -2640,22 +2732,7 @@ distribution: local-only
     await rename(feedbackPath, join(fixture.projectDir, "feedback-original.jsonl"));
     await writeFile(feedbackPath, pendingRecord);
 
-    const response = await fetch(
-      `${launcher.url}/api/feedback/${project.id}/promotion-decision`,
-      {
-        method: "POST",
-        headers: {
-          origin: launcher.url,
-          "content-type": "application/json",
-          "x-tsugite-token": launcher.token
-        },
-        body: JSON.stringify({
-          key: "opening-audio",
-          proposalId: "opening-audio-v1",
-          decision: "approved"
-        })
-      }
-    );
+    const response = await postAuthorizedPromotionDecision(launcher, project.id);
 
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toMatchObject({

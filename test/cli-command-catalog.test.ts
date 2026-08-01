@@ -16,6 +16,7 @@ const expectedOptions = {
   connections: ["--model", "--capability"],
   presets: ["--backend"],
   "viewer-launcher": ["--projects-dir", "--port", "--open"],
+  worktrees: ["--path", "--actor", "--apply", "--defer", "--reconcile"],
   feedback: [
     "--config",
     "--key",
@@ -48,6 +49,7 @@ const expectedOptions = {
   ],
   "character-add": ["--config", "--from-manifest", "--speaker"],
   validate: ["--config"],
+  models: ["--config"],
   finalize: ["--config", "--state-dir", "--actor", "--apply"],
   plan: ["--config"],
   analyze: ["--config", "--actor", "--state-dir", "--allow-external-analysis"],
@@ -65,6 +67,7 @@ const configCommands = new Set([
   "shitate-import",
   "character-add",
   "validate",
+  "models",
   "finalize",
   "plan",
   "analyze",

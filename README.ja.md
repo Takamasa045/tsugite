@@ -226,6 +226,24 @@ node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --json
 ```
 
+実装タスクを明示的に完了としたあとは、残った Git worktree を削除する前に監査します。`worktrees` の既定は読み取り専用の JSON preview です。apply には Coordinator と明示的な `--path` が必要で、`git worktree remove --force` や branch 削除は行いません。primary/current・dirty・未統合・locked・missing、および `projects/` や `.env` などの保護対象は拒否します。
+
+```sh
+node bin/pipeline worktrees --json
+node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
+```
+
+完成承認時にローカル `main` が別作業中なら、対象worktreeのpath・branch・HEADをrepo-localの統合待ちキューへ固定できます。1つのhost定期タスクから `--reconcile` を呼ぶと、mainがdirtyな間は何も変更せず待機し、クリーンになった時だけ隔離マージ、TypeScript・Vitest検証、双方の再監査、変更されていないlocal mainへのfast-forward、統合済みworktreeの非force削除を順に行います。競合、検証失敗、identity変更、保護対象、primary main以外からの実行はmainを変えず停止します。fetch、push、rebase、stash、reset、`git clean`、branch削除は行いません。
+
+```sh
+node bin/pipeline worktrees --defer --path ../tsugite-feature-task --json
+node bin/pipeline worktrees --defer --apply --actor coordinator --path ../tsugite-feature-task --json
+node bin/pipeline worktrees --reconcile --json
+node bin/pipeline worktrees --reconcile --apply --actor coordinator --json
+```
+
+単発実行と定期hostの契約は [統合待ちworktreeのreconcile](docs/automations/worktree-reconcile.md) を参照してください。
+
 ## Shitate連携（任意）
 
 別リポジトリのShitateを使う場合だけ、選定済みrunとanchorをSHA-256 lock付きの不変snapshotとしてprojectへ取り込めます。通常のTsugite利用にはShitateの導入・設定は不要です。

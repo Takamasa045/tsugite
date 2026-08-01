@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { inspectEnvironment } from "./doctor.js";
 import { loadBackendCapabilities } from "./backends/capabilities.js";
 import type { AdapterDefinition } from "./adapters/registry.js";
+import { runGenerationModelPreflight } from "./adapters/modelPreflight.js";
 import { analyzeProject } from "./orchestrator/analyze.js";
 import { composeProject } from "./orchestrator/compose.js";
 import {
@@ -19,6 +20,11 @@ import {
 import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
 import { finalizeCompletedProject } from "./orchestrator/finalize.js";
+import { auditAndCleanupWorktrees } from "./worktree/lifecycle.js";
+import {
+  deferWorktreeIntegration,
+  reconcileDeferredWorktrees
+} from "./worktree/deferred.js";
 import {
   inspectGate1Review,
   openCreativeReview,
@@ -110,7 +116,10 @@ type ParsedArgs = {
   proposalSource?: string;
   open: boolean;
   apply: boolean;
+  defer: boolean;
+  reconcile: boolean;
   allowExternalAnalysis: boolean;
+  paths: string[];
   expectedApprovalDigest?: string;
   issues: Issue[];
 };
@@ -315,6 +324,124 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           code: "viewer_launcher.start_failed",
           message: error instanceof Error ? error.message : String(error)
         }]
+      });
+    }
+  }
+
+  if (args.command === "worktrees") {
+    if (args.defer && args.reconcile) {
+      return output(args, 1, {
+        ok: false,
+        command: "worktrees",
+        issues: [{
+          code: "worktrees.mode_conflict",
+          message: "--defer and --reconcile cannot be used together"
+        }]
+      });
+    }
+    if (args.apply) {
+      const coordinatorIssue = requireCoordinator(args);
+      if (coordinatorIssue) {
+        return output(args, 1, { ok: false, command: "worktrees", issues: [coordinatorIssue] });
+      }
+      if (!args.reconcile && args.paths.length === 0) {
+        return output(args, 1, {
+          ok: false,
+          command: "worktrees",
+          issues: [{
+            code: "worktrees.path_required",
+            message: "--path is required when applying worktree cleanup",
+            path: "--path"
+          }]
+        });
+      }
+    }
+    if (args.defer && args.paths.length !== 1) {
+      return output(args, 1, {
+        ok: false,
+        command: "worktrees",
+        issues: [{
+          code: "worktrees.defer_path_required",
+          message: "--defer requires exactly one --path",
+          path: "--path"
+        }]
+      });
+    }
+    if (args.reconcile && args.paths.length > 0) {
+      return output(args, 1, {
+        ok: false,
+        command: "worktrees",
+        issues: [{
+          code: "worktrees.reconcile_path_unsupported",
+          message: "--reconcile processes the oldest queued entry and does not accept --path",
+          path: "--path"
+        }]
+      });
+    }
+
+    try {
+      if (args.defer) {
+        const result = await deferWorktreeIntegration({
+          cwd: process.cwd(),
+          path: args.paths[0]!,
+          apply: args.apply
+        });
+        return output(args, result.ok ? 0 : 1, {
+          ok: result.ok,
+          command: "worktrees",
+          mode: "defer",
+          issues: result.issues,
+          applied: result.applied,
+          queued: result.queued,
+          queue_path: result.queue_path,
+          entries: result.entries,
+          entry: result.entry
+        });
+      }
+      if (args.reconcile) {
+        const result = await reconcileDeferredWorktrees({
+          cwd: process.cwd(),
+          apply: args.apply
+        });
+        return output(args, result.ok ? 0 : 1, {
+          ok: result.ok,
+          command: "worktrees",
+          mode: "reconcile",
+          issues: result.issues,
+          applied: result.applied,
+          status: result.status,
+          waiting_reason: result.waiting_reason,
+          queue_path: result.queue_path,
+          entries: result.entries,
+          processed: result.processed,
+          integration_commit: result.integration_commit,
+          removed: result.removed,
+          checks: result.checks
+        });
+      }
+      const result = await auditAndCleanupWorktrees({
+        cwd: process.cwd(),
+        apply: args.apply,
+        paths: args.paths
+      });
+      return output(args, result.ok ? 0 : 1, {
+        ok: result.ok,
+        command: "worktrees",
+        issues: result.issues,
+        applied: result.applied ?? false,
+        git_common_dir: result.git_common_dir,
+        primary_path: result.primary_path,
+        current_path: result.current_path,
+        main_branch: result.main_branch,
+        worktrees: result.worktrees ?? [],
+        targets: result.targets ?? [],
+        removed: result.removed ?? []
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "worktrees",
+        issues: cliIssuesFromError(error)
       });
     }
   }
@@ -620,6 +747,34 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ok: false,
       command: args.command,
       issues: validation.issues
+    });
+  }
+
+  if (args.command === "models") {
+    const generation = validation.project?.generation;
+    if (!generation || !validation.adapter) {
+      return output(args, 1, {
+        ok: false,
+        command: "models",
+        billing_action: false,
+        generation_submitted: false,
+        fully_validated: false,
+        requests: [],
+        issues: [{
+          code: "models.generation_required",
+          message: "project must declare generation requests and an adapter"
+        }]
+      });
+    }
+    const inspected = runGenerationModelPreflight(validation.adapter, generation.requests);
+    return output(args, inspected.ok ? 0 : 1, {
+      ok: inspected.ok,
+      command: "models",
+      billing_action: inspected.billingAction,
+      generation_submitted: inspected.generationSubmitted,
+      fully_validated: inspected.fullyValidated,
+      requests: inspected.requests,
+      issues: inspected.issues
     });
   }
 
@@ -1171,7 +1326,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       dryRun: false,
       open: false,
       apply: false,
+      defer: false,
+      reconcile: false,
       allowExternalAnalysis: false,
+      paths: [],
       issues: helpRequest.issues
     };
   }
@@ -1183,7 +1341,10 @@ function parseArgs(argv: string[]): ParsedArgs {
     dryRun: false,
     open: false,
     apply: false,
+    defer: false,
+    reconcile: false,
     allowExternalAnalysis: false,
+    paths: [],
     issues: []
   };
 
@@ -1227,6 +1388,19 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       continue;
     }
+    if (arg === "--defer" || arg === "--reconcile") {
+      if (isCommandOptionAllowed(parsed.command, arg)) {
+        if (arg === "--defer") parsed.defer = true;
+        else parsed.reconcile = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
     if (arg === "--allow-external-analysis") {
       if (isCommandOptionAllowed(parsed.command, arg)) {
         parsed.allowExternalAnalysis = true;
@@ -1237,6 +1411,30 @@ function parseArgs(argv: string[]): ParsedArgs {
           path: arg
         });
       }
+      continue;
+    }
+    if (arg === "--path") {
+      if (!isCommandOptionAllowed(parsed.command, arg)) {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+        const skipped = argv[index + 1];
+        if (skipped && !skipped.startsWith("--")) index += 1;
+        continue;
+      }
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) {
+        parsed.issues.push({
+          code: "cli.option_value_missing",
+          message: `${arg} requires a value`,
+          path: arg
+        });
+        continue;
+      }
+      parsed.paths.push(value);
+      index += 1;
       continue;
     }
 
