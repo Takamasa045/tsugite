@@ -1,80 +1,289 @@
-import { lstat, readdir, stat, unlink, writeFile } from "node:fs/promises";
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import type { Manifest } from "../manifest/schema.js";
-import {
-  ensureFinalizedProjectInLauncherHome,
-  planLauncherHome
-} from "../project/projectsHome.js";
+/**
+ * Finalize public facade: boundary preflight, plan/preview, and apply entry.
+ * Implementation is split by responsibility:
+ * - finalizeTypes: public option/result contracts
+ * - finalizePlanHelpers: media scan, retention, plan digest, result shells
+ * - finalizeRevalidation: plan identity / live condition rechecks
+ * - finalizeApplyRoute: empty vs mutating apply routing
+ * - finalizeApplyEmpty / finalizeApplyMutating (+ phase modules): apply bodies
+ */
+import { dirname, join, resolve } from "node:path";
+import { planLauncherHome } from "../project/projectsHome.js";
 import type { Project } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import { readState } from "./state.js";
 import { sha256File } from "./render.js";
+import { executeFinalizeApply } from "./finalizeApplyRoute.js";
+import {
+  finalizeJournalPath,
+  readFinalizeJournal,
+  type FinalizeFileIdentity,
+  type FinalizeJournal,
+  type FinalizeJournalCandidate,
+  type FinalizeJournalPhase
+} from "./finalizeJournal.js";
+import {
+  captureFinalizePinnedDirs,
+  inspectApprovedStateDir,
+  inspectPinnedFinalizeDirs,
+  inspectProjectContainedPath,
+  isRegularFile,
+  isWithinPath,
+  type FinalizePinnedDirs,
+  type FinalizeRunDirIdentity,
+  type FinalizeStateDirIdentity
+} from "./finalizePathSafety.js";
+import {
+  CLEANUP_ROOT_NAMES,
+  buildPlanDigest,
+  captureRegularFileIdentity,
+  collectReferencedMedia,
+  failure,
+  findMediaFiles,
+  inspectManifestMediaReference,
+  partitionMediaByRetention,
+  resultBase
+} from "./finalizePlanHelpers.js";
+import {
+  inspectIncompleteFinalizeTransaction,
+  recoverIncompleteFinalizeTransaction,
+  type PriorCleanupProgress
+} from "./finalizeRecovery.js";
+import {
+  comparePath,
+  errorMessage,
+  errorMessageOr,
+  sameFinalizeIdentity,
+  sameFinalizeStorageIdentity,
+  toProjectRelative
+} from "./finalizeShared.js";
+import type {
+  FinalizeCompletedProjectOptions,
+  FinalizeCompletedProjectResult,
+  FinalizeTestHooks
+} from "./finalizeTypes.js";
 
-const MEDIA_EXTENSIONS = new Set([
-  ".aac", ".aiff", ".aif", ".avi", ".avif", ".bmp", ".flac", ".flv", ".gif",
-  ".heic", ".jpeg", ".jpg", ".m2ts", ".m4a", ".m4v", ".mkv", ".mov", ".mp3",
-  ".mp4", ".mpeg", ".mpg", ".mts", ".ogg", ".png", ".tif", ".tiff", ".wav",
-  ".webm", ".webp", ".wmv"
-]);
+/** Local alias kept for the many call sites that still use the historical name. */
+const isWithin = isWithinPath;
 
-export type FinalizeCompletedProjectOptions = {
+export type {
+  FinalizeFileIdentity,
+  FinalizeJournal,
+  FinalizeJournalCandidate,
+  FinalizeJournalPhase,
+  FinalizeRunDirIdentity,
+  FinalizeStateDirIdentity,
+  FinalizeTestHooks,
+  FinalizeCompletedProjectOptions,
+  FinalizeCompletedProjectResult
+};
+
+export { finalizeJournalPath, readFinalizeJournal };
+export { sameFinalizeIdentity, sameFinalizeStorageIdentity };
+export { buildPlanDigest } from "./finalizePlanHelpers.js";
+export { inspectFinalizeDeletionCandidate } from "./finalizeRevalidation.js";
+
+/**
+ * Safety-boundary preflight for finalize apply.
+ * Validates that stateDir equals project.dist_dir and stays inside the project
+ * without symlink escape. Captures canonical path + device/inode for lock-time
+ * revalidation. Does not create locks or mutate files.
+ */
+export async function preflightFinalizeApplyBoundary(input: {
   configPath: string;
   project: Project;
-  manifest: Manifest;
   stateDir?: string;
-  apply: boolean;
-  now?: string;
-};
+}): Promise<
+  | {
+    ok: true;
+    stateDir: string;
+    runId: string;
+    runDir: string;
+    stateDirIdentity: FinalizeStateDirIdentity;
+    runDirIdentity?: FinalizeRunDirIdentity;
+  }
+  | { ok: false; issues: Issue[] }
+> {
+  const projectRoot = dirname(resolve(input.configPath));
+  const allowedStateDir = resolve(projectRoot, input.project.dist_dir);
+  const requestedStateDir = input.stateDir
+    ? resolve(input.stateDir)
+    : allowedStateDir;
+  const stateDirIssue = await inspectApprovedStateDir(
+    projectRoot,
+    allowedStateDir,
+    requestedStateDir
+  );
+  if (stateDirIssue) return { ok: false, issues: [stateDirIssue] };
 
-export type FinalizeCompletedProjectResult = {
-  ok: boolean;
-  issues: Issue[];
-  applied: boolean;
-  canonicalOutput?: string;
-  recordPath?: string;
-  mediaFiles: string[];
-  retainedMedia: string[];
-  plannedBytes: number;
-  deletedFiles: number;
-  deletedBytes: number;
-  /** Durable launcher projects directory (main shelf). */
-  launcherProjectsHome?: string;
-  /** Project root the launcher should list after finalize. */
-  launcherProjectRoot?: string;
-  /** True when the project was already under the durable launcher home. */
-  launcherAlreadyHome?: boolean;
-  /** True when finalize copied the project into the durable launcher home. */
-  promotedToLauncherHome?: boolean;
-  /** Config path under the durable launcher home after promotion. */
-  launcherConfigPath?: string;
-};
+  const runId = input.project.run_id ?? input.project.slug;
+  const runDir = join(allowedStateDir, runId);
+  const runDirIssue = await inspectProjectContainedPath(projectRoot, runDir, {
+    outsideCode: "finalize.run_dir_outside_project",
+    symlinkCode: "finalize.run_dir_symlink",
+    unsafeCode: "finalize.run_dir_unsafe",
+    requireDirectory: true,
+    allowMissing: true
+  });
+  if (runDirIssue) return { ok: false, issues: [runDirIssue] };
+
+  try {
+    const pinned = await captureFinalizePinnedDirs({
+      projectRoot,
+      stateDir: allowedStateDir,
+      runDir
+    });
+    return {
+      ok: true,
+      stateDir: allowedStateDir,
+      runId,
+      runDir,
+      stateDirIdentity: pinned.stateDirIdentity,
+      runDirIdentity: pinned.runDirIdentity
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [{
+        code: "finalize.state_dir_unsafe",
+        message: error instanceof Error
+          ? error.message
+          : "finalize stateDir identity could not be captured",
+        path: allowedStateDir
+      }]
+    };
+  }
+}
 
 export async function finalizeCompletedProject(
   options: FinalizeCompletedProjectOptions
 ): Promise<FinalizeCompletedProjectResult> {
   const projectRoot = dirname(resolve(options.configPath));
-  const stateDir = options.stateDir
+  const allowedStateDir = resolve(projectRoot, options.project.dist_dir);
+  const requestedStateDir = options.stateDir
     ? resolve(options.stateDir)
-    : resolve(projectRoot, options.project.dist_dir);
+    : allowedStateDir;
+  const empty = resultBase(options.apply);
+
+  const stateDirIssue = await inspectApprovedStateDir(
+    projectRoot,
+    allowedStateDir,
+    requestedStateDir
+  );
+  if (stateDirIssue) return failure(empty, stateDirIssue);
+
+  const stateDir = allowedStateDir;
   const runId = options.project.run_id ?? options.project.slug;
   const runDir = join(stateDir, runId);
   const canonicalOutputPath = join(runDir, "final.mp4");
   const recordPath = join(runDir, "completion-record.json");
-  const empty = resultBase(options.apply);
 
-  if (!isWithin(projectRoot, stateDir) || !isWithin(projectRoot, runDir)) {
+  const runDirIssue = await inspectProjectContainedPath(projectRoot, runDir, {
+    outsideCode: "finalize.run_dir_outside_project",
+    symlinkCode: "finalize.run_dir_symlink",
+    unsafeCode: "finalize.run_dir_unsafe",
+    requireDirectory: true,
+    allowMissing: true
+  });
+  if (runDirIssue) return failure(empty, runDirIssue);
+
+  if (!isWithin(projectRoot, runDir)) {
     return failure(empty, {
       code: "finalize.state_dir_outside_project",
-      message: "finalize requires the state directory to stay inside the project directory",
+      message: "finalize requires the run directory to stay inside the project directory",
+      path: runDir
+    });
+  }
+
+  // Pin inspected directory identities for the rest of apply. When CLI preflight
+  // already captured them, require the same real entities (closes lock→apply TOCTOU).
+  let pinnedDirs: FinalizePinnedDirs;
+  try {
+    pinnedDirs = await captureFinalizePinnedDirs({ projectRoot, stateDir, runDir });
+  } catch (error) {
+    return failure(empty, {
+      code: "finalize.state_dir_unsafe",
+      message: errorMessageOr(error, "finalize stateDir identity could not be captured"),
       path: stateDir
     });
   }
-  if (stateDir === projectRoot) {
-    return failure(empty, {
-      code: "finalize.state_dir_unsafe",
-      message: "finalize cannot use the whole project directory as its state cleanup root",
-      path: stateDir
+  if (options.expectedStateDirIdentity) {
+    const expected = options.expectedStateDirIdentity;
+    if (
+      pinnedDirs.stateDirIdentity.device !== expected.device
+      || pinnedDirs.stateDirIdentity.inode !== expected.inode
+      || pinnedDirs.stateDirIdentity.realPath !== expected.realPath
+      || resolve(pinnedDirs.stateDirIdentity.path) !== resolve(expected.path)
+    ) {
+      return failure(empty, {
+        code: "finalize.state_dir_changed",
+        message: "finalize stateDir identity changed after preflight",
+        path: stateDir
+      });
+    }
+    pinnedDirs.stateDirIdentity = expected;
+  }
+  if (options.expectedRunDirIdentity) {
+    if (!pinnedDirs.runDirIdentity) {
+      return failure(empty, {
+        code: "finalize.run_dir_changed",
+        message: "finalize runDir is missing after preflight captured its identity",
+        path: runDir
+      });
+    }
+    const expected = options.expectedRunDirIdentity;
+    if (
+      pinnedDirs.runDirIdentity.device !== expected.device
+      || pinnedDirs.runDirIdentity.inode !== expected.inode
+      || pinnedDirs.runDirIdentity.realPath !== expected.realPath
+      || resolve(pinnedDirs.runDirIdentity.path) !== resolve(expected.path)
+    ) {
+      return failure(empty, {
+        code: "finalize.run_dir_changed",
+        message: "finalize runDir identity changed after preflight",
+        path: runDir
+      });
+    }
+    pinnedDirs.runDirIdentity = expected;
+  }
+
+  const revalidatePinnedDirs = async (): Promise<Issue | undefined> => {
+    if (options._testHooks?.beforeBoundaryRevalidate) {
+      await options._testHooks.beforeBoundaryRevalidate();
+    }
+    return inspectPinnedFinalizeDirs(pinnedDirs);
+  };
+
+  let priorCleanup: PriorCleanupProgress = {
+    deletedFiles: 0,
+    deletedBytes: 0,
+    deletedPaths: []
+  };
+
+  // Apply path recovers incomplete journals / orphan quarantine before planning.
+  // Re-verify pinned dirs immediately before recovery mutates under stateDir/runDir.
+  if (options.apply) {
+    const preRecoveryIssue = await revalidatePinnedDirs();
+    if (preRecoveryIssue) return failure(empty, preRecoveryIssue);
+    const recovered = await recoverIncompleteFinalizeTransaction({
+      stateDir,
+      runId,
+      projectRoot
     });
+    if (!recovered.ok) {
+      return {
+        ...empty,
+        ok: false,
+        issues: recovered.issues,
+        unrestoredPaths: recovered.unrestoredPaths,
+        deletedFiles: recovered.prior.deletedFiles,
+        deletedBytes: recovered.prior.deletedBytes
+      };
+    }
+    priorCleanup = recovered.prior;
+  } else {
+    const incomplete = await inspectIncompleteFinalizeTransaction(stateDir, runId);
+    if (incomplete) return failure(empty, incomplete);
   }
 
   let state;
@@ -83,7 +292,7 @@ export async function finalizeCompletedProject(
   } catch (error) {
     return failure(empty, {
       code: "finalize.state_invalid",
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
       path: join(runDir, "state.json")
     });
   }
@@ -113,7 +322,7 @@ export async function finalizeCompletedProject(
       ...empty,
       issues: [{
         code: "finalize.output_hash_failed",
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
         path: canonicalOutputPath
       }]
     };
@@ -129,28 +338,56 @@ export async function finalizeCompletedProject(
 
   const cleanupRoots = [
     stateDir,
-    join(projectRoot, "media"),
-    join(projectRoot, "qa"),
-    join(projectRoot, "references")
+    ...CLEANUP_ROOT_NAMES.map((name) => join(projectRoot, name))
   ];
-  const allMedia = await findMediaFiles(cleanupRoots);
+  const allMedia = await findMediaFiles(cleanupRoots, projectRoot);
   const manifestDir = dirname(resolve(projectRoot, options.project.manifest));
   const referencedSourceMedia: string[] = [];
   for (const path of collectReferencedMedia(options.manifest, manifestDir)) {
-    if (isWithin(projectRoot, path) && await isRegularFile(path)) referencedSourceMedia.push(path);
+    const refIssue = await inspectManifestMediaReference(path, projectRoot);
+    if (refIssue) return failure(empty, refIssue);
+    if (await isRegularFile(path)) referencedSourceMedia.push(path);
   }
-  const retained = new Set<string>([
-    ...allMedia.filter((path) => isWithin(runDir, path)),
-    ...referencedSourceMedia
-  ]);
-  const candidates = allMedia.filter((path) => !retained.has(path)).sort();
+
+  const partitioned = await partitionMediaByRetention(
+    allMedia,
+    runDir,
+    referencedSourceMedia,
+    projectRoot
+  );
+  const candidates = partitioned.candidates;
   const mediaFiles = candidates.map((path) => toProjectRelative(projectRoot, path));
-  const retainedMedia = [...retained]
+  const retainedMedia = partitioned.retained
     .map((path) => toProjectRelative(projectRoot, path))
-    .sort();
-  const sizes = await Promise.all(candidates.map(async (path) => (await lstat(path)).size));
-  const plannedBytes = sizes.reduce((total, size) => total + size, 0);
+    .sort(comparePath);
+  const candidateIdentities = await Promise.all(
+    candidates.map((path) => captureRegularFileIdentity(path, projectRoot))
+  );
+  if (candidateIdentities.some((identity) => identity === undefined)) {
+    return failure(empty, {
+      code: "finalize.candidate_identity_failed",
+      message: "unable to capture a regular-file identity for every deletion candidate"
+    });
+  }
+  const identities = candidateIdentities as FinalizeFileIdentity[];
+  const plannedBytes = identities.reduce((total, identity) => total + identity.size, 0);
   const launcherPlan = await planLauncherHome(options.configPath, options.project.slug);
+  const canonicalConfigPath = resolve(options.configPath);
+  const canonicalManifestPath = resolve(projectRoot, options.project.manifest);
+  const planDigest = buildPlanDigest({
+    projectRoot,
+    configPath: canonicalConfigPath,
+    manifestPath: canonicalManifestPath,
+    stateDir,
+    projectsHome: launcherPlan.projectsHome,
+    destinationRoot: launcherPlan.destinationRoot,
+    alreadyHome: launcherPlan.alreadyHome,
+    runId,
+    finalOutputDigest,
+    gate3ApprovedInputDigest: state.gates.gate_3.approved_input_digest,
+    retainedMedia,
+    candidates: identities
+  });
 
   const base = {
     ok: true,
@@ -163,159 +400,58 @@ export async function finalizeCompletedProject(
     plannedBytes,
     deletedFiles: 0,
     deletedBytes: 0,
+    planDigest,
+    candidateIdentities: identities,
     launcherProjectsHome: launcherPlan.projectsHome,
     launcherProjectRoot: launcherPlan.destinationRoot,
     launcherAlreadyHome: launcherPlan.alreadyHome,
     promotedToLauncherHome: false,
     launcherConfigPath: launcherPlan.alreadyHome
-      ? resolve(options.configPath)
+      ? canonicalConfigPath
       : join(launcherPlan.destinationRoot, "project.yaml")
   } satisfies FinalizeCompletedProjectResult;
+
+  if (options.apply) {
+    if (!options.expectedPlanDigest) {
+      return failure(base, {
+        code: "finalize.expected_plan_digest_required",
+        message: "finalize apply requires expectedPlanDigest from a matching preview"
+      });
+    }
+    if (options.expectedPlanDigest !== planDigest) {
+      return failure(base, {
+        code: "finalize.plan_stale",
+        message: "finalize plan changed after preview; re-run preview before applying cleanup"
+      });
+    }
+  }
+
   if (!options.apply) return base;
-  if (candidates.length === 0 && await isRegularFile(recordPath) && launcherPlan.alreadyHome) {
-    return base;
-  }
-
-  try {
-    for (const path of candidates) await unlink(path);
-    const record = {
-      schema_version: 1,
-      project_slug: options.project.slug,
-      run_id: runId,
-      completed_at: state.updated_at,
-      finalized_at: options.now ?? new Date().toISOString(),
-      canonical_output: toProjectRelative(projectRoot, canonicalOutputPath),
-      retained_run: toProjectRelative(projectRoot, runDir),
-      retained_source_media: referencedSourceMedia
-        .map((path) => toProjectRelative(projectRoot, path))
-        .sort(),
-      cleanup: {
-        media_files_deleted: candidates.length,
-        bytes_reclaimed: plannedBytes,
-        deleted_media_paths: mediaFiles
-      },
-      launcher: {
-        projects_home: launcherPlan.projectsHome,
-        project_root: launcherPlan.destinationRoot,
-        source_project_root: projectRoot,
-        already_home: launcherPlan.alreadyHome,
-        will_promote: launcherPlan.willPromote
-      }
-    };
-    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
-
-    const launcherHome = await ensureFinalizedProjectInLauncherHome({
-      configPath: options.configPath,
-      projectSlug: options.project.slug,
-      apply: true,
-      now: options.now
-    });
-    if (!launcherHome.ok) {
-      return {
-        ...base,
-        ok: false,
-        deletedFiles: candidates.length,
-        deletedBytes: plannedBytes,
-        issues: launcherHome.issues,
-        promotedToLauncherHome: launcherHome.promoted,
-        launcherProjectRoot: launcherHome.destinationRoot,
-        launcherConfigPath: launcherHome.destinationConfigPath
-      };
-    }
-
-    return {
-      ...base,
-      deletedFiles: candidates.length,
-      deletedBytes: plannedBytes,
-      promotedToLauncherHome: launcherHome.promoted,
-      launcherProjectRoot: launcherHome.destinationRoot,
-      launcherConfigPath: launcherHome.destinationConfigPath
-    };
-  } catch (error) {
-    return failure(base, {
-      code: "finalize.cleanup_failed",
-      message: error instanceof Error ? error.message : String(error)
-    });
-  }
-}
-
-function resultBase(applied: boolean): FinalizeCompletedProjectResult {
-  return {
-    ok: false,
-    issues: [],
-    applied,
-    mediaFiles: [],
-    retainedMedia: [],
-    plannedBytes: 0,
-    deletedFiles: 0,
-    deletedBytes: 0
-  };
-}
-
-function failure(base: FinalizeCompletedProjectResult, issue: Issue): FinalizeCompletedProjectResult {
-  return { ...base, ok: false, issues: [issue] };
-}
-
-async function findMediaFiles(roots: string[]): Promise<string[]> {
-  const found = new Set<string>();
-  for (const root of roots) {
-    if (await isDirectory(root)) await walk(root);
-  }
-  return [...found].sort();
-
-  async function walk(directory: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await walk(path);
-      } else if ((entry.isFile() || entry.isSymbolicLink()) && isMediaPath(path)) {
-        found.add(path);
-      }
-    }
-  }
-}
-
-function collectReferencedMedia(value: unknown, baseDir: string, found = new Set<string>()): string[] {
-  if (typeof value === "string") {
-    if (isMediaPath(value)) found.add(resolve(baseDir, value));
-    return [...found];
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) collectReferencedMedia(item, baseDir, found);
-    return [...found];
-  }
-  if (value && typeof value === "object") {
-    for (const item of Object.values(value)) collectReferencedMedia(item, baseDir, found);
-  }
-  return [...found];
-}
-
-function isMediaPath(path: string): boolean {
-  return MEDIA_EXTENSIONS.has(extname(path).toLowerCase());
-}
-
-function isWithin(parent: string, candidate: string): boolean {
-  const path = relative(parent, candidate);
-  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
-}
-
-function toProjectRelative(projectRoot: string, path: string): string {
-  return relative(projectRoot, path).split(sep).join("/");
-}
-
-async function isRegularFile(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await lstat(path)).isDirectory();
-  } catch {
-    return false;
-  }
+  return executeFinalizeApply({
+    options,
+    projectRoot,
+    stateDir,
+    runId,
+    runDir,
+    recordPath,
+    canonicalOutputPath,
+    canonicalConfigPath,
+    canonicalManifestPath,
+    manifestDir,
+    cleanupRoots,
+    candidates,
+    mediaFiles,
+    retainedMedia,
+    identities,
+    plannedBytes,
+    referencedSourceMedia,
+    planDigest,
+    priorCleanup,
+    state,
+    finalOutputDigest,
+    launcherPlan,
+    pinnedDirs,
+    revalidatePinnedDirs,
+    base
+  });
 }

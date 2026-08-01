@@ -16,8 +16,8 @@
 - Gate 1を承認する前に `review` を実行し、`dist/<run-id>/review/index.html` と `review-data.json` を確認する。成果物がない、または対象projectと一致しない場合は承認しない。
 - generationを計画するときは `guides` と `plan.prompt_guidance` を確認し、catalogの存在を実行能力とみなさない。
 - Output QA は manifest と成果物検査のみ。編集や実行はしない。
-- ユーザーが対象動画を明示的に「完成」と確定したら、正本path・QA・振り返りに加え、今回の失敗・改善点・次回への学びを終了記録として残す。失敗は案件の `feedback.jsonl` と、再利用できるルールなら追記専用の `LESSONS.md` に記録し、過去の同じ `feedback key` または `LESSONS.md` の症状・原因と照合して再発なら `recurring` として昇格候補かを確認する。昇格候補は反映先・変更内容・検証方法が揃う場合だけ pending proposal にし、人間承認なしに共有ルールを変更しない。記録結果（失敗なしを含む）を完了報告に示した後に `finalize` をpreviewする。completed / Gate 3 approved / 最終成果物を確認し、対象が一致する場合だけapplyする。
-- `finalize` は最終runと最終manifest参照素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材のメディアファイルだけを削除する。Gate 3承認だけを完成宣言の代わりにしない。
+- ユーザーが対象動画を明示的に「完成」と確定したら、正本path・QA・振り返りに加え、今回の失敗・改善点・次回への学びを終了記録として残す。失敗は案件の `feedback.jsonl` と、再利用できるルールなら追記専用の `LESSONS.md` に記録し、過去の同じ `feedback key` または `LESSONS.md` の症状・原因と照合して再発なら `recurring` として昇格候補かを確認する。昇格候補は反映先・変更内容・検証方法が揃う場合だけ pending proposal にし、人間承認なしに共有ルールを変更しない。記録結果（失敗なしを含む）を完了報告に示した後に `finalize` をpreviewする。completed / Gate 3 approved / 最終成果物を確認し、preview JSON の `plan_digest` と対象が一致する場合だけ `finalize --apply --actor coordinator --expected-plan-digest <plan_digest>` を実行する。
+- `finalize` は最終runと最終manifest参照素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材のメディアファイルだけを削除する。Gate 3承認だけを完成宣言の代わりにしない。`--state-dir` は `project.dist_dir` と同一値のみ許可し、project外や別ルートは lock 取得前に拒否する。
 - 制作案件の正本置き場は durable projects home（通常は main worktree の `projects/`。`TSUGITE_PROJECTS_HOME` または git common dir で解決）。**制作前から**ここに置く。feature worktree だけで完結させない。
 - `validate` / 以降の pipeline は、案件が durable home の外にあれば shelf へディレクトリリンクしてランチャーに即表示する。`finalize --apply` は完成コピーを durable home へ昇格し、worktree 削除後も残す。
 - ランチャーは durable home・指定 projectsDir・他 worktree の `projects/` をまとめて読む（テスト隔離時のみ link を切る）。

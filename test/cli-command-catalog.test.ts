@@ -50,7 +50,7 @@ const expectedOptions = {
   "character-add": ["--config", "--from-manifest", "--speaker"],
   validate: ["--config"],
   models: ["--config"],
-  finalize: ["--config", "--state-dir", "--actor", "--apply"],
+  finalize: ["--config", "--state-dir", "--actor", "--apply", "--expected-plan-digest"],
   plan: ["--config"],
   analyze: ["--config", "--actor", "--state-dir", "--allow-external-analysis"],
   compose: ["--config", "--actor", "--state-dir"],

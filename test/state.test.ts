@@ -1,6 +1,16 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  symlink,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,8 +20,10 @@ import {
   markGateAwaiting,
   readState,
   recordGateDecision,
+  RunLockBoundaryError,
   writeState
 } from "../src/orchestrator/state.js";
+import { captureDirectoryIdentity } from "../src/orchestrator/finalizePersistence.js";
 
 describe("run state", () => {
   it("writes and reads state by run id", async () => {
@@ -165,6 +177,244 @@ describe("run state", () => {
     const root = await mkdtemp(join(tmpdir(), "tsugite-state-"));
 
     await expect(acquireRunLock(root, "../escaped")).rejects.toThrow("must be a safe id");
+  });
+
+  it("refuses lock creation after stateDir is swapped to an external symlink", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-swap-proj-"));
+    const stateDir = join(project, "dist");
+    await mkdir(stateDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+
+    const external = await mkdtemp(join(tmpdir(), "tsugite-state-swap-ext-"));
+    const backup = join(project, "dist.backup");
+    await rename(stateDir, backup);
+    await symlink(external, stateDir);
+
+    await expect(
+      acquireRunLock(stateDir, "demo-v2", undefined, {
+        expectedStateDir: identity,
+        containWithin: project
+      })
+    ).rejects.toBeInstanceOf(RunLockBoundaryError);
+
+    expect(await readdir(external)).toEqual([]);
+  });
+
+  it("refuses lock creation when expected stateDir path or identity does not match", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-id-"));
+    const stateDir = join(project, "dist");
+    await mkdir(stateDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+
+    await expect(
+      acquireRunLock(join(project, "other"), "demo-v2", undefined, {
+        expectedStateDir: identity,
+        containWithin: project
+      })
+    ).rejects.toMatchObject({ code: "finalize.state_dir_changed" });
+
+    const otherDir = join(project, "other-dist");
+    await mkdir(otherDir);
+    await expect(
+      acquireRunLock(otherDir, "demo-v2", undefined, {
+        expectedStateDir: { ...identity, path: otherDir },
+        containWithin: project
+      })
+    ).rejects.toMatchObject({ code: "finalize.state_dir_changed" });
+
+    // Happy path with expected identity still acquires.
+    const lock = await acquireRunLock(stateDir, "demo-v2", undefined, {
+      expectedStateDir: identity,
+      containWithin: project
+    });
+    await lock.release();
+  });
+
+  it("Unit 7C: refuses lock when stateDir is replaced after identity check and does not lock external", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-swap-"));
+    const stateDir = join(project, "dist");
+    await mkdir(stateDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+    const external = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-ext-"));
+    await mkdir(join(external, "demo-v2"), { recursive: true });
+
+    await expect(
+      acquireRunLock(stateDir, "demo-v2", undefined, {
+        expectedStateDir: identity,
+        containWithin: project,
+        _testHooks: {
+          afterIdentityCheckBeforeOpen: async () => {
+            const backup = join(project, "dist.backup");
+            await rename(stateDir, backup);
+            await symlink(external, stateDir);
+          }
+        }
+      })
+    ).rejects.toBeInstanceOf(RunLockBoundaryError);
+
+    // Pre-open revalidation refuses the swapped path before creating a lock on external.
+    expect(await readdir(join(external, "demo-v2"))).toEqual([]);
+  });
+
+  it("Unit 7C: refuses lock when a symlink ancestor appears before open", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-anc-"));
+    const nested = join(project, "nested");
+    const stateDir = join(nested, "dist");
+    await mkdir(stateDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+    const external = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-anc-ext-"));
+
+    await expect(
+      acquireRunLock(stateDir, "demo-v2", undefined, {
+        expectedStateDir: identity,
+        containWithin: project,
+        _testHooks: {
+          afterIdentityCheckBeforeOpen: async () => {
+            // Replace nested with a symlink so stateDir path gains a symlink ancestor.
+            const backup = join(project, "nested.backup");
+            await rename(nested, backup);
+            await symlink(join(external, "nested"), nested);
+            await mkdir(join(external, "nested", "dist", "demo-v2"), { recursive: true });
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      name: "RunLockBoundaryError"
+    });
+
+    expect(await readdir(join(external, "nested", "dist", "demo-v2")).catch(() => [])).toEqual([]);
+  });
+
+  it("Unit 7C: refuses when lock leaf is replaced with a symlink after create", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-leaf-"));
+    const stateDir = join(project, "dist");
+    await mkdir(stateDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+    const externalLock = join(project, "external-lock-target");
+    await writeFile(externalLock, "foreign\n");
+
+    await expect(
+      acquireRunLock(stateDir, "demo-v2", undefined, {
+        expectedStateDir: identity,
+        containWithin: project,
+        _testHooks: {
+          afterLockCreatedBeforeValidate: async () => {
+            const lockPath = join(stateDir, "demo-v2", ".mutation.lock");
+            await unlink(lockPath);
+            await symlink(externalLock, lockPath);
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      name: "RunLockBoundaryError"
+    });
+
+    // External target must not be truncated or removed by failed lock cleanup.
+    expect(await readFile(externalLock, "utf8")).toBe("foreign\n");
+    const lockPath = join(stateDir, "demo-v2", ".mutation.lock");
+    // Symlink leaf may remain; release must not have followed it to delete external.
+    const leaf = await lstat(lockPath).catch(() => undefined);
+    if (leaf?.isSymbolicLink()) {
+      expect(await readFile(externalLock, "utf8")).toBe("foreign\n");
+    }
+  });
+
+  it("Unit 7C: refuses when runDir is replaced after identity capture", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-rundir-"));
+    const stateDir = join(project, "dist");
+    await mkdir(stateDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+    const externalRun = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-run-ext-"));
+
+    await expect(
+      acquireRunLock(stateDir, "demo-v2", undefined, {
+        expectedStateDir: identity,
+        containWithin: project,
+        _testHooks: {
+          afterIdentityCheckBeforeOpen: async () => {
+            const runDir = join(stateDir, "demo-v2");
+            const backup = join(stateDir, "demo-v2.backup");
+            await rename(runDir, backup);
+            await symlink(externalRun, runDir);
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      name: "RunLockBoundaryError"
+    });
+
+    expect(await readdir(externalRun)).toEqual([]);
+  });
+
+  it("Unit 7C: refuses when runDir is swapped after lock create and does not unlink the new ancestor", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-post-"));
+    const stateDir = join(project, "dist");
+    await mkdir(stateDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+    const externalRun = await mkdtemp(join(tmpdir(), "tsugite-state-toctou-post-ext-"));
+    await writeFile(join(externalRun, "keep.txt"), "external-keep\n");
+
+    await expect(
+      acquireRunLock(stateDir, "demo-v2", undefined, {
+        expectedStateDir: identity,
+        containWithin: project,
+        _testHooks: {
+          afterLockCreatedBeforeValidate: async () => {
+            const runDir = join(stateDir, "demo-v2");
+            const backup = join(stateDir, "demo-v2.backup");
+            await rename(runDir, backup);
+            await symlink(externalRun, runDir);
+          }
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "finalize.run_dir_changed"
+    });
+
+    // New ancestor must keep its pre-existing files; path-based cleanup must not hit it.
+    expect(await readFile(join(externalRun, "keep.txt"), "utf8")).toBe("external-keep\n");
+    expect(await readdir(externalRun)).toEqual(["keep.txt"]);
+    // Original lock may remain under the renamed runDir (orphan is preferred over external damage).
+    await expect(lstat(join(stateDir, "demo-v2.backup", ".mutation.lock"))).resolves.toBeDefined();
+  });
+
+  it("Unit 7C: rejects pre-existing symlink lock leaf before create", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-leaf-pre-"));
+    const stateDir = join(project, "dist");
+    const runDir = join(stateDir, "demo-v2");
+    await mkdir(runDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+    const external = join(project, "foreign.lock");
+    await writeFile(external, "foreign\n");
+    await symlink(external, join(runDir, ".mutation.lock"));
+
+    await expect(
+      acquireRunLock(stateDir, "demo-v2", undefined, {
+        expectedStateDir: identity,
+        containWithin: project
+      })
+    ).rejects.toBeInstanceOf(RunLockBoundaryError);
+
+    expect(await readFile(external, "utf8")).toBe("foreign\n");
+  });
+
+  it("Unit 7C: revalidates expectedStateDir on inherited lock token path", async () => {
+    const project = await mkdtemp(join(tmpdir(), "tsugite-state-inherit-"));
+    const stateDir = join(project, "dist");
+    await mkdir(stateDir, { recursive: true });
+    const identity = await captureDirectoryIdentity(stateDir);
+    const primary = await acquireRunLock(stateDir, "demo-v2", undefined, {
+      expectedStateDir: identity,
+      containWithin: project
+    });
+
+    const delegated = await acquireRunLock(stateDir, "demo-v2", primary.token, {
+      expectedStateDir: identity,
+      containWithin: project
+    });
+    expect(delegated.token).toBe(primary.token);
+    await delegated.release();
+    await primary.release();
   });
 
   it("tracks gate 1-3 decisions without skipping approval states", () => {
