@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -276,9 +276,228 @@ describe("durable launcher projects home", () => {
     });
     expect(promoted.ok).toBe(true);
     expect(promoted.promoted).toBe(true);
-    const { lstat } = await import("node:fs/promises");
     expect((await lstat(shelf)).isSymbolicLink()).toBe(false);
     await expect(stat(join(shelf, "dist", "myth-r1", "final.mp4"))).resolves.toBeDefined();
     await expect(stat(join(shelf, "launcher-home.json"))).resolves.toBeDefined();
+  });
+
+  it("BLOCK: promotion marker never follows a source launcher-home.json symlink or overwrites external targets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-marker-symlink-"));
+    const projectsHome = join(root, "durable-projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "marker-demo");
+    const externalDir = join(root, "external-sentinel");
+    const externalFile = join(externalDir, "secret-launcher-home.json");
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(externalDir, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: marker-demo\n", "utf8");
+    await writeFile(join(projectRoot, "notes.txt"), "keep\n", "utf8");
+    await writeFile(externalFile, "EXTERNAL_SENTINEL_MUST_NOT_CHANGE\n", "utf8");
+    // Source ships a leaf symlink named like the promotion marker.
+    await symlink(externalFile, join(projectRoot, "launcher-home.json"));
+
+    const applied = await ensureFinalizedProjectInLauncherHome({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "marker-demo",
+      apply: true,
+      env: { TSUGITE_PROJECTS_HOME: projectsHome },
+      now: "2026-08-01T00:00:00.000Z"
+    });
+    expect(applied.ok).toBe(true);
+    expect(applied.promoted).toBe(true);
+
+    // External sentinel content and directory shape stay untouched.
+    expect(await readFile(externalFile, "utf8")).toBe("EXTERNAL_SENTINEL_MUST_NOT_CHANGE\n");
+    expect(await readdir(externalDir)).toEqual(["secret-launcher-home.json"]);
+
+    const destMarker = join(projectsHome, "marker-demo", "launcher-home.json");
+    const markerStats = await lstat(destMarker);
+    expect(markerStats.isSymbolicLink()).toBe(false);
+    expect(markerStats.isFile()).toBe(true);
+    const marker = JSON.parse(await readFile(destMarker, "utf8"));
+    expect(marker).toMatchObject({
+      schema_version: 1,
+      project_slug: "marker-demo",
+      projects_home: projectsHome
+    });
+  });
+
+  it("BLOCK A: ensureFinalizedProjectInLauncherHome refuses projectsHome under external-linked ancestor without side effects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-promo-ancestor-"));
+    const external = join(root, "external");
+    const linkedParent = join(root, "linked-parent");
+    const projectsHome = join(linkedParent, "nested", "projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "escape-promo");
+    const sentinel = "EXTERNAL_PROMO_ANCESTOR_SENTINEL_UNCHANGED\n";
+    await mkdir(external, { recursive: true });
+    await writeFile(join(external, "sentinel.txt"), sentinel, "utf8");
+    await symlink(external, linkedParent, "dir");
+    await mkdir(join(projectRoot, "dist", "escape-promo-r1"), { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: escape-promo\n", "utf8");
+    await writeFile(join(projectRoot, "dist", "escape-promo-r1", "final.mp4"), "final", "utf8");
+    const externalBefore = (await readdir(external)).sort();
+
+    const result = await ensureFinalizedProjectInLauncherHome({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "escape-promo",
+      apply: true,
+      env: { TSUGITE_PROJECTS_HOME: projectsHome },
+      now: "2026-08-01T00:00:00.000Z"
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.promoted).toBe(false);
+    expect(result.issues.some((issue) =>
+      issue.code === "promotion.destination_lock_symlink"
+      || issue.code === "promotion.destination_lock_unsafe"
+      || issue.code === "promotion.destination_lock_changed"
+    )).toBe(true);
+
+    // Zero side effects under the external target (no nested/projects/project/marker/journal/lock).
+    expect((await readdir(external)).sort()).toEqual(externalBefore);
+    expect(await readFile(join(external, "sentinel.txt"), "utf8")).toBe(sentinel);
+    await expect(lstat(join(external, "nested"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(external, "nested", "projects"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(external, "nested", "projects", "escape-promo"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await expect(lstat(join(external, ".tsugite-promote-journal"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
+  it("BLOCK B: ensureProjectVisibleOnLauncherShelf refuses projectsHome under external-linked ancestor without side effects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-shelf-ancestor-"));
+    const external = join(root, "external");
+    const linkedParent = join(root, "linked-parent");
+    const projectsHome = join(linkedParent, "nested", "projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "escape-shelf");
+    const sentinel = "EXTERNAL_SHELF_ANCESTOR_SENTINEL_UNCHANGED\n";
+    await mkdir(external, { recursive: true });
+    await writeFile(join(external, "sentinel.txt"), sentinel, "utf8");
+    await symlink(external, linkedParent, "dir");
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: escape-shelf\n", "utf8");
+    const externalBefore = (await readdir(external)).sort();
+
+    const result = await ensureProjectVisibleOnLauncherShelf({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "escape-shelf",
+      env: { TSUGITE_PROJECTS_HOME: projectsHome }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.linked).toBe(false);
+    expect(result.issues.some((issue) =>
+      issue.code === "promotion.destination_lock_symlink"
+      || issue.code === "promotion.destination_lock_unsafe"
+      || issue.code === "promotion.destination_lock_changed"
+      || issue.code === "launcher_home.register_failed"
+    )).toBe(true);
+
+    // Zero side effects: no symlink or directory created under external.
+    expect((await readdir(external)).sort()).toEqual(externalBefore);
+    expect(await readFile(join(external, "sentinel.txt"), "utf8")).toBe(sentinel);
+    await expect(lstat(join(external, "nested"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(external, "nested", "projects"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(external, "nested", "projects", "escape-shelf"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await expect(lstat(join(external, ".tsugite-promote-journal"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
+  it("BLOCK A2: ensureFinalizedProjectInLauncherHome refuses existing projectsHome under linked ancestor without side effects", async () => {
+    // Regression: leaf projectsHome already exists as a real dir under external via
+    // linked-parent symlink. Leaf-only lstat misses the ancestor; must fail closed.
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-promo-existing-"));
+    const external = join(root, "external");
+    const linkedParent = join(root, "linked-parent");
+    const projectsHome = join(linkedParent, "nested", "projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "escape-promo-existing");
+    const sentinel = "EXTERNAL_PROMO_EXISTING_ANCESTOR_SENTINEL_UNCHANGED\n";
+    await mkdir(join(external, "nested", "projects"), { recursive: true });
+    await writeFile(join(external, "sentinel.txt"), sentinel, "utf8");
+    await symlink(external, linkedParent, "dir");
+    await mkdir(join(projectRoot, "dist", "escape-promo-existing-r1"), { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: escape-promo-existing\n", "utf8");
+    await writeFile(
+      join(projectRoot, "dist", "escape-promo-existing-r1", "final.mp4"),
+      "final",
+      "utf8"
+    );
+    expect(await lstat(projectsHome).then((s) => s.isDirectory())).toBe(true);
+    expect(await lstat(projectsHome).then((s) => s.isSymbolicLink())).toBe(false);
+    const externalBefore = (await readdir(external)).sort();
+    const nestedProjectsBefore = (await readdir(join(external, "nested", "projects"))).sort();
+
+    const result = await ensureFinalizedProjectInLauncherHome({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "escape-promo-existing",
+      apply: true,
+      env: { TSUGITE_PROJECTS_HOME: projectsHome },
+      now: "2026-08-01T00:00:00.000Z"
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.promoted).toBe(false);
+    expect(result.issues.some((issue) =>
+      issue.code === "promotion.destination_lock_symlink"
+      || issue.code === "promotion.destination_lock_unsafe"
+      || issue.code === "promotion.destination_lock_changed"
+    )).toBe(true);
+
+    expect((await readdir(external)).sort()).toEqual(externalBefore);
+    expect(await readFile(join(external, "sentinel.txt"), "utf8")).toBe(sentinel);
+    expect((await readdir(join(external, "nested", "projects"))).sort()).toEqual(nestedProjectsBefore);
+    await expect(lstat(join(external, "nested", "projects", "escape-promo-existing")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(external, "nested", "projects", ".tsugite-promote-journal")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(external, ".tsugite-promote-journal")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("BLOCK B2: ensureProjectVisibleOnLauncherShelf refuses existing projectsHome under linked ancestor without side effects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-home-shelf-existing-"));
+    const external = join(root, "external");
+    const linkedParent = join(root, "linked-parent");
+    const projectsHome = join(linkedParent, "nested", "projects");
+    const projectRoot = join(root, "feature-worktree", "projects", "escape-shelf-existing");
+    const sentinel = "EXTERNAL_SHELF_EXISTING_ANCESTOR_SENTINEL_UNCHANGED\n";
+    await mkdir(join(external, "nested", "projects"), { recursive: true });
+    await writeFile(join(external, "sentinel.txt"), sentinel, "utf8");
+    await symlink(external, linkedParent, "dir");
+    await mkdir(projectRoot, { recursive: true });
+    await writeFile(join(projectRoot, "project.yaml"), "slug: escape-shelf-existing\n", "utf8");
+    expect(await lstat(projectsHome).then((s) => s.isDirectory())).toBe(true);
+    expect(await lstat(projectsHome).then((s) => s.isSymbolicLink())).toBe(false);
+    const externalBefore = (await readdir(external)).sort();
+    const nestedProjectsBefore = (await readdir(join(external, "nested", "projects"))).sort();
+
+    const result = await ensureProjectVisibleOnLauncherShelf({
+      configPath: join(projectRoot, "project.yaml"),
+      projectSlug: "escape-shelf-existing",
+      env: { TSUGITE_PROJECTS_HOME: projectsHome }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.linked).toBe(false);
+    expect(result.issues.some((issue) =>
+      issue.code === "promotion.destination_lock_symlink"
+      || issue.code === "promotion.destination_lock_unsafe"
+      || issue.code === "promotion.destination_lock_changed"
+      || issue.code === "launcher_home.register_failed"
+    )).toBe(true);
+
+    expect((await readdir(external)).sort()).toEqual(externalBefore);
+    expect(await readFile(join(external, "sentinel.txt"), "utf8")).toBe(sentinel);
+    expect((await readdir(join(external, "nested", "projects"))).sort()).toEqual(nestedProjectsBefore);
+    await expect(lstat(join(external, "nested", "projects", "escape-shelf-existing")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(external, "nested", "projects", ".tsugite-promote-journal")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(external, ".tsugite-promote-journal")))
+      .rejects.toMatchObject({ code: "ENOENT" });
   });
 });

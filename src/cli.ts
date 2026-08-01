@@ -19,7 +19,12 @@ import {
 } from "./adapters/storyKnowledge.js";
 import type { Manifest } from "./manifest/schema.js";
 import { createDryRun, createPlan } from "./orchestrator/plan.js";
-import { finalizeCompletedProject } from "./orchestrator/finalize.js";
+import {
+  finalizeCompletedProject,
+  preflightFinalizeApplyBoundary,
+  type FinalizeRunDirIdentity,
+  type FinalizeStateDirIdentity
+} from "./orchestrator/finalize.js";
 import { auditAndCleanupWorktrees } from "./worktree/lifecycle.js";
 import {
   deferWorktreeIntegration,
@@ -120,6 +125,7 @@ type ParsedArgs = {
   reconcile: boolean;
   allowExternalAnalysis: boolean;
   paths: string[];
+  expectedPlanDigest?: string;
   expectedApprovalDigest?: string;
   issues: Issue[];
 };
@@ -779,7 +785,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   let runLock: RunLock | undefined;
-  if (shouldAcquireRunLock(args)) {
+  // finalize --apply acquires its lock only after the project-local stateDir preflight below.
+  if (shouldAcquireRunLock(args) && args.command !== "finalize") {
     const location = getStateLocation(args, validation.project!);
     const inheritedRunLockToken = process.env[RUN_LOCK_INHERIT_ENV];
     delete process.env[RUN_LOCK_INHERIT_ENV];
@@ -807,11 +814,71 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   try {
 
+  let finalizeBoundaryIdentities:
+    | {
+      stateDirIdentity: FinalizeStateDirIdentity;
+      runDirIdentity?: FinalizeRunDirIdentity;
+    }
+    | undefined;
+
   if (args.command === "finalize") {
     if (args.apply) {
       const coordinatorIssue = requireCoordinator(args);
       if (coordinatorIssue) {
         return output(args, 1, { ok: false, command: "finalize", issues: [coordinatorIssue] });
+      }
+      // Reject project-external / unapproved stateDir before creating any run lock.
+      // Capture canonical path + device/inode so lock acquire can re-validate identity.
+      const boundary = await preflightFinalizeApplyBoundary({
+        configPath: args.config!,
+        project: validation.project!,
+        stateDir: args.stateDir
+      });
+      if (!boundary.ok) {
+        return output(args, 1, {
+          ok: false,
+          command: "finalize",
+          issues: boundary.issues,
+          applied: true,
+          deleted_files: 0,
+          deleted_bytes: 0
+        });
+      }
+      finalizeBoundaryIdentities = {
+        stateDirIdentity: boundary.stateDirIdentity,
+        runDirIdentity: boundary.runDirIdentity
+      };
+      const inheritedRunLockToken = process.env[RUN_LOCK_INHERIT_ENV];
+      delete process.env[RUN_LOCK_INHERIT_ENV];
+      try {
+        runLock = await acquireRunLock(
+          boundary.stateDir,
+          boundary.runId,
+          inheritedRunLockToken,
+          {
+            expectedStateDir: boundary.stateDirIdentity,
+            containWithin: dirname(resolve(args.config!))
+          }
+        );
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code: unknown }).code)
+          : "run.locked";
+        const message = error instanceof Error
+          ? error.message
+          : "run lock is unavailable";
+        return output(args, 1, {
+          ok: false,
+          command: "finalize",
+          issues: [
+            {
+              code: code === "run.locked" ? "run.locked" : code,
+              message: code === "run.locked" && !("code" in (error as object))
+                ? "run lock is unavailable"
+                : message
+            }
+          ]
+        });
       }
     }
     const finalized = await finalizeCompletedProject({
@@ -819,7 +886,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       project: validation.project!,
       manifest: validation.manifest!,
       stateDir: args.stateDir,
-      apply: args.apply
+      apply: args.apply,
+      expectedPlanDigest: args.expectedPlanDigest,
+      // Pin preflight identities through apply so a post-lock stateDir/runDir swap fail-closes.
+      ...(args.apply && finalizeBoundaryIdentities
+        ? {
+            expectedStateDirIdentity: finalizeBoundaryIdentities.stateDirIdentity,
+            expectedRunDirIdentity: finalizeBoundaryIdentities.runDirIdentity
+          }
+        : {})
     });
     return output(args, finalized.ok ? 0 : 1, {
       ok: finalized.ok,
@@ -833,6 +908,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       planned_bytes: finalized.plannedBytes,
       deleted_files: finalized.deletedFiles,
       deleted_bytes: finalized.deletedBytes,
+      plan_digest: finalized.planDigest,
+      unrestored_paths: finalized.unrestoredPaths,
       launcher_projects_home: finalized.launcherProjectsHome,
       launcher_project_root: finalized.launcherProjectRoot,
       launcher_already_home: finalized.launcherAlreadyHome,
@@ -1440,7 +1517,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -1481,7 +1558,8 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--verification": "verification",
       "--proposal-workflow": "proposalWorkflow",
       "--proposal-run-id": "proposalRunId",
-      "--proposal-source": "proposalSource"
+      "--proposal-source": "proposalSource",
+      "--expected-plan-digest": "expectedPlanDigest"
     };
     const target = valueOptions[arg];
     if (target) {
