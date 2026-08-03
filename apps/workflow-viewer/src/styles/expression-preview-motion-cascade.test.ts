@@ -53,7 +53,7 @@ describe('expression preview reduced-motion CSS cascade', () => {
     expect(block).toMatch(/animation-iteration-count:\s*1\s*!important/)
   })
 
-  it('expression-shelf restores duration and infinite only while data-playing=true', async () => {
+  it('restores one finite main cycle for effective playback and repeats only the cursor', async () => {
     const expressionCss = await readRepoFile('src/styles/expression-shelf.css')
     const block = extractMediaBlockContaining(
       expressionCss,
@@ -63,14 +63,35 @@ describe('expression preview reduced-motion CSS cascade', () => {
       /\.launcher-expression-preview-stage\[data-playing="true"\][\s\S]*animation-duration:\s*var\(--expr-preview-duration\)\s*!important/,
     )
     expect(block).toMatch(
-      /\.launcher-expression-preview-stage\[data-playing="true"\][\s\S]*animation-iteration-count:\s*infinite\s*!important/,
+      /\.launcher-expression-preview-stage\[data-playing="true"\][\s\S]*animation-iteration-count:\s*1\s*!important/,
     )
     expect(block).toMatch(
-      /\.launcher-expression-preview-stage:not\(\[data-playing="true"\]\)[\s\S]*animation:\s*none\s*!important/,
+      /\.launcher-expression-preview-stage\[data-playing="true"\] \.launcher-expression-motion-cursor-el\s*\{[^}]*animation-duration:\s*\.9s\s*!important[^}]*animation-iteration-count:\s*infinite\s*!important/,
     )
-    // Must not blanket-disable all expression motion under reduced motion.
-    expect(block).not.toMatch(
-      /\.launcher-expression-preview-stage\s*\{[^}]*animation:\s*none\s*!important/,
+    expect(block).not.toMatch(/animation:\s*none\s*!important/)
+
+    const nonCursorInfiniteAnimations = expressionCss
+      .split('\n')
+      .filter((line) => line.includes('animation:') && line.includes('infinite') && !line.includes('expr-cursor'))
+    expect(nonCursorInfiniteAnimations).toEqual([])
+    expect(expressionCss).toMatch(
+      /\.launcher-expression-preview-stage:is\(\[data-phase="idle"\], \[data-phase="completed"\]\)[\s\S]*animation:\s*none\s*!important/,
+    )
+    expect(expressionCss).toMatch(
+      /\.launcher-expression-preview-stage\[data-playing="false"\] \.launcher-expression-motion-text,[\s\S]*?animation-play-state:\s*paused\s*!important/,
+    )
+  })
+
+  it('keeps typewriter and wipe idle posters readable', async () => {
+    const expressionCss = await readRepoFile('src/styles/expression-shelf.css')
+    expect(expressionCss).toMatch(
+      /\.launcher-expression-preview-stage\[data-phase="idle"\] \.launcher-expression-motion-typewriter \.launcher-expression-motion-text\s*\{[^}]*opacity:\s*1[^}]*clip-path:\s*inset\(0 0 0 0\)/,
+    )
+    expect(expressionCss).toMatch(
+      /\.launcher-expression-preview-stage\[data-phase="idle"\] \.launcher-expression-motion-wipe \.launcher-expression-motion-text\s*\{[^}]*opacity:\s*1/,
+    )
+    expect(expressionCss).toMatch(
+      /\.launcher-expression-preview-stage\[data-phase="idle"\] \.launcher-expression-motion-wipe-veil\s*\{[^}]*opacity:\s*\.24[^}]*transform:\s*translate3d\(45%, 0, 0\)/,
     )
   })
 

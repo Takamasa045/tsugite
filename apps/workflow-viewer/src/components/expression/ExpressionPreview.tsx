@@ -41,6 +41,8 @@ export interface ExpressionPreviewProps {
   listContextLabel?: string
 }
 
+type PreviewPhase = 'idle' | 'playing' | 'completed'
+
 /** Shared IntersectionObserver — one per document, not one per card. */
 let sharedObserver: IntersectionObserver | null = null
 const observedTargets = new WeakMap<Element, (visible: boolean) => void>()
@@ -64,6 +66,59 @@ function getSharedObserver(): IntersectionObserver | null {
 let sharedReducedMedia: MediaQueryList | null = null
 let sharedReducedNotify: (() => void) | null = null
 const reducedMotionListeners = new Set<() => void>()
+
+type PreviewPlaybackHandle = {
+  canResumeFromHandoff: () => boolean
+  cancelHandoff: () => void
+  preemptToIdle: () => boolean
+  resumeFromHandoff: () => boolean
+}
+
+let activePreviewHandle: PreviewPlaybackHandle | null = null
+const preemptedPreviewHandles: PreviewPlaybackHandle[] = []
+
+function removePreemptedPreview(handle: PreviewPlaybackHandle): void {
+  const index = preemptedPreviewHandles.lastIndexOf(handle)
+  if (index >= 0) preemptedPreviewHandles.splice(index, 1)
+}
+
+function cancelAllPreemptedPreviews(): void {
+  for (const handle of preemptedPreviewHandles) handle.cancelHandoff()
+  preemptedPreviewHandles.length = 0
+}
+
+function claimActivePreview(handle: PreviewPlaybackHandle): void {
+  if (activePreviewHandle === handle) return
+  const previous = activePreviewHandle
+  activePreviewHandle = handle
+  removePreemptedPreview(handle)
+  handle.cancelHandoff()
+  if (!previous || previous === handle) return
+  removePreemptedPreview(previous)
+  if (previous.preemptToIdle()) preemptedPreviewHandles.push(previous)
+}
+
+function resumeMostRecentPreemptedPreview(): void {
+  while (preemptedPreviewHandles.length > 0) {
+    const candidate = preemptedPreviewHandles.pop()!
+    if (!candidate.canResumeFromHandoff()) {
+      candidate.cancelHandoff()
+      continue
+    }
+    activePreviewHandle = candidate
+    if (candidate.resumeFromHandoff()) return
+    activePreviewHandle = null
+  }
+}
+
+function releaseActivePreview(
+  handle: PreviewPlaybackHandle,
+  { handoff }: { handoff: boolean },
+): void {
+  if (activePreviewHandle !== handle) return
+  activePreviewHandle = null
+  if (handoff) resumeMostRecentPreemptedPreview()
+}
 
 function getSharedReducedMedia(): MediaQueryList | null {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -100,6 +155,9 @@ export function resetExpressionPreviewSharedStateForTests(): void {
   sharedReducedMedia = null
   sharedReducedNotify = null
   reducedMotionListeners.clear()
+  activePreviewHandle?.cancelHandoff()
+  activePreviewHandle = null
+  cancelAllPreemptedPreviews()
 }
 
 function subscribeReducedMotion(onChange: () => void): () => void {
@@ -137,9 +195,52 @@ function ExpressionPreviewComponent({
     getReducedMotionSnapshot,
     getReducedMotionServerSnapshot,
   )
-  const [inView, setInView] = useState(true)
-  /** null = no manual override; true/false = explicit user play/pause. */
-  const [userPlaying, setUserPlaying] = useState<boolean | null>(null)
+  const [inView, setInView] = useState(false)
+  const [phase, setPhase] = useState<PreviewPhase>('idle')
+  const [hasAutoplayed, setHasAutoplayed] = useState(false)
+  const [playbackRun, setPlaybackRun] = useState(0)
+  const previousReducedMotion = useRef(reducedMotion)
+  const inViewRef = useRef(inView)
+  const phaseRef = useRef(phase)
+  const reducedMotionRef = useRef(reducedMotion)
+  const userStoppedRef = useRef(false)
+  const preemptedRef = useRef(false)
+  const playbackHandleRef = useRef<PreviewPlaybackHandle | null>(null)
+
+  inViewRef.current = inView
+  phaseRef.current = phase
+  reducedMotionRef.current = reducedMotion
+
+  if (!playbackHandleRef.current) {
+    const handle: PreviewPlaybackHandle = {
+      canResumeFromHandoff: () => inViewRef.current
+        && phaseRef.current === 'idle'
+        && !reducedMotionRef.current
+        && !userStoppedRef.current
+        && preemptedRef.current,
+      cancelHandoff: () => {
+        preemptedRef.current = false
+      },
+      preemptToIdle: () => {
+        if (phaseRef.current !== 'playing') return false
+        preemptedRef.current = true
+        userStoppedRef.current = false
+        phaseRef.current = 'idle'
+        setPhase('idle')
+        return true
+      },
+      resumeFromHandoff: () => {
+        if (!handle.canResumeFromHandoff()) return false
+        preemptedRef.current = false
+        userStoppedRef.current = false
+        phaseRef.current = 'playing'
+        setPhase('playing')
+        return true
+      },
+    }
+    playbackHandleRef.current = handle
+  }
+  const playbackHandle = playbackHandleRef.current
 
   const spec = useMemo(() => buildExpressionPreviewSpec(item), [
     item.nativeId,
@@ -158,33 +259,81 @@ function ExpressionPreviewComponent({
   ])
   const cssVars = useMemo(() => previewSpecCssVars(spec), [spec])
 
-  // Viewport visibility is always the top condition.
-  // - Off-screen: always stopped (even after manual play).
-  // - On-screen: restore manual preference, else auto only when reduced-motion is off.
-  // - prefers-reduced-motion: no autoplay; explicit play still animates.
-  const playing = inView && (userPlaying !== null ? userPlaying : !reducedMotion)
+  useEffect(() => {
+    const wasReduced = previousReducedMotion.current
+    previousReducedMotion.current = reducedMotion
+    if (!wasReduced && reducedMotion) {
+      removePreemptedPreview(playbackHandle)
+      playbackHandle.cancelHandoff()
+      cancelAllPreemptedPreviews()
+      releaseActivePreview(playbackHandle, { handoff: false })
+      setPhase((current) => {
+        if (current !== 'playing') return current
+        phaseRef.current = 'idle'
+        return 'idle'
+      })
+    }
+  }, [playbackHandle, reducedMotion])
+
+  // Visibility starts the preview once; it must not reset a frame while scrolling.
+  useEffect(() => {
+    if (!inView || hasAutoplayed || reducedMotion) return
+    setHasAutoplayed(true)
+    userStoppedRef.current = false
+    phaseRef.current = 'playing'
+    setPhase('playing')
+  }, [hasAutoplayed, inView, reducedMotion])
+
+  const logicallyPlaying = phase === 'playing'
+  const playing = logicallyPlaying && inView
+
+  // Keep the shelf legible: only one preview may animate at a time.
+  useEffect(() => {
+    if (!playing) return
+    claimActivePreview(playbackHandle)
+  }, [playbackHandle, playing])
 
   useEffect(() => {
     const node = stageRef.current
     if (!node) return
+    const updateVisibility = (visible: boolean) => {
+      inViewRef.current = visible
+      if (!visible) {
+        removePreemptedPreview(playbackHandle)
+        playbackHandle.cancelHandoff()
+        releaseActivePreview(playbackHandle, { handoff: true })
+      }
+      setInView(visible)
+    }
     const observer = getSharedObserver()
     if (!observer) {
-      setInView(true)
-      return
+      updateVisibility(true)
+      return () => {
+        inViewRef.current = false
+        removePreemptedPreview(playbackHandle)
+        playbackHandle.cancelHandoff()
+        releaseActivePreview(playbackHandle, { handoff: true })
+      }
     }
-    observedTargets.set(node, setInView)
+    observedTargets.set(node, updateVisibility)
     observer.observe(node)
     return () => {
+      inViewRef.current = false
       observer.unobserve(node)
       observedTargets.delete(node)
+      removePreemptedPreview(playbackHandle)
+      playbackHandle.cancelHandoff()
+      releaseActivePreview(playbackHandle, { handoff: true })
     }
-  }, [])
+  }, [playbackHandle])
 
   const fidelityLabel = previewFidelityLabel(spec.fidelity)
   const contextPrefix = listContextLabel ? `${listContextLabel}の` : ''
-  const playLabel = playing
+  const playLabel = logicallyPlaying
     ? `${contextPrefix}${item.title}の見本を一時停止`
-    : `${contextPrefix}${item.title}の見本を再生`
+    : phase === 'completed'
+      ? `${contextPrefix}${item.title}の見本をもう一度再生`
+      : `${contextPrefix}${item.title}の見本を再生`
   // figure 名にも listContext を含め、推薦と一覧で同 item が並んでも区別する
   const stageLabel = `${contextPrefix}${item.title}の見本。共通文字「${EXPRESSION_PREVIEW_SAMPLE_TEXT}」。${spec.familyLabel}。${spec.fidelityNote}`
 
@@ -198,6 +347,7 @@ function ExpressionPreviewComponent({
       data-family={spec.family}
       data-fidelity={spec.fidelity}
       data-playing={playing ? 'true' : 'false'}
+      data-phase={phase}
       data-reduced-motion={reducedMotion ? 'true' : 'false'}
       data-source={spec.source}
       style={cssVars as CSSProperties}
@@ -210,29 +360,61 @@ function ExpressionPreviewComponent({
         data-direction={spec.direction}
         data-family={spec.family}
         data-playing={playing ? 'true' : 'false'}
+        data-phase={phase}
         id={stageId}
+        onAnimationEnd={(event) => {
+          if (phase !== 'playing') return
+          if (!(event.target instanceof HTMLElement)) return
+          if (event.target.dataset.previewCycleEnd !== 'true') return
+          const expectedAnimation = event.target.dataset.previewCycleAnimation
+          if (!expectedAnimation || event.animationName !== expectedAnimation) return
+          phaseRef.current = 'completed'
+          userStoppedRef.current = false
+          removePreemptedPreview(playbackHandle)
+          playbackHandle.cancelHandoff()
+          cancelAllPreemptedPreviews()
+          releaseActivePreview(playbackHandle, { handoff: false })
+          setPhase('completed')
+        }}
       >
-        <PreviewMotionBody spec={spec} />
+        <PreviewMotionBody key={playbackRun} spec={spec} />
       </div>
       <div className="launcher-expression-preview-toolbar">
         <button
           aria-controls={stageId}
           aria-label={playLabel}
-          aria-pressed={playing}
+          aria-pressed={logicallyPlaying}
           className="launcher-expression-preview-toggle"
-          onClick={() => setUserPlaying((current) => {
-            // Toggle against the effective playing state so the first click
-            // from autoplay pauses, and from reduced-motion idle starts.
-            if (current === null) return !playing
-            return !current
-          })}
+          onClick={() => {
+            if (phase === 'playing') {
+              phaseRef.current = 'idle'
+              userStoppedRef.current = true
+              removePreemptedPreview(playbackHandle)
+              playbackHandle.cancelHandoff()
+              cancelAllPreemptedPreviews()
+              releaseActivePreview(playbackHandle, { handoff: false })
+              setPhase('idle')
+              return
+            }
+            setHasAutoplayed(true)
+            userStoppedRef.current = false
+            playbackHandle.cancelHandoff()
+            if (phase === 'completed') {
+              setPlaybackRun((current) => current + 1)
+            }
+            phaseRef.current = 'playing'
+            setPhase('playing')
+          }}
           type="button"
         >
-          {playing
+          {logicallyPlaying
             ? <Pause aria-hidden="true" size={14} />
             : <Play aria-hidden="true" size={14} />}
-          <span>{playing ? '一時停止' : '再生'}</span>
+          <span>{logicallyPlaying ? '一時停止' : '再生'}</span>
         </button>
+        {reducedMotion && (
+          <small role="status">動きを抑える設定のため自動再生を停止中。再生ボタンで確認できます。</small>
+        )}
       </div>
       {/* figcaption must be a direct child of figure (not inside toolbar div).
           fidelityLabel already carries the conceptual / non-reproduction note. */}
