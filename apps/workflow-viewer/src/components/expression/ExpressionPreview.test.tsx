@@ -237,6 +237,28 @@ describe('ExpressionPreview', () => {
     expect(stages[1]?.getAttribute('data-playing')).toBe('false')
   })
 
+  it('hands active preview back to the remaining visible card when the winner leaves', () => {
+    stubIntersectionObserver()
+    render(
+      <>
+        <ExpressionPreview item={makeItem({ nativeId: 'first', title: 'First' })} />
+        <ExpressionPreview item={makeItem({ nativeId: 'second', title: 'Second' })} />
+      </>,
+    )
+
+    const stages = document.querySelectorAll('.launcher-expression-preview-stage')
+    expect(stages).toHaveLength(2)
+
+    fireVisibility(stages[0]!, true)
+    fireVisibility(stages[1]!, true)
+    expect(stages[0]?.getAttribute('data-playing')).toBe('false')
+    expect(stages[1]?.getAttribute('data-playing')).toBe('true')
+
+    fireVisibility(stages[1]!, false)
+    expect(stages[0]?.getAttribute('data-playing')).toBe('true')
+    expect(stages[1]?.getAttribute('data-playing')).toBe('false')
+  })
+
   it('ignores cursor animation iterations while the primary cycle is playing', () => {
     render(<ExpressionPreview item={makeItem()} />)
     const stage = document.querySelector('.launcher-expression-preview-stage')

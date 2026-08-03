@@ -66,7 +66,59 @@ function getSharedObserver(): IntersectionObserver | null {
 let sharedReducedMedia: MediaQueryList | null = null
 let sharedReducedNotify: (() => void) | null = null
 const reducedMotionListeners = new Set<() => void>()
-let activePreviewStop: (() => void) | null = null
+
+type PreviewPlaybackHandle = {
+  canResumeFromHandoff: () => boolean
+  cancelHandoff: () => void
+  preemptToIdle: () => boolean
+  resumeFromHandoff: () => boolean
+}
+
+let activePreviewHandle: PreviewPlaybackHandle | null = null
+const preemptedPreviewHandles: PreviewPlaybackHandle[] = []
+
+function removePreemptedPreview(handle: PreviewPlaybackHandle): void {
+  const index = preemptedPreviewHandles.lastIndexOf(handle)
+  if (index >= 0) preemptedPreviewHandles.splice(index, 1)
+}
+
+function cancelAllPreemptedPreviews(): void {
+  for (const handle of preemptedPreviewHandles) handle.cancelHandoff()
+  preemptedPreviewHandles.length = 0
+}
+
+function claimActivePreview(handle: PreviewPlaybackHandle): void {
+  if (activePreviewHandle === handle) return
+  const previous = activePreviewHandle
+  activePreviewHandle = handle
+  removePreemptedPreview(handle)
+  handle.cancelHandoff()
+  if (!previous || previous === handle) return
+  removePreemptedPreview(previous)
+  if (previous.preemptToIdle()) preemptedPreviewHandles.push(previous)
+}
+
+function resumeMostRecentPreemptedPreview(): void {
+  while (preemptedPreviewHandles.length > 0) {
+    const candidate = preemptedPreviewHandles.pop()!
+    if (!candidate.canResumeFromHandoff()) {
+      candidate.cancelHandoff()
+      continue
+    }
+    activePreviewHandle = candidate
+    if (candidate.resumeFromHandoff()) return
+    activePreviewHandle = null
+  }
+}
+
+function releaseActivePreview(
+  handle: PreviewPlaybackHandle,
+  { handoff }: { handoff: boolean },
+): void {
+  if (activePreviewHandle !== handle) return
+  activePreviewHandle = null
+  if (handoff) resumeMostRecentPreemptedPreview()
+}
 
 function getSharedReducedMedia(): MediaQueryList | null {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -103,7 +155,9 @@ export function resetExpressionPreviewSharedStateForTests(): void {
   sharedReducedMedia = null
   sharedReducedNotify = null
   reducedMotionListeners.clear()
-  activePreviewStop = null
+  activePreviewHandle?.cancelHandoff()
+  activePreviewHandle = null
+  cancelAllPreemptedPreviews()
 }
 
 function subscribeReducedMotion(onChange: () => void): () => void {
@@ -146,6 +200,47 @@ function ExpressionPreviewComponent({
   const [hasAutoplayed, setHasAutoplayed] = useState(false)
   const [playbackRun, setPlaybackRun] = useState(0)
   const previousReducedMotion = useRef(reducedMotion)
+  const inViewRef = useRef(inView)
+  const phaseRef = useRef(phase)
+  const reducedMotionRef = useRef(reducedMotion)
+  const userStoppedRef = useRef(false)
+  const preemptedRef = useRef(false)
+  const playbackHandleRef = useRef<PreviewPlaybackHandle | null>(null)
+
+  inViewRef.current = inView
+  phaseRef.current = phase
+  reducedMotionRef.current = reducedMotion
+
+  if (!playbackHandleRef.current) {
+    const handle: PreviewPlaybackHandle = {
+      canResumeFromHandoff: () => inViewRef.current
+        && phaseRef.current === 'idle'
+        && !reducedMotionRef.current
+        && !userStoppedRef.current
+        && preemptedRef.current,
+      cancelHandoff: () => {
+        preemptedRef.current = false
+      },
+      preemptToIdle: () => {
+        if (phaseRef.current !== 'playing') return false
+        preemptedRef.current = true
+        userStoppedRef.current = false
+        phaseRef.current = 'idle'
+        setPhase('idle')
+        return true
+      },
+      resumeFromHandoff: () => {
+        if (!handle.canResumeFromHandoff()) return false
+        preemptedRef.current = false
+        userStoppedRef.current = false
+        phaseRef.current = 'playing'
+        setPhase('playing')
+        return true
+      },
+    }
+    playbackHandleRef.current = handle
+  }
+  const playbackHandle = playbackHandleRef.current
 
   const spec = useMemo(() => buildExpressionPreviewSpec(item), [
     item.nativeId,
@@ -168,14 +263,24 @@ function ExpressionPreviewComponent({
     const wasReduced = previousReducedMotion.current
     previousReducedMotion.current = reducedMotion
     if (!wasReduced && reducedMotion) {
-      setPhase((current) => current === 'playing' ? 'idle' : current)
+      removePreemptedPreview(playbackHandle)
+      playbackHandle.cancelHandoff()
+      cancelAllPreemptedPreviews()
+      releaseActivePreview(playbackHandle, { handoff: false })
+      setPhase((current) => {
+        if (current !== 'playing') return current
+        phaseRef.current = 'idle'
+        return 'idle'
+      })
     }
-  }, [reducedMotion])
+  }, [playbackHandle, reducedMotion])
 
   // Visibility starts the preview once; it must not reset a frame while scrolling.
   useEffect(() => {
     if (!inView || hasAutoplayed || reducedMotion) return
     setHasAutoplayed(true)
+    userStoppedRef.current = false
+    phaseRef.current = 'playing'
     setPhase('playing')
   }, [hasAutoplayed, inView, reducedMotion])
 
@@ -185,29 +290,42 @@ function ExpressionPreviewComponent({
   // Keep the shelf legible: only one preview may animate at a time.
   useEffect(() => {
     if (!playing) return
-    const stop = () => setPhase('idle')
-    activePreviewStop?.()
-    activePreviewStop = stop
-    return () => {
-      if (activePreviewStop === stop) activePreviewStop = null
-    }
-  }, [playing])
+    claimActivePreview(playbackHandle)
+  }, [playbackHandle, playing])
 
   useEffect(() => {
     const node = stageRef.current
     if (!node) return
+    const updateVisibility = (visible: boolean) => {
+      inViewRef.current = visible
+      if (!visible) {
+        removePreemptedPreview(playbackHandle)
+        playbackHandle.cancelHandoff()
+        releaseActivePreview(playbackHandle, { handoff: true })
+      }
+      setInView(visible)
+    }
     const observer = getSharedObserver()
     if (!observer) {
-      setInView(true)
-      return
+      updateVisibility(true)
+      return () => {
+        inViewRef.current = false
+        removePreemptedPreview(playbackHandle)
+        playbackHandle.cancelHandoff()
+        releaseActivePreview(playbackHandle, { handoff: true })
+      }
     }
-    observedTargets.set(node, setInView)
+    observedTargets.set(node, updateVisibility)
     observer.observe(node)
     return () => {
+      inViewRef.current = false
       observer.unobserve(node)
       observedTargets.delete(node)
+      removePreemptedPreview(playbackHandle)
+      playbackHandle.cancelHandoff()
+      releaseActivePreview(playbackHandle, { handoff: true })
     }
-  }, [])
+  }, [playbackHandle])
 
   const fidelityLabel = previewFidelityLabel(spec.fidelity)
   const contextPrefix = listContextLabel ? `${listContextLabel}の` : ''
@@ -250,6 +368,12 @@ function ExpressionPreviewComponent({
           if (event.target.dataset.previewCycleEnd !== 'true') return
           const expectedAnimation = event.target.dataset.previewCycleAnimation
           if (!expectedAnimation || event.animationName !== expectedAnimation) return
+          phaseRef.current = 'completed'
+          userStoppedRef.current = false
+          removePreemptedPreview(playbackHandle)
+          playbackHandle.cancelHandoff()
+          cancelAllPreemptedPreviews()
+          releaseActivePreview(playbackHandle, { handoff: false })
           setPhase('completed')
         }}
       >
@@ -263,13 +387,22 @@ function ExpressionPreviewComponent({
           className="launcher-expression-preview-toggle"
           onClick={() => {
             if (phase === 'playing') {
+              phaseRef.current = 'idle'
+              userStoppedRef.current = true
+              removePreemptedPreview(playbackHandle)
+              playbackHandle.cancelHandoff()
+              cancelAllPreemptedPreviews()
+              releaseActivePreview(playbackHandle, { handoff: false })
               setPhase('idle')
               return
             }
             setHasAutoplayed(true)
+            userStoppedRef.current = false
+            playbackHandle.cancelHandoff()
             if (phase === 'completed') {
               setPlaybackRun((current) => current + 1)
             }
+            phaseRef.current = 'playing'
             setPhase('playing')
           }}
           type="button"
