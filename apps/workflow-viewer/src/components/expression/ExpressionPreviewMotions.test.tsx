@@ -163,6 +163,11 @@ describe('PreviewMotionBody motion families (DOM contract)', () => {
         expect(container.querySelector(selector)).toBeTruthy()
       }
 
+      const cycleEnds = container.querySelectorAll('[data-preview-cycle-end="true"]')
+      expect(cycleEnds).toHaveLength(1)
+      expect(cycleEnds[0]?.classList.contains('launcher-expression-motion-cursor-el')).toBe(false)
+      expect(cycleEnds[0]?.getAttribute('data-preview-cycle-animation')).toMatch(/^expr-/)
+
       const sampleNodes = screen.getAllByText(EXPRESSION_PREVIEW_SAMPLE_TEXT)
       expect(sampleNodes.length).toBeGreaterThanOrEqual(minSampleText)
 

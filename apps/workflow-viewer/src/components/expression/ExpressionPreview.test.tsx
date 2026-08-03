@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -89,6 +89,45 @@ describe('ExpressionPreview', () => {
     })
   }
 
+  function firePreviewAnimationEnd(target: Element, animationName: string) {
+    for (const type of ['animationend', 'webkitAnimationEnd']) {
+      const event = new Event(type, { bubbles: true })
+      Object.defineProperty(event, 'animationName', { value: animationName })
+      fireEvent(target, event)
+    }
+  }
+
+  function firePreviewAnimationIteration(target: Element) {
+    fireEvent(target, new Event('animationiteration', { bubbles: true }))
+    fireEvent(target, new Event('webkitAnimationIteration', { bubbles: true }))
+  }
+
+  function stubMutableReducedMotion(initial: boolean) {
+    let matches = initial
+    const listeners = new Set<() => void>()
+    const media = {
+      get matches() {
+        return matches
+      },
+      media: '(prefers-reduced-motion: reduce)',
+      onchange: null,
+      addListener: (listener: () => void) => listeners.add(listener),
+      removeListener: (listener: () => void) => listeners.delete(listener),
+      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+      dispatchEvent: () => false,
+    } as unknown as MediaQueryList
+    vi.stubGlobal('matchMedia', () => media)
+    return {
+      setMatches(next: boolean) {
+        matches = next
+        act(() => {
+          for (const listener of listeners) listener()
+        })
+      },
+    }
+  }
+
   it('shows shared sample text and conceptual fidelity note', () => {
     render(<ExpressionPreview item={makeItem()} />)
     expect(screen.getByText(EXPRESSION_PREVIEW_SAMPLE_TEXT)).toBeVisible()
@@ -147,6 +186,141 @@ describe('ExpressionPreview', () => {
     expect(screen.getByRole('button', { name: /Typewriterの見本を/ })).toBeVisible()
   })
 
+  it('plays only an observer-confirmed visible card and pauses CSS off-screen without losing phase', () => {
+    stubIntersectionObserver()
+    render(
+      <>
+        <ExpressionPreview item={makeItem({ nativeId: 'first', title: 'First' })} />
+        <ExpressionPreview item={makeItem({ nativeId: 'second', title: 'Second' })} />
+      </>,
+    )
+
+    const stages = document.querySelectorAll('.launcher-expression-preview-stage')
+    expect(stages).toHaveLength(2)
+    expect(stages[0]?.getAttribute('data-playing')).toBe('false')
+    expect(stages[1]?.getAttribute('data-playing')).toBe('false')
+
+    fireVisibility(stages[0]!, true)
+    expect(stages[0]?.getAttribute('data-playing')).toBe('true')
+    expect(stages[0]?.getAttribute('data-phase')).toBe('playing')
+    expect(stages[1]?.getAttribute('data-playing')).toBe('false')
+
+    fireVisibility(stages[0]!, false)
+    expect(stages[0]?.getAttribute('data-playing')).toBe('false')
+    expect(stages[0]?.getAttribute('data-phase')).toBe('playing')
+
+    fireVisibility(stages[1]!, true)
+    expect(stages[0]?.getAttribute('data-playing')).toBe('false')
+    expect(stages[1]?.getAttribute('data-playing')).toBe('true')
+  })
+
+  it('keeps one active preview when two cards are visible and explicit play changes the winner', async () => {
+    const user = userEvent.setup()
+    stubIntersectionObserver()
+    render(
+      <>
+        <ExpressionPreview item={makeItem({ nativeId: 'first', title: 'First' })} />
+        <ExpressionPreview item={makeItem({ nativeId: 'second', title: 'Second' })} />
+      </>,
+    )
+
+    const stages = document.querySelectorAll('.launcher-expression-preview-stage')
+    expect(stages).toHaveLength(2)
+
+    fireVisibility(stages[0]!, true)
+    fireVisibility(stages[1]!, true)
+    expect(stages[0]?.getAttribute('data-playing')).toBe('false')
+    expect(stages[1]?.getAttribute('data-playing')).toBe('true')
+
+    await user.click(screen.getByRole('button', { name: 'Firstの見本を再生' }))
+    expect(stages[0]?.getAttribute('data-playing')).toBe('true')
+    expect(stages[1]?.getAttribute('data-playing')).toBe('false')
+  })
+
+  it('ignores cursor animation iterations while the primary cycle is playing', () => {
+    render(<ExpressionPreview item={makeItem()} />)
+    const stage = document.querySelector('.launcher-expression-preview-stage')
+    const cursor = stage?.querySelector('.launcher-expression-motion-cursor-el')
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+    expect(cursor).toBeTruthy()
+
+    firePreviewAnimationIteration(cursor!)
+    firePreviewAnimationIteration(stage!)
+
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+  })
+
+  it('completes only on animationend from the explicit cycle-end target', () => {
+    render(<ExpressionPreview item={makeItem()} />)
+    const stage = document.querySelector('.launcher-expression-preview-stage')
+    const cursor = stage?.querySelector('.launcher-expression-motion-cursor-el')
+    const cycleEnd = stage?.querySelector('[data-preview-cycle-end="true"]')
+    expect(cycleEnd).toBeTruthy()
+    const expectedAnimation = cycleEnd?.getAttribute('data-preview-cycle-animation')
+    expect(expectedAnimation).toBe('expr-typewriter')
+
+    firePreviewAnimationEnd(cursor!, 'expr-cursor')
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+
+    firePreviewAnimationEnd(cycleEnd!, 'expr-cursor')
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+
+    firePreviewAnimationEnd(cycleEnd!, expectedAnimation!)
+    expect(stage?.getAttribute('data-phase')).toBe('completed')
+  })
+
+  it.each([
+    ['bars', '.launcher-expression-motion-bar-el'],
+    ['stack', '.launcher-expression-motion-stack-card'],
+    ['line-draw', '.launcher-expression-motion-line-el'],
+  ] as const)('marks only the final %s stagger target as cycle-end', (family, selector) => {
+    render(<ExpressionPreview item={makeItem({
+      family,
+      nativeId: family,
+      title: family,
+      description: family,
+      category: family,
+      tags: [family],
+      features: [family],
+    })} />)
+    const stage = document.querySelector('.launcher-expression-preview-stage')
+    const targets = Array.from(stage?.querySelectorAll(selector) ?? [])
+    const cycleEnds = targets.filter((target) => target.getAttribute('data-preview-cycle-end') === 'true')
+    expect(targets.length).toBeGreaterThan(1)
+    expect(cycleEnds).toEqual([targets.at(-1)])
+    const expectedAnimation = targets.at(-1)?.getAttribute('data-preview-cycle-animation')
+    expect(expectedAnimation).toMatch(/^expr-/)
+
+    firePreviewAnimationEnd(targets[0]!, expectedAnimation!)
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+    firePreviewAnimationEnd(targets.at(-1)!, 'expr-cursor')
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+    firePreviewAnimationEnd(targets.at(-1)!, expectedAnimation!)
+    expect(stage?.getAttribute('data-phase')).toBe('completed')
+  })
+
+  it('remounts the motion subtree when replaying a completed preview', async () => {
+    const user = userEvent.setup()
+    render(<ExpressionPreview item={makeItem()} />)
+    const stage = document.querySelector('.launcher-expression-preview-stage')
+    const cycleEnd = stage?.querySelector('[data-preview-cycle-end="true"]')
+    const before = stage?.querySelector('.launcher-expression-motion')
+    expect(cycleEnd).toBeTruthy()
+    expect(before).toBeTruthy()
+    const expectedAnimation = cycleEnd?.getAttribute('data-preview-cycle-animation')
+    expect(expectedAnimation).toBe('expr-typewriter')
+
+    firePreviewAnimationEnd(cycleEnd!, expectedAnimation!)
+    expect(stage?.getAttribute('data-phase')).toBe('completed')
+    await user.click(screen.getByRole('button', { name: 'Typewriterの見本をもう一度再生' }))
+
+    const after = stage?.querySelector('.launcher-expression-motion')
+    expect(after).toBeTruthy()
+    expect(after).not.toBe(before)
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+    expect(stage?.getAttribute('data-playing')).toBe('true')
+  })
+
   it('points aria-controls at the stage id, not the caption', () => {
     render(<ExpressionPreview item={makeItem()} />)
     const playButton = screen.getByRole('button', { name: /Typewriterの見本を/ })
@@ -190,6 +364,7 @@ describe('ExpressionPreview', () => {
     const stage = document.querySelector('.launcher-expression-preview-stage')
     expect(stage?.getAttribute('data-playing')).toBe('false')
     expect(screen.getByRole('button', { name: 'Typewriterの見本を再生' })).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent('動きを抑える設定のため自動再生を停止中')
   })
 
   it('animates on explicit play even when prefers-reduced-motion is reduce', async () => {
@@ -214,15 +389,50 @@ describe('ExpressionPreview', () => {
     expect(screen.getByRole('button', { name: 'Typewriterの見本を一時停止' })).toBeVisible()
   })
 
-  it('stops when off-screen even after manual play, and restores manual state on re-entry', async () => {
+  it('returns a running preview to idle when reduced motion turns on and still allows explicit play', async () => {
+    const user = userEvent.setup()
+    const media = stubMutableReducedMotion(false)
+    render(<ExpressionPreview item={makeItem()} />)
+    const stage = document.querySelector('.launcher-expression-preview-stage')
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+
+    media.setMatches(true)
+    expect(stage?.getAttribute('data-phase')).toBe('idle')
+    expect(stage?.getAttribute('data-playing')).toBe('false')
+
+    await user.click(screen.getByRole('button', { name: 'Typewriterの見本を再生' }))
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+    expect(stage?.getAttribute('data-playing')).toBe('true')
+  })
+
+  it('preserves an explicit stop when reduced motion is later disabled', async () => {
+    const user = userEvent.setup()
+    const media = stubMutableReducedMotion(true)
+    render(<ExpressionPreview item={makeItem()} />)
+    const stage = document.querySelector('.launcher-expression-preview-stage')
+    expect(stage?.getAttribute('data-phase')).toBe('idle')
+
+    await user.click(screen.getByRole('button', { name: 'Typewriterの見本を再生' }))
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
+
+    await user.click(screen.getByRole('button', { name: 'Typewriterの見本を一時停止' }))
+    expect(stage?.getAttribute('data-phase')).toBe('idle')
+
+    media.setMatches(false)
+    expect(stage?.getAttribute('data-phase')).toBe('idle')
+    expect(stage?.getAttribute('data-playing')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Typewriterの見本を再生' })).toBeVisible()
+  })
+
+  it('keeps the playback phase when the preview leaves and re-enters the viewport', async () => {
     stubIntersectionObserver()
     const user = userEvent.setup()
     render(<ExpressionPreview item={makeItem()} />)
     const stage = document.querySelector('.launcher-expression-preview-stage')
     expect(stage).toBeTruthy()
+    fireVisibility(stage!, true)
 
-    // Ensure we start from a known paused-by-user then play state... actually auto may play.
-    // Force manual play so userPlaying=true.
+    // Exercise an explicit pause/play after visibility has been confirmed.
     const playButton = screen.getByRole('button', { name: /Typewriterの見本を/ })
     const wasPlaying = playButton.getAttribute('aria-pressed') === 'true'
     if (!wasPlaying) {
@@ -236,9 +446,11 @@ describe('ExpressionPreview', () => {
 
     fireVisibility(stage!, false)
     expect(stage?.getAttribute('data-playing')).toBe('false')
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
 
     fireVisibility(stage!, true)
     expect(stage?.getAttribute('data-playing')).toBe('true')
+    expect(stage?.getAttribute('data-phase')).toBe('playing')
   })
 
   it('survives without matchMedia and IntersectionObserver', () => {

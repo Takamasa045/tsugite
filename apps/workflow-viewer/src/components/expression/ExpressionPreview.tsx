@@ -41,6 +41,8 @@ export interface ExpressionPreviewProps {
   listContextLabel?: string
 }
 
+type PreviewPhase = 'idle' | 'playing' | 'completed'
+
 /** Shared IntersectionObserver — one per document, not one per card. */
 let sharedObserver: IntersectionObserver | null = null
 const observedTargets = new WeakMap<Element, (visible: boolean) => void>()
@@ -64,6 +66,7 @@ function getSharedObserver(): IntersectionObserver | null {
 let sharedReducedMedia: MediaQueryList | null = null
 let sharedReducedNotify: (() => void) | null = null
 const reducedMotionListeners = new Set<() => void>()
+let activePreviewStop: (() => void) | null = null
 
 function getSharedReducedMedia(): MediaQueryList | null {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -100,6 +103,7 @@ export function resetExpressionPreviewSharedStateForTests(): void {
   sharedReducedMedia = null
   sharedReducedNotify = null
   reducedMotionListeners.clear()
+  activePreviewStop = null
 }
 
 function subscribeReducedMotion(onChange: () => void): () => void {
@@ -137,9 +141,11 @@ function ExpressionPreviewComponent({
     getReducedMotionSnapshot,
     getReducedMotionServerSnapshot,
   )
-  const [inView, setInView] = useState(true)
-  /** null = no manual override; true/false = explicit user play/pause. */
-  const [userPlaying, setUserPlaying] = useState<boolean | null>(null)
+  const [inView, setInView] = useState(false)
+  const [phase, setPhase] = useState<PreviewPhase>('idle')
+  const [hasAutoplayed, setHasAutoplayed] = useState(false)
+  const [playbackRun, setPlaybackRun] = useState(0)
+  const previousReducedMotion = useRef(reducedMotion)
 
   const spec = useMemo(() => buildExpressionPreviewSpec(item), [
     item.nativeId,
@@ -158,11 +164,34 @@ function ExpressionPreviewComponent({
   ])
   const cssVars = useMemo(() => previewSpecCssVars(spec), [spec])
 
-  // Viewport visibility is always the top condition.
-  // - Off-screen: always stopped (even after manual play).
-  // - On-screen: restore manual preference, else auto only when reduced-motion is off.
-  // - prefers-reduced-motion: no autoplay; explicit play still animates.
-  const playing = inView && (userPlaying !== null ? userPlaying : !reducedMotion)
+  useEffect(() => {
+    const wasReduced = previousReducedMotion.current
+    previousReducedMotion.current = reducedMotion
+    if (!wasReduced && reducedMotion) {
+      setPhase((current) => current === 'playing' ? 'idle' : current)
+    }
+  }, [reducedMotion])
+
+  // Visibility starts the preview once; it must not reset a frame while scrolling.
+  useEffect(() => {
+    if (!inView || hasAutoplayed || reducedMotion) return
+    setHasAutoplayed(true)
+    setPhase('playing')
+  }, [hasAutoplayed, inView, reducedMotion])
+
+  const logicallyPlaying = phase === 'playing'
+  const playing = logicallyPlaying && inView
+
+  // Keep the shelf legible: only one preview may animate at a time.
+  useEffect(() => {
+    if (!playing) return
+    const stop = () => setPhase('idle')
+    activePreviewStop?.()
+    activePreviewStop = stop
+    return () => {
+      if (activePreviewStop === stop) activePreviewStop = null
+    }
+  }, [playing])
 
   useEffect(() => {
     const node = stageRef.current
@@ -182,9 +211,11 @@ function ExpressionPreviewComponent({
 
   const fidelityLabel = previewFidelityLabel(spec.fidelity)
   const contextPrefix = listContextLabel ? `${listContextLabel}の` : ''
-  const playLabel = playing
+  const playLabel = logicallyPlaying
     ? `${contextPrefix}${item.title}の見本を一時停止`
-    : `${contextPrefix}${item.title}の見本を再生`
+    : phase === 'completed'
+      ? `${contextPrefix}${item.title}の見本をもう一度再生`
+      : `${contextPrefix}${item.title}の見本を再生`
   // figure 名にも listContext を含め、推薦と一覧で同 item が並んでも区別する
   const stageLabel = `${contextPrefix}${item.title}の見本。共通文字「${EXPRESSION_PREVIEW_SAMPLE_TEXT}」。${spec.familyLabel}。${spec.fidelityNote}`
 
@@ -198,6 +229,7 @@ function ExpressionPreviewComponent({
       data-family={spec.family}
       data-fidelity={spec.fidelity}
       data-playing={playing ? 'true' : 'false'}
+      data-phase={phase}
       data-reduced-motion={reducedMotion ? 'true' : 'false'}
       data-source={spec.source}
       style={cssVars as CSSProperties}
@@ -210,29 +242,46 @@ function ExpressionPreviewComponent({
         data-direction={spec.direction}
         data-family={spec.family}
         data-playing={playing ? 'true' : 'false'}
+        data-phase={phase}
         id={stageId}
+        onAnimationEnd={(event) => {
+          if (phase !== 'playing') return
+          if (!(event.target instanceof HTMLElement)) return
+          if (event.target.dataset.previewCycleEnd !== 'true') return
+          const expectedAnimation = event.target.dataset.previewCycleAnimation
+          if (!expectedAnimation || event.animationName !== expectedAnimation) return
+          setPhase('completed')
+        }}
       >
-        <PreviewMotionBody spec={spec} />
+        <PreviewMotionBody key={playbackRun} spec={spec} />
       </div>
       <div className="launcher-expression-preview-toolbar">
         <button
           aria-controls={stageId}
           aria-label={playLabel}
-          aria-pressed={playing}
+          aria-pressed={logicallyPlaying}
           className="launcher-expression-preview-toggle"
-          onClick={() => setUserPlaying((current) => {
-            // Toggle against the effective playing state so the first click
-            // from autoplay pauses, and from reduced-motion idle starts.
-            if (current === null) return !playing
-            return !current
-          })}
+          onClick={() => {
+            if (phase === 'playing') {
+              setPhase('idle')
+              return
+            }
+            setHasAutoplayed(true)
+            if (phase === 'completed') {
+              setPlaybackRun((current) => current + 1)
+            }
+            setPhase('playing')
+          }}
           type="button"
         >
-          {playing
+          {logicallyPlaying
             ? <Pause aria-hidden="true" size={14} />
             : <Play aria-hidden="true" size={14} />}
-          <span>{playing ? '一時停止' : '再生'}</span>
+          <span>{logicallyPlaying ? '一時停止' : '再生'}</span>
         </button>
+        {reducedMotion && (
+          <small role="status">動きを抑える設定のため自動再生を停止中。再生ボタンで確認できます。</small>
+        )}
       </div>
       {/* figcaption must be a direct child of figure (not inside toolbar div).
           fidelityLabel already carries the conceptual / non-reproduction note. */}
