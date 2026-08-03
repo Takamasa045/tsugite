@@ -739,38 +739,147 @@
   animation-play-state: paused !important;
 }
 
+/* Idle/completed are explicit static posters. Playing off-screen is paused above. */
+.launcher-expression-preview-stage:is([data-phase="idle"], [data-phase="completed"]) .launcher-expression-motion-text,
+.launcher-expression-preview-stage:is([data-phase="idle"], [data-phase="completed"]) .launcher-expression-motion-bar-el,
+.launcher-expression-preview-stage:is([data-phase="idle"], [data-phase="completed"]) .launcher-expression-motion-stack-card,
+.launcher-expression-preview-stage:is([data-phase="idle"], [data-phase="completed"]) .launcher-expression-motion-orbit-ring,
+.launcher-expression-preview-stage:is([data-phase="idle"], [data-phase="completed"]) .launcher-expression-motion-orbit-dot,
+.launcher-expression-preview-stage:is([data-phase="idle"], [data-phase="completed"]) .launcher-expression-motion-line-el,
+.launcher-expression-preview-stage:is([data-phase="idle"], [data-phase="completed"]) .launcher-expression-motion-cursor-el,
+.launcher-expression-preview-stage:is([data-phase="idle"], [data-phase="completed"]) .launcher-expression-motion-wipe-veil {
+  animation: none !important;
+}
+
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-fade .launcher-expression-motion-text {
+  opacity: .72;
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-slide .launcher-expression-motion-text {
+  opacity: .72;
+  transform: translate3d(0, var(--expr-preview-distance), 0);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-slide:is([data-direction="left"], [data-direction="right"]) .launcher-expression-motion-text {
+  transform: translate3d(var(--expr-preview-distance), 0, 0);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-scale .launcher-expression-motion-text {
+  opacity: .72;
+  transform: scale(calc(1 - var(--expr-preview-intensity) * .18));
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-rotate .launcher-expression-motion-text {
+  opacity: .72;
+  transform: rotate(-6deg) scale(.94);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-pulse .launcher-expression-motion-text {
+  opacity: .72;
+  transform: scale(.92);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-wipe .launcher-expression-motion-text {
+  opacity: 1;
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-wipe-veil {
+  opacity: .24;
+  transform: translate3d(45%, 0, 0);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-typewriter .launcher-expression-motion-text {
+  opacity: 1;
+  clip-path: inset(0 0 0 0);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-cursor-el {
+  opacity: .7;
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-glitch .launcher-expression-motion-text:is(.is-glitch-a, .is-glitch-b) {
+  opacity: 0;
+}
+
+.launcher-expression-preview-stage[data-phase="completed"] :is(.launcher-expression-motion-fade, .launcher-expression-motion-slide, .launcher-expression-motion-scale, .launcher-expression-motion-rotate, .launcher-expression-motion-pulse, .launcher-expression-motion-wipe, .launcher-expression-motion-typewriter, .launcher-expression-motion-glitch) .launcher-expression-motion-text {
+  opacity: 1;
+  transform: none;
+}
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-wipe-veil {
+  opacity: 0;
+  transform: translate3d(100%, 0, 0);
+}
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-typewriter .launcher-expression-motion-text {
+  clip-path: inset(0 0 0 0);
+}
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-cursor-el,
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-glitch .launcher-expression-motion-text:is(.is-glitch-a, .is-glitch-b) {
+  opacity: 0;
+}
+
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-bar-el {
+  opacity: .65;
+  transform: scaleY(calc(.55 + var(--expr-preview-intensity) * .1));
+}
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-bar-el {
+  opacity: 1;
+  transform: scaleY(1);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-stack-card {
+  opacity: calc(var(--expr-stack-opacity) * .9);
+  transform: translate3d(var(--expr-stack-x), calc(var(--expr-stack-y) + 4px), 0)
+    scale(calc(var(--expr-stack-scale) * .96));
+}
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-stack-card {
+  opacity: var(--expr-stack-opacity);
+  transform: translate3d(var(--expr-stack-x), var(--expr-stack-y), 0)
+    scale(var(--expr-stack-scale));
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-orbit-ring {
+  opacity: .7;
+  transform: rotate(0deg) scale(1);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-orbit-dot {
+  transform: rotate(0deg) translateX(28px) rotate(0deg);
+}
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-orbit-ring {
+  opacity: .7;
+  transform: rotate(360deg) scale(1);
+}
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-orbit-dot {
+  transform: rotate(360deg) translateX(28px) rotate(-360deg);
+}
+.launcher-expression-preview-stage[data-phase="idle"] .launcher-expression-motion-line-el {
+  opacity: .45;
+  transform: scaleX(.15);
+}
+.launcher-expression-preview-stage[data-phase="completed"] .launcher-expression-motion-line-el {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
 /* Families */
 .launcher-expression-motion-fade .launcher-expression-motion-text {
-  animation: expr-fade var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  animation: expr-fade var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-slide .launcher-expression-motion-text {
-  animation: expr-slide-y var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  animation: expr-slide-y var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-slide[data-direction="left"] .launcher-expression-motion-text,
 .launcher-expression-motion-slide[data-direction="right"] .launcher-expression-motion-text {
   animation-name: expr-slide-x;
 }
 .launcher-expression-motion-scale .launcher-expression-motion-text {
-  animation: expr-scale var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  animation: expr-scale var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-rotate .launcher-expression-motion-text {
-  animation: expr-rotate var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  animation: expr-rotate var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-pulse .launcher-expression-motion-text {
-  animation: expr-pulse var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  animation: expr-pulse var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-wipe {
   overflow: hidden;
 }
 .launcher-expression-motion-wipe .launcher-expression-motion-text {
-  animation: expr-fade var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  animation: expr-fade var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-wipe-veil {
   position: absolute;
   inset: 0;
   background: linear-gradient(90deg, transparent 0%, rgba(244, 237, 223, .95) 40%, rgba(244, 237, 223, .95) 100%);
   transform-origin: left center;
-  animation: expr-wipe var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  animation: expr-wipe var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) 1 both;
   pointer-events: none;
 }
 .launcher-expression-motion-typewriter {
@@ -782,7 +891,7 @@
 .launcher-expression-motion-typewriter .launcher-expression-motion-text.is-typewriter {
   /* clip-path is compositor-friendly; avoid max-width layout animation */
   overflow: hidden;
-  animation: expr-typewriter var(--expr-preview-duration) steps(12, end) var(--expr-preview-delay) infinite;
+  animation: expr-typewriter var(--expr-preview-duration) steps(12, end) var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-cursor-el {
   width: 2px;
@@ -805,7 +914,7 @@
   border-radius: 3px 3px 0 0;
   background: rgba(154, 61, 48, .62);
   transform-origin: bottom center;
-  animation: expr-bars var(--expr-preview-duration) ease-in-out infinite;
+  animation: expr-bars var(--expr-preview-duration) ease-in-out 1 both;
 }
 .launcher-expression-motion-bar-el:nth-child(1) { height: 28px; }
 .launcher-expression-motion-bar-el:nth-child(2) { height: 42px; }
@@ -836,7 +945,7 @@
   --expr-stack-opacity: 1;
   transform: translate3d(var(--expr-stack-x), var(--expr-stack-y), 0) scale(var(--expr-stack-scale));
   opacity: var(--expr-stack-opacity);
-  animation: expr-stack var(--expr-preview-duration) ease-in-out infinite;
+  animation: expr-stack var(--expr-preview-duration) ease-in-out 1 both;
 }
 .launcher-expression-motion-stack-card:nth-child(1) {
   --expr-stack-x: -10px;
@@ -861,7 +970,7 @@
   height: 56px;
   border-radius: 50%;
   border: 1.5px solid rgba(154, 61, 48, .35);
-  animation: expr-orbit-ring var(--expr-preview-duration) linear var(--expr-preview-delay) infinite;
+  animation: expr-orbit-ring var(--expr-preview-duration) linear var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-orbit-dot {
   position: absolute;
@@ -869,7 +978,7 @@
   height: 8px;
   border-radius: 50%;
   background: rgba(154, 61, 48, .85);
-  animation: expr-orbit-dot var(--expr-preview-duration) linear var(--expr-preview-delay) infinite;
+  animation: expr-orbit-dot var(--expr-preview-duration) linear var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-line-draw {
   display: grid;
@@ -885,7 +994,7 @@
   border-radius: 999px;
   background: rgba(154, 61, 48, .7);
   transform-origin: left center;
-  animation: expr-line-draw var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) infinite;
+  animation: expr-line-draw var(--expr-preview-duration) ease-in-out var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-line-el.is-second {
   width: 52%;
@@ -895,7 +1004,7 @@
   position: relative;
 }
 .launcher-expression-motion-glitch .launcher-expression-motion-text {
-  animation: expr-glitch-main var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) infinite;
+  animation: expr-glitch-main var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-glitch .launcher-expression-motion-text.is-glitch-a,
 .launcher-expression-motion-glitch .launcher-expression-motion-text.is-glitch-b {
@@ -906,11 +1015,11 @@
 }
 .launcher-expression-motion-glitch .launcher-expression-motion-text.is-glitch-a {
   color: rgba(154, 61, 48, .7);
-  animation: expr-glitch-a var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) infinite;
+  animation: expr-glitch-a var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) 1 both;
 }
 .launcher-expression-motion-glitch .launcher-expression-motion-text.is-glitch-b {
   color: rgba(60, 90, 110, .55);
-  animation: expr-glitch-b var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) infinite;
+  animation: expr-glitch-b var(--expr-preview-duration) steps(2, end) var(--expr-preview-delay) 1 both;
 }
 
 @keyframes expr-fade {
@@ -1161,31 +1270,24 @@
  *
  * globals.css applies animation-duration: 0.01ms !important and
  * animation-iteration-count: 1 !important to * under reduced motion.
- * Restore real duration/iteration only for expression preview elements while
- * data-playing=true. data-playing=false stays fully static.
+ * Restore real duration only during effective playback. Off-screen playback
+ * is paused by data-playing=false; idle/completed use the posters above.
  */
 @media (prefers-reduced-motion: reduce) {
-  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-text,
-  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-bar-el,
-  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-stack-card,
-  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-orbit-ring,
-  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-orbit-dot,
-  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-line-el,
-  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-cursor-el,
-  .launcher-expression-preview-stage:not([data-playing="true"]) .launcher-expression-motion-wipe-veil {
-    animation: none !important;
-  }
-
-  /* After globals.css blanket reduce: restore only while explicitly playing */
   .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-text,
   .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-bar-el,
   .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-stack-card,
   .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-orbit-ring,
   .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-orbit-dot,
   .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-line-el,
-  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-cursor-el,
   .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-wipe-veil {
     animation-duration: var(--expr-preview-duration) !important;
+    animation-fill-mode: both !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .launcher-expression-preview-stage[data-playing="true"] .launcher-expression-motion-cursor-el {
+    animation-duration: .9s !important;
     animation-iteration-count: infinite !important;
   }
 }

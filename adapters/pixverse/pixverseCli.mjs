@@ -152,6 +152,35 @@ export function buildPixverseCreateArgs(request, runId) {
   return args;
 }
 
+export function preflightPixverseRequest(request, options = {}) {
+  const operation = request.operation || "video";
+  const createArgs = buildPixverseCreateArgs(request, "model-preflight");
+  const runCommand = options.runCommand ?? ((executable, args) => spawnSync(executable, args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    maxBuffer: MAX_OUTPUT
+  }));
+  const pixverse = process.env.PIXVERSE_CLI || "pixverse";
+  const version = runCommand(pixverse, ["--version"]);
+  if (version.error || version.status !== 0) {
+    throw new AdapterError("PixVerse CLI version check failed", TRANSIENT);
+  }
+  const checkedParameters = [...new Set(createArgs
+    .filter((value) => value.startsWith("--"))
+    .map((value) => value.slice(2))
+    .filter((value) => value !== "json"))]
+    .sort();
+  return {
+    request_id: request.id,
+    status: "provider-validation-required",
+    source: "pixverse-cli-runtime",
+    ...(request.model ? { model: normalizePixverseCliModel(request.model) } : {}),
+    operation,
+    runtime_version: String(version.stdout || "").trim(),
+    checked_parameters: checkedParameters
+  };
+}
+
 const PIXVERSE_ALLOWED_OPTIONS = Object.freeze({
   video: new Set(["prompt", "model", "duration", "aspect", "seed", "quality", "count", "image", "audio", "multi-shot", "off-peak"]),
   image: new Set(["prompt", "model", "aspect", "seed", "quality", "count", "detail", "image", "images"]),

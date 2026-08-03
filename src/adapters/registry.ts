@@ -25,6 +25,12 @@ const credentialVariableSchema = z
   .regex(/^[A-Z][A-Z0-9_]*$/, "must be an uppercase environment variable name")
   .refine((value) => !unsafeForwardedEnvironment.has(value), "must not be a runtime injection variable");
 
+const stdinJsonCommandSchema = z.object({
+  executable: z.string().min(1),
+  args: z.array(z.string().min(1)).default([]),
+  input: z.literal("stdin-json").default("stdin-json")
+});
+
 const adapterSchema = z.object({
   name: z.string().min(1),
   kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
@@ -102,13 +108,8 @@ const adapterSchema = z.object({
       setup: z.array(setupCheckSchema).default([])
     })
     .default({ setup: [] }),
-  command: z
-    .object({
-      executable: z.string().min(1),
-      args: z.array(z.string().min(1)).default([]),
-      input: z.literal("stdin-json").default("stdin-json")
-    })
-    .optional()
+  model_preflight: stdinJsonCommandSchema.optional(),
+  command: stdinJsonCommandSchema.optional()
 }).superRefine((adapter, context) => {
   if (adapter.class === "audio" && !adapter.audio_capabilities) {
     context.addIssue({

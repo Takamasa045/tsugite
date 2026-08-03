@@ -347,7 +347,7 @@ export function GenerationCanvas({
   const [selectedId, setSelectedId] = useState('')
   const [comparisonConnectionId, setComparisonConnectionId] = useState('')
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [actionState, setActionState] = useState<'idle' | 'saving' | 'generating' | 'success' | 'error'>('idle')
+  const [actionState, setActionState] = useState<'idle' | 'saving' | 'checking' | 'generating' | 'success' | 'error'>('idle')
   const [actionMessage, setActionMessage] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [zoom, setZoom] = useState(INITIAL_ZOOM)
@@ -540,6 +540,39 @@ export function GenerationCanvas({
     }
   }
 
+  const preflightModels = async () => {
+    if (!canvas || !activeConnection) return
+    setActionState('checking')
+    setActionMessage('接続先のモデル情報を確認しています。生成タスクは送信しません。')
+    try {
+      const response = await fetcher(`/api/projects/${encodeURIComponent(canvas.project.id)}/model-preflight`, {
+        method: 'POST',
+        headers: { accept: 'application/json', 'x-tsugite-token': launcherToken() },
+      })
+      const payload = await response.json() as {
+        ok?: boolean
+        fully_validated?: boolean
+        requests?: Array<{ status?: string; source?: string }>
+        issues?: Array<{ message?: string }>
+      }
+      if (!response.ok || payload.ok !== true) {
+        throw new Error(payload.issues?.[0]?.message ?? 'モデル互換性を確認できませんでした')
+      }
+      setActionState('success')
+      if (payload.fully_validated) {
+        setActionMessage('接続先の実行時情報で、設定中のモデルとパラメータを確認できました。生成タスクは未送信です。')
+      } else {
+        const runtimeLabel = activeConnection.transport === 'cli'
+          ? `${activeConnection.displayName.replace(/サブスク$/, '').trim()} CLI`
+          : activeConnection.displayName
+        setActionMessage(`${runtimeLabel}で生成時の最終検証が必要です。Tsugite側は新しいモデル名を固定一覧で拒否しません。`)
+      }
+    } catch (error) {
+      setActionState('error')
+      setActionMessage(error instanceof Error ? error.message : 'モデル互換性を確認できませんでした')
+    }
+  }
+
   return (
     <section
       aria-label="画像・動画の生成キャンバス"
@@ -728,6 +761,12 @@ export function GenerationCanvas({
           ) : <p className="generation-canvas-inspector-empty">表示する生成工程を選んでください。</p>}
           {canvas?.issues[0] && <div className="generation-canvas-issue"><AlertTriangle aria-hidden="true" size={16} /><span><strong>案件設定を確認</strong>{canvas.issues[0].message}</span></div>}
           {actionMessage && <p aria-live="polite" className={`generation-canvas-action-message is-${actionState}`}>{actionMessage}</p>}
+          <button
+            className="generation-canvas-model-preflight"
+            disabled={!activeConnection || actionState === 'checking' || actionState === 'generating'}
+            onClick={() => void preflightModels()}
+            type="button"
+          ><Workflow aria-hidden="true" size={16} />{actionState === 'checking' ? 'モデル確認中…' : 'モデル互換性を確認（非課金）'}</button>
           <button
             className="generation-canvas-generate"
             disabled={

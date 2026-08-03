@@ -82,7 +82,22 @@ const canvasResponse = {
 }
 
 function createFetcher() {
-  return vi.fn().mockImplementation((url: string) => Promise.resolve({
+  return vi.fn().mockImplementation((url: string) => Promise.resolve(url.endsWith('/model-preflight') ? {
+    ok: true,
+    json: async () => ({
+      ok: true,
+      billing_action: false,
+      generation_submitted: false,
+      fully_validated: false,
+      requests: [{
+        request_id: 'arrival-shot',
+        status: 'provider-validation-required',
+        source: 'pixverse-cli-runtime',
+        model: 'seedance-1.5-pro',
+      }],
+      issues: [],
+    }),
+  } : {
     ok: true,
     json: async () => url.includes('project-beta')
       ? {
@@ -162,6 +177,22 @@ describe('GenerationCanvas', () => {
         body: JSON.stringify({ connection: 'topview' }),
       }))
     })
+  })
+
+  it('生成せずにモデル互換性を確認し、provider側確認が残ることを表示する', async () => {
+    const user = userEvent.setup()
+    const fetcher = createFetcher()
+    render(<GenerationCanvas fetcher={fetcher} projects={projects} selectedProjectId="project-alpha" />)
+
+    await screen.findByRole('button', { name: 'arrival-shot' })
+    await user.click(screen.getByRole('button', { name: 'モデル互換性を確認（非課金）' }))
+
+    await waitFor(() => {
+      expect(fetcher).toHaveBeenCalledWith('/api/projects/project-alpha/model-preflight', expect.objectContaining({
+        method: 'POST',
+      }))
+    })
+    expect(await screen.findByText(/PixVerse CLIで生成時の最終検証が必要/)).toBeVisible()
   })
 
   it('案件を切り替えると、その案件の生成要求へ切り替わる', async () => {

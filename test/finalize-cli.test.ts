@@ -1,9 +1,12 @@
-import { copyFile, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, stat, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
+import { preflightFinalizeApplyBoundary } from "../src/orchestrator/finalize.js";
+import { acquireRunLock, RunLockBoundaryError } from "../src/orchestrator/state.js";
+import type { Project } from "../src/project/schema.js";
 
 const originalProjectsHome = process.env.TSUGITE_PROJECTS_HOME;
 
@@ -13,22 +16,25 @@ afterEach(() => {
 });
 
 describe("pipeline finalize command", () => {
-  it("previews safely and requires coordinator authority before applying deletion", async () => {
+  it("previews plan_digest and requires coordinator authority before applying deletion", async () => {
     const fixture = await cliFixture();
 
     const preview = await capture(["finalize", "--config", fixture.configPath, "--json"]);
     expect(preview.status).toBe(0);
-    expect(JSON.parse(preview.stdout)).toMatchObject({
+    const previewJson = JSON.parse(preview.stdout);
+    expect(previewJson).toMatchObject({
       command: "finalize",
       applied: false,
       media_files: ["dist/demo-v1/old.mp4"]
     });
+    expect(previewJson.plan_digest).toMatch(/^[a-f0-9]{64}$/);
     await expect(stat(fixture.oldMedia)).resolves.toBeDefined();
 
     const denied = await capture([
       "finalize",
       "--config", fixture.configPath,
       "--apply",
+      "--expected-plan-digest", previewJson.plan_digest,
       "--json"
     ]);
     expect(denied.status).toBe(1);
@@ -40,6 +46,7 @@ describe("pipeline finalize command", () => {
       "--config", fixture.configPath,
       "--apply",
       "--actor", "coordinator",
+      "--expected-plan-digest", previewJson.plan_digest,
       "--json"
     ]);
     expect(applied.status).toBe(0);
@@ -47,12 +54,142 @@ describe("pipeline finalize command", () => {
       command: "finalize",
       applied: true,
       deleted_files: 1,
+      plan_digest: previewJson.plan_digest,
       launcher_visible: true,
       launcher_already_home: true,
       promoted_to_launcher_home: false
     });
     await expect(stat(fixture.oldMedia)).rejects.toThrow();
     await expect(stat(join(fixture.root, "dist/demo-v2/completion-record.json"))).resolves.toBeDefined();
+  });
+
+  it("rejects apply without expected-plan-digest without changing files", async () => {
+    const fixture = await cliFixture();
+
+    const denied = await capture([
+      "finalize",
+      "--config", fixture.configPath,
+      "--apply",
+      "--actor", "coordinator",
+      "--json"
+    ]);
+    expect(denied.status).toBe(1);
+    const body = JSON.parse(denied.stderr);
+    expect(body.issues[0]?.code).toBe("finalize.expected_plan_digest_required");
+    expect(body.deleted_files).toBe(0);
+    await expect(stat(fixture.oldMedia)).resolves.toBeDefined();
+    await expect(stat(join(fixture.root, "dist/demo-v2/completion-record.json"))).rejects.toThrow();
+  });
+
+  it("rejects apply when expected-plan-digest does not match the live plan", async () => {
+    const fixture = await cliFixture();
+
+    const denied = await capture([
+      "finalize",
+      "--config", fixture.configPath,
+      "--apply",
+      "--actor", "coordinator",
+      "--expected-plan-digest", "0".repeat(64),
+      "--json"
+    ]);
+    expect(denied.status).toBe(1);
+    const body = JSON.parse(denied.stderr);
+    expect(body.issues[0]?.code).toBe("finalize.plan_stale");
+    expect(body.deleted_files).toBe(0);
+    expect(body.plan_digest).toMatch(/^[a-f0-9]{64}$/);
+    await expect(stat(fixture.oldMedia)).resolves.toBeDefined();
+  });
+
+  it("rejects apply when candidates change after preview", async () => {
+    const fixture = await cliFixture();
+
+    const preview = await capture(["finalize", "--config", fixture.configPath, "--json"]);
+    expect(preview.status).toBe(0);
+    const previewJson = JSON.parse(preview.stdout);
+    expect(previewJson.plan_digest).toMatch(/^[a-f0-9]{64}$/);
+
+    await writeFile(join(fixture.root, "media/extra-old.mp4"), "new candidate after preview");
+
+    const stale = await capture([
+      "finalize",
+      "--config", fixture.configPath,
+      "--apply",
+      "--actor", "coordinator",
+      "--expected-plan-digest", previewJson.plan_digest,
+      "--json"
+    ]);
+    expect(stale.status).toBe(1);
+    const body = JSON.parse(stale.stderr);
+    expect(body.issues[0]?.code).toBe("finalize.plan_stale");
+    expect(body.deleted_files).toBe(0);
+    await expect(stat(fixture.oldMedia)).resolves.toBeDefined();
+    await expect(stat(join(fixture.root, "media/extra-old.mp4"))).resolves.toBeDefined();
+    await expect(stat(join(fixture.root, "dist/demo-v2/completion-record.json"))).rejects.toThrow();
+  });
+
+  it("rejects unapproved stateDir before creating a run lock", async () => {
+    const fixture = await cliFixture();
+    const outside = await mkdtemp(join(tmpdir(), "tsugite-finalize-cli-state-"));
+    const outsideRunDir = join(outside, "demo-v2");
+    await mkdir(outsideRunDir, { recursive: true });
+
+    // Hold a lock under the unapproved stateDir. If finalize acquired it before rejection,
+    // a second acquire would fail with run.locked instead of state_dir_unapproved.
+    const strayLock = await acquireRunLock(outside, "demo-v2");
+    try {
+      const denied = await capture([
+        "finalize",
+        "--config", fixture.configPath,
+        "--state-dir", outside,
+        "--apply",
+        "--actor", "coordinator",
+        "--expected-plan-digest", "0".repeat(64),
+        "--json"
+      ]);
+      expect(denied.status).toBe(1);
+      const body = JSON.parse(denied.stderr);
+      expect(body.issues[0]?.code).toBe("finalize.state_dir_unapproved");
+      expect(body.issues.some((issue: { code: string }) => issue.code === "run.locked")).toBe(false);
+      await expect(stat(fixture.oldMedia)).resolves.toBeDefined();
+      // Unapproved outside stateDir must not receive a completion record from finalize.
+      await expect(stat(join(outsideRunDir, "completion-record.json"))).rejects.toThrow();
+    } finally {
+      await strayLock.release();
+    }
+  });
+
+  it("fail-closes lock acquire when stateDir is swapped to an external symlink after preflight", async () => {
+    const fixture = await cliFixture();
+    const project: Project = {
+      slug: "demo",
+      name: "demo",
+      run_id: "demo-v2",
+      manifest: "manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" }
+    };
+    const boundary = await preflightFinalizeApplyBoundary({
+      configPath: fixture.configPath,
+      project
+    });
+    expect(boundary.ok).toBe(true);
+    if (!boundary.ok) return;
+
+    const external = await mkdtemp(join(tmpdir(), "tsugite-finalize-state-swap-"));
+    const realDist = join(fixture.root, "dist");
+    const distBackup = join(fixture.root, "dist.real-backup");
+    await rename(realDist, distBackup);
+    await symlink(external, realDist);
+
+    await expect(
+      acquireRunLock(boundary.stateDir, boundary.runId, undefined, {
+        expectedStateDir: boundary.stateDirIdentity,
+        containWithin: fixture.root
+      })
+    ).rejects.toBeInstanceOf(RunLockBoundaryError);
+
+    // Zero external mkdir/write/rename/unlink side effects from lock acquire.
+    expect(await readdir(external)).toEqual([]);
   });
 });
 

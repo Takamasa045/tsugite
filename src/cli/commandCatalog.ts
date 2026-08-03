@@ -12,6 +12,7 @@ export type CommandName =
   | "shitate-import"
   | "character-add"
   | "validate"
+  | "models"
   | "finalize"
   | "plan"
   | "analyze"
@@ -84,8 +85,18 @@ const OPTIONS = {
   ),
   speaker: defineOption("--speaker", "Speaker identifier to copy from the source manifest.", "<speaker-id>"),
   stateDir: defineOption("--state-dir", "Alternate pipeline state directory.", "<directory>"),
+  finalizeStateDir: defineOption(
+    "--state-dir",
+    "Finalize only: must equal project.dist_dir (project-local state root). Other values are rejected.",
+    "<directory>"
+  ),
   actor: defineOption("--actor", "Pipeline actor; gated actions require coordinator.", "<role>"),
   apply: defineOption("--apply", "Apply the inspected approval-gated worktree action after preview."),
+  expectedPlanDigest: defineOption(
+    "--expected-plan-digest",
+    "SHA-256 plan_digest from finalize preview JSON; required with --apply.",
+    "<sha256>"
+  ),
   path: defineOption("--path", "Absolute or relative worktree path to inspect or remove.", "<worktree-path>"),
   defer: defineOption("--defer", "Preview or record one clean worktree for deferred integration."),
   reconcile: defineOption("--reconcile", "Preview or process the oldest deferred worktree integration."),
@@ -229,12 +240,20 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     options: [OPTIONS.config]
   }),
   defineCommand({
+    name: "models",
+    summary: "Preflight configured generation models without submitting generation tasks.",
+    usage: "node bin/pipeline models --config <project.yaml> [--json]",
+    requiresConfig: true,
+    safety: "read-only",
+    options: [OPTIONS.config]
+  }),
+  defineCommand({
     name: "finalize",
     summary: "Preview or apply completion-only cleanup for superseded media.",
-    usage: "node bin/pipeline finalize --config <project.yaml> [--state-dir <directory>] [--apply --actor coordinator] [--json]",
+    usage: "node bin/pipeline finalize --config <project.yaml> [--state-dir <project.dist_dir>] [--apply --actor coordinator --expected-plan-digest <plan_digest>] [--json]",
     requiresConfig: true,
     safety: "approval-gated",
-    options: [OPTIONS.config, OPTIONS.stateDir, OPTIONS.actor, OPTIONS.apply]
+    options: [OPTIONS.config, OPTIONS.finalizeStateDir, OPTIONS.actor, OPTIONS.apply, OPTIONS.expectedPlanDigest]
   }),
   defineCommand({
     name: "plan",

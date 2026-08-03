@@ -37,3 +37,7 @@ command:
   executable: node
   args: ["adapters/pixverse/generate.mjs"]
   input: stdin-json
+model_preflight:
+  executable: node
+  args: ["adapters/pixverse/preflight.mjs"]
+  input: stdin-json

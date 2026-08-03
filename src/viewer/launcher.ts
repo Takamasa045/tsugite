@@ -75,6 +75,7 @@ import {
   type ReferenceCatalogResult
 } from "./referenceCatalog.js";
 import { loadPromptGuideById } from "../adapters/promptKnowledge.js";
+import { runGenerationModelPreflight } from "../adapters/modelPreflight.js";
 
 const SAFE_BACKEND_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -1039,6 +1040,48 @@ export async function startWorkflowViewerLauncher(
     }
 
     const generationConnectionMatch = /^\/api\/projects\/([^/]+)\/generation-connection$/.exec(requestUrl.pathname);
+    const modelPreflightMatch = /^\/api\/projects\/([^/]+)\/model-preflight$/.exec(requestUrl.pathname);
+    if (method === "POST" && modelPreflightMatch) {
+      if (request.headers.origin !== launcherOrigin || request.headers["x-tsugite-token"] !== token) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      const record = projects.get(modelPreflightMatch[1]!);
+      if (!record?.identity || !record.project?.generation) return sendNotFound(response);
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+      const validation = await validateProject(record.configPath, options.validationOptions);
+      if (!validation.ok || !validation.project?.generation || !validation.adapter) {
+        sendJson(response, 422, {
+          ok: false,
+          billing_action: false,
+          generation_submitted: false,
+          fully_validated: false,
+          requests: [],
+          issues: validation.issues
+        });
+        return;
+      }
+      const inspected = runGenerationModelPreflight(
+        validation.adapter,
+        validation.project.generation.requests
+      );
+      sendJson(response, inspected.ok ? 200 : 422, {
+        ok: inspected.ok,
+        billing_action: inspected.billingAction,
+        generation_submitted: inspected.generationSubmitted,
+        fully_validated: inspected.fullyValidated,
+        requests: inspected.requests,
+        issues: inspected.issues
+      });
+      return;
+    }
+
     if (method === "POST" && generationConnectionMatch) {
       if (request.headers.origin !== launcherOrigin || request.headers["x-tsugite-token"] !== token) {
         sendJson(response, 403, {

@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose an improvement to Tsugite.
+title: "feature: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the workflow or limitation you are experiencing.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Explain the desired behavior and any alternatives you considered.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and workflow impact
+      description: Describe any effect on Gates, provider use, credits, local media, or approvals.

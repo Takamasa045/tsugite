@@ -187,12 +187,13 @@ export async function prepareTopviewRequest(client, request, options = {}) {
 
   const media = await uploadRequestMedia(client, request, options);
   if (operation === "template") return prepareTopviewTemplateRequest(request, media);
-  if (operation === "voice") return prepareInstantVoiceRequest(client, request, media, outputKind);
+  if (operation === "voice") return prepareInstantVoiceRequest(client, request, media, outputKind, options);
   const taskType = topviewTaskType(request, media);
   const configResponse = await client.call("topview_get_generation_config", {
     req: { type: operation === "music" ? "music" : outputKind, taskType }
   });
   const model = selectTopviewModel(unwrapResult(configResponse), request.model);
+  options.onModel?.(model);
   const common = modelAwareArgs(request, model);
 
   if (operation === "image") {
@@ -265,13 +266,14 @@ function prepareVoiceRequest(request, outputKind) {
   };
 }
 
-async function prepareInstantVoiceRequest(client, request, media, outputKind) {
+async function prepareInstantVoiceRequest(client, request, media, outputKind, options = {}) {
   const referenceAudioFileId = media.audios[0];
   if (!referenceAudioFileId) {
     throw new AdapterError("TopView instant voice generation requires one input audio file", INVALID_REQUEST);
   }
   const configResponse = await client.call("topview_get_generation_config", { req: { type: "audio" } });
   const model = selectTopviewModel(unwrapResult(configResponse), request.model);
+  options.onModel?.(model);
   const args = compactObject({
     model: model.submitModel,
     text: request.prompt,
@@ -287,6 +289,45 @@ async function prepareInstantVoiceRequest(client, request, media, outputKind) {
     taskType: "instant_voice_clone",
     outputKind,
     args
+  };
+}
+
+export async function preflightTopviewRequest(client, request) {
+  let modelProfile;
+  let placeholderIndex = 0;
+  const prepared = await prepareTopviewRequest(client, request, {
+    upload: async () => `model-preflight-${++placeholderIndex}`,
+    onModel: (model) => {
+      modelProfile = model;
+    }
+  });
+  const parameterOptions = modelProfile?.submitParameterOptions && typeof modelProfile.submitParameterOptions === "object"
+    ? Object.fromEntries(Object.entries(modelProfile.submitParameterOptions)
+        .filter(([, values]) => Array.isArray(values))
+        .map(([key, values]) => [key, values.filter((value) => ["string", "number", "boolean"].includes(typeof value))]))
+    : {};
+  const inputMode = request.mode ?? request.input_mode ?? (
+    request.first_frame || (request.reference_images?.length ?? 0) > 0 || (request.input_images?.length ?? 0) > 0
+      ? "image-to-video"
+      : request.operation === "video" || request.operation === undefined
+        ? "text-to-video"
+        : undefined
+  );
+  return {
+    request_id: request.id,
+    status: modelProfile ? "compatible" : "provider-validation-required",
+    source: "topview-runtime-config",
+    ...(modelProfile?.submitModel ? { model: modelProfile.submitModel } : request.model ? { model: request.model } : {}),
+    operation: request.operation ?? "video",
+    ...(inputMode ? { input_mode: inputMode } : {}),
+    task_type: prepared.taskType,
+    required_parameters: Array.isArray(modelProfile?.requiredSubmitFields)
+      ? modelProfile.requiredSubmitFields.filter(nonEmptyString)
+      : [],
+    parameter_options: parameterOptions,
+    checked_parameters: Object.keys(prepared.args)
+      .filter((key) => !["firstFrameFileId", "referenceImageFileIds", "inputImages", "inputVideos", "referenceAudio", "referenceAudioFileId"].includes(key))
+      .sort()
   };
 }
 
