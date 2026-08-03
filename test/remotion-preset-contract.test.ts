@@ -13,8 +13,10 @@ import {
 } from "../backends/remotion/presetRegistry.mjs";
 // @ts-expect-error backend modules are plain ESM without type declarations
 import {
+  isUmeshuLyricCaption,
   UMESHU_CAPTION_LAYOUT,
-  UMESHU_LYRIC_STYLE
+  UMESHU_LYRIC_STYLE,
+  resolveUmeshuCaptionMetrics
 } from "../backends/remotion/umeshuRomanceSummerEdit.js";
 
 describe("remotion preset contract", () => {
@@ -201,6 +203,18 @@ describe("remotion preset contract", () => {
     expect(UMESHU_LYRIC_STYLE.shortShadow).toBe("#D8573C");
     expect(UMESHU_LYRIC_STYLE.fontFamily).toContain("Hiragino Maru Gothic ProN");
     expect(UMESHU_LYRIC_STYLE.webkitTextStroke).toMatch(/^3px\s+#173F2B$/);
+    expect(resolveUmeshuCaptionMetrics(1920, 1080)).toMatchObject({
+      scale: 1.5,
+      bottom: 150,
+      height: 96,
+      padding: "9px 27px",
+      stroke: "4.5px #173F2B"
+    });
+    expect(isUmeshuLyricCaption({ id: "R01" })).toBe(true);
+    expect(isUmeshuLyricCaption({ id: "R26" })).toBe(true);
+    expect(isUmeshuLyricCaption({ id: "R27" })).toBe(false);
+    expect(isUmeshuLyricCaption({ id: "title-card" })).toBe(false);
+    expect(isUmeshuLyricCaption({ id: undefined })).toBe(false);
 
     const fps = 24;
     const width = 1280;
