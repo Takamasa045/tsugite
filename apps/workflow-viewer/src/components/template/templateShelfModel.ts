@@ -3,12 +3,7 @@ import {
   type ExpressionSelection,
   type ExpressionSelectionMode,
 } from '../expression/expressionLibraryModel'
-import {
-  formatPresentationPresetPromptSection,
-  type PresentationPresetSelection,
-} from './presentationPresetModel'
 
-export type { PresentationPresetSelection }
 export type { ExpressionSelection, ExpressionSelectionMode }
 
 export interface LauncherTemplateDirection {
@@ -92,11 +87,6 @@ export interface TemplateWizardState {
   choices: Readonly<Record<string, string>>
   /** 0=型, 1..n=軸, n+1=チェックリスト */
   step: number
-  /**
-   * 仕上げの動き。TemplateChecklist の unmount（戻る・別棚）でも同一テンプレートなら保持する。
-   * 別テンプレート選択時は null（おすすめ候補を未選択）へ戻す。
-   */
-  presentationPreset: PresentationPresetSelection
   /** 表現棚で明示選択した候補（全体構成1 + 補助最大2）。棚をまたいでも保持する。 */
   expressionSelections: ExpressionSelection[]
   /** unset=おすすめ候補を未選択 / explicit=表現棚または最終画面で明示選択 */
@@ -107,7 +97,6 @@ export const INITIAL_WIZARD_STATE: TemplateWizardState = {
   templateId: null,
   choices: {},
   step: 0,
-  presentationPreset: null,
   expressionSelections: [],
   expressionSelectionMode: 'unset',
 }
@@ -575,7 +564,6 @@ export function buildTemplateProductionPrompt(
     | 'direction'
   >,
   choices: Readonly<Record<string, string>>,
-  presentationPreset: PresentationPresetSelection = null,
   expression: TemplateProductionExpressionInput = {
     mode: 'unset',
     selections: [],
@@ -631,19 +619,6 @@ export function buildTemplateProductionPrompt(
       const label = entry.source ? `${entry.label}（${entry.source}）` : entry.label
       lines.push(`- **${label}**: ${entry.text}`)
     }
-  }
-
-  const presetSection = formatPresentationPresetPromptSection(presentationPreset)
-  if (presetSection) {
-    lines.push('', ...presetSection.trimEnd().split('\n'))
-  } else {
-    lines.push(
-      '',
-      '## 制作依頼に指定できる仕上げ',
-      '',
-      '- **状態**: おすすめ候補を未選択',
-      '- 制作依頼に指定できる仕上げは明示指定されていません。制作開始前に使えるか確認し、勝手に別の仕上げへ切り替えないでください（黙示fallback禁止）。',
-    )
   }
 
   const expressionSection = formatExpressionCandidatesPromptSection({

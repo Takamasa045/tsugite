@@ -27,7 +27,6 @@ import {
 import { ExpressionShelf } from '../components/expression/ExpressionShelf'
 import {
   seedIntentFromTemplate,
-  syncPresentationPresetFromExpressions,
   type ExpressionSelection,
   type ExpressionSelectionMode,
   type RecommendationIntentSeed,
@@ -633,8 +632,6 @@ export function LauncherApp({
   const [expressionSelectionMode, setExpressionSelectionMode] = useState<ExpressionSelectionMode>('unset')
   const [expressionIntentSeed, setExpressionIntentSeed] = useState<RecommendationIntentSeed | null>(null)
   const [expressionReturnShelf, setExpressionReturnShelf] = useState<Shelf | null>(null)
-  const expressionSelectionsRef = useRef(expressionSelections)
-  expressionSelectionsRef.current = expressionSelections
   /** After template↔expression unmount, restore keyboard focus post-commit. */
   const pendingShelfFocusRef = useRef<'expressions-entry' | 'templates-return' | null>(null)
   /**
@@ -901,10 +898,7 @@ export function LauncherApp({
     setExpressionReturnShelf(null)
     setActiveShelf(shelf)
     if (shelf === 'templates' && templateLoadState === 'idle') void loadTemplates()
-    if (
-      (shelf === 'templates' || shelf === 'expressions')
-      && presentationPresetLoadState === 'idle'
-    ) {
+    if (shelf === 'expressions' && presentationPresetLoadState === 'idle') {
       void loadPresentationPresets()
     }
     if (shelf === 'characters' && characterLoadState === 'idle') void loadCharacters()
@@ -920,7 +914,6 @@ export function LauncherApp({
   }
 
   const handleTemplateWizardStateChange = useCallback((next: TemplateWizardState) => {
-    // 最終画面での preset 変更が expressionSelections を更新するため、親も追随する
     setTemplateWizardState(next)
     setExpressionSelections(next.expressionSelections ?? [])
     setExpressionSelectionMode(next.expressionSelectionMode ?? 'unset')
@@ -930,18 +923,12 @@ export function LauncherApp({
     selections: ExpressionSelection[]
     mode: ExpressionSelectionMode
   }) => {
-    const previousSelections = expressionSelectionsRef.current
     setExpressionSelections(next.selections)
     setExpressionSelectionMode(next.mode)
     setTemplateWizardState((current) => ({
       ...current,
       expressionSelections: next.selections,
       expressionSelectionMode: next.mode,
-      presentationPreset: syncPresentationPresetFromExpressions(
-        current.presentationPreset,
-        previousSelections,
-        next.selections,
-      ),
     }))
   }, [])
 
@@ -974,7 +961,6 @@ export function LauncherApp({
     setExpressionReturnShelf(null)
     setActiveShelf(target)
     if (target === 'templates' && templateLoadState === 'idle') void loadTemplates()
-    if (target === 'templates' && presentationPresetLoadState === 'idle') void loadPresentationPresets()
   }
 
   // Focus after tabpanel unmount/remount — only for explicit expression entry/return.
@@ -1813,7 +1799,6 @@ export function LauncherApp({
         </>
       ) : activeShelf === 'templates' ? (
         <TemplateShelf
-          fetcher={fetcher}
           initialState={{
             ...templateWizardState,
             expressionSelections,
@@ -1822,13 +1807,8 @@ export function LauncherApp({
           loadState={templateLoadState}
           onOpenExpressions={openExpressionsFromTemplate}
           onRetry={() => void loadTemplates()}
-          onRetryPresentationPresets={() => void loadPresentationPresets()}
           onStateChange={handleTemplateWizardStateChange}
-          presentationPresetLoadState={presentationPresetLoadState}
-          presentationPresetNotice={presentationPresetNotice}
-          presentationPresets={presentationPresets}
           templates={templates}
-          token={token}
         />
       ) : activeShelf === 'expressions' ? (
         <ExpressionShelf

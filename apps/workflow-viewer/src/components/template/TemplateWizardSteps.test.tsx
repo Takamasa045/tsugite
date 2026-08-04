@@ -40,7 +40,6 @@ function stateAt(step: number): TemplateWizardState {
     step,
     templateId: template.id,
     choices: step > 1 ? { cast: 'peers' } : {},
-    presentationPreset: null,
     expressionSelections: [],
     expressionSelectionMode: 'unset',
   }

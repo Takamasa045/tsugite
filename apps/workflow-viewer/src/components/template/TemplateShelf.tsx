@@ -5,15 +5,6 @@ import { TemplateAxisStep } from './TemplateAxisStep'
 import { TemplateChecklist } from './TemplateChecklist'
 import { TemplateTypeCard } from './TemplateTypeCard'
 import { TemplateWizardSteps } from './TemplateWizardSteps'
-import {
-  syncExpressionSelectionsFromPresentationPreset,
-} from '../expression/expressionLibraryModel'
-import type {
-  PresentationPresetLoadState,
-  PresentationPresetOption,
-  PresentationPresetSelection,
-} from './presentationPresetModel'
-import { isSamePresentationPresetSelection } from './presentationPresetModel'
 import { ownsRetryFocusHandoff } from './retryFocusHandoff'
 import {
   applyAxisChoice,
@@ -36,15 +27,6 @@ export interface TemplateShelfProps {
   onStateChange?: (state: TemplateWizardState) => void
   initialState?: TemplateWizardState
   onSelectedTemplateChange?: (template: LauncherTemplate | null) => void
-  presentationPresets?: readonly PresentationPresetOption[]
-  presentationPresetLoadState?: PresentationPresetLoadState
-  onRetryPresentationPresets?: () => void
-  /** 片側 backend 不足などの非ブロッキング案内 */
-  presentationPresetNotice?: string | null
-  /** HyperFrames 公式 catalog など、棚内の読み取り専用 fetch に使う */
-  fetcher?: typeof fetch
-  /** ランチャー認証token。catalog GET に渡す */
-  token?: string
   /** テンプレートから表現棚へ。intent seed 付きで開く */
   onOpenExpressions?: (template: LauncherTemplate) => void
 }
@@ -59,9 +41,6 @@ function withExpressionState(
     templateId: patch.templateId !== undefined ? patch.templateId : state.templateId,
     choices: patch.choices ?? state.choices,
     step: patch.step ?? state.step,
-    presentationPreset: patch.presentationPreset !== undefined
-      ? patch.presentationPreset
-      : (state.presentationPreset ?? null),
     expressionSelections: patch.expressionSelections
       ?? state.expressionSelections
       ?? [],
@@ -79,12 +58,6 @@ export function TemplateShelf({
   onStateChange,
   initialState,
   onSelectedTemplateChange,
-  presentationPresets,
-  presentationPresetLoadState,
-  onRetryPresentationPresets,
-  presentationPresetNotice = null,
-  fetcher,
-  token = '',
   onOpenExpressions,
 }: TemplateShelfProps) {
   const [state, setState] = useState<TemplateWizardState>(() => initialState ?? INITIAL_WIZARD_STATE)
@@ -164,25 +137,19 @@ export function TemplateShelf({
     onSelectedTemplateChange?.(selectedTemplate)
   }, [onSelectedTemplateChange, selectedTemplate])
 
-  // 表現棚で更新された候補 / preset を、棚をまたいで最終画面へ反映する
+  // 表現棚で更新された候補を、棚をまたいで最終画面へ反映する
   useEffect(() => {
     if (!initialState) return
     setState((current) => {
       const nextSelections = initialState.expressionSelections ?? []
       const nextMode = initialState.expressionSelectionMode ?? 'unset'
-      const nextPreset = initialState.presentationPreset ?? null
       const sameSelections = current.expressionSelections?.length === nextSelections.length
         && (current.expressionSelections ?? []).every(
           (entry, index) => entry.key === nextSelections[index]?.key,
         )
-      const samePreset = isSamePresentationPresetSelection(
-        current.presentationPreset ?? null,
-        nextPreset,
-      )
       if (
         sameSelections
         && current.expressionSelectionMode === nextMode
-        && samePreset
       ) {
         return current
       }
@@ -190,13 +157,11 @@ export function TemplateShelf({
         ...current,
         expressionSelections: nextSelections,
         expressionSelectionMode: nextMode,
-        presentationPreset: nextPreset,
       }
     })
   }, [
     initialState?.expressionSelectionMode,
     initialState?.expressionSelections,
-    initialState?.presentationPreset,
   ])
 
   useEffect(() => {
@@ -213,21 +178,18 @@ export function TemplateShelf({
     setSelectionConfirm(`${label}を選びました。戻って変更できます。`)
   }
 
-  function resetPresentationPresetKeepingAuxiliary(
+  function resetForTemplate(
     base: TemplateWizardState,
     patch: Partial<TemplateWizardState>,
   ): TemplateWizardState {
-    // 仕上げの動きを未選択に戻すとき、表現由来 full も落として制作依頼の矛盾を防ぐ。補助は保持。
-    const synced = syncExpressionSelectionsFromPresentationPreset(
-      base.expressionSelections ?? [],
-      null,
-      null,
-    )
+    // テンプレートを替えるときは全体構成だけを外し、補助表現は引き継ぐ。
+    const expressionSelections = (base.expressionSelections ?? []).filter((entry) => (
+      entry.source !== 'presentation-preset' || entry.role !== 'full-composition'
+    ))
     return withExpressionState(base, {
       ...patch,
-      presentationPreset: null,
-      expressionSelections: synced.selections,
-      expressionSelectionMode: synced.mode,
+      expressionSelections,
+      expressionSelectionMode: expressionSelections.length > 0 ? 'explicit' : 'unset',
     })
   }
 
@@ -237,7 +199,7 @@ export function TemplateShelf({
         ?? 'このテンプレートは表示情報を確認できません。選択できません。',
     )
     setSelectionConfirm(null)
-    commit(resetPresentationPresetKeepingAuxiliary(state, {
+    commit(resetForTemplate(state, {
       templateId: null,
       choices: {},
       step: 0,
@@ -257,8 +219,7 @@ export function TemplateShelf({
     announceSelection(template.name)
     const choices = initialChoicesForTemplate(template)
     const step = template.variants.length === 0 ? checklistStep(template.variants) : 1
-    // 別テンプレート選択時は仕上げの動きを安全にリセット。補助表現は保持。
-    commit(resetPresentationPresetKeepingAuxiliary(state, {
+    commit(resetForTemplate(state, {
       templateId: template.id,
       choices,
       step,
@@ -277,7 +238,7 @@ export function TemplateShelf({
     setSelectionError(null)
     announceSelection(template.name)
     const result = fillDefaultsToChecklist(template.variants, {})
-    commit(resetPresentationPresetKeepingAuxiliary(state, {
+    commit(resetForTemplate(state, {
       templateId: template.id,
       choices: result.choices,
       step: result.step,
@@ -310,7 +271,6 @@ export function TemplateShelf({
       templateId: selectedTemplate.id,
       choices: result.choices,
       step: result.step,
-      presentationPreset: state.presentationPreset ?? null,
     }))
   }
 
@@ -322,25 +282,6 @@ export function TemplateShelf({
       templateId: selectedTemplate.id,
       choices: result.choices,
       step: result.step,
-      presentationPreset: state.presentationPreset ?? null,
-    }))
-  }
-
-  function handlePresentationPresetChange(selection: PresentationPresetSelection) {
-    const option = selection
-      ? (presentationPresets ?? []).find(
-        (entry) => entry.backend === selection.backend && entry.id === selection.presetId,
-      ) ?? null
-      : null
-    const synced = syncExpressionSelectionsFromPresentationPreset(
-      state.expressionSelections ?? [],
-      selection,
-      option,
-    )
-    commit(withExpressionState(state, {
-      presentationPreset: selection,
-      expressionSelections: synced.selections,
-      expressionSelectionMode: synced.mode,
     }))
   }
 
@@ -539,18 +480,10 @@ export function TemplateShelf({
                 choices={state.choices}
                 expressionSelectionMode={state.expressionSelectionMode ?? 'unset'}
                 expressionSelections={state.expressionSelections ?? []}
-                fetcher={fetcher}
                 onOpenExpressions={onOpenExpressions
                   ? () => onOpenExpressions(selectedTemplate)
                   : undefined}
-                onPresentationPresetChange={handlePresentationPresetChange}
-                onRetryPresentationPresets={onRetryPresentationPresets}
-                presentationPreset={state.presentationPreset ?? null}
-                presentationPresetLoadState={presentationPresetLoadState}
-                presentationPresetNotice={presentationPresetNotice}
-                presentationPresets={presentationPresets}
                 template={selectedTemplate}
-                token={token}
               />
             )}
           </>
