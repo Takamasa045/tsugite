@@ -26,11 +26,17 @@ describe("dependency security contracts", () => {
 
     expect(manifest.overrides).toMatchObject({
       "@hono/node-server": "2.0.11",
-      "fast-uri": "3.1.4",
+      "fast-uri": "3.1.5",
+      hono: "4.13.0",
+      "ip-address": "10.4.0",
+      postcss: "8.5.25",
       sharp: "0.35.3"
     });
     expect(lockfile.packages["node_modules/@hono/node-server"].version).toBe("2.0.11");
-    expect(lockfile.packages["node_modules/fast-uri"].version).toBe("3.1.4");
+    expect(lockfile.packages["node_modules/fast-uri"].version).toBe("3.1.5");
+    expect(lockfile.packages["node_modules/hono"].version).toBe("4.13.0");
+    expect(lockfile.packages["node_modules/ip-address"].version).toBe("10.4.0");
+    expect(lockfile.packages["node_modules/postcss"].version).toBe("8.5.25");
     expect(lockfile.packages["node_modules/sharp"].version).toBe("0.35.3");
     expect(manifest.scripts["security:audit"]).toBe(
       "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate"

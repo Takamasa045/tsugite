@@ -10,13 +10,14 @@ const require = createRequire(import.meta.url);
 
 const EXPECTED_OVERRIDES = {
   "@babel/core": "7.29.7",
-  "brace-expansion": "5.0.8",
+  "brace-expansion": "5.0.9",
   "minimatch": "10.2.5",
-  "fast-uri": "3.1.4",
+  "fast-uri": "3.1.5",
   "js-yaml": "4.3.0",
-  "postcss": "8.5.21",
+  "postcss": "8.5.25",
   "react-server-dom-webpack": "19.2.8",
   "sharp": "0.35.3",
+  "undici": "7.29.0",
 };
 
 async function readJson(name) {
@@ -38,20 +39,21 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   );
   assert.equal(lockfile.packages["node_modules/next"].version, "16.2.11");
   assert.equal(lockfile.packages["node_modules/@babel/core"].version, "7.29.7");
-  assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "5.0.8");
+  assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "5.0.9");
   assert.equal(lockfile.packages["node_modules/minimatch"].version, "10.2.5");
   assert.equal(lockfile.packages["node_modules/react"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
-  assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.4");
+  assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.5");
   assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.0");
-  assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.21");
+  assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.25");
   assert.equal(lockfile.packages["node_modules/next/node_modules/postcss"], undefined);
   assert.equal(lockfile.packages["node_modules/sharp"].version, "0.35.3");
+  assert.equal(lockfile.packages["node_modules/undici"].version, "7.29.0");
   // No unpatched brace-expansion leftovers after the global override.
   for (const [path, entry] of Object.entries(lockfile.packages)) {
     if (path.endsWith("node_modules/brace-expansion")) {
-      assert.equal(entry.version, "5.0.8", path);
+      assert.equal(entry.version, "5.0.9", path);
     }
   }
 
@@ -94,7 +96,7 @@ test("keeps the patched PostCSS, URI, YAML, glob, and image paths operational", 
     },
   );
 
-  // Global override pins brace-expansion@5.0.8 for every consumer (including nested
+  // Global override pins brace-expansion@5.0.9 for every consumer (including nested
   // minimatch trees), so a single hoisted module is the operational path.
   const braceExpansion = require("brace-expansion");
   assert.equal(typeof braceExpansion.expand, "function");

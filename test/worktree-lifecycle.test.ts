@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
 import {
   auditAndCleanupWorktrees,
+  summarizeWorktreeCleanupWarning,
   type GitCommandRunner
 } from "../src/worktree/lifecycle.js";
 
@@ -405,6 +406,80 @@ describe("worktree lifecycle core", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("returns revalidated worktrees on apply failure so cleanup warning reflects current state", async () => {
+    const fixture = await createGitFixture();
+    const secondClean = join(fixture.base, "clean-merged-2");
+    const thirdClean = join(fixture.base, "clean-merged-3");
+    runGit(fixture.mainRoot, ["worktree", "add", "-b", "codex/clean-merged-2", secondClean]);
+    runGit(fixture.mainRoot, ["merge", "--ff-only", "codex/clean-merged-2"]);
+    runGit(fixture.mainRoot, ["worktree", "add", "-b", "codex/clean-merged-3", thirdClean]);
+    runGit(fixture.mainRoot, ["merge", "--ff-only", "codex/clean-merged-3"]);
+
+    const preview = await auditAndCleanupWorktrees({ cwd: fixture.mainRoot });
+    const initialWarning = summarizeWorktreeCleanupWarning(preview.worktrees);
+    expect(initialWarning).toMatchObject({
+      active: true,
+      threshold: 3,
+      removable_count: 3
+    });
+
+    let statusHitsOnClean = 0;
+    const removeCalls: string[][] = [];
+    const runner: GitCommandRunner = async (args, options) => {
+      if (args[0] === "worktree" && args[1] === "remove") {
+        removeCalls.push([...args]);
+        return defaultGitRunner(args, options);
+      }
+      const result = await defaultGitRunner(args, options);
+      if (args[0] === "status" && samePath(options.cwd, fixture.cleanMerged)) {
+        statusHitsOnClean += 1;
+        // After the initial audit, dirt the target so revalidation refuses remove
+        // and the returned worktree list must reflect only 2 remaining removable.
+        if (statusHitsOnClean === 1) {
+          await writeFile(join(fixture.cleanMerged, "late-dirty.txt"), "planted after audit\n");
+        }
+      }
+      return result;
+    };
+
+    const applied = await auditAndCleanupWorktrees({
+      cwd: fixture.mainRoot,
+      apply: true,
+      paths: [fixture.cleanMerged],
+      runGit: runner
+    });
+
+    expect(statusHitsOnClean).toBeGreaterThanOrEqual(2);
+    expect(removeCalls).toEqual([]);
+    expect(applied.ok).toBe(false);
+    expect(applied.applied).toBe(false);
+    expect(applied.removed).toEqual([]);
+    expect(
+      applied.issues.some((issue) =>
+        issue.code === "worktrees.target_changed"
+        || issue.code === "worktrees.not_removable"
+      )
+    ).toBe(true);
+
+    const dirtyTarget = await byPath(applied.worktrees, fixture.cleanMerged);
+    expect(dirtyTarget.removable).toBe(false);
+    expect(dirtyTarget.block_reasons).toEqual(
+      expect.arrayContaining(["dirty_untracked"])
+    );
+
+    const warning = summarizeWorktreeCleanupWarning(applied.worktrees);
+    expect(warning).toMatchObject({
+      active: false,
+      threshold: 3,
+      removable_count: 2
+    });
+    expect(warning.removable_paths).toHaveLength(2);
+    expect(
+      warning.removable_paths.some((path) => samePath(path, fixture.cleanMerged))
+    ).toBe(false);
+    await expect(access(fixture.cleanMerged)).resolves.toBeUndefined();
+  });
+
   it("revalidates before every remove when multiple targets are requested", async () => {
     const fixture = await createGitFixture();
     const secondClean = join(fixture.base, "clean-merged-2");
@@ -485,7 +560,14 @@ describe("pipeline worktrees command", () => {
     expect(previewJson).toMatchObject({
       ok: true,
       command: "worktrees",
-      applied: false
+      applied: false,
+      worktree_warning: {
+        active: false,
+        threshold: 3,
+        removable_count: 1,
+        removable_paths: [expect.any(String)]
+      },
+      warnings: []
     });
     expect(Array.isArray(previewJson.worktrees)).toBe(true);
     expect(previewJson.worktrees.length).toBeGreaterThanOrEqual(2);
@@ -524,6 +606,40 @@ describe("pipeline worktrees command", () => {
     expect(appliedJson.removed).toHaveLength(1);
     expect(samePath(appliedJson.removed[0], fixture.cleanMerged)).toBe(true);
     await expect(access(fixture.cleanMerged)).rejects.toThrow();
+  });
+
+  it("warns only when at least three worktrees are safely removable", async () => {
+    const fixture = await createGitFixture();
+    const secondClean = join(fixture.base, "clean-merged-2");
+    const thirdClean = join(fixture.base, "clean-merged-3");
+    runGit(fixture.mainRoot, ["worktree", "add", "-b", "codex/cleanup-alert-2", secondClean]);
+
+    const belowThreshold = await capture(["worktrees", "--json"], fixture.mainRoot);
+    expect(belowThreshold.status).toBe(0);
+    expect(JSON.parse(belowThreshold.stdout)).toMatchObject({
+      warnings: [],
+      worktree_warning: {
+        active: false,
+        threshold: 3,
+        removable_count: 2
+      }
+    });
+
+    runGit(fixture.mainRoot, ["worktree", "add", "-b", "codex/cleanup-alert-3", thirdClean]);
+
+    const preview = await capture(["worktrees", "--json"], fixture.mainRoot);
+    expect(preview.status).toBe(0);
+    const payload = JSON.parse(preview.stdout);
+    expect(payload.worktree_warning).toMatchObject({
+      active: true,
+      threshold: 3,
+      removable_count: 3
+    });
+    expect(payload.worktree_warning.removable_paths).toHaveLength(3);
+    expect(payload.warnings).toEqual([{
+      code: "worktrees.cleanup_candidates_accumulated",
+      message: expect.stringContaining("3")
+    }]);
   });
 
   it("rejects unknown options for worktrees", async () => {

@@ -222,6 +222,29 @@ node bin/pipeline worktrees --json
 node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
 ```
 
+The preview also returns a non-mutating `worktree_warning`. It becomes active
+when three or more worktrees are already classified as `removable: true` (clean,
+merged, unlocked, and free of protected ignored content). The warning counts
+cleanup-ready leftovers, not every active parallel task, and never authorizes or
+performs deletion. `warnings` contains
+`worktrees.cleanup_candidates_accumulated` only while the threshold is met.
+
+```json
+{
+  "worktree_warning": {
+    "active": true,
+    "threshold": 3,
+    "removable_count": 3,
+    "removable_paths": ["/absolute/path/to/worktree"]
+  }
+}
+```
+
+An optional host automation may inspect this field periodically and return
+`DONT_NOTIFY` while `active` is false, so normal checks stay silent. It must
+remain read-only and must not infer cleanup approval from the warning. See
+[Worktree Cleanup Alert](docs/automations/worktree-cleanup-alert.md).
+
 If completion is approved while local `main` is busy, record that exact clean worktree identity in the repository-local deferred queue. A single scheduled host task may then call `--reconcile`: it waits while `main` is dirty, builds an isolated merge, runs TypeScript and Vitest checks, revalidates both worktrees, fast-forwards unchanged local `main`, and removes the now-merged worktree without force. Conflicts, failed checks, changed identities, protected content, and a non-primary invocation stop without changing `main`. It never fetches, pushes, rebases, stashes, resets, cleans, deletes branches, or broadens the original completion authorization.
 
 ```sh
