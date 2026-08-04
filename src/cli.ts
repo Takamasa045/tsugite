@@ -25,7 +25,10 @@ import {
   type FinalizeRunDirIdentity,
   type FinalizeStateDirIdentity
 } from "./orchestrator/finalize.js";
-import { auditAndCleanupWorktrees } from "./worktree/lifecycle.js";
+import {
+  auditAndCleanupWorktrees,
+  summarizeWorktreeCleanupWarning
+} from "./worktree/lifecycle.js";
 import {
   deferWorktreeIntegration,
   reconcileDeferredWorktrees
@@ -430,10 +433,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         apply: args.apply,
         paths: args.paths
       });
+      const worktreeWarning = summarizeWorktreeCleanupWarning(result.worktrees ?? []);
+      const warnings: Issue[] = worktreeWarning.active
+        ? [{
+            code: "worktrees.cleanup_candidates_accumulated",
+            message: `${worktreeWarning.removable_count} safely removable worktrees are registered (warning threshold: ${worktreeWarning.threshold}); review them before explicit cleanup. This warning never removes worktrees.`
+          }]
+        : [];
       return output(args, result.ok ? 0 : 1, {
         ok: result.ok,
         command: "worktrees",
         issues: result.issues,
+        warnings,
+        worktree_warning: worktreeWarning,
         applied: result.applied ?? false,
         git_common_dir: result.git_common_dir,
         primary_path: result.primary_path,

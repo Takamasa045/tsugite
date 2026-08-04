@@ -52,6 +52,15 @@ export type WorktreeLifecycleResult = {
   worktrees: WorktreeReport[];
 };
 
+export const WORKTREE_CLEANUP_WARNING_THRESHOLD = 3;
+
+export type WorktreeCleanupWarning = {
+  active: boolean;
+  threshold: number;
+  removable_count: number;
+  removable_paths: string[];
+};
+
 export type AuditAndCleanupWorktreesOptions = {
   cwd?: string;
   apply?: boolean;
@@ -76,6 +85,24 @@ const PROTECTED_ROOT_NAMES = [
 ] as const;
 
 const PROTECTED_IGNORED_NAMES = new Set([".env"]);
+
+export function summarizeWorktreeCleanupWarning(
+  worktrees: readonly WorktreeReport[],
+  threshold = WORKTREE_CLEANUP_WARNING_THRESHOLD
+): WorktreeCleanupWarning {
+  if (!Number.isInteger(threshold) || threshold < 1) {
+    throw new Error("worktree cleanup warning threshold must be a positive integer");
+  }
+  const removablePaths = uniqueSorted(
+    worktrees.filter((worktree) => worktree.removable).map((worktree) => worktree.path)
+  );
+  return {
+    active: removablePaths.length >= threshold,
+    threshold,
+    removable_count: removablePaths.length,
+    removable_paths: removablePaths
+  };
+}
 
 export async function auditAndCleanupWorktrees(
   options: AuditAndCleanupWorktreesOptions = {}

@@ -485,7 +485,14 @@ describe("pipeline worktrees command", () => {
     expect(previewJson).toMatchObject({
       ok: true,
       command: "worktrees",
-      applied: false
+      applied: false,
+      worktree_warning: {
+        active: false,
+        threshold: 3,
+        removable_count: 1,
+        removable_paths: [expect.any(String)]
+      },
+      warnings: []
     });
     expect(Array.isArray(previewJson.worktrees)).toBe(true);
     expect(previewJson.worktrees.length).toBeGreaterThanOrEqual(2);
@@ -524,6 +531,40 @@ describe("pipeline worktrees command", () => {
     expect(appliedJson.removed).toHaveLength(1);
     expect(samePath(appliedJson.removed[0], fixture.cleanMerged)).toBe(true);
     await expect(access(fixture.cleanMerged)).rejects.toThrow();
+  });
+
+  it("warns only when at least three worktrees are safely removable", async () => {
+    const fixture = await createGitFixture();
+    const secondClean = join(fixture.base, "clean-merged-2");
+    const thirdClean = join(fixture.base, "clean-merged-3");
+    runGit(fixture.mainRoot, ["worktree", "add", "-b", "codex/cleanup-alert-2", secondClean]);
+
+    const belowThreshold = await capture(["worktrees", "--json"], fixture.mainRoot);
+    expect(belowThreshold.status).toBe(0);
+    expect(JSON.parse(belowThreshold.stdout)).toMatchObject({
+      warnings: [],
+      worktree_warning: {
+        active: false,
+        threshold: 3,
+        removable_count: 2
+      }
+    });
+
+    runGit(fixture.mainRoot, ["worktree", "add", "-b", "codex/cleanup-alert-3", thirdClean]);
+
+    const preview = await capture(["worktrees", "--json"], fixture.mainRoot);
+    expect(preview.status).toBe(0);
+    const payload = JSON.parse(preview.stdout);
+    expect(payload.worktree_warning).toMatchObject({
+      active: true,
+      threshold: 3,
+      removable_count: 3
+    });
+    expect(payload.worktree_warning.removable_paths).toHaveLength(3);
+    expect(payload.warnings).toEqual([{
+      code: "worktrees.cleanup_candidates_accumulated",
+      message: expect.stringContaining("3")
+    }]);
   });
 
   it("rejects unknown options for worktrees", async () => {
