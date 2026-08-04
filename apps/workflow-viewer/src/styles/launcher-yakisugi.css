@@ -332,6 +332,17 @@
 .launcher-project-card[data-unrefreshable="true"] .launcher-project-status { background: var(--launcher-urushi); }
 .launcher-project-card[data-selected="true"] { border-color: var(--launcher-urushi); box-shadow: inset 4px 0 var(--launcher-urushi), 0 8px 24px rgba(92, 47, 33, .13); }
 .launcher-project-card[data-busy="true"] { opacity: .66; }
+.launcher-direct-artifacts { margin-top: 24px; border-top: 1px solid rgba(75, 55, 32, .2); padding-top: 18px; }
+.launcher-direct-artifacts-heading h3 { margin: 4px 0 12px; color: var(--launcher-sumi); font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 1rem; }
+.launcher-direct-artifact-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.launcher-direct-artifact-card { display: grid; gap: 8px; min-width: 0; border: 1px solid rgba(75, 55, 32, .2); border-radius: 1px 14px 1px 14px; padding: 16px; color: var(--launcher-sumi); background: rgba(255, 250, 240, .72); }
+.launcher-direct-artifact-kind { color: var(--launcher-urushi); font-size: .64rem; font-weight: 800; letter-spacing: .06em; }
+.launcher-direct-artifact-card > strong { overflow: hidden; font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: .98rem; text-overflow: ellipsis; white-space: nowrap; }
+.launcher-direct-artifact-card dl { margin: 0; color: var(--launcher-mokucha); font-size: .68rem; }
+.launcher-direct-artifact-card dl > div { display: flex; gap: 8px; }
+.launcher-direct-artifact-card dt { color: var(--launcher-sumi-muted); }
+.launcher-direct-artifact-card dd { margin: 0; font-variant-numeric: tabular-nums; }
+.launcher-direct-artifact-card > small { color: var(--launcher-urushi); font-size: .64rem; font-weight: 800; }
 .launcher-project-thumbnail-button,
 .launcher-project-select {
   display: block;
@@ -1331,6 +1342,7 @@
   .launcher-joinery li { flex-direction: column; gap: 4px; font-size: .64rem; letter-spacing: .02em; }
   .launcher-projects,
   .launcher-selection { padding: 20px 16px; }
+  .launcher-direct-artifact-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 460px) {
