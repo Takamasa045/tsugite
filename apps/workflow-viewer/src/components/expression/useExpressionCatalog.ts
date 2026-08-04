@@ -124,7 +124,7 @@ export function useExpressionCatalog({
     // Failed: keep previous list only when requested and we still have items.
     if (!keepPrevious || catalogItemsRef.current.length === 0) {
       setCatalogState('error')
-      setCatalogError('参考一覧を読み込めませんでした。制作依頼に指定できる仕上げと制作依頼文はそのまま使えます。')
+      setCatalogError('参考一覧を読み込めませんでした。この環境の仕上げ候補と制作依頼文はそのまま使えます。')
       onStatusMessageRef.current?.('参考一覧を読み込めませんでした。')
       return
     }

@@ -25,6 +25,9 @@ const sampleSelection: ExpressionSelection = {
   provider: sampleItem.provider,
   nativeId: sampleItem.nativeId,
   title: sampleItem.title,
+  description: sampleItem.description,
+  tags: [...sampleItem.tags],
+  features: [...sampleItem.features],
   role: sampleItem.role,
   capability: sampleItem.capability,
   previewFidelity: sampleItem.previewFidelity,
@@ -48,7 +51,7 @@ describe('ExpressionCard / ExpressionRecommendations soft-disable focus', () => 
       </ul>,
     )
 
-    const add = screen.getByRole('button', { name: '一覧の仕上げ softを制作依頼へ追加' })
+    const add = screen.getByRole('button', { name: '一覧の仕上げ softをコピー候補に追加' })
     add.focus()
     await user.click(add)
     expect(onSelect).toHaveBeenCalledTimes(1)
@@ -102,7 +105,7 @@ describe('ExpressionCard / ExpressionRecommendations soft-disable focus', () => 
     )
 
     const add = screen.getByRole('button', {
-      name: '絞り込んだ候補の仕上げ softを制作依頼へ追加',
+      name: '絞り込んだ候補の仕上げ softをコピー候補に追加',
     })
     await user.click(add)
     expect(onSelect).toHaveBeenCalledTimes(1)

@@ -1,10 +1,12 @@
 import { Check } from 'lucide-react'
 
 import { ExpressionPreview } from './ExpressionPreview'
+import { LocalClipboardCopyButton } from './LocalClipboardCopyButton'
 import {
   capabilityLabel,
   expressionSelectionHint,
   expressionStatusLabel,
+  formatExpressionItemPrompt,
   previewFidelityLabel,
   type ExpressionItem,
   type ExpressionSelection,
@@ -27,8 +29,8 @@ export function ExpressionRecommendations({
       <div className="launcher-expression-section-heading">
         <h3>絞り込んだ候補</h3>
         <p>
-          1〜3件は見比べ用の提案です。制作依頼へ入るのは下のトレイで追加したものだけです。
-          全体構成1件と補助表現最大2件は組み合わせできます。
+          1〜3件は見比べ用の提案です。コピー候補に入るのは下のトレイで追加したものだけです。
+          全体構成1件と補助表現最大2件は組み合わせできます。各カードから単体のプロンプトもコピーできます。
         </p>
       </div>
       {recommendation.clarification && (
@@ -65,23 +67,29 @@ export function ExpressionRecommendations({
                     {capabilityLabel(entry.item.capability)}
                   </span>
                 </div>
-                <button
-                  aria-label={selected
-                    ? `絞り込んだ候補の${entry.item.title}は選択中`
-                    : `絞り込んだ候補の${entry.item.title}を制作依頼へ追加`}
-                  aria-disabled={selected || undefined}
-                  className="launcher-secondary"
-                  onClick={() => {
-                    // Soft-disable while selected so Chromium keeps focus on this control.
-                    if (selected) return
-                    onSelect(entry.item, entry.reasons[0] ?? '候補一致')
-                  }}
-                  type="button"
-                >
-                  {selected ? (
-                    <><Check aria-hidden="true" size={14} />選択中</>
-                  ) : '制作依頼へ追加'}
-                </button>
+                <div className="launcher-expression-card-actions">
+                  <button
+                    aria-label={selected
+                      ? `絞り込んだ候補の${entry.item.title}は選択中`
+                      : `絞り込んだ候補の${entry.item.title}をコピー候補に追加`}
+                    aria-disabled={selected || undefined}
+                    className="launcher-secondary"
+                    onClick={() => {
+                      // Soft-disable while selected so Chromium keeps focus on this control.
+                      if (selected) return
+                      onSelect(entry.item, entry.reasons[0] ?? '候補一致')
+                    }}
+                    type="button"
+                  >
+                    {selected ? (
+                      <><Check aria-hidden="true" size={14} />選択中</>
+                    ) : 'コピー候補に追加'}
+                  </button>
+                  <LocalClipboardCopyButton
+                    ariaLabel={`絞り込んだ候補の${entry.item.title}のプロンプトをコピー`}
+                    text={formatExpressionItemPrompt(entry.item)}
+                  />
+                </div>
               </div>
             </li>
           )

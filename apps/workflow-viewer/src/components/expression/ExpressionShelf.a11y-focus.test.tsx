@@ -334,7 +334,7 @@ describe('ExpressionShelf a11y / keyboard focus regressions', () => {
     await user.keyboard('{Enter}')
     expect(selections.map((entry) => entry.title)).toEqual(['候補A', '候補C'])
     expect(screen.getByRole('button', { name: '候補Cを外す' })).toHaveFocus()
-    expect(screen.getByText(/候補B を制作依頼から外しました/)).toBeVisible()
+    expect(screen.getByText(/候補B をコピー候補から外しました/)).toBeVisible()
 
     // Remove last remaining at end (候補C) → previous (候補A)
     await user.keyboard('{Enter}')
@@ -344,7 +344,7 @@ describe('ExpressionShelf a11y / keyboard focus regressions', () => {
     // Remove last → empty state at list position (tabIndex=-1, scroll allowed)
     await user.keyboard('{Enter}')
     expect(selections).toHaveLength(0)
-    const emptyState = screen.getByText(/まだ選んでいません/)
+    const emptyState = screen.getByText('まだ選んでいません。追加したものだけがコピー候補に入り、まとめてプロンプトをコピーできます。')
     expect(emptyState).toHaveFocus()
     expect(document.activeElement).not.toBe(document.body)
     // 全体構成1・補助2契約の見出し説明と status 文言を維持
@@ -425,7 +425,7 @@ describe('ExpressionShelf a11y / keyboard focus regressions', () => {
     nextRemove.focus()
     await user.keyboard('{Enter}')
     expect(selections).toHaveLength(0)
-    const emptyState = screen.getByText(/まだ選んでいません/)
+    const emptyState = screen.getByText('まだ選んでいません。追加したものだけがコピー候補に入り、まとめてプロンプトをコピーできます。')
     expect(emptyState).toHaveFocus()
     const emptyFocusCalls = focusSpy.mock.calls.filter((_, index) => {
       return focusSpy.mock.instances[index] === emptyState
@@ -481,12 +481,12 @@ describe('ExpressionShelf a11y / keyboard focus regressions', () => {
     expect(MAX_TAG).toHaveLength(64)
 
     await user.click(screen.getByRole('button', {
-      name: `一覧の${MAX_TITLE}を制作依頼へ追加`,
+      name: `一覧の${MAX_TITLE}をコピー候補に追加`,
     }))
     expect(selections).toHaveLength(1)
     expect(selections[0]?.title).toBe(MAX_TITLE)
     expect(selections[0]?.nativeId).toBe(MAX_ID)
-    const tray = screen.getByRole('complementary', { name: '選んだ候補' })
+    const tray = screen.getByRole('complementary', { name: 'コピー候補' })
     expect(within(tray).getByText(MAX_TITLE)).toBeVisible()
     expect(
       within(tray).getAllByText((_, node) => node?.textContent?.includes(MAX_ID) ?? false).length,

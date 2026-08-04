@@ -105,7 +105,7 @@ export function ReferenceExpressionGroup({
         <div className="launcher-expression-state">
           <p>
             アイデア用の参考一覧はまだ読み込んでいません。
-            ボタンを押すと公式カタログへ外部通信します。閲覧だけでは制作依頼に入りません。
+            ボタンを押すと公式カタログへ外部通信します。閲覧だけではコピー候補にも制作依頼にも入りません。
           </p>
         </div>
       )}

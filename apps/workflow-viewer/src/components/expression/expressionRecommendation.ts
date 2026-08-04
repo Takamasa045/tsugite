@@ -256,7 +256,7 @@ function scoreItem(
   // Availability preference
   if (item.capability === 'declared-executable-candidate') {
     score += 8
-    reasons.push('制作依頼に指定できる候補として宣言されている')
+    reasons.push('この環境の仕上げ候補として宣言されている')
   } else if (item.capability === 'reference-only') {
     score += 2
     cautions.push('参考のみで、実装・書き出しは未確認です')
@@ -364,7 +364,7 @@ export function recommendExpressions(
   if (recommendations.length === 0) {
     return {
       recommendations: [],
-      clarification: '比率・目的・制作依頼に指定できる候補かどうか、どれを優先しますか？',
+      clarification: '比率・目的・仕上げ候補かどうか、どれを優先しますか？',
       lexiconVersion: LEXICON_VERSION,
     }
   }

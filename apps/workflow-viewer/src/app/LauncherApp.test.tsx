@@ -1245,13 +1245,13 @@ describe('LauncherApp', () => {
     expect(
       screen.getByText((content) => content.includes('この画面では生成・実行・Gate更新をしません')),
     ).toBeVisible()
-    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'この環境の仕上げ候補' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(
-      /制作依頼に指定できる仕上げ|article-dialogue-16x9/,
+      /この環境の仕上げ候補|article-dialogue-16x9/,
     )
     expect(screen.queryByText('表現のヒントを探す')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '選んだ表現' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '表現を変更' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'コピー候補を変更' })).toBeVisible()
     expect(fetcher).not.toHaveBeenCalledWith('/api/reference-catalogs/hyperframes', expect.anything())
     expect(screen.queryByRole('button', { name: /生成|実行|run|render/i })).not.toBeInTheDocument()
 
@@ -1299,20 +1299,20 @@ describe('LauncherApp', () => {
 
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
     expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'この環境の仕上げ候補' })).not.toBeInTheDocument()
 
     const brief = screen.getByLabelText('制作依頼本文')
-    expect(brief.textContent).not.toMatch(/制作依頼に指定できる仕上げ|article-dialogue-16x9/)
+    expect(brief.textContent).not.toMatch(/この環境の仕上げ候補|article-dialogue-16x9/)
 
     // 表現棚は独立タブ。候補の取得はこの棚を開いたときだけ行う。
     await user.click(screen.getByRole('tab', { name: '表現' }))
-    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、制作依頼に入れる' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、プロンプトをコピーする' })).toBeVisible()
     expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/presets'))).toHaveLength(2)
     const expressionPanel = screen.getByRole('tabpanel')
     expect(expressionPanel).toHaveAttribute('id', 'launcher-expressions-panel')
     expect(expressionPanel).toHaveAttribute('aria-labelledby', 'launcher-expressions-tab')
     expect(screen.getByRole('tab', { name: '表現' })).toHaveAttribute('id', 'launcher-expressions-tab')
-    expect(screen.getByRole('region', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByRole('region', { name: 'この環境の仕上げ候補' })).toBeVisible()
     expect(screen.getByRole('region', { name: 'アイデアとして参照する表現' })).toBeVisible()
     expect(screen.getAllByText(/概念見本|公式実装の再現ではありません|実際の構成・動きの再現ではありません/).length).toBeGreaterThan(0)
     expect(fetcher.mock.calls.filter(([url]) => String(url).includes('reference-catalogs'))).toHaveLength(0)
@@ -1356,23 +1356,24 @@ describe('LauncherApp', () => {
 
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
     expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
-    expect(screen.getByRole('button', { name: '表現を変更' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'コピー候補を変更' })).toBeVisible()
 
-    // template 内の「表現を変更」→ return context 付き
-    await user.click(screen.getByRole('button', { name: '表現を変更' }))
-    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、制作依頼に入れる' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '制作依頼へ反映して戻る' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: '自由制作に貼り付ける表現指定' })).not.toBeInTheDocument()
+    // template 内の「コピー候補を変更」→ return context 付き（コピーUIは隠さない）
+    await user.click(screen.getByRole('button', { name: 'コピー候補を変更' }))
+    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、プロンプトをコピーする' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'コピー候補を保持してテンプレートへ戻る' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '選んだ表現のプロンプト' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'まとめてプロンプトをコピー' })).toBeVisible()
 
     // 別タブへ移動（通常の selectShelf）
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
     expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
 
-    // 上部の表現タブを直接開く → return context 破棄、自由制作 export 表示
+    // 上部の表現タブを直接開く → return context 破棄、戻るボタンなし（コピーUIは継続）
     await user.click(screen.getByRole('tab', { name: '表現' }))
-    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、制作依頼に入れる' })).toBeVisible()
-    expect(screen.getByRole('heading', { name: '自由制作に貼り付ける表現指定' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: '制作依頼へ反映して戻る' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、プロンプトをコピーする' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '選んだ表現のプロンプト' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'コピー候補を保持してテンプレートへ戻る' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'テンプレートへ戻る' })).not.toBeInTheDocument()
   })
 
@@ -1392,13 +1393,13 @@ describe('LauncherApp', () => {
     await user.keyboard('{Enter}')
 
     const expressionHeading = await screen.findByRole('heading', {
-      name: '動きや仕上げを見比べて、制作依頼に入れる',
+      name: '動きや仕上げを見比べて、プロンプトをコピーする',
     })
     expect(expressionHeading).toHaveFocus()
     expect(document.activeElement).not.toBe(document.body)
 
-    // 制作依頼へ反映して戻る（keyboard）
-    const returnButton = screen.getByRole('button', { name: '制作依頼へ反映して戻る' })
+    // コピー候補を保持してテンプレートへ戻る（keyboard）
+    const returnButton = screen.getByRole('button', { name: 'コピー候補を保持してテンプレートへ戻る' })
     returnButton.focus()
     await user.keyboard('{Enter}')
 
@@ -1433,7 +1434,7 @@ describe('LauncherApp', () => {
     await user.keyboard('{Enter}')
 
     const expressionHeading = await screen.findByRole('heading', {
-      name: '動きや仕上げを見比べて、制作依頼に入れる',
+      name: '動きや仕上げを見比べて、プロンプトをコピーする',
     })
     expect(expressionHeading).toHaveFocus()
 
@@ -1448,7 +1449,7 @@ describe('LauncherApp', () => {
     }
 
     focusSpy.mockClear()
-    const returnButton = screen.getByRole('button', { name: '制作依頼へ反映して戻る' })
+    const returnButton = screen.getByRole('button', { name: 'コピー候補を保持してテンプレートへ戻る' })
     returnButton.focus()
     await user.keyboard('{Enter}')
 
@@ -1467,7 +1468,7 @@ describe('LauncherApp', () => {
     focusSpy.mockRestore()
   })
 
-  it('checklist「表現を変更」keyboard往復でもfocusを安定復元する', async () => {
+  it('checklist「コピー候補を変更」keyboard往復でもfocusを安定復元する', async () => {
     const user = userEvent.setup()
     const fetcher = createLauncherFetcher()
 
@@ -1479,20 +1480,20 @@ describe('LauncherApp', () => {
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
     expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
 
-    const changeExpressions = screen.getByRole('button', { name: '表現を変更' })
+    const changeExpressions = screen.getByRole('button', { name: 'コピー候補を変更' })
     changeExpressions.focus()
     await user.keyboard('{Enter}')
 
     expect(await screen.findByRole('heading', {
-      name: '動きや仕上げを見比べて、制作依頼に入れる',
+      name: '動きや仕上げを見比べて、プロンプトをコピーする',
     })).toHaveFocus()
 
-    const returnButton = screen.getByRole('button', { name: '制作依頼へ反映して戻る' })
+    const returnButton = screen.getByRole('button', { name: 'コピー候補を保持してテンプレートへ戻る' })
     returnButton.focus()
     await user.keyboard('{Enter}')
 
     await screen.findByRole('heading', { name: /制作依頼ができました/ })
-    const restored = screen.getByRole('button', { name: '表現を変更' })
+    const restored = screen.getByRole('button', { name: 'コピー候補を変更' })
     expect(restored).toHaveFocus()
     expect(document.activeElement).not.toBe(document.body)
   })
@@ -1528,10 +1529,10 @@ describe('LauncherApp', () => {
     await user.keyboard('{Enter}')
 
     expect(await screen.findByRole('heading', {
-      name: '動きや仕上げを見比べて、制作依頼に入れる',
+      name: '動きや仕上げを見比べて、プロンプトをコピーする',
     })).toHaveFocus()
 
-    const returnButton = screen.getByRole('button', { name: '制作依頼へ反映して戻る' })
+    const returnButton = screen.getByRole('button', { name: 'コピー候補を保持してテンプレートへ戻る' })
     returnButton.focus()
     await user.keyboard('{Enter}')
 

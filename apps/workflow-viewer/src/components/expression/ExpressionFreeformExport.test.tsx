@@ -1,36 +1,109 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ExpressionFreeformExport,
   FREEFORM_CLIPBOARD_TIMEOUT_MS,
 } from './ExpressionFreeformExport'
 
+function installExecCommand(
+  impl: ((commandId: string) => boolean) | boolean,
+): { execCommand: ReturnType<typeof vi.fn>; restore: () => void } {
+  const previous = Object.getOwnPropertyDescriptor(document, 'execCommand')
+  const execCommand = typeof impl === 'boolean'
+    ? vi.fn().mockReturnValue(impl)
+    : vi.fn(impl)
+  Object.defineProperty(document, 'execCommand', {
+    configurable: true,
+    value: execCommand,
+  })
+  return {
+    execCommand,
+    restore: () => {
+      if (previous) {
+        Object.defineProperty(document, 'execCommand', previous)
+      } else {
+        Reflect.deleteProperty(document, 'execCommand')
+      }
+    },
+  }
+}
+
 describe('ExpressionFreeformExport', () => {
+  afterEach(() => {
+    document.querySelectorAll('textarea[aria-hidden="true"]').forEach((node) => {
+      node.remove()
+    })
+  })
+
   it('does not auto-copy on mount or exportText change', () => {
     const writeText = vi.fn(async () => undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText },
     })
+    const { execCommand, restore } = installExecCommand(true)
     const onStatusMessage = vi.fn()
-    const { rerender } = render(
-      <ExpressionFreeformExport
-        exportText="first body"
-        onStatusMessage={onStatusMessage}
-      />,
-    )
-    expect(writeText).toHaveBeenCalledTimes(0)
-    expect(screen.queryByText(/コピー済み/)).not.toBeInTheDocument()
+    try {
+      const { rerender } = render(
+        <ExpressionFreeformExport
+          exportText="first body"
+          onStatusMessage={onStatusMessage}
+        />,
+      )
+      expect(writeText).toHaveBeenCalledTimes(0)
+      expect(execCommand).not.toHaveBeenCalled()
+      expect(screen.queryByText(/コピー済み/)).not.toBeInTheDocument()
 
-    rerender(
-      <ExpressionFreeformExport
-        exportText="second body"
-        onStatusMessage={onStatusMessage}
-      />,
-    )
-    expect(writeText).toHaveBeenCalledTimes(0)
-    expect(screen.queryByText(/コピー済み|コピーに失敗/)).not.toBeInTheDocument()
+      rerender(
+        <ExpressionFreeformExport
+          exportText="second body"
+          onStatusMessage={onStatusMessage}
+        />,
+      )
+      expect(writeText).toHaveBeenCalledTimes(0)
+      expect(execCommand).not.toHaveBeenCalled()
+      expect(screen.queryByText(/コピー済み|コピーに失敗/)).not.toBeInTheDocument()
+    } finally {
+      restore()
+    }
+  })
+
+  it('uses execCommand first and does not call navigator on success', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    // Capture only — throw inside execCommand would fall back to navigator.
+    // jsdom may not move activeElement on select(); inspect the temporary node.
+    const captured: { value?: string } = {}
+    const { execCommand, restore } = installExecCommand((commandId) => {
+      if (commandId === 'copy') {
+        const area = document.querySelector('textarea[aria-hidden="true"]')
+        if (area instanceof HTMLTextAreaElement) {
+          captured.value = area.value
+        }
+      }
+      return true
+    })
+    try {
+      render(
+        <ExpressionFreeformExport
+          exportText="exec-first-body"
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'まとめてプロンプトをコピー' }))
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        /コピー済みです。まだ送信していません/,
+      )
+      expect(execCommand).toHaveBeenCalledWith('copy')
+      expect(captured.value).toBe('exec-first-body')
+      expect(writeText).not.toHaveBeenCalled()
+      expect(document.querySelector('textarea[aria-hidden="true"]')).not.toBeInTheDocument()
+    } finally {
+      restore()
+    }
   })
 
   it('ignores stale deferred resolve after exportText change (no copied on new body)', async () => {
@@ -50,7 +123,7 @@ describe('ExpressionFreeformExport', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '表現指定をコピー' }))
+    fireEvent.click(screen.getByRole('button', { name: 'まとめてプロンプトをコピー' }))
     // writeText is scheduled via Promise.resolve().then (sync-throw normalization)
     await act(async () => {
       await Promise.resolve()
@@ -67,7 +140,7 @@ describe('ExpressionFreeformExport', () => {
       />,
     )
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('textbox', { name: '自由制作に貼り付ける表現指定' }))
+    expect(screen.getByRole('textbox', { name: '選んだ表現のプロンプト' }))
       .toHaveValue('body-v2')
     expect(screen.queryByText(/コピー済み|コピーに失敗/)).not.toBeInTheDocument()
 
@@ -100,7 +173,7 @@ describe('ExpressionFreeformExport', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '表現指定をコピー' }))
+    fireEvent.click(screen.getByRole('button', { name: 'まとめてプロンプトをコピー' }))
     await act(async () => {
       await Promise.resolve()
     })
@@ -139,7 +212,7 @@ describe('ExpressionFreeformExport', () => {
           onStatusMessage={onStatusMessage}
         />,
       )
-      fireEvent.click(screen.getByRole('button', { name: '表現指定をコピー' }))
+      fireEvent.click(screen.getByRole('button', { name: 'まとめてプロンプトをコピー' }))
       await act(async () => {
         await Promise.resolve()
       })
@@ -179,7 +252,7 @@ describe('ExpressionFreeformExport', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '表現指定をコピー' }))
+    fireEvent.click(screen.getByRole('button', { name: 'まとめてプロンプトをコピー' }))
     expect(await screen.findByRole('status')).toHaveTextContent(
       /コピー済みです。まだ送信していません/,
     )
@@ -221,7 +294,7 @@ describe('ExpressionFreeformExport', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '表現指定をコピー' }))
+    fireEvent.click(screen.getByRole('button', { name: 'まとめてプロンプトをコピー' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'コピーに失敗しました。表示中の文言を手動で選んでコピーしてください。',
@@ -247,7 +320,7 @@ describe('ExpressionFreeformExport', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '表現指定をコピー' }))
+    fireEvent.click(screen.getByRole('button', { name: 'まとめてプロンプトをコピー' }))
     expect(await screen.findByRole('status')).toHaveTextContent(
       'コピー済みです。まだ送信していません。',
     )

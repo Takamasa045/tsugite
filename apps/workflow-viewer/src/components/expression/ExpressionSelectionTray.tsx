@@ -73,14 +73,15 @@ export function ExpressionSelectionTray({
   }
 
   return (
-    <aside aria-label="選んだ候補" className="launcher-expression-tray" role="complementary">
+    <aside aria-label="コピー候補" className="launcher-expression-tray" role="complementary">
       <div className="launcher-expression-section-heading">
-        <h3 ref={headingRef} tabIndex={-1}>制作依頼に入れる候補</h3>
+        <h3 ref={headingRef} tabIndex={-1}>コピー候補</h3>
         <p>
           最大{EXPRESSION_SELECTION_LIMITS.maxTotal}件
           （全体構成{EXPRESSION_SELECTION_LIMITS.maxFullComposition}・補助
           {EXPRESSION_SELECTION_LIMITS.maxAuxiliary}）。
           {EXPRESSION_SELECTION_COMBINE_NOTE}
+          制作依頼本文へは自動では入りません。
         </p>
       </div>
       <p className="launcher-expression-tray-mode" role="status">
@@ -92,7 +93,7 @@ export function ExpressionSelectionTray({
           className="launcher-expression-state"
           tabIndex={-1}
         >
-          まだ選んでいません。追加したものだけが制作依頼に入ります。
+          まだ選んでいません。追加したものだけがコピー候補に入り、まとめてプロンプトをコピーできます。
         </p>
       ) : (
         <ul className="launcher-expression-tray-list" ref={listRef}>
@@ -118,16 +119,15 @@ export function ExpressionSelectionTray({
           ))}
         </ul>
       )}
+      <ExpressionFreeformExport
+        exportText={freeformExportText}
+        onStatusMessage={onStatusMessage}
+      />
       {onReturnToTemplate ? (
         <button className="launcher-primary" onClick={onReturnToTemplate} type="button">
-          制作依頼へ反映して戻る
+          コピー候補を保持してテンプレートへ戻る
         </button>
-      ) : (
-        <ExpressionFreeformExport
-          exportText={freeformExportText}
-          onStatusMessage={onStatusMessage}
-        />
-      )}
+      ) : null}
     </aside>
   )
 }

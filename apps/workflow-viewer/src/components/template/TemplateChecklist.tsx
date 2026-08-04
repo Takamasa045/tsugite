@@ -5,11 +5,13 @@ import {
   EXPRESSION_SELECTION_COMBINE_NOTE,
   capabilityLabel,
   expressionRoleLabel,
+  formatExpressionCandidatesPromptSection,
   previewFidelityLabel,
   selectionModeLabel,
   type ExpressionSelection,
   type ExpressionSelectionMode,
 } from '../expression/expressionLibraryModel'
+import { ExpressionFreeformExport } from '../expression/ExpressionFreeformExport'
 import {
   buildTemplateProductionPrompt,
   materialDeliveryInstruction,
@@ -109,12 +111,17 @@ export function TemplateChecklist({
   const detailsId = useId()
   const expressionHeadingId = useId()
   const headingRef = useRef<HTMLHeadingElement | null>(null)
+  // 制作依頼本文には表現選択を一切混ぜない（表現は別プロンプトとしてコピー）
   const productionPrompt = useMemo(
-    () => buildTemplateProductionPrompt(template, choices, {
+    () => buildTemplateProductionPrompt(template, choices),
+    [choices, template],
+  )
+  const expressionPrompt = useMemo(
+    () => formatExpressionCandidatesPromptSection({
       mode: expressionSelectionMode,
       selections: expressionSelections,
     }),
-    [choices, expressionSelectionMode, expressionSelections, template],
+    [expressionSelectionMode, expressionSelections],
   )
   const resolvedInputs = useMemo(
     () => resolveRequiredInputDetails(template, choices),
@@ -241,7 +248,8 @@ export function TemplateChecklist({
         <div className="launcher-template-checklist-expression-heading">
           <h3 id={expressionHeadingId}>選んだ表現</h3>
           <p>
-            表現棚で選んだ候補です。{EXPRESSION_SELECTION_COMBINE_NOTE}
+            表現棚で選んだコピー候補です。{EXPRESSION_SELECTION_COMBINE_NOTE}
+            制作依頼本文とは別の表現プロンプトとしてコピーできます。
             巨大な一覧の埋め込みは置かず、表現タブへ移動して選びます。
           </p>
         </div>
@@ -250,7 +258,7 @@ export function TemplateChecklist({
         </p>
         {expressionSelections.length === 0 ? (
           <p className="launcher-template-expression-state">
-            まだ表現候補を明示選択していません。
+            まだコピー候補を明示選択していません。
           </p>
         ) : (
           <ul className="launcher-template-expression-selection-list">
@@ -266,6 +274,13 @@ export function TemplateChecklist({
             ))}
           </ul>
         )}
+        <ExpressionFreeformExport
+          exportText={expressionPrompt}
+          heading="選んだ表現のプロンプト"
+          description="制作依頼本文には自動では入りません。下のボタンを押したときだけ、表現プロンプトをローカルにコピーします。"
+          previewLabel="選んだ表現のプロンプト"
+          copyLabel="表現プロンプトをコピー"
+        />
         {onOpenExpressions && (
           <button
             className="launcher-secondary"
@@ -275,12 +290,12 @@ export function TemplateChecklist({
             type="button"
           >
             <Sparkles aria-hidden="true" size={16} />
-            表現を変更
+            コピー候補を変更
           </button>
         )}
         {!onOpenExpressions && (
           <p className="launcher-template-expression-state">
-            上部ナビの「表現」タブから候補を選べます。
+            上部ナビの「表現」タブからコピー候補を選べます。
           </p>
         )}
       </section>
@@ -304,8 +319,8 @@ export function TemplateChecklist({
           )}
         </button>
         <p className="launcher-template-checklist-copy-scope">
-          目的・選択内容・必須素材・制作条件・表現候補
-          だけをコピーします。
+          目的・選択内容・必須素材・制作条件だけをコピーします。
+          表現プロンプトは上の「表現プロンプトをコピー」から別にコピーしてください。
           任意素材や「向かない用途」はコピーしません。
         </p>
         {copyState === 'failed' && (

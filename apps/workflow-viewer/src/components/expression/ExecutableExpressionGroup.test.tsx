@@ -76,7 +76,7 @@ describe('ExecutableExpressionGroup retry focus', () => {
     await user.click(screen.getByRole('button', { name: 'complete-load' }))
 
     const addButton = screen.getByRole('button', {
-      name: '一覧の仕上げ候補 1を制作依頼へ追加',
+      name: '一覧の仕上げ候補 1をコピー候補に追加',
     })
     expect(addButton).toHaveFocus()
     expect(document.activeElement).not.toBe(document.body)
@@ -90,7 +90,7 @@ describe('ExecutableExpressionGroup retry focus', () => {
     expect(screen.getByRole('button', { name: '読み込んでいます…' })).toHaveFocus()
     await user.click(screen.getByRole('button', { name: 'complete-load' }))
 
-    expect(screen.getByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toHaveFocus()
+    expect(screen.getByRole('heading', { name: 'この環境の仕上げ候補' })).toHaveFocus()
     expect(document.activeElement).not.toBe(document.body)
   })
 
@@ -126,7 +126,7 @@ describe('ExecutableExpressionGroup retry focus', () => {
 
     expect(other).toHaveFocus()
     expect(screen.getByRole('button', {
-      name: '一覧の仕上げ候補 1を制作依頼へ追加',
+      name: '一覧の仕上げ候補 1をコピー候補に追加',
     })).not.toHaveFocus()
   })
 
@@ -161,7 +161,7 @@ describe('ExecutableExpressionGroup retry focus', () => {
     await user.click(screen.getByRole('button', { name: 'complete-load' }))
 
     expect(screen.getByRole('button', {
-      name: '一覧の仕上げ候補 1を制作依頼へ追加',
+      name: '一覧の仕上げ候補 1をコピー候補に追加',
     })).toHaveFocus()
   })
 
@@ -178,7 +178,7 @@ describe('ExecutableExpressionGroup retry focus', () => {
         onShowMore={vi.fn()}
       />,
     )
-    expect(screen.getByText(/制作依頼に指定できる仕上げを読み込んでいます/)).toBeVisible()
+    expect(screen.getByText(/この環境の仕上げ候補を読み込んでいます/)).toBeVisible()
     expect(screen.queryByRole('button', { name: /もう一度読み込む|読み込んでいます/ })).not.toBeInTheDocument()
   })
 
@@ -192,7 +192,7 @@ describe('ExecutableExpressionGroup retry focus', () => {
     await user.click(screen.getByRole('button', { name: 'complete-load' }))
 
     expect(screen.getByRole('button', {
-      name: '一覧の仕上げ候補 1を制作依頼へ追加',
+      name: '一覧の仕上げ候補 1をコピー候補に追加',
     })).toHaveFocus()
     // Success handoff must not pass preventScroll: true
     expect(
