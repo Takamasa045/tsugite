@@ -423,6 +423,7 @@ const defaultHyperframesCatalogResponse = {
 
 function createLauncherFetcher({
   projectList = projects,
+  directArtifacts = [],
   feedbackAggregate = feedback,
   templateList = templates,
   characterList = characters,
@@ -430,6 +431,7 @@ function createLauncherFetcher({
   hyperframesCatalogResponse = defaultHyperframesCatalogResponse,
 }: {
   projectList?: unknown
+  directArtifacts?: unknown
   feedbackAggregate?: unknown
   templateList?: unknown
   characterList?: unknown
@@ -437,7 +439,7 @@ function createLauncherFetcher({
   hyperframesCatalogResponse?: unknown
 } = {}) {
   return vi.fn().mockImplementation((url: string) => {
-    if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects: projectList }))
+    if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects: projectList, directArtifacts }))
     if (/^\/api\/projects\/[^/]+\/generation-canvas$/.test(url)) return Promise.resolve(jsonResponse({
       ok: true,
       canvas: {
@@ -915,6 +917,28 @@ describe('LauncherApp', () => {
     expect(within(projectList).queryByRole('heading', { name: 'Codex Goal Talk' })).not.toBeInTheDocument()
 
     await user.clear(screen.getByRole('searchbox', { name: '制作案件を検索' }))
+  })
+
+  it('直接編集済み成果物をGate案件と分けた閲覧専用カードで表示する', async () => {
+    const fetcher = createLauncherFetcher({
+      directArtifacts: [{
+        id: 'direct-magatama',
+        cardName: '直接編集済み成果物',
+        title: '勾玉の囁き',
+        completedAt: '2026-08-04T00:00:00.000Z',
+        readOnly: true,
+        canonicalOutput: '/Users/example/private/final.mp4',
+      }],
+    })
+
+    render(<LauncherApp fetcher={fetcher} token="session-token" />)
+
+    const card = await screen.findByRole('article', { name: '直接編集済み成果物: 勾玉の囁き' })
+    expect(within(card).getByRole('heading', { name: '直接編集済み成果物' })).toBeVisible()
+    expect(within(card).getByText('勾玉の囁き')).toBeVisible()
+    expect(within(card).getByText('Gate外・閲覧のみ')).toBeVisible()
+    expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(card).queryByText('/Users/example/private/final.mp4')).not.toBeInTheDocument()
   })
 
   it('projectMatchesQueryはパス貼り付けと部分一致の両方で案件を拾う', () => {
