@@ -248,7 +248,8 @@ export async function auditAndCleanupWorktrees(
         git_common_dir: gitCommonDir,
         primary_path: primaryPath,
         current_path: currentPath,
-        worktrees: listed
+        // Prefer the revalidation snapshot so CLI warnings reflect current state.
+        worktrees: revalidated.worktrees
       };
     }
 
@@ -313,7 +314,10 @@ async function revalidateTargetBeforeRemove(
     mainBranch: string;
     primaryPath: string;
   }
-): Promise<{ ok: true } | { ok: false; issues: Issue[] }> {
+): Promise<
+  | { ok: true; worktrees: WorktreeReport[] }
+  | { ok: false; issues: Issue[]; worktrees: WorktreeReport[] }
+> {
   const listed = await listRegisteredWorktrees(
     runGit,
     input.cwd,
@@ -327,6 +331,7 @@ async function revalidateTargetBeforeRemove(
   if (!fresh || fresh.missing) {
     return {
       ok: false,
+      worktrees: listed,
       issues: [{
         code: "worktrees.target_changed",
         message: `worktree registration or path identity changed before remove: ${input.target.path}`,
@@ -342,6 +347,7 @@ async function revalidateTargetBeforeRemove(
   ) {
     return {
       ok: false,
+      worktrees: listed,
       issues: [{
         code: "worktrees.target_changed",
         message: `worktree HEAD/branch/path identity changed before remove: ${input.target.path}`,
@@ -358,6 +364,7 @@ async function revalidateTargetBeforeRemove(
   if (commonDirCheck.status !== 0) {
     return {
       ok: false,
+      worktrees: listed,
       issues: [{
         code: "worktrees.target_changed",
         message: `worktree left repository boundary before remove: ${fresh.path}`,
@@ -369,6 +376,7 @@ async function revalidateTargetBeforeRemove(
   if (!(await samePathIdentity(liveCommonDir, input.commonDir))) {
     return {
       ok: false,
+      worktrees: listed,
       issues: [{
         code: "worktrees.target_changed",
         message: `worktree common dir changed before remove: ${fresh.path}`,
@@ -380,6 +388,7 @@ async function revalidateTargetBeforeRemove(
   if (fresh.is_primary || pathsEqual(fresh.path, input.primaryPath)) {
     return {
       ok: false,
+      worktrees: listed,
       issues: [{
         code: "worktrees.not_removable",
         message: `worktree is not safely removable (primary): ${fresh.path}`,
@@ -391,6 +400,7 @@ async function revalidateTargetBeforeRemove(
   if (fresh.is_current || pathsEqual(fresh.path, input.currentPath)) {
     return {
       ok: false,
+      worktrees: listed,
       issues: [{
         code: "worktrees.not_removable",
         message: `worktree is not safely removable (current): ${fresh.path}`,
@@ -411,6 +421,7 @@ async function revalidateTargetBeforeRemove(
     );
     return {
       ok: false,
+      worktrees: listed,
       issues: [{
         code: identityBroken ? "worktrees.target_changed" : "worktrees.not_removable",
         message: `worktree is not safely removable after revalidation (${reasons}): ${fresh.path}`,
@@ -419,7 +430,7 @@ async function revalidateTargetBeforeRemove(
     };
   }
 
-  return { ok: true };
+  return { ok: true, worktrees: listed };
 }
 
 async function listRegisteredWorktrees(
