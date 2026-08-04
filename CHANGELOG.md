@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+## 0.7.3 - 2026-08-04
+
+- Added transaction-safe project storage finalization with lock and identity revalidation, recovery journals, durable-project promotion, completion records, and fail-closed protection for canonical media and project boundaries.
 - Added non-billing runtime model preflight for TopView and PixVerse/PixBurst in the CLI and generation canvas, allowing new provider models without a Tsugite static allowlist while preserving provider-side validation and generation approval boundaries.
+- Added threshold-based warnings for accumulated safely removable worktrees, including daily host guidance, exact-path non-force cleanup, and fresh warning counts when apply-time revalidation fails.
+- Improved HyperFrames expression browsing, recommendation, selection, and preview playback, including reduced-motion and keyboard-focus coverage.
+- Improved long local caption rendering and added the Remotion skate-cam presentation preset with audio and layout safeguards.
+- Added GitHub community health files and refreshed audited Remotion, MCP SDK, HyperFrames, Node type, and download-site dependency pins.
 
 ## 0.7.2 - 2026-07-30
 
