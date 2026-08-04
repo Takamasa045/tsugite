@@ -73,9 +73,18 @@ export interface LauncherProject {
   issue?: string
 }
 
+export interface LauncherDirectArtifact {
+  id: string
+  cardName: '直接編集済み成果物'
+  title: string
+  completedAt: string | null
+  readOnly: true
+}
+
 interface ProjectListResponse {
   ok: true
   projects: LauncherProject[]
+  directArtifacts?: LauncherDirectArtifact[]
 }
 
 type FeedbackStage = 'observed' | 'recurring' | 'promoted' | 'verified'
@@ -474,9 +483,20 @@ function isLauncherProject(input: unknown): input is LauncherProject {
     && (!('issue' in input) || input.issue === undefined || typeof input.issue === 'string')
 }
 
+function isLauncherDirectArtifact(input: unknown): input is LauncherDirectArtifact {
+  return typeof input === 'object' && input !== null
+    && 'id' in input && typeof input.id === 'string'
+    && 'cardName' in input && input.cardName === '直接編集済み成果物'
+    && 'title' in input && typeof input.title === 'string'
+    && 'completedAt' in input && (input.completedAt === null || typeof input.completedAt === 'string')
+    && 'readOnly' in input && input.readOnly === true
+}
+
 function isProjectListResponse(input: unknown): input is ProjectListResponse {
   return typeof input === 'object' && input !== null && 'ok' in input && input.ok === true
     && 'projects' in input && Array.isArray(input.projects) && input.projects.every(isLauncherProject)
+    && (!('directArtifacts' in input)
+      || (Array.isArray(input.directArtifacts) && input.directArtifacts.every(isLauncherDirectArtifact)))
 }
 
 function isFeedbackPromotion(input: unknown): input is FeedbackPromotion {
@@ -586,6 +606,7 @@ export function LauncherApp({
   const [activeShelf, setActiveShelf] = useState<Shelf>('projects')
   const [theme, setTheme] = useState<LauncherTheme>(initialLauncherTheme)
   const [projects, setProjects] = useState<LauncherProject[]>([])
+  const [directArtifacts, setDirectArtifacts] = useState<LauncherDirectArtifact[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [projectFilter, setProjectFilter] = useState<ProjectFilter>('all')
@@ -672,6 +693,7 @@ export function LauncherApp({
       const payload: unknown = await response.json()
       if (!response.ok || !isProjectListResponse(payload)) throw new Error('invalid project list')
       setProjects(payload.projects)
+      setDirectArtifacts(payload.directArtifacts ?? [])
       if (background) {
         setProjectListRefreshNotice(payload.projects.length > 0
           ? `制作案件を再読み込みしました。${payload.projects.length}件見つかりました。`
@@ -1508,7 +1530,7 @@ export function LauncherApp({
               </div>
             )}
 
-            {projects.length === 0 ? (
+            {projects.length === 0 && directArtifacts.length === 0 ? (
               <div className="launcher-empty">
                 <FolderOpen aria-hidden="true" size={24} />
                 <strong>表示できる制作案件はまだありません。</strong>
@@ -1624,6 +1646,32 @@ export function LauncherApp({
               >
                 残り{remainingProjectCount}件を表示
               </button>
+            )}
+            {directArtifacts.length > 0 && (
+              <section aria-labelledby="direct-artifact-list-title" className="launcher-direct-artifacts">
+                <div className="launcher-direct-artifacts-heading">
+                  <span className="eyebrow">完成記録</span>
+                  <h3 id="direct-artifact-list-title">Gate外の成果物</h3>
+                </div>
+                <div className="launcher-direct-artifact-list">
+                  {directArtifacts.map((artifact) => (
+                    <article
+                      aria-label={`${artifact.cardName}: ${artifact.title}`}
+                      className="launcher-direct-artifact-card"
+                      key={artifact.id}
+                    >
+                      <span className="launcher-direct-artifact-kind" role="heading" aria-level={3}>
+                        {artifact.cardName}
+                      </span>
+                      <strong>{artifact.title}</strong>
+                      <dl>
+                        <div><dt>完成記録</dt><dd>{formatUpdatedAt(artifact.completedAt)}</dd></div>
+                      </dl>
+                      <small>Gate外・閲覧のみ</small>
+                    </article>
+                  ))}
+                </div>
+              </section>
             )}
           </section>
 

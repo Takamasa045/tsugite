@@ -78,6 +78,9 @@ import { loadPromptGuideById } from "../adapters/promptKnowledge.js";
 import { runGenerationModelPreflight } from "../adapters/modelPreflight.js";
 
 const SAFE_BACKEND_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const DIRECT_COMPLETION_RECORD_NAME = "completion-record.json";
+const DIRECT_COMPLETION_CARD_NAME = "直接編集済み成果物";
+const DIRECT_COMPLETION_RECORD_MAX_BYTES = 64 * 1024;
 
 const LOOPBACK_HOST = "127.0.0.1";
 const TSUGITE_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -103,6 +106,15 @@ export type LauncherProject = {
   availableActions: LauncherAction[];
   issues: Issue[];
   issue?: string;
+};
+
+/** project.yaml を伴わない、完成記録だけの既存成果物。常に閲覧専用。 */
+export type LauncherDirectArtifact = {
+  id: string;
+  cardName: typeof DIRECT_COMPLETION_CARD_NAME;
+  title: string;
+  completedAt: string | null;
+  readOnly: true;
 };
 
 export type LauncherAction =
@@ -312,6 +324,10 @@ const generationConnectionSchema = z.object({
 const projectRenameSchema = z.object({
   name: z.string().trim().min(1).max(120)
 }).strict();
+const directCompletionRecordSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  completed_at: z.string().trim().min(1).max(64).optional()
+}).strip();
 const characterUseSchema = z.object({
   sourceKey: z.string().min(1).max(4_096),
   speakerId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
@@ -942,7 +958,11 @@ export async function startWorkflowViewerLauncher(
     }
 
     if (method === "GET" && requestUrl.pathname === "/api/projects") {
-      sendJson(response, 200, { ok: true, projects: await reloadProjects() });
+      const [projectList, directArtifacts] = await Promise.all([
+        reloadProjects(),
+        discoverDirectCompletionArtifacts(projectDirectories)
+      ]);
+      sendJson(response, 200, { ok: true, projects: projectList, directArtifacts });
       return;
     }
 
@@ -2581,6 +2601,124 @@ async function discoverProjects(
     }
   }
   return projects;
+}
+
+/**
+ * project.yaml のない既存制作物は、Gate案件として扱わない。
+ * 探索棚の直下にある通常ファイルの completion-record.json だけを、
+ * 許可リストへ投影して閲覧用カードとして返す。
+ */
+async function discoverDirectCompletionArtifacts(
+  projectDirectories: LauncherProjectDirectory[]
+): Promise<LauncherDirectArtifact[]> {
+  const artifacts: LauncherDirectArtifact[] = [];
+  const seenRecords = new Set<string>();
+  for (const projectDirectory of projectDirectories) {
+    let realShelf: string;
+    try {
+      const shelfStats = await lstat(projectDirectory.path);
+      if (!shelfStats.isDirectory() || shelfStats.isSymbolicLink()) continue;
+      realShelf = await realpath(projectDirectory.path);
+    } catch {
+      continue;
+    }
+
+    let entries;
+    try {
+      entries = await readdir(projectDirectory.path, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      const projectDir = join(projectDirectory.path, entry.name);
+      let children;
+      try {
+        children = await readdir(projectDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      // project.yaml（派生configを含む）があるフォルダは、既存のGate案件探索だけに任せる。
+      if (children.some((child) => isProjectConfigName(child.name))) continue;
+      const artifact = await inspectDirectCompletionArtifact(projectDir, realShelf);
+      if (!artifact || seenRecords.has(artifact.id)) continue;
+      seenRecords.add(artifact.id);
+      artifacts.push(artifact);
+    }
+  }
+  return artifacts.sort((left, right) => {
+    const leftTime = left.completedAt ? Date.parse(left.completedAt) : Number.NEGATIVE_INFINITY;
+    const rightTime = right.completedAt ? Date.parse(right.completedAt) : Number.NEGATIVE_INFINITY;
+    return rightTime - leftTime
+      || left.title.localeCompare(right.title, "ja")
+      || left.id.localeCompare(right.id);
+  });
+}
+
+async function inspectDirectCompletionArtifact(
+  projectDir: string,
+  realShelf: string
+): Promise<LauncherDirectArtifact | undefined> {
+  const recordPath = join(projectDir, DIRECT_COMPLETION_RECORD_NAME);
+  let handle: FileHandle | undefined;
+  try {
+    const projectStats = await lstat(projectDir);
+    if (!projectStats.isDirectory() || projectStats.isSymbolicLink()) return undefined;
+    const realProjectDir = await realpath(projectDir);
+    if (!isContained(realShelf, realProjectDir)) return undefined;
+
+    const recordStats = await lstat(recordPath);
+    if (
+      !recordStats.isFile()
+      || recordStats.isSymbolicLink()
+      || recordStats.size > DIRECT_COMPLETION_RECORD_MAX_BYTES
+    ) return undefined;
+
+    handle = await open(recordPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const [openedStats, currentStats, realRecordPath] = await Promise.all([
+      handle.stat(),
+      lstat(recordPath),
+      realpath(recordPath)
+    ]);
+    if (
+      !openedStats.isFile()
+      || openedStats.size > DIRECT_COMPLETION_RECORD_MAX_BYTES
+      || currentStats.isSymbolicLink()
+      || !sameFileIdentity(openedStats, currentStats)
+      || !isContained(realProjectDir, realRecordPath)
+    ) return undefined;
+
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(await handle.readFile({ encoding: "utf8" }));
+    } catch {
+      return undefined;
+    }
+    const parsed = directCompletionRecordSchema.safeParse(parsedJson);
+    if (!parsed.success) return undefined;
+    const completedAt = normalizeDirectCompletionTime(parsed.data.completed_at);
+    return {
+      id: createHash("sha256")
+        .update(`${realRecordPath}\0${openedStats.dev}\0${openedStats.ino}`)
+        .digest("hex")
+        .slice(0, 32),
+      cardName: DIRECT_COMPLETION_CARD_NAME,
+      title: parsed.data.title,
+      completedAt,
+      readOnly: true
+    };
+  } catch {
+    // Optional read-only discovery must never make the normal project list unavailable.
+    return undefined;
+  } finally {
+    await handle?.close();
+  }
+}
+
+function normalizeDirectCompletionTime(value: string | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}(?:T[0-9:.+\-Z]+)?$/.test(value)) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
 function isProjectConfigName(name: string): boolean {

@@ -1423,6 +1423,77 @@ distribution: local-only
     await expect(statusWithHost(launcher.artifactUrl, "viewer.attacker.invalid")).resolves.toBe(403);
   });
 
+  it("lists only safe direct completion records without treating them as Gate projects", async () => {
+    const fixture = await createFixture();
+    const directProjectDir = join(fixture.projectsDir, "direct-edit");
+    const brokenProjectDir = join(fixture.projectsDir, "broken-record");
+    const missingTitleDir = join(fixture.projectsDir, "missing-title");
+    const oversizedProjectDir = join(fixture.projectsDir, "oversized-record");
+    const linkedRecordProjectDir = join(fixture.projectsDir, "linked-leaf-record");
+    const externalDir = join(fixture.root, "external-direct-edit");
+    const externalRecord = join(fixture.root, "external-record.json");
+    await mkdir(directProjectDir);
+    await mkdir(brokenProjectDir);
+    await mkdir(missingTitleDir);
+    await mkdir(oversizedProjectDir);
+    await mkdir(linkedRecordProjectDir);
+    await mkdir(externalDir);
+    await writeFile(
+      join(directProjectDir, "completion-record.json"),
+      JSON.stringify({
+        title: "直接編集の完成作品",
+        completed_at: "2026-08-04T00:00:00.000Z",
+        canonical_output: "/Users/example/private/final.mp4",
+        access_token: "SECRET_MUST_NOT_LEAK"
+      })
+    );
+    await writeFile(join(brokenProjectDir, "completion-record.json"), "{not-json\n");
+    await writeFile(join(missingTitleDir, "completion-record.json"), "{\"completed_at\":\"2026-08-04\"}\n");
+    await writeFile(
+      join(oversizedProjectDir, "completion-record.json"),
+      JSON.stringify({ title: "x".repeat(70_000) })
+    );
+    await writeFile(externalRecord, JSON.stringify({ title: "外部の秘密" }));
+    await writeFile(join(externalDir, "completion-record.json"), JSON.stringify({ title: "外部案件" }));
+    await symlink(externalDir, join(fixture.projectsDir, "linked-direct-edit"));
+    await symlink(externalRecord, join(linkedRecordProjectDir, "completion-record.json"));
+    await writeFile(
+      join(fixture.projectDir, "completion-record.json"),
+      JSON.stringify({ title: "Gate案件を直接編集として出してはいけない" })
+    );
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/projects`).then((response) => response.json());
+
+    expect(payload.projects).toHaveLength(1);
+    expect(payload.directArtifacts).toEqual([{
+      id: expect.stringMatching(/^[a-f0-9]{32}$/),
+      cardName: "直接編集済み成果物",
+      title: "直接編集の完成作品",
+      completedAt: "2026-08-04T00:00:00.000Z",
+      readOnly: true
+    }]);
+    expect(JSON.stringify(payload)).not.toContain("SECRET_MUST_NOT_LEAK");
+    expect(JSON.stringify(payload)).not.toContain("/Users/example/private/final.mp4");
+    const directAction = await fetch(
+      `${launcher.url}/api/projects/${payload.directArtifacts[0].id}/action`,
+      {
+        method: "POST",
+        headers: {
+          origin: launcher.url,
+          "content-type": "application/json",
+          "x-tsugite-token": launcher.token
+        },
+        body: JSON.stringify({ action: "run" })
+      }
+    );
+    expect(directAction.status).toBe(404);
+  });
+
   it("lists projects from additional worktrees as read-only without enabling project actions", async () => {
     const fixture = await createFixture();
     const worktreeProjectsDir = join(fixture.root, "worktree-projects");
