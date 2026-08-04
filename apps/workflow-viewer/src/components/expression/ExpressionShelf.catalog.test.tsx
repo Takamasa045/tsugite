@@ -145,7 +145,7 @@ describe('ExpressionShelf catalog / filter / empty boundaries', () => {
     const recommendRegion = await screen.findByRole('region', { name: '絞り込んだ候補' })
     expect(within(recommendRegion).queryByText(/未読込/)).not.toBeInTheDocument()
     expect(within(recommendRegion).queryByText(/読み込む必要/)).not.toBeInTheDocument()
-    expect(within(recommendRegion).queryByText(/今検索できる範囲は、制作依頼に指定できる仕上げだけ/))
+    expect(within(recommendRegion).queryByText(/今検索できる範囲は、この環境の仕上げ候補だけ/))
       .not.toBeInTheDocument()
     // intent note also must not show unread copy after successful empty load
     expect(screen.queryByText(/いま参考一覧は未読込/)).not.toBeInTheDocument()
@@ -180,7 +180,7 @@ describe('ExpressionShelf catalog / filter / empty boundaries', () => {
       name: 'HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）',
     }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/参考一覧を読み込めませんでした/)
-    expect(screen.getByRole('region', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByRole('region', { name: 'この環境の仕上げ候補' })).toBeVisible()
 
     expect(screen.getAllByRole('button', {
       name: 'HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）',
@@ -347,7 +347,7 @@ describe('ExpressionShelf catalog / filter / empty boundaries', () => {
     expect(within(referenceRegion).queryByText('Catalog Item 13')).not.toBeInTheDocument()
     expect(within(referenceRegion).queryByRole('button', { name: '参考表現をさらに表示' }))
       .not.toBeInTheDocument()
-    expect(within(referenceRegion).queryByRole('button', { name: /制作依頼へ追加|選択中/ }))
+    expect(within(referenceRegion).queryByRole('button', { name: /コピー候補に追加|選択中/ }))
       .not.toBeInTheDocument()
     expect(fetcher).toHaveBeenCalledTimes(2)
 

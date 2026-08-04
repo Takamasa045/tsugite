@@ -89,7 +89,7 @@ export function ExecutableExpressionGroup({
         // Re-error restore keeps preventScroll so the same retry control does not jump.
         const section = headingRef.current?.closest('section')
         const firstAdd = section?.querySelector<HTMLButtonElement>(
-          'button[aria-label*="制作依頼へ追加"]:not([disabled])',
+          'button[aria-label*="コピー候補に追加"]:not([disabled])',
         )
         if (firstAdd) {
           firstAdd.focus()
@@ -122,7 +122,7 @@ export function ExecutableExpressionGroup({
       {isLoading && !retrySurfaceActive && (
         <div aria-busy="true" aria-live="polite" className="launcher-expression-state">
           <RefreshCw aria-hidden="true" className="is-spinning" size={16} />
-          <strong>制作依頼に指定できる仕上げを読み込んでいます…</strong>
+          <strong>この環境の仕上げ候補を読み込んでいます…</strong>
         </div>
       )}
       {showRetryControl && (
@@ -133,10 +133,10 @@ export function ExecutableExpressionGroup({
           aria-live={isLoading ? 'polite' : undefined}
         >
           {isError && (
-            <strong>制作依頼に指定できる仕上げを読み込めませんでした。</strong>
+            <strong>この環境の仕上げ候補を読み込めませんでした。</strong>
           )}
           {isLoading && (
-            <strong>制作依頼に指定できる仕上げを読み込んでいます…</strong>
+            <strong>この環境の仕上げ候補を読み込んでいます…</strong>
           )}
           {onRetryPresentationPresets && (
             <button
@@ -179,7 +179,7 @@ export function ExecutableExpressionGroup({
             item={item}
             listContext="一覧"
             selected={selections.some((entry) => entry.key === item.key)}
-            selectReason="制作依頼に指定できる仕上げとして明示選択"
+            selectReason="この環境の仕上げ候補として明示選択"
             onSelect={onSelect}
           />
         ))}

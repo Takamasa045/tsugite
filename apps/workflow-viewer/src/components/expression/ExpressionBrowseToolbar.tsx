@@ -69,7 +69,7 @@ export function ExpressionBrowseToolbar({
         {(
           [
             ['all', 'すべて'],
-            ['executable', '制作依頼に指定できる仕上げ'],
+            ['executable', 'この環境の仕上げ候補'],
             ['reference', 'アイデアとして参照する表現'],
           ] as const
         ).map(([id, label]) => (

@@ -94,7 +94,7 @@ export function ExpressionIntentPanel({
             value={readiness ?? 'explore'}
           >
             <option value="explore">アイデアも含めて探す</option>
-            <option value="ready">制作依頼に指定できる候補から探す</option>
+            <option value="ready">この環境の仕上げ候補から探す</option>
           </select>
         </label>
         <label className="launcher-expression-check">
@@ -123,12 +123,12 @@ export function ExpressionIntentPanel({
       )}
       <p className="launcher-expression-intent-note">
         入力した内容・比率・目的を、この端末内の一覧と照合して1〜3件を提案します。
-        候補は自動選択されず、制作依頼へ追加したものだけが文章に入ります。
-        生成・書き出し・外部サービス実行・課金は行いません。
+        候補は自動選択されず、コピー候補に追加したものだけがまとめプロンプトに入ります。
+        制作依頼本文へは自動では入りません。生成・書き出し・外部サービス実行・課金は行いません。
         {(readiness ?? 'explore') === 'explore' && !hasLoadedCatalog && (
           <>
             {' '}
-            いま参考一覧は未読込です。「アイデアも含めて探す」では、読込前は制作依頼に指定できる仕上げだけが検索対象です。
+            いま参考一覧は未読込です。「アイデアも含めて探す」では、読込前はこの環境の仕上げ候補だけが検索対象です。
           </>
         )}
       </p>
