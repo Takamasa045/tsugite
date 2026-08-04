@@ -664,7 +664,6 @@ describe('expressionLibraryModel selection limits', () => {
         requiredInputDetails: [],
       },
       {},
-      { backend: 'remotion', presetId: 'street-dialogue-16x9' },
       { mode: toB.mode, selections: toB.selections },
     )
     expect(promptB).toContain(JSON.stringify('street-dialogue-16x9'))

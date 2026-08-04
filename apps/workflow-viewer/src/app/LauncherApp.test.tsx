@@ -1168,12 +1168,8 @@ describe('LauncherApp', () => {
     expect(fetcher).toHaveBeenCalledWith('/api/templates', {
       headers: { accept: 'application/json' },
     })
-    expect(fetcher).toHaveBeenCalledWith('/api/presets?backend=remotion', {
-      headers: { accept: 'application/json' },
-    })
-    expect(fetcher).toHaveBeenCalledWith('/api/presets?backend=hyperframes', {
-      headers: { accept: 'application/json' },
-    })
+    expect(fetcher).not.toHaveBeenCalledWith('/api/presets?backend=remotion', expect.anything())
+    expect(fetcher).not.toHaveBeenCalledWith('/api/presets?backend=hyperframes', expect.anything())
     expect(screen.getByText('全4件')).toBeVisible()
     // テンプレート棚では外側の3段階を出さず、ウィザード内進捗に一本化
     expect(screen.queryByRole('list', { name: '見取図を開く手順' })).not.toBeInTheDocument()
@@ -1225,11 +1221,10 @@ describe('LauncherApp', () => {
     expect(
       screen.getByText((content) => content.includes('この画面では生成・実行・Gate更新をしません')),
     ).toBeVisible()
-    // presentation preset 選択 UI（制作依頼への追記のみ）
-    expect(screen.getByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
-    expect(screen.getByText(/ここでは制作依頼に追加するだけ/)).toBeVisible()
-    expect(screen.getByRole('button', { name: /おすすめに任せる/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('横型・会話で解説')).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(
+      /制作依頼に指定できる仕上げ|article-dialogue-16x9/,
+    )
     expect(screen.queryByText('表現のヒントを探す')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '選んだ表現' })).toBeVisible()
     expect(screen.getByRole('button', { name: '表現を変更' })).toBeVisible()
@@ -1263,17 +1258,12 @@ describe('LauncherApp', () => {
 
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
     expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
-    // projects + feedback + templates + remotion presets + hyperframes presets
-    expect(fetcher).toHaveBeenCalledTimes(5)
+    // projects + feedback + templates（任意の仕上げ候補はテンプレートでは読まない）
+    expect(fetcher).toHaveBeenCalledTimes(3)
   })
 
-  it('テンプレート棚で presentation preset を読み込み、選択を制作依頼へ反映する', async () => {
+  it('テンプレートでは仕上げ候補を読まず、表現棚でだけ候補を読む', async () => {
     const user = userEvent.setup()
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
     const fetcher = createLauncherFetcher()
 
     render(<LauncherApp fetcher={fetcher} token="session-token" />)
@@ -1281,22 +1271,19 @@ describe('LauncherApp', () => {
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
     await screen.findByRole('heading', { name: '何を作りたい？' })
 
-    expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/presets'))).toHaveLength(2)
+    expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/presets'))).toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
-    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
 
     const brief = screen.getByLabelText('制作依頼本文')
-    expect(brief.textContent).toMatch(/article-dialogue-16x9/)
-    expect(brief.textContent).toMatch(/勝手に別の仕上げへ変えず確認|黙示fallback禁止/)
+    expect(brief.textContent).not.toMatch(/制作依頼に指定できる仕上げ|article-dialogue-16x9/)
 
-    await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
-    expect(String(writeText.mock.calls[0]?.[0] ?? '')).toMatch(/article-dialogue-16x9/)
-
-    // 表現棚は独立タブ。仕上げ候補は通信なし。catalog は明示ボタンでのみ取得
+    // 表現棚は独立タブ。候補の取得はこの棚を開いたときだけ行う。
     await user.click(screen.getByRole('tab', { name: '表現' }))
     expect(await screen.findByRole('heading', { name: '動きや仕上げを見比べて、制作依頼に入れる' })).toBeVisible()
+    expect(fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/presets'))).toHaveLength(2)
     const expressionPanel = screen.getByRole('tabpanel')
     expect(expressionPanel).toHaveAttribute('id', 'launcher-expressions-panel')
     expect(expressionPanel).toHaveAttribute('aria-labelledby', 'launcher-expressions-tab')
@@ -1321,8 +1308,9 @@ describe('LauncherApp', () => {
     // 閲覧だけでは制作依頼へ混ざらない（テンプレート最終画面へ戻って確認）
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
     expect(await screen.findByLabelText('制作依頼本文')).toBeVisible()
-    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
-    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(/data-chart|Data Chart/)
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(
+      /article-dialogue-16x9|data-chart|Data Chart/,
+    )
 
     // 棚を離れても preset 再fetchしない。catalog も表現棚再訪で再fetchしない（session cache）
     await user.click(screen.getByRole('tab', { name: '制作作品' }))
@@ -1343,7 +1331,7 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '何を作りたい？' })
 
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
-    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
     expect(screen.getByRole('button', { name: '表現を変更' })).toBeVisible()
 
     // template 内の「表現を変更」→ return context 付き
@@ -1465,7 +1453,7 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '何を作りたい？' })
 
     await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
-    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: /制作依頼ができました/ })).toBeVisible()
 
     const changeExpressions = screen.getByRole('button', { name: '表現を変更' })
     changeExpressions.focus()
@@ -1479,7 +1467,7 @@ describe('LauncherApp', () => {
     returnButton.focus()
     await user.keyboard('{Enter}')
 
-    await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })
+    await screen.findByRole('heading', { name: /制作依頼ができました/ })
     const restored = screen.getByRole('button', { name: '表現を変更' })
     expect(restored).toHaveFocus()
     expect(document.activeElement).not.toBe(document.body)
@@ -1531,83 +1519,6 @@ describe('LauncherApp', () => {
     expect(document.activeElement).not.toBe(document.body)
   })
 
-  it('仕上げの動きの選択は戻る→最終画面と棚の往復でも同一テンプレートなら保持する', async () => {
-    const user = userEvent.setup()
-    const fetcher = createLauncherFetcher()
-
-    render(<LauncherApp fetcher={fetcher} token="session-token" />)
-    await screen.findByRole('heading', { name: '制作の見取図を開く' })
-    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    await screen.findByRole('heading', { name: '何を作りたい？' })
-
-    await user.click(screen.getByRole('button', { name: 'ブログ掛け合い 60秒のおすすめ設定で制作依頼を作る' }))
-    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: /横型・会話で解説/ }))
-    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
-
-    // 前ステップへ戻って再度最終画面へ → 同一テンプレートなので保持
-    await user.click(screen.getByRole('button', { name: '戻る' }))
-    expect(await screen.findByRole('heading', { name: '背景' })).toBeVisible()
-    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'おすすめのまま進む' }))
-    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
-
-    // テンプレート棚 → 別棚 → テンプレート棚でも保持
-    await user.click(screen.getByRole('tab', { name: '制作作品' }))
-    expect(screen.getByRole('heading', { name: '作品を選ぶ' })).toBeVisible()
-    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
-    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('制作依頼本文').textContent).toMatch(/article-dialogue-16x9/)
-  })
-
-  it('presentation preset は片側backend失敗でも成功分を表示し、全backend失敗時だけ全体errorにする', async () => {
-    const user = userEvent.setup()
-    const partialFetcher = createLauncherFetcher({
-      presentationPresetResponses: {
-        remotion: defaultPresentationPresetResponses.remotion,
-        // hyperframes は意図的に失敗
-      },
-    })
-
-    const partialView = render(<LauncherApp fetcher={partialFetcher} token="session-token" />)
-    await screen.findByRole('heading', { name: '制作の見取図を開く' })
-    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    await screen.findByRole('heading', { name: '何を作りたい？' })
-
-    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
-    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
-
-    // remotion 成功分は表示
-    expect(screen.getByRole('button', { name: /横型・会話で解説/ })).toBeVisible()
-    expect(screen.getByText('横型・会話で解説')).toBeVisible()
-    // hyperframes 分は無い
-    expect(screen.queryByText('横型・資料付き解説')).not.toBeInTheDocument()
-    expect(screen.queryByText('縦型・資料付き解説')).not.toBeInTheDocument()
-    // 全体 error ではない
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    // 片側不足は非ブロッキングで分かる
-    expect(screen.getByText(/HyperFramesの仕上げの動きを読み込めませんでした/)).toBeVisible()
-    expect(screen.getByText(/表示中の候補だけで選べます/)).toBeVisible()
-
-    partialView.unmount()
-
-    // 全backend失敗
-    const allFailFetcher = createLauncherFetcher({
-      presentationPresetResponses: {},
-    })
-    render(<LauncherApp fetcher={allFailFetcher} token="session-token" />)
-    await screen.findByRole('heading', { name: '制作の見取図を開く' })
-    await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-    await screen.findByRole('heading', { name: '何を作りたい？' })
-    await user.click(screen.getByRole('button', { name: 'Q&A掛け合いを詳しく選ぶ' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(/仕上げの動きを読み込めませんでした/)
-    expect(screen.queryByRole('button', { name: /横型・会話で解説/ })).not.toBeInTheDocument()
-  })
-
   it('テンプレート棚を離れてもウィザードの進行を保持する', async () => {
     const user = userEvent.setup()
     const fetcher = createLauncherFetcher()
@@ -1636,12 +1547,6 @@ describe('LauncherApp', () => {
     const fetcher = vi.fn().mockImplementation((url: string) => {
       if (url === '/api/projects') return Promise.resolve(jsonResponse({ ok: true, projects }))
       if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
-      const presetsMatch = /^\/api\/presets\?backend=([^&]+)$/.exec(url)
-      if (presetsMatch) {
-        const backend = decodeURIComponent(presetsMatch[1] ?? '')
-        const payload = defaultPresentationPresetResponses[backend]
-        return Promise.resolve(jsonResponse(payload ?? { ok: false }, Boolean(payload)))
-      }
       templateAttempts += 1
       return templateAttempts === 1
         ? Promise.reject(new Error('offline'))
@@ -1655,8 +1560,8 @@ describe('LauncherApp', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('テンプレートを読み込めませんでした。')
     await user.click(screen.getByRole('button', { name: 'テンプレートをもう一度読み込む' }))
     expect(await screen.findByText('表示できるテンプレートはまだありません。')).toBeVisible()
-    // projects + feedback + templates fail + remotion + hyperframes + templates retry
-    expect(fetcher).toHaveBeenCalledTimes(6)
+    // projects + feedback + templates fail + templates retry
+    expect(fetcher).toHaveBeenCalledTimes(4)
   })
 
   it('初回起動でいまの学びサマリーと根拠を表示し、承認POST payloadは不変', async () => {
