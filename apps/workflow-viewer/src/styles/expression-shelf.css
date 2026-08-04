@@ -1160,18 +1160,12 @@
   padding: 16px;
 }
 .launcher-template-checklist-expressions h3,
-.launcher-template-checklist-expressions .launcher-template-checklist-presets-heading h3 {
+.launcher-template-checklist-expressions .launcher-template-checklist-expression-heading h3 {
   color: var(--launcher-kinari);
 }
 /*
- * Optional badge ("任意") inherits yakisugi #275e58 (~2.34:1 on #1c1a16).
- * Kinari ink restores normal-text AA ≥4.5:1 on the opaque sumi panel.
- */
-.launcher-template-checklist-expressions .launcher-template-checklist-presets-heading span {
-  color: var(--launcher-kinari);
-}
 .launcher-template-checklist-expressions p,
-.launcher-template-checklist-expressions .launcher-template-preset-state {
+.launcher-template-checklist-expressions .launcher-template-expression-state {
   color: rgba(244, 237, 223, .78);
 }
 /*
@@ -1195,15 +1189,11 @@
   background: rgba(255, 252, 245, .92);
 }
 .launcher-shell[data-theme="light"] .launcher-template-checklist-expressions h3,
-.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-template-checklist-presets-heading h3 {
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-template-checklist-expression-heading h3 {
   color: #24302b;
 }
-/* Light: restore yakisugi seiji optional badge (do not keep dark kinari). */
-.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-template-checklist-presets-heading span {
-  color: #275e58;
-}
 .launcher-shell[data-theme="light"] .launcher-template-checklist-expressions p,
-.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-template-preset-state {
+.launcher-shell[data-theme="light"] .launcher-template-checklist-expressions .launcher-template-expression-state {
   color: rgba(36, 48, 43, .72);
 }
 /* Light: restore globals #244d49 secondary look (do not keep dark kinari CTA). */

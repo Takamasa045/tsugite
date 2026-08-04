@@ -562,45 +562,6 @@ describe('launcher readability contract', () => {
   })
 
   /**
-   * TemplateChecklist expressions panel optional badge ("任意" span).
-   * Yakisugi .launcher-template-checklist-presets-heading > span is #275e58
-   * (~2.34:1 on opaque #1c1a16). Dark scoped override uses kinari ≥4.5:1;
-   * light restores #275e58 on the paper panel.
-   */
-  it('keeps TemplateChecklist expressions presets-heading optional span ≥ AA on dark/light panels', () => {
-    // Dark cascade: scoped kinari wins over yakisugi #275e58
-    const darkSpan = expressionStyleSheet.match(
-      /(?:^|\n)\.launcher-template-checklist-expressions \.launcher-template-checklist-presets-heading span \{([^}]+)\}/,
-    )
-    expect(darkSpan).toBeTruthy()
-    const darkSpanBody = darkSpan[1]
-    expect(darkSpanBody).toMatch(/color:\s*var\(--launcher-kinari\)/)
-    expect(darkSpanBody).not.toMatch(/color:\s*#275e58/)
-
-    // Light cascade: explicit seiji #275e58 (not dark kinari bleed)
-    const lightSpan = expressionStyleSheet.match(
-      /\.launcher-shell\[data-theme="light"\] \.launcher-template-checklist-expressions \.launcher-template-checklist-presets-heading span \{([^}]+)\}/,
-    )
-    expect(lightSpan).toBeTruthy()
-    const lightSpanBody = lightSpan[1]
-    expect(lightSpanBody).toMatch(/color:\s*#275e58/)
-    expect(lightSpanBody).not.toMatch(/color:\s*var\(--launcher-kinari\)/)
-
-    // Contrast: dark kinari on opaque panel; light seiji on paper panel
-    const darkPanel = [0x1c, 0x1a, 0x16]
-    const darkLabel = [0xf4, 0xed, 0xdf] // --launcher-kinari dark
-    const lightPanel = parseCssColor('rgba(255, 252, 245, 0.92)', [0xff, 0xfa, 0xf0])
-    const lightLabel = [0x27, 0x5e, 0x58]
-    const legacySeiji = [0x27, 0x5e, 0x58]
-
-    expect(contrastRatio(darkLabel, darkPanel)).toBeGreaterThanOrEqual(4.5)
-    expect(contrastRatio(lightLabel, lightPanel)).toBeGreaterThanOrEqual(4.5)
-    // Synthetic regression: unscoped yakisugi #275e58 fails dark panel text floor
-    expect(contrastRatio(legacySeiji, darkPanel)).toBeLessThan(4.5)
-    expect(contrastRatio(legacySeiji, darkPanel)).toBeCloseTo(2.34, 1)
-  })
-
-  /**
    * ExpressionShelf heading .eyebrow / .launcher-count.
    * globals .eyebrow #315f59 (~2.7:1) and .launcher-count #66736f (~3.9–4.4:1)
    * fail AA on dark shell #080808–#0d0d0c and light shell gradient #f7f2e8–#ede7dc.

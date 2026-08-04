@@ -216,32 +216,18 @@ describe('templateShelfModel', () => {
     expect(withoutDirection).not.toContain('## 制作条件')
   })
 
-  it('仕上げ未選択はおすすめ候補を未選択と明記し、選択時は提供元 / id / 安全条件を載せる', () => {
-    const without = buildTemplateProductionPrompt(template, { cast: 'beginner-expert' })
-    expect(without).toContain('## 制作依頼に指定できる仕上げ')
-    expect(without).toContain('おすすめ候補を未選択')
-    expect(without).not.toContain('article-dialogue-16x9')
-    expect(without).toContain('## 表現候補')
-    expect(without).toContain('おすすめ候補を未選択')
+  it('制作依頼に任意の仕上げ指定を含めない', () => {
+    const prompt = buildTemplateProductionPrompt(template, { cast: 'beginner-expert' })
 
-    const withPreset = buildTemplateProductionPrompt(
-      template,
-      { cast: 'beginner-expert' },
-      { backend: 'remotion', presetId: 'article-dialogue-16x9' },
-    )
-    expect(withPreset).toContain('## 制作依頼に指定できる仕上げ')
-    expect(withPreset).toContain('remotion')
-    expect(withPreset).toContain('article-dialogue-16x9')
-    expect(withPreset).toMatch(/制作開始前に使えるか確認/)
-    expect(withPreset).toMatch(/勝手に別の仕上げへ変えず確認|黙示fallback禁止/)
-    expect(withPreset).not.toMatch(/\bvalidate\b|Gate 1/)
+    expect(prompt).not.toContain('## 制作依頼に指定できる仕上げ')
+    expect(prompt).not.toContain('article-dialogue-16x9')
+    expect(prompt).toContain('## 表現候補')
   })
 
   it('表現候補の明示選択を制作依頼へ安全文言付きで反映する（全体+補助の組み合わせ）', () => {
     const prompt = buildTemplateProductionPrompt(
       template,
       { cast: 'beginner-expert' },
-      null,
       {
         mode: 'explicit',
         selections: [

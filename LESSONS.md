@@ -60,3 +60,5 @@ Append-only format:
 2026-07-31 / 640×360レビューで適正だった固定px文字が2560×1440本番との画面比率を一致させられなかった / オーバーレイ寸法をcomposition解像度と独立した固定値で実装した / 文字・余白・線幅は基準解像度に対するcomposition幅で縮放し、レビューと本番の代表フレームを両方確認する / qa済
 2026-07-31 / 同一runのreview-previewを並列実行すると一部がrun.lockedで失敗した / preview生成がrun単位のmutation lockを共有する / 同一runのapproval-gated previewは直列実行し、並列化はrunが異なる場合だけにする / qa済
 2026-07-31 / 2560×1440 Remotion renderがローカル動画fetchで3回失敗した / Data volumeの空きが3.8〜4.8GBしかなく、fetch再試行を増やしても容量不足を解消できなかった / 高解像度render前に空きを確認し、目安15GiB未満なら再取得可能キャッシュを整理してから開始する / qa済
+2026-08-04 / Fish Audio s2-pro 直叩きが 402 で止まり後付けナレが遅延した / API credit と platform free model を混同し、既存 fish-tts-free（s2.1-pro-free）を先に試さなかった / Fish 作業は fish-audio-doctor のあと必ず fish-tts-free を第一経路にし、s2-pro は有料クレジット確認後のみ使う / validate済
+2026-08-04 / HyperFrames 後付けタイトルがユーザーから見えない・ダサいと判定された / opacity:0+GSAP と太い縁取りグローで、実画素焼き付けとシネマ明朝設計が不足した / 完成度の高い既存映像への文字載せは薄い明朝・字間・淡いグローの PNG を ffmpeg overlay で焼き、冒頭/セリフ/エンドを別レイヤで管理する / qa済
