@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildPixverseCreateArgs,
@@ -6,6 +8,50 @@ import {
   preflightPixverseRequest,
   pixverseOperationContract
 } from "../adapters/pixverse/pixverseCli.mjs";
+import { compileH3Request, parseH3CreativeIr } from "../src/h3/index.js";
+
+async function loadH3Fixture(name) {
+  const raw = JSON.parse(await readFile(join("test/fixtures/h3", name), "utf8"));
+  return parseH3CreativeIr(raw);
+}
+
+function h3Request(id, ir, overrides = {}) {
+  return {
+    id,
+    prompt: "",
+    params: {},
+    h3: ir,
+    ...overrides
+  };
+}
+
+function flagValue(args, flag) {
+  const index = args.indexOf(flag);
+  return index === -1 ? undefined : args[index + 1];
+}
+
+function flagValues(args, flag) {
+  const index = args.indexOf(flag);
+  if (index === -1) return [];
+  const values = [];
+  for (let i = index + 1; i < args.length; i += 1) {
+    if (String(args[i]).startsWith("--")) break;
+    values.push(args[i]);
+  }
+  return values;
+}
+
+function assertNoRawH3Leak(args, ir) {
+  const joined = args.join("\u0000");
+  expect(args).not.toContain("h3");
+  expect(args).not.toContain("creative_ir");
+  expect(joined).not.toContain("\"version\"");
+  expect(joined).not.toContain("creative_ir");
+  // Fixture paths may appear as media inputs; the IR object itself must not.
+  expect(joined).not.toContain(JSON.stringify(ir));
+  expect(joined).not.toContain("\"shots\"");
+  expect(joined).not.toContain("\"subjects\"");
+}
 
 describe("PixVerse CLI request mapping", () => {
   it("preflights a new model id without running a credit-consuming create command", () => {
@@ -21,7 +67,7 @@ describe("PixVerse CLI request mapping", () => {
     }, {
       runCommand(executable, args) {
         commands.push([executable, ...args]);
-        return { status: 0, stdout: "1.2.11\n", stderr: "" };
+        return { status: 0, stdout: "1.3.0\n", stderr: "" };
       }
     });
 
@@ -32,12 +78,12 @@ describe("PixVerse CLI request mapping", () => {
       source: "pixverse-cli-runtime",
       model: "minimax-h3",
       operation: "video",
-      runtime_version: "1.2.11",
+      runtime_version: "1.3.0",
       checked_parameters: ["aspect-ratio", "audio", "count", "duration", "idempotency-key", "model", "no-wait", "prompt", "quality"]
     });
   });
 
-  it("covers every create operation exposed by PixVerse CLI 1.2.6", () => {
+  it("covers every create operation exposed by PixVerse CLI 1.3.0", () => {
     expect(Object.keys(pixverseOperationContract)).toEqual([
       "video",
       "image",
@@ -256,5 +302,197 @@ describe("PixVerse CLI request mapping", () => {
   it("reads cost credits only from the declared credit keys", () => {
     expect(findNumberByKeys({ cost_credits: 125, video_id: 413102731506491 }, ["cost_credits"])).toBe(125);
     expect(findNumberByKeys({ video_id: 413102731506491 }, ["cost_credits"])).toBeUndefined();
+  });
+});
+
+describe("H3 IR compile → PixVerse create args", () => {
+  it("maps T2V IR through compileH3Request into a pure create video argv", async () => {
+    const ir = await loadH3Fixture("t2v.json");
+    const compiled = compileH3Request(h3Request("h3-t2v", ir));
+    expect(compiled.ok).toBe(true);
+
+    const execution = compiled.compilation.execution_request;
+    expect(execution).not.toHaveProperty("h3");
+    expect(execution.prompt).toBe(compiled.compilation.canonical_prompt);
+    expect(execution.prompt).toBe(compiled.compilation.adapter_prompt);
+    expect(execution.prompt).toContain("<d>[Japanese]AIと自然が、やっと同じ場所で動き始めた。</d>");
+
+    const args = buildPixverseCreateArgs(execution, "demo-run");
+    expect(args.slice(0, 2)).toEqual(["create", "video"]);
+    expect(flagValue(args, "--model")).toBe("minimax-h3");
+    expect(flagValue(args, "--duration")).toBe("10");
+    expect(flagValue(args, "--aspect-ratio")).toBe("16:9");
+    expect(flagValue(args, "--quality")).toBe("1440p");
+    expect(args).toContain("--audio");
+    expect(flagValue(args, "--prompt")).toBe(execution.prompt);
+    expect(flagValue(args, "--idempotency-key")).toBe("tsugite-demo-run-h3-t2v");
+    expect(args).toEqual(expect.arrayContaining(["--no-wait", "--json"]));
+    expect(args).not.toContain("--image");
+    expect(args).not.toContain("--images");
+    expect(args).not.toContain("--videos");
+    expect(args).not.toContain("--audios");
+    assertNoRawH3Leak(args, ir);
+  });
+
+  it("maps first-frame IR to image-to-video without aspect-ratio", async () => {
+    const ir = await loadH3Fixture("first-frame.json");
+    const compiled = compileH3Request(h3Request("h3-ff", ir));
+    expect(compiled.ok).toBe(true);
+
+    const execution = compiled.compilation.execution_request;
+    expect(execution).toMatchObject({
+      operation: "video",
+      input_mode: "image-to-video",
+      first_frame: "assets/start.png",
+      model: "minimax-h3",
+      duration: 5,
+      aspect: "16:9",
+      params: expect.objectContaining({ quality: "768p", audio: true })
+    });
+    expect(execution.prompt).toBe(compiled.compilation.canonical_prompt);
+    expect(execution.prompt).toBe(compiled.compilation.adapter_prompt);
+
+    const args = buildPixverseCreateArgs(execution, "demo-run");
+    expect(args.slice(0, 2)).toEqual(["create", "video"]);
+    expect(flagValue(args, "--model")).toBe("minimax-h3");
+    expect(flagValue(args, "--duration")).toBe("5");
+    expect(flagValue(args, "--quality")).toBe("768p");
+    expect(args).toContain("--audio");
+    expect(flagValue(args, "--image")).toBe("assets/start.png");
+    expect(args).not.toContain("--aspect-ratio");
+    expect(args).not.toContain("--images");
+    expect(flagValue(args, "--prompt")).toBe(execution.prompt);
+    expect(flagValue(args, "--idempotency-key")).toBe("tsugite-demo-run-h3-ff");
+    expect(args).toEqual(expect.arrayContaining(["--no-wait", "--json"]));
+    assertNoRawH3Leak(args, ir);
+  });
+
+  it("maps first-last IR to transition with first then last image order", async () => {
+    const ir = await loadH3Fixture("first-last.json");
+    const compiled = compileH3Request(h3Request("h3-fl", ir));
+    expect(compiled.ok).toBe(true);
+
+    const execution = compiled.compilation.execution_request;
+    expect(execution).toMatchObject({
+      operation: "transition",
+      input_mode: "transition",
+      input_images: ["assets/start.png", "assets/end.png"],
+      model: "minimax-h3",
+      duration: 5,
+      aspect: "9:16",
+      params: expect.objectContaining({ quality: "1440p", audio: true })
+    });
+    expect(execution).not.toHaveProperty("first_frame");
+    expect(execution.prompt).toBe(compiled.compilation.canonical_prompt);
+
+    const args = buildPixverseCreateArgs(execution, "demo-run");
+    expect(args.slice(0, 2)).toEqual(["create", "transition"]);
+    expect(flagValue(args, "--model")).toBe("minimax-h3");
+    expect(flagValue(args, "--duration")).toBe("5");
+    expect(flagValue(args, "--quality")).toBe("1440p");
+    expect(args).toContain("--audio");
+    expect(flagValues(args, "--images")).toEqual(["assets/start.png", "assets/end.png"]);
+    expect(args).not.toContain("--image");
+    expect(args).not.toContain("--aspect-ratio");
+    expect(flagValue(args, "--prompt")).toBe(execution.prompt);
+    expect(flagValue(args, "--idempotency-key")).toBe("tsugite-demo-run-h3-fl");
+    expect(args).toEqual(expect.arrayContaining(["--no-wait", "--json"]));
+    assertNoRawH3Leak(args, ir);
+  });
+
+  it("maps reference IR to type-partitioned images/videos/audios argv", async () => {
+    const ir = await loadH3Fixture("reference.json");
+    const compiled = compileH3Request(h3Request("h3-ref", ir));
+    expect(compiled.ok).toBe(true);
+
+    const execution = compiled.compilation.execution_request;
+    expect(execution).toMatchObject({
+      operation: "reference",
+      input_mode: "reference",
+      input_images: ["assets/hero.png"],
+      input_videos: ["assets/lakeside-motion.mp4"],
+      input_audios: ["assets/voice.wav"],
+      model: "minimax-h3",
+      duration: 10,
+      aspect: "16:9",
+      params: expect.objectContaining({ quality: "1440p", audio: true })
+    });
+    expect(execution.prompt).toBe(compiled.compilation.canonical_prompt);
+    expect(execution.prompt).toBe(compiled.compilation.adapter_prompt);
+    expect(execution.prompt).toContain("<d>[Japanese]AIと自然が、やっと同じ場所で動き始めた。</d>");
+
+    const args = buildPixverseCreateArgs(execution, "demo-run");
+    expect(args.slice(0, 2)).toEqual(["create", "reference"]);
+    expect(flagValue(args, "--model")).toBe("minimax-h3");
+    expect(flagValue(args, "--duration")).toBe("10");
+    expect(flagValue(args, "--aspect-ratio")).toBe("16:9");
+    expect(flagValue(args, "--quality")).toBe("1440p");
+    expect(args).toContain("--audio");
+    expect(flagValues(args, "--images")).toEqual(["assets/hero.png"]);
+    expect(flagValues(args, "--videos")).toEqual(["assets/lakeside-motion.mp4"]);
+    expect(flagValues(args, "--audios")).toEqual(["assets/voice.wav"]);
+    expect(flagValue(args, "--prompt")).toBe(execution.prompt);
+    expect(flagValue(args, "--idempotency-key")).toBe("tsugite-demo-run-h3-ref");
+    expect(args).toEqual(expect.arrayContaining(["--no-wait", "--json"]));
+    assertNoRawH3Leak(args, ir);
+  });
+
+  it("keeps Japanese dialogue and on-screen text byte-stable through compile and argv prompt", async () => {
+    const base = await loadH3Fixture("voiceover.json");
+    const dialogueText = "  あの日から、すべてが変わった。  \n二行目  ";
+    const onScreen = "  字幕DAY 01  \n続き  ";
+    const ir = parseH3CreativeIr({
+      ...base,
+      shots: [
+        {
+          ...base.shots[0],
+          dialogue: {
+            ...base.shots[0].dialogue,
+            text: dialogueText,
+            lock_text: true
+          },
+          on_screen_text: onScreen
+        }
+      ]
+    });
+
+    const compiled = compileH3Request(h3Request("h3-voiceover", ir));
+    expect(compiled.ok).toBe(true);
+    const execution = compiled.compilation.execution_request;
+    expect(execution.prompt).toBe(compiled.compilation.canonical_prompt);
+    expect(execution.prompt).toContain(`<d>[Japanese]${dialogueText}</d>`);
+    expect(execution.prompt).toContain(`On-screen text: ${onScreen}`);
+    expect(execution.prompt).toContain(dialogueText);
+    expect(execution.prompt).toContain(onScreen);
+
+    const args = buildPixverseCreateArgs(execution, "demo-run");
+    const promptArg = flagValue(args, "--prompt");
+    expect(promptArg).toBe(execution.prompt);
+    expect(promptArg).toContain(`<d>[Japanese]${dialogueText}</d>`);
+    expect(promptArg).toContain(`On-screen text: ${onScreen}`);
+    expect(promptArg).toContain(dialogueText);
+    expect(promptArg).toContain(onScreen);
+    expect(args.slice(0, 2)).toEqual(["create", "video"]);
+    expect(flagValue(args, "--model")).toBe("minimax-h3");
+    expect(flagValue(args, "--idempotency-key")).toBe("tsugite-demo-run-h3-voiceover");
+    expect(args).toEqual(expect.arrayContaining(["--no-wait", "--json"]));
+    assertNoRawH3Leak(args, ir);
+  });
+
+  it("does not leak raw h3 when a project-shaped request still carries h3 alongside execution fields", async () => {
+    const ir = await loadH3Fixture("t2v.json");
+    const compiled = compileH3Request(h3Request("h3-leak", ir));
+    expect(compiled.ok).toBe(true);
+
+    // Project digests may keep h3 on the request; argv must still stay adapter-safe.
+    const dirty = {
+      ...compiled.compilation.execution_request,
+      h3: ir,
+      creative_ir: ir
+    };
+    const args = buildPixverseCreateArgs(dirty, "demo-run");
+    expect(flagValue(args, "--prompt")).toBe(compiled.compilation.adapter_prompt);
+    expect(args).toEqual(expect.arrayContaining(["create", "video", "--no-wait", "--json"]));
+    assertNoRawH3Leak(args, ir);
   });
 });

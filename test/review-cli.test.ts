@@ -55,4 +55,35 @@ describe("pipeline review", () => {
     expect(result.status).toBe(1);
     expect(JSON.parse(result.stderr).issues[0].code).toBe("cli.option_unsupported");
   });
+
+  it("preserves validate/plan prompt_guide_hash in review-data.json lineage", async () => {
+    const config = "examples/h3-prompt-director/project.yaml";
+    const outputDir = await mkdtemp(join(tmpdir(), "tsugite-h3-review-hash-"));
+
+    const validate = await capture(["validate", "--config", config, "--json"]);
+    expect(validate.status).toBe(0);
+    const validatePayload = JSON.parse(validate.stdout);
+    const expectedHash = validatePayload.h3_compilations?.[0]?.lineage?.prompt_guide_hash;
+    expect(expectedHash).toMatch(/^[a-f0-9]{64}$/);
+
+    const plan = await capture(["plan", "--config", config, "--json"]);
+    expect(plan.status).toBe(0);
+    const planPayload = JSON.parse(plan.stdout);
+    expect(planPayload.plan.h3_compilations[0].lineage.prompt_guide_hash).toBe(expectedHash);
+
+    const review = await capture([
+      "review",
+      "--config",
+      config,
+      "--output",
+      outputDir,
+      "--json"
+    ]);
+    expect(review.status).toBe(0);
+    const reviewPayload = JSON.parse(review.stdout);
+    const reviewData = JSON.parse(await readFile(reviewPayload.review_data_path, "utf8"));
+    expect(reviewData.h3_compilations).toHaveLength(1);
+    expect(reviewData.h3_compilations[0].lineage.prompt_guide_identity).toBe("pixverse/minimax-h3");
+    expect(reviewData.h3_compilations[0].lineage.prompt_guide_hash).toBe(expectedHash);
+  });
 });

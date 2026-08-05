@@ -9,7 +9,27 @@ import {
   type Project
 } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
+import type { H3ExecutionRouteProfile } from "../h3/validate/adapterRoute.js";
 import { loadAdapterDefinition } from "./registry.js";
+
+/**
+ * Machine-readable H3 route block inside adapter constraints.yaml.
+ * Unknown fields are rejected (strict) so typos cannot silently disable checks.
+ */
+const h3ExecutionRouteYamlSchema = z
+  .object({
+    /** Required non-empty; Stage 2 matches this against each IR target.model (H3-C006). */
+    model: z.string().min(1),
+    durations: z.array(z.number().positive()).min(1),
+    qualities: z.array(z.string().min(1)).min(1),
+    aspects: z.array(z.string().min(1)).min(1),
+    max_images: z.number().int().nonnegative(),
+    max_videos: z.number().int().nonnegative(),
+    max_audios: z.number().int().nonnegative(),
+    audio_requires_image_or_video: z.boolean(),
+    forbid_first_last_reference_mix: z.boolean()
+  })
+  .strict();
 
 const constraintSchema = z.object({
   checks: z
@@ -26,11 +46,14 @@ const constraintSchema = z.object({
         message: z.string().min(1)
       })
     )
-    .default([])
+    .default([]),
+  h3_execution_route: h3ExecutionRouteYamlSchema.optional()
 });
 
 type ConstraintFile = z.infer<typeof constraintSchema>;
 type Comparable = string | number | undefined;
+
+export type { H3ExecutionRouteProfile };
 
 export async function validateGenerationConstraints(
   project: Project,
@@ -67,6 +90,35 @@ export async function validateGenerationConstraints(
   return issues.length > 0 ? { ok: false, issues } : { ok: true, issues: [] };
 }
 
+/**
+ * Load the provider-neutral H3 execution route profile from an adapter root.
+ * Reads only `<adapterRoot>/constraints.yaml` — never arbitrary paths.
+ * Returns undefined when the adapter does not declare `h3_execution_route`.
+ */
+export async function loadH3ExecutionRouteProfile(
+  adapterRoot: string
+): Promise<H3ExecutionRouteProfile | undefined> {
+  const constraints = await loadConstraints(adapterRoot);
+  if (!constraints.h3_execution_route) return undefined;
+  return mapH3ExecutionRouteProfile(constraints.h3_execution_route);
+}
+
+function mapH3ExecutionRouteProfile(
+  route: NonNullable<ConstraintFile["h3_execution_route"]>
+): H3ExecutionRouteProfile {
+  return {
+    model: route.model,
+    durations: route.durations,
+    qualities: route.qualities,
+    aspects: route.aspects,
+    maxImages: route.max_images,
+    maxVideos: route.max_videos,
+    maxAudios: route.max_audios,
+    audioRequiresImageOrVideo: route.audio_requires_image_or_video,
+    forbidFirstLastReferenceMix: route.forbid_first_last_reference_mix
+  };
+}
+
 function validateInputMode(
   request: GenerationRequest,
   index: number,
@@ -93,6 +145,9 @@ function validateInputMode(
   const forbidden = contract.forbidden_params.filter((key) => hasParam(request.params, key));
   const missingFields = contract.required_fields.filter((key) => !hasField(request, key));
   const forbiddenFields = contract.forbidden_fields.filter((key) => hasField(request, key));
+  const missingAnyGroups = contract.required_any.filter(
+    (paths) => !paths.some((path) => hasRequestPath(request, path))
+  );
   return [
     ...missing.map(([key]) => ({
       code: "adapter.input_mode.required_param",
@@ -118,6 +173,11 @@ function validateInputMode(
       code: "adapter.input_mode.forbidden_field",
       message: `input mode does not allow ${key}`,
       path: `generation.requests.${index}.${key}`
+    })),
+    ...missingAnyGroups.map((paths) => ({
+      code: "adapter.input_mode.required_any",
+      message: `input mode requires one of: ${paths.join(", ")}`,
+      path: `generation.requests.${index}`
     }))
   ];
 }
@@ -138,10 +198,30 @@ function hasParam(params: Record<string, unknown>, key: string): boolean {
 
 function hasField(request: GenerationRequest, key: string): boolean {
   const value = request[key as keyof GenerationRequest];
-  return value !== undefined && value !== null && value !== "";
+  if (value === undefined || value === null || value === "") return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  return true;
+}
+
+/**
+ * Resolve a provider-neutral request path for input-mode contracts.
+ * Supports top-level fields and a single `params.<key>` segment only.
+ * `params.*` alternatives count only as non-empty strings so typed media paths
+ * (legacy `params.image`) cannot be satisfied by booleans or empty values.
+ */
+function hasRequestPath(request: GenerationRequest, path: string): boolean {
+  if (path.startsWith("params.")) {
+    const key = path.slice("params.".length);
+    if (!key || key.includes(".")) return false;
+    return matchesParamType(request.params?.[key], "non-empty-string");
+  }
+  if (!path || path.includes(".")) return false;
+  return hasField(request, path);
 }
 
 async function loadConstraints(root: string): Promise<ConstraintFile> {
+  // Only the adapter's own constraints.yaml is readable from this loader.
   const path = join(root, "constraints.yaml");
   if (!(await exists(path))) {
     return { checks: [] };

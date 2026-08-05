@@ -11,6 +11,7 @@ import {
   loadPromptGuideCatalog,
   loadPromptGuideById,
   resolvePromptGuidance,
+  type PromptGuide,
   type PromptMode
 } from "./adapters/promptKnowledge.js";
 import {
@@ -751,6 +752,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ...validation.issues,
         ...(launcherShelf && !launcherShelf.ok ? launcherShelf.issues : [])
       ],
+      ...(validation.h3_compilations && validation.h3_compilations.length > 0
+        ? { h3_compilations: validation.h3_compilations }
+        : {}),
       launcher_visible: launcherShelf?.ok ?? false,
       launcher_already_home: launcherShelf?.alreadyHome,
       launcher_linked: launcherShelf?.linked,
@@ -944,7 +948,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.audioAdapter,
         validation.generationConnection,
         validation.audioConnection,
-        validation.backend
+        validation.backend,
+        validation.h3_compilations
       )
     });
   }
@@ -1068,7 +1073,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioAdapter,
       validation.generationConnection,
       validation.audioConnection,
-      validation.backend
+      validation.backend,
+      validation.h3_compilations
     );
     try {
       const review = await writeCreativeReview({
@@ -1137,7 +1143,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioAdapter,
       validation.generationConnection,
       validation.audioConnection,
-      validation.backend
+      validation.backend,
+      validation.h3_compilations
     );
     const preview = await renderReviewPreview({
       configPath: args.config!,
@@ -1196,7 +1203,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.promptGuides,
         validation.audioAdapter,
         validation.generationConnection,
-        validation.audioConnection
+        validation.audioConnection,
+        validation.h3_compilations
       )
     });
   }
@@ -1225,7 +1233,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       gate!,
       decision!,
       validation.adapter,
-      validation.audioAdapter
+      validation.audioAdapter,
+      // Keep Gate 2 inspect on the same guide set used at Gate 1 / run (custom dirs included).
+      validation.promptGuides
     );
     return output(args, gateResult.ok ? 0 : 1, {
       ok: gateResult.ok,
@@ -1279,6 +1289,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       audioConnection: validation.audioConnection,
       connectionVerificationApproved: true,
       audioConnectionVerificationApproved: true,
+      // Keep Gate 1 / run lineage on the same guide set (including custom promptGuideDirs).
+      promptGuides: validation.promptGuides,
       ...(review.compilation ? { compilation: review.compilation } : {}),
       verifyApprovedInputs: async () => {
         const currentReview = await inspectGate1Review({
@@ -1314,7 +1326,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       gate_2_auto_passed: runResult.gate2AutoPassed,
       gate_2_auto_pass_blocked_reason: runResult.gate2AutoPassBlockedReason,
       state: runResult.state,
-      state_path: runResult.statePath
+      state_path: runResult.statePath,
+      ...(runResult.h3_artifacts ? { h3_artifacts: runResult.h3_artifacts } : {})
     });
   }
 
@@ -1360,7 +1373,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       stateResult.stateDir,
       validation.adapter,
       approvedCompilation,
-      validation.audioAdapter
+      validation.audioAdapter,
+      validation.promptGuides
     );
     if (!gate2Inspection.ok) {
       const issues = gate2Inspection.issues.map((issue) =>
@@ -1768,7 +1782,7 @@ async function outputPromptGuides(args: ParsedArgs): Promise<number> {
     return promptGuideOptionError(
       args,
       "prompt_guide.input_mode",
-      "--input-mode must be text-to-video or image-to-video"
+      "--input-mode must be text-to-video, image-to-video, transition, or reference"
     );
   }
 
@@ -1845,7 +1859,14 @@ function cliIssuesFromError(error: unknown): Issue[] {
 }
 
 function parsePromptMode(value: string): PromptMode | undefined {
-  if (value === "text-to-video" || value === "image-to-video") return value;
+  if (
+    value === "text-to-video"
+    || value === "image-to-video"
+    || value === "transition"
+    || value === "reference"
+  ) {
+    return value;
+  }
   return undefined;
 }
 
@@ -1928,7 +1949,8 @@ async function recordGate(
   gate: GateId,
   decision: GateDecision,
   adapter?: AdapterDefinition,
-  audioAdapter?: AdapterDefinition
+  audioAdapter?: AdapterDefinition,
+  promptGuides?: PromptGuide[]
 ): Promise<Result<{ state: RunState; statePath: string; reviewPath?: string; reviewDataPath?: string }>> {
   const stateLocation = getStateLocation(args, project);
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
@@ -1996,7 +2018,8 @@ async function recordGate(
       existing.stateDir,
       adapter,
       approvedCompilation,
-      audioAdapter
+      audioAdapter,
+      promptGuides
     );
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };

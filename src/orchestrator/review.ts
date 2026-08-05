@@ -33,6 +33,7 @@ import {
   type RawAnalysisForComposition
 } from "./compositionProposal.js";
 import type { ExecutionPlan } from "./plan.js";
+import type { H3Compilation } from "../h3/compile.js";
 import { computeReviewPreviewDigest } from "./reviewPreview.js";
 import {
   lintShotlistMonotony,
@@ -173,6 +174,8 @@ export type ReviewDocument = {
   handoffs: ExecutionPlan["agent_handoffs"];
   audio?: ExecutionPlan["audio"];
   prompt_guidance: NonNullable<ExecutionPlan["prompt_guidance"]>;
+  /** Deterministic H3 compilations from the plan for Gate 1 human inspection. */
+  h3_compilations?: H3Compilation[];
   steps: ExecutionPlan["steps"];
   warnings: string[];
   approval_digest?: string;
@@ -778,6 +781,9 @@ export function createReviewDocument(
     handoffs: plan.agent_handoffs,
     ...(plan.audio ? { audio: plan.audio } : {}),
     prompt_guidance: plan.prompt_guidance ?? [],
+    ...(plan.h3_compilations && plan.h3_compilations.length > 0
+      ? { h3_compilations: plan.h3_compilations }
+      : {}),
     steps: plan.steps,
     warnings,
     ...(project.analysis
@@ -1630,6 +1636,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
   const analysis = renderAnalysisReview(document.analysis);
   const compositionReview = renderCompositionReview(document.composition);
   const motionReview = renderMotionReview(document);
+  const h3Review = renderH3Review(document.h3_compilations);
   const audioReview = document.audio
     ? `<section class="audio-section" aria-labelledby="audio-title" data-testid="audio-review">
       <div class="section-heading"><div><p class="eyebrow">SOUND / TIMING</p><h2 id="audio-title">音響設計</h2></div><p>最終承認前にBGMと効果音の内容・タイミングを確認します。未解決時は停止し、別providerへの自動切り替えは行いません。</p></div>
@@ -1664,7 +1671,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     <header class="hero">
       <nav class="review-nav" aria-label="レビュー内ナビゲーション">
         <a class="wordmark" href="#main"><span class="joinery-mark" aria-hidden="true"><i></i><i></i></span><span class="wordmark-copy">TSUGITE<small>CREATIVE REVIEW</small></span></a>
-        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
+        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">H3プロンプト</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
       </nav>
       <div class="hero-content">
         <div class="hero-joinery" aria-hidden="true"><span></span><i></i></div>
@@ -1684,6 +1691,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     ${compositionReview}
     ${backgroundReview}
     ${audioReview}
+    ${h3Review}
     <section class="storyboard-section" aria-labelledby="storyboard-title">
       <div class="section-heading"><div><p class="eyebrow">SEQUENCE / TIMING</p><h2 id="storyboard-title">映像の流れ</h2></div><p>一枚ずつの材を組むように、左から時間順で構成とテンポを確認します。</p></div>
       <div class="screening-room">
@@ -1725,9 +1733,47 @@ function renderAudioTrack(
   return `<article class="audio-track"><p class="eyebrow">${kind}</p><h3>${escapeHtml(track.id)}</h3><p>${escapeHtml(track.prompt)}</p><dl><div><dt>START</dt><dd>${formatSeconds(track.start)}</dd></div>${track.end === undefined ? "" : `<div><dt>END</dt><dd>${formatSeconds(track.end)}</dd></div>`}<div><dt>VOLUME</dt><dd>${track.volume === undefined ? "default" : formatNumber(track.volume)}</dd></div>${track.mode ? `<div><dt>MODE</dt><dd>${escapeHtml(track.mode)}</dd></div>` : ""}${track.query ? `<div><dt>QUERY</dt><dd>${escapeHtml(track.query)}</dd></div>` : ""}</dl></article>`;
 }
 
+function renderH3Review(compilations: H3Compilation[] | undefined): string {
+  if (!compilations || compilations.length === 0) return "";
+  const cards = compilations.map((compilation) => {
+    const errors = compilation.validation.errors.map((issue) =>
+      `<li data-code="${escapeAttribute(issue.code)}"><code>${escapeHtml(issue.code)}</code> ${escapeHtml(issue.message)}</li>`
+    ).join("");
+    const warnings = compilation.validation.warnings.map((issue) =>
+      `<li data-code="${escapeAttribute(issue.code)}"><code>${escapeHtml(issue.code)}</code> ${escapeHtml(issue.message)}</li>`
+    ).join("");
+    const lineage = compilation.lineage;
+    return `<article class="h3-card" data-testid="h3-compilation-${escapeAttribute(compilation.request_id)}">
+      <header>
+        <p class="eyebrow">REQUEST</p>
+        <h3>${escapeHtml(compilation.request_id)}</h3>
+        <p class="h3-status" data-ok="${compilation.validation.ok ? "true" : "false"}">validation: ${compilation.validation.ok ? "ok" : "error"}</p>
+      </header>
+      <dl class="h3-lineage" data-testid="h3-lineage-${escapeAttribute(compilation.request_id)}">
+        <div><dt>WORKFLOW</dt><dd>${escapeHtml(lineage.workflow_id)}@${escapeHtml(lineage.workflow_version)}</dd></div>
+        <div><dt>CREATIVE IR HASH</dt><dd><code>${escapeHtml(lineage.creative_ir_hash)}</code></dd></div>
+        <div><dt>CANONICAL PROMPT HASH</dt><dd><code>${escapeHtml(lineage.canonical_prompt_hash)}</code></dd></div>
+        <div><dt>ADAPTER PROMPT HASH</dt><dd><code>${escapeHtml(lineage.adapter_prompt_hash)}</code></dd></div>
+        ${lineage.prompt_guide_identity ? `<div><dt>PROMPT GUIDE</dt><dd>${escapeHtml(lineage.prompt_guide_identity)}${lineage.prompt_guide_hash ? ` · <code>${escapeHtml(lineage.prompt_guide_hash)}</code>` : ""}</dd></div>` : ""}
+      </dl>
+      ${errors.length > 0 ? `<div class="h3-issues h3-errors"><h4>errors</h4><ul>${errors}</ul></div>` : ""}
+      ${warnings.length > 0 ? `<div class="h3-issues h3-warnings"><h4>warnings</h4><ul>${warnings}</ul></div>` : ""}
+      <div class="h3-prompts">
+        <div><h4>canonical prompt</h4><pre data-testid="h3-canonical-${escapeAttribute(compilation.request_id)}">${escapeHtml(compilation.canonical_prompt)}</pre></div>
+        <div><h4>adapter prompt</h4><pre data-testid="h3-adapter-${escapeAttribute(compilation.request_id)}">${escapeHtml(compilation.adapter_prompt)}</pre></div>
+      </div>
+    </article>`;
+  }).join("");
+  return `<section class="h3-section" aria-labelledby="h3-title" data-testid="h3-review">
+    <div class="section-heading"><div><p class="eyebrow">H3 PROMPT DIRECTOR</p><h2 id="h3-title">H3プロンプト</h2></div><p>Gate 1 前に、Creative IR から確定した canonical / adapter プロンプトと検証結果・lineage を確認します。</p></div>
+    <div class="h3-cards">${cards}</div>
+  </section>`;
+}
+
 function reviewStyles(): string {
   return `
 .frame video{display:block;width:100%;height:100%;object-fit:cover;background:#000}
+.h3-section{margin-top:66px}.h3-cards{display:grid;gap:18px}.h3-card{color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-top:4px solid var(--koke);padding:20px 22px;box-shadow:6px 7px 0 rgba(0,0,0,.12)}.h3-card header{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px 18px;margin-bottom:14px}.h3-card h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.35rem;margin:0}.h3-status{margin:0;font:700 .58rem SFMono-Regular,Consolas,monospace;letter-spacing:.08em;color:var(--approve)}.h3-status[data-ok="false"]{color:var(--danger)}.h3-lineage{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;margin:0 0 16px}.h3-lineage div{min-width:0;padding:8px 10px;background:#e8dcc4;border:1px solid #c5ad86}.h3-lineage dt{font:700 .5rem SFMono-Regular,Consolas,monospace;color:var(--urushi);letter-spacing:.08em}.h3-lineage dd{margin:5px 0 0;font:700 .58rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.h3-lineage code{font:inherit}.h3-issues{margin:0 0 14px;padding:12px 14px;border:1px solid #c5ad86;background:#efe3cb}.h3-issues h4{margin:0 0 6px;font:700 .58rem SFMono-Regular,Consolas,monospace;letter-spacing:.1em;color:var(--urushi)}.h3-issues ul{margin:0;padding-left:18px;font-size:.72rem}.h3-issues code{font:700 .62rem SFMono-Regular,Consolas,monospace}.h3-errors{border-left:4px solid var(--danger)}.h3-warnings{border-left:4px solid var(--shinchu)}.h3-prompts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.h3-prompts h4{margin:0 0 6px;font:700 .55rem SFMono-Regular,Consolas,monospace;letter-spacing:.1em;color:var(--urushi)}.h3-prompts pre{margin:0;max-height:280px;overflow:auto;padding:12px;background:#1f231f;color:#f0e7d6;border:1px solid #3a3f38;font:600 .62rem/1.55 SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:800px){.h3-lineage,.h3-prompts{grid-template-columns:1fr}}
 .audio-section{margin-top:66px}.audio-policy{color:var(--ink);background:var(--hinoki);border:1px solid #a58b65;padding:18px 22px}.audio-policy dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:0}.audio-policy dl div{border-left:4px solid var(--urushi);padding-left:12px}.audio-policy dt{font:700 .52rem SFMono-Regular,Consolas,monospace;color:var(--urushi);letter-spacing:.1em}.audio-policy dd{margin:6px 0 0;font:700 .7rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.audio-policy>p{margin:14px 0 0}.audio-tracks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px}.audio-track{color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-top:4px solid var(--shinchu);padding:18px}.audio-track h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.15rem;margin:5px 0}.audio-track p{font-size:.75rem;line-height:1.6}.audio-track dl{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 0}.audio-track dl div{min-width:90px}.audio-track dt{font:700 .5rem SFMono-Regular,Consolas,monospace;color:var(--urushi)}.audio-track dd{margin:4px 0 0;font:700 .62rem SFMono-Regular,Consolas,monospace}
 .reference-images{margin-top:20px;padding-top:13px;border-top:1px solid #d1bfa0}.reference-images>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.reference-images figure{min-width:0;margin:0;background:#e2d3b8;border:1px solid #c5ad86}.reference-images img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#d5c4a6}.reference-images figcaption{padding:6px 7px;font:700 .5rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
 :root{color-scheme:dark;--yakisugi:#171b18;--sumi:#20231e;--sumi-soft:#2d3029;--hinoki:#e7d4ae;--kinari:#f4eddf;--mokume:#c8a878;--urushi:#a63d2f;--shinchu:#b89456;--koke:#5b6655;--ink:#27251f;--ink-soft:#756b5c;--rule:rgba(75,58,36,.25);--light-rule:rgba(244,237,223,.16);--approve:#47725a;--danger:#9e3f35;font-family:"Hiragino Sans","Yu Gothic UI","Yu Gothic",system-ui,sans-serif;line-height:1.68;color:var(--kinari);background:var(--yakisugi)}

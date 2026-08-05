@@ -15,7 +15,7 @@ node bin/pipeline guides --catalog seedance --model seedance-2.0 --input-mode im
 
 - `scope: prompt-guidance-only`
 - `execution_capability: not-evaluated`
-- モデル一致状態、T2V / I2Vテンプレート、チェックリスト、避ける事項
+- モデル一致状態、T2V / I2V / transition / reference テンプレート、チェックリスト、避ける事項
 - 尺、解像度、アスペクト比、prompt上限などのモデル別limits
 - negative promptの扱い
 - 公式出典、確認日、再確認期限、鮮度
@@ -43,11 +43,15 @@ generation:
 
 - `matched`: モデルと入力モードに対応するrecipeあり
 - `catalog-missing`: 明示したカタログが見つからない
-- `model-unmatched`: 別モデルのrecipeを誤適用しない安全停止
-- `input-mode-unset`: T2V / I2Vが未指定
+- `model-unmatched`: 別モデルのrecipeを誤適用しない安全停止（未知モデルへのフォールバックなし）
+- `input-mode-unset`: 入力モードが未指定
 - `input-mode-unsupported`: カタログ上、そのモデルが入力モード非対応
 
-これらはGate 1前の助言です。coreはpromptを書き換えず、`run` / `render` の承認条件も変更しません。
+対応する `input_mode` は `text-to-video`、`image-to-video`、`transition`、`reference` です。カタログに mode recipe が無い入力モードは `input-mode-unsupported` になります。
+
+これらはGate 1前の助言です。coreはpromptを書き換えず、`run` / `render` の承認条件も変更しません。実行能力は評価しません（`execution_capability: not-evaluated`）。
+
+`minimax-h3` で section 順・shot 時刻・speaker ID・locked dialogue を決定的に組み立てる場合は、カタログ助言とは別に [H3 Prompt Director](./h3-prompt-director.md)（Creative IR v1 + compiler）を使う。H3 は通常 prompt の自動書換え機構ではない。
 
 ## 更新ルール
 

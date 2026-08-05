@@ -320,6 +320,8 @@ generation:
 
 `plan` returns request-specific `prompt_guidance` when the model and input mode match. Set `prompt_guide.catalog` when the knowledge catalog differs from the execution adapter. A catalog never implies execution capability and never rewrites the prompt. See [Model Prompt Knowledge](docs/prompt-guides.md).
 
+For MiniMax H3 (`minimax-h3`), use the optional Creative IR + deterministic compiler instead of freehand section prose. See [H3 Prompt Director](docs/h3-prompt-director.md) and the parseable example in [`examples/h3-prompt-director/`](examples/h3-prompt-director/).
+
 The optional Hermes adapter is a distribution-time opt-in. The base
 install does not require them; set them up only when a `project.yaml` selects
 one of those adapters. See [Optional Adapters](docs/optional-adapters.md).
