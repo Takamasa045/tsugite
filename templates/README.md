@@ -4,4 +4,8 @@ Reusable project shapes live here when an example is too specific and a blank st
 
 Use `examples/` for copyable, working fixtures. Use `templates/` for reusable structures that still require user-specific media, prompts, or settings before validation.
 
-No public templates are currently bundled.
+This directory is the workspace-local shelf. It is not included in Desktop packages.
+
+The metadata-only templates that ship with Desktop live in `../bundled-templates/`. A workspace
+template with the same ID takes precedence, so private local variants remain private and can
+override the bundled starting point.

@@ -19,7 +19,8 @@ export function resolveRuntimePaths({
     runtimeRoot,
     launcherModulePath: join(runtimeRoot, "build", "viewer", "launcher.js"),
     cliModulePath: join(runtimeRoot, "build", "cli.js"),
-    viewerBundleDir
+    viewerBundleDir,
+    bundledTemplatesDir: join(runtimeRoot, "bundled-templates")
   };
 }
 

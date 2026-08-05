@@ -83,6 +83,7 @@ async function startDesktop() {
   launcher = await launcherModule.startWorkflowViewerLauncher({
     projectsDir: workspace.projectsDir,
     templatesDir: workspace.templatesDir,
+    bundledTemplatesDir: paths.bundledTemplatesDir,
     bundleDir: paths.viewerBundleDir,
     validationOptions: resolveRuntimeValidationOptions(paths.runtimeRoot),
     allowProjectActions: false,

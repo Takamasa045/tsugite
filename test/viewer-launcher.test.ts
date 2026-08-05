@@ -781,6 +781,96 @@ distribution: local-only
     });
   });
 
+  it("merges bundled templates into an empty workspace and lets workspace IDs override them", async () => {
+    const fixture = await createFixture();
+    const bundledTemplatesDir = join(fixture.root, "bundled-templates");
+    const bundledOnlyDir = join(bundledTemplatesDir, "bundled-only");
+    const bundledSharedDir = join(bundledTemplatesDir, "shared-template");
+    const workspaceOnlyDir = join(fixture.templatesDir, "workspace-only");
+    const workspaceSharedDir = join(fixture.templatesDir, "shared-template");
+    await Promise.all([
+      mkdir(bundledOnlyDir, { recursive: true }),
+      mkdir(bundledSharedDir, { recursive: true }),
+      mkdir(workspaceOnlyDir, { recursive: true }),
+      mkdir(workspaceSharedDir, { recursive: true })
+    ]);
+
+    const templateYaml = (id: string, name: string) => [
+      "schema_version: 1",
+      "kind: tsugite-template",
+      `id: ${id}`,
+      `name: ${name}`,
+      `summary: ${name} の説明`,
+      "category: 検証",
+      "use_cases: [検証]",
+      "output:",
+      "  duration: { mode: fixed, min_seconds: 30, max_seconds: 30, label: 30秒 }",
+      "  aspect_ratios: [\"16:9\"]",
+      "required_inputs:",
+      "  - { type: text, label: 台本, required: true }",
+      "audio:",
+      "  narration: optional",
+      "  bgm: optional",
+      "  silent_draft: true",
+      "  notes: 音声は任意です。",
+      "status: stable",
+      "distribution: bundled",
+      ""
+    ].join("\n");
+    await Promise.all([
+      writeFile(join(bundledOnlyDir, "template.yaml"), templateYaml("bundled-only", "同梱テンプレート")),
+      writeFile(join(bundledSharedDir, "template.yaml"), templateYaml("shared-template", "同梱版")),
+      writeFile(join(workspaceOnlyDir, "template.yaml"), templateYaml("workspace-only", "workspaceテンプレート")),
+      writeFile(join(workspaceSharedDir, "template.yaml"), templateYaml("shared-template", "workspace優先版"))
+    ]);
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundledTemplatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const response = await fetch(`${launcher.url}/api/templates`);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.templates.map((template: { id: string }) => template.id)).toEqual([
+      "bundled-only",
+      "shared-template",
+      "workspace-only"
+    ]);
+    expect(payload.templates.find((template: { id: string }) => template.id === "shared-template"))
+      .toMatchObject({ name: "workspace優先版" });
+  });
+
+  it("ships the four bundled template metadata entries for a new workspace", async () => {
+    const fixture = await createFixture();
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundledTemplatesDir: join(process.cwd(), "bundled-templates"),
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const response = await fetch(`${launcher.url}/api/templates`);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.templates.map((template: { id: string }) => template.id)).toEqual([
+      "commerce-showcase",
+      "creative-short",
+      "explainer-talk",
+      "footage-editorial"
+    ]);
+    expect(payload.templates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "commerce-showcase", distribution: "bundled", valid: true }),
+      expect.objectContaining({ id: "creative-short", distribution: "bundled", valid: true }),
+      expect.objectContaining({ id: "explainer-talk", distribution: "bundled", valid: true }),
+      expect.objectContaining({ id: "footage-editorial", distribution: "bundled", valid: true })
+    ]));
+  });
+
   it("rejects a template variant whose recommended option is not declared", async () => {
     const fixture = await createFixture();
     const invalidDir = join(fixture.templatesDir, "invalid-variant");

@@ -678,6 +678,8 @@ export type StartWorkflowViewerLauncherOptions = {
    */
   linkProjectShelves?: boolean;
   templatesDir?: string;
+  /** Desktop runtime が配布する読み取り専用テンプレートカタログ。workspace 側を優先する。 */
+  bundledTemplatesDir?: string;
   port?: number;
   bundleDir?: string;
   allowProjectActions?: boolean;
@@ -725,6 +727,10 @@ export async function startWorkflowViewerLauncher(
   const templatesDir = resolve(
     options.templatesDir ?? fileURLToPath(new URL("../../templates", import.meta.url))
   );
+  const templateDirectories = [
+    ...(options.bundledTemplatesDir ? [resolve(options.bundledTemplatesDir)] : []),
+    templatesDir
+  ].filter((directory, index, directories) => directories.indexOf(directory) === index);
   const bundleDir = await prepareWorkflowViewerBundle(options.bundleDir);
   const token = randomBytes(24).toString("hex");
   const idsByConfig = new Map<string, string>();
@@ -1479,7 +1485,7 @@ export async function startWorkflowViewerLauncher(
     }
 
     if (method === "GET" && requestUrl.pathname === "/api/templates") {
-      sendJson(response, 200, { ok: true, templates: await discoverTemplates(templatesDir) });
+      sendJson(response, 200, { ok: true, templates: await discoverTemplates(templateDirectories) });
       return;
     }
 
@@ -2748,28 +2754,31 @@ function isCanonicalProject(record: LauncherProjectRecord): boolean {
   return basename(record.configPath) === "project.yaml";
 }
 
-async function discoverTemplates(templatesDir: string): Promise<LauncherTemplate[]> {
-  let entries;
-  try {
-    entries = await readdir(templatesDir, { withFileTypes: true });
-  } catch (error) {
-    if (isFileSystemError(error, "ENOENT")) return [];
-    throw error;
-  }
-
-  const templates: LauncherTemplate[] = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isDirectory()) continue;
-    const templateDir = join(templatesDir, entry.name);
+async function discoverTemplates(templateDirectories: readonly string[]): Promise<LauncherTemplate[]> {
+  const templatesById = new Map<string, LauncherTemplate>();
+  for (const templatesDir of templateDirectories) {
+    let entries;
     try {
-      await lstat(join(templateDir, "template.yaml"));
+      entries = await readdir(templatesDir, { withFileTypes: true });
     } catch (error) {
       if (isFileSystemError(error, "ENOENT")) continue;
       throw error;
     }
-    templates.push(await inspectTemplate(entry.name, templateDir));
+
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (!entry.isDirectory()) continue;
+      const templateDir = join(templatesDir, entry.name);
+      try {
+        await lstat(join(templateDir, "template.yaml"));
+      } catch (error) {
+        if (isFileSystemError(error, "ENOENT")) continue;
+        throw error;
+      }
+      // 同じ ID は workspace の定義（後から渡す directory）を優先する。
+      templatesById.set(entry.name, await inspectTemplate(entry.name, templateDir));
+    }
   }
-  return templates;
+  return [...templatesById.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 async function inspectTemplate(id: string, templateDir: string): Promise<LauncherTemplate> {

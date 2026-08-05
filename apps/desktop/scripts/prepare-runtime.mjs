@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
-const EXTERNAL_RUNTIME_ROOTS = ["adapters", "backends", "connections", "knowledge"];
+const EXTERNAL_RUNTIME_ROOTS = ["adapters", "backends", "bundled-templates", "connections", "knowledge"];
 const ALLOWED_UNTRACKED_RUNTIME_FILES = [
   "backends/remotion/alpineTourism.js",
   "backends/remotion/cinematicTourismCaptions.js",
