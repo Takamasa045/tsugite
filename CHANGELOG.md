@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.0 - 2026-08-06
+
+- Added the H3 Prompt Director with typed request compilation for text-to-video, image-to-video, first/last-frame, reference, and voiceover workflows; deterministic prompt rendering; adapter capability checks; fail-closed validation; and review/run artifacts while preserving generation, billing, and Gate approval boundaries.
+- Added read-only launcher cards for safe completed direct-edit artifacts that have a valid `completion-record.json` without requiring a `project.yaml`, while rejecting malformed, oversized, symlinked, or out-of-shelf records.
+- Refined the HyperFrames expression shelf into a browse-and-copy catalog with separate individual and combined prompt copy flows, without automatically injecting expression text into production requests or implying execution capability.
+- Simplified template completion by removing the optional finish selector and its related request/state plumbing.
+
 ## 0.7.3 - 2026-08-04
 
 - Added transaction-safe project storage finalization with lock and identity revalidation, recovery journals, durable-project promotion, completion records, and fail-closed protection for canonical media and project boundaries.
