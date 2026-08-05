@@ -108,6 +108,21 @@ describe("hyperframes document", () => {
     expect(html).toContain("speaker-chip");
   });
 
+  it("keeps the timed source video visible behind photo-first themed overlays", () => {
+    const html = renderIndexHtml(baseManifest({ theme: "claude", photo_first: true }));
+    const videoRule = html.match(/video \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+
+    expect(videoRule).toContain("opacity: 1;");
+    expect(videoRule).toContain("z-index: 0;");
+  });
+
+  it("preserves the hidden source plate for ordinary themed presentations", () => {
+    const html = renderIndexHtml(baseManifest({ theme: "claude" }));
+    const videoRule = html.match(/video \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+
+    expect(videoRule).toContain("opacity: 0;");
+  });
+
   it("gives every timed visual layer the attributes the HyperFrames runtime needs", () => {
     const html = renderIndexHtml(baseManifest({ theme: "claude" }));
     const cards = [...html.matchAll(/<div[^>]*class="clip visual"[^>]*>/g)].map((match) => match[0]);

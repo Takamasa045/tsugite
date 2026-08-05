@@ -127,6 +127,7 @@ function themedStyles(manifest, size, theme) {
   const vertical = manifest.meta.aspect === "9:16";
   const scale = Math.min(size.width / 1920, size.height / 1080);
   const isClaude = theme.id === "claude";
+  const photoFirst = manifest.presentation?.photo_first === true;
   return `${fontFaceDeclarations(theme.bodyFontFamily, theme.headlineFontFamily)}
     html, body {
       margin: 0;
@@ -202,14 +203,16 @@ function themedStyles(manifest, size, theme) {
       transform-origin: left center;
       transform: scaleX(0);
     }
-    /* The plate sits under an opaque ground and only carries duration. */
+    /* A photo-first presentation keeps the edited source visible; the legacy
+       article stage intentionally leaves its plate hidden under the theme. */
     video {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
-      opacity: 0;
+      opacity: ${photoFirst ? 1 : 0};
+      z-index: ${photoFirst ? 0 : "auto"};
     }
     .header {
       position: absolute;
@@ -290,7 +293,7 @@ function themedStyles(manifest, size, theme) {
       object-fit: cover;
       display: block;
     }
-    /* The visible panel is the inner block, so it can shrink to the copy it holds. */
+    /* A photo-first panel stays translucent so the source remains the hero. */
     .visual > .panel {
       position: relative;
       display: flex;
@@ -300,9 +303,10 @@ function themedStyles(manifest, size, theme) {
       width: 100%;
       padding: ${round(52 * scale)}px ${round(60 * scale)}px ${round(48 * scale)}px;
       border-radius: ${round(theme.cardRadius * scale)}px;
-      border: ${theme.cardBorder};
-      background: ${theme.cardBackground};
-      box-shadow: ${theme.cardShadow};
+      border: ${photoFirst ? `${round(1 * scale)}px solid rgba(255, 255, 255, 0.34)` : theme.cardBorder};
+      background: ${photoFirst ? "rgba(11, 20, 30, 0.68)" : theme.cardBackground};
+      color: ${photoFirst ? "#ffffff" : theme.ink};
+      box-shadow: ${photoFirst ? `0 ${round(18 * scale)}px ${round(48 * scale)}px rgba(3, 8, 14, 0.26)` : theme.cardShadow};
       overflow: hidden;
     }
     .visual > .panel::before {
@@ -320,9 +324,9 @@ function themedStyles(manifest, size, theme) {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: ${theme.kicker};
-      background: ${theme.kickerBackground};
-      border: ${round(1 * scale)}px solid rgba(217, 119, 87, 0.22);
+      color: ${photoFirst ? "#ffffff" : theme.kicker};
+      background: ${photoFirst ? "rgba(217, 119, 87, 0.86)" : theme.kickerBackground};
+      border: ${round(1 * scale)}px solid ${photoFirst ? "rgba(255, 255, 255, 0.32)" : "rgba(217, 119, 87, 0.22)"};
       border-radius: 999px;
       font-size: ${round(20 * scale)}px;
       font-weight: 900;
@@ -337,6 +341,8 @@ function themedStyles(manifest, size, theme) {
       letter-spacing: ${theme.headlineLetterSpacing};
       line-height: 1.14;
       white-space: pre-line;
+      color: ${photoFirst ? "#ffffff" : theme.ink};
+      text-shadow: ${photoFirst ? `0 ${round(3 * scale)}px ${round(12 * scale)}px rgba(0, 0, 0, 0.34)` : "none"};
     }
     /* Impact cards: pull a stat into a poster-size number for dialogue punch. */
     .visual[data-impact="true"] > .panel {
@@ -363,33 +369,33 @@ function themedStyles(manifest, size, theme) {
       font-weight: 700;
       line-height: 1.25;
       white-space: pre-line;
-      color: ${theme.ink};
+      color: ${photoFirst ? "#ffffff" : theme.ink};
     }
     .visual[data-mood="myth"] > .panel {
-      background: linear-gradient(180deg, #FFFEFA 0%, #F3F1EA 100%);
-      border: ${round(1 * scale)}px dashed rgba(25, 25, 25, 0.18);
+      background: ${photoFirst ? "rgba(11, 20, 30, 0.68)" : "linear-gradient(180deg, #FFFEFA 0%, #F3F1EA 100%)"};
+      border: ${round(1 * scale)}px ${photoFirst ? "dashed rgba(255, 255, 255, 0.36)" : "dashed rgba(25, 25, 25, 0.18)"};
     }
     .visual[data-mood="myth"] [data-role="kicker"] {
-      color: #6A6A63;
-      background: rgba(25, 25, 25, 0.06);
-      border-color: rgba(25, 25, 25, 0.1);
+      color: ${photoFirst ? "#ffffff" : "#6A6A63"};
+      background: ${photoFirst ? "rgba(106, 106, 99, 0.82)" : "rgba(25, 25, 25, 0.06)"};
+      border-color: ${photoFirst ? "rgba(255, 255, 255, 0.28)" : "rgba(25, 25, 25, 0.1)"};
     }
     .visual[data-mood="now"] > .panel,
     .visual[data-mood="proof"] > .panel {
       border: ${round(1.5 * scale)}px solid rgba(217, 119, 87, 0.28);
     }
     .visual[data-mood="next"] > .panel {
-      background: linear-gradient(165deg, #FFF8F4 0%, #FAF9F5 55%, #F0EEE6 100%);
+      background: ${photoFirst ? "rgba(11, 20, 30, 0.72)" : "linear-gradient(165deg, #FFF8F4 0%, #FAF9F5 55%, #F0EEE6 100%)"};
       box-shadow:
-        0 ${round(32 * scale)}px ${round(80 * scale)}px rgba(217, 119, 87, 0.14),
-        0 ${round(4 * scale)}px ${round(14 * scale)}px rgba(25, 25, 25, 0.04);
+        0 ${round(32 * scale)}px ${round(80 * scale)}px ${photoFirst ? "rgba(3, 8, 14, 0.3)" : "rgba(217, 119, 87, 0.14)"},
+        0 ${round(4 * scale)}px ${round(14 * scale)}px ${photoFirst ? "rgba(3, 8, 14, 0.18)" : "rgba(25, 25, 25, 0.04)"};
     }
     .visual[data-mood="turn"] [data-role="headline"] {
       font-size: ${round(56 * scale)}px;
     }
     .visual [data-role="detail"] {
       max-width: ${round(1000 * scale)}px;
-      color: ${theme.detail};
+      color: ${photoFirst ? "rgba(255, 255, 255, 0.9)" : theme.detail};
       font-size: ${round(30 * scale)}px;
       font-weight: 650;
       line-height: 1.5;
@@ -425,12 +431,12 @@ function themedStyles(manifest, size, theme) {
     .visual [data-role="step"] .body {
       flex: 1;
       border-radius: ${round(Math.max(10, theme.cardRadius - 6) * scale)}px;
-      background: ${theme.stepBackground};
-      color: ${theme.stepInk};
+      background: ${photoFirst ? "rgba(255, 255, 255, 0.14)" : theme.stepBackground};
+      color: ${photoFirst ? "#ffffff" : theme.stepInk};
       font-size: ${round(26 * scale)}px;
       font-weight: 750;
       padding: ${round(14 * scale)}px ${round(18 * scale)}px;
-      border: ${round(1 * scale)}px solid rgba(25, 25, 25, 0.05);
+      border: ${round(1 * scale)}px solid ${photoFirst ? "rgba(255, 255, 255, 0.18)" : "rgba(25, 25, 25, 0.05)"};
     }
     .visual [data-role="badges"] {
       display: flex;
@@ -440,12 +446,12 @@ function themedStyles(manifest, size, theme) {
     }
     .visual [data-role="badge"] {
       border-radius: ${round(theme.badgeRadius * scale)}px;
-      background: ${theme.badgeBackground};
-      color: ${theme.badgeInk};
+      background: ${photoFirst ? "rgba(255, 255, 255, 0.16)" : theme.badgeBackground};
+      color: ${photoFirst ? "#ffffff" : theme.badgeInk};
       font-size: ${round(22 * scale)}px;
       font-weight: 800;
       padding: ${round(10 * scale)}px ${round(18 * scale)}px;
-      border: ${round(1 * scale)}px solid rgba(25, 25, 25, 0.06);
+      border: ${round(1 * scale)}px solid ${photoFirst ? "rgba(255, 255, 255, 0.18)" : "rgba(25, 25, 25, 0.06)"};
     }
     /* Cast: dialogue energy — active speaker steps forward, idle steps back. */
     .cast {
