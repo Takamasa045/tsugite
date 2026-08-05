@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "target": {
+    "model": "minimax-h3",
+    "mode": "text-to-video",
+    "duration": 5,
+    "quality": "768p",
+    "aspect": "16:9",
+    "audio": true
+  },
+  "subjects": [
+    {
+      "id": "narrator",
+      "description": "man",
+      "speaker_id": "S1"
+    }
+  ],
+  "assets": [],
+  "shots": [
+    {
+      "id": "shot_1",
+      "start_ms": 0,
+      "end_ms": 5000,
+      "visual": "A man stands on a rainy street at night, face calm, eyes soft, while neon reflections move on wet asphalt.",
+      "camera": {
+        "type": "static"
+      },
+      "dialogue": {
+        "speaker": "narrator",
+        "language": "Japanese",
+        "text": "あの日から、すべてが変わった。",
+        "lock_text": true,
+        "voiceover": true,
+        "speaker_description": "The man (S1)"
+      },
+      "on_screen_text": "DAY 01"
+    }
+  ],
+  "sound": {
+    "soundscape": "Rain on pavement and distant traffic.",
+    "music": {
+      "enabled": false
+    }
+  }
+}

@@ -13,6 +13,7 @@ import {
   type BackendExternalCommand,
   type BackendMotionReview
 } from "../backends/capabilities.js";
+import { compileProjectH3, type H3Compilation } from "../h3/compile.js";
 
 export type PlanStep = {
   name: string;
@@ -76,6 +77,8 @@ export type ExecutionPlan = {
     };
   };
   prompt_guidance?: PromptGuidance[];
+  /** Deterministic H3 compilations when generation requests carry Creative IR. */
+  h3_compilations?: H3Compilation[];
   steps: PlanStep[];
 };
 
@@ -90,7 +93,8 @@ export function createPlan(
   audioAdapter?: AdapterDefinition,
   generationConnection?: GenerationConnectionResolution,
   audioConnection?: GenerationConnectionResolution,
-  backend?: BackendCapabilities
+  backend?: BackendCapabilities,
+  h3Compilations?: H3Compilation[]
 ): ExecutionPlan {
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
@@ -104,6 +108,7 @@ export function createPlan(
   );
   const analysis = createAnalysisPlan(project, manifest, analysisAdapter);
   const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
+  const compilations = h3Compilations ?? compileProjectH3(project).compilations ?? [];
 
   return {
     run_id: project.run_id ?? project.slug,
@@ -143,6 +148,7 @@ export function createPlan(
         }
       : {}),
     ...(promptGuidance.length > 0 ? { prompt_guidance: promptGuidance } : {}),
+    ...(compilations.length > 0 ? { h3_compilations: compilations } : {}),
     steps: [
       { name: "validate", status: "pending" },
       ...(project.analysis ? [{ name: "analysis-handoff", status: "pending" as const }] : []),
@@ -196,7 +202,8 @@ export function createDryRun(
   promptGuides: PromptGuide[] = [],
   audioAdapter?: AdapterDefinition,
   generationConnection?: GenerationConnectionResolution,
-  audioConnection?: GenerationConnectionResolution
+  audioConnection?: GenerationConnectionResolution,
+  h3Compilations?: H3Compilation[]
 ): {
   executed: false;
   plan: ExecutionPlan;
@@ -213,7 +220,8 @@ export function createDryRun(
     audioAdapter,
     generationConnection,
     audioConnection,
-    backend
+    backend,
+    h3Compilations
   );
   return {
     executed: false,

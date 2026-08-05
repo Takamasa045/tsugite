@@ -5,7 +5,10 @@ import {
   type PromptGuide
 } from "../adapters/promptKnowledge.js";
 import { readJsonFile } from "../io.js";
-import { validateGenerationConstraints } from "../adapters/constraints.js";
+import {
+  loadH3ExecutionRouteProfile,
+  validateGenerationConstraints
+} from "../adapters/constraints.js";
 import {
   loadBackendCapabilities,
   validateBackendCapabilities,
@@ -21,6 +24,12 @@ import {
   resolveGenerationConnection,
   type GenerationConnectionResolution
 } from "../connections/registry.js";
+import {
+  applyH3ExecutionRouteProfile,
+  compileProjectH3,
+  enrichH3CompilationsForProject,
+  type H3Compilation
+} from "../h3/compile.js";
 import { loadProject } from "./loadProject.js";
 import { generationRequestCapability, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
@@ -47,15 +56,33 @@ export async function validateProject(
     promptGuides: PromptGuide[];
     generationConnection?: GenerationConnectionResolution;
     audioConnection?: GenerationConnectionResolution;
+    h3_compilations: H3Compilation[];
   }>
 > {
   const issues: Issue[] = [];
   let project: Project;
+  let h3Compilations: H3Compilation[] = [];
 
   try {
     project = await loadProject(configPath);
   } catch (error) {
     return { ok: false, issues: issuesFromError(error) };
+  }
+
+  // Stage 1: format/render/asset mapping only so operation/model/mode are
+  // available for connection resolution. Route PV-E* runs after adapter load.
+  const h3Compile = compileProjectH3(project);
+  h3Compilations = h3Compile.compilations ?? [];
+  if (h3Compile.project) {
+    project = h3Compile.project;
+  }
+  if (!h3Compile.ok) {
+    return {
+      ok: false,
+      issues: h3Compile.issues,
+      project,
+      h3_compilations: h3Compilations
+    };
   }
 
   const configDir = dirname(resolve(configPath));
@@ -378,16 +405,67 @@ export async function validateProject(
     if (project.generation?.adapter && adapter?.class === "generation") {
       issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
     }
+
+    // Stage 2: inject selected adapter H3 route profile (fail closed if missing).
+    if (h3Compilations.length > 0) {
+      if (!adapter || adapter.class !== "generation") {
+        const routeApplied = applyH3ExecutionRouteProfile(h3Compilations, undefined, {
+          project,
+          adapterName: project.generation?.adapter
+        });
+        h3Compilations = routeApplied.compilations ?? h3Compilations;
+        issues.push(...routeApplied.issues);
+      } else {
+        const routeProfile = await loadH3ExecutionRouteProfile(adapter.root);
+        const routeApplied = applyH3ExecutionRouteProfile(h3Compilations, routeProfile, {
+          project,
+          adapterName: adapter.name
+        });
+        h3Compilations = routeApplied.compilations ?? h3Compilations;
+        issues.push(...routeApplied.issues);
+      }
+    }
+
     promptGuides = await loadProjectPromptGuides(project, options.promptGuideDirs);
+    // Enrich lineage with loaded guide content hashes only after guides load.
+    h3Compilations = enrichH3CompilationsForProject(h3Compilations, project, promptGuides);
   } catch (error) {
     issues.push(...issuesFromError(error));
   }
 
   if (issues.length > 0 || !manifestResult.manifest) {
-    return { ok: false, issues, project, manifest: manifestResult.manifest, adapter, audioAdapter, analysisAdapter, analysisAdapters, backend, promptGuides, generationConnection, audioConnection };
+    return {
+      ok: false,
+      issues,
+      project,
+      manifest: manifestResult.manifest,
+      adapter,
+      audioAdapter,
+      analysisAdapter,
+      analysisAdapters,
+      backend,
+      promptGuides,
+      generationConnection,
+      audioConnection,
+      h3_compilations: h3Compilations
+    };
   }
 
-  return { ok: true, issues: [], project, manifest: manifestResult.manifest, adapter, audioAdapter, analysisAdapter, analysisAdapters, backend, promptGuides, generationConnection, audioConnection };
+  return {
+    ok: true,
+    issues: [],
+    project,
+    manifest: manifestResult.manifest,
+    adapter,
+    audioAdapter,
+    analysisAdapter,
+    analysisAdapters,
+    backend,
+    promptGuides,
+    generationConnection,
+    audioConnection,
+    h3_compilations: h3Compilations
+  };
 }
 
 function generationConnectionRequirements(project: Project): {

@@ -326,14 +326,134 @@ describe("adapter contract", () => {
         ]
       }
     };
+    const legacyImage = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...request,
+            input_mode: "image-to-video" as const,
+            params: { image: "references/shot.png" }
+          }
+        ]
+      }
+    };
+    const firstFrameOnly = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...request,
+            input_mode: "image-to-video" as const,
+            first_frame: "references/shot.png",
+            params: {}
+          }
+        ]
+      }
+    };
 
     const missingResult = await validateGenerationConstraints(missingImage, ["fixtures/adapters", "adapters"]);
     const unexpectedResult = await validateGenerationConstraints(unexpectedImage, ["fixtures/adapters", "adapters"]);
     const wrongTypeResult = await validateGenerationConstraints(wrongImageType, ["fixtures/adapters", "adapters"]);
+    const legacyResult = await validateGenerationConstraints(legacyImage, ["fixtures/adapters", "adapters"]);
+    const firstFrameResult = await validateGenerationConstraints(firstFrameOnly, ["fixtures/adapters", "adapters"]);
 
-    expect(missingResult.issues[0]?.code).toBe("adapter.input_mode.required_param");
+    // PixVerse I2V accepts first_frame OR legacy params.image (required_any).
+    expect(missingResult.ok).toBe(false);
+    expect(missingResult.issues[0]?.code).toBe("adapter.input_mode.required_any");
+    expect(missingResult.issues[0]?.message).toContain("first_frame");
+    expect(missingResult.issues[0]?.message).toContain("params.image");
     expect(unexpectedResult.issues[0]?.code).toBe("adapter.input_mode.forbidden_param");
-    expect(wrongTypeResult.issues[0]?.code).toBe("adapter.input_mode.param_type");
+    // Boolean params.image does not satisfy the non-empty-string path alternative.
+    expect(wrongTypeResult.ok).toBe(false);
+    expect(wrongTypeResult.issues[0]?.code).toBe("adapter.input_mode.required_any");
+    expect(legacyResult.ok).toBe(true);
+    expect(firstFrameResult.ok).toBe(true);
+  });
+
+  it("contracts PixVerse transition and reference modes to real media inputs", async () => {
+    const project = await loadProject("fixtures/projects/local-valid.yaml");
+    const base = project.generation!.requests[0];
+
+    const transitionOk = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...base,
+            operation: "transition" as const,
+            input_mode: "transition" as const,
+            duration: 5,
+            input_images: ["references/a.png", "references/b.png"],
+            params: {}
+          }
+        ]
+      }
+    };
+    const transitionMissing = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...base,
+            operation: "transition" as const,
+            input_mode: "transition" as const,
+            duration: 5,
+            params: {}
+          }
+        ]
+      }
+    };
+    const referenceOk = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...base,
+            operation: "reference" as const,
+            input_mode: "reference" as const,
+            duration: 5,
+            input_videos: ["references/motion.mp4"],
+            params: {}
+          }
+        ]
+      }
+    };
+    const referenceMissing = {
+      ...project,
+      generation: {
+        ...project.generation!,
+        requests: [
+          {
+            ...base,
+            operation: "reference" as const,
+            input_mode: "reference" as const,
+            duration: 5,
+            params: {}
+          }
+        ]
+      }
+    };
+
+    const transitionOkResult = await validateGenerationConstraints(transitionOk, ["adapters"]);
+    const transitionMissingResult = await validateGenerationConstraints(transitionMissing, ["adapters"]);
+    const referenceOkResult = await validateGenerationConstraints(referenceOk, ["adapters"]);
+    const referenceMissingResult = await validateGenerationConstraints(referenceMissing, ["adapters"]);
+
+    expect(transitionOkResult.ok).toBe(true);
+    expect(transitionMissingResult.ok).toBe(false);
+    expect(transitionMissingResult.issues[0]?.code).toBe("adapter.input_mode.required_any");
+    expect(referenceOkResult.ok).toBe(true);
+    expect(referenceMissingResult.ok).toBe(false);
+    expect(referenceMissingResult.issues[0]?.code).toBe("adapter.input_mode.required_any");
+    expect(referenceMissingResult.issues[0]?.message).toContain("input_images");
+    expect(referenceMissingResult.issues[0]?.message).toContain("input_videos");
+    expect(referenceMissingResult.issues[0]?.message).toContain("input_audios");
   });
 
   it("accepts Topview image-to-video and requires first_frame", async () => {

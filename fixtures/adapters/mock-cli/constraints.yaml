@@ -11,3 +11,16 @@ checks:
     operator: in
     values: [analysis-only]
     message: analysis-only constraints must not apply to generation requests
+
+# Test fixture route profile so H3 integration tests can execute through mock-cli.
+# Not a vendor default: real provider limits live under adapters/<name>/constraints.yaml.
+h3_execution_route:
+  model: minimax-h3
+  durations: [3, 5, 10]
+  qualities: ["768p", "1440p"]
+  aspects: ["16:9", "9:16"]
+  max_images: 9
+  max_videos: 3
+  max_audios: 3
+  audio_requires_image_or_video: true
+  forbid_first_last_reference_mix: true

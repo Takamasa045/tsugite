@@ -27,3 +27,16 @@ checks:
     value: 2147483647
     optional: true
     message: seed must be less than or equal to 2147483647
+
+# Machine-readable H3 execution route for MiniMax H3 via this adapter.
+# Core validates PV-E001..E008 only after loading this block — no core defaults.
+h3_execution_route:
+  model: minimax-h3
+  durations: [3, 5, 10]
+  qualities: ["768p", "1440p"]
+  aspects: ["16:9", "9:16"]
+  max_images: 9
+  max_videos: 3
+  max_audios: 3
+  audio_requires_image_or_video: true
+  forbid_first_last_reference_mix: true

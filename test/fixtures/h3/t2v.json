@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "target": {
+    "model": "minimax-h3",
+    "mode": "text-to-video",
+    "duration": 10,
+    "quality": "1440p",
+    "aspect": "16:9",
+    "audio": true
+  },
+  "subjects": [
+    {
+      "id": "hero",
+      "description": "Japanese man",
+      "speaker_id": "S1",
+      "voice": {
+        "description": "calm, slightly low voice"
+      }
+    }
+  ],
+  "assets": [],
+  "shots": [
+    {
+      "id": "shot_1",
+      "start_ms": 0,
+      "end_ms": 5000,
+      "visual": "Live-action, cinematic. A medium-wide shot frames a Japanese man standing beside a mountain lake at sunrise. Mist drifts across the water.",
+      "camera": {
+        "type": "push_in",
+        "amplitude": "small",
+        "speed": "slow"
+      }
+    },
+    {
+      "id": "shot_2",
+      "start_ms": 5000,
+      "end_ms": 10000,
+      "transition": "cut",
+      "visual": "a close-up of his face as he turns toward the camera.",
+      "camera": {
+        "type": "static"
+      },
+      "dialogue": {
+        "speaker": "hero",
+        "language": "Japanese",
+        "text": "AIと自然が、やっと同じ場所で動き始めた。",
+        "lock_text": true,
+        "voiceover": false
+      }
+    }
+  ],
+  "sound": {
+    "soundscape": "Soft wind moves through the trees. Gentle lake water laps against the shore, accompanied by distant bird calls and subtle clothing movement.",
+    "music": {
+      "enabled": true,
+      "description": "Sparse acoustic guitar notes at a slow tempo, gradually joined by soft ambient synthesizer pads."
+    }
+  }
+}

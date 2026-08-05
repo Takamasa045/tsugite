@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "target": {
+    "model": "minimax-h3",
+    "mode": "first-last",
+    "duration": 5,
+    "quality": "1440p",
+    "aspect": "9:16",
+    "audio": true
+  },
+  "subjects": [
+    {
+      "id": "hero",
+      "description": "runner in a red jacket",
+      "source_asset": "start_image"
+    }
+  ],
+  "assets": [
+    {
+      "id": "start_image",
+      "type": "image",
+      "path": "assets/start.png",
+      "role": "first_frame"
+    },
+    {
+      "id": "end_image",
+      "type": "image",
+      "path": "assets/end.png",
+      "role": "last_frame"
+    }
+  ],
+  "shots": [
+    {
+      "id": "shot_1",
+      "start_ms": 0,
+      "end_ms": 5000,
+      "visual": "Continuously transform from the opening lakeside stance into the final stride at the shore, keeping identity, clothing color, and silhouette consistent while motion accelerates gently.",
+      "camera": {
+        "type": "track",
+        "speed": "medium",
+        "direction": "from the side"
+      }
+    }
+  ],
+  "sound": {
+    "soundscape": "Footsteps on wet stones and soft wind.",
+    "music": {
+      "enabled": true,
+      "description": "Low pulse of soft electronic percussion at a steady mid tempo."
+    }
+  }
+}

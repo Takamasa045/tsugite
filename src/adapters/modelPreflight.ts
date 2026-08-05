@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { spawnCommandSync } from "../platform/process.js";
-import { toExecutionGenerationRequest, type GenerationRequest } from "../project/schema.js";
+import { toAdapterGenerationRequest, type GenerationRequest } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import type { AdapterDefinition } from "./registry.js";
 
@@ -61,7 +61,7 @@ export function runGenerationModelPreflight(
   for (const request of requests) {
     const execution = spawnCommandSync(adapter.model_preflight.executable, adapter.model_preflight.args, {
       cwd: process.cwd(),
-      input: `${JSON.stringify({ request: toExecutionGenerationRequest(request) })}\n`,
+      input: `${JSON.stringify({ request: toAdapterGenerationRequest(request) })}\n`,
       encoding: "utf8",
       maxBuffer: 1024 * 1024 * 4
     });

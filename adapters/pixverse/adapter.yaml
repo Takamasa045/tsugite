@@ -17,8 +17,17 @@ input_modes:
   text-to-video:
     forbidden_params: [image]
   image-to-video:
-    required_params:
-      image: non-empty-string
+    # H3 first-frame uses first_frame; legacy prompt-only I2V uses params.image.
+    required_any:
+      - [first_frame, params.image]
+  transition:
+    # Real route accepts any image list source; count rules stay in schema / h3_execution_route.
+    required_any:
+      - [input_images, first_frame, params.image, reference_images]
+  reference:
+    # At least one media list; audio-only / caps remain in h3_execution_route.
+    required_any:
+      - [input_images, input_videos, input_audios]
 checks:
   setup:
     - type: command

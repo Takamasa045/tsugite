@@ -690,4 +690,91 @@ describe("creative review", () => {
       args: ["C:\\review\\index.html"]
     });
   });
+
+  it("embeds H3 compile prompts, validation, and lineage in Gate 1 review data/HTML", async () => {
+    const { parseH3CreativeIr } = await import("../src/h3/index.js");
+    const ir = parseH3CreativeIr(
+      JSON.parse(await readFile("test/fixtures/h3/t2v.json", "utf8"))
+    );
+    const project: Project = {
+      ...sampleProject(),
+      generation: {
+        adapter: "mock-cli",
+        requests: [
+          {
+            id: "s01",
+            prompt: "",
+            params: {},
+            h3: ir,
+            prompt_guide: { catalog: "pixverse", model: "minimax-h3" }
+          }
+        ]
+      }
+    };
+    const root = await mkdtemp(join(tmpdir(), "tsugite-h3-review-"));
+    await writeFile(join(root, "project.yaml"), "slug: creative-review\n");
+    // compile via validate-shaped path: use createPlan after compile
+    const { compileProjectH3, enrichH3CompilationsForProject } = await import("../src/h3/index.js");
+    const { loadPromptGuide } = await import("../src/adapters/promptKnowledge.js");
+    const compiled = compileProjectH3(project);
+    expect(compiled.ok).toBe(true);
+    const guide = await loadPromptGuide("knowledge/video-models/pixverse");
+    const compilations = enrichH3CompilationsForProject(
+      compiled.compilations,
+      compiled.project,
+      guide ? [guide] : []
+    );
+    const plan = createPlan(
+      compiled.project,
+      sampleManifest(),
+      undefined,
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      compilations
+    );
+    const document = createReviewDocument(compiled.project, sampleManifest(), plan);
+    expect(document.h3_compilations).toHaveLength(1);
+    expect(document.h3_compilations![0]!.canonical_prompt.length).toBeGreaterThan(0);
+    expect(document.h3_compilations![0]!.validation.ok).toBe(true);
+    expect(document.h3_compilations![0]!.lineage.creative_ir_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(document.h3_compilations![0]!.lineage.prompt_guide_identity).toBe("pixverse/minimax-h3");
+    expect(document.h3_compilations![0]!.lineage.prompt_guide_hash).toMatch(/^[a-f0-9]{64}$/);
+    // Storyboard still shows the compiled project prompt.
+    expect(document.storyboard[0]?.prompt).toBe(compiled.project.generation?.requests[0]?.prompt);
+
+    const html = renderReviewHtml(document);
+    expect(html).toContain('data-testid="h3-review"');
+    expect(html).toContain('data-testid="h3-compilation-s01"');
+    expect(html).toContain(document.h3_compilations![0]!.lineage.creative_ir_hash);
+    expect(html).toContain(document.h3_compilations![0]!.lineage.adapter_prompt_hash);
+    // Escaped prompt content (no raw unescaped script injection surface).
+    expect(html).toContain(document.h3_compilations![0]!.canonical_prompt
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .slice(0, 40));
+    // Determinism: re-render matches; review-data shape is what Gate digests use.
+    expect(renderReviewHtml(document)).toBe(html);
+    await mkdir(join(root, "review"), { recursive: true });
+    const dataPath = join(root, "review", "review-data.json");
+    await writeFile(dataPath, `${JSON.stringify(document, null, 2)}\n`);
+    const data = JSON.parse(await readFile(dataPath, "utf8"));
+    expect(data.h3_compilations).toHaveLength(1);
+    expect(data.h3_compilations[0].lineage.workflow_id).toBe("h3-prompt-director");
+    expect(renderReviewHtml(data)).toBe(html);
+  });
+
+  it("keeps review-data/HTML free of h3_compilations for prompt-only projects", () => {
+    const project = sampleProject();
+    const plan = createPlan(project, sampleManifest());
+    const document = createReviewDocument(project, sampleManifest(), plan);
+    expect(document).not.toHaveProperty("h3_compilations");
+    const html = renderReviewHtml(document);
+    expect(html).not.toContain('data-testid="h3-review"');
+    expect(html).not.toContain("H3プロンプト");
+  });
 });

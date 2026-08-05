@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { win32 } from "node:path";
+import { h3CreativeIrSchema } from "../h3/schema.js";
 
 const safeIdSchema = z
   .string()
@@ -34,7 +35,12 @@ const manifestPathSchema = z
     "must be a safe manifest path"
   );
 
-const generationModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
+const generationModeSchema = z.union([
+  z.literal("text-to-video"),
+  z.literal("image-to-video"),
+  z.literal("transition"),
+  z.literal("reference")
+]);
 export const generationOperationSchema = z.enum([
   "video",
   "image",
@@ -109,6 +115,16 @@ export const analysisOutputSchema = z.union([
   z.literal("subtitle_track")
 ]);
 
+/** H3 Creative IR is only for video-generation operations. */
+function isH3CompatibleOperation(
+  operation: z.infer<typeof generationOperationSchema> | undefined
+): boolean {
+  return operation === undefined
+    || operation === "video"
+    || operation === "transition"
+    || operation === "reference";
+}
+
 const generationRequestSchema = z
   .object({
     id: safeIdSchema,
@@ -134,6 +150,8 @@ const generationRequestSchema = z
         model: safeIdSchema.optional()
       })
       .optional(),
+    /** Optional H3 Creative IR (v1). When present, empty prompt is allowed. */
+    h3: h3CreativeIrSchema.optional(),
     params: z.record(z.string(), z.unknown()).default({})
   })
   .passthrough()
@@ -148,7 +166,16 @@ const generationRequestSchema = z
     if (request.operation === "voice" && !request.prompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "voice requires text in prompt", path: ["prompt"] });
     }
-    if ([undefined, "video", "image", "music"].includes(request.operation) && !request.prompt) {
+    const hasH3 = request.h3 !== undefined;
+    if (hasH3 && !isH3CompatibleOperation(request.operation)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "h3 Creative IR is only valid for video-generation operations (undefined, video, transition, reference)",
+        path: ["h3"]
+      });
+    }
+    if ([undefined, "video", "image", "music"].includes(request.operation) && !request.prompt && !hasH3) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `${request.operation ?? "video"} requires a prompt`, path: ["prompt"] });
     }
     if (request.operation === "template" && typeof request.params.template_id !== "string") {
@@ -158,7 +185,8 @@ const generationRequestSchema = z
       + (request.reference_images?.length ?? 0)
       + (request.input_images?.length ?? 0)
       + (typeof request.params.image === "string" ? 1 : 0);
-    if (request.operation === "transition" && imageCount < 2) {
+    // H3 IR carries mode assets; compile fills execution fields before asset checks.
+    if (request.operation === "transition" && imageCount < 2 && !hasH3) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "transition requires at least two image inputs", path: ["input_images"] });
     }
     if (["extend", "modify", "upscale"].includes(request.operation ?? "")
@@ -170,7 +198,8 @@ const generationRequestSchema = z
       context.addIssue({ code: z.ZodIssueCode.custom, message: "motion-control requires an image and an input video", path: ["input_video"] });
     }
     if (request.operation === "reference"
-      && imageCount + (request.input_videos?.length ?? 0) + (request.input_audios?.length ?? 0) === 0) {
+      && imageCount + (request.input_videos?.length ?? 0) + (request.input_audios?.length ?? 0) === 0
+      && !hasH3) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "reference requires at least one media input", path: ["input_images"] });
     }
   });
@@ -388,7 +417,7 @@ export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][numbe
 
 export function generationRequestMode(
   request: GenerationRequest
-): "text-to-video" | "image-to-video" | undefined {
+): "text-to-video" | "image-to-video" | "transition" | "reference" | undefined {
   return request.mode ?? request.input_mode;
 }
 
@@ -423,6 +452,11 @@ export function generationRequestCapability(request: GenerationRequest): string 
   }
 }
 
+/**
+ * Normalize a generation request for digests / Gate integrity.
+ * Keeps raw `h3` so Creative IR changes remain visible to run input digests.
+ * Strips advisory `prompt_guide` and collapses legacy `mode` into `input_mode`.
+ */
 export function toExecutionGenerationRequest(
   request: GenerationRequest
 ): GenerationRequest {
@@ -437,6 +471,17 @@ export function toExecutionGenerationRequest(
     ...executionRequest,
     ...(normalizedInputMode ? { input_mode: normalizedInputMode } : {})
   } as GenerationRequest;
+}
+
+/**
+ * Adapter-facing payload: same as execution normalization, but never sends raw h3 IR.
+ */
+export function toAdapterGenerationRequest(
+  request: GenerationRequest
+): GenerationRequest {
+  const execution = toExecutionGenerationRequest(request);
+  const { h3: _h3, ...adapterRequest } = execution as GenerationRequest & { h3?: unknown };
+  return adapterRequest as GenerationRequest;
 }
 
 export function toExecutionProject(project: Project): Project {
