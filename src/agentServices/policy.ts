@@ -1,42 +1,39 @@
 import type { AgentServiceDefinition, AgentServiceToolDefinition } from "./registry.js";
 import { getServiceTool, looksWriteLikeToolName } from "./registry.js";
-import {
-  createInMemoryApprovalStore,
-  verifyApprovalArtifact,
-  type ApprovalConsumptionStore
-} from "./approval.js";
 import { AGENT_SERVICE_ISSUE_CODES, agentServiceError } from "./errors.js";
 
 export const DEFAULT_ARGUMENTS_MAX_BYTES = 64 * 1024;
 export const DEFAULT_RESULT_MAX_BYTES = 1024 * 1024;
 
-/** Process-local consumption store for approval replay protection. */
-const defaultApprovalStore = createInMemoryApprovalStore();
-
 export type ToolCallAuthorization = {
   service: AgentServiceDefinition;
   tool: AgentServiceToolDefinition;
   arguments: Record<string, unknown>;
-  approval_required: boolean;
-  approval_verified: boolean;
+  /** Always false: Agent Services never perform purchase/payment actions. */
   billing_action: false;
-  side_effect: boolean;
-  network: true;
+  /**
+   * Public MCP queries may still consume provider quota/usage even when
+   * billing_action is false.
+   */
+  provider_usage_possible: true;
+  side_effect: false;
+  human_gate: "not_required";
 };
 
 export type AuthorizeToolCallInput = {
   service: AgentServiceDefinition;
   toolName: string;
   arguments?: unknown;
-  approvalArtifact?: unknown;
-  approvalStore?: ApprovalConsumptionStore;
-  now?: Date;
   argumentsMaxBytes?: number;
 };
 
 /**
- * Fail-closed authorization before any remote MCP callTool.
- * Registry allowlist, write-like names, policy, size, and human approval are checked here.
+ * Fail-closed authorization before any remote MCP connect/callTool.
+ *
+ * Read-only MVP: only `read_public_data` + `approval=none` tools may proceed.
+ * Schema may still describe `side_effect` / `approval=required` for future
+ * expression, but this runtime always rejects them before network. No approval
+ * artifact, flag, or env var can unlock side effects from the agent CLI.
  */
 export function authorizeToolCall(input: AuthorizeToolCallInput): ToolCallAuthorization {
   const tool = getServiceTool(input.service, input.toolName);
@@ -47,56 +44,47 @@ export function authorizeToolCall(input: AuthorizeToolCallInput): ToolCallAuthor
     );
   }
 
-  if (looksWriteLikeToolName(tool.name) && tool.policy.action === "read_public_data") {
+  // Action field is authoritative. side_effect is never executable here.
+  if (tool.policy.action === "side_effect") {
     throw agentServiceError(
-      AGENT_SERVICE_ISSUE_CODES.toolWriteLike,
-      `tool '${tool.name}' looks write-like and is blocked under read_public_data`
+      AGENT_SERVICE_ISSUE_CODES.sideEffectBlocked,
+      `tool '${tool.name}' is a side_effect action; the agent-service MVP stops at the human gate and never executes it`
     );
   }
 
-  if (tool.policy.action === "side_effect" && tool.policy.approval !== "required") {
+  // Defense-in-depth: approval=required also cannot be satisfied by artifacts.
+  if (tool.policy.approval === "required") {
+    throw agentServiceError(
+      AGENT_SERVICE_ISSUE_CODES.humanGateRequired,
+      `tool '${tool.name}' requires a human gate outside this agent CLI; no approval artifact can unlock it`
+    );
+  }
+
+  if (tool.policy.action !== "read_public_data" || tool.policy.approval !== "none") {
     throw agentServiceError(
       AGENT_SERVICE_ISSUE_CODES.toolPolicy,
-      `tool '${tool.name}' has an inconsistent side-effect policy`
+      `tool '${tool.name}' policy is not executable in the read-only agent-service MVP`
+    );
+  }
+
+  // Defense-in-depth after action: write-like names cannot run as read_public_data.
+  if (looksWriteLikeToolName(tool.name)) {
+    throw agentServiceError(
+      AGENT_SERVICE_ISSUE_CODES.toolWriteLike,
+      `tool '${tool.name}' looks write-like and is blocked in the read-only agent-service MVP`
     );
   }
 
   const args = normalizeArguments(input.arguments, input.argumentsMaxBytes);
-  const sideEffect = tool.policy.action === "side_effect";
-  const approvalRequired = tool.policy.approval === "required";
-
-  let approvalVerified = false;
-  if (approvalRequired) {
-    verifyApprovalArtifact({
-      serviceId: input.service.id,
-      tool: tool.name,
-      arguments: args,
-      artifact: input.approvalArtifact,
-      now: input.now,
-      consumed: input.approvalStore ?? defaultApprovalStore
-    });
-    approvalVerified = true;
-  } else if (input.approvalArtifact != null) {
-    // Extra artifacts are ignored for approval=none tools (no side effect).
-    approvalVerified = false;
-  }
-
-  if (tool.policy.action === "read_public_data" && tool.policy.approval !== "none") {
-    throw agentServiceError(
-      AGENT_SERVICE_ISSUE_CODES.toolPolicy,
-      `tool '${tool.name}' policy is inconsistent`
-    );
-  }
 
   return {
     service: input.service,
     tool,
     arguments: args,
-    approval_required: approvalRequired,
-    approval_verified: approvalVerified,
     billing_action: false,
-    side_effect: sideEffect,
-    network: true
+    provider_usage_possible: true,
+    side_effect: false,
+    human_gate: "not_required"
   };
 }
 

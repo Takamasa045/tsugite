@@ -16,7 +16,7 @@ const expectedOptions = {
   connections: ["--model", "--capability"],
   services: [],
   "service-tools": ["--service"],
-  "service-call": ["--service", "--tool", "--arguments", "--approval-artifact"],
+  "service-call": ["--service", "--tool", "--arguments"],
   presets: ["--backend"],
   "viewer-launcher": ["--projects-dir", "--port", "--open"],
   worktrees: ["--path", "--actor", "--apply", "--defer", "--reconcile"],

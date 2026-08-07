@@ -7,14 +7,12 @@ export const AGENT_SERVICE_ISSUE_CODES = {
   endpointInvalid: "agent_service.endpoint_invalid",
   endpointForbidden: "agent_service.endpoint_forbidden",
   endpointRedirect: "agent_service.endpoint_redirect_blocked",
+  endpointDnsPrivate: "agent_service.endpoint_dns_private",
   toolUndeclared: "agent_service.tool_undeclared",
   toolWriteLike: "agent_service.tool_write_like_blocked",
   toolPolicy: "agent_service.tool_policy_blocked",
-  approvalRequired: "agent_service.approval_required",
-  approvalInvalid: "agent_service.approval_invalid",
-  approvalExpired: "agent_service.approval_expired",
-  approvalMismatch: "agent_service.approval_mismatch",
-  approvalReplay: "agent_service.approval_replay",
+  sideEffectBlocked: "agent_service.side_effect_blocked",
+  humanGateRequired: "agent_service.human_gate_required",
   argumentsInvalid: "agent_service.arguments_invalid",
   argumentsTooLarge: "agent_service.arguments_too_large",
   resultTooLarge: "agent_service.result_too_large",
@@ -61,15 +59,20 @@ export function normalizeRemoteError(error: unknown): Issue {
 
   const raw = error instanceof Error ? error.message : String(error);
   const lower = raw.toLowerCase();
-  if (lower.includes("abort") || lower.includes("timeout") || lower.includes("timed out")) {
+  if (
+    lower.includes("abort")
+    || lower.includes("timeout")
+    || lower.includes("timed out")
+    || (error instanceof Error && error.name === "AbortError")
+  ) {
     return agentServiceIssue(AGENT_SERVICE_ISSUE_CODES.timeout, "remote request timed out");
   }
   if (
-    lower.includes("fetch failed") ||
-    lower.includes("network") ||
-    lower.includes("econnrefused") ||
-    lower.includes("enotfound") ||
-    lower.includes("econnreset")
+    lower.includes("fetch failed")
+    || lower.includes("network")
+    || lower.includes("econnrefused")
+    || lower.includes("enotfound")
+    || lower.includes("econnreset")
   ) {
     return agentServiceIssue(AGENT_SERVICE_ISSUE_CODES.network, "remote network request failed");
   }

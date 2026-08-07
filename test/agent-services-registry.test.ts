@@ -3,8 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  buildHostAllowlist,
+  assertResolvedAddressesPublic,
+  buildEndpointAllowlist,
   createAllowlistedFetch,
+  isPublicIpAddress,
   listAgentServices,
   loadAgentServiceRegistry,
   looksWriteLikeToolName,
@@ -52,9 +54,11 @@ describe("agent service registry schema", () => {
     const list = await listAgentServices();
     expect(list).toHaveLength(4);
     expect(list.every((service) => service.billing_action === false)).toBe(true);
-    expect(list.every((service) => service.requires_approval === false)).toBe(true);
-    // Endpoint host is exposed, never credentials or arbitrary caller URL.
+    expect(list.every((service) => service.provider_usage_possible === true)).toBe(true);
+    expect(list.every((service) => service.mvp_executable === true)).toBe(true);
+    expect(list.every((service) => service.schema_requires_human_gate === false)).toBe(true);
     expect(list[0].endpoint_host).toBe("724d49cd-2eaf-48d8-8363-20218c1ca177.search.ai.cloudflare.com");
+    expect(list[0].endpoint_canonical).toContain("/mcp");
   });
 
   it("rejects fixed schema version mismatches and duplicate ids", async () => {
@@ -153,7 +157,7 @@ services:
     await expect(loadAgentServiceRegistry(writeLikeRead)).rejects.toBeInstanceOf(PipelineError);
   });
 
-  it("allows future side_effect tools with approval=required in schema", async () => {
+  it("allows future side_effect tools with approval=required in schema only", async () => {
     const path = await writeRegistry(`
 schema_version: 1
 services:
@@ -173,6 +177,10 @@ services:
       action: "side_effect",
       approval: "required"
     });
+    const summary = (await listAgentServices(path))[0];
+    expect(summary.side_effect).toBe(true);
+    expect(summary.schema_requires_human_gate).toBe(true);
+    expect(summary.mvp_executable).toBe(false);
   });
 
   it("resolves services only by registry id", async () => {
@@ -196,6 +204,9 @@ describe("agent service endpoint policy", () => {
     expect(validated.hostname).toBe(
       "724d49cd-2eaf-48d8-8363-20218c1ca177.search.ai.cloudflare.com"
     );
+    expect(validated.canonical).toBe(
+      "https://724d49cd-2eaf-48d8-8363-20218c1ca177.search.ai.cloudflare.com/mcp"
+    );
   });
 
   it("rejects http, credentials, query, hash, localhost, private, and IP literals", () => {
@@ -218,18 +229,24 @@ describe("agent service endpoint policy", () => {
     }
   });
 
-  it("builds a fixed host allowlist and blocks redirects / off-allowlist hosts", async () => {
-    const allowlist = buildHostAllowlist([
+  it("binds exact endpoints and blocks different path/port, redirects, and off-allowlist hosts", async () => {
+    const allowlist = buildEndpointAllowlist([
       "https://724d49cd-2eaf-48d8-8363-20218c1ca177.search.ai.cloudflare.com/mcp",
       "https://azumi-experience-mcp.tkms045.workers.dev/mcp"
     ]);
-    expect(allowlist.has("azumi-experience-mcp.tkms045.workers.dev")).toBe(true);
+    expect(allowlist.has("https://azumi-experience-mcp.tkms045.workers.dev/mcp")).toBe(true);
+    expect(allowlist.has("https://azumi-experience-mcp.tkms045.workers.dev/other")).toBe(false);
 
-    const redirectFetch = createAllowlistedFetch(allowlist, async () =>
-      new Response(null, {
-        status: 302,
-        headers: { location: "https://evil.example/mcp" }
-      })
+    const publicResolver = async () => ["1.1.1.1"] as const;
+
+    const redirectFetch = createAllowlistedFetch(
+      allowlist,
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://evil.example/mcp" }
+        }),
+      { dnsResolver: publicResolver }
     );
     await expect(
       redirectFetch("https://azumi-experience-mcp.tkms045.workers.dev/mcp")
@@ -237,20 +254,62 @@ describe("agent service endpoint policy", () => {
       issues: [expect.objectContaining({ code: "agent_service.endpoint_redirect_blocked" })]
     });
 
-    const offlistFetch = createAllowlistedFetch(allowlist, async () => new Response("ok"));
+    const offlistFetch = createAllowlistedFetch(
+      allowlist,
+      async () => new Response("ok"),
+      { dnsResolver: publicResolver }
+    );
     await expect(offlistFetch("https://evil.example/mcp")).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "agent_service.endpoint_forbidden" })]
+    });
+    await expect(
+      offlistFetch("https://azumi-experience-mcp.tkms045.workers.dev/other")
+    ).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "agent_service.endpoint_forbidden" })]
+    });
+    await expect(
+      offlistFetch("https://azumi-experience-mcp.tkms045.workers.dev:8443/mcp")
+    ).rejects.toMatchObject({
       issues: [expect.objectContaining({ code: "agent_service.endpoint_forbidden" })]
     });
 
     let called = false;
-    const okFetch = createAllowlistedFetch(allowlist, async (input) => {
-      called = true;
-      expect(String(input)).toContain("azumi-experience-mcp.tkms045.workers.dev");
-      return new Response("ok", { status: 200 });
-    });
+    const okFetch = createAllowlistedFetch(
+      allowlist,
+      async (input) => {
+        called = true;
+        expect(String(input)).toBe("https://azumi-experience-mcp.tkms045.workers.dev/mcp");
+        return new Response("ok", { status: 200 });
+      },
+      { dnsResolver: publicResolver }
+    );
     const response = await okFetch("https://azumi-experience-mcp.tkms045.workers.dev/mcp");
     expect(called).toBe(true);
     expect(response.status).toBe(200);
+  });
+
+  it("rejects private DNS resolutions and classifies public IPs", async () => {
+    expect(isPublicIpAddress("1.1.1.1")).toBe(true);
+    expect(isPublicIpAddress("8.8.8.8")).toBe(true);
+    expect(isPublicIpAddress("10.0.0.1")).toBe(false);
+    expect(isPublicIpAddress("127.0.0.1")).toBe(false);
+    expect(isPublicIpAddress("169.254.169.254")).toBe(false);
+    expect(isPublicIpAddress("100.64.0.1")).toBe(false);
+    expect(isPublicIpAddress("192.0.2.1")).toBe(false);
+    expect(isPublicIpAddress("::1")).toBe(false);
+    expect(isPublicIpAddress("fc00::1")).toBe(false);
+    expect(isPublicIpAddress("fe80::1")).toBe(false);
+    expect(isPublicIpAddress("2001:db8::1")).toBe(false);
+
+    await expect(
+      assertResolvedAddressesPublic("example.com", async () => ["10.0.0.5"])
+    ).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "agent_service.endpoint_dns_private" })]
+    });
+
+    await expect(
+      assertResolvedAddressesPublic("example.com", async () => ["1.1.1.1"])
+    ).resolves.toBeUndefined();
   });
 
   it("classifies write-like tool names", () => {
@@ -260,5 +319,7 @@ describe("agent service endpoint policy", () => {
     expect(looksWriteLikeToolName("send_message")).toBe(true);
     expect(looksWriteLikeToolName("submit_inquiry")).toBe(true);
     expect(looksWriteLikeToolName("purchase_item")).toBe(true);
+    expect(looksWriteLikeToolName("edit_record")).toBe(true);
+    expect(looksWriteLikeToolName("approve_change")).toBe(true);
   });
 });

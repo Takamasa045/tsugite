@@ -121,11 +121,6 @@ const OPTIONS = {
     "--arguments",
     "JSON object of tool arguments.",
     "<json-object>"
-  ),
-  approvalArtifact: defineOption(
-    "--approval-artifact",
-    "Path to a human approval artifact JSON for side-effect tools.",
-    "<path>"
   )
 } as const satisfies Record<string, CommandOptionSpec>;
 
@@ -191,11 +186,11 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
   }),
   defineCommand({
     name: "service-call",
-    summary: "Call one registry-allowlisted Remote MCP tool with policy and human-gate checks.",
-    usage: "node bin/pipeline service-call --service <service-id> --tool <tool-name> [--arguments <json-object>] [--approval-artifact <path>] [--json]",
+    summary: "Call one registry-allowlisted read-only Remote MCP tool (side effects always blocked).",
+    usage: "node bin/pipeline service-call --service <service-id> --tool <tool-name> [--arguments <json-object>] [--json]",
     requiresConfig: false,
-    safety: "approval-gated",
-    options: [OPTIONS.service, OPTIONS.tool, OPTIONS.arguments, OPTIONS.approvalArtifact]
+    safety: "read-only",
+    options: [OPTIONS.service, OPTIONS.tool, OPTIONS.arguments]
   }),
   defineCommand({
     name: "presets",

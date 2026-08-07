@@ -18,6 +18,10 @@ const capability = z
   .string()
   .regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/, "capability must be dotted lowercase");
 
+/**
+ * Schema may express future side_effect / approval=required tools.
+ * The read-only MVP runtime always refuses those before network.
+ */
 const toolPolicySchema = z.object({
   action: z.enum(["read_public_data", "side_effect"]),
   approval: z.enum(["none", "required"])
@@ -119,9 +123,21 @@ export type AgentServiceSummary = {
     policy: AgentServiceToolPolicy;
   }>;
   endpoint_host: string;
+  endpoint_canonical: string;
+  /** Never a purchase/payment action via agent services. */
   billing_action: false;
-  side_effect: false | true;
-  requires_approval: boolean;
+  /**
+   * Public MCP queries may consume provider quota/usage even without billing_action.
+   */
+  provider_usage_possible: true;
+  side_effect: boolean;
+  /**
+   * True when any declared tool uses approval=required in schema.
+   * The MVP runtime never unlocks those tools from this CLI.
+   */
+  schema_requires_human_gate: boolean;
+  /** True when every declared tool is MVP-executable (read_public_data / approval=none). */
+  mvp_executable: boolean;
 };
 
 const defaultRegistryPath = fileURLToPath(
@@ -132,6 +148,11 @@ export function getDefaultAgentServiceRegistryPath(): string {
   return defaultRegistryPath;
 }
 
+/**
+ * Load and validate an agent service registry.
+ * Production CLI always uses the bundled path. Path injection is for
+ * programmatic tests only — never from CLI env/flags.
+ */
 export async function loadAgentServiceRegistry(
   registryPath = defaultRegistryPath
 ): Promise<AgentServiceRegistry> {
@@ -192,8 +213,14 @@ export function getServiceTool(
 
 export function summarizeService(service: AgentServiceDefinition): AgentServiceSummary {
   const endpoint = validateRegistryEndpoint(service.endpoint);
-  const requiresApproval = service.tools.some((tool) => tool.policy.approval === "required");
+  const schemaRequiresHumanGate = service.tools.some(
+    (tool) => tool.policy.approval === "required" || tool.policy.action === "side_effect"
+  );
   const sideEffect = service.tools.some((tool) => tool.policy.action === "side_effect");
+  const mvpExecutable = service.tools.every(
+    (tool) => tool.policy.action === "read_public_data" && tool.policy.approval === "none"
+      && !looksWriteLikeToolName(tool.name)
+  );
   return {
     id: service.id,
     display_name: service.display_name,
@@ -206,13 +233,19 @@ export function summarizeService(service: AgentServiceDefinition): AgentServiceS
       policy: { ...tool.policy }
     })),
     endpoint_host: endpoint.hostname,
+    endpoint_canonical: endpoint.canonical,
     billing_action: false,
+    provider_usage_possible: true,
     side_effect: sideEffect,
-    requires_approval: requiresApproval
+    schema_requires_human_gate: schemaRequiresHumanGate,
+    mvp_executable: mvpExecutable
   };
 }
 
-/** Names that look like mutating / side-effect operations. */
+/**
+ * Names that look like mutating / side-effect operations (defense-in-depth).
+ * Action field remains authoritative; this blocks accidental read_public_data labels.
+ */
 export function looksWriteLikeToolName(name: string): boolean {
   const normalized = name.toLowerCase().replace(/[._-]+/g, "_");
   const segments = normalized.split("_").filter(Boolean);
@@ -239,7 +272,35 @@ export function looksWriteLikeToolName(name: string): boolean {
     "order",
     "checkout",
     "execute",
-    "invoke_write"
+    "invoke_write",
+    "edit",
+    "drop",
+    "grant",
+    "revoke",
+    "transfer",
+    "approve",
+    "commit",
+    "merge",
+    "cancel",
+    "refund",
+    "charge",
+    "debit",
+    "credit",
+    "deploy",
+    "provision",
+    "invite",
+    "ban",
+    "suspend",
+    "enable",
+    "disable",
+    "set",
+    "put",
+    "replace",
+    "overwrite",
+    "attach",
+    "detach",
+    "assign",
+    "unassign"
   ]);
   return segments.some((segment) => blocked.has(segment));
 }

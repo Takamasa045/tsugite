@@ -14,19 +14,18 @@ export {
 
 export {
   validateRegistryEndpoint,
+  buildEndpointAllowlist,
   buildHostAllowlist,
   createAllowlistedFetch,
-  assertHostAllowed
+  assertEndpointAllowed,
+  assertHostAllowed,
+  assertResolvedAddressesPublic,
+  isPublicIpAddress,
+  defaultDnsResolver,
+  type EndpointAllowlist,
+  type DnsResolver,
+  type ValidatedEndpoint
 } from "./endpoint.js";
-
-export {
-  createApprovalArtifact,
-  verifyApprovalArtifact,
-  createInMemoryApprovalStore,
-  digestArguments,
-  APPROVAL_PURPOSE,
-  type ApprovalArtifact
-} from "./approval.js";
 
 export {
   authorizeToolCall,
@@ -41,6 +40,7 @@ export {
   withRemoteMcpSession,
   authorizeOnly,
   DEFAULT_MCP_TIMEOUT_MS,
+  DEFAULT_MCP_CLEANUP_TIMEOUT_MS,
   type ListRemoteToolsResult,
   type CallRemoteToolResult,
   type RemoteMcpClientLike,

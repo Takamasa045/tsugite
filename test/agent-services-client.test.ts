@@ -59,11 +59,14 @@ function mockClient(overrides: Partial<RemoteMcpClientLike> = {}): RemoteMcpClie
   };
 }
 
+const publicDns = async () => ["1.1.1.1"] as const;
+
 describe("agent service remote MCP client", () => {
   it("connects, lists tools, marks undeclared tools blocked, and always closes", async () => {
     const client = mockClient();
     const result = await listRemoteTools({
       service: readOnlyService(),
+      dnsResolver: publicDns,
       clientFactory: () => client,
       transportFactory: () => ({
         async close() {
@@ -73,7 +76,10 @@ describe("agent service remote MCP client", () => {
     });
 
     expect(result.network).toBe(true);
+    expect(result.network_attempted).toBe(true);
     expect(result.billing_action).toBe(false);
+    expect(result.provider_usage_possible).toBe(true);
+    expect(result.remote_usage).toBe(true);
     expect(result.observed_tools).toEqual([
       {
         name: "search",
@@ -105,6 +111,7 @@ describe("agent service remote MCP client", () => {
       service: readOnlyService(),
       toolName: "search",
       arguments: { query: "AIエージェント" },
+      dnsResolver: publicDns,
       clientFactory: () => client,
       transportFactory: () => ({
         async close() {
@@ -113,8 +120,9 @@ describe("agent service remote MCP client", () => {
       })
     });
     expect(ok.tool).toBe("search");
-    expect(ok.approval_required).toBe(false);
+    expect(ok.human_gate).toBe("not_required");
     expect(ok.billing_action).toBe(false);
+    expect(ok.provider_usage_possible).toBe(true);
     expect(ok.result).toMatchObject({
       content: [{ type: "text", text: "query=AIエージェント" }]
     });
@@ -130,6 +138,7 @@ describe("agent service remote MCP client", () => {
         service: readOnlyService(),
         toolName: "search",
         arguments: { query: "x" },
+        dnsResolver: publicDns,
         clientFactory: () => failing,
         transportFactory: () => ({
           async close() {
@@ -147,19 +156,26 @@ describe("agent service remote MCP client", () => {
     expect(failing.state.calls).toContain("transport.close");
   });
 
-  it("enforces timeout/abort and argument/result size limits", async () => {
+  it("enforces timeout/abort and argument/result size limits without network on arg failure", async () => {
     const service = readOnlyService();
+    let connected = false;
     await expect(
       callRemoteTool({
         service,
         toolName: "search",
         arguments: { query: "x".repeat(DEFAULT_ARGUMENTS_MAX_BYTES) },
-        clientFactory: () => mockClient(),
+        dnsResolver: publicDns,
+        clientFactory: () => mockClient({
+          async connect() {
+            connected = true;
+          }
+        }),
         transportFactory: () => ({ async close() { /* no-op */ } })
       })
     ).rejects.toMatchObject({
       issues: [expect.objectContaining({ code: AGENT_SERVICE_ISSUE_CODES.argumentsTooLarge })]
     });
+    expect(connected).toBe(false);
 
     const huge = mockClient({
       async callTool() {
@@ -171,6 +187,7 @@ describe("agent service remote MCP client", () => {
         service,
         toolName: "search",
         arguments: { query: "ok" },
+        dnsResolver: publicDns,
         clientFactory: () => huge,
         transportFactory: () => ({ async close() { /* no-op */ } }),
         resultMaxBytes: DEFAULT_RESULT_MAX_BYTES
@@ -196,14 +213,49 @@ describe("agent service remote MCP client", () => {
         {
           service,
           signal: controller.signal,
+          dnsResolver: publicDns,
           clientFactory: () => aborted,
           transportFactory: () => ({ async close() { /* no-op */ } })
         },
-        async (client) => client.listTools(undefined, { signal: controller.signal })
+        async (client, signal) => client.listTools(undefined, { signal })
       )
     ).rejects.toMatchObject({
       issues: [expect.objectContaining({ code: AGENT_SERVICE_ISSUE_CODES.timeout })]
     });
+  });
+
+  it("applies a session hard deadline even when the remote hang ignores caller work", async () => {
+    const started = Date.now();
+    const hanging = mockClient({
+      async connect() {
+        hanging.state.calls.push("connect");
+        await new Promise(() => {
+          /* never resolves */
+        });
+      }
+    });
+
+    await expect(
+      withRemoteMcpSession(
+        {
+          service: readOnlyService(),
+          timeoutMs: 40,
+          cleanupTimeoutMs: 20,
+          dnsResolver: publicDns,
+          clientFactory: () => hanging,
+          transportFactory: () => ({
+            async close() {
+              hanging.state.calls.push("transport.close");
+            }
+          })
+        },
+        async () => "never"
+      )
+    ).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: AGENT_SERVICE_ISSUE_CODES.timeout })]
+    });
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(hanging.state.calls).toContain("close");
   });
 
   it("redacts secrets and stacks from error text helpers", () => {
@@ -227,6 +279,7 @@ describe("agent service remote MCP client", () => {
       withRemoteMcpSession(
         {
           service: readOnlyService(),
+          dnsResolver: publicDns,
           clientFactory: () => client,
           transportFactory: () => ({
             async close() {
@@ -240,5 +293,34 @@ describe("agent service remote MCP client", () => {
       issues: [expect.objectContaining({ code: expect.stringMatching(/agent_service\./) })]
     });
     expect(client.state.calls).toEqual(["connect", "close", "transport.close"]);
+  });
+
+  it("returns from cleanup even when close hangs", async () => {
+    const started = Date.now();
+    const client = mockClient({
+      async close() {
+        client.state.calls.push("close-start");
+        await new Promise(() => {
+          /* hang */
+        });
+      }
+    });
+    const result = await withRemoteMcpSession(
+      {
+        service: readOnlyService(),
+        cleanupTimeoutMs: 30,
+        dnsResolver: publicDns,
+        clientFactory: () => client,
+        transportFactory: () => ({
+          async close() {
+            client.state.calls.push("transport.close");
+          }
+        })
+      },
+      async () => "ok"
+    );
+    expect(result).toBe("ok");
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(client.state.calls).toContain("close-start");
   });
 });

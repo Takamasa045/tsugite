@@ -259,7 +259,7 @@ See [Deferred Worktree Reconcile](docs/automations/worktree-reconcile.md) for th
 
 ## Public Agent Services (Remote MCP)
 
-Public read-only Remote MCP endpoints (Cloudflare Search MCP and Azumi Experience) are registered in [`agent-services/registry.yaml`](agent-services/registry.yaml). They are not generation connections and do not accept arbitrary caller URLs.
+Public read-only Remote MCP endpoints (Cloudflare Search MCP and Azumi Experience) are registered in the bundled [`agent-services/registry.yaml`](agent-services/registry.yaml). They are not generation connections, do not accept arbitrary caller URLs, and never unlock side effects from this CLI. Queries are not purchase/payment actions (`billing_action=false`) but may still consume provider quota/usage (`provider_usage_possible=true`).
 
 ```sh
 node bin/pipeline services --json
@@ -267,7 +267,7 @@ node bin/pipeline service-tools --service itopan-search --json
 node bin/pipeline service-call --service itopan-search --tool search --arguments '{"query":"AIエージェント"}' --json
 ```
 
-See [Agent Services](docs/agent-services.md) for the Human Gate, Public Data only policy, and current read-only scope.
+See [Agent Services](docs/agent-services.md) for the fail-closed Human Gate, exact-endpoint bind, and current read-only scope.
 
 ## Optional Shitate Import
 

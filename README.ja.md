@@ -76,7 +76,7 @@ Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同�
 ## 現在のスコープ
 
 - manifest 検証とローカル素材チェック。
-- 生成 `connections` とは分離した、公開 read-only Remote MCP 用 **Agent Service Registry**（`services` / `service-tools` / `service-call`）。詳細は [Agent Services](docs/agent-services.md)。
+- 生成 `connections` とは分離した、公開 read-only Remote MCP 用 **Agent Service Registry**（`services` / `service-tools` / `service-call`）。購入・決済操作ではないが provider の usage を消費し得る。詳細は [Agent Services](docs/agent-services.md)。
 - `cli`、`mcp-agent`、`mcp-client` 形式のアダプタ registry。
 - PixVerse / Kling 向け CLI generation adapter wrapper。
 - PixVerse / Kling / Seedance の出典・鮮度付き T2V / I2V prompt knowledge catalog。
