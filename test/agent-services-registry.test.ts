@@ -298,30 +298,86 @@ describe("agent service endpoint policy", () => {
     expect(isPublicIpAddress("192.0.2.1")).toBe(false);
     expect(isPublicIpAddress("192.88.99.1")).toBe(false); // 6to4 relay anycast
     expect(isPublicIpAddress("::1")).toBe(false);
+    expect(isPublicIpAddress("::")).toBe(false);
     expect(isPublicIpAddress("fc00::1")).toBe(false);
     expect(isPublicIpAddress("fe80::1")).toBe(false);
     expect(isPublicIpAddress("2001:db8::1")).toBe(false);
+    expect(isPublicIpAddress("2606:4700:4700::1111")).toBe(true); // Cloudflare public
+
+    // --- prefix mask boundaries (in-range false / just-outside true) ---
+
+    // 2001:db8::/32 documentation
+    expect(isPublicIpAddress("2001:db8:ffff:ffff:ffff:ffff:ffff:ffff")).toBe(false);
+    expect(isPublicIpAddress("2001:db9::1")).toBe(true);
+
+    // 2001:2::/48 benchmarking (RFC 5180) — third hextet must be 0
+    expect(isPublicIpAddress("2001:2::1")).toBe(false);
+    expect(isPublicIpAddress("2001:2:0::1")).toBe(false);
+    expect(isPublicIpAddress("2001:2:1::1")).toBe(true);
+
+    // 3fff::/20 documentation (RFC 9637) — not the overly broad 3ff0::/12
+    expect(isPublicIpAddress("3fff::1")).toBe(false);
+    expect(isPublicIpAddress("3fff:0fff::1")).toBe(false);
+    expect(isPublicIpAddress("3fff:1000::1")).toBe(true);
+    expect(isPublicIpAddress("3ff0::1")).toBe(true);
+    expect(isPublicIpAddress("3ffe::1")).toBe(true);
+
+    // 2001:10::/28 ORCHID v1 and 2001:20::/28 ORCHIDv2
+    expect(isPublicIpAddress("2001:10::1")).toBe(false);
+    expect(isPublicIpAddress("2001:1f::1")).toBe(false);
+    expect(isPublicIpAddress("2001:0f::1")).toBe(true); // just before v1
+    expect(isPublicIpAddress("2001:20::1")).toBe(false);
+    expect(isPublicIpAddress("2001:2f::1")).toBe(false);
+    expect(isPublicIpAddress("2001:30::1")).toBe(true); // just after v2
+
+    // 100::/64 discard-only
+    expect(isPublicIpAddress("100::1")).toBe(false);
+    expect(isPublicIpAddress("100:0:0:1::1")).toBe(true); // just outside /64
+
+    // fe80::/10 link-local / fec0::/10 site-local / fc00::/7 ULA / ff00::/8 multicast
+    expect(isPublicIpAddress("fe80::1")).toBe(false);
+    expect(isPublicIpAddress("febf:ffff::1")).toBe(false);
+    expect(isPublicIpAddress("fec0::1")).toBe(false);
+    expect(isPublicIpAddress("feff::1")).toBe(false);
+    expect(isPublicIpAddress("fc00::1")).toBe(false);
+    expect(isPublicIpAddress("fdff::1")).toBe(false);
+    expect(isPublicIpAddress("fe00::1")).toBe(true); // just outside ULA (not link-local either)
+    expect(isPublicIpAddress("ff00::1")).toBe(false);
+    expect(isPublicIpAddress("ffff::1")).toBe(false);
 
     // NAT64 well-known 64:ff9b::/96 — evaluate embedded IPv4
     expect(isPublicIpAddress("64:ff9b::7f00:1")).toBe(false); // 127.0.0.1
     expect(isPublicIpAddress("64:ff9b::a00:1")).toBe(false); // 10.0.0.1
     expect(isPublicIpAddress("64:ff9b::101:101")).toBe(true); // 1.1.1.1 public embed
+    // just outside well-known /96 (but not local-use /48)
+    expect(isPublicIpAddress("64:ff9b:0:0:0:1::1")).toBe(true);
+
+    // NAT64 local-use 64:ff9b:1::/48 — reject whole prefix (fail-closed)
+    expect(isPublicIpAddress("64:ff9b:1::1")).toBe(false);
+    expect(isPublicIpAddress("64:ff9b:1:ffff:ffff:ffff:ffff:ffff")).toBe(false);
+    expect(isPublicIpAddress("64:ff9b:2::1")).toBe(true); // just outside /48
 
     // 6to4 2002::/16 — evaluate embedded IPv4
     expect(isPublicIpAddress("2002:c0a8:1::1")).toBe(false); // 192.168.0.1
     expect(isPublicIpAddress("2002:0a00:0001::1")).toBe(false); // 10.0.0.1
     expect(isPublicIpAddress("2002:0101:0101::1")).toBe(true); // 1.1.1.1 public embed
+    expect(isPublicIpAddress("2003::1")).toBe(true); // just outside 2002::/16
 
-    // Other practical special-use IPv6 ranges
-    expect(isPublicIpAddress("fec0::1")).toBe(false); // deprecated site-local
-    expect(isPublicIpAddress("100::1")).toBe(false); // discard-only
-    expect(isPublicIpAddress("2001:2::1")).toBe(false); // benchmarking
-    expect(isPublicIpAddress("3fff::1")).toBe(false); // documentation RFC 9637
-    expect(isPublicIpAddress("2001:10::1")).toBe(false); // ORCHID
-    expect(isPublicIpAddress("::ffff:127.0.0.1")).toBe(false); // IPv4-mapped loopback if parseable
-    expect(isPublicIpAddress("::ffff:0a00:0001")).toBe(false); // mapped 10.0.0.1
-    expect(isPublicIpAddress("::ffff:0101:0101")).toBe(true); // mapped 1.1.1.1
-    expect(isPublicIpAddress("2606:4700:4700::1111")).toBe(true); // Cloudflare public
+    // IPv4-mapped ::ffff:0:0/96 — evaluate embedded IPv4 (mixed + hex)
+    expect(isPublicIpAddress("::ffff:127.0.0.1")).toBe(false);
+    expect(isPublicIpAddress("::ffff:10.0.0.1")).toBe(false);
+    expect(isPublicIpAddress("::ffff:0a00:0001")).toBe(false); // mapped 10.0.0.1 hex
+    expect(isPublicIpAddress("::ffff:1.1.1.1")).toBe(true);
+    expect(isPublicIpAddress("::ffff:0101:0101")).toBe(true); // mapped 1.1.1.1 hex
+
+    // Deprecated IPv4-compatible ::/96 (non-mapped) — private/loopback embeds rejected
+    expect(isPublicIpAddress("::10.0.0.1")).toBe(false);
+    expect(isPublicIpAddress("::127.0.0.1")).toBe(false);
+    expect(isPublicIpAddress("::192.168.0.1")).toBe(false);
+    expect(isPublicIpAddress("::0a00:0001")).toBe(false); // hex form 10.0.0.1
+    expect(isPublicIpAddress("::7f00:0001")).toBe(false); // hex form 127.0.0.1
+    expect(isPublicIpAddress("::1.1.1.1")).toBe(true); // public embed still public
+    expect(isPublicIpAddress("::0101:0101")).toBe(true); // hex form 1.1.1.1
 
     await expect(
       assertResolvedAddressesPublic("example.com", async () => ["10.0.0.5"])
@@ -331,6 +387,12 @@ describe("agent service endpoint policy", () => {
 
     await expect(
       assertResolvedAddressesPublic("example.com", async () => ["64:ff9b::7f00:1"])
+    ).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "agent_service.endpoint_dns_private" })]
+    });
+
+    await expect(
+      assertResolvedAddressesPublic("example.com", async () => ["64:ff9b:1::1"])
     ).rejects.toMatchObject({
       issues: [expect.objectContaining({ code: "agent_service.endpoint_dns_private" })]
     });

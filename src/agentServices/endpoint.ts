@@ -172,14 +172,6 @@ export function buildEndpointAllowlist(endpoints: readonly string[]): EndpointAl
   return new Set(endpoints.map((endpoint) => validateRegistryEndpoint(endpoint).canonical));
 }
 
-/**
- * @deprecated Host-only allowlists are insufficient. Prefer buildEndpointAllowlist.
- * Kept only as a thin wrapper name for migration; returns exact endpoint set.
- */
-export function buildHostAllowlist(endpoints: readonly string[]): EndpointAllowlist {
-  return buildEndpointAllowlist(endpoints);
-}
-
 export function requestEndpointCanonical(url: URL): string {
   if (url.protocol !== "https:") {
     throw agentServiceError(
@@ -210,26 +202,6 @@ export function assertEndpointAllowed(url: URL, allowlist: EndpointAllowlist): v
       "endpoint"
     );
   }
-}
-
-/** @deprecated Use assertEndpointAllowed with exact endpoint allowlist. */
-export function assertHostAllowed(hostname: string, allowlist: EndpointAllowlist): void {
-  // Compatibility shim: if callers still pass hostnames, reject unless an
-  // allowlist entry shares that hostname (still requires exact path at request time).
-  const host = normalizeHostname(hostname);
-  assertPublicHostname(host);
-  for (const entry of allowlist) {
-    try {
-      if (normalizeHostname(new URL(entry).hostname) === host) return;
-    } catch {
-      // ignore malformed allowlist entries; validation already ran at build time
-    }
-  }
-  throw agentServiceError(
-    AGENT_SERVICE_ISSUE_CODES.endpointForbidden,
-    "endpoint host is outside the registry allowlist",
-    "endpoint"
-  );
 }
 
 export type DnsResolver = (hostname: string) => Promise<readonly string[]>;
@@ -321,12 +293,20 @@ function isPublicIpv6(address: string): boolean {
   if (first === 0x0100 && second === 0 && third === 0 && fourth === 0) return false;
   // 2001:db8::/32 documentation
   if (first === 0x2001 && second === 0x0db8) return false;
-  // 2001:2::/48 benchmarking (RFC 5180)
-  if (first === 0x2001 && second === 0x0002) return false;
-  // 2001:10::/28 ORCHID (deprecated, still special-use)
-  if (first === 0x2001 && (second & 0xfff0) === 0x0010) return false;
-  // 3fff::/20 documentation (RFC 9637)
-  if ((first & 0xfff0) === 0x3ff0) return false;
+  // 2001:2::/48 benchmarking (RFC 5180) — only third hextet === 0
+  if (first === 0x2001 && second === 0x0002 && third === 0) return false;
+  // 2001:10::/28 ORCHID v1 and 2001:20::/28 ORCHIDv2 (deprecated special-use)
+  if (
+    first === 0x2001
+    && ((second & 0xfff0) === 0x0010 || (second & 0xfff0) === 0x0020)
+  ) {
+    return false;
+  }
+  // 3fff::/20 documentation (RFC 9637): first === 0x3fff && top 4 bits of second === 0
+  if (first === 0x3fff && (second & 0xf000) === 0) return false;
+  // NAT64 local-use 64:ff9b:1::/48 (RFC 8215) — not expected on fixed Cloudflare host DNS;
+  // reject the whole prefix fail-closed rather than evaluating embeds.
+  if (first === 0x0064 && second === 0xff9b && third === 0x0001) return false;
   // NAT64 well-known prefix 64:ff9b::/96 — evaluate embedded IPv4
   if (
     first === 0x0064
@@ -343,6 +323,11 @@ function isPublicIpv6(address: string): boolean {
   }
   // ::ffff:0:0/96 IPv4-mapped — evaluate embedded IPv4
   if (normalized.startsWith("0000:0000:0000:0000:0000:ffff:")) {
+    return isPublicIpv4(embeddedIpv4FromHextets(seventh, eighth));
+  }
+  // Deprecated IPv4-compatible ::/96 (non-mapped) — re-evaluate embedded IPv4 so
+  // private/loopback embeds are rejected (mixed dotted-quad and hex forms).
+  if (normalized.startsWith("0000:0000:0000:0000:0000:0000:")) {
     return isPublicIpv4(embeddedIpv4FromHextets(seventh, eighth));
   }
 

@@ -15,10 +15,8 @@ export {
 export {
   validateRegistryEndpoint,
   buildEndpointAllowlist,
-  buildHostAllowlist,
   createAllowlistedFetch,
   assertEndpointAllowed,
-  assertHostAllowed,
   assertResolvedAddressesPublic,
   isPublicIpAddress,
   defaultDnsResolver,
