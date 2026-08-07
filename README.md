@@ -76,6 +76,7 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 ## Current Scope
 
 - Manifest validation and local asset checks.
+- A separate, versioned **Agent Service Registry** for public read-only Remote MCP services (`services` / `service-tools` / `service-call`), isolated from generation `connections`. See [Agent Services](docs/agent-services.md).
 - Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.
 - CLI generation adapter wrappers for PixVerse/Kling.
 - Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
@@ -255,6 +256,18 @@ node bin/pipeline worktrees --reconcile --apply --actor coordinator --json
 ```
 
 See [Deferred Worktree Reconcile](docs/automations/worktree-reconcile.md) for the one-run and scheduled-host contract.
+
+## Public Agent Services (Remote MCP)
+
+Public read-only Remote MCP endpoints (Cloudflare Search MCP and Azumi Experience) are registered in [`agent-services/registry.yaml`](agent-services/registry.yaml). They are not generation connections and do not accept arbitrary caller URLs.
+
+```sh
+node bin/pipeline services --json
+node bin/pipeline service-tools --service itopan-search --json
+node bin/pipeline service-call --service itopan-search --tool search --arguments '{"query":"AIエージェント"}' --json
+```
+
+See [Agent Services](docs/agent-services.md) for the Human Gate, Public Data only policy, and current read-only scope.
 
 ## Optional Shitate Import
 

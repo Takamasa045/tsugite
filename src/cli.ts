@@ -59,6 +59,13 @@ import {
 import { ensureProjectVisibleOnLauncherShelf } from "./project/projectsHome.js";
 import { validateProject } from "./project/validateProject.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
+import {
+  callRemoteTool,
+  listAgentServices,
+  listRemoteTools,
+  resolveAgentService
+} from "./agentServices/index.js";
+import { readJsonFile } from "./io.js";
 import type { Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
 import { appendProjectFeedback } from "./feedback/index.js";
@@ -131,6 +138,10 @@ type ParsedArgs = {
   paths: string[];
   expectedPlanDigest?: string;
   expectedApprovalDigest?: string;
+  service?: string;
+  tool?: string;
+  argumentsJson?: string;
+  approvalArtifact?: string;
   issues: Issue[];
 };
 
@@ -226,6 +237,142 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return output(args, 1, {
         ok: false,
         command: "connections",
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "services") {
+    try {
+      const registryPath = process.env.TSUGITE_AGENT_SERVICES_REGISTRY;
+      const services = await listAgentServices(registryPath);
+      return output(args, 0, {
+        ok: true,
+        command: "services",
+        network: false,
+        billing_action: false,
+        secret_values_exposed: false,
+        side_effect: false,
+        approval_decision: "not_required",
+        scope: "agent-service-registry",
+        services
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "services",
+        network: false,
+        billing_action: false,
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "service-tools") {
+    if (!args.service) {
+      return output(args, 1, {
+        ok: false,
+        command: "service-tools",
+        network: false,
+        issues: [{
+          code: "cli.service_missing",
+          message: "--service is required",
+          path: "--service"
+        }]
+      });
+    }
+    try {
+      const registryPath = process.env.TSUGITE_AGENT_SERVICES_REGISTRY;
+      const service = await resolveAgentService(args.service, registryPath);
+      const listed = await listRemoteTools({ service });
+      return output(args, 0, {
+        ok: true,
+        command: "service-tools",
+        network: true,
+        billing_action: false,
+        secret_values_exposed: false,
+        side_effect: false,
+        approval_decision: "not_required",
+        service: service.id,
+        endpoint_host: service.endpoint_validated.hostname,
+        observed_tools: listed.observed_tools,
+        declared_tools: listed.declared_tools,
+        blocked_undeclared: listed.blocked_undeclared
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "service-tools",
+        network: true,
+        billing_action: false,
+        service: args.service,
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "service-call") {
+    const missing: Issue[] = [];
+    if (!args.service) {
+      missing.push({
+        code: "cli.service_missing",
+        message: "--service is required",
+        path: "--service"
+      });
+    }
+    if (!args.tool) {
+      missing.push({
+        code: "cli.tool_missing",
+        message: "--tool is required",
+        path: "--tool"
+      });
+    }
+    if (missing.length > 0) {
+      return output(args, 1, {
+        ok: false,
+        command: "service-call",
+        network: false,
+        billing_action: false,
+        issues: missing
+      });
+    }
+    try {
+      const registryPath = process.env.TSUGITE_AGENT_SERVICES_REGISTRY;
+      const service = await resolveAgentService(args.service!, registryPath);
+      let approvalArtifact: unknown;
+      if (args.approvalArtifact) {
+        approvalArtifact = await readJsonFile(resolve(args.approvalArtifact));
+      }
+      const called = await callRemoteTool({
+        service,
+        toolName: args.tool!,
+        arguments: args.argumentsJson,
+        approvalArtifact
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "service-call",
+        network: true,
+        billing_action: false,
+        secret_values_exposed: false,
+        side_effect: called.side_effect,
+        approval_required: called.approval_required,
+        approval_decision: called.approval_required
+          ? (called.approval_verified ? "verified" : "required")
+          : "not_required",
+        service: called.service_id,
+        tool: called.tool,
+        endpoint_host: service.endpoint_validated.hostname,
+        result: called.result
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "service-call",
+        network: true,
+        billing_action: false,
+        service: args.service,
+        tool: args.tool,
         issues: cliIssuesFromError(error)
       });
     }
@@ -1543,7 +1690,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "service" | "tool" | "argumentsJson" | "approvalArtifact">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -1585,7 +1732,11 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--proposal-workflow": "proposalWorkflow",
       "--proposal-run-id": "proposalRunId",
       "--proposal-source": "proposalSource",
-      "--expected-plan-digest": "expectedPlanDigest"
+      "--expected-plan-digest": "expectedPlanDigest",
+      "--service": "service",
+      "--tool": "tool",
+      "--arguments": "argumentsJson",
+      "--approval-artifact": "approvalArtifact"
     };
     const target = valueOptions[arg];
     if (target) {
