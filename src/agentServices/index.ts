@@ -39,10 +39,13 @@ export {
   callRemoteTool,
   withRemoteMcpSession,
   authorizeOnly,
+  raceWithAbort,
+  blockedPolicyReason,
   DEFAULT_MCP_TIMEOUT_MS,
   DEFAULT_MCP_CLEANUP_TIMEOUT_MS,
   type ListRemoteToolsResult,
   type CallRemoteToolResult,
+  type BlockedByPolicyTool,
   type RemoteMcpClientLike,
   type RemoteMcpSessionOptions
 } from "./mcpClient.js";

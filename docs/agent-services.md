@@ -41,10 +41,12 @@ node bin/pipeline service-call \
 
 | field | 意味 |
 |---|---|
-| `network` / `network_attempted` | `services` は `false`。成功した `service-tools` / `service-call` は `true`。policy/validation 拒否は `false`。実 connect 後の失敗は `true` |
+| `network` / `network_attempted` | `services` は `false`。成功した `service-tools` / `service-call` は `true`。policy/validation および exact allowlist 拒否（`endpoint_forbidden` 等）は DNS 前なので `false`。実 DNS/connect 後の失敗（`endpoint_dns_private` / `network` / `timeout`）は `true` |
 | `billing_action` | 常に `false`（購入・決済操作ではない） |
 | `provider_usage_possible` | 常に `true`。公開 MCP の query は provider の quota / usage を消費し得る |
 | `remote_usage` | 実際に remote を叩いたとき `true` |
+| `blocked_undeclared` | remote に見えたが registry 未宣言の tool 名のみ |
+| `blocked_by_policy` | registry 宣言済みだが現行 policy で non-callable の `{ name, reason }` 一覧（例: `side_effect` / `approval_required`） |
 | `side_effect` | 成功時は常に `false`（side_effect tool は実行前拒否） |
 | `human_gate` | 成功時は `not_required`。side_effect は `agent_service.human_gate_required` / `side_effect_blocked` で停止 |
 | `secret_values_exposed` | 常に `false` |
@@ -52,10 +54,10 @@ node bin/pipeline service-call \
 ## 安全境界
 
 1. **Bundled registry only**: production CLI は常に `agent-services/registry.yaml` のみ。`TSUGITE_AGENT_SERVICES_REGISTRY` や CLI path 差替えは無効。programmatic な path injection はテスト用関数引数のみ。
-2. **Exact endpoint bind**: scheme / origin / explicit port / path を registry 宣言どおりに固定。query / hash 不可。同一 endpoint への GET/POST/DELETE は許可、別 path / port は禁止。
-3. **DNS publicness**: connect 前および allowlisted fetch で DNS を解決し、loopback / private / link-local / CGNAT / ULA / multicast / unspecified / documentation 等を拒否。**DNS TOCTOU**（解決後に応答が変わる）は限界として残る。主要 trust boundary は固定 Cloudflare / Workers host。
+2. **Exact endpoint bind**: scheme / origin / explicit port / path を registry 宣言どおりに固定。query / hash 不可。同一 endpoint への GET/POST/DELETE は許可、別 path / port は禁止。exact allowlist 判定は DNS より前。
+3. **DNS publicness**: production MCP session は **pre-connect 1 回** DNS を解決し、loopback / private / link-local / CGNAT / ULA / multicast / unspecified / documentation / NAT64・6to4 埋込 private / site-local / discard / benchmarking 等を拒否する。`createAllowlistedFetch` 単体の default は **per-request 再検査**だが、`defaultTransportFactory` は precheck 後 `skipDns=true` で二重解決を避ける。**DNS TOCTOU**（解決後に応答が変わる）は限界として残る。主要 trust boundary は固定 Cloudflare / Workers host。
 4. **Redirect manual + 全拒否**: HTTP redirect は follow しない。
-5. **Tool allowlist**: remote の tool 一覧は observed として返すが、呼べるのは registry 宣言の read-only 分のみ。
+5. **Tool allowlist**: remote の tool 一覧は observed として返すが、呼べるのは registry 宣言の read-only 分のみ。未宣言は `blocked_undeclared`、宣言済み non-callable は `blocked_by_policy`。
 6. **Write-like 名**: `send` / `submit` / `edit` / `drop` / `grant` / `approve` / `commit` / `merge` 等は defense-in-depth で拒否。
 7. **Human Gate (fail closed)**: `side_effect` / `approval=required` は artifact や `--yes` では解除不能。人間は別の信頼済み実行面で行う。
 8. **Session hard deadline**: `withRemoteMcpSession` が AbortController と default 30s deadline を必ず持ち、connect / list / call / close を bounded にする。cleanup hang も短い best-effort で main を返す。

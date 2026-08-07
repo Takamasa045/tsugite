@@ -68,10 +68,20 @@ describe("agent service CLI", () => {
           callable: true,
           policy: { action: "read_public_data", approval: "none" }
         },
+        {
+          name: "submit_inquiry",
+          declared: true,
+          callable: false,
+          policy: { action: "side_effect", approval: "required" }
+        },
         { name: "hidden_admin", declared: false, callable: false }
       ],
-      declared_tools: [{ name: "search", policy: { action: "read_public_data", approval: "none" } }],
-      blocked_undeclared: ["hidden_admin"]
+      declared_tools: [
+        { name: "search", policy: { action: "read_public_data", approval: "none" } },
+        { name: "submit_inquiry", policy: { action: "side_effect", approval: "required" } }
+      ],
+      blocked_undeclared: ["hidden_admin"],
+      blocked_by_policy: [{ name: "submit_inquiry", reason: "side_effect" }]
     });
 
     const { status, stdout } = await capture([
@@ -91,7 +101,8 @@ describe("agent service CLI", () => {
       provider_usage_possible: true,
       remote_usage: true,
       service: "itopan-search",
-      blocked_undeclared: ["hidden_admin"]
+      blocked_undeclared: ["hidden_admin"],
+      blocked_by_policy: [{ name: "submit_inquiry", reason: "side_effect" }]
     });
   });
 

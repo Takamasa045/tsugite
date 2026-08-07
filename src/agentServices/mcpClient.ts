@@ -34,6 +34,11 @@ export type ObservedRemoteTool = {
   policy?: AgentServiceDefinition["tools"][number]["policy"];
 };
 
+export type BlockedByPolicyTool = {
+  name: string;
+  reason: string;
+};
+
 export type ListRemoteToolsResult = {
   service_id: string;
   network: true;
@@ -43,7 +48,10 @@ export type ListRemoteToolsResult = {
   remote_usage: true;
   observed_tools: ObservedRemoteTool[];
   declared_tools: AgentServiceDefinition["tools"];
+  /** Remote tools that were never declared in the registry allowlist. */
   blocked_undeclared: string[];
+  /** Declared tools that are non-callable under current policy (name + stable reason). */
+  blocked_by_policy: BlockedByPolicyTool[];
 };
 
 export type CallRemoteToolResult = {
@@ -271,7 +279,15 @@ export async function listRemoteTools(
         ...(policy ? { policy } : {})
       };
     });
-    const blocked = observed.filter((tool) => !tool.callable).map((tool) => tool.name);
+    const blockedUndeclared = observed
+      .filter((tool) => !tool.declared)
+      .map((tool) => tool.name);
+    const blockedByPolicy = observed
+      .filter((tool) => tool.declared && !tool.callable)
+      .map((tool) => ({
+        name: tool.name,
+        reason: blockedPolicyReason(tool.policy)
+      }));
     assertResultSize(observed, options.resultMaxBytes ?? DEFAULT_RESULT_MAX_BYTES);
     return {
       service_id: options.service.id,
@@ -285,9 +301,21 @@ export async function listRemoteTools(
         name: tool.name,
         policy: { ...tool.policy }
       })),
-      blocked_undeclared: blocked
+      blocked_undeclared: blockedUndeclared,
+      blocked_by_policy: blockedByPolicy
     };
   });
+}
+
+/** Stable reason for declared-but-non-callable tools in list results. */
+export function blockedPolicyReason(
+  policy?: AgentServiceDefinition["tools"][number]["policy"]
+): string {
+  if (!policy) return "missing_policy";
+  if (policy.action === "side_effect") return "side_effect";
+  if (policy.approval !== "none") return "approval_required";
+  if (policy.action !== "read_public_data") return "action_not_allowed";
+  return "policy_blocked";
 }
 
 export async function callRemoteTool(
@@ -380,27 +408,42 @@ async function boundedCleanup(work: () => Promise<void>, timeoutMs: number): Pro
 /**
  * Ensure session hard deadline aborts work that does not observe AbortSignal
  * (hung connect, ignored fetch, etc.).
+ *
+ * Always attaches resolve/reject handlers to `work`, even when `signal` is
+ * already aborted, so a later rejection cannot become an unhandledRejection.
+ * Settles at most once and always removes the abort listener.
  */
-function raceWithAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    return Promise.reject(
-      agentServiceError(AGENT_SERVICE_ISSUE_CODES.timeout, "remote request timed out")
-    );
-  }
+export function raceWithAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      reject(agentServiceError(AGENT_SERVICE_ISSUE_CODES.timeout, "remote request timed out"));
+    let settled = false;
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      fn();
     };
-    signal.addEventListener("abort", onAbort, { once: true });
+    const onAbort = (): void => {
+      settle(() => {
+        reject(
+          agentServiceError(AGENT_SERVICE_ISSUE_CODES.timeout, "remote request timed out")
+        );
+      });
+    };
+
+    // Attach before checking aborted so delayed rejects are always handled.
     work.then(
       (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
+        settle(() => resolve(value));
       },
       (error) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
+        settle(() => reject(error));
       }
     );
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }

@@ -309,7 +309,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         endpoint_canonical: service.endpoint_validated.canonical,
         observed_tools: listed.observed_tools,
         declared_tools: listed.declared_tools,
-        blocked_undeclared: listed.blocked_undeclared
+        blocked_undeclared: listed.blocked_undeclared,
+        blocked_by_policy: listed.blocked_by_policy
       });
     } catch (error) {
       const issues = cliIssuesFromError(error);

@@ -296,13 +296,41 @@ describe("agent service endpoint policy", () => {
     expect(isPublicIpAddress("169.254.169.254")).toBe(false);
     expect(isPublicIpAddress("100.64.0.1")).toBe(false);
     expect(isPublicIpAddress("192.0.2.1")).toBe(false);
+    expect(isPublicIpAddress("192.88.99.1")).toBe(false); // 6to4 relay anycast
     expect(isPublicIpAddress("::1")).toBe(false);
     expect(isPublicIpAddress("fc00::1")).toBe(false);
     expect(isPublicIpAddress("fe80::1")).toBe(false);
     expect(isPublicIpAddress("2001:db8::1")).toBe(false);
 
+    // NAT64 well-known 64:ff9b::/96 — evaluate embedded IPv4
+    expect(isPublicIpAddress("64:ff9b::7f00:1")).toBe(false); // 127.0.0.1
+    expect(isPublicIpAddress("64:ff9b::a00:1")).toBe(false); // 10.0.0.1
+    expect(isPublicIpAddress("64:ff9b::101:101")).toBe(true); // 1.1.1.1 public embed
+
+    // 6to4 2002::/16 — evaluate embedded IPv4
+    expect(isPublicIpAddress("2002:c0a8:1::1")).toBe(false); // 192.168.0.1
+    expect(isPublicIpAddress("2002:0a00:0001::1")).toBe(false); // 10.0.0.1
+    expect(isPublicIpAddress("2002:0101:0101::1")).toBe(true); // 1.1.1.1 public embed
+
+    // Other practical special-use IPv6 ranges
+    expect(isPublicIpAddress("fec0::1")).toBe(false); // deprecated site-local
+    expect(isPublicIpAddress("100::1")).toBe(false); // discard-only
+    expect(isPublicIpAddress("2001:2::1")).toBe(false); // benchmarking
+    expect(isPublicIpAddress("3fff::1")).toBe(false); // documentation RFC 9637
+    expect(isPublicIpAddress("2001:10::1")).toBe(false); // ORCHID
+    expect(isPublicIpAddress("::ffff:127.0.0.1")).toBe(false); // IPv4-mapped loopback if parseable
+    expect(isPublicIpAddress("::ffff:0a00:0001")).toBe(false); // mapped 10.0.0.1
+    expect(isPublicIpAddress("::ffff:0101:0101")).toBe(true); // mapped 1.1.1.1
+    expect(isPublicIpAddress("2606:4700:4700::1111")).toBe(true); // Cloudflare public
+
     await expect(
       assertResolvedAddressesPublic("example.com", async () => ["10.0.0.5"])
+    ).rejects.toMatchObject({
+      issues: [expect.objectContaining({ code: "agent_service.endpoint_dns_private" })]
+    });
+
+    await expect(
+      assertResolvedAddressesPublic("example.com", async () => ["64:ff9b::7f00:1"])
     ).rejects.toMatchObject({
       issues: [expect.objectContaining({ code: "agent_service.endpoint_dns_private" })]
     });
