@@ -127,7 +127,8 @@ describe("sikumiOutbox optional adapter", () => {
       },
       completed
     );
-    expect(done.some((e) => e.eventType === "run.completed")).toBe(true);
+    // Gate 3 approve → completed must NOT emit run.completed (finalize only).
+    expect(done.some((e) => e.eventType === "run.completed")).toBe(false);
     expect(done.some((e) => e.eventType === "gate.approved")).toBe(true);
   });
 
