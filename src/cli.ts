@@ -64,6 +64,13 @@ import {
 import { ensureProjectVisibleOnLauncherShelf } from "./project/projectsHome.js";
 import { validateProject } from "./project/validateProject.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
+import {
+  callRemoteTool,
+  listAgentServices,
+  listRemoteTools,
+  resolveAgentService
+} from "./agentServices/index.js";
+import { readJsonFile } from "./io.js";
 import type { Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
 import { appendProjectFeedback } from "./feedback/index.js";
@@ -136,6 +143,9 @@ type ParsedArgs = {
   paths: string[];
   expectedPlanDigest?: string;
   expectedApprovalDigest?: string;
+  service?: string;
+  tool?: string;
+  argumentsJson?: string;
   issues: Issue[];
 };
 
@@ -232,6 +242,164 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ok: false,
         command: "connections",
         issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "services") {
+    try {
+      // Production CLI always uses the bundled registry; env overrides are ignored.
+      const services = await listAgentServices();
+      return output(args, 0, {
+        ok: true,
+        command: "services",
+        network: false,
+        network_attempted: false,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: false,
+        secret_values_exposed: false,
+        side_effect: false,
+        human_gate: "not_required",
+        scope: "agent-service-registry",
+        services
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "services",
+        network: false,
+        network_attempted: false,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: false,
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "service-tools") {
+    if (!args.service) {
+      return output(args, 1, {
+        ok: false,
+        command: "service-tools",
+        network: false,
+        network_attempted: false,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: false,
+        issues: [{
+          code: "cli.service_missing",
+          message: "--service is required",
+          path: "--service"
+        }]
+      });
+    }
+    try {
+      const service = await resolveAgentService(args.service);
+      const listed = await listRemoteTools({ service });
+      return output(args, 0, {
+        ok: true,
+        command: "service-tools",
+        network: true,
+        network_attempted: true,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: true,
+        secret_values_exposed: false,
+        side_effect: false,
+        human_gate: "not_required",
+        service: service.id,
+        endpoint_host: service.endpoint_validated.hostname,
+        endpoint_canonical: service.endpoint_validated.canonical,
+        observed_tools: listed.observed_tools,
+        declared_tools: listed.declared_tools,
+        blocked_undeclared: listed.blocked_undeclared,
+        blocked_by_policy: listed.blocked_by_policy
+      });
+    } catch (error) {
+      const issues = cliIssuesFromError(error);
+      const networkAttempted = agentServiceErrorImpliesNetwork(issues);
+      return output(args, 1, {
+        ok: false,
+        command: "service-tools",
+        network: networkAttempted,
+        network_attempted: networkAttempted,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: networkAttempted,
+        service: args.service,
+        issues
+      });
+    }
+  }
+
+  if (args.command === "service-call") {
+    const missing: Issue[] = [];
+    if (!args.service) {
+      missing.push({
+        code: "cli.service_missing",
+        message: "--service is required",
+        path: "--service"
+      });
+    }
+    if (!args.tool) {
+      missing.push({
+        code: "cli.tool_missing",
+        message: "--tool is required",
+        path: "--tool"
+      });
+    }
+    if (missing.length > 0) {
+      return output(args, 1, {
+        ok: false,
+        command: "service-call",
+        network: false,
+        network_attempted: false,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: false,
+        issues: missing
+      });
+    }
+    try {
+      const service = await resolveAgentService(args.service!);
+      const called = await callRemoteTool({
+        service,
+        toolName: args.tool!,
+        arguments: args.argumentsJson
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "service-call",
+        network: true,
+        network_attempted: true,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: true,
+        secret_values_exposed: false,
+        side_effect: false,
+        human_gate: called.human_gate,
+        service: called.service_id,
+        tool: called.tool,
+        endpoint_host: service.endpoint_validated.hostname,
+        endpoint_canonical: service.endpoint_validated.canonical,
+        result: called.result
+      });
+    } catch (error) {
+      const issues = cliIssuesFromError(error);
+      const networkAttempted = agentServiceErrorImpliesNetwork(issues);
+      return output(args, 1, {
+        ok: false,
+        command: "service-call",
+        network: networkAttempted,
+        network_attempted: networkAttempted,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: networkAttempted,
+        service: args.service,
+        tool: args.tool,
+        issues
       });
     }
   }
@@ -1559,7 +1727,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "service" | "tool" | "argumentsJson">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -1601,7 +1769,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--proposal-workflow": "proposalWorkflow",
       "--proposal-run-id": "proposalRunId",
       "--proposal-source": "proposalSource",
-      "--expected-plan-digest": "expectedPlanDigest"
+      "--expected-plan-digest": "expectedPlanDigest",
+      "--service": "service",
+      "--tool": "tool",
+      "--arguments": "argumentsJson"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -1872,6 +2043,36 @@ function promptGuideOptionError(args: ParsedArgs, code: string, message: string)
 function cliIssuesFromError(error: unknown): Issue[] {
   if (error instanceof PipelineError) return error.issues;
   return [{ code: "pipeline.error", message: error instanceof Error ? error.message : String(error) }];
+}
+
+/**
+ * Pre-network policy/validation failures stay network_attempted=false.
+ * Timeout/network/remote/DNS issues after connect path report true.
+ */
+function agentServiceErrorImpliesNetwork(issues: Issue[]): boolean {
+  const preNetwork = new Set([
+    "agent_service.not_found",
+    "agent_service.registry_invalid",
+    "agent_service.duplicate_id",
+    "agent_service.endpoint_invalid",
+    "agent_service.endpoint_forbidden",
+    "agent_service.tool_undeclared",
+    "agent_service.tool_write_like_blocked",
+    "agent_service.tool_policy_blocked",
+    "agent_service.side_effect_blocked",
+    "agent_service.human_gate_required",
+    "agent_service.arguments_invalid",
+    "agent_service.arguments_too_large",
+    "cli.service_missing",
+    "cli.tool_missing",
+    "cli.option_unknown",
+    "cli.option_unsupported",
+    "cli.option_value_missing"
+  ]);
+  if (issues.length === 0) return false;
+  // DNS private can happen at pre-connect check; still counts as network attempt
+  // (resolver was consulted). Remote/timeout/redirect after fetch also count.
+  return issues.some((issue) => !preNetwork.has(issue.code));
 }
 
 function parsePromptMode(value: string): PromptMode | undefined {

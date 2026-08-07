@@ -1,0 +1,69 @@
+# Agent Service Registry — public read-only Remote MCP endpoints only.
+# Not related to connections/catalog.yaml (generation billing routes).
+schema_version: 1
+services:
+  - id: itopan-search
+    display_name: itopan Search
+    type: mcp-remote
+    transport: streamable-http
+    endpoint: https://724d49cd-2eaf-48d8-8363-20218c1ca177.search.ai.cloudflare.com/mcp
+    auth_kind: none
+    capabilities:
+      - search.public
+    tools:
+      - name: search
+        policy:
+          action: read_public_data
+          approval: none
+
+  - id: azumimusuhi-search
+    display_name: azumimusuhi Search
+    type: mcp-remote
+    transport: streamable-http
+    endpoint: https://5c2d858b-004a-4d4a-b53a-23aad46094d8.search.ai.cloudflare.com/mcp
+    auth_kind: none
+    capabilities:
+      - search.public
+    tools:
+      - name: search
+        policy:
+          action: read_public_data
+          approval: none
+
+  - id: lab-search
+    display_name: lab Search
+    type: mcp-remote
+    transport: streamable-http
+    endpoint: https://34d4f7de-8d05-4950-88ce-88d904a94b3d.search.ai.cloudflare.com/mcp
+    auth_kind: none
+    capabilities:
+      - search.public
+    tools:
+      - name: search
+        policy:
+          action: read_public_data
+          approval: none
+
+  - id: azumi-experience
+    display_name: Azumi Experience
+    type: mcp-remote
+    transport: streamable-http
+    endpoint: https://azumi-experience-mcp.tkms045.workers.dev/mcp
+    auth_kind: none
+    capabilities:
+      - experience.search
+      - experience.read
+      - experience.plan
+    tools:
+      - name: search_experiences
+        policy:
+          action: read_public_data
+          approval: none
+      - name: get_experience
+        policy:
+          action: read_public_data
+          approval: none
+      - name: plan_experience
+        policy:
+          action: read_public_data
+          approval: none
