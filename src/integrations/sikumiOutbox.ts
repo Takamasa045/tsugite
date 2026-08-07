@@ -244,6 +244,48 @@ export const mapRunStateToSikumiEvents = (
     });
   }
 
+  // Gate resolutions first so LIVE session leaves waiting_for_approval before
+  // task/activity events that require state === "running".
+  for (const gate of ["gate_1", "gate_2", "gate_3"] as const satisfies GateId[]) {
+    const before = prevGates?.[gate]?.status;
+    const after = next.gates[gate]?.status;
+    if (before === after) continue;
+    if (after === "approved" && before !== "approved") {
+      events.push({
+        eventType: "gate.approved",
+        runId,
+        taskId: gate,
+        message: `${gate} approved`,
+        metadata: { gate_id: gate },
+      });
+      if (gate === "gate_2" || gate === "gate_3") {
+        events.push({
+          eventType: "qa.passed",
+          runId,
+          taskId: gate,
+          message: `${gate} qc passed`,
+        });
+      }
+    }
+    if ((after === "revise" || after === "abort") && before !== after) {
+      events.push({
+        eventType: "gate.rejected",
+        runId,
+        taskId: gate,
+        message: `${gate} ${after}`,
+        metadata: { gate_id: gate },
+      });
+      if (gate === "gate_2" || gate === "gate_3") {
+        events.push({
+          eventType: "qa.failed",
+          runId,
+          taskId: gate,
+          message: `${gate} qc failed`,
+        });
+      }
+    }
+  }
+
   if (prevStatus !== next.status) {
     switch (next.status) {
       case "planned":
@@ -348,60 +390,26 @@ export const mapRunStateToSikumiEvents = (
     }
   }
 
+  // Awaiting gate without status change (rare) — emit waiting only.
   for (const gate of ["gate_1", "gate_2", "gate_3"] as const satisfies GateId[]) {
     const before = prevGates?.[gate]?.status;
     const after = next.gates[gate]?.status;
     if (before === after) continue;
-    if (after === "awaiting_approval" && prevStatus === next.status) {
-      // Status transition already emitted gate.waiting for awaiting_gate_* .
-      if (
-        next.status !== "awaiting_gate_1" &&
-        next.status !== "awaiting_gate_2" &&
-        next.status !== "awaiting_gate_3"
-      ) {
-        events.push({
-          eventType: "gate.waiting",
-          runId,
-          taskId: gate,
-          message: `awaiting ${gate}`,
-          metadata: { gate_id: gate },
-        });
-      }
+    if (after !== "awaiting_approval") continue;
+    if (
+      next.status === "awaiting_gate_1" ||
+      next.status === "awaiting_gate_2" ||
+      next.status === "awaiting_gate_3"
+    ) {
+      continue; // already emitted with status transition
     }
-    if (after === "approved" && before !== "approved") {
-      events.push({
-        eventType: "gate.approved",
-        runId,
-        taskId: gate,
-        message: `${gate} approved`,
-        metadata: { gate_id: gate },
-      });
-      if (gate === "gate_2" || gate === "gate_3") {
-        events.push({
-          eventType: "qa.passed",
-          runId,
-          taskId: gate,
-          message: `${gate} qc passed`,
-        });
-      }
-    }
-    if ((after === "revise" || after === "abort") && before !== after) {
-      events.push({
-        eventType: "gate.rejected",
-        runId,
-        taskId: gate,
-        message: `${gate} ${after}`,
-        metadata: { gate_id: gate },
-      });
-      if (gate === "gate_2" || gate === "gate_3") {
-        events.push({
-          eventType: "qa.failed",
-          runId,
-          taskId: gate,
-          message: `${gate} qc failed`,
-        });
-      }
-    }
+    events.push({
+      eventType: "gate.waiting",
+      runId,
+      taskId: gate,
+      message: `awaiting ${gate}`,
+      metadata: { gate_id: gate },
+    });
   }
 
   return events;
