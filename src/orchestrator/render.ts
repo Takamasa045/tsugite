@@ -11,6 +11,11 @@ import type { Project } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import { inspectGate3Output, validateGate3QcReport, writeGate3QcReport } from "./gate3Qc.js";
 import { markGateAwaiting, writeState, type RunState } from "./state.js";
+import {
+  notifySikumiArtifact,
+  notifySikumiStateChange,
+  projectRootFromStateDir
+} from "../integrations/sikumiOutbox.js";
 
 export type RenderResult = {
   outputPath: string;
@@ -112,6 +117,21 @@ export async function renderAssembledMedia(
 
   const nextState = markGateAwaiting(options.state, "gate_3");
   const writtenStatePath = await writeState(options.stateDir, nextState);
+  const projectRoot = projectRootFromStateDir(options.stateDir, project.dist_dir);
+  await notifySikumiStateChange({
+    project,
+    projectRoot,
+    previous: options.state,
+    next: nextState
+  });
+  await notifySikumiArtifact({
+    project,
+    projectRoot,
+    runId: nextState.run_id,
+    label: "final-render",
+    kind: "file",
+    artifactId: "final.mp4"
+  });
 
   return {
     ok: true,

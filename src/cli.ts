@@ -43,6 +43,10 @@ import { renderReviewPreview } from "./orchestrator/reviewPreview.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
+  notifySikumiStateChange,
+  projectRootFromStateDir
+} from "./integrations/sikumiOutbox.js";
+import {
   acquireRunLock,
   LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV,
   RUN_LOCK_INHERIT_ENV,
@@ -912,6 +916,34 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }
         : {})
     });
+    if (finalized.ok && finalized.applied) {
+      const projectRoot = dirname(resolve(args.config!));
+      const runId = validation.project!.run_id ?? validation.project!.slug;
+      await notifySikumiStateChange({
+        project: validation.project!,
+        projectRoot,
+        previous: {
+          run_id: runId,
+          status: "awaiting_gate_3",
+          updated_at: new Date().toISOString(),
+          gates: {
+            gate_1: { status: "approved" },
+            gate_2: { status: "approved" },
+            gate_3: { status: "approved" }
+          }
+        },
+        next: {
+          run_id: runId,
+          status: "completed",
+          updated_at: new Date().toISOString(),
+          gates: {
+            gate_1: { status: "approved" },
+            gate_2: { status: "approved" },
+            gate_3: { status: "approved" }
+          }
+        }
+      });
+    }
     return output(args, finalized.ok ? 0 : 1, {
       ok: finalized.ok,
       command: "finalize",
@@ -2067,6 +2099,16 @@ async function recordGate(
 
   try {
     await writeState(stateLocation.stateDir, nextState);
+    // Optional sikumi Outbox (default OFF; fail-soft; never blocks gate write).
+    const projectRoot = args.config
+      ? dirname(resolve(args.config))
+      : projectRootFromStateDir(stateLocation.stateDir, project.dist_dir);
+    await notifySikumiStateChange({
+      project,
+      projectRoot,
+      previous: state,
+      next: nextState
+    });
     return {
       ok: true,
       issues: [],
