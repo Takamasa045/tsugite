@@ -36,7 +36,8 @@ Also register the same project directory in sikumi and run Local Agent Server.
 | awaiting_gate_2 | `qa.started`, `gate.waiting` |
 | rendering | `task.progress`, `agent.working`, `artifact.created` |
 | awaiting_gate_3 | `qa.started`, `gate.waiting` |
-| completed / finalize apply | `run.completed` |
+| gate_3 approved (state completed) | `gate.approved` (+ `qa.passed`) — **not** `run.completed` |
+| finalize --apply success | `run.completed` once (product 完成) |
 
 ## Implementation
 

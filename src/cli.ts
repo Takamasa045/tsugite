@@ -43,6 +43,7 @@ import { renderReviewPreview } from "./orchestrator/reviewPreview.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
+  notifySikumiRunCompleted,
   notifySikumiStateChange,
   projectRootFromStateDir
 } from "./integrations/sikumiOutbox.js";
@@ -919,29 +920,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (finalized.ok && finalized.applied) {
       const projectRoot = dirname(resolve(args.config!));
       const runId = validation.project!.run_id ?? validation.project!.slug;
-      await notifySikumiStateChange({
+      // Product completion = finalize apply only (not Gate 3 approve alone).
+      await notifySikumiRunCompleted({
         project: validation.project!,
         projectRoot,
-        previous: {
-          run_id: runId,
-          status: "awaiting_gate_3",
-          updated_at: new Date().toISOString(),
-          gates: {
-            gate_1: { status: "approved" },
-            gate_2: { status: "approved" },
-            gate_3: { status: "approved" }
-          }
-        },
-        next: {
-          run_id: runId,
-          status: "completed",
-          updated_at: new Date().toISOString(),
-          gates: {
-            gate_1: { status: "approved" },
-            gate_2: { status: "approved" },
-            gate_3: { status: "approved" }
-          }
-        }
+        runId
       });
     }
     return output(args, finalized.ok ? 0 : 1, {

@@ -365,11 +365,8 @@ export const mapRunStateToSikumiEvents = (
         });
         break;
       case "completed":
-        events.push({
-          eventType: "run.completed",
-          runId,
-          message: "run completed",
-        });
+        // Gate 3 approval alone is not product "完成". run.completed is emitted
+        // once from finalize --apply via notifySikumiRunCompleted.
         break;
       case "aborted":
         events.push({
@@ -429,6 +426,21 @@ export const notifySikumiStateChange = async (options: {
   for (const event of events) {
     await sink.emit(event);
   }
+};
+
+/** Emit run.completed once after successful finalize --apply (product completion). */
+export const notifySikumiRunCompleted = async (options: {
+  readonly project: Project;
+  readonly projectRoot: string;
+  readonly runId: string;
+}): Promise<void> => {
+  const sink = createSikumiOutboxForProject(options.project, options.projectRoot);
+  if (!sink.enabled) return;
+  await sink.emit({
+    eventType: "run.completed",
+    runId: options.runId,
+    message: "finalize applied",
+  });
 };
 
 export const notifySikumiArtifact = async (options: {
