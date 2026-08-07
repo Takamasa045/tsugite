@@ -394,7 +394,9 @@ export async function assembleLocalMediaRun(
     ? recordGateDecision(awaitingState, "gate_2", "approved", undefined, autoPass.approvalDigest, "auto_qc")
     : awaitingState;
   const writtenStatePath = await writeState(options.stateDir, nextState);
-  const projectRoot = projectRootFromStateDir(options.stateDir, project.dist_dir);
+  const projectRoot = options.configPath
+    ? dirname(resolve(options.configPath))
+    : projectRootFromStateDir(options.stateDir, project.dist_dir);
   await notifySikumiStateChange({
     project,
     projectRoot,
@@ -933,7 +935,9 @@ async function assembleGeneratedMediaRun(
 
   const nextState = markGateAwaiting(options.state, "gate_2");
   const writtenStatePath = await writeState(options.stateDir, nextState);
-  const generationProjectRoot = projectRootFromStateDir(options.stateDir, project.dist_dir);
+  const generationProjectRoot = options.configPath
+    ? dirname(resolve(options.configPath))
+    : projectRootFromStateDir(options.stateDir, project.dist_dir);
   await notifySikumiStateChange({
     project,
     projectRoot: generationProjectRoot,

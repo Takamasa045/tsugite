@@ -29,6 +29,8 @@ export type RenderResult = {
 type RenderOptions = {
   stateDir: string;
   state: RunState;
+  /** Absolute project.yaml path; preferred over stateDir for Outbox root. */
+  configPath?: string;
 };
 
 const backendRenderReportSchema = z
@@ -117,7 +119,9 @@ export async function renderAssembledMedia(
 
   const nextState = markGateAwaiting(options.state, "gate_3");
   const writtenStatePath = await writeState(options.stateDir, nextState);
-  const projectRoot = projectRootFromStateDir(options.stateDir, project.dist_dir);
+  const projectRoot = options.configPath
+    ? dirname(resolve(options.configPath))
+    : projectRootFromStateDir(options.stateDir, project.dist_dir);
   await notifySikumiStateChange({
     project,
     projectRoot,

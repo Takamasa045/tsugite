@@ -268,13 +268,7 @@ export const mapRunStateToSikumiEvents = (
       }
     }
     if ((after === "revise" || after === "abort") && before !== after) {
-      events.push({
-        eventType: "gate.rejected",
-        runId,
-        taskId: gate,
-        message: `${gate} ${after}`,
-        metadata: { gate_id: gate },
-      });
+      // Complete open QA activity before gate.rejected so LIVE can leave waiting.
       if (gate === "gate_2" || gate === "gate_3") {
         events.push({
           eventType: "qa.failed",
@@ -283,6 +277,13 @@ export const mapRunStateToSikumiEvents = (
           message: `${gate} qc failed`,
         });
       }
+      events.push({
+        eventType: "gate.rejected",
+        runId,
+        taskId: gate,
+        message: `${gate} ${after}`,
+        metadata: { gate_id: gate },
+      });
     }
   }
 

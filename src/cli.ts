@@ -1426,7 +1426,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     const renderResult = await renderAssembledMedia(validation.project!, {
       stateDir: stateResult.stateDir,
-      state: stateResult.state
+      state: stateResult.state,
+      configPath: resolve(args.config!)
     });
     return output(args, renderResult.ok ? 0 : 1, {
       ok: renderResult.ok,
@@ -1988,6 +1989,8 @@ async function recordGate(
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
   if (!existing.ok) return existing;
 
+  // null when first gate decision synthesizes state — mapper emits run.started.
+  const persistedPrevious = existing.state ?? null;
   let state = existing.state ?? createPlannedState(project.run_id ?? project.slug);
   let reviewPath: string | undefined;
   let reviewDataPath: string | undefined;
@@ -2106,7 +2109,7 @@ async function recordGate(
     await notifySikumiStateChange({
       project,
       projectRoot,
-      previous: state,
+      previous: persistedPrevious,
       next: nextState
     });
     return {

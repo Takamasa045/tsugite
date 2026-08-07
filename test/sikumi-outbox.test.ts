@@ -131,6 +131,50 @@ describe("sikumiOutbox optional adapter", () => {
     expect(done.some((e) => e.eventType === "gate.approved")).toBe(true);
   });
 
+  it("emits qa.failed before gate.rejected for gate_2/3", () => {
+    const before: RunState = {
+      run_id: "run-r",
+      status: "awaiting_gate_2",
+      updated_at: "2026-08-07T00:00:00.000Z",
+      gates: {
+        gate_1: { status: "approved" },
+        gate_2: { status: "awaiting_approval" },
+        gate_3: { status: "pending" },
+      },
+    };
+    const after: RunState = {
+      run_id: "run-r",
+      status: "running",
+      updated_at: "2026-08-07T00:00:01.000Z",
+      gates: {
+        gate_1: { status: "approved" },
+        gate_2: { status: "revise" },
+        gate_3: { status: "pending" },
+      },
+    };
+    const mapped = mapRunStateToSikumiEvents(before, after);
+    const qa = mapped.findIndex((e) => e.eventType === "qa.failed");
+    const rejected = mapped.findIndex((e) => e.eventType === "gate.rejected");
+    expect(qa).toBeGreaterThanOrEqual(0);
+    expect(rejected).toBeGreaterThan(qa);
+  });
+
+  it("emits run.started when previous is null", () => {
+    const next: RunState = {
+      run_id: "run-new",
+      status: "awaiting_gate_1",
+      updated_at: "2026-08-07T00:00:00.000Z",
+      gates: {
+        gate_1: { status: "awaiting_approval" },
+        gate_2: { status: "pending" },
+        gate_3: { status: "pending" },
+      },
+    };
+    const mapped = mapRunStateToSikumiEvents(null, next);
+    expect(mapped[0]?.eventType).toBe("run.started");
+    expect(mapped.some((e) => e.eventType === "gate.waiting")).toBe(true);
+  });
+
   it("notifySikumiStateChange no-ops when disabled and never throws", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-sikumi-off-")));
     dirs.push(root);
