@@ -268,6 +268,17 @@ const gatePolicySchema = z.object({
     .optional()
 });
 
+/**
+ * Optional sikumi Live Outbox observation (default OFF).
+ * When enabled, pipeline lifecycle writes JSON under `<project>/.sikumi/events/`.
+ * sikumi absence must never break tsugite (fail-soft / no hard dependency).
+ */
+const sikumiConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false)
+  })
+  .default({ enabled: false });
+
 /** ランチャー表示用の案件名。日本語可。必須。後から変更できる。 */
 const projectDisplayNameSchema = z.string().trim().min(1).max(120);
 
@@ -279,6 +290,8 @@ export const projectSchema = z
     run_id: safeIdSchema.optional(),
     manifest: manifestPathSchema,
     dist_dir: safeRelativePathSchema.default("dist"),
+    /** Optional Live Outbox for sikumi village observation. Default disabled. */
+    sikumi: sikumiConfigSchema.optional(),
     edit: z.object({
       backend: safeIdSchema,
       editorial: editorialPolicySchema.optional(),

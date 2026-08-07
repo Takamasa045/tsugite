@@ -43,6 +43,11 @@ import { renderReviewPreview } from "./orchestrator/reviewPreview.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
+  notifySikumiRunCompleted,
+  notifySikumiStateChange,
+  projectRootFromStateDir
+} from "./integrations/sikumiOutbox.js";
+import {
   acquireRunLock,
   LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV,
   RUN_LOCK_INHERIT_ENV,
@@ -912,6 +917,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }
         : {})
     });
+    if (finalized.ok && finalized.applied) {
+      const projectRoot = dirname(resolve(args.config!));
+      const runId = validation.project!.run_id ?? validation.project!.slug;
+      // Product completion = finalize apply only (not Gate 3 approve alone).
+      await notifySikumiRunCompleted({
+        project: validation.project!,
+        projectRoot,
+        runId
+      });
+    }
     return output(args, finalized.ok ? 0 : 1, {
       ok: finalized.ok,
       command: "finalize",
@@ -1394,7 +1409,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     const renderResult = await renderAssembledMedia(validation.project!, {
       stateDir: stateResult.stateDir,
-      state: stateResult.state
+      state: stateResult.state,
+      configPath: resolve(args.config!)
     });
     return output(args, renderResult.ok ? 0 : 1, {
       ok: renderResult.ok,
@@ -1956,6 +1972,8 @@ async function recordGate(
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
   if (!existing.ok) return existing;
 
+  // null when first gate decision synthesizes state — mapper emits run.started.
+  const persistedPrevious = existing.state ?? null;
   let state = existing.state ?? createPlannedState(project.run_id ?? project.slug);
   let reviewPath: string | undefined;
   let reviewDataPath: string | undefined;
@@ -2067,6 +2085,16 @@ async function recordGate(
 
   try {
     await writeState(stateLocation.stateDir, nextState);
+    // Optional sikumi Outbox (default OFF; fail-soft; never blocks gate write).
+    const projectRoot = args.config
+      ? dirname(resolve(args.config))
+      : projectRootFromStateDir(stateLocation.stateDir, project.dist_dir);
+    await notifySikumiStateChange({
+      project,
+      projectRoot,
+      previous: persistedPrevious,
+      next: nextState
+    });
     return {
       ok: true,
       issues: [],
