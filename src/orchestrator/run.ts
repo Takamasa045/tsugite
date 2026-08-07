@@ -30,6 +30,11 @@ import {
   type GenerationConnectionResolution
 } from "../connections/registry.js";
 import {
+  notifySikumiArtifact,
+  notifySikumiStateChange,
+  projectRootFromStateDir
+} from "../integrations/sikumiOutbox.js";
+import {
   applyH3ExecutionRouteProfile,
   compileProjectH3,
   enrichH3CompilationsForProject,
@@ -389,6 +394,23 @@ export async function assembleLocalMediaRun(
     ? recordGateDecision(awaitingState, "gate_2", "approved", undefined, autoPass.approvalDigest, "auto_qc")
     : awaitingState;
   const writtenStatePath = await writeState(options.stateDir, nextState);
+  const projectRoot = options.configPath
+    ? dirname(resolve(options.configPath))
+    : projectRootFromStateDir(options.stateDir, project.dist_dir);
+  await notifySikumiStateChange({
+    project,
+    projectRoot,
+    previous: options.state,
+    next: nextState
+  });
+  await notifySikumiArtifact({
+    project,
+    projectRoot,
+    runId: nextState.run_id,
+    label: "assembled-manifest",
+    kind: "file",
+    artifactId: "manifest"
+  });
   if (autoPass.passed) {
     await writeRunLog(runLogPath, {
       ...runLogInput,
@@ -913,6 +935,23 @@ async function assembleGeneratedMediaRun(
 
   const nextState = markGateAwaiting(options.state, "gate_2");
   const writtenStatePath = await writeState(options.stateDir, nextState);
+  const generationProjectRoot = options.configPath
+    ? dirname(resolve(options.configPath))
+    : projectRootFromStateDir(options.stateDir, project.dist_dir);
+  await notifySikumiStateChange({
+    project,
+    projectRoot: generationProjectRoot,
+    previous: options.state,
+    next: nextState
+  });
+  await notifySikumiArtifact({
+    project,
+    projectRoot: generationProjectRoot,
+    runId: nextState.run_id,
+    label: "generation-manifest",
+    kind: "file",
+    artifactId: "manifest"
+  });
 
   return {
     ok: true,

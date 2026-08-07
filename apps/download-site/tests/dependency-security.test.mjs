@@ -13,7 +13,7 @@ const EXPECTED_OVERRIDES = {
   "brace-expansion": "5.0.9",
   "minimatch": "10.2.5",
   "fast-uri": "3.1.5",
-  "js-yaml": "4.3.0",
+  "js-yaml": "4.3.1",
   "postcss": "8.5.25",
   "react-server-dom-webpack": "19.2.8",
   "sharp": "0.35.3",
@@ -45,7 +45,7 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.5");
-  assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.0");
+  assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.1");
   assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.25");
   assert.equal(lockfile.packages["node_modules/next/node_modules/postcss"], undefined);
   assert.equal(lockfile.packages["node_modules/sharp"].version, "0.35.3");
