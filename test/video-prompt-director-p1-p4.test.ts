@@ -1381,14 +1381,18 @@ describe("L4 video_prompt-only validate → plan → dry-run E2E", () => {
       recordGateDecision
     } = await import("../src/orchestrator/state.js");
 
+    // Absolute adapter roots so this case does not depend on another test's cwd.
+    const adapterDirs = [
+      resolve("fixtures/adapters"),
+      resolve("adapters")
+    ];
     const configPath = await writeVideoPromptOnlyProject({
       connection: "pixverse",
       adapter: "pixverse"
     });
-    const validation = await validateProject(configPath, {
-      adapterDirs: ["fixtures/adapters", "adapters"]
-    });
+    const validation = await validateProject(configPath, { adapterDirs });
     expect(validation.ok).toBe(true);
+    expect(validation.adapter).toBeDefined();
     // Planning compile filled a non-empty prompt, but video_prompt IR remains.
     const filled = validation.project!.generation!.requests[0]!;
     expect(filled.prompt.length).toBeGreaterThan(0);
@@ -1397,6 +1401,20 @@ describe("L4 video_prompt-only validate → plan → dry-run E2E", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "tsugite-vpd-run-block-"));
     const gate1 = markGateAwaiting(createPlannedState("vpd-e2e-run"), "gate_1");
     const running = recordGateDecision(gate1, "gate_1", "approved");
+    // Deterministic connection fixture: do not inherit host CLI/env setup_status.
+    // Without `pixverse` on PATH (typical CI), live resolution becomes needs-setup and
+    // assembleLocalMediaRun returns run.connection_setup_required before VPD-E022.
+    const generationConnection = {
+      id: "pixverse",
+      adapter: "pixverse",
+      transport: "cli" as const,
+      provider: "pixverse",
+      route_note: "fixture: planning-only execute reject",
+      auth_kind: "subscription" as const,
+      contract_digest: "fixture-vpd-run-block-contract",
+      setup_status: "needs-verification" as const,
+      execution_mode: "pipeline-adapter" as const
+    };
     const result = await assembleLocalMediaRun(
       validation.project!,
       validation.manifest!,
@@ -1407,12 +1425,15 @@ describe("L4 video_prompt-only validate → plan → dry-run E2E", () => {
         state: running,
         // Pass Gate 1 connection verification so the execute-readiness check is the fail point.
         connectionVerificationApproved: true,
-        generationConnection: validation.generationConnection
+        generationConnection
       },
       validation.adapter
     );
     expect(result.ok).toBe(false);
-    expect(result.issues.some((item) => item.code === VPD_RUNTIME_NOT_READY_CODE)).toBe(true);
+    expect(
+      result.issues.map((item) => item.code),
+      `expected ${VPD_RUNTIME_NOT_READY_CODE}, got ${JSON.stringify(result.issues)}`
+    ).toContain(VPD_RUNTIME_NOT_READY_CODE);
   });
 
   it("accepts reference video_prompt IR assets without legacy media fields at projectSchema", () => {
