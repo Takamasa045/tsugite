@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added a launcher **Safe Maintenance** shelf (安全な整理) that keeps Git worktree cleanup and completed-project media finalize as separate preview → review → explicit apply flows. Browsers send only short-lived server-held review IDs (never full paths); apply revalidates live state and invokes the canonical `worktrees` / `finalize` CLI without `--force`, branch deletion, or bulk delete.
+- Finalize CLI now reports an explicit `already_finalized` flag (record existence + no remaining media candidates + durable launcher home), so path-only `completion_record` values cannot be mistaken for a finished cleanup.
+
 ## 0.8.0 - 2026-08-06
 
 - Added the H3 Prompt Director with typed request compilation for text-to-video, image-to-video, first/last-frame, reference, and voiceover workflows; deterministic prompt rendering; adapter capability checks; fail-closed validation; and review/run artifacts while preserving generation, billing, and Gate approval boundaries.

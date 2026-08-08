@@ -223,6 +223,21 @@ node bin/pipeline worktrees --json
 node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
 ```
 
+### Launcher Safe Maintenance shelf
+
+The Viewer launcher includes a **Safe Maintenance** shelf. Git worktree cleanup and completed-project media finalize stay **separate panels, previews, confirm dialogs, and apply calls**. There is no bulk delete.
+
+Shared flow:
+
+`Preview → Review → Explicit Apply → Revalidate → Record`
+
+- **Git worktrees**: After a read-only preview, pick **one** removable candidate and confirm “delete this worktree only.” The browser never sends a path; it uses short-lived server-held `reviewId` / `candidateId` values. Before apply, the server re-checks live path / HEAD / branch / common-dir / removable, then runs canonical `worktrees --apply --actor coordinator --path <server-held-path>` as an argv array. No `--force`, branch deletion, stash / rebase / reset, or `git clean`.
+- **Completed media**: Choose a writable project and explicitly declare completion (“confirm this project as complete and review the cleanup plan”). Gate 3 approval alone does not run finalize. Review the preview `plan_digest` and keep/delete samples, then confirm apply. Canonical CLI is `finalize --json` followed by `--apply --actor coordinator --expected-plan-digest <digest>`. Clients never send config paths or `--state-dir`.
+- Only one maintenance apply runs at a time across the launcher; it also counts as blocking work for workspace switch and shutdown.
+- Projects with a completion record and zero deletion candidates show as already finalized; re-apply is not offered.
+
+CLI remains available as before. The launcher does not own safety decisions; it is a thin boundary over existing `lifecycle` / `finalize`.
+
 The preview also returns a non-mutating `worktree_warning`. It becomes active
 when three or more worktrees are already classified as `removable: true` (clean,
 merged, unlocked, and free of protected ignored content). The warning counts
