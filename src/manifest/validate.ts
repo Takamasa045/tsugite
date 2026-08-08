@@ -3,7 +3,11 @@ import type { Issue, Result } from "../types.js";
 
 const urlLike = /^[a-z][a-z0-9+.-]*:\/\//i;
 
-const dialoguePresets = new Set(["article-dialogue-16x9", "street-dialogue-16x9"]);
+const dialoguePresets = new Set([
+  "article-dialogue-16x9",
+  "street-dialogue-16x9",
+  "street-dialogue-9x16"
+]);
 
 export function validateManifest(input: unknown): Result<{ manifest: Manifest }> {
   const parsed = manifestSchema.safeParse(input);
@@ -104,10 +108,16 @@ function validateManifestContract(manifest: Manifest): Issue[] {
 
   if (isDialoguePresentation) {
     const sides = new Set(manifest.speakers.map((speaker) => speaker.side));
-    if (manifest.meta.aspect !== "16:9" || manifest.speakers.length !== 2 || !sides.has("left") || !sides.has("right")) {
+    const dialogueAspect = requiredAspectForPreset(manifest.presentation?.preset) ?? "16:9";
+    if (
+      manifest.meta.aspect !== dialogueAspect ||
+      manifest.speakers.length !== 2 ||
+      !sides.has("left") ||
+      !sides.has("right")
+    ) {
       speakerIssues.push({
         code: "manifest.presentation.cast",
-        message: `${manifest.presentation?.preset} requires exactly one left and one right speaker on a 16:9 manifest`,
+        message: `${manifest.presentation?.preset} requires exactly one left and one right speaker on a ${dialogueAspect} manifest`,
         path: "speakers"
       });
     }
