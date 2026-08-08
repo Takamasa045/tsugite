@@ -11,7 +11,7 @@ import {
 } from "./shared.js";
 
 /**
- * Base H3 renderer for text-to-video, first-frame, and first-last.
+ * Base H3 renderer for text-to-video, first-frame, first-last, and last-frame.
  * Section order is fixed: integrated_multimodal_description, overall_soundscape, non_diegetic_music.
  */
 export function renderH3BasePrompt(ir: H3CreativeIr): H3RenderResult {

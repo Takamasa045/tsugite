@@ -122,6 +122,34 @@ connections:
       - type: manual
         detail: "Kling CLIのログイン状態、who_am_iの利用可能モデル、クレジットを生成前に確認する。"
 
+  # MiniMax direct: Phase A is preflight/dry-run only. Official MCP is not H3 execution evidence.
+  # CLI missing → needs-setup. Command presence alone is never ready for generation.
+  - id: minimax-direct
+    aliases: [minimax, mmx, minimax-h3-direct]
+    display_name: MiniMax直契約（preflight-only）
+    provider: minimax
+    transport: cli
+    auth_kind: api-key
+    implementation_status: available-to-add
+    adapter: minimax
+    capabilities:
+      - video.text-to-video
+      - video.image-to-video
+      - video.last-frame-to-video
+      - video.first-last-frame-to-video
+      - video.reference-to-video
+    automated_capabilities: []
+    model_policy: catalog
+    model_families: [minimax, minimax-h3]
+    route_note: "MiniMax公式CLI mmx（>=1.0.19）の preflight / dry-run argv のみ。実生成は未統合。ir_model minimax-h3 は provider_model MiniMax-H3 へ明示mapping。公式MCPはH3/last-only非対応として扱わない。PixVerse transport とは別接続。"
+    setup_checks:
+      - type: command
+        command: mmx
+      - type: environment
+        variable: MINIMAX_API_KEY
+      - type: manual
+        detail: "Phase A は preflight-only。mmx の導入（>=1.0.19）と MINIMAX_API_KEY の設定を確認する。値をチャットや成果物に貼らない。"
+
   - id: elevenlabs
     display_name: ElevenLabs
     provider: elevenlabs

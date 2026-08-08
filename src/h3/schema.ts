@@ -26,12 +26,27 @@ export const h3ModeSchema = z.enum([
   "text-to-video",
   "first-frame",
   "first-last",
+  "last-frame",
   "reference"
 ]);
 
+/** Product-facing labels for H3 modes (schema values stay stable machine ids). */
+export const H3_MODE_UI_LABELS = {
+  "text-to-video": "text-to-video",
+  "first-frame": "first-frame",
+  "first-last": "first-last",
+  "last-frame": "last-frame-only",
+  reference: "reference"
+} as const satisfies Record<z.infer<typeof h3ModeSchema>, string>;
+
+export function h3ModeUiLabel(mode: z.infer<typeof h3ModeSchema>): string {
+  return H3_MODE_UI_LABELS[mode];
+}
+
 /**
- * Canonical MiniMax H3 model id for Creative IR v1.
+ * Canonical H3 Creative IR model id (v1+).
  * No aliases and no unknown-model fallback: only this exact value is accepted.
+ * Provider-facing model ids are mapped only by adapter route profiles.
  * Matching against project request.model is deferred to the compile integration phase.
  */
 export const H3_CANONICAL_MODEL = "minimax-h3" as const;
@@ -138,6 +153,22 @@ const h3SubjectSchema = z
         hairstyle: z.enum(["strict", "loose"]).optional()
       })
       .strict()
+      .optional(),
+    /** Optional person-consistency QA participation (Phase B). Off by default. */
+    consistency: z
+      .object({
+        enabled: z.boolean(),
+        reference_region: z
+          .object({
+            x: z.number().min(0).max(1),
+            y: z.number().min(0).max(1),
+            width: z.number().min(0).max(1),
+            height: z.number().min(0).max(1)
+          })
+          .strict()
+          .optional()
+      })
+      .strict()
       .optional()
   })
   .strict();
@@ -203,7 +234,19 @@ const h3ShotSchema = z
     camera: h3CameraSchema.optional(),
     dialogue: h3DialogueSchema.optional(),
     on_screen_text: z.string().min(1).optional(),
-    lyrics: z.string().min(1).optional()
+    lyrics: z.string().min(1).optional(),
+    /** Optional per-shot subject visibility for person-consistency QA (Phase B). */
+    subject_expectations: z
+      .array(
+        z
+          .object({
+            subject_id: safeIdSchema,
+            visibility: z.enum(["visible", "partial", "occluded", "offscreen"]),
+            face_visibility: z.enum(["required", "optional", "not_expected"])
+          })
+          .strict()
+      )
+      .optional()
   })
   .strict()
   .superRefine((shot, context) => {
@@ -306,24 +349,45 @@ export const h3CreativeIrSchema = z
       }
     }
 
-    // last-frame-only is intentionally unsupported in v1
     if (ir.target.mode === "first-frame") {
       const first = ir.assets.filter((asset) => asset.role === "first_frame");
-      if (first.length === 0) {
+      if (first.length !== 1 || first[0]?.type !== "image") {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "first-frame mode requires a first_frame asset",
+          message: "first-frame mode requires exactly one first_frame image asset",
           path: ["assets"]
         });
       }
     }
     if (ir.target.mode === "first-last") {
-      const first = ir.assets.some((asset) => asset.role === "first_frame");
-      const last = ir.assets.some((asset) => asset.role === "last_frame");
-      if (!first || !last) {
+      const first = ir.assets.filter((asset) => asset.role === "first_frame");
+      const last = ir.assets.filter((asset) => asset.role === "last_frame");
+      if (
+        first.length !== 1
+        || last.length !== 1
+        || first[0]?.type !== "image"
+        || last[0]?.type !== "image"
+      ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "first-last mode requires first_frame and last_frame assets",
+          message: "first-last mode requires first_frame and last_frame image assets",
+          path: ["assets"]
+        });
+      }
+    }
+    if (ir.target.mode === "last-frame") {
+      const last = ir.assets.filter((asset) => asset.role === "last_frame");
+      const unexpected = ir.assets.filter((asset) => asset.role !== "last_frame");
+      if (
+        last.length !== 1
+        || last[0]?.type !== "image"
+        || unexpected.length > 0
+        || ir.assets.some((asset) => asset.type === "video" || asset.type === "audio")
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "last-frame mode requires exactly one last_frame image and no first_frame, reference, video, or audio assets",
           path: ["assets"]
         });
       }

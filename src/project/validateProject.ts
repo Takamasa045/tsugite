@@ -402,11 +402,8 @@ export async function validateProject(
         issues.push(...validateAnalysisDependencies(project, manifestResult.manifest, loadedByName));
       }
     }
-    if (project.generation?.adapter && adapter?.class === "generation") {
-      issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
-    }
-
-    // Stage 2: inject selected adapter H3 route profile (fail closed if missing).
+    // Stage 2: bind selected adapter H3 route before input_mode constraints.
+    // Neutral intents (e.g. first-last-frame-to-video) become adapter fields first.
     if (h3Compilations.length > 0) {
       if (!adapter || adapter.class !== "generation") {
         const routeApplied = applyH3ExecutionRouteProfile(h3Compilations, undefined, {
@@ -414,6 +411,7 @@ export async function validateProject(
           adapterName: project.generation?.adapter
         });
         h3Compilations = routeApplied.compilations ?? h3Compilations;
+        if (routeApplied.project) project = routeApplied.project;
         issues.push(...routeApplied.issues);
       } else {
         const routeProfile = await loadH3ExecutionRouteProfile(adapter.root);
@@ -422,8 +420,13 @@ export async function validateProject(
           adapterName: adapter.name
         });
         h3Compilations = routeApplied.compilations ?? h3Compilations;
+        if (routeApplied.project) project = routeApplied.project;
         issues.push(...routeApplied.issues);
       }
+    }
+
+    if (project.generation?.adapter && adapter?.class === "generation") {
+      issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
     }
 
     promptGuides = await loadProjectPromptGuides(project, options.promptGuideDirs);

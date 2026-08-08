@@ -665,9 +665,30 @@ function mapAssetIdsToPinnedPaths(
       entries.push({ assetId: asset.id, path: pinned.first_frame });
       return { ok: true, issues: [], entries };
     }
+    case "last-frame": {
+      const asset = ir.assets.find((item) => item.role === "last_frame");
+      if (!asset) return { ok: true, issues: [], entries };
+      if (!pinned.last_frame) {
+        return missingPinnedPath(asset, "last_frame");
+      }
+      entries.push({ assetId: asset.id, path: pinned.last_frame });
+      return { ok: true, issues: [], entries };
+    }
     case "first-last": {
       const first = ir.assets.find((item) => item.role === "first_frame");
       const last = ir.assets.find((item) => item.role === "last_frame");
+      // Provider-neutral pins use first_frame/last_frame; some routes pack them into input_images.
+      if (pinned.first_frame || pinned.last_frame) {
+        if (first) {
+          if (!pinned.first_frame) return missingPinnedPath(first, "first_frame");
+          entries.push({ assetId: first.id, path: pinned.first_frame });
+        }
+        if (last) {
+          if (!pinned.last_frame) return missingPinnedPath(last, "last_frame");
+          entries.push({ assetId: last.id, path: pinned.last_frame });
+        }
+        return { ok: true, issues: [], entries };
+      }
       const paths = pinned.input_images ?? [];
       if (first) {
         if (!paths[0]) return missingPinnedPath(first, "input_images[0]");

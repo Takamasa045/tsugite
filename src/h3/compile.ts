@@ -13,10 +13,13 @@ import { sha256Canonical, sha256Text } from "./hash.js";
 import { renderH3Prompt } from "./render/index.js";
 import type { H3Asset, H3CreativeIr, H3Mode } from "./schema.js";
 import {
+  H3_ASSET_BINDING_MISMATCH_CODE,
+  H3_PROVIDER_MODEL_MAPPING_MISSING_CODE,
   validateH3AdapterRoute,
   validateH3CreativeIr,
   type H3ExecutionRouteProfile,
   type H3Issue,
+  type H3RouteModeBinding,
   type H3ValidationResult
 } from "./validate/index.js";
 import { finalizeValidation, issue } from "./validate/types.js";
@@ -26,8 +29,11 @@ export const H3_ROUTE_PROFILE_REQUIRED_CODE = "H3-C005";
 
 /** Stable workflow identity for compiled H3 prompts. */
 export const H3_WORKFLOW_ID = "h3-prompt-director";
-/** Versioned IR/compiler contract identity (not an implementation phase name). */
-export const H3_WORKFLOW_VERSION = "1";
+/**
+ * Versioned IR/compiler contract identity (not an implementation phase name).
+ * v2: last-frame mode, provider-neutral first-last/last-frame intents, official FL2VA/L2VA alignment.
+ */
+export const H3_WORKFLOW_VERSION = "2";
 
 export type H3Lineage = {
   workflow_id: string;
@@ -80,9 +86,15 @@ export type CompileProjectH3Result = Result<{
   compilations: H3Compilation[];
 }>;
 
-type ModeMapping = {
+/** Provider-neutral mode mapping produced by the core compiler (adapter binding is separate). */
+export type ModeMapping = {
   operation: "video" | "transition" | "reference";
-  input_mode: "text-to-video" | "image-to-video" | "transition" | "reference";
+  input_mode:
+    | "text-to-video"
+    | "image-to-video"
+    | "first-last-frame-to-video"
+    | "last-frame-to-video"
+    | "reference";
 };
 
 export type CompileH3Options = {
@@ -227,7 +239,7 @@ export function compileProjectH3(
 /**
  * Stage 2: inject the selected adapter's H3 route profile into compilations.
  * Fail closed with H3-C005 when H3 compilations exist but no profile is declared.
- * Merges H3-C006 (model mismatch) and PV-E* issues into each compilation.validation.
+ * Merges H3-C006/C007/C008/C009 and PV-E* issues; binds provider-neutral fields to adapter route.
  */
 export function applyH3ExecutionRouteProfile(
   compilations: H3Compilation[],
@@ -236,9 +248,9 @@ export function applyH3ExecutionRouteProfile(
     project: Project;
     adapterName?: string;
   }
-): Result<{ compilations: H3Compilation[] }> {
+): Result<{ compilations: H3Compilation[]; project: Project }> {
   if (compilations.length === 0) {
-    return { ok: true, issues: [], compilations };
+    return { ok: true, issues: [], compilations, project: options.project };
   }
 
   if (!routeProfile) {
@@ -252,35 +264,68 @@ export function applyH3ExecutionRouteProfile(
           + "H3 requests cannot execute without adapter route constraints",
         path: "generation.adapter"
       }],
-      compilations
+      compilations,
+      project: options.project
     };
   }
 
   const issues: Issue[] = [];
   const next = compilations.map((compilation) => {
+    const routeIssues: H3Issue[] = [];
     const routeResult = validateH3AdapterRoute(compilation.creative_ir, routeProfile);
-    if (routeResult.issues.length === 0) {
-      return compilation;
-    }
+    routeIssues.push(...routeResult.issues);
+
+    const bindingResult = bindExecutionRequestToRoute(compilation, routeProfile);
+    routeIssues.push(...bindingResult.issues);
 
     const merged = finalizeValidation([
       ...compilation.validation.issues,
-      ...routeResult.issues
+      ...routeIssues
     ]);
     const requestIndex = options.project.generation?.requests.findIndex(
       (request) => request.id === compilation.request_id
     ) ?? -1;
     const index = requestIndex >= 0 ? requestIndex : 0;
-    issues.push(...routeResult.errors.map((item) => h3IssueToProjectIssue(item, index)));
-    return { ...compilation, validation: merged };
+    const errors = routeIssues.filter((item) => item.severity === "error");
+    issues.push(...errors.map((item) => h3IssueToProjectIssue(item, index)));
+
+    return {
+      ...compilation,
+      validation: merged,
+      execution_request: bindingResult.execution_request
+    };
   });
 
+  const project = applyBoundCompilationsToProject(options.project, next);
   if (issues.length > 0) {
-    return { ok: false, issues, compilations: next };
+    return { ok: false, issues, compilations: next, project };
   }
-  return { ok: true, issues: [], compilations: next };
+  return { ok: true, issues: [], compilations: next, project };
 }
 
+/** Rewrite generation requests from bound execution fields while keeping raw h3 IR. */
+function applyBoundCompilationsToProject(
+  project: Project,
+  compilations: H3Compilation[]
+): Project {
+  if (!project.generation?.requests.length) return project;
+  const byId = new Map(compilations.map((item) => [item.request_id, item]));
+  return {
+    ...project,
+    generation: {
+      ...project.generation,
+      requests: project.generation.requests.map((request) => {
+        const compilation = byId.get(request.id);
+        if (!compilation) return request;
+        return applyCompilationToRequest(request, compilation);
+      })
+    }
+  };
+}
+
+/**
+ * Provider-neutral mode mapping. Adapter-specific operation/input_mode live in route bindings.
+ */
 export function mapMode(mode: H3Mode): ModeMapping {
   switch (mode) {
     case "text-to-video":
@@ -288,9 +333,177 @@ export function mapMode(mode: H3Mode): ModeMapping {
     case "first-frame":
       return { operation: "video", input_mode: "image-to-video" };
     case "first-last":
-      return { operation: "transition", input_mode: "transition" };
+      return { operation: "video", input_mode: "first-last-frame-to-video" };
+    case "last-frame":
+      return { operation: "video", input_mode: "last-frame-to-video" };
     case "reference":
       return { operation: "reference", input_mode: "reference" };
+  }
+}
+
+function bindExecutionRequestToRoute(
+  compilation: H3Compilation,
+  route: H3ExecutionRouteProfile
+): { execution_request: GenerationRequest; issues: H3Issue[] } {
+  const issues: H3Issue[] = [];
+  const mode = compilation.creative_ir.target.mode;
+  const binding = resolveModeBinding(mode, route);
+
+  if (route.modes && !binding) {
+    // validateH3AdapterRoute already emits H3-C007; keep execution fields neutral.
+    return { execution_request: compilation.execution_request, issues };
+  }
+
+  if (route.modes && route.provider_model === undefined) {
+    // Profiles that declare modes must also declare provider_model mapping explicitly.
+    issues.push(issue(
+      H3_PROVIDER_MODEL_MAPPING_MISSING_CODE,
+      `adapter route for model '${route.model}' is missing provider_model mapping`,
+      "error",
+      ["target", "model"]
+    ));
+  }
+
+  let execution = { ...compilation.execution_request };
+  if (binding) {
+    const assetBound = applyAssetBinding(execution, binding);
+    issues.push(...assetBound.issues);
+    execution = {
+      ...assetBound.request,
+      operation: binding.operation,
+      input_mode: binding.input_mode as GenerationRequest["input_mode"]
+    };
+  }
+
+  if (route.provider_model) {
+    execution = {
+      ...execution,
+      params: {
+        ...(execution.params ?? {}),
+        provider_model: route.provider_model
+      }
+    };
+  }
+
+  return { execution_request: execution, issues };
+}
+
+function resolveModeBinding(
+  mode: H3Mode,
+  route: H3ExecutionRouteProfile
+): H3RouteModeBinding | undefined {
+  if (route.modes) return route.modes[mode];
+  // Legacy profiles without explicit modes: identity binding for pre-Phase-A four modes.
+  switch (mode) {
+    case "text-to-video":
+      return { operation: "video", input_mode: "text-to-video", asset_binding: "none" };
+    case "first-frame":
+      return { operation: "video", input_mode: "image-to-video", asset_binding: "first_frame" };
+    case "first-last":
+      return {
+        operation: "transition",
+        input_mode: "transition",
+        asset_binding: "first_last_as_input_images"
+      };
+    case "reference":
+      return { operation: "reference", input_mode: "reference", asset_binding: "reference_lists" };
+    case "last-frame":
+      return undefined;
+  }
+}
+
+function applyAssetBinding(
+  request: GenerationRequest,
+  binding: H3RouteModeBinding
+): { request: GenerationRequest; issues: H3Issue[] } {
+  const issues: H3Issue[] = [];
+  const base = { ...request };
+
+  switch (binding.asset_binding) {
+    case "none":
+      return { request: base, issues };
+    case "first_frame": {
+      if (!base.first_frame) {
+        issues.push(issue(
+          H3_ASSET_BINDING_MISMATCH_CODE,
+          "route asset binding requires first_frame",
+          "error",
+          ["first_frame"]
+        ));
+      }
+      return { request: base, issues };
+    }
+    case "last_frame": {
+      if (!base.last_frame) {
+        issues.push(issue(
+          H3_ASSET_BINDING_MISMATCH_CODE,
+          "route asset binding requires last_frame",
+          "error",
+          ["last_frame"]
+        ));
+      }
+      if (base.first_frame) {
+        issues.push(issue(
+          H3_ASSET_BINDING_MISMATCH_CODE,
+          "last_frame binding must not include first_frame",
+          "error",
+          ["first_frame"]
+        ));
+      }
+      return { request: base, issues };
+    }
+    case "first_and_last_frame": {
+      if (!base.first_frame || !base.last_frame) {
+        issues.push(issue(
+          H3_ASSET_BINDING_MISMATCH_CODE,
+          "route asset binding requires first_frame and last_frame",
+          "error",
+          ["first_frame"]
+        ));
+      }
+      return { request: base, issues };
+    }
+    case "first_last_as_input_images": {
+      const first = base.first_frame;
+      const last = base.last_frame;
+      if (!first || !last) {
+        issues.push(issue(
+          H3_ASSET_BINDING_MISMATCH_CODE,
+          "route asset binding requires first_frame and last_frame to pack input_images",
+          "error",
+          ["first_frame"]
+        ));
+        return { request: base, issues };
+      }
+      const {
+        first_frame: _first,
+        last_frame: _last,
+        ...rest
+      } = base;
+      return {
+        request: {
+          ...rest,
+          input_images: [first, last]
+        },
+        issues
+      };
+    }
+    case "reference_lists": {
+      const hasMedia = Boolean(
+        (base.input_images?.length ?? 0)
+        + (base.input_videos?.length ?? 0)
+        + (base.input_audios?.length ?? 0)
+      );
+      if (!hasMedia) {
+        issues.push(issue(
+          H3_ASSET_BINDING_MISMATCH_CODE,
+          "route asset binding requires at least one reference media list",
+          "error",
+          ["input_images"]
+        ));
+      }
+      return { request: base, issues };
+    }
   }
 }
 
@@ -393,11 +606,12 @@ function validateAuthorAssetConflicts(request: GenerationRequest, ir: H3Creative
   const expected = buildAssetFields(ir);
 
   compareOptional(issues, "first_frame", request.first_frame, expected.first_frame, ["first_frame"]);
+  compareOptional(issues, "last_frame", request.last_frame, expected.last_frame, ["last_frame"]);
   compareStringArray(issues, "input_images", request.input_images, expected.input_images, ["input_images"]);
   compareStringArray(issues, "input_videos", request.input_videos, expected.input_videos, ["input_videos"]);
   compareStringArray(issues, "input_audios", request.input_audios, expected.input_audios, ["input_audios"]);
 
-  // T2V and first-frame must not smuggle reference_images / input_video extras.
+  // T2V and frame modes must not smuggle reference_images / input_video extras.
   if (request.reference_images !== undefined) {
     issues.push(issue(
       "H3-C001",
@@ -549,6 +763,49 @@ function validateModeAssets(ir: H3CreativeIr): H3Issue[] {
       }
       break;
     }
+    case "last-frame": {
+      if (lastFrames.length !== 1) {
+        issues.push(issue(
+          "H3-C003",
+          "last-frame mode requires exactly one last_frame asset",
+          "error",
+          ["assets"]
+        ));
+      } else if (lastFrames[0]!.type !== "image") {
+        issues.push(issue(
+          "H3-C004",
+          "last_frame asset must be an image",
+          "error",
+          ["assets", assetIndex(ir, lastFrames[0]!), "type"]
+        ));
+      }
+      if (firstFrames.length > 0) {
+        issues.push(issue(
+          "H3-C003",
+          "last-frame mode must not declare first_frame assets",
+          "error",
+          ["assets"]
+        ));
+      }
+      const unexpected = ir.assets.filter((asset) => asset.role !== "last_frame");
+      if (unexpected.length > 0) {
+        issues.push(issue(
+          "H3-C003",
+          "last-frame mode accepts only a single last_frame image asset",
+          "error",
+          ["assets"]
+        ));
+      }
+      if (videos.length > 0 || audios.length > 0) {
+        issues.push(issue(
+          "H3-C003",
+          "last-frame mode must not include video or audio assets",
+          "error",
+          ["assets"]
+        ));
+      }
+      break;
+    }
     case "reference": {
       // Cardinality limits and audio-only / first-last mixing live in adapter route (PV-E*).
       // Compiler only enforces that reference assets are present for execution fields.
@@ -569,6 +826,7 @@ function validateModeAssets(ir: H3CreativeIr): H3Issue[] {
 
 function buildAssetFields(ir: H3CreativeIr): {
   first_frame?: string;
+  last_frame?: string;
   input_images?: string[];
   input_videos?: string[];
   input_audios?: string[];
@@ -584,8 +842,12 @@ function buildAssetFields(ir: H3CreativeIr): {
       const first = ir.assets.find((asset) => asset.role === "first_frame" && asset.type === "image");
       const last = ir.assets.find((asset) => asset.role === "last_frame" && asset.type === "image");
       if (!first || !last) return {};
-      // Declaration order by role: first_frame then last_frame (not assets array order).
-      return { input_images: [first.path, last.path] };
+      // Provider-neutral: keep role fields separate; adapters may pack into input_images.
+      return { first_frame: first.path, last_frame: last.path };
+    }
+    case "last-frame": {
+      const last = ir.assets.find((asset) => asset.role === "last_frame" && asset.type === "image");
+      return last ? { last_frame: last.path } : {};
     }
     case "reference": {
       // Preserve IR declaration order, partitioned by type.
@@ -613,6 +875,7 @@ function buildExecutionRequest(
     prompt_guide: _promptGuide,
     mode: _mode,
     first_frame: _firstFrame,
+    last_frame: _lastFrame,
     reference_images: _referenceImages,
     input_images: _inputImages,
     input_video: _inputVideo,
@@ -646,6 +909,7 @@ function buildExecutionRequest(
     input_mode: mapping.input_mode,
     params,
     ...(assetFields.first_frame ? { first_frame: assetFields.first_frame } : {}),
+    ...(assetFields.last_frame ? { last_frame: assetFields.last_frame } : {}),
     ...(assetFields.input_images ? { input_images: assetFields.input_images } : {}),
     ...(assetFields.input_videos ? { input_videos: assetFields.input_videos } : {}),
     ...(assetFields.input_audios ? { input_audios: assetFields.input_audios } : {})

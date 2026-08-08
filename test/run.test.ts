@@ -1016,7 +1016,7 @@ describe("local media run assembly", () => {
       /async function recordGate\([\s\S]*?promptGuides\?: PromptGuide\[]/
     );
     expect(cli).toMatch(
-      /const inspected = await inspectGate2RunForApproval\(\s*project,\s*manifest,\s*existing\.stateDir,\s*adapter,\s*approvedCompilation,\s*audioAdapter,\s*promptGuides\s*\)/
+      /const inspected = await inspectGate2RunForApproval\(\s*project,\s*manifest,\s*existing\.stateDir,\s*adapter,\s*approvedCompilation,\s*audioAdapter,\s*promptGuides(?:,\s*personQaDecision)?\s*\)/
     );
     // Render path already wired — keep the contract fixed.
     expect(cli).toMatch(
@@ -1123,7 +1123,7 @@ describe("local media run assembly", () => {
 
     const lineage = JSON.parse(await readFile(join(artifactDir, "lineage.json"), "utf8"));
     expect(lineage.workflow_id).toBe("h3-prompt-director");
-    expect(lineage.workflow_version).toBe("1");
+    expect(lineage.workflow_version).toBe("2");
     expect(lineage.creative_ir_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(lineage.canonical_prompt_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(lineage.adapter_prompt_hash).toMatch(/^[a-f0-9]{64}$/);
@@ -1151,7 +1151,7 @@ describe("local media run assembly", () => {
 
     const manifest = JSON.parse(await readFile(result.manifestPath!, "utf8"));
     expect(manifest.provenance[0].h3).toEqual({
-      workflow_version: "1",
+      workflow_version: "2",
       creative_ir_hash: lineage.creative_ir_hash,
       adapter_prompt_hash: lineage.adapter_prompt_hash,
       artifacts_dir: "h3/h3-shot"

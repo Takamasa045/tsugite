@@ -9,8 +9,24 @@ import {
   type Project
 } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
-import type { H3ExecutionRouteProfile } from "../h3/validate/adapterRoute.js";
+import type { H3ExecutionRouteProfile, H3RouteModeBinding } from "../h3/validate/adapterRoute.js";
+import type { H3Mode } from "../h3/schema.js";
 import { loadAdapterDefinition } from "./registry.js";
+
+const h3RouteModeBindingYamlSchema = z
+  .object({
+    operation: z.enum(["video", "transition", "reference"]),
+    input_mode: z.string().min(1),
+    asset_binding: z.enum([
+      "none",
+      "first_frame",
+      "last_frame",
+      "first_and_last_frame",
+      "first_last_as_input_images",
+      "reference_lists"
+    ])
+  })
+  .strict();
 
 /**
  * Machine-readable H3 route block inside adapter constraints.yaml.
@@ -20,6 +36,9 @@ const h3ExecutionRouteYamlSchema = z
   .object({
     /** Required non-empty; Stage 2 matches this against each IR target.model (H3-C006). */
     model: z.string().min(1),
+    /** Explicit provider model id required when modes is declared. */
+    provider_model: z.string().min(1).optional(),
+    min_cli_version: z.string().min(1).optional(),
     durations: z.array(z.number().positive()).min(1),
     qualities: z.array(z.string().min(1)).min(1),
     aspects: z.array(z.string().min(1)).min(1),
@@ -27,9 +46,34 @@ const h3ExecutionRouteYamlSchema = z
     max_videos: z.number().int().nonnegative(),
     max_audios: z.number().int().nonnegative(),
     audio_requires_image_or_video: z.boolean(),
-    forbid_first_last_reference_mix: z.boolean()
+    forbid_first_last_reference_mix: z.boolean(),
+    /**
+     * Optional per-mode operation/input_mode/asset_binding.
+     * Modes absent from this map are unsupported (H3-C007).
+     * last-frame must not be declared on adapters that cannot execute it.
+     * Partial object (not z.record on enum) so omitted modes stay unsupported.
+     */
+    modes: z
+      .object({
+        "text-to-video": h3RouteModeBindingYamlSchema.optional(),
+        "first-frame": h3RouteModeBindingYamlSchema.optional(),
+        "first-last": h3RouteModeBindingYamlSchema.optional(),
+        "last-frame": h3RouteModeBindingYamlSchema.optional(),
+        reference: h3RouteModeBindingYamlSchema.optional()
+      })
+      .strict()
+      .optional()
   })
-  .strict();
+  .strict()
+  .superRefine((route, context) => {
+    if (route.modes && !route.provider_model) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "h3_execution_route.modes requires provider_model mapping",
+        path: ["provider_model"]
+      });
+    }
+  });
 
 const constraintSchema = z.object({
   checks: z
@@ -106,8 +150,18 @@ export async function loadH3ExecutionRouteProfile(
 function mapH3ExecutionRouteProfile(
   route: NonNullable<ConstraintFile["h3_execution_route"]>
 ): H3ExecutionRouteProfile {
+  let modes: H3ExecutionRouteProfile["modes"];
+  if (route.modes) {
+    const mapped: Partial<Record<H3Mode, H3RouteModeBinding>> = {};
+    for (const [mode, binding] of Object.entries(route.modes)) {
+      if (binding) mapped[mode as H3Mode] = binding;
+    }
+    modes = mapped;
+  }
   return {
     model: route.model,
+    provider_model: route.provider_model,
+    min_cli_version: route.min_cli_version,
     durations: route.durations,
     qualities: route.qualities,
     aspects: route.aspects,
@@ -115,7 +169,8 @@ function mapH3ExecutionRouteProfile(
     maxVideos: route.max_videos,
     maxAudios: route.max_audios,
     audioRequiresImageOrVideo: route.audio_requires_image_or_video,
-    forbidFirstLastReferenceMix: route.forbid_first_last_reference_mix
+    forbidFirstLastReferenceMix: route.forbid_first_last_reference_mix,
+    modes
   };
 }
 
@@ -126,7 +181,7 @@ function validateInputMode(
 ): Issue[] {
   const inputMode = generationRequestMode(request);
   if (!inputMode || !contracts) return [];
-  const contract = contracts[inputMode];
+  const contract = contracts[inputMode as keyof typeof contracts];
   if (!contract) {
     return [
       {

@@ -62,6 +62,7 @@ import type {
   FinalizeCompletedProjectResult,
   FinalizeTestHooks
 } from "./finalizeTypes.js";
+import { revalidatePersonConsistencyOnFinalize } from "../qa/personConsistency/index.js";
 
 /** Local alias kept for the many call sites that still use the historical name. */
 const isWithin = isWithinPath;
@@ -335,6 +336,22 @@ export async function finalizeCompletedProject(
     message: "final.mp4 no longer matches the Gate 3 approved output",
     path: canonicalOutputPath
   });
+
+  // Person-consistency QA (optional): revalidate binding + report after final.mp4 identity check.
+  const personQaFinalize = await revalidatePersonConsistencyOnFinalize({
+    project: options.project,
+    runDir,
+    finalOutputSha256: finalOutputDigest
+  });
+  if (!personQaFinalize.ok) {
+    return {
+      ...empty,
+      ok: false,
+      deletedFiles: 0,
+      deletedBytes: 0,
+      issues: personQaFinalize.issues
+    };
+  }
 
   const cleanupRoots = [
     stateDir,

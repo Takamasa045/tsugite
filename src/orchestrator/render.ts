@@ -16,6 +16,15 @@ import {
   notifySikumiStateChange,
   projectRootFromStateDir
 } from "../integrations/sikumiOutbox.js";
+import {
+  buildPersonQaApprovalBinding,
+  inspectPersonConsistencyForGate,
+  personConsistencyContactSheetRelativePath,
+  personConsistencyReportRelativePath,
+  personConsistencyRequiredForStage,
+  type PersonQaApprovalBindingV1,
+  type PersonQaHumanDecisionRecord
+} from "../qa/personConsistency/index.js";
 
 export type RenderResult = {
   outputPath: string;
@@ -151,27 +160,80 @@ export async function renderAssembledMedia(
 
 export async function inspectGate3RunForApproval(
   project: Project,
-  stateDir: string
-): Promise<Result<{ approvalDigest: string }>> {
+  stateDir: string,
+  personQaDecision?: PersonQaHumanDecisionRecord
+): Promise<Result<{ approvalDigest: string; personQaApprovalBinding?: PersonQaApprovalBindingV1 }>> {
   const inspected = await inspectAwaitingGate3Artifacts(project, stateDir, true);
   if (!inspected.ok) return { ok: false, issues: inspected.issues };
   const runId = project.run_id ?? project.slug;
+  const runDir = join(stateDir, runId);
+  const finalPath = join(runDir, "final.mp4");
+  let outputDigest: string;
   try {
-    return {
-      ok: true,
-      issues: [],
-      approvalDigest: await sha256File(join(stateDir, runId, "final.mp4"))
-    };
+    outputDigest = await sha256File(finalPath);
   } catch (error) {
     return {
       ok: false,
       issues: [{
         code: "render.output_hash_failed",
         message: error instanceof Error ? error.message : String(error),
-        path: join(stateDir, runId, "final.mp4")
+        path: finalPath
       }]
     };
   }
+
+  // Gate 3 state/launcher/finalize identity is always sha256(final.mp4).
+  // Person QA (when enabled) is a fail-closed prerequisite + secondary binding artifact.
+  if (!personConsistencyRequiredForStage(project, "gate_3")) {
+    return { ok: true, issues: [], approvalDigest: outputDigest };
+  }
+
+  const reportRelativePath = personConsistencyReportRelativePath("gate_3");
+  const contactSheetRelativePath = personConsistencyContactSheetRelativePath("gate_3");
+  const personQa = await inspectPersonConsistencyForGate({
+    project,
+    stage: "gate_3",
+    runDir,
+    reportRelativePath,
+    contactSheetRelativePath,
+    requireHumanDecision: Boolean(personQaDecision),
+    humanDecision: personQaDecision
+  });
+  if (!personQa.ok) return { ok: false, issues: personQa.issues };
+  if (!personQa.report || !personQa.report_sha256) {
+    return {
+      ok: false,
+      issues: [{
+        code: "person_qa.report_missing",
+        message: "person consistency report is required for Gate 3 when quality.person_consistency is enabled",
+        path: reportRelativePath
+      }]
+    };
+  }
+
+  if (personQaDecision) {
+    const personQaApprovalBinding = buildPersonQaApprovalBinding({
+      stage: "gate_3",
+      finalOutputSha256: outputDigest,
+      reportRelativePath,
+      reportSha256: personQa.report_sha256,
+      reportStatus: personQa.report.status,
+      contactSheetRelativePath: personQa.binding?.contact_sheet_relative_path,
+      contactSheetSha256: personQa.binding?.contact_sheet_sha256,
+      humanDecision: personQaDecision,
+      technicalQc: { output_path: finalPath, final_output_sha256: outputDigest },
+      baseApprovalPayload: { final_output_sha256: outputDigest }
+    });
+    return {
+      ok: true,
+      issues: [],
+      approvalDigest: outputDigest,
+      personQaApprovalBinding
+    };
+  }
+
+  // Preview path (no human decision yet): still bind report presence, keep output identity.
+  return { ok: true, issues: [], approvalDigest: outputDigest };
 }
 
 export async function sha256File(path: string): Promise<string> {

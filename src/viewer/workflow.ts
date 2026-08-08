@@ -88,6 +88,9 @@ export type ViewerArtifactSnapshot = {
   reviewHref?: string;
   gate2Qc?: ViewerGate2QcEvidence;
   gate3Qc?: ViewerGate3QcEvidence;
+  /** Optional person-consistency evidence for Gate detail (Phase B data contract). */
+  personConsistencyGate2?: import("../qa/personConsistency/viewerModel.js").ViewerPersonConsistencyEvidence;
+  personConsistencyGate3?: import("../qa/personConsistency/viewerModel.js").ViewerPersonConsistencyEvidence;
   runLog?: ViewerRunLogEvidence;
   previews?: ViewerMediaPreview[];
 };

@@ -28,10 +28,13 @@ checks:
     optional: true
     message: seed must be less than or equal to 2147483647
 
-# Machine-readable H3 execution route for MiniMax H3 via this adapter.
-# Core validates PV-E001..E008 only after loading this block — no core defaults.
+# Machine-readable H3 execution route for MiniMax H3 via PixVerse CLI transport.
+# last-frame is intentionally omitted — H3-C007 fail-closed (no silent fallback).
+# PV-E001..E008 codes are validated only after this block is loaded.
 h3_execution_route:
   model: minimax-h3
+  # PixVerse CLI model id for MiniMax H3 (not MiniMax-H3 provider casing).
+  provider_model: minimax-h3
   durations: [3, 5, 10]
   qualities: ["768p", "1440p"]
   aspects: ["16:9", "9:16"]
@@ -40,3 +43,20 @@ h3_execution_route:
   max_audios: 3
   audio_requires_image_or_video: true
   forbid_first_last_reference_mix: true
+  modes:
+    text-to-video:
+      operation: video
+      input_mode: text-to-video
+      asset_binding: none
+    first-frame:
+      operation: video
+      input_mode: image-to-video
+      asset_binding: first_frame
+    first-last:
+      operation: transition
+      input_mode: transition
+      asset_binding: first_last_as_input_images
+    reference:
+      operation: reference
+      input_mode: reference
+      asset_binding: reference_lists

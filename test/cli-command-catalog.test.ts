@@ -61,7 +61,15 @@ const expectedOptions = {
   review: ["--config", "--output", "--state-dir", "--open"],
   "review-preview": ["--config", "--actor", "--shot", "--output", "--state-dir"],
   run: ["--config", "--dry-run", "--actor", "--state-dir"],
-  gate: ["--config", "--actor", "--gate", "--decision", "--state-dir"],
+  gate: [
+    "--config",
+    "--actor",
+    "--gate",
+    "--decision",
+    "--person-qa-decision",
+    "--person-qa-reason",
+    "--state-dir"
+  ],
   render: ["--config", "--actor", "--state-dir"]
 } as const;
 

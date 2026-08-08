@@ -111,6 +111,16 @@ const OPTIONS = {
   shot: defineOption("--shot", "Storyboard shot identifier to preview locally.", "<shot-id>"),
   dryRun: defineOption("--dry-run", "Plan the run without executing adapters or writing state."),
   decision: defineOption("--decision", "Decision allowed by the selected gate.", "<decision>"),
+  personQaDecision: defineOption(
+    "--person-qa-decision",
+    "Person-consistency QA decision: accept, revise, or accept-not-evaluable (required when quality.person_consistency is enabled).",
+    "<decision>"
+  ),
+  personQaReason: defineOption(
+    "--person-qa-reason",
+    "Non-empty human reason for the person-consistency QA decision.",
+    "<text>"
+  ),
   service: defineOption(
     "--service",
     "Agent service id from the public Remote MCP registry.",
@@ -352,10 +362,18 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
   defineCommand({
     name: "gate",
     summary: "Record a human approval, revision, or abort decision.",
-    usage: "node bin/pipeline gate --config <project.yaml> --actor coordinator --gate <gate-id> --decision <decision> [--state-dir <directory>] [--json]",
+    usage: "node bin/pipeline gate --config <project.yaml> --actor coordinator --gate <gate-id> --decision <decision> [--person-qa-decision <decision> --person-qa-reason <text>] [--state-dir <directory>] [--json]",
     requiresConfig: true,
     safety: "approval-gated",
-    options: [OPTIONS.config, OPTIONS.actor, OPTIONS.gate, OPTIONS.decision, OPTIONS.stateDir]
+    options: [
+      OPTIONS.config,
+      OPTIONS.actor,
+      OPTIONS.gate,
+      OPTIONS.decision,
+      OPTIONS.personQaDecision,
+      OPTIONS.personQaReason,
+      OPTIONS.stateDir
+    ]
   }),
   defineCommand({
     name: "render",

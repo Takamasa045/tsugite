@@ -35,6 +35,14 @@ import {
   projectRootFromStateDir
 } from "../integrations/sikumiOutbox.js";
 import {
+  buildGateApprovalWithPersonQa,
+  inspectPersonConsistencyForGate,
+  personConsistencyRequiredForStage,
+  personConsistencyReportRelativePath,
+  personConsistencyContactSheetRelativePath,
+  type PersonQaHumanDecisionRecord
+} from "../qa/personConsistency/index.js";
+import {
   applyH3ExecutionRouteProfile,
   compileProjectH3,
   enrichH3CompilationsForProject,
@@ -462,6 +470,11 @@ async function evaluateGate2AutoPass(input: {
   if (input.project.gates?.gate_2?.auto_pass !== GATE_2_AUTO_PASS_POLICY) {
     return { passed: false, reason: "not_configured" };
   }
+  // Semantic person-consistency QA requires a human decision; never auto-pass.
+  if (personConsistencyRequiredForStage(input.project, "gate_2")
+    || input.project.quality?.person_consistency?.enabled) {
+    return { passed: false, reason: "semantic_qa_enabled" };
+  }
   if (input.credits !== 0) {
     return { passed: false, reason: `credits: ${input.credits}` };
   }
@@ -494,7 +507,8 @@ export async function inspectGate2RunForApproval(
   adapter?: AdapterDefinition,
   compilation?: EditorialCompilation | ApprovedCompilation,
   audioAdapter?: AdapterDefinition,
-  promptGuides?: H3PromptGuideSource[]
+  promptGuides?: H3PromptGuideSource[],
+  personQaDecision?: PersonQaHumanDecisionRecord
 ): Promise<Result<ResumeMetrics>> {
   const runId = project.run_id ?? project.slug;
   const runDir = join(stateDir, runId);
@@ -525,6 +539,7 @@ export async function inspectGate2RunForApproval(
         adapterName: adapter?.name ?? project.generation?.adapter
       });
       h3Compilations = routed.compilations ?? h3Compilations;
+      if (routed.project) h3Project = routed.project;
       if (!routed.ok) {
         return { ok: false, issues: routed.issues };
       }
@@ -549,6 +564,9 @@ export async function inspectGate2RunForApproval(
     manifestPath: join(runDir, "manifest.json"),
     qcReportPath: join(runDir, "gate2-qc.json"),
     runLogPath: join(runDir, "run-log.md"),
+    project,
+    runDir,
+    ...(personQaDecision ? { personQaDecision } : {}),
     ...(compilation ? {
       edlPath: join(
         runDir,
@@ -667,6 +685,7 @@ async function assembleGeneratedMediaRun(
       adapterName: adapter.name
     });
     h3Compilations = routed.compilations ?? h3Compilations;
+    if (routed.project) project = routed.project;
     if (!routed.ok) {
       return { ok: false, issues: routed.issues };
     }
@@ -972,6 +991,7 @@ async function assembleGeneratedMediaRun(
 
 function hasFirstClassGenerationAssets(request: {
   first_frame?: string;
+  last_frame?: string;
   reference_images?: string[];
   input_images?: string[];
   input_video?: string;
@@ -979,6 +999,7 @@ function hasFirstClassGenerationAssets(request: {
   input_audios?: string[];
 }): boolean {
   return Boolean(request.first_frame)
+    || Boolean(request.last_frame)
     || Boolean(request.input_video)
     || (request.reference_images?.length ?? 0) > 0
     || (request.input_images?.length ?? 0) > 0
@@ -1251,6 +1272,10 @@ async function inspectAwaitingGate2Artifacts(input: {
   edlKind?: "editorial" | "composition";
   edlDigest?: string;
   approvedManifest?: Manifest;
+  /** When set, person-consistency policy can fail-close Gate 2 inspection. */
+  project?: Project;
+  runDir?: string;
+  personQaDecision?: PersonQaHumanDecisionRecord;
 }): Promise<Result<ResumeMetrics>> {
   if (!(await isFile(input.manifestPath))) {
     return {
@@ -1473,12 +1498,66 @@ async function inspectAwaitingGate2Artifacts(input: {
         gate2_qc: freshQcReport
       };
 
+  // Person-consistency semantic QA (optional): fail closed when policy requires Gate 2.
+  let approvalDigest = digest(approvalPayload);
+  if (input.project && input.runDir && personConsistencyRequiredForStage(input.project, "gate_2")) {
+    const reportRelativePath = personConsistencyReportRelativePath("gate_2");
+    const contactSheetRelativePath = personConsistencyContactSheetRelativePath("gate_2");
+    const personQa = await inspectPersonConsistencyForGate({
+      project: input.project,
+      stage: "gate_2",
+      runDir: input.runDir,
+      reportRelativePath,
+      contactSheetRelativePath,
+      requireHumanDecision: false
+    });
+    if (!personQa.ok) return { ok: false, issues: personQa.issues };
+    if (!personQa.report || !personQa.report_sha256) {
+      return {
+        ok: false,
+        issues: [{
+          code: "person_qa.report_missing",
+          message: "person consistency report is required for Gate 2 when quality.person_consistency is enabled",
+          path: reportRelativePath
+        }]
+      };
+    }
+
+    if (input.personQaDecision) {
+      const decided = await inspectPersonConsistencyForGate({
+        project: input.project,
+        stage: "gate_2",
+        runDir: input.runDir,
+        reportRelativePath,
+        contactSheetRelativePath,
+        requireHumanDecision: true,
+        humanDecision: input.personQaDecision
+      });
+      if (!decided.ok) return { ok: false, issues: decided.issues };
+      const withPerson = buildGateApprovalWithPersonQa({
+        baseApprovalPayload: approvalPayload,
+        technicalQc: freshQcReport,
+        reportSha256: personQa.report_sha256,
+        reportStatus: personQa.report.status,
+        stage: "gate_2",
+        humanDecision: input.personQaDecision
+      });
+      approvalDigest = withPerson.approvalDigest;
+    } else {
+      // Preview digest binds report hash; human decision is still required for coordinator approve.
+      approvalDigest = digest({
+        ...approvalPayload,
+        person_consistency_report_sha256: personQa.report_sha256
+      });
+    }
+  }
+
   return {
     ok: true,
     issues: [],
     assetCount: assetReferences.length,
     actualCredits: runLog.log.actualCredits,
-    approvalDigest: digest(approvalPayload)
+    approvalDigest
   };
 }
 

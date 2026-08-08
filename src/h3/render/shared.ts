@@ -162,17 +162,53 @@ export function renderIntegratedDescription(ir: H3CreativeIr): string {
   return ir.shots.map((shot, index) => renderShotLine(shot, index, ir)).join("\n\n");
 }
 
+/**
+ * Official H3 picture alignment prose (FL2VA / L2VA).
+ * End mark uses target.duration with two decimal places; shot index is 1-based.
+ */
+export function formatAlignmentSeconds(durationSeconds: number): string {
+  return durationSeconds.toFixed(2);
+}
+
 export function renderFirstFrameAlignment(ir: H3CreativeIr, labels: H3LabelMap): string | undefined {
-  if (ir.target.mode !== "first-frame" && ir.target.mode !== "first-last") {
-    return undefined;
+  if (ir.target.mode === "first-frame") {
+    const first = ir.assets.find((asset) => asset.role === "first_frame");
+    if (!first) return undefined;
+    const picture = labels.assets[first.id]?.h3 ?? "<Picture 1>";
+    return [
+      "For the target video, at 0.00 seconds into the target video,",
+      `${picture} (from [Shot 1]) is fully referenced.`
+    ].join("\n");
   }
-  const first = ir.assets.find((asset) => asset.role === "first_frame");
-  if (!first) return undefined;
-  const picture = labels.assets[first.id]?.h3 ?? "<Picture 1>";
-  return [
-    "For the target video, at 0.00 seconds into the target video,",
-    `${picture} (from [Shot 1]) is fully referenced.`
-  ].join("\n");
+
+  if (ir.target.mode === "first-last") {
+    const first = ir.assets.find((asset) => asset.role === "first_frame");
+    const last = ir.assets.find((asset) => asset.role === "last_frame");
+    if (!first || !last) return undefined;
+    const firstPicture = labels.assets[first.id]?.h3 ?? "<Picture 1>";
+    const lastPicture = labels.assets[last.id]?.h3 ?? "<Picture 2>";
+    const lastShot = ir.shots.length;
+    const endMark = formatAlignmentSeconds(ir.target.duration);
+    return [
+      "How the reference pictures align with the target video —",
+      `${firstPicture} (from [Shot 1]) aligns with the 0.00-second mark of the target video.`,
+      `${lastPicture} (from [Shot ${lastShot}]) aligns with the ${endMark}-second mark of the target video.`
+    ].join(" ");
+  }
+
+  if (ir.target.mode === "last-frame") {
+    const last = ir.assets.find((asset) => asset.role === "last_frame");
+    if (!last) return undefined;
+    const picture = labels.assets[last.id]?.h3 ?? "<Picture 1>";
+    const lastShot = ir.shots.length;
+    const endMark = formatAlignmentSeconds(ir.target.duration);
+    return [
+      "How the reference pictures align with the target video —",
+      `${picture} (from [Shot ${lastShot}]) aligns with the ${endMark}-second mark of the target video.`
+    ].join(" ");
+  }
+
+  return undefined;
 }
 
 export function joinSections(order: readonly string[], sections: Record<string, string>): string {

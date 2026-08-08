@@ -43,6 +43,12 @@ import { renderReviewPreview } from "./orchestrator/reviewPreview.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
+  parsePersonQaHumanDecision,
+  personConsistencyRequiredForStage,
+  writePersonQaApprovalBinding,
+  type PersonQaHumanDecisionRecord
+} from "./qa/personConsistency/index.js";
+import {
   notifySikumiRunCompleted,
   notifySikumiStateChange,
   projectRootFromStateDir
@@ -143,6 +149,8 @@ type ParsedArgs = {
   paths: string[];
   expectedPlanDigest?: string;
   expectedApprovalDigest?: string;
+  personQaDecision?: string;
+  personQaReason?: string;
   service?: string;
   tool?: string;
   argumentsJson?: string;
@@ -1727,12 +1735,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "service" | "tool" | "argumentsJson">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson">
     > = {
       "--config": "config",
       "--actor": "actor",
       "--gate": "gate",
       "--decision": "decision",
+      "--person-qa-decision": "personQaDecision",
+      "--person-qa-reason": "personQaReason",
       "--state-dir": "stateDir",
       "--catalog": "catalog",
       "--model": "model",
@@ -2206,6 +2216,35 @@ async function recordGate(
 
   let gateApprovalDigest = reviewApprovalDigest;
 
+  const personQaStage = gate === "gate_2" ? "gate_2" as const : gate === "gate_3" ? "gate_3" as const : undefined;
+  let personQaDecision: PersonQaHumanDecisionRecord | undefined;
+  if (
+    decision === "approved"
+    && personQaStage
+    && personConsistencyRequiredForStage(project, personQaStage)
+  ) {
+    const parsedPersonQa = parsePersonQaHumanDecision({
+      decision: args.personQaDecision,
+      reason: args.personQaReason
+    });
+    if (!parsedPersonQa.ok) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: "person_qa.human_decision_required",
+            message:
+              "person consistency QA requires --person-qa-decision (accept|revise|accept-not-evaluable) and non-empty --person-qa-reason"
+          },
+          ...parsedPersonQa.issues
+        ],
+        state,
+        statePath: stateLocation.statePath
+      };
+    }
+    personQaDecision = parsedPersonQa.decision;
+  }
+
   if (decision === "approved" && gate === "gate_2") {
     let approvedCompilation;
     if (project.edit.editorial || project.edit.composition) {
@@ -2238,7 +2277,8 @@ async function recordGate(
       adapter,
       approvedCompilation,
       audioAdapter,
-      promptGuides
+      promptGuides,
+      personQaDecision
     );
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
@@ -2247,11 +2287,23 @@ async function recordGate(
   }
 
   if (decision === "approved" && gate === "gate_3") {
-    const inspected = await inspectGate3RunForApproval(project, existing.stateDir);
+    const inspected = await inspectGate3RunForApproval(project, existing.stateDir, personQaDecision);
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
     gateApprovalDigest = inspected.approvalDigest;
+    // Persist person-QA binding (report + decision + reason digest) for finalize revalidation.
+    // Gate 3 state.approved_input_digest remains sha256(final.mp4) for launcher compatibility.
+    if (inspected.personQaApprovalBinding) {
+      const runId = project.run_id ?? project.slug;
+      const written = await writePersonQaApprovalBinding({
+        runDir: join(existing.stateDir, runId),
+        binding: inspected.personQaApprovalBinding
+      });
+      if (!written.ok) {
+        return { ok: false, issues: written.issues, state, statePath: stateLocation.statePath };
+      }
+    }
   }
 
   if (

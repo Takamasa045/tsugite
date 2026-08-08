@@ -11,7 +11,11 @@ export { validateH3Format } from "./h3Format.js";
 export {
   validateH3AdapterRoute,
   H3_ROUTE_MODEL_MISMATCH_CODE,
-  type H3ExecutionRouteProfile
+  H3_ROUTE_UNSUPPORTED_MODE_CODE,
+  H3_ASSET_BINDING_MISMATCH_CODE,
+  H3_PROVIDER_MODEL_MAPPING_MISSING_CODE,
+  type H3ExecutionRouteProfile,
+  type H3RouteModeBinding
 } from "./adapterRoute.js";
 export { validateH3Warnings } from "./warnings.js";
 export type { H3Issue, H3IssueSeverity, H3ValidationResult } from "./types.js";

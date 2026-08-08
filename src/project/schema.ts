@@ -39,7 +39,9 @@ const generationModeSchema = z.union([
   z.literal("text-to-video"),
   z.literal("image-to-video"),
   z.literal("transition"),
-  z.literal("reference")
+  z.literal("reference"),
+  z.literal("last-frame-to-video"),
+  z.literal("first-last-frame-to-video")
 ]);
 export const generationOperationSchema = z.enum([
   "video",
@@ -139,6 +141,7 @@ const generationRequestSchema = z
     mode: generationModeSchema.optional(),
     input_mode: generationModeSchema.optional(),
     first_frame: z.string().min(1).optional(),
+    last_frame: z.string().min(1).optional(),
     reference_images: z.array(z.string().min(1)).min(1).optional(),
     input_images: z.array(z.string().min(1)).min(1).optional(),
     input_video: z.string().min(1).optional(),
@@ -182,6 +185,7 @@ const generationRequestSchema = z
       context.addIssue({ code: z.ZodIssueCode.custom, message: "template requires params.template_id", path: ["params", "template_id"] });
     }
     const imageCount = (request.first_frame ? 1 : 0)
+      + (request.last_frame ? 1 : 0)
       + (request.reference_images?.length ?? 0)
       + (request.input_images?.length ?? 0)
       + (typeof request.params.image === "string" ? 1 : 0);
@@ -269,6 +273,39 @@ const gatePolicySchema = z.object({
 });
 
 /**
+ * Optional person-consistency semantic QA policy (Phase B).
+ * Disabled by default. When enabled, Gate 2 auto-pass is forbidden.
+ */
+const personConsistencyPolicySchema = z
+  .object({
+    enabled: z.boolean(),
+    adapter: z.string().min(1),
+    fallback: z.literal("fail"),
+    stages: z.array(z.enum(["gate_2", "gate_3"])).min(1),
+    evidence: z
+      .object({
+        sampling: z.literal("shot-boundaries-and-uniform"),
+        frames_per_shot: z.number().int().min(1).max(12),
+        retain_face_embeddings: z.literal(false)
+      })
+      .strict(),
+    external: z
+      .object({
+        allowed: z.boolean().default(false)
+      })
+      .strict()
+      .default({ allowed: false })
+  })
+  .strict();
+
+const qualityPolicySchema = z
+  .object({
+    person_consistency: personConsistencyPolicySchema.optional()
+  })
+  .strict()
+  .optional();
+
+/**
  * Optional sikumi Live Outbox observation (default OFF).
  * When enabled, pipeline lifecycle writes JSON under `<project>/.sikumi/events/`.
  * sikumi absence must never break tsugite (fail-soft / no hard dependency).
@@ -318,7 +355,9 @@ export const projectSchema = z
       })
       .optional(),
     composition: compositionSchema.optional(),
-    gates: gatePolicySchema.optional()
+    gates: gatePolicySchema.optional(),
+    /** Optional quality / semantic QA policies. Absent keeps legacy behavior. */
+    quality: qualityPolicySchema
   })
   .passthrough()
   .superRefine((project, context) => {
@@ -395,6 +434,21 @@ export const projectSchema = z
         path: ["gates", "gate_2", "auto_pass"]
       });
     }
+    if (project.gates?.gate_2?.auto_pass && project.quality?.person_consistency?.enabled) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "gates.gate_2.auto_pass cannot be combined with quality.person_consistency.enabled (semantic_qa_enabled)",
+        path: ["gates", "gate_2", "auto_pass"]
+      });
+    }
+    if (
+      project.quality?.person_consistency?.enabled
+      && project.quality.person_consistency.external.allowed === true
+    ) {
+      // External adapters are intentionally unconnected in Phase B; allow schema
+      // declaration for future payload-preview contracts but keep default false.
+    }
     if (project.composition && project.generation) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -430,7 +484,14 @@ export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][numbe
 
 export function generationRequestMode(
   request: GenerationRequest
-): "text-to-video" | "image-to-video" | "transition" | "reference" | undefined {
+):
+  | "text-to-video"
+  | "image-to-video"
+  | "transition"
+  | "reference"
+  | "last-frame-to-video"
+  | "first-last-frame-to-video"
+  | undefined {
   return request.mode ?? request.input_mode;
 }
 
@@ -456,12 +517,17 @@ export function generationRequestCapability(request: GenerationRequest): string 
     case "reference": return "video.reference-to-video";
     case "motion-control": return "video.motion-control";
     case "template": return "media.template";
-    default:
-      return `video.${generationRequestMode(request) ?? (
+    default: {
+      const mode = generationRequestMode(request);
+      if (mode) return `video.${mode}`;
+      if (request.last_frame && !request.first_frame) return "video.last-frame-to-video";
+      if (request.first_frame && request.last_frame) return "video.first-last-frame-to-video";
+      return `video.${(
         request.first_frame || request.input_images?.length || request.reference_images?.length || typeof request.params.image === "string"
           ? "image-to-video"
           : "text-to-video"
       )}`;
+    }
   }
 }
 
