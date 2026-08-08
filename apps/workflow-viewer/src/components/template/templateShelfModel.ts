@@ -54,6 +54,11 @@ export interface LauncherTemplate {
   direction?: LauncherTemplateDirection
   promptGuideCatalog?: string
   promptGuides?: LauncherTemplatePromptGuide[]
+  /**
+   * AI が初案を出してよい項目（任意）。
+   * 必須不足として止めず、正本素材と選択設定から提案する。
+   */
+  aiCanPropose?: string[]
   variants: Array<{
     id: string
     label: string
@@ -284,6 +289,12 @@ export function isLauncherTemplate(input: unknown): input is LauncherTemplate {
     && (!('promptGuides' in input)
       || input.promptGuides === undefined
       || (Array.isArray(input.promptGuides) && input.promptGuides.every(isTemplatePromptGuide)))
+    && (!('aiCanPropose' in input)
+      || input.aiCanPropose === undefined
+      || (Array.isArray(input.aiCanPropose)
+        && input.aiCanPropose.length >= 1
+        && input.aiCanPropose.length <= 12
+        && input.aiCanPropose.every((item) => typeof item === 'string' && item.trim() !== '')))
     && 'variants' in input && Array.isArray(input.variants) && input.variants.every(isTemplateVariant)
     && 'tags' in input && isStringArray(input.tags)
     && 'audio' in input && typeof input.audio === 'string'
@@ -418,6 +429,34 @@ export function resolveRequiredInputDetails(
   })
 }
 
+/**
+ * AI 委任候補の防御的正規化。
+ * - trim → 空除去 → 出現順で一意化（React key / 重複指示対策）
+ * - 現在の選択で必須になった label と一致する候補は必須優先で除外（矛盾文を出さない）
+ * schema が fail-closed でも、直呼び・緩いランタイムデータ向けの二重防御。
+ */
+export function resolveAiCanPropose(
+  template: Pick<LauncherTemplate, 'aiCanPropose' | 'requiredInputDetails' | 'variants'>,
+  choices: Readonly<Record<string, string>> = {},
+): string[] {
+  const requiredLabels = new Set(
+    resolveRequiredInputDetails(template, choices)
+      .filter((input) => input.required !== false)
+      .map((input) => input.label.trim())
+      .filter((label) => label.length > 0),
+  )
+  const seen = new Set<string>()
+  const resolved: string[] = []
+  for (const raw of template.aiCanPropose ?? []) {
+    const item = raw.trim()
+    if (!item || seen.has(item)) continue
+    seen.add(item)
+    if (requiredLabels.has(item)) continue
+    resolved.push(item)
+  }
+  return resolved
+}
+
 export function listDirectionLines(
   direction: LauncherTemplateDirection | undefined,
 ): Array<{ label: string; text: string }> {
@@ -545,7 +584,7 @@ export function requiredMaterialNotices(
   if (inputs.some((input) => input.type === 'data')) {
     notices.push('価格・仕様・条件・実績などの事実は、共有された正本と出典だけを使います。')
   }
-  notices.push('未提供の素材や事実を推測・生成で補わないでください。')
+  notices.push('未提供の事実・実績・権利情報・正本素材を推測・創作しないでください。')
   return notices
 }
 
@@ -562,6 +601,7 @@ export function buildTemplateProductionPrompt(
     | 'variants'
     | 'requiredInputDetails'
     | 'direction'
+    | 'aiCanPropose'
   >,
   choices: Readonly<Record<string, string>>,
   expression: TemplateProductionExpressionInput = {
@@ -572,6 +612,8 @@ export function buildTemplateProductionPrompt(
   const { required } = partitionRequiredInputs(
     resolveRequiredInputDetails(template, choices),
   )
+  // 必須と一致する AI 候補は除外し、「質問して待つ」と「初案提示」の矛盾文を避ける。
+  const aiCanPropose = resolveAiCanPropose(template, choices)
   const lines: string[] = [
     '# 制作依頼',
     '',
@@ -612,6 +654,18 @@ export function buildTemplateProductionPrompt(
     lines.push(`- ${notice}`)
   }
 
+  if (aiCanPropose.length > 0) {
+    lines.push(
+      '',
+      '## AIに任せること',
+      '',
+      '次の項目は必須不足として止めず、正本素材と今回の設定から初案を提示してください。提案であることを明示してください。',
+    )
+    for (const item of aiCanPropose) {
+      lines.push(`- ${item}`)
+    }
+  }
+
   const directionLines = resolveDirectionLines(template, choices)
   if (directionLines.length > 0) {
     lines.push('', '## 制作条件')
@@ -634,8 +688,9 @@ export function buildTemplateProductionPrompt(
     '## 最初に行うこと',
     '',
     '1. 必須素材が揃っているか確認してください。',
-    '2. 不足している項目だけを質問し、回答を待ってください。',
-    '3. 素材が揃ったら、制作方針と進め方を短く提示してください。',
+    '2. 不足している必須項目だけを質問し、回答を待ってください。',
+    '3. AIに任せることや未指定の表現は不足扱いせず、質問前提にせず、正本素材と今回の設定から初案を提示してください。提案であることを明示し、事実・実績・権利情報・正本素材は創作しないでください。',
+    '4. 素材と前提が揃ったら、制作方針と進め方を短く提示してください。',
   )
 
   return `${lines.join('\n')}\n`

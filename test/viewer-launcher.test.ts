@@ -1156,6 +1156,258 @@ distribution: local-only
     });
   });
 
+  it("passes ai_can_propose as aiCanPropose, omits when absent, and rejects invalid values", async () => {
+    const fixture = await createFixture();
+    const validDir = join(fixture.templatesDir, "ai-propose-template");
+    const absentDir = join(fixture.templatesDir, "ai-propose-absent");
+    const emptyDir = join(fixture.templatesDir, "ai-propose-empty");
+    const tooManyDir = join(fixture.templatesDir, "ai-propose-too-many");
+    const blankDir = join(fixture.templatesDir, "ai-propose-blank");
+    const notArrayDir = join(fixture.templatesDir, "ai-propose-not-array");
+    for (const dir of [validDir, absentDir, emptyDir, tooManyDir, blankDir, notArrayDir]) {
+      await mkdir(dir);
+    }
+
+    const baseYaml = (id: string, name: string, extra = "") => `
+schema_version: 1
+kind: tsugite-template
+id: ${id}
+name: ${name}
+summary: ai_can_propose 契約確認
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+${extra}audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`;
+
+    await writeFile(join(validDir, "template.yaml"), baseYaml(
+      "ai-propose-template",
+      "AI委任あり",
+      `ai_can_propose:
+  - タイトル案
+  - CTA文言
+  - カット間のつなぎ
+`
+    ));
+    await writeFile(join(absentDir, "template.yaml"), baseYaml(
+      "ai-propose-absent",
+      "AI委任なし"
+    ));
+    await writeFile(join(emptyDir, "template.yaml"), baseYaml(
+      "ai-propose-empty",
+      "空配列",
+      "ai_can_propose: []\n"
+    ));
+    await writeFile(join(tooManyDir, "template.yaml"), baseYaml(
+      "ai-propose-too-many",
+      "13件",
+      `ai_can_propose:
+${Array.from({ length: 13 }, (_, index) => `  - 項目${index + 1}`).join("\n")}
+`
+    ));
+    await writeFile(join(blankDir, "template.yaml"), baseYaml(
+      "ai-propose-blank",
+      "空文字",
+      `ai_can_propose:
+  - "  "
+`
+    ));
+    await writeFile(join(notArrayDir, "template.yaml"), baseYaml(
+      "ai-propose-not-array",
+      "配列以外",
+      "ai_can_propose: タイトル案\n"
+    ));
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+    const byId = (id: string) => payload.templates.find((entry: { id: string }) => entry.id === id);
+
+    const valid = byId("ai-propose-template");
+    expect(valid.valid).toBe(true);
+    expect(valid.aiCanPropose).toEqual(["タイトル案", "CTA文言", "カット間のつなぎ"]);
+
+    const absent = byId("ai-propose-absent");
+    expect(absent.valid).toBe(true);
+    expect(absent.aiCanPropose).toBeUndefined();
+
+    for (const id of [
+      "ai-propose-empty",
+      "ai-propose-too-many",
+      "ai-propose-blank",
+      "ai-propose-not-array"
+    ]) {
+      expect(byId(id)).toMatchObject({
+        id,
+        valid: false,
+        issue: { code: "template_metadata.invalid" }
+      });
+    }
+  });
+
+  it("rejects ai_can_propose duplicates and conflicts with always-required or required_inputs_add labels", async () => {
+    const fixture = await createFixture();
+    const okOptionalDir = join(fixture.templatesDir, "ai-propose-ok-optional");
+    const dupDir = join(fixture.templatesDir, "ai-propose-duplicate");
+    const trimDupDir = join(fixture.templatesDir, "ai-propose-trim-duplicate");
+    const baseReqDir = join(fixture.templatesDir, "ai-propose-base-required");
+    const addReqDir = join(fixture.templatesDir, "ai-propose-add-required");
+    for (const dir of [okOptionalDir, dupDir, trimDupDir, baseReqDir, addReqDir]) {
+      await mkdir(dir);
+    }
+
+    const baseYaml = (id: string, name: string, extra = "") => `
+schema_version: 1
+kind: tsugite-template
+id: ${id}
+name: ${name}
+summary: ai_can_propose 必須競合・重複の fail-closed
+category: 解説
+use_cases:
+  - 契約確認
+output:
+  duration:
+    mode: fixed
+    min_seconds: 30
+    max_seconds: 30
+    label: 30秒
+  aspect_ratios:
+    - "16:9"
+required_inputs:
+  - type: text
+    label: 台本
+    required: true
+  - type: text
+    label: タイトル案
+    required: false
+  - type: video
+    label: 実写素材
+    required: false
+variants:
+  - id: story
+    label: 構成
+    default_option: talk
+    options:
+      - id: demo
+        label: 実演
+        description: 実写が要る
+        required_inputs_add:
+          - 実写素材
+      - id: talk
+        label: 会話
+        description: 実写不要
+${extra}audio:
+  narration: optional
+  bgm: optional
+  silent_draft: true
+  notes: 音声は任意です。
+status: experimental
+distribution: local-only
+`;
+
+    // optional のみ一致: 任意提供 + 未指定時は AI 提案の正当用途 → valid
+    await writeFile(join(okOptionalDir, "template.yaml"), baseYaml(
+      "ai-propose-ok-optional",
+      "任意一致は許可",
+      `ai_can_propose:
+  - タイトル案
+  - CTA文言
+`
+    ));
+    await writeFile(join(dupDir, "template.yaml"), baseYaml(
+      "ai-propose-duplicate",
+      "重複",
+      `ai_can_propose:
+  - タイトル案
+  - CTA文言
+  - タイトル案
+`
+    ));
+    await writeFile(join(trimDupDir, "template.yaml"), baseYaml(
+      "ai-propose-trim-duplicate",
+      "trim後重複",
+      `ai_can_propose:
+  - "タイトル案"
+  - "  タイトル案  "
+`
+    ));
+    await writeFile(join(baseReqDir, "template.yaml"), baseYaml(
+      "ai-propose-base-required",
+      "base必須と競合",
+      `ai_can_propose:
+  - 台本
+  - CTA文言
+`
+    ));
+    await writeFile(join(addReqDir, "template.yaml"), baseYaml(
+      "ai-propose-add-required",
+      "required_inputs_addと競合",
+      `ai_can_propose:
+  - 実写素材
+  - CTA文言
+`
+    ));
+
+    const launcher = await launch({
+      projectsDir: fixture.projectsDir,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0
+    });
+    const payload = await fetch(`${launcher.url}/api/templates`).then((response) => response.json());
+    const byId = (id: string) => payload.templates.find((entry: { id: string }) => entry.id === id);
+
+    const ok = byId("ai-propose-ok-optional");
+    expect(ok.valid).toBe(true);
+    expect(ok.aiCanPropose).toEqual(["タイトル案", "CTA文言"]);
+
+    for (const id of [
+      "ai-propose-duplicate",
+      "ai-propose-trim-duplicate",
+      "ai-propose-base-required",
+      "ai-propose-add-required"
+    ]) {
+      const entry = byId(id);
+      expect(entry).toMatchObject({
+        id,
+        valid: false,
+        issue: { code: "template_metadata.invalid" }
+      });
+      expect(String(entry.issue?.message ?? entry.issue?.detail ?? "")).toMatch(
+        /ai_can_propose|duplicate|unique|required|conflict|競合|重複/i
+      );
+    }
+
+    const dup = byId("ai-propose-duplicate");
+    expect(String(dup.issue?.message ?? dup.issue?.detail ?? "")).toMatch(/タイトル案/);
+    const baseReq = byId("ai-propose-base-required");
+    expect(String(baseReq.issue?.message ?? baseReq.issue?.detail ?? "")).toMatch(/台本/);
+    const addReq = byId("ai-propose-add-required");
+    expect(String(addReq.issue?.message ?? addReq.issue?.detail ?? "")).toMatch(/実写素材/);
+  });
+
   it("passes option examples and documented prompt guides through API", async () => {
     const fixture = await createFixture();
     const templateDir = join(fixture.templatesDir, "examples-guide-template");

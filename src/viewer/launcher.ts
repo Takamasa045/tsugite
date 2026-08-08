@@ -183,6 +183,11 @@ export type LauncherTemplate = {
   promptGuideCatalog?: string;
   /** 参照 catalog の documented チェックリスト（読み取り専用要約）。 */
   promptGuides?: LauncherTemplatePromptGuide[];
+  /**
+   * AI が初案を出してよい項目（任意）。
+   * 必須不足として止めず、正本素材と選択設定から提案する。実行能力ではない。
+   */
+  aiCanPropose?: string[];
   variants: LauncherTemplateVariant[];
   tags: string[];
   audio: string;
@@ -504,6 +509,8 @@ const templateMetadataSchema = z.object({
   not_for: z.array(nonEmptyText).max(6).default([]),
   direction: templateDirectionSchema.optional(),
   prompt_guide_catalog: promptGuideCatalogIdSchema.optional(),
+  /** AI が初案提案してよい項目（任意・非空 1〜12）。未指定は後方互換。 */
+  ai_can_propose: z.array(nonEmptyText).min(1).max(12).optional(),
   variants: z.array(templateVariantSchema).max(8).default([]).superRefine((variants, context) => {
     const variantIds = new Set<string>();
     for (const [index, variant] of variants.entries()) {
@@ -538,6 +545,54 @@ const templateMetadataSchema = z.object({
             path: ["variants", variantIndex, "options", optionIndex, "required_inputs_add", addIndex]
           });
         }
+      }
+    }
+  }
+
+  // ai_can_propose: trim 後一意 + always-required / required_inputs_add との競合は fail-closed。
+  // optional 入力のみとの一致は「任意提供 + 未指定時は AI 提案」の正当用途なので拒否しない。
+  if (metadata.ai_can_propose) {
+    const seenAiPropose = new Set<string>();
+    for (const [index, item] of metadata.ai_can_propose.entries()) {
+      // nonEmptyText が trim 済み。同一文字列の再出現は重複。
+      if (seenAiPropose.has(item)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `ai_can_propose items must be unique after trim; duplicate: '${item}'`,
+          path: ["ai_can_propose", index]
+        });
+        continue;
+      }
+      seenAiPropose.add(item);
+    }
+
+    const alwaysRequiredLabels = new Set(
+      metadata.required_inputs
+        .filter((input) => input.required)
+        .map((input) => input.label)
+    );
+    const promotableLabels = new Set<string>();
+    for (const variant of metadata.variants) {
+      for (const option of variant.options) {
+        for (const label of option.required_inputs_add ?? []) {
+          promotableLabels.add(label);
+        }
+      }
+    }
+
+    for (const [index, item] of metadata.ai_can_propose.entries()) {
+      if (alwaysRequiredLabels.has(item)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `ai_can_propose item '${item}' conflicts with always-required required_inputs label`,
+          path: ["ai_can_propose", index]
+        });
+      } else if (promotableLabels.has(item)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `ai_can_propose item '${item}' conflicts with required_inputs_add label that can become required`,
+          path: ["ai_can_propose", index]
+        });
       }
     }
   }
@@ -2858,6 +2913,9 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
         ? { promptGuideCatalog: metadata.prompt_guide_catalog }
         : {}),
       ...(promptGuides.length > 0 ? { promptGuides } : {}),
+      ...(metadata.ai_can_propose && metadata.ai_can_propose.length > 0
+        ? { aiCanPropose: metadata.ai_can_propose }
+        : {}),
       variants: metadata.variants.map((variant) => ({
         id: variant.id,
         label: variant.label,
@@ -2886,13 +2944,23 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
       valid: true
     };
   } catch (error) {
-    const issue = error instanceof TemplateMetadataError
-      ? { code: error.code, message: error.message }
-      : {
-          code: "template_metadata.invalid",
-          message: "template.yamlの形式が正しくありません。必須項目と値を確認してください。"
-        };
-    return invalidTemplate(id, issue);
+    if (error instanceof TemplateMetadataError) {
+      return invalidTemplate(id, { code: error.code, message: error.message });
+    }
+    // Zod の最初の issue を載せ、重複・必須競合など原因を特定できるようにする。
+    if (error instanceof z.ZodError) {
+      const first = error.issues[0];
+      return invalidTemplate(id, {
+        code: "template_metadata.invalid",
+        message: first?.message
+          ? `template.yamlが無効です: ${first.message}`
+          : "template.yamlの形式が正しくありません。必須項目と値を確認してください。"
+      });
+    }
+    return invalidTemplate(id, {
+      code: "template_metadata.invalid",
+      message: "template.yamlの形式が正しくありません。必須項目と値を確認してください。"
+    });
   }
 }
 

@@ -139,11 +139,114 @@ describe('TemplateChecklist', () => {
       />,
     )
 
-    const materials = screen.getByRole('region', { name: 'コピー前に用意する必須素材' })
+    const materials = screen.getByRole('region', { name: '最低限渡すもの' })
     expect(materials).toBeVisible()
+    expect(within(materials).getByRole('heading', { name: '最低限渡すもの' })).toBeVisible()
     expect(within(materials).getByText('商品写真、利用画面、商品ロゴ')).toBeVisible()
     expect(within(materials).getByText(/画像を添付するか、参照できるファイルパス/)).toBeVisible()
     expect(within(materials).getByText(/ロゴの文字・形・配色・余白を変更しないでください/)).toBeVisible()
+  })
+
+  it('aiCanPropose があるとき主要画面で AIに任せられることを分離表示する', () => {
+    render(
+      <TemplateChecklist
+        template={{
+          ...template,
+          aiCanPropose: ['タイトル案', 'CTA文言'],
+        }}
+        choices={choices}
+      />,
+    )
+
+    const requiredRegion = screen.getByRole('region', { name: '最低限渡すもの' })
+    const aiRegion = screen.getByRole('region', { name: 'AIに任せられること' })
+    expect(requiredRegion).toBeVisible()
+    expect(aiRegion).toBeVisible()
+    // handoff と同等のベース枠・padding・レスポンシブを共有し、差分は modifier で持つ
+    expect(requiredRegion).toHaveClass('launcher-template-checklist-handoff')
+    expect(aiRegion).toHaveClass(
+      'launcher-template-checklist-handoff',
+      'launcher-template-checklist-ai-propose',
+    )
+    expect(within(aiRegion).getByRole('heading', { name: 'AIに任せられること' })).toBeVisible()
+    expect(within(aiRegion).getByText('タイトル案')).toBeVisible()
+    expect(within(aiRegion).getByText('CTA文言')).toBeVisible()
+    expect(within(requiredRegion).queryByText('タイトル案')).not.toBeInTheDocument()
+
+    const brief = screen.getByLabelText('制作依頼本文')
+    expect(brief.textContent).toContain('## AIに任せること')
+    expect(brief.textContent).toContain('タイトル案')
+    expect(within(aiRegion).getByRole('heading', { name: 'AIに任せられること' })).toBeVisible()
+    expect(screen.getByText(/目的・選択内容・必須素材・AIに任せること・制作条件/)).toBeVisible()
+  })
+
+  it('aiCanPropose が無いとき AIに任せられること の空セクションを出さない', () => {
+    render(<TemplateChecklist template={template} choices={choices} />)
+
+    expect(screen.queryByRole('region', { name: 'AIに任せられること' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'AIに任せられること' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('制作依頼本文').textContent).not.toContain('## AIに任せること')
+  })
+
+  it('aiCanPropose が空/未指定のときコピー範囲と閲覧専用注記に AI委任文言を出さない', () => {
+    const { unmount } = render(<TemplateChecklist template={template} choices={choices} />)
+
+    const copyScopeAbsent = document.querySelector('.launcher-template-checklist-copy-scope')
+    expect(copyScopeAbsent).not.toBeNull()
+    expect(copyScopeAbsent?.textContent).toMatch(/目的・選択内容・必須素材・制作条件/)
+    expect(copyScopeAbsent?.textContent).not.toMatch(/AIに任せること/)
+
+    const readonlyAbsent = document.querySelector('.launcher-readonly-note')
+    expect(readonlyAbsent).not.toBeNull()
+    expect(readonlyAbsent?.textContent).toMatch(/この画面では生成・実行・Gate更新をしません/)
+    expect(readonlyAbsent?.textContent).not.toMatch(/AIに任せることの項目は/)
+    unmount()
+
+    // 空配列も resolve 後 length 0 として扱い、未指定と同じ文言にする
+    render(
+      <TemplateChecklist
+        template={{
+          ...template,
+          aiCanPropose: [],
+        }}
+        choices={choices}
+      />,
+    )
+    const copyScopeEmpty = document.querySelector('.launcher-template-checklist-copy-scope')
+    expect(copyScopeEmpty?.textContent).toMatch(/目的・選択内容・必須素材・制作条件/)
+    expect(copyScopeEmpty?.textContent).not.toMatch(/AIに任せること/)
+    const readonlyEmpty = document.querySelector('.launcher-readonly-note')
+    expect(readonlyEmpty?.textContent).not.toMatch(/AIに任せることの項目は/)
+  })
+
+  it('aiCanPropose の trim 後重複は1件だけ表示し、現在必須 label は AI 節から除外する', () => {
+    render(
+      <TemplateChecklist
+        template={{
+          ...template,
+          aiCanPropose: [
+            '  タイトル案  ',
+            'タイトル案',
+            '記事本文と出典', // base required → AI から除外
+            'CTA文言',
+          ],
+        }}
+        choices={choices}
+      />,
+    )
+
+    const aiRegion = screen.getByRole('region', { name: 'AIに任せられること' })
+    expect(within(aiRegion).getAllByText('タイトル案')).toHaveLength(1)
+    expect(within(aiRegion).getByText('CTA文言')).toBeVisible()
+    expect(within(aiRegion).queryByText('記事本文と出典')).not.toBeInTheDocument()
+
+    const requiredRegion = screen.getByRole('region', { name: '最低限渡すもの' })
+    expect(within(requiredRegion).getByText('記事本文と出典')).toBeVisible()
+
+    const brief = screen.getByLabelText('制作依頼本文').textContent ?? ''
+    const aiBrief = brief.slice(brief.indexOf('## AIに任せること'), brief.indexOf('## 最初に行うこと'))
+    expect(aiBrief.match(/- タイトル案/g)).toHaveLength(1)
+    expect(aiBrief).not.toMatch(/^- 記事本文と出典$/m)
   })
 
   it('必須と任意の入力を振り分けて表示する', async () => {
@@ -240,9 +343,29 @@ describe('TemplateChecklist', () => {
     expect(copied).toMatch(/同僚同士/)
     expect(copied).toMatch(/画面デモ/)
     expect(copied).toMatch(/記事本文と出典/)
-    expect(copied).toMatch(/未提供の素材や事実を推測・生成で補わない/)
+    expect(copied).toMatch(/未提供の事実・実績・権利情報・正本素材を推測・創作しない/)
     expect(copied).not.toMatch(/参考リンク一覧|向かない用途|無言の商品イメージ映像/)
     expect(screen.getAllByText(/制作依頼をコピーしました/).length).toBeGreaterThan(0)
+  })
+
+  it('コピー範囲と閲覧専用説明に AI委任の扱いを含める', () => {
+    render(
+      <TemplateChecklist
+        template={{
+          ...template,
+          aiCanPropose: ['タイトル案'],
+        }}
+        choices={choices}
+      />,
+    )
+
+    expect(screen.getByText(/目的・選択内容・必須素材・AIに任せること・制作条件/)).toBeVisible()
+    expect(
+      screen.getByText((content) => (
+        content.includes('この画面では生成・実行・Gate更新をしません')
+        && content.includes('AIに任せること')
+      )),
+    ).toBeVisible()
   })
 
   it('標準 clipboard が使えない環境では選択コピーへフォールバックする', async () => {

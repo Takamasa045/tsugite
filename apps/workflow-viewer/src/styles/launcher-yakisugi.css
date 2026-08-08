@@ -332,7 +332,8 @@
 .launcher-project-card[data-unrefreshable="true"] .launcher-project-status { background: var(--launcher-urushi); }
 .launcher-project-card[data-selected="true"] { border-color: var(--launcher-urushi); box-shadow: inset 4px 0 var(--launcher-urushi), 0 8px 24px rgba(92, 47, 33, .13); }
 .launcher-project-card[data-busy="true"] { opacity: .66; }
-.launcher-direct-artifacts { margin-top: 24px; border-top: 1px solid rgba(75, 55, 32, .2); padding-top: 18px; }
+/* Gate外成果物は一覧の先頭に置き、通常案件リストより先に見えるようにする */
+.launcher-direct-artifacts { margin: 0 0 20px; border-bottom: 1px solid rgba(75, 55, 32, .2); padding-bottom: 18px; }
 .launcher-direct-artifacts-heading h3 { margin: 4px 0 12px; color: var(--launcher-sumi); font-family: "Hiragino Mincho ProN", "Yu Mincho", serif; font-size: 1rem; }
 .launcher-direct-artifact-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .launcher-direct-artifact-card { display: grid; gap: 8px; min-width: 0; border: 1px solid rgba(75, 55, 32, .2); border-radius: 1px 14px 1px 14px; padding: 16px; color: var(--launcher-sumi); background: rgba(255, 250, 240, .72); }
@@ -2134,6 +2135,9 @@
   background:
     linear-gradient(135deg, rgba(255, 250, 240, .98), rgba(244, 235, 216, .76));
   box-shadow: 0 8px 24px rgba(75, 55, 32, .06);
+}
+.launcher-template-checklist-handoff.launcher-template-checklist-ai-propose {
+  border-left-color: var(--launcher-brass);
 }
 .launcher-template-checklist-handoff-heading {
   display: grid;
