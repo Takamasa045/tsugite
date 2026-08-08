@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import {
   access,
+  lstat,
   mkdir,
   mkdtemp,
   readdir,
@@ -28,6 +29,7 @@ import {
   DEFAULT_LOCK_STALE_MS,
   exclusiveLock,
   GENERATION_JOB_TRANSITIONS,
+  GenerationJobAuditLog,
   GenerationJobError,
   GenerationJobMachine,
   GenerationJobStore,
@@ -663,35 +665,11 @@ describe("B. durable store crash/resume + append-only events", () => {
     await assertNoTempResidue(store.jobDir(healthy.job_id));
   });
 
-  it("create rolls back exclusive job.json when initial audit append fails (O_EXCL preserved)", async () => {
+  it("create rolls back only this job.json; preserves pre-existing audit evidence (O_EXCL preserved)", async () => {
     const root = await mkdtemp(join(tmpdir(), "gj-create-audit-"));
     const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
     const request = baseRequest();
-    const jobId = "create-audit-fail";
-    const dir = store.jobDir(jobId);
-    await mkdir(dir, { recursive: true });
-    // Make events.jsonl a directory so appendFile fails after exclusive job write.
-    await mkdir(join(dir, "events.jsonl"), { recursive: true });
-
-    await expect(
-      store.create({
-        job_id: jobId,
-        connection_id: request.connection_id,
-        model_id: request.model_id,
-        mode: request.mode,
-        request,
-        model_profile_digest: "a".repeat(64),
-        connection_capability_digest: "b".repeat(64),
-        pricing: knownPricing()
-      })
-    ).rejects.toThrow();
-
-    // Exclusive create rolled back — no durable job.json left.
-    expect(await pathExists(store.jobPath(jobId))).toBe(false);
-
-    // Clean the poison events path; a subsequent create must still get O_EXCL protection.
-    await rm(join(dir, "events.jsonl"), { recursive: true, force: true });
-    const created = await store.create({
+    const createInput = (jobId: string) => ({
       job_id: jobId,
       connection_id: request.connection_id,
       model_id: request.model_id,
@@ -701,17 +679,73 @@ describe("B. durable store crash/resume + append-only events", () => {
       connection_capability_digest: "b".repeat(64),
       pricing: knownPricing()
     });
-    expect(created.job_id).toBe(jobId);
+
+    // --- pre-existing corrupt events file: load fails; bytes/type must be preserved ---
+    const corruptId = "create-audit-corrupt";
+    const corruptDir = store.jobDir(corruptId);
+    await mkdir(corruptDir, { recursive: true });
+    const corruptEventsPath = join(corruptDir, "events.jsonl");
+    const seededCorrupt = '{"not":"an-audit-event"}\npartial-line';
+    await writeFile(corruptEventsPath, seededCorrupt, "utf8");
+    const beforeCorruptStat = await lstat(corruptEventsPath);
+
+    await expect(store.create(createInput(corruptId))).rejects.toThrow();
+    expect(await pathExists(store.jobPath(corruptId))).toBe(false);
+    expect(await readFile(corruptEventsPath, "utf8")).toBe(seededCorrupt);
+    const afterCorruptStat = await lstat(corruptEventsPath);
+    expect(afterCorruptStat.isFile()).toBe(true);
+    expect(afterCorruptStat.isDirectory()).toBe(false);
+    expect(afterCorruptStat.mode).toBe(beforeCorruptStat.mode);
+    expect(afterCorruptStat.size).toBe(beforeCorruptStat.size);
+
+    // --- pre-existing events path as directory: type/content must be preserved ---
+    const dirId = "create-audit-dir";
+    const dirJob = store.jobDir(dirId);
+    await mkdir(dirJob, { recursive: true });
+    const dirEventsPath = join(dirJob, "events.jsonl");
+    await mkdir(dirEventsPath, { recursive: true });
+    const markerPath = join(dirEventsPath, "evidence-marker");
+    await writeFile(markerPath, "keep-preexisting-dir\n", "utf8");
+
+    await expect(store.create(createInput(dirId))).rejects.toThrow();
+    expect(await pathExists(store.jobPath(dirId))).toBe(false);
+    const dirStat = await lstat(dirEventsPath);
+    expect(dirStat.isDirectory()).toBe(true);
+    expect(await readFile(markerPath, "utf8")).toBe("keep-preexisting-dir\n");
+
+    // --- absent events path: only a newly-created partial artifact may be cleaned ---
+    const absentId = "create-audit-absent";
+    const absentDir = store.jobDir(absentId);
+    const absentEventsPath = join(absentDir, "events.jsonl");
+    expect(await pathExists(absentEventsPath)).toBe(false);
+
+    const originalAppend = GenerationJobAuditLog.prototype.append;
+    GenerationJobAuditLog.prototype.append = async function appendThenFail() {
+      await mkdir(absentDir, { recursive: true });
+      await writeFile(absentEventsPath, "partial-created-by-this-create\n", "utf8");
+      throw new Error("simulated audit failure after creating events artifact");
+    };
+    try {
+      await expect(store.create(createInput(absentId))).rejects.toThrow(
+        /simulated audit failure after creating events artifact/
+      );
+      expect(await pathExists(store.jobPath(absentId))).toBe(false);
+      // Proven new partial from this invocation is safe to remove.
+      expect(await pathExists(absentEventsPath)).toBe(false);
+    } finally {
+      GenerationJobAuditLog.prototype.append = originalAppend;
+    }
+
+    // O_EXCL still owns uniqueness after a clean create.
+    const okId = "create-audit-ok";
+    const created = await store.create(createInput(okId));
+    expect(created.job_id).toBe(okId);
     await expect(
       store.create({
-        job_id: jobId,
-        connection_id: request.connection_id,
-        model_id: request.model_id,
-        mode: request.mode,
+        ...createInput(okId),
         request: baseRequest({ params: { prompt: "dup" } }),
         model_profile_digest: "c".repeat(64),
-        connection_capability_digest: "d".repeat(64),
-        pricing: knownPricing()
+        connection_capability_digest: "d".repeat(64)
       })
     ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
   });
