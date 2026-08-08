@@ -3,8 +3,8 @@
  * Does not call run/render, update Gates, or submit billing when preflightOnly.
  */
 
-import { sha256Canonical } from "../integrity/canonical.js";
 import type { GenerationJobProviderAdapter } from "./adapter.js";
+import { computeRequestDigest } from "./approval.js";
 import { GenerationJobMachine } from "./machine.js";
 import type { GenerationJobRecord, GenerationJobRequest } from "./schema.js";
 import { GenerationJobStore } from "./store.js";
@@ -75,6 +75,19 @@ export async function preflightGenerationJob(
   };
 }
 
+/**
+ * @deprecated Prefer {@link computeRequestDigest} with full request content.
+ * Kept for callers that only have params; does not bind model/mode/connection.
+ */
 export function requestDigestFromParams(params: Record<string, unknown>): string {
-  return sha256Canonical({ kind: "generation-job-request", params });
+  return computeRequestDigest({
+    model_id: "legacy-params-only",
+    mode: "legacy",
+    connection_id: "legacy",
+    auth_env_names: [],
+    asset_paths: [],
+    params
+  });
 }
+
+export { computeRequestDigest };

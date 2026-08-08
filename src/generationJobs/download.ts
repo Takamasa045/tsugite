@@ -1,9 +1,14 @@
 /**
  * Safe download verification and atomic local pin.
  * Rejects path traversal, symlinks, and oversize payloads.
+ * Streams to disk; never holds the full payload in memory for stream pin.
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import {
+  createWriteStream,
+  lstatSync
+} from "node:fs";
 import {
   lstat,
   mkdir,
@@ -16,6 +21,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { finished } from "node:stream/promises";
 import {
   GJ_DOWNLOAD_OVERSIZE,
   GJ_DOWNLOAD_REJECTED,
@@ -30,6 +36,13 @@ export type PinOptions = {
   maxBytes?: number;
   expectedSha256?: string;
   relativeName?: string;
+};
+
+export type PinResult = {
+  relative_path: string;
+  absolute_path: string;
+  sha256: string;
+  byte_length: number;
 };
 
 function assertSafeRelativeSegment(name: string): void {
@@ -83,7 +96,37 @@ export async function sha256Buffer(data: Buffer | Uint8Array): Promise<string> {
 }
 
 export async function sha256File(path: string): Promise<string> {
-  return sha256Buffer(await readFile(path));
+  const handle = await open(path, "r");
+  try {
+    const hash = createHash("sha256");
+    const stream = handle.createReadStream();
+    for await (const chunk of stream) {
+      hash.update(chunk as Buffer);
+    }
+    return hash.digest("hex");
+  } finally {
+    await handle.close();
+  }
+}
+
+async function preparePinDestination(
+  destinationDir: string,
+  relativeName: string
+): Promise<{ absolutePath: string; parent: string; realDest: string }> {
+  assertSafeRelativeSegment(relativeName);
+  await mkdir(destinationDir, { recursive: true });
+  await assertNoSymlink(destinationDir);
+
+  const absolutePath = resolveContainedPath(destinationDir, relativeName);
+  await assertNoSymlink(absolutePath);
+  const parent = dirname(absolutePath);
+  await mkdir(parent, { recursive: true });
+  const realParent = await realpath(parent);
+  const realDest = await realpath(destinationDir);
+  if (!realParent.startsWith(realDest + sep) && realParent !== realDest) {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, "parent directory escapes destination root");
+  }
+  return { absolutePath, parent, realDest };
 }
 
 /**
@@ -93,7 +136,7 @@ export async function pinBytesAtomically(
   destinationDir: string,
   data: Buffer | Uint8Array,
   options: PinOptions = {}
-): Promise<{ relative_path: string; absolute_path: string; sha256: string; byte_length: number }> {
+): Promise<PinResult> {
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES;
   if (data.byteLength > maxBytes) {
     throw new GenerationJobError(
@@ -103,20 +146,7 @@ export async function pinBytesAtomically(
   }
 
   const relativeName = options.relativeName ?? `artifact-${randomUUID()}.bin`;
-  assertSafeRelativeSegment(relativeName);
-  await mkdir(destinationDir, { recursive: true });
-  await assertNoSymlink(destinationDir);
-
-  const absolutePath = resolveContainedPath(destinationDir, relativeName);
-  await assertNoSymlink(absolutePath);
-  // Ensure parent is still under destinationDir and not a symlink chain.
-  const parent = dirname(absolutePath);
-  await mkdir(parent, { recursive: true });
-  const realParent = await realpath(parent);
-  const realDest = await realpath(destinationDir);
-  if (!realParent.startsWith(realDest + sep) && realParent !== realDest) {
-    throw new GenerationJobError(GJ_PATH_UNSAFE, "parent directory escapes destination root");
-  }
+  const { absolutePath, parent } = await preparePinDestination(destinationDir, relativeName);
 
   const digest = await sha256Buffer(data);
   if (options.expectedSha256 && options.expectedSha256 !== digest) {
@@ -154,13 +184,14 @@ export async function pinBytesAtomically(
 }
 
 /**
- * Stream-like bounded write from an async iterable of chunks (for adapters).
+ * Stream bounded write: incremental temp-file write + streaming SHA-256 + byte cap + fsync + atomic rename.
+ * Does not retain all chunks in memory (memory does not grow proportional to payload size).
  */
 export async function pinStreamAtomically(
   destinationDir: string,
   chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
   options: PinOptions & { contentLength?: number | null } = {}
-): Promise<{ relative_path: string; absolute_path: string; sha256: string; byte_length: number }> {
+): Promise<PinResult> {
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_DOWNLOAD_BYTES;
   if (options.contentLength != null && options.contentLength > maxBytes) {
     throw new GenerationJobError(
@@ -169,25 +200,192 @@ export async function pinStreamAtomically(
     );
   }
 
-  const parts: Buffer[] = [];
+  const relativeName = options.relativeName ?? `artifact-${randomUUID()}.bin`;
+  const { absolutePath, parent } = await preparePinDestination(destinationDir, relativeName);
+  const temporary = join(parent, `.${basename(absolutePath)}.${randomUUID()}.tmp`);
+
+  const hash = createHash("sha256");
   let total = 0;
-  for await (const chunk of chunks as AsyncIterable<Uint8Array>) {
-    total += chunk.byteLength;
-    if (total > maxBytes) {
+
+  try {
+    const stream = createWriteStream(temporary, { flags: "wx" });
+    try {
+      for await (const chunk of chunks as AsyncIterable<Uint8Array>) {
+        total += chunk.byteLength;
+        if (total > maxBytes) {
+          stream.destroy();
+          throw new GenerationJobError(
+            GJ_DOWNLOAD_OVERSIZE,
+            `stream exceeded max ${maxBytes} bytes`
+          );
+        }
+        hash.update(chunk);
+        if (!stream.write(Buffer.from(chunk))) {
+          await new Promise<void>((resolveWrite, rejectWrite) => {
+            stream.once("drain", () => resolveWrite());
+            stream.once("error", rejectWrite);
+          });
+        }
+      }
+      stream.end();
+      await finished(stream);
+    } catch (error) {
+      stream.destroy();
+      throw error;
+    }
+
+    // fsync via reopen
+    const handle = await open(temporary, "r+");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+
+    if (options.contentLength != null && total !== options.contentLength) {
       throw new GenerationJobError(
-        GJ_DOWNLOAD_OVERSIZE,
-        `stream exceeded max ${maxBytes} bytes`
+        GJ_DOWNLOAD_REJECTED,
+        `stream size ${total} does not match Content-Length ${options.contentLength}`
       );
     }
-    parts.push(Buffer.from(chunk));
+
+    const digest = hash.digest("hex");
+    if (options.expectedSha256 && options.expectedSha256 !== digest) {
+      throw new GenerationJobError(
+        GJ_HASH_MISMATCH,
+        `download hash mismatch: expected ${options.expectedSha256}, got ${digest}`
+      );
+    }
+
+    const tmpStat = await lstat(temporary);
+    if (tmpStat.isSymbolicLink() || !tmpStat.isFile()) {
+      throw new GenerationJobError(GJ_DOWNLOAD_REJECTED, "temporary download is not a regular file");
+    }
+    if (tmpStat.size !== total) {
+      throw new GenerationJobError(GJ_DOWNLOAD_REJECTED, "temporary download size mismatch");
+    }
+    const writtenHash = await sha256File(temporary);
+    if (writtenHash !== digest) {
+      throw new GenerationJobError(GJ_HASH_MISMATCH, "written file hash mismatch");
+    }
+
+    await rename(temporary, absolutePath);
+  } finally {
+    await rm(temporary, { force: true });
   }
-  if (options.contentLength != null && total !== options.contentLength) {
+
+  return {
+    relative_path: relativeName.split(sep).join("/"),
+    absolute_path: absolutePath,
+    sha256: (await sha256File(absolutePath)),
+    byte_length: total
+  };
+}
+
+/**
+ * Core verification of adapter-reported download.
+ * Never trusts adapter self-reported hash/path alone for verified/pinned.
+ */
+export async function verifyAdapterArtifact(
+  artifactsDir: string,
+  claimed: {
+    absolute_path: string;
+    sha256: string;
+    byte_length: number;
+    content_type?: string;
+  }
+): Promise<PinResult & { content_type?: string }> {
+  const resolvedRoot = resolve(artifactsDir);
+  let realRoot: string;
+  try {
+    realRoot = await realpath(resolvedRoot);
+  } catch {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, "artifacts directory is not resolvable");
+  }
+
+  const claimedPath = claimed.absolute_path;
+  if (!claimedPath || claimedPath.includes("\0")) {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, "adapter absolute_path is unsafe");
+  }
+
+  // Reject before realpath if relative path escapes via string checks.
+  const resolvedClaimed = resolve(claimedPath);
+
+  // Sibling-prefix attack: artifactsDir=/a/job vs /a/job-evil
+  const rootPrefix = realRoot.endsWith(sep) ? realRoot : realRoot + sep;
+  // Use path.relative after realpath of the file (regular file only).
+  let linkInfo;
+  try {
+    linkInfo = await lstat(resolvedClaimed);
+  } catch {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, "adapter absolute_path does not exist");
+  }
+  if (linkInfo.isSymbolicLink()) {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, "adapter absolute_path is a symlink");
+  }
+  if (!linkInfo.isFile()) {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, "adapter absolute_path is not a regular file");
+  }
+
+  let realFile: string;
+  try {
+    realFile = await realpath(resolvedClaimed);
+  } catch {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, "adapter absolute_path realpath failed");
+  }
+
+  const rel = relative(realRoot, realFile);
+  if (
+    rel.startsWith("..")
+    || isAbsolute(rel)
+    || rel.includes("\0")
+    || !realFile.startsWith(rootPrefix) && realFile !== realRoot
+  ) {
     throw new GenerationJobError(
-      GJ_DOWNLOAD_REJECTED,
-      `stream size ${total} does not match Content-Length ${options.contentLength}`
+      GJ_PATH_UNSAFE,
+      `adapter absolute_path escapes artifacts dir: ${claimedPath}`
     );
   }
-  return pinBytesAtomically(destinationDir, Buffer.concat(parts), options);
+
+  // Re-open as regular non-symlink file and recompute size + SHA-256.
+  const handle = await open(realFile, "r");
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) {
+      throw new GenerationJobError(GJ_PATH_UNSAFE, "reopened path is not a regular file");
+    }
+    // Confirm still not a symlink at the path we opened.
+    if (lstatSync(realFile).isSymbolicLink()) {
+      throw new GenerationJobError(GJ_PATH_UNSAFE, "path became a symlink");
+    }
+    if (info.size !== claimed.byte_length) {
+      throw new GenerationJobError(
+        GJ_DOWNLOAD_REJECTED,
+        `size mismatch: claimed ${claimed.byte_length}, actual ${info.size}`
+      );
+    }
+    const hash = createHash("sha256");
+    const stream = handle.createReadStream();
+    for await (const chunk of stream) {
+      hash.update(chunk as Buffer);
+    }
+    const digest = hash.digest("hex");
+    if (digest !== claimed.sha256) {
+      throw new GenerationJobError(
+        GJ_HASH_MISMATCH,
+        `hash mismatch: claimed ${claimed.sha256}, actual ${digest}`
+      );
+    }
+    return {
+      relative_path: rel.split(sep).join("/"),
+      absolute_path: realFile,
+      sha256: digest,
+      byte_length: info.size,
+      content_type: claimed.content_type
+    };
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

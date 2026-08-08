@@ -10,7 +10,8 @@ exact_model_routes:
     family: minimax
 auth_env_names:
   - MINIMAX_API_KEY
-submit: true
+# Phase C: surface is preflight-only. submit=false prevents ready misrepresentation.
+submit: false
 poll: true
 cancel: false
 download: true
@@ -21,4 +22,5 @@ adapter_id: minimax-http
 source:
   pin: adapters/minimax-http/constraints.yaml
   version: 2026-08-08
-  digest: 8fd203ed7548c4afcbc03e03e1f17b6e92d0e7963e470b82e9af6716c3262ede
+  # SHA-256 of adapters/minimax-http/constraints.yaml (pin-file content, not profile body).
+  digest: 5af3e77ba13c14c5fb1b3a40887a1fccbbfffe4ac1e6172a8056e26dccc3934b

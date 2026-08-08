@@ -36,7 +36,8 @@ export const GENERATION_JOB_TRANSITIONS: Readonly<
   downloading: ["verified", "failed", "retry_wait"],
   verified: ["pinned", "failed"],
   pinned: [],
-  cancel_requested: ["cancelled", "failed", "polling", "submitted"],
+  // succeeded is allowed when provider completed despite cancel_requested (cancel race).
+  cancel_requested: ["cancelled", "failed", "polling", "submitted", "succeeded"],
   cancelled: [],
   retry_wait: ["submitting", "polling", "downloading", "failed", "cancelled", "cancel_requested"],
   blocked: ["failed", "cancelled", "awaiting_cost_approval", "planned"],

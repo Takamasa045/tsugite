@@ -14,7 +14,8 @@ import {
 import type {
   GenerationJobApproval,
   GenerationJobPricing,
-  GenerationJobRecord
+  GenerationJobRecord,
+  GenerationJobRequest
 } from "./schema.js";
 
 export type ApprovalDigestInput = {
@@ -28,6 +29,38 @@ export type ApprovalDigestInput = {
   pricing_amount: number | null;
 };
 
+/**
+ * Canonical request digest from content fields only.
+ * Caller-supplied opaque digests are not trusted unless they match this.
+ */
+export function computeRequestDigest(
+  request: Pick<
+    GenerationJobRequest,
+    "model_id" | "mode" | "connection_id" | "auth_env_names" | "asset_paths" | "params"
+  >
+): string {
+  return sha256Canonical({
+    kind: "generation-job-request",
+    schema_version: 1,
+    model_id: request.model_id,
+    mode: request.mode,
+    connection_id: request.connection_id,
+    auth_env_names: request.auth_env_names ?? [],
+    asset_paths: request.asset_paths ?? [],
+    params: request.params ?? {}
+  });
+}
+
+export function assertRequestDigestMatches(request: GenerationJobRequest): void {
+  const expected = computeRequestDigest(request);
+  if (request.digest !== expected) {
+    throw new GenerationJobError(
+      GJ_APPROVAL_DIGEST_MISMATCH,
+      "request digest does not match canonical model/mode/connection/auth/assets/params content"
+    );
+  }
+}
+
 export function buildApprovalDigestInput(
   job: Pick<
     GenerationJobRecord,
@@ -37,8 +70,10 @@ export function buildApprovalDigestInput(
     | "pricing"
   >
 ): ApprovalDigestInput {
+  // Always recompute request digest from content; do not trust stored opaque digest alone.
+  const request_digest = computeRequestDigest(job.request);
   return {
-    request_digest: job.request.digest,
+    request_digest,
     model_profile_digest: job.model_profile_digest,
     connection_capability_digest: job.connection_capability_digest,
     pricing_version: job.pricing.version,
@@ -76,6 +111,8 @@ export function createApproval(
   approvedAt = new Date().toISOString()
 ): GenerationJobApproval {
   assertPriceKnownForApproval(job.pricing);
+  assertAmountWithinCap(job.pricing);
+  assertRequestDigestMatches(job.request);
   const input = buildApprovalDigestInput(job);
   return {
     approved_at: approvedAt,
@@ -113,6 +150,20 @@ export function assertPriceKnownForApproval(pricing: GenerationJobPricing): void
   }
 }
 
+/** Fail-closed at approve time (and again at submit). */
+export function assertAmountWithinCap(pricing: GenerationJobPricing): void {
+  if (pricing.status === "known") {
+    const amount = pricing.amount;
+    const max = pricing.max_amount;
+    if (amount != null && max != null && amount > max) {
+      throw new GenerationJobError(
+        GJ_PRICE_CAP_EXCEEDED,
+        `pricing amount ${amount} exceeds approved max_amount ${max}`
+      );
+    }
+  }
+}
+
 /**
  * Fail-closed pre-submit checks: approval present, digests match current job,
  * price known, amount within max cap.
@@ -126,17 +177,8 @@ export function assertApprovalAllowsSubmit(job: GenerationJobRecord): void {
   }
 
   assertPriceKnownForApproval(job.pricing);
-
-  if (job.pricing.status === "known") {
-    const amount = job.pricing.amount!;
-    const max = job.pricing.max_amount!;
-    if (amount > max) {
-      throw new GenerationJobError(
-        GJ_PRICE_CAP_EXCEEDED,
-        `pricing amount ${amount} exceeds approved max_amount ${max}`
-      );
-    }
-  }
+  assertAmountWithinCap(job.pricing);
+  assertRequestDigestMatches(job.request);
 
   const expected = approvalDigest(buildApprovalDigestInput(job));
   if (job.approval.digest !== expected) {
@@ -146,9 +188,11 @@ export function assertApprovalAllowsSubmit(job: GenerationJobRecord): void {
     );
   }
 
+  const contentDigest = computeRequestDigest(job.request);
   // Bound fields must still match approval snapshot (defense in depth).
   if (
-    job.approval.request_digest !== job.request.digest
+    job.approval.request_digest !== contentDigest
+    || job.request.digest !== contentDigest
     || job.approval.model_profile_digest !== job.model_profile_digest
     || job.approval.connection_capability_digest !== job.connection_capability_digest
     || job.approval.pricing_version !== job.pricing.version

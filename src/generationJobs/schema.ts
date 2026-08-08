@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { looksLikeSecretKey } from "./secrets.js";
 
 export const GENERATION_JOB_SCHEMA_VERSION = 1 as const;
 
@@ -28,11 +29,14 @@ export const GENERATION_JOB_STATUSES = [
 
 export type GenerationJobStatus = (typeof GENERATION_JOB_STATUSES)[number];
 
+/** Safe opaque id for job / connection / model path segments. */
+export const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 const safeId = z
   .string()
   .min(1)
   .max(128)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "must be a safe id");
+  .regex(SAFE_ID_PATTERN, "must be a safe id");
 
 const sha256Hex = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -43,6 +47,21 @@ const isoDate = z.string().refine(
 
 /** Environment variable *names* only — never secret values. */
 const envName = z.string().regex(/^[A-Z][A-Z0-9_]*$/);
+
+/** Relative asset path: no absolute, traversal, NUL, or backslash. */
+const safeAssetPath = z
+  .string()
+  .min(1)
+  .max(512)
+  .refine(
+    (value) =>
+      !value.includes("\0")
+      && !value.includes("\\")
+      && !value.startsWith("/")
+      && !/^[A-Za-z]:/.test(value)
+      && !value.split("/").some((part) => part === "" || part === "." || part === ".."),
+    "asset path must be a safe relative path"
+  );
 
 export const generationJobPricingSchema = z
   .object({
@@ -105,7 +124,10 @@ export type GenerationJobErrorBody = z.infer<typeof generationJobErrorSchema>;
 
 export const generationJobRequestSchema = z
   .object({
-    /** Opaque request body digest (canonical SHA-256 of request payload without secrets). */
+    /**
+     * Canonical content digest of model_id/mode/connection_id/auth/assets/params.
+     * Opaque caller-supplied digests that do not match content are rejected.
+     */
     digest: sha256Hex,
     model_id: safeId,
     mode: z.string().min(1).max(64),
@@ -113,11 +135,22 @@ export const generationJobRequestSchema = z
     /** Auth env *names* declared for this request — never values. */
     auth_env_names: z.array(envName).default([]),
     /** Optional local asset relative paths (already pinned by caller). */
-    asset_paths: z.array(z.string().min(1).max(512)).default([]),
+    asset_paths: z.array(safeAssetPath).default([]),
     /** Non-secret request params (prompt text, duration, aspect, etc.). */
     params: z.record(z.string(), z.unknown()).default({})
   })
-  .strict();
+  .strict()
+  .superRefine((request, ctx) => {
+    for (const key of Object.keys(request.params)) {
+      if (looksLikeSecretKey(key)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["params", key],
+          message: `secret-shaped param key '${key}' is forbidden`
+        });
+      }
+    }
+  });
 
 export const generationJobRecordSchema = z
   .object({
@@ -144,7 +177,10 @@ export const generationJobRecordSchema = z
     cancel_requested: z.boolean().default(false),
     created_at: isoDate,
     updated_at: isoDate,
-    identity_token: z.string().min(1).max(128).optional()
+    /** CAS token rotated on every durable save. */
+    identity_token: z.string().min(1).max(128).optional(),
+    /** Monotonic revision incremented on every durable save. */
+    revision: z.number().int().nonnegative().default(0)
   })
   .strict();
 
@@ -160,4 +196,8 @@ export function parseGenerationJobRecord(raw: unknown): GenerationJobRecord {
 
 export function safeParseGenerationJobRecord(raw: unknown) {
   return generationJobRecordSchema.safeParse(raw);
+}
+
+export function isSafeJobId(jobId: string): boolean {
+  return SAFE_ID_PATTERN.test(jobId) && jobId.length <= 128 && !jobId.includes("..");
 }
