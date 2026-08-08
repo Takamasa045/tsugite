@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { access, lstat, mkdir, rm } from "node:fs/promises";
+import { access, mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   exclusiveLock,
@@ -151,21 +151,12 @@ export class GenerationJobStore {
     }
 
     // Fail-safe create ordering: if the first audit append fails after O_EXCL job write,
-    // roll back only artifacts this invocation created so we never leave a job without
-    // a healthy audit — and never destroy pre-existing audit path/content (evidence).
+    // roll back only the job.json this invocation created (wx / O_EXCL).
+    // Never delete events.jsonl (file/dir/symlink/partial/corrupt): absence-before does not
+    // prove a later events path was created by this invocation (another actor may create/replace
+    // it). Preserve audit evidence and fail closed until explicit recovery.
     // Does not weaken O_EXCL duplicate protection (wx still owns uniqueness).
     const audit = new GenerationJobAuditLog(dir, this.now);
-    const eventsPath = join(dir, "events.jsonl");
-    // Provenance for events rollback: only ENOENT means "absent before this create".
-    // Any other probe error → treat as pre-existing and fail closed (do not delete).
-    let eventsExistedBefore = true;
-    try {
-      await lstat(eventsPath);
-    } catch (probeError) {
-      if ((probeError as NodeJS.ErrnoException).code === "ENOENT") {
-        eventsExistedBefore = false;
-      }
-    }
     try {
       await audit.append({
         job_id: jobId,
@@ -179,19 +170,8 @@ export class GenerationJobStore {
       });
     } catch (error) {
       // job.json was created exclusively by this invocation — always safe to remove.
+      // events.jsonl is never deleted here (preserve evidence; fail closed).
       await rm(jobPath, { force: true }).catch(() => undefined);
-      // Events: only remove a regular file that was demonstrably created here.
-      // Pre-existing files, directories, symlinks, or unproven paths are preserved.
-      if (!eventsExistedBefore) {
-        try {
-          const eventsStat = await lstat(eventsPath);
-          if (eventsStat.isFile()) {
-            await rm(eventsPath, { force: true });
-          }
-        } catch {
-          // absent or unreadable — leave untouched (fail closed)
-        }
-      }
       throw error;
     }
     return record;

@@ -665,7 +665,7 @@ describe("B. durable store crash/resume + append-only events", () => {
     await assertNoTempResidue(store.jobDir(healthy.job_id));
   });
 
-  it("create rolls back only this job.json; preserves pre-existing audit evidence (O_EXCL preserved)", async () => {
+  it("create rolls back only this job.json; never deletes events.jsonl (O_EXCL preserved)", async () => {
     const root = await mkdtemp(join(tmpdir(), "gj-create-audit-"));
     const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
     const request = baseRequest();
@@ -698,6 +698,11 @@ describe("B. durable store crash/resume + append-only events", () => {
     expect(afterCorruptStat.mode).toBe(beforeCorruptStat.mode);
     expect(afterCorruptStat.size).toBe(beforeCorruptStat.size);
 
+    // Retained corrupt audit: subsequent create must fail closed (not silently clean events).
+    await expect(store.create(createInput(corruptId))).rejects.toThrow();
+    expect(await pathExists(store.jobPath(corruptId))).toBe(false);
+    expect(await readFile(corruptEventsPath, "utf8")).toBe(seededCorrupt);
+
     // --- pre-existing events path as directory: type/content must be preserved ---
     const dirId = "create-audit-dir";
     const dirJob = store.jobDir(dirId);
@@ -713,30 +718,43 @@ describe("B. durable store crash/resume + append-only events", () => {
     expect(dirStat.isDirectory()).toBe(true);
     expect(await readFile(markerPath, "utf8")).toBe("keep-preexisting-dir\n");
 
-    // --- absent events path: only a newly-created partial artifact may be cleaned ---
-    const absentId = "create-audit-absent";
-    const absentDir = store.jobDir(absentId);
-    const absentEventsPath = join(absentDir, "events.jsonl");
-    expect(await pathExists(absentEventsPath)).toBe(false);
+    // Directory evidence retained: subsequent create still fails closed.
+    await expect(store.create(createInput(dirId))).rejects.toThrow();
+    expect(await pathExists(store.jobPath(dirId))).toBe(false);
+    expect((await lstat(dirEventsPath)).isDirectory()).toBe(true);
+    expect(await readFile(markerPath, "utf8")).toBe("keep-preexisting-dir\n");
+
+    // --- simulated newly-created partial events: still preserve byte-for-byte (never delete) ---
+    // Absence-before does not prove post-failure events.jsonl was created by this invocation.
+    const partialId = "create-audit-partial";
+    const partialDir = store.jobDir(partialId);
+    const partialEventsPath = join(partialDir, "events.jsonl");
+    expect(await pathExists(partialEventsPath)).toBe(false);
+    const partialBytes = "partial-created-by-this-create\n";
 
     const originalAppend = GenerationJobAuditLog.prototype.append;
     GenerationJobAuditLog.prototype.append = async function appendThenFail() {
-      await mkdir(absentDir, { recursive: true });
-      await writeFile(absentEventsPath, "partial-created-by-this-create\n", "utf8");
+      await mkdir(partialDir, { recursive: true });
+      await writeFile(partialEventsPath, partialBytes, "utf8");
       throw new Error("simulated audit failure after creating events artifact");
     };
     try {
-      await expect(store.create(createInput(absentId))).rejects.toThrow(
+      await expect(store.create(createInput(partialId))).rejects.toThrow(
         /simulated audit failure after creating events artifact/
       );
-      expect(await pathExists(store.jobPath(absentId))).toBe(false);
-      // Proven new partial from this invocation is safe to remove.
-      expect(await pathExists(absentEventsPath)).toBe(false);
+      expect(await pathExists(store.jobPath(partialId))).toBe(false);
+      // Preserve partial/corrupt audit evidence; never delete events.jsonl on rollback.
+      expect(await readFile(partialEventsPath, "utf8")).toBe(partialBytes);
     } finally {
       GenerationJobAuditLog.prototype.append = originalAppend;
     }
 
-    // O_EXCL still owns uniqueness after a clean create.
+    // Retained partial audit: subsequent create fails closed until explicit recovery.
+    await expect(store.create(createInput(partialId))).rejects.toThrow();
+    expect(await pathExists(store.jobPath(partialId))).toBe(false);
+    expect(await readFile(partialEventsPath, "utf8")).toBe(partialBytes);
+
+    // Clean create still works; O_EXCL still owns uniqueness.
     const okId = "create-audit-ok";
     const created = await store.create(createInput(okId));
     expect(created.job_id).toBe(okId);
