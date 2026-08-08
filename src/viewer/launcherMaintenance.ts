@@ -291,7 +291,7 @@ export type CreateLauncherMaintenanceControllerOptions = {
    */
   inspectRemovedPath?: (path: string) => Promise<RemovedPathInspection>;
   /**
-   * Validate server-held durable launcher_config_path for post-verify.
+   * Validate durable launcher_config_path at preview and pre-mutation apply.
    * Default: realpath + durable projects home containment; symlink/repo-out rejected.
    */
   resolveLauncherConfigPath?: (
@@ -597,6 +597,16 @@ export function createLauncherMaintenanceController(
       ]);
       const applied = parseApplyCli(applyResult, WorktreeCliSchema, "worktree");
       if (!applied.ok) {
+        // Mutation started: exit0 truncated/corrupt JSON cannot deny side effects.
+        if (applyResult.exitCode === 0) {
+          worktreeReviews.delete(review.reviewId);
+          return failJob(
+            job,
+            applied.issue,
+            "applied_unverified",
+            [applied.issue, MAINTENANCE_ISSUE.appliedUnverified]
+          );
+        }
         return failJob(job, applied.issue, "failed", applied.issues);
       }
       if (!applied.value.ok || applied.value.applied !== true) {
@@ -613,9 +623,16 @@ export function createLauncherMaintenanceController(
       }
 
       // H2: removed must be exactly one entry equal to the server-held target path.
+      // applied:true already claimed mutation — consume review even when removed mismatches.
       const removedPaths = applied.value.removed ?? [];
       if (!isExactSingleRemovedTarget(removedPaths, candidate.path)) {
-        return failJob(job, MAINTENANCE_ISSUE.worktreeRemoveUnconfirmed, "failed");
+        worktreeReviews.delete(review.reviewId);
+        return failJob(
+          job,
+          MAINTENANCE_ISSUE.worktreeRemoveUnconfirmed,
+          "applied_unverified",
+          [MAINTENANCE_ISSUE.worktreeRemoveUnconfirmed, MAINTENANCE_ISSUE.appliedUnverified]
+        );
       }
 
       // Mutating CLI confirmed exact removal — review is consumed; post-verify may only
@@ -655,7 +672,15 @@ export function createLauncherMaintenanceController(
       };
       return { ok: true, job: publicJob(job) };
     } catch {
-      return failJob(job, MAINTENANCE_ISSUE.internal, "failed");
+      // After side effects or review consumption, never report re-applyable failed.
+      const reviewConsumed = !worktreeReviews.has(review.reviewId);
+      const status = job.sideEffectConfirmed || reviewConsumed
+        ? "applied_unverified"
+        : "failed";
+      if (status === "applied_unverified") {
+        worktreeReviews.delete(review.reviewId);
+      }
+      return failJob(job, MAINTENANCE_ISSUE.internal, status);
     } finally {
       if (applyInFlight === jobId) applyInFlight = null;
     }
@@ -738,6 +763,19 @@ export function createLauncherMaintenanceController(
         projectInode: project.projectInode
       });
 
+    // Preview must resolve durable launcher_config_path before issuing a review.
+    // Active-home containment / existence / symlink escape are fail-closed here.
+    const rawLauncherConfig = typeof cli.value.launcher_config_path === "string"
+      ? cli.value.launcher_config_path.trim()
+      : "";
+    if (!rawLauncherConfig) {
+      return { ok: false, issue: MAINTENANCE_ISSUE.launcherConfigRequired };
+    }
+    const resolvedLauncherConfig = await resolveLauncherConfigPath(rawLauncherConfig);
+    if (!resolvedLauncherConfig.ok) {
+      return { ok: false, issue: resolvedLauncherConfig.issue };
+    }
+
     const reviewId = opaqueId("ftr");
     const expiresAtMs = at + reviewTtlMs;
     // Planned path is always reported for UX; label differs when not yet finalized (M5).
@@ -764,7 +802,8 @@ export function createLauncherMaintenanceController(
         || Boolean(cli.value.launcher_project_root),
       launcherAlreadyHome: cli.value.launcher_already_home === true,
       promotedToLauncherHome: cli.value.promoted_to_launcher_home === true,
-      launcherConfigPath: cli.value.launcher_config_path ?? null
+      // Store resolved real canonical path only (never the raw CLI string).
+      launcherConfigPath: resolvedLauncherConfig.path
     });
 
     return {
@@ -857,6 +896,14 @@ export function createLauncherMaintenanceController(
     if (parsed.value.planDigest !== review.planDigest) {
       return { ok: false, issue: MAINTENANCE_ISSUE.planStale };
     }
+    // Preview-held durable launcher_config_path is required before any mutating apply.
+    // Never fall back to apply-report-only paths (prevents borrowing another finalized state).
+    const reviewHeldLauncherConfig = typeof review.launcherConfigPath === "string"
+      ? review.launcherConfigPath.trim()
+      : "";
+    if (!reviewHeldLauncherConfig) {
+      return { ok: false, issue: MAINTENANCE_ISSUE.launcherConfigRequired };
+    }
 
     const jobId = opaqueId("job");
     const job: MaintenanceJobRecord = {
@@ -908,6 +955,13 @@ export function createLauncherMaintenanceController(
         return failJob(job, MAINTENANCE_ISSUE.projectMismatch, "failed");
       }
 
+      // Re-resolve review-held durable path immediately before mutation.
+      // Fail closed without applying when path was swapped / vanished after preview.
+      const heldResolved = await resolveLauncherConfigPath(reviewHeldLauncherConfig);
+      if (!heldResolved.ok) {
+        return failJob(job, heldResolved.issue, "failed");
+      }
+
       job.phase = "applying";
       const applyResult = await runPipeline([
         "finalize",
@@ -923,6 +977,16 @@ export function createLauncherMaintenanceController(
         if (code === "finalize.plan_stale") {
           job.phase = "stale";
           return failJob(job, MAINTENANCE_ISSUE.planStale, "stale", applied.issues);
+        }
+        // Mutation started: exit0 truncated/corrupt JSON cannot deny side effects.
+        if (applyResult.exitCode === 0) {
+          finalizeReviews.delete(review.reviewId);
+          return failJob(
+            job,
+            applied.issue,
+            "applied_unverified",
+            [applied.issue, MAINTENANCE_ISSUE.appliedUnverified]
+          );
         }
         return failJob(job, applied.issue, "failed", applied.issues);
       }
@@ -949,18 +1013,19 @@ export function createLauncherMaintenanceController(
       job.sideEffectConfirmed = true;
 
       job.phase = "verifying";
-      // H1/M5: post-preview uses server-held durable config; apply path must match review.
-      // Source preview often reports already_finalized=false after promotion.
-      let verifyConfigPath = project.configPath;
-      const promoted = applied.value.promoted_to_launcher_home === true;
-      const reviewHeldConfig = review.launcherConfigPath ?? null;
-      const applyReportedConfig = applied.value.launcher_config_path ?? null;
+      // Post-preview uses pre-mutation resolved path only (no apply-path fallback).
+      // Apply report must resolve to the same real path as the review-held canonical.
+      const applyReportedConfig = typeof applied.value.launcher_config_path === "string"
+        ? applied.value.launcher_config_path.trim()
+        : "";
+      const applyResolved = applyReportedConfig
+        ? await resolveLauncherConfigPath(applyReportedConfig)
+        : { ok: false as const, issue: MAINTENANCE_ISSUE.postVerifyFailed };
       if (
-        reviewHeldConfig
-        && applyReportedConfig
-        && !maintenancePathsEqual(reviewHeldConfig, applyReportedConfig)
+        !applyResolved.ok
+        || !maintenancePathsEqual(heldResolved.path, applyResolved.path)
       ) {
-        // Adversarial swap of durable config is refused (cannot borrow another project's finalized state).
+        // Adversarial swap / missing apply report — cannot borrow another finalized state.
         return failJob(
           job,
           MAINTENANCE_ISSUE.postVerifyFailed,
@@ -968,45 +1033,7 @@ export function createLauncherMaintenanceController(
           [MAINTENANCE_ISSUE.postVerifyFailed, MAINTENANCE_ISSUE.appliedUnverified]
         );
       }
-      const durableConfig = reviewHeldConfig ?? applyReportedConfig;
-      if ((promoted || Boolean(reviewHeldConfig) || review.launcherAlreadyHome) && durableConfig) {
-        // M5: when both sides report a durable config, each must resolve to the same real path.
-        if (reviewHeldConfig && applyReportedConfig) {
-          const heldResolved = await resolveLauncherConfigPath(reviewHeldConfig);
-          const applyResolved = await resolveLauncherConfigPath(applyReportedConfig);
-          if (
-            !heldResolved.ok
-            || !applyResolved.ok
-            || !maintenancePathsEqual(heldResolved.path, applyResolved.path)
-          ) {
-            return failJob(
-              job,
-              MAINTENANCE_ISSUE.postVerifyFailed,
-              "applied_unverified",
-              [MAINTENANCE_ISSUE.postVerifyFailed, MAINTENANCE_ISSUE.appliedUnverified]
-            );
-          }
-          verifyConfigPath = heldResolved.path;
-        } else {
-          const resolved = await resolveLauncherConfigPath(durableConfig);
-          if (!resolved.ok) {
-            return failJob(
-              job,
-              resolved.issue,
-              "applied_unverified",
-              [resolved.issue, MAINTENANCE_ISSUE.appliedUnverified]
-            );
-          }
-          verifyConfigPath = resolved.path;
-        }
-      } else if (promoted && !durableConfig) {
-        return failJob(
-          job,
-          MAINTENANCE_ISSUE.postVerifyFailed,
-          "applied_unverified",
-          [MAINTENANCE_ISSUE.postVerifyFailed, MAINTENANCE_ISSUE.appliedUnverified]
-        );
-      }
+      const verifyConfigPath = heldResolved.path;
 
       const post = await runFinalizePreviewCli(verifyConfigPath);
       if (!post.ok) {
@@ -1052,7 +1079,15 @@ export function createLauncherMaintenanceController(
       };
       return { ok: true, job: publicJob(job) };
     } catch {
-      return failJob(job, MAINTENANCE_ISSUE.internal, "failed");
+      // After side effects or review consumption, never report re-applyable failed.
+      const reviewConsumed = !finalizeReviews.has(review.reviewId);
+      const status = job.sideEffectConfirmed || reviewConsumed
+        ? "applied_unverified"
+        : "failed";
+      if (status === "applied_unverified") {
+        finalizeReviews.delete(review.reviewId);
+      }
+      return failJob(job, MAINTENANCE_ISSUE.internal, status);
     } finally {
       if (applyInFlight === jobId) applyInFlight = null;
     }

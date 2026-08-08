@@ -1,7 +1,7 @@
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -25,6 +25,7 @@ import {
 } from "../src/viewer/launcherMaintenanceTypes.js";
 import { drainStdio } from "../src/cli.js";
 import {
+  canonicalizeLauncherShelfWritability,
   startWorkflowViewerLauncher,
   type WorkflowViewerLauncher
 } from "../src/viewer/launcher.js";
@@ -41,12 +42,18 @@ afterEach(async () => {
 /**
  * M6: test helper always supplies an explicit revalidate callback.
  * Production omits → fail-closed; tests must not rely on that default.
+ * Default resolveLauncherConfigPath accepts absolute strings so unit mocks need no FS.
  */
 function createController(
   options: CreateLauncherMaintenanceControllerOptions
 ) {
   return createLauncherMaintenanceController({
     revalidateProjectIdentity: async () => true,
+    resolveLauncherConfigPath: async (path) => (
+      typeof path === "string" && path.length > 0 && isAbsolute(path)
+        ? { ok: true, path }
+        : { ok: false, issue: MAINTENANCE_ISSUE.postVerifyFailed }
+    ),
     ...options
   });
 }
@@ -204,6 +211,8 @@ function finalizeCliPayload(overrides: Record<string, unknown> = {}) {
     launcher_already_home: true,
     promoted_to_launcher_home: false,
     launcher_project_root: "/projects/demo",
+    // Preview-held durable path required on review for apply (no apply-only fallback).
+    launcher_config_path: "/projects/demo/project.yaml",
     ...overrides
   };
 }
@@ -1437,13 +1446,15 @@ describe("workflow viewer launcher maintenance routes", () => {
   it("blocks finalize apply when project identity is swapped after preview", async () => {
     const fixture = await createCompletedProjectFixture();
     const digest = "d".repeat(64);
+    const durableConfig = join(fixture.projectDir, "project.yaml");
     const executePipeline = vi.fn(async (_cmd: string, args: readonly string[]) => {
       if (args.includes("finalize")) {
         return {
           exitCode: 0,
           stdout: `${JSON.stringify(finalizeCliPayload({
             plan_digest: digest,
-            already_finalized: false
+            already_finalized: false,
+            launcher_config_path: durableConfig
           }))}\n`,
           stderr: ""
         };
@@ -1629,12 +1640,14 @@ describe("launcher maintenance second-review fixes", () => {
           };
         }
         // Source stays already_finalized=false (not alreadyHome) even after apply.
+        // Preview still reports the planned durable launcher_config_path (required on review).
         return {
           exitCode: 0,
           stdout: `${JSON.stringify(finalizeCliPayload({
             plan_digest: digest,
             already_finalized: false,
             launcher_already_home: false,
+            launcher_config_path: durable,
             completion_record: "dist/demo-run/completion-record.json"
           }))}\n`,
           stderr: ""
@@ -1764,8 +1777,20 @@ describe("launcher maintenance second-review fixes", () => {
     });
     expect(failed.ok).toBe(false);
     if (failed.ok) return;
-    expect(failed.issue.code).toBe("maintenance.worktree_remove_unconfirmed");
+    // applied:true + removed mismatch → applied_unverified; review consumed (no re-apply).
+    expect(failed.issue.code).toBe("maintenance.applied_unverified");
+    expect(failed.job?.status).toBe("applied_unverified");
+    expect(failed.job?.sideEffectConfirmed).toBe(true);
+    expect(failed.issues?.some((i) => i.code === "maintenance.worktree_remove_unconfirmed")).toBe(true);
     expect(inspections).toEqual([]);
+    const reapplyWrongRemoved = await controller.applyWorktree({
+      reviewId: preview.reviewId,
+      candidateId: preview.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    expect(reapplyWrongRemoved.ok).toBe(false);
+    if (reapplyWrongRemoved.ok) return;
+    expect(reapplyWrongRemoved.issue.code).toBe("maintenance.review_missing");
 
     // Permission/other error is fail-closed even when removed lists exact path.
     let errApplied = false;
@@ -2081,13 +2106,52 @@ describe("launcher maintenance second-review fixes", () => {
     if (afterDrop.ok) return;
     expect(afterDrop.issue.code).toBe("maintenance.review_missing");
 
-    // promoted apply fails when durable resolver rejects
+    // Preview rejects when durable resolver fails (no review issued).
     const digest = "d".repeat(64);
-    const badDurable = createController({
+    const rejectAtPreview = createController({
       resolveLauncherConfigPath: async () => ({
         ok: false,
         issue: { code: "maintenance.post_verify_failed", message: "bad durable" }
       }),
+      runPipeline: async () => ({
+        exitCode: 0,
+        stdout: `${JSON.stringify(finalizeCliPayload({ plan_digest: digest }))}\n`,
+        stderr: ""
+      })
+    });
+    const bpReject = await rejectAtPreview.previewFinalize({
+      id: "p1",
+      name: "x",
+      configPath: "/projects/demo/project.yaml",
+      readOnly: false,
+      valid: true,
+      runId: "demo-run",
+      revision: "a".repeat(64),
+      status: "completed",
+      identityKey: "k"
+    }, {
+      expectedRunId: "demo-run",
+      revision: "a".repeat(64),
+      completionDeclared: true
+    });
+    expect(bpReject.ok).toBe(false);
+    if (bpReject.ok) return;
+    expect(bpReject.issue.code).toBe("maintenance.post_verify_failed");
+
+    // After mutation, apply-report resolve failure is applied_unverified (review consumed).
+    let resolveCalls = 0;
+    const badDurable = createController({
+      resolveLauncherConfigPath: async (path) => {
+        resolveCalls += 1;
+        // preview + pre-mutation succeed; post apply-report resolve fails.
+        if (resolveCalls <= 2) {
+          return { ok: true, path };
+        }
+        return {
+          ok: false,
+          issue: { code: "maintenance.post_verify_failed", message: "bad durable" }
+        };
+      },
       runPipeline: async (args) => {
         if (args.includes("--apply")) {
           return {
@@ -2643,7 +2707,17 @@ describe("launcher maintenance third-review fixes", () => {
     });
     expect(failed.ok).toBe(false);
     if (failed.ok) return;
-    expect(failed.issue.code).toBe("maintenance.worktree_remove_unconfirmed");
+    expect(failed.issue.code).toBe("maintenance.applied_unverified");
+    expect(failed.job?.status).toBe("applied_unverified");
+    expect(failed.issues?.some((i) => i.code === "maintenance.worktree_remove_unconfirmed")).toBe(true);
+    const reapply = await multi.applyWorktree({
+      reviewId: prev.reviewId,
+      candidateId: prev.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    expect(reapply.ok).toBe(false);
+    if (reapply.ok) return;
+    expect(reapply.issue.code).toBe("maintenance.review_missing");
   });
 
   it("H3: post preview non-zero after exact remove is applied_unverified", async () => {
@@ -2890,6 +2964,12 @@ describe("launcher maintenance third-review fixes", () => {
     const digest = "d".repeat(64);
     const controller = createLauncherMaintenanceController({
       // Explicit omit — production safety contract.
+      // Provide absolute-path resolve so preview can issue a review; revalidate remains omitted.
+      resolveLauncherConfigPath: async (path) => (
+        typeof path === "string" && path.length > 0 && isAbsolute(path)
+          ? { ok: true, path }
+          : { ok: false, issue: MAINTENANCE_ISSUE.postVerifyFailed }
+      ),
       runPipeline: async (args) => {
         if (args.includes("--apply")) {
           throw new Error("apply must not run without revalidate");
@@ -3033,5 +3113,733 @@ describe("launcher maintenance third-review fixes", () => {
       if (prev === undefined) delete process.env.TSUGITE_PROJECTS_HOME;
       else process.env.TSUGITE_PROJECTS_HOME = prev;
     }
+  });
+});
+
+describe("launcher maintenance remaining safety fixes", () => {
+  it("HIGH: only active maintenance home shelf stays writable; other shelves cannot finalize", async () => {
+    // realpath requires existing dirs (missing paths fail-closed as readOnly).
+    const shelfRoot = await mkdtemp(join(tmpdir(), "tsugite-shelf-hi-"));
+    const active = join(shelfRoot, "active-home");
+    const other = join(shelfRoot, "other-home");
+    const extra = join(shelfRoot, "extra");
+    await mkdir(active, { recursive: true });
+    await mkdir(other, { recursive: true });
+    await mkdir(extra, { recursive: true });
+    const shelves = await canonicalizeLauncherShelfWritability([
+      { path: active, readOnly: false },
+      { path: other, readOnly: false },
+      { path: extra, readOnly: true }
+    ], active);
+    expect(shelves).toEqual([
+      { path: resolve(active), readOnly: false },
+      { path: resolve(other), readOnly: true },
+      { path: resolve(extra), readOnly: true }
+    ]);
+
+    const fixture = await createCompletedProjectFixture();
+    const activeHome = join(fixture.root, "active-home");
+    const foreignHome = fixture.projectsDir;
+    await mkdir(activeHome, { recursive: true });
+
+    const launcher = await launch({
+      projectsDir: foreignHome,
+      // Active writable home is empty / different — foreign shelf must become readOnly.
+      maintenanceProjectsHome: activeHome,
+      templatesDir: fixture.templatesDir,
+      bundleDir: fixture.bundleDir,
+      port: 0,
+      linkProjectShelves: false,
+      executePipeline: async (_cmd, args) => {
+        if (args.includes("finalize") && args.includes("--apply")) {
+          throw new Error("foreign shelf must not reach finalize apply");
+        }
+        if (args.includes("finalize")) {
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(finalizeCliPayload({
+              plan_digest: "d".repeat(64),
+              launcher_config_path: join(fixture.projectDir, "project.yaml")
+            }))}\n`,
+            stderr: ""
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `${JSON.stringify(worktreeCliPayload())}\n`,
+          stderr: ""
+        };
+      }
+    });
+
+    const list = await (await fetch(`${launcher.url}/api/projects`, {
+      headers: authHeaders(launcher)
+    })).json() as { projects: Array<{ id: string; readOnly: boolean; revision: string; runId: string }> };
+    expect(list.projects.length).toBeGreaterThan(0);
+    const project = list.projects[0]!;
+    expect(project.readOnly).toBe(true);
+
+    const preview = await fetch(`${launcher.url}/api/projects/${project.id}/finalize/preview`, {
+      method: "POST",
+      headers: authHeaders(launcher),
+      body: JSON.stringify({
+        expectedRunId: project.runId,
+        revision: project.revision,
+        completionDeclared: true
+      })
+    });
+    expect(preview.status).toBe(403);
+    const body = await preview.json() as { ok: boolean; issue?: { code: string } };
+    expect(body.ok).toBe(false);
+    expect(body.issue?.code).toBe("maintenance.project_read_only");
+  });
+
+  it("MEDIUM: applied:true removed mismatch and exit0 truncated/corrupt JSON consume review as applied_unverified", async () => {
+    // applied:true + wrong removed
+    const wrongRemoved = createController({
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(worktreeCliPayload({
+              applied: true,
+              removed: ["/repo-worktrees/other"]
+            }))}\n`,
+            stderr: ""
+          };
+        }
+        return { exitCode: 0, stdout: `${JSON.stringify(worktreeCliPayload())}\n`, stderr: "" };
+      }
+    });
+    const p1 = await wrongRemoved.previewWorktrees();
+    expect(p1.ok).toBe(true);
+    if (!p1.ok) return;
+    const f1 = await wrongRemoved.applyWorktree({
+      reviewId: p1.reviewId,
+      candidateId: p1.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    expect(f1.ok).toBe(false);
+    if (f1.ok) return;
+    expect(f1.issue.code).toBe("maintenance.applied_unverified");
+    expect(f1.job?.status).toBe("applied_unverified");
+    expect(f1.job?.sideEffectConfirmed).toBe(true);
+    expect(f1.issues?.some((i) => i.code === "maintenance.worktree_remove_unconfirmed")).toBe(true);
+    const re1 = await wrongRemoved.applyWorktree({
+      reviewId: p1.reviewId,
+      candidateId: p1.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    expect(re1.ok).toBe(false);
+    if (re1.ok) return;
+    expect(re1.issue.code).toBe("maintenance.review_missing");
+
+    // exit0 + truncated after mutation
+    const truncated = createController({
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(worktreeCliPayload({ applied: true })).slice(0, 20)}`,
+            stderr: "",
+            truncated: true
+          };
+        }
+        return { exitCode: 0, stdout: `${JSON.stringify(worktreeCliPayload())}\n`, stderr: "" };
+      }
+    });
+    const p2 = await truncated.previewWorktrees();
+    expect(p2.ok).toBe(true);
+    if (!p2.ok) return;
+    const f2 = await truncated.applyWorktree({
+      reviewId: p2.reviewId,
+      candidateId: p2.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    expect(f2.ok).toBe(false);
+    if (f2.ok) return;
+    expect(f2.issue.code).toBe("maintenance.applied_unverified");
+    expect(f2.job?.status).toBe("applied_unverified");
+    expect(f2.issues?.some((i) => i.code === "maintenance.cli_too_large")).toBe(true);
+    const re2 = await truncated.applyWorktree({
+      reviewId: p2.reviewId,
+      candidateId: p2.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    expect(re2.ok).toBe(false);
+    if (re2.ok) return;
+    expect(re2.issue.code).toBe("maintenance.review_missing");
+
+    // exit0 + corrupt JSON after mutation
+    const corrupt = createController({
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          return { exitCode: 0, stdout: "{not-json", stderr: "" };
+        }
+        return { exitCode: 0, stdout: `${JSON.stringify(worktreeCliPayload())}\n`, stderr: "" };
+      }
+    });
+    const p3 = await corrupt.previewWorktrees();
+    expect(p3.ok).toBe(true);
+    if (!p3.ok) return;
+    const f3 = await corrupt.applyWorktree({
+      reviewId: p3.reviewId,
+      candidateId: p3.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    expect(f3.ok).toBe(false);
+    if (f3.ok) return;
+    expect(f3.issue.code).toBe("maintenance.applied_unverified");
+    expect(f3.job?.status).toBe("applied_unverified");
+    expect(f3.issues?.some((i) => i.code === "maintenance.cli_invalid")).toBe(true);
+    const re3 = await corrupt.applyWorktree({
+      reviewId: p3.reviewId,
+      candidateId: p3.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    expect(re3.ok).toBe(false);
+    if (re3.ok) return;
+    expect(re3.issue.code).toBe("maintenance.review_missing");
+
+    // Pre-mutation validation must NOT consume (candidate blocked / review missing stays reusable policy).
+    const pre = createController({
+      runPipeline: async () => ({
+        exitCode: 0,
+        stdout: `${JSON.stringify(worktreeCliPayload())}\n`,
+        stderr: ""
+      })
+    });
+    const p4 = await pre.previewWorktrees();
+    expect(p4.ok).toBe(true);
+    if (!p4.ok) return;
+    const blockedId = p4.blocked[0]?.candidateId;
+    expect(blockedId).toBeTruthy();
+    const blocked = await pre.applyWorktree({
+      reviewId: p4.reviewId,
+      candidateId: blockedId!,
+      confirmed: true
+    });
+    expect(blocked.ok).toBe(false);
+    if (blocked.ok) return;
+    expect(blocked.issue.code).toBe("maintenance.candidate_blocked");
+    // Same review still present for a valid candidate after pre-mutation reject.
+    const still = await pre.applyWorktree({
+      reviewId: p4.reviewId,
+      candidateId: p4.candidates[0]!.candidateId,
+      confirmed: true
+    });
+    // apply may succeed or fail on CLI, but must not be review_missing
+    if (!still.ok) {
+      expect(still.issue.code).not.toBe("maintenance.review_missing");
+    }
+  });
+
+  it("MEDIUM: review-held durable launcher_config_path is required; no apply-path fallback / borrow", async () => {
+    const digest = "d".repeat(64);
+    const held = "/durable/projects/demo/project.yaml";
+    const other = "/durable/projects/other/project.yaml";
+
+    // Missing preview launcher_config_path → no review issued (preview fails closed).
+    let applyCalled = false;
+    const missing = createController({
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          applyCalled = true;
+          throw new Error("apply must not run without review launcher_config_path");
+        }
+        return {
+          exitCode: 0,
+          stdout: `${JSON.stringify(finalizeCliPayload({
+            plan_digest: digest,
+            launcher_config_path: null
+          }))}\n`,
+          stderr: ""
+        };
+      }
+    });
+    const project = {
+      id: "p1",
+      name: "デモ",
+      configPath: "/worktree/projects/demo/project.yaml",
+      readOnly: false,
+      valid: true,
+      runId: "demo-run",
+      revision: "a".repeat(64),
+      status: "completed",
+      identityKey: "1:1"
+    };
+    const prevMissing = await missing.previewFinalize(project, {
+      expectedRunId: project.runId,
+      revision: project.revision,
+      completionDeclared: true
+    });
+    expect(prevMissing.ok).toBe(false);
+    if (prevMissing.ok) return;
+    expect(prevMissing.issue.code).toBe("maintenance.launcher_config_required");
+    expect(applyCalled).toBe(false);
+
+    // Apply reports a different durable config → cannot borrow other finalized state.
+    const borrow = createController({
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(finalizeCliPayload({
+              applied: true,
+              plan_digest: digest,
+              promoted_to_launcher_home: true,
+              launcher_config_path: other,
+              completion_record: "dist/demo-run/completion-record.json",
+              deleted_files: 1
+            }))}\n`,
+            stderr: ""
+          };
+        }
+        const configIdx = args.indexOf("--config");
+        const config = configIdx >= 0 ? args[configIdx + 1] : "";
+        if (config === other) {
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(finalizeCliPayload({
+              plan_digest: digest,
+              already_finalized: true,
+              launcher_config_path: other,
+              completion_record: "dist/other/completion-record.json",
+              media_files: ["dist/other/final.mp4"],
+              retained_media: ["dist/other/final.mp4"],
+              planned_bytes: 0
+            }))}\n`,
+            stderr: ""
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `${JSON.stringify(finalizeCliPayload({
+            plan_digest: digest,
+            launcher_config_path: held,
+            already_finalized: false
+          }))}\n`,
+          stderr: ""
+        };
+      }
+    });
+    const prevBorrow = await borrow.previewFinalize(project, {
+      expectedRunId: project.runId,
+      revision: project.revision,
+      completionDeclared: true
+    });
+    expect(prevBorrow.ok).toBe(true);
+    if (!prevBorrow.ok) return;
+    const failBorrow = await borrow.applyFinalize(project, {
+      reviewId: prevBorrow.reviewId,
+      planDigest: prevBorrow.planDigest,
+      confirmed: true
+    });
+    expect(failBorrow.ok).toBe(false);
+    if (failBorrow.ok) return;
+    expect(failBorrow.issue.code).toBe("maintenance.applied_unverified");
+    expect(failBorrow.job?.sideEffectConfirmed).toBe(true);
+    // Same review cannot re-apply.
+    const reBorrow = await borrow.applyFinalize(project, {
+      reviewId: prevBorrow.reviewId,
+      planDigest: prevBorrow.planDigest,
+      confirmed: true
+    });
+    expect(reBorrow.ok).toBe(false);
+    if (reBorrow.ok) return;
+    expect(reBorrow.issue.code).toBe("maintenance.review_missing");
+
+    // Apply-only durable path without review-held path is rejected (no fallback).
+    let applyOnlyCalled = false;
+    const applyOnlyForced = createController({
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          applyOnlyCalled = true;
+          throw new Error("must not apply without review-held durable path");
+        }
+        const payload = finalizeCliPayload({ plan_digest: digest, already_finalized: false });
+        delete (payload as { launcher_config_path?: unknown }).launcher_config_path;
+        return {
+          exitCode: 0,
+          stdout: `${JSON.stringify(payload)}\n`,
+          stderr: ""
+        };
+      }
+    });
+    const prevApplyOnly = await applyOnlyForced.previewFinalize(project, {
+      expectedRunId: project.runId,
+      revision: project.revision,
+      completionDeclared: true
+    });
+    expect(prevApplyOnly.ok).toBe(false);
+    if (prevApplyOnly.ok) return;
+    expect(prevApplyOnly.issue.code).toBe("maintenance.launcher_config_required");
+    expect(applyOnlyCalled).toBe(false);
+  });
+});
+
+describe("launcher maintenance fourth-review TDD fixes", () => {
+  const completedProject = {
+    id: "p1",
+    name: "デモ",
+    configPath: "/worktree/projects/demo/project.yaml",
+    readOnly: false,
+    valid: true,
+    runId: "demo-run",
+    revision: "a".repeat(64),
+    status: "completed",
+    identityKey: "1:1"
+  } as const;
+
+  it("MEDIUM: previewFinalize rejects invalid launcher_config_path without issuing review", async () => {
+    const digest = "d".repeat(64);
+    const fixture = await createCompletedProjectFixture();
+    const config = join(fixture.projectDir, "project.yaml");
+    const outside = join(fixture.root, "outside.yaml");
+    await writeFile(outside, "x: 1\n");
+
+    const cases: Array<{ label: string; path: string | null; code: string }> = [
+      { label: "relative", path: "relative/project.yaml", code: "maintenance.post_verify_failed" },
+      { label: "missing", path: join(fixture.projectsDir, "no-such-project.yaml"), code: "maintenance.post_verify_failed" },
+      { label: "outside-home", path: outside, code: "maintenance.post_verify_failed" },
+      { label: "null", path: null, code: "maintenance.launcher_config_required" }
+    ];
+
+    for (const item of cases) {
+      const controller = createController({
+        durableProjectsHome: fixture.projectsDir,
+        resolveLauncherConfigPath: undefined,
+        runPipeline: async () => ({
+          exitCode: 0,
+          stdout: `${JSON.stringify(finalizeCliPayload({
+            plan_digest: digest,
+            launcher_config_path: item.path
+          }))}\n`,
+          stderr: ""
+        })
+      });
+      const preview = await controller.previewFinalize(completedProject, {
+        expectedRunId: completedProject.runId,
+        revision: completedProject.revision,
+        completionDeclared: true
+      });
+      expect(preview.ok, item.label).toBe(false);
+      if (preview.ok) return;
+      expect(preview.issue.code, item.label).toBe(item.code);
+      // No reviewId means apply cannot proceed.
+      expect("reviewId" in preview && (preview as { reviewId?: string }).reviewId).toBeFalsy();
+    }
+
+    // Symlink escape: config is a symlink even under home → refuse review.
+    const { symlink } = await import("node:fs/promises");
+    const linkPath = join(fixture.projectsDir, "link-escape.yaml");
+    try {
+      await symlink(config, linkPath);
+    } catch {
+      return; // environments without symlink support skip this branch
+    }
+    const symlinkController = createController({
+      durableProjectsHome: fixture.projectsDir,
+      resolveLauncherConfigPath: undefined,
+      runPipeline: async () => ({
+        exitCode: 0,
+        stdout: `${JSON.stringify(finalizeCliPayload({
+          plan_digest: digest,
+          launcher_config_path: linkPath
+        }))}\n`,
+        stderr: ""
+      })
+    });
+    const symlinkPreview = await symlinkController.previewFinalize(completedProject, {
+      expectedRunId: completedProject.runId,
+      revision: completedProject.revision,
+      completionDeclared: true
+    });
+    expect(symlinkPreview.ok).toBe(false);
+    if (symlinkPreview.ok) return;
+    expect(symlinkPreview.issue.code).toBe("maintenance.post_verify_failed");
+
+    // Valid home-contained regular file issues review that stores resolved real path.
+    const valid = createController({
+      durableProjectsHome: fixture.projectsDir,
+      resolveLauncherConfigPath: undefined,
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(finalizeCliPayload({
+              applied: true,
+              plan_digest: digest,
+              launcher_config_path: config,
+              completion_record: "dist/demo-run/completion-record.json",
+              deleted_files: 1
+            }))}\n`,
+            stderr: ""
+          };
+        }
+        const configIdx = args.indexOf("--config");
+        const cfg = configIdx >= 0 ? args[configIdx + 1] : "";
+        if (cfg && cfg !== completedProject.configPath) {
+          // post-verify uses resolved durable path
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(finalizeCliPayload({
+              plan_digest: digest,
+              already_finalized: true,
+              launcher_config_path: config,
+              completion_record: "dist/demo-run/completion-record.json",
+              media_files: ["dist/demo-run/final.mp4"],
+              retained_media: ["dist/demo-run/final.mp4"],
+              planned_bytes: 0
+            }))}\n`,
+            stderr: ""
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `${JSON.stringify(finalizeCliPayload({
+            plan_digest: digest,
+            launcher_config_path: config,
+            already_finalized: false
+          }))}\n`,
+          stderr: ""
+        };
+      }
+    });
+    const okPreview = await valid.previewFinalize(completedProject, {
+      expectedRunId: completedProject.runId,
+      revision: completedProject.revision,
+      completionDeclared: true
+    });
+    expect(okPreview.ok).toBe(true);
+    if (!okPreview.ok) return;
+    const applied = await valid.applyFinalize(completedProject, {
+      reviewId: okPreview.reviewId,
+      planDigest: okPreview.planDigest,
+      confirmed: true
+    });
+    expect(applied.ok).toBe(true);
+  });
+
+  it("MEDIUM: apply re-resolves review-held path before mutation; swap keeps review", async () => {
+    const digest = "d".repeat(64);
+    const cliPath = "/durable/projects/demo/project.yaml";
+    const canonical = "/canonical/home/demo/project.yaml";
+    let resolvePhase: "preview" | "pre-apply" | "post" = "preview";
+    let applyArgvCount = 0;
+    const controller = createController({
+      resolveLauncherConfigPath: async (path) => {
+        if (resolvePhase === "preview") {
+          // CLI path accepted and canonicalized into review.
+          if (path === cliPath) return { ok: true, path: canonical };
+          return { ok: false, issue: MAINTENANCE_ISSUE.postVerifyFailed };
+        }
+        if (resolvePhase === "pre-apply") {
+          // Path swap / disappearance after preview.
+          return { ok: false, issue: MAINTENANCE_ISSUE.postVerifyFailed };
+        }
+        // post phase unused when pre-apply fails
+        return path === canonical
+          ? { ok: true, path: canonical }
+          : { ok: false, issue: MAINTENANCE_ISSUE.postVerifyFailed };
+      },
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          applyArgvCount += 1;
+          throw new Error("finalize --apply must not run after pre-mutation resolve failure");
+        }
+        return {
+          exitCode: 0,
+          stdout: `${JSON.stringify(finalizeCliPayload({
+            plan_digest: digest,
+            launcher_config_path: cliPath,
+            already_finalized: false
+          }))}\n`,
+          stderr: ""
+        };
+      }
+    });
+
+    const preview = await controller.previewFinalize(completedProject, {
+      expectedRunId: completedProject.runId,
+      revision: completedProject.revision,
+      completionDeclared: true
+    });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+
+    resolvePhase = "pre-apply";
+    const failed = await controller.applyFinalize(completedProject, {
+      reviewId: preview.reviewId,
+      planDigest: preview.planDigest,
+      confirmed: true
+    });
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    expect(failed.issue.code).toBe("maintenance.post_verify_failed");
+    expect(applyArgvCount).toBe(0);
+    // Review kept (pre-mutation) — same reviewId still present, not review_missing.
+    expect(failed.job?.sideEffectConfirmed).not.toBe(true);
+
+    // Retry with still-failing resolve: must remain not review_missing (review reusable).
+    const retrySame = await controller.applyFinalize(completedProject, {
+      reviewId: preview.reviewId,
+      planDigest: preview.planDigest,
+      confirmed: true
+    });
+    expect(retrySame.ok).toBe(false);
+    if (retrySame.ok) return;
+    expect(retrySame.issue.code).not.toBe("maintenance.review_missing");
+    expect(applyArgvCount).toBe(0);
+  });
+
+  it("LOW: post-verify throw after sideEffectConfirmed yields applied_unverified (worktree+finalize)", async () => {
+    // Worktree: exact remove confirmed, post list empty, then inspect throws.
+    let wtPreviewCalls = 0;
+    const wt = createController({
+      inspectRemovedPath: async () => {
+        throw new Error("inspect boom after mutation");
+      },
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(worktreeCliPayload({
+              applied: true,
+              removed: ["/repo-worktrees/clean-merged"]
+            }))}\n`,
+            stderr: ""
+          };
+        }
+        wtPreviewCalls += 1;
+        // preview + revalidate keep candidate; post-verify list is empty.
+        if (wtPreviewCalls <= 2) {
+          return { exitCode: 0, stdout: `${JSON.stringify(worktreeCliPayload())}\n`, stderr: "" };
+        }
+        return {
+          exitCode: 0,
+          stdout: `${JSON.stringify(worktreeCliPayload({ worktrees: [] }))}\n`,
+          stderr: ""
+        };
+      }
+    });
+    const pWt = await wt.previewWorktrees();
+    expect(pWt.ok).toBe(true);
+    if (!pWt.ok) return;
+    const candidate = pWt.candidates[0];
+    expect(candidate).toBeTruthy();
+    const wtFail = await wt.applyWorktree({
+      reviewId: pWt.reviewId,
+      candidateId: candidate!.candidateId,
+      confirmed: true
+    });
+    expect(wtFail.ok).toBe(false);
+    if (wtFail.ok) return;
+    // Current bug: catch maps to failed/internal after side effects.
+    expect(wtFail.issue.code).toBe("maintenance.applied_unverified");
+    expect(wtFail.job?.status).toBe("applied_unverified");
+    expect(wtFail.job?.sideEffectConfirmed).toBe(true);
+    const wtRe = await wt.applyWorktree({
+      reviewId: pWt.reviewId,
+      candidateId: candidate!.candidateId,
+      confirmed: true
+    });
+    expect(wtRe.ok).toBe(false);
+    if (wtRe.ok) return;
+    expect(wtRe.issue.code).toBe("maintenance.review_missing");
+
+    // Finalize: post-verify pipeline throws after mutation.
+    const digest = "d".repeat(64);
+    const held = "/durable/projects/demo/project.yaml";
+    let finCalls = 0;
+    const fin = createController({
+      runPipeline: async (args) => {
+        if (args.includes("--apply")) {
+          return {
+            exitCode: 0,
+            stdout: `${JSON.stringify(finalizeCliPayload({
+              applied: true,
+              plan_digest: digest,
+              launcher_config_path: held,
+              completion_record: "dist/demo-run/completion-record.json",
+              deleted_files: 1
+            }))}\n`,
+            stderr: ""
+          };
+        }
+        finCalls += 1;
+        // preview(1) + revalidate(2) ok; post-verify(3) throws after mutation.
+        if (finCalls >= 3) {
+          throw new Error("post preview boom");
+        }
+        return {
+          exitCode: 0,
+          stdout: `${JSON.stringify(finalizeCliPayload({
+            plan_digest: digest,
+            launcher_config_path: held,
+            already_finalized: false
+          }))}\n`,
+          stderr: ""
+        };
+      }
+    });
+    const pFin = await fin.previewFinalize(completedProject, {
+      expectedRunId: completedProject.runId,
+      revision: completedProject.revision,
+      completionDeclared: true
+    });
+    expect(pFin.ok).toBe(true);
+    if (!pFin.ok) return;
+    const finFail = await fin.applyFinalize(completedProject, {
+      reviewId: pFin.reviewId,
+      planDigest: pFin.planDigest,
+      confirmed: true
+    });
+    expect(finFail.ok).toBe(false);
+    if (finFail.ok) return;
+    expect(finFail.issue.code).toBe("maintenance.applied_unverified");
+    expect(finFail.job?.status).toBe("applied_unverified");
+    expect(finFail.job?.sideEffectConfirmed).toBe(true);
+    const finRe = await fin.applyFinalize(completedProject, {
+      reviewId: pFin.reviewId,
+      planDigest: pFin.planDigest,
+      confirmed: true
+    });
+    expect(finRe.ok).toBe(false);
+    if (finRe.ok) return;
+    expect(finRe.issue.code).toBe("maintenance.review_missing");
+  });
+
+  it("LOW/UX: symlink active shelf stays writable via realpath; other shelves readOnly; realpath fail → readOnly", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-shelf-"));
+    const realHome = join(root, "real-home");
+    const linkHome = join(root, "link-home");
+    const otherHome = join(root, "other-home");
+    await mkdir(realHome, { recursive: true });
+    await mkdir(otherHome, { recursive: true });
+    const { symlink } = await import("node:fs/promises");
+    try {
+      await symlink(realHome, linkHome);
+    } catch {
+      return; // skip when symlink unavailable
+    }
+    const activeReal = await import("node:fs/promises").then((fs) => fs.realpath(realHome));
+
+    const shelves = await canonicalizeLauncherShelfWritability([
+      { path: linkHome, readOnly: false },
+      { path: otherHome, readOnly: false },
+      { path: join(root, "missing-shelf"), readOnly: false }
+    ], activeReal);
+
+    const linkShelf = shelves.find((s) => s.path === resolve(linkHome));
+    const otherShelf = shelves.find((s) => s.path === resolve(otherHome));
+    const missingShelf = shelves.find((s) => s.path === resolve(join(root, "missing-shelf")));
+    expect(linkShelf?.readOnly).toBe(false);
+    expect(otherShelf?.readOnly).toBe(true);
+    // realpath fail-closed → readOnly (must not grant write)
+    expect(missingShelf?.readOnly).toBe(true);
+
+    // Non-active must never become writable even if previously marked writable.
+    expect(shelves.filter((s) => !s.readOnly)).toHaveLength(1);
   });
 });

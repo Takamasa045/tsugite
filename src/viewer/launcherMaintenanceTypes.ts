@@ -218,7 +218,10 @@ export type FinalizeReviewSnapshot = {
   launcherVisible: boolean;
   launcherAlreadyHome: boolean;
   promotedToLauncherHome: boolean;
-  /** Server-held durable config from preview CLI when already under home (optional). */
+  /**
+   * Server-held durable launcher config from preview CLI (home-contained canonical path).
+   * Required before apply; apply report must match exactly (no apply-path fallback).
+   */
   launcherConfigPath?: string | null;
 };
 
@@ -346,6 +349,11 @@ export const MAINTENANCE_ISSUE = {
     message:
       "Cleanup ran, but confirmation did not finish. Do not re-apply. Re-fetch preview only."
   },
+  launcherConfigRequired: {
+    code: "maintenance.launcher_config_required",
+    message:
+      "Preview did not capture a durable launcher config path under the active home. Re-run preview."
+  },
   confirmedRequired: {
     code: "maintenance.confirmed_required",
     message: "Explicit confirmed:true is required to apply cleanup"
@@ -394,6 +402,7 @@ export function statusForMaintenanceIssue(code: string): number {
     || code === MAINTENANCE_ISSUE.postVerifyFailed.code
     || code === MAINTENANCE_ISSUE.worktreeRemoveUnconfirmed.code
     || code === MAINTENANCE_ISSUE.worktreePathInspectFailed.code
+    || code === MAINTENANCE_ISSUE.launcherConfigRequired.code
     || code === "maintenance.project_invalid"
     || code === "maintenance.completion_record_missing"
     || code === "maintenance.worktree_apply_failed"

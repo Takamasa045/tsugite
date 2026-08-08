@@ -81,6 +81,7 @@ import {
   createLauncherMaintenanceController,
   createMaintenancePipelineRunner,
   maintenanceIdentityFingerprint,
+  maintenancePathsEqual,
   resolveMaintenanceDurableHome,
   type LauncherMaintenanceController,
   type MaintenanceProjectLookup
@@ -707,10 +708,45 @@ type LauncherProjectRecord = {
   public: LauncherProject;
 };
 
-type LauncherProjectDirectory = {
+export type LauncherProjectDirectory = {
   path: string;
   readOnly: boolean;
 };
+
+/**
+ * After the active writable maintenance home is fixed, only that shelf stays
+ * writable. Default / additional / other-worktree shelves become readOnly so
+ * foreign projects cannot promote or finalize into a different home.
+ *
+ * Comparison uses realpath when available so a symlink shelf that points at the
+ * active home stays writable. realpath failure is fail-closed (readOnly).
+ * Never promotes a non-active shelf to writable.
+ */
+export async function canonicalizeLauncherShelfWritability(
+  directories: readonly LauncherProjectDirectory[],
+  activeMaintenanceHome: string
+): Promise<LauncherProjectDirectory[]> {
+  const activeCanonical = await tryRealpathForShelfCompare(activeMaintenanceHome);
+  const out: LauncherProjectDirectory[] = [];
+  for (const directory of directories) {
+    const path = resolve(directory.path);
+    const shelfCanonical = await tryRealpathForShelfCompare(path);
+    const writable = activeCanonical !== null
+      && shelfCanonical !== null
+      && maintenancePathsEqual(shelfCanonical, activeCanonical);
+    out.push({ path, readOnly: !writable });
+  }
+  return out;
+}
+
+/** Fail-closed realpath for shelf writability compare (not exported). */
+async function tryRealpathForShelfCompare(path: string): Promise<string | null> {
+  try {
+    return await realpath(resolve(path));
+  } catch {
+    return null;
+  }
+}
 
 type LauncherProjectIdentity = {
   realProjectDir: string;
@@ -806,7 +842,7 @@ export async function startWorkflowViewerLauncher(
     throw new Error("Viewer launcher port must be an integer between 0 and 65535");
   }
 
-  const projectDirectories = await discoverLauncherProjectDirectories(
+  const discoveredProjectDirectories = await discoverLauncherProjectDirectories(
     options.projectsDir,
     options.additionalProjectsDirs,
     options.linkProjectShelves ?? true
@@ -842,6 +878,11 @@ export async function startWorkflowViewerLauncher(
     projectsDir: options.projectsDir,
     cwd: TSUGITE_ROOT
   });
+  // Only the active maintenance home shelf is writable; all other shelves are readOnly.
+  const projectDirectories = await canonicalizeLauncherShelfWritability(
+    discoveredProjectDirectories,
+    maintenanceProjectsHome
+  );
   const maintenanceEnv: NodeJS.ProcessEnv = {
     ...process.env,
     TSUGITE_PROJECTS_HOME: maintenanceProjectsHome
