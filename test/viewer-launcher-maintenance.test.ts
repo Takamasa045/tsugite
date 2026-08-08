@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -1135,6 +1135,8 @@ describe("launcher maintenance controller (unit)", () => {
   });
 
   it("parses real pipeline worktrees --json via bounded maintenance runner", async () => {
+    // CI may have few worktrees (~1.5KiB); size lower-bound is covered by the synthetic test below.
+    // This integration check is size-independent: exit0, within cap, parseable preview, path secrecy.
     const runner = createMaintenancePipelineRunner({
       pipelineEntry: PIPELINE_ENTRY,
       cwd: REPO_ROOT,
@@ -1142,8 +1144,8 @@ describe("launcher maintenance controller (unit)", () => {
     });
     const raw = await runner(["worktrees", "--json"]);
     expect(raw.exitCode).toBe(0);
+    expect(raw.truncated).not.toBe(true);
     expect(Buffer.byteLength(raw.stdout, "utf8")).toBeLessThanOrEqual(CLI_JSON_MAX_BYTES);
-    expect(Buffer.byteLength(raw.stdout, "utf8")).toBeGreaterThan(16 * 1024);
     const controller = createController({ runPipeline: runner });
     const preview = await controller.previewWorktrees();
     expect(preview.ok).toBe(true);
@@ -1152,6 +1154,84 @@ describe("launcher maintenance controller (unit)", () => {
     expect(preview.candidates.length + preview.blocked.length).toBeGreaterThan(0);
     expect(JSON.stringify(preview)).not.toMatch(/\/Users\//);
   }, 120_000);
+
+  it("parses deterministic >16KiB worktree CLI JSON without truncation via maintenance runner", async () => {
+    // Production need: runner accepts valid worktrees JSON above the old 16KiB job cap,
+    // within CLI_JSON_MAX_BYTES, without typed truncation. Repo worktree count is not the signal.
+    const dir = await mkdtemp(join(tmpdir(), "tsugite-maint-large-wt-"));
+    try {
+      const primary = (worktreeCliPayload().worktrees as Array<Record<string, unknown>>)[0]!;
+      const syntheticTrees: Array<Record<string, unknown>> = [primary];
+      for (let i = 0; i < 40; i += 1) {
+        syntheticTrees.push({
+          path: `/repo-worktrees/synthetic-${i}-${"x".repeat(200)}`,
+          is_primary: false,
+          is_current: false,
+          branch: `codex/synthetic-${i}`,
+          head: "b".repeat(40),
+          merged_into_main: true,
+          dirty_tracked: false,
+          dirty_untracked: false,
+          locked: false,
+          missing: false,
+          removable: true,
+          block_reasons: [],
+          ignored_protected: [],
+          ignored_other: [`pad-${"y".repeat(120)}`],
+          status_entries: []
+        });
+      }
+      const payload = worktreeCliPayload({
+        worktrees: syntheticTrees,
+        worktree_warning: {
+          active: true,
+          threshold: 3,
+          removable_count: 40,
+          removable_paths: syntheticTrees
+            .slice(1, 4)
+            .map((entry) => entry.path as string)
+        }
+      });
+      const stdoutBody = `${JSON.stringify(payload)}\n`;
+      const payloadBytes = Buffer.byteLength(stdoutBody, "utf8");
+      expect(payloadBytes).toBeGreaterThan(16 * 1024);
+      expect(payloadBytes).toBeLessThan(CLI_JSON_MAX_BYTES);
+
+      const entry = join(dir, "synthetic-worktrees-pipeline.mjs");
+      await writeFile(
+        entry,
+        [
+          "// Deterministic fixture: emit fixed large worktrees --json (no real git).",
+          `const payload = ${JSON.stringify(payload)};`,
+          'process.stdout.write(JSON.stringify(payload) + "\\n");'
+        ].join("\n"),
+        "utf8"
+      );
+
+      const runner = createMaintenancePipelineRunner({
+        pipelineEntry: entry,
+        cwd: dir,
+        maxBytes: CLI_JSON_MAX_BYTES
+      });
+      const raw = await runner(["worktrees", "--json"]);
+      expect(raw.exitCode).toBe(0);
+      expect(raw.truncated).not.toBe(true);
+      const capturedBytes = Buffer.byteLength(raw.stdout, "utf8");
+      expect(capturedBytes).toBeGreaterThan(16 * 1024);
+      expect(capturedBytes).toBeLessThanOrEqual(CLI_JSON_MAX_BYTES);
+      expect(capturedBytes).toBe(payloadBytes);
+
+      const controller = createController({ runPipeline: runner });
+      const preview = await controller.previewWorktrees();
+      expect(preview.ok).toBe(true);
+      if (!preview.ok) return;
+      expect(preview.reviewId).toMatch(/^wtr_/);
+      expect(preview.candidates.length).toBeGreaterThan(0);
+      expect(JSON.stringify(preview)).not.toMatch(/\/Users\//);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("surfaces CLI refuse issues on worktree apply without force tokens", async () => {
     const controller = createController({
