@@ -10,6 +10,7 @@ import './styles/globals.css'
 import './styles/launcher-yakisugi.css'
 import './styles/expression-shelf.css'
 import './styles/generation-canvas.css'
+import './styles/maintenance.css'
 
 const root = document.getElementById('root')
 const launcherMode = document.querySelector('meta[name="tsugite-launcher"]') !== null

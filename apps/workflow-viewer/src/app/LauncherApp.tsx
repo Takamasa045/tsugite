@@ -10,6 +10,7 @@ import {
   Search,
   Sparkles,
   Sun,
+  Trash2,
   Users,
   Workflow,
 } from 'lucide-react'
@@ -49,6 +50,7 @@ import {
   type TemplateLoadState,
   type TemplateWizardState,
 } from '../components/template/templateShelfModel'
+import { MaintenanceShelf } from '../components/maintenance/MaintenanceShelf'
 import { DesktopWorkspaceRecovery } from '../components/workspace/DesktopWorkspaceRecovery'
 
 export type { LauncherTemplate }
@@ -171,7 +173,7 @@ interface LauncherAppProps {
   token?: string
 }
 
-type Shelf = 'projects' | 'templates' | 'expressions' | 'characters' | 'canvas' | 'feedback'
+type Shelf = 'projects' | 'templates' | 'expressions' | 'characters' | 'canvas' | 'feedback' | 'maintenance'
 type LauncherTheme = 'light' | 'dark'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
@@ -332,7 +334,7 @@ function feedbackCardProposalLabel(preference: FeedbackPreference): string {
 }
 
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
-const SHELVES: Shelf[] = ['projects', 'templates', 'expressions', 'characters', 'canvas', 'feedback']
+const SHELVES: Shelf[] = ['projects', 'templates', 'expressions', 'characters', 'canvas', 'feedback', 'maintenance']
 const THEME_STORAGE_KEY = 'tsugite-launcher-theme'
 
 function initialLauncherTheme(): LauncherTheme {
@@ -1274,7 +1276,7 @@ export function LauncherApp({
     )
   }
 
-  const compactHero = activeShelf !== 'projects'
+  const compactHero = activeShelf !== 'projects' // maintenance uses compact hero too
 
   return (
     <main className="launcher-shell" data-theme={theme} data-shelf={activeShelf}>
@@ -1369,6 +1371,18 @@ export function LauncherApp({
                 </span>
               )}
             </button>
+            <button
+              aria-controls="launcher-maintenance-panel"
+              aria-selected={activeShelf === 'maintenance'}
+              id="launcher-maintenance-tab"
+              onClick={() => selectShelf('maintenance')}
+              onKeyDown={(event) => handleShelfKeyDown(event, 'maintenance')}
+              role="tab"
+              tabIndex={activeShelf === 'maintenance' ? 0 : -1}
+              type="button"
+            >
+              <Trash2 aria-hidden="true" size={17} />安全な整理
+            </button>
             </div>
             <div aria-label="テーマを選ぶ" className="launcher-theme-switch" role="group">
               <button
@@ -1428,6 +1442,7 @@ export function LauncherApp({
                 characters: 'キャラクター',
                 canvas: '生成キャンバス',
                 feedback: '好み・学び',
+                maintenance: '安全な整理',
               }[activeShelf]}</strong>
             </div>
             <p>{{
@@ -1437,13 +1452,14 @@ export function LauncherApp({
               characters: 'キャラを確認し、依頼メモをコピーします',
               canvas: '画像・動画の工程をつないで設計します',
               feedback: '制作から育った知見を確認できます',
+              maintenance: '作業場所と完成メディアを、別々の確認つきで整理します',
             }[activeShelf]}</p>
           </div>
         )}
       </section>
 
       {/* テンプレート棚・表現棚は専用UIに一本化（ここでの3段階は出さない） */}
-      {activeShelf !== 'templates' && activeShelf !== 'expressions' && (
+      {activeShelf !== 'templates' && activeShelf !== 'expressions' && activeShelf !== 'maintenance' && (
       <ol aria-label="見取図を開く手順" className="launcher-joinery">
         {activeShelf === 'projects' ? (
           <>
@@ -1869,6 +1885,20 @@ export function LauncherApp({
           onProjectSelect={setSelectedId}
           projects={projects}
           selectedProjectId={selectedId}
+        />
+      ) : activeShelf === 'maintenance' ? (
+        <MaintenanceShelf
+          fetcher={fetcher}
+          projects={projects.map((project) => ({
+            id: project.id,
+            name: project.name,
+            runId: project.runId,
+            revision: project.revision,
+            status: project.status,
+            readOnly: project.readOnly,
+            valid: project.valid,
+          }))}
+          token={token}
         />
       ) : (
         <section aria-labelledby="launcher-feedback-tab" className="launcher-feedback-panel" id="launcher-feedback-panel" role="tabpanel">

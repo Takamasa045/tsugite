@@ -1113,6 +1113,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       applied: finalized.applied,
       canonical_output: finalized.canonicalOutput,
       completion_record: finalized.recordPath,
+      already_finalized: finalized.alreadyFinalized === true,
       media_files: finalized.mediaFiles,
       retained_media: finalized.retainedMedia,
       planned_bytes: finalized.plannedBytes,
@@ -2591,5 +2592,52 @@ function formatHuman(payload: unknown): string {
 
 if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
   const status = await main();
+  // Large JSON over pipes can exceed the ~64KiB kernel buffer; process.exit()
+  // must wait for stdout/stderr to drain or parents only see truncated output.
+  await drainStdio();
   process.exit(status);
+}
+
+/**
+ * Wait for stdout/stderr to flush (or timeout) before process.exit.
+ * Only waits when the stream already needs a drain (large JSON over a full
+ * pipe). Avoid empty writes — they can keep the process alive long enough for
+ * late Node warnings to append after the JSON body on stderr.
+ */
+export async function drainStdio(options: {
+  timeoutMs?: number;
+  stdout?: NodeJS.WriteStream;
+  stderr?: NodeJS.WriteStream;
+} = {}): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const drain = (stream: NodeJS.WriteStream): Promise<void> => new Promise((resolveDrain) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveDrain();
+    };
+    const timer = setTimeout(done, Math.max(1, timeoutMs));
+    try {
+      if (stream.destroyed || stream.writableEnded) {
+        done();
+        return;
+      }
+      if (stream.writableNeedDrain) {
+        stream.once("drain", done);
+        stream.once("error", done);
+        stream.once("close", done);
+        return;
+      }
+      // Already drained: resolve immediately (do not write("") — pollutes stderr/stdout tests).
+      done();
+    } catch {
+      done();
+    }
+  });
+  await Promise.all([
+    drain(options.stdout ?? process.stdout),
+    drain(options.stderr ?? process.stderr)
+  ]);
 }

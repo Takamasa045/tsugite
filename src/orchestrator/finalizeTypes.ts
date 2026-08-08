@@ -68,6 +68,12 @@ export type FinalizeCompletedProjectResult = {
   applied: boolean;
   canonicalOutput?: string;
   recordPath?: string;
+  /**
+   * True only when the completion record exists as a regular file, no deletion
+   * candidates remain, and the project is already under durable launcher home.
+   * Path presence alone is not enough — preview always reports the record path.
+   */
+  alreadyFinalized?: boolean;
   mediaFiles: string[];
   retainedMedia: string[];
   plannedBytes: number;

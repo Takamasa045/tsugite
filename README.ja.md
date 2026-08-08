@@ -235,6 +235,21 @@ node bin/pipeline worktrees --json
 node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
 ```
 
+### ランチャーの「安全な整理」棚
+
+Viewer ランチャーには **安全な整理** 棚があります。Git worktree 整理と完成案件の media finalize は **別パネル・別 preview・別確認ダイアログ・別 apply** です。一括削除は提供しません。
+
+共通フローは次です。
+
+`Preview → Review → Explicit Apply → Revalidate → Record`
+
+- **Git 作業場所**: 読み取り専用 preview のあと、削除可能候補を 1 件だけ選び、確認ダイアログで「この作業場所だけを削除」します。ブラウザは path を送らず、サーバーが保持する短命な `reviewId` / `candidateId` だけを使います。apply 前に live preview で path / HEAD / branch / common-dir / removable を再照合し、canonical CLI `worktrees --apply --actor coordinator --path <server-held-path>` を argv 配列で呼びます。`--force`・branch 削除・stash / rebase / reset / `git clean` は使いません。
+- **完成作品のメディア**: 変更可能な案件だけを選び、「この案件を完成版として確定し、整理計画を確認する」が明示的な完成宣言です。Gate 3 承認だけでは実行しません。preview の `plan_digest` と正本・保持/削除候補を確認したあと、確認ダイアログで apply します。canonical CLI は `finalize --json` のあと `--apply --actor coordinator --expected-plan-digest <digest>` です。client から config path や `--state-dir` は受けません。
+- apply はランチャー全体で 1 件だけです。実行中は workspace 切替・shutdown の blocking work にも含まれます。
+- 候補 0 件で完成記録がある案件は「整理済み」と表示し、不要な再 apply は出しません。
+
+CLI からの直接操作は従来どおり使えます。ランチャーは安全判定の正本を持たず、既存の `lifecycle` / `finalize` を薄い境界で呼びます。
+
 完成承認時にローカル `main` が別作業中なら、対象worktreeのpath・branch・HEADをrepo-localの統合待ちキューへ固定できます。1つのhost定期タスクから `--reconcile` を呼ぶと、mainがdirtyな間は何も変更せず待機し、クリーンになった時だけ隔離マージ、TypeScript・Vitest検証、双方の再監査、変更されていないlocal mainへのfast-forward、統合済みworktreeの非force削除を順に行います。競合、検証失敗、identity変更、保護対象、primary main以外からの実行はmainを変えず停止します。fetch、push、rebase、stash、reset、`git clean`、branch削除は行いません。
 
 ```sh

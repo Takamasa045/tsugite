@@ -82,6 +82,8 @@ async function startDesktop() {
   logDevelopmentStatus("launcher module loaded");
   launcher = await launcherModule.startWorkflowViewerLauncher({
     projectsDir: workspace.projectsDir,
+    // H1: pin maintenance durable home to the selected workspace (not runtimeRoot).
+    maintenanceProjectsHome: workspace.projectsDir,
     templatesDir: workspace.templatesDir,
     bundledTemplatesDir: paths.bundledTemplatesDir,
     bundleDir: paths.viewerBundleDir,

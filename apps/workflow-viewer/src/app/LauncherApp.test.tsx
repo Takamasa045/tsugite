@@ -853,7 +853,7 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
     const projectsTab = screen.getByRole('tab', { name: '制作作品' })
     const templatesTab = screen.getByRole('tab', { name: 'テンプレート' })
-    const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+    const maintenanceTab = screen.getByRole('tab', { name: '安全な整理' })
 
     projectsTab.focus()
     await user.keyboard('{ArrowRight}')
@@ -862,8 +862,8 @@ describe('LauncherApp', () => {
     expect(projectsTab).toHaveAttribute('tabindex', '-1')
 
     await user.keyboard('{End}')
-    expect(feedbackTab).toHaveFocus()
-    expect(feedbackTab).toHaveAttribute('aria-selected', 'true')
+    expect(maintenanceTab).toHaveFocus()
+    expect(maintenanceTab).toHaveAttribute('aria-selected', 'true')
 
     await user.keyboard('{Home}')
     expect(projectsTab).toHaveFocus()

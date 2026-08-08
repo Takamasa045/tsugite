@@ -406,12 +406,20 @@ export async function finalizeCompletedProject(
     candidates: identities
   });
 
+  // Path is always reported; existence is checked separately so callers do not
+  // treat a planned record path as proof that finalize already completed.
+  const completionRecordExists = await isRegularFile(recordPath);
+  const alreadyFinalized = completionRecordExists
+    && candidates.length === 0
+    && launcherPlan.alreadyHome;
+
   const base = {
     ok: true,
     issues: [],
     applied: options.apply,
     canonicalOutput: toProjectRelative(projectRoot, canonicalOutputPath),
     recordPath: toProjectRelative(projectRoot, recordPath),
+    alreadyFinalized,
     mediaFiles,
     retainedMedia,
     plannedBytes,
@@ -444,7 +452,7 @@ export async function finalizeCompletedProject(
   }
 
   if (!options.apply) return base;
-  return executeFinalizeApply({
+  const appliedResult = await executeFinalizeApply({
     options,
     projectRoot,
     stateDir,
@@ -471,4 +479,26 @@ export async function finalizeCompletedProject(
     revalidatePinnedDirs,
     base
   });
+  if (appliedResult.ok && appliedResult.applied) {
+    // Align with preview: record exists + durable home ready + no remaining candidates.
+    // After a successful mutating apply, candidates were deleted so length>0 pre-list is OK
+    // only when deletedFiles covers them; never mark true while unrestored paths remain.
+    const recordExistsAfter = await isRegularFile(recordPath);
+    const homeReady = appliedResult.launcherAlreadyHome === true
+      || appliedResult.promotedToLauncherHome === true
+      || launcherPlan.alreadyHome;
+    const noRemainingCandidates = (appliedResult.unrestoredPaths?.length ?? 0) === 0
+      && (
+        candidates.length === 0
+        || (appliedResult.deletedFiles ?? 0) >= candidates.length
+      );
+    return {
+      ...appliedResult,
+      alreadyFinalized: recordExistsAfter && homeReady && noRemainingCandidates
+    };
+  }
+  return {
+    ...appliedResult,
+    alreadyFinalized: false
+  };
 }

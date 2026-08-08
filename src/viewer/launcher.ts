@@ -76,6 +76,19 @@ import {
 } from "./referenceCatalog.js";
 import { loadPromptGuideById } from "../adapters/promptKnowledge.js";
 import { runGenerationModelPreflight } from "../adapters/modelPreflight.js";
+import {
+  CLI_JSON_MAX_BYTES,
+  createLauncherMaintenanceController,
+  createMaintenancePipelineRunner,
+  maintenanceIdentityFingerprint,
+  resolveMaintenanceDurableHome,
+  type LauncherMaintenanceController,
+  type MaintenanceProjectLookup
+} from "./launcherMaintenance.js";
+import {
+  MAINTENANCE_ISSUE,
+  statusForMaintenanceIssue
+} from "./launcherMaintenanceTypes.js";
 
 const SAFE_BACKEND_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const DIRECT_COMPLETION_RECORD_NAME = "completion-record.json";
@@ -156,12 +169,24 @@ export type LauncherProcessResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** True when the collector hit its byte cap (typed; do not parse as success JSON). */
+  truncated?: boolean;
+};
+
+/**
+ * Process-runner options. `maxOutputBytes` is always bounded: positive safe integer only.
+ * Maintenance injected calls pass CLI_JSON_MAX_BYTES; unbounded (Infinity / non-integer) is rejected by runners.
+ */
+export type LauncherProcessRunnerOptions = {
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  maxOutputBytes?: number;
 };
 
 export type LauncherProcessRunner = (
   command: string,
   args: readonly string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv }
+  options: LauncherProcessRunnerOptions
 ) => Promise<LauncherProcessResult>;
 
 export type LauncherTemplate = {
@@ -732,6 +757,13 @@ export type StartWorkflowViewerLauncherOptions = {
    * Tests should set false for an isolated projectsDir fixture.
    */
   linkProjectShelves?: boolean;
+  /**
+   * Canonical durable projects home for maintenance CLI (TSUGITE_PROJECTS_HOME).
+   * Desktop must pass the selected workspace.projectsDir so packaged runtimeRoot/cwd
+   * does not resolve a different home. Never set from a readOnly additional shelf.
+   * When omitted, explicit projectsDir is used; otherwise resolveDurableProjectsHome once.
+   */
+  maintenanceProjectsHome?: string;
   templatesDir?: string;
   /** Desktop runtime が配布する読み取り専用テンプレートカタログ。workspace 側を優先する。 */
   bundledTemplatesDir?: string;
@@ -804,6 +836,79 @@ export async function startWorkflowViewerLauncher(
   const loadReferenceCatalogHandler = options.loadReferenceCatalog
     ?? ((catalogId: string) => loadReferenceCatalog(catalogId));
   const allowProjectActions = options.allowProjectActions ?? true;
+  // H1: pin maintenance durable home once to the selected workspace (not readOnly shelves).
+  const maintenanceProjectsHome = await resolveMaintenanceDurableHome({
+    maintenanceProjectsHome: options.maintenanceProjectsHome,
+    projectsDir: options.projectsDir,
+    cwd: TSUGITE_ROOT
+  });
+  const maintenanceEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    TSUGITE_PROJECTS_HOME: maintenanceProjectsHome
+  };
+  // Maintenance CLI JSON can exceed the general job 16KiB cap (~74KiB real previews).
+  // Desktop production injects executePipeline (process-runner default 16KiB); always pass
+  // an explicit bounded maxOutputBytes so real worktrees JSON is not truncated.
+  const maintenancePipelineRunner = options.executePipeline
+    ? async (args: readonly string[]) => {
+      const result = await executePipeline(
+        process.execPath,
+        [PIPELINE_ENTRY, ...args],
+        {
+          cwd: TSUGITE_ROOT,
+          env: maintenanceEnv,
+          maxOutputBytes: CLI_JSON_MAX_BYTES
+        }
+      );
+      return {
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        truncated: result.truncated === true
+          || result.stdout.includes("[output truncated]")
+          || result.stderr.includes("[output truncated]")
+      };
+    }
+    : createMaintenancePipelineRunner({
+      pipelineEntry: PIPELINE_ENTRY,
+      cwd: TSUGITE_ROOT,
+      maxBytes: CLI_JSON_MAX_BYTES,
+      env: maintenanceEnv
+    });
+  const maintenance: LauncherMaintenanceController = createLauncherMaintenanceController({
+    runPipeline: maintenancePipelineRunner,
+    durableProjectsHome: maintenanceProjectsHome,
+    // M6: production always supplies identity revalidation (omit is fail-closed).
+    revalidateProjectIdentity: async (expected) => {
+      await reloadProjects();
+      const record = projects.get(expected.id);
+      if (!record?.identity) return false;
+      if (record.configPath !== expected.configPath) return false;
+      if (record.public.runId !== expected.runId) return false;
+      if (record.public.revision !== expected.revision) return false;
+      if (record.public.status !== expected.status) return false;
+      const liveKey = `${record.identity.configDevice}:${record.identity.configInode}`;
+      if (expected.identityKey && liveKey !== expected.identityKey) return false;
+      if (
+        expected.identityFingerprint
+        && expected.identityFingerprint !== maintenanceIdentityFingerprint({
+          configPath: record.configPath,
+          runId: record.public.runId,
+          revision: record.public.revision,
+          identityKey: liveKey,
+          realConfigPath: record.identity.realConfigPath,
+          realProjectDir: record.identity.realProjectDir,
+          configDevice: record.identity.configDevice,
+          configInode: record.identity.configInode,
+          projectDevice: record.identity.projectDevice,
+          projectInode: record.identity.projectInode
+        })
+      ) {
+        return false;
+      }
+      return matchesProjectIdentity(record.configPath, record.identity);
+    }
+  });
   let launcherOrigin = "";
   let artifactOrigin = "";
 
@@ -914,9 +1019,18 @@ export async function startWorkflowViewerLauncher(
       || /^\/api\/feedback\/[^/]+\/promotion-decision$/.test(requestUrl.pathname)
       || /^\/api\/projects\/[^/]+\/refresh$/.test(requestUrl.pathname)
       || requestUrl.pathname === "/api/characters/use"
+      || requestUrl.pathname === "/api/maintenance/worktrees/apply"
+      || /^\/api\/projects\/[^/]+\/finalize\/apply$/.test(requestUrl.pathname)
+      || requestUrl.pathname === "/api/maintenance/worktrees/preview"
+      || /^\/api\/projects\/[^/]+\/finalize\/preview$/.test(requestUrl.pathname)
     );
     const interruptibleMutation = method === "POST"
       && /^\/api\/projects\/[^/]+\/generate$/.test(requestUrl.pathname);
+    // Maintenance previews need auth but must not hold the blocking mutex.
+    const nonBlockingMutation = method === "POST" && (
+      requestUrl.pathname === "/api/maintenance/worktrees/preview"
+      || /^\/api\/projects\/[^/]+\/finalize\/preview$/.test(requestUrl.pathname)
+    );
     let mutationReserved = false;
     if (mutationRequest) {
       if (
@@ -940,7 +1054,7 @@ export async function startWorkflowViewerLauncher(
         return;
       }
       activeMutations += 1;
-      if (!interruptibleMutation) activeBlockingMutations += 1;
+      if (!interruptibleMutation && !nonBlockingMutation) activeBlockingMutations += 1;
       mutationReserved = true;
     }
 
@@ -949,7 +1063,7 @@ export async function startWorkflowViewerLauncher(
     } finally {
       if (mutationReserved) {
         activeMutations -= 1;
-        if (!interruptibleMutation) activeBlockingMutations -= 1;
+        if (!interruptibleMutation && !nonBlockingMutation) activeBlockingMutations -= 1;
       }
     }
   }
@@ -1765,6 +1879,114 @@ export async function startWorkflowViewerLauncher(
       return;
     }
 
+    // --- 安全な整理 (maintenance): opaque review IDs only; canonical CLI via argv ---
+    if (method === "GET" && requestUrl.pathname === "/api/maintenance/worktrees/preview") {
+      if (!authorizeLauncherToken(request, launcherOrigin, token)) {
+        sendJson(response, 403, { ok: false, issue: MAINTENANCE_ISSUE.forbidden });
+        return;
+      }
+      const result = await maintenance.previewWorktrees();
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
+    if (method === "POST" && requestUrl.pathname === "/api/maintenance/worktrees/preview") {
+      // POST preview is also allowed (same-origin form clients); body ignored.
+      const result = await maintenance.previewWorktrees();
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
+    if (method === "POST" && requestUrl.pathname === "/api/maintenance/worktrees/apply") {
+      let body: unknown;
+      try {
+        body = await readJsonRequest(request, 16 * 1024);
+      } catch {
+        sendJson(response, 400, { ok: false, issue: MAINTENANCE_ISSUE.invalidBody });
+        return;
+      }
+      const result = await maintenance.applyWorktree(body);
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
+    const finalizePreviewMatch = /^\/api\/projects\/([^/]+)\/finalize\/preview$/.exec(requestUrl.pathname);
+    if (method === "POST" && finalizePreviewMatch) {
+      await reloadProjects();
+      const projectId = finalizePreviewMatch[1]!;
+      const record = projects.get(projectId);
+      if (!record?.identity || !record.public.valid) return sendNotFound(response);
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendJson(response, 409, { ok: false, issue: MAINTENANCE_ISSUE.projectMismatch });
+        return;
+      }
+      let body: unknown;
+      try {
+        body = await readJsonRequest(request, 16 * 1024);
+      } catch {
+        sendJson(response, 400, { ok: false, issue: MAINTENANCE_ISSUE.invalidBody });
+        return;
+      }
+      const result = await maintenance.previewFinalize(toMaintenanceProject(record), body);
+      if (!result.ok) {
+        sendJson(response, statusForMaintenanceIssue(result.issue.code), result);
+        return;
+      }
+      // Re-check identity/revision after preview so a swapped project cannot keep the review.
+      await reloadProjects();
+      const fresh = projects.get(projectId);
+      if (
+        !fresh?.identity
+        || fresh.public.revision !== record.public.revision
+        || fresh.configPath !== record.configPath
+        || !await matchesProjectIdentity(fresh.configPath, record.identity)
+        || !await matchesProjectIdentity(fresh.configPath, fresh.identity)
+      ) {
+        // H3: drop orphan review issued before post-check failure.
+        if (result.ok && "reviewId" in result) {
+          maintenance.dropFinalizeReview(result.reviewId);
+        }
+        sendJson(response, 409, { ok: false, issue: MAINTENANCE_ISSUE.projectMismatch });
+        return;
+      }
+      sendJson(response, 200, result);
+      return;
+    }
+
+    const finalizeApplyMatch = /^\/api\/projects\/([^/]+)\/finalize\/apply$/.exec(requestUrl.pathname);
+    if (method === "POST" && finalizeApplyMatch) {
+      await reloadProjects();
+      const projectId = finalizeApplyMatch[1]!;
+      const record = projects.get(projectId);
+      if (!record?.identity || !record.public.valid) return sendNotFound(response);
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendJson(response, 409, { ok: false, issue: MAINTENANCE_ISSUE.projectMismatch });
+        return;
+      }
+      let body: unknown;
+      try {
+        body = await readJsonRequest(request, 16 * 1024);
+      } catch {
+        sendJson(response, 400, { ok: false, issue: MAINTENANCE_ISSUE.invalidBody });
+        return;
+      }
+      // Snapshot is bound to full project identity (configPath + identityKey + revision).
+      const result = await maintenance.applyFinalize(toMaintenanceProject(record), body);
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
+    const maintenanceJobMatch = /^\/api\/maintenance\/jobs\/([^/]+)$/.exec(requestUrl.pathname);
+    if (method === "GET" && maintenanceJobMatch) {
+      if (!authorizeLauncherToken(request, launcherOrigin, token)) {
+        sendJson(response, 403, { ok: false, issue: MAINTENANCE_ISSUE.forbidden });
+        return;
+      }
+      const result = maintenance.getJob(maintenanceJobMatch[1]!);
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
     if (method === "GET" && requestUrl.pathname === "/api/feedback") {
       await reloadProjects();
       const projectRecords = [...projects.values()];
@@ -2160,8 +2382,9 @@ export async function startWorkflowViewerLauncher(
       hasActive: () => activeMutations > 0
         || generating.size > 0
         || refreshing.size > 0
+        || maintenance.hasBlockingWork()
         || [...jobs.values()].some((job) => job.status === "running"),
-      hasBlockingWork: () => activeBlockingMutations > 0,
+      hasBlockingWork: () => activeBlockingMutations > 0 || maintenance.hasBlockingWork(),
       suspendWork: () => {
         workPauseCount += 1;
         let resumed = false;
@@ -2362,8 +2585,18 @@ function boundUtf8(value: string, maximumBytes: number): string {
 async function executePipelineProcess(
   command: string,
   args: readonly string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv }
+  options: LauncherProcessRunnerOptions
 ): Promise<LauncherProcessResult> {
+  const maxOutputBytes = options.maxOutputBytes ?? LAUNCHER_JOB_OUTPUT_MAX_BYTES;
+  if (
+    !Number.isSafeInteger(maxOutputBytes)
+    || maxOutputBytes <= 0
+    || maxOutputBytes > CLI_JSON_MAX_BYTES
+  ) {
+    throw new TypeError(
+      `Launcher process maxOutputBytes must be a positive safe integer ≤ ${CLI_JSON_MAX_BYTES}`
+    );
+  }
   return await new Promise<LauncherProcessResult>((resolveProcess, reject) => {
     const child = spawn(command, [...args], {
       cwd: options.cwd,
@@ -2378,7 +2611,7 @@ async function executePipelineProcess(
     let stdoutTruncated = false;
     let stderrTruncated = false;
     const collect = (chunks: Buffer[], chunk: Buffer, currentBytes: number) => {
-      const remaining = Math.max(0, LAUNCHER_JOB_OUTPUT_MAX_BYTES - currentBytes);
+      const remaining = Math.max(0, maxOutputBytes - currentBytes);
       if (remaining > 0) chunks.push(chunk.subarray(0, remaining));
       return {
         bytes: currentBytes + Math.min(chunk.length, remaining),
@@ -2397,14 +2630,11 @@ async function executePipelineProcess(
     });
     child.once("error", reject);
     child.once("close", (code) => {
-      const withTruncation = (chunks: Buffer[], truncated: boolean) => {
-        const output = Buffer.concat(chunks).toString("utf8");
-        return truncated ? `${output}\n[output truncated]\n` : output;
-      };
       resolveProcess({
         exitCode: code ?? 1,
-        stdout: withTruncation(stdout, stdoutTruncated),
-        stderr: withTruncation(stderr, stderrTruncated)
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        truncated: stdoutTruncated || stderrTruncated
       });
     });
   });
@@ -4628,6 +4858,57 @@ function contentTypeFor(path: string): string {
     ".woff2": "font/woff2"
   };
   return types[extname(path).toLowerCase()] ?? "application/octet-stream";
+}
+
+function authorizeLauncherToken(
+  request: IncomingMessage,
+  launcherOrigin: string,
+  token: string
+): boolean {
+  if (request.headers["x-tsugite-token"] !== token) return false;
+  const requestOrigin = request.headers.origin;
+  if (requestOrigin !== undefined && requestOrigin !== launcherOrigin) return false;
+  return true;
+}
+
+function toMaintenanceProject(record: LauncherProjectRecord): MaintenanceProjectLookup {
+  const identityKey = record.identity
+    ? `${record.identity.configDevice}:${record.identity.configInode}`
+    : undefined;
+  const base = {
+    id: record.id,
+    name: record.name,
+    configPath: record.configPath,
+    readOnly: record.readOnly,
+    valid: record.public.valid,
+    runId: record.public.runId,
+    revision: record.public.revision,
+    status: record.public.status,
+    identityKey,
+    realConfigPath: record.identity?.realConfigPath,
+    realProjectDir: record.identity?.realProjectDir,
+    configDevice: record.identity?.configDevice,
+    configInode: record.identity?.configInode,
+    projectDevice: record.identity?.projectDevice,
+    projectInode: record.identity?.projectInode
+  };
+  return {
+    ...base,
+    identityFingerprint: identityKey
+      ? maintenanceIdentityFingerprint({
+        configPath: record.configPath,
+        runId: record.public.runId,
+        revision: record.public.revision,
+        identityKey,
+        realConfigPath: record.identity?.realConfigPath,
+        realProjectDir: record.identity?.realProjectDir,
+        configDevice: record.identity?.configDevice,
+        configInode: record.identity?.configInode,
+        projectDevice: record.identity?.projectDevice,
+        projectInode: record.identity?.projectInode
+      })
+      : undefined
+  };
 }
 
 function setCommonHeaders(response: ServerResponse): void {

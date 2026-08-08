@@ -7,6 +7,7 @@ const DEFAULT_GENERATION_MAX_OUTPUT_BYTES = 20 * 1024 * 1024;
 function cappedCollector(maximumBytes) {
   const chunks = [];
   let retained = 0;
+  let truncated = false;
   return {
     write(chunk) {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -16,9 +17,13 @@ function cappedCollector(maximumBytes) {
         chunks.push(slice);
         retained += slice.length;
       }
+      if (buffer.length > remaining) truncated = true;
     },
     text() {
       return Buffer.concat(chunks).toString("utf8");
+    },
+    wasTruncated() {
+      return truncated;
     }
   };
 }
@@ -46,6 +51,7 @@ export function createPipelineRunner({
   const run = async (_command, args, options = {}) => {
     if (disposed) throw new Error("Desktop pipeline runner is disposed");
     const outputLimit = options.maxOutputBytes ?? maxOutputBytes;
+    // Bounded only: reject non-integers, non-positive, and Infinity (unbounded).
     if (!Number.isSafeInteger(outputLimit) || outputLimit <= 0) {
       throw new TypeError("Desktop pipeline output limit must be a positive safe integer");
     }
@@ -82,7 +88,9 @@ export function createPipelineRunner({
       child.once("close", (code) => finish({
         exitCode: code ?? 1,
         stdout: stdout.text(),
-        stderr: stderr.text()
+        stderr: stderr.text(),
+        // H4: typed truncation signal for maintenance parse (cli_too_large, not cli_invalid).
+        truncated: stdout.wasTruncated() || stderr.wasTruncated()
       }));
     });
   };
