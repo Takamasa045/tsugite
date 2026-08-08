@@ -141,7 +141,7 @@ connections:
     automated_capabilities: []
     model_policy: catalog
     model_families: [minimax, minimax-h3]
-    route_note: "MiniMax公式CLI mmx（>=1.0.19）の preflight / dry-run argv のみ。実生成は未統合。ir_model minimax-h3 は provider_model MiniMax-H3 へ明示mapping。公式MCPはH3/last-only非対応として扱わない。PixVerse transport とは別接続。"
+    route_note: "MiniMax公式CLI mmx（>=1.0.19）の preflight / dry-run argv のみ。実生成は未統合。ir_model minimax-h3 は provider_model MiniMax-H3 へ明示mapping。公式MCPはH3/last-only非対応として扱わない。PixVerse transport とは別接続。minimax-http への silent fallback 禁止。"
     setup_checks:
       - type: command
         command: mmx
@@ -149,6 +149,28 @@ connections:
         variable: MINIMAX_API_KEY
       - type: manual
         detail: "Phase A は preflight-only。mmx の導入（>=1.0.19）と MINIMAX_API_KEY の設定を確認する。値をチャットや成果物に貼らない。"
+
+  # MiniMax HTTP: Phase C durable job foundation, last-frame-only, pricing unknown → preflight-only.
+  # Separate connection from minimax-direct. No credential/approval sharing or auto-switch.
+  - id: minimax-http
+    aliases: [minimax-api, minimax-h3-http]
+    display_name: MiniMax HTTP（preflight-only / last-frame）
+    provider: minimax
+    transport: api
+    auth_kind: api-key
+    implementation_status: available-to-add
+    adapter: minimax-http
+    capabilities:
+      - video.last-frame-to-video
+    automated_capabilities: []
+    model_policy: catalog
+    model_families: [minimax, minimax-h3]
+    route_note: "MiniMax公式HTTPS API の last-frame-only（MiniMax-H3）枠。価格正本未設定のため preflight-only/blocked。minimax-direct と共有・自動切替しない。first-frame 付与・T2V降格禁止。"
+    setup_checks:
+      - type: environment
+        variable: MINIMAX_API_KEY
+      - type: manual
+        detail: "Phase C は durable job + mock transport まで。価格未確定の間は ready と表示しない。API key の値をチャットや成果物に貼らない。"
 
   - id: elevenlabs
     display_name: ElevenLabs
