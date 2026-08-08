@@ -1,0 +1,32 @@
+checks:
+  - id: duration-supported
+    scope: generation
+    field: duration
+    operations: [video]
+    operator: in
+    values: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    message: duration must be an integer from 4 to 15 seconds for MiniMax-H3
+  - id: aspect-supported
+    scope: generation
+    field: aspect
+    operations: [video]
+    operator: in
+    values: ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+    message: aspect must be one of auto/21:9/16:9/4:3/1:1/3:4/9:16 for MiniMax-H3
+
+# Phase C: HTTP last-frame-only scope for MiniMax-H3.
+# first-frame attachment, same-image duplication, T2V downgrade, and mode guessing are forbidden.
+h3_execution_route:
+  model: minimax-h3
+  provider_model: MiniMax-H3
+  durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  qualities: ["768p", "2K", "1440p"]
+  aspects: ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+  max_images: 1
+  max_videos: 0
+  max_audios: 0
+  modes:
+    last-frame:
+      operation: video
+      input_mode: last-frame-to-video
+      asset_binding: last_frame

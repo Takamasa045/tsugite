@@ -1,0 +1,26 @@
+schema_version: 1
+kind: connection-capability-profile
+connection_id: minimax-http
+transport: api
+exact_model_routes:
+  - model: minimax-h3
+    provider_model: MiniMax-H3
+    modes:
+      - last-frame
+    family: minimax
+auth_env_names:
+  - MINIMAX_API_KEY
+# Phase C: surface is preflight-only. submit=false prevents ready misrepresentation.
+submit: false
+poll: true
+cancel: false
+download: true
+idempotency: none
+pricing_status: unknown
+runtime_readiness: preflight-only
+adapter_id: minimax-http
+source:
+  pin: adapters/minimax-http/constraints.yaml
+  version: 2026-08-08
+  # SHA-256 of adapters/minimax-http/constraints.yaml (pin-file content, not profile body).
+  digest: 5af3e77ba13c14c5fb1b3a40887a1fccbbfffe4ac1e6172a8056e26dccc3934b

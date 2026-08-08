@@ -1,5 +1,12 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+// Exact export "./client" works. Subpaths like "./client/index.js" hit package
+// exports "./*" and break when the repo path contains a literal "*" (Node
+// substitutes the path segment). Resolve the public client export, then load
+// its sibling ESM transport by URL — never via wildcard package subpaths or
+// hardcoded node_modules/package-manager layout.
+import { basename, dirname, normalize, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Client } from "@modelcontextprotocol/sdk/client";
 import {
   assertResolvedAddressesPublic,
   buildEndpointAllowlist,
@@ -22,6 +29,141 @@ import {
   type ToolCallAuthorization
 } from "./policy.js";
 import type { AgentServiceDefinition } from "./registry.js";
+
+/** Exact public package export for the MCP Client (not a "./*" subpath). */
+const MCP_CLIENT_PUBLIC_EXPORT = "@modelcontextprotocol/sdk/client";
+
+/** Basename of the Streamable HTTP client transport next to the resolved client entry. */
+const MCP_STREAMABLE_HTTP_SIBLING = "streamableHttp.js";
+
+const SAFE_MCP_CLIENT_SIBLING = /^[A-Za-z][A-Za-z0-9._-]*\.js$/;
+
+/**
+ * Convert a file: URL to a platform path. Fail-closed: never let URI/path
+ * decode errors escape as unbounded URIError/TypeError.
+ */
+function fileUrlToLocalPath(url: URL, label: string): string {
+  try {
+    return fileURLToPath(url);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`${label} is not a valid local file path: ${detail}`);
+  }
+}
+
+function assertResolvedInsideMcpSdkClient(clientPath: string): void {
+  const normalized = normalize(clientPath);
+  const sdkMarker = `${sep}@modelcontextprotocol${sep}sdk${sep}`;
+  if (!normalized.includes(sdkMarker)) {
+    throw new Error(
+      "MCP client export did not resolve inside the @modelcontextprotocol/sdk package"
+    );
+  }
+  const clientMarker = `${sep}client${sep}`;
+  if (!normalized.includes(clientMarker) || !normalized.endsWith(".js")) {
+    throw new Error(`MCP client export resolved to an unexpected path: ${normalized}`);
+  }
+}
+
+/**
+ * Resolve a same-directory ESM sibling of the public `./client` export.
+ * Fail-closed: only simple `*.js` basenames; must stay under the resolved
+ * client directory inside `@modelcontextprotocol/sdk`.
+ *
+ * Exported for focused regression tests only — not re-exported from the public
+ * `agentServices` barrel.
+ */
+export function resolveMcpClientSiblingModuleUrl(siblingFileName: string): string {
+  if (!SAFE_MCP_CLIENT_SIBLING.test(siblingFileName)) {
+    throw new Error(
+      `invalid MCP client sibling module name: ${JSON.stringify(siblingFileName)}`
+    );
+  }
+
+  let resolved: string;
+  try {
+    resolved = import.meta.resolve(MCP_CLIENT_PUBLIC_EXPORT);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `failed to resolve MCP public client export ${MCP_CLIENT_PUBLIC_EXPORT}: ${detail}`
+    );
+  }
+
+  let clientUrl: URL;
+  try {
+    clientUrl = new URL(resolved);
+  } catch {
+    throw new Error(`MCP client export resolved to an invalid URL: ${resolved}`);
+  }
+
+  if (clientUrl.protocol !== "file:") {
+    throw new Error(
+      `MCP client export must resolve to a file: URL (got ${clientUrl.protocol})`
+    );
+  }
+
+  const clientPath = fileUrlToLocalPath(clientUrl, "MCP client export");
+  assertResolvedInsideMcpSdkClient(clientPath);
+
+  let siblingUrl: URL;
+  try {
+    siblingUrl = new URL(`./${siblingFileName}`, clientUrl);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`failed to derive MCP client sibling URL: ${detail}`);
+  }
+
+  if (siblingUrl.protocol !== "file:") {
+    throw new Error("MCP client sibling module must resolve to a file: URL");
+  }
+
+  const siblingPath = fileUrlToLocalPath(siblingUrl, "MCP client sibling module");
+  const clientDirPath = dirname(clientPath);
+  if (dirname(siblingPath) !== clientDirPath) {
+    throw new Error("MCP client sibling module escapes the resolved client directory");
+  }
+  if (basename(siblingPath) !== siblingFileName) {
+    throw new Error(
+      `MCP client sibling module path mismatch: expected ${siblingFileName}, got ${basename(siblingPath)}`
+    );
+  }
+
+  return siblingUrl.href;
+}
+
+type StreamableHTTPClientTransportConstructor = new (
+  url: URL,
+  opts?: {
+    fetch?: typeof fetch;
+    requestInit?: RequestInit;
+    reconnectionOptions?: {
+      initialReconnectionDelay?: number;
+      maxReconnectionDelay?: number;
+      reconnectionDelayGrowFactor?: number;
+      maxRetries?: number;
+    };
+  }
+) => RemoteMcpTransportLike;
+
+type StreamableHttpTransportModule = {
+  StreamableHTTPClientTransport?: StreamableHTTPClientTransportConstructor;
+};
+
+// Top-level await: Node 22 ESM + tsc NodeNext emit this as native TLA.
+// Module evaluation completes before any export is used, so default factories
+// stay synchronous after import.
+const streamableHttpModule = (await import(
+  resolveMcpClientSiblingModuleUrl(MCP_STREAMABLE_HTTP_SIBLING)
+)) as StreamableHttpTransportModule;
+
+if (typeof streamableHttpModule.StreamableHTTPClientTransport !== "function") {
+  throw new Error(
+    "MCP streamable HTTP transport module is missing StreamableHTTPClientTransport"
+  );
+}
+
+const StreamableHTTPClientTransport = streamableHttpModule.StreamableHTTPClientTransport;
 
 export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
 export const DEFAULT_MCP_CLEANUP_TIMEOUT_MS = 2_000;

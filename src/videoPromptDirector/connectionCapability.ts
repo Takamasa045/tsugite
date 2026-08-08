@@ -4,7 +4,8 @@
  * Separate schema / digest / loader from model prompt profiles.
  */
 
-import { access } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { readYamlFile } from "../io.js";
@@ -115,15 +116,43 @@ export async function loadConnectionCapabilityProfile(
         message: `connection capability id mismatch: file declares '${parsed.data.connection_id}', requested '${connectionId}'`
       };
     }
+    // Profile body digest (job-binding). Separate from optional pin-file content hash.
     const digest = connectionCapabilityDigest(parsed.data);
-    if (parsed.data.source.digest && parsed.data.source.digest !== digest) {
-      return {
-        ok: false,
-        code: CONNECTION_CAPABILITY_STALE_CODE,
-        message: `connection capability '${connectionId}' source.digest is stale (expected ${digest})`
-      };
+    const declared = parsed.data.source.digest;
+    if (declared) {
+      let pinFileHash: string | undefined;
+      const pinPath = parsed.data.source.pin;
+      // Simple repo-relative pin (no @version suffix) → verify file content SHA-256.
+      if (pinPath && !pinPath.includes("@")) {
+        try {
+          const bytes = await readFile(pinPath);
+          pinFileHash = createHash("sha256").update(bytes).digest("hex");
+        } catch {
+          pinFileHash = undefined;
+        }
+      }
+      const matchesProfile = declared === digest;
+      const matchesPinFile = pinFileHash !== undefined && declared === pinFileHash;
+      if (!matchesProfile && !matchesPinFile) {
+        return {
+          ok: false,
+          code: CONNECTION_CAPABILITY_STALE_CODE,
+          message:
+            `connection capability '${connectionId}' source.digest is stale `
+            + `(expected profile digest ${digest}`
+            + (pinFileHash ? ` or pin-file digest ${pinFileHash}` : "")
+            + `)`
+        };
+      }
     }
-    return { ok: true, profile: parsed.data, digest, path };
+
+    // Fail-closed: unknown pricing cannot advertise integrated readiness.
+    let profile = parsed.data;
+    if (profile.pricing_status === "unknown" && profile.runtime_readiness === "integrated") {
+      profile = { ...profile, runtime_readiness: "preflight-only" };
+    }
+
+    return { ok: true, profile, digest: connectionCapabilityDigest(profile), path };
   }
 
   return {
