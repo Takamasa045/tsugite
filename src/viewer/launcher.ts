@@ -1988,7 +1988,9 @@ export async function startWorkflowViewerLauncher(
           validation.audioAdapter,
           validation.generationConnection,
           validation.audioConnection,
-          validation.backend
+          validation.backend,
+          validation.h3_compilations,
+          validation.video_prompt_plans
         );
         if (!await matchesProjectIdentity(record.configPath, record.identity)) {
           sendProjectChanged(response);
@@ -3112,7 +3114,9 @@ async function inspectProject(
         validation.project.edit.editorial && reviewInspection?.ok
           ? reviewInspection.compilation
           : undefined,
-        validation.audioAdapter
+        validation.audioAdapter,
+        // Keep Viewer Gate 2 evidence on the same guide set as Gate 1 / run.
+        validation.promptGuides
       );
       if (inspected.ok) gate2ApprovalDigest = inspected.approvalDigest;
       else hasGate2Evidence = false;

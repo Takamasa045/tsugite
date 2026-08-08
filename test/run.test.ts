@@ -2,7 +2,11 @@ import { access, appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assembleLocalMediaRun, manifestDigestInput } from "../src/orchestrator/run.js";
+import {
+  assembleLocalMediaRun,
+  inspectGate2RunForApproval,
+  manifestDigestInput
+} from "../src/orchestrator/run.js";
 import {
   createPlannedState,
   markGateAwaiting,
@@ -987,6 +991,736 @@ describe("local media run assembly", () => {
 
     expect(result.ok).toBe(false);
     expect(result.issues[0]?.code).toBe("run.adapter_command_missing");
+  });
+
+  it("keeps CLI run JSON wired to optional h3_artifacts and validation promptGuides", async () => {
+    // Focused CLI contract: acceptance requires the run success payload to surface
+    // LocalRunResult.h3_artifacts and to pass Gate1 validation.promptGuides into assemble.
+    const source = await readFile("src/cli.ts", "utf8");
+    expect(source).toMatch(/h3_artifacts:\s*runResult\.h3_artifacts/);
+    expect(source).toMatch(/promptGuides:\s*validation\.promptGuides/);
+    expect(source).toMatch(/\.\.\.\(runResult\.h3_artifacts \? \{ h3_artifacts: runResult\.h3_artifacts \} : \{\}\)/);
+  });
+
+  it("keeps Gate2 CLI recordGate and Viewer inspect wired to validation.promptGuides", async () => {
+    // Gate2 approve/viewer must reuse the same guide set as Gate1/run (custom dirs included).
+    const cli = await readFile("src/cli.ts", "utf8");
+    const launcher = await readFile("src/viewer/launcher.ts", "utf8");
+
+    // CLI gate branch forwards validation.promptGuides into recordGate.
+    expect(cli).toMatch(
+      /const gateResult = await recordGate\(\s*args,\s*validation\.project!,\s*validation\.manifest!,\s*gate!,\s*decision!,\s*validation\.adapter,\s*validation\.audioAdapter,\s*(?:\/\/[^\n]*\n\s*)*validation\.promptGuides\s*\)/
+    );
+    // recordGate accepts promptGuides and passes them into Gate2 inspect.
+    expect(cli).toMatch(
+      /async function recordGate\([\s\S]*?promptGuides\?: PromptGuide\[]/
+    );
+    expect(cli).toMatch(
+      /const inspected = await inspectGate2RunForApproval\(\s*project,\s*manifest,\s*existing\.stateDir,\s*adapter,\s*approvedCompilation,\s*audioAdapter,\s*promptGuides(?:,\s*personQaDecision)?\s*\)/
+    );
+    // Render path already wired — keep the contract fixed.
+    expect(cli).toMatch(
+      /const gate2Inspection = await inspectGate2RunForApproval\(\s*validation\.project!,\s*validation\.manifest!,\s*stateResult\.stateDir,\s*validation\.adapter,\s*approvedCompilation,\s*validation\.audioAdapter,\s*validation\.promptGuides\s*\)/
+    );
+    // Viewer Gate2 evidence inspect must not fall back to default repo guides.
+    expect(launcher).toMatch(
+      /const inspected = await inspectGate2RunForApproval\(\s*validation\.project,\s*validation\.manifest,\s*resolve\(projectDir, project\.dist_dir\),\s*validation\.adapter,\s*validation\.project\.edit\.editorial && reviewInspection\?\.ok\s*\? reviewInspection\.compilation\s*: undefined,\s*validation\.audioAdapter,\s*(?:\/\/[^\n]*\n\s*)*validation\.promptGuides\s*\)/
+    );
+  });
+
+  it("writes H3 run artifacts, provenance, and adapter payload for T2V H3", async () => {
+    const { createHash } = await import("node:crypto");
+    const YAML = await import("yaml");
+    const ir = JSON.parse(await readFile("test/fixtures/h3/t2v.json", "utf8"));
+    const root = await mkdtemp(join(tmpdir(), "tsugite-h3-t2v-run-"));
+    await mkdir(join(root, "projects"), { recursive: true });
+    await mkdir(join(root, "manifests"), { recursive: true });
+    await mkdir(join(root, "media"), { recursive: true });
+    await writeFile(join(root, "media/clip.mp4"), "fixture video");
+    await writeFile(
+      join(root, "manifests/manifest.json"),
+      `${JSON.stringify({
+        meta: { aspect: "16:9", fps: 30, target_duration_seconds: 5, slug: "h3-t2v" },
+        clips: [{
+          id: "clip-1",
+          src: "../media/clip.mp4",
+          in: 0,
+          out: 1,
+          duration: 1,
+          fps: 30,
+          resolution: { width: 320, height: 180 },
+          audio: false
+        }],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        chapters: [],
+        provenance: []
+      }, null, 2)}\n`
+    );
+    const projectDoc = {
+      slug: "h3-t2v",
+      name: "H3 T2V",
+      run_id: "h3-t2v-run",
+      manifest: "../manifests/manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "mock-cli",
+        requests: [{
+          id: "h3-shot",
+          prompt: "",
+          params: {},
+          h3: ir,
+          prompt_guide: { catalog: "pixverse", model: "minimax-h3" }
+        }]
+      }
+    };
+    const configPath = join(root, "projects/project.yaml");
+    await writeFile(configPath, YAML.stringify(projectDoc));
+
+    const validation = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    expect(validation.ok).toBe(true);
+    expect(validation.h3_compilations?.[0]?.lineage.prompt_guide_hash).toMatch(/^[a-f0-9]{64}$/);
+
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-h3-t2v-state-"));
+    const gate1 = markGateAwaiting(createPlannedState("h3-t2v-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const adapter = {
+      ...validation.adapter!,
+      command: {
+        ...validation.adapter!.command!,
+        args: ["fixtures/adapters/mock-cli/capture-request.mjs"]
+      }
+    };
+
+    const result = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        configPath,
+        manifestPath: join(root, "manifests/manifest.json"),
+        stateDir,
+        state: running
+      },
+      adapter
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.h3_artifacts).toHaveLength(1);
+    expect(result.h3_artifacts![0]!.relative_dir).toBe("h3/h3-shot");
+    const artifactDir = join(stateDir, "h3-t2v-run", "h3", "h3-shot");
+    for (const name of [
+      "creative-ir.json",
+      "prompt.canonical.txt",
+      "prompt.mock-cli.txt",
+      "validation.json",
+      "lineage.json"
+    ]) {
+      await expect(access(join(artifactDir, name))).resolves.toBeUndefined();
+    }
+
+    const lineage = JSON.parse(await readFile(join(artifactDir, "lineage.json"), "utf8"));
+    expect(lineage.workflow_id).toBe("h3-prompt-director");
+    expect(lineage.workflow_version).toBe("2");
+    expect(lineage.creative_ir_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(lineage.canonical_prompt_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(lineage.adapter_prompt_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(lineage.prompt_guide_identity).toBe("pixverse/minimax-h3");
+    expect(lineage.prompt_guide_hash).toBe(validation.h3_compilations![0]!.lineage.prompt_guide_hash);
+
+    const canonicalPrompt = await readFile(join(artifactDir, "prompt.canonical.txt"), "utf8");
+    const adapterPrompt = await readFile(join(artifactDir, "prompt.mock-cli.txt"), "utf8");
+    expect(canonicalPrompt.endsWith("\n")).toBe(true);
+    expect(adapterPrompt.endsWith("\n")).toBe(true);
+    expect(createHash("sha256").update(canonicalPrompt.slice(0, -1), "utf8").digest("hex"))
+      .toBe(lineage.canonical_prompt_hash);
+    expect(createHash("sha256").update(adapterPrompt.slice(0, -1), "utf8").digest("hex"))
+      .toBe(lineage.adapter_prompt_hash);
+
+    const captured = JSON.parse(
+      await readFile(join(stateDir, "h3-t2v-run", ".mock-adapter-request-h3-shot.json"), "utf8")
+    );
+    expect(captured.request.prompt).toBe(adapterPrompt.slice(0, -1));
+    expect(captured.request.operation).toBe("video");
+    expect(captured.request.input_mode).toBe("text-to-video");
+    expect(captured.request.model).toBe("minimax-h3");
+    expect(captured.request).not.toHaveProperty("h3");
+    expect(captured.request).not.toHaveProperty("prompt_guide");
+
+    const manifest = JSON.parse(await readFile(result.manifestPath!, "utf8"));
+    expect(manifest.provenance[0].h3).toEqual({
+      workflow_version: "2",
+      creative_ir_hash: lineage.creative_ir_hash,
+      adapter_prompt_hash: lineage.adapter_prompt_hash,
+      artifacts_dir: "h3/h3-shot"
+    });
+    expect(manifest.provenance[0].h3).not.toHaveProperty("creative_ir");
+  });
+
+  it("pins first-frame H3 assets, records asset hashes, and fails closed before adapter on invalid H3", async () => {
+    const { createHash } = await import("node:crypto");
+    const YAML = await import("yaml");
+    const ir = JSON.parse(await readFile("test/fixtures/h3/first-frame.json", "utf8"));
+    const root = await mkdtemp(join(tmpdir(), "tsugite-h3-ff-run-"));
+    await mkdir(join(root, "projects/assets"), { recursive: true });
+    await mkdir(join(root, "manifests"), { recursive: true });
+    await mkdir(join(root, "media"), { recursive: true });
+    await writeFile(join(root, "media/clip.mp4"), "fixture video");
+    await writeFile(join(root, "projects/assets/start.png"), "image-bytes-for-hash");
+    await writeFile(
+      join(root, "manifests/manifest.json"),
+      `${JSON.stringify({
+        meta: { aspect: "16:9", fps: 30, target_duration_seconds: 5, slug: "h3-ff" },
+        clips: [{
+          id: "clip-1",
+          src: "../media/clip.mp4",
+          in: 0,
+          out: 1,
+          duration: 1,
+          fps: 30,
+          resolution: { width: 320, height: 180 },
+          audio: false
+        }],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        chapters: [],
+        provenance: []
+      }, null, 2)}\n`
+    );
+    const configPath = join(root, "projects/project.yaml");
+    await writeFile(configPath, YAML.stringify({
+      slug: "h3-ff",
+      name: "H3 first frame",
+      run_id: "h3-ff-run",
+      manifest: "../manifests/manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "mock-cli",
+        requests: [{
+          id: "h3-ff",
+          prompt: "",
+          params: {},
+          h3: ir
+        }]
+      }
+    }));
+
+    const validation = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    expect(validation.ok).toBe(true);
+
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-h3-ff-state-"));
+    const gate1 = markGateAwaiting(createPlannedState("h3-ff-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const adapter = {
+      ...validation.adapter!,
+      command: {
+        ...validation.adapter!.command!,
+        args: ["fixtures/adapters/mock-cli/capture-request.mjs"]
+      }
+    };
+
+    const result = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        configPath,
+        manifestPath: join(root, "manifests/manifest.json"),
+        stateDir,
+        state: running
+      },
+      adapter
+    );
+    expect(result.ok).toBe(true);
+    const lineage = JSON.parse(
+      await readFile(join(stateDir, "h3-ff-run", "h3", "h3-ff", "lineage.json"), "utf8")
+    );
+    const expectedHash = createHash("sha256").update("image-bytes-for-hash").digest("hex");
+    expect(lineage.asset_hashes).toEqual({ start_image: expectedHash });
+
+    const captured = JSON.parse(
+      await readFile(join(stateDir, "h3-ff-run", ".mock-adapter-request-h3-ff.json"), "utf8")
+    );
+    expect(captured.request.first_frame).toContain("generation-inputs");
+    expect(captured.request.input_mode).toBe("image-to-video");
+    expect(captured.request.operation).toBe("video");
+
+    // Invalid H3 must fail closed before the mock adapter runs.
+    const badRoot = await mkdtemp(join(tmpdir(), "tsugite-h3-bad-run-"));
+    await mkdir(join(badRoot, "projects"), { recursive: true });
+    await mkdir(join(badRoot, "manifests"), { recursive: true });
+    await mkdir(join(badRoot, "media"), { recursive: true });
+    await writeFile(join(badRoot, "media/clip.mp4"), "fixture video");
+    await writeFile(
+      join(badRoot, "manifests/manifest.json"),
+      `${JSON.stringify({
+        meta: { aspect: "16:9", fps: 30, target_duration_seconds: 5, slug: "h3-bad" },
+        clips: [{
+          id: "clip-1",
+          src: "../media/clip.mp4",
+          in: 0,
+          out: 1,
+          duration: 1,
+          fps: 30,
+          resolution: { width: 320, height: 180 },
+          audio: false
+        }],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        chapters: [],
+        provenance: []
+      }, null, 2)}\n`
+    );
+    const badConfig = join(badRoot, "projects/project.yaml");
+    await writeFile(badConfig, YAML.stringify({
+      slug: "h3-bad",
+      name: "H3 bad",
+      run_id: "h3-bad-run",
+      manifest: "../manifests/manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "mock-cli",
+        requests: [{
+          id: "h3-bad",
+          prompt: "manual conflict prompt",
+          params: {},
+          h3: JSON.parse(await readFile("test/fixtures/h3/t2v.json", "utf8"))
+        }]
+      }
+    }));
+    // Bypass validate (which would fail) and assemble with the raw invalid project.
+    const { loadProject } = await import("../src/project/loadProject.js");
+    const badProject = await loadProject(badConfig);
+    const badStateDir = await mkdtemp(join(tmpdir(), "tsugite-h3-bad-state-"));
+    const badGate1 = markGateAwaiting(createPlannedState("h3-bad-run"), "gate_1");
+    const badRunning = recordGateDecision(badGate1, "gate_1", "approved");
+    const badResult = await assembleLocalMediaRun(
+      badProject,
+      validation.manifest!,
+      {
+        configPath: badConfig,
+        manifestPath: join(badRoot, "manifests/manifest.json"),
+        stateDir: badStateDir,
+        state: badRunning
+      },
+      adapter
+    );
+    expect(badResult.ok).toBe(false);
+    expect(badResult.issues.some((issue) => issue.code === "H3-C002")).toBe(true);
+    await expect(access(join(badStateDir, "h3-bad-run", ".mock-adapter-request-h3-bad.json"))).rejects.toThrow();
+    await expect(access(join(badStateDir, "h3-bad-run", "generated"))).rejects.toThrow();
+    await expect(access(join(badStateDir, "h3-bad-run", "h3"))).rejects.toThrow();
+  });
+
+  it("keeps Gate1/run/Gate2 prompt_guide_hash aligned for custom guide dirs", async () => {
+    const YAML = await import("yaml");
+    const ir = JSON.parse(await readFile("test/fixtures/h3/t2v.json", "utf8"));
+    const root = await mkdtemp(join(tmpdir(), "tsugite-h3-guide-lineage-"));
+    const guideRootA = join(root, "guides-a");
+    const guideRootB = join(root, "guides-b");
+    await mkdir(join(guideRootA, "pixverse"), { recursive: true });
+    await mkdir(join(guideRootB, "pixverse"), { recursive: true });
+    const originalGuide = await readFile("knowledge/video-models/pixverse/prompt-guide.yaml", "utf8");
+    await writeFile(join(guideRootA, "pixverse/prompt-guide.yaml"), originalGuide);
+    await writeFile(join(guideRootB, "pixverse/prompt-guide.yaml"), originalGuide);
+
+    await mkdir(join(root, "projects"), { recursive: true });
+    await mkdir(join(root, "manifests"), { recursive: true });
+    await mkdir(join(root, "media"), { recursive: true });
+    await writeFile(join(root, "media/clip.mp4"), "fixture video");
+    // Match mock adapter clip duration so Gate 2 requireQcPass can succeed.
+    await writeFile(
+      join(root, "manifests/manifest.json"),
+      `${JSON.stringify({
+        meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "h3-guide" },
+        clips: [{
+          id: "clip-1",
+          src: "../media/clip.mp4",
+          in: 0,
+          out: 1,
+          duration: 1,
+          fps: 30,
+          resolution: { width: 320, height: 180 },
+          audio: false
+        }],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        chapters: [],
+        provenance: []
+      }, null, 2)}\n`
+    );
+    const configPath = join(root, "projects/project.yaml");
+    await writeFile(configPath, YAML.stringify({
+      slug: "h3-guide",
+      name: "H3 guide lineage",
+      run_id: "h3-guide-run",
+      manifest: "../manifests/manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "mock-cli",
+        requests: [{
+          id: "h3-shot",
+          prompt: "",
+          params: {},
+          h3: ir,
+          prompt_guide: { catalog: "pixverse", model: "minimax-h3" }
+        }]
+      }
+    }));
+
+    const validationA = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"],
+      promptGuideDirs: [guideRootA]
+    });
+    const validationB = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"],
+      promptGuideDirs: [guideRootB]
+    });
+    expect(validationA.ok).toBe(true);
+    expect(validationB.ok).toBe(true);
+    const hashA = validationA.h3_compilations![0]!.lineage.prompt_guide_hash;
+    const hashB = validationB.h3_compilations![0]!.lineage.prompt_guide_hash;
+    expect(hashA).toMatch(/^[a-f0-9]{64}$/);
+    expect(hashA).toBe(hashB);
+
+    const mutatedGuide = originalGuide.replace(/revision:\s*.+/, "revision: custom-mutated");
+    await writeFile(join(guideRootB, "pixverse/prompt-guide.yaml"), mutatedGuide);
+    const validationMutated = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"],
+      promptGuideDirs: [guideRootB]
+    });
+    expect(validationMutated.ok).toBe(true);
+    const hashMutated = validationMutated.h3_compilations![0]!.lineage.prompt_guide_hash;
+    expect(hashMutated).not.toBe(hashA);
+
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-h3-guide-state-"));
+    const gate1 = markGateAwaiting(createPlannedState("h3-guide-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const adapter = {
+      ...validationMutated.adapter!,
+      command: {
+        ...validationMutated.adapter!.command!,
+        args: ["fixtures/adapters/mock-cli/capture-request.mjs"]
+      }
+    };
+    const result = await assembleLocalMediaRun(
+      validationMutated.project!,
+      validationMutated.manifest!,
+      {
+        configPath,
+        manifestPath: join(root, "manifests/manifest.json"),
+        stateDir,
+        state: running,
+        promptGuides: validationMutated.promptGuides
+      },
+      adapter
+    );
+    expect(result.ok).toBe(true);
+    const lineage = JSON.parse(
+      await readFile(join(stateDir, "h3-guide-run", "h3", "h3-shot", "lineage.json"), "utf8")
+    );
+    expect(lineage.prompt_guide_hash).toBe(hashMutated);
+    expect(lineage.prompt_guide_hash).toBe(
+      validationMutated.h3_compilations![0]!.lineage.prompt_guide_hash
+    );
+
+    // Gate2 with the same custom promptGuides must accept the run artifacts.
+    const gate2Custom = await inspectGate2RunForApproval(
+      validationMutated.project!,
+      validationMutated.manifest!,
+      stateDir,
+      adapter,
+      undefined,
+      undefined,
+      validationMutated.promptGuides
+    );
+    expect(gate2Custom.ok).toBe(true);
+
+    // Default repo guides recompile a different prompt_guide_hash and fail closed.
+    const gate2Default = await inspectGate2RunForApproval(
+      validationMutated.project!,
+      validationMutated.manifest!,
+      stateDir,
+      adapter,
+      undefined,
+      undefined
+    );
+    expect(gate2Default.ok).toBe(false);
+    expect(gate2Default.issues[0]?.code).toBe("H3-C000");
+    expect(gate2Default.issues[0]?.message).toMatch(/prompt_guide_hash/);
+  });
+
+  it("refuses to write H3 artifacts through a symlinked h3 directory before the adapter", async () => {
+    const YAML = await import("yaml");
+    const ir = JSON.parse(await readFile("test/fixtures/h3/t2v.json", "utf8"));
+    const root = await mkdtemp(join(tmpdir(), "tsugite-h3-symlink-run-"));
+    const outside = await mkdtemp(join(tmpdir(), "tsugite-h3-outside-"));
+    await mkdir(join(root, "projects"), { recursive: true });
+    await mkdir(join(root, "manifests"), { recursive: true });
+    await mkdir(join(root, "media"), { recursive: true });
+    await writeFile(join(root, "media/clip.mp4"), "fixture video");
+    await writeFile(
+      join(root, "manifests/manifest.json"),
+      `${JSON.stringify({
+        meta: { aspect: "16:9", fps: 30, target_duration_seconds: 5, slug: "h3-symlink" },
+        clips: [{
+          id: "clip-1",
+          src: "../media/clip.mp4",
+          in: 0,
+          out: 1,
+          duration: 1,
+          fps: 30,
+          resolution: { width: 320, height: 180 },
+          audio: false
+        }],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        chapters: [],
+        provenance: []
+      }, null, 2)}\n`
+    );
+    const configPath = join(root, "projects/project.yaml");
+    await writeFile(configPath, YAML.stringify({
+      slug: "h3-symlink",
+      name: "H3 symlink",
+      run_id: "h3-symlink-run",
+      manifest: "../manifests/manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "mock-cli",
+        requests: [{
+          id: "h3-shot",
+          prompt: "",
+          params: {},
+          h3: ir
+        }]
+      }
+    }));
+    const validation = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    expect(validation.ok).toBe(true);
+
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-h3-symlink-state-"));
+    const runDir = join(stateDir, "h3-symlink-run");
+    await mkdir(runDir, { recursive: true });
+    await symlink(outside, join(runDir, "h3"));
+
+    const gate1 = markGateAwaiting(createPlannedState("h3-symlink-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const adapter = {
+      ...validation.adapter!,
+      command: {
+        ...validation.adapter!.command!,
+        args: ["fixtures/adapters/mock-cli/capture-request.mjs"]
+      }
+    };
+    const result = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        configPath,
+        manifestPath: join(root, "manifests/manifest.json"),
+        stateDir,
+        state: running,
+        promptGuides: validation.promptGuides
+      },
+      adapter
+    );
+    expect(result.ok).toBe(false);
+    expect(result.issues[0]?.code).toBe("H3-C000");
+    await expect(access(join(outside, "h3-shot"))).rejects.toThrow();
+    await expect(access(join(runDir, ".mock-adapter-request-h3-shot.json"))).rejects.toThrow();
+    await expect(access(join(runDir, "generated"))).rejects.toThrow();
+  });
+
+  it("rejects resume and Gate2 inspection when H3 artifacts are missing or tampered", async () => {
+    const YAML = await import("yaml");
+    const ir = JSON.parse(await readFile("test/fixtures/h3/t2v.json", "utf8"));
+    const root = await mkdtemp(join(tmpdir(), "tsugite-h3-resume-"));
+    await mkdir(join(root, "projects"), { recursive: true });
+    await mkdir(join(root, "manifests"), { recursive: true });
+    await mkdir(join(root, "media"), { recursive: true });
+    await writeFile(join(root, "media/clip.mp4"), "fixture video");
+    // Match mock adapter clip duration so Gate 2 requireQcPass can succeed when artifacts are intact.
+    await writeFile(
+      join(root, "manifests/manifest.json"),
+      `${JSON.stringify({
+        meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "h3-resume" },
+        clips: [{
+          id: "clip-1",
+          src: "../media/clip.mp4",
+          in: 0,
+          out: 1,
+          duration: 1,
+          fps: 30,
+          resolution: { width: 320, height: 180 },
+          audio: false
+        }],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        chapters: [],
+        provenance: []
+      }, null, 2)}\n`
+    );
+    const configPath = join(root, "projects/project.yaml");
+    await writeFile(configPath, YAML.stringify({
+      slug: "h3-resume",
+      name: "H3 resume",
+      run_id: "h3-resume-run",
+      manifest: "../manifests/manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "mock-cli",
+        requests: [{
+          id: "h3-shot",
+          prompt: "",
+          params: {},
+          h3: ir,
+          prompt_guide: { catalog: "pixverse", model: "minimax-h3" }
+        }]
+      }
+    }));
+    const validation = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    expect(validation.ok).toBe(true);
+
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-h3-resume-state-"));
+    const gate1 = markGateAwaiting(createPlannedState("h3-resume-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const adapter = {
+      ...validation.adapter!,
+      command: {
+        ...validation.adapter!.command!,
+        args: ["fixtures/adapters/mock-cli/capture-request.mjs"]
+      }
+    };
+    const first = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        configPath,
+        manifestPath: join(root, "manifests/manifest.json"),
+        stateDir,
+        state: running,
+        promptGuides: validation.promptGuides
+      },
+      adapter
+    );
+    expect(first.ok).toBe(true);
+    expect(first.h3_artifacts).toHaveLength(1);
+    expect(first.h3_artifacts![0]!.relative_dir).toBe("h3/h3-shot");
+    expect(first.h3_artifacts![0]!.absolute_paths.lineage).toContain("lineage.json");
+
+    const awaiting = first.state!;
+    const artifactDir = join(stateDir, "h3-resume-run", "h3", "h3-shot");
+
+    // Normal resume returns the same H3 artifact paths.
+    const resumedOk = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        configPath,
+        manifestPath: join(root, "manifests/manifest.json"),
+        stateDir,
+        state: awaiting,
+        promptGuides: validation.promptGuides
+      },
+      adapter
+    );
+    expect(resumedOk.ok).toBe(true);
+    expect(resumedOk.alreadyAssembled).toBe(true);
+    expect(resumedOk.h3_artifacts).toHaveLength(1);
+    expect(resumedOk.h3_artifacts![0]!.relative_dir).toBe("h3/h3-shot");
+    expect(resumedOk.h3_artifacts![0]!.absolute_paths.creative_ir).toBe(
+      first.h3_artifacts![0]!.absolute_paths.creative_ir
+    );
+
+    const gate2Ok = await inspectGate2RunForApproval(
+      validation.project!,
+      validation.manifest!,
+      stateDir,
+      adapter,
+      undefined,
+      undefined,
+      validation.promptGuides
+    );
+    expect(gate2Ok.ok).toBe(true);
+
+    const originalCanonical = await readFile(join(artifactDir, "prompt.canonical.txt"), "utf8");
+    const originalLineage = await readFile(join(artifactDir, "lineage.json"), "utf8");
+
+    // Tamper a durable prompt artifact.
+    await writeFile(join(artifactDir, "prompt.canonical.txt"), "tampered prompt\n");
+    const resumedTampered = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        configPath,
+        manifestPath: join(root, "manifests/manifest.json"),
+        stateDir,
+        state: awaiting,
+        promptGuides: validation.promptGuides
+      },
+      adapter
+    );
+    expect(resumedTampered.ok).toBe(false);
+    expect(resumedTampered.issues[0]?.code).toBe("H3-C000");
+
+    const gate2Tampered = await inspectGate2RunForApproval(
+      validation.project!,
+      validation.manifest!,
+      stateDir,
+      adapter,
+      undefined,
+      undefined,
+      validation.promptGuides
+    );
+    expect(gate2Tampered.ok).toBe(false);
+    expect(gate2Tampered.issues[0]?.code).toBe("H3-C000");
+
+    // Restore prompt, then drop lineage — missing artifact must also fail closed.
+    await writeFile(join(artifactDir, "prompt.canonical.txt"), originalCanonical);
+    await rm(join(artifactDir, "lineage.json"));
+
+    const resumedMissing = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        configPath,
+        manifestPath: join(root, "manifests/manifest.json"),
+        stateDir,
+        state: awaiting,
+        promptGuides: validation.promptGuides
+      },
+      adapter
+    );
+    expect(resumedMissing.ok).toBe(false);
+    expect(resumedMissing.issues[0]?.code).toBe("H3-C000");
+
+    const gate2Missing = await inspectGate2RunForApproval(
+      validation.project!,
+      validation.manifest!,
+      stateDir,
+      adapter,
+      undefined,
+      undefined,
+      validation.promptGuides
+    );
+    expect(gate2Missing.ok).toBe(false);
+    expect(gate2Missing.issues[0]?.code).toBe("H3-C000");
+
+    // Keep the original lineage text referenced so the fixture remains inspectable in failures.
+    expect(originalLineage).toContain("h3-prompt-director");
   });
 });
 

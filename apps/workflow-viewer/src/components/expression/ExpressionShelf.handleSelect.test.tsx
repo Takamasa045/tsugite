@@ -28,12 +28,12 @@ vi.mock('./ExpressionCard', () => ({
         <button
           aria-label={props.selected
             ? `${props.listContext}の${props.item.title}は選択中`
-            : `${props.listContext}の${props.item.title}を制作依頼へ追加`}
+            : `${props.listContext}の${props.item.title}をコピー候補に追加`}
           disabled={props.selected}
           onClick={() => props.onSelect(props.item, props.selectReason)}
           type="button"
         >
-          {props.selected ? '選択中' : '制作依頼へ追加'}
+          {props.selected ? '選択中' : 'コピー候補に追加'}
         </button>
       </li>
     )
@@ -87,7 +87,7 @@ describe('ExpressionShelf handleSelect stability', () => {
     const rendersBefore = cardRenderCounts.get(verticalKey) ?? 0
 
     await user.click(screen.getByRole('button', {
-      name: '一覧の横型・会話で解説を制作依頼へ追加',
+      name: '一覧の横型・会話で解説をコピー候補に追加',
     }))
     expect(selections).toHaveLength(1)
 

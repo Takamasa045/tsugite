@@ -2,11 +2,13 @@ import { Check } from 'lucide-react'
 import { memo } from 'react'
 
 import { ExpressionPreview } from './ExpressionPreview'
+import { LocalClipboardCopyButton } from './LocalClipboardCopyButton'
 import {
   capabilityLabel,
   expressionDisplayTags,
   expressionSelectionHint,
   expressionStatusLabel,
+  formatExpressionItemPrompt,
   isFullCompositionRole,
   previewFidelityLabel,
   type ExpressionItem,
@@ -27,6 +29,8 @@ export const ExpressionCard = memo(function ExpressionCard({
   selectReason,
   listContext,
 }: ExpressionCardProps) {
+  const promptText = formatExpressionItemPrompt(item)
+
   return (
     <li className="launcher-expression-card" data-selected={selected || undefined}>
       <ExpressionPreview item={item} listContextLabel={listContext} />
@@ -51,7 +55,7 @@ export const ExpressionCard = memo(function ExpressionCard({
             {capabilityLabel(item.capability)}
           </span>
           <span className="launcher-expression-badge" data-kind="destination">
-            {isFullCompositionRole(item.role) ? '制作依頼: 全体構成' : '制作依頼: 補助表現'}
+            {isFullCompositionRole(item.role) ? 'コピー候補: 全体構成' : 'コピー候補: 補助表現'}
           </span>
         </div>
         <div className="launcher-expression-tags">
@@ -59,23 +63,29 @@ export const ExpressionCard = memo(function ExpressionCard({
             <span key={`${item.key}-${tag}`}>{tag}</span>
           ))}
         </div>
-        <button
-          aria-label={selected
-            ? `${listContext}の${item.title}は選択中`
-            : `${listContext}の${item.title}を制作依頼へ追加`}
-          aria-disabled={selected || undefined}
-          className="launcher-secondary"
-          onClick={() => {
-            // Soft-disable while selected so Chromium keeps focus on this control.
-            if (selected) return
-            onSelect(item, selectReason)
-          }}
-          type="button"
-        >
-          {selected ? (
-            <><Check aria-hidden="true" size={14} />選択中</>
-          ) : '制作依頼へ追加'}
-        </button>
+        <div className="launcher-expression-card-actions">
+          <button
+            aria-label={selected
+              ? `${listContext}の${item.title}は選択中`
+              : `${listContext}の${item.title}をコピー候補に追加`}
+            aria-disabled={selected || undefined}
+            className="launcher-secondary"
+            onClick={() => {
+              // Soft-disable while selected so Chromium keeps focus on this control.
+              if (selected) return
+              onSelect(item, selectReason)
+            }}
+            type="button"
+          >
+            {selected ? (
+              <><Check aria-hidden="true" size={14} />選択中</>
+            ) : 'コピー候補に追加'}
+          </button>
+          <LocalClipboardCopyButton
+            ariaLabel={`${listContext}の${item.title}のプロンプトをコピー`}
+            text={promptText}
+          />
+        </div>
       </div>
     </li>
   )

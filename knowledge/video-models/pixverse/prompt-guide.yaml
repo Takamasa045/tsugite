@@ -2,7 +2,7 @@ schema_version: 1
 kind: video-prompt-guide
 catalog_id: pixverse
 display_name: PixVerse
-revision: 2026-07-10.1
+revision: 2026-08-05.1
 sources:
   - id: prompt-guide
     type: official-guide
@@ -28,6 +28,12 @@ sources:
     publisher: PixVerse
     url: https://docs.platform.pixverse.ai/c1-2067883m0
     accessed_at: 2026-07-10
+  - id: pixverse-cli
+    type: official-api
+    title: PixVerse CLI repository
+    publisher: PixVerseAI
+    url: https://github.com/PixVerseAI/cli
+    accessed_at: 2026-08-05
 models:
   - id: v6
     aliases: [pixverse-v6]
@@ -66,6 +72,28 @@ models:
     notes:
       - "C1 is optimized for cinematic and reference-driven work, but its route does not support video extension."
     source_ids: [prompt-guide, c1-api]
+  - id: minimax-h3
+    aliases: [h3, minimax-hailuo-h3]
+    verified_at: 2026-08-05
+    review_after: 2026-11-05
+    input_modes: [text-to-video, image-to-video, transition, reference]
+    limits:
+      duration_seconds: { min: 5, max: 15 }
+      resolutions: [768p, 1440p]
+      text_to_video_aspect_ratios: ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      image_to_video_aspect_ratios: ["auto"]
+      image_to_video_uses_input_aspect: true
+      unsupported_parameters: [last-frame-only]
+      notes:
+        - "Model limits from official PixVerse CLI 1.3.0 (https://github.com/PixVerseAI/cli): MiniMax H3 quality 768p/1440p, duration 5..15, aspects auto/21:9/16:9/4:3/1:1/3:4/9:16; I2V forces auto."
+        - "Current repository PixVerse adapter route is narrower: duration 3/5/10 seconds and aspect 16:9 or 9:16 only. Prefer constraints.yaml and route validation (PV-E*) at execution time."
+        - "H3 structured prompt syntax is a Tsugite design/IR compiler contract; the CLI README does not specify H3 section syntax."
+        - "Reference route caps observed for planning advice: up to 9 images, 3 videos, and 3 audios; audio-only reference is not feasible."
+    notes:
+      - "minimax-h3 is available on the PixVerse CLI route as model minimax-h3 for video, transition, and reference create operations."
+      - "Prefer Tsugite H3 Creative IR + deterministic renderer for section order, shot timestamps, speaker IDs, and locked dialogue."
+      - "Guidance is advisory only; catalog presence does not prove adapter entitlement, credits, or runtime support."
+    source_ids: [pixverse-cli, prompt-guide]
 common:
   checklist:
     - id: lead-with-control
@@ -144,3 +172,56 @@ modes:
         - Keep exclusions out of the ordinary prompt unless the endpoint explicitly supports negative prompting.
         - Express preservation as positive constraints on silhouette, material, lighting, and composition.
       source_ids: [prompt-guide, i2v-api]
+  transition:
+    template: >-
+      Transform from [first-frame state] to [last-frame state] through [one continuous motion path]. Preserve [identity and material constraints]. Prefer a continuous transition over mid-clip hard cuts.
+    prompt_order: [first-state, last-state, continuous-motion, identity-preservation, audio-optional]
+    checklist:
+      - id: continuous-bridge
+        instruction: Describe the change between first and last frames as one continuous bridge, not two separate still-image descriptions.
+        evidence: synthesized
+        confidence: medium
+        source_ids: [pixverse-cli]
+      - id: keep-identity-through-transition
+        instruction: State which subject traits must survive the entire transition.
+        evidence: synthesized
+        confidence: medium
+        source_ids: [pixverse-cli, prompt-guide]
+    avoid:
+      - Treating first and last frames as unrelated stills
+      - Adding intermediate hard cuts when a continuous transition is intended
+      - Mixing transition inputs with multi-video reference packages
+    negative_prompt:
+      strategy: dedicated-field-if-endpoint-supports-otherwise-positive-constraints
+      guidance:
+        - Prefer positive continuity constraints over exclusion lists.
+      source_ids: [pixverse-cli]
+  reference:
+    template: >-
+      Use labeled references for subject, motion, and voice roles. Keep section order stable for structured H3 compilation. Bind assets by role rather than inventing manual @imageN numbers in authoring input.
+    prompt_order: [subject-roles, motion-roles, voice-roles, retention, detailed-action, soundscape, music]
+    checklist:
+      - id: role-before-number
+        instruction: Author assets by stable ids and roles; let the compiler assign @imageN/@videoN/@audioN and H3 Picture/Video/Audio labels.
+        evidence: synthesized
+        confidence: medium
+        source_ids: [pixverse-cli]
+      - id: no-audio-only-reference
+        instruction: Do not plan audio-only reference generation; pair voice references with image or video.
+        evidence: synthesized
+        confidence: medium
+        source_ids: [pixverse-cli]
+      - id: separate-sound-layers
+        instruction: Keep diegetic soundscape and non-diegetic music as separate controls.
+        evidence: synthesized
+        confidence: medium
+        source_ids: [pixverse-cli, prompt-guide]
+    avoid:
+      - Manual author-supplied Picture/Video/Audio index numbers in source IR
+      - Audio-only reference packages
+      - Mixing first/last frame transition inputs with full reference packages
+    negative_prompt:
+      strategy: dedicated-field-if-endpoint-supports-otherwise-positive-constraints
+      guidance:
+        - Keep preservation and exclusions as positive constraints unless the selected endpoint documents a dedicated negative field.
+      source_ids: [pixverse-cli]

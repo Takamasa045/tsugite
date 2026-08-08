@@ -454,15 +454,80 @@ describe('TemplateChecklist', () => {
 
     render(<TemplateChecklist template={template} choices={choices} />)
 
-    expect(screen.queryByRole('heading', { name: '制作依頼に指定できる仕上げ' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'この環境の仕上げ候補' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('制作依頼本文').textContent).not.toMatch(
-      /制作依頼に指定できる仕上げ|article-dialogue-16x9/,
+      /この環境の仕上げ候補|article-dialogue-16x9/,
     )
 
     await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
     expect(String(writeText.mock.calls[0]?.[0] ?? '')).not.toMatch(
-      /制作依頼に指定できる仕上げ|article-dialogue-16x9/,
+      /この環境の仕上げ候補|article-dialogue-16x9/,
     )
+  })
+
+  it('選んだ表現は制作依頼本文に混ぜず、別ボタンで表現プロンプトだけコピーする', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+
+    const expressionSelections = [
+      {
+        key: 'presentation-preset::remotion::article-dialogue-16x9',
+        provider: 'remotion',
+        nativeId: 'article-dialogue-16x9',
+        title: '横型・会話で解説',
+        description: '会話で解説する',
+        tags: ['remotion', '16:9'],
+        features: ['dialogue'],
+        role: 'full-composition' as const,
+        capability: 'declared-executable-candidate' as const,
+        previewFidelity: 'composition-storyboard' as const,
+        reason: '横型解説向き',
+        source: 'presentation-preset' as const,
+      },
+    ]
+
+    render(
+      <TemplateChecklist
+        template={template}
+        choices={choices}
+        expressionSelectionMode="explicit"
+        expressionSelections={expressionSelections}
+      />,
+    )
+
+    // mount では自動コピーしない
+    expect(writeText).toHaveBeenCalledTimes(0)
+    expect(screen.getByRole('heading', { name: '選んだ表現' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '選んだ表現のプロンプト' })).toBeVisible()
+    const expressionPreview = screen.getByRole('textbox', { name: '選んだ表現のプロンプト' })
+    const expressionPreviewValue = String(
+      (expressionPreview as HTMLTextAreaElement).value ?? '',
+    )
+    expect(expressionPreviewValue).toContain('## 表現プロンプト（コピー候補）')
+    expect(expressionPreviewValue).toContain(JSON.stringify('article-dialogue-16x9'))
+
+    const brief = screen.getByLabelText('制作依頼本文')
+    expect(brief.textContent).not.toContain('## 表現プロンプト')
+    expect(brief.textContent).not.toContain('article-dialogue-16x9')
+    expect(brief.textContent).not.toContain('横型・会話で解説')
+
+    await user.click(screen.getByRole('button', { name: '制作依頼だけをコピー' }))
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const productionCopied = String(writeText.mock.calls[0]?.[0] ?? '')
+    expect(productionCopied).toContain('# 制作依頼')
+    expect(productionCopied).not.toContain('article-dialogue-16x9')
+    expect(productionCopied).not.toContain('## 表現プロンプト')
+
+    await user.click(screen.getByRole('button', { name: '表現プロンプトをコピー' }))
+    expect(writeText).toHaveBeenCalledTimes(2)
+    const expressionCopied = String(writeText.mock.calls[1]?.[0] ?? '')
+    expect(expressionCopied).toContain('## 表現プロンプト（コピー候補）')
+    expect(expressionCopied).toContain(JSON.stringify('article-dialogue-16x9'))
+    expect(expressionCopied).toMatch(/制作依頼本文へは自動では入りません/)
   })
 
   it('copyWithHiddenTextarea restores focus to the copy button after fallback', async () => {

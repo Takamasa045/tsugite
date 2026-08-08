@@ -1,0 +1,205 @@
+schema_version: 1
+kind: video-prompt-guide
+catalog_id: minimax-h3
+display_name: MiniMax H3 (official source catalog)
+revision: 2026-08-08.1
+# Official MiniMax H3 prompt knowledge only. Do not mix PixVerse transport limits here.
+# Skill/CLI body text is link-only (not vendored): root LICENSE could not be verified for redistribution.
+sources:
+  - id: minimax-h3-skill
+    type: official-skill
+    title: MiniMax-H3 Prompt Skill (T2VA / I2VA / FL2VA / L2VA / Ref2VA)
+    publisher: MiniMax-AI
+    url: https://github.com/MiniMax-AI/MiniMax-H3
+    commit: 8d8824efaf94586c0cc9ac7ad8d0723d4d6420ea
+    accessed_at: 2026-08-08
+    license_status: unverified
+    redistribution: link-only
+    review_after: 2026-09-07
+    authority: official
+    scope: prompt-format-and-skill-modes
+  - id: minimax-api-v2-create
+    type: official-api
+    title: Video Generation V2 Create (first_frame / last_frame / reference inputs)
+    publisher: MiniMax
+    url: https://platform.minimax.io/docs/api-reference/video-generation-v2-create
+    accessed_at: 2026-08-08
+    license_status: unverified
+    redistribution: link-only
+    review_after: 2026-09-07
+    authority: official
+    scope: api-input-roles
+  - id: minimax-video-prompt-guide
+    type: official-guide
+    title: MiniMax video prompt guide / H3 feature highlights
+    publisher: MiniMax
+    url: https://platform.minimax.io/docs/guides/video-prompt
+    accessed_at: 2026-08-08
+    license_status: unverified
+    redistribution: link-only
+    review_after: 2026-09-07
+    authority: official
+    scope: prompt-guidance
+  - id: minimax-cli
+    type: official-cli
+    title: MiniMax official CLI (mmx) — MiniMax-H3 and --last-frame alone
+    publisher: MiniMax-AI
+    url: https://github.com/MiniMax-AI/cli
+    accessed_at: 2026-08-08
+    license_status: unverified
+    redistribution: link-only
+    review_after: 2026-09-07
+    authority: official
+    scope: cli-contract-mmx-1.0.19
+  - id: minimax-mcp
+    type: official-mcp
+    title: MiniMax-MCP (Hailuo-02 generation; not H3 / last-only / H3 reference execution evidence)
+    publisher: MiniMax-AI
+    url: https://github.com/MiniMax-AI/MiniMax-MCP
+    accessed_at: 2026-08-08
+    license_status: unverified
+    redistribution: link-only
+    review_after: 2026-09-07
+    authority: official
+    scope: documented-as-unsupported-for-h3-execution
+models:
+  - id: minimax-h3
+    # MiniMax-H3 is the provider model id (mapped explicitly elsewhere); do not alias it here
+    # because normalizeModelName collapses MiniMax-H3 → minimax-h3 and collides with id.
+    aliases: [h3, minimax-hailuo-h3, hailuo-h3]
+    verified_at: 2026-08-08
+    review_after: 2026-09-07
+    input_modes:
+      - text-to-video
+      - image-to-video
+      - first-last-frame-to-video
+      - last-frame-to-video
+      - reference
+    limits:
+      prompt_max_characters: 7000
+      duration_seconds: { min: 4, max: 15 }
+      resolutions: [768p, 2K]
+      text_to_video_aspect_ratios: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      image_to_video_aspect_ratios: ["adaptive"]
+      image_to_video_uses_input_aspect: true
+      unsupported_parameters: []
+      notes:
+        - "Official API V2 supports text-only, first_frame alone, last_frame alone, first+last, and reference inputs. Image-to-video and reference-to-video are mutually exclusive."
+        - "Official mmx 1.0.19: `mmx video generate --model MiniMax-H3` with optional --image, --last-frame alone, --reference-image/video/audio."
+        - "Official MiniMax-MCP is Hailuo-02 era and is not evidence for H3 last-only or H3 reference execution."
+        - "Tsugite Creative IR, compiler, validation codes, and Gate artifacts are Tsugite contracts — not MiniMax official product surface."
+    notes:
+      - "ir_model minimax-h3 maps explicitly to provider_model MiniMax-H3. Do not invent aliases at runtime."
+      - "Prefer Tsugite H3 Creative IR + deterministic compiler for section order, shot timestamps, speaker IDs, and locked dialogue."
+      - "Catalog presence is advisory only; it does not prove adapter entitlement, credits, or that generation is integrated."
+    source_ids: [minimax-h3-skill, minimax-api-v2-create, minimax-cli, minimax-mcp]
+common:
+  checklist:
+    - id: lead-with-subject-action
+      instruction: Lead with the primary subject, one readable action, and location before secondary style.
+      evidence: documented
+      confidence: high
+      source_ids: [minimax-video-prompt-guide]
+    - id: keep-official-mode-roles
+      instruction: Use official image roles (first_frame / last_frame / reference_*) without mixing image-to-video and reference-to-video.
+      evidence: documented
+      confidence: high
+      source_ids: [minimax-api-v2-create]
+modes:
+  text-to-video:
+    template: >-
+      [Subject] performs [one readable action] in [location]. [Camera movement]. [Soundscape]. [Optional dialogue tags].
+    prompt_order: [subject, action, location, camera, sound, optional-dialogue]
+    checklist:
+      - id: t2va-required-text
+        instruction: Every H3 request requires a non-empty text prompt (T2VA).
+        evidence: documented
+        confidence: high
+        source_ids: [minimax-api-v2-create]
+    avoid:
+      - Inventing provider-specific section headers that are not produced by the Tsugite H3 compiler when using Creative IR.
+    negative_prompt:
+      strategy: Prefer positive constraints in the main prompt; do not treat negative prompt as an official MiniMax H3 required field.
+      guidance:
+        - Keep stability constraints positive (identity lock, end pose) rather than long negative lists.
+      source_ids: [minimax-h3-skill, minimax-video-prompt-guide]
+  image-to-video:
+    template: >-
+      Start from the first-frame reference. Describe motion from that pose. Keep identity and wardrobe locked.
+    prompt_order: [first-frame-anchor, motion, identity-lock, camera, sound]
+    checklist:
+      - id: i2va-first-frame-role
+        instruction: Use a single first_frame image for I2VA; do not add last_frame unless intentionally FL2VA.
+        evidence: documented
+        confidence: high
+        source_ids: [minimax-api-v2-create]
+    avoid:
+      - Mixing reference_* roles with first_frame / last_frame.
+    negative_prompt:
+      strategy: Prefer positive identity locks over negative lists.
+      guidance:
+        - State what must remain consistent from the first frame.
+      source_ids: [minimax-api-v2-create, minimax-h3-skill]
+  first-last-frame-to-video:
+    template: >-
+      Continuously transform from the first-frame pose into the last-frame pose. Include official alignment sentences for start and end marks.
+    prompt_order: [start-end-alignment, continuous-motion, identity-lock, camera, sound]
+    checklist:
+      - id: fl2va-both-roles
+        instruction: FL2VA requires first_frame and last_frame image roles together.
+        evidence: documented
+        confidence: high
+        source_ids: [minimax-api-v2-create]
+      - id: fl2va-alignment
+        instruction: Include deterministic alignment of start (0.00s / Shot 1) and end (duration / final Shot).
+        evidence: synthesized
+        confidence: medium
+        source_ids: [minimax-h3-skill]
+    avoid:
+      - Packing first/last into unrelated fields without an adapter binding step.
+      - Silent fallback to transition-only transports that cannot express official last-only semantics.
+    negative_prompt:
+      strategy: Prefer continuous transition language over cut lists.
+      guidance:
+        - Avoid intermediate hard cuts when a continuous first→last transform is intended.
+      source_ids: [minimax-h3-skill]
+  last-frame-to-video:
+    template: >-
+      Drive the clip so the final pose matches the last-frame reference at the target duration mark. Include official end alignment.
+    prompt_order: [end-alignment, approach-motion, identity-lock, camera, sound]
+    checklist:
+      - id: l2va-single-last-frame
+        instruction: L2VA uses exactly one last_frame image and no first_frame / reference / video / audio assets.
+        evidence: documented
+        confidence: high
+        source_ids: [minimax-api-v2-create, minimax-cli]
+      - id: l2va-end-alignment
+        instruction: Align <Picture 1> with the final Shot and duration mark (two decimal places).
+        evidence: synthesized
+        confidence: medium
+        source_ids: [minimax-h3-skill]
+    avoid:
+      - Attaching --image / first_frame for last-frame-only on MiniMax-H3.
+      - Pretending PixVerse transport supports last-frame-only.
+    negative_prompt:
+      strategy: Prefer positive end-pose lock language.
+      guidance:
+        - State the final silhouette and wardrobe that must match the last frame.
+      source_ids: [minimax-cli, minimax-h3-skill]
+  reference:
+    template: >-
+      Bind subject / motion / voice references with @imageN / @videoN / @audioN labels from the compiler. Keep reference roles exclusive of first/last frames.
+    prompt_order: [subject-definitions, summary, retention, detailed-description, sound]
+    checklist:
+      - id: ref2va-exclusive
+        instruction: Reference roles must not mix with first_frame / last_frame.
+        evidence: documented
+        confidence: high
+        source_ids: [minimax-api-v2-create]
+    avoid:
+      - Audio-only reference without an image or video when the selected route forbids it.
+    negative_prompt:
+      strategy: Prefer explicit retention constraints over negatives.
+      guidance:
+        - State identity, clothing, and motion retention positively.
+      source_ids: [minimax-h3-skill, minimax-api-v2-create]

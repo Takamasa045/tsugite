@@ -15,6 +15,10 @@ projects/*
 !projects/.gitkeep
 !projects/README.md
 
+# sikumi Live Outbox runtime data (never commit)
+.sikumi/
+projects/**/.sikumi/
+
 # Paid-only / perk local templates. Keep these out of the public repository.
 templates/blog-dialogue-60s/
 templates/qa-dialogue/

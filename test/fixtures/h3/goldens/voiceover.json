@@ -1,0 +1,30 @@
+{
+  "fixture": "voiceover.json",
+  "workflow_id": "h3-prompt-director",
+  "workflow_version": "2",
+  "creative_ir_hash": "3123067c23528684211c67f6d2cce36d64fa63677f04aa7f00cd892a5231fcd7",
+  "canonical_prompt": "integrated_multimodal_description:\n[Shot 1] A man stands on a rainy street at night, face calm, eyes soft, while neon reflections move on wet asphalt. The camera holds a static shot. The man (S1) says in an off-screen voiceover:\n<d>[Japanese]あの日から、すべてが変わった。</d>\nwhile his lips remain completely closed. On-screen text: DAY 01\n\noverall_soundscape:\nRain on pavement and distant traffic.\n\nnon_diegetic_music:\nN/A",
+  "canonical_prompt_hash": "429e607579f431983b7a113e446e009d4611a7578ee7231416fc754a2098a22a",
+  "adapter_prompt_hash": "429e607579f431983b7a113e446e009d4611a7578ee7231416fc754a2098a22a",
+  "validation_ok": true,
+  "error_codes": [],
+  "warning_codes": [],
+  "issue_codes": [],
+  "compile_ok": true,
+  "lineage": {
+    "workflow_id": "h3-prompt-director",
+    "workflow_version": "2",
+    "creative_ir_hash": "3123067c23528684211c67f6d2cce36d64fa63677f04aa7f00cd892a5231fcd7",
+    "canonical_prompt_hash": "429e607579f431983b7a113e446e009d4611a7578ee7231416fc754a2098a22a",
+    "adapter_prompt_hash": "429e607579f431983b7a113e446e009d4611a7578ee7231416fc754a2098a22a"
+  },
+  "execution_request_snapshot": {
+    "model": "minimax-h3",
+    "duration": 5,
+    "aspect": "16:9",
+    "operation": "video",
+    "input_mode": "text-to-video",
+    "params_quality": "768p",
+    "params_audio": true
+  }
+}

@@ -73,7 +73,7 @@ const INTENT_CHANGED_STATUS =
 const PRESET_POOL_CHANGED_STATUS =
   '仕上げ候補の一覧が更新されたため、以前の候補は無効です。もう一度「入力内容から候補を絞り込む」を押してください。'
 const PRESET_LOADING_REASON =
-  '制作依頼に指定できる仕上げを読み込んでいます。読み込み後に候補の絞り込みが操作できます。'
+  'この環境の仕上げ候補を読み込んでいます。読み込み後に候補の絞り込みが操作できます。'
 
 /**
  * Stable fingerprint of presentation presets for stale-recommendation hygiene.
@@ -278,7 +278,7 @@ export function ExpressionShelf({
       (browseMode === 'reference' ? 0 : visibleExecutableItems.length)
       + (browseMode === 'executable' ? 0 : visibleReferenceItems.length)
     if (browseMode === 'executable') {
-      return `制作依頼に指定できる仕上げ: ${executableCandidates.length}件中 ${visibleExecutableItems.length}件を表示`
+      return `この環境の仕上げ候補: ${executableCandidates.length}件中 ${visibleExecutableItems.length}件を表示`
     }
     if (browseMode === 'reference') {
       return `アイデアとして参照する表現: ${referenceExpressions.length}件中 ${visibleReferenceItems.length}件を表示`
@@ -317,7 +317,7 @@ export function ExpressionShelf({
 
     if (exploreWithoutCatalog) {
       const scopeNote = [
-        '今検索できる範囲は、制作依頼に指定できる仕上げだけです。',
+        '今検索できる範囲は、この環境の仕上げ候補だけです。',
         '参考表現を含めるには「HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）」が必要です。',
         '自動では読み込みません。',
       ].join('')
@@ -367,7 +367,7 @@ export function ExpressionShelf({
     const roleNote = isFullCompositionRole(item.role)
       ? '全体構成として追加（補助表現と組み合わせ可）'
       : '補助表現として追加（全体構成と組み合わせ可）'
-    setStatusMessage(`${item.title} を制作依頼へ追加しました（${roleNote}）`)
+    setStatusMessage(`${item.title} をコピー候補に追加しました（${roleNote}）`)
   }, [onSelectionsChange])
 
   const handleRemove = useCallback((key: string, title: string) => {
@@ -376,7 +376,7 @@ export function ExpressionShelf({
       selections: next,
       mode: next.length === 0 ? 'unset' : 'explicit',
     })
-    setStatusMessage(`${title} を制作依頼から外しました`)
+    setStatusMessage(`${title} をコピー候補から外しました`)
   }, [onSelectionsChange])
 
   function resetPagination() {
@@ -399,10 +399,11 @@ export function ExpressionShelf({
       <header className="launcher-expression-heading">
         <div>
           <span className="eyebrow">表現</span>
-          <h2 id={headingId} tabIndex={-1}>動きや仕上げを見比べて、制作依頼に入れる</h2>
+          <h2 id={headingId} tabIndex={-1}>動きや仕上げを見比べて、プロンプトをコピーする</h2>
           <p>
-            テンプレートを使わない自由制作でも使えます。
-            制作依頼に指定できる仕上げと、アイデア用の参考表現を分けて見られます。
+            カタログとして閲覧し、表現プロンプトをコピーできます。
+            この環境の仕上げ候補と、アイデア用の参考表現を分けて見られます。
+            制作依頼本文へは自動では入りません。
           </p>
         </div>
         <div className="launcher-expression-heading-meta">

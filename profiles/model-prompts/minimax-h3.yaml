@@ -1,0 +1,73 @@
+schema_version: 1
+kind: model-prompt-profile
+id: minimax-h3
+display_name: MiniMax H3
+source:
+  pin: knowledge/video-models/minimax-h3/prompt-guide.yaml@2026-08-08.1
+  version: 2026-08-08.1
+  review_after: 2026-09-07
+  digest: 3ea8b07d15ef7a1ffce998f7fa8462f5de054917d3bf929a0be0b5ed213350a6
+modes:
+  text-to-video:
+    supported: true
+    input_mode: text-to-video
+    asset_roles: []
+    notes: []
+  first-frame:
+    supported: true
+    input_mode: image-to-video
+    asset_roles:
+      - first_frame
+    notes: []
+  first-last:
+    supported: true
+    input_mode: first-last-frame-to-video
+    asset_roles:
+      - first_frame
+      - last_frame
+    notes: []
+  last-frame:
+    supported: true
+    input_mode: last-frame-to-video
+    asset_roles:
+      - last_frame
+    notes: []
+  reference:
+    supported: true
+    input_mode: reference
+    asset_roles:
+      - subject_reference
+      - motion_reference
+      - voice_reference
+    notes: []
+durations:
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+aspects:
+  - auto
+  - 21:9
+  - 16:9
+  - 4:3
+  - 1:1
+  - 3:4
+  - 9:16
+resolutions:
+  - 768p
+  - 2K
+renderer: h3-grammar
+label_dialect: picture
+unsupported: []
+exclusive_semantics:
+  - last-frame-only
+  - fl2va
+  - l2va

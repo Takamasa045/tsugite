@@ -5,6 +5,9 @@ export type CommandName =
   | "guides"
   | "story-guides"
   | "connections"
+  | "services"
+  | "service-tools"
+  | "service-call"
   | "presets"
   | "viewer-launcher"
   | "worktrees"
@@ -107,7 +110,28 @@ const OPTIONS = {
   output: defineOption("--output", "Alternate output directory.", "<directory>"),
   shot: defineOption("--shot", "Storyboard shot identifier to preview locally.", "<shot-id>"),
   dryRun: defineOption("--dry-run", "Plan the run without executing adapters or writing state."),
-  decision: defineOption("--decision", "Decision allowed by the selected gate.", "<decision>")
+  decision: defineOption("--decision", "Decision allowed by the selected gate.", "<decision>"),
+  personQaDecision: defineOption(
+    "--person-qa-decision",
+    "Person-consistency QA decision: accept, revise, or accept-not-evaluable (required when quality.person_consistency is enabled).",
+    "<decision>"
+  ),
+  personQaReason: defineOption(
+    "--person-qa-reason",
+    "Non-empty human reason for the person-consistency QA decision.",
+    "<text>"
+  ),
+  service: defineOption(
+    "--service",
+    "Agent service id from the public Remote MCP registry.",
+    "<service-id>"
+  ),
+  tool: defineOption("--tool", "Registry-allowlisted remote MCP tool name.", "<tool-name>"),
+  arguments: defineOption(
+    "--arguments",
+    "JSON object of tool arguments.",
+    "<json-object>"
+  )
 } as const satisfies Record<string, CommandOptionSpec>;
 
 export const GLOBAL_OPTIONS: readonly CommandOptionSpec[] = Object.freeze([
@@ -153,6 +177,30 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: false,
     safety: "read-only",
     options: [OPTIONS.model, OPTIONS.capability]
+  }),
+  defineCommand({
+    name: "services",
+    summary: "List public read-only Remote MCP agent services from the local registry (no network).",
+    usage: "node bin/pipeline services [--json]",
+    requiresConfig: false,
+    safety: "read-only",
+    options: []
+  }),
+  defineCommand({
+    name: "service-tools",
+    summary: "List remote tools observed on a registry agent service (network).",
+    usage: "node bin/pipeline service-tools --service <service-id> [--json]",
+    requiresConfig: false,
+    safety: "read-only",
+    options: [OPTIONS.service]
+  }),
+  defineCommand({
+    name: "service-call",
+    summary: "Call one registry-allowlisted read-only Remote MCP tool (side effects always blocked).",
+    usage: "node bin/pipeline service-call --service <service-id> --tool <tool-name> [--arguments <json-object>] [--json]",
+    requiresConfig: false,
+    safety: "read-only",
+    options: [OPTIONS.service, OPTIONS.tool, OPTIONS.arguments]
   }),
   defineCommand({
     name: "presets",
@@ -314,10 +362,18 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
   defineCommand({
     name: "gate",
     summary: "Record a human approval, revision, or abort decision.",
-    usage: "node bin/pipeline gate --config <project.yaml> --actor coordinator --gate <gate-id> --decision <decision> [--state-dir <directory>] [--json]",
+    usage: "node bin/pipeline gate --config <project.yaml> --actor coordinator --gate <gate-id> --decision <decision> [--person-qa-decision <decision> --person-qa-reason <text>] [--state-dir <directory>] [--json]",
     requiresConfig: true,
     safety: "approval-gated",
-    options: [OPTIONS.config, OPTIONS.actor, OPTIONS.gate, OPTIONS.decision, OPTIONS.stateDir]
+    options: [
+      OPTIONS.config,
+      OPTIONS.actor,
+      OPTIONS.gate,
+      OPTIONS.decision,
+      OPTIONS.personQaDecision,
+      OPTIONS.personQaReason,
+      OPTIONS.stateDir
+    ]
   }),
   defineCommand({
     name: "render",

@@ -31,6 +31,26 @@ const stdinJsonCommandSchema = z.object({
   input: z.literal("stdin-json").default("stdin-json")
 });
 
+/**
+ * Provider-neutral input-mode contract.
+ * `required_any` expresses "at least one path from each group must be present".
+ * Paths are request fields (`first_frame`, `input_images`, …) or `params.<key>`.
+ * No provider/H3-specific names are special-cased in core — adapters declare paths.
+ */
+const inputModeContractSchema = z.object({
+  required_params: z
+    .record(
+      z.string(),
+      z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")])
+    )
+    .default({}),
+  forbidden_params: z.array(z.string().min(1)).default([]),
+  required_fields: z.array(z.string().min(1)).default([]),
+  forbidden_fields: z.array(z.string().min(1)).default([]),
+  /** Each inner list is an OR-group: at least one listed path must be present. */
+  required_any: z.array(z.array(z.string().min(1)).min(2)).default([])
+});
+
 const adapterSchema = z.object({
   name: z.string().min(1),
   kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
@@ -69,32 +89,12 @@ const adapterSchema = z.object({
   exit_code_map: z.record(z.string(), z.string().min(1)),
   input_modes: z
     .object({
-      "text-to-video": z
-        .object({
-          required_params: z
-            .record(
-              z.string(),
-              z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")])
-            )
-            .default({}),
-          forbidden_params: z.array(z.string().min(1)).default([]),
-          required_fields: z.array(z.string().min(1)).default([]),
-          forbidden_fields: z.array(z.string().min(1)).default([])
-        })
-        .optional(),
-      "image-to-video": z
-        .object({
-          required_params: z
-            .record(
-              z.string(),
-              z.union([z.literal("non-empty-string"), z.literal("boolean"), z.literal("finite-number")])
-            )
-            .default({}),
-          forbidden_params: z.array(z.string().min(1)).default([]),
-          required_fields: z.array(z.string().min(1)).default([]),
-          forbidden_fields: z.array(z.string().min(1)).default([])
-        })
-        .optional()
+      "text-to-video": inputModeContractSchema.optional(),
+      "image-to-video": inputModeContractSchema.optional(),
+      transition: inputModeContractSchema.optional(),
+      reference: inputModeContractSchema.optional(),
+      "last-frame-to-video": inputModeContractSchema.optional(),
+      "first-last-frame-to-video": inputModeContractSchema.optional()
     })
     .optional(),
   audio_capabilities: z

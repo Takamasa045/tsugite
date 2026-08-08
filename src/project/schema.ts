@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { win32 } from "node:path";
+import { h3CreativeIrSchema, videoCreativeIrSchema } from "../h3/schema.js";
 
 const safeIdSchema = z
   .string()
@@ -34,7 +35,14 @@ const manifestPathSchema = z
     "must be a safe manifest path"
   );
 
-const generationModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
+const generationModeSchema = z.union([
+  z.literal("text-to-video"),
+  z.literal("image-to-video"),
+  z.literal("transition"),
+  z.literal("reference"),
+  z.literal("last-frame-to-video"),
+  z.literal("first-last-frame-to-video")
+]);
 export const generationOperationSchema = z.enum([
   "video",
   "image",
@@ -109,6 +117,16 @@ export const analysisOutputSchema = z.union([
   z.literal("subtitle_track")
 ]);
 
+/** H3 Creative IR is only for video-generation operations. */
+function isH3CompatibleOperation(
+  operation: z.infer<typeof generationOperationSchema> | undefined
+): boolean {
+  return operation === undefined
+    || operation === "video"
+    || operation === "transition"
+    || operation === "reference";
+}
+
 const generationRequestSchema = z
   .object({
     id: safeIdSchema,
@@ -123,6 +141,7 @@ const generationRequestSchema = z
     mode: generationModeSchema.optional(),
     input_mode: generationModeSchema.optional(),
     first_frame: z.string().min(1).optional(),
+    last_frame: z.string().min(1).optional(),
     reference_images: z.array(z.string().min(1)).min(1).optional(),
     input_images: z.array(z.string().min(1)).min(1).optional(),
     input_video: z.string().min(1).optional(),
@@ -134,6 +153,13 @@ const generationRequestSchema = z
         model: safeIdSchema.optional()
       })
       .optional(),
+    /** Optional H3 Creative IR (v1). When present, empty prompt is allowed. */
+    h3: h3CreativeIrSchema.optional(),
+    /**
+     * Optional provider-neutral video_prompt IR (v1).
+     * Mutually exclusive with h3; existing projects are not auto-rewritten.
+     */
+    video_prompt: videoCreativeIrSchema.optional(),
     params: z.record(z.string(), z.unknown()).default({})
   })
   .passthrough()
@@ -148,17 +174,49 @@ const generationRequestSchema = z
     if (request.operation === "voice" && !request.prompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "voice requires text in prompt", path: ["prompt"] });
     }
-    if ([undefined, "video", "image", "music"].includes(request.operation) && !request.prompt) {
+    const hasH3 = request.h3 !== undefined;
+    const hasVideoPrompt = request.video_prompt !== undefined;
+    if (hasH3 && hasVideoPrompt) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "request.h3 and request.video_prompt cannot be specified together",
+        path: ["video_prompt"]
+      });
+    }
+    if (hasH3 && !isH3CompatibleOperation(request.operation)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "h3 Creative IR is only valid for video-generation operations (undefined, video, transition, reference)",
+        path: ["h3"]
+      });
+    }
+    if (hasVideoPrompt && !isH3CompatibleOperation(request.operation)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "video_prompt is only valid for video-generation operations (undefined, video, transition, reference)",
+        path: ["video_prompt"]
+      });
+    }
+    if (
+      [undefined, "video", "image", "music"].includes(request.operation)
+      && !request.prompt
+      && !hasH3
+      && !hasVideoPrompt
+    ) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `${request.operation ?? "video"} requires a prompt`, path: ["prompt"] });
     }
     if (request.operation === "template" && typeof request.params.template_id !== "string") {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "template requires params.template_id", path: ["params", "template_id"] });
     }
     const imageCount = (request.first_frame ? 1 : 0)
+      + (request.last_frame ? 1 : 0)
       + (request.reference_images?.length ?? 0)
       + (request.input_images?.length ?? 0)
       + (typeof request.params.image === "string" ? 1 : 0);
-    if (request.operation === "transition" && imageCount < 2) {
+    // H3 / video_prompt IR carries mode assets; compile fills execution fields before asset checks.
+    if (request.operation === "transition" && imageCount < 2 && !hasH3 && !hasVideoPrompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "transition requires at least two image inputs", path: ["input_images"] });
     }
     if (["extend", "modify", "upscale"].includes(request.operation ?? "")
@@ -170,7 +228,8 @@ const generationRequestSchema = z
       context.addIssue({ code: z.ZodIssueCode.custom, message: "motion-control requires an image and an input video", path: ["input_video"] });
     }
     if (request.operation === "reference"
-      && imageCount + (request.input_videos?.length ?? 0) + (request.input_audios?.length ?? 0) === 0) {
+      && imageCount + (request.input_videos?.length ?? 0) + (request.input_audios?.length ?? 0) === 0
+      && !hasH3) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "reference requires at least one media input", path: ["input_images"] });
     }
   });
@@ -239,6 +298,50 @@ const gatePolicySchema = z.object({
     .optional()
 });
 
+/**
+ * Optional person-consistency semantic QA policy (Phase B).
+ * Disabled by default. When enabled, Gate 2 auto-pass is forbidden.
+ */
+const personConsistencyPolicySchema = z
+  .object({
+    enabled: z.boolean(),
+    adapter: z.string().min(1),
+    fallback: z.literal("fail"),
+    stages: z.array(z.enum(["gate_2", "gate_3"])).min(1),
+    evidence: z
+      .object({
+        sampling: z.literal("shot-boundaries-and-uniform"),
+        frames_per_shot: z.number().int().min(1).max(12),
+        retain_face_embeddings: z.literal(false)
+      })
+      .strict(),
+    external: z
+      .object({
+        allowed: z.boolean().default(false)
+      })
+      .strict()
+      .default({ allowed: false })
+  })
+  .strict();
+
+const qualityPolicySchema = z
+  .object({
+    person_consistency: personConsistencyPolicySchema.optional()
+  })
+  .strict()
+  .optional();
+
+/**
+ * Optional sikumi Live Outbox observation (default OFF).
+ * When enabled, pipeline lifecycle writes JSON under `<project>/.sikumi/events/`.
+ * sikumi absence must never break tsugite (fail-soft / no hard dependency).
+ */
+const sikumiConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false)
+  })
+  .default({ enabled: false });
+
 /** ランチャー表示用の案件名。日本語可。必須。後から変更できる。 */
 const projectDisplayNameSchema = z.string().trim().min(1).max(120);
 
@@ -250,6 +353,8 @@ export const projectSchema = z
     run_id: safeIdSchema.optional(),
     manifest: manifestPathSchema,
     dist_dir: safeRelativePathSchema.default("dist"),
+    /** Optional Live Outbox for sikumi village observation. Default disabled. */
+    sikumi: sikumiConfigSchema.optional(),
     edit: z.object({
       backend: safeIdSchema,
       editorial: editorialPolicySchema.optional(),
@@ -276,7 +381,9 @@ export const projectSchema = z
       })
       .optional(),
     composition: compositionSchema.optional(),
-    gates: gatePolicySchema.optional()
+    gates: gatePolicySchema.optional(),
+    /** Optional quality / semantic QA policies. Absent keeps legacy behavior. */
+    quality: qualityPolicySchema
   })
   .passthrough()
   .superRefine((project, context) => {
@@ -353,6 +460,21 @@ export const projectSchema = z
         path: ["gates", "gate_2", "auto_pass"]
       });
     }
+    if (project.gates?.gate_2?.auto_pass && project.quality?.person_consistency?.enabled) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "gates.gate_2.auto_pass cannot be combined with quality.person_consistency.enabled (semantic_qa_enabled)",
+        path: ["gates", "gate_2", "auto_pass"]
+      });
+    }
+    if (
+      project.quality?.person_consistency?.enabled
+      && project.quality.person_consistency.external.allowed === true
+    ) {
+      // External adapters are intentionally unconnected in Phase B; allow schema
+      // declaration for future payload-preview contracts but keep default false.
+    }
     if (project.composition && project.generation) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -388,7 +510,14 @@ export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][numbe
 
 export function generationRequestMode(
   request: GenerationRequest
-): "text-to-video" | "image-to-video" | undefined {
+):
+  | "text-to-video"
+  | "image-to-video"
+  | "transition"
+  | "reference"
+  | "last-frame-to-video"
+  | "first-last-frame-to-video"
+  | undefined {
   return request.mode ?? request.input_mode;
 }
 
@@ -414,15 +543,25 @@ export function generationRequestCapability(request: GenerationRequest): string 
     case "reference": return "video.reference-to-video";
     case "motion-control": return "video.motion-control";
     case "template": return "media.template";
-    default:
-      return `video.${generationRequestMode(request) ?? (
+    default: {
+      const mode = generationRequestMode(request);
+      if (mode) return `video.${mode}`;
+      if (request.last_frame && !request.first_frame) return "video.last-frame-to-video";
+      if (request.first_frame && request.last_frame) return "video.first-last-frame-to-video";
+      return `video.${(
         request.first_frame || request.input_images?.length || request.reference_images?.length || typeof request.params.image === "string"
           ? "image-to-video"
           : "text-to-video"
       )}`;
+    }
   }
 }
 
+/**
+ * Normalize a generation request for digests / Gate integrity.
+ * Keeps raw `h3` so Creative IR changes remain visible to run input digests.
+ * Strips advisory `prompt_guide` and collapses legacy `mode` into `input_mode`.
+ */
 export function toExecutionGenerationRequest(
   request: GenerationRequest
 ): GenerationRequest {
@@ -437,6 +576,21 @@ export function toExecutionGenerationRequest(
     ...executionRequest,
     ...(normalizedInputMode ? { input_mode: normalizedInputMode } : {})
   } as GenerationRequest;
+}
+
+/**
+ * Adapter-facing payload: same as execution normalization, but never sends raw h3 IR.
+ */
+export function toAdapterGenerationRequest(
+  request: GenerationRequest
+): GenerationRequest {
+  const execution = toExecutionGenerationRequest(request);
+  const {
+    h3: _h3,
+    video_prompt: _videoPrompt,
+    ...adapterRequest
+  } = execution as GenerationRequest & { h3?: unknown; video_prompt?: unknown };
+  return adapterRequest as GenerationRequest;
 }
 
 export function toExecutionProject(project: Project): Project {

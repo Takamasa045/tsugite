@@ -1,0 +1,52 @@
+checks:
+  - id: duration-supported
+    scope: generation
+    field: duration
+    operations: [video, reference]
+    operator: in
+    values: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    message: duration must be an integer from 4 to 15 seconds for MiniMax-H3
+  - id: aspect-supported
+    scope: generation
+    field: aspect
+    operations: [video, reference]
+    operator: in
+    values: ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+    message: aspect must be one of auto/21:9/16:9/4:3/1:1/3:4/9:16 for MiniMax-H3
+
+# MiniMax direct H3 route (preflight / dry-run argv only in Phase A).
+# Official CLI: mmx video generate --model MiniMax-H3 ... (mmx >= 1.0.19).
+# ir_model minimax-h3 maps explicitly to provider_model MiniMax-H3 (no guess conversion).
+h3_execution_route:
+  model: minimax-h3
+  provider_model: MiniMax-H3
+  min_cli_version: "1.0.19"
+  durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  qualities: ["768p", "2K", "1440p"]
+  aspects: ["auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+  max_images: 9
+  max_videos: 3
+  max_audios: 3
+  audio_requires_image_or_video: true
+  forbid_first_last_reference_mix: true
+  modes:
+    text-to-video:
+      operation: video
+      input_mode: text-to-video
+      asset_binding: none
+    first-frame:
+      operation: video
+      input_mode: image-to-video
+      asset_binding: first_frame
+    first-last:
+      operation: video
+      input_mode: first-last-frame-to-video
+      asset_binding: first_and_last_frame
+    last-frame:
+      operation: video
+      input_mode: last-frame-to-video
+      asset_binding: last_frame
+    reference:
+      operation: reference
+      input_mode: reference
+      asset_binding: reference_lists

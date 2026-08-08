@@ -321,6 +321,21 @@
   color: rgba(244, 237, 223, .72);
   padding: 2px 8px;
 }
+.launcher-expression-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+}
+.launcher-expression-local-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.launcher-expression-local-copy .launcher-expression-state {
+  margin: 0;
+}
 .launcher-expression-reasons {
   margin: 0;
   padding-left: 1.1em;

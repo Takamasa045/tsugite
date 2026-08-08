@@ -1,0 +1,31 @@
+{
+  "fixture": "first-frame.json",
+  "workflow_id": "h3-prompt-director",
+  "workflow_version": "2",
+  "creative_ir_hash": "d8d4a361a49f8634b908d20fe84c17607d5a3e7c60cbee3c68fc7ea5eacaa4cd",
+  "canonical_prompt": "integrated_multimodal_description:\nFor the target video, at 0.00 seconds into the target video,\n<Picture 1> (from [Shot 1]) is fully referenced.\n\n[Shot 1] The man remains in the same pose as the reference, then begins a slow head turn toward camera while morning light holds steady. The camera pushes in with small amplitude at slow speed.\n\noverall_soundscape:\nSoft wind and distant water.\n\nnon_diegetic_music:\nN/A",
+  "canonical_prompt_hash": "1a1dace82afb2c6dc7848f8f182344fffd72fd436e227a33870882257faeada5",
+  "adapter_prompt_hash": "1a1dace82afb2c6dc7848f8f182344fffd72fd436e227a33870882257faeada5",
+  "validation_ok": true,
+  "error_codes": [],
+  "warning_codes": [],
+  "issue_codes": [],
+  "compile_ok": true,
+  "lineage": {
+    "workflow_id": "h3-prompt-director",
+    "workflow_version": "2",
+    "creative_ir_hash": "d8d4a361a49f8634b908d20fe84c17607d5a3e7c60cbee3c68fc7ea5eacaa4cd",
+    "canonical_prompt_hash": "1a1dace82afb2c6dc7848f8f182344fffd72fd436e227a33870882257faeada5",
+    "adapter_prompt_hash": "1a1dace82afb2c6dc7848f8f182344fffd72fd436e227a33870882257faeada5"
+  },
+  "execution_request_snapshot": {
+    "model": "minimax-h3",
+    "duration": 5,
+    "aspect": "16:9",
+    "operation": "video",
+    "input_mode": "image-to-video",
+    "first_frame": "assets/start.png",
+    "params_quality": "768p",
+    "params_audio": true
+  }
+}

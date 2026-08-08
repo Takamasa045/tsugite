@@ -1,0 +1,64 @@
+# ID/alias policy:
+# - profile id `o1` is the IR target.model and connection exact-route key
+# - knowledge canonical id is `video-o1` (knowledge_model_id)
+# - aliases match knowledge aliases and are not auto-resolved for IR matching
+schema_version: 1
+kind: model-prompt-profile
+id: o1
+display_name: Kling O1 (planning T2V/I2V; knowledge video-o1)
+aliases:
+  - kling-video-o1
+  - kling-o1
+knowledge_model_id: video-o1
+source:
+  pin: knowledge/video-models/kling/prompt-guide.yaml#video-o1@2026-07-10.1
+  version: 2026-07-10.1
+  review_after: 2026-10-10
+  digest: eb78c061d4c193a3cf77e6005aa8dd6179af98a8e530cd0d479c2f4c8ebfb966
+modes:
+  text-to-video:
+    supported: true
+    input_mode: text-to-video
+    asset_roles: []
+    notes: []
+  first-frame:
+    supported: true
+    input_mode: image-to-video
+    asset_roles:
+      - first_frame
+    notes: []
+  first-last:
+    supported: false
+    asset_roles: []
+    notes: []
+  last-frame:
+    supported: false
+    asset_roles: []
+    notes: []
+  reference:
+    supported: false
+    asset_roles: []
+    notes: []
+durations:
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+aspects:
+  - 16:9
+  - 9:16
+  - 1:1
+resolutions:
+  - 720p
+  - 1080p
+renderer: plain-prompt
+label_dialect: none
+unsupported:
+  - first-last
+  - last-frame
+  - reference
+exclusive_semantics: []

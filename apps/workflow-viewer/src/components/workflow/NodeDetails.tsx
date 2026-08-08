@@ -6,6 +6,7 @@ import type {
   WorkflowMediaPreview,
   WorkflowNode,
 } from '../../types/workflow'
+import { PersonConsistencyPanel } from '../qa/PersonConsistencyPanel'
 import { ProgressBar } from './ProgressBar'
 import { StatusBadge } from './StatusBadge'
 
@@ -231,6 +232,10 @@ export function NodeDetails({ workflow, node, currentNodes, onSelectNode }: Node
 
       <MediaPreviewGallery previews={node.details?.previews} />
       <ApprovalLedger node={node} />
+
+      {node.details?.personConsistency ? (
+        <PersonConsistencyPanel {...node.details.personConsistency} />
+      ) : null}
 
       {node.details ? (
         <div className="work-explanation" aria-label="工程の説明">

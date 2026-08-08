@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "target": {
+    "model": "minimax-h3",
+    "mode": "reference",
+    "duration": 10,
+    "quality": "1440p",
+    "aspect": "16:9",
+    "audio": true
+  },
+  "creative": {
+    "intent": "A quiet lakeside moment where AI and nature begin to share the same frame."
+  },
+  "subjects": [
+    {
+      "id": "hero",
+      "description": "40-year-old Japanese man",
+      "source_asset": "character_image",
+      "speaker_id": "S1",
+      "voice": {
+        "source_asset": "voice_audio",
+        "description": "calm, low voice",
+        "relationship": "reference"
+      },
+      "preservation": {
+        "identity": "strict",
+        "clothing": "strict",
+        "hairstyle": "strict"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "character_image",
+      "type": "image",
+      "path": "assets/hero.png",
+      "role": "subject_reference"
+    },
+    {
+      "id": "motion_video",
+      "type": "video",
+      "path": "assets/lakeside-motion.mp4",
+      "role": "motion_reference"
+    },
+    {
+      "id": "voice_audio",
+      "type": "audio",
+      "path": "assets/voice.wav",
+      "role": "voice_reference"
+    }
+  ],
+  "shots": [
+    {
+      "id": "shot_1",
+      "start_ms": 0,
+      "end_ms": 5000,
+      "visual": "Live-action, cinematic. A medium-wide shot frames the man beside a mountain lake at sunrise.",
+      "camera": {
+        "type": "push_in",
+        "amplitude": "small",
+        "speed": "slow"
+      }
+    },
+    {
+      "id": "shot_2",
+      "start_ms": 5000,
+      "end_ms": 10000,
+      "transition": "cut",
+      "visual": "a close-up of his face as he looks into camera.",
+      "camera": {
+        "type": "static"
+      },
+      "dialogue": {
+        "speaker": "hero",
+        "language": "Japanese",
+        "text": "AIと自然が、やっと同じ場所で動き始めた。",
+        "lock_text": true
+      }
+    }
+  ],
+  "sound": {
+    "soundscape": "Soft wind, gentle lake water, distant birds.",
+    "music": {
+      "enabled": true,
+      "description": "Sparse acoustic guitar notes with soft ambient pads."
+    }
+  }
+}

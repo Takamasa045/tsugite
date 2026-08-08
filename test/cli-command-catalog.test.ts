@@ -14,6 +14,9 @@ const expectedOptions = {
   guides: ["--catalog", "--model", "--input-mode"],
   "story-guides": ["--request", "--duration"],
   connections: ["--model", "--capability"],
+  services: [],
+  "service-tools": ["--service"],
+  "service-call": ["--service", "--tool", "--arguments"],
   presets: ["--backend"],
   "viewer-launcher": ["--projects-dir", "--port", "--open"],
   worktrees: ["--path", "--actor", "--apply", "--defer", "--reconcile"],
@@ -58,7 +61,15 @@ const expectedOptions = {
   review: ["--config", "--output", "--state-dir", "--open"],
   "review-preview": ["--config", "--actor", "--shot", "--output", "--state-dir"],
   run: ["--config", "--dry-run", "--actor", "--state-dir"],
-  gate: ["--config", "--actor", "--gate", "--decision", "--state-dir"],
+  gate: [
+    "--config",
+    "--actor",
+    "--gate",
+    "--decision",
+    "--person-qa-decision",
+    "--person-qa-reason",
+    "--state-dir"
+  ],
   render: ["--config", "--actor", "--state-dir"]
 } as const;
 

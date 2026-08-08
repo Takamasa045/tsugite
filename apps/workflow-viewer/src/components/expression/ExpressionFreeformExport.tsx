@@ -1,24 +1,45 @@
 import { Copy } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 
-/** Clipboard wait upper bound; never hang on unresolved writeText. */
-export const FREEFORM_CLIPBOARD_TIMEOUT_MS = 1500
+import {
+  EXPRESSION_CLIPBOARD_TIMEOUT_MS,
+  LOCAL_CLIPBOARD_COPY_MESSAGES,
+  writeLocalClipboardText,
+  type LocalClipboardCopyState,
+} from './localClipboardCopy'
 
-export type FreeformCopyState = 'idle' | 'copied' | 'unsupported' | 'failed'
+/** @deprecated Use EXPRESSION_CLIPBOARD_TIMEOUT_MS */
+export const FREEFORM_CLIPBOARD_TIMEOUT_MS = EXPRESSION_CLIPBOARD_TIMEOUT_MS
+
+export type FreeformCopyState = LocalClipboardCopyState
 
 export interface ExpressionFreeformExportProps {
   exportText: string
   /** Optional parent status line (aria-live elsewhere). Never receives raw errors/tokens. */
   onStatusMessage?: (message: string) => void
+  /** Heading for the preview block. */
+  heading?: string
+  /** Description under the heading. */
+  description?: string
+  /** aria-label / accessible name for the readonly preview. */
+  previewLabel?: string
+  /** Visible copy button label. */
+  copyLabel?: string
 }
 
 /**
- * Freeform production export: preview text + explicit-click clipboard only.
- * No auto-copy, no execCommand fallback, no external send.
+ * Expression prompt export: preview text + explicit-click clipboard only.
+ * No auto-copy, no external send. On click, writeLocalClipboardText tries
+ * hidden-textarea execCommand first (OS clipboard), then navigator.clipboard.
+ * Always available (including when returning to a template with copy candidates).
  */
 export function ExpressionFreeformExport({
   exportText,
   onStatusMessage: _onStatusMessage,
+  heading = '選んだ表現のプロンプト',
+  description = 'コピー候補として選んだ表現を、別の表現プロンプトとして表示します。制作依頼本文には自動では入りません。コピーは下のボタンを押したときだけ行います（自動ではコピーしません）。',
+  previewLabel = '選んだ表現のプロンプト',
+  copyLabel = 'まとめてプロンプトをコピー',
 }: ExpressionFreeformExportProps) {
   // Copy feedback is intentionally local (role=status/alert below). Do not
   // mirror into parent aria-live — that double-announces the same copy message.
@@ -26,83 +47,47 @@ export function ExpressionFreeformExport({
   void _onStatusMessage
   const freeformExportId = useId()
   const [copyState, setCopyState] = useState<FreeformCopyState>('idle')
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copyGenerationRef = useRef(0)
 
-  function clearPendingTimeout() {
-    if (timeoutRef.current !== null) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
-    }
-  }
-
   // Selection / text change must never auto-copy. Invalidate in-flight generations
-  // and timers so a stale writeText resolve cannot restore "copied" on new text.
-  // Local copy UI only — do not clear parent selection status via onStatusMessage('').
+  // so a stale writeText resolve cannot restore "copied" on new text.
   useEffect(() => {
     copyGenerationRef.current += 1
-    clearPendingTimeout()
     setCopyState('idle')
   }, [exportText])
 
   useEffect(() => () => {
-    clearPendingTimeout()
     copyGenerationRef.current += 1
   }, [])
 
   async function copyFreeformExport() {
-    const text = exportText
-    if (typeof navigator === 'undefined'
-      || !navigator.clipboard
-      || typeof navigator.clipboard.writeText !== 'function') {
-      // Copy feedback stays in the child live region only — do not mirror into
-      // the parent aria-live (would double-announce the same message).
+    const generation = ++copyGenerationRef.current
+    const result = await writeLocalClipboardText(exportText, {
+      timeoutMs: EXPRESSION_CLIPBOARD_TIMEOUT_MS,
+      signal: {
+        generation,
+        current: () => copyGenerationRef.current,
+      },
+    })
+    if (generation !== copyGenerationRef.current) return
+    if (result === 'stale') return
+    if (result === 'ok') {
+      setCopyState('copied')
+      return
+    }
+    if (result === 'unsupported') {
       setCopyState('unsupported')
       return
     }
-
-    clearPendingTimeout()
-    const generation = ++copyGenerationRef.current
-
-    // Normalize sync throws from writeText into Promise rejections so they
-    // follow the same generic failure path as async rejects (never uncaught).
-    const writePromise = Promise.resolve().then(() => navigator.clipboard.writeText(text))
-    const timeoutPromise = new Promise<'timeout'>((resolve) => {
-      timeoutRef.current = setTimeout(() => {
-        timeoutRef.current = null
-        resolve('timeout')
-      }, FREEFORM_CLIPBOARD_TIMEOUT_MS)
-    })
-
-    try {
-      const result = await Promise.race([
-        writePromise.then(() => 'ok' as const).catch(() => 'failed' as const),
-        timeoutPromise,
-      ])
-      if (generation !== copyGenerationRef.current) return
-      clearPendingTimeout()
-      if (result === 'ok') {
-        setCopyState('copied')
-        return
-      }
-      // reject or timeout → generic failure only (no raw error / token)
-      setCopyState('failed')
-    } catch {
-      if (generation !== copyGenerationRef.current) return
-      clearPendingTimeout()
-      setCopyState('failed')
-    }
+    setCopyState('failed')
   }
 
   return (
     <div className="launcher-expression-freeform-export">
-      <h4>自由制作に貼り付ける表現指定</h4>
-      <p>
-        選択した表現を、制作依頼へ貼り付けられる形で表示します。
-        コピーは下のボタンを押したときだけ行います（自動ではコピーしません）。
-      </p>
+      <h4>{heading}</h4>
+      <p>{description}</p>
       <textarea
-        aria-label="自由制作に貼り付ける表現指定"
+        aria-label={previewLabel}
         className="launcher-expression-freeform-export-text"
         id={freeformExportId}
         readOnly
@@ -115,21 +100,21 @@ export function ExpressionFreeformExport({
         type="button"
       >
         <Copy aria-hidden="true" size={16} />
-        表現指定をコピー
+        {copyLabel}
       </button>
       {copyState === 'copied' && (
         <p className="launcher-expression-state" role="status">
-          コピー済みです。まだ送信していません。
+          {LOCAL_CLIPBOARD_COPY_MESSAGES.copied}
         </p>
       )}
       {copyState === 'unsupported' && (
         <p className="launcher-expression-state is-error" role="alert">
-          この環境ではコピーできません。表示中の文言を手動で選んでコピーしてください。
+          {LOCAL_CLIPBOARD_COPY_MESSAGES.unsupported}
         </p>
       )}
       {copyState === 'failed' && (
         <p className="launcher-expression-state is-error" role="alert">
-          コピーに失敗しました。表示中の文言を手動で選んでコピーしてください。
+          {LOCAL_CLIPBOARD_COPY_MESSAGES.failed}
         </p>
       )}
     </div>

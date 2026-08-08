@@ -29,14 +29,14 @@ describe('ExpressionShelf core UI', () => {
     )
 
     expect(await screen.findByRole('heading', {
-      name: '動きや仕上げを見比べて、制作依頼に入れる',
+      name: '動きや仕上げを見比べて、プロンプトをコピーする',
     })).toBeVisible()
     const panel = screen.getByRole('tabpanel')
     expect(panel).toHaveAttribute('id', 'launcher-expressions-panel')
     expect(panel).toHaveAttribute('aria-labelledby', 'launcher-expressions-tab')
-    expect(screen.getByRole('region', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByRole('region', { name: 'この環境の仕上げ候補' })).toBeVisible()
     expect(screen.getByRole('region', { name: 'アイデアとして参照する表現' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'この環境の仕上げ候補' })).toBeVisible()
     expect(screen.getByLabelText('探す範囲')).toHaveDisplayValue('アイデアも含めて探す')
     expect(screen.getByText('横型・会話で解説')).toBeVisible()
     expect(screen.getAllByText(EXPRESSION_PREVIEW_SAMPLE_TEXT).length).toBeGreaterThan(0)
@@ -78,19 +78,21 @@ describe('ExpressionShelf core UI', () => {
       />,
     )
 
-    expect(screen.getAllByText('制作依頼に指定できる').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('仕上げ候補').length).toBeGreaterThan(0)
     expect(screen.getAllByText(/概念見本|実際の構成・動きの再現ではありません/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/制作依頼: 全体構成/).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: '一覧の横型・会話で解説を制作依頼へ追加' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '一覧の横型・会話で解説を制作依頼へ追加' }))
+    expect(screen.getAllByText(/コピー候補: 全体構成/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: '一覧の横型・会話で解説をコピー候補に追加' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '一覧の横型・会話で解説をコピー候補に追加' }))
       .not.toHaveAttribute('aria-pressed')
+    expect(screen.getByRole('button', { name: '一覧の横型・会話で解説のプロンプトをコピー' })).toBeVisible()
 
     await user.click(screen.getByRole('button', {
       name: 'HyperFrames参考一覧を読み込む（公式カタログへの外部通信あり）',
     }))
     expect(await screen.findByText('Data Chart')).toBeVisible()
     expect(screen.getAllByText('アイデア参考').length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: '一覧のData Chartを制作依頼へ追加' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '一覧のData Chartをコピー候補に追加' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '一覧のData Chartのプロンプトをコピー' })).toBeVisible()
     expect(screen.getByRole('button', { name: /一覧のData Chartの見本を/ })).toBeVisible()
   })
 
@@ -162,11 +164,11 @@ describe('ExpressionShelf core UI', () => {
     expect(within(recommendRegion).getAllByText(/合う理由/).length).toBeGreaterThan(0)
     expect(within(recommendRegion).getAllByText(/注意/).length).toBeGreaterThan(0)
     // catalog not loaded + explore scope → disclose limited search range
-    expect(within(recommendRegion).getByText(/今検索できる範囲は、制作依頼に指定できる仕上げだけ/)).toBeVisible()
+    expect(within(recommendRegion).getByText(/今検索できる範囲は、この環境の仕上げ候補だけ/)).toBeVisible()
     expect(within(recommendRegion).getByText(/外部通信あり/)).toBeVisible()
     expect(fetcher).not.toHaveBeenCalled()
 
-    const addButtons = within(recommendRegion).getAllByRole('button', { name: /絞り込んだ候補の.+を制作依頼へ追加$/ })
+    const addButtons = within(recommendRegion).getAllByRole('button', { name: /絞り込んだ候補の.+をコピー候補に追加$/ })
     await user.click(addButtons[0]!)
     expect(onSelectionsChange).toHaveBeenCalled()
     expect(mode).toBe('explicit')
@@ -180,7 +182,7 @@ describe('ExpressionShelf core UI', () => {
         selections={selections}
       />,
     )
-    expect(screen.getByText(/状態: 明示選択/)).toBeVisible()
+    expect(screen.getByText(/状態: コピー候補を選択中/)).toBeVisible()
   })
 
   it('seeds intent from template metadata', async () => {
@@ -217,6 +219,9 @@ describe('ExpressionShelf core UI', () => {
             provider: 'remotion',
             nativeId: 'article-dialogue-16x9',
             title: '横型・会話で解説',
+            description: '記事を会話で伝える',
+            tags: ['remotion', '16:9'],
+            features: ['dialogue'],
             role: 'full-composition',
             capability: 'declared-executable-candidate',
             previewFidelity: 'composition-storyboard',
@@ -228,6 +233,9 @@ describe('ExpressionShelf core UI', () => {
             provider: 'hyperframes',
             nativeId: 'data-chart',
             title: 'Data Chart',
+            description: 'Animated chart',
+            tags: ['data', 'chart'],
+            features: ['data'],
             role: 'data-viz',
             capability: 'reference-only',
             previewFidelity: 'motion-hint',
@@ -238,12 +246,12 @@ describe('ExpressionShelf core UI', () => {
       />,
     )
 
-    expect(await screen.findByRole('heading', { name: '制作依頼に指定できる仕上げ' })).toBeVisible()
+    expect(await screen.findByRole('heading', { name: 'この環境の仕上げ候補' })).toBeVisible()
     expect(screen.getByText(/この端末内の一覧と照合/)).toBeVisible()
     // UI chrome must stay plain Japanese (prompt export may still contain data-only notes)
     const intentNote = screen.getByText(/この端末内の一覧と照合/)
     expect(intentNote.textContent).not.toMatch(/versioned lexicon|presentation preset/i)
-    const tray = screen.getByRole('complementary', { name: '選んだ候補' })
+    const tray = screen.getByRole('complementary', { name: 'コピー候補' })
     expect(tray).toHaveTextContent(/全体構成は最大1件/)
     expect(tray).toHaveTextContent(/補助表現は最大2件/)
     expect(tray).toHaveTextContent(/組み合わせ/)
@@ -255,7 +263,7 @@ describe('ExpressionShelf core UI', () => {
     expect(within(tray).getByRole('button', { name: 'Data Chartを外す' })).toBeVisible()
     expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'launcher-expressions-tab')
     expect(screen.getByRole('heading', {
-      name: '動きや仕上げを見比べて、制作依頼に入れる',
+      name: '動きや仕上げを見比べて、プロンプトをコピーする',
       level: 2,
     })).toBeVisible()
     // presentationPresets fixture still used for tray context

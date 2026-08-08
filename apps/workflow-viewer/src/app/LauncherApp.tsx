@@ -1433,7 +1433,7 @@ export function LauncherApp({
             <p>{{
               projects: '作品を選び、最新の制作記録を開きます',
               templates: '作りたい動画を選び、制作依頼を確認してコピーします',
-              expressions: '動きや仕上げを見比べて、制作依頼に入れる候補を選びます',
+              expressions: '動きや仕上げを見比べて、表現プロンプトをコピーします',
               characters: 'キャラを確認し、依頼メモをコピーします',
               canvas: '画像・動画の工程をつないで設計します',
               feedback: '制作から育った知見を確認できます',

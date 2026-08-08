@@ -1,5 +1,4 @@
 import {
-  formatExpressionCandidatesPromptSection,
   type ExpressionSelection,
   type ExpressionSelectionMode,
 } from '../expression/expressionLibraryModel'
@@ -593,6 +592,11 @@ export type TemplateProductionExpressionInput = {
   selections: readonly ExpressionSelection[]
 }
 
+/**
+ * テンプレート制作依頼 Markdown。
+ * 表現選択（コピー候補）はここに一切混ぜない。表現は別の表現プロンプトとしてコピーする。
+ * 第3引数は後方互換のため受け取るが無視する。
+ */
 export function buildTemplateProductionPrompt(
   template: Pick<
     LauncherTemplate,
@@ -604,11 +608,12 @@ export function buildTemplateProductionPrompt(
     | 'aiCanPropose'
   >,
   choices: Readonly<Record<string, string>>,
-  expression: TemplateProductionExpressionInput = {
+  _expression: TemplateProductionExpressionInput = {
     mode: 'unset',
     selections: [],
   },
 ): string {
+  void _expression
   const { required } = partitionRequiredInputs(
     resolveRequiredInputDetails(template, choices),
   )
@@ -673,14 +678,6 @@ export function buildTemplateProductionPrompt(
       const label = entry.source ? `${entry.label}（${entry.source}）` : entry.label
       lines.push(`- **${label}**: ${entry.text}`)
     }
-  }
-
-  const expressionSection = formatExpressionCandidatesPromptSection({
-    mode: expression.mode,
-    selections: expression.selections,
-  })
-  if (expressionSection) {
-    lines.push('', ...expressionSection.trimEnd().split('\n'))
   }
 
   lines.push(

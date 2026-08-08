@@ -1,0 +1,47 @@
+name: minimax
+kind: cli
+dry_run_estimate: true
+batch: false
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "40": invalid_request
+  "50": not_implemented
+input_modes:
+  text-to-video:
+    forbidden_params: [image]
+  image-to-video:
+    required_any:
+      - [first_frame, params.image]
+  last-frame-to-video:
+    required_fields: [last_frame]
+    forbidden_fields: [first_frame]
+  first-last-frame-to-video:
+    required_fields: [first_frame, last_frame]
+  reference:
+    required_any:
+      - [input_images, input_videos, input_audios]
+checks:
+  setup:
+    - type: command
+      name: provider:minimax-mmx
+      command: ["mmx", "--version"]
+      capture_version: true
+      remediation:
+        default: "Install MiniMax official CLI (mmx >= 1.0.19) from https://github.com/MiniMax-AI/cli, then rerun doctor."
+    - type: manual
+      name: provider-auth:minimax
+      blocking: false
+      detail: "Phase A is preflight/dry-run only. Authentication and generation are not submitted by Tsugite."
+      remediation:
+        default: "Set MINIMAX_API_KEY in the environment (never paste into chat). Generation remains not integrated until a later phase."
+model_preflight:
+  executable: node
+  args: ["adapters/minimax/preflight.mjs"]
+  input: stdin-json
+# Actual generation is intentionally omitted in Phase A (preflight-only).

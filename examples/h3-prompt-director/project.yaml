@@ -1,0 +1,76 @@
+slug: h3-prompt-director
+name: H3 Prompt Director 例
+run_id: h3-prompt-director-run
+manifest: manifest.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: pixverse
+  connection: pixverse
+  requests:
+    - id: lakeside-t2v
+      prompt: ""
+      model: minimax-h3
+      duration: 10
+      aspect: "16:9"
+      input_mode: text-to-video
+      prompt_guide:
+        catalog: pixverse
+        model: minimax-h3
+      params: {}
+      h3:
+        version: 1
+        target:
+          model: minimax-h3
+          mode: text-to-video
+          duration: 10
+          quality: "768p"
+          aspect: "16:9"
+          audio: true
+        creative:
+          intent: >
+            北アルプスの湖畔で、AIと自然が同じ場所で動き始める静かな瞬間を描く。
+          style:
+            medium: live_action
+            tone: quiet_cinematic
+            lighting: early_morning
+        subjects:
+          - id: hero
+            description: Japanese man
+            speaker_id: S1
+            voice:
+              description: calm, slightly low voice
+        assets: []
+        shots:
+          - id: shot_1
+            start_ms: 0
+            end_ms: 5000
+            visual: >
+              Live-action, cinematic. A medium-wide shot frames a Japanese man
+              standing beside a mountain lake at sunrise. Mist drifts across the water.
+            camera:
+              type: push_in
+              amplitude: small
+              speed: slow
+          - id: shot_2
+            start_ms: 5000
+            end_ms: 10000
+            transition: cut
+            visual: >
+              a close-up of his calm face as he turns toward the camera,
+              lips remaining closed while the off-screen line is heard.
+            camera:
+              type: static
+            dialogue:
+              speaker: hero
+              language: Japanese
+              text: AIと自然が、やっと同じ場所で動き始めた。
+              lock_text: true
+              voiceover: true
+        sound:
+          soundscape: >
+            Soft wind moves through the trees. Gentle lake water laps against
+            the shore, with distant bird calls and subtle clothing movement.
+          music:
+            enabled: false

@@ -6,7 +6,14 @@ import { generationRequestMode, type GenerationRequest, type Project } from "../
 import { PipelineError } from "../types.js";
 import { toPortablePath } from "../platform/path.js";
 
-const promptModeSchema = z.union([z.literal("text-to-video"), z.literal("image-to-video")]);
+const promptModeSchema = z.union([
+  z.literal("text-to-video"),
+  z.literal("image-to-video"),
+  z.literal("transition"),
+  z.literal("reference"),
+  z.literal("last-frame-to-video"),
+  z.literal("first-last-frame-to-video")
+]);
 const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
@@ -21,12 +28,23 @@ const sourceSchema = z.object({
   type: z.union([
     z.literal("official-guide"),
     z.literal("official-api"),
-    z.literal("official-model-page")
+    z.literal("official-model-page"),
+    z.literal("official-skill"),
+    z.literal("official-cli"),
+    z.literal("official-mcp")
   ]),
   title: z.string().min(1),
   publisher: z.string().min(1),
   url: z.string().url().refine((value) => value.startsWith("https://"), "must use https"),
-  accessed_at: dateSchema
+  accessed_at: dateSchema,
+  /** Optional git commit / content hash pin for link-only official sources. */
+  commit: z.string().min(7).optional(),
+  content_hash: z.string().min(7).optional(),
+  license_status: z.enum(["verified", "unverified", "unknown"]).optional(),
+  redistribution: z.enum(["allowed", "link-only", "forbidden", "unknown"]).optional(),
+  review_after: dateSchema.optional(),
+  authority: z.enum(["official", "tsugite-contract", "advisory"]).optional(),
+  scope: z.string().min(1).optional()
 }).strict();
 
 const ruleSchema = z.object({
@@ -80,7 +98,11 @@ const modelSchema = z.object({
   mode_checklist: z
     .object({
       "text-to-video": z.array(ruleSchema).optional(),
-      "image-to-video": z.array(ruleSchema).optional()
+      "image-to-video": z.array(ruleSchema).optional(),
+      transition: z.array(ruleSchema).optional(),
+      reference: z.array(ruleSchema).optional(),
+      "last-frame-to-video": z.array(ruleSchema).optional(),
+      "first-last-frame-to-video": z.array(ruleSchema).optional()
     })
     .strict()
     .optional(),
@@ -102,7 +124,11 @@ const promptGuideSchema = z
     }),
     modes: z.object({
       "text-to-video": modeRecipeSchema,
-      "image-to-video": modeRecipeSchema
+      "image-to-video": modeRecipeSchema,
+      transition: modeRecipeSchema.optional(),
+      reference: modeRecipeSchema.optional(),
+      "last-frame-to-video": modeRecipeSchema.optional(),
+      "first-last-frame-to-video": modeRecipeSchema.optional()
     })
   }).strict()
   .superRefine((guide, context) => {
@@ -114,9 +140,12 @@ const promptGuideSchema = z
         path: ["sources"]
       });
     }
+    const modeRecipes = Object.values(guide.modes).filter(
+      (mode): mode is NonNullable<typeof mode> => mode !== undefined
+    );
     const referencedIds = [
       ...guide.common.checklist.flatMap((rule) => rule.source_ids),
-      ...Object.values(guide.modes).flatMap((mode) => [
+      ...modeRecipes.flatMap((mode) => [
         ...mode.checklist.flatMap((rule) => rule.source_ids),
         ...mode.negative_prompt.source_ids
       ]),
@@ -140,7 +169,7 @@ const promptGuideSchema = z
     const aliases = new Set<string>();
     const ruleIds = [
       ...guide.common.checklist,
-      ...Object.values(guide.modes).flatMap((mode) => mode.checklist),
+      ...modeRecipes.flatMap((mode) => mode.checklist),
       ...guide.models.flatMap((model) =>
         Object.values(model.mode_checklist ?? {}).flatMap((rules) => rules ?? [])
       )
@@ -329,6 +358,7 @@ export function resolvePromptGuidance(
   if (!model.input_modes.includes(inputMode)) return { ...modelBase, status: "input-mode-unsupported" };
 
   const mode = guide.modes[inputMode];
+  if (!mode) return { ...modelBase, status: "input-mode-unsupported" };
   const modelChecklist = model.mode_checklist?.[inputMode] ?? [];
   const sourceIds = new Set([
     ...model.source_ids,

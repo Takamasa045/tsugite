@@ -11,6 +11,7 @@ import {
   loadPromptGuideCatalog,
   loadPromptGuideById,
   resolvePromptGuidance,
+  type PromptGuide,
   type PromptMode
 } from "./adapters/promptKnowledge.js";
 import {
@@ -42,6 +43,17 @@ import { renderReviewPreview } from "./orchestrator/reviewPreview.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
+  parsePersonQaHumanDecision,
+  personConsistencyRequiredForStage,
+  writePersonQaApprovalBinding,
+  type PersonQaHumanDecisionRecord
+} from "./qa/personConsistency/index.js";
+import {
+  notifySikumiRunCompleted,
+  notifySikumiStateChange,
+  projectRootFromStateDir
+} from "./integrations/sikumiOutbox.js";
+import {
   acquireRunLock,
   LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV,
   RUN_LOCK_INHERIT_ENV,
@@ -58,6 +70,13 @@ import {
 import { ensureProjectVisibleOnLauncherShelf } from "./project/projectsHome.js";
 import { validateProject } from "./project/validateProject.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
+import {
+  callRemoteTool,
+  listAgentServices,
+  listRemoteTools,
+  resolveAgentService
+} from "./agentServices/index.js";
+import { readJsonFile } from "./io.js";
 import type { Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
 import { appendProjectFeedback } from "./feedback/index.js";
@@ -130,6 +149,11 @@ type ParsedArgs = {
   paths: string[];
   expectedPlanDigest?: string;
   expectedApprovalDigest?: string;
+  personQaDecision?: string;
+  personQaReason?: string;
+  service?: string;
+  tool?: string;
+  argumentsJson?: string;
   issues: Issue[];
 };
 
@@ -226,6 +250,164 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ok: false,
         command: "connections",
         issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "services") {
+    try {
+      // Production CLI always uses the bundled registry; env overrides are ignored.
+      const services = await listAgentServices();
+      return output(args, 0, {
+        ok: true,
+        command: "services",
+        network: false,
+        network_attempted: false,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: false,
+        secret_values_exposed: false,
+        side_effect: false,
+        human_gate: "not_required",
+        scope: "agent-service-registry",
+        services
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "services",
+        network: false,
+        network_attempted: false,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: false,
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "service-tools") {
+    if (!args.service) {
+      return output(args, 1, {
+        ok: false,
+        command: "service-tools",
+        network: false,
+        network_attempted: false,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: false,
+        issues: [{
+          code: "cli.service_missing",
+          message: "--service is required",
+          path: "--service"
+        }]
+      });
+    }
+    try {
+      const service = await resolveAgentService(args.service);
+      const listed = await listRemoteTools({ service });
+      return output(args, 0, {
+        ok: true,
+        command: "service-tools",
+        network: true,
+        network_attempted: true,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: true,
+        secret_values_exposed: false,
+        side_effect: false,
+        human_gate: "not_required",
+        service: service.id,
+        endpoint_host: service.endpoint_validated.hostname,
+        endpoint_canonical: service.endpoint_validated.canonical,
+        observed_tools: listed.observed_tools,
+        declared_tools: listed.declared_tools,
+        blocked_undeclared: listed.blocked_undeclared,
+        blocked_by_policy: listed.blocked_by_policy
+      });
+    } catch (error) {
+      const issues = cliIssuesFromError(error);
+      const networkAttempted = agentServiceErrorImpliesNetwork(issues);
+      return output(args, 1, {
+        ok: false,
+        command: "service-tools",
+        network: networkAttempted,
+        network_attempted: networkAttempted,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: networkAttempted,
+        service: args.service,
+        issues
+      });
+    }
+  }
+
+  if (args.command === "service-call") {
+    const missing: Issue[] = [];
+    if (!args.service) {
+      missing.push({
+        code: "cli.service_missing",
+        message: "--service is required",
+        path: "--service"
+      });
+    }
+    if (!args.tool) {
+      missing.push({
+        code: "cli.tool_missing",
+        message: "--tool is required",
+        path: "--tool"
+      });
+    }
+    if (missing.length > 0) {
+      return output(args, 1, {
+        ok: false,
+        command: "service-call",
+        network: false,
+        network_attempted: false,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: false,
+        issues: missing
+      });
+    }
+    try {
+      const service = await resolveAgentService(args.service!);
+      const called = await callRemoteTool({
+        service,
+        toolName: args.tool!,
+        arguments: args.argumentsJson
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "service-call",
+        network: true,
+        network_attempted: true,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: true,
+        secret_values_exposed: false,
+        side_effect: false,
+        human_gate: called.human_gate,
+        service: called.service_id,
+        tool: called.tool,
+        endpoint_host: service.endpoint_validated.hostname,
+        endpoint_canonical: service.endpoint_validated.canonical,
+        result: called.result
+      });
+    } catch (error) {
+      const issues = cliIssuesFromError(error);
+      const networkAttempted = agentServiceErrorImpliesNetwork(issues);
+      return output(args, 1, {
+        ok: false,
+        command: "service-call",
+        network: networkAttempted,
+        network_attempted: networkAttempted,
+        billing_action: false,
+        provider_usage_possible: true,
+        remote_usage: networkAttempted,
+        service: args.service,
+        tool: args.tool,
+        issues
       });
     }
   }
@@ -751,6 +933,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ...validation.issues,
         ...(launcherShelf && !launcherShelf.ok ? launcherShelf.issues : [])
       ],
+      ...(validation.h3_compilations && validation.h3_compilations.length > 0
+        ? { h3_compilations: validation.h3_compilations }
+        : {}),
+      ...(validation.video_prompt_plans && validation.video_prompt_plans.length > 0
+        ? { video_prompt_plans: validation.video_prompt_plans }
+        : {}),
       launcher_visible: launcherShelf?.ok ?? false,
       launcher_already_home: launcherShelf?.alreadyHome,
       launcher_linked: launcherShelf?.linked,
@@ -908,6 +1096,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }
         : {})
     });
+    if (finalized.ok && finalized.applied) {
+      const projectRoot = dirname(resolve(args.config!));
+      const runId = validation.project!.run_id ?? validation.project!.slug;
+      // Product completion = finalize apply only (not Gate 3 approve alone).
+      await notifySikumiRunCompleted({
+        project: validation.project!,
+        projectRoot,
+        runId
+      });
+    }
     return output(args, finalized.ok ? 0 : 1, {
       ok: finalized.ok,
       command: "finalize",
@@ -944,7 +1142,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.audioAdapter,
         validation.generationConnection,
         validation.audioConnection,
-        validation.backend
+        validation.backend,
+        validation.h3_compilations,
+        validation.video_prompt_plans
       )
     });
   }
@@ -1005,7 +1205,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioAdapter,
       validation.generationConnection,
       validation.audioConnection,
-      validation.backend
+      validation.backend,
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     try {
       const viewer = await writeWorkflowViewer({
@@ -1068,7 +1270,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioAdapter,
       validation.generationConnection,
       validation.audioConnection,
-      validation.backend
+      validation.backend,
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     try {
       const review = await writeCreativeReview({
@@ -1137,7 +1341,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioAdapter,
       validation.generationConnection,
       validation.audioConnection,
-      validation.backend
+      validation.backend,
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     const preview = await renderReviewPreview({
       configPath: args.config!,
@@ -1196,7 +1402,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.promptGuides,
         validation.audioAdapter,
         validation.generationConnection,
-        validation.audioConnection
+        validation.audioConnection,
+        validation.h3_compilations,
+        validation.video_prompt_plans
       )
     });
   }
@@ -1225,7 +1433,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       gate!,
       decision!,
       validation.adapter,
-      validation.audioAdapter
+      validation.audioAdapter,
+      // Keep Gate 2 inspect on the same guide set used at Gate 1 / run (custom dirs included).
+      validation.promptGuides
     );
     return output(args, gateResult.ok ? 0 : 1, {
       ok: gateResult.ok,
@@ -1279,6 +1489,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       audioConnection: validation.audioConnection,
       connectionVerificationApproved: true,
       audioConnectionVerificationApproved: true,
+      // Keep Gate 1 / run lineage on the same guide set (including custom promptGuideDirs).
+      promptGuides: validation.promptGuides,
       ...(review.compilation ? { compilation: review.compilation } : {}),
       verifyApprovedInputs: async () => {
         const currentReview = await inspectGate1Review({
@@ -1314,7 +1526,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       gate_2_auto_passed: runResult.gate2AutoPassed,
       gate_2_auto_pass_blocked_reason: runResult.gate2AutoPassBlockedReason,
       state: runResult.state,
-      state_path: runResult.statePath
+      state_path: runResult.statePath,
+      ...(runResult.h3_artifacts ? { h3_artifacts: runResult.h3_artifacts } : {})
     });
   }
 
@@ -1360,7 +1573,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       stateResult.stateDir,
       validation.adapter,
       approvedCompilation,
-      validation.audioAdapter
+      validation.audioAdapter,
+      validation.promptGuides
     );
     if (!gate2Inspection.ok) {
       const issues = gate2Inspection.issues.map((issue) =>
@@ -1380,7 +1594,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     const renderResult = await renderAssembledMedia(validation.project!, {
       stateDir: stateResult.stateDir,
-      state: stateResult.state
+      state: stateResult.state,
+      configPath: resolve(args.config!)
     });
     return output(args, renderResult.ok ? 0 : 1, {
       ok: renderResult.ok,
@@ -1529,12 +1744,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson">
     > = {
       "--config": "config",
       "--actor": "actor",
       "--gate": "gate",
       "--decision": "decision",
+      "--person-qa-decision": "personQaDecision",
+      "--person-qa-reason": "personQaReason",
       "--state-dir": "stateDir",
       "--catalog": "catalog",
       "--model": "model",
@@ -1571,7 +1788,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--proposal-workflow": "proposalWorkflow",
       "--proposal-run-id": "proposalRunId",
       "--proposal-source": "proposalSource",
-      "--expected-plan-digest": "expectedPlanDigest"
+      "--expected-plan-digest": "expectedPlanDigest",
+      "--service": "service",
+      "--tool": "tool",
+      "--arguments": "argumentsJson"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -1768,7 +1988,7 @@ async function outputPromptGuides(args: ParsedArgs): Promise<number> {
     return promptGuideOptionError(
       args,
       "prompt_guide.input_mode",
-      "--input-mode must be text-to-video or image-to-video"
+      "--input-mode must be text-to-video, image-to-video, transition, or reference"
     );
   }
 
@@ -1844,8 +2064,45 @@ function cliIssuesFromError(error: unknown): Issue[] {
   return [{ code: "pipeline.error", message: error instanceof Error ? error.message : String(error) }];
 }
 
+/**
+ * Pre-network policy/validation failures stay network_attempted=false.
+ * Timeout/network/remote/DNS issues after connect path report true.
+ */
+function agentServiceErrorImpliesNetwork(issues: Issue[]): boolean {
+  const preNetwork = new Set([
+    "agent_service.not_found",
+    "agent_service.registry_invalid",
+    "agent_service.duplicate_id",
+    "agent_service.endpoint_invalid",
+    "agent_service.endpoint_forbidden",
+    "agent_service.tool_undeclared",
+    "agent_service.tool_write_like_blocked",
+    "agent_service.tool_policy_blocked",
+    "agent_service.side_effect_blocked",
+    "agent_service.human_gate_required",
+    "agent_service.arguments_invalid",
+    "agent_service.arguments_too_large",
+    "cli.service_missing",
+    "cli.tool_missing",
+    "cli.option_unknown",
+    "cli.option_unsupported",
+    "cli.option_value_missing"
+  ]);
+  if (issues.length === 0) return false;
+  // DNS private can happen at pre-connect check; still counts as network attempt
+  // (resolver was consulted). Remote/timeout/redirect after fetch also count.
+  return issues.some((issue) => !preNetwork.has(issue.code));
+}
+
 function parsePromptMode(value: string): PromptMode | undefined {
-  if (value === "text-to-video" || value === "image-to-video") return value;
+  if (
+    value === "text-to-video"
+    || value === "image-to-video"
+    || value === "transition"
+    || value === "reference"
+  ) {
+    return value;
+  }
   return undefined;
 }
 
@@ -1928,12 +2185,15 @@ async function recordGate(
   gate: GateId,
   decision: GateDecision,
   adapter?: AdapterDefinition,
-  audioAdapter?: AdapterDefinition
+  audioAdapter?: AdapterDefinition,
+  promptGuides?: PromptGuide[]
 ): Promise<Result<{ state: RunState; statePath: string; reviewPath?: string; reviewDataPath?: string }>> {
   const stateLocation = getStateLocation(args, project);
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
   if (!existing.ok) return existing;
 
+  // null when first gate decision synthesizes state — mapper emits run.started.
+  const persistedPrevious = existing.state ?? null;
   let state = existing.state ?? createPlannedState(project.run_id ?? project.slug);
   let reviewPath: string | undefined;
   let reviewDataPath: string | undefined;
@@ -1964,6 +2224,35 @@ async function recordGate(
   }
 
   let gateApprovalDigest = reviewApprovalDigest;
+
+  const personQaStage = gate === "gate_2" ? "gate_2" as const : gate === "gate_3" ? "gate_3" as const : undefined;
+  let personQaDecision: PersonQaHumanDecisionRecord | undefined;
+  if (
+    decision === "approved"
+    && personQaStage
+    && personConsistencyRequiredForStage(project, personQaStage)
+  ) {
+    const parsedPersonQa = parsePersonQaHumanDecision({
+      decision: args.personQaDecision,
+      reason: args.personQaReason
+    });
+    if (!parsedPersonQa.ok) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: "person_qa.human_decision_required",
+            message:
+              "person consistency QA requires --person-qa-decision (accept|revise|accept-not-evaluable) and non-empty --person-qa-reason"
+          },
+          ...parsedPersonQa.issues
+        ],
+        state,
+        statePath: stateLocation.statePath
+      };
+    }
+    personQaDecision = parsedPersonQa.decision;
+  }
 
   if (decision === "approved" && gate === "gate_2") {
     let approvedCompilation;
@@ -1996,7 +2285,9 @@ async function recordGate(
       existing.stateDir,
       adapter,
       approvedCompilation,
-      audioAdapter
+      audioAdapter,
+      promptGuides,
+      personQaDecision
     );
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
@@ -2005,11 +2296,23 @@ async function recordGate(
   }
 
   if (decision === "approved" && gate === "gate_3") {
-    const inspected = await inspectGate3RunForApproval(project, existing.stateDir);
+    const inspected = await inspectGate3RunForApproval(project, existing.stateDir, personQaDecision);
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
     gateApprovalDigest = inspected.approvalDigest;
+    // Persist person-QA binding (report + decision + reason digest) for finalize revalidation.
+    // Gate 3 state.approved_input_digest remains sha256(final.mp4) for launcher compatibility.
+    if (inspected.personQaApprovalBinding) {
+      const runId = project.run_id ?? project.slug;
+      const written = await writePersonQaApprovalBinding({
+        runDir: join(existing.stateDir, runId),
+        binding: inspected.personQaApprovalBinding
+      });
+      if (!written.ok) {
+        return { ok: false, issues: written.issues, state, statePath: stateLocation.statePath };
+      }
+    }
   }
 
   if (
@@ -2044,6 +2347,16 @@ async function recordGate(
 
   try {
     await writeState(stateLocation.stateDir, nextState);
+    // Optional sikumi Outbox (default OFF; fail-soft; never blocks gate write).
+    const projectRoot = args.config
+      ? dirname(resolve(args.config))
+      : projectRootFromStateDir(stateLocation.stateDir, project.dist_dir);
+    await notifySikumiStateChange({
+      project,
+      projectRoot,
+      previous: persistedPrevious,
+      next: nextState
+    });
     return {
       ok: true,
       issues: [],

@@ -3,7 +3,7 @@ import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import type { Manifest } from "../manifest/schema.js";
-import { toExecutionGenerationRequest, type GenerationRequest } from "../project/schema.js";
+import { toAdapterGenerationRequest, type GenerationRequest } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import type { AdapterDefinition } from "./registry.js";
 
@@ -175,7 +175,7 @@ function runRequest(
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const result = spawnCommandSync(adapter.command!.executable, adapter.command!.args, {
       cwd: process.cwd(),
-      input: `${JSON.stringify({ request: toExecutionGenerationRequest(request), run_id: options.runId, run_dir: options.runDir })}\n`,
+      input: `${JSON.stringify({ request: toAdapterGenerationRequest(request), run_id: options.runId, run_dir: options.runDir })}\n`,
       encoding: "utf8",
       maxBuffer: 1024 * 1024 * 20
     });

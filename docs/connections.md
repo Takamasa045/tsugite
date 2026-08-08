@@ -47,6 +47,22 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 `kling-direct`接続は、Kling CLIの `text_to_image / image_to_image / text_to_video / image_to_video` を扱う。利用可能モデルとモデル別パラメータは `kling who_am_i` の実行時宣言が正本である。
 
+## MiniMax direct（Phase A: preflight-only）
+
+`minimax-direct` は MiniMax 公式 CLI `mmx`（>= 1.0.19）への接続枠です。**PixVerse 経由の MiniMax-H3 とは別 connection** です。混ぜないでください。
+
+| 項目 | 契約 |
+|---|---|
+| 状態 | 実生成は **未統合**（`available-to-add` / preflight-only）。`ready` にしない |
+| CLI 不在 | `needs-setup`（存在を偽装しない） |
+| 認証 | 環境変数名 `MINIMAX_API_KEY` のみ宣言。値はログ・成果物・チャットに出さない。command 存在だけでは ready にしない |
+| dry-run | `mmx video generate --model MiniMax-H3 --last-frame <pinned-path> ... --dry-run` を argv 配列で構築。`--image` / first-frame を付けない。`billing_action: false` / `generation_submitted: false` |
+| IR → provider | `minimax-h3` → `MiniMax-H3` は明示 mapping のみ（推測変換禁止） |
+| last-frame-only | MiniMax direct で対応。PixVerse では `H3-C007` で停止（transition 偽装・同画像複製・T2V 降格なし） |
+| 公式 MCP | Hailuo-02 世代。H3 / last-only / H3 reference の実行根拠に使わない |
+
+参照: [H3 Prompt Director](./h3-prompt-director.md)、`adapters/minimax/`、`knowledge/video-models/minimax-h3/prompt-guide.yaml`。
+
 ```yaml
 generation:
   connection: pixverse # または kling-direct

@@ -1,0 +1,31 @@
+{
+  "fixture": "last-frame.json",
+  "workflow_id": "h3-prompt-director",
+  "workflow_version": "2",
+  "creative_ir_hash": "97f8b02825558aa159fa364bdc238c30627577aa34bed189f379c0668f443b34",
+  "canonical_prompt": "integrated_multimodal_description:\nHow the reference pictures align with the target video — <Picture 1> (from [Shot 2]) aligns with the 5.00-second mark of the target video.\n\n[Shot 1] Live-action, cinematic. A medium shot frames the runner accelerating along the wet shore toward the final pose. The camera tracks the subject from the side at medium speed.\n\n[Shot 2] At 00:03.000, the camera cuts to a close-up settles on the runner's final stride at the shoreline, silhouette locked to the end image. The camera holds a static shot.\n\noverall_soundscape:\nFootsteps on wet stones and soft wind.\n\nnon_diegetic_music:\nN/A",
+  "canonical_prompt_hash": "c3f520e4f687497a36ad42129c852c93565b2e626c87a23abdd72db4bc845dff",
+  "adapter_prompt_hash": "c3f520e4f687497a36ad42129c852c93565b2e626c87a23abdd72db4bc845dff",
+  "validation_ok": true,
+  "error_codes": [],
+  "warning_codes": [],
+  "issue_codes": [],
+  "compile_ok": true,
+  "lineage": {
+    "workflow_id": "h3-prompt-director",
+    "workflow_version": "2",
+    "creative_ir_hash": "97f8b02825558aa159fa364bdc238c30627577aa34bed189f379c0668f443b34",
+    "canonical_prompt_hash": "c3f520e4f687497a36ad42129c852c93565b2e626c87a23abdd72db4bc845dff",
+    "adapter_prompt_hash": "c3f520e4f687497a36ad42129c852c93565b2e626c87a23abdd72db4bc845dff"
+  },
+  "execution_request_snapshot": {
+    "model": "minimax-h3",
+    "duration": 5,
+    "aspect": "16:9",
+    "operation": "video",
+    "input_mode": "last-frame-to-video",
+    "last_frame": "assets/end.png",
+    "params_quality": "768p",
+    "params_audio": true
+  }
+}

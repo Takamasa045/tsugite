@@ -29,6 +29,41 @@ import {
   resolveGenerationConnection,
   type GenerationConnectionResolution
 } from "../connections/registry.js";
+import {
+  notifySikumiArtifact,
+  notifySikumiStateChange,
+  projectRootFromStateDir
+} from "../integrations/sikumiOutbox.js";
+import {
+  buildGateApprovalWithPersonQa,
+  inspectPersonConsistencyForGate,
+  personConsistencyRequiredForStage,
+  personConsistencyReportRelativePath,
+  personConsistencyContactSheetRelativePath,
+  type PersonQaHumanDecisionRecord
+} from "../qa/personConsistency/index.js";
+import {
+  applyH3ExecutionRouteProfile,
+  compileProjectH3,
+  enrichH3CompilationsForProject,
+  type H3Compilation,
+  type H3PromptGuideSource
+} from "../h3/compile.js";
+import {
+  inspectH3RunArtifacts,
+  writeH3RunArtifacts,
+  type H3RequestArtifacts
+} from "../h3/runArtifacts.js";
+import { loadProjectPromptGuides } from "../adapters/promptKnowledge.js";
+import { loadH3ExecutionRouteProfile } from "../adapters/constraints.js";
+
+export type LocalRunH3Artifacts = {
+  request_id: string;
+  relative_dir: string;
+  absolute_dir: string;
+  relative_paths: H3RequestArtifacts["relative_paths"];
+  absolute_paths: H3RequestArtifacts["absolute_paths"];
+};
 
 export type LocalRunResult = {
   manifestPath: string;
@@ -42,6 +77,8 @@ export type LocalRunResult = {
   gate2AutoPassBlockedReason?: string;
   state: RunState;
   statePath: string;
+  /** Present only when the run compiled and wrote H3 durable artifacts. */
+  h3_artifacts?: LocalRunH3Artifacts[];
 };
 
 type AssembleOptions = {
@@ -56,6 +93,11 @@ type AssembleOptions = {
   connectionVerificationApproved?: boolean;
   audioConnectionVerificationApproved?: boolean;
   verifyApprovedInputs?: () => Promise<Result<{}>>;
+  /**
+   * When provided (including empty), used as the sole prompt-guide truth for H3
+   * lineage hashing. Direct unit callers may omit to fall back to default dirs.
+   */
+  promptGuides?: H3PromptGuideSource[];
 };
 
 export type ApprovedCompilation = {
@@ -360,6 +402,23 @@ export async function assembleLocalMediaRun(
     ? recordGateDecision(awaitingState, "gate_2", "approved", undefined, autoPass.approvalDigest, "auto_qc")
     : awaitingState;
   const writtenStatePath = await writeState(options.stateDir, nextState);
+  const projectRoot = options.configPath
+    ? dirname(resolve(options.configPath))
+    : projectRootFromStateDir(options.stateDir, project.dist_dir);
+  await notifySikumiStateChange({
+    project,
+    projectRoot,
+    previous: options.state,
+    next: nextState
+  });
+  await notifySikumiArtifact({
+    project,
+    projectRoot,
+    runId: nextState.run_id,
+    label: "assembled-manifest",
+    kind: "file",
+    artifactId: "manifest"
+  });
   if (autoPass.passed) {
     await writeRunLog(runLogPath, {
       ...runLogInput,
@@ -411,6 +470,11 @@ async function evaluateGate2AutoPass(input: {
   if (input.project.gates?.gate_2?.auto_pass !== GATE_2_AUTO_PASS_POLICY) {
     return { passed: false, reason: "not_configured" };
   }
+  // Semantic person-consistency QA requires a human decision; never auto-pass.
+  if (personConsistencyRequiredForStage(input.project, "gate_2")
+    || input.project.quality?.person_consistency?.enabled) {
+    return { passed: false, reason: "semantic_qa_enabled" };
+  }
   if (input.credits !== 0) {
     return { passed: false, reason: `credits: ${input.credits}` };
   }
@@ -442,7 +506,9 @@ export async function inspectGate2RunForApproval(
   stateDir: string,
   adapter?: AdapterDefinition,
   compilation?: EditorialCompilation | ApprovedCompilation,
-  audioAdapter?: AdapterDefinition
+  audioAdapter?: AdapterDefinition,
+  promptGuides?: H3PromptGuideSource[],
+  personQaDecision?: PersonQaHumanDecisionRecord
 ): Promise<Result<ResumeMetrics>> {
   const runId = project.run_id ?? project.slug;
   const runDir = join(stateDir, runId);
@@ -452,15 +518,55 @@ export async function inspectGate2RunForApproval(
     : project.edit.composition
       ? "composition"
       : "editorial";
-  return inspectAwaitingGate2Artifacts({
+
+  // Recompile H3 so Gate 2 evidence can fail closed on missing/tampered artifacts.
+  // Stage 1 format compile + stage 2 selected-adapter route revalidation.
+  let h3Compilations: H3Compilation[] = [];
+  let h3Project = project;
+  if (isGeneration) {
+    const h3Compile = compileProjectH3(project);
+    if (!h3Compile.ok) {
+      return { ok: false, issues: h3Compile.issues };
+    }
+    h3Project = h3Compile.project;
+    h3Compilations = h3Compile.compilations;
+    if (h3Compilations.length > 0) {
+      const routeProfile = adapter
+        ? await loadH3ExecutionRouteProfile(adapter.root)
+        : undefined;
+      const routed = applyH3ExecutionRouteProfile(h3Compilations, routeProfile, {
+        project: h3Project,
+        adapterName: adapter?.name ?? project.generation?.adapter
+      });
+      h3Compilations = routed.compilations ?? h3Compilations;
+      if (routed.project) h3Project = routed.project;
+      if (!routed.ok) {
+        return { ok: false, issues: routed.issues };
+      }
+      const guides = promptGuides !== undefined
+        ? promptGuides
+        : await loadProjectPromptGuides(h3Project);
+      h3Compilations = enrichH3CompilationsForProject(h3Compilations, h3Project, guides);
+    }
+  }
+
+  const inspected = await inspectAwaitingGate2Artifacts({
     runId,
     mode: isGeneration ? "generation" : "local-media",
     backend: project.edit.backend,
-    inputDigest: runInputDigest(project, manifest, isGeneration ? adapter : undefined, audioAdapter),
+    inputDigest: runInputDigest(
+      h3Project,
+      manifest,
+      isGeneration ? adapter : undefined,
+      audioAdapter
+    ),
     requireQcPass: true,
     manifestPath: join(runDir, "manifest.json"),
     qcReportPath: join(runDir, "gate2-qc.json"),
     runLogPath: join(runDir, "run-log.md"),
+    project,
+    runDir,
+    ...(personQaDecision ? { personQaDecision } : {}),
     ...(compilation ? {
       edlPath: join(
         runDir,
@@ -471,6 +577,34 @@ export async function inspectGate2RunForApproval(
       approvedManifest: compilation.manifest
     } : {})
   });
+  if (!inspected.ok) return inspected;
+
+  if (h3Compilations.length > 0) {
+    const adapterId = project.generation?.adapter;
+    if (!adapterId) {
+      return {
+        ok: false,
+        issues: [{
+          code: "H3-C000",
+          message: "h3 artifact inspection requires generation.adapter",
+          path: "generation.adapter"
+        }]
+      };
+    }
+    const h3Artifacts = await inspectH3RunArtifacts({
+      runDir,
+      compilations: h3Compilations,
+      adapterId
+    });
+    if (!h3Artifacts.ok) return h3Artifacts;
+
+    const assembled = await readAndValidateManifest(join(runDir, "manifest.json"));
+    if (!assembled.ok) return assembled;
+    const provenance = verifyManifestH3Provenance(assembled.manifest, h3Artifacts.artifacts);
+    if (!provenance.ok) return provenance;
+  }
+
+  return inspected;
 }
 
 async function assembleGeneratedMediaRun(
@@ -535,12 +669,35 @@ async function assembleGeneratedMediaRun(
     };
   }
 
+  // Recompile H3 before any run-dir mutation or adapter invocation. Fail closed
+  // on H3-C / H3-E / PV-E so invalid Creative IR never reaches billing paths.
+  // Stage 1 is format-only; stage 2 injects the selected adapter route profile.
+  const h3Compile = compileProjectH3(project);
+  if (!h3Compile.ok) {
+    return { ok: false, issues: h3Compile.issues };
+  }
+  project = h3Compile.project;
+  let h3Compilations: H3Compilation[] = h3Compile.compilations;
+  if (h3Compilations.length > 0) {
+    const routeProfile = await loadH3ExecutionRouteProfile(adapter.root);
+    const routed = applyH3ExecutionRouteProfile(h3Compilations, routeProfile, {
+      project,
+      adapterName: adapter.name
+    });
+    h3Compilations = routed.compilations ?? h3Compilations;
+    if (routed.project) project = routed.project;
+    if (!routed.ok) {
+      return { ok: false, issues: routed.issues };
+    }
+  }
+
   const runId = project.run_id ?? project.slug;
   const runDir = join(options.stateDir, runId);
   const manifestOutputPath = join(runDir, "manifest.json");
   const qcReportPath = join(runDir, "gate2-qc.json");
   const runLogPath = join(runDir, "run-log.md");
   const statePath = join(runDir, "state.json");
+  // Digest uses the compiled project so IR/prompt/execution-field drift is visible on resume.
   const inputDigest = runInputDigest(project, manifest, adapter, audioAdapter);
 
   if (isAwaitingGate2Resume) {
@@ -555,6 +712,32 @@ async function assembleGeneratedMediaRun(
     });
     if (!resumed.ok) return { ok: false, issues: resumed.issues };
 
+    let h3Artifacts: LocalRunH3Artifacts[] | undefined;
+    if (h3Compilations.length > 0) {
+      const adapterId = project.generation?.adapter ?? adapter?.name;
+      if (!adapterId) {
+        return {
+          ok: false,
+          issues: [{
+            code: "H3-C000",
+            message: "h3 artifact inspection requires generation.adapter",
+            path: "generation.adapter"
+          }]
+        };
+      }
+      const promptGuides = options.promptGuides !== undefined
+        ? options.promptGuides
+        : await loadProjectPromptGuides(project);
+      const expected = enrichH3CompilationsForProject(h3Compilations, project, promptGuides);
+      const inspectedH3 = await inspectH3RunArtifacts({
+        runDir,
+        compilations: expected,
+        adapterId
+      });
+      if (!inspectedH3.ok) return inspectedH3;
+      h3Artifacts = toLocalRunH3Artifacts(inspectedH3.artifacts);
+    }
+
     return {
       ok: true,
       issues: [],
@@ -567,7 +750,8 @@ async function assembleGeneratedMediaRun(
       gate2AutoPassed: false,
       gate2AutoPassBlockedReason: "already_assembled",
       state: options.state,
-      statePath
+      statePath,
+      ...(h3Artifacts ? { h3_artifacts: h3Artifacts } : {})
     };
   }
 
@@ -580,9 +764,7 @@ async function assembleGeneratedMediaRun(
 
   await mkdir(runDir, { recursive: true });
 
-  const hasGenerationAssets = project.generation!.requests.some(
-    (request) => Boolean(request.first_frame) || (request.reference_images?.length ?? 0) > 0
-  );
+  const hasGenerationAssets = project.generation!.requests.some((request) => hasFirstClassGenerationAssets(request));
   if (hasGenerationAssets && !options.configPath) {
     return {
       ok: false,
@@ -632,6 +814,39 @@ async function assembleGeneratedMediaRun(
     if (!verified.ok) return verified;
   }
 
+  // Durable H3 artifacts land after pin + verify and before the adapter call.
+  // Order: compile (above) -> pin (above) -> approved-input verify (above) -> write -> adapter.
+  let h3Artifacts: LocalRunH3Artifacts[] | undefined;
+  let h3ByRequest = new Map<string, H3RequestArtifacts>();
+  if (h3Compilations.length > 0) {
+    const adapterId = project.generation?.adapter ?? adapter?.name;
+    if (!adapterId) {
+      return {
+        ok: false,
+        issues: [{
+          code: "H3-C000",
+          message: "h3 artifact write requires generation.adapter",
+          path: "generation.adapter"
+        }]
+      };
+    }
+    const promptGuides = options.promptGuides !== undefined
+      ? options.promptGuides
+      : await loadProjectPromptGuides(project);
+    h3Compilations = enrichH3CompilationsForProject(h3Compilations, project, promptGuides);
+    const written = await writeH3RunArtifacts({
+      runDir,
+      compilations: h3Compilations,
+      pinnedRequests: pinned.requests,
+      adapterId,
+      promptGuides
+    });
+    if (!written.ok) return written;
+    h3ByRequest = new Map(written.artifacts.map((item) => [item.request_id, item]));
+    h3Artifacts = toLocalRunH3Artifacts(written.artifacts);
+  }
+
+  // Adapter sees the pinned, H3-compiled execution fields (prompt/op/assets).
   const generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });
   if (!generation.ok) return generation;
 
@@ -683,6 +898,7 @@ async function assembleGeneratedMediaRun(
 
   for (const request of generation.requests) {
     const original = project.generation!.requests.find((candidate) => candidate.id === request.request_id);
+    const h3Artifact = h3ByRequest.get(request.request_id);
     const generatedAssets = [
       ...request.clips.map((asset) => ({ id: asset.id, kind: "clip" })),
       ...request.images.map((asset) => ({ id: asset.id, kind: "image" })),
@@ -702,7 +918,17 @@ async function assembleGeneratedMediaRun(
             ? { reference_images: pinned.referenceManifestPaths.get(request.request_id) }
             : {})
         },
-        credits: request.credits / generatedAssets.length
+        credits: request.credits / generatedAssets.length,
+        ...(h3Artifact
+          ? {
+              h3: {
+                workflow_version: h3Artifact.compilation.lineage.workflow_version,
+                creative_ir_hash: h3Artifact.compilation.lineage.creative_ir_hash,
+                adapter_prompt_hash: h3Artifact.compilation.lineage.adapter_prompt_hash,
+                artifacts_dir: h3Artifact.relative_dir
+              }
+            }
+          : {})
       });
     }
   }
@@ -728,6 +954,23 @@ async function assembleGeneratedMediaRun(
 
   const nextState = markGateAwaiting(options.state, "gate_2");
   const writtenStatePath = await writeState(options.stateDir, nextState);
+  const generationProjectRoot = options.configPath
+    ? dirname(resolve(options.configPath))
+    : projectRootFromStateDir(options.stateDir, project.dist_dir);
+  await notifySikumiStateChange({
+    project,
+    projectRoot: generationProjectRoot,
+    previous: options.state,
+    next: nextState
+  });
+  await notifySikumiArtifact({
+    project,
+    projectRoot: generationProjectRoot,
+    runId: nextState.run_id,
+    label: "generation-manifest",
+    kind: "file",
+    artifactId: "manifest"
+  });
 
   return {
     ok: true,
@@ -741,7 +984,140 @@ async function assembleGeneratedMediaRun(
     gate2AutoPassed: false,
     gate2AutoPassBlockedReason: "generation_run",
     state: nextState,
-    statePath: writtenStatePath
+    statePath: writtenStatePath,
+    ...(h3Artifacts ? { h3_artifacts: h3Artifacts } : {})
+  };
+}
+
+function hasFirstClassGenerationAssets(request: {
+  first_frame?: string;
+  last_frame?: string;
+  reference_images?: string[];
+  input_images?: string[];
+  input_video?: string;
+  input_videos?: string[];
+  input_audios?: string[];
+}): boolean {
+  return Boolean(request.first_frame)
+    || Boolean(request.last_frame)
+    || Boolean(request.input_video)
+    || (request.reference_images?.length ?? 0) > 0
+    || (request.input_images?.length ?? 0) > 0
+    || (request.input_videos?.length ?? 0) > 0
+    || (request.input_audios?.length ?? 0) > 0;
+}
+
+function toLocalRunH3Artifacts(artifacts: H3RequestArtifacts[]): LocalRunH3Artifacts[] {
+  return artifacts.map((item) => ({
+    request_id: item.request_id,
+    relative_dir: item.relative_dir,
+    absolute_dir: item.absolute_dir,
+    relative_paths: item.relative_paths,
+    absolute_paths: item.absolute_paths
+  }));
+}
+
+/**
+ * Fail closed when assembled provenance H3 fields disagree with inspected artifacts.
+ */
+function verifyManifestH3Provenance(
+  manifest: Manifest,
+  artifacts: H3RequestArtifacts[]
+): Result<{}> {
+  const byDir = new Map(artifacts.map((item) => [item.relative_dir, item]));
+  const byHash = new Map(
+    artifacts.map((item) => [item.compilation.lineage.creative_ir_hash, item])
+  );
+
+  for (const artifact of artifacts) {
+    const matches = manifest.provenance.filter((entry) => {
+      const h3 = readProvenanceH3(entry);
+      if (!h3) return false;
+      return h3.artifacts_dir === artifact.relative_dir
+        || h3.creative_ir_hash === artifact.compilation.lineage.creative_ir_hash;
+    });
+    if (matches.length === 0) {
+      return {
+        ok: false,
+        issues: [{
+          code: "H3-C000",
+          message: `assembled manifest is missing H3 provenance for '${artifact.request_id}'`,
+          path: `generation.requests.${artifact.request_id}`
+        }]
+      };
+    }
+    for (const entry of matches) {
+      const h3 = readProvenanceH3(entry)!;
+      if (
+        h3.artifacts_dir !== artifact.relative_dir
+        || h3.creative_ir_hash !== artifact.compilation.lineage.creative_ir_hash
+        || h3.adapter_prompt_hash !== artifact.compilation.lineage.adapter_prompt_hash
+        || h3.workflow_version !== artifact.compilation.lineage.workflow_version
+      ) {
+        return {
+          ok: false,
+          issues: [{
+            code: "H3-C000",
+            message: `assembled manifest H3 provenance does not match inspected artifacts for '${artifact.request_id}'`,
+            path: `generation.requests.${artifact.request_id}`
+          }]
+        };
+      }
+    }
+  }
+
+  for (const entry of manifest.provenance) {
+    const h3 = readProvenanceH3(entry);
+    if (!h3) continue;
+    const match = (h3.artifacts_dir ? byDir.get(h3.artifacts_dir) : undefined)
+      ?? (h3.creative_ir_hash ? byHash.get(h3.creative_ir_hash) : undefined);
+    if (!match) {
+      return {
+        ok: false,
+        issues: [{
+          code: "H3-C000",
+          message: "assembled manifest H3 provenance points to missing or unexpected artifacts",
+          path: "manifest.provenance"
+        }]
+      };
+    }
+    if (
+      h3.artifacts_dir !== match.relative_dir
+      || h3.creative_ir_hash !== match.compilation.lineage.creative_ir_hash
+      || h3.adapter_prompt_hash !== match.compilation.lineage.adapter_prompt_hash
+      || h3.workflow_version !== match.compilation.lineage.workflow_version
+    ) {
+      return {
+        ok: false,
+        issues: [{
+          code: "H3-C000",
+          message: "assembled manifest H3 provenance does not match inspected H3 compilation",
+          path: "manifest.provenance"
+        }]
+      };
+    }
+  }
+
+  return { ok: true, issues: [] };
+}
+
+function readProvenanceH3(entry: Manifest["provenance"][number]): {
+  workflow_version?: string;
+  creative_ir_hash?: string;
+  adapter_prompt_hash?: string;
+  artifacts_dir?: string;
+} | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const h3 = (entry as { h3?: unknown }).h3;
+  if (!h3 || typeof h3 !== "object" || Array.isArray(h3)) return undefined;
+  const record = h3 as Record<string, unknown>;
+  return {
+    ...(typeof record.workflow_version === "string" ? { workflow_version: record.workflow_version } : {}),
+    ...(typeof record.creative_ir_hash === "string" ? { creative_ir_hash: record.creative_ir_hash } : {}),
+    ...(typeof record.adapter_prompt_hash === "string"
+      ? { adapter_prompt_hash: record.adapter_prompt_hash }
+      : {}),
+    ...(typeof record.artifacts_dir === "string" ? { artifacts_dir: record.artifacts_dir } : {})
   };
 }
 
@@ -896,6 +1272,10 @@ async function inspectAwaitingGate2Artifacts(input: {
   edlKind?: "editorial" | "composition";
   edlDigest?: string;
   approvedManifest?: Manifest;
+  /** When set, person-consistency policy can fail-close Gate 2 inspection. */
+  project?: Project;
+  runDir?: string;
+  personQaDecision?: PersonQaHumanDecisionRecord;
 }): Promise<Result<ResumeMetrics>> {
   if (!(await isFile(input.manifestPath))) {
     return {
@@ -1118,12 +1498,66 @@ async function inspectAwaitingGate2Artifacts(input: {
         gate2_qc: freshQcReport
       };
 
+  // Person-consistency semantic QA (optional): fail closed when policy requires Gate 2.
+  let approvalDigest = digest(approvalPayload);
+  if (input.project && input.runDir && personConsistencyRequiredForStage(input.project, "gate_2")) {
+    const reportRelativePath = personConsistencyReportRelativePath("gate_2");
+    const contactSheetRelativePath = personConsistencyContactSheetRelativePath("gate_2");
+    const personQa = await inspectPersonConsistencyForGate({
+      project: input.project,
+      stage: "gate_2",
+      runDir: input.runDir,
+      reportRelativePath,
+      contactSheetRelativePath,
+      requireHumanDecision: false
+    });
+    if (!personQa.ok) return { ok: false, issues: personQa.issues };
+    if (!personQa.report || !personQa.report_sha256) {
+      return {
+        ok: false,
+        issues: [{
+          code: "person_qa.report_missing",
+          message: "person consistency report is required for Gate 2 when quality.person_consistency is enabled",
+          path: reportRelativePath
+        }]
+      };
+    }
+
+    if (input.personQaDecision) {
+      const decided = await inspectPersonConsistencyForGate({
+        project: input.project,
+        stage: "gate_2",
+        runDir: input.runDir,
+        reportRelativePath,
+        contactSheetRelativePath,
+        requireHumanDecision: true,
+        humanDecision: input.personQaDecision
+      });
+      if (!decided.ok) return { ok: false, issues: decided.issues };
+      const withPerson = buildGateApprovalWithPersonQa({
+        baseApprovalPayload: approvalPayload,
+        technicalQc: freshQcReport,
+        reportSha256: personQa.report_sha256,
+        reportStatus: personQa.report.status,
+        stage: "gate_2",
+        humanDecision: input.personQaDecision
+      });
+      approvalDigest = withPerson.approvalDigest;
+    } else {
+      // Preview digest binds report hash; human decision is still required for coordinator approve.
+      approvalDigest = digest({
+        ...approvalPayload,
+        person_consistency_report_sha256: personQa.report_sha256
+      });
+    }
+  }
+
   return {
     ok: true,
     issues: [],
     assetCount: assetReferences.length,
     actualCredits: runLog.log.actualCredits,
-    approvalDigest: digest(approvalPayload)
+    approvalDigest
   };
 }
 
