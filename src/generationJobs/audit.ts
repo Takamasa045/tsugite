@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { stablePrettyJson } from "../integrity/canonical.js";
-import { GJ_LOCK_HELD, GenerationJobError } from "./errors.js";
+import { GJ_LOCK_HELD, GJ_SCHEMA_INVALID, GenerationJobError } from "./errors.js";
 import { redactAndAssertClean, redactSecretsDeep } from "./secrets.js";
 import type { GenerationJobStatus } from "./schema.js";
 
@@ -47,6 +47,48 @@ export type AuditAppendInput = {
   at?: string;
 };
 
+function isEnoent(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException)?.code === "ENOENT";
+}
+
+/**
+ * Parse append-only events.jsonl fail-closed.
+ * Only ENOENT yields an empty log; invalid JSON, schema-invalid events,
+ * duplicate or non-contiguous seq values are rejected.
+ */
+export function parseAuditEventsText(text: string, sourcePath = "events.jsonl"): GenerationJobEvent[] {
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+  const events: GenerationJobEvent[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(line);
+    } catch {
+      throw new GenerationJobError(
+        GJ_SCHEMA_INVALID,
+        `audit log corrupt (invalid JSON) at ${sourcePath}:${index + 1}`
+      );
+    }
+    const parsed = generationJobEventSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new GenerationJobError(
+        GJ_SCHEMA_INVALID,
+        `audit log corrupt (schema-invalid event) at ${sourcePath}:${index + 1}`
+      );
+    }
+    const event = parsed.data;
+    if (event.seq !== index) {
+      throw new GenerationJobError(
+        GJ_SCHEMA_INVALID,
+        `audit log corrupt (seq expected ${index}, got ${event.seq}) at ${sourcePath}:${index + 1}`
+      );
+    }
+    events.push(event);
+  }
+  return events;
+}
+
 export class GenerationJobAuditLog {
   private readonly eventsPath: string;
   private nextSeq: number;
@@ -57,19 +99,22 @@ export class GenerationJobAuditLog {
     this.nextSeq = 0;
   }
 
-  async load(): Promise<void> {
+  private async readValidatedEvents(): Promise<GenerationJobEvent[]> {
+    let text: string;
     try {
-      const text = await readFile(this.eventsPath, "utf8");
-      const lines = text.split("\n").filter((line) => line.trim().length > 0);
-      let maxSeq = -1;
-      for (const line of lines) {
-        const parsed = generationJobEventSchema.safeParse(JSON.parse(line));
-        if (parsed.success) maxSeq = Math.max(maxSeq, parsed.data.seq);
-      }
-      this.nextSeq = maxSeq + 1;
-    } catch {
-      this.nextSeq = 0;
+      text = await readFile(this.eventsPath, "utf8");
+    } catch (error) {
+      // Missing log is the only soft empty case.
+      if (isEnoent(error)) return [];
+      throw error;
     }
+    return parseAuditEventsText(text, this.eventsPath);
+  }
+
+  async load(): Promise<void> {
+    const events = await this.readValidatedEvents();
+    // Contiguous seq from 0 ⇒ next append index is events.length.
+    this.nextSeq = events.length;
     this.loaded = true;
   }
 
@@ -99,15 +144,7 @@ export class GenerationJobAuditLog {
   }
 
   async readAll(): Promise<GenerationJobEvent[]> {
-    try {
-      const text = await readFile(this.eventsPath, "utf8");
-      return text
-        .split("\n")
-        .filter((line) => line.trim().length > 0)
-        .map((line) => generationJobEventSchema.parse(JSON.parse(line)));
-    } catch {
-      return [];
-    }
+    return this.readValidatedEvents();
   }
 
   /**

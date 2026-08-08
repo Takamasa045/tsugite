@@ -4,9 +4,12 @@
  */
 import { createHash } from "node:crypto";
 import {
+  access,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
+  rm,
   symlink,
   writeFile
 } from "node:fs/promises";
@@ -84,6 +87,23 @@ const FIXED_NOW = "2026-08-08T12:00:00.000Z";
 
 function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listDirNames(dir: string): Promise<string[]> {
+  try {
+    return (await readdir(dir)).slice().sort();
+  } catch {
+    return [];
+  }
 }
 
 function knownPricing(amount = 1.5, max = 10): GenerationJobRecord["pricing"] {
@@ -351,6 +371,169 @@ describe("B. durable store crash/resume + append-only events", () => {
     ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
 
     await expect(store.load("..%2fetc")).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+  });
+
+  it("save fails closed when job.json is missing / invalid JSON / schema-invalid (no recreate)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-save-fc-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    const request = baseRequest();
+    const template = await store.create({
+      job_id: "template-ok",
+      connection_id: request.connection_id,
+      model_id: request.model_id,
+      mode: request.mode,
+      request,
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing()
+    });
+
+    // --- missing job.json (job dir may exist empty-ish) ---
+    const missingId = "missing-job";
+    const missingDir = store.jobDir(missingId);
+    await mkdir(missingDir, { recursive: true });
+    await mkdir(store.artifactsDir(missingId), { recursive: true });
+    const beforeMissing = await listDirNames(missingDir);
+    await expect(
+      store.save({ ...template, job_id: missingId }, { eventType: "should_not_write" })
+    ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    expect(await pathExists(store.jobPath(missingId))).toBe(false);
+    expect(await pathExists(join(missingDir, "events.jsonl"))).toBe(false);
+    expect(await listDirNames(missingDir)).toEqual(beforeMissing);
+
+    // --- invalid JSON ---
+    const badJsonId = "bad-json-job";
+    const badJson = await store.create({
+      job_id: badJsonId,
+      connection_id: request.connection_id,
+      model_id: request.model_id,
+      mode: request.mode,
+      request,
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing()
+    });
+    const jobPathBad = store.jobPath(badJsonId);
+    const eventsPathBad = join(store.jobDir(badJsonId), "events.jsonl");
+    const beforeBadJson = await readFile(jobPathBad, "utf8");
+    const beforeEventsBad = await readFile(eventsPathBad, "utf8");
+    await writeFile(jobPathBad, "{not-valid-json\n", "utf8");
+    await expect(
+      store.save(
+        { ...badJson, status: "awaiting_cost_approval" },
+        { eventType: "should_not_write" }
+      )
+    ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    expect(await readFile(jobPathBad, "utf8")).toBe("{not-valid-json\n");
+    expect(await readFile(eventsPathBad, "utf8")).toBe(beforeEventsBad);
+    // durable corrupt blob must not be replaced by caller-supplied memory job
+    expect(await readFile(jobPathBad, "utf8")).not.toBe(beforeBadJson);
+
+    // --- schema-invalid job.json ---
+    const badSchemaId = "bad-schema-job";
+    const badSchema = await store.create({
+      job_id: badSchemaId,
+      connection_id: request.connection_id,
+      model_id: request.model_id,
+      mode: request.mode,
+      request,
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing()
+    });
+    const jobPathSchema = store.jobPath(badSchemaId);
+    const eventsPathSchema = join(store.jobDir(badSchemaId), "events.jsonl");
+    const beforeEventsSchema = await readFile(eventsPathSchema, "utf8");
+    const corruptRecord = {
+      ...JSON.parse(await readFile(jobPathSchema, "utf8")),
+      status: "not-a-real-status",
+      revision: "nope"
+    };
+    await writeFile(jobPathSchema, JSON.stringify(corruptRecord, null, 2), "utf8");
+    const beforeSchemaBlob = await readFile(jobPathSchema, "utf8");
+    await expect(
+      store.save(
+        { ...badSchema, status: "awaiting_cost_approval" },
+        { eventType: "should_not_write" }
+      )
+    ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    expect(await readFile(jobPathSchema, "utf8")).toBe(beforeSchemaBlob);
+    expect(await readFile(eventsPathSchema, "utf8")).toBe(beforeEventsSchema);
+  });
+
+  it("audit load/readAll fail closed on corrupt / gap / duplicate / truncated seq; ENOENT is empty", async () => {
+    const { GenerationJobAuditLog } = await import("../src/generationJobs/audit.js");
+    const root = await mkdtemp(join(tmpdir(), "gj-audit-fc-"));
+    const jobDir = join(root, "job-a");
+    await mkdir(jobDir, { recursive: true });
+    const eventsPath = join(jobDir, "events.jsonl");
+
+    // ENOENT → empty / seq0
+    const missing = new GenerationJobAuditLog(jobDir, () => FIXED_NOW);
+    await missing.load();
+    expect(await missing.readAll()).toEqual([]);
+    const first = await missing.append({ job_id: "job-a", type: "created", to_status: "planned" });
+    expect(first.seq).toBe(0);
+    await missing.append({
+      job_id: "job-a",
+      type: "transition",
+      from_status: "planned",
+      to_status: "awaiting_cost_approval"
+    });
+    const healthy = await readFile(eventsPath, "utf8");
+    expect(healthy.trim().split("\n")).toHaveLength(2);
+
+    // mid-line corruption
+    await writeFile(eventsPath, healthy.replace(/"type":"transition"/, "NOT_JSON{{{"), "utf8");
+    const midCorrupt = new GenerationJobAuditLog(jobDir, () => FIXED_NOW);
+    await expect(midCorrupt.load()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    await expect(midCorrupt.readAll()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+
+    // truncated / invalid JSON line
+    await writeFile(eventsPath, healthy.split("\n")[0] + "\n{truncated\n", "utf8");
+    const truncated = new GenerationJobAuditLog(jobDir, () => FIXED_NOW);
+    await expect(truncated.load()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    await expect(truncated.readAll()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+
+    // schema-invalid event (valid JSON, wrong shape)
+    const line0 = healthy.trim().split("\n")[0]!;
+    await writeFile(
+      eventsPath,
+      `${line0}\n${JSON.stringify({ schema_version: 1, seq: 1, not: "an event" })}\n`,
+      "utf8"
+    );
+    const schemaBad = new GenerationJobAuditLog(jobDir, () => FIXED_NOW);
+    await expect(schemaBad.load()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    await expect(schemaBad.readAll()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+
+    // seq gap (0 then 2)
+    const ev0 = JSON.parse(line0);
+    const gapLine = JSON.stringify({
+      ...ev0,
+      seq: 2,
+      event_id: "gap-event",
+      type: "transition"
+    });
+    await writeFile(eventsPath, `${line0}\n${gapLine}\n`, "utf8");
+    const gap = new GenerationJobAuditLog(jobDir, () => FIXED_NOW);
+    await expect(gap.load()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    await expect(gap.readAll()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+
+    // duplicate seq (0 then 0)
+    const dupLine = JSON.stringify({ ...ev0, seq: 0, event_id: "dup-event", type: "dup" });
+    await writeFile(eventsPath, `${line0}\n${dupLine}\n`, "utf8");
+    const dup = new GenerationJobAuditLog(jobDir, () => FIXED_NOW);
+    await expect(dup.load()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    await expect(dup.readAll()).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+
+    // restore healthy append-only path still works
+    await writeFile(eventsPath, healthy, "utf8");
+    const ok = new GenerationJobAuditLog(jobDir, () => FIXED_NOW);
+    await ok.load();
+    const more = await ok.append({ job_id: "job-a", type: "status_change", to_status: "approved" });
+    expect(more.seq).toBe(2);
+    const all = await ok.readAll();
+    expect(all.map((e) => e.seq)).toEqual([0, 1, 2]);
   });
 });
 
@@ -1031,6 +1214,53 @@ describe("G. lock crash recovery", () => {
     await expect(exclusiveLock(lockPath, "x", { isPidAlive: () => false })).rejects.toMatchObject({
       code: GJ_LOCK_HELD
     });
+  });
+
+  it("store save after stale lock recovery appends lock_recovered audit without rewriting history", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-lock-audit-"));
+    const store = new GenerationJobStore({
+      rootDir: root,
+      now: () => FIXED_NOW,
+      lock: {
+        nowMs: () => Date.now(),
+        isPidAlive: (pid) => pid !== 424242,
+        staleMs: DEFAULT_LOCK_STALE_MS
+      }
+    });
+    const request = baseRequest();
+    const created = await store.create({
+      connection_id: request.connection_id,
+      model_id: request.model_id,
+      mode: request.mode,
+      request,
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing()
+    });
+    const lockPath = join(store.jobDir(created.job_id), ".job.lock");
+    const oldAt = new Date(Date.now() - DEFAULT_LOCK_STALE_MS - 5_000).toISOString();
+    await writeFile(
+      lockPath,
+      JSON.stringify({ token: "stale", pid: 424242, at: oldAt }) + "\n"
+    );
+
+    const beforeEvents = await readFile(join(store.jobDir(created.job_id), "events.jsonl"), "utf8");
+    const saved = await store.save(
+      { ...created, status: "awaiting_cost_approval" },
+      {
+        expectedIdentity: created.identity_token,
+        expectedRevision: created.revision,
+        eventType: "transition"
+      }
+    );
+    expect(saved.status).toBe("awaiting_cost_approval");
+    const events = await store.events(created.job_id);
+    expect(events[0]?.type).toBe("created");
+    expect(events.some((e) => e.type === "lock_recovered")).toBe(true);
+    expect(events[events.length - 1]?.type).toBe("transition");
+    // Prior lines remain prefix of the new log (append-only).
+    const afterEvents = await readFile(join(store.jobDir(created.job_id), "events.jsonl"), "utf8");
+    expect(afterEvents.startsWith(beforeEvents)).toBe(true);
   });
 });
 
@@ -1782,6 +2012,55 @@ describe("L. extra branch coverage for fail-closed edges", () => {
     const handle = await openContainedFile(root, "ok.bin");
     await handle.close();
     await expect(openContainedFile(root, "missing.bin")).rejects.toThrow();
+  });
+
+  it("sha256File / openContainedFile / verifyAdapterArtifact reject final-path symlink via O_NOFOLLOW", async () => {
+    const {
+      openContainedFile,
+      openRegularFileNoFollow,
+      sha256File
+    } = await import("../src/generationJobs/download.js");
+    const root = await mkdtemp(join(tmpdir(), "gj-nofollow-"));
+    const artifacts = join(root, "artifacts");
+    await mkdir(artifacts, { recursive: true });
+    const realPath = join(artifacts, "real.bin");
+    await writeFile(realPath, "payload-bytes");
+    const linkPath = join(artifacts, "link.bin");
+    await symlink(realPath, linkPath);
+
+    await expect(sha256File(linkPath)).rejects.toMatchObject({ code: GJ_PATH_UNSAFE });
+    await expect(openContainedFile(artifacts, "link.bin")).rejects.toMatchObject({
+      code: GJ_PATH_UNSAFE
+    });
+    await expect(openRegularFileNoFollow(linkPath)).rejects.toMatchObject({
+      code: GJ_PATH_UNSAFE
+    });
+
+    // Honest regular file still works
+    const digest = await sha256File(realPath);
+    expect(digest).toBe(sha256("payload-bytes"));
+    const handle = await openContainedFile(artifacts, "real.bin");
+    await handle.close();
+
+    // verifyAdapterArtifact: leaf symlink rejected (open-time nofollow, not only pre-lstat)
+    await expect(
+      verifyAdapterArtifact(artifacts, {
+        absolute_path: linkPath,
+        sha256: digest,
+        byte_length: Buffer.byteLength("payload-bytes")
+      })
+    ).rejects.toMatchObject({ code: GJ_PATH_UNSAFE });
+
+    // TOCTOU-ish: replace regular file path with symlink after an honest path string is known.
+    // open must still refuse following the symlink.
+    const racePath = join(artifacts, "race.bin");
+    await writeFile(racePath, "race-payload");
+    await rm(racePath);
+    await symlink(realPath, racePath);
+    await expect(openRegularFileNoFollow(racePath)).rejects.toMatchObject({
+      code: GJ_PATH_UNSAFE
+    });
+    await expect(sha256File(racePath)).rejects.toMatchObject({ code: GJ_PATH_UNSAFE });
   });
 
   it("loadConnectionCapabilityProfile rejects unsafe id", async () => {

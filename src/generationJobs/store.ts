@@ -201,16 +201,13 @@ export class GenerationJobStore {
     });
 
     try {
-      let previous: GenerationJobRecord | undefined;
-      try {
-        previous = await this.load(job.job_id);
-      } catch {
-        previous = undefined;
-      }
+      // Fail-closed: never recreate from caller-supplied in-memory job when durable
+      // job.json is missing, corrupt, or schema-invalid.
+      const previous = await this.load(job.job_id);
 
       if (
         options.expectedIdentity
-        && previous?.identity_token
+        && previous.identity_token
         && previous.identity_token !== options.expectedIdentity
       ) {
         throw new GenerationJobError(
@@ -221,7 +218,6 @@ export class GenerationJobStore {
 
       if (
         options.expectedRevision !== undefined
-        && previous
         && previous.revision !== options.expectedRevision
       ) {
         throw new GenerationJobError(
@@ -230,13 +226,13 @@ export class GenerationJobStore {
         );
       }
 
-      if (previous && previous.status !== job.status) {
+      if (previous.status !== job.status) {
         assertTransition(previous.status, job.status);
       }
 
       // Optimistic concurrency: always rotate identity and bump revision on save.
       const nextIdentity = randomUUID();
-      const nextRevision = (previous?.revision ?? job.revision ?? 0) + 1;
+      const nextRevision = (previous.revision ?? job.revision ?? 0) + 1;
       const next = parseGenerationJobRecord(
         redactAndAssertClean(
           {
@@ -276,7 +272,7 @@ export class GenerationJobStore {
       await audit.append({
         job_id: job.job_id,
         type: options.eventType ?? "status_change",
-        from_status: previous?.status,
+        from_status: previous.status,
         to_status: next.status,
         detail: options.detail ?? {}
       });

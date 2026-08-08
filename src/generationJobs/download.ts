@@ -6,6 +6,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import {
+  constants,
   createWriteStream,
   lstatSync
 } from "node:fs";
@@ -13,12 +14,12 @@ import {
   lstat,
   mkdir,
   open,
-  readFile,
   realpath,
   rename,
   rm,
   stat,
-  writeFile
+  writeFile,
+  type FileHandle
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { finished } from "node:stream/promises";
@@ -95,8 +96,75 @@ export async function sha256Buffer(data: Buffer | Uint8Array): Promise<string> {
   return createHash("sha256").update(data).digest("hex");
 }
 
+/**
+ * Open a path for reading without following a leaf symlink when the platform
+ * supports O_NOFOLLOW. After open, fstat must show a regular file.
+ * When O_NOFOLLOW is unavailable, use lstat + open + fstat + re-lstat identity
+ * checks (never silently allow a symlink race).
+ */
+export async function openRegularFileNoFollow(path: string): Promise<FileHandle> {
+  const nofollow = constants.O_NOFOLLOW;
+  if (typeof nofollow === "number") {
+    let handle: FileHandle | undefined;
+    try {
+      handle = await open(path, constants.O_RDONLY | nofollow);
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      // O_NOFOLLOW leaf-symlink failures: ELOOP (Linux/macOS), EMLINK (some BSDs).
+      if (err.code === "ELOOP" || err.code === "EMLINK") {
+        throw new GenerationJobError(GJ_PATH_UNSAFE, `symlink rejected at open: ${path}`);
+      }
+      throw error;
+    }
+    try {
+      const info = await handle.stat();
+      if (!info.isFile()) {
+        throw new GenerationJobError(GJ_PATH_UNSAFE, `not a regular file: ${path}`);
+      }
+      return handle;
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  // Portable safe fallback when O_NOFOLLOW is missing: never open blind.
+  let before;
+  try {
+    before = await lstat(path);
+  } catch (error) {
+    throw error;
+  }
+  if (before.isSymbolicLink()) {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, `symlink rejected: ${path}`);
+  }
+  if (!before.isFile()) {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, `not a regular file: ${path}`);
+  }
+
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(path, constants.O_RDONLY);
+    const info = await handle.stat();
+    if (!info.isFile()) {
+      throw new GenerationJobError(GJ_PATH_UNSAFE, `not a regular file after open: ${path}`);
+    }
+    const after = await lstat(path);
+    if (after.isSymbolicLink()) {
+      throw new GenerationJobError(GJ_PATH_UNSAFE, `path became a symlink: ${path}`);
+    }
+    if (before.dev !== after.dev || before.ino !== after.ino) {
+      throw new GenerationJobError(GJ_PATH_UNSAFE, `path identity changed during open: ${path}`);
+    }
+    return handle;
+  } catch (error) {
+    await handle?.close().catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function sha256File(path: string): Promise<string> {
-  const handle = await open(path, "r");
+  const handle = await openRegularFileNoFollow(path);
   try {
     const hash = createHash("sha256");
     const stream = handle.createReadStream();
@@ -347,15 +415,21 @@ export async function verifyAdapterArtifact(
     );
   }
 
-  // Re-open as regular non-symlink file and recompute size + SHA-256.
-  const handle = await open(realFile, "r");
+  // Re-open without following a leaf symlink (O_NOFOLLOW when available) and
+  // recompute size + SHA-256 via fstat on the open fd.
+  // Prefer the unresolved path for open so a leaf symlink is not followed.
+  const openPath = resolvedClaimed;
+  if (lstatSync(openPath).isSymbolicLink()) {
+    throw new GenerationJobError(GJ_PATH_UNSAFE, "adapter absolute_path is a symlink");
+  }
+  const handle = await openRegularFileNoFollow(openPath);
   try {
     const info = await handle.stat();
     if (!info.isFile()) {
       throw new GenerationJobError(GJ_PATH_UNSAFE, "reopened path is not a regular file");
     }
     // Confirm still not a symlink at the path we opened.
-    if (lstatSync(realFile).isSymbolicLink()) {
+    if (lstatSync(openPath).isSymbolicLink()) {
       throw new GenerationJobError(GJ_PATH_UNSAFE, "path became a symlink");
     }
     if (info.size !== claimed.byte_length) {
@@ -389,25 +463,11 @@ export async function verifyAdapterArtifact(
 }
 
 /**
- * Open a regular file for reading under root; reject symlink.
+ * Open a regular file for reading under root; reject symlink at open (O_NOFOLLOW).
  */
 export async function openContainedFile(root: string, relativePath: string) {
   const absolute = resolveContainedPath(root, relativePath);
-  const handle = await open(absolute, "r");
-  try {
-    const info = await handle.stat();
-    if (!info.isFile()) {
-      throw new GenerationJobError(GJ_PATH_UNSAFE, "not a regular file");
-    }
-    const linkInfo = await lstat(absolute);
-    if (linkInfo.isSymbolicLink()) {
-      throw new GenerationJobError(GJ_PATH_UNSAFE, "symlink rejected");
-    }
-    return handle;
-  } catch (error) {
-    await handle.close();
-    throw error;
-  }
+  return openRegularFileNoFollow(absolute);
 }
 
 export async function fileSize(path: string): Promise<number> {
