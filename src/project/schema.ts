@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { win32 } from "node:path";
-import { h3CreativeIrSchema } from "../h3/schema.js";
+import { h3CreativeIrSchema, videoCreativeIrSchema } from "../h3/schema.js";
 
 const safeIdSchema = z
   .string()
@@ -155,6 +155,11 @@ const generationRequestSchema = z
       .optional(),
     /** Optional H3 Creative IR (v1). When present, empty prompt is allowed. */
     h3: h3CreativeIrSchema.optional(),
+    /**
+     * Optional provider-neutral video_prompt IR (v1).
+     * Mutually exclusive with h3; existing projects are not auto-rewritten.
+     */
+    video_prompt: videoCreativeIrSchema.optional(),
     params: z.record(z.string(), z.unknown()).default({})
   })
   .passthrough()
@@ -170,6 +175,14 @@ const generationRequestSchema = z
       context.addIssue({ code: z.ZodIssueCode.custom, message: "voice requires text in prompt", path: ["prompt"] });
     }
     const hasH3 = request.h3 !== undefined;
+    const hasVideoPrompt = request.video_prompt !== undefined;
+    if (hasH3 && hasVideoPrompt) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "request.h3 and request.video_prompt cannot be specified together",
+        path: ["video_prompt"]
+      });
+    }
     if (hasH3 && !isH3CompatibleOperation(request.operation)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -178,7 +191,20 @@ const generationRequestSchema = z
         path: ["h3"]
       });
     }
-    if ([undefined, "video", "image", "music"].includes(request.operation) && !request.prompt && !hasH3) {
+    if (hasVideoPrompt && !isH3CompatibleOperation(request.operation)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "video_prompt is only valid for video-generation operations (undefined, video, transition, reference)",
+        path: ["video_prompt"]
+      });
+    }
+    if (
+      [undefined, "video", "image", "music"].includes(request.operation)
+      && !request.prompt
+      && !hasH3
+      && !hasVideoPrompt
+    ) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: `${request.operation ?? "video"} requires a prompt`, path: ["prompt"] });
     }
     if (request.operation === "template" && typeof request.params.template_id !== "string") {
@@ -189,8 +215,8 @@ const generationRequestSchema = z
       + (request.reference_images?.length ?? 0)
       + (request.input_images?.length ?? 0)
       + (typeof request.params.image === "string" ? 1 : 0);
-    // H3 IR carries mode assets; compile fills execution fields before asset checks.
-    if (request.operation === "transition" && imageCount < 2 && !hasH3) {
+    // H3 / video_prompt IR carries mode assets; compile fills execution fields before asset checks.
+    if (request.operation === "transition" && imageCount < 2 && !hasH3 && !hasVideoPrompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "transition requires at least two image inputs", path: ["input_images"] });
     }
     if (["extend", "modify", "upscale"].includes(request.operation ?? "")
@@ -559,7 +585,11 @@ export function toAdapterGenerationRequest(
   request: GenerationRequest
 ): GenerationRequest {
   const execution = toExecutionGenerationRequest(request);
-  const { h3: _h3, ...adapterRequest } = execution as GenerationRequest & { h3?: unknown };
+  const {
+    h3: _h3,
+    video_prompt: _videoPrompt,
+    ...adapterRequest
+  } = execution as GenerationRequest & { h3?: unknown; video_prompt?: unknown };
   return adapterRequest as GenerationRequest;
 }
 

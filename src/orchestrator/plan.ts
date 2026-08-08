@@ -14,6 +14,9 @@ import {
   type BackendMotionReview
 } from "../backends/capabilities.js";
 import { compileProjectH3, type H3Compilation } from "../h3/compile.js";
+import { rejectUncompiledVideoPrompt } from "../videoPromptDirector/dualAuthoring.js";
+import type { VideoPromptPlan } from "../videoPromptDirector/videoPromptCompile.js";
+import { PipelineError } from "../types.js";
 
 export type PlanStep = {
   name: string;
@@ -79,6 +82,8 @@ export type ExecutionPlan = {
   prompt_guidance?: PromptGuidance[];
   /** Deterministic H3 compilations when generation requests carry Creative IR. */
   h3_compilations?: H3Compilation[];
+  /** Planning-only video_prompt compilations (no provider execution). */
+  video_prompt_plans?: VideoPromptPlan[];
   steps: PlanStep[];
 };
 
@@ -94,8 +99,20 @@ export function createPlan(
   generationConnection?: GenerationConnectionResolution,
   audioConnection?: GenerationConnectionResolution,
   backend?: BackendCapabilities,
-  h3Compilations?: H3Compilation[]
+  h3Compilations?: H3Compilation[],
+  videoPromptPlans?: VideoPromptPlan[]
 ): ExecutionPlan {
+  // Fail-closed: uncompiled video_prompt with empty prompt must never plan silently.
+  for (const [index, request] of (project.generation?.requests ?? []).entries()) {
+    for (const item of rejectUncompiledVideoPrompt(request)) {
+      throw new PipelineError({
+        code: item.code,
+        message: item.message,
+        path: `generation.requests.${index}.video_prompt`
+      });
+    }
+  }
+
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
   const agentHandoffs = createAgentHandoffs(
@@ -149,6 +166,9 @@ export function createPlan(
       : {}),
     ...(promptGuidance.length > 0 ? { prompt_guidance: promptGuidance } : {}),
     ...(compilations.length > 0 ? { h3_compilations: compilations } : {}),
+    ...(videoPromptPlans && videoPromptPlans.length > 0
+      ? { video_prompt_plans: videoPromptPlans }
+      : {}),
     steps: [
       { name: "validate", status: "pending" },
       ...(project.analysis ? [{ name: "analysis-handoff", status: "pending" as const }] : []),
@@ -203,7 +223,8 @@ export function createDryRun(
   audioAdapter?: AdapterDefinition,
   generationConnection?: GenerationConnectionResolution,
   audioConnection?: GenerationConnectionResolution,
-  h3Compilations?: H3Compilation[]
+  h3Compilations?: H3Compilation[],
+  videoPromptPlans?: VideoPromptPlan[]
 ): {
   executed: false;
   plan: ExecutionPlan;
@@ -221,7 +242,8 @@ export function createDryRun(
     generationConnection,
     audioConnection,
     backend,
-    h3Compilations
+    h3Compilations,
+    videoPromptPlans
   );
   return {
     executed: false,

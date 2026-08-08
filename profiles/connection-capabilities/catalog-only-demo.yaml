@@ -1,0 +1,17 @@
+schema_version: 1
+kind: connection-capability-profile
+connection_id: catalog-only-demo
+transport: api
+exact_model_routes: []
+auth_env_names: []
+submit: false
+poll: false
+cancel: false
+download: false
+idempotency: none
+pricing_status: unknown
+runtime_readiness: planning-only
+source:
+  pin: test-fixture
+  version: "0"
+  digest: 4663e2e5e01493dfe97a20bc62c8c657d66a2d10a123c110be14d98f660b7ee2

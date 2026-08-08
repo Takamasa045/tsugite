@@ -936,6 +936,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ...(validation.h3_compilations && validation.h3_compilations.length > 0
         ? { h3_compilations: validation.h3_compilations }
         : {}),
+      ...(validation.video_prompt_plans && validation.video_prompt_plans.length > 0
+        ? { video_prompt_plans: validation.video_prompt_plans }
+        : {}),
       launcher_visible: launcherShelf?.ok ?? false,
       launcher_already_home: launcherShelf?.alreadyHome,
       launcher_linked: launcherShelf?.linked,
@@ -1140,7 +1143,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.generationConnection,
         validation.audioConnection,
         validation.backend,
-        validation.h3_compilations
+        validation.h3_compilations,
+        validation.video_prompt_plans
       )
     });
   }
@@ -1201,7 +1205,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioAdapter,
       validation.generationConnection,
       validation.audioConnection,
-      validation.backend
+      validation.backend,
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     try {
       const viewer = await writeWorkflowViewer({
@@ -1265,7 +1271,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.generationConnection,
       validation.audioConnection,
       validation.backend,
-      validation.h3_compilations
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     try {
       const review = await writeCreativeReview({
@@ -1335,7 +1342,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.generationConnection,
       validation.audioConnection,
       validation.backend,
-      validation.h3_compilations
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     const preview = await renderReviewPreview({
       configPath: args.config!,
@@ -1395,7 +1403,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.audioAdapter,
         validation.generationConnection,
         validation.audioConnection,
-        validation.h3_compilations
+        validation.h3_compilations,
+        validation.video_prompt_plans
       )
     });
   }
