@@ -53,6 +53,52 @@ export interface WorkflowApprovalDetails {
   decidedAt?: string
 }
 
+/** Optional person-consistency QA panel model (P5). Viewer-only; does not mutate Gates. */
+export interface WorkflowPersonConsistencyEvidence {
+  stage: string
+  status: string
+  status_label: string
+  basis_summary: string
+  subjects: Array<{
+    subject_id: string
+    basis: string
+    evaluable_coverage: number
+    traits: Array<{ trait: string; status: string; level: string; notes?: string }>
+    ambiguity_codes: string[]
+    observation_count: number
+    face_evaluable_count: number
+  }>
+  ambiguities: string[]
+  blocked_reasons?: string[]
+  contact_sheet_href?: string
+  contact_sheet_alt: string
+  report_href?: string
+  evidence_integrity?: 'valid' | 'tampered' | 'invalid' | 'not-verified'
+  evidence_integrity_label?: string
+  analyzer?: {
+    status: 'ok' | 'not-run' | 'needs-human-review' | 'failed'
+    label: string
+    needs_human_review: boolean
+  }
+  human_decision?: {
+    decision: string
+    reason: string
+    decided_at?: string
+  }
+  frame_details?: Array<{
+    timestamp_ms: number
+    shot_id: string
+    visibility: string
+    face_evaluable: boolean
+    reason: string
+  }>
+  automatic_score_note?: string
+  a11y?: {
+    status_text: string
+    summary_text: string
+  }
+}
+
 export interface WorkflowNodeDetails {
   purpose: string
   activity: string
@@ -61,6 +107,8 @@ export interface WorkflowNodeDetails {
   outputs: WorkflowDetailItem[]
   previews?: WorkflowMediaPreview[]
   approval?: WorkflowApprovalDetails
+  /** Optional P5 person-consistency evidence panel data. */
+  personConsistency?: WorkflowPersonConsistencyEvidence
 }
 
 export interface WorkflowNode {

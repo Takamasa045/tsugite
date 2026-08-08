@@ -31,6 +31,8 @@ export type ViewerWorkflowNodeDetails = {
   outputs: ViewerWorkflowDetailItem[];
   previews?: ViewerMediaPreview[];
   approval?: ViewerWorkflowApprovalDetails;
+  /** Optional P5 person-consistency panel payload (viewer display only; never mutates Gates). */
+  personConsistency?: import("../qa/personConsistency/viewerModel.js").ViewerPersonConsistencyEvidence;
 };
 
 type DetailContext = {
@@ -229,7 +231,10 @@ function gate2Details(context: DetailContext): ViewerWorkflowNodeDetails {
           : [])
       ],
       ...decision
-    }
+    },
+    ...(artifacts.personConsistencyGate2
+      ? { personConsistency: artifacts.personConsistencyGate2 }
+      : {})
   };
 }
 
@@ -296,7 +301,10 @@ function gate3Details(context: DetailContext): ViewerWorkflowNodeDetails {
           : [])
       ],
       ...decision
-    }
+    },
+    ...(artifacts.personConsistencyGate3
+      ? { personConsistency: artifacts.personConsistencyGate3 }
+      : {})
   };
 }
 

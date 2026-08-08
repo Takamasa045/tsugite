@@ -1,12 +1,13 @@
 /**
  * Artifact path safety, report load/validate, contact-sheet contract, digest binding.
+ * Path/symlink integrity delegates to shared mediaEvidence (provider-neutral).
  */
 import { createHash } from "node:crypto";
-import { lstat, readFile, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { lstat, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { sha256Canonical } from "../../h3/hash.js";
-import { isWithin } from "../../platform/fsSafe.js";
-import type { Issue, Result } from "../../types.js";
+import { resolveSafeEvidencePath } from "../mediaEvidence/evidence.js";
+import type { Result } from "../../types.js";
 import {
   parsePersonConsistencyReport,
   type PersonConsistencyReportV1,
@@ -50,96 +51,39 @@ export function personConsistencyContactSheetRelativePath(
 /**
  * Resolve a relative artifact path under runDir.
  * Rejects absolute paths, `..`, backslashes, and symlink escapes.
+ * Delegates to shared mediaEvidence path safety; remaps codes for Phase A/B compatibility.
  */
 export async function resolveSafeRunArtifactPath(
   runDir: string,
   relativePath: string
 ): Promise<Result<{ absolutePath: string; relativePath: string }>> {
-  if (
-    !relativePath
-    || isAbsolute(relativePath)
-    || relativePath.includes("\\")
-    || relativePath.split(/[/\\]/).includes("..")
-    || relativePath.startsWith("/")
-  ) {
+  const resolved = await resolveSafeEvidencePath(runDir, relativePath);
+  if (!resolved.ok) {
     return {
       ok: false,
-      issues: [
-        {
-          code: "person_qa.path_escape",
-          message: "person consistency artifact path escaped the run directory",
-          path: relativePath
-        }
-      ]
+      issues: resolved.issues.map((issue) => ({
+        ...issue,
+        code: remapPersonQaPathCode(issue.code),
+        message: issue.message.includes("evidence path")
+          ? issue.message.replace("evidence path", "person consistency artifact path")
+          : issue.message.includes("allowed root")
+            ? "person consistency artifact path escaped the run directory"
+            : issue.message.includes("symbolic links")
+              ? "person consistency artifact path must not traverse symbolic links"
+              : issue.message.includes("realpath")
+                ? "person consistency artifact realpath escaped the run directory"
+                : issue.message
+      }))
     };
   }
+  return resolved;
+}
 
-  const absolutePath = resolve(runDir, relativePath);
-  if (!isWithin(absolutePath, runDir)) {
-    return {
-      ok: false,
-      issues: [
-        {
-          code: "person_qa.path_escape",
-          message: "person consistency artifact path escaped the run directory",
-          path: relativePath
-        }
-      ]
-    };
-  }
-
-  try {
-    // Reject symlink leaf or any symlink ancestor between runDir and target.
-    if (await hasSymlinkAlongPath(runDir, absolutePath)) {
-      return {
-        ok: false,
-        issues: [
-          {
-            code: "person_qa.symlink_forbidden",
-            message: "person consistency artifact path must not traverse symbolic links",
-            path: relativePath
-          }
-        ]
-      };
-    }
-    // If the file exists, also verify realpath containment.
-    try {
-      const [realRoot, realFile] = await Promise.all([realpath(runDir), realpath(absolutePath)]);
-      if (!isWithin(realFile, realRoot)) {
-        return {
-          ok: false,
-          issues: [
-            {
-              code: "person_qa.path_escape",
-              message: "person consistency artifact realpath escaped the run directory",
-              path: relativePath
-            }
-          ]
-        };
-      }
-    } catch {
-      // Missing file is handled by callers (missing vs escape).
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      issues: [
-        {
-          code: "person_qa.path_unsafe",
-          message: error instanceof Error ? error.message : String(error),
-          path: relativePath
-        }
-      ]
-    };
-  }
-
-  const normalizedRelative = relative(runDir, absolutePath).split(sep).join("/");
-  return {
-    ok: true,
-    issues: [],
-    absolutePath,
-    relativePath: normalizedRelative
-  };
+function remapPersonQaPathCode(code: string): string {
+  if (code === "media_evidence.path_escape") return "person_qa.path_escape";
+  if (code === "media_evidence.symlink_forbidden") return "person_qa.symlink_forbidden";
+  if (code === "media_evidence.path_unsafe") return "person_qa.path_unsafe";
+  return code;
 }
 
 export async function loadPersonConsistencyReport(options: {
@@ -400,32 +344,3 @@ export function computeReportBodyDigest(report: PersonConsistencyReportV1): stri
   const { report_digest: _omit, ...withoutDigest } = report;
   return sha256Canonical(withoutDigest);
 }
-
-async function hasSymlinkAlongPath(root: string, target: string): Promise<boolean> {
-  const resolvedRoot = resolve(root);
-  const resolvedTarget = resolve(target);
-  if (!isWithin(resolvedTarget, resolvedRoot)) return true;
-
-  let current = resolvedRoot;
-  const relativePath = relative(resolvedRoot, resolvedTarget);
-  if (!relativePath || relativePath === "") {
-    const rootStat = await lstat(resolvedRoot);
-    return rootStat.isSymbolicLink();
-  }
-
-  for (const part of relativePath.split(sep)) {
-    current = join(current, part);
-    try {
-      const stats = await lstat(current);
-      if (stats.isSymbolicLink()) return true;
-    } catch {
-      // Missing intermediate is ok for pure path validation of missing files;
-      // leaf missing is reported by loaders.
-      return false;
-    }
-  }
-  return false;
-}
-
-// Keep dirname import used for potential future relative helpers.
-void dirname;

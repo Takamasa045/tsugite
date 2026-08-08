@@ -86,6 +86,182 @@ function validateDetailItems(
   })
 }
 
+const PERSON_INTEGRITY = new Set(['valid', 'tampered', 'invalid', 'not-verified'])
+const PERSON_ANALYZER = new Set(['ok', 'not-run', 'needs-human-review', 'failed'])
+
+/** Fail-closed local relative path for person-QA artifacts (no protocol, no parent escape). */
+function isSafePersonQaHref(value: string): boolean {
+  if (!value || value.includes('\\') || value.includes('..')) return false
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) return false
+  if (value.startsWith('/')) return false
+  return /^(\.\/)?[A-Za-z0-9._/-]+$/.test(value)
+}
+
+function validatePersonConsistency(
+  input: unknown,
+  path: string,
+  errors: WorkflowValidationIssue[],
+): void {
+  if (!isRecord(input)) {
+    addDetailsError('personConsistency must be an object', path, errors)
+    return
+  }
+
+  for (const key of ['stage', 'status', 'status_label', 'basis_summary', 'contact_sheet_alt'] as const) {
+    if (typeof input[key] !== 'string' || input[key].length === 0) {
+      addDetailsError(`${key} must be a non-empty string`, `${path}.${key}`, errors)
+    }
+  }
+
+  if (!Array.isArray(input.subjects)) {
+    addDetailsError('subjects must be an array', `${path}.subjects`, errors)
+  } else {
+    input.subjects.forEach((subject, index) => {
+      const subjectPath = `${path}.subjects[${index}]`
+      if (!isRecord(subject)) {
+        addDetailsError('subject must be an object', subjectPath, errors)
+        return
+      }
+      for (const key of ['subject_id', 'basis'] as const) {
+        if (typeof subject[key] !== 'string' || subject[key].length === 0) {
+          addDetailsError(`${key} must be a non-empty string`, `${subjectPath}.${key}`, errors)
+        }
+      }
+      if (typeof subject.evaluable_coverage !== 'number' || !Number.isFinite(subject.evaluable_coverage)) {
+        addDetailsError('evaluable_coverage must be a finite number', `${subjectPath}.evaluable_coverage`, errors)
+      }
+      if (typeof subject.observation_count !== 'number' || !Number.isInteger(subject.observation_count) || subject.observation_count < 0) {
+        addDetailsError('observation_count must be a non-negative integer', `${subjectPath}.observation_count`, errors)
+      }
+      if (typeof subject.face_evaluable_count !== 'number' || !Number.isInteger(subject.face_evaluable_count) || subject.face_evaluable_count < 0) {
+        addDetailsError('face_evaluable_count must be a non-negative integer', `${subjectPath}.face_evaluable_count`, errors)
+      }
+      if (!Array.isArray(subject.ambiguity_codes) || !subject.ambiguity_codes.every((c) => typeof c === 'string')) {
+        addDetailsError('ambiguity_codes must be a string array', `${subjectPath}.ambiguity_codes`, errors)
+      }
+      if (!Array.isArray(subject.traits)) {
+        addDetailsError('traits must be an array', `${subjectPath}.traits`, errors)
+      } else {
+        subject.traits.forEach((trait, traitIndex) => {
+          const traitPath = `${subjectPath}.traits[${traitIndex}]`
+          if (!isRecord(trait)) {
+            addDetailsError('trait must be an object', traitPath, errors)
+            return
+          }
+          for (const key of ['trait', 'status', 'level'] as const) {
+            if (typeof trait[key] !== 'string' || trait[key].length === 0) {
+              addDetailsError(`${key} must be a non-empty string`, `${traitPath}.${key}`, errors)
+            }
+          }
+        })
+      }
+    })
+  }
+
+  if (!Array.isArray(input.ambiguities) || !input.ambiguities.every((item) => typeof item === 'string')) {
+    addDetailsError('ambiguities must be a string array', `${path}.ambiguities`, errors)
+  }
+  if (
+    input.blocked_reasons !== undefined
+    && (!Array.isArray(input.blocked_reasons) || !input.blocked_reasons.every((item) => typeof item === 'string'))
+  ) {
+    addDetailsError('blocked_reasons must be a string array', `${path}.blocked_reasons`, errors)
+  }
+
+  if (input.contact_sheet_href !== undefined) {
+    if (typeof input.contact_sheet_href !== 'string' || !isSafePersonQaHref(input.contact_sheet_href)) {
+      addDetailsError('contact_sheet_href must be a safe relative path', `${path}.contact_sheet_href`, errors)
+    }
+  }
+  if (input.report_href !== undefined) {
+    if (typeof input.report_href !== 'string' || !isSafePersonQaHref(input.report_href)) {
+      addDetailsError('report_href must be a safe relative path', `${path}.report_href`, errors)
+    }
+  }
+
+  if (input.evidence_integrity !== undefined) {
+    if (typeof input.evidence_integrity !== 'string' || !PERSON_INTEGRITY.has(input.evidence_integrity)) {
+      addDetailsError(
+        'evidence_integrity must be valid|tampered|invalid|not-verified',
+        `${path}.evidence_integrity`,
+        errors,
+      )
+    }
+  }
+  if (
+    input.evidence_integrity_label !== undefined
+    && (typeof input.evidence_integrity_label !== 'string' || input.evidence_integrity_label.length === 0)
+  ) {
+    addDetailsError('evidence_integrity_label must be a non-empty string', `${path}.evidence_integrity_label`, errors)
+  }
+
+  if (input.analyzer !== undefined) {
+    if (!isRecord(input.analyzer)) {
+      addDetailsError('analyzer must be an object', `${path}.analyzer`, errors)
+    } else {
+      if (typeof input.analyzer.status !== 'string' || !PERSON_ANALYZER.has(input.analyzer.status)) {
+        addDetailsError('analyzer.status is invalid', `${path}.analyzer.status`, errors)
+      }
+      if (typeof input.analyzer.label !== 'string' || input.analyzer.label.length === 0) {
+        addDetailsError('analyzer.label must be a non-empty string', `${path}.analyzer.label`, errors)
+      }
+      if (typeof input.analyzer.needs_human_review !== 'boolean') {
+        addDetailsError('analyzer.needs_human_review must be a boolean', `${path}.analyzer.needs_human_review`, errors)
+      }
+    }
+  }
+
+  if (input.human_decision !== undefined) {
+    if (!isRecord(input.human_decision)) {
+      addDetailsError('human_decision must be an object', `${path}.human_decision`, errors)
+    } else {
+      if (typeof input.human_decision.decision !== 'string' || input.human_decision.decision.length === 0) {
+        addDetailsError('decision must be a non-empty string', `${path}.human_decision.decision`, errors)
+      }
+      if (typeof input.human_decision.reason !== 'string' || input.human_decision.reason.length === 0) {
+        addDetailsError('reason must be a non-empty string', `${path}.human_decision.reason`, errors)
+      }
+    }
+  }
+
+  if (input.frame_details !== undefined) {
+    if (!Array.isArray(input.frame_details)) {
+      addDetailsError('frame_details must be an array', `${path}.frame_details`, errors)
+    } else {
+      input.frame_details.forEach((frame, index) => {
+        const framePath = `${path}.frame_details[${index}]`
+        if (!isRecord(frame)) {
+          addDetailsError('frame detail must be an object', framePath, errors)
+          return
+        }
+        if (typeof frame.timestamp_ms !== 'number' || !Number.isFinite(frame.timestamp_ms)) {
+          addDetailsError('timestamp_ms must be a finite number', `${framePath}.timestamp_ms`, errors)
+        }
+        for (const key of ['shot_id', 'visibility', 'reason'] as const) {
+          if (typeof frame[key] !== 'string' || frame[key].length === 0) {
+            addDetailsError(`${key} must be a non-empty string`, `${framePath}.${key}`, errors)
+          }
+        }
+        if (typeof frame.face_evaluable !== 'boolean') {
+          addDetailsError('face_evaluable must be a boolean', `${framePath}.face_evaluable`, errors)
+        }
+      })
+    }
+  }
+
+  if (input.a11y !== undefined) {
+    if (!isRecord(input.a11y)) {
+      addDetailsError('a11y must be an object', `${path}.a11y`, errors)
+    } else {
+      for (const key of ['status_text', 'summary_text'] as const) {
+        if (typeof input.a11y[key] !== 'string' || input.a11y[key].length === 0) {
+          addDetailsError(`${key} must be a non-empty string`, `${path}.a11y.${key}`, errors)
+        }
+      }
+    }
+  }
+}
+
 function validateNodeDetails(
   input: unknown,
   path: string,
@@ -103,6 +279,9 @@ function validateNodeDetails(
   validateDetailItems(input.inputs, `${path}.inputs`, errors)
   validateDetailItems(input.outputs, `${path}.outputs`, errors)
   if (input.previews !== undefined) validateMediaPreviews(input.previews, `${path}.previews`, errors)
+  if (input.personConsistency !== undefined) {
+    validatePersonConsistency(input.personConsistency, `${path}.personConsistency`, errors)
+  }
   if (input.approval === undefined) return
   if (!isRecord(input.approval)) {
     addDetailsError('approval must be an object', `${path}.approval`, errors)
