@@ -1,5 +1,9 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+// Exact export "./client" works. Subpaths like "./client/index.js" hit package
+// exports "./*" and break when the repo path contains a literal "*" (Node
+// substitutes the path segment). Resolve the public client export, then load
+// its sibling ESM transport by URL — never via wildcard package subpaths or
+// hardcoded node_modules/package-manager layout.
+import { Client } from "@modelcontextprotocol/sdk/client";
 import {
   assertResolvedAddressesPublic,
   buildEndpointAllowlist,
@@ -22,6 +26,115 @@ import {
   type ToolCallAuthorization
 } from "./policy.js";
 import type { AgentServiceDefinition } from "./registry.js";
+
+/** Exact public package export for the MCP Client (not a "./*" subpath). */
+export const MCP_CLIENT_PUBLIC_EXPORT = "@modelcontextprotocol/sdk/client";
+
+/** Basename of the Streamable HTTP client transport next to the resolved client entry. */
+export const MCP_STREAMABLE_HTTP_SIBLING = "streamableHttp.js";
+
+const SAFE_MCP_CLIENT_SIBLING = /^[A-Za-z][A-Za-z0-9._-]*\.js$/;
+
+/**
+ * Resolve a same-directory ESM sibling of the public `./client` export.
+ * Fail-closed: only simple `*.js` basenames; must stay under the resolved
+ * client directory inside `@modelcontextprotocol/sdk`.
+ */
+export function resolveMcpClientSiblingModuleUrl(siblingFileName: string): string {
+  if (!SAFE_MCP_CLIENT_SIBLING.test(siblingFileName)) {
+    throw new Error(
+      `invalid MCP client sibling module name: ${JSON.stringify(siblingFileName)}`
+    );
+  }
+
+  let resolved: string;
+  try {
+    resolved = import.meta.resolve(MCP_CLIENT_PUBLIC_EXPORT);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `failed to resolve MCP public client export ${MCP_CLIENT_PUBLIC_EXPORT}: ${detail}`
+    );
+  }
+
+  let clientUrl: URL;
+  try {
+    clientUrl = new URL(resolved);
+  } catch {
+    throw new Error(`MCP client export resolved to an invalid URL: ${resolved}`);
+  }
+
+  if (clientUrl.protocol !== "file:") {
+    throw new Error(
+      `MCP client export must resolve to a file: URL (got ${clientUrl.protocol})`
+    );
+  }
+
+  const clientPath = decodeURIComponent(clientUrl.pathname);
+  if (!clientPath.includes("/@modelcontextprotocol/sdk/")) {
+    throw new Error(
+      "MCP client export did not resolve inside the @modelcontextprotocol/sdk package"
+    );
+  }
+  if (!clientPath.includes("/client/") || !clientPath.endsWith(".js")) {
+    throw new Error(`MCP client export resolved to an unexpected path: ${clientPath}`);
+  }
+
+  const siblingUrl = new URL(`./${siblingFileName}`, clientUrl);
+  const clientDir = new URL("./", clientUrl);
+  if (siblingUrl.protocol !== "file:") {
+    throw new Error("MCP client sibling module must resolve to a file: URL");
+  }
+  if (!siblingUrl.href.startsWith(clientDir.href)) {
+    throw new Error("MCP client sibling module escapes the resolved client directory");
+  }
+
+  const siblingPath = decodeURIComponent(siblingUrl.pathname);
+  const clientDirPath = decodeURIComponent(clientDir.pathname);
+  const expectedPath = clientDirPath.endsWith("/")
+    ? `${clientDirPath}${siblingFileName}`
+    : `${clientDirPath}/${siblingFileName}`;
+  if (siblingPath !== expectedPath) {
+    throw new Error(
+      `MCP client sibling module path mismatch: expected ${expectedPath}, got ${siblingPath}`
+    );
+  }
+
+  return siblingUrl.href;
+}
+
+type StreamableHTTPClientTransportConstructor = new (
+  url: URL,
+  opts?: {
+    fetch?: typeof fetch;
+    requestInit?: RequestInit;
+    reconnectionOptions?: {
+      initialReconnectionDelay?: number;
+      maxReconnectionDelay?: number;
+      reconnectionDelayGrowFactor?: number;
+      maxRetries?: number;
+    };
+  }
+) => RemoteMcpTransportLike;
+
+type StreamableHttpTransportModule = {
+  StreamableHTTPClientTransport?: StreamableHTTPClientTransportConstructor;
+};
+
+// Top-level await: Node 22 ESM + tsc NodeNext emit this as native TLA.
+// Module evaluation completes before any export is used, so default factories
+// stay synchronous after import.
+const streamableHttpModule = (await import(
+  resolveMcpClientSiblingModuleUrl(MCP_STREAMABLE_HTTP_SIBLING)
+)) as StreamableHttpTransportModule;
+
+if (typeof streamableHttpModule.StreamableHTTPClientTransport !== "function") {
+  throw new Error(
+    "MCP streamable HTTP transport module is missing StreamableHTTPClientTransport"
+  );
+}
+
+const StreamableHTTPClientTransport = streamableHttpModule.StreamableHTTPClientTransport;
 
 export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
 export const DEFAULT_MCP_CLEANUP_TIMEOUT_MS = 2_000;
