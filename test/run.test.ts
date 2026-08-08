@@ -1018,9 +1018,14 @@ describe("local media run assembly", () => {
     expect(cli).toMatch(
       /const inspected = await inspectGate2RunForApproval\(\s*project,\s*manifest,\s*existing\.stateDir,\s*adapter,\s*approvedCompilation,\s*audioAdapter,\s*promptGuides(?:,\s*personQaDecision)?\s*\)/
     );
-    // Render path already wired — keep the contract fixed.
+    // Render restores Gate 2 person-QA decision from approval binding (same payload as approve).
+    expect(cli).toMatch(/loadPersonQaApprovalBinding\([\s\S]*stage:\s*"gate_2"/);
     expect(cli).toMatch(
-      /const gate2Inspection = await inspectGate2RunForApproval\(\s*validation\.project!,\s*validation\.manifest!,\s*stateResult\.stateDir,\s*validation\.adapter,\s*approvedCompilation,\s*validation\.audioAdapter,\s*validation\.promptGuides\s*\)/
+      /const gate2Inspection = await inspectGate2RunForApproval\(\s*validation\.project!,\s*validation\.manifest!,\s*stateResult\.stateDir,\s*validation\.adapter,\s*approvedCompilation,\s*validation\.audioAdapter,\s*validation\.promptGuides,\s*gate2PersonQaDecision\s*\)/
+    );
+    // Gate 2 approve persists person-QA binding for later render revalidation.
+    expect(cli).toMatch(
+      /if \(inspected\.personQaApprovalBinding\) \{\s*const runId = project\.run_id \?\? project\.slug;\s*const written = await writePersonQaApprovalBinding/
     );
     // Viewer Gate2 evidence inspect must not fall back to default repo guides.
     expect(launcher).toMatch(

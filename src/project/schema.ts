@@ -229,7 +229,8 @@ const generationRequestSchema = z
     }
     if (request.operation === "reference"
       && imageCount + (request.input_videos?.length ?? 0) + (request.input_audios?.length ?? 0) === 0
-      && !hasH3) {
+      && !hasH3
+      && !hasVideoPrompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "reference requires at least one media input", path: ["input_images"] });
     }
   });

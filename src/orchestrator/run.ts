@@ -35,11 +35,12 @@ import {
   projectRootFromStateDir
 } from "../integrations/sikumiOutbox.js";
 import {
-  buildGateApprovalWithPersonQa,
+  buildPersonQaApprovalBinding,
   inspectPersonConsistencyForGate,
   personConsistencyRequiredForStage,
   personConsistencyReportRelativePath,
   personConsistencyContactSheetRelativePath,
+  type PersonQaApprovalBindingV1,
   type PersonQaHumanDecisionRecord
 } from "../qa/personConsistency/index.js";
 import {
@@ -56,6 +57,7 @@ import {
 } from "../h3/runArtifacts.js";
 import { loadProjectPromptGuides } from "../adapters/promptKnowledge.js";
 import { loadH3ExecutionRouteProfile } from "../adapters/constraints.js";
+import { compileProjectVideoPrompts } from "../videoPromptDirector/videoPromptCompile.js";
 
 export type LocalRunH3Artifacts = {
   request_id: string;
@@ -147,6 +149,8 @@ type ResumeMetrics = {
   assetCount: number;
   actualCredits: number;
   approvalDigest: string;
+  /** Present when Gate 2 person-QA human decision is included in the approval digest. */
+  personQaApprovalBinding?: PersonQaApprovalBindingV1;
 };
 
 type ManifestAssetReference = {
@@ -760,6 +764,21 @@ async function assembleGeneratedMediaRun(
       ok: false,
       issues: [{ code: "run.invalid_state", message: "run requires a Gate 1 approved running state" }]
     };
+  }
+
+  // video_prompt authoring is planning/dry-run only in P0–P4. Re-evaluate with
+  // intent=execute so planning-only compilations never reach billing adapters.
+  const hasVideoPrompt = project.generation!.requests.some(
+    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
+  );
+  if (hasVideoPrompt) {
+    const videoCompile = await compileProjectVideoPrompts(project, {
+      intent: "execute"
+    });
+    if (!videoCompile.ok) {
+      return { ok: false, issues: videoCompile.issues };
+    }
+    if (videoCompile.project) project = videoCompile.project;
   }
 
   await mkdir(runDir, { recursive: true });
@@ -1500,6 +1519,7 @@ async function inspectAwaitingGate2Artifacts(input: {
 
   // Person-consistency semantic QA (optional): fail closed when policy requires Gate 2.
   let approvalDigest = digest(approvalPayload);
+  let personQaApprovalBinding: PersonQaApprovalBindingV1 | undefined;
   if (input.project && input.runDir && personConsistencyRequiredForStage(input.project, "gate_2")) {
     const reportRelativePath = personConsistencyReportRelativePath("gate_2");
     const contactSheetRelativePath = personConsistencyContactSheetRelativePath("gate_2");
@@ -1534,15 +1554,18 @@ async function inspectAwaitingGate2Artifacts(input: {
         humanDecision: input.personQaDecision
       });
       if (!decided.ok) return { ok: false, issues: decided.issues };
-      const withPerson = buildGateApprovalWithPersonQa({
-        baseApprovalPayload: approvalPayload,
-        technicalQc: freshQcReport,
+      personQaApprovalBinding = buildPersonQaApprovalBinding({
+        stage: "gate_2",
+        reportRelativePath,
         reportSha256: personQa.report_sha256,
         reportStatus: personQa.report.status,
-        stage: "gate_2",
-        humanDecision: input.personQaDecision
+        contactSheetRelativePath: decided.binding?.contact_sheet_relative_path,
+        contactSheetSha256: decided.binding?.contact_sheet_sha256,
+        humanDecision: input.personQaDecision,
+        technicalQc: freshQcReport,
+        baseApprovalPayload: approvalPayload
       });
-      approvalDigest = withPerson.approvalDigest;
+      approvalDigest = personQaApprovalBinding.person_qa_approval_digest;
     } else {
       // Preview digest binds report hash; human decision is still required for coordinator approve.
       approvalDigest = digest({
@@ -1557,7 +1580,8 @@ async function inspectAwaitingGate2Artifacts(input: {
     issues: [],
     assetCount: assetReferences.length,
     actualCredits: runLog.log.actualCredits,
-    approvalDigest
+    approvalDigest,
+    ...(personQaApprovalBinding ? { personQaApprovalBinding } : {})
   };
 }
 

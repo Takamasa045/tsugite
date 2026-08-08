@@ -6,7 +6,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, symlink, writeFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { describe, expect, it } from "vitest";
 import {
@@ -1371,5 +1371,82 @@ describe("L4 video_prompt-only validate → plan → dry-run E2E", () => {
     });
     expect(validation.ok).toBe(false);
     expect(validation.issues.some((item) => item.code === VIDEO_PROMPT_UNCOMPILED_CODE)).toBe(true);
+  });
+
+  it("rejects planning-only video_prompt on run execute path (no billing submit)", async () => {
+    const { assembleLocalMediaRun } = await import("../src/orchestrator/run.js");
+    const {
+      createPlannedState,
+      markGateAwaiting,
+      recordGateDecision
+    } = await import("../src/orchestrator/state.js");
+
+    const configPath = await writeVideoPromptOnlyProject({
+      connection: "pixverse",
+      adapter: "pixverse"
+    });
+    const validation = await validateProject(configPath, {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    expect(validation.ok).toBe(true);
+    // Planning compile filled a non-empty prompt, but video_prompt IR remains.
+    const filled = validation.project!.generation!.requests[0]!;
+    expect(filled.prompt.length).toBeGreaterThan(0);
+    expect((filled as { video_prompt?: unknown }).video_prompt).toBeDefined();
+
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-vpd-run-block-"));
+    const gate1 = markGateAwaiting(createPlannedState("vpd-e2e-run"), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+    const result = await assembleLocalMediaRun(
+      validation.project!,
+      validation.manifest!,
+      {
+        configPath,
+        manifestPath: join(dirname(configPath), validation.project!.manifest),
+        stateDir,
+        state: running,
+        // Pass Gate 1 connection verification so the execute-readiness check is the fail point.
+        connectionVerificationApproved: true,
+        generationConnection: validation.generationConnection
+      },
+      validation.adapter
+    );
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((item) => item.code === VPD_RUNTIME_NOT_READY_CODE)).toBe(true);
+  });
+
+  it("accepts reference video_prompt IR assets without legacy media fields at projectSchema", () => {
+    const ir = parseVideoCreativeIr({
+      ...baseT2V("v6"),
+      target: {
+        model: "v6",
+        mode: "reference",
+        duration: 5,
+        quality: "720p",
+        aspect: "16:9",
+        audio: true
+      },
+      assets: [
+        { id: "hero", type: "image", path: "assets/hero.png", role: "subject_reference" },
+        { id: "motion", type: "video", path: "assets/motion.mp4", role: "motion_reference" }
+      ]
+    });
+    const parsed = projectSchema.safeParse({
+      slug: "vp-ref-schema",
+      name: "vp-ref-schema",
+      manifest: "manifest.json",
+      edit: { backend: "fixture" },
+      generation: {
+        adapter: "pixverse",
+        requests: [{
+          id: "ref-only-ir",
+          operation: "reference",
+          prompt: "",
+          params: {},
+          video_prompt: ir
+        }]
+      }
+    });
+    expect(parsed.success).toBe(true);
   });
 });

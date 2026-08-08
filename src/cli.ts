@@ -43,6 +43,8 @@ import { renderReviewPreview } from "./orchestrator/reviewPreview.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
+  issuesForOuterGateWithPersonQaDecision,
+  loadPersonQaApprovalBinding,
   parsePersonQaHumanDecision,
   personConsistencyRequiredForStage,
   writePersonQaApprovalBinding,
@@ -1568,6 +1570,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       approvedCompilation = review.compilation;
     }
+    // Restore Gate 2 person-QA decision from the approval binding so the digest
+    // matches the payload used at approve time (decision + reason + report hash).
+    let gate2PersonQaDecision: PersonQaHumanDecisionRecord | undefined;
+    if (personConsistencyRequiredForStage(validation.project!, "gate_2")) {
+      const runId = validation.project!.run_id ?? validation.project!.slug;
+      const loaded = await loadPersonQaApprovalBinding({
+        runDir: join(stateResult.stateDir, runId),
+        stage: "gate_2"
+      });
+      if (loaded.ok) {
+        gate2PersonQaDecision = loaded.binding.human_decision;
+      }
+    }
     const gate2Inspection = await inspectGate2RunForApproval(
       validation.project!,
       validation.manifest!,
@@ -1575,7 +1590,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.adapter,
       approvedCompilation,
       validation.audioAdapter,
-      validation.promptGuides
+      validation.promptGuides,
+      gate2PersonQaDecision
     );
     if (!gate2Inspection.ok) {
       const issues = gate2Inspection.issues.map((issue) =>
@@ -2253,6 +2269,15 @@ async function recordGate(
       };
     }
     personQaDecision = parsedPersonQa.decision;
+    const outerPersonQaIssues = issuesForOuterGateWithPersonQaDecision(decision, personQaDecision);
+    if (outerPersonQaIssues.length > 0) {
+      return {
+        ok: false,
+        issues: outerPersonQaIssues,
+        state,
+        statePath: stateLocation.statePath
+      };
+    }
   }
 
   if (decision === "approved" && gate === "gate_2") {
@@ -2294,6 +2319,17 @@ async function recordGate(
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
     gateApprovalDigest = inspected.approvalDigest;
+    // Persist Gate 2 person-QA binding so render can rebuild the same approval digest.
+    if (inspected.personQaApprovalBinding) {
+      const runId = project.run_id ?? project.slug;
+      const written = await writePersonQaApprovalBinding({
+        runDir: join(existing.stateDir, runId),
+        binding: inspected.personQaApprovalBinding
+      });
+      if (!written.ok) {
+        return { ok: false, issues: written.issues, state, statePath: stateLocation.statePath };
+      }
+    }
   }
 
   if (decision === "approved" && gate === "gate_3") {

@@ -21,7 +21,9 @@ import {
   evaluateGate2AutoPassWithPersonQa,
   fixtureCapability,
   isExternalAdapterConnected,
+  issuesForOuterGateWithPersonQaDecision,
   loadPersonConsistencyReport,
+  loadPersonQaApprovalBinding,
   mapPreservationToTraitRequirements,
   parsePersonConsistencyPolicy,
   parsePersonConsistencyReport,
@@ -694,6 +696,83 @@ describe("Gate digests, human decision, finalize revalidation, QA-disabled regre
     expect(other.approvalDigest).not.toBe(approvalDigest);
   });
 
+  it("restores Gate 2 person-QA decision from binding so approve/render digests match", async () => {
+    const technical = { ok: true, issues: [], issues_count: 0 };
+    const basePayload = { backend: "remotion", gate2_qc: technical };
+    const human = {
+      decision: "accept" as const,
+      reason: "identity stable across sampled frames"
+    };
+    const approveDigest = buildGateApprovalWithPersonQa({
+      baseApprovalPayload: basePayload,
+      technicalQc: technical,
+      reportSha256: HEX,
+      reportStatus: "ok",
+      stage: "gate_2",
+      humanDecision: human
+    }).approvalDigest;
+
+    // Without the decision (legacy render path) digest diverges even if report is unchanged.
+    const previewOnly = createHash("sha256")
+      .update(JSON.stringify({
+        ...basePayload,
+        person_consistency_report_sha256: HEX
+      }))
+      .digest("hex");
+    // Preview-style binding is intentionally a different payload shape.
+    expect(previewOnly).not.toBe(approveDigest);
+
+    const root = join(tmpdir(), `pc-gate2-bind-${Date.now()}`);
+    const runDir = join(root, "run");
+    await mkdir(join(runDir, "qa", "person-consistency", "gate2"), { recursive: true });
+    const binding = buildPersonQaApprovalBinding({
+      stage: "gate_2",
+      reportRelativePath: "qa/person-consistency/gate2/report.json",
+      reportSha256: HEX,
+      reportStatus: "ok",
+      humanDecision: human,
+      technicalQc: technical,
+      baseApprovalPayload: basePayload
+    });
+    expect(binding.person_qa_approval_digest).toBe(approveDigest);
+    const written = await writePersonQaApprovalBinding({ runDir, binding });
+    expect(written.ok).toBe(true);
+    const loaded = await loadPersonQaApprovalBinding({ runDir, stage: "gate_2" });
+    expect(loaded.ok).toBe(true);
+    const restored = buildGateApprovalWithPersonQa({
+      baseApprovalPayload: basePayload,
+      technicalQc: technical,
+      reportSha256: HEX,
+      reportStatus: "ok",
+      stage: "gate_2",
+      humanDecision: loaded.binding!.human_decision
+    });
+    expect(restored.approvalDigest).toBe(approveDigest);
+  });
+
+  it("does not allow outer Gate approved with person-qa-decision revise", () => {
+    expect(
+      issuesForOuterGateWithPersonQaDecision("approved", {
+        decision: "revise",
+        reason: "identity drifted; regenerate"
+      })[0]?.code
+    ).toBe("person_qa.revise_blocks_outer_approval");
+
+    expect(
+      issuesForOuterGateWithPersonQaDecision("revise", {
+        decision: "revise",
+        reason: "identity drifted; regenerate"
+      })
+    ).toEqual([]);
+
+    expect(
+      issuesForOuterGateWithPersonQaDecision("approved", {
+        decision: "accept",
+        reason: "stable identity"
+      })
+    ).toEqual([]);
+  });
+
   it("revalidates report digest for finalize and preserves QA-disabled behavior", async () => {
     const root = join(tmpdir(), `pc-finalize-${Date.now()}`);
     const runDir = join(root, "run");
@@ -748,12 +827,21 @@ describe("Gate digests, human decision, finalize revalidation, QA-disabled regre
     expect(missingBinding.ok).toBe(false);
     expect(missingBinding.issues.some((i) => i.code === "person_qa.binding_missing")).toBe(true);
 
+    const contactRelative = "qa/person-consistency/gate3/contact-sheet.webp";
+    const contactAbsolute = join(runDir, contactRelative);
+    await writeFile(contactAbsolute, "contact-sheet-v1");
+    const contactSha256 = createHash("sha256")
+      .update(await (await import("node:fs/promises")).readFile(contactAbsolute))
+      .digest("hex");
+
     const binding = buildPersonQaApprovalBinding({
       stage: "gate_3",
       finalOutputSha256: HEX,
       reportRelativePath: relativePath,
       reportSha256: reportSha256,
       reportStatus: "ok",
+      contactSheetRelativePath: contactRelative,
+      contactSheetSha256: contactSha256,
       humanDecision: {
         decision: "accept",
         reason: "identity stable on contact sheet"
@@ -771,6 +859,30 @@ describe("Gate digests, human decision, finalize revalidation, QA-disabled regre
     });
     expect(onFinalize.ok).toBe(true);
     expect(onFinalize.report_sha256).toBe(reportSha256);
+
+    // Contact sheet swap after approval must fail finalize even if report is unchanged.
+    await writeFile(contactAbsolute, "contact-sheet-tampered");
+    const swapped = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX
+    });
+    expect(swapped.ok).toBe(false);
+    expect(swapped.issues.some((i) => i.code === "person_qa.contact_sheet_stale")).toBe(true);
+
+    // Direct finalize helper also rejects mismatched expected contact-sheet hash.
+    await writeFile(contactAbsolute, "contact-sheet-v1");
+    const directMismatch = await revalidatePersonConsistencyForFinalize({
+      project,
+      stage: "gate_3",
+      runDir,
+      reportRelativePath: relativePath,
+      expectedReportSha256: reportSha256,
+      contactSheetRelativePath: contactRelative,
+      expectedContactSheetSha256: "b".repeat(64)
+    });
+    expect(directMismatch.ok).toBe(false);
+    expect(directMismatch.issues.some((i) => i.code === "person_qa.contact_sheet_stale")).toBe(true);
 
     // QA disabled: finalize revalidation is no-op success
     const disabledOnFinalize = await revalidatePersonConsistencyOnFinalize({

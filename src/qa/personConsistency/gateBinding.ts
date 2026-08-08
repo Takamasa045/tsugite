@@ -59,6 +59,26 @@ export function parsePersonQaHumanDecision(
  * - revise: always allowed
  * Never auto-accept blocked/review/not_evaluable.
  */
+/**
+ * Outer gate decision must not record approved when person-QA is revise.
+ * revise is a valid person-QA outcome but must not advance Gate 2/3.
+ */
+export function issuesForOuterGateWithPersonQaDecision(
+  outerDecision: string,
+  personQaDecision: PersonQaHumanDecisionRecord | undefined
+): Issue[] {
+  if (outerDecision === "approved" && personQaDecision?.decision === "revise") {
+    return [
+      {
+        code: "person_qa.revise_blocks_outer_approval",
+        message:
+          "person-qa-decision 'revise' cannot approve the outer gate; use --decision revise or an accept decision"
+      }
+    ];
+  }
+  return [];
+}
+
 export function validatePersonQaDecisionAgainstReport(
   decision: PersonQaHumanDecisionRecord,
   report: PersonConsistencyReportV1
@@ -310,6 +330,22 @@ export async function revalidatePersonConsistencyForFinalize(options: {
         }
       ]
     };
+  }
+  if (options.expectedContactSheetSha256) {
+    const actual = inspected.binding?.contact_sheet_sha256;
+    if (actual !== options.expectedContactSheetSha256) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: "person_qa.contact_sheet_stale",
+            message: "person consistency contact sheet changed after gate approval",
+            path: options.contactSheetRelativePath
+              ?? inspected.binding?.contact_sheet_relative_path
+          }
+        ]
+      };
+    }
   }
   return {
     ok: true,
@@ -565,7 +601,8 @@ export async function revalidatePersonConsistencyOnFinalize(options: {
     runDir: options.runDir,
     reportRelativePath: loaded.binding.report_relative_path,
     expectedReportSha256: loaded.binding.semantic_report_digest,
-    contactSheetRelativePath: loaded.binding.contact_sheet_relative_path
+    contactSheetRelativePath: loaded.binding.contact_sheet_relative_path,
+    expectedContactSheetSha256: loaded.binding.contact_sheet_sha256
   });
   if (!revalidated.ok) return revalidated;
 
