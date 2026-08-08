@@ -1,0 +1,30 @@
+name: minimax-http
+kind: api
+dry_run_estimate: true
+batch: false
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+input_modes:
+  last-frame-to-video:
+    required_fields: [last_frame]
+    forbidden_fields: [first_frame]
+checks:
+  setup:
+    - type: environment
+      name: provider-auth:minimax-http
+      variable: MINIMAX_API_KEY
+      remediation:
+        default: "Set MINIMAX_API_KEY in the environment (never paste into chat). Phase C keeps pricing unknown and submit preflight-gated until a pricing authority is configured."
+    - type: manual
+      name: provider-pricing:minimax-http
+      blocking: true
+      detail: "Pricing source of truth is not configured. Treat as preflight-only / blocked; never display as ready-to-send."
+      remediation:
+        default: "Do not submit until pricing_status is known and cost approval binds version/currency/max_amount."
+# Actual generation command is intentionally omitted; TypeScript HTTP adapter is invoked via DI in tests / opt-in preflight.

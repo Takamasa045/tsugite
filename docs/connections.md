@@ -63,6 +63,23 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 参照: [H3 Prompt Director](./h3-prompt-director.md)、`adapters/minimax/`、`knowledge/video-models/minimax-h3/prompt-guide.yaml`。
 
+## MiniMax HTTP（Phase C: durable job / preflight-only）
+
+`minimax-http` は MiniMax 公式 HTTPS API 向けの **別 connection** です。`minimax-direct`（`mmx` CLI）と **混ぜない・自動fallbackしない・承認/credentialを共有しない** でください。
+
+| 項目 | 契約 |
+|---|---|
+| 状態 | 価格正本未設定の間は **preflight-only / blocked**。実送信準備完了とは表示しない。`submit: false` + `runtime_readiness: preflight-only` |
+| 初期 scope | MiniMax-H3 **last-frame-only** のみ（exactly one last-frame asset）。first-frame 付与・同画像複製・T2V 降格・他 mode 推測は禁止 |
+| 認証 | 環境変数名 `MINIMAX_API_KEY` のみ宣言。値は schema / artifact / log / audit / error に保存しない |
+| durable job | `src/generationJobs` の provider-neutral 基盤（approval digest / submission_unknown / resume / pin） |
+| transport | 固定 HTTPS allowlist、redirect 拒否、bounded timeout/poll/download、Content-Length と stream 上限、SHA-256、atomic local pin |
+| テスト | repo-local **fixture-only** transport marker を DI。外部 DNS/HTTP/provider を呼ばない。real HTTP client / DNS resolver は **未実装** |
+| pipeline | opt-in preflight / dry-run のみ。`run` / `render` / 課金 / Gate 更新は行わない |
+| 将来 live 時 | public production factory だけでは live 不可。**public-IP 固定と DNS-rebinding 防御**を実装してから実送信を許可すること |
+
+参照: `adapters/minimax-http/`、`profiles/connection-capabilities/minimax-http.yaml`、`src/generationJobs/`。
+
 ```yaml
 generation:
   connection: pixverse # または kling-direct
