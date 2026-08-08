@@ -40,3 +40,5 @@ export const GJ_NOT_PINNED = "GJ-E023";
 export const GJ_BLOCKED = "GJ-E024";
 export const GJ_PREFLIGHT_ONLY = "GJ-E025";
 export const GJ_SECRET_LEAK = "GJ-E026";
+/** Submit refused because durable status is not exactly approved (fail-closed). */
+export const GJ_SUBMIT_NOT_ALLOWED = "GJ-E027";

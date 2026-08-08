@@ -24,6 +24,7 @@ import {
   GJ_PROVIDER_JOB_MISSING,
   GJ_RESUBMIT_FORBIDDEN,
   GJ_ROUTE_UNSUPPORTED,
+  GJ_SUBMIT_NOT_ALLOWED,
   GJ_SUBMISSION_UNKNOWN,
   GenerationJobError
 } from "./errors.js";
@@ -226,7 +227,8 @@ export class GenerationJobMachine {
   /**
    * Attempt submit. On possible-acceptance timeout or throw → submission_unknown.
    * Never increments submit_attempts unless accepted=true.
-   * Never resubmits when submission_unknown.
+   * Fail-closed: durable status must be exactly approved and provider_job_id absent.
+   * Never resubmits from submission_unknown, retry_wait, or any post-submit status.
    */
   async submit(jobId: string): Promise<GenerationJobRecord> {
     const job = await this.store.load(jobId);
@@ -244,6 +246,22 @@ export class GenerationJobMachine {
       throw new GenerationJobError(
         GJ_RESUBMIT_FORBIDDEN,
         "job is already submitting; use resume after crash (no automatic resubmit)"
+      );
+    }
+
+    // Fail-closed: any known provider job id means accept already happened or is unknown.
+    if (job.provider_job_id) {
+      throw new GenerationJobError(
+        GJ_RESUBMIT_FORBIDDEN,
+        "provider_job_id already present; automatic resubmit is forbidden"
+      );
+    }
+
+    // Only the durable approved state may enter submit (no retry_wait → submitting).
+    if (job.status !== "approved") {
+      throw new GenerationJobError(
+        GJ_SUBMIT_NOT_ALLOWED,
+        `submit requires durable status 'approved' with no provider_job_id; got '${job.status}'`
       );
     }
 

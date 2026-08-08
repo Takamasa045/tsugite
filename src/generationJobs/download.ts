@@ -96,15 +96,27 @@ export async function sha256Buffer(data: Buffer | Uint8Array): Promise<string> {
   return createHash("sha256").update(data).digest("hex");
 }
 
+export type OpenRegularFileNoFollowOptions = {
+  /**
+   * Test-only: force the portable lstat/open/fstat/re-lstat path even when
+   * O_NOFOLLOW exists. Production callers must omit this (default false).
+   */
+  forcePortableFallback?: boolean;
+};
+
 /**
  * Open a path for reading without following a leaf symlink when the platform
  * supports O_NOFOLLOW. After open, fstat must show a regular file.
  * When O_NOFOLLOW is unavailable, use lstat + open + fstat + re-lstat identity
- * checks (never silently allow a symlink race).
+ * checks (never silently allow a symlink race). The opened fd's fstat dev/ino
+ * must match both the before and after path identities.
  */
-export async function openRegularFileNoFollow(path: string): Promise<FileHandle> {
+export async function openRegularFileNoFollow(
+  path: string,
+  options: OpenRegularFileNoFollowOptions = {}
+): Promise<FileHandle> {
   const nofollow = constants.O_NOFOLLOW;
-  if (typeof nofollow === "number") {
+  if (typeof nofollow === "number" && !options.forcePortableFallback) {
     let handle: FileHandle | undefined;
     try {
       handle = await open(path, constants.O_RDONLY | nofollow);
@@ -149,12 +161,26 @@ export async function openRegularFileNoFollow(path: string): Promise<FileHandle>
     if (!info.isFile()) {
       throw new GenerationJobError(GJ_PATH_UNSAFE, `not a regular file after open: ${path}`);
     }
+    // Opened fd must still be the same inode we lstat'd before open.
+    if (info.dev !== before.dev || info.ino !== before.ino) {
+      throw new GenerationJobError(
+        GJ_PATH_UNSAFE,
+        `opened fd identity mismatch vs pre-open path: ${path}`
+      );
+    }
     const after = await lstat(path);
     if (after.isSymbolicLink()) {
       throw new GenerationJobError(GJ_PATH_UNSAFE, `path became a symlink: ${path}`);
     }
     if (before.dev !== after.dev || before.ino !== after.ino) {
       throw new GenerationJobError(GJ_PATH_UNSAFE, `path identity changed during open: ${path}`);
+    }
+    // And fd must still match the post-open path identity (TOCTOU race closed).
+    if (info.dev !== after.dev || info.ino !== after.ino) {
+      throw new GenerationJobError(
+        GJ_PATH_UNSAFE,
+        `opened fd identity mismatch vs post-open path: ${path}`
+      );
     }
     return handle;
   } catch (error) {

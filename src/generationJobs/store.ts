@@ -136,8 +136,9 @@ export class GenerationJobStore {
     await mkdir(dir, { recursive: true });
     await mkdir(this.artifactsDir(jobId), { recursive: true });
 
+    const jobPath = this.jobPath(jobId);
     try {
-      await writeJsonExclusive(this.jobPath(jobId), record);
+      await writeJsonExclusive(jobPath, record);
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       if (err.code === "EEXIST") {
@@ -149,17 +150,27 @@ export class GenerationJobStore {
       throw error;
     }
 
+    // Fail-safe create ordering: if the first audit append fails after O_EXCL job write,
+    // roll back the exclusive create so we never leave a job without a healthy audit.
+    // Does not weaken O_EXCL duplicate protection (wx still owns uniqueness).
     const audit = new GenerationJobAuditLog(dir, this.now);
-    await audit.append({
-      job_id: jobId,
-      type: "created",
-      to_status: record.status,
-      detail: {
-        connection_id: record.connection_id,
-        model_id: record.model_id,
-        mode: record.mode
-      }
-    });
+    const eventsPath = join(dir, "events.jsonl");
+    try {
+      await audit.append({
+        job_id: jobId,
+        type: "created",
+        to_status: record.status,
+        detail: {
+          connection_id: record.connection_id,
+          model_id: record.model_id,
+          mode: record.mode
+        }
+      });
+    } catch (error) {
+      await rm(jobPath, { force: true }).catch(() => undefined);
+      await rm(eventsPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
     return record;
   }
 
@@ -230,6 +241,11 @@ export class GenerationJobStore {
         assertTransition(previous.status, job.status);
       }
 
+      // Fail-closed: validate existing append-only audit BEFORE any job.json mutation
+      // so corrupt/gapped/truncated logs never change revision/identity or leave residue.
+      const audit = new GenerationJobAuditLog(dir, this.now);
+      await audit.load();
+
       // Optimistic concurrency: always rotate identity and bump revision on save.
       const nextIdentity = randomUUID();
       const nextRevision = (previous.revision ?? job.revision ?? 0) + 1;
@@ -246,7 +262,6 @@ export class GenerationJobStore {
       );
       await writeJsonAtomic(this.jobPath(job.job_id), next);
 
-      const audit = new GenerationJobAuditLog(dir, this.now);
       for (const recovery of recoveryEvents) {
         await audit.append({
           job_id: job.job_id,

@@ -45,7 +45,9 @@ import {
   GJ_RESUBMIT_FORBIDDEN,
   GJ_ROUTE_UNSUPPORTED,
   GJ_SCHEMA_INVALID,
+  GJ_SUBMIT_NOT_ALLOWED,
   GJ_SUBMISSION_UNKNOWN,
+  openRegularFileNoFollow,
   pinBytesAtomically,
   pinStreamAtomically,
   preflightGenerationJob,
@@ -236,6 +238,8 @@ describe("A. job schema / state transitions", () => {
     }
     expect(canTransition("submission_unknown", "polling")).toBe(true);
     expect(canTransition("submission_unknown", "submitting")).toBe(false);
+    expect(canTransition("retry_wait", "submitting")).toBe(false);
+    expect(canTransition("retry_wait", "polling")).toBe(true);
     expect(canTransition("cancel_requested", "succeeded")).toBe(true);
   });
 });
@@ -535,6 +539,182 @@ describe("B. durable store crash/resume + append-only events", () => {
     const all = await ok.readAll();
     expect(all.map((e) => e.seq)).toEqual([0, 1, 2]);
   });
+
+  it("save validates existing audit before job.json write: corrupt/gapped/truncated causes no mutation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-save-audit-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    const request = baseRequest();
+
+    async function seedJob(jobId: string) {
+      return store.create({
+        job_id: jobId,
+        connection_id: request.connection_id,
+        model_id: request.model_id,
+        mode: request.mode,
+        request,
+        model_profile_digest: "a".repeat(64),
+        connection_capability_digest: "b".repeat(64),
+        pricing: knownPricing()
+      });
+    }
+
+    async function assertNoTempResidue(jobDir: string) {
+      const names = await listDirNames(jobDir);
+      expect(names.some((n) => n.includes(".tmp") || n.endsWith(".tmp"))).toBe(false);
+      expect(names.filter((n) => n.startsWith("job.json."))).toEqual([]);
+    }
+
+    // --- corrupt mid-line ---
+    const corrupt = await seedJob("audit-corrupt");
+    const corruptDir = store.jobDir(corrupt.job_id);
+    const corruptJobPath = store.jobPath(corrupt.job_id);
+    const corruptEventsPath = join(corruptDir, "events.jsonl");
+    const beforeJobCorrupt = await readFile(corruptJobPath, "utf8");
+    const beforeEventsCorrupt = await readFile(corruptEventsPath, "utf8");
+    await writeFile(
+      corruptEventsPath,
+      beforeEventsCorrupt.replace(/"type":"created"/, "NOT_JSON{{{"),
+      "utf8"
+    );
+    const beforeCorruptEventsBlob = await readFile(corruptEventsPath, "utf8");
+    await expect(
+      store.save(
+        { ...corrupt, status: "awaiting_cost_approval" },
+        {
+          expectedIdentity: corrupt.identity_token,
+          expectedRevision: corrupt.revision,
+          eventType: "must_not_append"
+        }
+      )
+    ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    expect(await readFile(corruptJobPath, "utf8")).toBe(beforeJobCorrupt);
+    expect(await readFile(corruptEventsPath, "utf8")).toBe(beforeCorruptEventsBlob);
+    expect(JSON.parse(beforeJobCorrupt).revision).toBe(0);
+    expect(JSON.parse(beforeJobCorrupt).identity_token).toBe(corrupt.identity_token);
+    await assertNoTempResidue(corruptDir);
+
+    // --- seq gap ---
+    const gapped = await seedJob("audit-gap");
+    const gapDir = store.jobDir(gapped.job_id);
+    const gapJobPath = store.jobPath(gapped.job_id);
+    const gapEventsPath = join(gapDir, "events.jsonl");
+    const beforeJobGap = await readFile(gapJobPath, "utf8");
+    const line0 = (await readFile(gapEventsPath, "utf8")).trim().split("\n")[0]!;
+    const gapEvent = JSON.stringify({
+      ...JSON.parse(line0),
+      seq: 2,
+      event_id: "gap-event",
+      type: "transition"
+    });
+    await writeFile(gapEventsPath, `${line0}\n${gapEvent}\n`, "utf8");
+    const beforeGapEventsBlob = await readFile(gapEventsPath, "utf8");
+    await expect(
+      store.save(
+        { ...gapped, status: "awaiting_cost_approval" },
+        {
+          expectedIdentity: gapped.identity_token,
+          expectedRevision: gapped.revision,
+          eventType: "must_not_append"
+        }
+      )
+    ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    expect(await readFile(gapJobPath, "utf8")).toBe(beforeJobGap);
+    expect(await readFile(gapEventsPath, "utf8")).toBe(beforeGapEventsBlob);
+    await assertNoTempResidue(gapDir);
+
+    // --- truncated invalid JSON line ---
+    const truncated = await seedJob("audit-trunc");
+    const truncDir = store.jobDir(truncated.job_id);
+    const truncJobPath = store.jobPath(truncated.job_id);
+    const truncEventsPath = join(truncDir, "events.jsonl");
+    const beforeJobTrunc = await readFile(truncJobPath, "utf8");
+    const truncLine0 = (await readFile(truncEventsPath, "utf8")).trim().split("\n")[0]!;
+    await writeFile(truncEventsPath, `${truncLine0}\n{truncated\n`, "utf8");
+    const beforeTruncEventsBlob = await readFile(truncEventsPath, "utf8");
+    await expect(
+      store.save(
+        { ...truncated, status: "awaiting_cost_approval" },
+        {
+          expectedIdentity: truncated.identity_token,
+          expectedRevision: truncated.revision,
+          eventType: "must_not_append"
+        }
+      )
+    ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+    expect(await readFile(truncJobPath, "utf8")).toBe(beforeJobTrunc);
+    expect(await readFile(truncEventsPath, "utf8")).toBe(beforeTruncEventsBlob);
+    await assertNoTempResidue(truncDir);
+
+    // --- healthy save still green after prior failures ---
+    const healthy = await seedJob("audit-healthy");
+    const saved = await store.save(
+      { ...healthy, status: "awaiting_cost_approval" },
+      {
+        expectedIdentity: healthy.identity_token,
+        expectedRevision: healthy.revision,
+        eventType: "transition"
+      }
+    );
+    expect(saved.status).toBe("awaiting_cost_approval");
+    expect(saved.revision).toBe(1);
+    expect(saved.identity_token).not.toBe(healthy.identity_token);
+    const healthyEvents = await store.events(healthy.job_id);
+    expect(healthyEvents.map((e) => e.seq)).toEqual([0, 1]);
+    await assertNoTempResidue(store.jobDir(healthy.job_id));
+  });
+
+  it("create rolls back exclusive job.json when initial audit append fails (O_EXCL preserved)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-create-audit-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    const request = baseRequest();
+    const jobId = "create-audit-fail";
+    const dir = store.jobDir(jobId);
+    await mkdir(dir, { recursive: true });
+    // Make events.jsonl a directory so appendFile fails after exclusive job write.
+    await mkdir(join(dir, "events.jsonl"), { recursive: true });
+
+    await expect(
+      store.create({
+        job_id: jobId,
+        connection_id: request.connection_id,
+        model_id: request.model_id,
+        mode: request.mode,
+        request,
+        model_profile_digest: "a".repeat(64),
+        connection_capability_digest: "b".repeat(64),
+        pricing: knownPricing()
+      })
+    ).rejects.toThrow();
+
+    // Exclusive create rolled back — no durable job.json left.
+    expect(await pathExists(store.jobPath(jobId))).toBe(false);
+
+    // Clean the poison events path; a subsequent create must still get O_EXCL protection.
+    await rm(join(dir, "events.jsonl"), { recursive: true, force: true });
+    const created = await store.create({
+      job_id: jobId,
+      connection_id: request.connection_id,
+      model_id: request.model_id,
+      mode: request.mode,
+      request,
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing()
+    });
+    expect(created.job_id).toBe(jobId);
+    await expect(
+      store.create({
+        job_id: jobId,
+        connection_id: request.connection_id,
+        model_id: request.model_id,
+        mode: request.mode,
+        request: baseRequest({ params: { prompt: "dup" } }),
+        model_profile_digest: "c".repeat(64),
+        connection_capability_digest: "d".repeat(64),
+        pricing: knownPricing()
+      })
+    ).rejects.toMatchObject({ code: GJ_SCHEMA_INVALID });
+  });
 });
 
 describe("C. approval digest / unknown price / max cap", () => {
@@ -818,6 +998,171 @@ describe("D. submission_unknown double-submit prevention", () => {
     await expect(machine.submit(job.job_id)).rejects.toMatchObject({
       code: GJ_RESUBMIT_FORBIDDEN
     });
+  });
+
+  it("submit fail-closed: retry_wait + provider_job_id cannot invoke adapter.submit or mutate", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-retry-submit-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    const submitCalls = { count: 0 };
+    const adapter = createMockAdapter({
+      submitCalls,
+      pollImpl: async () => ({
+        ok: false,
+        code: "transient",
+        message: "try later",
+        retryable: true
+      })
+    });
+    const machine = new GenerationJobMachine({
+      store,
+      adapter,
+      now: () => FIXED_NOW,
+      preflightOnly: false
+    });
+    let job = await machine.plan({
+      request: baseRequest(),
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing(),
+      route_ok: true,
+      adapter_present: true
+    });
+    job = await machine.approve(job.job_id, "tester");
+    job = await machine.submit(job.job_id);
+    expect(job.status).toBe("submitted");
+    expect(job.provider_job_id).toBe("prov-1");
+    expect(submitCalls.count).toBe(1);
+    job = await machine.poll(job.job_id);
+    expect(job.status).toBe("retry_wait");
+    expect(job.provider_job_id).toBe("prov-1");
+
+    const beforeJob = await readFile(store.jobPath(job.job_id), "utf8");
+    const beforeEvents = await readFile(join(store.jobDir(job.job_id), "events.jsonl"), "utf8");
+    const beforeRevision = job.revision;
+    const beforeIdentity = job.identity_token;
+
+    await expect(machine.submit(job.job_id)).rejects.toMatchObject({
+      code: GJ_RESUBMIT_FORBIDDEN
+    });
+    // Transition table also forbids retry_wait → submitting.
+    expect(canTransition("retry_wait", "submitting")).toBe(false);
+
+    expect(submitCalls.count).toBe(1);
+    expect(await readFile(store.jobPath(job.job_id), "utf8")).toBe(beforeJob);
+    expect(await readFile(join(store.jobDir(job.job_id), "events.jsonl"), "utf8")).toBe(beforeEvents);
+    const reloaded = await store.load(job.job_id);
+    expect(reloaded.status).toBe("retry_wait");
+    expect(reloaded.revision).toBe(beforeRevision);
+    expect(reloaded.identity_token).toBe(beforeIdentity);
+    expect(reloaded.provider_job_id).toBe("prov-1");
+    expect(reloaded.submit_attempts).toBe(1);
+  });
+
+  it("submit fail-closed: non-approved durable statuses cannot invoke adapter.submit or mutate", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-submit-status-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    const submitCalls = { count: 0 };
+    const adapter = createMockAdapter({ submitCalls });
+    const machine = new GenerationJobMachine({
+      store,
+      adapter,
+      now: () => FIXED_NOW,
+      preflightOnly: false
+    });
+    const request = baseRequest();
+
+    const cases: Array<{
+      jobId: string;
+      status: GenerationJobRecord["status"];
+      withProviderJobId?: boolean;
+      expectedCode: string;
+    }> = [
+      { jobId: "st-planned", status: "planned", expectedCode: GJ_SUBMIT_NOT_ALLOWED },
+      {
+        jobId: "st-awaiting",
+        status: "awaiting_cost_approval",
+        expectedCode: GJ_SUBMIT_NOT_ALLOWED
+      },
+      {
+        jobId: "st-submitted",
+        status: "submitted",
+        withProviderJobId: true,
+        expectedCode: GJ_RESUBMIT_FORBIDDEN
+      },
+      {
+        jobId: "st-polling",
+        status: "polling",
+        withProviderJobId: true,
+        expectedCode: GJ_RESUBMIT_FORBIDDEN
+      },
+      { jobId: "st-blocked", status: "blocked", expectedCode: GJ_SUBMIT_NOT_ALLOWED }
+    ];
+
+    for (const c of cases) {
+      const created = await store.create({
+        job_id: c.jobId,
+        connection_id: request.connection_id,
+        model_id: request.model_id,
+        mode: request.mode,
+        request,
+        model_profile_digest: "a".repeat(64),
+        connection_capability_digest: "b".repeat(64),
+        pricing: knownPricing(),
+        status: "planned"
+      });
+      // Install approval so we prove status/provider_job_id gates, not approval alone.
+      // Write durable status directly (bypassing transition graph) as a crash/fixture seed.
+      const approval = createApproval(created, "tester", FIXED_NOW);
+      const fixture: GenerationJobRecord = {
+        ...created,
+        status: c.status,
+        approval,
+        ...(c.withProviderJobId ? { provider_job_id: "already-known" } : {})
+      };
+      await writeFile(store.jobPath(created.job_id), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+      const job = await store.load(created.job_id);
+      expect(job.status).toBe(c.status);
+
+      const beforeJob = await readFile(store.jobPath(job.job_id), "utf8");
+      const beforeEvents = await readFile(join(store.jobDir(job.job_id), "events.jsonl"), "utf8");
+      const callsBefore = submitCalls.count;
+
+      await expect(machine.submit(job.job_id)).rejects.toMatchObject({
+        code: c.expectedCode
+      });
+
+      expect(submitCalls.count).toBe(callsBefore);
+      expect(await readFile(store.jobPath(job.job_id), "utf8")).toBe(beforeJob);
+      expect(await readFile(join(store.jobDir(job.job_id), "events.jsonl"), "utf8")).toBe(
+        beforeEvents
+      );
+      const reloaded = await store.load(job.job_id);
+      expect(reloaded.status).toBe(c.status);
+      expect(reloaded.revision).toBe(job.revision);
+      expect(reloaded.identity_token).toBe(job.identity_token);
+    }
+
+    // Positive control: approved + no provider_job_id still submits once.
+    let approved = await store.create({
+      job_id: "st-approved-ok",
+      connection_id: request.connection_id,
+      model_id: request.model_id,
+      mode: request.mode,
+      request,
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing(),
+      status: "awaiting_cost_approval"
+    });
+    const approval = createApproval(approved, "tester", FIXED_NOW);
+    approved = await store.transition(
+      approved.job_id,
+      "approved",
+      (j) => ({ ...j, approval })
+    );
+    const submitted = await machine.submit(approved.job_id);
+    expect(submitted.status).toBe("submitted");
+    expect(submitCalls.count).toBe(1);
   });
 });
 
@@ -2017,7 +2362,6 @@ describe("L. extra branch coverage for fail-closed edges", () => {
   it("sha256File / openContainedFile / verifyAdapterArtifact reject final-path symlink via O_NOFOLLOW", async () => {
     const {
       openContainedFile,
-      openRegularFileNoFollow,
       sha256File
     } = await import("../src/generationJobs/download.js");
     const root = await mkdtemp(join(tmpdir(), "gj-nofollow-"));
@@ -2061,6 +2405,45 @@ describe("L. extra branch coverage for fail-closed edges", () => {
       code: GJ_PATH_UNSAFE
     });
     await expect(sha256File(racePath)).rejects.toMatchObject({ code: GJ_PATH_UNSAFE });
+  });
+
+  it("portable no-O_NOFOLLOW fallback matches opened fd dev/ino to before and after path identity", async () => {
+    const { constants } = await import("node:fs");
+    // Keep platform O_NOFOLLOW path intact for default callers (darwin/linux).
+    expect(typeof constants.O_NOFOLLOW).toBe("number");
+
+    const root = await mkdtemp(join(tmpdir(), "gj-portable-open-"));
+    const filePath = join(root, "regular.bin");
+    await writeFile(filePath, "portable-payload");
+
+    // Happy path under forced portable branch.
+    const handle = await openRegularFileNoFollow(filePath, { forcePortableFallback: true });
+    try {
+      const info = await handle.stat();
+      expect(info.isFile()).toBe(true);
+      const buf = Buffer.alloc(info.size);
+      await handle.read(buf, 0, info.size, 0);
+      expect(buf.toString("utf8")).toBe("portable-payload");
+    } finally {
+      await handle.close();
+    }
+
+    // Leaf symlink still rejected on portable branch (does not weaken O_NOFOLLOW default).
+    const linkPath = join(root, "link.bin");
+    await symlink(filePath, linkPath);
+    await expect(
+      openRegularFileNoFollow(linkPath, { forcePortableFallback: true })
+    ).rejects.toMatchObject({ code: GJ_PATH_UNSAFE });
+
+    // Default path (with O_NOFOLLOW) still rejects the same leaf symlink.
+    await expect(openRegularFileNoFollow(linkPath)).rejects.toMatchObject({
+      code: GJ_PATH_UNSAFE
+    });
+
+    // Directory is not a regular file on portable branch.
+    await expect(
+      openRegularFileNoFollow(root, { forcePortableFallback: true })
+    ).rejects.toMatchObject({ code: GJ_PATH_UNSAFE });
   });
 
   it("loadConnectionCapabilityProfile rejects unsafe id", async () => {
