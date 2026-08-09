@@ -26,3 +26,4 @@ source:
   pin: adapters/minimax/constraints.yaml
   version: 2026-08-08
   digest: 188eac67e1fb2b7e72ac6091aee081d0c4f1ead41985e54d538af2627b9054fb
+  pin_digest: aa80003d75c130d9e1babda2eea4acff1a5ba99ba7e51e9ec95a3c35cfdd2443

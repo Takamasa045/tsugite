@@ -1,11 +1,16 @@
 /**
- * Execution-ready requires ALL of:
- * model profile AND exact connection capability AND adapter implementation
- * AND runtime preflight AND auth/entitlement AND known price AND matching cost approval.
+ * Planning / dry-run readiness for video prompt compile (P0–P4).
  *
- * This module only evaluates planning / dry-run readiness for P0–P4.
- * Provider submit is never authorized here.
- * intent=execute is always fail-closed in P0–P4.
+ * Contract:
+ * - intent=planning | dry-run: allow provider-non-sending planning when model +
+ *   connection route + adapter evidence align. Unknown price / unverified auth are
+ *   allowed here; they do not block planning.
+ * - intent=execute: always fail-closed with VPD-E022, even if every external
+ *   preflight flag would be green. Phase C billing/submit authorization lives in
+ *   generationJobs — this module never authorizes provider submit.
+ *
+ * Runtime/auth/price/cost inputs are intentionally not part of this API so a green
+ * boolean cannot be mistaken for execute authorization.
  */
 
 import type { ConnectionCapabilityProfile, ExactModelRoute } from "./connectionCapability.js";
@@ -25,8 +30,11 @@ import type { H3Mode } from "./schema.js";
 export const VPD_ADAPTER_MISSING_CODE = "VPD-E020";
 export const VPD_CATALOG_NOT_ADAPTER_CODE = "VPD-E021";
 export const VPD_RUNTIME_NOT_READY_CODE = "VPD-E022";
+/** Reserved for generationJobs / future execute-path price checks — not used by planning. */
 export const VPD_PRICE_UNKNOWN_CODE = "VPD-E023";
+/** Reserved for generationJobs / future execute-path cost approval — not used by planning. */
 export const VPD_COST_APPROVAL_MISSING_CODE = "VPD-E024";
+/** Reserved for generationJobs / future execute-path auth checks — not used by planning. */
 export const VPD_AUTH_NOT_VERIFIED_CODE = "VPD-E025";
 export const VPD_PROFILE_CONNECTION_MISMATCH_CODE = "VPD-E026";
 
@@ -34,7 +42,7 @@ export type PlanningReadinessInput = {
   modelProfile: ModelPromptProfile;
   connectionProfile: ConnectionCapabilityProfile;
   mode: H3Mode;
-  /** Semantics requested by the authoring IR (e.g. last-frame-only). */
+  /** Semantics requested by the authoring path (from profile modes.*.required_semantics). */
   semantics?: string[];
   /**
    * True only when adapter_id was verified against registry or explicit implemented set.
@@ -43,13 +51,11 @@ export type PlanningReadinessInput = {
   adapterImplemented: boolean;
   /** Catalog may list the model; never sufficient alone. */
   catalogPresent?: boolean;
-  /** Planning/dry-run only for P0–P4 — execute is always rejected. */
+  /**
+   * planning / dry-run only for P0–P4.
+   * execute is always rejected with VPD-E022 (generationJobs owns paid submit).
+   */
   intent: "planning" | "dry-run" | "execute";
-  runtimePreflightOk?: boolean;
-  authVerified?: boolean;
-  entitlementOk?: boolean;
-  priceKnown?: boolean;
-  costApprovalMatches?: boolean;
 };
 
 export type PlanningReadinessResult =
@@ -68,17 +74,19 @@ export type PlanningReadinessResult =
 /**
  * Fail-closed readiness for video prompt planning / dry-run.
  * Silent fallback across models, connections, or modes is forbidden.
- * P0–P4: intent=execute always returns runtime-not-ready.
+ * P0–P4: intent=execute always returns VPD-E022 (runtime-not-ready).
+ * Auth / price / cost are not consulted and cannot authorize execute.
  */
 export function evaluatePlanningReadiness(input: PlanningReadinessInput): PlanningReadinessResult {
-  // M3: P0–P4 never authorize execute, even when all preflight flags are green.
+  // Execute is never authorized here — even with integrated readiness / known price elsewhere.
   if (input.intent === "execute") {
     return {
       ok: false,
       code: VPD_RUNTIME_NOT_READY_CODE,
       message:
         `intent=execute is not authorized in P0–P4 for connection `
-        + `'${input.connectionProfile.connection_id}' (planning/dry-run only)`
+        + `'${input.connectionProfile.connection_id}' (planning/dry-run only; `
+        + "paid submit is owned by generationJobs)"
     };
   }
 
@@ -129,6 +137,7 @@ export function evaluatePlanningReadiness(input: PlanningReadinessInput): Planni
   }
 
   // Planning / dry-run path: adapter + profiles enough; never calls providers.
+  // Unknown price / unverified auth do not block planning here.
   return {
     ok: true,
     route: connectionOk.route,

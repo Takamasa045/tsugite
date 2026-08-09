@@ -37,3 +37,4 @@ source:
   pin: adapters/pixverse/constraints.yaml
   version: 2026-08-08
   digest: 852c33a05ed15a70b242f86496c72e7d51d6f472b83e370c465650d0c4ec8701
+  pin_digest: 8d895fca555b6935249483f06bd86cb886243218506751a7ffa0c1a1c1d05110

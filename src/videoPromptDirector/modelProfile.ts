@@ -25,7 +25,13 @@ const modeSupportSchema = z
     /** Neutral input_mode emitted for planning when supported. */
     input_mode: z.string().min(1).optional(),
     asset_roles: z.array(z.string().min(1)).default([]),
-    notes: z.array(z.string().min(1)).default([])
+    notes: z.array(z.string().min(1)).default([]),
+    /**
+     * Provider-neutral semantics required for this mode on this profile.
+     * Omit or [] so non-H3 models never inherit H3 terms from mode alone.
+     * Optional (no default) keeps digests stable when the field is absent.
+     */
+    required_semantics: z.array(z.string().min(1)).optional()
   })
   .strict();
 
@@ -210,6 +216,17 @@ export function assertSemanticsAllowed(
     }
   }
   return { ok: true };
+}
+
+/**
+ * Provider-neutral required semantics declared on a mode entry.
+ * Generic compile/readiness must use this (not exclusiveSemanticsForMode).
+ */
+export function requiredSemanticsForMode(
+  profile: ModelPromptProfile,
+  mode: H3Mode
+): string[] {
+  return profile.modes[mode]?.required_semantics ?? [];
 }
 
 /** Hash raw profile file bytes for pin evidence (optional helper). */

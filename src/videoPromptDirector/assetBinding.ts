@@ -149,6 +149,11 @@ export function assetIndex(ir: H3CreativeIr, asset: H3Asset): number {
   return ir.assets.findIndex((item) => item.id === asset.id);
 }
 
+/**
+ * H3 compatibility helper mapping mode → exclusive H3 semantics (l2va / fl2va).
+ * Not used by the generic videoPromptCompile path; profiles declare
+ * modes.*.required_semantics instead so other provider profiles/extensions never inherit H3 terms.
+ */
 export function exclusiveSemanticsForMode(mode: H3Mode): string[] {
   switch (mode) {
     case "last-frame":

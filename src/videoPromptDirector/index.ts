@@ -20,6 +20,7 @@ export {
   modelProfileSupportsMode,
   assertModelModeSupported,
   assertSemanticsAllowed,
+  requiredSemanticsForMode,
   MODEL_PROFILE_STALE_CODE,
   MODEL_PROFILE_UNKNOWN_CODE,
   MODEL_PROFILE_UNSUPPORTED_MODE_CODE,
@@ -32,17 +33,22 @@ export {
   connectionCapabilityProfileSchema,
   loadConnectionCapabilityProfile,
   connectionCapabilityDigest,
+  resolveConnectionPinPath,
+  verifyConnectionPinFile,
   resolveExactModelRoute,
   connectionRouteSupportsMode,
   assertConnectionModeSupported,
   CONNECTION_CAPABILITY_UNKNOWN_CODE,
   CONNECTION_CAPABILITY_STALE_CODE,
+  CONNECTION_CAPABILITY_PIN_CODE,
+  CONNECTION_CAPABILITY_READINESS_CODE,
   CONNECTION_ROUTE_UNSUPPORTED_CODE,
   CONNECTION_ROUTE_EXACT_MISMATCH_CODE,
   CONNECTION_FAMILY_ONLY_CODE,
   type ConnectionCapabilityProfile,
   type ExactModelRoute,
-  type ConnectionCapabilityLoadResult
+  type ConnectionCapabilityLoadResult,
+  type LoadConnectionCapabilityOptions
 } from "./connectionCapability.js";
 
 export {
