@@ -40,7 +40,8 @@ export function recordGateDecision(
   decision: GateDecision,
   updatedAt = new Date().toISOString(),
   approvedInputDigest?: string,
-  decisionSource: GateDecisionSource = "human"
+  decisionSource: GateDecisionSource = "human",
+  personQaApprovalDigest?: string
 ): RunState {
   if (decision === "re_render" && gate !== "gate_3") {
     throw new Error("re_render is only valid for gate_3");
@@ -63,7 +64,15 @@ export function recordGateDecision(
     ...state,
     status: statusAfterDecision(gate, decision, state.status),
     updated_at: updatedAt,
-    gates: gatesAfterDecision(state, gate, decision, updatedAt, approvedInputDigest, decisionSource)
+    gates: gatesAfterDecision(
+      state,
+      gate,
+      decision,
+      updatedAt,
+      approvedInputDigest,
+      decisionSource,
+      personQaApprovalDigest
+    )
   };
 }
 
@@ -209,7 +218,8 @@ function gatesAfterDecision(
   decision: GateDecision,
   updatedAt: string,
   approvedInputDigest: string | undefined,
-  decisionSource: GateDecisionSource
+  decisionSource: GateDecisionSource,
+  personQaApprovalDigest?: string
 ): Record<GateId, GateState> {
   if (decision === "revise") {
     return defaultGates();
@@ -229,6 +239,9 @@ function gatesAfterDecision(
       updated_at: updatedAt,
       ...(decision === "approved" && approvedInputDigest
         ? { approved_input_digest: approvedInputDigest }
+        : {}),
+      ...(decision === "approved" && personQaApprovalDigest
+        ? { person_qa_approval_digest: personQaApprovalDigest }
         : {}),
       ...(decision === "approved" ? { decision_source: decisionSource } : {})
     }

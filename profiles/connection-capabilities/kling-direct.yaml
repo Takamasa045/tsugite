@@ -36,3 +36,4 @@ source:
   pin: adapters/kling/constraints.yaml
   version: 2026-08-08
   digest: c3ffcbd9aa52fd5109b4710721a679f966c663a51dbf374b0f42cc422f84165a
+  pin_digest: 2c82168107263f3f01f9bf863ae39d931c795476800abc8b8cb2374029a58feb

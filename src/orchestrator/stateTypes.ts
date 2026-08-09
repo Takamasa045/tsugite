@@ -23,6 +23,12 @@ export type GateState = {
   status: GateStatus;
   updated_at?: string;
   approved_input_digest?: string;
+  /**
+   * Optional person-QA approval digest bound at Gate 2/3 approve time.
+   * Gate 3 keeps approved_input_digest as sha256(final.mp4); this field stores the
+   * person_qa_approval_digest for finalize revalidation. Omitted for older state.
+   */
+  person_qa_approval_digest?: string;
   decision_source?: GateDecisionSource;
 };
 

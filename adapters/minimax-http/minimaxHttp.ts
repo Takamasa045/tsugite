@@ -11,7 +11,9 @@
  * defenses before any real network transport is enabled. See docs/connections.md.
  */
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import type {
   AdapterCancelResult,
@@ -43,21 +45,56 @@ export const MINIMAX_HTTP_FIXTURE_TRANSPORT_MARKER = "tsugite.minimax-http.fixtu
 export const MINIMAX_HTTP_ALLOWLIST = Object.freeze([
   {
     host: "api.minimax.io",
-    pathPrefixes: ["/v1/video_generation", "/v1/files", "/v1/query"]
+    pathPrefixes: ["/v2/video_generation", "/v2/query/video_generation", "/v1/files"]
   },
   {
     host: "api.minimaxi.com",
-    pathPrefixes: ["/v1/video_generation", "/v1/files", "/v1/query"]
+    pathPrefixes: ["/v2/video_generation", "/v2/query/video_generation", "/v1/files"]
   }
 ] as const);
+
+/** Frozen create endpoint (method + absolute URL). */
+export const MINIMAX_HTTP_CREATE_METHOD = "POST" as const;
+export const MINIMAX_HTTP_CREATE_URL = "https://api.minimax.io/v2/video_generation";
+/** Query pathname template; task_id is path-encoded. */
+export const MINIMAX_HTTP_QUERY_METHOD = "GET" as const;
+export const MINIMAX_HTTP_QUERY_PATH_PREFIX = "/v2/query/video_generation/";
 
 export const MINIMAX_HTTP_DEFAULT_TIMEOUT_MS = 30_000;
 export const MINIMAX_HTTP_DEFAULT_POLL_INTERVAL_MS = 1_000;
 export const MINIMAX_HTTP_DEFAULT_MAX_POLLS = 120;
 export const MINIMAX_HTTP_DEFAULT_MAX_DOWNLOAD_BYTES = DEFAULT_MAX_DOWNLOAD_BYTES;
 
+/**
+ * Supported download Content-Type values after normalization (lowercase, no parameters).
+ * video/mp4 is required support; video/quicktime is accepted for .mov-class payloads.
+ */
+export const MINIMAX_HTTP_SUPPORTED_VIDEO_CONTENT_TYPES = Object.freeze([
+  "video/mp4",
+  "video/quicktime"
+] as const);
+
+/** Bounded local ffprobe timeout for post-download video stream verification. */
+export const MINIMAX_HTTP_FFPROBE_TIMEOUT_MS = 15_000;
+
+/** Injectable command result for deterministic probe edge tests. */
+export type MinimaxHttpProbeCommandResult = {
+  error?: Error;
+  status: number | null;
+  stdout: string;
+  stderr: string;
+};
+
+/**
+ * Optional injectable probe. Production default always executes local ffprobe
+ * with argv (no shell), JSON output, and a bounded timeout.
+ */
+export type MinimaxHttpProbeCommand = (
+  absolutePath: string
+) => MinimaxHttpProbeCommandResult | Promise<MinimaxHttpProbeCommandResult>;
+
 export type MinimaxHttpTransportRequest = {
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST";
   url: string;
   headers: Record<string, string>;
   body?: string;
@@ -95,8 +132,6 @@ export type MinimaxHttpAdapterOptions = {
    * Passing executionReady=true alone never enables live submit.
    */
   executionReady?: boolean;
-  /** Cancel support flag; Phase C default false → fail-closed. */
-  cancelSupported?: boolean;
   timeoutMs?: number;
   maxDownloadBytes?: number;
   /**
@@ -109,6 +144,11 @@ export type MinimaxHttpAdapterOptions = {
    * Required together with a marked fixture transport for submit.
    */
   allowFixtureTransport?: boolean;
+  /**
+   * Test-only injectable probe result. Production path must leave this unset
+   * so the default local ffprobe command runs.
+   */
+  probeCommand?: MinimaxHttpProbeCommand;
 };
 
 export type MinimaxHttpError = {
@@ -140,6 +180,15 @@ export function assertAllowedHttpsUrl(urlString: string): URL {
   if (url.username || url.password) {
     throw Object.assign(new Error("url userinfo is forbidden"), { code: "MMXHTTP-E003" });
   }
+  // Reject explicit non-default HTTPS ports (443 is the only allowed port).
+  if (url.port !== "" && url.port !== "443") {
+    throw Object.assign(new Error(`explicit non-443 port is forbidden: ${url.port}`), {
+      code: "MMXHTTP-E006"
+    });
+  }
+  if (url.hash) {
+    throw Object.assign(new Error("url fragment is forbidden"), { code: "MMXHTTP-E007" });
+  }
   const entry = MINIMAX_HTTP_ALLOWLIST.find((item) => item.host === url.hostname);
   if (!entry) {
     throw Object.assign(new Error(`host not allowlisted: ${url.hostname}`), { code: "MMXHTTP-E004" });
@@ -151,6 +200,11 @@ export function assertAllowedHttpsUrl(urlString: string): URL {
     throw Object.assign(new Error(`path not allowlisted: ${url.pathname}`), { code: "MMXHTTP-E005" });
   }
   return url;
+}
+
+/** Build the frozen query URL for a provider task id. */
+export function minimaxHttpQueryUrl(taskId: string): string {
+  return `https://api.minimax.io${MINIMAX_HTTP_QUERY_PATH_PREFIX}${encodeURIComponent(taskId)}`;
 }
 
 function assertSafeAssetPath(path: string): void {
@@ -290,6 +344,118 @@ function parseJsonBody(body: Uint8Array | string): Record<string, unknown> {
 }
 
 /**
+ * Normalize a Content-Type header to lowercase type/subtype without parameters.
+ * Returns null when missing/empty.
+ */
+export function normalizeVideoContentType(raw: string | undefined | null): string | null {
+  if (raw == null) return null;
+  const base = raw.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return base.length > 0 ? base : null;
+}
+
+/** True when the normalized MIME is a supported download video type. */
+export function isSupportedVideoContentType(raw: string | undefined | null): boolean {
+  const normalized = normalizeVideoContentType(raw);
+  if (!normalized) return false;
+  return (MINIMAX_HTTP_SUPPORTED_VIDEO_CONTENT_TYPES as readonly string[]).includes(normalized);
+}
+
+/**
+ * Production default: run local ffprobe via argv only (no shell), bounded timeout, JSON.
+ * Exported for edge tests that need to assert the real command path exists.
+ */
+export function runMinimaxHttpFfprobe(absolutePath: string): MinimaxHttpProbeCommandResult {
+  const result = spawnSync(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-print_format",
+      "json",
+      "-show_streams",
+      absolutePath
+    ],
+    {
+      encoding: "utf8",
+      shell: false,
+      timeout: MINIMAX_HTTP_FFPROBE_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024
+    }
+  );
+  return {
+    error: result.error ?? undefined,
+    status: result.status,
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    stderr: typeof result.stderr === "string" ? result.stderr : ""
+  };
+}
+
+/**
+ * Require at least one video stream in ffprobe JSON output.
+ * Injectable command result for deterministic missing/invalid/no-video tests.
+ * Production default executes real ffprobe.
+ */
+export async function probeDownloadedVideoArtifact(
+  absolutePath: string,
+  command: MinimaxHttpProbeCommand = runMinimaxHttpFfprobe
+): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+  let result: MinimaxHttpProbeCommandResult;
+  try {
+    result = await Promise.resolve(command(absolutePath));
+  } catch (error) {
+    return {
+      ok: false,
+      code: "MMXHTTP-E071",
+      message: error instanceof Error ? error.message : "ffprobe command threw"
+    };
+  }
+
+  if (result.error) {
+    const missing =
+      (result.error as NodeJS.ErrnoException).code === "ENOENT"
+      || /ENOENT|not found|spawn ffprobe/i.test(result.error.message);
+    return {
+      ok: false,
+      code: missing ? "MMXHTTP-E070" : "MMXHTTP-E071",
+      message: missing
+        ? "ffprobe is not available for local video verification"
+        : `ffprobe failed to launch: ${result.error.message}`
+    };
+  }
+
+  if (result.status !== 0) {
+    return {
+      ok: false,
+      code: "MMXHTTP-E072",
+      message: `ffprobe exited with status ${result.status ?? "null"}`
+    };
+  }
+
+  let parsed: { streams?: Array<{ codec_type?: string }> };
+  try {
+    parsed = JSON.parse(result.stdout) as { streams?: Array<{ codec_type?: string }> };
+  } catch {
+    return {
+      ok: false,
+      code: "MMXHTTP-E073",
+      message: "ffprobe returned invalid JSON"
+    };
+  }
+
+  const streams = Array.isArray(parsed.streams) ? parsed.streams : [];
+  const hasVideo = streams.some((stream) => stream?.codec_type === "video");
+  if (!hasVideo) {
+    return {
+      ok: false,
+      code: "MMXHTTP-E074",
+      message: "downloaded artifact has no video stream"
+    };
+  }
+
+  return { ok: true };
+}
+
+/**
  * Public production factory. Phase C is mock/preflight-only:
  * - executionReady=true alone does not enable live submit
  * - real HTTP client / DNS resolver is not implemented
@@ -299,7 +465,6 @@ export function createMinimaxHttpAdapter(
   options: MinimaxHttpAdapterOptions = {}
 ): GenerationJobProviderAdapter {
   const pricingStatus = options.pricingStatus ?? "unknown";
-  const cancelSupported = options.cancelSupported ?? false;
   const timeoutMs = options.timeoutMs ?? MINIMAX_HTTP_DEFAULT_TIMEOUT_MS;
   const maxDownloadBytes = options.maxDownloadBytes ?? MINIMAX_HTTP_DEFAULT_MAX_DOWNLOAD_BYTES;
   const allowFixture = options.allowFixtureTransport === true;
@@ -311,9 +476,10 @@ export function createMinimaxHttpAdapter(
     connection_id: MINIMAX_HTTP_CONNECTION_ID,
     capabilities: {
       // Profile / catalog may advertise surface; Phase C still blocks live submit.
+      // Cancel is never supported on minimax-http (no DELETE transport).
       submit: true,
       poll: true,
-      cancel: cancelSupported,
+      cancel: false,
       download: true
     },
 
@@ -416,7 +582,7 @@ export function createMinimaxHttpAdapter(
         };
       }
 
-      const url = "https://api.minimax.io/v1/video_generation";
+      const url = MINIMAX_HTTP_CREATE_URL;
       assertAllowedHttpsUrl(url);
 
       const lastFrame =
@@ -434,7 +600,7 @@ export function createMinimaxHttpAdapter(
 
       try {
         const response = await transport.request({
-          method: "POST",
+          method: MINIMAX_HTTP_CREATE_METHOD,
           url,
           headers: authHeadersForFixture(),
           body: JSON.stringify(payload),
@@ -442,15 +608,20 @@ export function createMinimaxHttpAdapter(
           redirect: "error"
         });
 
-        if (response.networkError === "timeout") {
+        // timeout OR reset after possible acceptance → submission_unknown path
+        if (response.networkError === "timeout" || response.networkError === "reset") {
           return {
             ok: false,
-            code: "MMXHTTP-E030",
-            message: "submit timed out after possible acceptance",
+            code: response.networkError === "timeout" ? "MMXHTTP-E030" : "MMXHTTP-E032",
+            message:
+              response.networkError === "timeout"
+                ? "submit timed out after possible acceptance"
+                : "network error: reset",
             acceptance_possible: true,
             retryable: false
           };
         }
+        // DNS / redirect remain known no-accept
         if (response.networkError === "redirect") {
           return {
             ok: false,
@@ -475,6 +646,7 @@ export function createMinimaxHttpAdapter(
             (typeof json.task_id === "string" && json.task_id)
             || (typeof json.job_id === "string" && json.job_id)
             || (typeof json.id === "string" && json.id);
+          // any 2xx without task id → acceptance possible (submission_unknown)
           if (!taskId) {
             return {
               ok: false,
@@ -486,6 +658,7 @@ export function createMinimaxHttpAdapter(
           return { ok: true, provider_job_id: taskId, accepted: true };
         }
 
+        // 5xx after possible acceptance
         if (response.status >= 500) {
           return {
             ok: false,
@@ -496,6 +669,7 @@ export function createMinimaxHttpAdapter(
           };
         }
 
+        // 4xx → known no-accept
         return {
           ok: false,
           code: "MMXHTTP-E035",
@@ -508,7 +682,7 @@ export function createMinimaxHttpAdapter(
           ok: false,
           code: err.code ?? "MMXHTTP-E036",
           message: err.message,
-          acceptance_possible: /timeout|ECONNRESET|socket hang up/i.test(err.message)
+          acceptance_possible: /timeout|ECONNRESET|socket hang up|reset/i.test(err.message)
         };
       }
     },
@@ -523,11 +697,11 @@ export function createMinimaxHttpAdapter(
           retryable: false
         };
       }
-      const url = `https://api.minimax.io/v1/query/video_generation?task_id=${encodeURIComponent(providerJobId)}`;
+      const url = minimaxHttpQueryUrl(providerJobId);
       assertAllowedHttpsUrl(url);
       try {
         const response = await transport.request({
-          method: "GET",
+          method: MINIMAX_HTTP_QUERY_METHOD,
           url,
           headers: authHeadersForFixture(),
           timeoutMs,
@@ -578,39 +752,13 @@ export function createMinimaxHttpAdapter(
       }
     },
 
-    async cancel(providerJobId, ctx): Promise<AdapterCancelResult> {
-      if (!cancelSupported) {
-        return {
-          ok: false,
-          code: "MMXHTTP-E050",
-          message: "cancel is not supported on minimax-http (Phase C)",
-          unsupported: true
-        };
-      }
-      const transport = resolveFixtureTransport(ctx, options);
-      if (!transport || !allowFixture) {
-        return {
-          ok: false,
-          code: "MMXHTTP-E020",
-          message: "cancel requires fixture-only transport"
-        };
-      }
-      const url = `https://api.minimax.io/v1/video_generation/${encodeURIComponent(providerJobId)}`;
-      assertAllowedHttpsUrl(url);
-      const response = await transport.request({
-        method: "DELETE",
-        url,
-        headers: authHeadersForFixture(),
-        timeoutMs,
-        redirect: "error"
-      });
-      if (response.status >= 200 && response.status < 300) {
-        return { ok: true, cancelled: true };
-      }
+    async cancel(_providerJobId, _ctx): Promise<AdapterCancelResult> {
+      // Always unsupported — never touches transport; DELETE is not in the request union.
       return {
         ok: false,
-        code: "MMXHTTP-E051",
-        message: `cancel failed with status ${response.status}`
+        code: "MMXHTTP-E050",
+        message: "cancel is not supported on minimax-http",
+        unsupported: true
       };
     },
 
@@ -653,6 +801,18 @@ export function createMinimaxHttpAdapter(
         }
 
         const headers = normalizeHeaders(response.headers);
+        const normalizedContentType = normalizeVideoContentType(headers["content-type"]);
+        if (!normalizedContentType || !isSupportedVideoContentType(normalizedContentType)) {
+          return {
+            ok: false,
+            code: "MMXHTTP-E067",
+            message: normalizedContentType
+              ? `unsupported download Content-Type: ${normalizedContentType}`
+              : "download response missing Content-Type",
+            retryable: false
+          };
+        }
+
         const contentLengthHeader = headers["content-length"];
         const contentLength = contentLengthHeader ? Number(contentLengthHeader) : null;
         if (contentLength != null && Number.isFinite(contentLength) && contentLength > maxDownloadBytes) {
@@ -692,12 +852,27 @@ export function createMinimaxHttpAdapter(
           relativeName: safeName
         });
 
+        // After size/SHA atomic pin: local ffprobe must report at least one video stream.
+        const probe = await probeDownloadedVideoArtifact(
+          pinned.absolute_path,
+          options.probeCommand ?? runMinimaxHttpFfprobe
+        );
+        if (!probe.ok) {
+          await rm(pinned.absolute_path, { force: true }).catch(() => undefined);
+          return {
+            ok: false,
+            code: probe.code,
+            message: probe.message,
+            retryable: false
+          };
+        }
+
         return {
           ok: true,
           absolute_path: pinned.absolute_path,
           sha256: pinned.sha256,
           byte_length: pinned.byte_length,
-          content_type: headers["content-type"]
+          content_type: normalizedContentType
         };
       } catch (error) {
         const err = error as Error & { code?: string };

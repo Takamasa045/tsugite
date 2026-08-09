@@ -467,6 +467,68 @@ describe("run state", () => {
     });
   });
 
+  it("persists optional person_qa_approval_digest on Gate 2/3 approve and parses older state without it", async () => {
+    const planned = createPlannedState("person-qa-run", "2026-07-09T00:00:00.000Z");
+    const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");
+    const running = recordGateDecision(gate1, "gate_1", "approved", "2026-07-09T00:02:00.000Z");
+    const gate2 = markGateAwaiting(running, "gate_2", "2026-07-09T00:03:00.000Z");
+    const gate2Approved = recordGateDecision(
+      gate2,
+      "gate_2",
+      "approved",
+      "2026-07-09T00:04:00.000Z",
+      "b".repeat(64),
+      "human",
+      "c".repeat(64)
+    );
+    expect(gate2Approved.gates.gate_2).toMatchObject({
+      status: "approved",
+      approved_input_digest: "b".repeat(64),
+      person_qa_approval_digest: "c".repeat(64)
+    });
+    // Gate 1 and other gates remain without person_qa_approval_digest.
+    expect(gate2Approved.gates.gate_1.person_qa_approval_digest).toBeUndefined();
+    expect(gate2Approved.gates.gate_3.person_qa_approval_digest).toBeUndefined();
+
+    const rendering = markGateAwaiting(gate2Approved, "gate_3", "2026-07-09T00:05:00.000Z");
+    // Gate 3 keeps approved_input_digest as final.mp4 sha256 and stores person-QA digest separately.
+    const gate3Approved = recordGateDecision(
+      rendering,
+      "gate_3",
+      "approved",
+      "2026-07-09T00:06:00.000Z",
+      "d".repeat(64),
+      "human",
+      "e".repeat(64)
+    );
+    expect(gate3Approved.gates.gate_3).toMatchObject({
+      status: "approved",
+      approved_input_digest: "d".repeat(64),
+      person_qa_approval_digest: "e".repeat(64)
+    });
+
+    const root = await mkdtemp(join(tmpdir(), "tsugite-state-person-qa-"));
+    const path = await writeState(root, gate3Approved);
+    const reloaded = await readState(path);
+    expect(reloaded.gates.gate_3.person_qa_approval_digest).toBe("e".repeat(64));
+    expect(reloaded.gates.gate_3.approved_input_digest).toBe("d".repeat(64));
+
+    // Older state without person_qa_approval_digest still parses.
+    const legacyPath = await writeState(root, {
+      run_id: "legacy-run",
+      status: "completed",
+      updated_at: "2026-07-09T00:07:00.000Z",
+      gates: {
+        gate_1: { status: "approved", approved_input_digest: "a".repeat(64), decision_source: "human" },
+        gate_2: { status: "approved", approved_input_digest: "b".repeat(64), decision_source: "human" },
+        gate_3: { status: "approved", approved_input_digest: "d".repeat(64), decision_source: "human" }
+      }
+    });
+    const legacy = await readState(legacyPath);
+    expect(legacy.gates.gate_3.person_qa_approval_digest).toBeUndefined();
+    expect(legacy.gates.gate_3.approved_input_digest).toBe("d".repeat(64));
+  });
+
   it("rejects out-of-order gate progression", () => {
     const planned = createPlannedState("run-003", "2026-07-09T00:00:00.000Z");
     const gate1 = markGateAwaiting(planned, "gate_1", "2026-07-09T00:01:00.000Z");

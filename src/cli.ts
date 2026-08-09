@@ -2241,6 +2241,7 @@ async function recordGate(
   }
 
   let gateApprovalDigest = reviewApprovalDigest;
+  let personQaApprovalDigest: string | undefined;
 
   const personQaStage = gate === "gate_2" ? "gate_2" as const : gate === "gate_3" ? "gate_3" as const : undefined;
   let personQaDecision: PersonQaHumanDecisionRecord | undefined;
@@ -2329,6 +2330,7 @@ async function recordGate(
       if (!written.ok) {
         return { ok: false, issues: written.issues, state, statePath: stateLocation.statePath };
       }
+      personQaApprovalDigest = inspected.personQaApprovalBinding.person_qa_approval_digest;
     }
   }
 
@@ -2349,6 +2351,7 @@ async function recordGate(
       if (!written.ok) {
         return { ok: false, issues: written.issues, state, statePath: stateLocation.statePath };
       }
+      personQaApprovalDigest = inspected.personQaApprovalBinding.person_qa_approval_digest;
     }
   }
 
@@ -2372,7 +2375,15 @@ async function recordGate(
 
   let nextState: RunState;
   try {
-    nextState = recordGateDecision(state, gate, decision, undefined, gateApprovalDigest);
+    nextState = recordGateDecision(
+      state,
+      gate,
+      decision,
+      undefined,
+      gateApprovalDigest,
+      "human",
+      personQaApprovalDigest
+    );
   } catch (error) {
     return {
       ok: false,

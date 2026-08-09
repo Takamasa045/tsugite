@@ -6,7 +6,7 @@ source:
   pin: knowledge/video-models/minimax-h3/prompt-guide.yaml@2026-08-08.1
   version: 2026-08-08.1
   review_after: 2026-09-07
-  digest: 3ea8b07d15ef7a1ffce998f7fa8462f5de054917d3bf929a0be0b5ed213350a6
+  digest: 17a05909888e0a5e8576b37834a997fd575355dd0e0698fb7e76104c530da4b5
 modes:
   text-to-video:
     supported: true
@@ -26,12 +26,17 @@ modes:
       - first_frame
       - last_frame
     notes: []
+    required_semantics:
+      - fl2va
   last-frame:
     supported: true
     input_mode: last-frame-to-video
     asset_roles:
       - last_frame
     notes: []
+    required_semantics:
+      - last-frame-only
+      - l2va
   reference:
     supported: true
     input_mode: reference

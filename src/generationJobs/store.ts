@@ -41,6 +41,8 @@ export type CreateJobInput = Omit<
   | "created_at"
   | "updated_at"
   | "submit_attempts"
+  | "poll_attempts"
+  | "download_attempts"
   | "submission_unknown"
   | "cancel_requested"
   | "job_id"
@@ -108,6 +110,8 @@ export class GenerationJobStore {
           schema_version: 1,
           status: input.status ?? "planned",
           submit_attempts: 0,
+          poll_attempts: 0,
+          download_attempts: 0,
           submission_unknown: false,
           cancel_requested: false,
           created_at: at,

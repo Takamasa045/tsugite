@@ -7,7 +7,6 @@ import type { GenerationRequest, Project } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import { resolveAdapterImplementation } from "./adapterImplementation.js";
 import {
-  exclusiveSemanticsForMode,
   buildAssetFields
 } from "./assetBinding.js";
 import {
@@ -28,6 +27,7 @@ import {
 import { buildLineage, VIDEO_PROMPT_WORKFLOW_ID, VIDEO_PROMPT_WORKFLOW_VERSION } from "./lineage.js";
 import {
   loadModelPromptProfile,
+  requiredSemanticsForMode,
   type ModelPromptProfile
 } from "./modelProfile.js";
 import { renderVideoPrompt } from "./render/index.js";
@@ -117,7 +117,9 @@ export async function compileVideoPromptRequest(
     issues.push(issue(adapterCheck.code, adapterCheck.message, "error", ["connection", "adapter_id"]));
   }
 
-  const semantics = exclusiveSemanticsForMode(ir.target.mode);
+  // Provider-neutral: only profile-declared modes.*.required_semantics.
+  // Do not hardcode H3 l2va/fl2va from mode (exclusiveSemanticsForMode is H3-only helper).
+  const semantics = requiredSemanticsForMode(modelLoad.profile, ir.target.mode);
   const readiness = evaluatePlanningReadiness({
     modelProfile: modelLoad.profile,
     connectionProfile: connectionLoad.profile,

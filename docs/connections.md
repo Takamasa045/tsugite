@@ -69,13 +69,16 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 | 項目 | 契約 |
 |---|---|
-| 状態 | 価格正本未設定の間は **preflight-only / blocked**。実送信準備完了とは表示しない。`submit: false` + `runtime_readiness: preflight-only` |
+| 状態 | 価格正本未設定の間は **preflight-only / blocked**（未知価格 block）。実送信準備完了とは表示しない。`submit: false` + `runtime_readiness: preflight-only` |
 | 初期 scope | MiniMax-H3 **last-frame-only** のみ（exactly one last-frame asset）。first-frame 付与・同画像複製・T2V 降格・他 mode 推測は禁止 |
 | 認証 | 環境変数名 `MINIMAX_API_KEY` のみ宣言。値は schema / artifact / log / audit / error に保存しない |
-| durable job | `src/generationJobs` の provider-neutral 基盤（approval digest / submission_unknown / resume / pin） |
+| API 契約 | create: `POST /v2/video_generation`；query: `GET /v2/query/video_generation/{task_id}`；remote cancel の **DELETE は非対応**（契約記述のみ。live 送信は未実装） |
+| durable job | `src/generationJobs` の provider-neutral 基盤（approval digest / `submission_unknown`（POST 不確実・再送しない） / resume / pin） |
+| 上限 | durable poll 上限 **120**、download 上限 **3** |
+| artifact pin | MIME は `video/mp4` または `video/quicktime`、SHA-256、ffprobe video stream、atomic pin に合格したものだけ。**`status=pinned` のみ固定成果物** |
 | transport | 固定 HTTPS allowlist、redirect 拒否、bounded timeout/poll/download、Content-Length と stream 上限、SHA-256、atomic local pin |
 | テスト | repo-local **fixture-only** transport marker を DI。外部 DNS/HTTP/provider を呼ばない。real HTTP client / DNS resolver は **未実装** |
-| pipeline | opt-in preflight / dry-run のみ。`run` / `render` / 課金 / Gate 更新は行わない |
+| pipeline | opt-in preflight / dry-run のみ。`run` / `render` / 課金 / Gate 更新 / pipeline manifest 実投入は行わない（未実装） |
 | 将来 live 時 | public production factory だけでは live 不可。**public-IP 固定と DNS-rebinding 防御**を実装してから実送信を許可すること |
 
 参照: `adapters/minimax-http/`、`profiles/connection-capabilities/minimax-http.yaml`、`src/generationJobs/`。

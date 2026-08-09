@@ -3,6 +3,7 @@
  * fail-closed readiness, PixVerse/Kling T2V/I2V planning (no provider calls).
  * Review fixes H1–H4 / M1–M6 + Low L1–L4.
  */
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, symlink, writeFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,6 +38,9 @@ import {
   loadConnectionCapabilityProfile,
   connectionCapabilityDigest,
   resolveExactModelRoute,
+  CONNECTION_CAPABILITY_STALE_CODE,
+  CONNECTION_CAPABILITY_PIN_CODE,
+  CONNECTION_CAPABILITY_READINESS_CODE,
   CONNECTION_ROUTE_EXACT_MISMATCH_CODE,
   CONNECTION_FAMILY_ONLY_CODE,
   evaluatePlanningReadiness,
@@ -51,6 +55,7 @@ import {
   VIDEO_PROMPT_DUAL_AUTHORING_CODE,
   VIDEO_PROMPT_UNCOMPILED_CODE,
   exclusiveSemanticsForMode,
+  requiredSemanticsForMode,
   parseVideoCreativeIr,
   renderPlainPrompt,
   renderVideoPrompt,
@@ -714,6 +719,7 @@ describe("assetBinding + execute readiness branches", () => {
     expect(model.ok && connection.ok).toBe(true);
     if (!model.ok || !connection.ok) return;
 
+    // Planning readiness has no auth/price/cost flags: those belong to generationJobs.
     const readyFlags = {
       modelProfile: model.profile,
       connectionProfile: {
@@ -722,20 +728,16 @@ describe("assetBinding + execute readiness branches", () => {
       },
       mode: "text-to-video" as const,
       adapterImplemented: true,
-      intent: "execute" as const,
-      runtimePreflightOk: true,
-      authVerified: true,
-      entitlementOk: true,
-      priceKnown: true,
-      costApprovalMatches: true
+      intent: "execute" as const
     };
     const blocked = evaluatePlanningReadiness(readyFlags);
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) expect(blocked.code).toBe(VPD_RUNTIME_NOT_READY_CODE);
 
-    // planning still ok
+    // planning still ok even when pricing/auth are unknown (planning/dry-run only)
     const planOk = evaluatePlanningReadiness({ ...readyFlags, intent: "planning" });
     expect(planOk.ok).toBe(true);
+    if (planOk.ok) expect(planOk.planning_only).toBe(true);
   });
 
   it("adapter registry cross-check rejects missing adapter_id (M2)", async () => {
@@ -1354,14 +1356,10 @@ describe("L4 video_prompt-only validate → plan → dry-run E2E", () => {
       },
       mode: "text-to-video",
       adapterImplemented: true,
-      intent: "execute",
-      runtimePreflightOk: true,
-      authVerified: true,
-      entitlementOk: true,
-      priceKnown: true,
-      costApprovalMatches: true
+      intent: "execute"
     });
     expect(executeBlocked.ok).toBe(false);
+    if (!executeBlocked.ok) expect(executeBlocked.code).toBe(VPD_RUNTIME_NOT_READY_CODE);
   });
 
   it("fails closed when video_prompt has no connection (no empty prompt pass)", async () => {
@@ -1469,5 +1467,375 @@ describe("L4 video_prompt-only validate → plan → dry-run E2E", () => {
       }
     });
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe("Phase C foundation: connection digest / pin / readiness / semantics", () => {
+  function baseConnectionYaml(overrides: Record<string, unknown> = {}) {
+    return {
+      schema_version: 1,
+      kind: "connection-capability-profile",
+      connection_id: "demo",
+      transport: "api",
+      exact_model_routes: [
+        { model: "v6", provider_model: "v6", modes: ["text-to-video", "last-frame"] }
+      ],
+      auth_env_names: [],
+      submit: false,
+      poll: false,
+      cancel: false,
+      download: false,
+      idempotency: "none",
+      pricing_status: "unknown",
+      runtime_readiness: "planning-only",
+      adapter_id: "demo",
+      source: { pin: "test-fixture", version: "0" },
+      ...overrides
+    };
+  }
+
+  it("rejects profile body mutation even when pin file hash still matches (digest is body-only)", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "vpd-body-digest-"));
+    const adaptersDir = join(repoRoot, "adapters", "demo");
+    const profilesDir = join(repoRoot, "profiles");
+    await mkdir(adaptersDir, { recursive: true });
+    await mkdir(profilesDir, { recursive: true });
+    const pinRel = "adapters/demo/constraints.yaml";
+    const pinBytes = Buffer.from("pin-body-v1\n", "utf8");
+    await writeFile(join(repoRoot, pinRel), pinBytes);
+    const pinHash = createHash("sha256").update(pinBytes).digest("hex");
+
+    const profile = baseConnectionYaml({
+      connection_id: "demo",
+      source: {
+        pin: pinRel,
+        version: "1",
+        pin_digest: pinHash
+      }
+    });
+    // Compute body digest without digest field, then pin it.
+    const bodyDigest = connectionCapabilityDigest(profile as never);
+    const good = {
+      ...profile,
+      source: { ...profile.source, digest: bodyDigest, pin_digest: pinHash }
+    };
+    await writeFile(join(profilesDir, "demo.yaml"), yamlStringify(good));
+    const loaded = await loadConnectionCapabilityProfile("demo", [profilesDir], {
+      repoRoot,
+      allowedPinRoots: ["adapters"]
+    });
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.profile.source.digest).toBe(bodyDigest);
+    expect(loaded.profile.source.pin_digest).toBe(pinHash);
+    expect(loaded.digest).toBe(bodyDigest);
+
+    // Mutate provider_model (body) but keep old digests + same pin file → must fail closed.
+    const mutated = {
+      ...good,
+      exact_model_routes: [
+        { model: "v6", provider_model: "MUTATED-MODEL", modes: ["text-to-video", "last-frame"] }
+      ]
+    };
+    await writeFile(join(profilesDir, "demo.yaml"), yamlStringify(mutated));
+    const staleBody = await loadConnectionCapabilityProfile("demo", [profilesDir], {
+      repoRoot,
+      allowedPinRoots: ["adapters"]
+    });
+    expect(staleBody.ok).toBe(false);
+    if (!staleBody.ok) expect(staleBody.code).toBe(CONNECTION_CAPABILITY_STALE_CODE);
+  });
+
+  it("rejects stale source.digest and stale source.pin_digest independently", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "vpd-pin-digest-"));
+    const adaptersDir = join(repoRoot, "adapters", "demo");
+    const profilesDir = join(repoRoot, "profiles");
+    await mkdir(adaptersDir, { recursive: true });
+    await mkdir(profilesDir, { recursive: true });
+    const pinRel = "adapters/demo/constraints.yaml";
+    await writeFile(join(repoRoot, pinRel), "pin-v1\n");
+    const pinHash = createHash("sha256").update("pin-v1\n", "utf8").digest("hex");
+
+    const base = baseConnectionYaml({
+      connection_id: "demo",
+      source: { pin: pinRel, version: "1", pin_digest: pinHash }
+    });
+    const bodyDigest = connectionCapabilityDigest(base as never);
+
+    await writeFile(
+      join(profilesDir, "demo.yaml"),
+      yamlStringify({
+        ...base,
+        source: { pin: pinRel, version: "1", digest: "0".repeat(64), pin_digest: pinHash }
+      })
+    );
+    const staleDigest = await loadConnectionCapabilityProfile("demo", [profilesDir], {
+      repoRoot,
+      allowedPinRoots: ["adapters"]
+    });
+    expect(staleDigest.ok).toBe(false);
+    if (!staleDigest.ok) expect(staleDigest.code).toBe(CONNECTION_CAPABILITY_STALE_CODE);
+
+    await writeFile(
+      join(profilesDir, "demo.yaml"),
+      yamlStringify({
+        ...base,
+        source: {
+          pin: pinRel,
+          version: "1",
+          digest: bodyDigest,
+          pin_digest: "1".repeat(64)
+        }
+      })
+    );
+    const stalePin = await loadConnectionCapabilityProfile("demo", [profilesDir], {
+      repoRoot,
+      allowedPinRoots: ["adapters"]
+    });
+    expect(stalePin.ok).toBe(false);
+    if (!stalePin.ok) expect(stalePin.code).toBe(CONNECTION_CAPABILITY_PIN_CODE);
+  });
+
+  it("rejects absolute / traversal / symlink-escape pin paths without leaking path contents", async () => {
+    const repoRoot = await mkdtemp(join(tmpdir(), "vpd-pin-path-"));
+    const adaptersDir = join(repoRoot, "adapters", "demo");
+    const profilesDir = join(repoRoot, "profiles");
+    const outside = join(repoRoot, "outside-secret.txt");
+    await mkdir(adaptersDir, { recursive: true });
+    await mkdir(profilesDir, { recursive: true });
+    await writeFile(outside, "SECRET_CREDENTIAL=super-secret\n");
+    await writeFile(join(adaptersDir, "constraints.yaml"), "ok\n");
+    await symlink(outside, join(adaptersDir, "escape.yaml"));
+
+    const pinHash = createHash("sha256").update("ok\n", "utf8").digest("hex");
+    const cases: Array<{ pin: string; label: string }> = [
+      { pin: "/etc/passwd", label: "absolute" },
+      { pin: "adapters/../outside-secret.txt", label: "traversal" },
+      { pin: "adapters/demo/escape.yaml", label: "symlink-escape" }
+    ];
+
+    for (const item of cases) {
+      const base = baseConnectionYaml({
+        connection_id: "demo",
+        source: {
+          pin: item.pin,
+          version: "1",
+          pin_digest: pinHash
+        }
+      });
+      const digest = connectionCapabilityDigest(base as never);
+      await writeFile(
+        join(profilesDir, "demo.yaml"),
+        yamlStringify({
+          ...base,
+          source: { ...base.source, digest }
+        })
+      );
+      const loaded = await loadConnectionCapabilityProfile("demo", [profilesDir], {
+        repoRoot,
+        allowedPinRoots: ["adapters"]
+      });
+      expect(loaded.ok, item.label).toBe(false);
+      if (!loaded.ok) {
+        expect(loaded.code).toBe(CONNECTION_CAPABILITY_PIN_CODE);
+        expect(loaded.message).not.toMatch(/SECRET_CREDENTIAL|super-secret|\/etc\/passwd|outside-secret/);
+        expect(loaded.message).not.toContain(outside);
+      }
+    }
+  });
+
+  it("does not read pin files when pin_digest is absent (custom / non-file pins)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vpd-no-pin-read-"));
+    const base = baseConnectionYaml({
+      connection_id: "demo",
+      source: { pin: "test-fixture-does-not-exist", version: "0" }
+    });
+    const digest = connectionCapabilityDigest(base as never);
+    await writeFile(
+      join(dir, "demo.yaml"),
+      yamlStringify({
+        ...base,
+        source: { pin: "test-fixture-does-not-exist", version: "0", digest }
+      })
+    );
+    const loaded = await loadConnectionCapabilityProfile("demo", [dir]);
+    expect(loaded.ok).toBe(true);
+  });
+
+  it("rejects pricing_status=unknown with runtime_readiness=integrated (no silent rewrite)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vpd-ready-"));
+    const base = baseConnectionYaml({
+      connection_id: "demo",
+      pricing_status: "unknown",
+      runtime_readiness: "integrated"
+    });
+    const digest = connectionCapabilityDigest(base as never);
+    await writeFile(
+      join(dir, "demo.yaml"),
+      yamlStringify({
+        ...base,
+        source: { pin: "test-fixture", version: "0", digest }
+      })
+    );
+    const loaded = await loadConnectionCapabilityProfile("demo", [dir]);
+    expect(loaded.ok).toBe(false);
+    if (!loaded.ok) {
+      expect(loaded.code).toBe(CONNECTION_CAPABILITY_READINESS_CODE);
+      // Must not silently rewrite to preflight-only and accept.
+    }
+  });
+
+  it("minimax-http source.digest is body digest; pin_digest holds pin file hash", async () => {
+    const loaded = await loadConnectionCapabilityProfile("minimax-http");
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    const pinBytes = await readFile("adapters/minimax-http/constraints.yaml");
+    const pinHash = createHash("sha256").update(pinBytes).digest("hex");
+    expect(loaded.profile.source.pin_digest).toBe(pinHash);
+    expect(loaded.profile.source.digest).toBe(connectionCapabilityDigest(loaded.profile));
+    expect(loaded.profile.source.digest).not.toBe(pinHash);
+    expect(loaded.digest).toBe(loaded.profile.source.digest);
+  });
+
+  it("minimax-h3 declares provider-neutral required_semantics on first-last / last-frame", async () => {
+    const model = await loadModelPromptProfile("minimax-h3");
+    expect(model.ok).toBe(true);
+    if (!model.ok) return;
+    expect(requiredSemanticsForMode(model.profile, "last-frame")).toEqual(
+      expect.arrayContaining(["last-frame-only", "l2va"])
+    );
+    expect(requiredSemanticsForMode(model.profile, "first-last")).toEqual(
+      expect.arrayContaining(["fl2va"])
+    );
+    expect(requiredSemanticsForMode(model.profile, "text-to-video")).toEqual([]);
+    // H3 helper remains available but is not the generic compile path.
+    expect(exclusiveSemanticsForMode("last-frame")).toEqual(["last-frame-only", "l2va"]);
+  });
+
+  it("generic compile does not inject H3 l2va/fl2va from mode alone for PixVerse-style profiles", async () => {
+    const modelDir = await mkdtemp(join(tmpdir(), "vpd-mode-sem-"));
+    const connDir = await mkdtemp(join(tmpdir(), "vpd-mode-conn-"));
+    const modelProfile = {
+      schema_version: 1,
+      kind: "model-prompt-profile",
+      id: "future-v6",
+      display_name: "Future V6 last-frame",
+      source: { pin: "test", version: "0" },
+      modes: {
+        "text-to-video": { supported: true, input_mode: "text-to-video", asset_roles: [], notes: [] },
+        "last-frame": {
+          supported: true,
+          input_mode: "last-frame-to-video",
+          asset_roles: ["last_frame"],
+          notes: [],
+          required_semantics: []
+        }
+      },
+      durations: [5],
+      aspects: ["16:9"],
+      resolutions: ["720p"],
+      renderer: "plain-prompt",
+      label_dialect: "none",
+      unsupported: [],
+      exclusive_semantics: []
+    };
+    const modelDigest = modelProfileDigest(modelProfile as never);
+    await writeFile(
+      join(modelDir, "future-v6.yaml"),
+      yamlStringify({
+        ...modelProfile,
+        source: { pin: "test", version: "0", digest: modelDigest }
+      })
+    );
+
+    const connection = baseConnectionYaml({
+      connection_id: "future-pix",
+      exact_model_routes: [
+        { model: "future-v6", provider_model: "v6-lf", modes: ["text-to-video", "last-frame"] }
+      ],
+      adapter_id: "pixverse",
+      source: { pin: "test-fixture", version: "0" }
+    });
+    const connDigest = connectionCapabilityDigest(connection as never);
+    await writeFile(
+      join(connDir, "future-pix.yaml"),
+      yamlStringify({
+        ...connection,
+        source: { pin: "test-fixture", version: "0", digest: connDigest }
+      })
+    );
+
+    const ir = parseVideoCreativeIr({
+      ...baseT2V("future-v6"),
+      target: {
+        model: "future-v6",
+        mode: "last-frame",
+        duration: 5,
+        quality: "720p",
+        aspect: "16:9",
+        audio: true
+      },
+      assets: [{ id: "end", type: "image", path: "assets/end.png", role: "last_frame" }]
+    });
+    const request: GenerationRequest = {
+      id: "r-future-lf",
+      prompt: "",
+      model: "future-v6",
+      params: {},
+      video_prompt: ir
+    } as GenerationRequest;
+
+    const result = await compileVideoPromptRequest(request, ir, {
+      connectionId: "future-pix",
+      modelProfileRoots: [modelDir],
+      connectionProfileRoots: [connDir],
+      implementedAdapterIds: ["pixverse"],
+      intent: "planning"
+    });
+    // Must not fail on H3 exclusive semantics (l2va) that were never declared.
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.plan.readiness.planning_only).toBe(true);
+    }
+  });
+
+  it("evaluatePlanningReadiness is planning/dry-run only; execute always VPD-E022", async () => {
+    const model = await loadModelPromptProfile("v6");
+    const connection = await loadConnectionCapabilityProfile("pixverse");
+    expect(model.ok && connection.ok).toBe(true);
+    if (!model.ok || !connection.ok) return;
+
+    const plan = evaluatePlanningReadiness({
+      modelProfile: model.profile,
+      connectionProfile: connection.profile,
+      mode: "text-to-video",
+      adapterImplemented: true,
+      intent: "planning"
+    });
+    expect(plan.ok).toBe(true);
+    if (plan.ok) expect(plan.planning_only).toBe(true);
+
+    const dry = evaluatePlanningReadiness({
+      modelProfile: model.profile,
+      connectionProfile: connection.profile,
+      mode: "text-to-video",
+      adapterImplemented: true,
+      intent: "dry-run"
+    });
+    expect(dry.ok).toBe(true);
+
+    const exec = evaluatePlanningReadiness({
+      modelProfile: model.profile,
+      connectionProfile: {
+        ...connection.profile,
+        runtime_readiness: "integrated",
+        pricing_status: "known"
+      },
+      mode: "text-to-video",
+      adapterImplemented: true,
+      intent: "execute"
+    });
+    expect(exec.ok).toBe(false);
+    if (!exec.ok) expect(exec.code).toBe(VPD_RUNTIME_NOT_READY_CODE);
   });
 });

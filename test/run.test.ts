@@ -1027,6 +1027,13 @@ describe("local media run assembly", () => {
     expect(cli).toMatch(
       /if \(inspected\.personQaApprovalBinding\) \{\s*const runId = project\.run_id \?\? project\.slug;\s*const written = await writePersonQaApprovalBinding/
     );
+    // Gate 2/3 binding digests are stored on gate state for finalize revalidation.
+    expect(cli).toMatch(
+      /personQaApprovalDigest\s*=\s*inspected\.personQaApprovalBinding\.person_qa_approval_digest/
+    );
+    expect(cli).toMatch(
+      /recordGateDecision\(\s*state,\s*gate,\s*decision,\s*undefined,\s*gateApprovalDigest,\s*"human",\s*personQaApprovalDigest\s*\)/
+    );
     // Viewer Gate2 evidence inspect must not fall back to default repo guides.
     expect(launcher).toMatch(
       /const inspected = await inspectGate2RunForApproval\(\s*validation\.project,\s*validation\.manifest,\s*resolve\(projectDir, project\.dist_dir\),\s*validation\.adapter,\s*validation\.project\.edit\.editorial && reviewInspection\?\.ok\s*\? reviewInspection\.compilation\s*: undefined,\s*validation\.audioAdapter,\s*(?:\/\/[^\n]*\n\s*)*validation\.promptGuides\s*\)/
