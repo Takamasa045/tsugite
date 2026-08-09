@@ -10,6 +10,7 @@ import {
   Search,
   Sparkles,
   Sun,
+  Trash2,
   Users,
   Workflow,
 } from 'lucide-react'
@@ -49,6 +50,7 @@ import {
   type TemplateLoadState,
   type TemplateWizardState,
 } from '../components/template/templateShelfModel'
+import { MaintenanceShelf } from '../components/maintenance/MaintenanceShelf'
 import { DesktopWorkspaceRecovery } from '../components/workspace/DesktopWorkspaceRecovery'
 
 export type { LauncherTemplate }
@@ -171,7 +173,7 @@ interface LauncherAppProps {
   token?: string
 }
 
-type Shelf = 'projects' | 'templates' | 'expressions' | 'characters' | 'canvas' | 'feedback'
+type Shelf = 'projects' | 'templates' | 'expressions' | 'characters' | 'canvas' | 'feedback' | 'maintenance'
 type LauncherTheme = 'light' | 'dark'
 type FeedbackLoadState = 'idle' | 'loading' | 'ready' | 'error'
 type PromotionDecisionState = 'idle' | 'saving' | 'error'
@@ -332,7 +334,7 @@ function feedbackCardProposalLabel(preference: FeedbackPreference): string {
 }
 
 const FEEDBACK_STAGES = Object.keys(FEEDBACK_STAGE_LABELS) as FeedbackStage[]
-const SHELVES: Shelf[] = ['projects', 'templates', 'expressions', 'characters', 'canvas', 'feedback']
+const SHELVES: Shelf[] = ['projects', 'templates', 'expressions', 'characters', 'canvas', 'feedback', 'maintenance']
 const THEME_STORAGE_KEY = 'tsugite-launcher-theme'
 
 function initialLauncherTheme(): LauncherTheme {
@@ -450,6 +452,19 @@ export function projectMatchesQuery(project: LauncherProject, rawQuery: string):
     return fields.some((field) => segments.includes(field))
   }
   return fields.some((field) => field.includes(normalized))
+}
+
+/** Gate外の完成記録は title / cardName で検索する。完了フィルタでは残す。 */
+export function directArtifactMatchesQuery(artifact: LauncherDirectArtifact, rawQuery: string): boolean {
+  const normalized = rawQuery.trim().toLocaleLowerCase('ja')
+  if (!normalized) return true
+  return [artifact.title, artifact.cardName]
+    .map((value) => value.toLocaleLowerCase('ja'))
+    .some((field) => field.includes(normalized))
+}
+
+function directArtifactMatchesFilter(filter: ProjectFilter): boolean {
+  return filter === 'all' || filter === 'completed'
 }
 
 function projectUpdatedAtMs(project: LauncherProject): number {
@@ -819,8 +834,14 @@ export function LauncherApp({
       .sort(compareProjectsByRecentUpdate)
   }, [projectFilter, projects, query])
 
+  const filteredDirectArtifacts = useMemo(() => {
+    if (!directArtifactMatchesFilter(projectFilter)) return []
+    return directArtifacts.filter((artifact) => directArtifactMatchesQuery(artifact, query))
+  }, [directArtifacts, projectFilter, query])
+
   const visibleProjects = filteredProjects.slice(0, visibleProjectCount)
   const remainingProjectCount = Math.max(0, filteredProjects.length - visibleProjects.length)
+  const totalVisibleCount = filteredProjects.length + filteredDirectArtifacts.length
 
   useEffect(() => {
     setVisibleProjectCount(PROJECT_PAGE_SIZE)
@@ -1255,7 +1276,7 @@ export function LauncherApp({
     )
   }
 
-  const compactHero = activeShelf !== 'projects'
+  const compactHero = activeShelf !== 'projects' // maintenance uses compact hero too
 
   return (
     <main className="launcher-shell" data-theme={theme} data-shelf={activeShelf}>
@@ -1350,6 +1371,18 @@ export function LauncherApp({
                 </span>
               )}
             </button>
+            <button
+              aria-controls="launcher-maintenance-panel"
+              aria-selected={activeShelf === 'maintenance'}
+              id="launcher-maintenance-tab"
+              onClick={() => selectShelf('maintenance')}
+              onKeyDown={(event) => handleShelfKeyDown(event, 'maintenance')}
+              role="tab"
+              tabIndex={activeShelf === 'maintenance' ? 0 : -1}
+              type="button"
+            >
+              <Trash2 aria-hidden="true" size={17} />安全な整理
+            </button>
             </div>
             <div aria-label="テーマを選ぶ" className="launcher-theme-switch" role="group">
               <button
@@ -1409,6 +1442,7 @@ export function LauncherApp({
                 characters: 'キャラクター',
                 canvas: '生成キャンバス',
                 feedback: '好み・学び',
+                maintenance: '安全な整理',
               }[activeShelf]}</strong>
             </div>
             <p>{{
@@ -1418,13 +1452,14 @@ export function LauncherApp({
               characters: 'キャラを確認し、依頼メモをコピーします',
               canvas: '画像・動画の工程をつないで設計します',
               feedback: '制作から育った知見を確認できます',
+              maintenance: '作業場所と完成メディアを、別々の確認つきで整理します',
             }[activeShelf]}</p>
           </div>
         )}
       </section>
 
       {/* テンプレート棚・表現棚は専用UIに一本化（ここでの3段階は出さない） */}
-      {activeShelf !== 'templates' && activeShelf !== 'expressions' && (
+      {activeShelf !== 'templates' && activeShelf !== 'expressions' && activeShelf !== 'maintenance' && (
       <ol aria-label="見取図を開く手順" className="launcher-joinery">
         {activeShelf === 'projects' ? (
           <>
@@ -1464,7 +1499,12 @@ export function LauncherApp({
                 <h2 id="project-list-title">作品を選ぶ</h2>
               </div>
               <div className="launcher-project-list-actions">
-                <span className="launcher-count">全{projects.length}件 / 表示{visibleProjects.length}件</span>
+                <span className="launcher-count">
+                  全{projects.length + directArtifacts.length}件
+                  {directArtifacts.length > 0 ? `（Gate外 ${directArtifacts.length}）` : ''}
+                  {' / '}
+                  表示{visibleProjects.length + filteredDirectArtifacts.length}件
+                </span>
                 <button
                   aria-busy={projectListRefreshing}
                   className="launcher-secondary launcher-project-list-refresh"
@@ -1487,7 +1527,7 @@ export function LauncherApp({
               <p className="launcher-project-list-refresh-notice" role="status">{projectListRefreshNotice}</p>
             )}
 
-            {projects.length > 0 && (
+            {(projects.length > 0 || directArtifacts.length > 0) && (
               <div className="launcher-project-tools">
                 <label className="launcher-search">
                   <Search aria-hidden="true" size={17} />
@@ -1523,106 +1563,136 @@ export function LauncherApp({
                 <p>projectsフォルダにproject.yamlを用意すると、ここに表示されます。</p>
                 <DesktopWorkspaceRecovery />
               </div>
-            ) : filteredProjects.length === 0 ? (
+            ) : totalVisibleCount === 0 ? (
               <div className="launcher-empty"><strong>検索条件に合う制作案件はありません。</strong></div>
             ) : (
-              <div className="launcher-project-list">
-                {visibleProjects.map((project) => (
-                  <article
-                    className="launcher-project-card"
-                    data-busy={openingProjectId === project.id}
-                    data-invalid={!project.valid}
-                    data-selected={project.id === selectedId}
-                    data-unrefreshable={project.valid && !project.refreshable}
-                    data-warning={project.valid && project.refreshable && Boolean(project.issue)}
-                    key={project.id}
-                  >
-                    <span aria-hidden="true" className="launcher-project-notch" />
-                    <button
-                      aria-busy={openingProjectId === project.id}
-                      aria-label={project.valid && project.refreshable
-                        ? `${project.name}の制作工程を最新にして開く`
-                        : project.hasViewer && project.viewerUrl
-                          ? `${project.name}の前回の制作工程を開く`
-                          : `${project.name}の制作工程はまだ開けません`}
-                      className="launcher-project-thumbnail-button"
-                      disabled={
-                        refreshing
-                        || projectListRefreshing
-                        || (!project.valid || !project.refreshable) && (!project.hasViewer || !project.viewerUrl)
-                      }
-                      onClick={() => void openProjectFromThumbnail(project)}
-                      type="button"
-                    >
-                      <span className="launcher-project-thumbnail">
-                        {project.thumbnailUrl ? (
-                          <img alt="" loading="lazy" src={project.thumbnailUrl} />
-                        ) : (
-                          <span className="launcher-project-thumbnail-empty">
-                            <Clapperboard aria-hidden="true" size={24} />
-                            <small>制作記録</small>
+              <>
+                {filteredDirectArtifacts.length > 0 && (
+                  <section aria-labelledby="direct-artifact-list-title" className="launcher-direct-artifacts">
+                    <div className="launcher-direct-artifacts-heading">
+                      <span className="eyebrow">完成記録</span>
+                      <h3 id="direct-artifact-list-title">Gate外の成果物</h3>
+                    </div>
+                    <div className="launcher-direct-artifact-list">
+                      {filteredDirectArtifacts.map((artifact) => (
+                        <article
+                          aria-label={`${artifact.cardName}: ${artifact.title}`}
+                          className="launcher-direct-artifact-card"
+                          key={artifact.id}
+                        >
+                          <span className="launcher-direct-artifact-kind" role="heading" aria-level={3}>
+                            {artifact.cardName}
                           </span>
-                        )}
-                        <span className="launcher-project-open-cue">
-                          制作工程を開く
-                        </span>
-                        <span className="launcher-project-status">
-                          {openingProjectId === project.id
-                            ? '開いています…'
-                            : !project.valid
-                              ? '設定の確認が必要'
-                              : !project.refreshable
-                                ? '最新状態に更新できません'
-                                : project.issue
-                                  ? '実行条件の確認が必要'
-                                  : statusLabel(project.status)}
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      aria-describedby={project.issue || !project.valid || !project.refreshable ? `launcher-project-issue-${project.id}` : undefined}
-                      aria-label={!project.valid
-                        ? `${project.name}の設定を確認`
-                        : !project.refreshable
-                          ? `${project.name}の更新できない理由を確認`
-                          : project.issue
-                            ? `${project.name}の注意事項を確認`
-                            : `${project.name}の制作工程を選ぶ`}
-                      aria-pressed={project.id === selectedId}
-                      className="launcher-project-select"
-                      disabled={refreshing || projectListRefreshing}
-                      onClick={() => selectProject(project)}
-                      type="button"
-                    >
-                      <span className="launcher-project-copy">
-                        <span className="launcher-project-name" role="heading" aria-level={3}>{project.name}</span>
-                        <small className="launcher-project-id">作品ID: {project.slug}</small>
-                        <span className="sr-only">
-                          {!project.valid
-                            ? '設定の確認が必要'
+                          <strong>{artifact.title}</strong>
+                          <dl>
+                            <div><dt>完成記録</dt><dd>{formatUpdatedAt(artifact.completedAt)}</dd></div>
+                          </dl>
+                          <small>Gate外・閲覧のみ</small>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {visibleProjects.length > 0 && (
+                  <div className="launcher-project-list">
+                    {visibleProjects.map((project) => (
+                      <article
+                        className="launcher-project-card"
+                        data-busy={openingProjectId === project.id}
+                        data-invalid={!project.valid}
+                        data-selected={project.id === selectedId}
+                        data-unrefreshable={project.valid && !project.refreshable}
+                        data-warning={project.valid && project.refreshable && Boolean(project.issue)}
+                        key={project.id}
+                      >
+                        <span aria-hidden="true" className="launcher-project-notch" />
+                        <button
+                          aria-busy={openingProjectId === project.id}
+                          aria-label={project.valid && project.refreshable
+                            ? `${project.name}の制作工程を最新にして開く`
+                            : project.hasViewer && project.viewerUrl
+                              ? `${project.name}の前回の制作工程を開く`
+                              : `${project.name}の制作工程はまだ開けません`}
+                          className="launcher-project-thumbnail-button"
+                          disabled={
+                            refreshing
+                            || projectListRefreshing
+                            || (!project.valid || !project.refreshable) && (!project.hasViewer || !project.viewerUrl)
+                          }
+                          onClick={() => void openProjectFromThumbnail(project)}
+                          type="button"
+                        >
+                          <span className="launcher-project-thumbnail">
+                            {project.thumbnailUrl ? (
+                              <img alt="" loading="lazy" src={project.thumbnailUrl} />
+                            ) : (
+                              <span className="launcher-project-thumbnail-empty">
+                                <Clapperboard aria-hidden="true" size={24} />
+                                <small>制作記録</small>
+                              </span>
+                            )}
+                            <span className="launcher-project-open-cue">
+                              制作工程を開く
+                            </span>
+                            <span className="launcher-project-status">
+                              {openingProjectId === project.id
+                                ? '開いています…'
+                                : !project.valid
+                                  ? '設定の確認が必要'
+                                  : !project.refreshable
+                                    ? '最新状態に更新できません'
+                                    : project.issue
+                                      ? '実行条件の確認が必要'
+                                      : statusLabel(project.status)}
+                            </span>
+                          </span>
+                        </button>
+                        <button
+                          aria-describedby={project.issue || !project.valid || !project.refreshable ? `launcher-project-issue-${project.id}` : undefined}
+                          aria-label={!project.valid
+                            ? `${project.name}の設定を確認`
                             : !project.refreshable
-                              ? '最新状態に更新できません'
+                              ? `${project.name}の更新できない理由を確認`
                               : project.issue
-                                ? '実行条件の確認が必要'
-                                : statusLabel(project.status)}
-                        </span>
-                        {(project.issue || !project.valid || !project.refreshable) && (
-                          <span className="launcher-project-card-issue" id={`launcher-project-issue-${project.id}`}>
-                            {project.issue ?? (project.valid
-                              ? '現在のバックエンドでは更新できません。'
-                              : '設定ファイルを読み込めませんでした。')}
+                                ? `${project.name}の注意事項を確認`
+                                : `${project.name}の制作工程を選ぶ`}
+                          aria-pressed={project.id === selectedId}
+                          className="launcher-project-select"
+                          disabled={refreshing || projectListRefreshing}
+                          onClick={() => selectProject(project)}
+                          type="button"
+                        >
+                          <span className="launcher-project-copy">
+                            <span className="launcher-project-name" role="heading" aria-level={3}>{project.name}</span>
+                            <small className="launcher-project-id">作品ID: {project.slug}</small>
+                            <span className="sr-only">
+                              {!project.valid
+                                ? '設定の確認が必要'
+                                : !project.refreshable
+                                  ? '最新状態に更新できません'
+                                  : project.issue
+                                    ? '実行条件の確認が必要'
+                                    : statusLabel(project.status)}
+                            </span>
+                            {(project.issue || !project.valid || !project.refreshable) && (
+                              <span className="launcher-project-card-issue" id={`launcher-project-issue-${project.id}`}>
+                                {project.issue ?? (project.valid
+                                  ? '現在のバックエンドでは更新できません。'
+                                  : '設定ファイルを読み込めませんでした。')}
+                              </span>
+                            )}
+                            <span className="launcher-project-card-footer">
+                              <small>{formatUpdatedAt(project.updatedAt)}</small>
+                              {project.readOnly && <small>別worktree（閲覧のみ）</small>}
+                              <span>工程と操作 <ArrowRight aria-hidden="true" size={17} /></span>
+                            </span>
                           </span>
-                        )}
-                        <span className="launcher-project-card-footer">
-                          <small>{formatUpdatedAt(project.updatedAt)}</small>
-                          {project.readOnly && <small>別worktree（閲覧のみ）</small>}
-                          <span>工程と操作 <ArrowRight aria-hidden="true" size={17} /></span>
-                        </span>
-                      </span>
-                    </button>
-                  </article>
-                ))}
-              </div>
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
             {remainingProjectCount > 0 && (
               <button
@@ -1632,32 +1702,6 @@ export function LauncherApp({
               >
                 残り{remainingProjectCount}件を表示
               </button>
-            )}
-            {directArtifacts.length > 0 && (
-              <section aria-labelledby="direct-artifact-list-title" className="launcher-direct-artifacts">
-                <div className="launcher-direct-artifacts-heading">
-                  <span className="eyebrow">完成記録</span>
-                  <h3 id="direct-artifact-list-title">Gate外の成果物</h3>
-                </div>
-                <div className="launcher-direct-artifact-list">
-                  {directArtifacts.map((artifact) => (
-                    <article
-                      aria-label={`${artifact.cardName}: ${artifact.title}`}
-                      className="launcher-direct-artifact-card"
-                      key={artifact.id}
-                    >
-                      <span className="launcher-direct-artifact-kind" role="heading" aria-level={3}>
-                        {artifact.cardName}
-                      </span>
-                      <strong>{artifact.title}</strong>
-                      <dl>
-                        <div><dt>完成記録</dt><dd>{formatUpdatedAt(artifact.completedAt)}</dd></div>
-                      </dl>
-                      <small>Gate外・閲覧のみ</small>
-                    </article>
-                  ))}
-                </div>
-              </section>
             )}
           </section>
 
@@ -1841,6 +1885,20 @@ export function LauncherApp({
           onProjectSelect={setSelectedId}
           projects={projects}
           selectedProjectId={selectedId}
+        />
+      ) : activeShelf === 'maintenance' ? (
+        <MaintenanceShelf
+          fetcher={fetcher}
+          projects={projects.map((project) => ({
+            id: project.id,
+            name: project.name,
+            runId: project.runId,
+            revision: project.revision,
+            status: project.status,
+            readOnly: project.readOnly,
+            valid: project.valid,
+          }))}
+          token={token}
         />
       ) : (
         <section aria-labelledby="launcher-feedback-tab" className="launcher-feedback-panel" id="launcher-feedback-panel" role="tabpanel">

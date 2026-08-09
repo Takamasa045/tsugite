@@ -23,6 +23,16 @@ export async function validateGenerationAssets(
       );
       if (!result.ok) issues.push(...result.issues);
     }
+    if (request.last_frame) {
+      const result = await resolveGenerationAsset(
+        request.last_frame,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.last_frame`,
+        "generation.last_frame"
+      );
+      if (!result.ok) issues.push(...result.issues);
+    }
     for (const [referenceIndex, referenceImage] of request.reference_images?.entries() ?? []) {
       const result = await resolveGenerationAsset(
         referenceImage,
@@ -96,6 +106,29 @@ export async function pinGenerationAssets(
       await assertVerifiedCopy(resolved.path, target, request.first_frame);
       pinnedRequest = { ...pinnedRequest, first_frame: target };
       manifestPaths.set(request.id, relativePath);
+    }
+
+    if (request.last_frame) {
+      const resolved = await resolveGenerationAsset(
+        request.last_frame,
+        configDir,
+        assetRoot,
+        `generation.requests.${index}.last_frame`,
+        "generation.last_frame"
+      );
+      if (!resolved.ok) return resolved;
+
+      const relativePath = toPortablePath(join(
+        "assets",
+        "generation-inputs",
+        request.id,
+        `001-last-frame${extension(request.last_frame)}`
+      ));
+      const target = join(runDir, relativePath);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(resolved.path, target);
+      await assertVerifiedCopy(resolved.path, target, request.last_frame);
+      pinnedRequest = { ...pinnedRequest, last_frame: target };
     }
 
     const pinnedReferences: string[] = [];

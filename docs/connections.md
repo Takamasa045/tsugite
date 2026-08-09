@@ -47,6 +47,39 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 `kling-direct`接続は、Kling CLIの `text_to_image / image_to_image / text_to_video / image_to_video` を扱う。利用可能モデルとモデル別パラメータは `kling who_am_i` の実行時宣言が正本である。
 
+## MiniMax direct（Phase A: preflight-only）
+
+`minimax-direct` は MiniMax 公式 CLI `mmx`（>= 1.0.19）への接続枠です。**PixVerse 経由の MiniMax-H3 とは別 connection** です。混ぜないでください。
+
+| 項目 | 契約 |
+|---|---|
+| 状態 | 実生成は **未統合**（`available-to-add` / preflight-only）。`ready` にしない |
+| CLI 不在 | `needs-setup`（存在を偽装しない） |
+| 認証 | 環境変数名 `MINIMAX_API_KEY` のみ宣言。値はログ・成果物・チャットに出さない。command 存在だけでは ready にしない |
+| dry-run | `mmx video generate --model MiniMax-H3 --last-frame <pinned-path> ... --dry-run` を argv 配列で構築。`--image` / first-frame を付けない。`billing_action: false` / `generation_submitted: false` |
+| IR → provider | `minimax-h3` → `MiniMax-H3` は明示 mapping のみ（推測変換禁止） |
+| last-frame-only | MiniMax direct で対応。PixVerse では `H3-C007` で停止（transition 偽装・同画像複製・T2V 降格なし） |
+| 公式 MCP | Hailuo-02 世代。H3 / last-only / H3 reference の実行根拠に使わない |
+
+参照: [H3 Prompt Director](./h3-prompt-director.md)、`adapters/minimax/`、`knowledge/video-models/minimax-h3/prompt-guide.yaml`。
+
+## MiniMax HTTP（Phase C: durable job / preflight-only）
+
+`minimax-http` は MiniMax 公式 HTTPS API 向けの **別 connection** です。`minimax-direct`（`mmx` CLI）と **混ぜない・自動fallbackしない・承認/credentialを共有しない** でください。
+
+| 項目 | 契約 |
+|---|---|
+| 状態 | 価格正本未設定の間は **preflight-only / blocked**。実送信準備完了とは表示しない。`submit: false` + `runtime_readiness: preflight-only` |
+| 初期 scope | MiniMax-H3 **last-frame-only** のみ（exactly one last-frame asset）。first-frame 付与・同画像複製・T2V 降格・他 mode 推測は禁止 |
+| 認証 | 環境変数名 `MINIMAX_API_KEY` のみ宣言。値は schema / artifact / log / audit / error に保存しない |
+| durable job | `src/generationJobs` の provider-neutral 基盤（approval digest / submission_unknown / resume / pin） |
+| transport | 固定 HTTPS allowlist、redirect 拒否、bounded timeout/poll/download、Content-Length と stream 上限、SHA-256、atomic local pin |
+| テスト | repo-local **fixture-only** transport marker を DI。外部 DNS/HTTP/provider を呼ばない。real HTTP client / DNS resolver は **未実装** |
+| pipeline | opt-in preflight / dry-run のみ。`run` / `render` / 課金 / Gate 更新は行わない |
+| 将来 live 時 | public production factory だけでは live 不可。**public-IP 固定と DNS-rebinding 防御**を実装してから実送信を許可すること |
+
+参照: `adapters/minimax-http/`、`profiles/connection-capabilities/minimax-http.yaml`、`src/generationJobs/`。
+
 ```yaml
 generation:
   connection: pixverse # または kling-direct

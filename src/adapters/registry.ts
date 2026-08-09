@@ -92,7 +92,9 @@ const adapterSchema = z.object({
       "text-to-video": inputModeContractSchema.optional(),
       "image-to-video": inputModeContractSchema.optional(),
       transition: inputModeContractSchema.optional(),
-      reference: inputModeContractSchema.optional()
+      reference: inputModeContractSchema.optional(),
+      "last-frame-to-video": inputModeContractSchema.optional(),
+      "first-last-frame-to-video": inputModeContractSchema.optional()
     })
     .optional(),
   audio_capabilities: z

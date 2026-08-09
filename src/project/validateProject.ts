@@ -30,6 +30,11 @@ import {
   enrichH3CompilationsForProject,
   type H3Compilation
 } from "../h3/compile.js";
+import {
+  compileProjectVideoPrompts,
+  rejectUncompiledVideoPrompt,
+  type VideoPromptPlan
+} from "../videoPromptDirector/videoPromptCompile.js";
 import { loadProject } from "./loadProject.js";
 import { generationRequestCapability, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
@@ -57,11 +62,13 @@ export async function validateProject(
     generationConnection?: GenerationConnectionResolution;
     audioConnection?: GenerationConnectionResolution;
     h3_compilations: H3Compilation[];
+    video_prompt_plans?: VideoPromptPlan[];
   }>
 > {
   const issues: Issue[] = [];
   let project: Project;
   let h3Compilations: H3Compilation[] = [];
+  let videoPromptPlans: VideoPromptPlan[] = [];
 
   try {
     project = await loadProject(configPath);
@@ -83,6 +90,49 @@ export async function validateProject(
       project,
       h3_compilations: h3Compilations
     };
+  }
+
+  // Stage 1b: video_prompt authoring — planning compile only (no provider).
+  // Fail-closed: empty prompt video_prompt must never pass through silently.
+  const hasVideoPrompt = project.generation?.requests.some(
+    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
+  );
+  if (hasVideoPrompt) {
+    const videoCompile = await compileProjectVideoPrompts(project, {
+      intent: "planning"
+    });
+    videoPromptPlans = videoCompile.plans ?? [];
+    if (videoCompile.project) {
+      project = videoCompile.project;
+    }
+    if (!videoCompile.ok) {
+      return {
+        ok: false,
+        issues: videoCompile.issues,
+        project,
+        h3_compilations: h3Compilations,
+        video_prompt_plans: videoPromptPlans
+      };
+    }
+  } else {
+    // Defensive: still reject any uncompiled empty video_prompt edge cases.
+    for (const [index, request] of (project.generation?.requests ?? []).entries()) {
+      for (const item of rejectUncompiledVideoPrompt(request)) {
+        issues.push({
+          code: item.code,
+          message: item.message,
+          path: `generation.requests.${index}.video_prompt`
+        });
+      }
+    }
+    if (issues.length > 0) {
+      return {
+        ok: false,
+        issues,
+        project,
+        h3_compilations: h3Compilations
+      };
+    }
   }
 
   const configDir = dirname(resolve(configPath));
@@ -402,11 +452,8 @@ export async function validateProject(
         issues.push(...validateAnalysisDependencies(project, manifestResult.manifest, loadedByName));
       }
     }
-    if (project.generation?.adapter && adapter?.class === "generation") {
-      issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
-    }
-
-    // Stage 2: inject selected adapter H3 route profile (fail closed if missing).
+    // Stage 2: bind selected adapter H3 route before input_mode constraints.
+    // Neutral intents (e.g. first-last-frame-to-video) become adapter fields first.
     if (h3Compilations.length > 0) {
       if (!adapter || adapter.class !== "generation") {
         const routeApplied = applyH3ExecutionRouteProfile(h3Compilations, undefined, {
@@ -414,6 +461,7 @@ export async function validateProject(
           adapterName: project.generation?.adapter
         });
         h3Compilations = routeApplied.compilations ?? h3Compilations;
+        if (routeApplied.project) project = routeApplied.project;
         issues.push(...routeApplied.issues);
       } else {
         const routeProfile = await loadH3ExecutionRouteProfile(adapter.root);
@@ -422,8 +470,13 @@ export async function validateProject(
           adapterName: adapter.name
         });
         h3Compilations = routeApplied.compilations ?? h3Compilations;
+        if (routeApplied.project) project = routeApplied.project;
         issues.push(...routeApplied.issues);
       }
+    }
+
+    if (project.generation?.adapter && adapter?.class === "generation") {
+      issues.push(...(await validateGenerationConstraints(project, options.adapterDirs)).issues);
     }
 
     promptGuides = await loadProjectPromptGuides(project, options.promptGuideDirs);
@@ -447,7 +500,8 @@ export async function validateProject(
       promptGuides,
       generationConnection,
       audioConnection,
-      h3_compilations: h3Compilations
+      h3_compilations: h3Compilations,
+      ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {})
     };
   }
 
@@ -464,7 +518,8 @@ export async function validateProject(
     promptGuides,
     generationConnection,
     audioConnection,
-    h3_compilations: h3Compilations
+    h3_compilations: h3Compilations,
+    ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {})
   };
 }
 

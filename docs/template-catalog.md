@@ -38,6 +38,9 @@ required_inputs:
   - type: text
     label: 記事本文
     required: true
+# ai_can_propose:
+#   - タイトル案
+#   - CTA文言
 direction:
   pacing: 冒頭2秒以内にフック。カット尺は均等割りせず、見せ場前に短カットを密集させる
   camera: 1ショットにつきカメラの動きは1つ。隣接ショットで画角（引き/寄り）を交互にする
@@ -134,6 +137,29 @@ variants:
 - 既に `required: true` でも冪等
 - 複数 option の add は和集合。必須は下がらない
 - API: `requiredInputsAdd`。UI / ブリーフは選択に応じて必須・任意を再計算
+
+### `ai_can_propose`（template 任意・schema_version 1）
+
+AI が**制作依頼の初案**として提案してよい項目の label 一覧です。生成・実行・Gate 更新は行わず、制作依頼 Markdown / チェックリスト UI の表示範囲だけを示します。
+
+```yaml
+ai_can_propose:
+  - タイトル案
+  - CTA文言
+  - カット間のつなぎ
+```
+
+| 項目 | 契約 |
+|---|---|
+| YAML | `ai_can_propose`（template ルート） |
+| API | `aiCanPropose`（camelCase） |
+| 任意性 | 未指定可。既存テンプレートは無効にならない |
+| 件数・型 | 非空文字列 1〜12 件 |
+| 重複 | trim 後の重複は `template_metadata.invalid` |
+| 必須競合 | base `required_inputs` の `required: true`、またはいずれかの `required_inputs_add` と **完全一致**すると invalid |
+| 任意一致 | optional（`required: false` かつどの `required_inputs_add` にも出ない）との一致は許可 |
+| 未指定時 | UI の AI 節・コピー範囲の「AIに任せること」文言・制作依頼の `## AIに任せること` を省略 |
+| 指定時 | 制作依頼に `## AIに任せること` を載せ、チェックリストで「最低限渡すもの」と分離表示。**生成・実行・Gate 更新はしない** |
 
 ### `prompt_guide_catalog`（template または option 任意）
 

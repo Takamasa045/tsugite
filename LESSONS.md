@@ -62,3 +62,11 @@ Append-only format:
 2026-07-31 / 2560×1440 Remotion renderがローカル動画fetchで3回失敗した / Data volumeの空きが3.8〜4.8GBしかなく、fetch再試行を増やしても容量不足を解消できなかった / 高解像度render前に空きを確認し、目安15GiB未満なら再取得可能キャッシュを整理してから開始する / qa済
 2026-08-04 / Fish Audio s2-pro 直叩きが 402 で止まり後付けナレが遅延した / API credit と platform free model を混同し、既存 fish-tts-free（s2.1-pro-free）を先に試さなかった / Fish 作業は fish-audio-doctor のあと必ず fish-tts-free を第一経路にし、s2-pro は有料クレジット確認後のみ使う / validate済
 2026-08-04 / HyperFrames 後付けタイトルがユーザーから見えない・ダサいと判定された / opacity:0+GSAP と太い縁取りグローで、実画素焼き付けとシネマ明朝設計が不足した / 完成度の高い既存映像への文字載せは薄い明朝・字間・淡いグローの PNG を ffmpeg overlay で焼き、冒頭/セリフ/エンドを別レイヤで管理する / qa済
+2026-08-05 / 手組 Gate3 scaffold で gate approve が state.invalid と manifest.clip.src.exists で止まった / approved_input_digest に非 hex 文字列を入れ、run-dir manifest が project 相対 path（edit/・media/）のままだった / Gate3 は dist/<run>/assets/* 相対の assembled manifest + final.mp4/gate3-qc/render-report を揃え、digest は sha256 hex のみ。QC は pipeline の inspectGate3Output で再生成してから gate approve / validate未
+2026-08-05 / hybrid MV でロケ・季節 NG（外国Lodge・川密着・雪・オーロラ）が still/動画後に発覚し再生成が増えた / 舞台正本と禁止要素を still 生成前に LOCATION-LOCK として固定しなかった / 実在ロケ案件は still 前に LOCATION-LOCK（距離感・季節・禁止物）を書き、prompt と still QA の両方で照合する / validate未
+2026-08-07 / street-dialogue で全身ジェスチャ板を mouth_frames に入れると身振りが早送りに見える / 口パク用の既定 mouth_fps=8 のまま体勢差の大きい板を回した / 全身ジェスチャを口差分に混ぜる場合は presentation.mouth_fps を 2〜3 に下げ、大きいポーズ差は caption.pose 側に寄せる / validate済
+2026-08-07 / 長いイベント名で street タイトルがはみ出し「松本」が切れた / TitleTag が nowrap 一列固定だった / 長い日本語タイトルは title_lines で折り返し、地名などは title_popup でバッジ化する / validate済
+2026-08-07 / 縦長 street 案件で symlink 共有アセットが validate に落ちた / media を project 外へ symlink すると asset root 外と判定される / 共有したい素材も案件内へコピーするか、同一 project root 内に置く / validate済
+2026-08-07 / 9:16 photo-first の見出し・字幕が極端に小さく読めない / HyperFrames themedStyles が縦でも 1920×1080 基準 scale を使い ≈0.56 倍に縮小していた / 9:16 は 1080×1920 基準 scale を使い、photo-first 縦向けに headline/caption の専用タイプスケールを持つ / validate済
+2026-08-07 / MVの効果ヒット（揺れ・SE）が歌詞表示と重なり意図とずれた / 音声RMSピークや曲の拍だけを優先し、テロップ表示区間の終端を拘束しなかった / 歌詞連動の画面効果は「該当フレーズの表示終了後」または明示した固定秒を先に決め、表示中に次効果を重ねない。QCは終端前後の静止画で確認する / observed
+2026-08-07 / 曲に挿したエンジンSFXが一発目からうるさく再ミックスが必要になった / ベッドとリリックヒットを同時に強め、全体バスも高く残した / 環境SEは初回を薄め（ベッド低・バス0.5前後）で出し、リリック必須ヒットだけ相対的に上げ、ユーザー確認後に全体を上げる / observed

@@ -76,6 +76,20 @@ import {
 } from "./referenceCatalog.js";
 import { loadPromptGuideById } from "../adapters/promptKnowledge.js";
 import { runGenerationModelPreflight } from "../adapters/modelPreflight.js";
+import {
+  CLI_JSON_MAX_BYTES,
+  createLauncherMaintenanceController,
+  createMaintenancePipelineRunner,
+  maintenanceIdentityFingerprint,
+  maintenancePathsEqual,
+  resolveMaintenanceDurableHome,
+  type LauncherMaintenanceController,
+  type MaintenanceProjectLookup
+} from "./launcherMaintenance.js";
+import {
+  MAINTENANCE_ISSUE,
+  statusForMaintenanceIssue
+} from "./launcherMaintenanceTypes.js";
 
 const SAFE_BACKEND_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const DIRECT_COMPLETION_RECORD_NAME = "completion-record.json";
@@ -156,12 +170,24 @@ export type LauncherProcessResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** True when the collector hit its byte cap (typed; do not parse as success JSON). */
+  truncated?: boolean;
+};
+
+/**
+ * Process-runner options. `maxOutputBytes` is always bounded: positive safe integer only.
+ * Maintenance injected calls pass CLI_JSON_MAX_BYTES; unbounded (Infinity / non-integer) is rejected by runners.
+ */
+export type LauncherProcessRunnerOptions = {
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+  maxOutputBytes?: number;
 };
 
 export type LauncherProcessRunner = (
   command: string,
   args: readonly string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv }
+  options: LauncherProcessRunnerOptions
 ) => Promise<LauncherProcessResult>;
 
 export type LauncherTemplate = {
@@ -183,6 +209,11 @@ export type LauncherTemplate = {
   promptGuideCatalog?: string;
   /** 参照 catalog の documented チェックリスト（読み取り専用要約）。 */
   promptGuides?: LauncherTemplatePromptGuide[];
+  /**
+   * AI が初案を出してよい項目（任意）。
+   * 必須不足として止めず、正本素材と選択設定から提案する。実行能力ではない。
+   */
+  aiCanPropose?: string[];
   variants: LauncherTemplateVariant[];
   tags: string[];
   audio: string;
@@ -504,6 +535,8 @@ const templateMetadataSchema = z.object({
   not_for: z.array(nonEmptyText).max(6).default([]),
   direction: templateDirectionSchema.optional(),
   prompt_guide_catalog: promptGuideCatalogIdSchema.optional(),
+  /** AI が初案提案してよい項目（任意・非空 1〜12）。未指定は後方互換。 */
+  ai_can_propose: z.array(nonEmptyText).min(1).max(12).optional(),
   variants: z.array(templateVariantSchema).max(8).default([]).superRefine((variants, context) => {
     const variantIds = new Set<string>();
     for (const [index, variant] of variants.entries()) {
@@ -538,6 +571,54 @@ const templateMetadataSchema = z.object({
             path: ["variants", variantIndex, "options", optionIndex, "required_inputs_add", addIndex]
           });
         }
+      }
+    }
+  }
+
+  // ai_can_propose: trim 後一意 + always-required / required_inputs_add との競合は fail-closed。
+  // optional 入力のみとの一致は「任意提供 + 未指定時は AI 提案」の正当用途なので拒否しない。
+  if (metadata.ai_can_propose) {
+    const seenAiPropose = new Set<string>();
+    for (const [index, item] of metadata.ai_can_propose.entries()) {
+      // nonEmptyText が trim 済み。同一文字列の再出現は重複。
+      if (seenAiPropose.has(item)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `ai_can_propose items must be unique after trim; duplicate: '${item}'`,
+          path: ["ai_can_propose", index]
+        });
+        continue;
+      }
+      seenAiPropose.add(item);
+    }
+
+    const alwaysRequiredLabels = new Set(
+      metadata.required_inputs
+        .filter((input) => input.required)
+        .map((input) => input.label)
+    );
+    const promotableLabels = new Set<string>();
+    for (const variant of metadata.variants) {
+      for (const option of variant.options) {
+        for (const label of option.required_inputs_add ?? []) {
+          promotableLabels.add(label);
+        }
+      }
+    }
+
+    for (const [index, item] of metadata.ai_can_propose.entries()) {
+      if (alwaysRequiredLabels.has(item)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `ai_can_propose item '${item}' conflicts with always-required required_inputs label`,
+          path: ["ai_can_propose", index]
+        });
+      } else if (promotableLabels.has(item)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `ai_can_propose item '${item}' conflicts with required_inputs_add label that can become required`,
+          path: ["ai_can_propose", index]
+        });
       }
     }
   }
@@ -627,10 +708,45 @@ type LauncherProjectRecord = {
   public: LauncherProject;
 };
 
-type LauncherProjectDirectory = {
+export type LauncherProjectDirectory = {
   path: string;
   readOnly: boolean;
 };
+
+/**
+ * After the active writable maintenance home is fixed, only that shelf stays
+ * writable. Default / additional / other-worktree shelves become readOnly so
+ * foreign projects cannot promote or finalize into a different home.
+ *
+ * Comparison uses realpath when available so a symlink shelf that points at the
+ * active home stays writable. realpath failure is fail-closed (readOnly).
+ * Never promotes a non-active shelf to writable.
+ */
+export async function canonicalizeLauncherShelfWritability(
+  directories: readonly LauncherProjectDirectory[],
+  activeMaintenanceHome: string
+): Promise<LauncherProjectDirectory[]> {
+  const activeCanonical = await tryRealpathForShelfCompare(activeMaintenanceHome);
+  const out: LauncherProjectDirectory[] = [];
+  for (const directory of directories) {
+    const path = resolve(directory.path);
+    const shelfCanonical = await tryRealpathForShelfCompare(path);
+    const writable = activeCanonical !== null
+      && shelfCanonical !== null
+      && maintenancePathsEqual(shelfCanonical, activeCanonical);
+    out.push({ path, readOnly: !writable });
+  }
+  return out;
+}
+
+/** Fail-closed realpath for shelf writability compare (not exported). */
+async function tryRealpathForShelfCompare(path: string): Promise<string | null> {
+  try {
+    return await realpath(resolve(path));
+  } catch {
+    return null;
+  }
+}
 
 type LauncherProjectIdentity = {
   realProjectDir: string;
@@ -677,7 +793,16 @@ export type StartWorkflowViewerLauncherOptions = {
    * Tests should set false for an isolated projectsDir fixture.
    */
   linkProjectShelves?: boolean;
+  /**
+   * Canonical durable projects home for maintenance CLI (TSUGITE_PROJECTS_HOME).
+   * Desktop must pass the selected workspace.projectsDir so packaged runtimeRoot/cwd
+   * does not resolve a different home. Never set from a readOnly additional shelf.
+   * When omitted, explicit projectsDir is used; otherwise resolveDurableProjectsHome once.
+   */
+  maintenanceProjectsHome?: string;
   templatesDir?: string;
+  /** Desktop runtime が配布する読み取り専用テンプレートカタログ。workspace 側を優先する。 */
+  bundledTemplatesDir?: string;
   port?: number;
   bundleDir?: string;
   allowProjectActions?: boolean;
@@ -717,7 +842,7 @@ export async function startWorkflowViewerLauncher(
     throw new Error("Viewer launcher port must be an integer between 0 and 65535");
   }
 
-  const projectDirectories = await discoverLauncherProjectDirectories(
+  const discoveredProjectDirectories = await discoverLauncherProjectDirectories(
     options.projectsDir,
     options.additionalProjectsDirs,
     options.linkProjectShelves ?? true
@@ -725,6 +850,10 @@ export async function startWorkflowViewerLauncher(
   const templatesDir = resolve(
     options.templatesDir ?? fileURLToPath(new URL("../../templates", import.meta.url))
   );
+  const templateDirectories = [
+    ...(options.bundledTemplatesDir ? [resolve(options.bundledTemplatesDir)] : []),
+    templatesDir
+  ].filter((directory, index, directories) => directories.indexOf(directory) === index);
   const bundleDir = await prepareWorkflowViewerBundle(options.bundleDir);
   const token = randomBytes(24).toString("hex");
   const idsByConfig = new Map<string, string>();
@@ -743,6 +872,84 @@ export async function startWorkflowViewerLauncher(
   const loadReferenceCatalogHandler = options.loadReferenceCatalog
     ?? ((catalogId: string) => loadReferenceCatalog(catalogId));
   const allowProjectActions = options.allowProjectActions ?? true;
+  // H1: pin maintenance durable home once to the selected workspace (not readOnly shelves).
+  const maintenanceProjectsHome = await resolveMaintenanceDurableHome({
+    maintenanceProjectsHome: options.maintenanceProjectsHome,
+    projectsDir: options.projectsDir,
+    cwd: TSUGITE_ROOT
+  });
+  // Only the active maintenance home shelf is writable; all other shelves are readOnly.
+  const projectDirectories = await canonicalizeLauncherShelfWritability(
+    discoveredProjectDirectories,
+    maintenanceProjectsHome
+  );
+  const maintenanceEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    TSUGITE_PROJECTS_HOME: maintenanceProjectsHome
+  };
+  // Maintenance CLI JSON can exceed the general job 16KiB cap (~74KiB real previews).
+  // Desktop production injects executePipeline (process-runner default 16KiB); always pass
+  // an explicit bounded maxOutputBytes so real worktrees JSON is not truncated.
+  const maintenancePipelineRunner = options.executePipeline
+    ? async (args: readonly string[]) => {
+      const result = await executePipeline(
+        process.execPath,
+        [PIPELINE_ENTRY, ...args],
+        {
+          cwd: TSUGITE_ROOT,
+          env: maintenanceEnv,
+          maxOutputBytes: CLI_JSON_MAX_BYTES
+        }
+      );
+      return {
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        truncated: result.truncated === true
+          || result.stdout.includes("[output truncated]")
+          || result.stderr.includes("[output truncated]")
+      };
+    }
+    : createMaintenancePipelineRunner({
+      pipelineEntry: PIPELINE_ENTRY,
+      cwd: TSUGITE_ROOT,
+      maxBytes: CLI_JSON_MAX_BYTES,
+      env: maintenanceEnv
+    });
+  const maintenance: LauncherMaintenanceController = createLauncherMaintenanceController({
+    runPipeline: maintenancePipelineRunner,
+    durableProjectsHome: maintenanceProjectsHome,
+    // M6: production always supplies identity revalidation (omit is fail-closed).
+    revalidateProjectIdentity: async (expected) => {
+      await reloadProjects();
+      const record = projects.get(expected.id);
+      if (!record?.identity) return false;
+      if (record.configPath !== expected.configPath) return false;
+      if (record.public.runId !== expected.runId) return false;
+      if (record.public.revision !== expected.revision) return false;
+      if (record.public.status !== expected.status) return false;
+      const liveKey = `${record.identity.configDevice}:${record.identity.configInode}`;
+      if (expected.identityKey && liveKey !== expected.identityKey) return false;
+      if (
+        expected.identityFingerprint
+        && expected.identityFingerprint !== maintenanceIdentityFingerprint({
+          configPath: record.configPath,
+          runId: record.public.runId,
+          revision: record.public.revision,
+          identityKey: liveKey,
+          realConfigPath: record.identity.realConfigPath,
+          realProjectDir: record.identity.realProjectDir,
+          configDevice: record.identity.configDevice,
+          configInode: record.identity.configInode,
+          projectDevice: record.identity.projectDevice,
+          projectInode: record.identity.projectInode
+        })
+      ) {
+        return false;
+      }
+      return matchesProjectIdentity(record.configPath, record.identity);
+    }
+  });
   let launcherOrigin = "";
   let artifactOrigin = "";
 
@@ -853,9 +1060,18 @@ export async function startWorkflowViewerLauncher(
       || /^\/api\/feedback\/[^/]+\/promotion-decision$/.test(requestUrl.pathname)
       || /^\/api\/projects\/[^/]+\/refresh$/.test(requestUrl.pathname)
       || requestUrl.pathname === "/api/characters/use"
+      || requestUrl.pathname === "/api/maintenance/worktrees/apply"
+      || /^\/api\/projects\/[^/]+\/finalize\/apply$/.test(requestUrl.pathname)
+      || requestUrl.pathname === "/api/maintenance/worktrees/preview"
+      || /^\/api\/projects\/[^/]+\/finalize\/preview$/.test(requestUrl.pathname)
     );
     const interruptibleMutation = method === "POST"
       && /^\/api\/projects\/[^/]+\/generate$/.test(requestUrl.pathname);
+    // Maintenance previews need auth but must not hold the blocking mutex.
+    const nonBlockingMutation = method === "POST" && (
+      requestUrl.pathname === "/api/maintenance/worktrees/preview"
+      || /^\/api\/projects\/[^/]+\/finalize\/preview$/.test(requestUrl.pathname)
+    );
     let mutationReserved = false;
     if (mutationRequest) {
       if (
@@ -879,7 +1095,7 @@ export async function startWorkflowViewerLauncher(
         return;
       }
       activeMutations += 1;
-      if (!interruptibleMutation) activeBlockingMutations += 1;
+      if (!interruptibleMutation && !nonBlockingMutation) activeBlockingMutations += 1;
       mutationReserved = true;
     }
 
@@ -888,7 +1104,7 @@ export async function startWorkflowViewerLauncher(
     } finally {
       if (mutationReserved) {
         activeMutations -= 1;
-        if (!interruptibleMutation) activeBlockingMutations -= 1;
+        if (!interruptibleMutation && !nonBlockingMutation) activeBlockingMutations -= 1;
       }
     }
   }
@@ -1479,7 +1695,7 @@ export async function startWorkflowViewerLauncher(
     }
 
     if (method === "GET" && requestUrl.pathname === "/api/templates") {
-      sendJson(response, 200, { ok: true, templates: await discoverTemplates(templatesDir) });
+      sendJson(response, 200, { ok: true, templates: await discoverTemplates(templateDirectories) });
       return;
     }
 
@@ -1701,6 +1917,114 @@ export async function startWorkflowViewerLauncher(
             }
           : { manifestPath: result.manifestPath })
       });
+      return;
+    }
+
+    // --- 安全な整理 (maintenance): opaque review IDs only; canonical CLI via argv ---
+    if (method === "GET" && requestUrl.pathname === "/api/maintenance/worktrees/preview") {
+      if (!authorizeLauncherToken(request, launcherOrigin, token)) {
+        sendJson(response, 403, { ok: false, issue: MAINTENANCE_ISSUE.forbidden });
+        return;
+      }
+      const result = await maintenance.previewWorktrees();
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
+    if (method === "POST" && requestUrl.pathname === "/api/maintenance/worktrees/preview") {
+      // POST preview is also allowed (same-origin form clients); body ignored.
+      const result = await maintenance.previewWorktrees();
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
+    if (method === "POST" && requestUrl.pathname === "/api/maintenance/worktrees/apply") {
+      let body: unknown;
+      try {
+        body = await readJsonRequest(request, 16 * 1024);
+      } catch {
+        sendJson(response, 400, { ok: false, issue: MAINTENANCE_ISSUE.invalidBody });
+        return;
+      }
+      const result = await maintenance.applyWorktree(body);
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
+    const finalizePreviewMatch = /^\/api\/projects\/([^/]+)\/finalize\/preview$/.exec(requestUrl.pathname);
+    if (method === "POST" && finalizePreviewMatch) {
+      await reloadProjects();
+      const projectId = finalizePreviewMatch[1]!;
+      const record = projects.get(projectId);
+      if (!record?.identity || !record.public.valid) return sendNotFound(response);
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendJson(response, 409, { ok: false, issue: MAINTENANCE_ISSUE.projectMismatch });
+        return;
+      }
+      let body: unknown;
+      try {
+        body = await readJsonRequest(request, 16 * 1024);
+      } catch {
+        sendJson(response, 400, { ok: false, issue: MAINTENANCE_ISSUE.invalidBody });
+        return;
+      }
+      const result = await maintenance.previewFinalize(toMaintenanceProject(record), body);
+      if (!result.ok) {
+        sendJson(response, statusForMaintenanceIssue(result.issue.code), result);
+        return;
+      }
+      // Re-check identity/revision after preview so a swapped project cannot keep the review.
+      await reloadProjects();
+      const fresh = projects.get(projectId);
+      if (
+        !fresh?.identity
+        || fresh.public.revision !== record.public.revision
+        || fresh.configPath !== record.configPath
+        || !await matchesProjectIdentity(fresh.configPath, record.identity)
+        || !await matchesProjectIdentity(fresh.configPath, fresh.identity)
+      ) {
+        // H3: drop orphan review issued before post-check failure.
+        if (result.ok && "reviewId" in result) {
+          maintenance.dropFinalizeReview(result.reviewId);
+        }
+        sendJson(response, 409, { ok: false, issue: MAINTENANCE_ISSUE.projectMismatch });
+        return;
+      }
+      sendJson(response, 200, result);
+      return;
+    }
+
+    const finalizeApplyMatch = /^\/api\/projects\/([^/]+)\/finalize\/apply$/.exec(requestUrl.pathname);
+    if (method === "POST" && finalizeApplyMatch) {
+      await reloadProjects();
+      const projectId = finalizeApplyMatch[1]!;
+      const record = projects.get(projectId);
+      if (!record?.identity || !record.public.valid) return sendNotFound(response);
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendJson(response, 409, { ok: false, issue: MAINTENANCE_ISSUE.projectMismatch });
+        return;
+      }
+      let body: unknown;
+      try {
+        body = await readJsonRequest(request, 16 * 1024);
+      } catch {
+        sendJson(response, 400, { ok: false, issue: MAINTENANCE_ISSUE.invalidBody });
+        return;
+      }
+      // Snapshot is bound to full project identity (configPath + identityKey + revision).
+      const result = await maintenance.applyFinalize(toMaintenanceProject(record), body);
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
+      return;
+    }
+
+    const maintenanceJobMatch = /^\/api\/maintenance\/jobs\/([^/]+)$/.exec(requestUrl.pathname);
+    if (method === "GET" && maintenanceJobMatch) {
+      if (!authorizeLauncherToken(request, launcherOrigin, token)) {
+        sendJson(response, 403, { ok: false, issue: MAINTENANCE_ISSUE.forbidden });
+        return;
+      }
+      const result = maintenance.getJob(maintenanceJobMatch[1]!);
+      sendJson(response, result.ok ? 200 : statusForMaintenanceIssue(result.issue.code), result);
       return;
     }
 
@@ -1927,7 +2251,9 @@ export async function startWorkflowViewerLauncher(
           validation.audioAdapter,
           validation.generationConnection,
           validation.audioConnection,
-          validation.backend
+          validation.backend,
+          validation.h3_compilations,
+          validation.video_prompt_plans
         );
         if (!await matchesProjectIdentity(record.configPath, record.identity)) {
           sendProjectChanged(response);
@@ -2097,8 +2423,9 @@ export async function startWorkflowViewerLauncher(
       hasActive: () => activeMutations > 0
         || generating.size > 0
         || refreshing.size > 0
+        || maintenance.hasBlockingWork()
         || [...jobs.values()].some((job) => job.status === "running"),
-      hasBlockingWork: () => activeBlockingMutations > 0,
+      hasBlockingWork: () => activeBlockingMutations > 0 || maintenance.hasBlockingWork(),
       suspendWork: () => {
         workPauseCount += 1;
         let resumed = false;
@@ -2299,8 +2626,18 @@ function boundUtf8(value: string, maximumBytes: number): string {
 async function executePipelineProcess(
   command: string,
   args: readonly string[],
-  options: { cwd: string; env?: NodeJS.ProcessEnv }
+  options: LauncherProcessRunnerOptions
 ): Promise<LauncherProcessResult> {
+  const maxOutputBytes = options.maxOutputBytes ?? LAUNCHER_JOB_OUTPUT_MAX_BYTES;
+  if (
+    !Number.isSafeInteger(maxOutputBytes)
+    || maxOutputBytes <= 0
+    || maxOutputBytes > CLI_JSON_MAX_BYTES
+  ) {
+    throw new TypeError(
+      `Launcher process maxOutputBytes must be a positive safe integer ≤ ${CLI_JSON_MAX_BYTES}`
+    );
+  }
   return await new Promise<LauncherProcessResult>((resolveProcess, reject) => {
     const child = spawn(command, [...args], {
       cwd: options.cwd,
@@ -2315,7 +2652,7 @@ async function executePipelineProcess(
     let stdoutTruncated = false;
     let stderrTruncated = false;
     const collect = (chunks: Buffer[], chunk: Buffer, currentBytes: number) => {
-      const remaining = Math.max(0, LAUNCHER_JOB_OUTPUT_MAX_BYTES - currentBytes);
+      const remaining = Math.max(0, maxOutputBytes - currentBytes);
       if (remaining > 0) chunks.push(chunk.subarray(0, remaining));
       return {
         bytes: currentBytes + Math.min(chunk.length, remaining),
@@ -2334,14 +2671,11 @@ async function executePipelineProcess(
     });
     child.once("error", reject);
     child.once("close", (code) => {
-      const withTruncation = (chunks: Buffer[], truncated: boolean) => {
-        const output = Buffer.concat(chunks).toString("utf8");
-        return truncated ? `${output}\n[output truncated]\n` : output;
-      };
       resolveProcess({
         exitCode: code ?? 1,
-        stdout: withTruncation(stdout, stdoutTruncated),
-        stderr: withTruncation(stderr, stderrTruncated)
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        truncated: stdoutTruncated || stderrTruncated
       });
     });
   });
@@ -2748,28 +3082,31 @@ function isCanonicalProject(record: LauncherProjectRecord): boolean {
   return basename(record.configPath) === "project.yaml";
 }
 
-async function discoverTemplates(templatesDir: string): Promise<LauncherTemplate[]> {
-  let entries;
-  try {
-    entries = await readdir(templatesDir, { withFileTypes: true });
-  } catch (error) {
-    if (isFileSystemError(error, "ENOENT")) return [];
-    throw error;
-  }
-
-  const templates: LauncherTemplate[] = [];
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    if (!entry.isDirectory()) continue;
-    const templateDir = join(templatesDir, entry.name);
+async function discoverTemplates(templateDirectories: readonly string[]): Promise<LauncherTemplate[]> {
+  const templatesById = new Map<string, LauncherTemplate>();
+  for (const templatesDir of templateDirectories) {
+    let entries;
     try {
-      await lstat(join(templateDir, "template.yaml"));
+      entries = await readdir(templatesDir, { withFileTypes: true });
     } catch (error) {
       if (isFileSystemError(error, "ENOENT")) continue;
       throw error;
     }
-    templates.push(await inspectTemplate(entry.name, templateDir));
+
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (!entry.isDirectory()) continue;
+      const templateDir = join(templatesDir, entry.name);
+      try {
+        await lstat(join(templateDir, "template.yaml"));
+      } catch (error) {
+        if (isFileSystemError(error, "ENOENT")) continue;
+        throw error;
+      }
+      // 同じ ID は workspace の定義（後から渡す directory）を優先する。
+      templatesById.set(entry.name, await inspectTemplate(entry.name, templateDir));
+    }
   }
-  return templates;
+  return [...templatesById.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 async function inspectTemplate(id: string, templateDir: string): Promise<LauncherTemplate> {
@@ -2849,6 +3186,9 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
         ? { promptGuideCatalog: metadata.prompt_guide_catalog }
         : {}),
       ...(promptGuides.length > 0 ? { promptGuides } : {}),
+      ...(metadata.ai_can_propose && metadata.ai_can_propose.length > 0
+        ? { aiCanPropose: metadata.ai_can_propose }
+        : {}),
       variants: metadata.variants.map((variant) => ({
         id: variant.id,
         label: variant.label,
@@ -2877,13 +3217,23 @@ async function inspectTemplate(id: string, templateDir: string): Promise<Launche
       valid: true
     };
   } catch (error) {
-    const issue = error instanceof TemplateMetadataError
-      ? { code: error.code, message: error.message }
-      : {
-          code: "template_metadata.invalid",
-          message: "template.yamlの形式が正しくありません。必須項目と値を確認してください。"
-        };
-    return invalidTemplate(id, issue);
+    if (error instanceof TemplateMetadataError) {
+      return invalidTemplate(id, { code: error.code, message: error.message });
+    }
+    // Zod の最初の issue を載せ、重複・必須競合など原因を特定できるようにする。
+    if (error instanceof z.ZodError) {
+      const first = error.issues[0];
+      return invalidTemplate(id, {
+        code: "template_metadata.invalid",
+        message: first?.message
+          ? `template.yamlが無効です: ${first.message}`
+          : "template.yamlの形式が正しくありません。必須項目と値を確認してください。"
+      });
+    }
+    return invalidTemplate(id, {
+      code: "template_metadata.invalid",
+      message: "template.yamlの形式が正しくありません。必須項目と値を確認してください。"
+    });
   }
 }
 
@@ -4549,6 +4899,57 @@ function contentTypeFor(path: string): string {
     ".woff2": "font/woff2"
   };
   return types[extname(path).toLowerCase()] ?? "application/octet-stream";
+}
+
+function authorizeLauncherToken(
+  request: IncomingMessage,
+  launcherOrigin: string,
+  token: string
+): boolean {
+  if (request.headers["x-tsugite-token"] !== token) return false;
+  const requestOrigin = request.headers.origin;
+  if (requestOrigin !== undefined && requestOrigin !== launcherOrigin) return false;
+  return true;
+}
+
+function toMaintenanceProject(record: LauncherProjectRecord): MaintenanceProjectLookup {
+  const identityKey = record.identity
+    ? `${record.identity.configDevice}:${record.identity.configInode}`
+    : undefined;
+  const base = {
+    id: record.id,
+    name: record.name,
+    configPath: record.configPath,
+    readOnly: record.readOnly,
+    valid: record.public.valid,
+    runId: record.public.runId,
+    revision: record.public.revision,
+    status: record.public.status,
+    identityKey,
+    realConfigPath: record.identity?.realConfigPath,
+    realProjectDir: record.identity?.realProjectDir,
+    configDevice: record.identity?.configDevice,
+    configInode: record.identity?.configInode,
+    projectDevice: record.identity?.projectDevice,
+    projectInode: record.identity?.projectInode
+  };
+  return {
+    ...base,
+    identityFingerprint: identityKey
+      ? maintenanceIdentityFingerprint({
+        configPath: record.configPath,
+        runId: record.public.runId,
+        revision: record.public.revision,
+        identityKey,
+        realConfigPath: record.identity?.realConfigPath,
+        realProjectDir: record.identity?.realProjectDir,
+        configDevice: record.identity?.configDevice,
+        configInode: record.identity?.configInode,
+        projectDevice: record.identity?.projectDevice,
+        projectInode: record.identity?.projectInode
+      })
+      : undefined
+  };
 }
 
 function setCommonHeaders(response: ServerResponse): void {

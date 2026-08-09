@@ -1,0 +1,39 @@
+{
+  "fixture": "reference.json",
+  "workflow_id": "h3-prompt-director",
+  "workflow_version": "2",
+  "creative_ir_hash": "120df78ecd54ced71b985ccb5d0c84c2afb7ef44bfec6767ab3a47561a69fd07",
+  "canonical_prompt": "subject_definitions:\n<Subject 1> is the 40-year-old Japanese man shown in <Picture 1> (@image1).\n<Audio 1> is @audio1 and provides the voice timbre reference for <Subject 1>.\n<Video 1> is @video1 and provides the target body movement and camera rhythm.\n\nsummary:\nA quiet lakeside moment where AI and nature begin to share the same frame.\n\nretention_analysis:\nRetain <Subject 1> (identity=strict, clothing=strict, hairstyle=strict).\n\ndetailed_description:\n[Shot 1] Live-action, cinematic. A medium-wide shot frames the man beside a mountain lake at sunrise. The camera pushes in with small amplitude at slow speed.\n\n[Shot 2] At 00:05.000, the camera cuts to a close-up of his face as he looks into camera. The camera holds a static shot. The 40-year-old Japanese man with a calm, low voice (S1) says:\n<d>[Japanese]AIと自然が、やっと同じ場所で動き始めた。</d>\n\noverall_soundscape:\nSoft wind, gentle lake water, distant birds.\n\nnon_diegetic_music:\nSparse acoustic guitar notes with soft ambient pads.",
+  "canonical_prompt_hash": "4c87dd3e8f581f230118556e6ec1e83758e4f8b5dd0da8f5f946befa7d4a1144",
+  "adapter_prompt_hash": "4c87dd3e8f581f230118556e6ec1e83758e4f8b5dd0da8f5f946befa7d4a1144",
+  "validation_ok": true,
+  "error_codes": [],
+  "warning_codes": [],
+  "issue_codes": [],
+  "compile_ok": true,
+  "lineage": {
+    "workflow_id": "h3-prompt-director",
+    "workflow_version": "2",
+    "creative_ir_hash": "120df78ecd54ced71b985ccb5d0c84c2afb7ef44bfec6767ab3a47561a69fd07",
+    "canonical_prompt_hash": "4c87dd3e8f581f230118556e6ec1e83758e4f8b5dd0da8f5f946befa7d4a1144",
+    "adapter_prompt_hash": "4c87dd3e8f581f230118556e6ec1e83758e4f8b5dd0da8f5f946befa7d4a1144"
+  },
+  "execution_request_snapshot": {
+    "model": "minimax-h3",
+    "duration": 10,
+    "aspect": "16:9",
+    "operation": "reference",
+    "input_mode": "reference",
+    "input_images": [
+      "assets/hero.png"
+    ],
+    "input_videos": [
+      "assets/lakeside-motion.mp4"
+    ],
+    "input_audios": [
+      "assets/voice.wav"
+    ],
+    "params_quality": "1440p",
+    "params_audio": true
+  }
+}

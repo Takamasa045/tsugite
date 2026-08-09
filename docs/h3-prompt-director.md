@@ -1,19 +1,22 @@
 # H3 Prompt Director
 
-H3 Prompt Director は、日本語の企画を **H3 Creative IR v1** に落とし、コードが決定的に英語プロンプトへ compile / validate する Tsugite の versioned contract です。
+H3 Prompt Director は、日本語の企画を **H3 Creative IR v1** に落とし、コードが決定的に英語プロンプトへ compile / validate する Tsugite の versioned contract です（compiler workflow version **2**）。
 
-重要:
+重要（公式出典と Tsugite 独自契約の区別）:
 
-- H3 の structured section 文法（`integrated_multimodal_description:` など）は **Tsugite 内部の versioned contract** です。公式 PixVerse / MiniMax の provider 仕様そのものではありません。
+- **公式 MiniMax**: Prompt Skill / API V2 / Prompt Guide / CLI `mmx` が T2VA・I2VA・FL2VA・L2VA・Ref2VA と first/last/reference 入力を定義する（source pin は `knowledge/video-models/minimax-h3/prompt-guide.yaml`）。Skill 本文は **vendoring せず link-only**。
+- **Tsugite 独自**: Creative IR、compiler、validation codes（H3-E* / H3-C*）、Gate artifact、lineage hash は Tsugite 契約。公式 product surface ではない。
+- **PixVerse**: MiniMax H3 を運ぶ **transport** の一つ。last-frame-only は **非対応**（`H3-C007`、silent fallback なし）。PixVerse 固有 PV-E* は PixVerse route profile 内に留める。
+- **MiniMax direct**: Phase A は `mmx` **preflight / dry-run argv のみ**。実生成は未統合。公式 MCP（Hailuo-02 世代）は H3 / last-only 実行根拠に使わない。
 - core が通常の手書き prompt を自動書換えする一般機構ではありません。
-- 独自 adapter / 独自 Gate はありません。実 run 時だけ既存 PixVerse adapter に final prompt と operation / asset fields を渡します。
 - 課金を伴う actual `run` / Gate 承認は、この文書の手順には含めません。
 
 関連:
 
 - モデル別プロンプト知識（advisory）: [prompt-guides.md](./prompt-guides.md)
+- 接続: [connections.md](./connections.md)
 - 最小 example: [`examples/h3-prompt-director/`](../examples/h3-prompt-director/)
-- 追加 fixture（first-frame / first-last / reference）: [`test/fixtures/h3/`](../test/fixtures/h3/)
+- fixture（first-frame / first-last / last-frame / reference）: [`test/fixtures/h3/`](../test/fixtures/h3/)
 
 ## 責務境界
 
@@ -62,15 +65,15 @@ h3:
   version: 1
   target:
     model: minimax-h3   # 別名なし。未知 model の fallback なし
-    mode: text-to-video # text-to-video | first-frame | first-last | reference
+    mode: text-to-video # text-to-video | first-frame | first-last | last-frame | reference
     duration: 10
     quality: "768p"
     aspect: "16:9"
     audio: true
 ```
 
-- `model` は **`minimax-h3` のみ**（alias / 未知 model fallback なし）。
-- `mode` は 4 値だけ。`last-frame-only` は v1 未対応。
+- `model` は **`minimax-h3` のみ**（IR id。provider 側 `MiniMax-H3` への変換は adapter route の明示 mapping のみ。推測変換なし）。
+- `mode` は `text-to-video` | `first-frame` | `first-last` | `last-frame` | `reference`。UI label の **last-frame-only** は schema 値 `last-frame` に対応。
 - `quality` / `aspect` / `duration` は schema 上モデル一般の受け皿を持ちますが、**実行 route 検証は別**です（後述）。
 
 ### `creative`（任意）
@@ -236,7 +239,7 @@ generation:
 
 ### Base renderer（3 sections）
 
-対象 mode: `text-to-video` / `first-frame` / `first-last`
+対象 mode: `text-to-video` / `first-frame` / `first-last` / `last-frame`
 
 順序固定:
 
@@ -244,12 +247,22 @@ generation:
 2. `overall_soundscape`
 3. `non_diegetic_music`
 
-first-frame / first-last では description 冒頭に:
+alignment（description 冒頭）:
+
+- **I2VA first-frame**:
 
 ```text
 For the target video, at 0.00 seconds into the target video,
 <Picture 1> (from [Shot 1]) is fully referenced.
 ```
+
+- **FL2VA / L2VA（公式 alignment 文言）**: 終了時刻は target.duration を小数2桁で固定。
+
+```text
+How the reference pictures align with the target video — <Picture 1> (from [Shot N]) aligns with the S.SS-second mark of the target video.
+```
+
+FL2VA は開始 0.00（Shot 1）と終了 S.SS（最終 Shot）の両 anchor を決定的に生成する。
 
 ### Reference renderer（6 sections）
 
@@ -288,19 +301,43 @@ IR 上は `source_asset: character_image` のように id だけを持ち、番�
 
 ## mode → generation request mapping
 
-| H3 mode | `operation` | `input_mode` | asset fields |
-| --- | --- | --- | --- |
-| `text-to-video` | `video` | `text-to-video` | （なし） |
-| `first-frame` | `video` | `image-to-video` | `first_frame` |
-| `first-last` | `transition` | `transition` | `input_images: [first, last]`（role 順） |
-| `reference` | `reference` | `reference` | `input_images` / `input_videos` / `input_audios`（type ごと宣言順） |
+### Stage 1: provider-neutral intent（core compiler）
+
+| H3 mode | `operation` | `input_mode` | asset fields | capability intent |
+| --- | --- | --- | --- | --- |
+| `text-to-video` | `video` | `text-to-video` | （なし） | `video.text-to-video` |
+| `first-frame` | `video` | `image-to-video` | `first_frame` | `video.image-to-video` |
+| `first-last` | `video` | `first-last-frame-to-video` | `first_frame` + `last_frame` | `video.first-last-frame-to-video` |
+| `last-frame` | `video` | `last-frame-to-video` | `last_frame` ちょうど1 | `video.last-frame-to-video` |
+| `reference` | `reference` | `reference` | `input_images` / `input_videos` / `input_audios` | `video.reference-to-video` |
+
+last-frame: first_frame / reference role / video / audio は 0。単独画像は `<Picture 1>` / `@image1`。
+
+### Stage 2: adapter route binding（`constraints.yaml` の `h3_execution_route.modes`）
+
+| adapter | 例 |
+| --- | --- |
+| PixVerse | `first-last` → `operation: transition`, `input_images: [first, last]`。**last-frame は宣言しない** → `H3-C007` |
+| MiniMax direct | `last-frame` → `last-frame-to-video` + `params.provider_model: MiniMax-H3`。dry-run argv は `mmx video generate --model MiniMax-H3 --last-frame <path> --dry-run`（`--image` なし） |
+
+追加エラー:
+
+| code | 意味 |
+| --- | --- |
+| `H3-C007` | route unsupported mode（silent fallback 禁止） |
+| `H3-C008` | asset binding mismatch |
+| `H3-C009` | provider model mapping missing |
+| `adapter.input_mode.unsupported` | adapter が input_mode を未宣言 |
+| `adapter.cli.version_unsupported` | mmx < 1.0.19 など |
+| `adapter.media_field.unhandled` | adapter が扱えない media field |
 
 compile 後:
 
-- `prompt` = 決定的 render 結果（canonical と pixverse は v1 では同文。将来の label dialect 用に別 field で保持）
+- `prompt` = 決定的 render 結果（canonical と adapter prompt は同文を別 field で保持）
 - `params.quality` / `params.audio` は IR target から埋まる
 - raw `h3` は project digest / Gate 整合用に request 上へ残る
 - adapter へ渡す payload は raw `h3` と advisory `prompt_guide` を除く（`toAdapterGenerationRequest`）
+- lineage `workflow_version` は **`"2"`**
 
 author 側の `prompt` / `operation` / asset fields が IR と食い違う場合は compile が拒否します（`H3-C001` / `H3-C002` など。format/route の E/W 表とは別レイヤ）。
 
@@ -320,7 +357,7 @@ node bin/pipeline run --config examples/h3-prompt-director/project.yaml --state-
 - `h3_compilations[]`
   - `canonical_prompt` / `adapter_prompt`
   - `validation`（errors / warnings / ok）
-  - `lineage`（`workflow_id: h3-prompt-director`, `workflow_version: "1"`, IR/prompt hashes）
+  - `lineage`（`workflow_id: h3-prompt-director`, `workflow_version: "2"`, IR/prompt hashes）
 - `prompt_guidance` は advisory（catalog 存在 ≠ 実行能力）
 - review HTML に **H3 section**（「H3プロンプト」）が出る
   - request ごとの validation 状態、lineage、canonical / adapter prompt
@@ -365,7 +402,7 @@ manifest provenance（概念）:
 ```json
 {
   "h3": {
-    "workflow_version": "1",
+    "workflow_version": "2",
     "creative_ir_hash": "...",
     "adapter_prompt_hash": "...",
     "artifacts_dir": "h3/<request-id>"
@@ -486,14 +523,33 @@ Tsugite 側の注意:
 - actual run / 課金 / Gate 更新は Coordinator と明示承認の既存境界を維持
 - `run --dry-run` は実行せずに compile / plan 結果を確認する
 
+## Person consistency QA（Phase B・任意）
+
+`quality.person_consistency` は **default off**。有効時:
+
+| 項目 | 実装状態 |
+| --- | --- |
+| policy / schema / sampling / trait mapping | 実装済み（preservation なしでは顔認識しない） |
+| fixture / manual adapter | 実装済み（実 face model ではない。semantic analyzer と偽らない） |
+| Gate 2 auto-pass 抑止 | 実装済み（`semantic_qa_enabled`） |
+| Gate 2/3 人間 decision CLI | 実装済み（`--person-qa-decision` / `--person-qa-reason`、QA 有効時のみ必須） |
+| Gate 2 approval digest | 実装済み（技術 QC + semantic report + decision + reason を canonical に含む） |
+| Gate 3 state `approved_input_digest` | **常に** `sha256(final.mp4)`（launcher / finalize 互換） |
+| Gate 3 person-QA 証跡 | `qa/person-consistency/gate3/approval-binding.json` に report digest + decision + reason を固定。finalize で再検証 |
+| contact sheet 自動生成 | **未実装**（path が要求されれば fail-closed。手動/fixture 配置が必要） |
+| run 中の自動 report 生成 | **未実装**（成功表示に使わない） |
+| external provider | **未接続**（default disabled。approval/cost/region/network が揃わないと停止。local→external fallback なし） |
+| Viewer 詳細 UI 全面 | **data contract のみ**（status/basis/traits/coverage/ambiguity/contact sheet）。専用 UI 完成とは言わない |
+
 ## 後回し（未実装）
 
 次は **未実装**です。実装済みのように扱わないでください。
 
-- MiniMax direct API adapter
-- last-frame-only mode
+- MiniMax direct の実生成（Phase A は preflight / dry-run argv のみ）
 - Context-IR 比較
-- より高度な semantic video QA（identity score 自動判定など）
+- 実 face model による自動 semantic video QA / identity score 閾値判定
+- contact sheet / person-consistency report の自動生成
+- external person-consistency provider 接続
 
 ## 実行例（dry のみ）
 

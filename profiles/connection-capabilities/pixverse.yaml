@@ -1,0 +1,39 @@
+schema_version: 1
+kind: connection-capability-profile
+connection_id: pixverse
+transport: cli
+exact_model_routes:
+  - model: minimax-h3
+    provider_model: minimax-h3
+    modes:
+      - text-to-video
+      - first-frame
+      - first-last
+      - reference
+    family: minimax
+  - model: v6
+    provider_model: v6
+    modes:
+      - text-to-video
+      - first-frame
+    family: pixverse
+  - model: c1
+    provider_model: c1
+    modes:
+      - text-to-video
+      - first-frame
+    family: pixverse
+auth_env_names:
+  - PIXVERSE_API_KEY
+submit: false
+poll: false
+cancel: false
+download: false
+idempotency: none
+pricing_status: unknown
+runtime_readiness: planning-only
+adapter_id: pixverse
+source:
+  pin: adapters/pixverse/constraints.yaml
+  version: 2026-08-08
+  digest: 852c33a05ed15a70b242f86496c72e7d51d6f472b83e370c465650d0c4ec8701

@@ -6,6 +6,7 @@ import type {
   ViewerMediaPreview,
   ViewerWorkflowStatus
 } from "./workflow.js";
+import { personConsistencyDetailFacts } from "../qa/personConsistency/viewerModel.js";
 
 export type ViewerWorkflowDetailItem = {
   label: string;
@@ -30,6 +31,8 @@ export type ViewerWorkflowNodeDetails = {
   outputs: ViewerWorkflowDetailItem[];
   previews?: ViewerMediaPreview[];
   approval?: ViewerWorkflowApprovalDetails;
+  /** Optional P5 person-consistency panel payload (viewer display only; never mutates Gates). */
+  personConsistency?: import("../qa/personConsistency/viewerModel.js").ViewerPersonConsistencyEvidence;
 };
 
 type DetailContext = {
@@ -192,27 +195,46 @@ function gate2Details(context: DetailContext): ViewerWorkflowNodeDetails {
   const backend = toolName(plan.backend);
   const decision = gateDecision("gate_2", context, `${backend}の最終編集へ進める状態にしました。`);
   const checkpoints = gate2Checkpoints(qc, totalDuration, targetDuration, durationDelta);
+  const personFacts = artifacts.personConsistencyGate2
+    ? personConsistencyDetailFacts(artifacts.personConsistencyGate2)
+    : [];
   return {
     purpose: "生成素材と構成が編集に耐えられるかを確認し、最終編集へ進めてよいか人が承認する工程です。",
-    activity: "全素材の読み込みと、破損、尺、解像度、フレームレート、必要な音声の有無の自動検査",
+    activity: "全素材の読み込みと、破損、尺、解像度、フレームレート、必要な音声の有無の自動検査、任意の人物一貫性証跡確認",
     outcome: qc?.ok === false ? `自動検査で${qc.issues?.length ?? 0}件の問題を検出しました。${decision.decision}` : decision.decision,
     inputs: [{
       label: "生成済み素材と編集構成",
       description: "映像、画像、音声と、それらをどの順番・尺で編集するかを定義した制作一式です。",
       reference: "manifest.json / gate2-qc.json",
-      facts: [`素材総数: ${assetCount}点`, `構成尺: ${seconds(totalDuration)}`, ...assetKindFacts(qc)]
+      facts: [
+        `素材総数: ${assetCount}点`,
+        `構成尺: ${seconds(totalDuration)}`,
+        ...assetKindFacts(qc),
+        ...personFacts
+      ]
     }],
     outputs: [{
       label: "最終編集への進行判断",
       description: "検査済みの素材と構成を編集エンジンへ渡してよいかという判断結果です。",
       reference: "gate-2.result",
-      facts: [decision.decision]
+      facts: [decision.decision, ...personFacts]
     }],
     approval: {
       subject: `生成済み${assetCount}点の素材と${formatNumber(totalDuration)}秒の構成を、${backend}の最終編集へ渡すこと`,
-      checkpoints,
+      checkpoints: [
+        ...checkpoints,
+        ...(artifacts.personConsistencyGate2
+          ? [
+              artifacts.personConsistencyGate2.a11y.summary_text,
+              "人物一貫性は自動scoreだけで通さず、人のaccept/revise/accept-not-evaluable判断が必要"
+            ]
+          : [])
+      ],
       ...decision
-    }
+    },
+    ...(artifacts.personConsistencyGate2
+      ? { personConsistency: artifacts.personConsistencyGate2 }
+      : {})
   };
 }
 
@@ -248,27 +270,41 @@ function gate3Details(context: DetailContext): ViewerWorkflowNodeDetails {
   const qc = artifacts.gate3Qc;
   const outputName = fileName(qc?.outputPath) ?? "final.mp4";
   const decision = gateDecision("gate_3", context, "最終動画を承認し、納品可能な完成品として採用しました。");
+  const personFacts = artifacts.personConsistencyGate3
+    ? personConsistencyDetailFacts(artifacts.personConsistencyGate3)
+    : [];
   return {
     purpose: "書き出した動画の技術品質と視聴品質を確認し、完成品として採用するか人が判断する工程です。",
-    activity: "再生時間、画面サイズ、fps、音声、黒画面、長い無音の検査と、最終動画の目視確認",
+    activity: "再生時間、画面サイズ、fps、音声、黒画面、長い無音の検査と、最終動画の目視確認、任意の人物一貫性証跡確認",
     outcome: qc?.ok === false ? `最終検査で${qc.issues?.length ?? 0}件の問題を検出しました。${decision.decision}` : decision.decision,
     inputs: [{
       label: "レンダリング済みの最終動画",
       description: "映像と音声を一本に統合し、最終検査へ提出された動画です。",
       reference: `${outputName} / gate3-qc.json`,
-      facts: finalOutputFacts(qc, plan)
+      facts: [...finalOutputFacts(qc, plan), ...personFacts]
     }],
     outputs: [{
       label: "最終成果物の採用判断",
       description: "この動画を完成品として納品・公開に使用してよいかという最終判断です。",
       reference: "gate-3.result",
-      facts: [decision.decision]
+      facts: [decision.decision, ...personFacts]
     }],
     approval: {
       subject: `${outputName}を納品可能な最終成果物として採用すること`,
-      checkpoints: gate3Checkpoints(qc, plan),
+      checkpoints: [
+        ...gate3Checkpoints(qc, plan),
+        ...(artifacts.personConsistencyGate3
+          ? [
+              artifacts.personConsistencyGate3.a11y.summary_text,
+              "人物一貫性は自動scoreだけで通さず、人のaccept/revise/accept-not-evaluable判断が必要"
+            ]
+          : [])
+      ],
       ...decision
-    }
+    },
+    ...(artifacts.personConsistencyGate3
+      ? { personConsistency: artifacts.personConsistencyGate3 }
+      : {})
   };
 }
 

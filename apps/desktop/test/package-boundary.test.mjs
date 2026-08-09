@@ -37,12 +37,13 @@ async function fixture() {
   await put(root, "adapters/demo/untracked.txt", "do-not-copy\n");
   await put(root, "projects/client/project.yaml", "do-not-copy\n");
   await put(root, "templates/paid/project.yaml", "do-not-copy\n");
+  await put(root, "bundled-templates/starter/template.yaml", "id: starter\n");
   await put(root, "media/source.mov", "do-not-copy\n");
   await put(root, "output/final.mp4", "do-not-copy\n");
   await put(root, "tmp/debug.txt", "do-not-copy\n");
 
   execFileSync("git", ["init", "-q"], { cwd: root });
-  execFileSync("git", ["add", "package.json", "package-lock.json", "adapters/demo/adapter.yaml", "adapters/demo/.env", "adapters/demo/private-key.pem", "backends", "connections", "knowledge", "projects", "templates", "media", "output", "tmp"], { cwd: root });
+  execFileSync("git", ["add", "package.json", "package-lock.json", "adapters/demo/adapter.yaml", "adapters/demo/.env", "adapters/demo/private-key.pem", "backends", "connections", "knowledge", "projects", "templates", "bundled-templates", "media", "output", "tmp"], { cwd: root });
   return { root, desktopRoot, nodeExecutable: join(root, "fake-node") };
 }
 
@@ -66,6 +67,10 @@ test("stages generated outputs and only safe tracked runtime assets", async () =
   assert.equal(
     await readFile(join(result.runtimeRoot, "tsugite", "backends", "remotion", "alpineTourism.js"), "utf8"),
     "export const AlpineTourism = {};\n"
+  );
+  assert.equal(
+    await readFile(join(result.runtimeRoot, "tsugite", "bundled-templates", "starter", "template.yaml"), "utf8"),
+    "id: starter\n"
   );
 
   const staged = new Set(result.files);

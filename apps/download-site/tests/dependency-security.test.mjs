@@ -14,6 +14,7 @@ const EXPECTED_OVERRIDES = {
   "minimatch": "10.2.5",
   "fast-uri": "3.1.5",
   "js-yaml": "4.3.1",
+  nanoid: "3.3.17",
   "postcss": "8.5.25",
   "react-server-dom-webpack": "19.2.8",
   "sharp": "0.35.3",
@@ -32,6 +33,7 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
 
   assert.equal(manifest.dependencies.next, "^16.2.11");
   assert.equal(manifest.devDependencies["eslint-config-next"], "^16.2.11");
+  assert.equal(manifest.devDependencies.vinext, "0.0.45");
   assert.deepEqual(manifest.overrides, EXPECTED_OVERRIDES);
   assert.equal(
     manifest.scripts["security:audit"],
@@ -46,14 +48,23 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.5");
   assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.1");
+  assert.equal(lockfile.packages["node_modules/nanoid"].version, "3.3.17");
   assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.25");
   assert.equal(lockfile.packages["node_modules/next/node_modules/postcss"], undefined);
   assert.equal(lockfile.packages["node_modules/sharp"].version, "0.35.3");
   assert.equal(lockfile.packages["node_modules/undici"].version, "7.29.0");
+  assert.equal(lockfile.packages["node_modules/vinext"].version, "0.0.45");
+  assert.equal(lockfile.packages["node_modules/image-size"], undefined);
   // No unpatched brace-expansion leftovers after the global override.
   for (const [path, entry] of Object.entries(lockfile.packages)) {
     if (path.endsWith("node_modules/brace-expansion")) {
       assert.equal(entry.version, "5.0.9", path);
+    }
+    if (path.endsWith("node_modules/nanoid")) {
+      assert.equal(entry.version, "3.3.17", path);
+    }
+    if (path.endsWith("node_modules/image-size")) {
+      assert.fail(`unexpected image-size lock entry: ${path}`);
     }
   }
 

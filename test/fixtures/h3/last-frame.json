@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "target": {
+    "model": "minimax-h3",
+    "mode": "last-frame",
+    "duration": 5,
+    "quality": "768p",
+    "aspect": "16:9",
+    "audio": true
+  },
+  "subjects": [
+    {
+      "id": "hero",
+      "description": "runner in a red jacket",
+      "source_asset": "end_image"
+    }
+  ],
+  "assets": [
+    {
+      "id": "end_image",
+      "type": "image",
+      "path": "assets/end.png",
+      "role": "last_frame"
+    }
+  ],
+  "shots": [
+    {
+      "id": "shot_1",
+      "start_ms": 0,
+      "end_ms": 3000,
+      "visual": "Live-action, cinematic. A medium shot frames the runner accelerating along the wet shore toward the final pose.",
+      "camera": {
+        "type": "track",
+        "speed": "medium",
+        "direction": "from the side"
+      }
+    },
+    {
+      "id": "shot_2",
+      "start_ms": 3000,
+      "end_ms": 5000,
+      "transition": "cut",
+      "visual": "A close-up settles on the runner's final stride at the shoreline, silhouette locked to the end image.",
+      "camera": {
+        "type": "static"
+      }
+    }
+  ],
+  "sound": {
+    "soundscape": "Footsteps on wet stones and soft wind.",
+    "music": {
+      "enabled": false
+    }
+  }
+}

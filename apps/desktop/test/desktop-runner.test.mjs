@@ -44,7 +44,12 @@ test("runner uses the selected Node, strips only the pipeline entry, and capture
   child.stderr.end("warn\n");
   child.emit("close", 7);
 
-  assert.deepEqual(await pending, { exitCode: 7, stdout: "ok\n", stderr: "warn\n" });
+  assert.deepEqual(await pending, {
+    exitCode: 7,
+    stdout: "ok\n",
+    stderr: "warn\n",
+    truncated: false
+  });
   assert.equal(runner.hasActive(), false);
   assert.deepEqual(calls, [{
     executable: "/runtime/bin/node",
@@ -146,6 +151,82 @@ test("runner caps retained stdout and stderr without stopping stream draining", 
 
   assert.equal(Buffer.byteLength(result.stdout), 16 * 1024);
   assert.equal(Buffer.byteLength(result.stderr), 16 * 1024);
+  assert.equal(result.truncated, true);
+});
+
+test("B1: per-call maxOutputBytes retains full ~74KiB maintenance JSON with exit 0", async () => {
+  const CLI_JSON_MAX_BYTES = 256 * 1024;
+  const REALISTIC_BYTES = 74_872;
+  const child = fakeChild();
+  const runner = createPipelineRunner({
+    nodeExecutable: "/runtime/bin/node",
+    cliModulePath: "/runtime/build/cli.js",
+    runtimeRoot: "/runtime",
+    platform: "darwin",
+    // Desktop default is 16KiB — maintenance must override per call.
+    maxOutputBytes: 16 * 1024,
+    spawnProcess: () => child
+  });
+
+  const payload = {
+    ok: true,
+    command: "worktrees",
+    issues: [],
+    applied: false,
+    git_common_dir: "/repo/.git",
+    primary_path: "/repo",
+    current_path: "/repo",
+    main_branch: "main",
+    worktrees: [{
+      path: "/repo",
+      is_primary: true,
+      is_current: true,
+      branch: "main",
+      head: "a".repeat(40),
+      merged_into_main: true,
+      dirty_tracked: false,
+      dirty_untracked: false,
+      locked: false,
+      missing: false,
+      removable: false,
+      block_reasons: ["primary"],
+      ignored_protected: Array.from({ length: 200 }, (_, i) => `projects/p${i}/pad-${"x".repeat(200)}`),
+      ignored_other: [],
+      status_entries: []
+    }],
+    pad: "y".repeat(REALISTIC_BYTES)
+  };
+  let body = JSON.stringify(payload);
+  // Pin to the realistic production size class (~74KiB).
+  if (Buffer.byteLength(body) < REALISTIC_BYTES) {
+    payload.pad = "y".repeat(REALISTIC_BYTES - Buffer.byteLength(body) + payload.pad.length);
+    body = JSON.stringify(payload);
+  }
+  assert.ok(Buffer.byteLength(body) >= REALISTIC_BYTES);
+
+  const pending = runner.run("ignored", ["pipeline", "worktrees", "--json"], {
+    maxOutputBytes: CLI_JSON_MAX_BYTES
+  });
+  child.stdout.end(`${body}\n`);
+  child.stderr.end("");
+  child.emit("close", 0);
+  const result = await pending;
+
+  assert.equal(result.exitCode, 0);
+  assert.ok(Buffer.byteLength(result.stdout) >= REALISTIC_BYTES);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.command, "worktrees");
+  assert.equal(parsed.worktrees[0].path, "/repo");
+
+  await assert.rejects(
+    () => runner.run("ignored", ["pipeline", "x"], { maxOutputBytes: Number.POSITIVE_INFINITY }),
+    /positive safe integer/
+  );
+  await assert.rejects(
+    () => runner.run("ignored", ["pipeline", "x"], { maxOutputBytes: 0 }),
+    /positive safe integer/
+  );
 });
 
 test("dispose terminates active Unix process groups and prevents new commands", async () => {

@@ -43,6 +43,14 @@ import { renderReviewPreview } from "./orchestrator/reviewPreview.js";
 import { inspectGate3RunForApproval, renderAssembledMedia } from "./orchestrator/render.js";
 import { assembleLocalMediaRun, inspectGate2RunForApproval } from "./orchestrator/run.js";
 import {
+  issuesForOuterGateWithPersonQaDecision,
+  loadPersonQaApprovalBinding,
+  parsePersonQaHumanDecision,
+  personConsistencyRequiredForStage,
+  writePersonQaApprovalBinding,
+  type PersonQaHumanDecisionRecord
+} from "./qa/personConsistency/index.js";
+import {
   notifySikumiRunCompleted,
   notifySikumiStateChange,
   projectRootFromStateDir
@@ -143,6 +151,8 @@ type ParsedArgs = {
   paths: string[];
   expectedPlanDigest?: string;
   expectedApprovalDigest?: string;
+  personQaDecision?: string;
+  personQaReason?: string;
   service?: string;
   tool?: string;
   argumentsJson?: string;
@@ -928,6 +938,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ...(validation.h3_compilations && validation.h3_compilations.length > 0
         ? { h3_compilations: validation.h3_compilations }
         : {}),
+      ...(validation.video_prompt_plans && validation.video_prompt_plans.length > 0
+        ? { video_prompt_plans: validation.video_prompt_plans }
+        : {}),
       launcher_visible: launcherShelf?.ok ?? false,
       launcher_already_home: launcherShelf?.alreadyHome,
       launcher_linked: launcherShelf?.linked,
@@ -1102,6 +1115,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       applied: finalized.applied,
       canonical_output: finalized.canonicalOutput,
       completion_record: finalized.recordPath,
+      already_finalized: finalized.alreadyFinalized === true,
       media_files: finalized.mediaFiles,
       retained_media: finalized.retainedMedia,
       planned_bytes: finalized.plannedBytes,
@@ -1132,7 +1146,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.generationConnection,
         validation.audioConnection,
         validation.backend,
-        validation.h3_compilations
+        validation.h3_compilations,
+        validation.video_prompt_plans
       )
     });
   }
@@ -1193,7 +1208,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioAdapter,
       validation.generationConnection,
       validation.audioConnection,
-      validation.backend
+      validation.backend,
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     try {
       const viewer = await writeWorkflowViewer({
@@ -1257,7 +1274,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.generationConnection,
       validation.audioConnection,
       validation.backend,
-      validation.h3_compilations
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     try {
       const review = await writeCreativeReview({
@@ -1327,7 +1345,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.generationConnection,
       validation.audioConnection,
       validation.backend,
-      validation.h3_compilations
+      validation.h3_compilations,
+      validation.video_prompt_plans
     );
     const preview = await renderReviewPreview({
       configPath: args.config!,
@@ -1387,7 +1406,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.audioAdapter,
         validation.generationConnection,
         validation.audioConnection,
-        validation.h3_compilations
+        validation.h3_compilations,
+        validation.video_prompt_plans
       )
     });
   }
@@ -1550,6 +1570,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       approvedCompilation = review.compilation;
     }
+    // Restore Gate 2 person-QA decision from the approval binding so the digest
+    // matches the payload used at approve time (decision + reason + report hash).
+    let gate2PersonQaDecision: PersonQaHumanDecisionRecord | undefined;
+    if (personConsistencyRequiredForStage(validation.project!, "gate_2")) {
+      const runId = validation.project!.run_id ?? validation.project!.slug;
+      const loaded = await loadPersonQaApprovalBinding({
+        runDir: join(stateResult.stateDir, runId),
+        stage: "gate_2"
+      });
+      if (loaded.ok) {
+        gate2PersonQaDecision = loaded.binding.human_decision;
+      }
+    }
     const gate2Inspection = await inspectGate2RunForApproval(
       validation.project!,
       validation.manifest!,
@@ -1557,7 +1590,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.adapter,
       approvedCompilation,
       validation.audioAdapter,
-      validation.promptGuides
+      validation.promptGuides,
+      gate2PersonQaDecision
     );
     if (!gate2Inspection.ok) {
       const issues = gate2Inspection.issues.map((issue) =>
@@ -1727,12 +1761,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "service" | "tool" | "argumentsJson">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson">
     > = {
       "--config": "config",
       "--actor": "actor",
       "--gate": "gate",
       "--decision": "decision",
+      "--person-qa-decision": "personQaDecision",
+      "--person-qa-reason": "personQaReason",
       "--state-dir": "stateDir",
       "--catalog": "catalog",
       "--model": "model",
@@ -2206,6 +2242,44 @@ async function recordGate(
 
   let gateApprovalDigest = reviewApprovalDigest;
 
+  const personQaStage = gate === "gate_2" ? "gate_2" as const : gate === "gate_3" ? "gate_3" as const : undefined;
+  let personQaDecision: PersonQaHumanDecisionRecord | undefined;
+  if (
+    decision === "approved"
+    && personQaStage
+    && personConsistencyRequiredForStage(project, personQaStage)
+  ) {
+    const parsedPersonQa = parsePersonQaHumanDecision({
+      decision: args.personQaDecision,
+      reason: args.personQaReason
+    });
+    if (!parsedPersonQa.ok) {
+      return {
+        ok: false,
+        issues: [
+          {
+            code: "person_qa.human_decision_required",
+            message:
+              "person consistency QA requires --person-qa-decision (accept|revise|accept-not-evaluable) and non-empty --person-qa-reason"
+          },
+          ...parsedPersonQa.issues
+        ],
+        state,
+        statePath: stateLocation.statePath
+      };
+    }
+    personQaDecision = parsedPersonQa.decision;
+    const outerPersonQaIssues = issuesForOuterGateWithPersonQaDecision(decision, personQaDecision);
+    if (outerPersonQaIssues.length > 0) {
+      return {
+        ok: false,
+        issues: outerPersonQaIssues,
+        state,
+        statePath: stateLocation.statePath
+      };
+    }
+  }
+
   if (decision === "approved" && gate === "gate_2") {
     let approvedCompilation;
     if (project.edit.editorial || project.edit.composition) {
@@ -2238,20 +2312,44 @@ async function recordGate(
       adapter,
       approvedCompilation,
       audioAdapter,
-      promptGuides
+      promptGuides,
+      personQaDecision
     );
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
     gateApprovalDigest = inspected.approvalDigest;
+    // Persist Gate 2 person-QA binding so render can rebuild the same approval digest.
+    if (inspected.personQaApprovalBinding) {
+      const runId = project.run_id ?? project.slug;
+      const written = await writePersonQaApprovalBinding({
+        runDir: join(existing.stateDir, runId),
+        binding: inspected.personQaApprovalBinding
+      });
+      if (!written.ok) {
+        return { ok: false, issues: written.issues, state, statePath: stateLocation.statePath };
+      }
+    }
   }
 
   if (decision === "approved" && gate === "gate_3") {
-    const inspected = await inspectGate3RunForApproval(project, existing.stateDir);
+    const inspected = await inspectGate3RunForApproval(project, existing.stateDir, personQaDecision);
     if (!inspected.ok) {
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
     gateApprovalDigest = inspected.approvalDigest;
+    // Persist person-QA binding (report + decision + reason digest) for finalize revalidation.
+    // Gate 3 state.approved_input_digest remains sha256(final.mp4) for launcher compatibility.
+    if (inspected.personQaApprovalBinding) {
+      const runId = project.run_id ?? project.slug;
+      const written = await writePersonQaApprovalBinding({
+        runDir: join(existing.stateDir, runId),
+        binding: inspected.personQaApprovalBinding
+      });
+      if (!written.ok) {
+        return { ok: false, issues: written.issues, state, statePath: stateLocation.statePath };
+      }
+    }
   }
 
   if (
@@ -2530,5 +2628,52 @@ function formatHuman(payload: unknown): string {
 
 if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
   const status = await main();
+  // Large JSON over pipes can exceed the ~64KiB kernel buffer; process.exit()
+  // must wait for stdout/stderr to drain or parents only see truncated output.
+  await drainStdio();
   process.exit(status);
+}
+
+/**
+ * Wait for stdout/stderr to flush (or timeout) before process.exit.
+ * Only waits when the stream already needs a drain (large JSON over a full
+ * pipe). Avoid empty writes — they can keep the process alive long enough for
+ * late Node warnings to append after the JSON body on stderr.
+ */
+export async function drainStdio(options: {
+  timeoutMs?: number;
+  stdout?: NodeJS.WriteStream;
+  stderr?: NodeJS.WriteStream;
+} = {}): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const drain = (stream: NodeJS.WriteStream): Promise<void> => new Promise((resolveDrain) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveDrain();
+    };
+    const timer = setTimeout(done, Math.max(1, timeoutMs));
+    try {
+      if (stream.destroyed || stream.writableEnded) {
+        done();
+        return;
+      }
+      if (stream.writableNeedDrain) {
+        stream.once("drain", done);
+        stream.once("error", done);
+        stream.once("close", done);
+        return;
+      }
+      // Already drained: resolve immediately (do not write("") — pollutes stderr/stdout tests).
+      done();
+    } catch {
+      done();
+    }
+  });
+  await Promise.all([
+    drain(options.stdout ?? process.stdout),
+    drain(options.stderr ?? process.stderr)
+  ]);
 }

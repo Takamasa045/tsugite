@@ -34,7 +34,8 @@ test("dev runtime paths resolve from the desktop source module to the repo", () 
     runtimeRoot: repoRoot,
     launcherModulePath: join(repoRoot, "build", "viewer", "launcher.js"),
     cliModulePath: join(repoRoot, "build", "cli.js"),
-    viewerBundleDir: join(repoRoot, "apps", "workflow-viewer", "dist")
+    viewerBundleDir: join(repoRoot, "apps", "workflow-viewer", "dist"),
+    bundledTemplatesDir: join(repoRoot, "bundled-templates")
   });
 });
 
@@ -50,7 +51,8 @@ test("packaged runtime paths resolve below resourcesPath", () => {
     runtimeRoot,
     launcherModulePath: join(runtimeRoot, "build", "viewer", "launcher.js"),
     cliModulePath: join(runtimeRoot, "build", "cli.js"),
-    viewerBundleDir: join(resourcesPath, "runtime", "viewer")
+    viewerBundleDir: join(resourcesPath, "runtime", "viewer"),
+    bundledTemplatesDir: join(runtimeRoot, "bundled-templates")
   });
 });
 

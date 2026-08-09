@@ -18,6 +18,7 @@ import {
   optionLabelFor,
   partitionRequiredInputs,
   requiredMaterialNotices,
+  resolveAiCanPropose,
   resolveDirectionLines,
   resolveExampleLines,
   resolvePromptGuidesForBrief,
@@ -39,6 +40,7 @@ export type TemplateChecklistTemplate = Pick<
   | 'direction'
   | 'promptGuideCatalog'
   | 'promptGuides'
+  | 'aiCanPropose'
 >
 
 export interface TemplateChecklistProps {
@@ -135,6 +137,11 @@ export function TemplateChecklist({
     () => requiredMaterialNotices(required),
     [required],
   )
+  // 直呼びでも trim 重複除去 + 現在必須 label 除外（React key 警告と矛盾表示を防ぐ）
+  const aiCanPropose = useMemo(
+    () => resolveAiCanPropose(template, choices),
+    [choices, template],
+  )
   const directionLines = useMemo(
     () => resolveDirectionLines(template, choices),
     [choices, template],
@@ -206,13 +213,13 @@ export function TemplateChecklist({
       </div>
 
       <section
-        aria-label="コピー前に用意する必須素材"
+        aria-label="最低限渡すもの"
         className="launcher-template-checklist-handoff"
         role="region"
       >
         <div className="launcher-template-checklist-handoff-heading">
           <span>コピーする前に</span>
-          <h3>この制作依頼と一緒に渡す素材</h3>
+          <h3>最低限渡すもの</h3>
           <p>
             画像やファイル自体はコピーされません。貼り付け先の会話へ添付するか、
             AIが参照できるファイルパスを伝えてください。
@@ -239,6 +246,33 @@ export function TemplateChecklist({
           ))}
         </ul>
       </section>
+
+      {aiCanPropose.length > 0 && (
+        <section
+          aria-label="AIに任せられること"
+          className="launcher-template-checklist-handoff launcher-template-checklist-ai-propose"
+          role="region"
+        >
+          <div className="launcher-template-checklist-handoff-heading">
+            <span>提案してよいこと</span>
+            <h3>AIに任せられること</h3>
+            <p>
+              必須不足として止めず、正本素材と今回の設定から初案を出してよい項目です。
+              提案であることを明示し、事実・実績・権利情報・正本素材は創作しません。
+            </p>
+          </div>
+          <ul className="launcher-template-handoff-materials">
+            {aiCanPropose.map((item) => (
+              <li key={`ai-propose-${item}`}>
+                <b>AI</b>
+                <div>
+                  <strong>{item}</strong>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section
         aria-labelledby={expressionHeadingId}
@@ -319,7 +353,10 @@ export function TemplateChecklist({
           )}
         </button>
         <p className="launcher-template-checklist-copy-scope">
-          目的・選択内容・必須素材・制作条件だけをコピーします。
+          {aiCanPropose.length > 0
+            ? '目的・選択内容・必須素材・AIに任せること・制作条件だけをコピーします。'
+            : '目的・選択内容・必須素材・制作条件だけをコピーします。'}
+          {' '}
           表現プロンプトは上の「表現プロンプトをコピー」から別にコピーしてください。
           任意素材や「向かない用途」はコピーしません。
         </p>
@@ -349,6 +386,9 @@ export function TemplateChecklist({
         <p>
           この画面では生成・実行・Gate更新をしません。制作依頼の控えコピーだけできます。
           コピー後、必須素材と一緒に制作担当のAIへ渡してください。
+          {aiCanPropose.length > 0
+            ? ' AIに任せることの項目は、正本素材と選択設定から初案を出させます。'
+            : ''}
         </p>
       </div>
 

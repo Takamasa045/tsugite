@@ -1,18 +1,21 @@
 /**
- * H3 Prompt Director — phase 1 + 2A/2B public API.
+ * H3 Prompt Director — public API compatibility shim.
  *
- * Provides Creative IR schema, deterministic label mapping, base/reference
- * renderers, static validation, the isolated request compiler, lineage
- * enrichment, and durable run-artifact writers.
+ * Implementation lives in src/videoPromptDirector (provider-neutral core +
+ * h3Compat). This module preserves the historical public export surface:
+ * Creative IR schema, deterministic label mapping, base/reference renderers,
+ * static validation, request compiler, lineage enrichment, and run artifacts.
  * No adapter execution, Gate mutations, or shell concatenation live here.
  *
- * Core is provider-neutral: adapter-route prompts and artifact filenames use
- * generic contracts (`adapter_prompt`, `prompt.<adapterId>.txt`).
+ * H3-specific grammar (Picture labels, FL2VA/L2VA, last-frame-only) is declared
+ * only on the minimax-h3 model prompt profile (renderer: h3-grammar).
  */
 
 export {
   h3CreativeIrSchema,
   h3ModeSchema,
+  h3ModeUiLabel,
+  H3_MODE_UI_LABELS,
   h3ModelSchema,
   H3_CANONICAL_MODEL,
   h3QualitySchema,
@@ -63,7 +66,11 @@ export {
   validateH3AdapterRoute,
   validateH3Warnings,
   H3_ROUTE_MODEL_MISMATCH_CODE,
+  H3_ROUTE_UNSUPPORTED_MODE_CODE,
+  H3_ASSET_BINDING_MISMATCH_CODE,
+  H3_PROVIDER_MODEL_MAPPING_MISSING_CODE,
   type H3ExecutionRouteProfile,
+  type H3RouteModeBinding,
   type H3Issue,
   type H3IssueSeverity,
   type H3ValidationResult,

@@ -186,6 +186,106 @@ describe('workflow parser and validator', () => {
     }
   })
 
+  it('strictly validates personConsistency payload and fails closed on broken values', () => {
+    const validPerson = {
+      stage: 'gate_2',
+      status: 'review',
+      status_label: '要レビュー',
+      basis_summary: 'reference',
+      subjects: [
+        {
+          subject_id: 'hero',
+          basis: 'reference',
+          evaluable_coverage: 1,
+          traits: [{ trait: 'identity', status: 'stable', level: 'required' }],
+          ambiguity_codes: [],
+          observation_count: 1,
+          face_evaluable_count: 1,
+        },
+      ],
+      ambiguities: [],
+      contact_sheet_href: 'qa/person-consistency/gate2/contact-sheet.webp',
+      contact_sheet_alt: 'コンタクトシート',
+      evidence_integrity: 'valid',
+    }
+    const ok = validateWorkflowData({
+      ...validWorkflow,
+      nodes: [{
+        ...validWorkflow.nodes[0],
+        details: {
+          purpose: '確認',
+          activity: '確認中',
+          outcome: '結果',
+          inputs: [],
+          outputs: [],
+          personConsistency: validPerson,
+        },
+      }, validWorkflow.nodes[1]],
+    })
+    expect(ok.success).toBe(true)
+
+    const brokenIntegrity = validateWorkflowData({
+      ...validWorkflow,
+      nodes: [{
+        ...validWorkflow.nodes[0],
+        details: {
+          purpose: '確認',
+          activity: '確認中',
+          outcome: '結果',
+          inputs: [],
+          outputs: [],
+          personConsistency: { ...validPerson, evidence_integrity: 'AUTO_PASS' },
+        },
+      }, validWorkflow.nodes[1]],
+    })
+    expect(brokenIntegrity.success).toBe(false)
+    if (!brokenIntegrity.success) {
+      expect(brokenIntegrity.errors.map((e) => e.path)).toContain(
+        'nodes[0].details.personConsistency.evidence_integrity',
+      )
+    }
+
+    const unsafeHref = validateWorkflowData({
+      ...validWorkflow,
+      nodes: [{
+        ...validWorkflow.nodes[0],
+        details: {
+          purpose: '確認',
+          activity: '確認中',
+          outcome: '結果',
+          inputs: [],
+          outputs: [],
+          personConsistency: {
+            ...validPerson,
+            contact_sheet_href: 'https://evil.example/sheet.webp',
+          },
+        },
+      }, validWorkflow.nodes[1]],
+    })
+    expect(unsafeHref.success).toBe(false)
+    if (!unsafeHref.success) {
+      expect(unsafeHref.errors.map((e) => e.path)).toContain(
+        'nodes[0].details.personConsistency.contact_sheet_href',
+      )
+    }
+
+    const brokenSubjects = validateWorkflowData({
+      ...validWorkflow,
+      nodes: [{
+        ...validWorkflow.nodes[0],
+        details: {
+          purpose: '確認',
+          activity: '確認中',
+          outcome: '結果',
+          inputs: [],
+          outputs: [],
+          personConsistency: { ...validPerson, subjects: 'hero' },
+        },
+      }, validWorkflow.nodes[1]],
+    })
+    expect(brokenSubjects.success).toBe(false)
+  })
+
   it('collects malformed nested fields instead of throwing', () => {
     expect(validateWorkflowData(null).success).toBe(false)
     const malformed = validateWorkflowData({

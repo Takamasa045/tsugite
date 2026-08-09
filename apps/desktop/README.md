@@ -33,4 +33,4 @@ GitHub ActionsのDesktop workflowは手動実行だけです。dependency audit�
 
 package runtime は `process.resourcesPath/runtime/tsugite/` と `process.resourcesPath/runtime/viewer/` に配置します。実行コードは runtime root を cwd とし、workspace の config は absolute path で渡します。
 
-`projects/`、private `templates/`、`media/`、`output/`、`tmp/`、`.env` は runtime に含めません。package test は runtime allowlist とこれらの禁止 path を検査します。
+`projects/`、private `templates/`、`media/`、`output/`、`tmp/`、`.env` は runtime に含めません。公開可能なメタデータだけを置く `bundled-templates/` は runtime に含め、workspaceの同名テンプレートがあればそちらを優先します。package test は runtime allowlist とこれらの禁止 path を検査します。

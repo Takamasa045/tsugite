@@ -1,0 +1,28 @@
+schema_version: 1
+kind: connection-capability-profile
+connection_id: minimax-direct
+transport: cli
+exact_model_routes:
+  - model: minimax-h3
+    provider_model: MiniMax-H3
+    modes:
+      - text-to-video
+      - first-frame
+      - first-last
+      - last-frame
+      - reference
+    family: minimax
+auth_env_names:
+  - MINIMAX_API_KEY
+submit: false
+poll: false
+cancel: false
+download: false
+idempotency: none
+pricing_status: unknown
+runtime_readiness: preflight-only
+adapter_id: minimax
+source:
+  pin: adapters/minimax/constraints.yaml
+  version: 2026-08-08
+  digest: 188eac67e1fb2b7e72ac6091aee081d0c4f1ead41985e54d538af2627b9054fb

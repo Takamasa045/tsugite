@@ -270,11 +270,15 @@ describe("H3 deterministic renderers", () => {
     expect(rendered.sections.non_diegetic_music).toBe("N/A");
   });
 
-  it("renders first-last with first-frame alignment and continuous visual prose", async () => {
+  it("renders first-last with official FL2VA alignment and continuous visual prose", async () => {
     const ir = await loadFixture("first-last.json");
     const rendered = renderH3Prompt(ir);
     expect(rendered.format).toBe("base");
     expect(rendered.sections.integrated_multimodal_description).toContain("<Picture 1>");
+    expect(rendered.sections.integrated_multimodal_description).toContain("<Picture 2>");
+    expect(rendered.sections.integrated_multimodal_description).toContain(
+      "How the reference pictures align with the target video —"
+    );
     expect(rendered.sections.integrated_multimodal_description).toContain("Continuously transform");
   });
 
@@ -851,7 +855,7 @@ describe("project.yaml h3 backward compatibility", () => {
 });
 
 describe("H3 request compiler (phase 2A)", () => {
-  it("maps all four modes to execution fields", async () => {
+  it("maps modes to provider-neutral execution fields", async () => {
     const t2v = compileH3Request(h3Request("t2v", await loadFixture("t2v.json")));
     expect(t2v.ok).toBe(true);
     expect(t2v.compilation!.execution_request).toMatchObject({
@@ -881,11 +885,12 @@ describe("H3 request compiler (phase 2A)", () => {
     const firstLast = compileH3Request(h3Request("fl", await loadFixture("first-last.json")));
     expect(firstLast.ok).toBe(true);
     expect(firstLast.compilation!.execution_request).toMatchObject({
-      operation: "transition",
-      input_mode: "transition",
-      input_images: ["assets/start.png", "assets/end.png"]
+      operation: "video",
+      input_mode: "first-last-frame-to-video",
+      first_frame: "assets/start.png",
+      last_frame: "assets/end.png"
     });
-    expect(firstLast.compilation!.execution_request).not.toHaveProperty("first_frame");
+    expect(firstLast.compilation!.execution_request).not.toHaveProperty("input_images");
 
     const reference = compileH3Request(h3Request("ref", await loadFixture("reference.json")));
     expect(reference.ok).toBe(true);
@@ -1042,7 +1047,7 @@ describe("H3 request compiler (phase 2A)", () => {
     expect(compiled.project.generation!.requests.map((request) => request.input_mode)).toEqual([
       "text-to-video",
       "image-to-video",
-      "transition",
+      "first-last-frame-to-video",
       "reference"
     ]);
     expect(compiled.project.generation!.requests[1]).toMatchObject({
@@ -1050,7 +1055,8 @@ describe("H3 request compiler (phase 2A)", () => {
     });
     expect(compiled.project.generation!.requests[1]?.params).not.toHaveProperty("image");
     expect(compiled.project.generation!.requests[2]).toMatchObject({
-      input_images: ["assets/start.png", "assets/end.png"]
+      first_frame: "assets/start.png",
+      last_frame: "assets/end.png"
     });
     expect(compiled.project.generation!.requests[3]).toMatchObject({
       input_images: ["assets/hero.png"],
@@ -1058,7 +1064,14 @@ describe("H3 request compiler (phase 2A)", () => {
       input_audios: ["assets/voice.wav"]
     });
 
-    const constraints = await validateGenerationConstraints(compiled.project, ["adapters"]);
+    // PixVerse constraints apply after adapter route binding packs first-last → transition.
+    const profile = await loadPixverseRouteProfile();
+    const bound = applyH3ExecutionRouteProfile(compiled.compilations, profile, {
+      project: compiled.project,
+      adapterName: "pixverse"
+    });
+    expect(bound.ok).toBe(true);
+    const constraints = await validateGenerationConstraints(bound.project, ["adapters"]);
     expect(constraints.ok).toBe(true);
     expect(constraints.issues).toEqual([]);
   });

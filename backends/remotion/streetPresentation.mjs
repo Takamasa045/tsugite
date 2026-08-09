@@ -1,4 +1,5 @@
 export const STREET_DIALOGUE_PRESET = "street-dialogue-16x9";
+export const STREET_DIALOGUE_9X16_PRESET = "street-dialogue-9x16";
 
 export const STREET_THEME = {
   paper: "#f6efe3",

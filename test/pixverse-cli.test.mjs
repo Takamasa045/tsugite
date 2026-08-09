@@ -8,7 +8,14 @@ import {
   preflightPixverseRequest,
   pixverseOperationContract
 } from "../adapters/pixverse/pixverseCli.mjs";
-import { compileH3Request, parseH3CreativeIr } from "../src/h3/index.js";
+import {
+  applyH3ExecutionRouteProfile,
+  compileH3Request,
+  parseH3CreativeIr
+} from "../src/h3/index.js";
+import { loadH3ExecutionRouteProfile } from "../src/adapters/constraints.js";
+import { loadAdapterDefinition } from "../src/adapters/registry.js";
+import { projectSchema } from "../src/project/schema.js";
 
 async function loadH3Fixture(name) {
   const raw = JSON.parse(await readFile(join("test/fixtures/h3", name), "utf8"));
@@ -371,8 +378,33 @@ describe("H3 IR compile → PixVerse create args", () => {
     const ir = await loadH3Fixture("first-last.json");
     const compiled = compileH3Request(h3Request("h3-fl", ir));
     expect(compiled.ok).toBe(true);
+    // Stage 1 is provider-neutral; PixVerse packs first/last via route binding.
+    expect(compiled.compilation.execution_request).toMatchObject({
+      operation: "video",
+      input_mode: "first-last-frame-to-video",
+      first_frame: "assets/start.png",
+      last_frame: "assets/end.png"
+    });
 
-    const execution = compiled.compilation.execution_request;
+    const adapter = await loadAdapterDefinition("pixverse", ["adapters"]);
+    const profile = await loadH3ExecutionRouteProfile(adapter.root);
+    const project = projectSchema.parse({
+      slug: "h3-fl-pixverse",
+      name: "h3-fl-pixverse",
+      manifest: "manifest.json",
+      edit: { backend: "fixture" },
+      generation: {
+        adapter: "pixverse",
+        requests: [h3Request("h3-fl", ir)]
+      }
+    });
+    const bound = applyH3ExecutionRouteProfile([compiled.compilation], profile, {
+      project,
+      adapterName: "pixverse"
+    });
+    expect(bound.ok).toBe(true);
+
+    const execution = bound.compilations[0].execution_request;
     expect(execution).toMatchObject({
       operation: "transition",
       input_mode: "transition",

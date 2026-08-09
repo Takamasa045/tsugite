@@ -853,7 +853,7 @@ describe('LauncherApp', () => {
     await screen.findByRole('heading', { name: '制作の見取図を開く' })
     const projectsTab = screen.getByRole('tab', { name: '制作作品' })
     const templatesTab = screen.getByRole('tab', { name: 'テンプレート' })
-    const feedbackTab = screen.getByRole('tab', { name: '好み・学び' })
+    const maintenanceTab = screen.getByRole('tab', { name: '安全な整理' })
 
     projectsTab.focus()
     await user.keyboard('{ArrowRight}')
@@ -862,8 +862,8 @@ describe('LauncherApp', () => {
     expect(projectsTab).toHaveAttribute('tabindex', '-1')
 
     await user.keyboard('{End}')
-    expect(feedbackTab).toHaveFocus()
-    expect(feedbackTab).toHaveAttribute('aria-selected', 'true')
+    expect(maintenanceTab).toHaveFocus()
+    expect(maintenanceTab).toHaveAttribute('aria-selected', 'true')
 
     await user.keyboard('{Home}')
     expect(projectsTab).toHaveFocus()
@@ -920,6 +920,7 @@ describe('LauncherApp', () => {
   })
 
   it('直接編集済み成果物をGate案件と分けた閲覧専用カードで表示する', async () => {
+    const user = userEvent.setup()
     const fetcher = createLauncherFetcher({
       directArtifacts: [{
         id: 'direct-magatama',
@@ -939,6 +940,16 @@ describe('LauncherApp', () => {
     expect(within(card).getByText('Gate外・閲覧のみ')).toBeVisible()
     expect(within(card).queryByRole('button')).not.toBeInTheDocument()
     expect(within(card).queryByText('/Users/example/private/final.mp4')).not.toBeInTheDocument()
+    // 一覧先頭（Gate案件より前）に出す
+    const projectList = screen.getByLabelText('作品を選ぶ')
+    expect(within(projectList).getByRole('heading', { name: 'Gate外の成果物' })).toBeVisible()
+    expect(screen.getByText(/Gate外 1/)).toBeVisible()
+    const shelfHtml = projectList.innerHTML
+    expect(shelfHtml.indexOf('Gate外の成果物')).toBeLessThan(shelfHtml.indexOf('サンプル映像A'))
+
+    await user.type(screen.getByRole('searchbox', { name: '制作案件を検索' }), '勾玉')
+    expect(screen.getByRole('article', { name: '直接編集済み成果物: 勾玉の囁き' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: 'サンプル映像A' })).not.toBeInTheDocument()
   })
 
   it('projectMatchesQueryはパス貼り付けと部分一致の両方で案件を拾う', () => {

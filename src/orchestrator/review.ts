@@ -558,6 +558,7 @@ async function fingerprintGate1SourceAssets(
     ),
     ...(project.generation?.requests ?? []).flatMap((request) => [
       ...(request.first_frame ? [{ scope: "project" as const, src: request.first_frame }] : []),
+      ...(request.last_frame ? [{ scope: "project" as const, src: request.last_frame }] : []),
       ...(request.reference_images ?? []).map((src) => ({ scope: "project" as const, src }))
     ])
   ];

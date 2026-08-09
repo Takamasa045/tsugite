@@ -35,6 +35,15 @@ import {
   projectRootFromStateDir
 } from "../integrations/sikumiOutbox.js";
 import {
+  buildPersonQaApprovalBinding,
+  inspectPersonConsistencyForGate,
+  personConsistencyRequiredForStage,
+  personConsistencyReportRelativePath,
+  personConsistencyContactSheetRelativePath,
+  type PersonQaApprovalBindingV1,
+  type PersonQaHumanDecisionRecord
+} from "../qa/personConsistency/index.js";
+import {
   applyH3ExecutionRouteProfile,
   compileProjectH3,
   enrichH3CompilationsForProject,
@@ -48,6 +57,7 @@ import {
 } from "../h3/runArtifacts.js";
 import { loadProjectPromptGuides } from "../adapters/promptKnowledge.js";
 import { loadH3ExecutionRouteProfile } from "../adapters/constraints.js";
+import { compileProjectVideoPrompts } from "../videoPromptDirector/videoPromptCompile.js";
 
 export type LocalRunH3Artifacts = {
   request_id: string;
@@ -139,6 +149,8 @@ type ResumeMetrics = {
   assetCount: number;
   actualCredits: number;
   approvalDigest: string;
+  /** Present when Gate 2 person-QA human decision is included in the approval digest. */
+  personQaApprovalBinding?: PersonQaApprovalBindingV1;
 };
 
 type ManifestAssetReference = {
@@ -462,6 +474,11 @@ async function evaluateGate2AutoPass(input: {
   if (input.project.gates?.gate_2?.auto_pass !== GATE_2_AUTO_PASS_POLICY) {
     return { passed: false, reason: "not_configured" };
   }
+  // Semantic person-consistency QA requires a human decision; never auto-pass.
+  if (personConsistencyRequiredForStage(input.project, "gate_2")
+    || input.project.quality?.person_consistency?.enabled) {
+    return { passed: false, reason: "semantic_qa_enabled" };
+  }
   if (input.credits !== 0) {
     return { passed: false, reason: `credits: ${input.credits}` };
   }
@@ -494,7 +511,8 @@ export async function inspectGate2RunForApproval(
   adapter?: AdapterDefinition,
   compilation?: EditorialCompilation | ApprovedCompilation,
   audioAdapter?: AdapterDefinition,
-  promptGuides?: H3PromptGuideSource[]
+  promptGuides?: H3PromptGuideSource[],
+  personQaDecision?: PersonQaHumanDecisionRecord
 ): Promise<Result<ResumeMetrics>> {
   const runId = project.run_id ?? project.slug;
   const runDir = join(stateDir, runId);
@@ -525,6 +543,7 @@ export async function inspectGate2RunForApproval(
         adapterName: adapter?.name ?? project.generation?.adapter
       });
       h3Compilations = routed.compilations ?? h3Compilations;
+      if (routed.project) h3Project = routed.project;
       if (!routed.ok) {
         return { ok: false, issues: routed.issues };
       }
@@ -549,6 +568,9 @@ export async function inspectGate2RunForApproval(
     manifestPath: join(runDir, "manifest.json"),
     qcReportPath: join(runDir, "gate2-qc.json"),
     runLogPath: join(runDir, "run-log.md"),
+    project,
+    runDir,
+    ...(personQaDecision ? { personQaDecision } : {}),
     ...(compilation ? {
       edlPath: join(
         runDir,
@@ -667,6 +689,7 @@ async function assembleGeneratedMediaRun(
       adapterName: adapter.name
     });
     h3Compilations = routed.compilations ?? h3Compilations;
+    if (routed.project) project = routed.project;
     if (!routed.ok) {
       return { ok: false, issues: routed.issues };
     }
@@ -741,6 +764,21 @@ async function assembleGeneratedMediaRun(
       ok: false,
       issues: [{ code: "run.invalid_state", message: "run requires a Gate 1 approved running state" }]
     };
+  }
+
+  // video_prompt authoring is planning/dry-run only in P0–P4. Re-evaluate with
+  // intent=execute so planning-only compilations never reach billing adapters.
+  const hasVideoPrompt = project.generation!.requests.some(
+    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
+  );
+  if (hasVideoPrompt) {
+    const videoCompile = await compileProjectVideoPrompts(project, {
+      intent: "execute"
+    });
+    if (!videoCompile.ok) {
+      return { ok: false, issues: videoCompile.issues };
+    }
+    if (videoCompile.project) project = videoCompile.project;
   }
 
   await mkdir(runDir, { recursive: true });
@@ -972,6 +1010,7 @@ async function assembleGeneratedMediaRun(
 
 function hasFirstClassGenerationAssets(request: {
   first_frame?: string;
+  last_frame?: string;
   reference_images?: string[];
   input_images?: string[];
   input_video?: string;
@@ -979,6 +1018,7 @@ function hasFirstClassGenerationAssets(request: {
   input_audios?: string[];
 }): boolean {
   return Boolean(request.first_frame)
+    || Boolean(request.last_frame)
     || Boolean(request.input_video)
     || (request.reference_images?.length ?? 0) > 0
     || (request.input_images?.length ?? 0) > 0
@@ -1251,6 +1291,10 @@ async function inspectAwaitingGate2Artifacts(input: {
   edlKind?: "editorial" | "composition";
   edlDigest?: string;
   approvedManifest?: Manifest;
+  /** When set, person-consistency policy can fail-close Gate 2 inspection. */
+  project?: Project;
+  runDir?: string;
+  personQaDecision?: PersonQaHumanDecisionRecord;
 }): Promise<Result<ResumeMetrics>> {
   if (!(await isFile(input.manifestPath))) {
     return {
@@ -1473,12 +1517,71 @@ async function inspectAwaitingGate2Artifacts(input: {
         gate2_qc: freshQcReport
       };
 
+  // Person-consistency semantic QA (optional): fail closed when policy requires Gate 2.
+  let approvalDigest = digest(approvalPayload);
+  let personQaApprovalBinding: PersonQaApprovalBindingV1 | undefined;
+  if (input.project && input.runDir && personConsistencyRequiredForStage(input.project, "gate_2")) {
+    const reportRelativePath = personConsistencyReportRelativePath("gate_2");
+    const contactSheetRelativePath = personConsistencyContactSheetRelativePath("gate_2");
+    const personQa = await inspectPersonConsistencyForGate({
+      project: input.project,
+      stage: "gate_2",
+      runDir: input.runDir,
+      reportRelativePath,
+      contactSheetRelativePath,
+      requireHumanDecision: false
+    });
+    if (!personQa.ok) return { ok: false, issues: personQa.issues };
+    if (!personQa.report || !personQa.report_sha256) {
+      return {
+        ok: false,
+        issues: [{
+          code: "person_qa.report_missing",
+          message: "person consistency report is required for Gate 2 when quality.person_consistency is enabled",
+          path: reportRelativePath
+        }]
+      };
+    }
+
+    if (input.personQaDecision) {
+      const decided = await inspectPersonConsistencyForGate({
+        project: input.project,
+        stage: "gate_2",
+        runDir: input.runDir,
+        reportRelativePath,
+        contactSheetRelativePath,
+        requireHumanDecision: true,
+        humanDecision: input.personQaDecision
+      });
+      if (!decided.ok) return { ok: false, issues: decided.issues };
+      personQaApprovalBinding = buildPersonQaApprovalBinding({
+        stage: "gate_2",
+        reportRelativePath,
+        reportSha256: personQa.report_sha256,
+        reportStatus: personQa.report.status,
+        contactSheetRelativePath: decided.binding?.contact_sheet_relative_path,
+        contactSheetSha256: decided.binding?.contact_sheet_sha256,
+        humanDecision: input.personQaDecision,
+        technicalQc: freshQcReport,
+        baseApprovalPayload: approvalPayload
+      });
+      approvalDigest = personQaApprovalBinding.person_qa_approval_digest;
+    } else {
+      // Preview digest binds report hash; human decision is still required for coordinator approve.
+      approvalDigest = digest({
+        ...approvalPayload,
+        person_consistency_report_sha256: personQa.report_sha256
+      });
+    }
+  }
+
   return {
     ok: true,
     issues: [],
     assetCount: assetReferences.length,
     actualCredits: runLog.log.actualCredits,
-    approvalDigest: digest(approvalPayload)
+    approvalDigest,
+    ...(personQaApprovalBinding ? { personQaApprovalBinding } : {})
   };
 }
 

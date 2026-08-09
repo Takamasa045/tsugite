@@ -1,0 +1,62 @@
+schema_version: 1
+kind: model-prompt-profile
+id: video-3.0
+display_name: Kling VIDEO 3.0 (planning)
+source:
+  pin: knowledge/video-models/kling/prompt-guide.yaml#video-3.0@2026-07-10.1
+  version: 2026-07-10.1
+  review_after: 2026-10-10
+  digest: 4d9b093813031fa1e8b0e2f829bf2c1a22741444654152c5372206b678cc6ecc
+modes:
+  text-to-video:
+    supported: true
+    input_mode: text-to-video
+    asset_roles: []
+    notes: []
+  first-frame:
+    supported: true
+    input_mode: image-to-video
+    asset_roles:
+      - first_frame
+    notes: []
+  first-last:
+    supported: false
+    asset_roles: []
+    notes: []
+  last-frame:
+    supported: false
+    asset_roles: []
+    notes: []
+  reference:
+    supported: false
+    asset_roles: []
+    notes: []
+durations:
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+aspects:
+  - 16:9
+  - 9:16
+  - 1:1
+resolutions:
+  - 720p
+  - 1080p
+  - 4k
+renderer: plain-prompt
+label_dialect: none
+unsupported:
+  - first-last
+  - last-frame
+  - reference
+exclusive_semantics: []

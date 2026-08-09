@@ -108,6 +108,48 @@ describe("hyperframes document", () => {
     expect(html).toContain("speaker-chip");
   });
 
+  it("keeps the timed source video visible behind photo-first themed overlays", () => {
+    const html = renderIndexHtml(baseManifest({ theme: "claude", photo_first: true }));
+    const videoRule = html.match(/video \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+
+    expect(videoRule).toContain("opacity: 1;");
+    expect(videoRule).toContain("z-index: 0;");
+  });
+
+  it("preserves the hidden source plate for ordinary themed presentations", () => {
+    const html = renderIndexHtml(baseManifest({ theme: "claude" }));
+    const videoRule = html.match(/video \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+
+    expect(videoRule).toContain("opacity: 0;");
+  });
+
+  it("uses a readable vertical type scale for photo-first 9:16 layouts", () => {
+    const html = renderIndexHtml({
+      ...baseManifest({ theme: "default", photo_first: true }),
+      meta: { aspect: "9:16", fps: 30, target_duration_seconds: 10, slug: "hf-vertical" },
+      clips: [
+        {
+          id: "background",
+          src: "media/background.mp4",
+          in: 0,
+          out: 10,
+          duration: 10,
+          fps: 30,
+          resolution: { width: 1080, height: 1920 },
+          audio: false
+        }
+      ]
+    });
+    const headline = html.match(/\.visual \[data-role="headline"\] \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+    const caption = html.match(/\.caption \{([\s\S]*?)\n    \}/)?.[1] ?? "";
+    const headlineSize = Number(headline.match(/font-size:\s*([\d.]+)px/)?.[1] ?? 0);
+    const captionSize = Number(caption.match(/font-size:\s*([\d.]+)px/)?.[1] ?? 0);
+
+    // 1080×1920 photo-first should not inherit the old 0.56 landscape scale.
+    expect(headlineSize).toBeGreaterThanOrEqual(80);
+    expect(captionSize).toBeGreaterThanOrEqual(44);
+  });
+
   it("gives every timed visual layer the attributes the HyperFrames runtime needs", () => {
     const html = renderIndexHtml(baseManifest({ theme: "claude" }));
     const cards = [...html.matchAll(/<div[^>]*class="clip visual"[^>]*>/g)].map((match) => match[0]);

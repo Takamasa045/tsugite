@@ -1,0 +1,38 @@
+schema_version: 1
+kind: connection-capability-profile
+connection_id: kling-direct
+transport: cli
+exact_model_routes:
+  - model: video-3.0
+    provider_model: kling-v3
+    modes:
+      - text-to-video
+      - first-frame
+    family: kling
+  - model: video-3.0-omni
+    provider_model: kling-v3-omni
+    modes:
+      - text-to-video
+      - first-frame
+    family: kling
+  - model: o1
+    provider_model: o1
+    modes:
+      - text-to-video
+      - first-frame
+    family: kling
+auth_env_names:
+  - KLING_ACCESS_KEY
+  - KLING_SECRET_KEY
+submit: false
+poll: false
+cancel: false
+download: false
+idempotency: none
+pricing_status: unknown
+runtime_readiness: planning-only
+adapter_id: kling
+source:
+  pin: adapters/kling/constraints.yaml
+  version: 2026-08-08
+  digest: c3ffcbd9aa52fd5109b4710721a679f966c663a51dbf374b0f42cc422f84165a

@@ -1,0 +1,30 @@
+{
+  "fixture": "t2v.json",
+  "workflow_id": "h3-prompt-director",
+  "workflow_version": "2",
+  "creative_ir_hash": "c9659d7d3ddd67d2687e9fad20b87cdea9b2f4911d81889ccb069bf1c11e3e49",
+  "canonical_prompt": "integrated_multimodal_description:\n[Shot 1] Live-action, cinematic. A medium-wide shot frames a Japanese man standing beside a mountain lake at sunrise. Mist drifts across the water. The camera pushes in with small amplitude at slow speed.\n\n[Shot 2] At 00:05.000, the camera cuts to a close-up of his face as he turns toward the camera. The camera holds a static shot. The Japanese man with a calm, slightly low voice (S1) says:\n<d>[Japanese]AIと自然が、やっと同じ場所で動き始めた。</d>\n\noverall_soundscape:\nSoft wind moves through the trees. Gentle lake water laps against the shore, accompanied by distant bird calls and subtle clothing movement.\n\nnon_diegetic_music:\nSparse acoustic guitar notes at a slow tempo, gradually joined by soft ambient synthesizer pads.",
+  "canonical_prompt_hash": "4877ec7b25963c23631b5f9e057ec3a0313f2ccffec264b1e2eb9ad7ca98be53",
+  "adapter_prompt_hash": "4877ec7b25963c23631b5f9e057ec3a0313f2ccffec264b1e2eb9ad7ca98be53",
+  "validation_ok": true,
+  "error_codes": [],
+  "warning_codes": [],
+  "issue_codes": [],
+  "compile_ok": true,
+  "lineage": {
+    "workflow_id": "h3-prompt-director",
+    "workflow_version": "2",
+    "creative_ir_hash": "c9659d7d3ddd67d2687e9fad20b87cdea9b2f4911d81889ccb069bf1c11e3e49",
+    "canonical_prompt_hash": "4877ec7b25963c23631b5f9e057ec3a0313f2ccffec264b1e2eb9ad7ca98be53",
+    "adapter_prompt_hash": "4877ec7b25963c23631b5f9e057ec3a0313f2ccffec264b1e2eb9ad7ca98be53"
+  },
+  "execution_request_snapshot": {
+    "model": "minimax-h3",
+    "duration": 10,
+    "aspect": "16:9",
+    "operation": "video",
+    "input_mode": "text-to-video",
+    "params_quality": "1440p",
+    "params_audio": true
+  }
+}

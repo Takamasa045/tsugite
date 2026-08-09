@@ -125,8 +125,61 @@ export function fontFaceDeclarations(...stacks) {
 
 function themedStyles(manifest, size, theme) {
   const vertical = manifest.meta.aspect === "9:16";
-  const scale = Math.min(size.width / 1920, size.height / 1080);
+  // 9:16 must use a 1080×1920 design basis. Using the landscape 1920×1080 basis
+  // shrinks every type size by ~0.56 and makes short-form captions unreadable.
+  const scale = vertical
+    ? Math.min(size.width / 1080, size.height / 1920)
+    : Math.min(size.width / 1920, size.height / 1080);
   const isClaude = theme.id === "claude";
+  const photoFirst = manifest.presentation?.photo_first === true;
+  // Design-unit type scale (multiplied by `scale` below). Photo-first vertical
+  // needs poster-like hierarchy so copy still reads over full-bleed photos.
+  const type = photoFirst && vertical
+    ? {
+        headerLabel: 22,
+        headerTitle: 42,
+        kicker: 26,
+        headline: 84,
+        turnHeadline: 76,
+        detail: 36,
+        step: 34,
+        stepIndex: 28,
+        badge: 28,
+        caption: 46,
+        captionChip: 24
+      }
+    : vertical
+      ? {
+          headerLabel: 20,
+          headerTitle: 38,
+          kicker: 24,
+          headline: 74,
+          turnHeadline: 68,
+          detail: 34,
+          step: 32,
+          stepIndex: 26,
+          badge: 26,
+          caption: 44,
+          captionChip: 22
+        }
+      : {
+          headerLabel: 18,
+          headerTitle: 28,
+          kicker: 20,
+          headline: 62,
+          turnHeadline: 56,
+          detail: 30,
+          step: 26,
+          stepIndex: 20,
+          badge: 22,
+          caption: 40,
+          captionChip: 20
+        };
+  const visualTop = photoFirst && vertical ? 120 : vertical ? 108 : 108;
+  const visualSide = vertical ? (photoFirst ? 48 : 56) : 340;
+  const visualHeight = photoFirst && vertical ? 860 : vertical ? 700 : 680;
+  const panelPadY = photoFirst && vertical ? 44 : 52;
+  const panelPadX = photoFirst && vertical ? 40 : 60;
   return `${fontFaceDeclarations(theme.bodyFontFamily, theme.headlineFontFamily)}
     html, body {
       margin: 0;
@@ -202,14 +255,16 @@ function themedStyles(manifest, size, theme) {
       transform-origin: left center;
       transform: scaleX(0);
     }
-    /* The plate sits under an opaque ground and only carries duration. */
+    /* A photo-first presentation keeps the edited source visible; the legacy
+       article stage intentionally leaves its plate hidden under the theme. */
     video {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       object-fit: cover;
-      opacity: 0;
+      opacity: ${photoFirst ? 1 : 0};
+      z-index: ${photoFirst ? 0 : "auto"};
     }
     .header {
       position: absolute;
@@ -225,14 +280,14 @@ function themedStyles(manifest, size, theme) {
       border-bottom: ${round(1 * scale)}px solid rgba(25, 25, 25, 0.08);
     }
     .header .label {
-      font-size: ${round(18 * scale)}px;
+      font-size: ${round(type.headerLabel * scale)}px;
       font-weight: 800;
-      letter-spacing: 0.16em;
+      letter-spacing: 0.12em;
       color: ${theme.label};
     }
     .header .title {
       margin-top: ${round(4 * scale)}px;
-      font-size: ${round(28 * scale)}px;
+      font-size: ${round(type.headerTitle * scale)}px;
       font-weight: 800;
       white-space: nowrap;
       overflow: hidden;
@@ -253,13 +308,13 @@ function themedStyles(manifest, size, theme) {
     /* The card hugs its content and stays centred in the space above the caption bar. */
     .visual {
       position: absolute;
-      top: ${round(108 * scale)}px;
-      left: ${round((vertical ? 80 : 340) * scale)}px;
-      right: ${round((vertical ? 80 : 340) * scale)}px;
-      height: ${round((vertical ? 540 : 680) * scale)}px;
+      top: ${round(visualTop * scale)}px;
+      left: ${round(visualSide * scale)}px;
+      right: ${round(visualSide * scale)}px;
+      height: ${round(visualHeight * scale)}px;
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      justify-content: ${photoFirst && vertical ? "flex-start" : "center"};
       align-items: center;
       gap: ${round(18 * scale)}px;
       padding: 0;
@@ -290,19 +345,20 @@ function themedStyles(manifest, size, theme) {
       object-fit: cover;
       display: block;
     }
-    /* The visible panel is the inner block, so it can shrink to the copy it holds. */
+    /* A photo-first panel stays translucent so the source remains the hero. */
     .visual > .panel {
       position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: ${round(20 * scale)}px;
+      gap: ${round((photoFirst && vertical ? 22 : 20) * scale)}px;
       width: 100%;
-      padding: ${round(52 * scale)}px ${round(60 * scale)}px ${round(48 * scale)}px;
-      border-radius: ${round(theme.cardRadius * scale)}px;
-      border: ${theme.cardBorder};
-      background: ${theme.cardBackground};
-      box-shadow: ${theme.cardShadow};
+      padding: ${round(panelPadY * scale)}px ${round(panelPadX * scale)}px ${round((panelPadY - 4) * scale)}px;
+      border-radius: ${round((photoFirst && vertical ? Math.max(theme.cardRadius, 28) : theme.cardRadius) * scale)}px;
+      border: ${photoFirst ? `${round(1 * scale)}px solid rgba(255, 255, 255, 0.34)` : theme.cardBorder};
+      background: ${photoFirst ? "rgba(11, 20, 30, 0.72)" : theme.cardBackground};
+      color: ${photoFirst ? "#ffffff" : theme.ink};
+      box-shadow: ${photoFirst ? `0 ${round(18 * scale)}px ${round(48 * scale)}px rgba(3, 8, 14, 0.26)` : theme.cardShadow};
       overflow: hidden;
     }
     .visual > .panel::before {
@@ -320,23 +376,25 @@ function themedStyles(manifest, size, theme) {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: ${theme.kicker};
-      background: ${theme.kickerBackground};
-      border: ${round(1 * scale)}px solid rgba(217, 119, 87, 0.22);
+      color: ${photoFirst ? "#ffffff" : theme.kicker};
+      background: ${photoFirst ? "rgba(217, 119, 87, 0.86)" : theme.kickerBackground};
+      border: ${round(1 * scale)}px solid ${photoFirst ? "rgba(255, 255, 255, 0.32)" : "rgba(217, 119, 87, 0.22)"};
       border-radius: 999px;
-      font-size: ${round(20 * scale)}px;
+      font-size: ${round(type.kicker * scale)}px;
       font-weight: 900;
-      letter-spacing: 0.14em;
-      padding: ${round(8 * scale)}px ${round(18 * scale)}px;
+      letter-spacing: ${vertical ? "0.08em" : "0.14em"};
+      padding: ${round((vertical ? 12 : 8) * scale)}px ${round((vertical ? 22 : 18) * scale)}px;
     }
     .visual [data-role="headline"] {
-      max-width: ${round(1180 * scale)}px;
+      max-width: ${round((vertical ? 980 : 1180) * scale)}px;
       font-family: ${theme.headlineFontFamily};
-      font-size: ${round(62 * scale)}px;
+      font-size: ${round(type.headline * scale)}px;
       font-weight: ${theme.headlineWeight};
       letter-spacing: ${theme.headlineLetterSpacing};
-      line-height: 1.14;
+      line-height: ${vertical ? 1.18 : 1.14};
       white-space: pre-line;
+      color: ${photoFirst ? "#ffffff" : theme.ink};
+      text-shadow: ${photoFirst ? `0 ${round(3 * scale)}px ${round(12 * scale)}px rgba(0, 0, 0, 0.34)` : "none"};
     }
     /* Impact cards: pull a stat into a poster-size number for dialogue punch. */
     .visual[data-impact="true"] > .panel {
@@ -363,44 +421,44 @@ function themedStyles(manifest, size, theme) {
       font-weight: 700;
       line-height: 1.25;
       white-space: pre-line;
-      color: ${theme.ink};
+      color: ${photoFirst ? "#ffffff" : theme.ink};
     }
     .visual[data-mood="myth"] > .panel {
-      background: linear-gradient(180deg, #FFFEFA 0%, #F3F1EA 100%);
-      border: ${round(1 * scale)}px dashed rgba(25, 25, 25, 0.18);
+      background: ${photoFirst ? "rgba(11, 20, 30, 0.68)" : "linear-gradient(180deg, #FFFEFA 0%, #F3F1EA 100%)"};
+      border: ${round(1 * scale)}px ${photoFirst ? "dashed rgba(255, 255, 255, 0.36)" : "dashed rgba(25, 25, 25, 0.18)"};
     }
     .visual[data-mood="myth"] [data-role="kicker"] {
-      color: #6A6A63;
-      background: rgba(25, 25, 25, 0.06);
-      border-color: rgba(25, 25, 25, 0.1);
+      color: ${photoFirst ? "#ffffff" : "#6A6A63"};
+      background: ${photoFirst ? "rgba(106, 106, 99, 0.82)" : "rgba(25, 25, 25, 0.06)"};
+      border-color: ${photoFirst ? "rgba(255, 255, 255, 0.28)" : "rgba(25, 25, 25, 0.1)"};
     }
     .visual[data-mood="now"] > .panel,
     .visual[data-mood="proof"] > .panel {
       border: ${round(1.5 * scale)}px solid rgba(217, 119, 87, 0.28);
     }
     .visual[data-mood="next"] > .panel {
-      background: linear-gradient(165deg, #FFF8F4 0%, #FAF9F5 55%, #F0EEE6 100%);
+      background: ${photoFirst ? "rgba(11, 20, 30, 0.72)" : "linear-gradient(165deg, #FFF8F4 0%, #FAF9F5 55%, #F0EEE6 100%)"};
       box-shadow:
-        0 ${round(32 * scale)}px ${round(80 * scale)}px rgba(217, 119, 87, 0.14),
-        0 ${round(4 * scale)}px ${round(14 * scale)}px rgba(25, 25, 25, 0.04);
+        0 ${round(32 * scale)}px ${round(80 * scale)}px ${photoFirst ? "rgba(3, 8, 14, 0.3)" : "rgba(217, 119, 87, 0.14)"},
+        0 ${round(4 * scale)}px ${round(14 * scale)}px ${photoFirst ? "rgba(3, 8, 14, 0.18)" : "rgba(25, 25, 25, 0.04)"};
     }
     .visual[data-mood="turn"] [data-role="headline"] {
-      font-size: ${round(56 * scale)}px;
+      font-size: ${round(type.turnHeadline * scale)}px;
     }
     .visual [data-role="detail"] {
-      max-width: ${round(1000 * scale)}px;
-      color: ${theme.detail};
-      font-size: ${round(30 * scale)}px;
+      max-width: ${round((vertical ? 920 : 1000) * scale)}px;
+      color: ${photoFirst ? "rgba(255, 255, 255, 0.92)" : theme.detail};
+      font-size: ${round(type.detail * scale)}px;
       font-weight: 650;
-      line-height: 1.5;
+      line-height: 1.45;
       white-space: pre-line;
     }
     .visual [data-role="steps"] {
       display: flex;
       flex-direction: column;
-      gap: ${round(12 * scale)}px;
+      gap: ${round((vertical ? 14 : 12) * scale)}px;
       width: 100%;
-      max-width: ${round(1200 * scale)}px;
+      max-width: ${round((vertical ? 980 : 1200) * scale)}px;
     }
     .visual [data-role="step"] {
       display: flex;
@@ -410,12 +468,12 @@ function themedStyles(manifest, size, theme) {
     }
     .visual [data-role="step"] .index {
       flex: 0 0 auto;
-      width: ${round(40 * scale)}px;
-      height: ${round(40 * scale)}px;
+      width: ${round((type.stepIndex + 16) * scale)}px;
+      height: ${round((type.stepIndex + 16) * scale)}px;
       border-radius: 999px;
       background: ${theme.stepActive};
       color: #ffffff;
-      font-size: ${round(20 * scale)}px;
+      font-size: ${round(type.stepIndex * scale)}px;
       font-weight: 900;
       display: flex;
       align-items: center;
@@ -425,12 +483,13 @@ function themedStyles(manifest, size, theme) {
     .visual [data-role="step"] .body {
       flex: 1;
       border-radius: ${round(Math.max(10, theme.cardRadius - 6) * scale)}px;
-      background: ${theme.stepBackground};
-      color: ${theme.stepInk};
-      font-size: ${round(26 * scale)}px;
+      background: ${photoFirst ? "rgba(255, 255, 255, 0.16)" : theme.stepBackground};
+      color: ${photoFirst ? "#ffffff" : theme.stepInk};
+      font-size: ${round(type.step * scale)}px;
       font-weight: 750;
-      padding: ${round(14 * scale)}px ${round(18 * scale)}px;
-      border: ${round(1 * scale)}px solid rgba(25, 25, 25, 0.05);
+      line-height: 1.35;
+      padding: ${round((vertical ? 16 : 14) * scale)}px ${round((vertical ? 20 : 18) * scale)}px;
+      border: ${round(1 * scale)}px solid ${photoFirst ? "rgba(255, 255, 255, 0.18)" : "rgba(25, 25, 25, 0.05)"};
     }
     .visual [data-role="badges"] {
       display: flex;
@@ -440,12 +499,12 @@ function themedStyles(manifest, size, theme) {
     }
     .visual [data-role="badge"] {
       border-radius: ${round(theme.badgeRadius * scale)}px;
-      background: ${theme.badgeBackground};
-      color: ${theme.badgeInk};
-      font-size: ${round(22 * scale)}px;
+      background: ${photoFirst ? "rgba(255, 255, 255, 0.16)" : theme.badgeBackground};
+      color: ${photoFirst ? "#ffffff" : theme.badgeInk};
+      font-size: ${round(type.badge * scale)}px;
       font-weight: 800;
-      padding: ${round(10 * scale)}px ${round(18 * scale)}px;
-      border: ${round(1 * scale)}px solid rgba(25, 25, 25, 0.06);
+      padding: ${round((vertical ? 12 : 10) * scale)}px ${round((vertical ? 20 : 18) * scale)}px;
+      border: ${round(1 * scale)}px solid ${photoFirst ? "rgba(255, 255, 255, 0.18)" : "rgba(25, 25, 25, 0.06)"};
     }
     /* Cast: dialogue energy — active speaker steps forward, idle steps back. */
     .cast {
@@ -545,23 +604,23 @@ function themedStyles(manifest, size, theme) {
     /* Caption reads as a dialogue balloon, rimmed with the active speaker accent. */
     .caption {
       position: absolute;
-      left: ${round((vertical ? 72 : 300) * scale)}px;
-      right: ${round((vertical ? 72 : 300) * scale)}px;
-      bottom: ${round(28 * scale)}px;
-      min-height: ${round(108 * scale)}px;
+      left: ${round((vertical ? 40 : 300) * scale)}px;
+      right: ${round((vertical ? 40 : 300) * scale)}px;
+      bottom: ${round((vertical ? 36 : 28) * scale)}px;
+      min-height: ${round((vertical ? 128 : 108) * scale)}px;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: ${round(18 * scale)}px;
-      padding: ${round(22 * scale)}px ${round(34 * scale)}px;
+      padding: ${round((vertical ? 28 : 22) * scale)}px ${round((vertical ? 30 : 34) * scale)}px;
       border-radius: ${round(theme.captionRadius * scale)}px;
       background: ${theme.captionBackground};
       color: ${theme.captionInk};
       box-shadow: ${theme.captionShadow}, 0 0 0 ${round(1 * scale)}px rgba(255,255,255,0.04);
       border: ${round(2 * scale)}px solid color-mix(in srgb, var(--speaker-accent, ${theme.kicker}) 55%, transparent);
-      font-size: ${round(40 * scale)}px;
+      font-size: ${round(type.caption * scale)}px;
       font-weight: 800;
-      line-height: 1.32;
+      line-height: 1.35;
       letter-spacing: -0.02em;
       text-align: center;
       text-wrap: balance;
@@ -571,7 +630,7 @@ function themedStyles(manifest, size, theme) {
       flex: 0 0 auto;
       border-radius: 999px;
       padding: ${round(8 * scale)}px ${round(16 * scale)}px;
-      font-size: ${round(20 * scale)}px;
+      font-size: ${round(type.captionChip * scale)}px;
       font-weight: 900;
       color: #ffffff;
       background: var(--speaker-accent, ${theme.kicker});

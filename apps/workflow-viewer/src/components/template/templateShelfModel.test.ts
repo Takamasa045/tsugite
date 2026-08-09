@@ -7,7 +7,10 @@ import {
   defaultOptionIdFor,
   fillDefaultsToChecklist,
   initialChoicesForTemplate,
+  isLauncherTemplate,
   partitionRequiredInputs,
+  requiredMaterialNotices,
+  resolveAiCanPropose,
   resolveDirectionLines,
   resolveExampleLines,
   resolvePromptGuidesForBrief,
@@ -348,8 +351,166 @@ describe('templateShelfModel', () => {
 
     expect(prompt).toContain('画像を添付するか、参照できるファイルパスを記載')
     expect(prompt).toContain('ロゴの文字・形・配色・余白を変更しない')
-    expect(prompt).toContain('未提供の素材や事実を推測・生成で補わない')
-    expect(prompt).toContain('不足している項目だけを質問')
+    expect(prompt).toContain('未提供の事実・実績・権利情報・正本素材を推測・創作しない')
+    expect(prompt).toContain('不足している必須項目だけを質問')
     expect(prompt).not.toContain('任意BGM')
+  })
+
+  it('runtime validator は aiCanPropose を任意透過し不正値を拒否する', () => {
+    const base: LauncherTemplate = {
+      id: 'blog-dialogue-60s',
+      name: 'ブログ掛け合い 60秒',
+      summary: '記事を会話で伝える',
+      category: '記事を動画化',
+      useCases: ['ブログ'],
+      duration: '60秒',
+      aspectRatio: '16:9',
+      requiredInputs: ['記事本文'],
+      requiredInputDetails: [{ type: 'text', label: '記事本文', required: true }],
+      preview: null,
+      notFor: [],
+      variants: [],
+      tags: [],
+      audio: '任意',
+      status: 'stable',
+      distribution: 'bundled',
+      valid: true,
+    }
+
+    expect(isLauncherTemplate(base)).toBe(true)
+    expect(isLauncherTemplate({
+      ...base,
+      aiCanPropose: ['タイトル案', 'CTA文言'],
+    })).toBe(true)
+    expect(isLauncherTemplate({
+      ...base,
+      aiCanPropose: [],
+    })).toBe(false)
+    expect(isLauncherTemplate({
+      ...base,
+      aiCanPropose: Array.from({ length: 13 }, (_, index) => `項目${index + 1}`),
+    })).toBe(false)
+    expect(isLauncherTemplate({
+      ...base,
+      aiCanPropose: ['  '],
+    })).toBe(false)
+    expect(isLauncherTemplate({
+      ...base,
+      aiCanPropose: 'タイトル案',
+    })).toBe(false)
+  })
+
+  it('aiCanPropose があるとき制作依頼に AIに任せること を出し、無いときはセクションを出さない', () => {
+    const withPropose = buildTemplateProductionPrompt(
+      {
+        ...template,
+        aiCanPropose: ['タイトル案', 'CTA文言', 'カット間のつなぎ'],
+      },
+      { cast: 'beginner-expert' },
+    )
+    expect(withPropose).toContain('## AIに任せること')
+    expect(withPropose).toContain('- タイトル案')
+    expect(withPropose).toContain('- CTA文言')
+    expect(withPropose).toContain('- カット間のつなぎ')
+
+    const withoutPropose = buildTemplateProductionPrompt(template, { cast: 'beginner-expert' })
+    expect(withoutPropose).not.toContain('## AIに任せること')
+  })
+
+  it('buildTemplateProductionPrompt は現在必須の label と一致する AI候補を除外し、重複 trim 後は1つにする', () => {
+    // base required と一致する「記事本文」は AI 節から除外（必須優先）
+    const againstBaseRequired = buildTemplateProductionPrompt(
+      {
+        ...template,
+        aiCanPropose: ['記事本文', 'タイトル案', '  タイトル案  ', 'CTA文言'],
+      },
+      { cast: 'beginner-expert' },
+    )
+    const aiSection = againstBaseRequired.slice(
+      againstBaseRequired.indexOf('## AIに任せること'),
+      againstBaseRequired.indexOf('## 最初に行うこと'),
+    )
+    expect(aiSection).toContain('- タイトル案')
+    expect(aiSection).toContain('- CTA文言')
+    expect(aiSection).not.toMatch(/^- 記事本文$/m)
+    // trim 後重複は1件
+    expect(aiSection.match(/- タイトル案/g)).toHaveLength(1)
+    // 必須素材節には残る
+    expect(againstBaseRequired).toMatch(/## 一緒に渡す必須素材[\s\S]*記事本文/)
+
+    // option 昇格で必須になった「任意BGM」も AI 節から除外
+    const againstPromoted = buildTemplateProductionPrompt(
+      {
+        ...template,
+        aiCanPropose: ['任意BGM', 'タイトル案'],
+      },
+      { cast: 'peer-dialogue' },
+    )
+    const promotedAi = againstPromoted.slice(
+      againstPromoted.indexOf('## AIに任せること'),
+      againstPromoted.indexOf('## 最初に行うこと'),
+    )
+    expect(promotedAi).toContain('- タイトル案')
+    expect(promotedAi).not.toMatch(/^- 任意BGM$/m)
+    expect(againstPromoted).toMatch(/## 一緒に渡す必須素材[\s\S]*任意BGM/)
+
+    // 昇格しない選択なら optional 一致は AI 候補として残す
+    const optionalKept = buildTemplateProductionPrompt(
+      {
+        ...template,
+        aiCanPropose: ['任意BGM', 'タイトル案'],
+      },
+      { cast: 'beginner-expert' },
+    )
+    expect(optionalKept).toContain('- 任意BGM')
+    expect(optionalKept).toContain('- タイトル案')
+  })
+
+  it('resolveAiCanPropose は trim・重複除去・現在必須 label 除外を行う', () => {
+    const resolved = resolveAiCanPropose(
+      {
+        ...template,
+        aiCanPropose: ['  タイトル案  ', 'タイトル案', '記事本文', 'CTA文言', '任意BGM'],
+      },
+      { cast: 'peer-dialogue' },
+    )
+    expect(resolved).toEqual(['タイトル案', 'CTA文言'])
+  })
+
+  it('最初に行うことは必須確認→不足必須だけ質問→AI委任は初案提示→制作方針の順', () => {
+    const prompt = buildTemplateProductionPrompt(
+      {
+        ...template,
+        aiCanPropose: ['タイトル案'],
+      },
+      { cast: 'beginner-expert' },
+    )
+    const firstSteps = prompt.slice(prompt.indexOf('## 最初に行うこと'))
+    expect(firstSteps).toMatch(
+      /1\..*必須素材[\s\S]*2\..*不足している必須項目だけを質問[\s\S]*3\..*初案[\s\S]*4\..*制作方針/,
+    )
+    expect(firstSteps).toMatch(/質問前提にせず|不足扱いせず/)
+    expect(firstSteps).toMatch(/提案である/)
+    expect(firstSteps).toMatch(/事実・実績・権利情報・正本素材/)
+    expect(firstSteps).not.toMatch(/創作しない.*CTA|CTA.*創作禁止/)
+  })
+
+  it('未指定でも AI委任不足として止めず、正本と選択設定から初案を提案する指示を出す', () => {
+    const prompt = buildTemplateProductionPrompt(template, { cast: 'beginner-expert' })
+    const firstSteps = prompt.slice(prompt.indexOf('## 最初に行うこと'))
+    expect(firstSteps).toMatch(/不足扱いせず|質問前提にせず/)
+    expect(firstSteps).toMatch(/正本素材.*選択|今回の設定|選択設定/)
+    expect(firstSteps).toMatch(/初案|提案/)
+    expect(firstSteps).toMatch(/事実・実績・権利情報・正本素材/)
+    expect(prompt).not.toContain('## AIに任せること')
+  })
+
+  it('requiredMaterialNotices 末尾は事実・実績・権利・正本素材の創作禁止で、CTA等の創作文言は禁じない', () => {
+    const notices = requiredMaterialNotices([
+      { type: 'image', label: '商品写真', required: true },
+      { type: 'data', label: '価格の正本', required: true },
+    ])
+    expect(notices.at(-1)).toBe('未提供の事実・実績・権利情報・正本素材を推測・創作しないでください。')
+    expect(notices.join('\n')).not.toMatch(/CTA|キャッチコピー|創作文言を.*禁/)
   })
 })
