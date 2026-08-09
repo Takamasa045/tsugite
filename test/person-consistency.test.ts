@@ -818,11 +818,12 @@ describe("Gate digests, human decision, finalize revalidation, QA-disabled regre
     });
     expect(disabled.ok).toBe(true);
 
-    // Finalize path: requires approval binding when QA enabled.
+    // Finalize path: requires approval binding when QA enabled (expected digest is separate fail-closed check).
     const missingBinding = await revalidatePersonConsistencyOnFinalize({
       project,
       runDir,
-      finalOutputSha256: HEX
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest: "d".repeat(64)
     });
     expect(missingBinding.ok).toBe(false);
     expect(missingBinding.issues.some((i) => i.code === "person_qa.binding_missing")).toBe(true);
@@ -855,17 +856,20 @@ describe("Gate digests, human decision, finalize revalidation, QA-disabled regre
     const onFinalize = await revalidatePersonConsistencyOnFinalize({
       project,
       runDir,
-      finalOutputSha256: HEX
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest: binding.person_qa_approval_digest
     });
     expect(onFinalize.ok).toBe(true);
     expect(onFinalize.report_sha256).toBe(reportSha256);
+    expect(onFinalize.person_qa_approval_digest).toBe(binding.person_qa_approval_digest);
 
     // Contact sheet swap after approval must fail finalize even if report is unchanged.
     await writeFile(contactAbsolute, "contact-sheet-tampered");
     const swapped = await revalidatePersonConsistencyOnFinalize({
       project,
       runDir,
-      finalOutputSha256: HEX
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest: binding.person_qa_approval_digest
     });
     expect(swapped.ok).toBe(false);
     expect(swapped.issues.some((i) => i.code === "person_qa.contact_sheet_stale")).toBe(true);
@@ -891,6 +895,332 @@ describe("Gate digests, human decision, finalize revalidation, QA-disabled regre
       finalOutputSha256: "f".repeat(64)
     });
     expect(disabledOnFinalize.ok).toBe(true);
+  });
+
+  it("fails finalize when Gate3 person-QA approval binding is tampered after a valid write", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const root = join(tmpdir(), `pc-finalize-binding-tamper-${Date.now()}`);
+    const runDir = join(root, "run");
+    await mkdir(join(runDir, "qa", "person-consistency", "gate3"), { recursive: true });
+    const report = baseReport({ stage: "gate_3" });
+    const relativePath = "qa/person-consistency/gate3/report.json";
+    const absolute = join(runDir, relativePath);
+    await writeFile(absolute, `${JSON.stringify(report, null, 2)}\n`);
+    const reportSha256 = createHash("sha256").update(await readFile(absolute)).digest("hex");
+
+    const project = { quality: { person_consistency: POLICY } };
+    const human = {
+      decision: "accept" as const,
+      reason: "identity stable on contact sheet"
+    };
+    const binding = buildPersonQaApprovalBinding({
+      stage: "gate_3",
+      finalOutputSha256: HEX,
+      reportRelativePath: relativePath,
+      reportSha256,
+      reportStatus: "ok",
+      humanDecision: human,
+      technicalQc: { final_output_sha256: HEX },
+      baseApprovalPayload: { final_output_sha256: HEX }
+    });
+    const written = await writePersonQaApprovalBinding({ runDir, binding });
+    expect(written.ok).toBe(true);
+    const expectedPersonQaApprovalDigest = binding.person_qa_approval_digest;
+    const bindingPath = join(
+      runDir,
+      "qa/person-consistency/gate3/approval-binding.json"
+    );
+
+    // Newly approved QA-required path without approval-time expected digest must fail closed.
+    const missingExpected = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX
+    });
+    expect(missingExpected.ok).toBe(false);
+    expect(
+      missingExpected.issues.some(
+        (i) =>
+          i.code === "person_qa.approval_digest_required"
+          || i.code === "person_qa.binding_digest_required"
+          || i.code === "person_qa.expected_approval_digest_missing"
+      )
+    ).toBe(true);
+
+    // Valid revalidation with expected digest succeeds before tamper.
+    const intact = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(intact.ok).toBe(true);
+    expect(intact.person_qa_approval_digest).toBe(expectedPersonQaApprovalDigest);
+
+    // Tamper human_decision.reason while leaving report bytes alone.
+    const afterReason = {
+      ...binding,
+      human_decision: {
+        ...binding.human_decision,
+        reason: "tampered reason after approval"
+      }
+    };
+    await writeFile(bindingPath, `${JSON.stringify(afterReason, null, 2)}\n`);
+    const reasonTampered = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(reasonTampered.ok).toBe(false);
+    expect(
+      reasonTampered.issues.some(
+        (i) =>
+          i.code === "person_qa.binding_digest_mismatch"
+          || i.code === "person_qa.approval_digest_mismatch"
+          || i.code === "person_qa.binding_tampered"
+      )
+    ).toBe(true);
+
+    // Restore then tamper person_qa_payload (reason field inside payload).
+    await writeFile(bindingPath, `${JSON.stringify(binding, null, 2)}\n`);
+    const afterPayload = {
+      ...binding,
+      person_qa_payload: {
+        ...binding.person_qa_payload,
+        reason: "payload reason rewritten"
+      }
+    };
+    await writeFile(bindingPath, `${JSON.stringify(afterPayload, null, 2)}\n`);
+    const payloadTampered = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(payloadTampered.ok).toBe(false);
+    expect(
+      payloadTampered.issues.some(
+        (i) =>
+          i.code === "person_qa.binding_digest_mismatch"
+          || i.code === "person_qa.approval_digest_mismatch"
+          || i.code === "person_qa.binding_tampered"
+      )
+    ).toBe(true);
+
+    // Restore then forge person_qa_approval_digest without recomputing from payload.
+    await writeFile(bindingPath, `${JSON.stringify(binding, null, 2)}\n`);
+    const afterDigest = {
+      ...binding,
+      person_qa_approval_digest: "c".repeat(64)
+    };
+    await writeFile(bindingPath, `${JSON.stringify(afterDigest, null, 2)}\n`);
+    const digestTampered = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(digestTampered.ok).toBe(false);
+    expect(
+      digestTampered.issues.some(
+        (i) =>
+          i.code === "person_qa.binding_digest_mismatch"
+          || i.code === "person_qa.approval_digest_mismatch"
+          || i.code === "person_qa.binding_tampered"
+      )
+    ).toBe(true);
+
+    // QA-disabled compatibility remains success even without expected digest.
+    const disabledCompat = await revalidatePersonConsistencyOnFinalize({
+      project: {},
+      runDir,
+      finalOutputSha256: "f".repeat(64)
+    });
+    expect(disabledCompat.ok).toBe(true);
+  });
+
+  it("binds contact sheet into approval digest and rejects unknown binding keys", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const root = join(tmpdir(), `pc-finalize-contact-bind-${Date.now()}`);
+    const runDir = join(root, "run");
+    await mkdir(join(runDir, "qa", "person-consistency", "gate3"), { recursive: true });
+    const report = baseReport({ stage: "gate_3" });
+    const relativePath = "qa/person-consistency/gate3/report.json";
+    const absolute = join(runDir, relativePath);
+    await writeFile(absolute, `${JSON.stringify(report, null, 2)}\n`);
+    const reportSha256 = createHash("sha256").update(await readFile(absolute)).digest("hex");
+
+    const contactRelative = "qa/person-consistency/gate3/contact-sheet.webp";
+    const contactAbsolute = join(runDir, contactRelative);
+    await writeFile(contactAbsolute, "contact-sheet-bound-v1");
+    const contactSha256 = createHash("sha256").update(await readFile(contactAbsolute)).digest("hex");
+
+    const altContactRelative = "qa/person-consistency/gate3/contact-sheet-alt.webp";
+    const altContactAbsolute = join(runDir, altContactRelative);
+    await writeFile(altContactAbsolute, "contact-sheet-bound-alt");
+    const altContactSha256 = createHash("sha256")
+      .update(await readFile(altContactAbsolute))
+      .digest("hex");
+
+    const project = { quality: { person_consistency: POLICY } };
+    const human = {
+      decision: "accept" as const,
+      reason: "identity stable on contact sheet"
+    };
+    const binding = buildPersonQaApprovalBinding({
+      stage: "gate_3",
+      finalOutputSha256: HEX,
+      reportRelativePath: relativePath,
+      reportSha256,
+      reportStatus: "ok",
+      contactSheetRelativePath: contactRelative,
+      contactSheetSha256: contactSha256,
+      humanDecision: human,
+      technicalQc: { final_output_sha256: HEX },
+      baseApprovalPayload: { final_output_sha256: HEX }
+    });
+    expect(binding.person_qa_payload.contact_sheet_relative_path).toBe(contactRelative);
+    expect(binding.person_qa_payload.contact_sheet_sha256).toBe(contactSha256);
+    const withoutSheet = buildPersonQaApprovalBinding({
+      stage: "gate_3",
+      finalOutputSha256: HEX,
+      reportRelativePath: relativePath,
+      reportSha256,
+      reportStatus: "ok",
+      humanDecision: human,
+      technicalQc: { final_output_sha256: HEX },
+      baseApprovalPayload: { final_output_sha256: HEX }
+    });
+    expect(binding.person_qa_approval_digest).not.toBe(withoutSheet.person_qa_approval_digest);
+
+    const written = await writePersonQaApprovalBinding({ runDir, binding });
+    expect(written.ok).toBe(true);
+    const expectedPersonQaApprovalDigest = binding.person_qa_approval_digest;
+    const bindingPath = join(
+      runDir,
+      "qa/person-consistency/gate3/approval-binding.json"
+    );
+
+    const intact = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(intact.ok).toBe(true);
+
+    // Drop contact sheet fields while leaving expected digest unchanged — must fail.
+    const { contact_sheet_relative_path: _p, contact_sheet_sha256: _h, ...noSheetTop } = binding;
+    const noSheetPayload = { ...binding.person_qa_payload };
+    delete (noSheetPayload as { contact_sheet_relative_path?: string }).contact_sheet_relative_path;
+    delete (noSheetPayload as { contact_sheet_sha256?: string }).contact_sheet_sha256;
+    await writeFile(
+      bindingPath,
+      `${JSON.stringify(
+        {
+          ...noSheetTop,
+          person_qa_payload: noSheetPayload,
+          person_qa_approval_digest: expectedPersonQaApprovalDigest
+        },
+        null,
+        2
+      )}\n`
+    );
+    const deletedSheet = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(deletedSheet.ok).toBe(false);
+    expect(
+      deletedSheet.issues.some(
+        (i) =>
+          i.code === "person_qa.binding_digest_mismatch"
+          || i.code === "person_qa.approval_digest_mismatch"
+          || i.code === "person_qa.binding_tampered"
+          || i.code === "person_qa.binding_invalid"
+      )
+    ).toBe(true);
+
+    // Swap path+hash consistently to a different existing sheet without recomputing digest.
+    await writeFile(
+      bindingPath,
+      `${JSON.stringify(
+        {
+          ...binding,
+          contact_sheet_relative_path: altContactRelative,
+          contact_sheet_sha256: altContactSha256,
+          person_qa_payload: {
+            ...binding.person_qa_payload,
+            contact_sheet_relative_path: altContactRelative,
+            contact_sheet_sha256: altContactSha256
+          },
+          person_qa_approval_digest: expectedPersonQaApprovalDigest
+        },
+        null,
+        2
+      )}\n`
+    );
+    const swappedSheet = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(swappedSheet.ok).toBe(false);
+    expect(
+      swappedSheet.issues.some(
+        (i) =>
+          i.code === "person_qa.binding_digest_mismatch"
+          || i.code === "person_qa.approval_digest_mismatch"
+          || i.code === "person_qa.binding_tampered"
+          || i.code === "person_qa.binding_invalid"
+      )
+    ).toBe(true);
+
+    // Unknown top-level key must fail load/finalize.
+    await writeFile(
+      bindingPath,
+      `${JSON.stringify({ ...binding, extra_top_level: "nope" }, null, 2)}\n`
+    );
+    const unknownTop = await loadPersonQaApprovalBinding({ runDir, stage: "gate_3" });
+    expect(unknownTop.ok).toBe(false);
+    expect(unknownTop.issues.some((i) => i.code === "person_qa.binding_invalid")).toBe(true);
+    const unknownTopFinalize = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(unknownTopFinalize.ok).toBe(false);
+
+    // Unknown person_qa_payload key must fail load/finalize.
+    await writeFile(
+      bindingPath,
+      `${JSON.stringify(
+        {
+          ...binding,
+          person_qa_payload: {
+            ...binding.person_qa_payload,
+            unexpected_payload_field: true
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
+    const unknownPayload = await loadPersonQaApprovalBinding({ runDir, stage: "gate_3" });
+    expect(unknownPayload.ok).toBe(false);
+    expect(unknownPayload.issues.some((i) => i.code === "person_qa.binding_invalid")).toBe(true);
+    const unknownPayloadFinalize = await revalidatePersonConsistencyOnFinalize({
+      project,
+      runDir,
+      finalOutputSha256: HEX,
+      expectedPersonQaApprovalDigest
+    });
+    expect(unknownPayloadFinalize.ok).toBe(false);
   });
 
   it("forbids accept-not-evaluable on review when required traits are evaluable", () => {

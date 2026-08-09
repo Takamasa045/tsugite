@@ -338,10 +338,12 @@ export async function finalizeCompletedProject(
   });
 
   // Person-consistency QA (optional): revalidate binding + report after final.mp4 identity check.
+  // Gate 3 approved_input_digest remains final.mp4 sha256; expected person-QA digest is separate.
   const personQaFinalize = await revalidatePersonConsistencyOnFinalize({
     project: options.project,
     runDir,
-    finalOutputSha256: finalOutputDigest
+    finalOutputSha256: finalOutputDigest,
+    expectedPersonQaApprovalDigest: state.gates.gate_3.person_qa_approval_digest
   });
   if (!personQaFinalize.ok) {
     return {

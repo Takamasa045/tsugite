@@ -7,7 +7,10 @@ import { sha256Canonical } from "../../h3/hash.js";
 import type { Issue, Result } from "../../types.js";
 import { bindPersonConsistencyEvidence, resolveSafeRunArtifactPath } from "./evidence.js";
 import {
+  personConsistencyStageSchema,
   personQaHumanDecisionRecordSchema,
+  personQaHumanDecisionSchema,
+  reportStatusSchema,
   type PersonConsistencyReportV1,
   type PersonConsistencyStage,
   type PersonQaHumanDecisionRecord
@@ -25,7 +28,45 @@ export type PersonQaGateApprovalPayload = {
   reason: string;
   stage: PersonConsistencyStage;
   report_status: PersonConsistencyReportV1["status"];
+  /** Bound when contact-sheet evidence was present at approval time. */
+  contact_sheet_relative_path?: string;
+  contact_sheet_sha256?: string;
 };
+
+const PERSON_QA_APPROVAL_BINDING_TOP_LEVEL_KEYS = new Set([
+  "schema_version",
+  "stage",
+  "final_output_sha256",
+  "report_relative_path",
+  "semantic_report_digest",
+  "contact_sheet_relative_path",
+  "contact_sheet_sha256",
+  "human_decision",
+  "person_qa_payload",
+  "person_qa_approval_digest"
+]);
+
+const PERSON_QA_GATE_APPROVAL_PAYLOAD_KEYS = new Set([
+  "technical_qc_digest",
+  "semantic_report_digest",
+  "human_decision",
+  "reason",
+  "stage",
+  "report_status",
+  "contact_sheet_relative_path",
+  "contact_sheet_sha256"
+]);
+
+/** Same safe-relative-path rule as personConsistencyArtifactRefsSchema. */
+function isSafeRelativeArtifactPath(value: unknown): value is string {
+  return (
+    typeof value === "string"
+    && value.length > 0
+    && !value.startsWith("/")
+    && !value.includes("..")
+    && !value.includes("\\")
+  );
+}
 
 /**
  * Human decision is required when policy enabled for the stage.
@@ -160,6 +201,8 @@ export function buildGateApprovalWithPersonQa(options: {
   reportStatus: PersonConsistencyReportV1["status"];
   stage: PersonConsistencyStage;
   humanDecision: PersonQaHumanDecisionRecord;
+  contactSheetRelativePath?: string;
+  contactSheetSha256?: string;
 }): { approvalDigest: string; personQaPayload: PersonQaGateApprovalPayload } {
   const personQaPayload: PersonQaGateApprovalPayload = {
     technical_qc_digest: digestTechnicalQc(options.technicalQc),
@@ -167,7 +210,13 @@ export function buildGateApprovalWithPersonQa(options: {
     human_decision: options.humanDecision.decision,
     reason: options.humanDecision.reason,
     stage: options.stage,
-    report_status: options.reportStatus
+    report_status: options.reportStatus,
+    ...(options.contactSheetRelativePath && options.contactSheetSha256
+      ? {
+          contact_sheet_relative_path: options.contactSheetRelativePath,
+          contact_sheet_sha256: options.contactSheetSha256
+        }
+      : {})
   };
 
   const approvalDigest = sha256Canonical({
@@ -403,8 +452,13 @@ export function buildPersonQaApprovalBinding(options: {
     reportSha256: options.reportSha256,
     reportStatus: options.reportStatus,
     stage: options.stage,
-    humanDecision: options.humanDecision
+    humanDecision: options.humanDecision,
+    contactSheetRelativePath: options.contactSheetRelativePath,
+    contactSheetSha256: options.contactSheetSha256
   });
+  const contactBound =
+    typeof withPerson.personQaPayload.contact_sheet_relative_path === "string"
+    && typeof withPerson.personQaPayload.contact_sheet_sha256 === "string";
   return {
     schema_version: PERSON_QA_APPROVAL_BINDING_SCHEMA,
     stage: options.stage,
@@ -413,12 +467,10 @@ export function buildPersonQaApprovalBinding(options: {
       : {}),
     report_relative_path: options.reportRelativePath,
     semantic_report_digest: options.reportSha256,
-    ...(options.contactSheetRelativePath
+    ...(contactBound
       ? {
-          contact_sheet_relative_path: options.contactSheetRelativePath,
-          ...(options.contactSheetSha256
-            ? { contact_sheet_sha256: options.contactSheetSha256 }
-            : {})
+          contact_sheet_relative_path: withPerson.personQaPayload.contact_sheet_relative_path,
+          contact_sheet_sha256: withPerson.personQaPayload.contact_sheet_sha256
         }
       : {}),
     human_decision: options.humanDecision,
@@ -465,6 +517,266 @@ export async function writePersonQaApprovalBinding(options: {
   };
 }
 
+const SHA256_HEX = /^[a-f0-9]{64}$/;
+
+function isSha256Hex(value: unknown): value is string {
+  return typeof value === "string" && SHA256_HEX.test(value);
+}
+
+function bindingInvalid(relativePath: string, message: string): Result<{ binding: PersonQaApprovalBindingV1 }> {
+  return {
+    ok: false,
+    issues: [
+      {
+        code: "person_qa.binding_invalid",
+        message,
+        path: relativePath
+      }
+    ]
+  };
+}
+
+/**
+ * Strict structural validation of a loaded approval binding.
+ * human_decision must exactly match person_qa_payload decision/reason/stage/report_status.
+ * Contact-sheet top-level fields must match person_qa_payload when present.
+ * Unknown top-level or payload keys are rejected.
+ */
+function validatePersonQaApprovalBindingStructure(
+  parsed: unknown,
+  stage: PersonConsistencyStage,
+  relativePath: string
+): Result<{ binding: PersonQaApprovalBindingV1 }> {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return bindingInvalid(
+      relativePath,
+      "person consistency approval binding failed structural checks"
+    );
+  }
+
+  const record = parsed as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!PERSON_QA_APPROVAL_BINDING_TOP_LEVEL_KEYS.has(key)) {
+      return bindingInvalid(
+        relativePath,
+        `person consistency approval binding has unknown top-level field '${key}'`
+      );
+    }
+  }
+
+  if (
+    record.schema_version !== PERSON_QA_APPROVAL_BINDING_SCHEMA
+    || !personConsistencyStageSchema.safeParse(record.stage).success
+    || record.stage !== stage
+    || !isSafeRelativeArtifactPath(record.report_relative_path)
+    || !isSha256Hex(record.semantic_report_digest)
+    || !isSha256Hex(record.person_qa_approval_digest)
+  ) {
+    return bindingInvalid(
+      relativePath,
+      "person consistency approval binding failed structural checks"
+    );
+  }
+
+  if (record.final_output_sha256 !== undefined && !isSha256Hex(record.final_output_sha256)) {
+    return bindingInvalid(
+      relativePath,
+      "person consistency approval binding final_output_sha256 is not a valid sha256"
+    );
+  }
+
+  const hasTopContactPath = record.contact_sheet_relative_path !== undefined;
+  const hasTopContactSha = record.contact_sheet_sha256 !== undefined;
+  if (hasTopContactPath !== hasTopContactSha) {
+    return bindingInvalid(
+      relativePath,
+      "person consistency approval binding contact sheet path and sha256 must both be present or both absent"
+    );
+  }
+  if (hasTopContactPath) {
+    if (!isSafeRelativeArtifactPath(record.contact_sheet_relative_path)) {
+      return bindingInvalid(
+        relativePath,
+        "person consistency approval binding contact_sheet_relative_path is not a safe relative path"
+      );
+    }
+    if (!isSha256Hex(record.contact_sheet_sha256)) {
+      return bindingInvalid(
+        relativePath,
+        "person consistency approval binding contact_sheet_sha256 is not a valid sha256"
+      );
+    }
+  }
+
+  const decision = parsePersonQaHumanDecision(record.human_decision);
+  if (!decision.ok) {
+    return {
+      ok: false,
+      issues: [
+        {
+          code: "person_qa.binding_invalid",
+          message: "person consistency approval binding has invalid human decision",
+          path: relativePath
+        },
+        ...decision.issues
+      ]
+    };
+  }
+
+  const payload = record.person_qa_payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return bindingInvalid(
+      relativePath,
+      "person consistency approval binding person_qa_payload is missing"
+    );
+  }
+
+  const personQaPayload = payload as Record<string, unknown>;
+  for (const key of Object.keys(personQaPayload)) {
+    if (!PERSON_QA_GATE_APPROVAL_PAYLOAD_KEYS.has(key)) {
+      return bindingInvalid(
+        relativePath,
+        `person consistency approval binding person_qa_payload has unknown field '${key}'`
+      );
+    }
+  }
+
+  const reportStatusParsed = reportStatusSchema.safeParse(personQaPayload.report_status);
+  const humanDecisionParsed = personQaHumanDecisionSchema.safeParse(personQaPayload.human_decision);
+  if (
+    !isSha256Hex(personQaPayload.technical_qc_digest)
+    || !isSha256Hex(personQaPayload.semantic_report_digest)
+    || !humanDecisionParsed.success
+    || typeof personQaPayload.reason !== "string"
+    || personQaPayload.reason.trim().length === 0
+    || !personConsistencyStageSchema.safeParse(personQaPayload.stage).success
+    || personQaPayload.stage !== stage
+    || !reportStatusParsed.success
+  ) {
+    return bindingInvalid(
+      relativePath,
+      "person consistency approval binding person_qa_payload failed structural checks"
+    );
+  }
+
+  const hasPayloadContactPath = personQaPayload.contact_sheet_relative_path !== undefined;
+  const hasPayloadContactSha = personQaPayload.contact_sheet_sha256 !== undefined;
+  if (hasPayloadContactPath !== hasPayloadContactSha) {
+    return bindingInvalid(
+      relativePath,
+      "person consistency approval binding person_qa_payload contact sheet path and sha256 must both be present or both absent"
+    );
+  }
+  if (hasPayloadContactPath) {
+    if (!isSafeRelativeArtifactPath(personQaPayload.contact_sheet_relative_path)) {
+      return bindingInvalid(
+        relativePath,
+        "person consistency approval binding person_qa_payload contact_sheet_relative_path is not a safe relative path"
+      );
+    }
+    if (!isSha256Hex(personQaPayload.contact_sheet_sha256)) {
+      return bindingInvalid(
+        relativePath,
+        "person consistency approval binding person_qa_payload contact_sheet_sha256 is not a valid sha256"
+      );
+    }
+  }
+
+  // Top-level contact sheet fields must exactly match the payload snapshot used for the digest.
+  if (
+    record.contact_sheet_relative_path !== personQaPayload.contact_sheet_relative_path
+    || record.contact_sheet_sha256 !== personQaPayload.contact_sheet_sha256
+  ) {
+    return {
+      ok: false,
+      issues: [
+        {
+          code: "person_qa.binding_tampered",
+          message:
+            "person consistency approval binding contact sheet fields do not match person_qa_payload",
+          path: relativePath
+        }
+      ]
+    };
+  }
+
+  // human_decision must exactly match the payload snapshot used for the approval digest.
+  if (
+    decision.decision.decision !== humanDecisionParsed.data
+    || decision.decision.reason !== personQaPayload.reason
+    || personQaPayload.semantic_report_digest !== record.semantic_report_digest
+  ) {
+    return {
+      ok: false,
+      issues: [
+        {
+          code: "person_qa.binding_tampered",
+          message:
+            "person consistency approval binding human_decision does not match person_qa_payload",
+          path: relativePath
+        }
+      ]
+    };
+  }
+
+  const payloadContactPath = personQaPayload.contact_sheet_relative_path;
+  const payloadContactSha = personQaPayload.contact_sheet_sha256;
+  const topContactPath = record.contact_sheet_relative_path;
+  const topContactSha = record.contact_sheet_sha256;
+
+  const normalizedPayload: PersonQaGateApprovalPayload = {
+    technical_qc_digest: personQaPayload.technical_qc_digest,
+    semantic_report_digest: personQaPayload.semantic_report_digest,
+    human_decision: humanDecisionParsed.data,
+    reason: personQaPayload.reason,
+    stage,
+    report_status: reportStatusParsed.data,
+    ...(isSafeRelativeArtifactPath(payloadContactPath) && isSha256Hex(payloadContactSha)
+      ? {
+          contact_sheet_relative_path: payloadContactPath,
+          contact_sheet_sha256: payloadContactSha
+        }
+      : {})
+  };
+
+  return {
+    ok: true,
+    issues: [],
+    binding: {
+      schema_version: PERSON_QA_APPROVAL_BINDING_SCHEMA,
+      stage,
+      ...(isSha256Hex(record.final_output_sha256)
+        ? { final_output_sha256: record.final_output_sha256 }
+        : {}),
+      report_relative_path: record.report_relative_path,
+      semantic_report_digest: record.semantic_report_digest,
+      ...(isSafeRelativeArtifactPath(topContactPath) && isSha256Hex(topContactSha)
+        ? {
+            contact_sheet_relative_path: topContactPath,
+            contact_sheet_sha256: topContactSha
+          }
+        : {}),
+      human_decision: decision.decision,
+      person_qa_payload: normalizedPayload,
+      person_qa_approval_digest: record.person_qa_approval_digest
+    }
+  };
+}
+
+/**
+ * Recompute Gate 3 canonical person-QA approval digest from final.mp4 identity + payload.
+ * Must match buildPersonQaApprovalBinding({ baseApprovalPayload: { final_output_sha256 } }).
+ */
+export function recomputeGate3PersonQaApprovalDigest(options: {
+  finalOutputSha256: string;
+  personQaPayload: PersonQaGateApprovalPayload;
+}): string {
+  return sha256Canonical({
+    base: { final_output_sha256: options.finalOutputSha256 },
+    person_consistency: options.personQaPayload
+  });
+}
+
 export async function loadPersonQaApprovalBinding(options: {
   runDir: string;
   stage: PersonConsistencyStage;
@@ -506,63 +818,28 @@ export async function loadPersonQaApprovalBinding(options: {
     };
   }
 
-  if (
-    !parsed
-    || typeof parsed !== "object"
-    || (parsed as { schema_version?: string }).schema_version
-      !== PERSON_QA_APPROVAL_BINDING_SCHEMA
-    || (parsed as { stage?: string }).stage !== options.stage
-    || typeof (parsed as { semantic_report_digest?: string }).semantic_report_digest !== "string"
-    || typeof (parsed as { report_relative_path?: string }).report_relative_path !== "string"
-    || typeof (parsed as { person_qa_approval_digest?: string }).person_qa_approval_digest
-      !== "string"
-    || !(parsed as { human_decision?: unknown }).human_decision
-  ) {
-    return {
-      ok: false,
-      issues: [
-        {
-          code: "person_qa.binding_invalid",
-          message: "person consistency approval binding failed structural checks",
-          path: relativePath
-        }
-      ]
-    };
-  }
-
-  const decision = parsePersonQaHumanDecision(
-    (parsed as { human_decision: unknown }).human_decision
-  );
-  if (!decision.ok) {
-    return {
-      ok: false,
-      issues: [
-        {
-          code: "person_qa.binding_invalid",
-          message: "person consistency approval binding has invalid human decision",
-          path: relativePath
-        },
-        ...decision.issues
-      ]
-    };
-  }
+  const validated = validatePersonQaApprovalBindingStructure(parsed, options.stage, relativePath);
+  if (!validated.ok) return validated;
 
   return {
     ok: true,
     issues: [],
     relativePath,
-    binding: parsed as PersonQaApprovalBindingV1
+    binding: validated.binding
   };
 }
 
 /**
  * Finalize entry: when person QA is enabled for Gate 3, load binding and revalidate report.
  * Does not replace the final.mp4 identity check — call after that succeeds.
+ * When QA is required, expectedPersonQaApprovalDigest from Gate 3 state is mandatory (fail closed).
  */
 export async function revalidatePersonConsistencyOnFinalize(options: {
   project: ProjectWithQuality;
   runDir: string;
   finalOutputSha256: string;
+  /** Approval-time digest from state.gates.gate_3.person_qa_approval_digest */
+  expectedPersonQaApprovalDigest?: string;
 }): Promise<Result<{ report_sha256: string; person_qa_approval_digest: string }>> {
   if (!personConsistencyRequiredForStage(options.project, "gate_3")) {
     return {
@@ -570,6 +847,19 @@ export async function revalidatePersonConsistencyOnFinalize(options: {
       issues: [],
       report_sha256: options.finalOutputSha256,
       person_qa_approval_digest: options.finalOutputSha256
+    };
+  }
+
+  if (!options.expectedPersonQaApprovalDigest || !isSha256Hex(options.expectedPersonQaApprovalDigest)) {
+    return {
+      ok: false,
+      issues: [
+        {
+          code: "person_qa.expected_approval_digest_missing",
+          message:
+            "person consistency finalize requires state.gates.gate_3.person_qa_approval_digest from approval time"
+        }
+      ]
     };
   }
 
@@ -606,11 +896,33 @@ export async function revalidatePersonConsistencyOnFinalize(options: {
   });
   if (!revalidated.ok) return revalidated;
 
+  // Recompute canonical Gate 3 digest from known final.mp4 + stored payload; reject forgeries.
+  const recomputed = recomputeGate3PersonQaApprovalDigest({
+    finalOutputSha256: options.finalOutputSha256,
+    personQaPayload: loaded.binding.person_qa_payload
+  });
+  if (
+    recomputed !== loaded.binding.person_qa_approval_digest
+    || recomputed !== options.expectedPersonQaApprovalDigest
+  ) {
+    return {
+      ok: false,
+      issues: [
+        {
+          code: "person_qa.approval_digest_mismatch",
+          message:
+            "person consistency approval digest does not match binding payload and/or Gate 3 expected digest",
+          path: loaded.relativePath
+        }
+      ]
+    };
+  }
+
   return {
     ok: true,
     issues: [],
     report_sha256: revalidated.report_sha256,
-    person_qa_approval_digest: loaded.binding.person_qa_approval_digest
+    person_qa_approval_digest: recomputed
   };
 }
 
