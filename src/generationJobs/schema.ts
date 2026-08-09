@@ -170,6 +170,16 @@ export const generationJobRecordSchema = z
     provider_job_id: z.string().min(1).max(256).optional(),
     /** Number of successful *acceptance* submits (increments only on confirmed accept). */
     submit_attempts: z.number().int().nonnegative().default(0),
+    /**
+     * Durable poll adapter invocations so far (incremented before each call).
+     * Backward-compatible default 0 for records written before this field existed.
+     */
+    poll_attempts: z.number().int().nonnegative().default(0),
+    /**
+     * Durable download adapter invocations so far (incremented before each call).
+     * Backward-compatible default 0 for records written before this field existed.
+     */
+    download_attempts: z.number().int().nonnegative().default(0),
     /** True after a submit where acceptance is possible but unconfirmed. Blocks resubmit. */
     submission_unknown: z.boolean().default(false),
     artifact: generationJobArtifactSchema.optional(),
@@ -182,7 +192,51 @@ export const generationJobRecordSchema = z
     /** Monotonic revision incremented on every durable save. */
     revision: z.number().int().nonnegative().default(0)
   })
-  .strict();
+  .strict()
+  .superRefine((record, ctx) => {
+    // status=pinned requires a present, pinned artifact.
+    if (record.status === "pinned") {
+      if (!record.artifact) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["artifact"],
+          message: "status 'pinned' requires artifact"
+        });
+      } else if (record.artifact.pinned !== true) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["artifact", "pinned"],
+          message: "status 'pinned' requires artifact.pinned=true"
+        });
+      }
+    }
+
+    // artifact.pinned=true is only valid when status is pinned.
+    if (record.artifact?.pinned === true && record.status !== "pinned") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["artifact", "pinned"],
+        message: "artifact.pinned=true requires status 'pinned'"
+      });
+    }
+
+    // verified requires artifact present with pinned=false (not yet pinned).
+    if (record.status === "verified") {
+      if (!record.artifact) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["artifact"],
+          message: "status 'verified' requires artifact"
+        });
+      } else if (record.artifact.pinned !== false) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["artifact", "pinned"],
+          message: "status 'verified' requires artifact.pinned=false"
+        });
+      }
+    }
+  });
 
 export type GenerationJobPricing = z.infer<typeof generationJobPricingSchema>;
 export type GenerationJobApproval = z.infer<typeof generationJobApprovalSchema>;

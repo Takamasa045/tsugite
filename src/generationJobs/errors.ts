@@ -42,3 +42,5 @@ export const GJ_PREFLIGHT_ONLY = "GJ-E025";
 export const GJ_SECRET_LEAK = "GJ-E026";
 /** Submit refused because durable status is not exactly approved (fail-closed). */
 export const GJ_SUBMIT_NOT_ALLOWED = "GJ-E027";
+/** Poll or download attempt budget exhausted (nonretryable; no further adapter calls). */
+export const GJ_RETRY_EXHAUSTED = "GJ-E028";

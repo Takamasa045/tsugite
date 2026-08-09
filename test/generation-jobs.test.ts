@@ -3,6 +3,7 @@
  * Zero live network / DNS / provider / API key values required.
  */
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   access,
   lstat,
@@ -45,16 +46,19 @@ import {
   GJ_PRICE_CAP_EXCEEDED,
   GJ_PRICE_UNKNOWN,
   GJ_RESUBMIT_FORBIDDEN,
+  GJ_RETRY_EXHAUSTED,
   GJ_ROUTE_UNSUPPORTED,
   GJ_SCHEMA_INVALID,
   GJ_SUBMIT_NOT_ALLOWED,
   GJ_SUBMISSION_UNKNOWN,
   openRegularFileNoFollow,
+  parseGenerationJobRecord,
   pinBytesAtomically,
   pinStreamAtomically,
   preflightGenerationJob,
   redactSecretsDeep,
   resolveContainedPath,
+  safeParseGenerationJobRecord,
   verifyAdapterArtifact,
   type GenerationJobProviderAdapter,
   type GenerationJobRecord,
@@ -74,13 +78,19 @@ import {
   assertAllowedHttpsUrl,
   assertLastFrameOnlyRequest,
   createMinimaxHttpAdapter,
+  isSupportedVideoContentType,
   MINIMAX_HTTP_CONNECTION_ID,
   MINIMAX_HTTP_FIXTURE_TRANSPORT_MARKER,
   MINIMAX_HTTP_IR_MODEL,
+  normalizeVideoContentType,
+  probeDownloadedVideoArtifact,
   type MinimaxHttpTransport,
   type MinimaxHttpTransportRequest,
   type MinimaxHttpTransportResponse
 } from "../adapters/minimax-http/minimaxHttp.ts";
+
+/** Real MP4 fixture bytes for download success + local ffprobe video-stream checks. */
+const RENDER_001_MP4 = readFileSync("fixtures/media/render-001.mp4");
 import {
   listConnectionOptions,
   loadConnectionCatalog
@@ -243,6 +253,88 @@ describe("A. job schema / state transitions", () => {
     expect(canTransition("retry_wait", "submitting")).toBe(false);
     expect(canTransition("retry_wait", "polling")).toBe(true);
     expect(canTransition("cancel_requested", "succeeded")).toBe(true);
+  });
+
+  it("rejects pinned/verified/artifact.pinned schema mismatches", () => {
+    const request = baseRequest();
+    const base = {
+      schema_version: 1 as const,
+      job_id: "schema-job-1",
+      connection_id: request.connection_id,
+      model_id: request.model_id,
+      mode: request.mode,
+      request,
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing(),
+      submit_attempts: 0,
+      submission_unknown: false,
+      cancel_requested: false,
+      created_at: FIXED_NOW,
+      updated_at: FIXED_NOW,
+      revision: 0
+    };
+    const goodArtifact = {
+      relative_path: "artifacts/out.mp4",
+      sha256: "c".repeat(64),
+      byte_length: 12,
+      content_type: "video/mp4",
+      pinned: true
+    };
+
+    // status=pinned requires artifact + artifact.pinned=true
+    expect(
+      safeParseGenerationJobRecord({ ...base, status: "pinned" }).success
+    ).toBe(false);
+    expect(
+      safeParseGenerationJobRecord({
+        ...base,
+        status: "pinned",
+        artifact: { ...goodArtifact, pinned: false }
+      }).success
+    ).toBe(false);
+    expect(() =>
+      parseGenerationJobRecord({
+        ...base,
+        status: "pinned",
+        artifact: goodArtifact
+      })
+    ).not.toThrow();
+
+    // artifact.pinned=true requires status=pinned
+    expect(
+      safeParseGenerationJobRecord({
+        ...base,
+        status: "verified",
+        artifact: goodArtifact
+      }).success
+    ).toBe(false);
+    expect(
+      safeParseGenerationJobRecord({
+        ...base,
+        status: "failed",
+        artifact: goodArtifact
+      }).success
+    ).toBe(false);
+
+    // verified requires artifact.pinned=false (and artifact present)
+    expect(
+      safeParseGenerationJobRecord({ ...base, status: "verified" }).success
+    ).toBe(false);
+    expect(
+      safeParseGenerationJobRecord({
+        ...base,
+        status: "verified",
+        artifact: { ...goodArtifact, pinned: true }
+      }).success
+    ).toBe(false);
+    expect(
+      safeParseGenerationJobRecord({
+        ...base,
+        status: "verified",
+        artifact: { ...goodArtifact, pinned: false }
+      }).success
+    ).toBe(true);
   });
 });
 
@@ -1673,12 +1765,13 @@ describe("H. minimax-http capability exact last-frame-only", () => {
 
     const pinBytes = await readFile("adapters/minimax-http/constraints.yaml");
     const pinHash = createHash("sha256").update(pinBytes).digest("hex");
-    expect(loaded.profile.source.digest).toBe(pinHash);
+    // pin file hash lives in pin_digest; source.digest is always profile body digest.
+    expect(loaded.profile.source.pin_digest).toBe(pinHash);
     expect(pinHash).toBe(
       "5af3e77ba13c14c5fb1b3a40887a1fccbbfffe4ac1e6172a8056e26dccc3934b"
     );
-
-    // Binding digest is profile body digest (separate from pin-file hash).
+    expect(loaded.profile.source.digest).toBe(connectionCapabilityDigest(loaded.profile));
+    expect(loaded.profile.source.digest).not.toBe(pinHash);
     expect(loaded.digest).toBe(connectionCapabilityDigest(loaded.profile));
 
     const last = assertConnectionModeSupported(loaded.profile, "minimax-h3", "last-frame");
@@ -1804,7 +1897,13 @@ describe("I. mock adapter lifecycle (minimax-http fixture transport DI)", () => 
             }
           );
         }
-        if (req.url.includes("/query/")) {
+        // Query: GET /v2/query/video_generation/{task_id}
+        const pathname = new URL(req.url).pathname;
+        if (
+          req.method === "GET"
+          && (pathname === "/v2/query/video_generation"
+            || pathname.startsWith("/v2/query/video_generation/"))
+        ) {
           return (
             script.poll ?? {
               status: 200,
@@ -1813,7 +1912,7 @@ describe("I. mock adapter lifecycle (minimax-http fixture transport DI)", () => 
             }
           );
         }
-        const payload = Buffer.from("minimax-http-fixture-video");
+        const payload = RENDER_001_MP4;
         return (
           script.download ?? {
             status: 200,
@@ -1831,11 +1930,15 @@ describe("I. mock adapter lifecycle (minimax-http fixture transport DI)", () => 
   it("runs full lifecycle with fixture transport and never needs a real API key value", async () => {
     const root = await mkdtemp(join(tmpdir(), "gj-mmxhttp-"));
     const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
-    const transport = fakeTransport({});
+    const seen: Array<{ method: string; pathname: string }> = [];
+    const transport = fakeTransport({
+      onRequest: (req) => {
+        seen.push({ method: req.method, pathname: new URL(req.url).pathname });
+      }
+    });
     const adapter = createMinimaxHttpAdapter({
       pricingStatus: "known",
       executionReady: true,
-      cancelSupported: false,
       allowFixtureTransport: true
     });
     const machine = new GenerationJobMachine({
@@ -1885,6 +1988,18 @@ describe("I. mock adapter lifecycle (minimax-http fixture transport DI)", () => 
     expect(job.status).toBe("succeeded");
     job = await machine.downloadAndPin(job.job_id);
     expect(job.status).toBe("pinned");
+    expect(job.artifact?.pinned).toBe(true);
+    expect(job.artifact?.content_type).toBe("video/mp4");
+    expect(job.artifact?.byte_length).toBe(RENDER_001_MP4.byteLength);
+    expect(await pathExists(join(store.artifactsDir(job.job_id), job.artifact!.relative_path))).toBe(
+      true
+    );
+
+    expect(seen[0]).toEqual({ method: "POST", pathname: "/v2/video_generation" });
+    expect(seen[1]).toEqual({
+      method: "GET",
+      pathname: "/v2/query/video_generation/task-abc"
+    });
 
     const rawJob = await readFile(store.jobPath(job.job_id), "utf8");
     const eventsText = await readFile(join(store.jobDir(job.job_id), "events.jsonl"), "utf8");
@@ -1894,6 +2009,176 @@ describe("I. mock adapter lifecycle (minimax-http fixture transport DI)", () => 
     expect(JSON.stringify(redactSecretsDeep({ api_key: "sk-abcdefghijklmnopqrstuvwxyz" }))).toContain(
       "[REDACTED]"
     );
+  });
+
+  it("rejects missing/text/html/json download Content-Type as nonretryable (no pin)", async () => {
+    expect(normalizeVideoContentType("Video/MP4; charset=binary")).toBe("video/mp4");
+    expect(isSupportedVideoContentType("video/mp4")).toBe(true);
+    expect(isSupportedVideoContentType("video/quicktime")).toBe(true);
+    expect(isSupportedVideoContentType("text/html")).toBe(false);
+    expect(isSupportedVideoContentType("application/json")).toBe(false);
+    expect(isSupportedVideoContentType(undefined)).toBe(false);
+
+    for (const headers of [
+      {},
+      { "content-type": "text/html" },
+      { "content-type": "application/json" },
+      { "content-type": "text/html; charset=utf-8" }
+    ]) {
+      const root = await mkdtemp(join(tmpdir(), "gj-mmx-ct-"));
+      const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+      const transport = fakeTransport({
+        download: {
+          status: 200,
+          headers: {
+            ...headers,
+            "content-length": String(RENDER_001_MP4.byteLength)
+          },
+          body: RENDER_001_MP4
+        }
+      });
+      const adapter = createMinimaxHttpAdapter({
+        pricingStatus: "known",
+        executionReady: true,
+        allowFixtureTransport: true
+      });
+      const machine = new GenerationJobMachine({
+        store,
+        adapter,
+        transport,
+        now: () => FIXED_NOW,
+        preflightOnly: false
+      });
+      const model = await loadModelPromptProfile("minimax-h3");
+      const connection = await loadConnectionCapabilityProfile("minimax-http");
+      if (!model.ok || !connection.ok) throw new Error("profiles required");
+      const partial = {
+        model_id: "minimax-h3",
+        mode: "last-frame",
+        connection_id: "minimax-http",
+        auth_env_names: ["MINIMAX_API_KEY"] as string[],
+        asset_paths: ["assets/last.png"],
+        params: { prompt: "x", duration: 6 }
+      };
+      let job = await machine.plan({
+        request: { ...partial, digest: computeRequestDigest(partial) },
+        model_profile_digest: model.digest,
+        connection_capability_digest: connection.digest,
+        pricing: knownPricing(),
+        route_ok: true,
+        adapter_present: true
+      });
+      job = await machine.approve(job.job_id, "tester");
+      job = await machine.submit(job.job_id);
+      job = await machine.poll(job.job_id);
+      job = await machine.downloadAndPin(job.job_id);
+      expect(job.status).toBe("failed");
+      expect(job.artifact).toBeUndefined();
+      expect(job.error?.retryable).toBe(false);
+      expect(job.error?.code).toMatch(/E067|content-type|Content-Type/i);
+      const artifactNames = await listDirNames(store.artifactsDir(job.job_id));
+      expect(artifactNames.filter((name) => !name.startsWith("."))).toEqual([]);
+    }
+  });
+
+  it("ffprobe missing/nonzero/invalid JSON/no-video removes untrusted file and fails nonretryable", async () => {
+    const cases: Array<{
+      label: string;
+      probe: () => {
+        error?: Error;
+        status: number | null;
+        stdout: string;
+        stderr: string;
+      };
+      code: RegExp;
+    }> = [
+      {
+        label: "missing",
+        probe: () => ({
+          error: Object.assign(new Error("spawn ffprobe ENOENT"), { code: "ENOENT" }),
+          status: null,
+          stdout: "",
+          stderr: ""
+        }),
+        code: /E070|ffprobe/i
+      },
+      {
+        label: "nonzero",
+        probe: () => ({ status: 1, stdout: "", stderr: "invalid data" }),
+        code: /E072|ffprobe/i
+      },
+      {
+        label: "invalid-json",
+        probe: () => ({ status: 0, stdout: "not-json{", stderr: "" }),
+        code: /E073|invalid JSON/i
+      },
+      {
+        label: "no-video",
+        probe: () => ({
+          status: 0,
+          stdout: JSON.stringify({ streams: [{ codec_type: "audio" }] }),
+          stderr: ""
+        }),
+        code: /E074|no video/i
+      }
+    ];
+
+    for (const c of cases) {
+      const root = await mkdtemp(join(tmpdir(), `gj-mmx-probe-${c.label}-`));
+      const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+      const transport = fakeTransport({});
+      const adapter = createMinimaxHttpAdapter({
+        pricingStatus: "known",
+        executionReady: true,
+        allowFixtureTransport: true,
+        probeCommand: c.probe
+      });
+      const machine = new GenerationJobMachine({
+        store,
+        adapter,
+        transport,
+        now: () => FIXED_NOW,
+        preflightOnly: false
+      });
+      const model = await loadModelPromptProfile("minimax-h3");
+      const connection = await loadConnectionCapabilityProfile("minimax-http");
+      if (!model.ok || !connection.ok) throw new Error("profiles required");
+      const partial = {
+        model_id: "minimax-h3",
+        mode: "last-frame",
+        connection_id: "minimax-http",
+        auth_env_names: ["MINIMAX_API_KEY"] as string[],
+        asset_paths: ["assets/last.png"],
+        params: { prompt: "x", duration: 6 }
+      };
+      let job = await machine.plan({
+        request: { ...partial, digest: computeRequestDigest(partial) },
+        model_profile_digest: model.digest,
+        connection_capability_digest: connection.digest,
+        pricing: knownPricing(),
+        route_ok: true,
+        adapter_present: true
+      });
+      job = await machine.approve(job.job_id, "tester");
+      job = await machine.submit(job.job_id);
+      job = await machine.poll(job.job_id);
+      job = await machine.downloadAndPin(job.job_id);
+      expect(job.status).toBe("failed");
+      expect(job.artifact).toBeUndefined();
+      expect(job.error?.retryable).toBe(false);
+      expect(`${job.error?.code} ${job.error?.message}`).toMatch(c.code);
+      const artifactNames = await listDirNames(store.artifactsDir(job.job_id));
+      expect(artifactNames.filter((name) => !name.startsWith("."))).toEqual([]);
+    }
+
+    // Helper itself fails closed on injected no-video / missing results.
+    const missing = await probeDownloadedVideoArtifact("/tmp/x.mp4", () => ({
+      error: Object.assign(new Error("spawn ffprobe ENOENT"), { code: "ENOENT" }),
+      status: null,
+      stdout: "",
+      stderr: ""
+    }));
+    expect(missing.ok).toBe(false);
   });
 
   it("executionReady=true alone does not enable live; unmarked transport cannot submit", async () => {
@@ -1992,6 +2277,87 @@ describe("I. mock adapter lifecycle (minimax-http fixture transport DI)", () => 
     expect(posts).toBe(1);
   });
 
+  it("submit reset after possible acceptance → submission_unknown; second submit forbidden", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-mmx-reset-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    let posts = 0;
+    const transport = fakeTransport({
+      onRequest: (req) => {
+        if (req.method === "POST") posts += 1;
+      },
+      submit: {
+        status: 0,
+        headers: {},
+        body: "",
+        networkError: "reset"
+      }
+    });
+    const adapter = createMinimaxHttpAdapter({
+      pricingStatus: "known",
+      executionReady: true,
+      allowFixtureTransport: true
+    });
+    const machine = new GenerationJobMachine({
+      store,
+      adapter,
+      transport,
+      now: () => FIXED_NOW,
+      preflightOnly: false
+    });
+    const model = await loadModelPromptProfile("minimax-h3");
+    const connection = await loadConnectionCapabilityProfile("minimax-http");
+    if (!model.ok || !connection.ok) throw new Error("profiles required");
+    const partial = {
+      model_id: "minimax-h3",
+      mode: "last-frame",
+      connection_id: "minimax-http",
+      auth_env_names: ["MINIMAX_API_KEY"] as string[],
+      asset_paths: ["assets/last.png"],
+      params: { prompt: "x", duration: 6 }
+    };
+    let job = await machine.plan({
+      request: { ...partial, digest: computeRequestDigest(partial) },
+      model_profile_digest: model.digest,
+      connection_capability_digest: connection.digest,
+      pricing: knownPricing(),
+      route_ok: true,
+      adapter_present: true
+    });
+    job = await machine.approve(job.job_id, "tester");
+    job = await machine.submit(job.job_id);
+    expect(job.status).toBe("submission_unknown");
+    expect(posts).toBe(1);
+    await expect(machine.submit(job.job_id)).rejects.toMatchObject({
+      code: GJ_RESUBMIT_FORBIDDEN
+    });
+    expect(posts).toBe(1);
+  });
+
+  it("capabilities.cancel is false and cancel is unsupported without transport call", async () => {
+    let transportCalls = 0;
+    const transport = fakeTransport({
+      onRequest: () => {
+        transportCalls += 1;
+      }
+    });
+    const adapter = createMinimaxHttpAdapter({
+      pricingStatus: "known",
+      executionReady: true,
+      allowFixtureTransport: true
+    });
+    expect(adapter.capabilities.cancel).toBe(false);
+    const result = await adapter.cancel("task-abc", {
+      job: {} as GenerationJobRecord,
+      transport
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.unsupported).toBe(true);
+      expect(result.code).toMatch(/E050|unsupported|cancel/i);
+    }
+    expect(transportCalls).toBe(0);
+  });
+
   it("default pricing unknown keeps preflight-only / blocked (not ready-to-send)", async () => {
     const root = await mkdtemp(join(tmpdir(), "gj-mmx-pf-"));
     const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
@@ -2036,6 +2402,12 @@ describe("I. mock adapter lifecycle (minimax-http fixture transport DI)", () => 
     expect(() => assertAllowedHttpsUrl("https://api.minimax.io/admin/delete")).toThrow(
       /allowlist|path/i
     );
+    expect(() =>
+      assertAllowedHttpsUrl("https://api.minimax.io:8443/v2/video_generation")
+    ).toThrow(/non-443|port|forbidden/i);
+    expect(() =>
+      assertAllowedHttpsUrl("https://api.minimax.io/v2/video_generation#fragment")
+    ).toThrow(/fragment/i);
   });
 
   it("fixture marker symbol is required on transport objects", () => {
@@ -2400,6 +2772,208 @@ describe("L. extra branch coverage for fail-closed edges", () => {
     job = await machine.submit(job.job_id);
     job = await machine.poll(job.job_id);
     expect(job.status).toBe("retry_wait");
+    expect(job.poll_attempts).toBe(1);
+  });
+
+  it("defaults poll_attempts and download_attempts to 0 when omitted (backward compatible)", () => {
+    const request = baseRequest();
+    const parsed = parseGenerationJobRecord({
+      schema_version: 1,
+      job_id: "legacy-job-1",
+      status: "planned",
+      connection_id: request.connection_id,
+      model_id: request.model_id,
+      mode: request.mode,
+      request,
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing(),
+      // intentionally omit poll_attempts / download_attempts
+      submit_attempts: 0,
+      submission_unknown: false,
+      cancel_requested: false,
+      created_at: FIXED_NOW,
+      updated_at: FIXED_NOW,
+      revision: 0
+    });
+    expect(parsed.poll_attempts).toBe(0);
+    expect(parsed.download_attempts).toBe(0);
+  });
+
+  it("bounded poll attempts stop adapter calls exactly at cap; reload preserves counters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-poll-cap-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    const pollCalls = { count: 0 };
+    const adapter = createMockAdapter({
+      pollImpl: async () => {
+        pollCalls.count += 1;
+        return {
+          ok: false,
+          code: "transient",
+          message: "try later",
+          retryable: true
+        };
+      }
+    });
+    const maxPollAttempts = 3;
+    const machine = new GenerationJobMachine({
+      store,
+      adapter,
+      now: () => FIXED_NOW,
+      preflightOnly: false,
+      maxPollAttempts
+    });
+    let job = await machine.plan({
+      request: baseRequest(),
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing(),
+      route_ok: true,
+      adapter_present: true
+    });
+    expect(job.poll_attempts).toBe(0);
+    expect(job.download_attempts).toBe(0);
+    job = await machine.approve(job.job_id, "tester");
+    job = await machine.submit(job.job_id);
+    expect(job.submit_attempts).toBe(1);
+
+    for (let i = 1; i <= maxPollAttempts; i += 1) {
+      job = await machine.poll(job.job_id);
+      expect(job.status).toBe("retry_wait");
+      expect(job.poll_attempts).toBe(i);
+      expect(pollCalls.count).toBe(i);
+    }
+
+    // Simulate crash/resume: reload durable record then continue.
+    const reloaded = await store.load(job.job_id);
+    expect(reloaded.poll_attempts).toBe(maxPollAttempts);
+    expect(reloaded.status).toBe("retry_wait");
+
+    const machine2 = new GenerationJobMachine({
+      store,
+      adapter,
+      now: () => FIXED_NOW,
+      preflightOnly: false,
+      maxPollAttempts
+    });
+    job = await machine2.resume(job.job_id);
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe(GJ_RETRY_EXHAUSTED);
+    expect(job.error?.retryable).toBe(false);
+    expect(job.poll_attempts).toBe(maxPollAttempts);
+    expect(pollCalls.count).toBe(maxPollAttempts);
+
+    // Further poll/resume must not call adapter again.
+    job = await machine2.poll(job.job_id).catch(async (error) => {
+      // failed is terminal — poll may throw invalid transition; either way no adapter call.
+      expect((error as GenerationJobError).code).toBe(GJ_INVALID_TRANSITION);
+      return store.load(job.job_id);
+    });
+    expect(pollCalls.count).toBe(maxPollAttempts);
+    expect((await store.load(job.job_id)).submit_attempts).toBe(1);
+  });
+
+  it("bounded download attempts stop adapter calls exactly at cap across retry_wait", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-dl-cap-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    const downloadCalls = { count: 0 };
+    const adapter = createMockAdapter({
+      downloadImpl: async () => {
+        downloadCalls.count += 1;
+        return {
+          ok: false,
+          code: "transient_download",
+          message: "download later",
+          retryable: true
+        };
+      }
+    });
+    const maxDownloadAttempts = 3;
+    const machine = new GenerationJobMachine({
+      store,
+      adapter,
+      now: () => FIXED_NOW,
+      preflightOnly: false,
+      maxDownloadAttempts
+    });
+    let job = await machine.plan({
+      request: baseRequest(),
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing(),
+      route_ok: true,
+      adapter_present: true
+    });
+    job = await machine.approve(job.job_id, "tester");
+    job = await machine.submit(job.job_id);
+    job = await machine.poll(job.job_id);
+    expect(job.status).toBe("succeeded");
+    expect(job.poll_attempts).toBe(1);
+
+    for (let i = 1; i <= maxDownloadAttempts; i += 1) {
+      job = await machine.downloadAndPin(job.job_id);
+      expect(job.status).toBe("retry_wait");
+      expect(job.download_attempts).toBe(i);
+      expect(downloadCalls.count).toBe(i);
+    }
+
+    // Reload preserves counters; next attempt fails closed without another adapter call.
+    const reloaded = await store.load(job.job_id);
+    expect(reloaded.download_attempts).toBe(maxDownloadAttempts);
+
+    job = await machine.downloadAndPin(job.job_id);
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe(GJ_RETRY_EXHAUSTED);
+    expect(job.error?.retryable).toBe(false);
+    expect(job.download_attempts).toBe(maxDownloadAttempts);
+    expect(downloadCalls.count).toBe(maxDownloadAttempts);
+
+    // No resubmit semantics: submit_attempts stays at single accept.
+    expect(job.submit_attempts).toBe(1);
+  });
+
+  it("successful lifecycle remains pinned with attempt counters advanced once each", async () => {
+    const root = await mkdtemp(join(tmpdir(), "gj-cap-happy-"));
+    const store = new GenerationJobStore({ rootDir: root, now: () => FIXED_NOW });
+    const pollCalls = { count: 0 };
+    const downloadCalls = { count: 0 };
+    const base = createMockAdapter();
+    const adapter: GenerationJobProviderAdapter = {
+      ...base,
+      async poll(id, ctx) {
+        pollCalls.count += 1;
+        return base.poll(id, ctx);
+      },
+      async download(id, dest, ctx) {
+        downloadCalls.count += 1;
+        return base.download(id, dest, ctx);
+      }
+    };
+    const machine = new GenerationJobMachine({
+      store,
+      adapter,
+      now: () => FIXED_NOW,
+      preflightOnly: false
+    });
+    let job = await machine.plan({
+      request: baseRequest(),
+      model_profile_digest: "a".repeat(64),
+      connection_capability_digest: "b".repeat(64),
+      pricing: knownPricing(),
+      route_ok: true,
+      adapter_present: true
+    });
+    job = await machine.approve(job.job_id, "tester");
+    job = await machine.submit(job.job_id);
+    job = await machine.poll(job.job_id);
+    job = await machine.downloadAndPin(job.job_id);
+    expect(job.status).toBe("pinned");
+    expect(job.artifact?.pinned).toBe(true);
+    expect(job.poll_attempts).toBe(1);
+    expect(job.download_attempts).toBe(1);
+    expect(pollCalls.count).toBe(1);
+    expect(downloadCalls.count).toBe(1);
+    expect(job.submit_attempts).toBe(1);
   });
 
   it("openContainedFile rejects missing and accepts regular file", async () => {

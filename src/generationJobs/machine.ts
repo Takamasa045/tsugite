@@ -23,7 +23,9 @@ import {
   GJ_PRICE_UNKNOWN,
   GJ_PROVIDER_JOB_MISSING,
   GJ_RESUBMIT_FORBIDDEN,
+  GJ_RETRY_EXHAUSTED,
   GJ_ROUTE_UNSUPPORTED,
+  GJ_SCHEMA_INVALID,
   GJ_SUBMIT_NOT_ALLOWED,
   GJ_SUBMISSION_UNKNOWN,
   GenerationJobError
@@ -32,6 +34,18 @@ import { redactSecretsInString } from "./secrets.js";
 import type { GenerationJobRecord, GenerationJobRequest } from "./schema.js";
 import { GenerationJobStore } from "./store.js";
 import { isResumableWithProviderJob } from "./transitions.js";
+
+/**
+ * Default durable poll budget (max adapter poll invocations per job).
+ * No automatic sleep/loop here — callers invoke poll() once per attempt.
+ */
+export const DEFAULT_MAX_POLL_ATTEMPTS = 120;
+
+/**
+ * Default max durable download adapter invocations per job.
+ * Small bounded retry budget; no automatic sleep/loop.
+ */
+export const DEFAULT_MAX_DOWNLOAD_ATTEMPTS = 3;
 
 export type MachineOptions = {
   store: GenerationJobStore;
@@ -42,7 +56,28 @@ export type MachineOptions = {
    * When true, submit is never attempted (planning / dry-run / preflight path).
    */
   preflightOnly?: boolean;
+  /**
+   * Positive bound on durable poll adapter calls (default 120).
+   * Counter is persisted before each invocation so crash/resume cannot reset budget.
+   */
+  maxPollAttempts?: number;
+  /**
+   * Positive bound on durable download adapter calls (default 3).
+   * Counter is persisted before each invocation so crash/resume cannot reset budget.
+   */
+  maxDownloadAttempts?: number;
 };
+
+function positiveBound(value: number | undefined, fallback: number, label: string): number {
+  const n = value ?? fallback;
+  if (!Number.isInteger(n) || n < 1) {
+    throw new GenerationJobError(
+      GJ_SCHEMA_INVALID,
+      `${label} must be a positive integer`
+    );
+  }
+  return n;
+}
 
 export type PlanJobInput = {
   request: GenerationJobRequest;
@@ -71,6 +106,8 @@ export class GenerationJobMachine {
   private readonly transport: unknown;
   private readonly now: () => string;
   private readonly preflightOnly: boolean;
+  private readonly maxPollAttempts: number;
+  private readonly maxDownloadAttempts: number;
 
   constructor(options: MachineOptions) {
     this.store = options.store;
@@ -78,6 +115,16 @@ export class GenerationJobMachine {
     this.transport = options.transport;
     this.now = options.now ?? (() => new Date().toISOString());
     this.preflightOnly = options.preflightOnly ?? false;
+    this.maxPollAttempts = positiveBound(
+      options.maxPollAttempts,
+      DEFAULT_MAX_POLL_ATTEMPTS,
+      "maxPollAttempts"
+    );
+    this.maxDownloadAttempts = positiveBound(
+      options.maxDownloadAttempts,
+      DEFAULT_MAX_DOWNLOAD_ATTEMPTS,
+      "maxDownloadAttempts"
+    );
   }
 
   private ctx(job: GenerationJobRecord) {
@@ -385,6 +432,42 @@ export class GenerationJobMachine {
       job = await this.store.transition(jobId, "polling");
     }
 
+    const pollAttempts = job.poll_attempts ?? 0;
+    if (pollAttempts >= this.maxPollAttempts) {
+      return this.store.transition(
+        jobId,
+        "failed",
+        (j) => ({
+          ...j,
+          error: {
+            code: GJ_RETRY_EXHAUSTED,
+            message: safeErrorMessage(
+              `poll attempts exhausted (${pollAttempts}/${this.maxPollAttempts})`
+            ),
+            retryable: false
+          }
+        })
+      );
+    }
+
+    // Persist budget consumption before adapter call so crash/resume cannot reset it.
+    job = await this.store.save(
+      {
+        ...job,
+        poll_attempts: pollAttempts + 1,
+        updated_at: this.now()
+      },
+      {
+        expectedIdentity: job.identity_token,
+        expectedRevision: job.revision,
+        eventType: "poll_attempt",
+        detail: {
+          poll_attempts: pollAttempts + 1,
+          max_poll_attempts: this.maxPollAttempts
+        }
+      }
+    );
+
     const result = await this.adapter.poll(job.provider_job_id!, this.ctx(job));
     if (!result.ok) {
       return this.store.transition(
@@ -464,8 +547,44 @@ export class GenerationJobMachine {
       throw new GenerationJobError(GJ_PROVIDER_JOB_MISSING, "provider_job_id required to download");
     }
 
+    const downloadAttempts = job.download_attempts ?? 0;
+    if (downloadAttempts >= this.maxDownloadAttempts) {
+      return this.store.transition(
+        jobId,
+        "failed",
+        (j) => ({
+          ...j,
+          error: {
+            code: GJ_RETRY_EXHAUSTED,
+            message: safeErrorMessage(
+              `download attempts exhausted (${downloadAttempts}/${this.maxDownloadAttempts})`
+            ),
+            retryable: false
+          }
+        })
+      );
+    }
+
+    // Persist budget consumption before adapter call so crash/resume cannot reset it.
+    job = await this.store.save(
+      {
+        ...job,
+        download_attempts: downloadAttempts + 1,
+        updated_at: this.now()
+      },
+      {
+        expectedIdentity: job.identity_token,
+        expectedRevision: job.revision,
+        eventType: "download_attempt",
+        detail: {
+          download_attempts: downloadAttempts + 1,
+          max_download_attempts: this.maxDownloadAttempts
+        }
+      }
+    );
+
     const dest = this.store.artifactsDir(jobId);
-    const result = await this.adapter.download(job.provider_job_id, dest, this.ctx(job));
+    const result = await this.adapter.download(job.provider_job_id!, dest, this.ctx(job));
     if (!result.ok) {
       return this.store.transition(
         jobId,
