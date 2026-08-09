@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+## 0.9.0 - 2026-08-10
+
 - Added a launcher **Safe Maintenance** shelf (安全な整理) that keeps Git worktree cleanup and completed-project media finalize as separate preview → review → explicit apply flows. Browsers send only short-lived server-held review IDs (never full paths); apply revalidates live state and invokes the canonical `worktrees` / `finalize` CLI without `--force`, branch deletion, or bulk delete.
 - Finalize CLI now reports an explicit `already_finalized` flag (record existence + no remaining media candidates + durable launcher home), so path-only `completion_record` values cannot be mistaken for a finished cleanup.
+- Separated H3 connection and model-profile digests/pins, with safe path and symlink containment plus provider-neutral required semantics and readiness checks.
+- Hardened H3 last-frame-only and person-consistency QA with strict Gate 2/3 approval digests, contact-sheet binding, and finalize re-verification while keeping human approval.
+- Split `minimax-http` from `minimax-direct` / `mmx` with no fallback; V2 POST create and GET query API contract; unknown-price block; POST uncertainty as `submission_unknown` with no resubmit; durable bounded poll (120) and download (3) retries.
+- Pins only artifacts that pass MIME (`video/mp4` or `video/quicktime`), SHA-256, ffprobe video-stream, and atomic pin checks (`status=pinned`); fixture/preflight-only — live HTTP, DNS resolver, provider send, and pipeline manifest injection remain unimplemented.
 
 ## 0.8.0 - 2026-08-06
 
