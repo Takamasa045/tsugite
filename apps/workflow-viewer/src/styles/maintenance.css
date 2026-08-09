@@ -34,6 +34,7 @@
 }
 
 .maintenance-panel {
+  min-width: 0;
   border: 1px solid rgba(36, 77, 73, 0.16);
   border-radius: 4px 14px 4px 14px;
   padding: 18px 16px 16px;
@@ -151,6 +152,8 @@
 
 .maintenance-field {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 6px;
   margin-bottom: 12px;
   color: var(--muted);
@@ -159,6 +162,9 @@
 }
 
 .maintenance-field select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 40px;
   border: 1px solid rgba(36, 77, 73, 0.2);
   border-radius: 8px;
