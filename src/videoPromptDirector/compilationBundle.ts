@@ -1,12 +1,12 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { closeSync, fstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { constants as fsConstants } from "node:fs";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, posix } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
+import * as nativePath from "node:path";
 import { z } from "zod";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
-import { sha256Bytes } from "../productionControl/canonical.js";
-import { programBindingSchema, routeIdentitySchema } from "../productionControl/programBinding.js";
+import { programBindingSchema, routeIdentitySchema, type GenerationUnitProgramSourceV1 } from "../productionControl/programBinding.js";
 import { digestSchema, safeIdSchema } from "../productionControl/schema.js";
 import type { SemanticPromptBlock } from "./semanticBlocks.js";
 import type { VideoPromptIrV2 } from "./schemaV2.js";
@@ -73,7 +73,7 @@ export const compilationBundleSchema = z.object({
     }).strict(),
     serialization_rules_digest: digestSchema,
     digest: digestSchema
-  }).strict(),
+  }).strict().optional(),
   labels_digest: digestSchema,
   validation: z.object({
     ok: z.boolean(),
@@ -86,7 +86,22 @@ export const compilationBundleSchema = z.object({
     upgrader_version: z.string().min(1),
     contract_bindings: z.array(digestSchema),
     exact_text_digests: z.array(digestSchema),
-    source_digest: digestSchema.optional()
+    source_digest: digestSchema.optional(),
+    generation_unit_source_digest: digestSchema.optional(),
+    generation_unit_source_identity: z.object({
+      production_id: safeIdSchema,
+      unit_id: safeIdSchema,
+      ordinal: z.number().int().nonnegative(),
+      generation_unit_digest: digestSchema,
+      program_start_ms: z.number().int().nonnegative(),
+      program_end_ms: z.number().int().positive(),
+      section_id: safeIdSchema.optional(),
+      music_contract_digest: digestSchema,
+      lyrics_contract_digest: digestSchema.optional(),
+      beat_anchor_ids: z.array(safeIdSchema).max(256),
+      lyric_cue_ids: z.array(safeIdSchema).max(256),
+      route_digest: digestSchema
+    }).strict().optional()
   }).strict(),
   compilation_digest: digestSchema
 }).strict().superRefine((bundle, context) => {
@@ -104,8 +119,10 @@ export const compilationBundleSchema = z.object({
     if (asset.pin_evidence && asset.declared_sha256 && asset.declared_sha256 !== asset.pin_evidence.sha256) context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_lineage", index, "pin_evidence", "sha256"], message: "asset pin evidence does not match declared sha256" });
   }
   if (!bundle.validation.ok) context.addIssue({ code: z.ZodIssueCode.custom, path: ["validation", "ok"], message: "compilation bundle cannot commit a failed validation" });
-  const { digest: _grammarDigest, ...grammarWithoutDigest } = bundle.grammar_profile;
-  if (sha256Canonical(grammarWithoutDigest) !== bundle.grammar_profile.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["grammar_profile", "digest"], message: "grammar profile digest mismatch" });
+  if (bundle.grammar_profile) {
+    const { digest: _grammarDigest, ...grammarWithoutDigest } = bundle.grammar_profile;
+    if (sha256Canonical(grammarWithoutDigest) !== bundle.grammar_profile.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["grammar_profile", "digest"], message: "grammar profile digest mismatch" });
+  }
   const withoutDigest = { ...bundle } as Record<string, unknown>;
   delete withoutDigest.compilation_digest;
   if (sha256Canonical(withoutDigest) !== bundle.compilation_digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["compilation_digest"], message: "compilation digest mismatch" });
@@ -136,7 +153,7 @@ export type CompilationBundleInput = {
   execution_capable: boolean;
   route: CompilationBundleV1["route"];
   program_binding?: CompilationBundleV1["program_binding"];
-  grammar_profile: CompilationBundleV1["grammar_profile"];
+  grammar_profile?: CompilationBundleV1["grammar_profile"];
   labels_digest: string;
   validation: CompilationBundleV1["validation"];
   authoring_schema?: "VideoPromptIrV2" | "V1" | "H3-V1";
@@ -144,6 +161,7 @@ export type CompilationBundleInput = {
   exact_text_digests?: string[];
   upgrader_version?: string;
   source_digest?: string;
+  generation_unit_source?: GenerationUnitProgramSourceV1;
   asset_evidence?: Readonly<Record<string, RuntimeAssetPinEvidence>>;
 };
 
@@ -183,7 +201,7 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
         }
       } : {})
     })),
-    grammar_profile: input.grammar_profile,
+    ...(input.grammar_profile ? { grammar_profile: input.grammar_profile } : {}),
     labels_digest: input.labels_digest,
     validation: input.validation,
     lineage: {
@@ -191,7 +209,11 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
       upgrader_version: input.upgrader_version ?? "native-v2",
       contract_bindings: [...(input.contract_bindings ?? [])],
       exact_text_digests: [...(input.exact_text_digests ?? [])],
-      ...(input.source_digest ? { source_digest: input.source_digest } : {})
+      ...(input.source_digest ? { source_digest: input.source_digest } : {}),
+      ...(input.generation_unit_source ? {
+        generation_unit_source_digest: sha256Canonical(input.generation_unit_source),
+        generation_unit_source_identity: generationUnitSourceIdentity(input.generation_unit_source)
+      } : {})
     }
   };
   return deepFreeze(compilationBundleSchema.parse({
@@ -221,7 +243,9 @@ export function assertCompilationBundleAssets(
       }
       try {
         const projectRoot = realpathSync(runtime.project_root);
-        const expectedPath = realpathSync(join(projectRoot, expected.path));
+        const lexicalExpectedPath = join(projectRoot, expected.path);
+        if (realpathSync(lexicalExpectedPath) !== lexicalExpectedPath) throw new Error("asset path contains a link");
+        const expectedPath = realpathSync(lexicalExpectedPath);
         const runtimePath = realpathSync(runtime.real_path);
         if (!isProjectAssetIdentityContained(projectRoot, expectedPath) || expectedPath !== runtimePath) {
           throw new Error("asset identity changed");
@@ -232,6 +256,10 @@ export function assertCompilationBundleAssets(
           if (!stat.isFile() || stat.size !== expected.pin_evidence.byte_size || sha256Fd(fd, stat.size) !== expected.pin_evidence.sha256) {
             throw new Error("asset bytes changed");
           }
+          const after = fstatSync(fd);
+          if ((stat.dev !== 0 && stat.ino !== 0 && (stat.dev !== after.dev || stat.ino !== after.ino))
+            || stat.size !== after.size
+            || stat.mtimeMs !== after.mtimeMs) throw new Error("asset identity changed");
         } finally {
           closeSync(fd);
         }
@@ -250,7 +278,7 @@ type AssetPathApi = {
   sep: string;
 };
 
-export function isProjectAssetIdentityContained(root: string, candidate: string, pathApi: AssetPathApi = posix): boolean {
+export function isProjectAssetIdentityContained(root: string, candidate: string, pathApi: AssetPathApi = nativePath): boolean {
   const resolvedRoot = pathApi.resolve(root);
   const resolvedCandidate = pathApi.resolve(candidate);
   const descendant = pathApi.relative(resolvedRoot, resolvedCandidate);
@@ -258,15 +286,39 @@ export function isProjectAssetIdentityContained(root: string, candidate: string,
     || (!pathApi.isAbsolute(descendant) && descendant !== ".." && !descendant.startsWith(`..${pathApi.sep}`));
 }
 
+const MAX_PINNED_ASSET_BYTES = 512 * 1024 * 1024;
+
 function sha256Fd(fd: number, byteSize: number): string {
-  const bytes = Buffer.allocUnsafe(byteSize);
+  if (!Number.isSafeInteger(byteSize) || byteSize < 0 || byteSize > MAX_PINNED_ASSET_BYTES) {
+    throw new Error("asset exceeds the bounded pinning limit");
+  }
+  const hash = createHash("sha256");
+  const chunk = Buffer.allocUnsafe(64 * 1024);
   let offset = 0;
   while (offset < byteSize) {
-    const read = readSync(fd, bytes, offset, byteSize - offset, offset);
+    const read = readSync(fd, chunk, 0, Math.min(chunk.length, byteSize - offset), offset);
     if (read <= 0) throw new Error("short asset read");
+    hash.update(chunk.subarray(0, read));
     offset += read;
   }
-  return sha256Bytes(bytes);
+  return hash.digest("hex");
+}
+
+function generationUnitSourceIdentity(source: GenerationUnitProgramSourceV1) {
+  return {
+    production_id: source.production_id,
+    unit_id: source.unit_id,
+    ordinal: source.ordinal,
+    generation_unit_digest: source.generation_unit_digest,
+    program_start_ms: source.program_start_ms,
+    program_end_ms: source.program_end_ms,
+    ...(source.section_id ? { section_id: source.section_id } : {}),
+    music_contract_digest: source.music.contract_digest,
+    ...(source.lyrics ? { lyrics_contract_digest: source.lyrics.contract_digest } : {}),
+    beat_anchor_ids: source.beat_anchor_refs.map((ref) => ref.fragment_id),
+    lyric_cue_ids: source.lyric_cue_refs.map((ref) => ref.fragment_id),
+    route_digest: source.route.route_digest
+  };
 }
 
 /** Write a complete bundle through a sibling temp file; the final file is the commit marker. */

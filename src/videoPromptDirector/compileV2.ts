@@ -1,7 +1,7 @@
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
-import { sha256Bytes } from "../productionControl/canonical.js";
-import { readFileSync, statSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import {
   assertHomogeneousRouteIdentity,
   assertRouteIdentity,
@@ -20,6 +20,7 @@ import {
 } from "./adapterDialect.js";
 import {
   createCompilationBundle,
+  isProjectAssetIdentityContained,
   type CompilationBundleV1
 } from "./compilationBundle.js";
 import {
@@ -63,6 +64,7 @@ export type GenerationUnitDurationBinding = GenerationUnitProgramSourceV1;
 
 export type CompileVideoPromptV2Options = {
   request_id?: string;
+  request_index?: number;
   route?: RouteIdentityV1;
   batch_routes?: readonly RouteIdentityV1[];
   model_profile_digest?: string;
@@ -121,6 +123,7 @@ export type VideoPromptV2Compilation = {
     connection_capability_digest: string;
     adapter_capability_digest: string;
     program_binding_digest?: string;
+    generation_unit_source_digest?: string;
   };
 };
 
@@ -181,7 +184,14 @@ export function compileVideoPromptIrV2(
       issues.push(issue("VPD-R002", "route adapter does not match the pinned connection profile adapter", "error", ["route", "adapter_id"]));
     }
   }
-  if (ir.program_kind === "mv") issues.push(...validateMvBinding(ir.program_binding, ir.target.duration_ms, options.generation_unit_source, route));
+  if (ir.program_kind === "mv") issues.push(...validateMvBinding(
+    ir.program_binding,
+    ir.target.duration_ms,
+    options.generation_unit_source,
+    route,
+    options.request_id,
+    options.request_index
+  ));
   if (ir.program_kind === "standalone" && "program_binding" in ir && ir.program_binding !== undefined) {
     issues.push(issue("VPD-U001", "standalone VideoPromptIrV2 must not contain program_binding", "error", ["program_binding"]));
   }
@@ -209,18 +219,19 @@ export function compileVideoPromptIrV2(
     require_exact_sync: options.require_exact_sync
   });
   issues.push(...semantic.issues);
-  const grammarProfile = options.grammar_profile ?? DEFAULT_H3_GRAMMAR_PROFILE_V3;
+  const plainRenderer = options.model_profile?.renderer === "plain-prompt";
+  const grammarProfile = plainRenderer ? undefined : (options.grammar_profile ?? DEFAULT_H3_GRAMMAR_PROFILE_V3);
   const grammarOptions: H3GrammarV3Options = {
     ...(options.lyrics_source ? { lyrics_source: options.lyrics_source } : {}),
     ...(options.require_exact_sync !== undefined ? { require_exact_sync: options.require_exact_sync } : {}),
-    grammar_profile: grammarProfile
+    ...(grammarProfile ? { grammar_profile: grammarProfile } : {})
   };
   const rendered = options.model_profile?.renderer === "plain-prompt"
     ? renderProviderNeutralPrompt(semantic.ast)
     : renderH3GrammarV3(semantic.ast, grammarOptions);
   issues.push(...rendered.issues);
-  if (ir.shots.some((shot) => shot.vocal_events.some((event) => event.speaker_ids.length > 1))
-    && !grammarProfile.features.group_speaker) {
+  if (!plainRenderer && ir.shots.some((shot) => shot.vocal_events.some((event) => event.speaker_ids.length > 1))
+    && grammarProfile && !grammarProfile.features.group_speaker) {
     issues.push(issue("VPD-V001", "selected grammar profile cannot serialize all group speakers", "error", ["shots", "vocal_events", "speaker_ids"]));
   }
   for (const [assetIndex, asset] of ir.assets.entries()) {
@@ -300,9 +311,18 @@ export function compileVideoPromptIrV2(
     }
     const promptBudget = effectiveResult.contract.effective.prompt_budget;
     const budgetUnit = promptBudget.hard?.unit ?? promptBudget.soft?.unit;
-    const promptLength = budgetUnit === "utf8-bytes" ? Buffer.byteLength(dialect.canonical_prompt, "utf8") : [...dialect.canonical_prompt].length;
-    if (promptBudget.hard && promptLength > promptBudget.hard.limit) issues.push(issue("VPD-B001", "canonical prompt exceeds hard budget", "error", ["canonical_prompt"]));
-    else if (promptBudget.soft && promptLength > promptBudget.soft.limit) issues.push(issue("VPD-B002", "canonical prompt exceeds soft budget", "warning", ["canonical_prompt"]));
+    const promptLength = budgetUnit === "utf8-bytes"
+      ? Buffer.byteLength(dialect.canonical_prompt, "utf8")
+      : budgetUnit === "tokens"
+        ? undefined
+        : [...dialect.canonical_prompt].length;
+    if (promptLength === undefined) {
+      issues.push(issue("VPD-B003", "token prompt budget cannot be measured without a digest-bound tokenizer", "error", ["budget"]));
+    } else if (promptBudget.hard && promptLength > promptBudget.hard.limit) {
+      issues.push(issue("VPD-B001", "canonical prompt exceeds hard budget", "error", ["canonical_prompt"]));
+    } else if (promptBudget.soft && promptLength > promptBudget.soft.limit) {
+      issues.push(issue("VPD-B002", "canonical prompt exceeds soft budget", "warning", ["canonical_prompt"]));
+    }
   }
   issues.push(...validateAdapterDialect(rendered.text, dialect.adapter_prompt, dialect.labels, rendererDialect));
 
@@ -331,7 +351,10 @@ export function compileVideoPromptIrV2(
       model_profile_digest: effective.digests.model_profile,
       connection_capability_digest: effective.digests.connection_profile,
       adapter_capability_digest: rendererDialect?.source_digest ?? "0".repeat(64),
-      ...(ir.program_kind === "mv" ? { program_binding_digest: sha256Canonical(ir.program_binding) } : {})
+      ...(ir.program_kind === "mv" ? { program_binding_digest: sha256Canonical(ir.program_binding) } : {}),
+      ...(options.generation_unit_source ? {
+        generation_unit_source_digest: sha256Canonical(options.generation_unit_source)
+      } : {})
     }
   };
   if (issues.some((item) => item.severity === "error") || !route) {
@@ -349,7 +372,9 @@ export function compileVideoPromptIrV2(
     adapter_capability_digest: rendererDialect?.source_digest ?? "0".repeat(64),
     route,
     ...(ir.program_kind === "mv" ? { program_binding: ir.program_binding } : {}),
-    grammar_profile: { ...rendered.grammar_profile, section_order: [...rendered.grammar_profile.section_order] },
+    ...(rendered.grammar_profile ? {
+      grammar_profile: { ...rendered.grammar_profile, section_order: [...rendered.grammar_profile.section_order] }
+    } : {}),
     labels_digest: dialect.labels.digest,
     validation,
     ...(options.source?.authoring_schema ? { authoring_schema: options.source.authoring_schema } : {}),
@@ -363,7 +388,10 @@ export function compileVideoPromptIrV2(
     ...(options.source ? { upgrader_version: options.source.upgrader_version, ...(options.source.source_digest ? { source_digest: options.source.source_digest } : {}) } : {}),
     effective_contract: effective,
     execution_capable: intent === "execute",
-    asset_evidence: options.asset_evidence
+    asset_evidence: options.asset_evidence,
+    ...(options.generation_unit_source ? {
+      generation_unit_source: options.generation_unit_source
+    } : {})
   });
   return { ok: true, compilation: { ...partial, bundle }, issues: [] };
 }
@@ -414,7 +442,9 @@ export function validateMvBinding(
   binding: ProgramBindingForV2,
   targetDurationMs: number,
   source?: GenerationUnitProgramSourceV1,
-  route?: RouteIdentityV1
+  route?: RouteIdentityV1,
+  requestId?: string,
+  requestIndex?: number
 ): H3Issue[] {
   const issues: H3Issue[] = [];
   try {
@@ -428,6 +458,16 @@ export function validateMvBinding(
   }
   try {
     const parsedSource = generationUnitProgramSourceSchema.parse(source);
+    const { generation_unit_digest: declaredGenerationUnitDigest, ...sourceBody } = parsedSource;
+    if (sha256Canonical(sourceBody) !== declaredGenerationUnitDigest) {
+      issues.push(issue("VPD-U001", "MV GenerationUnitProgramSource generation_unit_digest is not the digest of its create-only source body", "error", ["generation_unit_source", "generation_unit_digest"]));
+    }
+    if (requestId !== undefined && parsedSource.unit_id !== requestId) {
+      issues.push(issue("VPD-U001", "MV source unit_id must exactly match the request id", "error", ["generation_unit_source", "unit_id"]));
+    }
+    if (requestIndex !== undefined && parsedSource.ordinal !== requestIndex) {
+      issues.push(issue("VPD-U001", "MV source ordinal must exactly match the request index", "error", ["generation_unit_source", "ordinal"]));
+    }
     const sourceRouteIssues = assertRouteIdentity(parsedSource.route, { model: parsedSource.route.ir_model, mode: parsedSource.route.mode_binding });
     if (sourceRouteIssues.some((item) => item.severity === "error")) {
       issues.push(issue("VPD-U001", "MV GenerationUnitProgramSource route digest is stale", "error", ["generation_unit_source", "route"]));
@@ -506,15 +546,15 @@ function placeholderEffectiveContract(route: RouteIdentityV1, mode: VideoPromptI
 
 function effectiveCapabilityEvidence(
   ir: VideoPromptIrV2,
-  grammarProfile: H3GrammarProfileV3
+  grammarProfile?: H3GrammarProfileV3
 ): Partial<EffectiveGenerationContractV1["execution"]["capability_evidence"]> {
   return {
     group_speaker: ir.shots.some((shot) => shot.vocal_events.some((event) => event.speaker_ids.length > 1))
-      ? (grammarProfile.features.group_speaker ? "hard" : "unknown")
-      : "hard",
+      ? (grammarProfile?.features.group_speaker ? "hard" : "unknown")
+      : (grammarProfile ? "hard" : "unknown"),
     exact_text: ir.shots.some((shot) => shot.vocal_events.some((event) => event.content.source !== "legacy-unaligned"))
-      ? (grammarProfile.features.exact_dialogue ? "hard" : "unknown")
-      : "hard"
+      ? (grammarProfile?.features.exact_dialogue ? "hard" : "unknown")
+      : (grammarProfile ? "hard" : "unknown")
   };
 }
 
@@ -564,14 +604,35 @@ function verifyAssetPinEvidence(
   try {
     const root = realpathSync(resolve(projectRoot));
     const absolute = resolve(root, projectRelativePath);
-    if (isAbsolute(projectRelativePath) || relative(root, absolute).startsWith("..")) return false;
+    if (isAbsolute(projectRelativePath) || !isProjectAssetIdentityContained(root, absolute)) return false;
+    if (lstatSync(absolute).isSymbolicLink()) return false;
     const actualPath = realpathSync(absolute);
-    if (relative(root, actualPath).startsWith("..")) return false;
+    if (absolute !== actualPath || !isProjectAssetIdentityContained(root, actualPath)) return false;
     if (resolve(evidence.real_path) !== actualPath) return false;
-    const stat = statSync(actualPath);
-    if (!stat.isFile() || stat.size !== evidence.byte_size) return false;
-    return sha256Bytes(readFileSync(actualPath)) === evidence.sha256;
+    const fd = openSync(actualPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    try {
+      const before = fstatSync(fd);
+      if (!before.isFile() || before.size !== evidence.byte_size || before.size > MAX_PINNED_ASSET_BYTES) return false;
+      const hash = createHash("sha256");
+      const chunk = Buffer.allocUnsafe(64 * 1024);
+      let offset = 0;
+      while (offset < before.size) {
+        const read = readSync(fd, chunk, 0, Math.min(chunk.length, before.size - offset), offset);
+        if (read <= 0) return false;
+        hash.update(chunk.subarray(0, read));
+        offset += read;
+      }
+      const after = fstatSync(fd);
+      const sameIdentity = (before.dev === 0 || before.ino === 0 || (before.dev === after.dev && before.ino === after.ino))
+        && before.size === after.size
+        && before.mtimeMs === after.mtimeMs;
+      return sameIdentity && hash.digest("hex") === evidence.sha256;
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return false;
   }
 }
+
+const MAX_PINNED_ASSET_BYTES = 512 * 1024 * 1024;

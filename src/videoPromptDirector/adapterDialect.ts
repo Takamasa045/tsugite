@@ -19,6 +19,7 @@ type TrustedAdapterDialectCapability = AdapterDialectCapability & {
   readonly [adapterDialectCapabilityBrand]: true;
 };
 const trustedAdapterDialectCapabilities = new WeakSet<object>();
+const adapterDialectSnapshots = new WeakMap<object, string>();
 
 export type RendererDialectCapability = AdapterDialectCapability;
 
@@ -72,8 +73,9 @@ export async function loadAdapterDialectCapability(
     ok: true,
     source: "adapter-profile",
     capability: (() => {
-      const capability = { ...profile, source_digest: sha256Canonical(sourceBody) } as TrustedAdapterDialectCapability;
+      const capability = deepFreeze({ ...profile, source_digest: sha256Canonical(sourceBody) }) as TrustedAdapterDialectCapability;
       trustedAdapterDialectCapabilities.add(capability);
+      adapterDialectSnapshots.set(capability, sha256Canonical(capability));
       return capability;
     })()
   };
@@ -91,6 +93,7 @@ export function resolveRendererDialectCapability(input: {
     if (!trustedAdapterDialectCapabilities.has(capability as object)
       || profile.adapter_id !== input.route.adapter_id
       || !/^[a-f0-9]{64}$/.test(capability.source_digest)) return undefined;
+    if (!snapshotMatches(capability)) return undefined;
     if (profile.renderer === "h3-grammar" && profile.label_dialect !== "picture") return undefined;
     if (profile.renderer === "plain-prompt" && profile.label_dialect !== "none") return undefined;
     return capability;
@@ -233,4 +236,18 @@ function exactTextRanges(prompt: string): Array<{ start: number; end: number }> 
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function deepFreeze<T>(value: T): T {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
+function snapshotMatches(value: object): boolean {
+  try {
+    return adapterDialectSnapshots.get(value) === sha256Canonical(value);
+  } catch {
+    return false;
+  }
 }

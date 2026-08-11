@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, writeFile, rm, symlink } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
@@ -6,10 +6,13 @@ import { describe, expect, it } from "vitest";
 import {
   assertCompilationBundleAssets,
   compileVideoPromptIrV2,
+  compileProjectVideoPrompts,
   loadAdapterDialectCapability,
   loadConnectionCapabilityProfile,
   loadModelPromptProfile,
   routeFromProfiles,
+  verifyCompilationBundle,
+  validatePromptLength,
   type VideoPromptIrV2
 } from "../src/videoPromptDirector/index.js";
 import { buildProgramBinding, type GenerationUnitProgramSourceV1 } from "../src/productionControl/programBinding.js";
@@ -18,9 +21,10 @@ import { createReviewDocument, inspectGate1Review, renderReviewHtml, writeCreati
 import { validateProject } from "../src/project/validateProject.js";
 import { assertEffectiveGenerationContract, createEffectiveGenerationContract } from "../src/videoPromptDirector/effectiveContract.js";
 import { h3IssueToProjectIssue } from "../src/videoPromptDirector/compile.js";
-import { loadFixturePinnedPromptBudgetEvidence } from "../src/videoPromptDirector/promptBudgetEvidence.js";
+import { loadPlanningOnlyPinnedPromptBudgetEvidence } from "../src/videoPromptDirector/promptBudgetEvidence.js";
 import { sha256Canonical, sha256Text } from "../src/integrity/canonical.js";
 import { isProjectAssetIdentityContained } from "../src/videoPromptDirector/compilationBundle.js";
+import { createProjectGenerationUnitSourceResolver, isGenerationUnitPathContained } from "../src/videoPromptDirector/generationUnitSourceResolver.js";
 
 const ZERO = "0".repeat(64);
 
@@ -84,14 +88,13 @@ function cli(args: string[], cwd: string) {
   });
 }
 
-function sourceFor(route: Awaited<ReturnType<typeof realProfiles>>["route"]): GenerationUnitProgramSourceV1 {
-  return {
+function sourceFor(route: Awaited<ReturnType<typeof realProfiles>>["route"], unitId = "mv-unit-01", ordinal = 0): GenerationUnitProgramSourceV1 {
+  const body = {
     schema_version: 1,
     kind: "mv-generation-unit-source",
     production_id: "production-1",
-    unit_id: "unit-01",
-    ordinal: 0,
-    generation_unit_digest: ZERO,
+    unit_id: unitId,
+    ordinal,
     music: { contract_id: "music-1", revision: 1, contract_digest: ZERO, master_audio_digest: ZERO },
     lyrics: { contract_id: "lyrics-1", revision: 1, contract_digest: ZERO },
     program_start_ms: 0,
@@ -101,6 +104,7 @@ function sourceFor(route: Awaited<ReturnType<typeof realProfiles>>["route"]): Ge
     lyric_cue_refs: [{ slot: "lyrics", contract_id: "lyrics-1", revision: 1, kind: "lyric-cue", fragment_id: "cue-1", digest: ZERO }],
     route
   };
+  return { ...body, generation_unit_digest: sha256Canonical(body) };
 }
 
 async function writeMvProject(withSource: boolean): Promise<{
@@ -162,6 +166,216 @@ describe("PO-4 follow-up security and profile regressions", () => {
     if (result.ok) {
       expect(result.compilation.adapter_prompt).not.toContain("<Picture 1>");
       expect(result.compilation.adapter_prompt).not.toContain("@image1");
+    }
+  });
+
+  it("loads the minimax-http api adapter profile and compiles its native H3 route", async () => {
+    const model = await loadModelPromptProfile("minimax-h3");
+    const connection = await loadConnectionCapabilityProfile("minimax-http");
+    const capability = await loadAdapterDialectCapability("minimax-http");
+    expect(model.ok && connection.ok && capability.ok).toBe(true);
+    if (!model.ok || !connection.ok || !capability.ok) return;
+    const selected = routeFromProfiles({
+      model: "minimax-h3",
+      mode: "last-frame",
+      model_profile: model.profile,
+      connection_profile: connection.profile,
+      model_profile_digest: model.digest,
+      connection_profile_digest: connection.digest
+    });
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    const result = compileVideoPromptIrV2({
+      ...baseV2(),
+      target: { ...baseV2().target, mode: "last-frame" },
+      assets: [{ id: "last", type: "image", path: "last.png", role: "last_frame" }]
+    }, {
+      route: selected.route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: capability.capability
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("routes connected legacy request.h3 through the V2 compiler without rewriting authoring", async () => {
+    const legacy = JSON.parse(await readFile(join(process.cwd(), "test", "fixtures", "h3", "t2v.json"), "utf8")) as Record<string, unknown>;
+    legacy.target = { ...(legacy.target as Record<string, unknown>), quality: "768p" };
+    const project = {
+      slug: "legacy-h3-v2-entry",
+      name: "legacy h3 v2 entry",
+      manifest: "manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        connection: "minimax-direct",
+        adapter: "minimax",
+        requests: [{ id: "legacy-h3-01", prompt: "", params: {}, h3: legacy }]
+      }
+    } as never;
+    const result = await compileProjectVideoPrompts(project, {
+      connectionId: "minimax-direct",
+      intent: "planning",
+      implementedAdapterIds: ["minimax"]
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plans[0]?.compiler_workflow).toBe("video-prompt-v3");
+    expect(result.plans[0]?.v2_compilation?.bundle.lineage.authoring_schema).toBe("H3-V1");
+    expect(result.project.generation?.requests[0]?.h3).toEqual(legacy);
+    expect((result.project.generation?.requests[0] as { video_prompt?: unknown }).video_prompt).toBeUndefined();
+    expect(result.project.generation?.requests[0]?.prompt).toBeTruthy();
+  });
+
+  it("connects validateProject and createPlan to the same legacy-H3 V2 boundary", async () => {
+    const fixture = await writeMvProject(true);
+    try {
+      const legacy = JSON.parse(await readFile(join(process.cwd(), "test", "fixtures", "h3", "t2v.json"), "utf8")) as Record<string, unknown>;
+      legacy.target = { ...(legacy.target as Record<string, unknown>), quality: "768p" };
+      const project = JSON.parse(await readFile(fixture.configPath, "utf8")) as Record<string, any>;
+      project.generation.connection = "minimax-direct";
+      project.generation.adapter = "minimax";
+      project.generation.requests[0] = {
+        id: "legacy-h3-validate-01",
+        operation: "video",
+        model: "minimax-h3",
+        mode: "text-to-video",
+        prompt: "",
+        params: {},
+        h3: legacy
+      };
+      await writeFile(fixture.configPath, JSON.stringify(project));
+      const catalogPath = join(fixture.root, "fixture.catalog.json");
+      await writeFile(catalogPath, JSON.stringify({
+        schema_version: 1,
+        selection_prompt: {
+          id: "fixture-selection",
+          question: "select fixture connection",
+          required_when: "connection-unspecified",
+          instruction: "fixture-only",
+          no_subscription_message: "fixture-only",
+          no_subscription_options: ["minimax-direct"]
+        },
+        connections: [{
+          id: "minimax-direct",
+          aliases: [],
+          display_name: "MiniMax fixture",
+          provider: "minimax",
+          transport: "cli",
+          auth_kind: "none",
+          implementation_status: "integrated",
+          adapter: "minimax",
+          execution_mode: "pipeline-adapter",
+          capabilities: ["video.text-to-video"],
+          automated_capabilities: ["video.text-to-video"],
+          model_policy: "catalog",
+          model_families: ["minimax", "minimax-h3"],
+          route_note: "fixture-only; no provider submission",
+          setup_checks: []
+        }]
+      }));
+      const validation = await validateProject(fixture.configPath, { connectionCatalogPath: catalogPath });
+      expect(validation.ok).toBe(true);
+      if (!validation.ok) return;
+      const plan = createPlan(
+        validation.project,
+        validation.manifest,
+        validation.adapter,
+        validation.analysisAdapter,
+        validation.promptGuides,
+        validation.audioAdapter,
+        validation.generationConnection,
+        validation.audioConnection,
+        validation.backend,
+        validation.h3_compilations,
+        validation.video_prompt_plans
+      );
+      expect(plan.video_prompt_plans?.[0]?.compiler_workflow).toBe("video-prompt-v3");
+      expect(plan.video_prompt_plans?.[0]?.v2_compilation?.bundle.lineage.authoring_schema).toBe("H3-V1");
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not let provider-neutral rendering retain H3 controls or grammar profile", async () => {
+    const { model, connection, route } = await realProfiles("v6", "pixverse");
+    const capability = await loadAdapterDialectCapability("pixverse");
+    expect(capability.ok).toBe(true);
+    if (!capability.ok) return;
+    const exact = "line 1\n🙂";
+    const ir = {
+      ...baseV2("v6"),
+      shots: [{
+        ...baseV2("v6").shots[0]!,
+        vocal_events: [{
+          id: "dialogue-1",
+          kind: "dialogue" as const,
+          speaker_ids: ["S1"],
+          language_id: "ja",
+          content: { source: "inline-exact" as const, exact_text: exact, text_digest: sha256Text(exact) },
+          start_ms: 8_000,
+          end_ms: 10_000,
+          continuity: "cutoff" as const
+        }]
+      }]
+    } as VideoPromptIrV2;
+    const result = compileVideoPromptIrV2(ir, {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: capability.capability
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.compilation.canonical_prompt).not.toMatch(/<\/?(?:d|scenetrans|cutoff)>/);
+    expect(result.compilation.canonical_prompt).not.toMatch(/<(?:Picture|Subject) \d+>/);
+    expect(result.compilation.bundle.grammar_profile).toBeUndefined();
+    expect(result.compilation.canonical_prompt).toContain(exact);
+  });
+
+  it("binds the complete MV source artifact and rejects source-field mutation", async () => {
+    const fixture = await writeMvProject(true);
+    try {
+      const validation = await validateProject(fixture.configPath);
+      expect(validation.ok).toBe(true);
+      if (!validation.ok) return;
+      const plan = validation.video_prompt_plans?.[0];
+      expect(plan?.v2_compilation?.bundle.lineage.generation_unit_source_digest).toBe(sha256Canonical(fixture.source));
+      const mutated = { ...fixture.source, music: { ...fixture.source.music, revision: 2 } };
+      await writeFile(join(fixture.root, "production-control", "generation-units", "mv-unit-01.json"), JSON.stringify(mutated));
+      const stale = await validateProject(fixture.configPath);
+      expect(stale.ok).toBe(false);
+      expect(stale.issues.map((item) => item.code)).toContain("VPD-U001");
+      if (plan?.v2_compilation) expect(() => verifyCompilationBundle(plan.v2_compilation.bundle)).not.toThrow();
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects generation-unit directory and leaf symlinks plus Windows escapes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-source-identity-"));
+    let outside: string | undefined;
+    try {
+      outside = await mkdtemp(join(tmpdir(), "tsugite-po4-source-outside-"));
+      await mkdir(join(root, "production-control"), { recursive: true });
+      await mkdir(join(outside, "generation-units"), { recursive: true });
+      const { route } = await realProfiles("v6", "pixverse");
+      await writeFile(join(outside, "generation-units", "mv-unit-01.json"), JSON.stringify(sourceFor(route)));
+      await symlink(join(outside, "generation-units"), join(root, "production-control", "generation-units"));
+      const project = { production_control: { generation_unit_sources_dir: "production-control/generation-units" } } as never;
+      const resolver = createProjectGenerationUnitSourceResolver(join(root, "project.yaml"));
+      expect(await resolver({ project, request: { id: "mv-unit-01" } as never, ir: baseV2("v6"), requestIndex: 0 })).toBeUndefined();
+      expect(isGenerationUnitPathContained("C:\\project", "C:\\project\\generation-units\\x.json", win32)).toBe(true);
+      expect(isGenerationUnitPathContained("C:\\project", "C:\\project-foreign\\x.json", win32)).toBe(false);
+      expect(isGenerationUnitPathContained("C:\\project", "D:\\project\\x.json", win32)).toBe(false);
+      expect(isGenerationUnitPathContained("\\\\server\\share\\project", "\\\\server\\other\\x.json", win32)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      if (outside) await rm(outside, { recursive: true, force: true });
     }
   });
 
@@ -275,6 +489,16 @@ describe("PO-4 follow-up security and profile regressions", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-K003");
+  });
+
+  it("does not count emoji as Unicode code points for an unimplemented token budget", () => {
+    const issues = validatePromptLength("🙂", {
+      hard: { limit: 1, unit: "tokens", source: "official-api", verified_at: "2026-08-11T00:00:00Z" },
+      soft: null,
+      unknown: false
+    });
+    expect(issues.map((item) => item.code)).toContain("VPD-B003");
+    expect(issues.map((item) => item.code)).not.toContain("VPD-B001");
   });
 
   it("does not accept same-byte assets from a different real path", async () => {
@@ -432,7 +656,20 @@ describe("PO-4 follow-up security and profile regressions", () => {
     expect(rejected.ok).toBe(false);
     if (!rejected.ok) expect(rejected.issues.map((item) => item.code)).toContain("VPD-K003");
 
-    const trusted = loadFixturePinnedPromptBudgetEvidence({
+    const directForged = compileVideoPromptIrV2(baseV2(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      trusted_pinned_budget_evidence: forgedBudget.evidence as never,
+      intent: "execute"
+    });
+    expect(directForged.ok).toBe(false);
+    if (!directForged.ok) expect(directForged.issues.map((item) => item.code)).toContain("VPD-K003");
+
+    const trusted = loadPlanningOnlyPinnedPromptBudgetEvidence({
+      artifactPath: join(process.cwd(), "test", "fixtures", "prompt-budget", "fixture.json"),
       route,
       model_profile_digest: model.digest,
       connection_profile_digest: connection.digest

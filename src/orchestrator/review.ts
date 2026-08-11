@@ -242,7 +242,8 @@ export type VideoPromptReviewProjection = {
     model_profile_digest: string;
     connection_capability_digest: string;
     adapter_capability_digest: string;
-    grammar_profile_digest: string;
+    grammar_profile_digest?: string;
+    generation_unit_source_digest?: string;
   };
 };
 
@@ -272,7 +273,10 @@ export function createVideoPromptReviewProjection(
         model_profile_digest: compilation.bundle.model_profile_digest,
         connection_capability_digest: compilation.bundle.connection_capability_digest,
         adapter_capability_digest: compilation.bundle.adapter_capability_digest,
-        grammar_profile_digest: compilation.bundle.grammar_profile.digest
+        ...(compilation.bundle.grammar_profile ? { grammar_profile_digest: compilation.bundle.grammar_profile.digest } : {}),
+        ...(compilation.bundle.lineage.generation_unit_source_digest
+          ? { generation_unit_source_digest: compilation.bundle.lineage.generation_unit_source_digest }
+          : {})
       }
     } satisfies VideoPromptReviewProjection];
   });
@@ -516,7 +520,9 @@ export async function inspectGate1Review(options: {
         options.manifest
       ),
       connections: currentConnections.snapshots,
-      video_prompt_subject_digest: currentVideoPromptDigest,
+      ...(currentVideoPrompt.projection.length > 0
+        ? { video_prompt_subject_digest: currentVideoPromptDigest }
+        : {}),
       editorial_approval_digest: editorialApprovalDigest,
       composition_approval_digest: currentComposition?.approvalDigest
     });
@@ -1989,7 +1995,7 @@ function renderVideoPromptReview(plans: VideoPromptReviewProjection[] | undefine
       .join("");
     return `<article class="video-prompt-card" data-request-order="${index}" data-request-id="${escapeAttribute(plan.request_id)}">
       <header><p class="eyebrow">REQUEST ${String(index + 1).padStart(2, "0")}</p><h3>${escapeHtml(plan.request_id)}</h3><p class="h3-status" data-ok="${compilation.validation.ok ? "true" : "false"}">validation: ${compilation.validation.ok ? "ok" : "error"}</p></header>
-      <dl class="h3-lineage"><div><dt>COMPILATION DIGEST</dt><dd><code>${escapeHtml(compilation.compilation_digest)}</code></dd></div><div><dt>REQUEST IDENTITY</dt><dd>${escapeHtml(plan.request_identity.authoring_surface)} / ${escapeHtml(plan.request_identity.authoring_schema)} / ${escapeHtml(plan.request_identity.compiler_workflow)}</dd></div><div><dt>ROUTE</dt><dd>${escapeHtml(compilation.route.ir_model)} via ${escapeHtml(compilation.route.adapter_id)} / ${escapeHtml(compilation.route.mode_binding)}</dd></div><div><dt>MODEL PROFILE</dt><dd><code>${escapeHtml(compilation.model_profile_digest)}</code></dd></div><div><dt>CONNECTION CAPABILITY</dt><dd><code>${escapeHtml(compilation.connection_capability_digest)}</code></dd></div><div><dt>ADAPTER CAPABILITY</dt><dd><code>${escapeHtml(compilation.adapter_capability_digest)}</code></dd></div><div><dt>GRAMMAR PROFILE</dt><dd><code>${escapeHtml(compilation.grammar_profile_digest)}</code></dd></div></dl>
+      <dl class="h3-lineage"><div><dt>COMPILATION DIGEST</dt><dd><code>${escapeHtml(compilation.compilation_digest)}</code></dd></div><div><dt>REQUEST IDENTITY</dt><dd>${escapeHtml(plan.request_identity.authoring_surface)} / ${escapeHtml(plan.request_identity.authoring_schema)} / ${escapeHtml(plan.request_identity.compiler_workflow)}</dd></div><div><dt>ROUTE</dt><dd>${escapeHtml(compilation.route.ir_model)} via ${escapeHtml(compilation.route.adapter_id)} / ${escapeHtml(compilation.route.mode_binding)}</dd></div><div><dt>MODEL PROFILE</dt><dd><code>${escapeHtml(compilation.model_profile_digest)}</code></dd></div><div><dt>CONNECTION CAPABILITY</dt><dd><code>${escapeHtml(compilation.connection_capability_digest)}</code></dd></div><div><dt>ADAPTER CAPABILITY</dt><dd><code>${escapeHtml(compilation.adapter_capability_digest)}</code></dd></div><div><dt>GRAMMAR PROFILE</dt><dd>${compilation.grammar_profile_digest ? `<code>${escapeHtml(compilation.grammar_profile_digest)}</code>` : "not applicable"}</dd></div>${compilation.generation_unit_source_digest ? `<div><dt>GENERATION UNIT SOURCE</dt><dd><code>${escapeHtml(compilation.generation_unit_source_digest)}</code></dd></div>` : ""}</dl>
       ${validationIssues ? `<div class="h3-issues"><h4>validation</h4><ul>${validationIssues}</ul></div>` : ""}
       <div class="h3-prompts"><div><h4>canonical prompt</h4><pre>${escapeHtml(compilation.canonical_prompt)}</pre></div><div><h4>adapter prompt</h4><pre>${escapeHtml(compilation.adapter_prompt)}</pre></div></div>
       <details class="video-prompt-contract"><summary>effective contract（再検証対象）</summary><pre>${escapeHtml(JSON.stringify(compilation.effective_contract, null, 2))}</pre></details>

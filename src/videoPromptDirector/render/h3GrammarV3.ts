@@ -48,7 +48,8 @@ export type H3GrammarV3Result = {
   labels: AdapterLabelMap;
   blocks: SemanticPromptBlock[];
   issues: H3Issue[];
-  grammar_profile: H3GrammarProfileV3;
+  /** H3-only profile; provider-neutral renders deliberately omit it. */
+  grammar_profile?: H3GrammarProfileV3;
 };
 
 export type H3GrammarV3Options = SemanticBlockOptions & {
@@ -104,12 +105,21 @@ export function renderProviderNeutralPrompt(ast: SemanticPromptAst): H3GrammarV3
         ast.sections.overall_soundscape,
         ast.sections.non_diegetic_music
       ];
-  const neutralize = (value: string): string => replaceOutsideExactText(value, (segment) => {
-    let output = segment;
+  const neutralize = (value: string): string => {
+    // Semantic blocks use H3 delimiters as an internal compatibility marker.
+    // Strip only the control wrappers; the exact source body remains byte-for-
+    // byte untouched and is excluded from label replacement.
+    const exactBodies: string[] = [];
+    const exactPlaceholder = "\uE000VPD_EXACT_";
+    let output = value.replace(/<d>([\s\S]*?)<\/d>/gu, (_match, body: string) => {
+      const index = exactBodies.push(body) - 1;
+      return `${exactPlaceholder}${index}\uE001`;
+    });
+    output = output.replaceAll("<scenetrans>", "").replaceAll("<cutoff>", "");
     for (const label of ast.labels.assets) output = output.replaceAll(label.canonical, label.asset_id);
     for (const subject of ast.labels.subjects) output = output.replaceAll(subject.canonical, subject.subject_id);
-    return output;
-  });
+    return output.replace(new RegExp(`${exactPlaceholder}(\\d+)\\uE001`, "gu"), (_match, index: string) => exactBodies[Number(index)] ?? "");
+  };
   const sections = Object.fromEntries(
     orderedSections.map((section, index) => [`semantic_${index + 1}`, neutralize(section ?? "")])
   );
@@ -128,7 +138,6 @@ export function renderProviderNeutralPrompt(ast: SemanticPromptAst): H3GrammarV3
     labels: ast.labels,
     blocks: ast.blocks,
     issues,
-    grammar_profile: DEFAULT_H3_GRAMMAR_PROFILE_V3
   };
 }
 

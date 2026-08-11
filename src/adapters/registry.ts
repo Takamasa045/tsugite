@@ -61,7 +61,9 @@ const promptCapabilitySchema = z
 
 const adapterSchema = z.object({
   name: z.string().min(1),
-  kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
+  // `api` is a declarative/preflight adapter kind. It is loadable as a
+  // profile, but executable CLI paths continue to require `kind: cli`.
+  kind: z.union([z.literal("cli"), z.literal("api"), z.literal("mcp-agent"), z.literal("mcp-client")]),
   class: z.union([z.literal("generation"), z.literal("analysis"), z.literal("audio")]).default("generation"),
   connection_requirement: z.enum(["required", "local-only"]).default("required"),
   offline: z.boolean().optional(),

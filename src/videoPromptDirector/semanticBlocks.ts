@@ -134,7 +134,8 @@ export function buildSemanticBlocks(
     });
   };
 
-  const modeAlignment = alignmentText(ir);
+  const adapterLabels = buildAdapterLabelMap(ir);
+  const modeAlignment = alignmentText(ir, adapterLabels);
   if (modeAlignment) push("mode-alignment", "MODE_ALIGNMENT", ["target.mode", "target.duration_ms"], modeAlignment);
 
   for (const [subjectIndex, subject] of ir.subjects.entries()) {
@@ -216,7 +217,6 @@ export function buildSemanticBlocks(
   if (ir.creative.must_include.length > 0) push("must-include", "POSITIVE_CONSTRAINTS", ["creative.must_include"], ir.creative.must_include.join("\n"));
   if (ir.target.quality) push("quality", "QUALITY", ["target.quality"], ir.target.quality);
 
-  const adapterLabels = buildAdapterLabelMap(ir);
   const shotTexts = ir.shots.map((shot, shotIndex) => {
     const prefix = `shots.${shotIndex}`;
     const identityText = shot.cast.flatMap((cast) => blocks
@@ -337,10 +337,14 @@ function validateVisibleText(event: VisibleTextEventV2, path: string, reservedTo
   return issues;
 }
 
-function alignmentText(ir: VideoPromptIrV2): string | undefined {
-  if (ir.target.mode === "first-frame") return "At 0.00 seconds, the first-frame reference is fully retained.";
-  if (ir.target.mode === "first-last") return `The first-frame reference aligns at 0.00 seconds and the last-frame reference aligns at ${formatSeconds(ir.target.duration_ms)} seconds.`;
-  if (ir.target.mode === "last-frame") return `The last-frame reference aligns at ${formatSeconds(ir.target.duration_ms)} seconds.`;
+function alignmentText(ir: VideoPromptIrV2, labels: AdapterLabelMap): string | undefined {
+  const labelFor = (role: "first_frame" | "last_frame") => {
+    const asset = ir.assets.find((candidate) => candidate.role === role);
+    return asset ? labels.assets.find((candidate) => candidate.asset_id === asset.id)?.canonical : undefined;
+  };
+  if (ir.target.mode === "first-frame") return `At 0.00 seconds, the first-frame reference ${labelFor("first_frame") ?? ""} is fully retained.`;
+  if (ir.target.mode === "first-last") return `The first-frame reference ${labelFor("first_frame") ?? ""} aligns at 0.00 seconds and the last-frame reference ${labelFor("last_frame") ?? ""} aligns at ${formatSeconds(ir.target.duration_ms)} seconds.`;
+  if (ir.target.mode === "last-frame") return `The last-frame reference ${labelFor("last_frame") ?? ""} aligns at ${formatSeconds(ir.target.duration_ms)} seconds.`;
   return undefined;
 }
 

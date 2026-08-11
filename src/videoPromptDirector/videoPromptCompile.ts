@@ -36,7 +36,7 @@ import { mapMode, type H3Compilation, type CompileH3RequestResult } from "./comp
 import { compileVideoPromptIrV2, type VideoPromptV2Compilation } from "./compileV2.js";
 import { assertHomogeneousRouteIdentity, routeFromProfiles } from "./effectiveContract.js";
 import { safeParseVideoPromptIrV2, type VideoPromptIrV2 } from "./schemaV2.js";
-import { upgradeVideoPromptV1ToV2 } from "./upgradeV1.js";
+import { upgradeH3V1ToVideoPromptV2, upgradeVideoPromptV1ToV2 } from "./upgradeV1.js";
 import { finalizeValidation, issue, type H3Issue } from "./validation/types.js";
 import { validateH3CreativeIr } from "./validation/index.js";
 import { h3IssueToProjectIssue } from "./compile.js";
@@ -78,6 +78,7 @@ export type CompileVideoPromptOptions = {
   generationUnitSource?: GenerationUnitProgramSourceV1;
   generationUnitSourceByRequestId?: Readonly<Record<string, GenerationUnitProgramSourceV1>>;
   generationUnitSourceResolver?: GenerationUnitSourceResolver;
+  requestIndex?: number;
 };
 
 export type VideoPromptPlan = {
@@ -114,6 +115,22 @@ export async function compileVideoPromptRequest(
   const v2 = safeParseVideoPromptIrV2(ir);
   if (v2.success) {
     return compileVideoPromptV2Request(request, v2.data, options);
+  }
+
+  // Legacy request.h3 is read-only authoring. Upgrade it in memory and send
+  // the result through the same V2 compiler boundary; the source request is
+  // restored by the project projection below and is never rewritten.
+  if (request.h3 && request.h3 === ir) {
+    try {
+      const upgraded = upgradeH3V1ToVideoPromptV2(request.h3);
+      return compileVideoPromptV2Request(request, upgraded.ir, options, {
+        authoring_schema: "H3-V1",
+        upgrader_version: "h3-v1-to-v2@1",
+        source_digest: upgraded.source_sha256
+      });
+    } catch (error) {
+      return { ok: false, issues: [issue("VPD-U001", error instanceof Error ? error.message : "legacy H3 upgrade failed", "error", ["h3"])] };
+    }
   }
 
   const modelLoad = await loadModelPromptProfile(ir.target.model, options.modelProfileRoots);
@@ -323,6 +340,7 @@ async function compileVideoPromptV2Request(
     model_profile_digest: modelLoad.digest,
     connection_capability_digest: connectionLoad.digest,
     intent: options.intent === "execute" ? "execute" : "planning",
+    request_index: options.requestIndex,
     ...(options.generationUnitSource ? { generation_unit_source: options.generationUnitSource } : {}),
     adapter_dialect_capability: adapterDialectLoad.capability,
     ...(source ? { source } : {})
@@ -446,7 +464,16 @@ export async function compileProjectVideoPrompts(
       continue;
     }
 
-    if (!hasVideoPromptField(request)) {
+    const hasLegacyH3 = Boolean(request.h3);
+    // A legacy H3-only project without a declared connection remains on the
+    // pure compatibility reader. Once a connection is explicitly pinned, it
+    // must cross the V2 compiler below; guessing a route here would violate
+    // the fail-closed connection boundary.
+    if (hasLegacyH3 && !project.generation.connection) {
+      nextRequests.push(request);
+      continue;
+    }
+    if (!hasVideoPromptField(request) && !hasLegacyH3) {
       nextRequests.push(request);
       continue;
     }
@@ -463,7 +490,11 @@ export async function compileProjectVideoPrompts(
       continue;
     }
 
-    const ir = (request as GenerationRequest & { video_prompt: VideoCreativeIr }).video_prompt;
+    const ir = (request as GenerationRequest & { video_prompt?: VideoCreativeIr }).video_prompt ?? request.h3;
+    if (!ir) {
+      nextRequests.push(request);
+      continue;
+    }
     const parsedV2 = safeParseVideoPromptIrV2(ir);
     let generationUnitSource: GenerationUnitProgramSourceV1 | undefined = options.generationUnitSource;
     if (parsedV2.success && parsedV2.data.program_kind === "mv") {
@@ -480,6 +511,7 @@ export async function compileProjectVideoPrompts(
     const result = await compileVideoPromptRequest(request, ir, {
       ...options,
       connectionId,
+      requestIndex: index,
       ...(generationUnitSource ? { generationUnitSource } : {})
     });
     if (result.plan) {
@@ -495,7 +527,7 @@ export async function compileProjectVideoPrompts(
     // Keep authoring IR for digests; fill execution fields including non-empty prompt.
     nextRequests.push({
       ...result.plan.compilation.execution_request,
-      video_prompt: ir,
+      ...(hasLegacyH3 ? { h3: request.h3 } : { video_prompt: ir }),
       ...(request.prompt_guide ? { prompt_guide: request.prompt_guide } : {})
     } as GenerationRequest);
   }

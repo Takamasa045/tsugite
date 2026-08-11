@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { sha256Canonical } from "../integrity/canonical.js";
@@ -36,6 +36,7 @@ export type TrustedPinnedPromptBudgetEvidence = PinnedPromptBudgetEvidence & {
 
 const trustedEvidence = new WeakSet<object>();
 const fixtureOnlyEvidence = new WeakSet<object>();
+const evidenceSnapshots = new WeakMap<object, string>();
 
 const artifactSchema = z.object({
   schema_version: z.literal(1),
@@ -63,10 +64,12 @@ const artifactSchema = z.object({
 }).strict();
 
 /**
- * Fixture-only artifact loader used to exercise containment and anti-forgery
- * mechanics. It is deliberately not an execution authority for any route.
+ * Planning-only artifact loader used by fixture tests to exercise containment
+ * and anti-forgery mechanics. It intentionally cannot grant execution
+ * authority, and it has no provider-specific path or digest in core.
  */
-export function loadFixturePinnedPromptBudgetEvidence(input: {
+export function loadPlanningOnlyPinnedPromptBudgetEvidence(input: {
+  artifactPath: string;
   repoRoot?: string;
   route: RouteIdentityV1;
   model_profile_digest: string;
@@ -74,15 +77,13 @@ export function loadFixturePinnedPromptBudgetEvidence(input: {
   now?: string;
 }): TrustedPinnedPromptBudgetEvidence | undefined {
   const repoRoot = resolve(input.repoRoot ?? process.cwd());
-  const fixtureRoot = resolve(repoRoot, "test", "fixtures", "prompt-budget");
-  const artifactPath = resolve(fixtureRoot, "fixture.json");
-  if (!contained(repoRoot, artifactPath) || !contained(fixtureRoot, artifactPath)) return undefined;
+  const artifactPath = resolve(input.artifactPath);
+  if (!contained(repoRoot, artifactPath)) return undefined;
   try {
-    const realRoot = realpathSync(fixtureRoot);
+    const realRoot = realpathSync(repoRoot);
     const realPath = realpathSync(artifactPath);
-    if (!contained(realRoot, realPath) || !statSync(realPath).isFile()) return undefined;
+    if (!contained(realRoot, realPath) || lstatSync(artifactPath).isSymbolicLink() || !lstatSync(realPath).isFile()) return undefined;
     const bytes = readFileSync(realPath);
-    if (sha256Bytes(bytes) !== FIXTURE_ARTIFACT_DIGEST) return undefined;
     const parsed = artifactSchema.safeParse(JSON.parse(bytes.toString("utf8")));
     if (!parsed.success) return undefined;
     const artifact = parsed.data;
@@ -107,6 +108,7 @@ export function loadFixturePinnedPromptBudgetEvidence(input: {
     const evidence = deepFreeze({ ...body, digest: sha256Canonical(body) }) as TrustedPinnedPromptBudgetEvidence;
     trustedEvidence.add(evidence);
     fixtureOnlyEvidence.add(evidence);
+    evidenceSnapshots.set(evidence, sha256Canonical(evidence));
     return evidence;
   } catch {
     return undefined;
@@ -114,7 +116,8 @@ export function loadFixturePinnedPromptBudgetEvidence(input: {
 }
 
 export function isTrustedPinnedPromptBudgetEvidence(value: unknown): value is TrustedPinnedPromptBudgetEvidence {
-  return Boolean(value && typeof value === "object" && trustedEvidence.has(value));
+  return Boolean(value && typeof value === "object" && trustedEvidence.has(value)
+    && snapshotMatches(value));
 }
 
 export function isExecutionAuthoritativePinnedPromptBudgetEvidence(value: unknown): value is TrustedPinnedPromptBudgetEvidence {
@@ -137,4 +140,10 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value);
 }
 
-const FIXTURE_ARTIFACT_DIGEST = "ad0b54dbed65d21d410ce52334553c29c255dc979fac991cb46a712b22839a9d";
+function snapshotMatches(value: object): boolean {
+  try {
+    return evidenceSnapshots.get(value) === sha256Canonical(value);
+  } catch {
+    return false;
+  }
+}

@@ -98,7 +98,7 @@ export async function validateProject(
   // Stage 1b: video_prompt authoring — planning compile only (no provider).
   // Fail-closed: empty prompt video_prompt must never pass through silently.
   const hasVideoPrompt = project.generation?.requests.some(
-    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
+    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined || request.h3 !== undefined
   );
   if (hasVideoPrompt) {
     const generationUnitSourceResolver = options.generationUnitSourceResolver

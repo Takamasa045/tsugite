@@ -387,13 +387,12 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
 
   it("requires T03 GenerationUnitProgramSource for every MV compile and checks the complete binding", () => {
     const mvRoute = route();
-    const source = {
+    const sourceBody = {
       schema_version: 1,
       kind: "mv-generation-unit-source" as const,
       production_id: "production-1",
       unit_id: "unit-1",
       ordinal: 0,
-      generation_unit_digest: ZERO,
       music: { contract_id: "music-1", revision: 1, contract_digest: ZERO, master_audio_digest: ZERO },
       program_start_ms: 0,
       program_end_ms: 10_000,
@@ -401,7 +400,8 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
       lyric_cue_refs: [],
       route: mvRoute
     };
-    const binding = { generation_unit_digest: ZERO, production_id: "production-1", music_contract_digest: ZERO, program_start_ms: 0, program_end_ms: 10_000, beat_anchor_ids: [], lyric_cue_ids: [] };
+    const source = { ...sourceBody, generation_unit_digest: sha256Canonical(sourceBody) };
+    const binding = { generation_unit_digest: source.generation_unit_digest, production_id: "production-1", music_contract_digest: ZERO, program_start_ms: 0, program_end_ms: 10_000, beat_anchor_ids: [], lyric_cue_ids: [] };
     const mv = baseV2({ program_kind: "mv", program_binding: binding });
     const missing = compileVideoPromptIrV2(mv, { route: mvRoute });
     expect(missing.ok).toBe(false);

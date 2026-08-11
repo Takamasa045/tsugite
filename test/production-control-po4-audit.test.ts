@@ -144,13 +144,12 @@ async function realProfiles() {
 }
 
 function sourceFor(route: ReturnType<typeof createRouteIdentity>): GenerationUnitProgramSourceV1 {
-  return {
+  const body = {
     schema_version: 1,
     kind: "mv-generation-unit-source",
     production_id: "production-1",
-    unit_id: "unit-72s-01",
+    unit_id: "mv-72s-unit-01",
     ordinal: 0,
-    generation_unit_digest: ZERO,
     music: { contract_id: "music-1", revision: 1, contract_digest: ZERO, master_audio_digest: ZERO },
     lyrics: { contract_id: "lyrics-1", revision: 1, contract_digest: ZERO },
     program_start_ms: 0,
@@ -160,6 +159,7 @@ function sourceFor(route: ReturnType<typeof createRouteIdentity>): GenerationUni
     lyric_cue_refs: [{ slot: "lyrics", contract_id: "lyrics-1", revision: 1, kind: "lyric-cue", fragment_id: "cue-1", digest: ZERO }],
     route
   };
+  return { ...body, generation_unit_digest: sha256Canonical(body) };
 }
 
 describe("PO-4 independent audit reproductions", () => {
