@@ -1,8 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { sha256Canonical } from "../integrity/canonical.js";
-import { sha256Bytes } from "../productionControl/canonical.js";
 import { digestSchema, safeIdSchema } from "../productionControl/schema.js";
 import type { RouteIdentityV1 } from "../productionControl/programBinding.js";
 
@@ -104,7 +104,7 @@ export function loadFixturePinnedPromptBudgetEvidence(input: {
       connection_profile_digest: artifact.connection_profile_digest,
       route_digest: artifact.route_digest
     };
-    const evidence = { ...body, digest: sha256Canonical(body) } as TrustedPinnedPromptBudgetEvidence;
+    const evidence = deepFreeze({ ...body, digest: sha256Canonical(body) }) as TrustedPinnedPromptBudgetEvidence;
     trustedEvidence.add(evidence);
     fixtureOnlyEvidence.add(evidence);
     return evidence;
@@ -125,6 +125,16 @@ function contained(root: string, candidate: string): boolean {
   const descendant = relative(resolve(root), resolve(candidate));
   return descendant === ""
     || (!isAbsolute(descendant) && descendant !== ".." && !descendant.startsWith(`..${sep}`));
+}
+
+function sha256Bytes(value: Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function deepFreeze<T>(value: T): T {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
 const FIXTURE_ARTIFACT_DIGEST = "ad0b54dbed65d21d410ce52334553c29c255dc979fac991cb46a712b22839a9d";

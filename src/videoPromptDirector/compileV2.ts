@@ -177,9 +177,6 @@ export function compileVideoPromptIrV2(
     )) {
       issues.push(issue("VPD-R002", "route adapter renderer/dialect does not match the pinned model profile", "error", ["route", "adapter_id"]));
     }
-    if (!options.model_profile && route.adapter_id === "fixture-adapter" && route.ir_model !== "minimax-h3") {
-      issues.push(issue("VPD-R002", "fixture H3 dialect cannot be selected for an unknown model profile", "error", ["target", "model_profile_id"]));
-    }
     if (options.connection_profile && options.connection_profile.adapter_id !== route.adapter_id) {
       issues.push(issue("VPD-R002", "route adapter does not match the pinned connection profile adapter", "error", ["route", "adapter_id"]));
     }

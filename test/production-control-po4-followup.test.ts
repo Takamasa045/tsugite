@@ -439,6 +439,8 @@ describe("PO-4 follow-up security and profile regressions", () => {
     });
     expect(trusted).toBeDefined();
     if (!trusted) return;
+    expect(Object.isFrozen(trusted)).toBe(true);
+    expect(Object.isFrozen(trusted.hard)).toBe(true);
     const adapter = await loadAdapterDialectCapability("minimax");
     expect(adapter.ok).toBe(true);
     if (!adapter.ok) return;

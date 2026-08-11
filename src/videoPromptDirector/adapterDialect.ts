@@ -24,6 +24,20 @@ export type RendererDialectCapability = AdapterDialectCapability;
 
 export const ADAPTER_DIALECT_PROFILE_CODE = "VPD-R002";
 
+/** Explicit compatibility-only dialect registry for hand-built unit fixtures. */
+const FIXTURE_DIALECT_REGISTRY = new Map<string, AdapterDialectCapability>([
+  ["fixture-adapter:minimax-h3", {
+    adapter_id: "fixture-adapter",
+    renderer: "h3-grammar",
+    label_dialect: "picture",
+    source_digest: adapterDialectProfileDigest({
+      adapter_id: "fixture-adapter",
+      renderer: "h3-grammar",
+      label_dialect: "picture"
+    })
+  }]
+]);
+
 export function adapterDialectProfileDigest(
   profile: Omit<AdapterDialectCapability, "source_digest">
 ): string {
@@ -83,17 +97,8 @@ export function resolveRendererDialectCapability(input: {
   }
   // Compatibility fixtures are deliberately confined to manual fixture routes;
   // production routes must carry a loaded adapter profile.
-  if (!input.model_profile && !input.connection_profile && input.route.adapter_id === "fixture-adapter") {
-    return {
-      adapter_id: input.route.adapter_id,
-      renderer: "h3-grammar",
-      label_dialect: "picture",
-      source_digest: adapterDialectProfileDigest({
-        adapter_id: input.route.adapter_id,
-        renderer: "h3-grammar",
-        label_dialect: "picture"
-      })
-    };
+  if (!input.model_profile && !input.connection_profile) {
+    return FIXTURE_DIALECT_REGISTRY.get(`${input.route.adapter_id}:${input.route.ir_model}`);
   }
   return undefined;
 }
