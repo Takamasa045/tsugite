@@ -38,11 +38,28 @@ const DIGEST_A = "a".repeat(64);
 const DIGEST_B = "b".repeat(64);
 const productionControlModuleUrl = new URL("../src/productionControl/index.ts", import.meta.url).href;
 const childStoreScript = `
+  const { lstat, writeFile } = await import("node:fs/promises");
   const { EventStore, SnapshotStore } = await import(${JSON.stringify(productionControlModuleUrl)});
   const [mode, root] = process.argv.slice(1);
-  const holdMs = Number(process.env.PC_TEST_HOLD_MS ?? "0");
+  const readyPath = process.env.PC_TEST_READY_PATH;
+  const releasePath = process.env.PC_TEST_RELEASE_PATH;
+  const barrierTimeoutMs = Number(process.env.PC_TEST_BARRIER_TIMEOUT_MS ?? "5000");
+  const waitForRelease = async () => {
+    if (!readyPath || !releasePath) return;
+    await writeFile(readyPath, "ready\\n", { encoding: "utf8", flag: "wx" });
+    const deadline = Date.now() + barrierTimeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        await lstat(releasePath);
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+    throw new Error("timed out waiting for " + releasePath);
+  };
   const hooks = { afterRootLockAcquired: async () => {
-    if (holdMs > 0) await new Promise((resolve) => setTimeout(resolve, holdMs));
+    await waitForRelease();
   }};
   try {
     if (mode === "event") {
@@ -70,22 +87,56 @@ function expectCode(action: () => unknown | Promise<unknown>, code: string) {
   return expect(action()).rejects.toMatchObject({ code });
 }
 
-function runChildStore(mode: "event" | "snapshot", root: string, state?: MissionState, holdMs = 0): Promise<{ exitCode: number | null; output: string }> {
+type ChildBarrier = { readyPath: string; releasePath: string };
+type ChildResult = { exitCode: number | null; output: string };
+
+function runChildStore(
+  mode: "event" | "snapshot",
+  root: string,
+  state?: MissionState,
+  barrier?: ChildBarrier
+): Promise<ChildResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", childStoreScript, mode, root], {
       cwd: process.cwd(),
-      env: { ...process.env, PC_TEST_HOLD_MS: String(holdMs), ...(state ? { PC_TEST_STATE: JSON.stringify(state) } : {}) },
+      env: {
+        ...process.env,
+        PC_TEST_BARRIER_TIMEOUT_MS: "5000",
+        ...(barrier ? { PC_TEST_READY_PATH: barrier.readyPath, PC_TEST_RELEASE_PATH: barrier.releasePath } : {}),
+        ...(state ? { PC_TEST_STATE: JSON.stringify(state) } : {})
+      },
       stdio: ["ignore", "pipe", "pipe"]
     });
     let output = "";
+    let errorOutput = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 500);
+      reject(new Error(`child ${mode} timed out: ${errorOutput}`));
+    }, 10000);
     child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
-    child.on("error", reject);
-    child.on("close", (exitCode) => resolve({ exitCode, output }));
+    child.stderr.on("data", (chunk: Buffer) => { errorOutput += chunk.toString("utf8"); });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve({ exitCode, output });
+    });
   });
 }
 
-async function waitForPath(path: string): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitForPath(path: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
     try {
       await lstat(path);
       return;
@@ -476,20 +527,31 @@ describe("PO-1 event chain and pure reducer", () => {
 
   it("serializes separate processes and preserves a single event chain", async () => {
     const root = await tempRoot("event-cross-process");
+    const barrier = {
+      readyPath: join(root, ".event-child-ready"),
+      releasePath: join(root, ".event-child-release")
+    };
+    let first: Promise<ChildResult> | undefined;
+    let second: Promise<ChildResult> | undefined;
     try {
-      const first = runChildStore("event", root, undefined, 250);
-      await waitForPath(join(root, ".production-control.lock"));
-      const second = runChildStore("event", root);
-      const [firstResult, secondResult] = await Promise.all([first, second]);
-      expect(firstResult.exitCode).toBe(0);
-      expect(JSON.parse(firstResult.output)).toEqual({ ok: true });
+      first = runChildStore("event", root, undefined, barrier);
+      await waitForPath(barrier.readyPath);
+      second = runChildStore("event", root);
+      const secondResult = await second;
       expect(secondResult.exitCode).toBe(2);
       expect(JSON.parse(secondResult.output)).toMatchObject({ ok: false, code: "PC_LOCK_CONFLICT" });
+      await writeFile(barrier.releasePath, "release\n", "utf8");
+      const firstResult = await first;
+      expect(firstResult.exitCode).toBe(0);
+      expect(JSON.parse(firstResult.output)).toEqual({ ok: true });
       const events = await new EventStore(root).readAll();
       expect(events).toHaveLength(1);
       expect(events[0].sequence).toBe(1);
       assertEventIntegrity(events[0]);
     } finally {
+      await writeFile(barrier.releasePath, "release\n", "utf8").catch(() => undefined);
+      await first?.catch(() => undefined);
+      await second?.catch(() => undefined);
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -674,19 +736,34 @@ describe("PO-1 snapshot CAS and recovery", () => {
 
   it("serializes separate snapshot CAS writers so exactly one null-expected writer wins", async () => {
     const root = await tempRoot("snapshot-cross-process");
+    const barrier = {
+      readyPath: join(root, ".snapshot-child-ready"),
+      releasePath: join(root, ".snapshot-child-release")
+    };
+    let first: Promise<ChildResult> | undefined;
+    let second: Promise<ChildResult> | undefined;
     try {
       const { state } = await buildAcceptedStore(root);
-      const first = runChildStore("snapshot", root, state, 250);
-      await waitForPath(join(root, ".production-control.lock"));
-      const second = runChildStore("snapshot", root, state);
-      const [firstResult, secondResult] = await Promise.all([first, second]);
-      expect(firstResult.exitCode).toBe(0);
-      expect(JSON.parse(firstResult.output)).toEqual({ ok: true });
+      first = runChildStore("snapshot", root, state, barrier);
+      await waitForPath(barrier.readyPath);
+      second = runChildStore("snapshot", root, state);
+      const secondResult = await second;
       expect(secondResult.exitCode).toBe(2);
       expect(JSON.parse(secondResult.output)).toMatchObject({ ok: false, code: "PC_LOCK_CONFLICT" });
+      await writeFile(barrier.releasePath, "release\n", "utf8");
+      const firstResult = await first;
+      expect(firstResult.exitCode).toBe(0);
+      expect(JSON.parse(firstResult.output)).toEqual({ ok: true });
       const snapshot = await new SnapshotStore(root).read();
       expect(snapshot?.state_digest).toBe(missionStateDigest(state));
+      await expectCode(
+        () => new SnapshotStore(root).compareAndSwap(state, null),
+        "PC_SNAPSHOT_CONFLICT"
+      );
     } finally {
+      await writeFile(barrier.releasePath, "release\n", "utf8").catch(() => undefined);
+      await first?.catch(() => undefined);
+      await second?.catch(() => undefined);
       await rm(root, { recursive: true, force: true });
     }
   });
