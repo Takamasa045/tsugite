@@ -1,5 +1,8 @@
 name: pixverse
 kind: cli
+prompt_capability:
+  renderer: plain-prompt
+  label_dialect: none
 dry_run_estimate: true
 batch: true
 credit_estimate:

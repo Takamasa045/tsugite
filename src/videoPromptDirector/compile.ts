@@ -990,8 +990,12 @@ export function h3IssueToProjectIssue(
   requestIndex: number,
   authoringSurface: "h3" | "video_prompt" = "h3"
 ): Issue {
-  const nested = h3Issue.path && h3Issue.path.length > 0
-    ? `.${h3Issue.path.map(String).join(".")}`
+  const rawPath = h3Issue.path?.map(String) ?? [];
+  const surfacePath = authoringSurface.split(".");
+  const isAlreadySurfaceRelative = rawPath.slice(0, surfacePath.length).join(".") === authoringSurface;
+  const relativePath = isAlreadySurfaceRelative ? rawPath.slice(surfacePath.length) : rawPath;
+  const nested = relativePath.length > 0
+    ? `.${relativePath.join(".")}`
     : "";
   return {
     code: h3Issue.code,

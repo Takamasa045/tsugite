@@ -51,6 +51,14 @@ const inputModeContractSchema = z.object({
   required_any: z.array(z.array(z.string().min(1)).min(2)).default([])
 });
 
+/** Provider-neutral prompt serializer capability. Adapter-specific details stay in adapter.yaml. */
+const promptCapabilitySchema = z
+  .object({
+    renderer: z.enum(["h3-grammar", "plain-prompt"]),
+    label_dialect: z.enum(["picture", "none"])
+  })
+  .strict();
+
 const adapterSchema = z.object({
   name: z.string().min(1),
   kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
@@ -97,6 +105,7 @@ const adapterSchema = z.object({
       "first-last-frame-to-video": inputModeContractSchema.optional()
     })
     .optional(),
+  prompt_capability: promptCapabilitySchema.optional(),
   audio_capabilities: z
     .object({
       bgm_modes: z.array(z.enum(["generate", "retrieve"])).min(1).default(["generate"]),

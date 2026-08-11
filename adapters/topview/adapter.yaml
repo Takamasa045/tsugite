@@ -1,6 +1,9 @@
 name: topview
 kind: cli
 class: generation
+prompt_capability:
+  renderer: plain-prompt
+  label_dialect: none
 dry_run_estimate: true
 batch: false
 credit_estimate:

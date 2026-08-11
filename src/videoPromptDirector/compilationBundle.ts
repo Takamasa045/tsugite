@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync, realpathSync } from "node:fs";
+import { constants as fsConstants } from "node:fs";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { isAbsolute, relative } from "node:path";
+import { dirname, isAbsolute, join, posix } from "node:path";
 import { z } from "zod";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
 import { sha256Bytes } from "../productionControl/canonical.js";
@@ -53,6 +53,7 @@ export const compilationBundleSchema = z.object({
   block_digests: z.record(safeIdSchema, digestSchema),
   model_profile_digest: digestSchema,
   connection_capability_digest: digestSchema,
+  adapter_capability_digest: digestSchema,
   effective_contract: effectiveGenerationContractSchema,
   effective_contract_digest: digestSchema,
   execution_capable: z.boolean(),
@@ -130,6 +131,7 @@ export type CompilationBundleInput = {
   semantic_blocks: readonly SemanticPromptBlock[];
   model_profile_digest: string;
   connection_capability_digest: string;
+  adapter_capability_digest: string;
   effective_contract: EffectiveGenerationContractV1;
   execution_capable: boolean;
   route: CompilationBundleV1["route"];
@@ -161,6 +163,7 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
     block_digests: Object.fromEntries(semanticBlocks.map((block) => [block.block_id, block.digest])),
     model_profile_digest: input.model_profile_digest,
     connection_capability_digest: input.connection_capability_digest,
+    adapter_capability_digest: input.adapter_capability_digest,
     effective_contract: input.effective_contract,
     effective_contract_digest: input.effective_contract.digest,
     execution_capable: input.execution_capable,
@@ -218,17 +221,52 @@ export function assertCompilationBundleAssets(
       }
       try {
         const projectRoot = realpathSync(runtime.project_root);
-        const realPath = realpathSync(runtime.real_path);
-        if (relative(projectRoot, realPath).startsWith("..")) throw new Error("asset escaped project root");
-        const stat = statSync(realPath);
-        if (!stat.isFile() || stat.size !== expected.pin_evidence.byte_size || sha256Bytes(readFileSync(realPath)) !== expected.pin_evidence.sha256) {
-          throw new Error("asset bytes changed");
+        const expectedPath = realpathSync(join(projectRoot, expected.path));
+        const runtimePath = realpathSync(runtime.real_path);
+        if (!isProjectAssetIdentityContained(projectRoot, expectedPath) || expectedPath !== runtimePath) {
+          throw new Error("asset identity changed");
+        }
+        const fd = openSync(expectedPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+        try {
+          const stat = fstatSync(fd);
+          if (!stat.isFile() || stat.size !== expected.pin_evidence.byte_size || sha256Fd(fd, stat.size) !== expected.pin_evidence.sha256) {
+            throw new Error("asset bytes changed");
+          }
+        } finally {
+          closeSync(fd);
         }
       } catch {
         throw new Error(`VPD-J002: compilation bundle asset bytes changed for '${expected.asset_id}'`);
       }
     }
   }
+}
+
+/** Separator-aware containment; different Windows drives and UNC roots fail closed. */
+type AssetPathApi = {
+  resolve(path: string, ...paths: string[]): string;
+  relative(from: string, to: string): string;
+  isAbsolute(path: string): boolean;
+  sep: string;
+};
+
+export function isProjectAssetIdentityContained(root: string, candidate: string, pathApi: AssetPathApi = posix): boolean {
+  const resolvedRoot = pathApi.resolve(root);
+  const resolvedCandidate = pathApi.resolve(candidate);
+  const descendant = pathApi.relative(resolvedRoot, resolvedCandidate);
+  return descendant === ""
+    || (!pathApi.isAbsolute(descendant) && descendant !== ".." && !descendant.startsWith(`..${pathApi.sep}`));
+}
+
+function sha256Fd(fd: number, byteSize: number): string {
+  const bytes = Buffer.allocUnsafe(byteSize);
+  let offset = 0;
+  while (offset < byteSize) {
+    const read = readSync(fd, bytes, offset, byteSize - offset, offset);
+    if (read <= 0) throw new Error("short asset read");
+    offset += read;
+  }
+  return sha256Bytes(bytes);
 }
 
 /** Write a complete bundle through a sibling temp file; the final file is the commit marker. */

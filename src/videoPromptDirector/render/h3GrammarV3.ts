@@ -85,6 +85,66 @@ export function renderH3GrammarV3(
   return renderH3GrammarV3Legacy(input, options);
 }
 
+/**
+ * Generic renderer for a non-H3 model. It consumes only the materialized
+ * semantic AST and deliberately emits no H3 section headers or media labels.
+ */
+export function renderProviderNeutralPrompt(ast: SemanticPromptAst): H3GrammarV3Result {
+  const orderedSections = ast.format === "reference"
+    ? [
+        ast.sections.subject_definitions,
+        ast.sections.summary,
+        ast.sections.retention_analysis,
+        ast.sections.integrated_multimodal_description,
+        ast.sections.overall_soundscape,
+        ast.sections.non_diegetic_music
+      ]
+    : [
+        ast.sections.integrated_multimodal_description,
+        ast.sections.overall_soundscape,
+        ast.sections.non_diegetic_music
+      ];
+  const neutralize = (value: string): string => replaceOutsideExactText(value, (segment) => {
+    let output = segment;
+    for (const label of ast.labels.assets) output = output.replaceAll(label.canonical, label.asset_id);
+    for (const subject of ast.labels.subjects) output = output.replaceAll(subject.canonical, subject.subject_id);
+    return output;
+  });
+  const sections = Object.fromEntries(
+    orderedSections.map((section, index) => [`semantic_${index + 1}`, neutralize(section ?? "")])
+  );
+  const text = orderedSections.filter((section): section is string => Boolean(section)).map(neutralize).join("\n\n");
+  const issues: H3Issue[] = [];
+  for (const required of ast.must_include) {
+    if (!text.includes(required)) issues.push(issue("VPD-C001", `must_include value '${required}' was not reflected in the prompt`, "error", ["creative", "must_include"]));
+  }
+  for (const prohibited of ast.prohibited) {
+    if (text.includes(prohibited)) issues.push(issue("VPD-C001", `prohibited value '${prohibited}' was reflected in the prompt`, "error", ["creative", "prohibited"]));
+  }
+  return {
+    format: ast.format,
+    sections,
+    text,
+    labels: ast.labels,
+    blocks: ast.blocks,
+    issues,
+    grammar_profile: DEFAULT_H3_GRAMMAR_PROFILE_V3
+  };
+}
+
+function replaceOutsideExactText(value: string, replacement: (segment: string) => string): string {
+  const exact = /<d>[\s\S]*?<\/d>/g;
+  let output = "";
+  let cursor = 0;
+  for (const match of value.matchAll(exact)) {
+    const start = match.index ?? 0;
+    output += replacement(value.slice(cursor, start));
+    output += match[0];
+    cursor = start + match[0].length;
+  }
+  return output + replacement(value.slice(cursor));
+}
+
 function renderSemanticPromptAst(
   ast: SemanticPromptAst,
   options: H3GrammarV3Options

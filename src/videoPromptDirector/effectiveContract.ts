@@ -10,6 +10,12 @@ import { issue, type H3Issue } from "./validation/types.js";
 import { routeIdentitySchema, type RouteIdentityV1 } from "../productionControl/programBinding.js";
 import { digestSchema, safeIdSchema } from "../productionControl/schema.js";
 import type { VideoPromptModeV2 } from "./schemaV2.js";
+import {
+  isExecutionAuthoritativePinnedPromptBudgetEvidence,
+  isTrustedPinnedPromptBudgetEvidence,
+  type PinnedPromptBudgetEvidence,
+  type TrustedPinnedPromptBudgetEvidence
+} from "./promptBudgetEvidence.js";
 
 export type CapabilityClaim<T> = {
   value: T;
@@ -32,6 +38,7 @@ export type PromptBudget = {
   hard: BudgetLimit | null;
   soft: BudgetLimit | null;
   unknown: boolean;
+  evidence?: PinnedPromptBudgetEvidence;
 };
 
 export type EffectiveCapabilityEvidence = {
@@ -94,6 +101,7 @@ export type EffectiveContractInput = {
   route?: RouteIdentityV1;
   adapter_route_digest?: string;
   budget?: PromptBudget;
+  trusted_pinned_budget_evidence?: TrustedPinnedPromptBudgetEvidence;
   freshness?: EffectiveGenerationContractV1["freshness"];
   knowledge_digest?: string;
   now?: string;
@@ -106,7 +114,7 @@ export type EffectiveContractTruth = {
   connection_profile: ConnectionCapabilityProfile;
   model_profile_digest: string;
   connection_profile_digest: string;
-  budget?: PromptBudget;
+  trusted_pinned_budget_evidence?: TrustedPinnedPromptBudgetEvidence;
   capability_evidence?: Partial<EffectiveCapabilityEvidence>;
   execution_capable?: boolean;
   now?: string;
@@ -123,7 +131,21 @@ const budgetLimitSchema = z.object({
 const promptBudgetSchema = z.object({
   hard: budgetLimitSchema.nullable(),
   soft: budgetLimitSchema.nullable(),
-  unknown: z.boolean()
+  unknown: z.boolean(),
+  evidence: z.object({
+    schema_version: z.literal(1),
+    hard: budgetLimitSchema.nullable(),
+    soft: budgetLimitSchema.nullable(),
+    unknown: z.literal(false),
+    source_digest: digestSchema,
+    source_id: safeIdSchema,
+    retrieved_at: z.string().min(1),
+    expires_at: z.string().min(1),
+    model_profile_digest: digestSchema,
+    connection_profile_digest: digestSchema,
+    route_digest: digestSchema,
+    digest: digestSchema
+  }).strict().optional()
 }).strict();
 
 export const effectiveGenerationContractSchema = z.object({
@@ -164,7 +186,43 @@ export const effectiveGenerationContractSchema = z.object({
   if (sha256Canonical(withoutDigest) !== digest) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "effective generation contract digest mismatch" });
   }
+  const evidence = contract.effective.prompt_budget.evidence;
+  if (evidence) {
+    const { digest: evidenceDigest, ...evidenceBody } = evidence;
+    if (sha256Canonical(evidenceBody) !== evidenceDigest) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["effective", "prompt_budget", "evidence", "digest"], message: "pinned budget evidence digest mismatch" });
+    }
+    if (sha256Canonical({ hard: contract.effective.prompt_budget.hard, soft: contract.effective.prompt_budget.soft, unknown: contract.effective.prompt_budget.unknown })
+      !== sha256Canonical({ hard: evidence.hard, soft: evidence.soft, unknown: evidence.unknown })) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["effective", "prompt_budget", "evidence"], message: "pinned budget evidence does not match the effective budget" });
+    }
+  }
 });
+
+function pinnedBudgetEvidenceIssues(
+  evidence: PinnedPromptBudgetEvidence,
+  expected: { model_profile_digest?: string; connection_profile_digest?: string; route_digest?: string; now: string }
+): H3Issue[] {
+  const issues: H3Issue[] = [];
+  try {
+    const parsed = promptBudgetSchema.shape.evidence?.parse(evidence);
+    if (!parsed) throw new Error("missing evidence");
+    const { digest, ...body } = parsed;
+    if (sha256Canonical(body) !== digest) issues.push(issue("VPD-K003", "pinned budget evidence digest is stale", "error", ["budget", "evidence", "digest"]));
+  } catch {
+    issues.push(issue("VPD-K003", "prompt budget evidence is not a strict pinned evidence record", "error", ["budget", "evidence"]));
+  }
+  if (expected.model_profile_digest && evidence.model_profile_digest !== expected.model_profile_digest) issues.push(issue("VPD-K003", "budget evidence is bound to a different model profile", "error", ["budget", "evidence", "model_profile_digest"]));
+  if (expected.connection_profile_digest && evidence.connection_profile_digest !== expected.connection_profile_digest) issues.push(issue("VPD-K003", "budget evidence is bound to a different connection profile", "error", ["budget", "evidence", "connection_profile_digest"]));
+  if (expected.route_digest && evidence.route_digest !== expected.route_digest) issues.push(issue("VPD-K003", "budget evidence is bound to a different route", "error", ["budget", "evidence", "route_digest"]));
+  if (evidence.expires_at <= expected.now) issues.push(issue("VPD-K003", "pinned budget evidence is expired", "error", ["budget", "evidence", "expires_at"]));
+  if (evidence.source_digest === "0".repeat(64)) issues.push(issue("VPD-K003", "pinned budget evidence has no source digest", "error", ["budget", "evidence", "source_digest"]));
+  return issues;
+}
+
+function budgetFromPinnedEvidence(evidence: PinnedPromptBudgetEvidence): PromptBudget {
+  return { hard: evidence.hard, soft: evidence.soft, unknown: false, evidence };
+}
 
 export function assertEffectiveGenerationContract(
   value: unknown,
@@ -205,7 +263,7 @@ export function assertEffectiveGenerationContract(
       model_profile_digest: expected.truth.model_profile_digest,
       connection_profile: expected.truth.connection_profile,
       connection_profile_digest: expected.truth.connection_profile_digest,
-      budget: expected.truth.budget ?? { hard: null, soft: null, unknown: true },
+      ...(expected.truth.trusted_pinned_budget_evidence ? { trusted_pinned_budget_evidence: expected.truth.trusted_pinned_budget_evidence } : {}),
       capability_evidence: expected.truth.capability_evidence,
       execution_capable: expected.truth.execution_capable ?? expected.intent === "execute",
       ...(expected.truth.now ? { now: expected.truth.now } : {})
@@ -221,6 +279,10 @@ export function assertEffectiveGenerationContract(
     }
   }
   if (expected.intent === "execute") {
+    if (!expected.truth?.trusted_pinned_budget_evidence
+      || !isExecutionAuthoritativePinnedPromptBudgetEvidence(expected.truth.trusted_pinned_budget_evidence)) {
+      issues.push(issue("VPD-K003", "execution requires authoritative budget evidence; planning/fixture evidence is not executable", "error", ["effective_contract", "effective", "prompt_budget", "evidence"]));
+    }
     if (contract.execution.status !== "execution-capable") issues.push(issue("VPD-K003", "effective contract is planning-only and cannot authorize execution", "error", ["effective_contract", "execution", "status"]));
     if (contract.freshness.status !== "fresh") issues.push(issue("VPD-K003", "execution requires fresh model/profile/capability evidence", "error", ["effective_contract", "freshness"]));
     for (const [name, value] of Object.entries(contract.execution.capability_evidence)) {
@@ -331,7 +393,24 @@ export function createEffectiveGenerationContract(
   const freshness = input.freshness ?? inferFreshness(input, input.now ?? new Date().toISOString());
   if (freshness.status === "stale") issues.push(issue("VPD-K001", "model/profile/capability freshness has expired", "error", ["freshness"]));
 
-  const budget = input.budget ?? { hard: null, soft: null, unknown: true };
+  const now = input.now ?? new Date().toISOString();
+  let budget: PromptBudget = input.budget ?? { hard: null, soft: null, unknown: true };
+  const trustedEvidence = input.trusted_pinned_budget_evidence;
+  if (trustedEvidence && !isTrustedPinnedPromptBudgetEvidence(trustedEvidence)) {
+    issues.push(issue("VPD-K003", "pinned budget evidence was not loaded by the authoritative artifact loader", "error", ["budget", "evidence"]));
+  }
+  if (trustedEvidence && isTrustedPinnedPromptBudgetEvidence(trustedEvidence)) {
+    issues.push(...pinnedBudgetEvidenceIssues(trustedEvidence, {
+      model_profile_digest: modelDigest,
+      connection_profile_digest: connectionDigest,
+      route_digest: route.route_digest,
+      now
+    }));
+    if (!issues.some((item) => item.severity === "error")) budget = budgetFromPinnedEvidence(trustedEvidence);
+  }
+  if (input.execution_capable && (!trustedEvidence || !isExecutionAuthoritativePinnedPromptBudgetEvidence(trustedEvidence))) {
+    issues.push(issue("VPD-K003", "execution requires authoritative budget evidence; fixture and caller evidence remain planning-only", "error", ["budget", "evidence"]));
+  }
   issues.push(...validatePromptBudget(budget));
   if (issues.some((item) => item.severity === "error")) return { ok: false, issues };
 

@@ -341,7 +341,7 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
     const advisory = createEffectiveGenerationContract({
       mode: "text-to-video",
       route: route(),
-      execution_capable: true,
+      execution_capable: false,
       capability_evidence: {
         duration: "hard", aspect: "hard", resolution: "hard", mode: "hard",
         reference: "hard", group_speaker: "hard", exact_text: "hard"
@@ -594,7 +594,7 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
     if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-T004");
   });
 
-  it("allows execution only with fresh profile, hard budget, and real project-byte evidence", async () => {
+  it("keeps execution blocked when budget evidence is only caller-supplied", async () => {
     const model = await loadModelPromptProfile("minimax-h3");
     const connection = await loadConnectionCapabilityProfile("minimax-direct");
     expect(model.ok && connection.ok).toBe(true);
@@ -627,15 +627,8 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
       project_root: resolve("test/fixtures/h3"),
       asset_evidence: { hero: { source: "project-bytes", real_path: path, sha256: sha256Bytes(bytes), byte_size: bytes.byteLength, regular_file: true, contained_in_project_root: true } }
     });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.compilation.bundle.execution_capable).toBe(true);
-      const missingPin = JSON.parse(JSON.stringify(result.compilation.bundle)) as Record<string, unknown>;
-      missingPin.asset_lineage = (missingPin.asset_lineage as Array<Record<string, unknown>>).map(({ pin_evidence: _pin, ...asset }) => asset);
-      const { compilation_digest: _digest, ...withoutDigest } = missingPin;
-      missingPin.compilation_digest = sha256Canonical(withoutDigest);
-      expect(() => verifyCompilationBundle(missingPin)).toThrow("pin evidence");
-    }
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-K003");
   });
 
   it("rejects frame/audio asset matrix contradictions and supports V1 video_prompt H3 upgrade", async () => {

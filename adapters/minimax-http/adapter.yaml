@@ -1,5 +1,8 @@
 name: minimax-http
 kind: api
+prompt_capability:
+  renderer: h3-grammar
+  label_dialect: picture
 dry_run_estimate: true
 batch: false
 credit_estimate:

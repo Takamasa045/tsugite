@@ -36,6 +36,7 @@ import {
   rejectUncompiledVideoPrompt,
   type VideoPromptPlan
 } from "../videoPromptDirector/videoPromptCompile.js";
+import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { loadProject } from "./loadProject.js";
 import { generationRequestCapability, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
@@ -100,11 +101,11 @@ export async function validateProject(
     (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
   );
   if (hasVideoPrompt) {
+    const generationUnitSourceResolver = options.generationUnitSourceResolver
+      ?? createProjectGenerationUnitSourceResolver(configPath);
     const videoCompile = await compileProjectVideoPrompts(project, {
       intent: "planning",
-      ...(options.generationUnitSourceResolver
-        ? { generationUnitSourceResolver: options.generationUnitSourceResolver }
-        : {})
+      generationUnitSourceResolver
     });
     videoPromptPlans = videoCompile.plans ?? [];
     if (videoCompile.project) {

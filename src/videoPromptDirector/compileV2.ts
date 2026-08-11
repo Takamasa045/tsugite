@@ -10,10 +10,12 @@ import {
   type EffectiveGenerationContractV1,
   type PromptBudget
 } from "./effectiveContract.js";
+import type { TrustedPinnedPromptBudgetEvidence } from "./promptBudgetEvidence.js";
 import {
   compileAdapterDialect,
   resolveRendererDialectCapability,
   validateAdapterDialect,
+  type AdapterDialectCapability,
   type AdapterDialectResult
 } from "./adapterDialect.js";
 import {
@@ -37,6 +39,7 @@ import type { H3CreativeIr } from "./schema.js";
 import {
   H3_GRAMMAR_V3_VERSION,
   renderH3GrammarV3,
+  renderProviderNeutralPrompt,
   type H3GrammarProfileV3,
   type H3GrammarV3Options,
   DEFAULT_H3_GRAMMAR_PROFILE_V3
@@ -66,6 +69,7 @@ export type CompileVideoPromptV2Options = {
   connection_capability_digest?: string;
   effective_contract?: EffectiveGenerationContractV1;
   budget?: PromptBudget;
+  trusted_pinned_budget_evidence?: TrustedPinnedPromptBudgetEvidence;
   lyrics_source?: LyricsSource;
   require_exact_sync?: boolean;
   grammar_profile?: H3GrammarProfileV3;
@@ -80,6 +84,7 @@ export type CompileVideoPromptV2Options = {
   intent?: "planning" | "execute";
   model_profile?: ModelPromptProfile;
   connection_profile?: ConnectionCapabilityProfile;
+  adapter_dialect_capability?: AdapterDialectCapability;
   project_root?: string;
   asset_evidence?: Readonly<Record<string, AssetPinEvidence>>;
 };
@@ -114,6 +119,7 @@ export type VideoPromptV2Compilation = {
     adapter_prompt_digest: string;
     model_profile_digest: string;
     connection_capability_digest: string;
+    adapter_capability_digest: string;
     program_binding_digest?: string;
   };
 };
@@ -157,14 +163,25 @@ export function compileVideoPromptIrV2(
   }
   if (options.batch_routes) issues.push(...assertHomogeneousRouteIdentity(options.batch_routes));
   if (route) {
-    const rendererDialect = resolveRendererDialectCapability(route.adapter_id);
+    const rendererDialect = resolveRendererDialectCapability({
+      route,
+      ...(options.model_profile ? { model_profile: options.model_profile } : {}),
+      ...(options.connection_profile ? { connection_profile: options.connection_profile } : {}),
+      ...(options.adapter_dialect_capability ? { adapter_dialect_capability: options.adapter_dialect_capability } : {})
+    });
     if (!rendererDialect) {
-      issues.push(issue("VPD-R002", `route adapter '${route.adapter_id}' has no registered renderer/dialect`, "error", ["route", "adapter_id"]));
+      issues.push(issue("VPD-R002", "route has no digest-bound adapter renderer/dialect capability", "error", ["route", "adapter_id"]));
     } else if (options.model_profile && (
       rendererDialect.renderer !== options.model_profile.renderer
       || rendererDialect.label_dialect !== options.model_profile.label_dialect
     )) {
       issues.push(issue("VPD-R002", "route adapter renderer/dialect does not match the pinned model profile", "error", ["route", "adapter_id"]));
+    }
+    if (!options.model_profile && route.adapter_id === "fixture-adapter" && route.ir_model !== "minimax-h3") {
+      issues.push(issue("VPD-R002", "fixture H3 dialect cannot be selected for an unknown model profile", "error", ["target", "model_profile_id"]));
+    }
+    if (options.connection_profile && options.connection_profile.adapter_id !== route.adapter_id) {
+      issues.push(issue("VPD-R002", "route adapter does not match the pinned connection profile adapter", "error", ["route", "adapter_id"]));
     }
   }
   if (ir.program_kind === "mv") issues.push(...validateMvBinding(ir.program_binding, ir.target.duration_ms, options.generation_unit_source, route));
@@ -172,12 +189,6 @@ export function compileVideoPromptIrV2(
     issues.push(issue("VPD-U001", "standalone VideoPromptIrV2 must not contain program_binding", "error", ["program_binding"]));
   }
   issues.push(...validateIdentityContract(ir));
-  if (options.model_profile && options.model_profile.renderer !== "h3-grammar") {
-    issues.push(issue("VPD-R002", "VideoPromptIrV2 H3 grammar is not valid for a non-H3 model profile", "error", ["target", "model_profile_id"]));
-  }
-  if (!options.model_profile && ir.target.model_profile_id !== "minimax-h3") {
-    issues.push(issue("VPD-R002", "unknown model/dialect combination cannot select the H3 grammar renderer", "error", ["target", "model_profile_id"]));
-  }
   if (options.model_profile) {
     if (options.model_profile.id !== ir.target.model_profile_id) issues.push(issue("VPD-K002", "model profile id does not match the IR target", "error", ["model_profile", "id"]));
     if (options.model_profile_digest && modelProfileDigest(options.model_profile) !== options.model_profile_digest) issues.push(issue("VPD-K002", "model profile digest is stale", "error", ["model_profile", "digest"]));
@@ -207,7 +218,9 @@ export function compileVideoPromptIrV2(
     ...(options.require_exact_sync !== undefined ? { require_exact_sync: options.require_exact_sync } : {}),
     grammar_profile: grammarProfile
   };
-  const rendered = renderH3GrammarV3(semantic.ast, grammarOptions);
+  const rendered = options.model_profile?.renderer === "plain-prompt"
+    ? renderProviderNeutralPrompt(semantic.ast)
+    : renderH3GrammarV3(semantic.ast, grammarOptions);
   issues.push(...rendered.issues);
   if (ir.shots.some((shot) => shot.vocal_events.some((event) => event.speaker_ids.length > 1))
     && !grammarProfile.features.group_speaker) {
@@ -221,7 +234,15 @@ export function compileVideoPromptIrV2(
       }
     }
   }
-  const dialect = compileAdapterDialect(ir, rendered.text);
+  const rendererDialect = route
+    ? resolveRendererDialectCapability({
+        route,
+        ...(options.model_profile ? { model_profile: options.model_profile } : {}),
+        ...(options.connection_profile ? { connection_profile: options.connection_profile } : {}),
+        ...(options.adapter_dialect_capability ? { adapter_dialect_capability: options.adapter_dialect_capability } : {})
+      })
+    : undefined;
+  const dialect = compileAdapterDialect(ir, rendered.text, rendererDialect);
   issues.push(...dialect.issues);
 
   const effectiveResult = options.effective_contract
@@ -238,7 +259,7 @@ export function compileVideoPromptIrV2(
               connection_profile: options.connection_profile,
               model_profile_digest: options.model_profile_digest ?? modelProfileDigest(options.model_profile),
               connection_profile_digest: options.connection_capability_digest ?? connectionCapabilityDigest(options.connection_profile),
-              ...(options.budget ? { budget: options.budget } : {}),
+              ...(options.trusted_pinned_budget_evidence ? { trusted_pinned_budget_evidence: options.trusted_pinned_budget_evidence } : {}),
               capability_evidence: effectiveCapabilityEvidence(ir, grammarProfile),
               execution_capable: intent === "execute"
             }
@@ -255,7 +276,8 @@ export function compileVideoPromptIrV2(
           ...(options.connection_profile ? { connection_profile: options.connection_profile } : {}),
           execution_capable: intent === "execute",
           capability_evidence: effectiveCapabilityEvidence(ir, grammarProfile),
-          ...(options.budget ? { budget: options.budget } : {})
+          ...(options.budget ? { budget: options.budget } : {}),
+          ...(options.trusted_pinned_budget_evidence ? { trusted_pinned_budget_evidence: options.trusted_pinned_budget_evidence } : {})
         })
       : { ok: false as const, issues: [issue("VPD-K002", "effective contract cannot be created without a route", "error", ["route"]) ] };
   issues.push(...effectiveResult.issues);
@@ -285,7 +307,7 @@ export function compileVideoPromptIrV2(
     if (promptBudget.hard && promptLength > promptBudget.hard.limit) issues.push(issue("VPD-B001", "canonical prompt exceeds hard budget", "error", ["canonical_prompt"]));
     else if (promptBudget.soft && promptLength > promptBudget.soft.limit) issues.push(issue("VPD-B002", "canonical prompt exceeds soft budget", "warning", ["canonical_prompt"]));
   }
-  issues.push(...validateAdapterDialect(rendered.text, dialect.adapter_prompt, dialect.labels));
+  issues.push(...validateAdapterDialect(rendered.text, dialect.adapter_prompt, dialect.labels, rendererDialect));
 
   const validation = toValidation(dedupeIssues(issues));
   const normalizedDigest = sha256Canonical(ir);
@@ -311,6 +333,7 @@ export function compileVideoPromptIrV2(
       adapter_prompt_digest: sha256Text(dialect.adapter_prompt),
       model_profile_digest: effective.digests.model_profile,
       connection_capability_digest: effective.digests.connection_profile,
+      adapter_capability_digest: rendererDialect?.source_digest ?? "0".repeat(64),
       ...(ir.program_kind === "mv" ? { program_binding_digest: sha256Canonical(ir.program_binding) } : {})
     }
   };
@@ -326,6 +349,7 @@ export function compileVideoPromptIrV2(
     semantic_blocks: semantic.blocks,
     model_profile_digest: effective.digests.model_profile,
     connection_capability_digest: effective.digests.connection_profile,
+    adapter_capability_digest: rendererDialect?.source_digest ?? "0".repeat(64),
     route,
     ...(ir.program_kind === "mv" ? { program_binding: ir.program_binding } : {}),
     grammar_profile: { ...rendered.grammar_profile, section_order: [...rendered.grammar_profile.section_order] },

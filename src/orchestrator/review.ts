@@ -32,9 +32,12 @@ import {
   type CompositionProposalsArtifact,
   type RawAnalysisForComposition
 } from "./compositionProposal.js";
-import type { ExecutionPlan } from "./plan.js";
+import { createPlan, type ExecutionPlan } from "./plan.js";
 import type { H3Compilation } from "../h3/compile.js";
 import type { ProductionControlShadowSummary } from "../productionControl/contractCompiler.js";
+import type { VideoPromptV2Compilation } from "../videoPromptDirector/compileV2.js";
+import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
+import { validateProject } from "../project/validateProject.js";
 import { computeReviewPreviewDigest } from "./reviewPreview.js";
 import {
   lintShotlistMonotony,
@@ -182,6 +185,9 @@ export type ReviewDocument = {
   prompt_guidance: NonNullable<ExecutionPlan["prompt_guidance"]>;
   /** Deterministic H3 compilations from the plan for Gate 1 human inspection. */
   h3_compilations?: H3Compilation[];
+  /** Strict, read-only V2 projection used by the Gate 1 subject. */
+  video_prompt_plans?: VideoPromptReviewProjection[];
+  video_prompt_subject_digest?: string;
   /** Read-only shadow tree summary; it does not alter Gate or legacy plan state. */
   production_control_shadow?: ProductionControlShadowSummary;
   steps: ExecutionPlan["steps"];
@@ -218,9 +224,68 @@ export type ReviewDocument = {
   };
 };
 
+export type VideoPromptReviewProjection = {
+  request_id: string;
+  request_identity: {
+    request_id: string;
+    authoring_surface: "video_prompt";
+    authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
+    compiler_workflow: "video-prompt-v3";
+  };
+  compilation: {
+    canonical_prompt: string;
+    adapter_prompt: string;
+    validation: VideoPromptV2Compilation["validation"];
+    route: VideoPromptV2Compilation["route"];
+    effective_contract: VideoPromptV2Compilation["effective_contract"];
+    compilation_digest: string;
+    model_profile_digest: string;
+    connection_capability_digest: string;
+    adapter_capability_digest: string;
+    grammar_profile_digest: string;
+  };
+};
+
+export function createVideoPromptReviewProjection(
+  plans: ExecutionPlan["video_prompt_plans"] = []
+): VideoPromptReviewProjection[] {
+  return plans.flatMap((plan) => {
+    const compilation = plan.v2_compilation;
+    if (!compilation) return [];
+    const authoringSchema = compilation.bundle.lineage.authoring_schema;
+    if (authoringSchema !== "VideoPromptIrV2" && authoringSchema !== "V1" && authoringSchema !== "H3-V1") return [];
+    return [{
+      request_id: compilation.request_id,
+      request_identity: {
+        request_id: compilation.request_id,
+        authoring_surface: "video_prompt" as const,
+        authoring_schema: authoringSchema,
+        compiler_workflow: "video-prompt-v3" as const
+      },
+      compilation: {
+        canonical_prompt: compilation.canonical_prompt,
+        adapter_prompt: compilation.adapter_prompt,
+        validation: compilation.validation,
+        route: compilation.route,
+        effective_contract: compilation.effective_contract,
+        compilation_digest: compilation.bundle.compilation_digest,
+        model_profile_digest: compilation.bundle.model_profile_digest,
+        connection_capability_digest: compilation.bundle.connection_capability_digest,
+        adapter_capability_digest: compilation.bundle.adapter_capability_digest,
+        grammar_profile_digest: compilation.bundle.grammar_profile.digest
+      }
+    } satisfies VideoPromptReviewProjection];
+  });
+}
+
 /** Projection used by legacy Gate approval subjects; shadow data is review-only. */
-export function legacyReviewDocumentProjection(document: ReviewDocument): Omit<ReviewDocument, "production_control_shadow"> {
-  const { production_control_shadow: _shadow, ...legacy } = document;
+export function legacyReviewDocumentProjection(document: ReviewDocument): Omit<ReviewDocument, "production_control_shadow" | "video_prompt_plans" | "video_prompt_subject_digest"> {
+  const {
+    production_control_shadow: _shadow,
+    video_prompt_plans: _videoPromptPlans,
+    video_prompt_subject_digest: _videoPromptSubjectDigest,
+    ...legacy
+  } = document;
   return legacy;
 }
 
@@ -417,6 +482,28 @@ export async function inspectGate1Review(options: {
         dataPath
       };
     }
+    const currentVideoPrompt = await resolveCurrentVideoPromptReview(options.configPath);
+    if (!currentVideoPrompt.ok) {
+      return { ok: false, issues: currentVideoPrompt.issues, reviewPath, dataPath };
+    }
+    const reviewedVideoPromptPlans = document.video_prompt_plans ?? [];
+    const currentVideoPromptDigest = digest(currentVideoPrompt.projection);
+    if (
+      digest(reviewedVideoPromptPlans) !== currentVideoPromptDigest
+      || (currentVideoPrompt.projection.length > 0 && document.video_prompt_subject_digest !== currentVideoPromptDigest)
+      || (currentVideoPrompt.projection.length === 0 && document.video_prompt_subject_digest !== undefined)
+    ) {
+      return {
+        ok: false,
+        issues: [{
+          code: "gate.video_prompt_changed",
+          message: "V2 video prompt request order, compilation digest, route, or effective claims changed after the Gate 1 review",
+          path: dataPath
+        }],
+        reviewPath,
+        dataPath
+      };
+    }
     const approvalDigest = digest({
       schema_version: 1,
       project: legacyProjectProjection(options.project),
@@ -429,6 +516,7 @@ export async function inspectGate1Review(options: {
         options.manifest
       ),
       connections: currentConnections.snapshots,
+      video_prompt_subject_digest: currentVideoPromptDigest,
       editorial_approval_digest: editorialApprovalDigest,
       composition_approval_digest: currentComposition?.approvalDigest
     });
@@ -461,6 +549,50 @@ export async function inspectGate1Review(options: {
   }
 
   return { ok: true, issues: [], reviewPath, dataPath };
+}
+
+async function resolveCurrentVideoPromptReview(configPath: string): Promise<
+  | { ok: true; projection: VideoPromptReviewProjection[] }
+  | { ok: false; issues: Array<{ code: string; message: string; path?: string }> }
+> {
+  const validation = await validateProject(configPath, {
+    generationUnitSourceResolver: createProjectGenerationUnitSourceResolver(configPath)
+  });
+  if (!validation.ok) {
+    return {
+      ok: false,
+      issues: [{
+        code: "gate.video_prompt_changed",
+        message: "current V2 video prompt compilation is no longer valid; regenerate the Gate 1 review",
+        path: "generation.requests"
+      }]
+    };
+  }
+  try {
+    const plan = createPlan(
+      validation.project,
+      validation.manifest,
+      validation.adapter,
+      validation.analysisAdapter,
+      validation.promptGuides,
+      validation.audioAdapter,
+      validation.generationConnection,
+      validation.audioConnection,
+      validation.backend,
+      validation.h3_compilations,
+      validation.video_prompt_plans
+    );
+    return { ok: true, projection: createVideoPromptReviewProjection(plan.video_prompt_plans) };
+  } catch {
+    return {
+      ok: false,
+      issues: [{
+        code: "gate.video_prompt_changed",
+        message: "current V2 video prompt plan cannot be reconstructed; regenerate the Gate 1 review",
+        path: "generation.requests"
+      }]
+    };
+  }
 }
 
 type ReviewConnectionSnapshot = {
@@ -813,6 +945,12 @@ export function createReviewDocument(
     prompt_guidance: plan.prompt_guidance ?? [],
     ...(plan.h3_compilations && plan.h3_compilations.length > 0
       ? { h3_compilations: plan.h3_compilations }
+      : {}),
+    ...(plan.video_prompt_plans && plan.video_prompt_plans.length > 0
+      ? {
+          video_prompt_plans: createVideoPromptReviewProjection(plan.video_prompt_plans),
+          video_prompt_subject_digest: digest(createVideoPromptReviewProjection(plan.video_prompt_plans))
+        }
       : {}),
     ...(plan.production_control_shadow
       ? { production_control_shadow: plan.production_control_shadow }
@@ -1706,6 +1844,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
   const motionReview = renderMotionReview(document);
   const productionControlShadow = renderProductionControlShadow(document.production_control_shadow);
   const h3Review = renderH3Review(document.h3_compilations);
+  const videoPromptReview = renderVideoPromptReview(document.video_prompt_plans);
   const audioReview = document.audio
     ? `<section class="audio-section" aria-labelledby="audio-title" data-testid="audio-review">
       <div class="section-heading"><div><p class="eyebrow">SOUND / TIMING</p><h2 id="audio-title">音響設計</h2></div><p>最終承認前にBGMと効果音の内容・タイミングを確認します。未解決時は停止し、別providerへの自動切り替えは行いません。</p></div>
@@ -1740,7 +1879,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     <header class="hero">
       <nav class="review-nav" aria-label="レビュー内ナビゲーション">
         <a class="wordmark" href="#main"><span class="joinery-mark" aria-hidden="true"><i></i><i></i></span><span class="wordmark-copy">TSUGITE<small>CREATIVE REVIEW</small></span></a>
-        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">H3プロンプト</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
+        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">H3プロンプト</a>` : ""}${document.video_prompt_plans?.length ? `<a href="#video-prompt-plans-title">V2プロンプト</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
       </nav>
       <div class="hero-content">
         <div class="hero-joinery" aria-hidden="true"><span></span><i></i></div>
@@ -1761,6 +1900,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     ${backgroundReview}
     ${audioReview}
     ${h3Review}
+    ${videoPromptReview}
     ${productionControlShadow}
     <section class="storyboard-section" aria-labelledby="storyboard-title">
       <div class="section-heading"><div><p class="eyebrow">SEQUENCE / TIMING</p><h2 id="storyboard-title">映像の流れ</h2></div><p>一枚ずつの材を組むように、左から時間順で構成とテンポを確認します。</p></div>
@@ -1838,6 +1978,24 @@ function renderH3Review(compilations: H3Compilation[] | undefined): string {
     <div class="section-heading"><div><p class="eyebrow">H3 PROMPT DIRECTOR</p><h2 id="h3-title">H3プロンプト</h2></div><p>Gate 1 前に、Creative IR から確定した canonical / adapter プロンプトと検証結果・lineage を確認します。</p></div>
     <div class="h3-cards">${cards}</div>
   </section>`;
+}
+
+function renderVideoPromptReview(plans: VideoPromptReviewProjection[] | undefined): string {
+  if (!plans || plans.length === 0) return "";
+  const cards = plans.map((plan, index) => {
+    const compilation = plan.compilation;
+    const validationIssues = [...compilation.validation.errors, ...compilation.validation.warnings]
+      .map((item) => `<li><code>${escapeHtml(item.code)}</code> ${escapeHtml(item.message)}</li>`)
+      .join("");
+    return `<article class="video-prompt-card" data-request-order="${index}" data-request-id="${escapeAttribute(plan.request_id)}">
+      <header><p class="eyebrow">REQUEST ${String(index + 1).padStart(2, "0")}</p><h3>${escapeHtml(plan.request_id)}</h3><p class="h3-status" data-ok="${compilation.validation.ok ? "true" : "false"}">validation: ${compilation.validation.ok ? "ok" : "error"}</p></header>
+      <dl class="h3-lineage"><div><dt>COMPILATION DIGEST</dt><dd><code>${escapeHtml(compilation.compilation_digest)}</code></dd></div><div><dt>REQUEST IDENTITY</dt><dd>${escapeHtml(plan.request_identity.authoring_surface)} / ${escapeHtml(plan.request_identity.authoring_schema)} / ${escapeHtml(plan.request_identity.compiler_workflow)}</dd></div><div><dt>ROUTE</dt><dd>${escapeHtml(compilation.route.ir_model)} via ${escapeHtml(compilation.route.adapter_id)} / ${escapeHtml(compilation.route.mode_binding)}</dd></div><div><dt>MODEL PROFILE</dt><dd><code>${escapeHtml(compilation.model_profile_digest)}</code></dd></div><div><dt>CONNECTION CAPABILITY</dt><dd><code>${escapeHtml(compilation.connection_capability_digest)}</code></dd></div><div><dt>ADAPTER CAPABILITY</dt><dd><code>${escapeHtml(compilation.adapter_capability_digest)}</code></dd></div><div><dt>GRAMMAR PROFILE</dt><dd><code>${escapeHtml(compilation.grammar_profile_digest)}</code></dd></div></dl>
+      ${validationIssues ? `<div class="h3-issues"><h4>validation</h4><ul>${validationIssues}</ul></div>` : ""}
+      <div class="h3-prompts"><div><h4>canonical prompt</h4><pre>${escapeHtml(compilation.canonical_prompt)}</pre></div><div><h4>adapter prompt</h4><pre>${escapeHtml(compilation.adapter_prompt)}</pre></div></div>
+      <details class="video-prompt-contract"><summary>effective contract（再検証対象）</summary><pre>${escapeHtml(JSON.stringify(compilation.effective_contract, null, 2))}</pre></details>
+    </article>`;
+  }).join("");
+  return `<section class="video-prompt-section" aria-labelledby="video-prompt-plans-title" data-testid="video-prompt-plans"><div class="section-heading"><div><p class="eyebrow">VIDEO PROMPT / V2 SINGLE COMPILER</p><h2 id="video-prompt-plans-title">V2プロンプト・実効契約</h2></div><p>canonical / adapter、route、profile、grammar、effective contract、compilation digestを読み取り専用で固定します。secret、raw provider response、absolute pathは表示しません。</p></div><div class="h3-cards">${cards}</div><p class="utility">Gate 1 subject digest: <code>${escapeHtml(digest(plans))}</code></p></section>`;
 }
 
 function reviewStyles(): string {

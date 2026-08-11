@@ -41,6 +41,7 @@ import { finalizeValidation, issue, type H3Issue } from "./validation/types.js";
 import { validateH3CreativeIr } from "./validation/index.js";
 import { h3IssueToProjectIssue } from "./compile.js";
 import type { GenerationUnitProgramSourceV1 } from "../productionControl/programBinding.js";
+import { loadAdapterDialectCapability } from "./adapterDialect.js";
 
 export {
   VIDEO_PROMPT_DUAL_AUTHORING_CODE,
@@ -282,6 +283,11 @@ async function compileVideoPromptV2Request(
   if (!modelLoad.ok) return { ok: false, issues: [issue(modelLoad.code, modelLoad.message, "error", ["target", "model_profile_id"])] };
   const connectionLoad = await loadConnectionCapabilityProfile(options.connectionId, options.connectionProfileRoots);
   if (!connectionLoad.ok) return { ok: false, issues: [issue(connectionLoad.code, connectionLoad.message, "error", ["connection"])] };
+  const adapterDialectLoad = await loadAdapterDialectCapability(
+    connectionLoad.profile.adapter_id ?? "",
+    options.adapterDirs
+  );
+  if (!adapterDialectLoad.ok) return { ok: false, issues: [issue(adapterDialectLoad.code, adapterDialectLoad.message, "error", ["connection", "adapter_id"])] };
   const adapterCheck = await resolveAdapterImplementation({
     adapterId: connectionLoad.profile.adapter_id,
     implementedAdapterIds: options.implementedAdapterIds,
@@ -318,6 +324,7 @@ async function compileVideoPromptV2Request(
     connection_capability_digest: connectionLoad.digest,
     intent: options.intent === "execute" ? "execute" : "planning",
     ...(options.generationUnitSource ? { generation_unit_source: options.generationUnitSource } : {}),
+    adapter_dialect_capability: adapterDialectLoad.capability,
     ...(source ? { source } : {})
   });
   issues.push(...compiled.issues);

@@ -58,6 +58,7 @@ import {
 import { loadProjectPromptGuides } from "../adapters/promptKnowledge.js";
 import { loadH3ExecutionRouteProfile } from "../adapters/constraints.js";
 import { compileProjectVideoPrompts, type GenerationUnitSourceResolver } from "../videoPromptDirector/videoPromptCompile.js";
+import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
 
 export type LocalRunH3Artifacts = {
   request_id: string;
@@ -774,11 +775,11 @@ async function assembleGeneratedMediaRun(
     (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
   );
   if (hasVideoPrompt) {
+    const generationUnitSourceResolver = options.generationUnitSourceResolver
+      ?? (options.configPath ? createProjectGenerationUnitSourceResolver(options.configPath) : undefined);
     const videoCompile = await compileProjectVideoPrompts(project, {
       intent: "execute",
-      ...(options.generationUnitSourceResolver
-        ? { generationUnitSourceResolver: options.generationUnitSourceResolver }
-        : {})
+      ...(generationUnitSourceResolver ? { generationUnitSourceResolver } : {})
     });
     if (!videoCompile.ok) {
       return { ok: false, issues: videoCompile.issues };

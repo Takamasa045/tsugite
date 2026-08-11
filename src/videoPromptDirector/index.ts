@@ -116,6 +116,8 @@ export {
   type VideoPromptPlan
 } from "./videoPromptCompile.js";
 
+export { createProjectGenerationUnitSourceResolver } from "./generationUnitSourceResolver.js";
+
 export {
   videoPromptIrV2Schema,
   videoPromptModeV2Schema,
@@ -176,11 +178,19 @@ export {
 } from "./effectiveContract.js";
 
 export {
+  type PinnedPromptBudgetEvidence,
+  type TrustedPinnedPromptBudgetEvidence
+} from "./promptBudgetEvidence.js";
+
+export {
   buildAdapterLabelMap,
   compileAdapterDialect,
   validateAdapterDialect,
+  loadAdapterDialectCapability,
+  adapterDialectProfileDigest,
   resolveRendererDialectCapability,
-  rendererDialectRegistry,
+  ADAPTER_DIALECT_PROFILE_CODE,
+  type AdapterDialectCapability,
   type RendererDialectCapability,
   type AdapterLabel,
   type AdapterLabelMap,
@@ -219,6 +229,7 @@ export {
   createCompilationBundle,
   verifyCompilationBundle,
   assertCompilationBundleAssets,
+  isProjectAssetIdentityContained,
   writeCompilationBundleAtomic,
   type RuntimeAssetPinEvidence,
   type CompilationBundleV1,
