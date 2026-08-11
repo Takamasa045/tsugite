@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   H3_WORKFLOW_VERSION,
@@ -11,14 +13,21 @@ import {
   safeParseVideoPromptIrV2,
   upgradeH3V1ToVideoPromptV2,
   compileLegacyH3V1,
+  compileProjectVideoPrompts,
+  compileVideoPromptRequest,
+  DEFAULT_H3_GRAMMAR_PROFILE_V3,
+  h3GrammarProfileDigest,
   validateMvBinding,
   verifyCompilationBundle,
   assertCompilationBundleAssets,
   assertHomogeneousRouteIdentity,
+  routeFromProfiles,
+  renderH3GrammarV3,
   type PromptBudget,
   type VideoPromptIrV2
 } from "../src/videoPromptDirector/index.js";
-import { sha256Text } from "../src/integrity/canonical.js";
+import { sha256Canonical, sha256Text } from "../src/integrity/canonical.js";
+import { sha256Bytes } from "../src/productionControl/canonical.js";
 import { loadConnectionCapabilityProfile, loadModelPromptProfile } from "../src/videoPromptDirector/index.js";
 import type { GenerationRequest } from "../src/project/schema.js";
 
@@ -161,7 +170,7 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
         action_beats: [{ description: "They face the river." }],
         vocal_events: [
           { id: "dialogue-1", kind: "dialogue", speaker_ids: ["S1"], language_id: "ja-JP", content: { source: "inline-exact", exact_text: "  こんにちは\n世界  ", text_digest: sha256Text("  こんにちは\n世界  ") }, continuity: "contained" },
-          { id: "singing-1", kind: "singing", speaker_ids: ["S1", "S2"], language_id: "ja-JP", content: { source: "lyrics-cue", lyrics_contract_digest: ZERO, cue_id: "cue-1", occurrence_id: "occ-1", text_digest: lyricDigest }, start_ms: 1_000, end_ms: 3_000, continuity: "continues-out" },
+          { id: "singing-1", kind: "singing", speaker_ids: ["S1", "S2"], language_id: "ja-JP", content: { source: "lyrics-cue", lyrics_contract_digest: ZERO, cue_id: "cue-1", occurrence_id: "occ-1", text_digest: lyricDigest }, start_ms: 1_000, end_ms: 10_000, continuity: "continues-out" },
           { id: "voiceover-1", kind: "voiceover", speaker_ids: ["S2"], language_id: "ja-JP", content: { source: "inline-exact", exact_text: "声は画面の外から届く", text_digest: sha256Text("声は画面の外から届く") }, start_ms: 9_000, end_ms: 10_000, continuity: "cutoff" }
         ],
         visible_text_events: [
@@ -210,6 +219,8 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
   it("never rewrites an exact vocal body that contains a canonical asset label", () => {
     const exactText = "keep <Picture 1> byte-exact";
     const ir = baseV2({
+      target: { model_profile_id: "minimax-h3", mode: "reference", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: false },
+      audio: { policy: "silent", reference_asset_ids: [], final_mix: "discard-generated" },
       assets: [{ id: "hero", type: "image", path: "assets/hero.png", role: "subject_reference", sha256: ZERO }],
       shots: [{
         ...baseV2().shots[0]!,
@@ -217,7 +228,7 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
         constraints: { positive: [], exact_text_refs: ["dialogue-1"] }
       }]
     });
-    const result = compileVideoPromptIrV2(ir, { route: route() });
+    const result = compileVideoPromptIrV2(ir, { route: route("reference") });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-X001");
   });
@@ -293,6 +304,28 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
     expect(compileVideoPromptIrV2(baseV2(), { route: route(), effective_contract: { ...good.contract, unexpected: true } as never }).ok).toBe(false);
   });
 
+  it("does not promote advisory catalog limits into execution hard evidence", () => {
+    const advisory = createEffectiveGenerationContract({
+      mode: "text-to-video",
+      route: route(),
+      execution_capable: true,
+      capability_evidence: {
+        duration: "hard", aspect: "hard", resolution: "hard", mode: "hard",
+        reference: "hard", group_speaker: "hard", exact_text: "hard"
+      },
+      budget: {
+        hard: { limit: 20_000, unit: "utf8-bytes", source: "advisory-catalog", verified_at: "2026-08-11T00:00:00Z" },
+        soft: null,
+        unknown: false
+      }
+    });
+    expect(advisory.ok).toBe(true);
+    if (!advisory.ok) return;
+    const result = compileVideoPromptIrV2(baseV2(), { route: route(), intent: "execute", effective_contract: advisory.contract });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-K003");
+  });
+
   it("rejects partial/tampered bundle and asset mutation", () => {
     const result = compileVideoPromptIrV2(baseV2({
       target: { model_profile_id: "minimax-h3", mode: "reference", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: false },
@@ -353,8 +386,281 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
       audio: { policy: "silent", reference_asset_ids: [], final_mix: "discard-generated" },
       assets: [{ id: "hero", type: "image", path: "assets/hero.png", role: "subject_reference" }]
     });
-    const result = compileVideoPromptIrV2(unpinned, { route: route("reference") });
+    const result = compileVideoPromptIrV2(unpinned, { route: route("reference"), intent: "execute" });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-J001");
+    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-J002");
+  });
+
+  it("routes project video_prompt V2 through the v3 compiler boundary", async () => {
+    const ir = baseV2({ target: { ...baseV2().target, model_profile_id: "minimax-h3" } });
+    const result = await compileProjectVideoPrompts({
+      slug: "v2-project",
+      name: "v2-project",
+      run_id: "v2-project",
+      manifest: "manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "minimax",
+        connection: "minimax-direct",
+        requests: [{ id: "v2-request", prompt: "", params: {}, video_prompt: ir } as never]
+      }
+    } as never, {
+      connectionId: "minimax-direct",
+      intent: "planning",
+      implementedAdapterIds: ["minimax"],
+      modelProfileRoots: ["profiles/model-prompts"],
+      connectionProfileRoots: ["profiles/connection-capabilities"]
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plans[0]?.compilation.lineage.workflow_id).toBe("video-prompt-v3");
+    expect(result.plans[0]?.v2_compilation?.bundle).toBeDefined();
+    expect(result.plans[0]?.compilation.execution_request).not.toHaveProperty("video_prompt");
+    expect(result.plans[0]?.compilation.execution_request).not.toHaveProperty("h3");
+  });
+
+  it("distinguishes planning-only from execution and rejects unknown capability evidence", () => {
+    const planning = compileVideoPromptIrV2(baseV2(), { route: route(), intent: "planning" });
+    expect(planning.ok).toBe(true);
+    const execute = compileVideoPromptIrV2(baseV2(), { route: route(), intent: "execute" });
+    expect(execute.ok).toBe(false);
+    if (!execute.ok) expect(execute.issues.map((item) => item.code)).toContain("VPD-K003");
+    const contract = createEffectiveGenerationContract({ mode: "text-to-video", route: route() });
+    expect(contract.ok).toBe(true);
+    if (contract.ok) {
+      const injected = compileVideoPromptIrV2(baseV2(), { route: route(), intent: "execute", effective_contract: contract.contract });
+      expect(injected.ok).toBe(false);
+      if (!injected.ok) expect(injected.issues.map((item) => item.code)).toContain("VPD-K003");
+    }
+  });
+
+  it("binds the complete effective contract body into the immutable bundle", () => {
+    const result = compileVideoPromptIrV2(baseV2(), { route: route(), intent: "planning" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.compilation.bundle).toHaveProperty("effective_contract");
+    expect(result.compilation.bundle.effective_contract.digest).toBe(result.compilation.effective_contract.digest);
+    expect(() => verifyCompilationBundle({
+      ...result.compilation.bundle,
+      effective_contract: { ...result.compilation.bundle.effective_contract, mode: "reference" }
+    })).toThrow();
+  });
+
+  it("requires a typed, confirmed identity definition for locked identity", () => {
+    const locked = "voice stays exact";
+    const result = compileVideoPromptIrV2(baseV2({
+      subjects: [{ id: "hero", description: "traveler", locked_blocks: { voice: { text: locked, sha256: sha256Text(locked) } } }]
+    }), { route: route(), intent: "execute" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-I001");
+  });
+
+  it("accepts only a digest-bound confirmed identity definition and binds its digest", () => {
+    const locked = "voice stays exact";
+    const identityBody = {
+      schema_version: 1 as const,
+      contract_id: "identity-1",
+      revision: 1,
+      subjects: [{ id: "hero", locked_blocks: { voice: { text: locked, sha256: sha256Text(locked) } }, variants: [] }],
+      scenes: [],
+      verification_requirements: {
+        risk_class: "low" as const,
+        conditions: [{ condition_id: "hero-condition", description: "hero remains stable", subject_ids: ["hero"] }],
+        minimum_distinct_outputs: 1,
+        minimum_distinct_conditions: 1
+      },
+      definition_status: "confirmed" as const
+    };
+    const definitionDigest = sha256Canonical(identityBody);
+    const confirmation = {
+      decision_id: "identity-confirmation-1",
+      decision: "confirmed",
+      actor: "human",
+      decided_at: "2026-08-11T00:00:00Z",
+      subject_digest: definitionDigest
+    };
+    const withoutEnvelopeDigest = { ...identityBody, definition_digest: definitionDigest, definition_confirmation: confirmation };
+    const identityDefinition = { ...withoutEnvelopeDigest, digest: sha256Canonical(withoutEnvelopeDigest) };
+    const result = compileVideoPromptIrV2(baseV2({
+      identity_definition: identityDefinition,
+      subjects: [{ id: "hero", description: "traveler", locked_blocks: { voice: { text: locked, sha256: sha256Text(locked) } } }]
+    }), { route: route(), intent: "planning" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.compilation.bundle.lineage.contract_bindings).toContain(identityDefinition.digest);
+  });
+
+  it("rejects a non-H3 renderer/dialect combination instead of leaking H3 labels", () => {
+    const plainRoute = createRouteIdentity({
+      ir_model: "c1", provider_model: "c1", model_profile_digest: ZERO, connection_id: "fixture-connection",
+      connection_digest: ZERO, adapter_id: "fixture-adapter", transport: "manual", mode_binding: "text-to-video"
+    });
+    const result = compileVideoPromptIrV2(baseV2({ target: { ...baseV2().target, model_profile_id: "c1" } }), { route: plainRoute });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-R002");
+  });
+
+  it("requires group-speaker grammar support and keeps every speaker in the block", () => {
+    const ir = baseV2({
+      subjects: [{ id: "a", description: "singer A", speaker_id: "S1" }, { id: "b", description: "singer B", speaker_id: "S2" }],
+      shots: [{ ...baseV2().shots[0]!, cast: [{ subject_id: "a" }, { subject_id: "b" }], vocal_events: [{
+        id: "group-1", kind: "singing", speaker_ids: ["S1", "S2"], language_id: "en",
+        content: { source: "inline-exact", exact_text: "together", text_digest: sha256Text("together") }, continuity: "contained"
+      }] }]
+    });
+    const profileBase = {
+      ...DEFAULT_H3_GRAMMAR_PROFILE_V3,
+      features: { ...DEFAULT_H3_GRAMMAR_PROFILE_V3.features, group_speaker: false }
+    };
+    const profile = { ...profileBase, digest: h3GrammarProfileDigest(profileBase) } as never;
+    const result = compileVideoPromptIrV2(ir, { route: route(), grammar_profile: profile });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-V001");
+    const supported = compileVideoPromptIrV2(ir, { route: route() });
+    expect(supported.ok).toBe(true);
+    if (supported.ok) expect(supported.compilation.canonical_prompt).toContain("(S1, S2)");
+  });
+
+  it("serializes style, quality, positive constraints, identity, vocal, and visible-text blocks once", () => {
+    const result = compileVideoPromptIrV2(baseV2({
+      creative: { style: { medium: "watercolor", tone: "quiet" }, must_include: ["lantern"], prohibited: [] },
+      shots: [{ ...baseV2().shots[0]!, constraints: { positive: ["no flicker"], exact_text_refs: [] }, visible_text_events: [{ id: "title", text: "RIVER", text_digest: sha256Text("RIVER"), purpose: "generated-scene-text", render_target: "model" }] }]
+    }), { route: route() });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.compilation.canonical_prompt.match(/watercolor/g)).toHaveLength(1);
+      expect(result.compilation.canonical_prompt.match(/768p/g)).toHaveLength(1);
+      expect(result.compilation.canonical_prompt.match(/no flicker/g)).toHaveLength(1);
+      expect(result.compilation.canonical_prompt.match(/On-screen text: RIVER/g)).toHaveLength(1);
+    }
+  });
+
+  it("does not trust a self-declared asset sha for an execution bundle", () => {
+    const result = compileVideoPromptIrV2(baseV2({
+      target: { model_profile_id: "minimax-h3", mode: "reference", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: false },
+      audio: { policy: "silent", reference_asset_ids: [], final_mix: "discard-generated" },
+      assets: [{ id: "hero", type: "image", path: "assets/hero.png", role: "subject_reference", sha256: ZERO }]
+    }), { route: route("reference"), intent: "execute" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-J002");
+  });
+
+  it("rejects vocal events outside shot bounds and invalid continuity", () => {
+    const result = compileVideoPromptIrV2(baseV2({
+      shots: [{ ...baseV2().shots[0]!, vocal_events: [{
+        id: "dialogue-1", kind: "dialogue", speaker_ids: ["S1"], language_id: "en",
+        content: { source: "inline-exact", exact_text: "late", text_digest: sha256Text("late") },
+        start_ms: 9_000, end_ms: 11_000, continuity: "contained"
+      }] }]
+    }), { route: route() });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-T004");
+  });
+
+  it("allows execution only with fresh profile, hard budget, and real project-byte evidence", async () => {
+    const model = await loadModelPromptProfile("minimax-h3");
+    const connection = await loadConnectionCapabilityProfile("minimax-direct");
+    expect(model.ok && connection.ok).toBe(true);
+    if (!model.ok || !connection.ok) return;
+    const selected = routeFromProfiles({
+      model: "minimax-h3",
+      mode: "reference",
+      model_profile: model.profile,
+      connection_profile: connection.profile,
+      model_profile_digest: model.digest,
+      connection_profile_digest: connection.digest
+    });
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    const bytes = await readFile("test/fixtures/h3/t2v.json");
+    const path = resolve("test/fixtures/h3/t2v.json");
+    const referenceIr = baseV2({
+      target: { model_profile_id: "minimax-h3", mode: "reference", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: false },
+      audio: { policy: "silent", reference_asset_ids: [], final_mix: "discard-generated" },
+      assets: [{ id: "hero", type: "image", path: "t2v.json", role: "subject_reference", sha256: sha256Bytes(bytes) }]
+    });
+    const result = compileVideoPromptIrV2(referenceIr, {
+      route: selected.route,
+      model_profile: model.profile,
+      connection_profile: connection.profile,
+      model_profile_digest: model.digest,
+      connection_capability_digest: connection.digest,
+      intent: "execute",
+      budget: { hard: { limit: 20_000, unit: "utf8-bytes", source: "official-api", verified_at: "2026-08-11T00:00:00Z" }, soft: null, unknown: false },
+      project_root: resolve("test/fixtures/h3"),
+      asset_evidence: { hero: { source: "project-bytes", real_path: path, sha256: sha256Bytes(bytes), byte_size: bytes.byteLength, regular_file: true, contained_in_project_root: true } }
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.compilation.bundle.execution_capable).toBe(true);
+      const missingPin = JSON.parse(JSON.stringify(result.compilation.bundle)) as Record<string, unknown>;
+      missingPin.asset_lineage = (missingPin.asset_lineage as Array<Record<string, unknown>>).map(({ pin_evidence: _pin, ...asset }) => asset);
+      const { compilation_digest: _digest, ...withoutDigest } = missingPin;
+      missingPin.compilation_digest = sha256Canonical(withoutDigest);
+      expect(() => verifyCompilationBundle(missingPin)).toThrow("pin evidence");
+    }
+  });
+
+  it("rejects frame/audio asset matrix contradictions and supports V1 video_prompt H3 upgrade", async () => {
+    expect(safeParseVideoPromptIrV2(baseV2({
+      assets: [{ id: "reference", type: "image", path: "reference.png", role: "subject_reference", sha256: ZERO }]
+    })).success).toBe(false);
+    expect(safeParseVideoPromptIrV2(baseV2({
+      assets: [{ id: "first", type: "image", path: "first.png", role: "first_frame", sha256: ZERO }]
+    })).success).toBe(false);
+    expect(safeParseVideoPromptIrV2(baseV2({
+      target: { model_profile_id: "minimax-h3", mode: "reference", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: false },
+      audio: { policy: "silent", reference_asset_ids: [], final_mix: "discard-generated" }
+    })).success).toBe(false);
+    const legacy = parseH3CreativeIr(JSON.parse(await readFile("test/fixtures/h3/t2v.json", "utf8")));
+    const legacyForCompile = { ...legacy, target: { ...legacy.target, quality: "768p" } };
+    const result = await compileVideoPromptRequest({ id: "legacy-vp", prompt: "", params: {}, video_prompt: legacyForCompile } as never, legacyForCompile as never, {
+      connectionId: "minimax-direct",
+      intent: "planning",
+      implementedAdapterIds: ["minimax"],
+      modelProfileRoots: ["profiles/model-prompts"],
+      connectionProfileRoots: ["profiles/connection-capabilities"]
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.plan.compiler_workflow).toBe("video-prompt-v3");
+      expect(result.plan.v2_compilation?.bundle.lineage.authoring_schema).toBe("V1");
+      expect(result.plan.v2_compilation?.bundle.lineage.upgrader_version).toBe("video-prompt-v1-to-v2@1");
+    }
+  });
+
+  it("keeps the public renderer compatibility call deterministic while active compile uses AST", () => {
+    const rendered = renderH3GrammarV3(baseV2({
+      scenes: [{ id: "scene-1", location_map: "river bank", palette: "blue", props: ["lantern"], active_subject_ids: [] }],
+      shots: [{ ...baseV2().shots[0]!, scene_id: "scene-1", camera: { type: "pan", direction: "left", amplitude: "slow", optics: { fov_degrees: 35 } }, visible_text_events: [{ id: "title", text: "RIVER", text_digest: sha256Text("RIVER"), purpose: "generated-scene-text", render_target: "model" }] }]
+    }));
+    expect(rendered.issues.filter((item) => item.severity === "error")).toHaveLength(0);
+    expect(rendered.text).toContain("LOCATION MAP:");
+    expect(rendered.text).toContain("On-screen text: RIVER");
+  });
+
+  it("detects mutation of the real bytes bound by a compilation bundle", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tsugite-po4-"));
+    const path = join(directory, "asset.bin");
+    try {
+      const original = Buffer.from("original bytes", "utf8");
+      await writeFile(path, original);
+      const result = compileVideoPromptIrV2(baseV2({
+        target: { model_profile_id: "minimax-h3", mode: "reference", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: false },
+        audio: { policy: "silent", reference_asset_ids: [], final_mix: "discard-generated" },
+        assets: [{ id: "hero", type: "image", path: "asset.bin", role: "subject_reference", sha256: sha256Bytes(original) }]
+      }), {
+        route: route("reference"),
+        asset_evidence: {
+          hero: { source: "project-bytes", real_path: path, sha256: sha256Bytes(original), byte_size: original.byteLength, regular_file: true, contained_in_project_root: true }
+        }
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      assertCompilationBundleAssets(result.compilation.bundle, { hero: { path: "asset.bin", sha256: sha256Bytes(original) } });
+      await writeFile(path, "mutated bytes", "utf8");
+      expect(() => assertCompilationBundleAssets(result.compilation.bundle, { hero: { path: "asset.bin", sha256: sha256Bytes(original) } })).toThrow("asset bytes changed");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

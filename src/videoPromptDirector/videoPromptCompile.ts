@@ -33,6 +33,10 @@ import {
 import { renderVideoPrompt } from "./render/index.js";
 import type { H3CreativeIr, VideoCreativeIr } from "./schema.js";
 import { mapMode, type H3Compilation, type CompileH3RequestResult } from "./compile.js";
+import { compileVideoPromptIrV2, type VideoPromptV2Compilation } from "./compileV2.js";
+import { assertHomogeneousRouteIdentity, routeFromProfiles } from "./effectiveContract.js";
+import { safeParseVideoPromptIrV2, type VideoPromptIrV2 } from "./schemaV2.js";
+import { upgradeVideoPromptV1ToV2 } from "./upgradeV1.js";
 import { finalizeValidation, issue, type H3Issue } from "./validation/types.js";
 import { validateH3CreativeIr } from "./validation/index.js";
 import { h3IssueToProjectIssue } from "./compile.js";
@@ -71,6 +75,9 @@ export type VideoPromptPlan = {
   connection_capability_digest: string;
   readiness: Extract<PlanningReadinessResult, { ok: true }>;
   compilation: H3Compilation;
+  /** Present when the request crossed the V2 single-compiler boundary. */
+  v2_compilation?: VideoPromptV2Compilation;
+  compiler_workflow?: "video-prompt-v3" | "video-prompt-director";
 };
 
 export type CompileVideoPromptResult =
@@ -90,6 +97,11 @@ export async function compileVideoPromptRequest(
   issues.push(...rejectDualAuthoring(request));
   if (issues.length > 0) {
     return { ok: false, issues };
+  }
+
+  const v2 = safeParseVideoPromptIrV2(ir);
+  if (v2.success) {
+    return compileVideoPromptV2Request(request, v2.data, options);
   }
 
   const modelLoad = await loadModelPromptProfile(ir.target.model, options.modelProfileRoots);
@@ -132,6 +144,22 @@ export async function compileVideoPromptRequest(
 
   if (!readiness.ok) {
     issues.push(issue(readiness.code, readiness.message, "error", ["target", "mode"]));
+  }
+
+  // Legacy video_prompt V1 for H3 is an in-memory compatibility authoring
+  // surface; it never writes back to the request and enters the same V2 path.
+  if (ir.target.model === "minimax-h3") {
+    try {
+      const upgraded = upgradeVideoPromptV1ToV2(ir as VideoCreativeIr);
+      return compileVideoPromptV2Request(request, upgraded.ir, options, {
+        authoring_schema: "V1",
+        upgrader_version: "video-prompt-v1-to-v2@1",
+        source_digest: upgraded.source_sha256
+      });
+    } catch (error) {
+      issues.push(issue("VPD-U001", error instanceof Error ? error.message : "legacy video_prompt upgrade failed", "error", ["video_prompt"]));
+      return { ok: false, issues };
+    }
   }
 
   // Profile is mandatory for renderVideoPrompt (no default-H3 fallback).
@@ -228,6 +256,132 @@ export async function compileVideoPromptRequest(
   };
 }
 
+async function compileVideoPromptV2Request(
+  request: GenerationRequest,
+  ir: VideoPromptIrV2,
+  options: CompileVideoPromptOptions,
+  source?: {
+    authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
+    upgrader_version: string;
+    source_digest?: string;
+  }
+): Promise<CompileVideoPromptResult> {
+  const issues: H3Issue[] = [];
+  const modelLoad = await loadModelPromptProfile(ir.target.model_profile_id, options.modelProfileRoots);
+  if (!modelLoad.ok) return { ok: false, issues: [issue(modelLoad.code, modelLoad.message, "error", ["target", "model_profile_id"])] };
+  const connectionLoad = await loadConnectionCapabilityProfile(options.connectionId, options.connectionProfileRoots);
+  if (!connectionLoad.ok) return { ok: false, issues: [issue(connectionLoad.code, connectionLoad.message, "error", ["connection"])] };
+  const adapterCheck = await resolveAdapterImplementation({
+    adapterId: connectionLoad.profile.adapter_id,
+    implementedAdapterIds: options.implementedAdapterIds,
+    adapterDirs: options.adapterDirs,
+    callerClaimsImplemented: options.adapterImplemented
+  });
+  if (!adapterCheck.ok) issues.push(issue(adapterCheck.code, adapterCheck.message, "error", ["connection", "adapter_id"]));
+  const readiness = evaluatePlanningReadiness({
+    modelProfile: modelLoad.profile,
+    connectionProfile: connectionLoad.profile,
+    mode: ir.target.mode,
+    semantics: requiredSemanticsForMode(modelLoad.profile, ir.target.mode),
+    adapterImplemented: adapterCheck.ok,
+    catalogPresent: options.catalogPresent,
+    intent: options.intent ?? "planning"
+  });
+  if (!readiness.ok) issues.push(issue(readiness.code, readiness.message, "error", ["target", "mode"]));
+  const selectedRoute = routeFromProfiles({
+    model: ir.target.model_profile_id,
+    mode: ir.target.mode,
+    model_profile: modelLoad.profile,
+    connection_profile: connectionLoad.profile,
+    model_profile_digest: modelLoad.digest,
+    connection_profile_digest: connectionLoad.digest
+  });
+  if (!selectedRoute.ok) issues.push(...selectedRoute.issues);
+  if (!selectedRoute.ok || !adapterCheck.ok) return { ok: false, issues };
+  const compiled = compileVideoPromptIrV2(ir, {
+    request_id: request.id,
+    route: selectedRoute.route,
+    model_profile: modelLoad.profile,
+    connection_profile: connectionLoad.profile,
+    model_profile_digest: modelLoad.digest,
+    connection_capability_digest: connectionLoad.digest,
+    intent: options.intent === "execute" ? "execute" : "planning",
+    ...(source ? { source } : {})
+  });
+  issues.push(...compiled.issues);
+  const v2Compilation = compiled.compilation;
+  if (!v2Compilation) return { ok: false, issues };
+  const executionRequest = buildV2ExecutionRequest(request, ir, v2Compilation.adapter_prompt);
+  const lineage = {
+    workflow_id: "video-prompt-v3",
+    workflow_version: "3",
+    creative_ir_hash: v2Compilation.normalized_ir_digest,
+    canonical_prompt_hash: v2Compilation.lineage.canonical_prompt_digest,
+    adapter_prompt_hash: v2Compilation.lineage.adapter_prompt_digest,
+    model_profile_digest: modelLoad.digest,
+    connection_capability_digest: connectionLoad.digest,
+    block_digests: v2Compilation.lineage.block_digests
+  } as H3Compilation["lineage"];
+  const compilation = {
+    request_id: request.id,
+    creative_ir: ir as never,
+    canonical_prompt: v2Compilation.canonical_prompt,
+    adapter_prompt: v2Compilation.adapter_prompt,
+    validation: v2Compilation.validation,
+    lineage,
+    execution_request: executionRequest
+  } as H3Compilation;
+  const plan = {
+    model_profile: modelLoad.profile,
+    model_profile_digest: modelLoad.digest,
+    connection_profile: connectionLoad.profile,
+    connection_capability_digest: connectionLoad.digest,
+    readiness: readiness.ok ? readiness : { ok: true, planning_only: true, external_submission_allowed: false } as never,
+    compilation,
+    v2_compilation: v2Compilation as VideoPromptV2Compilation,
+    compiler_workflow: "video-prompt-v3" as const
+  };
+  if (issues.some((item) => item.severity === "error") || !compiled.ok || !readiness.ok) return { ok: false, plan, issues };
+  return { ok: true, plan, issues: [] };
+}
+
+function buildV2ExecutionRequest(request: GenerationRequest, ir: VideoPromptIrV2, adapterPrompt: string): GenerationRequest {
+  const {
+    h3: _h3,
+    video_prompt: _videoPrompt,
+    prompt_guide: _promptGuide,
+    mode: _mode,
+    first_frame: _firstFrame,
+    last_frame: _lastFrame,
+    reference_images: _referenceImages,
+    input_images: _inputImages,
+    input_video: _inputVideo,
+    input_videos: _inputVideos,
+    input_audios: _inputAudios,
+    ...rest
+  } = request as GenerationRequest & { video_prompt?: unknown };
+  const assets = (role: string, type: "image" | "video" | "audio") => ir.assets.filter((asset) => asset.type === type && asset.role === role).map((asset) => asset.path);
+  const inputImages = ir.assets.filter((asset) => asset.type === "image" && ["subject_reference", "motion_reference", "environment_reference", "style_reference", "other"].includes(asset.role)).map((asset) => asset.path);
+  const inputVideos = ir.assets.filter((asset) => asset.type === "video").map((asset) => asset.path);
+  const inputAudios = ir.assets.filter((asset) => asset.type === "audio").map((asset) => asset.path);
+  return {
+    ...rest,
+    id: request.id,
+    prompt: adapterPrompt,
+    model: ir.target.model_profile_id,
+    duration: ir.target.duration_ms / 1_000,
+    aspect: ir.target.aspect,
+    operation: mapMode(ir.target.mode).operation,
+    input_mode: mapMode(ir.target.mode).input_mode,
+    params: { ...(request.params ?? {}), quality: ir.target.quality, audio: ir.target.audio },
+    ...(assets("first_frame", "image").length ? { first_frame: assets("first_frame", "image")[0] } : {}),
+    ...(assets("last_frame", "image").length ? { last_frame: assets("last_frame", "image")[0] } : {}),
+    ...(inputImages.length ? { input_images: inputImages } : {}),
+    ...(inputVideos.length ? { input_videos: inputVideos } : {}),
+    ...(inputAudios.length ? { input_audios: inputAudios } : {})
+  } as GenerationRequest;
+}
+
 /** Alias for planning-oriented callers. */
 export async function planVideoPrompt(
   request: GenerationRequest,
@@ -261,6 +415,7 @@ export async function compileProjectVideoPrompts(
     ?? project.generation.connection
     ?? project.generation.adapter;
   const plans: VideoPromptPlan[] = [];
+  const v2Routes = [] as Array<NonNullable<VideoPromptPlan["v2_compilation"]>["route"]>;
   const issues: Issue[] = [];
   const nextRequests: GenerationRequest[] = [];
 
@@ -296,6 +451,7 @@ export async function compileProjectVideoPrompts(
     });
     if (result.plan) {
       plans.push(result.plan);
+      if (result.plan.v2_compilation) v2Routes.push(result.plan.v2_compilation.route);
     }
     if (!result.ok) {
       issues.push(...result.issues.map((item) => h3IssueToProjectIssue(item, index)));
@@ -310,6 +466,12 @@ export async function compileProjectVideoPrompts(
       ...(request.prompt_guide ? { prompt_guide: request.prompt_guide } : {})
     } as GenerationRequest);
   }
+
+  issues.push(...assertHomogeneousRouteIdentity(v2Routes).map((item) => ({
+    code: item.code,
+    message: item.message,
+    path: "generation.requests"
+  })));
 
   const nextProject: Project = {
     ...project,

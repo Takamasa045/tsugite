@@ -1,13 +1,16 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
+import { sha256Bytes } from "../productionControl/canonical.js";
 import { programBindingSchema, routeIdentitySchema } from "../productionControl/programBinding.js";
 import { digestSchema, safeIdSchema } from "../productionControl/schema.js";
 import type { SemanticPromptBlock } from "./semanticBlocks.js";
 import type { VideoPromptIrV2 } from "./schemaV2.js";
-import { routeIdentityDigest } from "./effectiveContract.js";
+import { effectiveGenerationContractSchema, routeIdentityDigest, type EffectiveGenerationContractV1 } from "./effectiveContract.js";
 
 const issueSchema = z.object({
   code: safeIdSchema,
@@ -19,7 +22,15 @@ const issueSchema = z.object({
 const assetLineageSchema = z.object({
   asset_id: safeIdSchema,
   path: z.string().min(1).refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."), "asset path must be project-relative"),
-  declared_sha256: digestSchema
+  declared_sha256: digestSchema.optional(),
+  pin_evidence: z.object({
+    source: z.enum(["project-bytes", "asset-contract"]),
+    real_path: z.string().min(1).refine(isAbsolute, "pin evidence path must be absolute"),
+    sha256: digestSchema,
+    byte_size: z.number().int().nonnegative(),
+    regular_file: z.literal(true),
+    contained_in_project_root: z.literal(true)
+  }).strict().optional()
 }).strict();
 
 export const compilationBundleSchema = z.object({
@@ -43,6 +54,9 @@ export const compilationBundleSchema = z.object({
   block_digests: z.record(safeIdSchema, digestSchema),
   model_profile_digest: digestSchema,
   connection_capability_digest: digestSchema,
+  effective_contract: effectiveGenerationContractSchema,
+  effective_contract_digest: digestSchema,
+  execution_capable: z.boolean(),
   route: routeIdentitySchema,
   program_binding: programBindingSchema.optional(),
   asset_lineage: z.array(assetLineageSchema).max(256),
@@ -83,6 +97,12 @@ export const compilationBundleSchema = z.object({
     if (bundle.block_digests[block.block_id] !== block.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["block_digests", block.block_id], message: "semantic block digest mismatch" });
   }
   if (routeIdentityDigest(bundle.route) !== bundle.route.route_digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["route", "route_digest"], message: "route identity digest mismatch" });
+  if (bundle.effective_contract_digest !== bundle.effective_contract.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["effective_contract_digest"], message: "effective contract digest mismatch" });
+  if (bundle.execution_capable !== (bundle.effective_contract.execution.status === "execution-capable")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["execution_capable"], message: "execution capability status mismatch" });
+  for (const [index, asset] of bundle.asset_lineage.entries()) {
+    if (bundle.execution_capable && !asset.pin_evidence) context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_lineage", index, "pin_evidence"], message: "execution-capable bundles require pin evidence for every asset" });
+    if (asset.pin_evidence && asset.declared_sha256 && asset.declared_sha256 !== asset.pin_evidence.sha256) context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_lineage", index, "pin_evidence", "sha256"], message: "asset pin evidence does not match declared sha256" });
+  }
   if (!bundle.validation.ok) context.addIssue({ code: z.ZodIssueCode.custom, path: ["validation", "ok"], message: "compilation bundle cannot commit a failed validation" });
   const { digest: _grammarDigest, ...grammarWithoutDigest } = bundle.grammar_profile;
   if (sha256Canonical(grammarWithoutDigest) !== bundle.grammar_profile.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["grammar_profile", "digest"], message: "grammar profile digest mismatch" });
@@ -102,6 +122,8 @@ export type CompilationBundleInput = {
   semantic_blocks: readonly SemanticPromptBlock[];
   model_profile_digest: string;
   connection_capability_digest: string;
+  effective_contract: EffectiveGenerationContractV1;
+  execution_capable: boolean;
   route: CompilationBundleV1["route"];
   program_binding?: CompilationBundleV1["program_binding"];
   grammar_profile: CompilationBundleV1["grammar_profile"];
@@ -112,6 +134,7 @@ export type CompilationBundleInput = {
   exact_text_digests?: string[];
   upgrader_version?: string;
   source_digest?: string;
+  asset_evidence?: Readonly<Record<string, NonNullable<CompilationBundleV1["asset_lineage"][number]["pin_evidence"]>>>;
 };
 
 export function createCompilationBundle(input: CompilationBundleInput): CompilationBundleV1 {
@@ -130,9 +153,17 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
     block_digests: Object.fromEntries(semanticBlocks.map((block) => [block.block_id, block.digest])),
     model_profile_digest: input.model_profile_digest,
     connection_capability_digest: input.connection_capability_digest,
+    effective_contract: input.effective_contract,
+    effective_contract_digest: input.effective_contract.digest,
+    execution_capable: input.execution_capable,
     route: input.route,
     ...(input.program_binding ? { program_binding: input.program_binding } : {}),
-    asset_lineage: input.ir.assets.map((asset) => ({ asset_id: asset.id, path: asset.path, declared_sha256: asset.sha256! })),
+    asset_lineage: input.ir.assets.map((asset) => ({
+      asset_id: asset.id,
+      path: asset.path,
+      ...(asset.sha256 ? { declared_sha256: asset.sha256 } : {}),
+      ...(input.asset_evidence?.[asset.id] ? { pin_evidence: input.asset_evidence[asset.id] } : {})
+    })),
     grammar_profile: input.grammar_profile,
     labels_digest: input.labels_digest,
     validation: input.validation,
@@ -160,8 +191,19 @@ export function assertCompilationBundleAssets(
 ): void {
   for (const expected of bundle.asset_lineage) {
     const current = currentAssets[expected.asset_id];
-    if (!current || current.path !== expected.path || (expected.declared_sha256 && current.sha256 !== expected.declared_sha256)) {
+    if (!current || current.path !== expected.path || (expected.declared_sha256 && current.sha256 !== expected.declared_sha256) || (expected.pin_evidence && current.sha256 !== expected.pin_evidence.sha256)) {
       throw new Error(`VPD-J002: compilation bundle asset lineage changed for '${expected.asset_id}'`);
+    }
+    if (expected.pin_evidence) {
+      try {
+        const realPath = realpathSync(expected.pin_evidence.real_path);
+        const stat = statSync(realPath);
+        if (!stat.isFile() || stat.size !== expected.pin_evidence.byte_size || sha256Bytes(readFileSync(realPath)) !== expected.pin_evidence.sha256) {
+          throw new Error("asset bytes changed");
+        }
+      } catch {
+        throw new Error(`VPD-J002: compilation bundle asset bytes changed for '${expected.asset_id}'`);
+      }
     }
   }
 }

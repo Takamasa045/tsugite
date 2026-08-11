@@ -132,6 +132,8 @@ export {
   type RouteIdentityForV2
 } from "./schemaV2.js";
 
+export { identityDefinitionSchema, type IdentityDefinitionContractV1 } from "../personConsistency/schema.js";
+
 export {
   upgradeH3V1ToVideoPromptV2,
   upgradeVideoPromptV1ToV2,

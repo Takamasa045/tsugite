@@ -34,6 +34,16 @@ export type PromptBudget = {
   unknown: boolean;
 };
 
+export type EffectiveCapabilityEvidence = {
+  duration: "hard" | "unknown";
+  aspect: "hard" | "unknown";
+  resolution: "hard" | "unknown";
+  mode: "hard" | "unknown";
+  reference: "hard" | "unknown";
+  group_speaker: "hard" | "unknown";
+  exact_text: "hard" | "unknown";
+};
+
 export type EffectiveGenerationContractV1 = {
   schema_version: 1;
   route: RouteIdentityV1;
@@ -57,6 +67,10 @@ export type EffectiveGenerationContractV1 = {
     review_after?: string;
   };
   overrides: string[];
+  execution: {
+    status: "planning-only" | "execution-capable";
+    capability_evidence: EffectiveCapabilityEvidence;
+  };
   digest: string;
 };
 
@@ -83,6 +97,8 @@ export type EffectiveContractInput = {
   freshness?: EffectiveGenerationContractV1["freshness"];
   knowledge_digest?: string;
   now?: string;
+  execution_capable?: boolean;
+  capability_evidence?: Partial<EffectiveCapabilityEvidence>;
 };
 
 const budgetLimitSchema = z.object({
@@ -119,8 +135,25 @@ export const effectiveGenerationContractSchema = z.object({
   }).strict(),
   freshness: z.object({ status: z.enum(["fresh", "stale", "unknown"]), review_after: z.string().optional() }).strict(),
   overrides: z.array(z.string()),
+  execution: z.object({
+    status: z.enum(["planning-only", "execution-capable"]),
+    capability_evidence: z.object({
+      duration: z.enum(["hard", "unknown"]),
+      aspect: z.enum(["hard", "unknown"]),
+      resolution: z.enum(["hard", "unknown"]),
+      mode: z.enum(["hard", "unknown"]),
+      reference: z.enum(["hard", "unknown"]),
+      group_speaker: z.enum(["hard", "unknown"]),
+      exact_text: z.enum(["hard", "unknown"])
+    }).strict()
+  }).strict(),
   digest: digestSchema
-}).strict();
+}).strict().superRefine((contract, context) => {
+  const { digest, ...withoutDigest } = contract;
+  if (sha256Canonical(withoutDigest) !== digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "effective generation contract digest mismatch" });
+  }
+});
 
 export function assertEffectiveGenerationContract(
   value: unknown,
@@ -129,6 +162,7 @@ export function assertEffectiveGenerationContract(
     mode: VideoPromptModeV2;
     model_profile_digest?: string;
     connection_digest?: string;
+    intent?: "planning" | "execute";
   }
 ): { ok: true; contract: EffectiveGenerationContractV1; issues: H3Issue[] } | { ok: false; issues: H3Issue[] } {
   let contract: EffectiveGenerationContractV1;
@@ -151,6 +185,16 @@ export function assertEffectiveGenerationContract(
   if (contract.digests.model_profile !== contract.route.model_profile_digest) issues.push(issue("VPD-K002", "effective contract model profile digest does not match its route", "error", ["effective_contract", "digests", "model_profile"]));
   if (contract.digests.connection_profile !== contract.route.connection_digest) issues.push(issue("VPD-K002", "effective contract connection capability digest does not match its route", "error", ["effective_contract", "digests", "connection_profile"]));
   if (contract.digests.adapter_route !== contract.route.route_digest) issues.push(issue("VPD-R001", "effective contract adapter route digest does not match its route", "error", ["effective_contract", "digests", "adapter_route"]));
+  if (expected.intent === "execute") {
+    if (contract.execution.status !== "execution-capable") issues.push(issue("VPD-K003", "effective contract is planning-only and cannot authorize execution", "error", ["effective_contract", "execution", "status"]));
+    if (contract.freshness.status !== "fresh") issues.push(issue("VPD-K003", "execution requires fresh model/profile/capability evidence", "error", ["effective_contract", "freshness"]));
+    for (const [name, value] of Object.entries(contract.execution.capability_evidence)) {
+      if (value !== "hard") issues.push(issue("VPD-K003", `execution capability '${name}' is not proven by hard evidence`, "error", ["effective_contract", "execution", "capability_evidence", name]));
+    }
+    if (contract.effective.prompt_budget.unknown || (!contract.effective.prompt_budget.hard && !contract.effective.prompt_budget.soft)) {
+      issues.push(issue("VPD-K003", "execution requires a known pinned prompt budget", "error", ["effective_contract", "effective", "prompt_budget"]));
+    }
+  }
   if (issues.some((item) => item.severity === "error")) return { ok: false, issues };
   return { ok: true, contract, issues };
 }
@@ -256,6 +300,18 @@ export function createEffectiveGenerationContract(
   issues.push(...validatePromptBudget(budget));
   if (issues.some((item) => item.severity === "error")) return { ok: false, issues };
 
+  const profileRoute = input.connection_profile?.exact_model_routes.find((item) => item.model === route.ir_model);
+  const derivedEvidence: EffectiveCapabilityEvidence = {
+    duration: input.model_profile ? "hard" : "unknown",
+    aspect: input.model_profile ? "hard" : "unknown",
+    resolution: input.model_profile ? "hard" : "unknown",
+    mode: profileRoute?.modes.includes(input.mode) ? "hard" : "unknown",
+    reference: profileRoute?.modes.includes(input.mode) ? "hard" : "unknown",
+    group_speaker: "unknown",
+    exact_text: "unknown",
+    ...input.capability_evidence
+  };
+  const executionStatus = input.execution_capable ? "execution-capable" as const : "planning-only" as const;
   const contractWithoutDigest = {
     schema_version: 1 as const,
     route,
@@ -264,7 +320,7 @@ export function createEffectiveGenerationContract(
       durations_ms: input.model_profile ? input.model_profile.durations.map((seconds) => Math.round(seconds * 1_000)) : "unknown" as const,
       aspects: input.model_profile?.aspects ?? "unknown" as const,
       resolutions: input.model_profile?.resolutions ?? "unknown" as const,
-      reference_caps: input.connection_profile ? input.connection_profile.exact_model_routes.find((item) => item.model === route.ir_model)?.modes ?? "unknown" as const : "unknown" as const,
+      reference_caps: profileRoute?.modes ?? "unknown" as const,
       prompt_budget: budget
     },
     advisory_warnings: [],
@@ -275,7 +331,11 @@ export function createEffectiveGenerationContract(
       adapter_route: input.adapter_route_digest ?? route.route_digest
     },
     freshness,
-    overrides: [] as string[]
+    overrides: [] as string[],
+    execution: {
+      status: executionStatus,
+      capability_evidence: derivedEvidence
+    }
   };
   const contract: EffectiveGenerationContractV1 = {
     ...contractWithoutDigest,

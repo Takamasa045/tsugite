@@ -4,6 +4,7 @@ import {
   buildSemanticBlocks,
   type SemanticBlockOptions,
   type SemanticPromptBlock,
+  type SemanticPromptAst,
   resolveVocalEventText
 } from "../semanticBlocks.js";
 import type { H3Issue } from "../validation/types.js";
@@ -77,6 +78,60 @@ export function h3GrammarProfileDigest(profile: H3GrammarProfileV3 | Omit<H3Gram
 }
 
 export function renderH3GrammarV3(
+  input: VideoPromptIrV2 | SemanticPromptAst,
+  options: H3GrammarV3Options = {}
+): H3GrammarV3Result {
+  if (isSemanticPromptAst(input)) return renderSemanticPromptAst(input, options);
+  return renderH3GrammarV3Legacy(input, options);
+}
+
+function renderSemanticPromptAst(
+  ast: SemanticPromptAst,
+  options: H3GrammarV3Options
+): H3GrammarV3Result {
+  const profile = options.grammar_profile ?? DEFAULT_H3_GRAMMAR_PROFILE_V3;
+  const issues: H3Issue[] = [];
+  if (h3GrammarProfileDigest(profile) !== profile.digest) {
+    issues.push(issue("VPD-C003", "H3 grammar profile digest is stale", "error", ["grammar_profile", "digest"]));
+  }
+  const baseProfileOrder = profile.section_order.length === H3_BASE_SECTION_ORDER_V3.length
+    && profile.section_order.every((section, index) => section === H3_BASE_SECTION_ORDER_V3[index]);
+  const referenceProfileOrder = profile.section_order.length === H3_REFERENCE_SECTION_ORDER_V3.length
+    && profile.section_order.every((section, index) => section === H3_REFERENCE_SECTION_ORDER_V3[index]);
+  if (!baseProfileOrder && !(ast.format === "reference" && referenceProfileOrder)) {
+    issues.push(issue("VPD-C002", "selected grammar profile section order does not match the requested mode", "error", ["grammar_profile", "section_order"]));
+  }
+  const sections: Record<string, string> = ast.format === "reference"
+    ? {
+        subject_definitions: ast.sections.subject_definitions ?? "",
+        summary: ast.sections.summary ?? "",
+        retention_analysis: ast.sections.retention_analysis ?? "",
+        detailed_description: ast.sections.integrated_multimodal_description,
+        overall_soundscape: ast.sections.overall_soundscape,
+        non_diegetic_music: ast.sections.non_diegetic_music
+      }
+    : {
+        integrated_multimodal_description: ast.sections.integrated_multimodal_description,
+        overall_soundscape: ast.sections.overall_soundscape,
+        non_diegetic_music: ast.sections.non_diegetic_music
+      };
+  const order = ast.format === "reference" ? H3_REFERENCE_SECTION_ORDER_V3 : H3_BASE_SECTION_ORDER_V3;
+  const text = order.map((key) => `${key}:\n${sections[key] ?? ""}`).join("\n\n");
+  for (const required of ast.must_include) {
+    if (!text.includes(required)) issues.push(issue("VPD-C001", `must_include value '${required}' was not reflected in the prompt`, "error", ["creative", "must_include"]));
+  }
+  for (const prohibited of ast.prohibited) {
+    if (text.includes(prohibited)) issues.push(issue("VPD-C001", `prohibited value '${prohibited}' was reflected in the prompt`, "error", ["creative", "prohibited"]));
+  }
+  issues.push(...validateGrammarShape(text, ast.format));
+  return { format: ast.format, sections, text, labels: ast.labels, blocks: ast.blocks, issues, grammar_profile: profile };
+}
+
+function isSemanticPromptAst(value: VideoPromptIrV2 | SemanticPromptAst): value is SemanticPromptAst {
+  return "sections" in value && "blocks" in value && "labels" in value;
+}
+
+function renderH3GrammarV3Legacy(
   ir: VideoPromptIrV2,
   options: H3GrammarV3Options = {}
 ): H3GrammarV3Result {
@@ -134,6 +189,11 @@ export function validateGrammarShape(
   const positions = order.map((section) => text.indexOf(`${section}:`));
   if (positions.some((position) => position < 0) || positions.some((position, index) => index > 0 && position <= positions[index - 1]!)) {
     issues.push(issue("VPD-C002", "H3 grammar top-level section order is invalid", "error", ["prompt"]));
+  }
+  for (const section of order) {
+    if ((text.match(new RegExp(`^${section}:`, "gm")) ?? []).length !== 1) {
+      issues.push(issue("VPD-C002", `H3 grammar section '${section}' must occur exactly once`, "error", ["prompt"]));
+    }
   }
   if (format === "base" && ir && ["first-frame", "first-last", "last-frame"].includes(ir.target.mode)) {
     const description = text.slice(text.indexOf("integrated_multimodal_description:"));

@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
 import type { H3Issue } from "./validation/types.js";
 import { issue } from "./validation/types.js";
+import { buildAdapterLabelMap, type AdapterLabelMap } from "./adapterDialect.js";
 import type {
   ShotV2,
   VideoPromptIrV2,
@@ -34,6 +35,25 @@ export type SemanticPromptBlock = {
   text: string;
   digest: string;
   exact_text_digests: string[];
+};
+
+/** Fully materialized canonical serializer input. The renderer never re-walks IR. */
+export type SemanticPromptAst = {
+  format: "base" | "reference";
+  mode: VideoPromptIrV2["target"]["mode"];
+  duration_ms: number;
+  sections: {
+    integrated_multimodal_description: string;
+    subject_definitions?: string;
+    summary?: string;
+    retention_analysis?: string;
+    overall_soundscape: string;
+    non_diegetic_music: string;
+  };
+  labels: AdapterLabelMap;
+  blocks: SemanticPromptBlock[];
+  must_include: string[];
+  prohibited: string[];
 };
 
 export type LyricsCueSource = {
@@ -77,6 +97,7 @@ export type SemanticBlockResult = {
   blocks: SemanticPromptBlock[];
   issues: H3Issue[];
   resolved_text: Map<string, string>;
+  ast: SemanticPromptAst;
 };
 
 export function buildSemanticBlocks(
@@ -157,7 +178,8 @@ export function buildSemanticBlocks(
         resolvedText.set(event.id, resolved.text);
         exactDigests.push(sha256Text(resolved.text));
         const timing = event.start_ms === undefined ? "" : ` ${formatSeconds(event.start_ms)}-${formatSeconds(event.end_ms!)}s`;
-        vocalLines.push(`${event.kind}${timing} (${event.speaker_ids.join(", ")}) [${event.language_id}]: ${resolved.text}`);
+        const control = event.continuity === "continues-out" ? " <scenetrans>" : event.continuity === "cutoff" ? " <cutoff>" : "";
+        vocalLines.push(`${event.kind}${timing} (${event.speaker_ids.join(", ")}) [${event.language_id}]: <d>[${event.language_id}]${resolved.text}</d>${control}`);
       }
     }
     if (vocalLines.length > 0) push(`${prefix}-audio-events`, "AUDIO_EVENTS", [`shots.${shotIndex}.vocal_events`], vocalLines.join("\n"), exactDigests);
@@ -190,7 +212,64 @@ export function buildSemanticBlocks(
   if (ir.creative.must_include.length > 0) push("must-include", "POSITIVE_CONSTRAINTS", ["creative.must_include"], ir.creative.must_include.join("\n"));
   if (ir.target.quality) push("quality", "QUALITY", ["target.quality"], ir.target.quality);
 
-  return { blocks, issues, resolved_text: resolvedText };
+  const adapterLabels = buildAdapterLabelMap(ir);
+  const shotTexts = ir.shots.map((shot, shotIndex) => {
+    const prefix = `shots.${shotIndex}`;
+    const identityText = shot.cast.flatMap((cast) => blocks
+      .filter((block) => block.block_id.startsWith(`subject-${cast.subject_id}-`))
+      .map((block) => block.text)).join(" ");
+    const text = [blocks
+      .filter((block) => block.source_paths.some((path) => path === prefix || path.startsWith(`${prefix}.`)))
+      .filter((block) => !block.block_id.endsWith("-asset-labels"))
+      .map((block) => block.text)
+      .join(" "), identityText].filter(Boolean).join(" ");
+    return shotIndex === 0
+      ? `[Shot 1] ${text}`
+      : `[Shot ${shotIndex + 1}] At ${formatTimestamp(shot.start_ms)}, the camera cuts to ${decapitalize(text)}`;
+  });
+  const alignment = blocks.find((block) => block.block_id === "mode-alignment")?.text;
+  const globalText = blocks
+    .filter((block) => ["style", "quality", "must-include"].includes(block.block_id))
+    .map((block) => block.text)
+    .join("\n");
+  const integrated = [alignment, shotTexts.join("\n\n"), globalText].filter(Boolean).join("\n\n");
+  const subjectDefinitions = ir.subjects.map((subject, index) => {
+    const lines = [`<Subject ${index + 1}> is the ${subject.description}.`];
+    for (const field of ["voice", "appearance", "manner"] as const) {
+      const locked = subject.locked_blocks?.[field];
+      if (locked) lines.push(`${field.toUpperCase()}:\n${locked.text}`);
+    }
+    return lines.join("\n");
+  }).join("\n");
+  const retention = ir.subjects.length === 0
+    ? "Retain referenced subject appearance, clothing, and spatial relationships across the clip."
+    : ir.subjects.map((subject, index) => {
+      const preservation = subject.preservation;
+      const value = preservation
+        ? [preservation.identity ? `identity=${preservation.identity}` : undefined, preservation.clothing ? `clothing=${preservation.clothing}` : undefined, preservation.hairstyle ? `hairstyle=${preservation.hairstyle}` : undefined].filter(Boolean).join(", ")
+        : "identity and clothing remain consistent";
+      return `Retain <Subject ${index + 1}> (${value}).`;
+    }).join(" ");
+  const ast: SemanticPromptAst = {
+    format: ir.target.mode === "reference" ? "reference" : "base",
+    mode: ir.target.mode,
+    duration_ms: ir.target.duration_ms,
+    sections: {
+      integrated_multimodal_description: integrated,
+      ...(ir.target.mode === "reference" ? {
+        subject_definitions: subjectDefinitions || adapterLabels.assets.map((asset) => `${asset.canonical} is ${asset.adapter}.`).join("\n"),
+        summary: ir.creative.intent ?? `A ${ir.target.duration_ms / 1_000}-second reference sequence with ${ir.shots.length} shot(s).`,
+        retention_analysis: retention
+      } : {}),
+      overall_soundscape: ir.audio.soundscape ?? "N/A",
+      non_diegetic_music: ir.audio.non_diegetic_music ?? "N/A"
+    },
+    labels: adapterLabels,
+    blocks,
+    must_include: [...ir.creative.must_include],
+    prohibited: [...ir.creative.prohibited]
+  };
+  return { blocks, issues, resolved_text: resolvedText, ast };
 }
 
 export function validateExactText(value: string, expectedDigest: string, path: string, reservedTokens: readonly string[] = DEFAULT_RESERVED_EXACT_TEXT_TOKENS): H3Issue[] {
@@ -277,6 +356,17 @@ function opticsText(optics: NonNullable<NonNullable<ShotV2["camera"]>["optics"]>
 
 function formatSeconds(milliseconds: number): string {
   return (milliseconds / 1_000).toFixed(3);
+}
+
+function formatTimestamp(milliseconds: number): string {
+  const minutes = Math.floor(milliseconds / 60_000);
+  const seconds = Math.floor((milliseconds % 60_000) / 1_000);
+  const ms = milliseconds % 1_000;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+}
+
+function decapitalize(value: string): string {
+  return value ? value[0]!.toLowerCase() + value.slice(1) : value;
 }
 
 function subjectIndex(ir: VideoPromptIrV2, id: string): number {

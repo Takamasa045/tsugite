@@ -7,6 +7,7 @@ import {
   type ProgramBindingV1,
   type RouteIdentityV1
 } from "../productionControl/programBinding.js";
+import { identityDefinitionSchema } from "../personConsistency/schema.js";
 
 const safeId = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -229,6 +230,8 @@ const commonShape = {
   version: z.literal(2),
   target: targetSchema,
   creative: creativeSchema,
+  /** A locked subject is only execution-safe when this typed contract is bound. */
+  identity_definition: identityDefinitionSchema.optional(),
   subjects: z.array(subjectSchema).max(256),
   scenes: z.array(sceneSchema).max(256),
   assets: z.array(assetSchema).max(256),
@@ -303,12 +306,33 @@ export const videoPromptIrV2Schema = z.discriminatedUnion("program_kind", [stand
     checkUnique(eventIds, `shots.${shotIndex}.events`);
     const exactIds = new Set([...eventIds]);
     for (const [constraintIndex, ref] of shot.constraints.exact_text_refs.entries()) if (!exactIds.has(ref)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["shots", shotIndex, "constraints", "exact_text_refs", constraintIndex], message: "exact text reference is undefined" });
+    for (const [eventIndex, event] of shot.vocal_events.entries()) {
+      if (event.start_ms !== undefined && event.end_ms !== undefined
+        && (event.start_ms < shot.start_ms || event.end_ms > shot.end_ms)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["shots", shotIndex, "vocal_events", eventIndex], message: "vocal event must be contained by its shot", params: { code: "VPD-T004" } });
+      }
+      if (event.continuity === "continues-in" && event.start_ms !== undefined && event.start_ms !== shot.start_ms) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["shots", shotIndex, "vocal_events", eventIndex, "start_ms"], message: "continues-in vocal event must begin at the shot boundary", params: { code: "VPD-T005" } });
+      }
+      if ((event.continuity === "continues-out" || event.continuity === "cutoff") && event.end_ms !== undefined && event.end_ms !== shot.end_ms) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["shots", shotIndex, "vocal_events", eventIndex, "end_ms"], message: "continuing or cutoff vocal event must end at the shot boundary", params: { code: "VPD-T005" } });
+      }
+    }
   }
   const first = ir.assets.filter((asset) => asset.role === "first_frame" && asset.type === "image");
   const last = ir.assets.filter((asset) => asset.role === "last_frame" && asset.type === "image");
-  if (ir.target.mode === "first-frame" && (first.length !== 1 || last.length > 0)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets"], message: "first-frame mode requires exactly one first-frame image and no last-frame asset" });
+  if (ir.target.mode === "text-to-video" && ir.assets.length > 0) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets"], message: "text-to-video mode must not declare execution assets", params: { code: "VPD-A002" } });
+  if (ir.target.mode === "first-frame" && (first.length !== 1 || last.length > 0 || ir.assets.length !== 1)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets"], message: "first-frame mode requires exactly one first-frame image and no other asset" });
   if (ir.target.mode === "first-last" && (first.length !== 1 || last.length !== 1)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets"], message: "first-last mode requires one first-frame and one last-frame image" });
   if (ir.target.mode === "last-frame" && (last.length !== 1 || ir.assets.some((asset) => asset.role !== "last_frame" || asset.type !== "image"))) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets"], message: "last-frame mode requires exactly one last-frame image" });
+  if (ir.target.mode === "text-to-video" && (first.length > 0 || last.length > 0)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets"], message: "text-to-video mode cannot carry frame-alignment assets", params: { code: "VPD-A002" } });
+  if (ir.target.mode === "first-last" && ir.assets.length !== 2) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets"], message: "first-last mode cannot mix frame alignment with other assets", params: { code: "VPD-A002" } });
+  if (ir.target.mode === "reference" && (ir.assets.length === 0 || first.length > 0 || last.length > 0)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets"], message: "reference mode requires reference assets and cannot carry frame-alignment assets", params: { code: "VPD-A002" } });
+  for (const [index, assetId] of ir.audio.reference_asset_ids.entries()) {
+    const asset = ir.assets.find((candidate) => candidate.id === assetId);
+    if (!asset) context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "reference_asset_ids", index], message: "audio reference asset is undefined", params: { code: "VPD-A001" } });
+    else if (asset.type !== "audio" || !["voice_reference", "other"].includes(asset.role)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "reference_asset_ids", index], message: "audio reference must bind an audio asset with an audio role", params: { code: "VPD-A001" } });
+  }
   if (ir.audio.policy === "reuse-master" && ir.audio.final_mix !== "discard-generated") context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "final_mix"], message: "reuse-master must discard generated audio" });
   if (ir.audio.policy === "native-generated" && ir.audio.final_mix === "discard-generated") context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "final_mix"], message: "native-generated audio must be used or explicitly mixed" });
   if (ir.audio.policy === "silent" && ir.audio.final_mix !== "discard-generated") context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "final_mix"], message: "silent audio policy cannot use generated audio" });
