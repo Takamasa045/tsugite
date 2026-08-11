@@ -13,8 +13,8 @@ import {
 import {
   formatCutTimestamp,
   renderCameraSentence,
-  renderDialogueActingLocks,
-  renderDialogueBlock
+  renderDialogueBlock,
+  renderShotActingLocks
 } from "./neutralHelpers.js";
 
 export type PlainRenderResult = {
@@ -38,7 +38,7 @@ export function renderPlainPrompt(ir: H3CreativeIr): PlainRenderResult {
     ];
     if (shot.camera) parts.push(renderCameraSentence(shot.camera));
     if (shot.dialogue) parts.push(renderDialogueBlock(shot.dialogue, ir.subjects));
-    for (const lockLine of renderDialogueActingLocks(shot.dialogue, ir.subjects)) {
+    for (const lockLine of renderShotActingLocks(shot, ir.subjects)) {
       parts.push(lockLine);
     }
     if (shot.on_screen_text !== undefined) parts.push(`On-screen text: ${shot.on_screen_text}`);

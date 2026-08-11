@@ -144,6 +144,72 @@ describe("Phase A locked_blocks", () => {
     expect(compiled.issues.some((item) => item.code === LOCK_HASH_MISMATCH_CODE)).toBe(true);
   });
 
+  it("injects appearance/manner for silent visible subject_expectations", async () => {
+    const base = await loadT2v();
+    const appearance = "salt stubble, grey wool coat, scar above left brow.";
+    const ir = parseH3CreativeIr({
+      ...base,
+      subjects: [
+        {
+          ...base.subjects[0],
+          locked_blocks: {
+            appearance: { text: appearance, sha256: hashLockedText(appearance) }
+          }
+        }
+      ],
+      shots: [
+        {
+          ...base.shots[0],
+          dialogue: undefined,
+          subject_expectations: [
+            {
+              subject_id: "hero",
+              visibility: "visible",
+              face_visibility: "required"
+            }
+          ]
+        },
+        base.shots[1]
+      ]
+    });
+    const prompt = renderH3Prompt(ir).text;
+    expect(prompt).toContain(appearance);
+    expect(prompt).toContain("CHARACTER APPEARANCE:\n" + appearance);
+  });
+
+  it("resolves speaker_id-only dialogue to locked voice", async () => {
+    const base = await loadT2v();
+    const voice = "baritone coastal accent fixed";
+    const ir = parseH3CreativeIr({
+      ...base,
+      subjects: [
+        {
+          ...base.subjects[0],
+          speaker_id: "S1",
+          locked_blocks: {
+            voice: { text: voice, sha256: hashLockedText(voice) }
+          }
+        }
+      ],
+      shots: [
+        base.shots[0],
+        {
+          ...base.shots[1],
+          dialogue: {
+            speaker_id: "S1",
+            language: "Japanese",
+            text: "固定声で話す。",
+            lock_text: true,
+            voiceover: false
+          }
+        }
+      ]
+    });
+    const prompt = renderH3Prompt(ir).text;
+    expect(prompt).toContain(voice);
+    expect(prompt).toContain("VOICE:\n" + voice);
+  });
+
   it("compile injects voice/appearance/manner verbatim on dialogue shots", async () => {
     const ir = withLocks(await loadT2v(), {
       voice: VOICE_TEXT,

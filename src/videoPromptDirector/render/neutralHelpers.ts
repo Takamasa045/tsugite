@@ -7,7 +7,7 @@ import {
   formatVoiceLockedBlock,
   renderSubjectActingLocks
 } from "../lockedBlocks.js";
-import type { H3Camera, H3Dialogue, H3Subject } from "../schema.js";
+import type { H3Camera, H3Dialogue, H3Shot, H3Subject } from "../schema.js";
 
 export function formatCutTimestamp(startMs: number): string {
   const totalMs = Math.max(0, Math.round(startMs));
@@ -30,8 +30,15 @@ export function resolveDialogueSubject(
   dialogue: H3Dialogue,
   subjects: H3Subject[]
 ): H3Subject | undefined {
-  if (!dialogue.speaker) return undefined;
-  return subjects.find((item) => item.id === dialogue.speaker);
+  if (dialogue.speaker) {
+    return subjects.find((item) => item.id === dialogue.speaker);
+  }
+  // Schema allows speaker_id-only dialogue; resolve unique speaker_id match.
+  if (dialogue.speaker_id) {
+    const matches = subjects.filter((item) => item.speaker_id === dialogue.speaker_id);
+    if (matches.length === 1) return matches[0];
+  }
+  return undefined;
 }
 
 /**
@@ -83,6 +90,45 @@ export function renderDialogueActingLocks(
 ): string[] {
   if (!dialogue) return [];
   return renderSubjectActingLocks(resolveDialogueSubject(dialogue, subjects));
+}
+
+/**
+ * Appearance / manner locks for subjects that appear in a shot:
+ * dialogue speaker, cast, and subject_expectations with visible/partial visibility.
+ * Dedupes by subject id so multi-signals do not double-inject.
+ */
+export function renderShotActingLocks(
+  shot: H3Shot,
+  subjects: H3Subject[]
+): string[] {
+  const byId = new Map(subjects.map((subject) => [subject.id, subject]));
+  const orderedIds: string[] = [];
+  const seen = new Set<string>();
+
+  const pushSubject = (id: string | undefined) => {
+    if (!id || seen.has(id) || !byId.has(id)) return;
+    seen.add(id);
+    orderedIds.push(id);
+  };
+
+  if (shot.dialogue) {
+    const subject = resolveDialogueSubject(shot.dialogue, subjects);
+    pushSubject(subject?.id);
+  }
+  for (const entry of shot.cast ?? []) {
+    pushSubject(entry.subject);
+  }
+  for (const expectation of shot.subject_expectations ?? []) {
+    if (expectation.visibility === "visible" || expectation.visibility === "partial") {
+      pushSubject(expectation.subject_id);
+    }
+  }
+
+  const lines: string[] = [];
+  for (const id of orderedIds) {
+    lines.push(...renderSubjectActingLocks(byId.get(id)));
+  }
+  return lines;
 }
 
 function defaultSpeakerDescription(

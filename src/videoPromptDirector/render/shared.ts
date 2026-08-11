@@ -11,8 +11,8 @@ import {
 import {
   formatCutTimestamp,
   renderCameraSentence,
-  renderDialogueActingLocks,
-  renderDialogueBlock
+  renderDialogueBlock,
+  renderShotActingLocks
 } from "./neutralHelpers.js";
 
 export {
@@ -20,6 +20,7 @@ export {
   renderCameraSentence,
   renderDialogueActingLocks,
   renderDialogueBlock,
+  renderShotActingLocks,
   resolveSpeakerId
 } from "./neutralHelpers.js";
 
@@ -70,8 +71,8 @@ export function renderShotBody(shot: H3Shot, ir: H3CreativeIr): string {
   ];
   if (shot.camera) parts.push(renderCameraSentence(shot.camera));
   if (shot.dialogue) parts.push(renderDialogueBlock(shot.dialogue, ir.subjects));
-  // Locked appearance/manner: verbatim only; never normalizeVisualProse.
-  for (const lockLine of renderDialogueActingLocks(shot.dialogue, ir.subjects)) {
+  // Locked appearance/manner for dialogue / cast / visible expectations (verbatim).
+  for (const lockLine of renderShotActingLocks(shot, ir.subjects)) {
     parts.push(lockLine);
   }
   // Do not trim/rewrite on_screen_text or lyrics — including leading/trailing spaces and newlines.

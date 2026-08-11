@@ -608,6 +608,40 @@ function inspectArtifactContents(
     return h3ContentFail(expected.request_id, "lineage.json prompt_guide_hash does not match");
   }
 
+  if (expected.lineage.locked_block_hashes !== undefined) {
+    if (!isRecord(lineage.locked_block_hashes)) {
+      return h3ContentFail(
+        expected.request_id,
+        "lineage.json locked_block_hashes must be an object when expected"
+      );
+    }
+    const expectedLocks = expected.lineage.locked_block_hashes;
+    const actualLocks = lineage.locked_block_hashes as Record<string, unknown>;
+    const expectedKeys = Object.keys(expectedLocks).sort();
+    const actualKeys = Object.keys(actualLocks).sort();
+    if (JSON.stringify(expectedKeys) !== JSON.stringify(actualKeys)) {
+      return h3ContentFail(
+        expected.request_id,
+        "lineage.json locked_block_hashes keys do not match the expected compilation"
+      );
+    }
+    for (const key of expectedKeys) {
+      const hash = actualLocks[key];
+      if (typeof hash !== "string" || !SHA256_HEX.test(hash)) {
+        return h3ContentFail(
+          expected.request_id,
+          `lineage.json locked_block_hashes['${key}'] must be a 64-char lowercase hex digest`
+        );
+      }
+      if (hash !== expectedLocks[key]) {
+        return h3ContentFail(
+          expected.request_id,
+          `lineage.json locked_block_hashes['${key}'] does not match the expected compilation`
+        );
+      }
+    }
+  }
+
   if (lineage.asset_hashes !== undefined) {
     if (!isRecord(lineage.asset_hashes)) {
       return h3ContentFail(expected.request_id, "lineage.json asset_hashes must be an object");

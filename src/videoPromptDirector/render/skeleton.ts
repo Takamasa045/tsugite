@@ -12,8 +12,8 @@ import {
 import {
   formatCutTimestamp,
   renderCameraSentence,
-  renderDialogueActingLocks,
-  renderDialogueBlock
+  renderDialogueBlock,
+  renderShotActingLocks
 } from "./neutralHelpers.js";
 import type { H3LabelMap } from "../assetLabels.js";
 import type { H3RenderResult } from "./shared.js";
@@ -88,8 +88,8 @@ function buildBlockContent(ir: H3CreativeIr): Record<string, string> {
     }
     if (shot.dialogue) {
       audioLines.push(renderDialogueBlock(shot.dialogue, ir.subjects));
-      actingLines.push(...renderDialogueActingLocks(shot.dialogue, ir.subjects));
     }
+    actingLines.push(...renderShotActingLocks(shot, ir.subjects));
   }
 
   const assetLines = ir.assets.map(
