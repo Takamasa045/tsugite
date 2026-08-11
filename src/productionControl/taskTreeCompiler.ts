@@ -2,6 +2,7 @@ import {
   branchSelectionSchema,
   contractFragmentRefSchema,
   digestRefSchema,
+  seriesProductionGraphSchema,
   taskTreeSpecSchema,
   type BranchSelection,
   type MissionNode,
@@ -13,6 +14,7 @@ import {
 } from "./schema.js";
 import { sha256Canonical, withoutField } from "./canonical.js";
 import { pcError } from "./errors.js";
+import { assertRoleEffect } from "./roleEnvelope.js";
 import {
   assertKnownRole,
   assertKnownTaskKind,
@@ -34,6 +36,7 @@ function validateTemplateBounds(node: TaskTreeTemplateNode, depth: number, seen:
   if (node.node_type !== "mission") {
     assertKnownRole(node.role);
     assertKnownTaskKind(node.kind);
+    assertRoleEffect(node.role, node.effect);
     return;
   }
   if (node.children.length === 0) throw pcError("PC_TREE_INVALID", "mission nodes require explicit children");
@@ -106,22 +109,38 @@ function flattenTemplate(node: TaskTreeTemplateNode, parentId?: string): Flatten
   };
 }
 
-function taskEndpoints(node: TaskTreeTemplateNode): { first: string[]; last: string[] } {
+export type SelectedBranchChildren = ReadonlyMap<string, string>;
+
+export function taskEndpoints(
+  node: TaskTreeTemplateNode,
+  selectedBranches: SelectedBranchChildren = new Map()
+): { first: string[]; last: string[] } {
   if (node.node_type === "task") return { first: [node.node_id], last: [node.node_id] };
-  const children = node.children.map(taskEndpoints);
+  if (node.template_kind === "choose_one") {
+    const selectedChildId = selectedBranches.get(node.node_id);
+    if (!selectedChildId) return { first: [], last: [] };
+    const selectedChild = node.children.find((child) => child.node_id === selectedChildId);
+    if (!selectedChild) throw pcError("PC_TREE_INVALID", "selected choose_one branch is not an explicit candidate");
+    return taskEndpoints(selectedChild, selectedBranches);
+  }
+  const children = node.children.map((child) => taskEndpoints(child, selectedBranches));
   return {
     first: children.flatMap((child) => child.first),
     last: children.flatMap((child) => child.last)
   };
 }
 
-function addTemplateDependencies(node: TaskTreeTemplateNode, byId: Map<string, MutableTaskNode>): void {
+function addTemplateDependencies(
+  node: TaskTreeTemplateNode,
+  byId: Map<string, MutableTaskNode>,
+  selectedBranches: SelectedBranchChildren = new Map()
+): void {
   if (node.node_type === "task") return;
-  for (const child of node.children) addTemplateDependencies(child, byId);
+  for (const child of node.children) addTemplateDependencies(child, byId, selectedBranches);
   if (node.template_kind !== "sequence") return;
   for (let index = 1; index < node.children.length; index += 1) {
-    const previous = taskEndpoints(node.children[index - 1]!).last;
-    const current = taskEndpoints(node.children[index]!).first;
+    const previous = taskEndpoints(node.children[index - 1]!, selectedBranches).last;
+    const current = taskEndpoints(node.children[index]!, selectedBranches).first;
     for (const currentId of current) {
       const task = byId.get(currentId);
       if (!task) continue;
@@ -227,19 +246,37 @@ export function compileTaskTree(input: {
 
 export const compileTaskTreeV1 = compileTaskTree;
 
-export function assertBranchSelectionRequired(tree: TaskTreeSpec, selection?: BranchSelection): void {
+export function assertBranchSelectionRequired(
+  tree: TaskTreeSpec,
+  selection?: BranchSelection | BranchSelection[]
+): void {
   const choices = tree.nodes.filter((node): node is MissionNode =>
     node.node_type === "mission" && node.aggregation.kind === "choose_one"
   );
-  if (choices.length === 0) return;
-  if (!selection) throw pcError("PC_TREE_INVALID", "choose_one requires a human branch selection");
-  const parsed = branchSelectionSchema.parse(selection);
-  if (parsed.production_id !== tree.production_id) throw pcError("PC_TREE_INVALID", "branch selection production does not match tree");
-  const choice = choices.find((node) => node.node_id === parsed.mission_node_id);
-  if (!choice) throw pcError("PC_TREE_INVALID", "branch selection mission is not a choose_one node");
-  const candidates = new Set(parsed.candidate_artifact_refs.map((ref) => ref.id));
-  if (!candidates.has(parsed.selected_artifact_ref.id)) {
-    throw pcError("PC_TREE_INVALID", "selected branch is not among the candidate artifacts");
+  const selections = selection === undefined ? [] : Array.isArray(selection) ? selection : [selection];
+  if (choices.length === 0) {
+    if (selections.length > 0) throw pcError("PC_TREE_INVALID", "branch selection has no choose_one mission");
+    return;
+  }
+  if (selections.length !== choices.length) {
+    throw pcError("PC_TREE_INVALID", "every choose_one mission requires its own human branch selection");
+  }
+  const seenMissions = new Set<string>();
+  for (const selectionValue of selections) {
+    const parsed = branchSelectionSchema.parse(selectionValue);
+    if (parsed.production_id !== tree.production_id) throw pcError("PC_TREE_INVALID", "branch selection production does not match tree");
+    if (seenMissions.has(parsed.mission_node_id)) throw pcError("PC_TREE_INVALID", "choose_one mission has duplicate branch selections");
+    seenMissions.add(parsed.mission_node_id);
+    const choice = choices.find((node) => node.node_id === parsed.mission_node_id);
+    if (!choice) throw pcError("PC_TREE_INVALID", "branch selection mission is not a choose_one node");
+    const candidates = new Set(parsed.candidate_artifact_refs.map((ref) => `${ref.kind}\u0000${ref.id}\u0000${ref.digest}`));
+    const selected = `${parsed.selected_artifact_ref.kind}\u0000${parsed.selected_artifact_ref.id}\u0000${parsed.selected_artifact_ref.digest}`;
+    if (!candidates.has(selected)) {
+      throw pcError("PC_TREE_INVALID", "selected branch is not among the candidate artifacts");
+    }
+  }
+  if (seenMissions.size !== choices.length) {
+    throw pcError("PC_TREE_INVALID", "every choose_one mission requires its own human branch selection");
   }
 }
 
@@ -286,14 +323,14 @@ export function createSeriesProductionGraph(input: {
     }
   }
   const base = { schema_version: 1 as const, series_id: input.series_id, child_productions: input.child_productions, dependencies };
-  return {
+  return seriesProductionGraphSchema.parse({
     ...base,
     digest: sha256Canonical(base)
-  } as SeriesProductionGraph;
+  });
 }
 
 export function seriesGraphDigest(graph: SeriesProductionGraph): string {
-  const parsed = graph;
+  const parsed = seriesProductionGraphSchema.parse(graph);
   const { digest, ...base } = parsed;
   if (sha256Canonical(base) !== digest) throw pcError("PC_TREE_INVALID", "series graph digest mismatch");
   return digest;

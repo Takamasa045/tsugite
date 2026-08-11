@@ -1,8 +1,14 @@
 import { z } from "zod";
 import { assertSafeJsonValue, sha256Canonical, withoutField } from "./canonical.js";
 import { pcError } from "./errors.js";
-import { effectSchema, digestSchema, safeIdSchema } from "./schema.js";
-import { assertKnownRole, roleIdSchema, type RoleId } from "./taskTreeTemplates.js";
+import {
+  authorityForEffect,
+  digestSchema,
+  effectSchema,
+  roleEffectAllowed,
+  safeIdSchema
+} from "./schema.js";
+import { assertKnownRole, roleIdSchema } from "./taskTreeTemplates.js";
 
 const authoritySchema = z.object({
   state_write: z.literal("coordinator-only"),
@@ -44,6 +50,14 @@ export const roleEnvelopeSchema = z.object({
   if (envelope.authority.state_write !== "coordinator-only" || envelope.authority.gate_write !== "coordinator-only") {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["authority"], message: "roles cannot write coordinator state or gates" });
   }
+  if (!roleEffectAllowed(envelope.role, envelope.effect)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["effect"], message: "role-effect authority matrix forbids this envelope" });
+  }
+  const expectedAuthority = authorityForEffect(envelope.effect);
+  if (envelope.authority.external_submit !== expectedAuthority.external_submit
+    || envelope.authority.paid_execution !== expectedAuthority.paid_execution) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["authority"], message: "authority flags must be derived exactly from effect" });
+  }
   const expected = sha256Canonical(withoutField(envelope, "envelope_digest"));
   if (expected !== envelope.envelope_digest) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["envelope_digest"], message: "role envelope digest mismatch" });
@@ -52,22 +66,9 @@ export const roleEnvelopeSchema = z.object({
 export type RoleEnvelope = z.infer<typeof roleEnvelopeSchema>;
 export type RoleEnvelopeV1 = RoleEnvelope;
 
-const ROLE_EFFECTS: Record<RoleId, readonly z.infer<typeof effectSchema>[]> = {
-  coordinator: ["read", "propose", "local-write", "external-observe", "external-submit", "paid", "render", "gate"],
-  director: ["read", "propose"],
-  story: ["read", "propose"],
-  music: ["read", "propose", "external-observe"],
-  identity: ["read", "propose"],
-  visual: ["read", "propose"],
-  generator: ["read", "propose", "external-observe", "external-submit", "paid"],
-  editor: ["read", "propose", "local-write"],
-  critic: ["read", "propose"],
-  learning: ["read", "propose"]
-};
-
 export function assertRoleEffect(role: string, effect: z.infer<typeof effectSchema>): void {
   assertKnownRole(role);
-  if (!ROLE_EFFECTS[role].includes(effect)) {
+  if (!roleEffectAllowed(role, effect)) {
     throw pcError("PC_ROLE_FORBIDDEN", `role '${role}' cannot declare effect '${effect}'`);
   }
 }

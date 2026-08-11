@@ -218,6 +218,18 @@ export type ReviewDocument = {
   };
 };
 
+/** Projection used by legacy Gate approval subjects; shadow data is review-only. */
+export function legacyReviewDocumentProjection(document: ReviewDocument): Omit<ReviewDocument, "production_control_shadow"> {
+  const { production_control_shadow: _shadow, ...legacy } = document;
+  return legacy;
+}
+
+/** Rollout metadata is shadow-only and must not change a legacy Gate subject. */
+export function legacyProjectProjection(project: Project): Omit<Project, "orchestration"> {
+  const { orchestration: _orchestration, ...legacy } = project;
+  return legacy;
+}
+
 type CompositionReview = {
   artifact: CompositionProposalArtifactInput;
   approvalDigest: string;
@@ -407,9 +419,9 @@ export async function inspectGate1Review(options: {
     }
     const approvalDigest = digest({
       schema_version: 1,
-      project: options.project,
+      project: legacyProjectProjection(options.project),
       manifest: options.manifest,
-      review: document,
+      review: legacyReviewDocumentProjection(document),
       preview_assets: await fingerprintReviewAssets(outputDir, document),
       source_assets: await fingerprintGate1SourceAssets(
         options.configPath,
@@ -1253,7 +1265,7 @@ async function loadEditorialReview(
       issues: [],
       proposal,
       approvalDigest: digest({
-        project,
+        project: legacyProjectProjection(project),
         manifest,
         raw_analysis_digest: proposal.raw_analysis_digest,
         proposal_digest: proposal.proposal_digest,
@@ -1601,6 +1613,17 @@ function renderMotionReview(document: ReviewDocument): string {
   </section>`;
 }
 
+function renderProductionControlShadow(summary: ProductionControlShadowSummary | undefined): string {
+  if (!summary) return "";
+  const reasons = summary.awaiting_human_reasons.length > 0
+    ? `<ul>${summary.awaiting_human_reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>`
+    : "<p class=\"muted\">追加の人間判断理由はありません。</p>";
+  const issues = summary.issue_codes.length > 0
+    ? `<p class=\"shadow-issues\"><b>ISSUES</b> ${summary.issue_codes.map((issue) => escapeHtml(issue)).join(" / ")}</p>`
+    : "";
+  return `<section class=\"production-control-shadow\" aria-labelledby=\"production-control-shadow-title\" data-testid=\"production-control-shadow\"><div class=\"section-heading\"><div><p class=\"eyebrow\">READ-ONLY SHADOW</p><h2 id=\"production-control-shadow-title\">Task Tree / Production Control</h2></div><p>従来の計画・Gate・render状態を変更しない読み取り専用の構造確認です。</p></div><dl><div><dt>STATUS</dt><dd>${escapeHtml(summary.status)}</dd></div><div><dt>PRODUCTION</dt><dd>${escapeHtml(summary.production_id)}</dd></div><div><dt>CONTRACT DIGEST</dt><dd>${escapeHtml(summary.contract_digest ?? "未生成")}</dd></div><div><dt>TREE DIGEST</dt><dd>${escapeHtml(summary.tree_digest ?? "未生成")}</dd></div><div><dt>NODES</dt><dd>${summary.node_count === undefined ? "未生成" : String(summary.node_count)}</dd></div></dl>${reasons}${issues}</section>`;
+}
+
 function renderMotionCue(cue: ReviewMotionCue): string {
   const timing = [
     cue.duration_seconds !== undefined ? `${formatNumber(cue.duration_seconds)}秒` : undefined,
@@ -1681,6 +1704,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
   const analysis = renderAnalysisReview(document.analysis);
   const compositionReview = renderCompositionReview(document.composition);
   const motionReview = renderMotionReview(document);
+  const productionControlShadow = renderProductionControlShadow(document.production_control_shadow);
   const h3Review = renderH3Review(document.h3_compilations);
   const audioReview = document.audio
     ? `<section class="audio-section" aria-labelledby="audio-title" data-testid="audio-review">
@@ -1737,6 +1761,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     ${backgroundReview}
     ${audioReview}
     ${h3Review}
+    ${productionControlShadow}
     <section class="storyboard-section" aria-labelledby="storyboard-title">
       <div class="section-heading"><div><p class="eyebrow">SEQUENCE / TIMING</p><h2 id="storyboard-title">映像の流れ</h2></div><p>一枚ずつの材を組むように、左から時間順で構成とテンポを確認します。</p></div>
       <div class="screening-room">

@@ -24,6 +24,7 @@ export type IdentityMigrationIssue = {
     | "identity.definition_confirmation_missing"
     | "identity.verification_missing_evidence"
     | "identity.verification_decision_missing"
+    | "identity.verification_status_missing"
     | "identity.verification_requirements_unknown"
     | "identity.legacy_flag_not_authoritative";
   message: string;
@@ -78,6 +79,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
+}
+
+function digestRefIdentity(ref: DigestRef): string {
+  return `${ref.kind}\u0000${ref.id}\u0000${ref.digest}`;
 }
 
 function lockedText(value: unknown, issues: IdentityMigrationIssue[]): LockedText | undefined {
@@ -229,6 +234,10 @@ function buildVerification(
   definition: IdentityDefinition,
   issues: IdentityMigrationIssue[]
 ): IdentityVerification | undefined {
+  if (definition.definition_status !== "confirmed" || !definition.definition_confirmation) {
+    issues.push({ code: "identity.definition_confirmation_missing", message: "verification cannot be migrated before the identity definition is human-confirmed" });
+    return undefined;
+  }
   const candidate = input.verification;
   if (!candidate) {
     issues.push({ code: "identity.verification_missing_evidence", message: "selected output and evidence are not available for migration" });
@@ -236,6 +245,10 @@ function buildVerification(
   }
   if (!candidate.decision) {
     issues.push({ code: "identity.verification_decision_missing", message: "identity verification requires an explicit human decision" });
+    return undefined;
+  }
+  if (!candidate.status) {
+    issues.push({ code: "identity.verification_status_missing", message: "identity verification status must be explicit; verified cannot be inferred" });
     return undefined;
   }
   const selected = (candidate.selected_output_refs ?? []).map((ref) => digestRefSchema.parse(ref));
@@ -261,14 +274,9 @@ function buildVerification(
     issues.push({ code: "identity.verification_requirements_unknown", message: "verification report references an undeclared condition" });
     return undefined;
   }
-  const status = candidate.status
-    ?? (new Set(selected.map((ref) => ref.id)).size >= definition.verification_requirements.minimum_distinct_outputs
-      && new Set(evaluated).size >= definition.verification_requirements.minimum_distinct_conditions
-      && evaluations.every((evaluation) => evaluation.result === "pass")
-      ? "verified"
-      : "not-evaluable");
+  const status = candidate.status;
   if (status === "verified" && (
-    new Set(selected.map((ref) => ref.id)).size < definition.verification_requirements.minimum_distinct_outputs
+    new Set(selected.map(digestRefIdentity)).size < definition.verification_requirements.minimum_distinct_outputs
     || new Set(evaluated).size < definition.verification_requirements.minimum_distinct_conditions
     || evaluations.some((evaluation) => evaluation.result !== "pass")
   )) {

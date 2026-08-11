@@ -20,7 +20,9 @@ export type RouteIdentityV1 = RouteIdentity;
 /**
  * The stable GenerationUnit -> VideoPrompt IR boundary from the design. It
  * intentionally contains no IR or compilation digest, so the lineage remains
- * one-way and cannot form a circular digest.
+ * one-way and cannot form a circular digest. T03 validates the source-side
+ * contract fragment kinds and route identity; T04 owns duration/timing
+ * feasibility and compiler-side route verification.
  */
 export const programBindingSchema = z.object({
   generation_unit_digest: digestSchema,
@@ -82,12 +84,12 @@ export const generationUnitProgramSourceSchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["music", "master_audio_digest"], message: "music binding requires master audio digest" });
   }
   for (const [index, ref] of unit.beat_anchor_refs.entries()) {
-    if (ref.slot !== "music" || ref.contract_id !== unit.music.contract_id || ref.revision !== unit.music.revision) {
+    if (ref.kind !== "beat" || ref.slot !== "music" || ref.contract_id !== unit.music.contract_id || ref.revision !== unit.music.revision) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["beat_anchor_refs", index], message: "beat anchor must bind the source music contract revision" });
     }
   }
   for (const [index, ref] of unit.lyric_cue_refs.entries()) {
-    if (!unit.lyrics || ref.slot !== "lyrics" || ref.contract_id !== unit.lyrics.contract_id || ref.revision !== unit.lyrics.revision) {
+    if (ref.kind !== "lyric-cue" || !unit.lyrics || ref.slot !== "lyrics" || ref.contract_id !== unit.lyrics.contract_id || ref.revision !== unit.lyrics.revision) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["lyric_cue_refs", index], message: "lyric cue must bind the source lyrics contract revision" });
     }
   }

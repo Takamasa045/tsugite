@@ -147,8 +147,13 @@ const identityVerificationVariantSchema = z.discriminatedUnion("status", [
   }).strict()
 ]);
 
+function digestRefIdentity(ref: { kind: string; id: string; digest: string }): string {
+  return `${ref.kind}\u0000${ref.id}\u0000${ref.digest}`;
+}
+
 export const identityVerificationSchema = identityVerificationVariantSchema.superRefine((value, context) => {
-  if (new Set(value.selected_output_refs.map((ref) => ref.id)).size !== value.selected_output_refs.length) {
+  const selectedOutputKeys = value.selected_output_refs.map(digestRefIdentity);
+  if (new Set(selectedOutputKeys).size !== selectedOutputKeys.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["selected_output_refs"], message: "selected output refs must be unique" });
   }
   if (new Set(value.required_condition_ids).size !== value.required_condition_ids.length) {
@@ -157,11 +162,47 @@ export const identityVerificationSchema = identityVerificationVariantSchema.supe
   if (new Set(value.evaluated_condition_ids).size !== value.evaluated_condition_ids.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["evaluated_condition_ids"], message: "evaluated condition ids must be unique" });
   }
+  if (value.evaluated_condition_ids.some((id) => !value.required_condition_ids.includes(id))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["evaluated_condition_ids"], message: "evaluated condition ids must be declared as required" });
+  }
   const evaluationIds = value.evaluations.map((evaluation) => evaluation.condition_id);
   if (new Set(evaluationIds).size !== evaluationIds.length
     || new Set(evaluationIds).size !== new Set(value.evaluated_condition_ids).size
     || !evaluationIds.every((id) => value.evaluated_condition_ids.includes(id))) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["evaluated_condition_ids"], message: "evaluated condition ids must exactly match evaluations" });
+  }
+  const selectedOutputIds = new Set(selectedOutputKeys);
+  if (value.evaluations.some((evaluation) => evaluation.output_refs.some((ref) => !selectedOutputIds.has(digestRefIdentity(ref))))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["evaluations"], message: "evaluation outputs must be selected outputs" });
+  }
+  if (value.status === "verified") {
+    const distinctOutputCount = selectedOutputIds.size;
+    const distinctConditionCount = new Set(value.evaluated_condition_ids).size;
+    if (value.evaluations.length === 0 || value.evaluated_condition_ids.length === 0) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["evaluations"], message: "verified reports require evaluated conditions and evidence" });
+    }
+    if (distinctOutputCount < 2 && distinctConditionCount < 2) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["coverage_basis"], message: "verified reports require at least two distinct outputs or conditions" });
+    }
+    if (value.evaluated_condition_ids.length !== value.required_condition_ids.length
+      || value.required_condition_ids.some((id) => !value.evaluated_condition_ids.includes(id))) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["evaluated_condition_ids"], message: "verified reports must evaluate every required condition" });
+    }
+    if (value.evaluations.some((evaluation) => evaluation.result !== "pass")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["evaluations"], message: "verified reports require every evaluation to pass" });
+    }
+    if (value.coverage_basis === "multiple-shots" && distinctOutputCount < 2) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["coverage_basis"], message: "multiple-shots coverage requires at least two distinct outputs" });
+    }
+    if (value.coverage_basis === "multiple-conditions" && distinctConditionCount < 2) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["coverage_basis"], message: "multiple-conditions coverage requires at least two distinct conditions" });
+    }
+    if (value.distinct_output_count !== distinctOutputCount) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["distinct_output_count"], message: "distinct output count must match selected outputs" });
+    }
+    if (value.distinct_condition_count !== distinctConditionCount) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["distinct_condition_count"], message: "distinct condition count must match evaluated conditions" });
+    }
   }
   const base = {
     schema_version: value.schema_version,

@@ -1,14 +1,17 @@
 import {
   contractFragmentRefSchema,
+  digestSchema,
   digestRefSchema,
+  safeIdSchema,
   type ContractFragmentRef,
   type DigestRef,
   type TaskNode,
   type TaskTreeSpec
 } from "./schema.js";
-import { sha256Canonical } from "./canonical.js";
+import { sha256Canonical, withoutField } from "./canonical.js";
 import { pcError } from "./errors.js";
 import { validateTaskTreeSpec } from "./taskTreeCompiler.js";
+import { z } from "zod";
 
 export type DependencyIndex = {
   schema_version: 1;
@@ -20,8 +23,22 @@ export type DependencyIndex = {
   digest: string;
 };
 
+export const dependencyIndexSchema = z.object({
+  schema_version: z.literal(1),
+  tree_digest: digestSchema,
+  by_fragment: z.record(z.string(), z.array(safeIdSchema)),
+  by_contract: z.record(z.string(), z.array(safeIdSchema)),
+  by_artifact: z.record(z.string(), z.array(safeIdSchema)),
+  downstream: z.record(z.string(), z.array(safeIdSchema)),
+  digest: digestSchema
+}).strict().superRefine((value, context) => {
+  if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "dependency index digest mismatch" });
+  }
+});
+
 export function contractFragmentKey(ref: ContractFragmentRef): string {
-  return [ref.slot, ref.contract_id, String(ref.revision), ref.kind, ref.fragment_id, ref.digest].join("\u0000");
+  return [ref.slot, ref.contract_id, String(ref.revision), ref.kind, ref.fragment_id].join("\u0000");
 }
 
 export function contractIdentityKey(ref: Pick<ContractFragmentRef, "slot" | "contract_id">): string {
@@ -71,19 +88,21 @@ export function buildDependencyIndex(tree: TaskTreeSpec): DependencyIndex {
     by_artifact: sortedRecord(byArtifact),
     downstream: sortedRecord(downstream)
   };
-  return { ...base, digest: sha256Canonical(base) };
+  return dependencyIndexSchema.parse({ ...base, digest: sha256Canonical(base) });
 }
 
 export function dependencyIndexDigest(index: DependencyIndex): string {
-  const { digest, ...base } = index;
+  const parsed = dependencyIndexSchema.parse(index);
+  const { digest, ...base } = parsed;
   if (sha256Canonical(base) !== digest) throw pcError("PC_INVALIDATION_INVALID", "dependency index digest mismatch");
   return digest;
 }
 
 export function directConsumersForFragment(index: DependencyIndex, ref: ContractFragmentRef): string[] {
-  const exact = index.by_fragment[contractFragmentKey(ref)] ?? [];
-  const contract = index.by_contract[contractIdentityKey(ref)] ?? [];
-  return [...new Set([...exact, ...contract])].sort();
+  if (ref.kind === "whole") {
+    return [...(index.by_contract[contractIdentityKey(ref)] ?? [])].sort();
+  }
+  return [...(index.by_fragment[contractFragmentKey(ref)] ?? [])].sort();
 }
 
 export function directConsumersForArtifact(index: DependencyIndex, ref: DigestRef): string[] {

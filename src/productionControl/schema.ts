@@ -118,7 +118,7 @@ export type ProductionContract = z.infer<typeof productionContractSchema>;
 export type ProductionContractV1 = ProductionContract;
 
 export const contractSetEntrySchema = z.object({
-  slot: z.enum(["assets", "identity", "music", "lyrics"]),
+  slot: z.enum(["assets", "identity-definition", "music", "lyrics"]),
   contract_id: safeIdSchema,
   contract_revision: nonNegativeInt,
   artifact_id: safeIdSchema,
@@ -132,6 +132,10 @@ export const contractSetSchema = z.object({
   contracts: z.array(contractSetEntrySchema).max(4),
   digest: digestSchema
 }).strict().superRefine((value, context) => {
+  const slots = value.contracts.map((contract) => contract.slot);
+  if (new Set(slots).size !== slots.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["contracts"], message: "contract set slots must be unique" });
+  }
   if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "contract set digest mismatch" });
   }
@@ -147,6 +151,21 @@ export const contractFragmentIndexSchema = z.object({
   fragments: z.array(contractFragmentRefSchema).min(1).max(10_000),
   digest: digestSchema
 }).strict().superRefine((value, context) => {
+  const fragmentIds = value.fragments.map((fragment) => fragment.fragment_id);
+  if (new Set(fragmentIds).size !== fragmentIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["fragments"], message: "fragment ids must be unique" });
+  }
+  for (const [index, fragment] of value.fragments.entries()) {
+    if (fragment.slot !== value.slot) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["fragments", index, "slot"], message: "fragment slot must match its index" });
+    }
+    if (fragment.contract_id !== value.contract_id) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["fragments", index, "contract_id"], message: "fragment contract id must match its index" });
+    }
+    if (fragment.revision !== value.revision) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["fragments", index, "revision"], message: "fragment revision must match its index" });
+    }
+  }
   if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "contract fragment index digest mismatch" });
   }
@@ -166,6 +185,44 @@ export const PRODUCTION_CONTROL_ROLE_IDS = [
   "critic",
   "learning"
 ] as const;
+export const PRODUCTION_CONTROL_EFFECTS = [
+  "read",
+  "propose",
+  "local-write",
+  "external-observe",
+  "external-submit",
+  "paid",
+  "render",
+  "gate"
+] as const;
+export type ProductionControlEffect = (typeof PRODUCTION_CONTROL_EFFECTS)[number];
+export type ProductionControlRole = (typeof PRODUCTION_CONTROL_ROLE_IDS)[number];
+
+/** One authority matrix shared by persisted schemas and every compiler entry point. */
+export const ROLE_EFFECT_ALLOWLIST: Readonly<Record<ProductionControlRole, readonly ProductionControlEffect[]>> = {
+  coordinator: PRODUCTION_CONTROL_EFFECTS,
+  director: ["read", "propose"],
+  story: ["read", "propose"],
+  music: ["read", "propose", "external-observe"],
+  identity: ["read", "propose"],
+  visual: ["read", "propose"],
+  generator: ["read", "propose", "external-observe", "external-submit", "paid"],
+  editor: ["read", "propose", "local-write"],
+  critic: ["read", "propose"],
+  learning: ["read", "propose"]
+};
+
+export function roleEffectAllowed(role: string, effect: string): boolean {
+  return (ROLE_EFFECT_ALLOWLIST[role as ProductionControlRole] ?? []).includes(effect as ProductionControlEffect);
+}
+
+export function authorityForEffect(effect: string): { external_submit: boolean; paid_execution: boolean } {
+  return {
+    external_submit: effect === "external-submit" || effect === "paid",
+    paid_execution: effect === "paid"
+  };
+}
+
 export const PRODUCTION_CONTROL_TASK_KINDS = [
   "source-and-rights",
   "asset-provenance",
@@ -205,23 +262,18 @@ export const taskNodeSchema = z.object({
   parent_id: safeIdSchema,
   kind: z.enum(PRODUCTION_CONTROL_TASK_KINDS),
   role: z.enum(PRODUCTION_CONTROL_ROLE_IDS),
-  effect: z.enum([
-    "read",
-    "propose",
-    "local-write",
-    "external-observe",
-    "external-submit",
-    "paid",
-    "render",
-    "gate"
-  ]),
+  effect: z.enum(PRODUCTION_CONTROL_EFFECTS),
   dependencies: z.array(safeIdSchema).max(256),
   required_contract_fragments: z.array(contractFragmentRefSchema).max(256),
   required_artifacts: z.array(digestRefSchema).max(256),
   output_schema: safeIdSchema,
   risk_class: z.enum(["low", "medium", "high"]),
   invalidation_tags: z.array(safeIdSchema).max(64)
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (!roleEffectAllowed(value.role, value.effect)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["effect"], message: "role-effect authority matrix forbids this task" });
+  }
+});
 export type TaskNode = z.infer<typeof taskNodeSchema>;
 
 export const taskTreeNodeSchema = z.discriminatedUnion("node_type", [missionNodeSchema, taskNodeSchema]);
@@ -260,7 +312,9 @@ export const branchSelectionSchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["decision", "subject_digest"], message: "branch selection decision subject mismatch" });
   }
   const candidateIds = value.candidate_artifact_refs.map((ref) => ref.id);
-  if (new Set(candidateIds).size !== candidateIds.length || !candidateIds.includes(value.selected_artifact_ref.id)) {
+  const candidateKeys = value.candidate_artifact_refs.map((ref) => `${ref.kind}\u0000${ref.id}\u0000${ref.digest}`);
+  const selectedKey = `${value.selected_artifact_ref.kind}\u0000${value.selected_artifact_ref.id}\u0000${value.selected_artifact_ref.digest}`;
+  if (new Set(candidateKeys).size !== candidateKeys.length || !candidateKeys.includes(selectedKey)) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["selected_artifact_ref"], message: "selected branch must be one of the candidates" });
   }
 });
@@ -278,7 +332,47 @@ export const seriesProductionGraphSchema = z.object({
   }).strict()).min(1).max(256),
   dependencies: z.array(z.object({ before: safeIdSchema, after: safeIdSchema }).strict()).max(256),
   digest: digestSchema
-}).strict();
+}).strict().superRefine((value, context) => {
+  const productionIds = value.child_productions.map((child) => child.production_id);
+  const gateScopeIds = value.child_productions.map((child) => child.gate_scope_id);
+  const budgetScopeIds = value.child_productions.map((child) => child.budget_scope_id);
+  if (new Set(productionIds).size !== productionIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["child_productions"], message: "series child production ids must be unique" });
+  }
+  if (new Set(gateScopeIds).size !== gateScopeIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["child_productions"], message: "series Gate scopes must be isolated" });
+  }
+  if (new Set(budgetScopeIds).size !== budgetScopeIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["child_productions"], message: "series budget scopes must be isolated" });
+  }
+  const known = new Set(productionIds);
+  const edges = new Map<string, string[]>();
+  for (const productionId of productionIds) edges.set(productionId, []);
+  for (const [index, edge] of value.dependencies.entries()) {
+    if (!known.has(edge.before) || !known.has(edge.after) || edge.before === edge.after) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["dependencies", index], message: "series dependency must reference distinct child productions" });
+      continue;
+    }
+    edges.get(edge.before)!.push(edge.after);
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (productionId: string): void => {
+    if (visiting.has(productionId)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["dependencies"], message: "series dependency graph must be acyclic" });
+      return;
+    }
+    if (visited.has(productionId)) return;
+    visiting.add(productionId);
+    for (const next of edges.get(productionId) ?? []) visit(next);
+    visiting.delete(productionId);
+    visited.add(productionId);
+  };
+  for (const productionId of productionIds) visit(productionId);
+  if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "series graph digest mismatch" });
+  }
+});
 export type SeriesProductionGraph = z.infer<typeof seriesProductionGraphSchema>;
 export type SeriesProductionGraphV1 = SeriesProductionGraph;
 
@@ -312,16 +406,7 @@ export const artifactEnvelopeSchema = z.object({
 export type ArtifactEnvelope = z.infer<typeof artifactEnvelopeSchema>;
 
 export const roleSchema = safeIdSchema;
-export const effectSchema = z.enum([
-  "read",
-  "propose",
-  "local-write",
-  "external-observe",
-  "external-submit",
-  "paid",
-  "render",
-  "gate"
-]);
+export const effectSchema = z.enum(PRODUCTION_CONTROL_EFFECTS);
 
 const baseEventFields = {
   schema_version: z.literal(1),

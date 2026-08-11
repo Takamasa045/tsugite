@@ -1,11 +1,12 @@
 import type { Project } from "../project/schema.js";
 import {
+  digestSchema,
   productionContractSchema,
   safeIdSchema,
   type ContractRequirement,
   type ProductionContract
 } from "./schema.js";
-import { assertSafeJsonValue, sha256Canonical, withoutField } from "./canonical.js";
+import { assertSafeJsonValue, sha256Bytes, sha256Canonical, withoutField } from "./canonical.js";
 import { pcError } from "./errors.js";
 import { compileTaskTree } from "./taskTreeCompiler.js";
 import { createDefaultTaskTreeTemplate } from "./taskTreeTemplates.js";
@@ -42,57 +43,61 @@ function projectValue(input: ProductionContractCompilerInput): Record<string, un
   return input.project as Record<string, unknown>;
 }
 
+type DigestProjectionDisposition = "drop" | "hash" | "recurse";
+
+function digestProjectionDisposition(key: string): DigestProjectionDisposition {
+  const normalized = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[^A-Za-z0-9]+/g, "_").toLowerCase();
+  if (/(?:^|_)(?:api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?token|authorization|cookie|credential|password|private[_-]?key|secret|provider[_-]?(?:body|request|response)|raw[_-]?provider)(?:$|_)/.test(normalized)) {
+    return "drop";
+  }
+  if (normalized === "prompt" || normalized === "raw_prompt" || normalized.endsWith("_prompt")) return "hash";
+  if (normalized === "path" || normalized.endsWith("_path") || normalized === "manifest" || normalized === "dist_dir" || normalized === "source_asset") {
+    return "hash";
+  }
+  return "recurse";
+}
+
+function digestProjectionField(value: unknown): string {
+  const projected = privacySafeDigestValue(value);
+  if (typeof projected === "string") return sha256Bytes(new TextEncoder().encode(projected));
+  return sha256Canonical(projected);
+}
+
+function digestProjectionKey(key: string): string {
+  return `field_${sha256Bytes(new TextEncoder().encode(key))}`;
+}
+
+function privacySafeDigestValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => privacySafeDigestValue(entry))
+      .filter((entry): entry is Exclude<typeof entry, undefined> => entry !== undefined);
+  }
+  if (value && typeof value === "object") {
+    if (value instanceof Date) return value.toISOString();
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (entry === undefined) continue;
+      const disposition = digestProjectionDisposition(key);
+      if (disposition === "drop") continue;
+      if (disposition === "hash") {
+        result[digestProjectionKey(key)] = digestProjectionField(entry);
+        continue;
+      }
+      result[key] = privacySafeDigestValue(entry);
+    }
+    return result;
+  }
+  return value;
+}
+
 function safeProjectDigestProjection(project: Record<string, unknown>): Record<string, unknown> {
-  const edit = project.edit && typeof project.edit === "object" && !Array.isArray(project.edit)
-    ? project.edit as Record<string, unknown>
-    : {};
-  const generation = project.generation && typeof project.generation === "object" && !Array.isArray(project.generation)
-    ? project.generation as Record<string, unknown>
-    : undefined;
-  const requests = Array.isArray(generation?.requests)
-    ? generation.requests.map((request) => {
-        if (!request || typeof request !== "object" || Array.isArray(request)) return null;
-        const value = request as Record<string, unknown>;
-        const projection = {
-          id: value.id,
-          operation: value.operation,
-          output_kind: value.output_kind,
-          audio_role: value.audio_role,
-          model: value.model,
-          duration: value.duration,
-          aspect: value.aspect,
-          mode: value.mode,
-          input_mode: value.input_mode
-        };
-        return Object.fromEntries(Object.entries(projection).filter(([, entry]) => entry !== undefined));
-      })
-    : [];
-  const projection = {
-    slug: project.slug,
-    name: project.name,
-    run_id: project.run_id,
-    manifest: project.manifest,
-    dist_dir: project.dist_dir,
-    edit: {
-      backend: edit.backend,
-      editorial: edit.editorial ? true : false,
-      composition: edit.composition ? true : false
-    },
-    ...(generation
-      ? {
-          generation: {
-            ...(generation.connection === undefined ? {} : { connection: generation.connection }),
-            ...(generation.adapter === undefined ? {} : { adapter: generation.adapter }),
-            requests
-          }
-        }
-      : {}),
-    audio: project.audio !== undefined,
-    analysis: project.analysis !== undefined,
-    ...(project.orchestration === undefined ? {} : { orchestration: project.orchestration })
-  };
+  const projection = privacySafeDigestValue(project);
+  if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
+    throw pcError("PC_SCHEMA_INVALID", "project digest projection must be an object");
+  }
   assertSafeJsonValue(projection, "project digest projection");
-  return projection;
+  return projection as Record<string, unknown>;
 }
 
 function requirement(requirement: ContractRequirement["requirement"], reason: string): ContractRequirement {
@@ -173,17 +178,38 @@ function buildSlots(project: Record<string, unknown>): ProductionContract["contr
   const music = hasMusic(project);
   const lyrics = hasLyrics(project);
   const assets = hasInputAssets(project);
+  const declarations = project.contract_slots && typeof project.contract_slots === "object" && !Array.isArray(project.contract_slots)
+    ? project.contract_slots as Record<string, unknown>
+    : {};
+  const declared = (slot: "assets" | "identity" | "music" | "lyrics"): ContractRequirement["requirement"] | undefined => {
+    const value = declarations[slot];
+    return value === "required" || value === "optional" || value === "not_applicable" ? value : undefined;
+  };
+  const declaredReason = (slot: "assets" | "identity" | "music" | "lyrics", value: ContractRequirement["requirement"]): string =>
+    `project explicitly declares ${slot} as ${value}`;
+  const identityDeclaration = declared("identity");
+  const musicDeclaration = declared("music");
+  const assetsDeclaration = declared("assets");
+  const lyricsDeclaration = declared("lyrics");
   return {
-    assets: assets
+    assets: assetsDeclaration
+      ? requirement(assetsDeclaration, declaredReason("assets", assetsDeclaration))
+      : assets
       ? requirement("required", "generation requests declare source assets")
       : requirement("optional", "no source asset binding is declared"),
-    identity: identity
+    identity: identityDeclaration
+      ? requirement(identityDeclaration, declaredReason("identity", identityDeclaration))
+      : identity
       ? requirement("required", "identity-bearing subjects or person consistency are declared")
-      : requirement("not_applicable", "no recurring identity subject is declared"),
-    music: music
+      : requirement("optional", "identity applicability is unknown without an explicit project declaration"),
+    music: musicDeclaration
+      ? requirement(musicDeclaration, declaredReason("music", musicDeclaration))
+      : music
       ? requirement("required", "audio or music production is declared")
-      : requirement("not_applicable", "no music source or music task is declared"),
-    lyrics: lyrics
+      : requirement("optional", "music applicability is unknown without an explicit project declaration"),
+    lyrics: lyricsDeclaration
+      ? requirement(lyricsDeclaration, declaredReason("lyrics", lyricsDeclaration))
+      : lyrics
       ? requirement("required", "lyrics or vocal cues are declared")
       : requirement("optional", "lyrics timing is not declared")
   };
@@ -214,8 +240,9 @@ export function compileProductionContract(input: ProductionContractCompilerInput
   const slug = safeIdSchema.parse(project.slug);
   const productionId = safeIdSchema.parse(input.production_id ?? project.run_id ?? slug);
   const suppliedProjectDigest = input.project_yaml_digest ?? input.projectYamlDigest;
-  const projectYamlDigest = suppliedProjectDigest
-    ?? sha256Canonical(safeProjectDigestProjection(project));
+  const projectYamlDigest = suppliedProjectDigest === undefined
+    ? sha256Canonical(safeProjectDigestProjection(project))
+    : digestSchema.parse(suppliedProjectDigest);
   const briefDigest = sha256Canonical(input.brief ?? safeProjectDigestProjection(project));
   const ruleSetDigest = input.rule_set_digest ?? "0".repeat(64);
   const compilerVersion = input.compiler_version ?? PRODUCTION_CONTRACT_COMPILER_VERSION;

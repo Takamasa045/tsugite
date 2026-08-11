@@ -12,7 +12,11 @@ import { assertSafeJsonValue, sha256Canonical } from "./canonical.js";
 import { pcError } from "./errors.js";
 
 export type ContractSlot = ContractFragmentRef["slot"];
-export type ContractSetSlot = "assets" | "identity" | "music" | "lyrics";
+export type ContractSetSlot = "assets" | "identity-definition" | "music" | "lyrics";
+export type ContractSetSelection = {
+  slots?: ContractSetSlot[];
+  active_revisions?: Partial<Record<ContractSetSlot, number>>;
+};
 
 export type ProvenContractFragment = {
   kind: Exclude<ContractFragmentRef["kind"], "whole">;
@@ -36,15 +40,7 @@ export type RegisteredContract<T = unknown> = ContractRegistration<T> & {
 };
 
 function contractDigest<T>(registration: ContractRegistration<T>): string {
-  const payloadDigest = sha256Canonical(registration.payload);
-  const embeddedValue = registration.payload && typeof registration.payload === "object" && !Array.isArray(registration.payload)
-    ? (registration.payload as Record<string, unknown>).digest ?? (registration.payload as Record<string, unknown>).root_digest
-    : undefined;
-  const embedded = typeof embeddedValue === "string"
-    && digestSchema.safeParse(embeddedValue).success
-    ? embeddedValue
-    : undefined;
-  return embedded ?? payloadDigest;
+  return structuralContractDigest(registration);
 }
 
 function structuralContractDigest<T>(registration: ContractRegistration<T>): string {
@@ -199,20 +195,43 @@ export class ContractRegistry {
     );
   }
 
-  buildSet(productionId: string, revision = 0, slots?: ContractSetSlot[]): ContractSet {
-    const wanted = slots ? new Set(slots) : new Set<ContractSetSlot>(["assets", "identity", "music", "lyrics"]);
-    const entries = this.list()
-      .filter((contract) => {
-        const slot = contract.slot === "identity-definition" ? "identity" : contract.slot;
-        return wanted.has(slot as ContractSetSlot);
-      })
-      .map((contract) => ({
-        slot: (contract.slot === "identity-definition" ? "identity" : contract.slot) as ContractSetSlot,
+  buildSet(
+    productionId: string,
+    revision = 0,
+    selection?: ContractSetSlot[] | ContractSetSelection,
+    activeRevisions?: Partial<Record<ContractSetSlot, number>>
+  ): ContractSet {
+    const options: ContractSetSelection = Array.isArray(selection)
+      ? { slots: selection, active_revisions: activeRevisions }
+      : selection ?? { active_revisions: activeRevisions };
+    const wanted = new Set<ContractSetSlot>(options.slots ?? ["assets", "identity-definition", "music", "lyrics"]);
+    const grouped = new Map<ContractSetSlot, RegisteredContract[]>();
+    for (const contract of this.list()) {
+      const slot = contract.slot as ContractSetSlot;
+      if (!wanted.has(slot)) continue;
+      const current = grouped.get(slot) ?? [];
+      current.push(contract);
+      grouped.set(slot, current);
+    }
+    const entries = [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([slot, candidates]) => {
+      const explicitRevision = options.active_revisions?.[slot];
+      if (explicitRevision === undefined && candidates.length !== 1) {
+        throw pcError("PC_CONTRACT_INVALID", `active revision for contract slot '${slot}' must be explicit when multiple revisions exist`);
+      }
+      const selectedRevision = explicitRevision ?? candidates[0]!.revision;
+      const selected = candidates.filter((candidate) => candidate.revision === selectedRevision);
+      if (selected.length !== 1) {
+        throw pcError("PC_CONTRACT_INVALID", `active revision for contract slot '${slot}' is ambiguous or unavailable`);
+      }
+      const contract = selected[0]!;
+      return {
+        slot,
         contract_id: contract.contract_id,
         contract_revision: contract.revision,
         artifact_id: contract.artifact_id,
         digest: contract.digest
-      }));
+      };
+    });
     return createContractSet({ production_id: productionId, revision, contracts: entries });
   }
 }

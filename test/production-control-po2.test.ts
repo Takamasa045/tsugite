@@ -10,6 +10,8 @@ import {
   compileProductionContract,
   compileTaskTree,
   computeInvalidation,
+  contractFragmentIndexSchema,
+  contractSetSchema,
   contractSetDigest,
   createContractSet,
   createBranchSelection,
@@ -18,9 +20,11 @@ import {
   createSeriesProductionGraph,
   assertBranchSelectionRequired,
   directConsumersForArtifact,
+  directConsumersForFragment,
   downstreamClosure,
   digestRefKey,
   dependencyIndexDigest,
+  dependencyIndexSchema,
   generationUnitProgramSourceSchema,
   programBindingSchema,
   programBindingDigest,
@@ -30,6 +34,9 @@ import {
   roleEnvelopeDigest,
   roleEnvelopeSchema,
   seriesGraphDigest,
+  seriesProductionGraphSchema,
+  taskEndpoints,
+  taskNodeSchema,
   taskById,
   taskTreeTemplateSchema,
   validateTaskTreeSpec,
@@ -39,8 +46,9 @@ import {
 } from "../src/productionControl/index.js";
 import { assertNoCircularProgramBinding, assertProgramBindingMatchesSource } from "../src/productionControl/programBinding.js";
 import { createPlan } from "../src/orchestrator/plan.js";
+import { createReviewDocument, legacyProjectProjection, legacyReviewDocumentProjection, renderReviewHtml } from "../src/orchestrator/review.js";
 import { loadProject } from "../src/project/loadProject.js";
-import { sha256Bytes, sha256Canonical } from "../src/productionControl/canonical.js";
+import { sha256Bytes, sha256Canonical, withoutField } from "../src/productionControl/canonical.js";
 import {
   identityDefinitionSchema,
   identityDefinitionSubjectDigest,
@@ -95,11 +103,12 @@ function taskTemplate(overrides: Partial<Extract<TaskTreeTemplate["root"], { nod
 function missionTemplate(
   children: TaskTreeTemplate["root"] extends infer _T ? TaskTreeTemplate["root"][] : never,
   kind: "sequence" | "parallel" | "bounded_map" | "choose_one" = "parallel",
-  map_keys?: string[]
+  map_keys?: string[],
+  node_id = "root"
 ): TaskTreeTemplate["root"] {
   return {
     node_type: "mission",
-    node_id: "root",
+    node_id,
     template_kind: kind,
     children: children as never,
     ...(map_keys ? { map_keys } : {})
@@ -119,6 +128,11 @@ describe("PO-2 contract and task-tree contracts", () => {
       contracts: [{ slot: "music", contract_id: "music-0", contract_revision: 0, artifact_id: "music-artifact", digest: ZERO }]
     });
     expect(contractSetDigest(set)).toBe(set.digest);
+    expect(() => createContractSet({
+      production_id: first.production_id,
+      revision: 0,
+      contracts: [{ slot: "identity" as never, contract_id: "identity-0", contract_revision: 0, artifact_id: "identity-artifact", digest: ZERO }]
+    })).toThrow();
     expect(() => createContractSet({
       production_id: first.production_id,
       revision: 0,
@@ -177,12 +191,79 @@ describe("PO-2 contract and task-tree contracts", () => {
     });
     expect(empty.contract_slots).toMatchObject({
       assets: { requirement: "optional" },
-      identity: { requirement: "not_applicable" },
-      music: { requirement: "not_applicable" },
+      identity: { requirement: "optional" },
+      music: { requirement: "optional" },
       lyrics: { requirement: "optional" }
     });
     expect(buildProductionControlShadowSummary({ slug: "unsafe/path" }).status).toBe("blocked");
     expect(() => productionContractDigest({ ...rich, root_digest: ZERO })).toThrow();
+  });
+
+  it("binds privacy-safe project semantics into project, contract, and tree digests", () => {
+    const baseProject = project({
+      quality: { person_consistency: { enabled: true, minimum_distinct_outputs: 2 } },
+      story: { premise: "A lantern waits by the pier" },
+      generation: {
+        requests: [{
+          id: "shot-1",
+          operation: "video",
+          h3: {
+            subjects: [{ id: "hero", locked_blocks: { appearance: { text: "blue coat", sha256: ZERO } } }],
+            shots: [{ id: "shot-a", visual: "hero walks to the lamp", constraints: ["slow"] }]
+          },
+          prompt: "private raw prompt",
+          path: "/Users/private/asset.mp4",
+          params: { api_key: "do-not-store", provider_body: { prompt: "do-not-store" }, safe_parameter: 1 }
+        }]
+      }
+    });
+    const changedProject = {
+      ...baseProject,
+      generation: {
+        requests: [{
+          ...((baseProject.generation as Record<string, unknown>).requests as Array<Record<string, unknown>>)[0],
+          h3: {
+            subjects: [{ id: "hero-changed" }],
+            shots: [{ id: "shot-a", visual: "hero waits at the pier", constraints: ["slow"] }]
+          }
+        }]
+      }
+    };
+    const first = compileProductionContract({ project: baseProject });
+    const second = compileProductionContract({ project: changedProject });
+    expect(second.project.project_yaml_digest).not.toBe(first.project.project_yaml_digest);
+    expect(second.root_digest).not.toBe(first.root_digest);
+    expect(compileProductionContract({
+      project: { ...baseProject, quality: { person_consistency: { enabled: true, minimum_distinct_outputs: 3 } } }
+    }).root_digest).not.toBe(first.root_digest);
+    expect(compileProductionContract({
+      project: { ...baseProject, story: { premise: "A different premise" } }
+    }).root_digest).not.toBe(first.root_digest);
+    expect(compileProductionContract({
+      project: { ...baseProject, edit: { backend: "fixture" } }
+    }).root_digest).not.toBe(first.root_digest);
+    // The exact TaskTree schema has no contract digest field; its digest changes
+    // with structure, while the ProductionContract root binds project semantics.
+    expect(buildProductionControlShadowSummary(baseProject).tree_digest)
+      .toBe(buildProductionControlShadowSummary(changedProject).tree_digest);
+    const serialized = JSON.stringify({ contract: first, summary: buildProductionControlShadowSummary(baseProject) });
+    expect(serialized).not.toContain("private raw prompt");
+    expect(serialized).not.toContain("do-not-store");
+    expect(serialized).not.toContain("/Users/");
+    expect(() => compileProductionContract({ project: baseProject, project_yaml_digest: "not-a-digest" })).toThrow();
+    expect(compileProductionContract({ project: baseProject, project_yaml_digest: ZERO }).project.project_yaml_digest).toBe(ZERO);
+  });
+
+  it("does not infer not_applicable for absent legacy identity or music", () => {
+    const unknown = compileProductionContract({ project: project() });
+    expect(unknown.contract_slots.identity).toMatchObject({ requirement: "optional" });
+    expect(unknown.contract_slots.music).toMatchObject({ requirement: "optional" });
+    const declared = compileProductionContract({
+      project: project({ contract_slots: { identity: "not_applicable", music: "not_applicable" } })
+    });
+    expect(declared.contract_slots.identity).toMatchObject({ requirement: "not_applicable" });
+    expect(declared.contract_slots.music).toMatchObject({ requirement: "not_applicable" });
+    expect(declared.contract_slots.identity.reason).toContain("explicitly declares");
   });
 
   it("registers revisions, resolves explicit fragments, and builds scoped ContractSets", () => {
@@ -193,6 +274,13 @@ describe("PO-2 contract and task-tree contracts", () => {
       revision: 0,
       artifact_id: "music-artifact",
       payload: { title: "music" }
+    });
+    registry.register({
+      slot: "music",
+      contract_id: "music-1",
+      revision: 1,
+      artifact_id: "music-artifact-v1",
+      payload: { title: "music-v1" }
     });
     const identityDigest = sha256Canonical({
       slot: "identity-definition",
@@ -212,14 +300,38 @@ describe("PO-2 contract and task-tree contracts", () => {
     });
     expect(registry.get("music-0", 0)).toBe(whole);
     expect(registry.require("identity-0", 1)).toBe(identity);
-    expect(registry.list().map((entry) => entry.contract_id)).toEqual(["identity-0", "music-0"]);
+    expect(registry.list().map((entry) => entry.contract_id)).toEqual(["identity-0", "music-0", "music-1"]);
     expect(registry.resolve(whole.fragment_index.fragments[0]!)).toBe(true);
     expect(registry.resolve({ ...identity.fragment_index.fragments[0]!, digest: ZERO })).toBe(false);
     expect(registry.resolve({ ...whole.fragment_index.fragments[0]!, contract_id: "missing" })).toBe(false);
-    expect(registry.buildSet("production-1").contracts.map((entry) => entry.slot)).toEqual(["identity", "music"]);
-    expect(registry.buildSet("production-1", 2, ["music"]).contracts.map((entry) => entry.slot)).toEqual(["music"]);
+    expect(() => registry.buildSet("production-1")).toThrow();
+    const latestSet = registry.buildSet("production-1", 0, {
+      slots: ["identity-definition", "music"],
+      active_revisions: { "identity-definition": 1, music: 1 }
+    });
+    expect(latestSet.contracts.map((entry) => entry.slot)).toEqual(["identity-definition", "music"]);
+    expect(latestSet.contracts.find((entry) => entry.slot === "music")?.contract_revision).toBe(1);
+    expect(registry.buildSet("production-1", 2, { slots: ["music"], active_revisions: { music: 0 } }).contracts[0]?.contract_revision).toBe(0);
+    expect(() => registry.buildSet("production-1", 2, { slots: ["music"], active_revisions: { music: 99 } })).toThrow();
     expect(() => registry.register({ ...whole, revision: 0 })).toThrow();
     expect(() => registry.require("missing", 0)).toThrow();
+    const embeddedRegistry = new ContractRegistry();
+    const embedded = embeddedRegistry.register({
+      slot: "music",
+      contract_id: "embedded-music",
+      revision: 0,
+      artifact_id: "embedded-artifact",
+      payload: { root_digest: ZERO, title: "original" }
+    });
+    expect(embedded.digest).not.toBe(ZERO);
+    expect(() => embeddedRegistry.register({
+      slot: "music",
+      contract_id: "embedded-music",
+      revision: 1,
+      artifact_id: "embedded-artifact",
+      payload: { root_digest: ZERO, title: "changed" },
+      digest: embedded.digest
+    })).toThrow();
     expect(() => buildContractFragmentIndex({
       slot: "music",
       contract_id: "music-invalid",
@@ -269,6 +381,54 @@ describe("PO-2 contract and task-tree contracts", () => {
     expect(proven.fragments[0]?.digest).toBe(sha256Canonical({ id: "cue-1" }));
   });
 
+  it("enforces fragment index, ContractSet, and series graph invariants at schema parse", () => {
+    const mismatchedFragments = {
+      schema_version: 1 as const,
+      slot: "lyrics" as const,
+      contract_id: "lyrics-0",
+      revision: 0,
+      fragments: [{ ...fragment("music", "cue-a", "lyric-cue"), contract_id: "other", revision: 1 }],
+    };
+    expect(() => contractFragmentIndexSchema.parse({ ...mismatchedFragments, digest: sha256Canonical(mismatchedFragments) })).toThrow();
+    const duplicateFragments = {
+      schema_version: 1 as const,
+      slot: "lyrics" as const,
+      contract_id: "lyrics-0",
+      revision: 0,
+      fragments: [
+        fragment("lyrics", "cue-a", "lyric-cue"),
+        fragment("lyrics", "cue-a", "lyric-cue")
+      ]
+    };
+    expect(() => contractFragmentIndexSchema.parse({ ...duplicateFragments, digest: sha256Canonical(duplicateFragments) })).toThrow();
+    const duplicateSet = {
+      schema_version: 1 as const,
+      production_id: "production-1",
+      revision: 0,
+      contracts: [
+        { slot: "music" as const, contract_id: "music-0", contract_revision: 0, artifact_id: "music-a", digest: ZERO },
+        { slot: "music" as const, contract_id: "music-1", contract_revision: 1, artifact_id: "music-b", digest: "1".repeat(64) }
+      ]
+    };
+    expect(() => contractSetSchema.parse({ ...duplicateSet, digest: sha256Canonical(duplicateSet) })).toThrow();
+    const seriesBase = {
+      schema_version: 1 as const,
+      series_id: "series-1",
+      child_productions: [
+        { production_id: "p1", production_contract_digest: ZERO, gate_scope_id: "g1", budget_scope_id: "b1" },
+        { production_id: "p2", production_contract_digest: "1".repeat(64), gate_scope_id: "g2", budget_scope_id: "b2" }
+      ],
+      dependencies: [{ before: "p1", after: "p2" }, { before: "p2", after: "p1" }]
+    };
+    expect(() => seriesProductionGraphSchema.parse({ ...seriesBase, digest: sha256Canonical(seriesBase) })).toThrow();
+    expect(() => seriesProductionGraphSchema.parse({
+      ...seriesBase,
+      series_id: "unsafe/path",
+      dependencies: [],
+      digest: sha256Canonical({ ...seriesBase, series_id: "unsafe/path", dependencies: [] })
+    })).toThrow();
+  });
+
   it("rejects unknown role/kind, cycle, depth 7, 257 nodes, and unbounded map", () => {
     const contract = compileProductionContract({ project: project() });
     const unknownRole = taskTemplate({ role: "untrusted-role" });
@@ -296,6 +456,49 @@ describe("PO-2 contract and task-tree contracts", () => {
     expect(() => compileTaskTree({ production: contract, template: { schema_version: 1, template_id: "many", root: missionTemplate(manyChildren) } })).toThrow();
     const unbounded = missionTemplate([taskTemplate({ node_id: "map-item" })], "bounded_map");
     expect(() => compileTaskTree({ production: contract, template: { schema_version: 1, template_id: "unbounded", root: unbounded } })).toThrow();
+  });
+
+  it("enforces the role-effect matrix and derived authority flags at every boundary", () => {
+    const contract = compileProductionContract({ project: project() });
+    const storyEnvelope = createRoleEnvelope({
+      envelope_id: "authority-envelope",
+      production_id: contract.production_id,
+      node_id: "story-node",
+      attempt_id: "attempt-1",
+      role: "story",
+      effect: "propose",
+      input_schema: "story-input",
+      output_schema: "story-output",
+      input: { value: "in" },
+      output: { value: "out" }
+    });
+    const forbiddenRole = {
+      ...storyEnvelope,
+      effect: "paid" as const,
+      authority: { ...storyEnvelope.authority, external_submit: true, paid_execution: true }
+    };
+    expect(() => roleEnvelopeSchema.parse({
+      ...forbiddenRole,
+      envelope_digest: sha256Canonical(withoutField(forbiddenRole, "envelope_digest"))
+    })).toThrow();
+    const inconsistentAuthority = {
+      ...storyEnvelope,
+      authority: { ...storyEnvelope.authority, external_submit: true }
+    };
+    expect(() => roleEnvelopeSchema.parse({
+      ...inconsistentAuthority,
+      envelope_digest: sha256Canonical(withoutField(inconsistentAuthority, "envelope_digest"))
+    })).toThrow();
+    const invalidTask = taskTemplate({ role: "director", effect: "paid" });
+    expect(() => taskNodeSchema.parse({ ...invalidTask, parent_id: "root" })).toThrow();
+    expect(() => compileTaskTree({
+      production: contract,
+      template: {
+        schema_version: 1,
+        template_id: "invalid-authority",
+        root: missionTemplate([invalidTask])
+      }
+    })).toThrow();
   });
 
   it("keeps choose_one human-gated and isolates series Gate/budget scopes", () => {
@@ -404,6 +607,73 @@ describe("PO-2 contract and task-tree contracts", () => {
       dependencies: [{ before: "p1", after: "p1" }]
     })).toThrow();
   });
+
+  it("requires one human BranchSelection for every choose_one mission", () => {
+    const contract = compileProductionContract({ project: project() });
+    const multi = compileTaskTree({
+      production: contract,
+      template: {
+        schema_version: 1,
+        template_id: "multiple-choices",
+        root: {
+          node_type: "mission",
+          node_id: "root",
+          template_kind: "parallel",
+          children: [
+            missionTemplate([taskTemplate({ node_id: "a-1" }), taskTemplate({ node_id: "a-2" })], "choose_one", undefined, "choice-a"),
+            missionTemplate([taskTemplate({ node_id: "b-1" }), taskTemplate({ node_id: "b-2" })], "choose_one", undefined, "choice-b")
+          ]
+        }
+      }
+    });
+    const selection = (missionNodeId: string, selectedId: string): ReturnType<typeof createBranchSelection> => {
+      const a = { kind: "video", id: `${missionNodeId}-candidate-a`, digest: ZERO } as DigestRef;
+      const b = { kind: "video", id: `${missionNodeId}-candidate-b`, digest: "1".repeat(64) } as DigestRef;
+      return createBranchSelection({
+        production_id: contract.production_id,
+        mission_node_id: missionNodeId,
+        candidate_artifact_refs: [a, b],
+        selected_artifact_ref: selectedId === a.id ? a : b,
+        decision: {
+          decision_id: `${missionNodeId}-decision`,
+          decision: "human-selection",
+          actor: "human",
+          decided_at: "2026-08-11T00:00:00.000Z"
+        }
+      });
+    };
+    const first = selection("root", "root-candidate-a");
+    const second = selection("root", "root-candidate-b");
+    expect(() => assertBranchSelectionRequired(multi, first)).toThrow();
+    expect(() => assertBranchSelectionRequired(multi, [first])).toThrow();
+    expect(() => assertBranchSelectionRequired(multi, [first, second])).toThrow();
+    const choiceNodes = multi.nodes.filter((node) => node.node_type === "mission" && node.aggregation.kind === "choose_one");
+    const corrected = [
+      selection(choiceNodes[0]!.node_id, `${choiceNodes[0]!.node_id}-candidate-a`),
+      selection(choiceNodes[1]!.node_id, `${choiceNodes[1]!.node_id}-candidate-b`)
+    ];
+    expect(() => assertBranchSelectionRequired(multi, corrected)).not.toThrow();
+    expect(() => assertBranchSelectionRequired(multi, [corrected[0]!, corrected[0]!])).toThrow();
+    expect(() => assertBranchSelectionRequired(multi, {
+      ...corrected[0]!,
+      selected_artifact_ref: { ...corrected[0]!.selected_artifact_ref, digest: "f".repeat(64) }
+    })).toThrow();
+    const choiceTemplate = missionTemplate([
+      taskTemplate({ node_id: "candidate-a" }),
+      taskTemplate({ node_id: "candidate-b" })
+    ], "choose_one", undefined, "choice");
+    expect(taskEndpoints(choiceTemplate, new Map())).toEqual({ first: [], last: [] });
+    expect(taskEndpoints(choiceTemplate, new Map([["choice", "candidate-b"]]))).toEqual({ first: ["candidate-b"], last: ["candidate-b"] });
+    const sequenceWithChoice = compileTaskTree({
+      production: contract,
+      template: {
+        schema_version: 1,
+        template_id: "choice-sequence",
+        root: missionTemplate([choiceTemplate, taskTemplate({ node_id: "after-choice" })], "sequence")
+      }
+    });
+    expect(taskById(sequenceWithChoice, "after-choice")?.dependencies).toEqual([]);
+  });
 });
 
 describe("PO-2 program binding and role authority", () => {
@@ -452,6 +722,7 @@ describe("PO-2 program binding and role authority", () => {
     expect(() => programBindingSchema.parse({ ...binding, compilation_digest: ZERO })).toThrow();
     expect(programBindingDigest(binding)).toBe(sha256Canonical(binding));
     expect(programBindingRoute(source)).toEqual(source.route);
+    expect(programBindingRoute(source).route_digest).toBe(ZERO);
     expect(() => assertNoCircularProgramBinding(null)).not.toThrow();
     expect(() => assertNoCircularProgramBinding([])).not.toThrow();
     expect(() => assertNoCircularProgramBinding(binding)).not.toThrow();
@@ -476,6 +747,14 @@ describe("PO-2 program binding and role authority", () => {
     expect(() => generationUnitProgramSourceSchema.parse({
       ...source,
       beat_anchor_refs: [{ ...source.beat_anchor_refs[0]!, contract_id: "other-music" }]
+    })).toThrow();
+    expect(() => generationUnitProgramSourceSchema.parse({
+      ...source,
+      beat_anchor_refs: [{ ...source.beat_anchor_refs[0]!, kind: "whole" }]
+    })).toThrow();
+    expect(() => generationUnitProgramSourceSchema.parse({
+      ...source,
+      lyric_cue_refs: [{ ...source.lyric_cue_refs[0]!, kind: "section" }]
     })).toThrow();
     expect(() => generationUnitProgramSourceSchema.parse({ ...source, program_end_ms: 1 })).toThrow();
   });
@@ -717,6 +996,119 @@ describe("PO-2 Identity migration and fragment invalidation", () => {
     expect(residual.verification?.status).toBe("residual-risk-accepted");
   });
 
+  it("rejects single coverage, inflated counts, and omitted status at the verification boundary", () => {
+    const outputA = { kind: "video", id: "output-a", digest: ZERO } as DigestRef;
+    const outputB = { kind: "video", id: "output-b", digest: "1".repeat(64) } as DigestRef;
+    const evaluationA = {
+      condition_id: "condition-a",
+      output_refs: [outputA],
+      evidence_artifact_refs: [{ kind: "evidence", id: "evidence-a", digest: ZERO } as DigestRef],
+      result: "pass" as const
+    };
+    const evaluationB = {
+      condition_id: "condition-b",
+      output_refs: [outputB],
+      evidence_artifact_refs: [{ kind: "evidence", id: "evidence-b", digest: "2".repeat(64) } as DigestRef],
+      result: "pass" as const
+    };
+    const makeReport = (base: Record<string, unknown>) => {
+      const decision = {
+        decision_id: "verification-decision",
+        decision: "verify",
+        actor: "human",
+        decided_at: "2026-08-11T00:00:00.000Z",
+        subject_digest: identityVerificationSubjectDigest(base as never)
+      };
+      const withSubject = { ...base, decision, verification_subject_digest: identityVerificationSubjectDigest(base as never) };
+      return { ...withSubject, digest: sha256Canonical(withSubject) };
+    };
+    const validBase = {
+      schema_version: 1 as const,
+      production_id: "production-1",
+      identity_definition_digest: ZERO,
+      selected_output_refs: [outputA, outputB],
+      required_condition_ids: ["condition-a", "condition-b"],
+      evaluated_condition_ids: ["condition-a", "condition-b"],
+      evaluations: [evaluationA, evaluationB],
+      status: "verified" as const,
+      coverage_basis: "multiple-conditions" as const,
+      distinct_output_count: 2,
+      distinct_condition_count: 2
+    };
+    expect(identityVerificationSchema.parse(makeReport(validBase))).toBeTruthy();
+    const singleBase = {
+      ...validBase,
+      selected_output_refs: [outputA],
+      required_condition_ids: ["condition-a"],
+      evaluated_condition_ids: ["condition-a"],
+      evaluations: [evaluationA],
+      distinct_output_count: 1,
+      distinct_condition_count: 1
+    };
+    expect(() => identityVerificationSchema.parse(makeReport(singleBase))).toThrow();
+    expect(() => identityVerificationSchema.parse(makeReport({ ...validBase, distinct_output_count: 99 }))).toThrow();
+    expect(() => identityVerificationSchema.parse({ ...makeReport(validBase), status: undefined })).toThrow();
+    expect(() => identityVerificationSchema.parse(makeReport({
+      ...validBase,
+      coverage_basis: "multiple-shots",
+      selected_output_refs: [outputA],
+      evaluations: [{ ...evaluationA, output_refs: [outputA] }, { ...evaluationB, output_refs: [outputA] }],
+      distinct_output_count: 1
+    }))).toThrow();
+    expect(() => identityVerificationSchema.parse(makeReport({
+      ...validBase,
+      coverage_basis: "multiple-conditions",
+      required_condition_ids: ["condition-a"],
+      evaluated_condition_ids: ["condition-a"],
+      evaluations: [evaluationA],
+      distinct_condition_count: 1
+    }))).toThrow();
+    expect(() => identityVerificationSchema.parse(makeReport({
+      ...validBase,
+      evaluations: [{ ...evaluationA, result: "drift" as const }, evaluationB]
+    }))).toThrow();
+
+    const noStatusInput = {
+      ir: {
+        subjects: [{ id: "hero", variants: [] }],
+        scenes: [],
+        shots: [{ id: "shot-1", subject_expectations: [{ subject_id: "hero" }] }]
+      },
+      production_id: "production-1",
+      verification: {
+        selected_output_refs: [outputA, outputB],
+        required_condition_ids: ["shot-shot-1"],
+        evaluated_condition_ids: ["shot-shot-1"],
+        evaluations: [{ ...evaluationA, condition_id: "shot-shot-1" }],
+        decision: {
+          decision_id: "decision-1",
+          decision: "verify",
+          actor: "human",
+          decided_at: "2026-08-11T00:00:00.000Z",
+          subject_digest: ZERO
+        }
+      }
+    };
+    const noStatus = migrateIdentityLockPhaseAtoE(noStatusInput);
+    expect(noStatus.verification).toBeUndefined();
+    expect(noStatus.issues.some((issue) => issue.code === "identity.definition_confirmation_missing")).toBe(true);
+    const { definition_digest: _definitionDigest, digest: _definitionEnvelopeDigest, ...awaitingContent } = noStatus.definition!;
+    const confirmation = {
+      decision_id: "definition-confirmation-no-status",
+      decision: "confirm-definition",
+      actor: "human",
+      decided_at: "2026-08-11T00:00:00.000Z",
+      subject_digest: identityDefinitionSubjectDigest({ ...awaitingContent, definition_status: "confirmed" } as never)
+    };
+    const confirmedNoStatus = migrateIdentityLockPhaseAtoE({
+      ...noStatusInput,
+      definition_confirmation: confirmation,
+      verification: noStatusInput.verification
+    });
+    expect(confirmedNoStatus.verification).toBeUndefined();
+    expect(confirmedNoStatus.issues.some((issue) => issue.code === "identity.verification_status_missing")).toBe(true);
+  });
+
   it("invalidates only the changed fragment branch and downstream while preserving siblings", () => {
     const identity = fragment("identity-definition", "hero-appearance", "subject");
     const music = fragment("music", "music-whole", "whole");
@@ -738,6 +1130,41 @@ describe("PO-2 Identity migration and fragment invalidation", () => {
     expect(report.stale_node_ids).toEqual(["a"]);
     expect(report.preserved_node_ids).toEqual(["b", "root"]);
     expect(digestRefKey({ kind: "artifact", id: "a", digest: ZERO } as DigestRef)).toContain("artifact");
+    const fragmentKey = Object.keys(index.by_fragment)[0]!;
+    const tamperedBase = { ...index, by_fragment: { ...index.by_fragment, [fragmentKey]: [] } };
+    expect(() => dependencyIndexSchema.parse(tamperedBase)).toThrow();
+    expect(() => dependencyIndexDigest(tamperedBase)).toThrow();
+    const { digest: _indexDigest, ...tamperedWithoutDigest } = tamperedBase;
+    const recomputedTampered = { ...tamperedBase, digest: sha256Canonical(tamperedWithoutDigest) };
+    expect(() => computeInvalidation({ tree, index: recomputedTampered, changes: [{ kind: "contract-fragment", ref: identity }] })).toThrow();
+  });
+
+  it("keeps exact fragments isolated and reserves whole fallback for whole invalidation", () => {
+    const lyricA = fragment("lyrics", "cue-a", "lyric-cue");
+    const lyricB = fragment("lyrics", "cue-b", "lyric-cue");
+    const base = {
+      schema_version: 1 as const,
+      production_id: "production-1",
+      tree_revision: 0,
+      root_node_id: "root",
+      nodes: [
+        { node_type: "mission" as const, node_id: "root", aggregation: { kind: "all" as const }, child_ids: ["cue-a-task", "cue-b-task", "cue-a-downstream"] },
+        { node_type: "task" as const, node_id: "cue-a-task", parent_id: "root", kind: "lyrics-alignment", role: "music", effect: "propose" as const, dependencies: [], required_contract_fragments: [lyricA], required_artifacts: [], output_schema: "lyrics-a-output", risk_class: "low" as const, invalidation_tags: ["lyrics"] },
+        { node_type: "task" as const, node_id: "cue-b-task", parent_id: "root", kind: "lyrics-alignment", role: "music", effect: "propose" as const, dependencies: [], required_contract_fragments: [lyricB], required_artifacts: [], output_schema: "lyrics-b-output", risk_class: "low" as const, invalidation_tags: ["lyrics"] },
+        { node_type: "task" as const, node_id: "cue-a-downstream", parent_id: "root", kind: "output-qa", role: "critic", effect: "read" as const, dependencies: ["cue-a-task"], required_contract_fragments: [], required_artifacts: [], output_schema: "cue-a-downstream-output", risk_class: "low" as const, invalidation_tags: [] }
+      ]
+    };
+    const tree = validateTaskTreeSpec({ ...base, digest: sha256Canonical(base) });
+    const index = buildDependencyIndex(tree);
+    const changedCueA = { ...lyricA, digest: "f".repeat(64) };
+    expect(directConsumersForFragment(index, changedCueA)).toEqual(["cue-a-task"]);
+    const exact = computeInvalidation({ tree, index, changes: [{ kind: "contract-fragment", ref: changedCueA }] });
+    expect(exact.stale_node_ids).toEqual(["cue-a-downstream", "cue-a-task"]);
+    expect(exact.preserved_node_ids).toEqual(["cue-b-task", "root"]);
+    const whole = { ...lyricA, kind: "whole" as const, fragment_id: "lyrics-contract.whole.0" };
+    expect(directConsumersForFragment(index, whole)).toEqual(["cue-a-task", "cue-b-task"]);
+    const wholeReport = computeInvalidation({ tree, index, changes: [{ kind: "contract-fragment", ref: whole }] });
+    expect(wholeReport.stale_node_ids).toEqual(["cue-a-downstream", "cue-a-task", "cue-b-task"]);
   });
 
   it("indexes artifacts and applies selected-output, decision, and risk tag boundaries", () => {
@@ -797,5 +1224,11 @@ describe("PO-2 shadow compatibility", () => {
     expect(shadow.production_control_shadow?.mode).toBe("shadow");
     expect(shadow.production_control_shadow?.status).toBe("available");
     expect(buildProductionControlShadowSummary(shadowProject).status).toBe("available");
+    const legacyReview = createReviewDocument(loaded, manifest, legacy);
+    const shadowReview = createReviewDocument(shadowProject, manifest, shadow);
+    expect(legacyProjectProjection(shadowProject)).toEqual(legacyProjectProjection(loaded));
+    expect(legacyReviewDocumentProjection(shadowReview)).toEqual(legacyReviewDocumentProjection(legacyReview));
+    expect(renderReviewHtml(shadowReview)).toContain('data-testid="production-control-shadow"');
+    expect(renderReviewHtml(legacyReview)).not.toContain('data-testid="production-control-shadow"');
   });
 });

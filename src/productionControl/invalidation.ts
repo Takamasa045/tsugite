@@ -10,9 +10,10 @@ import {
 } from "./schema.js";
 import { pcError } from "./errors.js";
 import {
-  contractIdentityKey,
   directConsumersForArtifact,
   directConsumersForFragment,
+  buildDependencyIndex,
+  dependencyIndexDigest,
   downstreamClosure,
   type DependencyIndex
 } from "./dependencyIndex.js";
@@ -85,6 +86,10 @@ export function computeInvalidation(input: {
 }): InvalidationReport {
   const tree = validateTaskTreeSpec(input.tree);
   if (input.index.tree_digest !== tree.digest) throw pcError("PC_INVALIDATION_INVALID", "dependency index tree digest mismatch");
+  dependencyIndexDigest(input.index);
+  if (buildDependencyIndex(tree).digest !== input.index.digest) {
+    throw pcError("PC_INVALIDATION_INVALID", "dependency index does not match the validated task tree");
+  }
   if (input.changes.length === 0) throw pcError("PC_INVALIDATION_INVALID", "invalidation requires at least one cause");
   const roots = new Set<string>();
   const tagChanges = new Set<string>();
@@ -137,8 +142,5 @@ export function contractChanged(
   index: DependencyIndex,
   changed: ContractFragmentRef
 ): string[] {
-  const direct = directConsumersForFragment(index, changed);
-  if (changed.kind === "whole") return direct;
-  const identity = contractIdentityKey(changed);
-  return [...new Set([...direct, ...(index.by_contract[identity] ?? [])])].sort();
+  return directConsumersForFragment(index, changed);
 }
