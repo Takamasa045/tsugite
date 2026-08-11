@@ -9,6 +9,7 @@ import type { H3LabelMap } from "../assetLabels.js";
 import {
   formatCutTimestamp,
   renderCameraSentence,
+  renderDialogueActingLocks,
   renderDialogueBlock
 } from "./neutralHelpers.js";
 
@@ -29,6 +30,9 @@ export function renderPlainPrompt(ir: H3CreativeIr): PlainRenderResult {
     const parts: string[] = [shot.visual.trim()];
     if (shot.camera) parts.push(renderCameraSentence(shot.camera));
     if (shot.dialogue) parts.push(renderDialogueBlock(shot.dialogue, ir.subjects));
+    for (const lockLine of renderDialogueActingLocks(shot.dialogue, ir.subjects)) {
+      parts.push(lockLine);
+    }
     if (shot.on_screen_text !== undefined) parts.push(`On-screen text: ${shot.on_screen_text}`);
     if (shot.lyrics !== undefined) parts.push(`Lyrics: ${shot.lyrics}`);
     const body = parts.join(" ");

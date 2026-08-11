@@ -148,6 +148,23 @@ const h3CreativeSchema = z
   .strict()
   .optional();
 
+const lockedBlockFieldSchema = z
+  .object({
+    text: z.string().min(1),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/, "must be lowercase sha256 hex")
+  })
+  .strict();
+
+const lockedBlocksSchema = z
+  .object({
+    voice: lockedBlockFieldSchema.optional(),
+    appearance: lockedBlockFieldSchema.optional(),
+    manner: lockedBlockFieldSchema.optional()
+  })
+  .strict();
+
 const h3SubjectSchema = z
   .object({
     id: safeIdSchema,
@@ -165,6 +182,11 @@ const h3SubjectSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * Verbatim identity text blocks (voice / appearance / manner).
+     * Optional; when present, validate checks sha256 and compile injects text without paraphrase.
+     */
+    locked_blocks: lockedBlocksSchema.optional(),
     preservation: z
       .object({
         identity: z.enum(["strict", "loose"]).optional(),

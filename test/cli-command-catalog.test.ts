@@ -51,6 +51,14 @@ const expectedOptions = {
     "--accent"
   ],
   "character-add": ["--config", "--from-manifest", "--speaker"],
+  "lock-block": [
+    "--config",
+    "--subject",
+    "--field",
+    "--text",
+    "--text-file",
+    "--request-id"
+  ],
   validate: ["--config"],
   models: ["--config"],
   finalize: ["--config", "--state-dir", "--actor", "--apply", "--expected-plan-digest"],
@@ -77,6 +85,7 @@ const configCommands = new Set([
   "feedback",
   "shitate-import",
   "character-add",
+  "lock-block",
   "validate",
   "models",
   "finalize",

@@ -59,6 +59,8 @@ export {
   validateH3Format,
   validateH3AdapterRoute,
   validateH3Warnings,
+  validateLockedBlocks,
+  LOCK_HASH_MISMATCH_CODE,
   H3_ROUTE_MODEL_MISMATCH_CODE,
   H3_ROUTE_UNSUPPORTED_MODE_CODE,
   H3_ASSET_BINDING_MISMATCH_CODE,
@@ -70,6 +72,15 @@ export {
   type H3ValidationResult,
   type H3ValidateOptions
 } from "./validation/index.js";
+
+export {
+  hashLockedText,
+  collectLockedBlockHashes,
+  LOCKED_BLOCK_FIELDS,
+  type LockedBlockField,
+  type LockedTextBlock,
+  type SubjectLockedBlocks
+} from "./lockedBlocks.js";
 
 export {
   compileH3Request,

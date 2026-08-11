@@ -7,12 +7,14 @@ import { mapH3AssetLabels, type H3LabelMap } from "../assetLabels.js";
 import {
   formatCutTimestamp,
   renderCameraSentence,
+  renderDialogueActingLocks,
   renderDialogueBlock
 } from "./neutralHelpers.js";
 
 export {
   formatCutTimestamp,
   renderCameraSentence,
+  renderDialogueActingLocks,
   renderDialogueBlock,
   resolveSpeakerId
 } from "./neutralHelpers.js";
@@ -59,6 +61,10 @@ export function renderShotBody(shot: H3Shot, ir: H3CreativeIr): string {
   const parts: string[] = [normalizeVisualProse(shot.visual)];
   if (shot.camera) parts.push(renderCameraSentence(shot.camera));
   if (shot.dialogue) parts.push(renderDialogueBlock(shot.dialogue, ir.subjects));
+  // Locked appearance/manner: verbatim only; never normalizeVisualProse.
+  for (const lockLine of renderDialogueActingLocks(shot.dialogue, ir.subjects)) {
+    parts.push(lockLine);
+  }
   // Do not trim/rewrite on_screen_text or lyrics — including leading/trailing spaces and newlines.
   if (shot.on_screen_text !== undefined) parts.push(`On-screen text: ${shot.on_screen_text}`);
   if (shot.lyrics !== undefined) parts.push(`Lyrics: ${shot.lyrics}`);

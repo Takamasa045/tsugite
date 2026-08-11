@@ -3,6 +3,10 @@
  * No Picture / FL2VA / L2VA grammar and no H3 asset label mapping.
  */
 
+import {
+  formatVoiceLockedBlock,
+  renderSubjectActingLocks
+} from "../lockedBlocks.js";
 import type { H3Camera, H3Dialogue, H3Subject } from "../schema.js";
 
 export function formatCutTimestamp(startMs: number): string {
@@ -22,29 +26,63 @@ export function resolveSpeakerId(
   return subjects.find((subject) => subject.id === dialogue.speaker)?.speaker_id;
 }
 
+export function resolveDialogueSubject(
+  dialogue: H3Dialogue,
+  subjects: H3Subject[]
+): H3Subject | undefined {
+  if (!dialogue.speaker) return undefined;
+  return subjects.find((item) => item.id === dialogue.speaker);
+}
+
+/**
+ * Dialogue block with optional locked voice text injected verbatim (no paraphrase).
+ * Without locked voice, output matches the pre-Phase-A format byte-for-byte.
+ */
 export function renderDialogueBlock(
   dialogue: H3Dialogue,
   subjects: H3Subject[]
 ): string {
   const speakerId = resolveSpeakerId(dialogue, subjects) ?? "S1";
-  const subject = dialogue.speaker
-    ? subjects.find((item) => item.id === dialogue.speaker)
-    : undefined;
+  const subject = resolveDialogueSubject(dialogue, subjects);
   const speakerDescription = dialogue.speaker_description
     ?? defaultSpeakerDescription(subject, dialogue, speakerId);
+  const voiceLock = subject?.locked_blocks?.voice
+    ? formatVoiceLockedBlock(subject.locked_blocks.voice.text)
+    : undefined;
 
   // Dialogue / lyrics / on-screen text stay byte-for-byte.
   const tag = `<d>[${dialogue.language}]${dialogue.text}</d>`;
 
   if (dialogue.voiceover) {
+    if (!voiceLock) {
+      return [
+        `${speakerDescription} says in an off-screen voiceover:`,
+        tag,
+        "while his lips remain completely closed."
+      ].join("\n");
+    }
     return [
-      `${speakerDescription} says in an off-screen voiceover:`,
+      speakerDescription,
+      voiceLock,
+      "says in an off-screen voiceover:",
       tag,
       "while his lips remain completely closed."
     ].join("\n");
   }
 
-  return `${speakerDescription} says:\n${tag}`;
+  if (!voiceLock) {
+    return `${speakerDescription} says:\n${tag}`;
+  }
+  return [speakerDescription, voiceLock, "says:", tag].join("\n");
+}
+
+/** Appearance / manner locked lines for the dialogue speaker (if any). */
+export function renderDialogueActingLocks(
+  dialogue: H3Dialogue | undefined,
+  subjects: H3Subject[]
+): string[] {
+  if (!dialogue) return [];
+  return renderSubjectActingLocks(resolveDialogueSubject(dialogue, subjects));
 }
 
 function defaultSpeakerDescription(

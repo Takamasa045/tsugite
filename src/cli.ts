@@ -127,6 +127,10 @@ type ParsedArgs = {
   accent?: string;
   fromManifest?: string;
   speaker?: string;
+  subject?: string;
+  field?: string;
+  text?: string;
+  textFile?: string;
   projectsDir?: string;
   port?: string;
   backend?: string;
@@ -916,6 +920,64 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             image_id_map: result.imageIdMap
           }
         : {})
+    });
+  }
+
+  if (args.command === "lock-block") {
+    const requiredIssues: Issue[] = [
+      ...(args.subject
+        ? []
+        : [{ code: "lock_block.subject_required", message: "--subject is required", path: "--subject" }]),
+      ...(args.field
+        ? []
+        : [{ code: "lock_block.field_required", message: "--field is required", path: "--field" }]),
+      ...(args.text || args.textFile
+        ? []
+        : [{
+            code: "lock_block.text_required",
+            message: "--text or --text-file is required",
+            path: "--text"
+          }]),
+      ...(args.text && args.textFile
+        ? [{
+            code: "lock_block.text_conflict",
+            message: "pass only one of --text or --text-file",
+            path: "--text"
+          }]
+        : [])
+    ];
+    if (requiredIssues.length > 0) {
+      return output(args, 1, { ok: false, command: "lock-block", issues: requiredIssues });
+    }
+    const { readFile } = await import("node:fs/promises");
+    const { lockSubjectBlock } = await import("./videoPromptDirector/lockBlock.js");
+    let text = args.text;
+    if (args.textFile) {
+      text = await readFile(args.textFile, "utf8");
+    }
+    const result = await lockSubjectBlock({
+      configPath: args.config!,
+      subjectId: args.subject!,
+      field: args.field!,
+      text: text!,
+      ...(args.requestId ? { requestId: args.requestId } : {})
+    });
+    if (!result.ok) {
+      return output(args, 1, {
+        ok: false,
+        command: "lock-block",
+        issues: result.issues
+      });
+    }
+    return output(args, 0, {
+      ok: true,
+      command: "lock-block",
+      request_id: result.requestId,
+      ir_kind: result.irKind,
+      subject_id: result.subjectId,
+      field: result.field,
+      sha256: result.sha256,
+      config_path: result.configPath
     });
   }
 
@@ -1761,7 +1823,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -1789,6 +1851,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--accent": "accent",
       "--from-manifest": "fromManifest",
       "--speaker": "speaker",
+      "--subject": "subject",
+      "--field": "field",
+      "--text": "text",
+      "--text-file": "textFile",
       "--projects-dir": "projectsDir",
       "--port": "port",
       "--backend": "backend",

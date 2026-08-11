@@ -14,6 +14,7 @@ export type CommandName =
   | "feedback"
   | "shitate-import"
   | "character-add"
+  | "lock-block"
   | "validate"
   | "models"
   | "finalize"
@@ -87,6 +88,18 @@ const OPTIONS = {
     "<manifest.json>"
   ),
   speaker: defineOption("--speaker", "Speaker identifier to copy from the source manifest.", "<speaker-id>"),
+  subject: defineOption("--subject", "Creative IR subject id for locked_blocks.", "<subject-id>"),
+  field: defineOption(
+    "--field",
+    "Locked block field: voice, appearance, or manner.",
+    "<voice|appearance|manner>"
+  ),
+  text: defineOption("--text", "Verbatim locked block text to store and hash.", "<text>"),
+  textFile: defineOption(
+    "--text-file",
+    "Read verbatim locked block text from a UTF-8 file.",
+    "<path>"
+  ),
   stateDir: defineOption("--state-dir", "Alternate pipeline state directory.", "<directory>"),
   finalizeStateDir: defineOption(
     "--state-dir",
@@ -278,6 +291,22 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "local-write",
     options: [OPTIONS.config, OPTIONS.fromManifest, OPTIONS.speaker]
+  }),
+  defineCommand({
+    name: "lock-block",
+    summary: "Write a subject locked_blocks field with recomputed sha256 (verbatim identity text).",
+    usage:
+      "node bin/pipeline lock-block --config <project.yaml> --subject <subject-id> --field <voice|appearance|manner> (--text <text> | --text-file <path>) [--request-id <request-id>] [--json]",
+    requiresConfig: true,
+    safety: "local-write",
+    options: [
+      OPTIONS.config,
+      OPTIONS.subject,
+      OPTIONS.field,
+      OPTIONS.text,
+      OPTIONS.textFile,
+      OPTIONS.requestId
+    ]
   }),
   defineCommand({
     name: "validate",
