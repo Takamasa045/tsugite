@@ -4,6 +4,7 @@
 
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
 import type { GenerationRequest } from "../project/schema.js";
+import { collectPromptBlockDigests } from "./blockDigests.js";
 import { collectLockedBlockHashes } from "./lockedBlocks.js";
 import type { H3CreativeIr } from "./schema.js";
 
@@ -32,6 +33,8 @@ export type H3Lineage = {
   connection_capability_digest?: string;
   /** Declared sha256 of subject locked_blocks fields ("subjectId.field" → hex). */
   locked_block_hashes?: Record<string, string>;
+  /** IR field digests for iteration multi-block comparison (Phase E). */
+  block_digests?: Record<string, string>;
 };
 
 export type H3PromptGuideSource = {
@@ -76,6 +79,8 @@ export function buildLineage(
   if (lockedBlockHashes) {
     lineage.locked_block_hashes = lockedBlockHashes;
   }
+
+  lineage.block_digests = collectPromptBlockDigests(ir);
 
   return lineage;
 }

@@ -1,5 +1,6 @@
 import { appendSubjectDefinitionLocks } from "../lockedBlocks.js";
 import type { H3CreativeIr } from "../schema.js";
+import { resolveSubjectSourceAsset } from "../subjectResolve.js";
 import {
   REFERENCE_SECTION_ORDER,
   buildLabels,
@@ -44,8 +45,9 @@ function defaultSubjectDefinitions(
   const lines: string[] = [];
   for (const subject of ir.subjects) {
     const subjectLabel = labels.subjects[subject.id]?.h3 ?? subject.id;
-    const assetLabel = subject.source_asset
-      ? labels.assets[subject.source_asset]
+    const sourceAssetId = resolveSubjectSourceAsset(subject);
+    const assetLabel = sourceAssetId
+      ? labels.assets[sourceAssetId]
       : undefined;
     if (assetLabel) {
       lines.push(

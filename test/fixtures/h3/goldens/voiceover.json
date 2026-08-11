@@ -8,15 +8,28 @@
   "adapter_prompt_hash": "429e607579f431983b7a113e446e009d4611a7578ee7231416fc754a2098a22a",
   "validation_ok": true,
   "error_codes": [],
-  "warning_codes": [],
-  "issue_codes": [],
+  "warning_codes": [
+    "identity.subject_unlocked"
+  ],
+  "issue_codes": [
+    "identity.subject_unlocked"
+  ],
   "compile_ok": true,
   "lineage": {
     "workflow_id": "h3-prompt-director",
     "workflow_version": "2",
     "creative_ir_hash": "3123067c23528684211c67f6d2cce36d64fa63677f04aa7f00cd892a5231fcd7",
     "canonical_prompt_hash": "429e607579f431983b7a113e446e009d4611a7578ee7231416fc754a2098a22a",
-    "adapter_prompt_hash": "429e607579f431983b7a113e446e009d4611a7578ee7231416fc754a2098a22a"
+    "adapter_prompt_hash": "429e607579f431983b7a113e446e009d4611a7578ee7231416fc754a2098a22a",
+    "block_digests": {
+      "subjects": "8d8de15b1e602e69989e5dc00ff87558d447e0316ebc72c891968fb586ec820b",
+      "sound.soundscape": "45299c21e12393573360df484f7b9e140326e1b92f028e0e0d26ac831220aadb",
+      "sound.music": "5acf3ff77b4420677b5923071f303facaba7a9273a346284a667a275df325146",
+      "shot.shot_1.visual": "2fb6f34e2d9dc83346c711b6d8a89b2525d4602676a13f8d5a1aab04a13cac91",
+      "shot.shot_1.camera": "1a5a109e020bbc88e5cd9567d43008ac61f86caf7642546cbc918f13aef421f3",
+      "shot.shot_1.dialogue": "0a0f64b572d7900d6b7d05b3162381b33abc7add5423d21ad7e362e5472fd20d",
+      "shot.shot_1.on_screen_text": "e04d2d51e80078ceae5d98422dfe1421e5dc0c90985e27a42bb2024f027d5689"
+    }
   },
   "execution_request_snapshot": {
     "model": "minimax-h3",

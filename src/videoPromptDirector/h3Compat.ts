@@ -85,6 +85,16 @@ export {
 } from "./scenes.js";
 
 export {
+  resolveSubjectSourceAsset,
+  isSubjectLocked
+} from "./subjectResolve.js";
+
+export {
+  collectPromptBlockDigests,
+  countChangedBlocks
+} from "./blockDigests.js";
+
+export {
   hashLockedText,
   collectLockedBlockHashes,
   LOCKED_BLOCK_FIELDS,

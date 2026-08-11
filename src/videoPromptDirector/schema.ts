@@ -165,6 +165,13 @@ const lockedBlocksSchema = z
   })
   .strict();
 
+const subjectVariantSchema = z
+  .object({
+    id: safeIdSchema,
+    source_asset: safeIdSchema
+  })
+  .strict();
+
 const h3SubjectSchema = z
   .object({
     id: safeIdSchema,
@@ -187,6 +194,13 @@ const h3SubjectSchema = z
      * Optional; when present, validate checks sha256 and compile injects text without paraphrase.
      */
     locked_blocks: lockedBlocksSchema.optional(),
+    /**
+     * Human-confirmed identity lock after stress tests (operational flag).
+     * Default false / omitted → plan warning only; never auto stress-test.
+     */
+    locked: z.boolean().optional(),
+    /** State-separated appearance assets (clean / wet / injured, …). */
+    variants: z.array(subjectVariantSchema).optional(),
     preservation: z
       .object({
         identity: z.enum(["strict", "loose"]).optional(),
@@ -288,6 +302,17 @@ const h3ShotSchema = z
     visual: z.string().min(1),
     camera: h3CameraSchema.optional(),
     dialogue: h3DialogueSchema.optional(),
+    /** Optional cast with per-shot state variants. */
+    cast: z
+      .array(
+        z
+          .object({
+            subject: safeIdSchema,
+            variant: safeIdSchema.optional()
+          })
+          .strict()
+      )
+      .optional(),
     on_screen_text: z.string().min(1).optional(),
     lyrics: z.string().min(1).optional(),
     /** Optional per-shot subject visibility for person-consistency QA (Phase B). */
@@ -386,6 +411,24 @@ const creativeIrObjectSchema = (targetSchema: typeof videoTargetSchema | typeof 
           path: ["subjects", index, "voice", "source_asset"]
         });
       }
+      const variantIds = new Set<string>();
+      for (const [variantIndex, variant] of (subject.variants ?? []).entries()) {
+        if (variantIds.has(variant.id)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "variant ids must be unique within a subject",
+            path: ["subjects", index, "variants", variantIndex, "id"]
+          });
+        }
+        variantIds.add(variant.id);
+        if (!assetIds.has(variant.source_asset)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `variant source_asset '${variant.source_asset}' is undefined`,
+            path: ["subjects", index, "variants", variantIndex, "source_asset"]
+          });
+        }
+      }
     }
 
     const sceneIds = new Set<string>();
@@ -432,6 +475,33 @@ const creativeIrObjectSchema = (targetSchema: typeof videoTargetSchema | typeof 
           message: `dialogue speaker '${shot.dialogue.speaker}' is undefined`,
           path: ["shots", index, "dialogue", "speaker"]
         });
+      }
+      for (const [castIndex, castEntry] of (shot.cast ?? []).entries()) {
+        if (!subjectIds.has(castEntry.subject)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `cast subject '${castEntry.subject}' is undefined`,
+            path: ["shots", index, "cast", castIndex, "subject"]
+          });
+          continue;
+        }
+        const subject = ir.subjects.find((item) => item.id === castEntry.subject);
+        if (castEntry.variant) {
+          const variants = subject?.variants ?? [];
+          if (variants.length === 0) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `cast variant '${castEntry.variant}' requires subject variants`,
+              path: ["shots", index, "cast", castIndex, "variant"]
+            });
+          } else if (!variants.some((variant) => variant.id === castEntry.variant)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `cast variant '${castEntry.variant}' is undefined on subject '${castEntry.subject}'`,
+              path: ["shots", index, "cast", castIndex, "variant"]
+            });
+          }
+        }
       }
     }
 

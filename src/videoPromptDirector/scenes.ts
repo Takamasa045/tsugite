@@ -93,6 +93,18 @@ export function validateScenes(
         )
       );
     }
+    for (const [castIndex, castEntry] of (shot.cast ?? []).entries()) {
+      if (!allowed.has(castEntry.subject)) {
+        issues.push(
+          issue(
+            SCENE_UNDECLARED_SUBJECT_CODE,
+            `subject '${castEntry.subject}' is not in scene '${scene.id}' active_subjects`,
+            "warning",
+            ["shots", shotIndex, "cast", castIndex, "subject"]
+          )
+        );
+      }
+    }
     for (const [expIndex, expectation] of (shot.subject_expectations ?? []).entries()) {
       if (!allowed.has(expectation.subject_id)) {
         issues.push(

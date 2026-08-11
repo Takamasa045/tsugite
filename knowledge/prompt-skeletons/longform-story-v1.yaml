@@ -1,0 +1,37 @@
+schema_version: 1
+kind: prompt-skeleton-guide
+id: longform-story-v1
+display_name: Longform story block skeleton
+scope: prompt-guidance-only
+execution_capability: not-evaluated
+disclaimer: >
+  Advisory only. Catalog presence does not imply adapter support, credits,
+  or Gate automation. Compile reorders blocks only when a model prompt profile
+  declares prompt_skeleton.id.
+block_order:
+  - SCENE_CONTEXT
+  - ACTIVE_REFERENCES
+  - LOCATION_MAP
+  - FIRST_FRAME_BLOCKING
+  - OPTICS
+  - CAMERA
+  - ACTION_TIMING
+  - PHYSICS
+  - LIGHTING
+  - AUDIO
+  - CHARACTER_ACTING
+  - STYLE
+  - QUALITY
+  - POSITIVE_CONSTRAINTS
+rules:
+  - Prefer affirmative constraints; avoid negative phrasing when possible.
+  - Fix FOV to one degree value per shot when OPTICS is authored.
+  - Do not paraphrase locked identity or scene location blocks.
+acting_checklist:
+  - No bare emotion labels; describe body, gaze, breath, muscle.
+  - Prefer 1–2 second micro-events.
+  - State goal and obstacle when character acts.
+  - Keep manner consistent with locked_blocks.manner when present.
+sources: []
+verified_at: "2026-08-11"
+review_after: "2026-11-11"

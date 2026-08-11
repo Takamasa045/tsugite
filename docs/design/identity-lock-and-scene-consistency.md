@@ -1,6 +1,6 @@
 # 設計メモ: アイデンティティ・ロックとシーン一貫性（長尺・ストーリー制作向け）
 
-**状態:** Phase A–B 実装済み（branch `codex/identity-lock-scene-consistency` / PR に積む）。M0 契約は `identity-lock-m0-contract.md`。Phase C–E は未実装。
+**状態:** Phase A–E 実装済み（branch `codex/identity-lock-scene-consistency` / PR #118）。M0 契約は `identity-lock-m0-contract.md`。
 **対象:** キャラ一貫性の機械的固定 + シーン層の共有ブロック + プロンプト骨格カタログ + イテレーション規律
 **正本参照:**
 
@@ -148,9 +148,9 @@ shots:
 |---|---|---|
 | A | 提案1（固定ブロック + ハッシュ検証 + verbatim 注入） | **完了** — `test/locked-blocks-phase-a.test.ts`。LOCK-E001 / verbatim 注入 / lineage / `lock-block` CLI / golden 不変 |
 | B | 提案3（シーン層 + Auditor 2 チェック） | **完了** — `test/scenes-phase-b.test.ts`。LOCATION prepend / scene.* Auditor / scenes なし golden 不変 / story principle |
-| C | 提案2（バリアント + locked 警告） | variant 解決のユニットテスト + plan 警告のフィクスチャ |
-| D | 提案4（骨格カタログ + compile テンプレート） | 骨格宣言あり / なしの compile スナップショットテスト |
-| E | 提案5（lineage lint） | diff 判定・回数判定のユニットテスト |
+| C | 提案2（バリアント + locked 警告） | **完了** — `test/variants-phase-c.test.ts`。variants/cast 解決 + `identity.subject_unlocked` |
+| D | 提案4（骨格カタログ + compile テンプレート） | **完了** — `test/skeleton-phase-d.test.ts` + `knowledge/prompt-skeletons/` |
+| E | 提案5（lineage lint） | **完了** — `test/iteration-discipline-phase-e.test.ts` + lineage `block_digests` |
 
 各 Phase は TDD（RED → GREEN → REFACTOR）で進め、スキーマ追加はすべて optional にして既存 `project.yaml` の後方互換を保つ。
 

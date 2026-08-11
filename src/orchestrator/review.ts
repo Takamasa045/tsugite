@@ -39,6 +39,11 @@ import {
   lintShotlistMonotony,
   monotonyFindingsToWarningMessages
 } from "./shotlistMonotony.js";
+import {
+  iterationFindingsToWarningMessages,
+  lintIterationDiscipline,
+  type IterationLineageSnapshot
+} from "./iterationDiscipline.js";
 
 export type EditorialCompilation = {
   manifest: Manifest;
@@ -759,6 +764,15 @@ export function createReviewDocument(
     );
   }
 
+  // Iteration discipline (Phase E): evidence only when plan carries lineage block digests.
+  const iterationSnaps = iterationSnapshotsFromPlan(plan);
+  for (const snap of iterationSnaps) {
+    // Without prior history, only retry_saturation (ordinal) can fire; multi_block needs previous.
+    warnings.push(
+      ...iterationFindingsToWarningMessages(lintIterationDiscipline(snap, undefined))
+    );
+  }
+
   return {
     schema_version: project.composition ? 3 : project.analysis ? 2 : 1,
     run_id: project.run_id ?? project.slug,
@@ -951,6 +965,30 @@ function clipMotionForTimeRange(
 function primaryMotionPreset(motion: ReviewMotionPlan | undefined): string | undefined {
   const cue = motion?.cues.find((entry) => entry.preset !== "none") ?? motion?.cues[0];
   return cue?.preset;
+}
+
+/** Build iteration snapshots from plan compilations that carry block_digests. */
+function iterationSnapshotsFromPlan(plan: ExecutionPlan): IterationLineageSnapshot[] {
+  const snaps: IterationLineageSnapshot[] = [];
+  for (const compilation of plan.h3_compilations ?? []) {
+    const digests = compilation.lineage.block_digests;
+    if (!digests) continue;
+    snaps.push({
+      request_id: compilation.request_id,
+      generation_ordinal: 1,
+      block_digests: digests
+    });
+  }
+  for (const vp of plan.video_prompt_plans ?? []) {
+    const digests = vp.compilation.lineage.block_digests;
+    if (!digests) continue;
+    snaps.push({
+      request_id: vp.compilation.request_id,
+      generation_ordinal: 1,
+      block_digests: digests
+    });
+  }
+  return snaps;
 }
 
 /**
