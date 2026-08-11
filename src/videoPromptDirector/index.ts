@@ -118,8 +118,7 @@ export {
 
 export {
   createProjectGenerationUnitSourceResolver,
-  isAuthoritativeGenerationUnitSource,
-  lyricsSourceForGenerationUnitSource
+  isAuthoritativeGenerationUnitSource
 } from "./generationUnitSourceResolver.js";
 
 export {
@@ -235,12 +234,19 @@ export {
   createCompilationBundle,
   createVerifiedAssetPin,
   isTrustedAssetPin,
+  loadCreateOnlyArtifactStoreEnvelope,
+  adoptExecutionCompilationBundle,
+  isAdoptedExecutionCompilationBundle,
   verifyCompilationBundle,
   assertCompilationBundleAssets,
   isProjectAssetIdentityContained,
   writeCompilationBundleAtomic,
+  writeShadowComparisonAtomic,
   type RuntimeAssetPinEvidence,
   type AssetPin,
   type CompilationBundleV1,
-  type CompilationBundleInput
+  type CompilationBundleInput,
+  type ExecutionCompilationBundle,
+  type ExecutionBundleAuthorityContext,
+  type CreateOnlyArtifactStoreEnvelope
 } from "./compilationBundle.js";

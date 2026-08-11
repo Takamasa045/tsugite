@@ -78,6 +78,7 @@ export type CompileVideoPromptV2Options = {
   lyrics_source?: LyricsSource;
   require_exact_sync?: boolean;
   grammar_profile?: H3GrammarProfileV3;
+  require_pinned_grammar?: boolean;
   contract_bindings?: string[];
   source?: {
     authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
@@ -128,6 +129,7 @@ export type VideoPromptV2Compilation = {
     adapter_capability_digest: string;
     program_binding_digest?: string;
     generation_unit_source_digest?: string;
+    generation_unit_source_canonical_digest?: string;
   };
 };
 
@@ -232,7 +234,13 @@ export function compileVideoPromptIrV2(
   });
   issues.push(...semantic.issues);
   const plainRenderer = options.model_profile?.renderer === "plain-prompt";
-  const grammarProfile = plainRenderer ? undefined : (options.grammar_profile ?? DEFAULT_H3_GRAMMAR_PROFILE_V3);
+  const suppliedGrammarProfile = options.grammar_profile;
+  const grammarProfile = plainRenderer ? undefined : (suppliedGrammarProfile ?? (options.require_pinned_grammar ? undefined : DEFAULT_H3_GRAMMAR_PROFILE_V3));
+  if (!plainRenderer && options.require_pinned_grammar && !grammarProfile) {
+    issues.push(issue("VPD-C003", "H3 compilation requires the repo-local pinned grammar profile", "error", ["grammar_profile"]));
+  } else if (suppliedGrammarProfile && !isTrustedH3GrammarProfile(suppliedGrammarProfile)) {
+    issues.push(issue("VPD-C003", "H3 grammar profile was not loaded by the trusted pinned-profile loader", "error", ["grammar_profile"]));
+  }
   const grammarOptions: H3GrammarV3Options = {
     ...(options.lyrics_source ? { lyrics_source: options.lyrics_source } : {}),
     ...(options.require_exact_sync !== undefined ? { require_exact_sync: options.require_exact_sync } : {}),
@@ -382,7 +390,8 @@ export function compileVideoPromptIrV2(
       adapter_capability_digest: rendererDialect?.source_digest ?? "0".repeat(64),
       ...(ir.program_kind === "mv" ? { program_binding_digest: sha256Canonical(ir.program_binding) } : {}),
       ...(options.generation_unit_source ? {
-        generation_unit_source_digest: options.generation_unit_source.generation_unit_digest
+        generation_unit_source_digest: options.generation_unit_source.generation_unit_digest,
+        generation_unit_source_canonical_digest: sha256Canonical(options.generation_unit_source)
       } : {})
     }
   };
@@ -402,7 +411,11 @@ export function compileVideoPromptIrV2(
     route,
     ...(ir.program_kind === "mv" ? { program_binding: ir.program_binding } : {}),
     ...(rendered.grammar_profile ? {
-      grammar_profile: { ...rendered.grammar_profile, section_order: [...rendered.grammar_profile.section_order] }
+      grammar_profile: {
+        ...rendered.grammar_profile,
+        section_order: [...rendered.grammar_profile.section_order],
+        reference_section_order: [...rendered.grammar_profile.reference_section_order]
+      }
     } : {}),
     labels_digest: dialect.labels.digest,
     validation,

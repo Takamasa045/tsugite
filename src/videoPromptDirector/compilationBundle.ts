@@ -1,16 +1,19 @@
 import { createHash, randomBytes } from "node:crypto";
 import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, writeSync } from "node:fs";
 import { constants as fsConstants } from "node:fs";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import * as nativePath from "node:path";
 import { z } from "zod";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
+import { ArtifactStore } from "../productionControl/artifactStore.js";
 import { programBindingSchema, routeIdentitySchema, type GenerationUnitProgramSourceV1 } from "../productionControl/programBinding.js";
 import { digestSchema, safeIdSchema } from "../productionControl/schema.js";
 import type { SemanticPromptBlock } from "./semanticBlocks.js";
 import type { VideoPromptIrV2 } from "./schemaV2.js";
 import { effectiveGenerationContractSchema, routeIdentityDigest, type EffectiveGenerationContractV1 } from "./effectiveContract.js";
+import { isExecutionAuthoritativePinnedPromptBudgetEvidence } from "./promptBudgetEvidence.js";
+import { isTrustedH3GrammarProfile } from "./render/h3GrammarV3.js";
 
 const issueSchema = z.object({
   code: safeIdSchema,
@@ -71,6 +74,7 @@ export const compilationBundleSchema = z.object({
     source_commit: z.string().min(1),
     source_digest: digestSchema,
     section_order: z.array(z.string().min(1)),
+    reference_section_order: z.array(z.string().min(1)),
     features: z.object({
       scenetrans: z.boolean(),
       cutoff: z.boolean(),
@@ -94,6 +98,7 @@ export const compilationBundleSchema = z.object({
     exact_text_digests: z.array(digestSchema),
     source_digest: digestSchema.optional(),
     generation_unit_source_digest: digestSchema.optional(),
+    generation_unit_source_canonical_digest: digestSchema.optional(),
     generation_unit_source_identity: z.object({
       production_id: safeIdSchema,
       unit_id: safeIdSchema,
@@ -136,6 +141,21 @@ export const compilationBundleSchema = z.object({
 
 export type CompilationBundleV1 = z.infer<typeof compilationBundleSchema>;
 export type CompilationBundle = CompilationBundleV1;
+
+declare const executionCompilationBundleBrand: unique symbol;
+export type ExecutionCompilationBundle = CompilationBundleV1 & { readonly [executionCompilationBundleBrand]: true };
+const adoptedExecutionBundles = new WeakSet<object>();
+
+declare const createOnlyArtifactStoreEnvelopeBrand: unique symbol;
+export type CreateOnlyArtifactStoreEnvelope = {
+  readonly kind: "create-only-artifact-store-envelope";
+  readonly create_only: true;
+  readonly artifact_id: string;
+  readonly artifact_digest: string;
+  readonly [createOnlyArtifactStoreEnvelopeBrand]: true;
+};
+const trustedArtifactStoreEnvelopes = new WeakSet<object>();
+const artifactStoreEnvelopeSnapshots = new WeakMap<object, string>();
 
 export type RuntimeAssetPinEvidence = {
   source: "project-bytes" | "asset-contract";
@@ -184,7 +204,15 @@ export function createVerifiedAssetPin(input: {
   const pinRoot = resolvePinRoot(input.pin_root, root);
   const pinRelativePath = `asset-pins/${input.asset_id}.bin`;
   const pinPath = join(pinRoot, pinRelativePath);
-  mkdirSync(join(pinRoot, "asset-pins"), { recursive: true, mode: 0o700 });
+  const pinDirectory = join(pinRoot, "asset-pins");
+  try {
+    const pinDirectoryStat = lstatSync(pinDirectory);
+    if (!pinDirectoryStat.isDirectory() || pinDirectoryStat.isSymbolicLink()) throw new Error("VPD-J002: asset pin directory is a link");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    mkdirSync(pinDirectory, { recursive: false, mode: 0o700 });
+  }
+  assertStrongDirectoryChain(pinDirectory, root);
   let sourceFd = -1;
   let pinFd = -1;
   try {
@@ -251,12 +279,10 @@ export type CompilationBundleInput = {
 
 export function createCompilationBundle(input: CompilationBundleInput): CompilationBundleV1 {
   if (input.execution_capable) {
-    for (const asset of input.ir.assets) {
-      const pin = input.asset_pins?.[asset.id];
-      if (!pin || !isTrustedAssetPin(pin) || pin.sha256 !== asset.sha256) {
-        throw new Error(`VPD-J002: execution-capable bundle requires an opaque verified pin for '${asset.id}'`);
-      }
-    }
+    // Creation is a structural/planning boundary. Execution authority is
+    // adopted only by adoptExecutionCompilationBundle with live trusted
+    // evidence and an opaque asset-pin set.
+    throw new Error("VPD-K003: execution-capable bundles require the live authority adoption boundary");
   }
   const semanticBlocks = input.semantic_blocks.map((block) => ({ ...block, source_paths: [...block.source_paths], exact_text_digests: [...block.exact_text_digests] }));
   const withoutDigest = {
@@ -311,6 +337,7 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
       ...(input.source_digest ? { source_digest: input.source_digest } : {}),
       ...(input.generation_unit_source ? {
         generation_unit_source_digest: input.generation_unit_source.generation_unit_digest,
+        generation_unit_source_canonical_digest: sha256Canonical(input.generation_unit_source),
         generation_unit_source_identity: generationUnitSourceIdentity(input.generation_unit_source)
       } : {})
     }
@@ -323,6 +350,86 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
 
 export function verifyCompilationBundle(bundle: unknown): CompilationBundleV1 {
   return deepFreeze(compilationBundleSchema.parse(bundle));
+}
+
+export type ExecutionBundleAuthorityContext = {
+  effective_contract: EffectiveGenerationContractV1;
+  grammar_profile?: unknown;
+  trusted_pinned_budget_evidence?: unknown;
+  asset_pins: Readonly<Record<string, AssetPin>>;
+  artifact_store_envelope?: unknown;
+};
+
+/**
+ * Resolve the envelope only from a real create-only ArtifactStore read. A
+ * structurally identical object supplied by a caller is never execution
+ * authority because it cannot carry the private runtime brand.
+ */
+export async function loadCreateOnlyArtifactStoreEnvelope(input: {
+  store: ArtifactStore;
+  artifact_id: string;
+  artifact_digest: string;
+}): Promise<CreateOnlyArtifactStoreEnvelope> {
+  if (!(input.store instanceof ArtifactStore) || !/^[a-f0-9]{64}$/u.test(input.artifact_digest)) {
+    throw new Error("VPD-K003: create-only artifact-store resolver is unavailable");
+  }
+  const bytes = await input.store.readBounded(input.artifact_id, 32 * 1024 * 1024);
+  const actualDigest = createHash("sha256").update(bytes).digest("hex");
+  if (actualDigest !== input.artifact_digest) throw new Error("VPD-K003: create-only artifact-store digest mismatch");
+  const envelope = Object.freeze({
+    kind: "create-only-artifact-store-envelope" as const,
+    create_only: true as const,
+    artifact_id: input.artifact_id,
+    artifact_digest: actualDigest
+  }) as CreateOnlyArtifactStoreEnvelope;
+  trustedArtifactStoreEnvelopes.add(envelope as object);
+  artifactStoreEnvelopeSnapshots.set(envelope as object, sha256Canonical(envelope));
+  return envelope;
+}
+
+function isTrustedCreateOnlyArtifactStoreEnvelope(value: unknown): value is CreateOnlyArtifactStoreEnvelope {
+  return Boolean(value && typeof value === "object"
+    && trustedArtifactStoreEnvelopes.has(value as object)
+    && artifactStoreEnvelopeSnapshots.get(value as object) === sha256Canonical(value));
+}
+
+/**
+ * Structural JSON verification is deliberately not execution adoption. This
+ * second boundary requires live trusted objects and the create-only artifact
+ * envelope that callers cannot self-sign into a persisted JSON bundle.
+ */
+export function adoptExecutionCompilationBundle(
+  value: unknown,
+  context: ExecutionBundleAuthorityContext
+): ExecutionCompilationBundle {
+  const bundle = verifyCompilationBundle(value);
+  if (!bundle.execution_capable) throw new Error("VPD-K003: planning-only bundle cannot be adopted for execution");
+  if (!isTrustedH3GrammarProfile(context.grammar_profile as never)) throw new Error("VPD-C003: execution requires a trusted pinned grammar profile");
+  if (!isTrustedCreateOnlyArtifactStoreEnvelope(context.artifact_store_envelope)) throw new Error("VPD-K003: create-only artifact-store provenance is missing");
+  if (!isExecutionAuthoritativePinnedPromptBudgetEvidence(context.trusted_pinned_budget_evidence)) throw new Error("VPD-K003: execution requires authoritative budget evidence");
+  if (sha256Canonical(context.effective_contract) !== bundle.effective_contract_digest
+    || context.effective_contract.digest !== bundle.effective_contract_digest) throw new Error("VPD-K002: live effective contract does not match bundle");
+  const envelope = context.artifact_store_envelope;
+  if (envelope.artifact_id !== bundle.request_id) {
+    throw new Error("VPD-K003: create-only artifact-store provenance is missing");
+  }
+  for (const asset of bundle.asset_lineage) {
+    const pin = context.asset_pins[asset.asset_id];
+    if (!pin || !isTrustedAssetPin(pin) || !asset.pin
+      || pin.relative_path !== asset.pin.relative_path
+      || pin.sha256 !== asset.pin.sha256
+      || pin.byte_size !== asset.pin.byte_size
+      || asset.pin_evidence?.sha256 !== pin.sha256
+      || asset.pin_evidence.byte_size !== pin.byte_size) {
+      throw new Error(`VPD-J002: live opaque asset pin does not match '${asset.asset_id}'`);
+    }
+  }
+  adoptedExecutionBundles.add(bundle as object);
+  return bundle as ExecutionCompilationBundle;
+}
+
+export function isAdoptedExecutionCompilationBundle(value: unknown): value is ExecutionCompilationBundle {
+  return Boolean(value && typeof value === "object" && adoptedExecutionBundles.has(value as object));
 }
 
 export function assertCompilationBundleAssets(
@@ -388,10 +495,32 @@ export function isProjectAssetIdentityContained(root: string, candidate: string,
 const MAX_PINNED_ASSET_BYTES = 512 * 1024 * 1024;
 
 function resolvePinRoot(pinRoot: string, projectRoot: string): string {
-  if (!isAbsolute(pinRoot) || !isProjectAssetIdentityContained(projectRoot, pinRoot) || realpathSync(pinRoot) !== resolve(pinRoot)) {
+  if (!isAbsolute(pinRoot) || !isProjectAssetIdentityContained(projectRoot, pinRoot)) {
     throw new Error("VPD-J002: asset pin root must be a project-local regular directory");
   }
-  return resolve(pinRoot);
+  const resolved = resolve(pinRoot);
+  assertStrongDirectoryChain(resolved, resolve(projectRoot));
+  return resolved;
+}
+
+function assertStrongDirectoryChain(candidate: string, root: string): void {
+  const resolvedRoot = resolve(root);
+  const resolvedCandidate = resolve(candidate);
+  if (!isProjectAssetIdentityContained(resolvedRoot, resolvedCandidate)) throw new Error("VPD-J002: asset pin directory escapes project root");
+  const relativePath = nativePath.relative(resolvedRoot, resolvedCandidate);
+  const parts = relativePath ? relativePath.split(nativePath.sep) : [];
+  let current = resolvedRoot;
+  const rootStat = lstatSync(current);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || rootStat.dev === 0 || rootStat.ino === 0) {
+    throw new Error("VPD-J002: project root identity is not strong");
+  }
+  for (const part of parts) {
+    current = join(current, part);
+    const stat = lstatSync(current);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || stat.dev === 0 || stat.ino === 0) {
+      throw new Error("VPD-J002: asset pin ancestor identity is not strong");
+    }
+  }
 }
 
 function sha256Fd(fd: number, byteSize: number): string {
@@ -427,20 +556,114 @@ function generationUnitSourceIdentity(source: GenerationUnitProgramSourceV1) {
   };
 }
 
-/** Write a complete bundle through a sibling temp file; the final file is the commit marker. */
+/**
+ * Persist a complete bundle under a trusted project root. The directory is
+ * renamed atomically only after bounded files and the final manifest marker
+ * have been fsynced. Existing final paths and links are never replaced.
+ */
 export async function writeCompilationBundleAtomic(
   path: string,
-  bundle: CompilationBundleV1
+  bundle: CompilationBundleV1,
+  options: { project_root?: string; allow_existing_same_digest?: boolean } = {}
 ): Promise<void> {
   const checked = verifyCompilationBundle(bundle);
-  await mkdir(dirname(path), { recursive: true });
-  const temp = join(dirname(path), `.${path.split("/").pop() ?? "bundle"}.${randomBytes(8).toString("hex")}.tmp`);
+  const target = resolve(path);
+  const parent = dirname(target);
+  const projectRoot = resolve(options.project_root ?? parent);
+  if (!isAbsolute(target) || !isProjectAssetIdentityContained(projectRoot, target)) throw new Error("VPD-K002: compilation artifact path escapes the trusted project root");
+  await mkdir(parent, { recursive: true });
+  assertDirectoryIdentity(projectRoot);
+  assertStrongDirectoryChain(parent, projectRoot);
   try {
-    await writeFile(temp, `${JSON.stringify(checked, null, 2)}\n`, "utf8");
-    await rename(temp, path);
+    const existing = lstatSync(target);
+    if (existing.isSymbolicLink() || existing.isFile()) throw new Error("VPD-K002: compilation artifact already exists");
+    if (existing.isDirectory() && options.allow_existing_same_digest) {
+      try {
+        const marker = JSON.parse(await readFile(join(target, "compilation-manifest.json"), "utf8")) as { compilation_digest?: unknown };
+        const persisted = verifyCompilationBundle(JSON.parse(await readFile(join(target, "bundle.json"), "utf8")));
+        if (marker.compilation_digest === checked.compilation_digest
+          && marker.compilation_digest === persisted.compilation_digest) return;
+      } catch {
+        // A partial or malformed final directory is never adopted.
+      }
+    }
+    throw new Error("VPD-K002: compilation artifact already exists");
   } catch (error) {
-    try { await unlink(temp); } catch { /* best-effort cleanup of a private temp sibling */ }
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const temp = join(parent, `.${target.split(nativePath.sep).pop() ?? "bundle"}.${randomBytes(8).toString("hex")}.tmp`);
+  try {
+    await mkdir(temp, { recursive: false, mode: 0o700 });
+    await writeCreateOnlyText(join(temp, "canonical-prompt.txt"), checked.canonical_prompt);
+    await writeCreateOnlyText(join(temp, "adapter-prompt.txt"), checked.adapter_prompt);
+    await writeCreateOnlyText(join(temp, "validation.json"), JSON.stringify(checked.validation));
+    await writeCreateOnlyText(join(temp, "route.json"), JSON.stringify(checked.route));
+    await writeCreateOnlyText(join(temp, "effective-contract.json"), JSON.stringify(checked.effective_contract));
+    await writeCreateOnlyText(join(temp, "lineage.json"), JSON.stringify(checked.lineage));
+    await writeCreateOnlyText(join(temp, "bundle.json"), JSON.stringify(checked));
+    await writeCreateOnlyText(join(temp, "compilation-manifest.json"), JSON.stringify({
+      schema_version: 1,
+      compilation_digest: checked.compilation_digest,
+      canonical_prompt_digest: checked.canonical_prompt_digest,
+      adapter_prompt_digest: checked.adapter_prompt_digest,
+      committed: true
+    }));
+    fsyncDirectory(temp);
+    try {
+      const raced = lstatSync(target);
+      if (raced.isSymbolicLink() || raced.isDirectory() || raced.isFile()) throw new Error("VPD-K002: compilation artifact appeared during atomic write");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await rename(temp, target);
+    fsyncDirectory(parent);
+  } catch (error) {
+    try { await rm(temp, { recursive: true, force: true }); } catch { /* best-effort cleanup of a private temp sibling */ }
     throw error;
+  }
+}
+
+/** Shadow comparison is intentionally a separate, non-authoritative namespace. */
+export async function writeShadowComparisonAtomic(
+  root: string,
+  comparison: { request_id: string; authoritative: "legacy"; status: string; compilation_digest?: string; issues: unknown[] }
+): Promise<void> {
+  const target = join(resolve(root), comparison.request_id);
+  await mkdir(target, { recursive: true, mode: 0o700 });
+  const payload = JSON.stringify({ ...comparison, authoritative: "legacy", gate_binding: null, run_binding: null });
+  try {
+    await writeCreateOnlyText(join(target, "comparison.json"), payload);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const existing = await readFile(join(target, "comparison.json"), "utf8");
+    if (existing !== `${payload}\n`) throw new Error("VPD-C004: shadow comparison artifact changed after commit");
+  }
+}
+
+const MAX_BUNDLE_FILE_BYTES = 32 * 1024 * 1024;
+
+async function writeCreateOnlyText(path: string, value: string): Promise<void> {
+  const bytes = Buffer.from(`${value}\n`, "utf8");
+  if (bytes.byteLength > MAX_BUNDLE_FILE_BYTES) throw new Error("VPD-K002: compilation artifact exceeds bounded write size");
+  const fd = openSync(path, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0), 0o600);
+  try {
+    let offset = 0;
+    while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function fsyncDirectory(path: string): void {
+  const fd = openSync(path, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
+function assertDirectoryIdentity(path: string): void {
+  const stat = lstatSync(path);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.dev === 0 || stat.ino === 0) {
+    throw new Error("VPD-K002: compilation artifact directory identity is not strong");
   }
 }
 

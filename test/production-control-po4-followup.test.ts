@@ -144,6 +144,7 @@ async function writeMvProject(withSource: boolean): Promise<{
   const ir = {
     ...baseV2("v6"),
     program_kind: "mv",
+    audio: { policy: "reuse-master", reference_asset_ids: [], final_mix: "discard-generated" },
     program_binding: buildProgramBinding(source)
   } as VideoPromptIrV2;
   const project = {

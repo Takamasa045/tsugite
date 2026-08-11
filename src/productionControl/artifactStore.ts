@@ -302,7 +302,7 @@ async function assertRealDirectory(path: string): Promise<string> {
 async function captureDirectory(path: string): Promise<DirectoryIdentity> {
   try {
     const stats = await lstat(path);
-    if (stats.isSymbolicLink() || !stats.isDirectory()) throw pcError("PC_PATH_UNSAFE", "artifact directory is not safe");
+    if (stats.isSymbolicLink() || !stats.isDirectory() || stats.dev === 0 || stats.ino === 0) throw pcError("PC_PATH_UNSAFE", "artifact directory identity is not strong");
     return { device: stats.dev, inode: stats.ino, real_path: await realpath(path) };
   } catch (error) {
     if (error instanceof ProductionControlError) throw error;

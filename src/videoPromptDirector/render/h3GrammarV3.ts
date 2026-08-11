@@ -12,9 +12,25 @@ import {
 import type { H3Issue } from "../validation/types.js";
 import { issue } from "../validation/types.js";
 import type { ShotV2, VideoPromptIrV2, VocalEventV2 } from "../schemaV2.js";
+import { z } from "zod";
 
 const trustedGrammarProfiles = new WeakSet<object>();
 const grammarProfileSnapshots = new WeakMap<object, string>();
+const grammarProfileSchema = z.object({
+  profile_id: z.string().min(1),
+  source_commit: z.string().min(1),
+  source_digest: z.string().regex(/^[a-f0-9]{64}$/u),
+  section_order: z.array(z.string().min(1)).min(1),
+  reference_section_order: z.array(z.string().min(1)).length(6),
+  features: z.object({
+    scenetrans: z.boolean(),
+    cutoff: z.boolean(),
+    group_speaker: z.boolean(),
+    exact_dialogue: z.boolean()
+  }).strict(),
+  serialization_rules_digest: z.string().regex(/^[a-f0-9]{64}$/u),
+  digest: z.string().regex(/^[a-f0-9]{64}$/u)
+}).strict();
 
 export const H3_GRAMMAR_V3_VERSION = "3" as const;
 export const H3_BASE_SECTION_ORDER_V3 = [
@@ -36,6 +52,7 @@ export type H3GrammarProfileV3 = {
   source_commit: string;
   source_digest: string;
   section_order: readonly string[];
+  reference_section_order: readonly string[];
   features: {
     scenetrans: boolean;
     cutoff: boolean;
@@ -68,6 +85,7 @@ export const DEFAULT_H3_GRAMMAR_PROFILE_V3: H3GrammarProfileV3 = {
   source_commit: "h3-grammar-v3-official-pinned-2026-08-08",
   source_digest: "3f7c1d93d2a4c1c6f5c3f9f6a37b8bbad6ef5a53b3274efc46d9d7a3b9f9c811",
   section_order: H3_BASE_SECTION_ORDER_V3,
+  reference_section_order: H3_REFERENCE_SECTION_ORDER_V3,
   features: { scenetrans: true, cutoff: true, group_speaker: true, exact_dialogue: true },
   serialization_rules_digest: sha256Text("h3-grammar-v3-serialization"),
   digest: sha256Canonical({
@@ -75,15 +93,17 @@ export const DEFAULT_H3_GRAMMAR_PROFILE_V3: H3GrammarProfileV3 = {
     source_commit: "h3-grammar-v3-official-pinned-2026-08-08",
     source_digest: "3f7c1d93d2a4c1c6f5c3f9f6a37b8bbad6ef5a53b3274efc46d9d7a3b9f9c811",
     section_order: H3_BASE_SECTION_ORDER_V3,
+    reference_section_order: H3_REFERENCE_SECTION_ORDER_V3,
     features: { scenetrans: true, cutoff: true, group_speaker: true, exact_dialogue: true },
     serialization_rules_digest: sha256Text("h3-grammar-v3-serialization")
   })
 };
 Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.features);
 Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.section_order);
+Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.reference_section_order);
 Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3);
-trustedGrammarProfiles.add(DEFAULT_H3_GRAMMAR_PROFILE_V3);
-grammarProfileSnapshots.set(DEFAULT_H3_GRAMMAR_PROFILE_V3, h3GrammarProfileDigest(DEFAULT_H3_GRAMMAR_PROFILE_V3));
+// The compatibility default is deliberately not execution-trusted. Only the
+// async repo-local pinned-profile loader may mint a trusted runtime snapshot.
 
 /** Caller-supplied profiles may be displayed for planning, never trusted for execution. */
 export function isTrustedH3GrammarProfile(profile: H3GrammarProfileV3 | undefined): boolean {
@@ -94,25 +114,30 @@ export function isTrustedH3GrammarProfile(profile: H3GrammarProfileV3 | undefine
 
 /** Load only the repo-local pinned provenance record; no caller object is promoted. */
 export async function loadPinnedH3GrammarProfile(root = "profiles/grammar"): Promise<H3GrammarProfileV3> {
-  const raw = await readYamlFile(join(root, "h3-v3.yaml")) as Partial<H3GrammarProfileV3>;
+  const raw = await readYamlFile(join(root, "h3-v3.yaml"));
   const candidate = {
-    ...raw,
-    section_order: [...(raw.section_order ?? [])],
-    features: { ...raw.features }
-  } as H3GrammarProfileV3;
-  if (candidate.profile_id !== DEFAULT_H3_GRAMMAR_PROFILE_V3.profile_id
-    || candidate.source_commit !== DEFAULT_H3_GRAMMAR_PROFILE_V3.source_commit
-    || candidate.source_digest !== DEFAULT_H3_GRAMMAR_PROFILE_V3.source_digest
-    || h3GrammarProfileDigest(candidate) !== candidate.digest
-    || candidate.digest !== DEFAULT_H3_GRAMMAR_PROFILE_V3.digest) {
+    ...raw as Record<string, unknown>,
+    section_order: [...((raw as Partial<H3GrammarProfileV3>).section_order ?? [])],
+    reference_section_order: [...((raw as Partial<H3GrammarProfileV3>).reference_section_order ?? [])],
+    features: { ...((raw as Partial<H3GrammarProfileV3>).features ?? {}) }
+  };
+  const parsed = grammarProfileSchema.safeParse(candidate);
+  if (!parsed.success) throw new Error("VPD-C003: pinned H3 grammar profile schema is invalid");
+  const normalized = parsed.data as H3GrammarProfileV3;
+  if (normalized.profile_id !== DEFAULT_H3_GRAMMAR_PROFILE_V3.profile_id
+    || normalized.source_commit !== DEFAULT_H3_GRAMMAR_PROFILE_V3.source_commit
+    || normalized.source_digest !== DEFAULT_H3_GRAMMAR_PROFILE_V3.source_digest
+    || h3GrammarProfileDigest(normalized) !== normalized.digest
+    || normalized.digest !== DEFAULT_H3_GRAMMAR_PROFILE_V3.digest) {
     throw new Error("VPD-C003: pinned H3 grammar provenance is stale or untrusted");
   }
-  Object.freeze(candidate.features);
-  Object.freeze(candidate.section_order);
-  Object.freeze(candidate);
-  trustedGrammarProfiles.add(candidate);
-  grammarProfileSnapshots.set(candidate, h3GrammarProfileDigest(candidate));
-  return candidate;
+  Object.freeze(normalized.features);
+  Object.freeze(normalized.section_order);
+  Object.freeze(normalized.reference_section_order);
+  Object.freeze(normalized);
+  trustedGrammarProfiles.add(normalized);
+  grammarProfileSnapshots.set(normalized, h3GrammarProfileDigest(normalized));
+  return normalized;
 }
 
 export function h3GrammarProfileDigest(profile: H3GrammarProfileV3 | Omit<H3GrammarProfileV3, "digest">): string {
@@ -207,8 +232,8 @@ function renderSemanticPromptAst(
   }
   const baseProfileOrder = profile.section_order.length === H3_BASE_SECTION_ORDER_V3.length
     && profile.section_order.every((section, index) => section === H3_BASE_SECTION_ORDER_V3[index]);
-  const referenceProfileOrder = profile.section_order.length === H3_REFERENCE_SECTION_ORDER_V3.length
-    && profile.section_order.every((section, index) => section === H3_REFERENCE_SECTION_ORDER_V3[index]);
+  const referenceProfileOrder = profile.reference_section_order.length === H3_REFERENCE_SECTION_ORDER_V3.length
+    && profile.reference_section_order.every((section, index) => section === H3_REFERENCE_SECTION_ORDER_V3[index]);
   if (!baseProfileOrder && !(ast.format === "reference" && referenceProfileOrder)) {
     issues.push(issue("VPD-C002", "selected grammar profile section order does not match the requested mode", "error", ["grammar_profile", "section_order"]));
   }

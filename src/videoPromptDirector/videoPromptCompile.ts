@@ -42,7 +42,14 @@ import { validateH3CreativeIr } from "./validation/index.js";
 import { h3IssueToProjectIssue } from "./compile.js";
 import type { GenerationUnitProgramSourceV1 } from "../productionControl/programBinding.js";
 import { loadAdapterDialectCapability } from "./adapterDialect.js";
-import { lyricsSourceForGenerationUnitSource } from "./generationUnitSourceResolver.js";
+import {
+  consumeGenerationUnitLyricsToken,
+  materializeGenerationUnitLyrics,
+  type TrustedGenerationUnitLyricsToken
+} from "./generationUnitSourceResolver.js";
+import { loadPinnedH3GrammarProfile, type H3GrammarProfileV3 } from "./render/h3GrammarV3.js";
+import { writeCompilationBundleAtomic, writeShadowComparisonAtomic } from "./compilationBundle.js";
+import { dirname, join, resolve } from "node:path";
 
 export {
   VIDEO_PROMPT_DUAL_AUTHORING_CODE,
@@ -80,6 +87,15 @@ export type CompileVideoPromptOptions = {
   generationUnitSourceByRequestId?: Readonly<Record<string, GenerationUnitProgramSourceV1>>;
   generationUnitSourceResolver?: GenerationUnitSourceResolver;
   requestIndex?: number;
+  require_exact_sync?: boolean;
+  /** Repo-local pinned grammar loaded by the project entrypoint. */
+  grammar_profile?: H3GrammarProfileV3;
+  require_pinned_grammar?: boolean;
+  grammarProfileRoot?: string;
+  /** Compiler-internal opaque token; callers cannot manufacture lyrics authority. */
+  generationUnitLyricsToken?: TrustedGenerationUnitLyricsToken;
+  compilationArtifactRoot?: string;
+  shadowArtifactRoot?: string;
 };
 
 export type VideoPromptPlan = {
@@ -331,6 +347,7 @@ async function compileVideoPromptV2Request(
   });
   if (!selectedRoute.ok) issues.push(...selectedRoute.issues);
   if (!selectedRoute.ok || !adapterCheck.ok) return { ok: false, issues };
+  const requireExactSync = options.require_exact_sync ?? ir.shots.some((shot) => shot.vocal_events.some((event) => event.kind === "singing" && event.content.source === "lyrics-cue"));
   const compiled = compileVideoPromptIrV2(ir, {
     request_id: request.id,
     route: selectedRoute.route,
@@ -339,18 +356,34 @@ async function compileVideoPromptV2Request(
     model_profile_digest: modelLoad.digest,
     connection_capability_digest: connectionLoad.digest,
     intent: options.intent === "execute" ? "execute" : "planning",
+    require_exact_sync: requireExactSync,
     request_index: options.requestIndex,
     ...(options.generationUnitSource ? { generation_unit_source: options.generationUnitSource } : {}),
     ...(options.generationUnitSource ? {
-      lyrics_source: lyricsSourceForGenerationUnitSource(options.generationUnitSource),
+      ...(options.generationUnitLyricsToken
+        ? { lyrics_source: materializeGenerationUnitLyrics(options.generationUnitLyricsToken) }
+        : {}),
     } : {}),
+    ...(options.grammar_profile ? { grammar_profile: options.grammar_profile } : {}),
+    require_pinned_grammar: options.require_pinned_grammar,
     adapter_dialect_capability: adapterDialectLoad.capability,
     ...(source ? { source } : {})
   });
   issues.push(...compiled.issues);
   const v2Compilation = compiled.compilation;
   if (!v2Compilation) return { ok: false, issues };
-  const executionRequest = buildV2ExecutionRequest(request, ir, v2Compilation.adapter_prompt);
+  if (!v2Compilation.bundle) return { ok: false, issues };
+  const pinnedAssetPaths = Object.fromEntries(
+    v2Compilation.bundle.asset_lineage
+      .filter((asset) => asset.pin)
+      .map((asset) => [asset.asset_id, asset.pin!.relative_path])
+  );
+  const executionRequest = buildV2ExecutionRequest(
+    request,
+    ir,
+    v2Compilation.adapter_prompt,
+    options.intent === "execute" ? pinnedAssetPaths : undefined
+  );
   const lineage = {
     workflow_id: "video-prompt-v3",
     workflow_version: "3",
@@ -384,7 +417,12 @@ async function compileVideoPromptV2Request(
   return { ok: true, plan, issues: [] };
 }
 
-function buildV2ExecutionRequest(request: GenerationRequest, ir: VideoPromptIrV2, adapterPrompt: string): GenerationRequest {
+function buildV2ExecutionRequest(
+  request: GenerationRequest,
+  ir: VideoPromptIrV2,
+  adapterPrompt: string,
+  pinnedAssetPaths?: Readonly<Record<string, string>>
+): GenerationRequest {
   const {
     h3: _h3,
     video_prompt: _videoPrompt,
@@ -399,10 +437,11 @@ function buildV2ExecutionRequest(request: GenerationRequest, ir: VideoPromptIrV2
     input_audios: _inputAudios,
     ...rest
   } = request as GenerationRequest & { video_prompt?: unknown };
-  const assets = (role: string, type: "image" | "video" | "audio") => ir.assets.filter((asset) => asset.type === type && asset.role === role).map((asset) => asset.path);
-  const inputImages = ir.assets.filter((asset) => asset.type === "image" && ["subject_reference", "motion_reference", "environment_reference", "style_reference", "other"].includes(asset.role)).map((asset) => asset.path);
-  const inputVideos = ir.assets.filter((asset) => asset.type === "video").map((asset) => asset.path);
-  const inputAudios = ir.assets.filter((asset) => asset.type === "audio").map((asset) => asset.path);
+  const pathFor = (asset: VideoPromptIrV2["assets"][number]): string | undefined => pinnedAssetPaths?.[asset.id] ?? (pinnedAssetPaths ? undefined : asset.path);
+  const assets = (role: string, type: "image" | "video" | "audio") => ir.assets.filter((asset) => asset.type === type && asset.role === role).map(pathFor).filter((value): value is string => Boolean(value));
+  const inputImages = ir.assets.filter((asset) => asset.type === "image" && ["subject_reference", "motion_reference", "environment_reference", "style_reference", "other"].includes(asset.role)).map(pathFor).filter((value): value is string => Boolean(value));
+  const inputVideos = ir.assets.filter((asset) => asset.type === "video").map(pathFor).filter((value): value is string => Boolean(value));
+  const inputAudios = ir.assets.filter((asset) => asset.type === "audio").map(pathFor).filter((value): value is string => Boolean(value));
   return {
     ...rest,
     id: request.id,
@@ -433,7 +472,16 @@ export async function planVideoPrompt(
 export type CompileProjectVideoPromptResult = Result<{
   project: Project;
   plans: VideoPromptPlan[];
+  shadow_comparisons?: VideoPromptShadowComparison[];
 }>;
+
+export type VideoPromptShadowComparison = {
+  request_id: string;
+  authoritative: "legacy";
+  status: "compiled" | "failed" | "not-attempted";
+  compilation_digest?: string;
+  issues: Array<{ code: string; message: string }>;
+};
 
 /**
  * Compile every video_prompt-bearing request on a project for planning / dry-run.
@@ -450,14 +498,25 @@ export async function compileProjectVideoPrompts(
     return { ok: true, issues: [], project, plans: [] };
   }
 
-  const connectionId = options.connectionId
-    ?? project.generation.connection
-    ?? project.generation.adapter;
+  const connectionId = options.connectionId ?? project.generation.connection;
   const plans: VideoPromptPlan[] = [];
+  const shadowComparisons: VideoPromptShadowComparison[] = [];
   const v2Routes = [] as Array<NonNullable<VideoPromptPlan["v2_compilation"]>["route"]>;
   const issues: Issue[] = [];
   const nextRequests: GenerationRequest[] = [];
   const rolloutMode = project.orchestration?.mode;
+  let pinnedGrammar: H3GrammarProfileV3 | undefined;
+  let grammarLoadError: string | undefined;
+  if ((rolloutMode === "active" || rolloutMode === "shadow") && project.generation.requests.length > 0) {
+    try {
+      pinnedGrammar = await loadPinnedH3GrammarProfile(options.grammarProfileRoot ?? "profiles/grammar");
+    } catch (error) {
+      grammarLoadError = error instanceof Error ? error.message : String(error);
+      if (rolloutMode === "active") {
+        issues.push({ code: "VPD-C003", message: grammarLoadError, path: "profiles/grammar/h3-v3.yaml" });
+      }
+    }
+  }
 
   for (const [index, request] of project.generation.requests.entries()) {
     const dual = rejectDualAuthoring(request);
@@ -471,6 +530,51 @@ export async function compileProjectVideoPrompts(
     // The project entrypoint is intentionally rollout-gated. Legacy H3 is
     // authoritative until active; native V2 authoring is never silently
     // downgraded to the legacy compiler.
+    if (rolloutMode === "shadow") {
+      if (hasNativeVideoPrompt) {
+        issues.push(h3IssueToProjectIssue(issue("VPD-E022", "native VideoPromptIrV2 requires orchestration.mode=active", "error", ["video_prompt"]), index, "video_prompt"));
+        nextRequests.push(request);
+        continue;
+      }
+      const hasLegacyH3 = Boolean(request.h3);
+      if (!hasLegacyH3) {
+        nextRequests.push(request);
+        continue;
+      }
+      if (!project.generation.connection || !connectionId) {
+        shadowComparisons.push({ request_id: request.id, authoritative: "legacy", status: "not-attempted", issues: [{ code: "VPD-E022", message: "shadow V2 comparison requires an explicit generation.connection" }] });
+        nextRequests.push(request);
+        continue;
+      }
+      if (grammarLoadError || !pinnedGrammar) {
+        shadowComparisons.push({ request_id: request.id, authoritative: "legacy", status: "failed", issues: [{ code: "VPD-C003", message: grammarLoadError ?? "pinned grammar profile is unavailable" }] });
+        nextRequests.push(request);
+        continue;
+      }
+      const shadowIr = request.h3;
+      if (!shadowIr) {
+        nextRequests.push(request);
+        continue;
+      }
+      try {
+        const shadowResult = await compileVideoPromptRequest(request, shadowIr, {
+          ...options,
+          connectionId,
+          requestIndex: index,
+          grammar_profile: pinnedGrammar,
+          require_pinned_grammar: true,
+          ...(options.shadowArtifactRoot ? { shadowArtifactRoot: options.shadowArtifactRoot } : {})
+        });
+        const comparison: VideoPromptShadowComparison = shadowResult.ok && shadowResult.plan?.v2_compilation
+          ? { request_id: request.id, authoritative: "legacy", status: "compiled", compilation_digest: shadowResult.plan.v2_compilation.bundle.compilation_digest, issues: [] }
+          : { request_id: request.id, authoritative: "legacy", status: "failed", issues: shadowResult.issues.map((item) => ({ code: item.code, message: item.message })) };
+        shadowComparisons.push(comparison);
+      } catch (error) {
+        shadowComparisons.push({ request_id: request.id, authoritative: "legacy", status: "failed", issues: [{ code: "VPD-C004", message: error instanceof Error ? error.message : String(error) }] });
+      }
+      nextRequests.push(request);
+      continue;
+    }
     if (rolloutMode !== "active") {
       if (hasNativeVideoPrompt) {
         issues.push(h3IssueToProjectIssue(issue("VPD-E022", "native VideoPromptIrV2 requires orchestration.mode=active", "error", ["video_prompt"]), index, "video_prompt"));
@@ -480,11 +584,10 @@ export async function compileProjectVideoPrompts(
     }
 
     const hasLegacyH3 = Boolean(request.h3);
-    // A legacy H3-only project without a declared connection remains on the
-    // pure compatibility reader. Once a connection is explicitly pinned, it
-    // must cross the V2 compiler below; guessing a route here would violate
-    // the fail-closed connection boundary.
-    if (hasLegacyH3 && !project.generation.connection) {
+    // Active is an explicit V2 authority boundary. An adapter name is not a
+    // route and must never be promoted into a connection by this compiler.
+    if (!project.generation.connection || !connectionId) {
+      issues.push({ code: "VPD-E022", message: "active video prompt compilation requires an explicit generation.connection; adapter-only projects are planning-invalid", path: `generation.requests.${index}.video_prompt` });
       nextRequests.push(request);
       continue;
     }
@@ -523,11 +626,17 @@ export async function compileProjectVideoPrompts(
             })
           : generationUnitSource);
     }
+    const generationUnitLyricsToken = generationUnitSource
+      ? consumeGenerationUnitLyricsToken(generationUnitSource)
+      : undefined;
     const result = await compileVideoPromptRequest(request, ir, {
       ...options,
       connectionId,
       requestIndex: index,
-      ...(generationUnitSource ? { generationUnitSource } : {})
+      grammar_profile: pinnedGrammar,
+      require_pinned_grammar: true,
+      ...(generationUnitSource ? { generationUnitSource } : {}),
+      ...(generationUnitLyricsToken ? { generationUnitLyricsToken } : {})
     });
     if (result.plan) {
       plans.push(result.plan);
@@ -537,6 +646,14 @@ export async function compileProjectVideoPrompts(
       issues.push(...result.issues.map((item) => h3IssueToProjectIssue(item, index, "video_prompt")));
       nextRequests.push(request);
       continue;
+    }
+
+    if (options.compilationArtifactRoot && result.plan.v2_compilation) {
+      await writeCompilationBundleAtomic(
+        join(resolve(options.compilationArtifactRoot), result.plan.v2_compilation.request_id),
+        result.plan.v2_compilation.bundle,
+        { project_root: dirname(resolve(options.compilationArtifactRoot)), allow_existing_same_digest: true }
+      );
     }
 
     // Keep authoring IR for digests; fill execution fields including non-empty prompt.
@@ -568,10 +685,23 @@ export async function compileProjectVideoPrompts(
     }
   }
 
-  if (issues.length > 0) {
-    return { ok: false, issues, project: nextProject, plans };
+  if (options.shadowArtifactRoot) {
+    for (const comparison of shadowComparisons) {
+      try {
+        await writeShadowComparisonAtomic(options.shadowArtifactRoot, comparison);
+      } catch (error) {
+        // Shadow persistence is non-authoritative: report the failed artifact
+        // without changing the legacy result or Gate/run digest.
+        comparison.issues.push({ code: "VPD-C004", message: error instanceof Error ? error.message : String(error) });
+        comparison.status = "failed";
+      }
+    }
   }
-  return { ok: true, issues: [], project: nextProject, plans };
+
+  if (issues.length > 0) {
+    return { ok: false, issues, project: nextProject, plans, ...(shadowComparisons.length > 0 ? { shadow_comparisons: shadowComparisons } : {}) };
+  }
+  return { ok: true, issues: [], project: nextProject, plans, ...(shadowComparisons.length > 0 ? { shadow_comparisons: shadowComparisons } : {}) };
 }
 
 function buildExecutionRequest(

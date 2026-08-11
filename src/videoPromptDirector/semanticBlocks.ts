@@ -66,6 +66,10 @@ export type LyricsCueSource = {
     end_utf8_byte: number;
     text_digest: string;
   };
+  start_ms?: number;
+  end_ms?: number;
+  singer_ids?: string[];
+  use?: Array<"caption-overlay" | "story-cue" | "generated-singing" | "audio-reference">;
 };
 
 export type LyricsSource = {
@@ -315,9 +319,17 @@ export function resolveVocalEventText(
   if (!cue || cue.lyrics_contract_digest !== content.lyrics_contract_digest) {
     return { issues: [issue("VPD-L002", "lyrics cue or contract binding is missing", "error", path.split("."))] };
   }
+  if (event.kind === "singing" && cue.use && !cue.use.includes("generated-singing")) {
+    return { issues: [issue("VPD-L002", "caption-only or editor-only lyrics cue cannot flow into generated singing", "error", path.split("."))] };
+  }
   const timingIssues = options.require_exact_sync && cue.timing === "untimed"
     ? [issue("VPD-L003", "untimed lyrics cue cannot be used where exact synchronization is required", "error", path.split("."))]
     : [];
+  if (cue.timing === "timed" && cue.start_ms !== undefined && cue.end_ms !== undefined
+    && event.start_ms !== undefined && event.end_ms !== undefined
+    && (event.start_ms !== cue.start_ms || event.end_ms !== cue.end_ms)) {
+    timingIssues.push(issue("VPD-L003", "lyrics event timing does not match the authoritative cue timing", "error", path.split(".")));
+  }
   const bytes = Buffer.from(source.canonical_text, "utf8");
   const { start_utf8_byte: start, end_utf8_byte: end } = cue.source_span;
   if (start < 0 || end <= start || end > bytes.length) {

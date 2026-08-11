@@ -19,7 +19,14 @@ const DEFAULT_SOURCE_DIR = "production-control/generation-units";
 const MAX_CONTRACT_ARTIFACT_BYTES = 16 * 1024 * 1024;
 const trustedGenerationUnitSources = new WeakSet<object>();
 const generationUnitSourceSnapshots = new WeakMap<object, string>();
-const lyricsByGenerationUnitSource = new WeakMap<object, LyricsSource>();
+declare const trustedGenerationUnitLyricsBrand: unique symbol;
+export type TrustedGenerationUnitLyricsToken = {
+  readonly [trustedGenerationUnitLyricsBrand]: true;
+};
+const trustedGenerationUnitLyricsTokens = new WeakSet<object>();
+const lyricsSnapshots = new WeakMap<object, LyricsSource>();
+const lyricsTokenBySource = new WeakMap<object, TrustedGenerationUnitLyricsToken>();
+const fullT04Snapshots = new WeakMap<object, { unit: unknown; lyrics?: unknown }>();
 
 /**
  * Separator-aware containment used by the source resolver and its Windows
@@ -61,8 +68,21 @@ export function isAuthoritativeGenerationUnitSource(source: GenerationUnitProgra
   }
 }
 
-export function lyricsSourceForGenerationUnitSource(source: GenerationUnitProgramSourceV1): LyricsSource | undefined {
-  return lyricsByGenerationUnitSource.get(source as object);
+/**
+ * Compiler-internal handoff. The public API exposes no mutable LyricsSource
+ * getter; only an opaque token minted beside the full T04 artifact snapshot
+ * can be materialized inside the compiler boundary.
+ */
+export function consumeGenerationUnitLyricsToken(source: GenerationUnitProgramSourceV1): TrustedGenerationUnitLyricsToken | undefined {
+  if (!isAuthoritativeGenerationUnitSource(source)) return undefined;
+  const token = lyricsTokenBySource.get(source as object);
+  return token && trustedGenerationUnitLyricsTokens.has(token as object) ? token : undefined;
+}
+
+export function materializeGenerationUnitLyrics(token: TrustedGenerationUnitLyricsToken): LyricsSource | undefined {
+  if (!trustedGenerationUnitLyricsTokens.has(token as object)) return undefined;
+  const snapshot = lyricsSnapshots.get(token as object);
+  return snapshot ? deepFreeze(structuredClone(snapshot)) : undefined;
 }
 
 async function resolveLegacyGenerationUnitSource(
@@ -92,7 +112,7 @@ async function resolveLegacyGenerationUnitSource(
         fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)
       );
       const directoryStat = await directoryHandle.stat();
-      if (!directoryStat.isDirectory()) return undefined;
+      if (!directoryStat.isDirectory() || !sameFileIdentity(directoryLexicalStat, directoryStat)) return undefined;
       const directoryAgain = await realpath(lexicalDirectory);
       if (directoryAgain !== directory || !isGenerationUnitPathContained(root, directoryAgain)) return undefined;
 
@@ -106,7 +126,8 @@ async function resolveLegacyGenerationUnitSource(
       const before = await fileHandle.stat();
       if (!before.isFile() || before.dev === 0 || before.ino === 0 || before.size > MAX_CONTRACT_ARTIFACT_BYTES) return undefined;
       const beforePath = await realpath(lexicalCandidate);
-      if (beforePath !== candidate || !isGenerationUnitPathContained(directory, beforePath)) return undefined;
+      if (beforePath !== candidate || !isGenerationUnitPathContained(directory, beforePath)
+        || !sameFileIdentity(lexicalCandidateStat, before)) return undefined;
 
       // Read from the opened descriptor, never by reopening the checked path.
       const bytes = Buffer.alloc(before.size);
@@ -155,6 +176,7 @@ async function resolveAuthoritativeGenerationUnit(
     const unit = parseArtifact(await store.readBounded(unitRef.id, MAX_CONTRACT_ARTIFACT_BYTES), generationUnitContractSchema, unitRef.digest);
     if (unit.unit_id !== request.id || unit.ordinal !== requestIndex || unit.program.end_ms - unit.program.start_ms !== ir.target.duration_ms) return undefined;
     if (unit.route.ir_model !== ir.target.model_profile_id || unit.route.mode_binding !== ir.target.mode) return undefined;
+    if (unit.audio_policy !== ir.audio.policy) return undefined;
 
     const musicRef = project.orchestration?.authoring?.music;
     if (!musicRef || musicRef.id !== unit.music_binding.contract_id || musicRef.digest !== unit.music_binding.contract_digest) return undefined;
@@ -165,7 +187,20 @@ async function resolveAuthoritativeGenerationUnit(
       || unit.program.master_duration_ms !== music.master_audio.duration_ms) return undefined;
     for (const ref of unit.beat_anchor_refs) {
       const beat = music.beat_markers.find((candidate) => candidate.id === ref.fragment_id);
-      if (!beat || ref.digest !== sha256Canonical(beat)) return undefined;
+      if (!beat || ref.digest !== sha256Canonical(beat)
+        || beat.at_ms < unit.program.start_ms || beat.at_ms > unit.program.end_ms) return undefined;
+    }
+    if (unit.program.section_id) {
+      const section = music.sections.find((candidate) => candidate.id === unit.program.section_id);
+      if (!section || unit.program.start_ms < section.start_ms || unit.program.end_ms > section.end_ms) return undefined;
+    }
+    if (unit.audio_policy === "reference-only") {
+      const binding = unit.reference_audio_binding;
+      const referenceAsset = ir.assets.find((asset) => asset.id === binding?.derived_asset_id);
+      if (!binding || !referenceAsset || referenceAsset.type !== "audio"
+        || referenceAsset.sha256 !== binding.derived_asset_digest
+        || binding.source_start_ms !== unit.program.start_ms
+        || binding.source_end_ms !== unit.program.end_ms) return undefined;
     }
 
     let lyrics: LyricsContractV1 | undefined;
@@ -179,14 +214,17 @@ async function resolveAuthoritativeGenerationUnit(
       for (const ref of unit.lyric_cue_refs) {
         const cue = lyrics.cues.find((candidate) => candidate.id === ref.fragment_id);
         if (!cue || ref.digest !== sha256Canonical(cue)) return undefined;
+        if (cue.section_id && unit.program.section_id && cue.section_id !== unit.program.section_id) return undefined;
+        if (cue.timing === "timed" && (cue.start_ms < unit.program.start_ms || cue.end_ms > unit.program.end_ms)) return undefined;
       }
     } else if (unit.lyric_cue_refs.length > 0) return undefined;
 
     const source = deepFreeze(toProgramBindingSource(unit));
     trustedGenerationUnitSources.add(source as object);
     generationUnitSourceSnapshots.set(source as object, sha256Canonical(source));
+    fullT04Snapshots.set(source as object, deepFreeze({ unit: structuredClone(unit), ...(lyrics ? { lyrics: structuredClone(lyrics) } : {}) }));
     if (lyrics) {
-      lyricsByGenerationUnitSource.set(source as object, {
+      const lyricsSource = deepFreeze({
         canonical_text: lyrics.source.canonical_text,
         text_digest: lyrics.source.text_digest,
         cues: unit.lyric_cue_refs.map((ref) => {
@@ -196,10 +234,17 @@ async function resolveAuthoritativeGenerationUnit(
             occurrence_id: cue.source_span.occurrence_id,
             timing: cue.timing,
             lyrics_contract_digest: lyrics!.digest,
-            source_span: cue.source_span
+            source_span: cue.source_span,
+            ...(cue.timing === "timed" ? { start_ms: cue.start_ms, end_ms: cue.end_ms } : {}),
+            singer_ids: [...cue.singer_ids],
+            use: [...cue.use]
           };
         })
-      });
+      }) as LyricsSource;
+      const token = Object.freeze({}) as TrustedGenerationUnitLyricsToken;
+      trustedGenerationUnitLyricsTokens.add(token as object);
+      lyricsSnapshots.set(token as object, lyricsSource);
+      lyricsTokenBySource.set(source as object, token);
     }
     return source;
   } catch {

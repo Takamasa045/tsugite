@@ -308,6 +308,7 @@ describe("PO-4 independent audit reproductions", () => {
     const source = toProgramBindingSource(unit);
     const ir = baseV2({
       program_kind: "mv",
+      audio: { policy: "reuse-master", reference_asset_ids: [], final_mix: "discard-generated" },
       program_binding: buildProgramBinding(source),
       target: { model_profile_id: "minimax-h3", mode: "text-to-video", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: false }
     });

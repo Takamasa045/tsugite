@@ -1,4 +1,4 @@
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { loadAdapterDefinition, type AdapterDefinition } from "../adapters/registry.js";
 import {
   loadProjectPromptGuides,
@@ -47,6 +47,7 @@ export type ValidateProjectOptions = {
   connectionCatalogPath?: string;
   promptGuideDirs?: string[];
   generationUnitSourceResolver?: GenerationUnitSourceResolver;
+  grammarProfileRoot?: string;
 };
 
 export async function validateProject(
@@ -66,12 +67,14 @@ export async function validateProject(
     audioConnection?: GenerationConnectionResolution;
     h3_compilations: H3Compilation[];
     video_prompt_plans?: VideoPromptPlan[];
+    video_prompt_shadow_comparisons?: import("../videoPromptDirector/videoPromptCompile.js").VideoPromptShadowComparison[];
   }>
 > {
   const issues: Issue[] = [];
   let project: Project;
   let h3Compilations: H3Compilation[] = [];
   let videoPromptPlans: VideoPromptPlan[] = [];
+  let videoPromptShadowComparisons: import("../videoPromptDirector/videoPromptCompile.js").VideoPromptShadowComparison[] = [];
 
   try {
     project = await loadProject(configPath);
@@ -109,9 +112,13 @@ export async function validateProject(
       ?? createProjectGenerationUnitSourceResolver(configPath);
     const videoCompile = await compileProjectVideoPrompts(project, {
       intent: "planning",
-      generationUnitSourceResolver
+      generationUnitSourceResolver,
+      ...(options.grammarProfileRoot ? { grammarProfileRoot: options.grammarProfileRoot } : {}),
+      compilationArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir, "compilations"),
+      shadowArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir, "shadow", "video-prompt")
     });
     videoPromptPlans = videoCompile.plans ?? [];
+    videoPromptShadowComparisons = videoCompile.shadow_comparisons ?? [];
     if (videoCompile.project) {
       project = videoCompile.project;
     }
@@ -121,7 +128,8 @@ export async function validateProject(
         issues: videoCompile.issues,
         project,
         h3_compilations: h3Compilations,
-        video_prompt_plans: videoPromptPlans
+        video_prompt_plans: videoPromptPlans,
+        ...(videoCompile.shadow_comparisons ? { video_prompt_shadow_comparisons: videoCompile.shadow_comparisons } : {})
       };
     }
   } else {
@@ -511,7 +519,8 @@ export async function validateProject(
       generationConnection,
       audioConnection,
       h3_compilations: h3Compilations,
-      ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {})
+      ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {}),
+      ...(videoPromptShadowComparisons.length > 0 ? { video_prompt_shadow_comparisons: videoPromptShadowComparisons } : {})
     };
   }
 
@@ -529,7 +538,8 @@ export async function validateProject(
     generationConnection,
     audioConnection,
     h3_compilations: h3Compilations,
-    ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {})
+    ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {}),
+    ...(videoPromptShadowComparisons.length > 0 ? { video_prompt_shadow_comparisons: videoPromptShadowComparisons } : {})
   };
 }
 

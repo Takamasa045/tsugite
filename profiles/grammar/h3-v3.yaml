@@ -5,10 +5,17 @@ section_order:
   - integrated_multimodal_description
   - overall_soundscape
   - non_diegetic_music
+reference_section_order:
+  - subject_definitions
+  - summary
+  - retention_analysis
+  - detailed_description
+  - overall_soundscape
+  - non_diegetic_music
 features:
   scenetrans: true
   cutoff: true
   group_speaker: true
   exact_dialogue: true
 serialization_rules_digest: ec227bbccaa04a23f693dbed96e279e62bc905941940b6ad4682adde4ded7474
-digest: d8e952dbe409d1c63d91700524364942b9f85954060fe95f6607933e475b6331
+digest: 25a694538d83cad8d303ee605527e904978e6d36931f221c031757efad59aebc
