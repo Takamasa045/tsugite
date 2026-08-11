@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "fixture_id": "production-control-legacy-v1",
+  "mode": "fixture-only",
+  "canonicalization": "src/integrity/canonical.ts: object keys sorted, arrays preserved",
+  "legacy_not_recorded": {
+    "meaning": "historical absence is explicit; no value is inferred",
+    "allowed_status": "field inventory only"
+  },
+  "design_pack": {
+    "documents": [
+      {
+        "path": "docs/design/README.md",
+        "sha256": "28e43aa170d1c207552f27722db10c07e59c037b9f28cfd1566d2e1cf6503ffb",
+        "byte_length": 1443
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/README.md",
+        "sha256": "f130668bc480e8de2e34870cb9d8692d348a4cd7851d13d73496ee4df329fdb6",
+        "byte_length": 7953
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/architecture.md",
+        "sha256": "0bd6dd70e2dfa23546f4da3a8fc3feed602a89129cdfa2085eeacb2876df514f",
+        "byte_length": 11785
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/contracts.md",
+        "sha256": "ff3508b8820dea1fb58f42e48ac89979abb4c32def8bd8a47a9719695ac0ffa1",
+        "byte_length": 25726
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/h3-prompt-v3.md",
+        "sha256": "f530fe4aa4199e8debaa1581e884860d309592b19c322b2e3d0ea2cd99f197dc",
+        "byte_length": 19857
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/implementation-plan.md",
+        "sha256": "73ed30164753ca6533d8f50260f84b54207f7d90e845e0904c49774d4d9f6725",
+        "byte_length": 14641
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/launcher-and-visualization.md",
+        "sha256": "3b5a7d6e18f257347ebf4f974d0caa0d16a8f63849f24fa09f4268820acdaeb1",
+        "byte_length": 7541
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/learning-loop.md",
+        "sha256": "748f662c6b0b7a6fe794cf80789a542c133053c7fe1122730c937c8d3c934920",
+        "byte_length": 7857
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/migration-and-release.md",
+        "sha256": "914f7a813b8291bdd30440accb5f5c8805cf6275d19d10465683f78f4b880d88",
+        "byte_length": 13175
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/mv-workflow.md",
+        "sha256": "b36fcaca19d131cb670e92ef550a367c1ffb9c0ab5b65eb7c1d0e7ca96145a5a",
+        "byte_length": 13874
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/observability-and-evaluation.md",
+        "sha256": "75dd40f00ca586c047cee749b01a97166e8f9a1c1cb27fac63aa9ba63d3eb9d5",
+        "byte_length": 9657
+      },
+      {
+        "path": "docs/design/production-orchestration-v1/runtime-and-recovery.md",
+        "sha256": "53a7b35a3e3f60d8980413323584216577d5dce3cfc0406f1288ce85a618789a",
+        "byte_length": 17991
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "path": "README.md",
+      "sha256": "d5bc03d9c64189c74b6396ce23381bbadf8ab908ec0d1b8bbd47f86a24ab3ac3",
+      "byte_length": 1075
+    },
+    {
+      "path": "baseline-metric-fields.json",
+      "sha256": "cf70e7151f13a5b0fe995474f31f65ac69c4ab664b41a29b1f1c8f569ec64071",
+      "byte_length": 2355,
+      "canonical_sha256": "209f48ffa1d2f62d4a322eba4b94abe529c982e8f1cfd3b01f940761ca515848"
+    },
+    {
+      "path": "finalize.json",
+      "sha256": "da23648d213c79c6768cf2ea513d88733d703a76fdedbe1cd7bd64d8b67e51d8",
+      "byte_length": 1146,
+      "canonical_sha256": "9db55201d48c0f5cfa486c5cfd493c9c8d7f678d6adbadb03a821fd74b0911f1"
+    },
+    {
+      "path": "generation-job.json",
+      "sha256": "7821d1e0b8edda388045f9b0a064c1f64bbb0fde6a0b3fbe4c96828c2d06a389",
+      "byte_length": 1895,
+      "canonical_sha256": "1d65c2507052d14ee0179d3e4bc3488f11f3e061a91fbab8bd42718d556c9f6c"
+    },
+    {
+      "path": "h3-artifact.json",
+      "sha256": "59060e12ef3462c96beb4cf11ebc5ea49fa7d81b14497bb91ef06071123788ed",
+      "byte_length": 1394,
+      "canonical_sha256": "4469d4e8f58382543da33a187058434c82752dc68ce54b8d08edb41b6d2ead86"
+    },
+    {
+      "path": "launcher-dto.json",
+      "sha256": "baed79f11a5c8f10594b25110d36d63b94ad009f5df01510b50bfd256171de99",
+      "byte_length": 1386,
+      "canonical_sha256": "1a8066bdfc14aaa87a284088e7a853b8bb1efad1d734750ee5356dd5955e3742"
+    },
+    {
+      "path": "project.json",
+      "sha256": "fb91766a8cb74f28b4bbf7660eae55512564127018a8b0107511fe7b141b902a",
+      "byte_length": 1290,
+      "canonical_sha256": "1a322c64dfb38a925ca22bd5790120807c9789cf94b15d6a28b9aa7bf98855ec"
+    },
+    {
+      "path": "gate-state.json",
+      "sha256": "95a43cb4011eb336bc93a835ec3a6a5aee776cf9881e177e5a5c3316a43e7bb4",
+      "byte_length": 819,
+      "canonical_sha256": "62f26b947733e38695fa4087b85b4b0864fe098ea65b6a151a47addf3730d773"
+    }
+  ]
+}

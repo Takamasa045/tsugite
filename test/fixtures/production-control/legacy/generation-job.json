@@ -1,0 +1,55 @@
+{
+  "record": {
+    "schema_version": 1,
+    "job_id": "legacy-job-001",
+    "status": "submission_unknown",
+    "connection_id": "fixture-connection",
+    "adapter_id": "fixture-adapter",
+    "model_id": "fixture-model",
+    "mode": "text-to-video",
+    "request": {
+      "digest": "7e3f210f94803a68241ea4a7901e1c4dc1cc3b77b7670d66ae4b2086775c9725",
+      "model_id": "fixture-model",
+      "mode": "text-to-video",
+      "connection_id": "fixture-connection",
+      "auth_env_names": [
+        "TSUGITE_FIXTURE_AUTH"
+      ],
+      "asset_paths": [
+        "media/clip-001.mp4"
+      ],
+      "params": {
+        "aspect": "16:9",
+        "duration_seconds": 5
+      }
+    },
+    "model_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "connection_capability_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "pricing": {
+      "status": "known",
+      "version": "fixture-pricing-v1",
+      "currency": "USD",
+      "amount": 1.25,
+      "max_amount": 1.25
+    },
+    "approval": {
+      "approved_at": "2026-07-19T01:00:00.000Z",
+      "actor": "fixture-human",
+      "digest": "ce925764e37b765bc0ca8583a00fb774f9dc51de987aa36577d3c302fe744803",
+      "request_digest": "7e3f210f94803a68241ea4a7901e1c4dc1cc3b77b7670d66ae4b2086775c9725",
+      "model_profile_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "connection_capability_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pricing_version": "fixture-pricing-v1",
+      "pricing_currency": "USD",
+      "pricing_max_amount": 1.25
+    },
+    "submit_attempts": 1,
+    "poll_attempts": 0,
+    "download_attempts": 0,
+    "submission_unknown": true,
+    "cancel_requested": false,
+    "created_at": "2026-07-19T01:00:00.000Z",
+    "updated_at": "2026-07-19T01:01:00.000Z",
+    "revision": 2
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "source": "legacy-v0.9.x",
+  "fields": [
+    {
+      "path": "plan.estimated_credits",
+      "status": "recorded",
+      "source": "src/orchestrator/plan.ts"
+    },
+    {
+      "path": "manifest.provenance[].credits",
+      "status": "recorded",
+      "source": "src/manifest/schema.ts"
+    },
+    {
+      "path": "mission.metrics.human_interventions_total",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.automatic_recovery_success_rate",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.consistency.identity",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.cost.actual_generation_credits",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.cost.quality_per_credit",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.flow.resume_success_rate",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.mv.lyric_timing_coverage",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.mv.beat_anchor_coverage",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.safety.unauthorized_external_submit",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    },
+    {
+      "path": "mission.metrics.safety.submission_unknown_resubmit",
+      "status": "legacy_not_recorded",
+      "source": "docs/design/production-orchestration-v1/observability-and-evaluation.md"
+    }
+  ]
+}
