@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { win32 } from "node:path";
 import { h3CreativeIrSchema, videoCreativeIrSchema } from "../h3/schema.js";
-import { productionControlModeSchema } from "../productionControl/schema.js";
+import { digestRefSchema, productionControlModeSchema } from "../productionControl/schema.js";
 
 const safeIdSchema = z
   .string()
@@ -347,6 +347,14 @@ const sikumiConfigSchema = z
 /** ランチャー表示用の案件名。日本語可。必須。後から変更できる。 */
 const projectDisplayNameSchema = z.string().trim().min(1).max(120);
 
+const mvAuthoringRefsSchema = z.object({
+  assets: digestRefSchema.optional(),
+  identity: digestRefSchema.optional(),
+  music: digestRefSchema.optional(),
+  lyrics: digestRefSchema.optional(),
+  generation_units: z.array(digestRefSchema).max(10_000).optional()
+}).strict();
+
 export const projectSchema = z
   .object({
     slug: safeIdSchema,
@@ -389,7 +397,9 @@ export const projectSchema = z
     /** Optional production-control rollout mode. Unspecified preserves legacy behavior. */
     orchestration: z
       .object({
-        mode: productionControlModeSchema
+        mode: productionControlModeSchema,
+        /** Project-local contract references are authoring hints only. */
+        authoring: mvAuthoringRefsSchema.optional()
       })
       .strict()
       .optional()

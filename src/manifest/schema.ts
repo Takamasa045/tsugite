@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { digestRefSchema, digestSchema, safeIdSchema } from "../productionControl/schema.js";
 
 const aspectSchema = z.union([z.literal("16:9"), z.literal("9:16")]);
 
@@ -116,6 +117,29 @@ const clipSchema = z
   })
   .passthrough();
 
+export const masterAudioBindingSchema = z.object({
+  asset_id: safeIdSchema,
+  sha256: digestSchema,
+  duration_ms: z.number().int().positive(),
+  contract_id: safeIdSchema,
+  revision: z.number().int().nonnegative(),
+  contract_digest: digestSchema
+}).strict();
+
+export const captionBindingSchema = z.object({
+  contract_id: safeIdSchema,
+  revision: z.number().int().nonnegative(),
+  timing_digest: z.union([digestSchema, z.null()]),
+  cue_refs: z.array(digestRefSchema).max(100_000)
+}).strict();
+
+export const chapterBindingSchema = z.object({
+  contract_id: safeIdSchema,
+  revision: z.number().int().nonnegative(),
+  timing_digest: digestSchema,
+  section_refs: z.array(digestRefSchema).max(256)
+}).strict();
+
 export const manifestSchema = z
   .object({
     meta: z
@@ -138,6 +162,9 @@ export const manifestSchema = z
       })
       .passthrough()
       .default({ bgm: [], narration: [], sfx: [] }),
+    master_audio_binding: masterAudioBindingSchema.optional(),
+    caption_binding: captionBindingSchema.optional(),
+    chapter_binding: chapterBindingSchema.optional(),
     captions: z
       .array(
         z
