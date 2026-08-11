@@ -112,6 +112,7 @@ export {
   type CompileVideoPromptOptions,
   type CompileVideoPromptResult,
   type CompileProjectVideoPromptResult,
+  type GenerationUnitSourceResolver,
   type VideoPromptPlan
 } from "./videoPromptCompile.js";
 
@@ -169,6 +170,7 @@ export {
   type PromptBudget,
   type BudgetLimit,
   type CapabilityClaim,
+  type EffectiveContractTruth,
   type RouteIdentityInput,
   effectiveGenerationContractSchema
 } from "./effectiveContract.js";
@@ -177,6 +179,9 @@ export {
   buildAdapterLabelMap,
   compileAdapterDialect,
   validateAdapterDialect,
+  resolveRendererDialectCapability,
+  rendererDialectRegistry,
+  type RendererDialectCapability,
   type AdapterLabel,
   type AdapterLabelMap,
   type AdapterDialectResult
@@ -215,6 +220,7 @@ export {
   verifyCompilationBundle,
   assertCompilationBundleAssets,
   writeCompilationBundleAtomic,
+  type RuntimeAssetPinEvidence,
   type CompilationBundleV1,
   type CompilationBundleInput
 } from "./compilationBundle.js";

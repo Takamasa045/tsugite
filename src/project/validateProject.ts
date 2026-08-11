@@ -32,6 +32,7 @@ import {
 } from "../h3/compile.js";
 import {
   compileProjectVideoPrompts,
+  type GenerationUnitSourceResolver,
   rejectUncompiledVideoPrompt,
   type VideoPromptPlan
 } from "../videoPromptDirector/videoPromptCompile.js";
@@ -44,6 +45,7 @@ export type ValidateProjectOptions = {
   backendDirs?: string[];
   connectionCatalogPath?: string;
   promptGuideDirs?: string[];
+  generationUnitSourceResolver?: GenerationUnitSourceResolver;
 };
 
 export async function validateProject(
@@ -99,7 +101,10 @@ export async function validateProject(
   );
   if (hasVideoPrompt) {
     const videoCompile = await compileProjectVideoPrompts(project, {
-      intent: "planning"
+      intent: "planning",
+      ...(options.generationUnitSourceResolver
+        ? { generationUnitSourceResolver: options.generationUnitSourceResolver }
+        : {})
     });
     videoPromptPlans = videoCompile.plans ?? [];
     if (videoCompile.project) {

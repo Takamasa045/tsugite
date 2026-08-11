@@ -985,14 +985,18 @@ function applyCompilationToRequest(
   };
 }
 
-export function h3IssueToProjectIssue(h3Issue: H3Issue, requestIndex: number): Issue {
+export function h3IssueToProjectIssue(
+  h3Issue: H3Issue,
+  requestIndex: number,
+  authoringSurface: "h3" | "video_prompt" = "h3"
+): Issue {
   const nested = h3Issue.path && h3Issue.path.length > 0
     ? `.${h3Issue.path.map(String).join(".")}`
     : "";
   return {
     code: h3Issue.code,
     message: h3Issue.message,
-    path: `generation.requests.${requestIndex}.h3${nested}`
+    path: `generation.requests.${requestIndex}.${authoringSurface}${nested}`
   };
 }
 

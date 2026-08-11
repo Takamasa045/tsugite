@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { isAbsolute } from "node:path";
+import { isAbsolute, relative } from "node:path";
 import { z } from "zod";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
 import { sha256Bytes } from "../productionControl/canonical.js";
@@ -25,7 +25,6 @@ const assetLineageSchema = z.object({
   declared_sha256: digestSchema.optional(),
   pin_evidence: z.object({
     source: z.enum(["project-bytes", "asset-contract"]),
-    real_path: z.string().min(1).refine(isAbsolute, "pin evidence path must be absolute"),
     sha256: digestSchema,
     byte_size: z.number().int().nonnegative(),
     regular_file: z.literal(true),
@@ -114,6 +113,15 @@ export const compilationBundleSchema = z.object({
 export type CompilationBundleV1 = z.infer<typeof compilationBundleSchema>;
 export type CompilationBundle = CompilationBundleV1;
 
+export type RuntimeAssetPinEvidence = {
+  source: "project-bytes" | "asset-contract";
+  real_path: string;
+  sha256: string;
+  byte_size: number;
+  regular_file: true;
+  contained_in_project_root: true;
+};
+
 export type CompilationBundleInput = {
   request_id: string;
   ir: VideoPromptIrV2;
@@ -134,7 +142,7 @@ export type CompilationBundleInput = {
   exact_text_digests?: string[];
   upgrader_version?: string;
   source_digest?: string;
-  asset_evidence?: Readonly<Record<string, NonNullable<CompilationBundleV1["asset_lineage"][number]["pin_evidence"]>>>;
+  asset_evidence?: Readonly<Record<string, RuntimeAssetPinEvidence>>;
 };
 
 export function createCompilationBundle(input: CompilationBundleInput): CompilationBundleV1 {
@@ -162,7 +170,15 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
       asset_id: asset.id,
       path: asset.path,
       ...(asset.sha256 ? { declared_sha256: asset.sha256 } : {}),
-      ...(input.asset_evidence?.[asset.id] ? { pin_evidence: input.asset_evidence[asset.id] } : {})
+      ...(input.asset_evidence?.[asset.id] ? {
+        pin_evidence: {
+          source: input.asset_evidence[asset.id].source,
+          sha256: input.asset_evidence[asset.id].sha256,
+          byte_size: input.asset_evidence[asset.id].byte_size,
+          regular_file: input.asset_evidence[asset.id].regular_file,
+          contained_in_project_root: input.asset_evidence[asset.id].contained_in_project_root
+        }
+      } : {})
     })),
     grammar_profile: input.grammar_profile,
     labels_digest: input.labels_digest,
@@ -187,7 +203,8 @@ export function verifyCompilationBundle(bundle: unknown): CompilationBundleV1 {
 
 export function assertCompilationBundleAssets(
   bundle: CompilationBundleV1,
-  currentAssets: Readonly<Record<string, { path: string; sha256?: string }>>
+  currentAssets: Readonly<Record<string, { path: string; sha256?: string }>>,
+  runtimeAssets: Readonly<Record<string, { real_path: string; project_root: string }>> = {}
 ): void {
   for (const expected of bundle.asset_lineage) {
     const current = currentAssets[expected.asset_id];
@@ -195,8 +212,14 @@ export function assertCompilationBundleAssets(
       throw new Error(`VPD-J002: compilation bundle asset lineage changed for '${expected.asset_id}'`);
     }
     if (expected.pin_evidence) {
+      const runtime = runtimeAssets[expected.asset_id];
+      if (!runtime || !isAbsolute(runtime.real_path) || !isAbsolute(runtime.project_root)) {
+        throw new Error(`VPD-J002: runtime asset evidence is required for '${expected.asset_id}'`);
+      }
       try {
-        const realPath = realpathSync(expected.pin_evidence.real_path);
+        const projectRoot = realpathSync(runtime.project_root);
+        const realPath = realpathSync(runtime.real_path);
+        if (relative(projectRoot, realPath).startsWith("..")) throw new Error("asset escaped project root");
         const stat = statSync(realPath);
         if (!stat.isFile() || stat.size !== expected.pin_evidence.byte_size || sha256Bytes(readFileSync(realPath)) !== expected.pin_evidence.sha256) {
           throw new Error("asset bytes changed");

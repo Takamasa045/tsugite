@@ -40,6 +40,7 @@ import { upgradeVideoPromptV1ToV2 } from "./upgradeV1.js";
 import { finalizeValidation, issue, type H3Issue } from "./validation/types.js";
 import { validateH3CreativeIr } from "./validation/index.js";
 import { h3IssueToProjectIssue } from "./compile.js";
+import type { GenerationUnitProgramSourceV1 } from "../productionControl/programBinding.js";
 
 export {
   VIDEO_PROMPT_DUAL_AUTHORING_CODE,
@@ -47,6 +48,13 @@ export {
   rejectDualAuthoring,
   rejectUncompiledVideoPrompt
 } from "./dualAuthoring.js";
+
+export type GenerationUnitSourceResolver = (input: {
+  project: Project;
+  request: GenerationRequest;
+  ir: VideoPromptIrV2;
+  requestIndex: number;
+}) => GenerationUnitProgramSourceV1 | undefined | Promise<GenerationUnitProgramSourceV1 | undefined>;
 
 export type CompileVideoPromptOptions = {
   connectionId: string;
@@ -66,6 +74,9 @@ export type CompileVideoPromptOptions = {
   connectionProfileRoots?: string[];
   adapterDirs?: string[];
   intent?: "planning" | "dry-run" | "execute";
+  generationUnitSource?: GenerationUnitProgramSourceV1;
+  generationUnitSourceByRequestId?: Readonly<Record<string, GenerationUnitProgramSourceV1>>;
+  generationUnitSourceResolver?: GenerationUnitSourceResolver;
 };
 
 export type VideoPromptPlan = {
@@ -306,6 +317,7 @@ async function compileVideoPromptV2Request(
     model_profile_digest: modelLoad.digest,
     connection_capability_digest: connectionLoad.digest,
     intent: options.intent === "execute" ? "execute" : "planning",
+    ...(options.generationUnitSource ? { generation_unit_source: options.generationUnitSource } : {}),
     ...(source ? { source } : {})
   });
   issues.push(...compiled.issues);
@@ -422,7 +434,7 @@ export async function compileProjectVideoPrompts(
   for (const [index, request] of project.generation.requests.entries()) {
     const dual = rejectDualAuthoring(request);
     if (dual.length > 0) {
-      issues.push(...dual.map((item) => h3IssueToProjectIssue(item, index)));
+      issues.push(...dual.map((item) => h3IssueToProjectIssue(item, index, "video_prompt")));
       nextRequests.push(request);
       continue;
     }
@@ -445,16 +457,30 @@ export async function compileProjectVideoPrompts(
     }
 
     const ir = (request as GenerationRequest & { video_prompt: VideoCreativeIr }).video_prompt;
+    const parsedV2 = safeParseVideoPromptIrV2(ir);
+    let generationUnitSource: GenerationUnitProgramSourceV1 | undefined = options.generationUnitSource;
+    if (parsedV2.success && parsedV2.data.program_kind === "mv") {
+      generationUnitSource = options.generationUnitSourceByRequestId?.[request.id]
+        ?? (options.generationUnitSourceResolver
+          ? await options.generationUnitSourceResolver({
+              project,
+              request,
+              ir: parsedV2.data,
+              requestIndex: index
+            })
+          : generationUnitSource);
+    }
     const result = await compileVideoPromptRequest(request, ir, {
       ...options,
-      connectionId
+      connectionId,
+      ...(generationUnitSource ? { generationUnitSource } : {})
     });
     if (result.plan) {
       plans.push(result.plan);
       if (result.plan.v2_compilation) v2Routes.push(result.plan.v2_compilation.route);
     }
     if (!result.ok) {
-      issues.push(...result.issues.map((item) => h3IssueToProjectIssue(item, index)));
+      issues.push(...result.issues.map((item) => h3IssueToProjectIssue(item, index, "video_prompt")));
       nextRequests.push(request);
       continue;
     }
@@ -484,7 +510,7 @@ export async function compileProjectVideoPrompts(
   // Final fail-closed: any remaining empty-prompt video_prompt is an error.
   for (const [index, request] of nextRequests.entries()) {
     for (const item of rejectUncompiledVideoPrompt(request)) {
-      issues.push(h3IssueToProjectIssue(item, index));
+      issues.push(h3IssueToProjectIssue(item, index, "video_prompt"));
     }
   }
 

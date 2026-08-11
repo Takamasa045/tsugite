@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { win32 } from "node:path";
 import { h3CreativeIrSchema, videoCreativeIrSchema } from "../h3/schema.js";
+import { videoPromptIrV2Schema } from "../videoPromptDirector/schemaV2.js";
 import { digestRefSchema, productionControlModeSchema } from "../productionControl/schema.js";
 
 const safeIdSchema = z
@@ -157,10 +158,10 @@ const generationRequestSchema = z
     /** Optional H3 Creative IR (v1). When present, empty prompt is allowed. */
     h3: h3CreativeIrSchema.optional(),
     /**
-     * Optional provider-neutral video_prompt IR (v1).
+     * Optional provider-neutral video_prompt IR (strict V1|V2 union).
      * Mutually exclusive with h3; existing projects are not auto-rewritten.
      */
-    video_prompt: videoCreativeIrSchema.optional(),
+    video_prompt: z.union([videoCreativeIrSchema, videoPromptIrV2Schema]).optional(),
     params: z.record(z.string(), z.unknown()).default({})
   })
   .passthrough()

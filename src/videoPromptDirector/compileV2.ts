@@ -12,6 +12,7 @@ import {
 } from "./effectiveContract.js";
 import {
   compileAdapterDialect,
+  resolveRendererDialectCapability,
   validateAdapterDialect,
   type AdapterDialectResult
 } from "./adapterDialect.js";
@@ -143,7 +144,9 @@ export function compileVideoPromptIrV2(
   const requireRoute = options.require_route ?? true;
   const intent = options.intent ?? "planning";
   if (!route) {
-    issues.push(issue("VPD-R001", "VideoPromptIrV2 compilation requires a pinned RouteIdentity", "error", ["route"]));
+    if (requireRoute) {
+      issues.push(issue("VPD-R001", "VideoPromptIrV2 compilation requires a pinned RouteIdentity", "error", ["route"]));
+    }
   } else {
     issues.push(...assertRouteIdentity(route, {
       model: ir.target.model_profile_id,
@@ -153,12 +156,22 @@ export function compileVideoPromptIrV2(
     }));
   }
   if (options.batch_routes) issues.push(...assertHomogeneousRouteIdentity(options.batch_routes));
-  if (!requireRoute && !route) issues.splice(0, issues.length);
+  if (route) {
+    const rendererDialect = resolveRendererDialectCapability(route.adapter_id);
+    if (!rendererDialect) {
+      issues.push(issue("VPD-R002", `route adapter '${route.adapter_id}' has no registered renderer/dialect`, "error", ["route", "adapter_id"]));
+    } else if (options.model_profile && (
+      rendererDialect.renderer !== options.model_profile.renderer
+      || rendererDialect.label_dialect !== options.model_profile.label_dialect
+    )) {
+      issues.push(issue("VPD-R002", "route adapter renderer/dialect does not match the pinned model profile", "error", ["route", "adapter_id"]));
+    }
+  }
   if (ir.program_kind === "mv") issues.push(...validateMvBinding(ir.program_binding, ir.target.duration_ms, options.generation_unit_source, route));
   if (ir.program_kind === "standalone" && "program_binding" in ir && ir.program_binding !== undefined) {
     issues.push(issue("VPD-U001", "standalone VideoPromptIrV2 must not contain program_binding", "error", ["program_binding"]));
   }
-  issues.push(...validateIdentityContract(ir, intent));
+  issues.push(...validateIdentityContract(ir));
   if (options.model_profile && options.model_profile.renderer !== "h3-grammar") {
     issues.push(issue("VPD-R002", "VideoPromptIrV2 H3 grammar is not valid for a non-H3 model profile", "error", ["target", "model_profile_id"]));
   }
@@ -175,6 +188,9 @@ export function compileVideoPromptIrV2(
     if (!exactRoute || !route || exactRoute.provider_model !== route.provider_model || !exactRoute.modes.includes(ir.target.mode)) {
       issues.push(issue("VPD-R002", "connection capability and RouteIdentity do not prove the requested model/mode", "error", ["connection_profile", "exact_model_routes"]));
     }
+  }
+  if (options.effective_contract && Boolean(options.model_profile) !== Boolean(options.connection_profile)) {
+    issues.push(issue("VPD-K003", "effective contract verification requires both pinned model and connection profiles", "error", ["effective_contract"]));
   }
   if (intent === "execute" && (!options.model_profile || !options.connection_profile)) {
     issues.push(issue("VPD-K003", "execution requires current model and connection capability profiles", "error", ["effective_contract", "execution"]));
@@ -215,7 +231,18 @@ export function compileVideoPromptIrV2(
           mode: ir.target.mode,
           model_profile_digest: options.model_profile_digest,
           connection_digest: options.connection_capability_digest,
-          intent
+          intent,
+          ...(options.model_profile && options.connection_profile ? {
+            truth: {
+              model_profile: options.model_profile,
+              connection_profile: options.connection_profile,
+              model_profile_digest: options.model_profile_digest ?? modelProfileDigest(options.model_profile),
+              connection_profile_digest: options.connection_capability_digest ?? connectionCapabilityDigest(options.connection_profile),
+              ...(options.budget ? { budget: options.budget } : {}),
+              capability_evidence: effectiveCapabilityEvidence(ir, grammarProfile),
+              execution_capable: intent === "execute"
+            }
+          } : {})
         })
       : { ok: false as const, issues: [issue("VPD-K002", "injected effective contract requires a requested route", "error", ["effective_contract", "route"])] }
     : route
@@ -227,14 +254,7 @@ export function compileVideoPromptIrV2(
           ...(options.model_profile ? { model_profile: options.model_profile } : {}),
           ...(options.connection_profile ? { connection_profile: options.connection_profile } : {}),
           execution_capable: intent === "execute",
-          capability_evidence: {
-            group_speaker: ir.shots.some((shot) => shot.vocal_events.some((event) => event.speaker_ids.length > 1))
-              ? (grammarProfile.features.group_speaker ? "hard" : "unknown")
-              : "hard",
-            exact_text: ir.shots.some((shot) => shot.vocal_events.some((event) => event.content.source !== "legacy-unaligned"))
-              ? (grammarProfile.features.exact_dialogue ? "hard" : "unknown")
-              : "hard"
-          },
+          capability_evidence: effectiveCapabilityEvidence(ir, grammarProfile),
           ...(options.budget ? { budget: options.budget } : {})
         })
       : { ok: false as const, issues: [issue("VPD-K002", "effective contract cannot be created without a route", "error", ["route"]) ] };
@@ -463,17 +483,29 @@ function placeholderEffectiveContract(route: RouteIdentityV1, mode: VideoPromptI
   };
 }
 
-function validateIdentityContract(ir: VideoPromptIrV2, intent: "planning" | "execute"): H3Issue[] {
+function effectiveCapabilityEvidence(
+  ir: VideoPromptIrV2,
+  grammarProfile: H3GrammarProfileV3
+): Partial<EffectiveGenerationContractV1["execution"]["capability_evidence"]> {
+  return {
+    group_speaker: ir.shots.some((shot) => shot.vocal_events.some((event) => event.speaker_ids.length > 1))
+      ? (grammarProfile.features.group_speaker ? "hard" : "unknown")
+      : "hard",
+    exact_text: ir.shots.some((shot) => shot.vocal_events.some((event) => event.content.source !== "legacy-unaligned"))
+      ? (grammarProfile.features.exact_dialogue ? "hard" : "unknown")
+      : "hard"
+  };
+}
+
+function validateIdentityContract(ir: VideoPromptIrV2): H3Issue[] {
   const lockedSubjects = ir.subjects.filter((subject) => subject.locked_blocks && Object.keys(subject.locked_blocks).length > 0);
   if (lockedSubjects.length === 0) return [];
   const definition = (ir as VideoPromptIrV2 & { identity_definition?: IdentityDefinitionContractV1 }).identity_definition;
-  if (!definition) return intent === "execute"
-    ? [issue("VPD-I001", "locked identity requires a typed IdentityDefinitionContract", "error", ["identity_definition"])]
-    : [];
+  if (!definition) return [issue("VPD-I001", "locked identity requires a typed IdentityDefinitionContract", "error", ["identity_definition"])] ;
   try {
     const parsed = identityDefinitionSchema.parse(definition);
-    if (intent === "execute" && parsed.definition_status !== "confirmed") {
-      return [issue("VPD-I002", "execution requires a confirmed IdentityDefinitionContract", "error", ["identity_definition", "definition_status"])] ;
+    if (parsed.definition_status !== "confirmed") {
+      return [issue("VPD-I002", "prompt compilation requires a confirmed IdentityDefinitionContract", "error", ["identity_definition", "definition_status"])] ;
     }
     const issues: H3Issue[] = [];
     for (const subject of lockedSubjects) {

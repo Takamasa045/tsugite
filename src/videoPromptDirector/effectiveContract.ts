@@ -101,6 +101,17 @@ export type EffectiveContractInput = {
   capability_evidence?: Partial<EffectiveCapabilityEvidence>;
 };
 
+export type EffectiveContractTruth = {
+  model_profile: ModelPromptProfile;
+  connection_profile: ConnectionCapabilityProfile;
+  model_profile_digest: string;
+  connection_profile_digest: string;
+  budget?: PromptBudget;
+  capability_evidence?: Partial<EffectiveCapabilityEvidence>;
+  execution_capable?: boolean;
+  now?: string;
+};
+
 const budgetLimitSchema = z.object({
   limit: z.number().int().positive(),
   unit: z.enum(["unicode-code-points", "utf8-bytes", "tokens"]),
@@ -163,6 +174,7 @@ export function assertEffectiveGenerationContract(
     model_profile_digest?: string;
     connection_digest?: string;
     intent?: "planning" | "execute";
+    truth?: EffectiveContractTruth;
   }
 ): { ok: true; contract: EffectiveGenerationContractV1; issues: H3Issue[] } | { ok: false; issues: H3Issue[] } {
   let contract: EffectiveGenerationContractV1;
@@ -185,6 +197,29 @@ export function assertEffectiveGenerationContract(
   if (contract.digests.model_profile !== contract.route.model_profile_digest) issues.push(issue("VPD-K002", "effective contract model profile digest does not match its route", "error", ["effective_contract", "digests", "model_profile"]));
   if (contract.digests.connection_profile !== contract.route.connection_digest) issues.push(issue("VPD-K002", "effective contract connection capability digest does not match its route", "error", ["effective_contract", "digests", "connection_profile"]));
   if (contract.digests.adapter_route !== contract.route.route_digest) issues.push(issue("VPD-R001", "effective contract adapter route digest does not match its route", "error", ["effective_contract", "digests", "adapter_route"]));
+  if (expected.truth) {
+    const expectedContract = createEffectiveGenerationContract({
+      mode: expected.mode,
+      route: expected.route,
+      model_profile: expected.truth.model_profile,
+      model_profile_digest: expected.truth.model_profile_digest,
+      connection_profile: expected.truth.connection_profile,
+      connection_profile_digest: expected.truth.connection_profile_digest,
+      budget: expected.truth.budget ?? { hard: null, soft: null, unknown: true },
+      capability_evidence: expected.truth.capability_evidence,
+      execution_capable: expected.truth.execution_capable ?? expected.intent === "execute",
+      ...(expected.truth.now ? { now: expected.truth.now } : {})
+    });
+    if (!expectedContract.ok) {
+      issues.push(issue("VPD-K002", "pinned model/connection profiles cannot produce an effective contract", "error", ["effective_contract"]));
+    } else {
+      const { digest: _receivedDigest, ...receivedBody } = contract;
+      const { digest: _expectedDigest, ...expectedBody } = expectedContract.contract;
+      if (sha256Canonical(receivedBody) !== sha256Canonical(expectedBody)) {
+        issues.push(issue("VPD-K002", "effective contract claims do not match pinned model/connection truth", "error", ["effective_contract"]));
+      }
+    }
+  }
   if (expected.intent === "execute") {
     if (contract.execution.status !== "execution-capable") issues.push(issue("VPD-K003", "effective contract is planning-only and cannot authorize execution", "error", ["effective_contract", "execution", "status"]));
     if (contract.freshness.status !== "fresh") issues.push(issue("VPD-K003", "execution requires fresh model/profile/capability evidence", "error", ["effective_contract", "freshness"]));

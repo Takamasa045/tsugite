@@ -235,8 +235,41 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
 
   it("revalidates locked identity digests and emits identity blocks for cast subjects", () => {
     const locked = "voice and appearance remain exact";
+    const appearance = "red coat";
+    const identityBody = {
+      schema_version: 1 as const,
+      contract_id: "identity-locked-1",
+      revision: 1,
+      subjects: [{
+        id: "hero",
+        locked_blocks: {
+          voice: { text: locked, sha256: sha256Text(locked) },
+          appearance: { text: appearance, sha256: sha256Text(appearance) }
+        },
+        variants: []
+      }],
+      scenes: [],
+      verification_requirements: {
+        risk_class: "low" as const,
+        conditions: [{ condition_id: "hero-locked", description: "hero stays stable", subject_ids: ["hero"] }],
+        minimum_distinct_outputs: 1,
+        minimum_distinct_conditions: 1
+      },
+      definition_status: "confirmed" as const
+    };
+    const definitionDigest = sha256Canonical(identityBody);
+    const confirmation = {
+      decision_id: "identity-locked-confirmation",
+      decision: "confirmed",
+      actor: "human",
+      decided_at: "2026-08-11T00:00:00Z",
+      subject_digest: definitionDigest
+    };
+    const withoutEnvelopeDigest = { ...identityBody, definition_digest: definitionDigest, definition_confirmation: confirmation };
+    const identityDefinition = { ...withoutEnvelopeDigest, digest: sha256Canonical(withoutEnvelopeDigest) };
     const ir = baseV2({
-      subjects: [{ id: "hero", description: "traveler", speaker_id: "S1", locked_blocks: { voice: { text: locked, sha256: sha256Text(locked) }, appearance: { text: "red coat", sha256: sha256Text("red coat") } } }],
+      identity_definition: identityDefinition,
+      subjects: [{ id: "hero", description: "traveler", speaker_id: "S1", locked_blocks: { voice: { text: locked, sha256: sha256Text(locked) }, appearance: { text: appearance, sha256: sha256Text(appearance) } } }],
       shots: [{ ...baseV2().shots[0]!, cast: [{ subject_id: "hero" }] }]
     });
     const result = compileVideoPromptIrV2(ir, { route: route() });
@@ -448,11 +481,16 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
 
   it("requires a typed, confirmed identity definition for locked identity", () => {
     const locked = "voice stays exact";
-    const result = compileVideoPromptIrV2(baseV2({
+    const planning = compileVideoPromptIrV2(baseV2({
+      subjects: [{ id: "hero", description: "traveler", locked_blocks: { voice: { text: locked, sha256: sha256Text(locked) } } }]
+    }), { route: route(), intent: "planning" });
+    expect(planning.ok).toBe(false);
+    if (!planning.ok) expect(planning.issues.map((item) => item.code)).toContain("VPD-I001");
+    const execute = compileVideoPromptIrV2(baseV2({
       subjects: [{ id: "hero", description: "traveler", locked_blocks: { voice: { text: locked, sha256: sha256Text(locked) } } }]
     }), { route: route(), intent: "execute" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.issues.map((item) => item.code)).toContain("VPD-I001");
+    expect(execute.ok).toBe(false);
+    if (!execute.ok) expect(execute.issues.map((item) => item.code)).toContain("VPD-I001");
   });
 
   it("accepts only a digest-bound confirmed identity definition and binds its digest", () => {
@@ -656,9 +694,9 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
       });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
-      assertCompilationBundleAssets(result.compilation.bundle, { hero: { path: "asset.bin", sha256: sha256Bytes(original) } });
+      assertCompilationBundleAssets(result.compilation.bundle, { hero: { path: "asset.bin", sha256: sha256Bytes(original) } }, { hero: { real_path: path, project_root: directory } });
       await writeFile(path, "mutated bytes", "utf8");
-      expect(() => assertCompilationBundleAssets(result.compilation.bundle, { hero: { path: "asset.bin", sha256: sha256Bytes(original) } })).toThrow("asset bytes changed");
+      expect(() => assertCompilationBundleAssets(result.compilation.bundle, { hero: { path: "asset.bin", sha256: sha256Bytes(original) } }, { hero: { real_path: path, project_root: directory } })).toThrow("asset bytes changed");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

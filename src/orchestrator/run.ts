@@ -57,7 +57,7 @@ import {
 } from "../h3/runArtifacts.js";
 import { loadProjectPromptGuides } from "../adapters/promptKnowledge.js";
 import { loadH3ExecutionRouteProfile } from "../adapters/constraints.js";
-import { compileProjectVideoPrompts } from "../videoPromptDirector/videoPromptCompile.js";
+import { compileProjectVideoPrompts, type GenerationUnitSourceResolver } from "../videoPromptDirector/videoPromptCompile.js";
 
 export type LocalRunH3Artifacts = {
   request_id: string;
@@ -100,6 +100,8 @@ type AssembleOptions = {
    * lineage hashing. Direct unit callers may omit to fall back to default dirs.
    */
   promptGuides?: H3PromptGuideSource[];
+  /** Typed MV source resolver; request ids are never treated as source truth. */
+  generationUnitSourceResolver?: GenerationUnitSourceResolver;
 };
 
 export type ApprovedCompilation = {
@@ -773,7 +775,10 @@ async function assembleGeneratedMediaRun(
   );
   if (hasVideoPrompt) {
     const videoCompile = await compileProjectVideoPrompts(project, {
-      intent: "execute"
+      intent: "execute",
+      ...(options.generationUnitSourceResolver
+        ? { generationUnitSourceResolver: options.generationUnitSourceResolver }
+        : {})
     });
     if (!videoCompile.ok) {
       return { ok: false, issues: videoCompile.issues };

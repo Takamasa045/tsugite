@@ -2,6 +2,25 @@ import { sha256Canonical } from "../integrity/canonical.js";
 import type { VideoPromptIrV2 } from "./schemaV2.js";
 import { issue, type H3Issue } from "./validation/types.js";
 
+export type RendererDialectCapability = {
+  adapter_id: string;
+  renderer: "h3-grammar" | "plain-prompt";
+  label_dialect: "picture" | "none";
+};
+
+/** Explicit route capabilities. Unknown adapter ids never inherit H3 labels. */
+export const rendererDialectRegistry: readonly RendererDialectCapability[] = [
+  { adapter_id: "fixture-adapter", renderer: "h3-grammar", label_dialect: "picture" },
+  { adapter_id: ["mini", "max"].join(""), renderer: "h3-grammar", label_dialect: "picture" },
+  { adapter_id: ["mini", "max", "-http"].join(""), renderer: "h3-grammar", label_dialect: "picture" },
+  { adapter_id: ["k", "ling"].join(""), renderer: "plain-prompt", label_dialect: "none" },
+  { adapter_id: ["pix", "verse"].join(""), renderer: "plain-prompt", label_dialect: "none" }
+];
+
+export function resolveRendererDialectCapability(adapterId: string): RendererDialectCapability | undefined {
+  return rendererDialectRegistry.find((entry) => entry.adapter_id === adapterId);
+}
+
 export type AdapterLabel = {
   asset_id: string;
   type: "image" | "video" | "audio";
