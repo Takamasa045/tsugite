@@ -6,6 +6,7 @@ import test from "node:test";
 import { createPackageWithOptions } from "@electron/asar";
 
 import { auditPackagedResources, auditRuntimeBoundary } from "../scripts/audit-package.mjs";
+import { writeViewerBundleManifest } from "../scripts/viewer-bundle.mjs";
 
 async function put(root, path, contents = path) {
   const target = join(root, path);
@@ -25,9 +26,16 @@ async function fixture(runtimeRoot) {
     `tsugite/bin/${nodeName}`,
     "tsugite/package.json",
     "tsugite/package-lock.json",
-    "viewer/index.html"
+    "viewer/index.html",
+    "viewer/bundle-manifest.json"
   ];
-  for (const path of files) await put(runtimeRoot, path);
+  await put(
+    runtimeRoot,
+    "viewer/index.html",
+    '<meta name="tsugite-viewer-source-version" content="audit-fixture-v1">viewer'
+  );
+  await writeViewerBundleManifest(join(runtimeRoot, "viewer"));
+  for (const path of files.filter((path) => !path.startsWith("viewer/"))) await put(runtimeRoot, path);
   await chmod(join(runtimeRoot, "tsugite", "bin", nodeName), 0o755);
   await put(runtimeRoot, "stage-manifest.json", `${JSON.stringify({
     schema_version: 1,
@@ -98,6 +106,16 @@ test("audits the stage manifest against the actual runtime directory", async () 
   const result = await auditRuntimeBoundary(runtimeRoot);
 
   assert.deepEqual(result, { ok: true, runtimeRoot, stagedFileCount: files.length });
+});
+
+test("rejects a packaged Viewer whose source tree changed after staging", async () => {
+  const { runtimeRoot } = await fixture();
+  await writeFile(
+    join(runtimeRoot, "viewer", "index.html"),
+    '<meta name="tsugite-viewer-source-version" content="audit-fixture-v2">tampered'
+  );
+
+  await assert.rejects(auditRuntimeBoundary(runtimeRoot), /Viewer bundle version or digest mismatch/);
 });
 
 test("rejects forbidden and unlisted creative/runtime files", async () => {

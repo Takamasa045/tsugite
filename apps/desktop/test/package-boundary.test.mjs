@@ -23,7 +23,11 @@ async function fixture() {
   const desktopRoot = join(root, "apps", "desktop");
 
   await put(root, "build/cli.js", "export const built = true;\n");
-  await put(root, "apps/workflow-viewer/dist/index.html", "viewer");
+  await put(
+    root,
+    "apps/workflow-viewer/dist/index.html",
+    '<meta name="tsugite-viewer-source-version" content="fixture-v1">viewer'
+  );
   await put(root, "fake-node", "node-22");
   await put(root, "package.json", '{"name":"fixture","version":"1.0.0","type":"module"}\n');
   await put(root, "package-lock.json", '{"name":"fixture","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"fixture","version":"1.0.0"}}}\n');
@@ -60,7 +64,15 @@ test("stages generated outputs and only safe tracked runtime assets", async () =
   });
 
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "build", "cli.js"), "utf8"), "export const built = true;\n");
-  assert.equal(await readFile(join(result.runtimeRoot, "viewer", "index.html"), "utf8"), "viewer");
+  assert.equal(
+    await readFile(join(result.runtimeRoot, "viewer", "index.html"), "utf8"),
+    '<meta name="tsugite-viewer-source-version" content="fixture-v1">viewer'
+  );
+  const viewerManifest = JSON.parse(
+    await readFile(join(result.runtimeRoot, "viewer", "bundle-manifest.json"), "utf8")
+  );
+  assert.equal(viewerManifest.source_version, "fixture-v1");
+  assert.match(viewerManifest.bundle_digest, /^[a-f0-9]{64}$/);
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "bin", "node"), "utf8"), "node-22");
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "adapters", "demo", "adapter.yaml"), "utf8"), "id: demo\n");
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "connections", "catalog.yaml"), "utf8"), "connections: []\n");
@@ -137,6 +149,7 @@ test("cleans only root build and Viewer dist before packaging builds", async () 
 
 test("rejects untracked build inputs outside the explicit Desktop source allowlist", () => {
   assert.doesNotThrow(() => assertUntrackedBuildInputsAllowed([
+    "apps/workflow-viewer/node_modules",
     "apps/workflow-viewer/public/assets/tsugite-favicon.png",
     "apps/workflow-viewer/src/components/launcher/WorkflowCanvas.tsx",
     "apps/workflow-viewer/src/components/workspace/DesktopWorkspaceRecovery.test.tsx",

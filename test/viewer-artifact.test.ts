@@ -17,6 +17,7 @@ vi.mock("../src/viewer/workflow.js", () => ({
 import {
   createWorkflowViewerSnapshotManifest,
   getWorkflowViewerOpenCommand,
+  inspectWorkflowViewerBundle,
   WORKFLOW_VIEWER_EVIDENCE_FILE,
   writeWorkflowViewer
 } from "../src/viewer/artifact.js";
@@ -55,7 +56,7 @@ async function createBundle(root: string): Promise<string> {
   await mkdir(join(bundleDir, "assets", "chunks"), { recursive: true });
   await writeFile(
     join(bundleDir, "index.html"),
-    '<!doctype html><link rel="stylesheet" href="./assets/app.css"><div id="root"></div><script type="module" src="./assets/app.js"></script>\n'
+    '<!doctype html><meta name="tsugite-viewer-source-version" content="test-bundle-v1"><link rel="stylesheet" href="./assets/app.css"><div id="root"></div><script type="module" src="./assets/app.js"></script>\n'
   );
   await writeFile(join(bundleDir, "assets", "app.css"), "body { color: #fff; }\n");
   await writeFile(
@@ -79,6 +80,29 @@ describe("workflow viewer artifact", () => {
       edges: [],
       events: []
     });
+  });
+
+  it("fingerprints the source version and exact bundle contents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-viewer-bundle-"));
+    const bundleDir = await createBundle(root);
+
+    const first = await inspectWorkflowViewerBundle(bundleDir);
+    expect(first).toMatchObject({
+      schema_version: 1,
+      source_version: "test-bundle-v1",
+      bundle_digest: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
+    expect(first.files.map((file) => file.path)).toEqual([
+      "assets/app.css",
+      "assets/app.js",
+      "assets/chunks/scene.js",
+      "index.html"
+    ]);
+
+    await writeFile(join(bundleDir, "assets", "app.js"), "export const changed = true;\n");
+    const second = await inspectWorkflowViewerBundle(bundleDir);
+    expect(second.source_version).toBe(first.source_version);
+    expect(second.bundle_digest).not.toBe(first.bundle_digest);
   });
 
   it("writes a self-contained snapshot without creating pipeline state", async () => {
@@ -126,6 +150,14 @@ describe("workflow viewer artifact", () => {
     expect(html).toContain("<script type=\"module\">console.log('<\\/script>");
     expect(html).not.toContain('src="./assets/app.js"');
     expect(html).not.toContain('href="./assets/app.css"');
+    const bundleManifest = JSON.parse(
+      await readFile(join(result.outputDir, "assets", "viewer-bundle-manifest.json"), "utf8")
+    );
+    expect(bundleManifest).toMatchObject({
+      schema_version: 1,
+      source_version: "test-bundle-v1",
+      bundle_digest: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
   });
 
   it("reads existing state and complete Gate evidence without modifying them", async () => {
@@ -227,6 +259,7 @@ describe("workflow viewer artifact", () => {
       files: expect.arrayContaining([
         expect.objectContaining({ path: "index.html", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
         expect.objectContaining({ path: "workflow.json", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        expect.objectContaining({ path: "assets/viewer-bundle-manifest.json", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
         expect.objectContaining({ path: "review/index.html", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
         expect.objectContaining({ path: "review/assets/storyboard.png", size: 18, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
       ])
@@ -649,7 +682,7 @@ describe("workflow viewer artifact", () => {
     await writeFile(join(bundleDir, "app.js"), "export {};\n");
     await writeFile(
       join(bundleDir, "index.html"),
-      '<div id="root"></div><script type="module" src="./app.js"></script>'
+      '<meta name="tsugite-viewer-source-version" content="test-bundle-v1"><div id="root"></div><script type="module" src="./app.js"></script>'
     );
     await expect(writeWorkflowViewer({
       configPath: join(root, "project.yaml"),

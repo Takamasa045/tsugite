@@ -4,6 +4,7 @@ import { lstat, mkdir, readdir, rm, writeFile, copyFile, chmod } from "node:fs/p
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { writeViewerBundleManifest } from "./viewer-bundle.mjs";
 
 const execFile = promisify(execFileCallback);
 const EXTERNAL_RUNTIME_ROOTS = ["adapters", "backends", "bundled-templates", "connections", "knowledge"];
@@ -138,6 +139,8 @@ export async function stageRuntime({
     "viewer",
     files
   );
+  await writeViewerBundleManifest(join(runtimeRoot, "viewer"));
+  files.push(`viewer/bundle-manifest.json`);
 
   const nodeMajor = Number.parseInt(nodeVersion.split(".", 1)[0], 10);
   if (nodeMajor !== 22) {

@@ -1,0 +1,42 @@
+export const SCENE_REASON_CODES = [
+  'viewer.scene.webgl_unavailable',
+  'viewer.scene.initialization_failed',
+  'viewer.scene.context_lost',
+  'viewer.scene.first_frame_timeout',
+  'viewer.scene.runtime_error',
+] as const
+
+export type SceneReasonCode = (typeof SCENE_REASON_CODES)[number]
+
+export type ScenePresentationStateV1 =
+  | { status: 'initializing' }
+  | { status: 'ready'; renderer: 'webgl'; first_frame_at: string }
+  | {
+      status: 'degraded'
+      renderer: 'dom-tree'
+      reason_code: SceneReasonCode
+      retryable: boolean
+    }
+
+export const SCENE_REASON_LABELS: Record<SceneReasonCode, string> = {
+  'viewer.scene.webgl_unavailable': 'この環境ではWebGLを利用できません。',
+  'viewer.scene.initialization_failed': '3D空間の初期化に失敗しました。',
+  'viewer.scene.context_lost': '3D表示の接続が失われました。',
+  'viewer.scene.first_frame_timeout': '3D表示の初回描画を確認できませんでした。',
+  'viewer.scene.runtime_error': '3D表示中に問題が発生しました。',
+}
+
+export type SceneFailurePhase = 'initializing' | 'ready'
+
+/** Development-only browser injection modes used by the PO-0A fixture. */
+export type SceneTestInjection = 'initialization-throw' | 'first-frame-timeout'
+
+export function reasonForSceneError(phase: SceneFailurePhase): SceneReasonCode {
+  return phase === 'ready'
+    ? 'viewer.scene.runtime_error'
+    : 'viewer.scene.initialization_failed'
+}
+
+export function isSceneReasonCode(value: unknown): value is SceneReasonCode {
+  return typeof value === 'string' && (SCENE_REASON_CODES as readonly string[]).includes(value)
+}

@@ -61,6 +61,16 @@ export type WorkflowViewerSnapshotFile = {
   sha256: string;
 };
 
+export const WORKFLOW_VIEWER_SOURCE_VERSION = "po-0a-v1";
+export const WORKFLOW_VIEWER_BUNDLE_SCHEMA_VERSION = 1;
+
+export type WorkflowViewerBundleMetadata = {
+  schema_version: number;
+  source_version: string;
+  bundle_digest: string;
+  files: WorkflowViewerSnapshotFile[];
+};
+
 type ViewerPreviewSource = {
   kind: "clip" | "image" | "audio";
   reference: string;
@@ -87,6 +97,35 @@ export async function prepareWorkflowViewerBundle(bundleDir?: string): Promise<s
 }
 
 /**
+ * Fingerprints the exact generated Viewer tree consumed by the CLI/Desktop.
+ * The result contains only portable relative paths and digests.
+ */
+export async function inspectWorkflowViewerBundle(
+  bundleDir: string
+): Promise<WorkflowViewerBundleMetadata> {
+  const root = resolve(bundleDir);
+  const indexHtml = await readFile(join(root, "index.html"), "utf8");
+  const sourceVersion = readViewerSourceVersion(indexHtml);
+  const files: WorkflowViewerSnapshotFile[] = [];
+  const traversal = { entries: 0 };
+  await collectBundleFiles(root, "", files, traversal, 0);
+  if (files.length === 0) throw new Error("Viewer bundle contains no regular files");
+  const digest = createHash("sha256").update(`tsugite-viewer-bundle-v${WORKFLOW_VIEWER_BUNDLE_SCHEMA_VERSION}\0`);
+  for (const file of files) {
+    digest.update(file.path);
+    digest.update("\0");
+    digest.update(file.sha256);
+    digest.update("\0");
+  }
+  return {
+    schema_version: WORKFLOW_VIEWER_BUNDLE_SCHEMA_VERSION,
+    source_version: sourceVersion,
+    bundle_digest: digest.digest("hex"),
+    files
+  };
+}
+
+/**
  * Writes a read-only Viewer snapshot. Pipeline state and Gate artifacts are never changed.
  */
 export async function writeWorkflowViewer(
@@ -107,6 +146,7 @@ export async function writeWorkflowViewer(
   const loadedEvidence = await loadViewerEvidence(runDir, runId);
   const { previewSources, gate2QcDigest, ...evidence } = loadedEvidence;
   await prepareWorkflowViewerBundle(options.bundleDir);
+  const viewerBundle = await inspectWorkflowViewerBundle(bundleDir);
   await mkdir(outputDir, { recursive: true });
   const [reviewHref, previews] = await Promise.all([
     writeReviewPreview(runDir, outputDir, evidence.reviewPresent === true),
@@ -127,6 +167,11 @@ export async function writeWorkflowViewer(
   const indexHtml = await renderViewerIndex(indexTemplate, bundleDir, workflow);
 
   await replaceAssets(join(bundleDir, "assets"), join(outputDir, "assets"));
+  await writeFile(
+    join(outputDir, "assets", "viewer-bundle-manifest.json"),
+    `${JSON.stringify(viewerBundle, null, 2)}\n`,
+    { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW }
+  );
 
   const viewerPath = join(outputDir, "index.html");
   const workflowPath = join(outputDir, "workflow.json");
@@ -690,6 +735,57 @@ function isSafeSnapshotReference(reference: string): boolean {
     && !reference.includes("\\")
     && !reference.includes("\0")
     && reference.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
+}
+
+async function collectBundleFiles(
+  root: string,
+  relativeDirectory: string,
+  output: WorkflowViewerSnapshotFile[],
+  traversal: { entries: number },
+  depth: number
+): Promise<void> {
+  if (depth > WORKFLOW_VIEWER_DIRECTORY_DEPTH_LIMIT) {
+    throw new Error("Viewer bundle contains directories that are too deeply nested");
+  }
+  const directory = relativeDirectory ? join(root, relativeDirectory) : root;
+  const rootStat = await lstat(directory);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error("Viewer bundle contains an unsafe directory");
+  }
+  const entries = await readdir(directory, { withFileTypes: true });
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    traversal.entries += 1;
+    if (traversal.entries > WORKFLOW_VIEWER_SNAPSHOT_ENTRY_LIMIT) {
+      throw new Error("Viewer bundle contains too many entries");
+    }
+    if (entry.isSymbolicLink()) throw new Error("Viewer bundle contains a symbolic link");
+    const child = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+    if (!isSafeSnapshotReference(child)) throw new Error("Viewer bundle contains an unsafe path");
+    if (entry.isDirectory()) {
+      await collectBundleFiles(root, child, output, traversal, depth + 1);
+    } else if (entry.isFile()) {
+      const fingerprint = await fingerprintRegularFile(join(root, child));
+      if (!fingerprint) throw new Error("Viewer bundle contains a non-regular file");
+      output.push({ path: child, ...fingerprint });
+    } else {
+      throw new Error("Viewer bundle contains an unsupported file type");
+    }
+  }
+  output.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function readViewerSourceVersion(indexHtml: string): string {
+  const metaTags = indexHtml.match(/<meta\b[^>]*>/gi) ?? [];
+  for (const tag of metaTags) {
+    const name = attributeValue(tag, "name");
+    if (name !== "tsugite-viewer-source-version") continue;
+    const version = attributeValue(tag, "content");
+    if (version && /^[A-Za-z0-9._-]+$/.test(version)) return version;
+  }
+  // Caller-supplied bundles used by existing launcher fixtures may predate the
+  // PO-0A marker. Keep their provenance explicit without treating them as the
+  // repo-owned generated bundle, which always carries WORKFLOW_VIEWER_SOURCE_VERSION.
+  return "custom";
 }
 
 async function fingerprintRegularFile(

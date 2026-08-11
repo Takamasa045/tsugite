@@ -5,6 +5,10 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { listPackage } from "@electron/asar";
+import {
+  createViewerBundleManifest,
+  VIEWER_BUNDLE_MANIFEST_FILE
+} from "./viewer-bundle.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -111,6 +115,14 @@ export async function auditRuntimeBoundary(runtimeRoot) {
 
   await assertRequiredFile(join(resolvedRuntimeRoot, "tsugite", "build", "cli.js"), "Tsugite CLI");
   await assertRequiredFile(join(resolvedRuntimeRoot, "viewer", "index.html"), "Viewer entry");
+  const viewerRoot = join(resolvedRuntimeRoot, "viewer");
+  const viewerManifestPath = join(viewerRoot, VIEWER_BUNDLE_MANIFEST_FILE);
+  await assertRequiredFile(viewerManifestPath, "Viewer bundle manifest");
+  const viewerManifest = JSON.parse(await readFile(viewerManifestPath, "utf8"));
+  const recomputedViewerManifest = await createViewerBundleManifest(viewerRoot);
+  if (JSON.stringify(viewerManifest) !== JSON.stringify(recomputedViewerManifest)) {
+    throw new Error("Package audit found a Viewer bundle version or digest mismatch");
+  }
   const nodeName = process.platform === "win32" ? "node.exe" : "node";
   const nodeStats = await assertRequiredFile(
     join(resolvedRuntimeRoot, "tsugite", "bin", nodeName),
