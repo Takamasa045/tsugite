@@ -176,7 +176,12 @@ const generationRequestSchema = z
     if (request.operation === "voice" && !request.prompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "voice requires text in prompt", path: ["prompt"] });
     }
-    const expectedOutputKind = request.operation === "image"
+    // An omitted operation is an explicit legacy video default.  A caller
+    // cannot turn that default into an image/audio capability by supplying a
+    // conflicting output_kind; the active video authority must remain V2.
+    const expectedOutputKind = request.operation === undefined
+      ? "video"
+      : request.operation === "image"
       ? "image"
       : request.operation === "voice" || request.operation === "music"
         ? "audio"
@@ -556,6 +561,7 @@ export function generationRequestMode(
 }
 
 export function generationRequestOutputKind(request: GenerationRequest): "video" | "image" | "audio" {
+  if (request.operation === undefined) return "video";
   if (request.output_kind) return request.output_kind;
   if (request.operation === "image") return "image";
   if (request.operation === "voice" || request.operation === "music") return "audio";

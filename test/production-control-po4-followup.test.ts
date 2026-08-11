@@ -18,6 +18,7 @@ import {
 import { buildProgramBinding, type GenerationUnitProgramSourceV1 } from "../src/productionControl/programBinding.js";
 import { createArtifactStore } from "../src/productionControl/artifactStore.js";
 import { createGenerationUnit, toProgramBindingSource } from "../src/productionControl/contracts/generationUnit.js";
+import { createLyricsContract } from "../src/productionControl/contracts/lyrics.js";
 import { createMusicStructureContract } from "../src/productionControl/contracts/music.js";
 import { createDryRun, createPlan } from "../src/orchestrator/plan.js";
 import { createReviewDocument, inspectGate1Review, renderReviewHtml, writeCreativeReview } from "../src/orchestrator/review.js";
@@ -27,7 +28,8 @@ import { h3IssueToProjectIssue } from "../src/videoPromptDirector/compile.js";
 import { loadPlanningOnlyPinnedPromptBudgetEvidence } from "../src/videoPromptDirector/promptBudgetEvidence.js";
 import { sha256Canonical, sha256Text } from "../src/integrity/canonical.js";
 import { isProjectAssetIdentityContained } from "../src/videoPromptDirector/compilationBundle.js";
-import { createProjectGenerationUnitSourceResolver, isAuthoritativeGenerationUnitSource, isGenerationUnitPathContained } from "../src/videoPromptDirector/generationUnitSourceResolver.js";
+import { consumeGenerationUnitLyricsForSource, consumeGenerationUnitLyricsToken, createProjectGenerationUnitSourceResolver, isAuthoritativeGenerationUnitSource, isGenerationUnitPathContained } from "../src/videoPromptDirector/generationUnitSourceResolver.js";
+import { loadProject } from "../src/project/loadProject.js";
 
 const ZERO = "0".repeat(64);
 
@@ -110,7 +112,7 @@ function sourceFor(route: Awaited<ReturnType<typeof realProfiles>>["route"], uni
   return { ...body, generation_unit_digest: sha256Canonical({ kind: "mv-generation-unit", body }) };
 }
 
-async function writeMvProject(withSource: boolean): Promise<{
+async function writeMvProject(withSource: boolean, withLyrics = false): Promise<{
   root: string;
   configPath: string;
   source: GenerationUnitProgramSourceV1;
@@ -136,16 +138,50 @@ async function writeMvProject(withSource: boolean): Promise<{
     sections: [],
     section_policy: { gaps: "allow", overlaps: "forbid" }
   });
-  const unit = createGenerationUnit({ production_id: "production-1", unit_id: "mv-unit-01", ordinal: 0, music, start_ms: 0, end_ms: 10_000, audio_policy: "reuse-master", route });
+  const lyrics = withLyrics ? createLyricsContract({
+    contract_id: "lyrics-1",
+    revision: 1,
+    language_bcp47: "ja-JP",
+    source: { canonical_text: "歌", text_digest: sha256Text("歌") },
+    alignment_state: "complete",
+    alignment_basis: "human-reviewed",
+    cues: [{
+      id: "cue-1",
+      timing: "timed",
+      source_span: { occurrence_id: "occ-1", start_utf8_byte: 0, end_utf8_byte: 3, text_digest: sha256Text("歌") },
+      singer_ids: ["S1"],
+      use: ["generated-singing"],
+      start_ms: 0,
+      end_ms: 1_000
+    }]
+  }) : undefined;
+  const unit = createGenerationUnit({ production_id: "production-1", unit_id: "mv-unit-01", ordinal: 0, music, ...(lyrics ? { lyrics, lyric_cue_ids: ["cue-1"] } : {}), start_ms: 0, end_ms: 10_000, audio_policy: "reuse-master", route });
   const source = toProgramBindingSource(unit);
   const store = await createArtifactStore(join(await realpath(root), "production-control"));
   await store.create({ artifact_id: music.contract_id, bytes: JSON.stringify(music) });
+  if (lyrics) await store.create({ artifact_id: lyrics.contract_id, bytes: JSON.stringify(lyrics) });
   if (withSource) await store.create({ artifact_id: unit.unit_id, bytes: JSON.stringify(unit) });
   const ir = {
     ...baseV2("v6"),
     program_kind: "mv",
     audio: { policy: "reuse-master", reference_asset_ids: [], final_mix: "discard-generated" },
-    program_binding: buildProgramBinding(source)
+    program_binding: buildProgramBinding(source),
+    ...(lyrics ? {
+      subjects: [{ id: "subject-s1", description: "singer", speaker_id: "S1" }],
+      shots: [{
+        ...baseV2("v6").shots[0]!,
+        vocal_events: [{
+          id: "event-1",
+          kind: "singing" as const,
+          speaker_ids: ["S1"],
+          language_id: "ja-JP",
+          content: { source: "lyrics-cue" as const, lyrics_contract_digest: lyrics.digest, cue_id: "cue-1", occurrence_id: "occ-1", text_digest: sha256Text("歌") },
+          start_ms: 0,
+          end_ms: 1_000,
+          continuity: "contained" as const
+        }]
+      }]
+    } : {})
   } as VideoPromptIrV2;
   const project = {
     slug: "po4-cli-mv",
@@ -158,6 +194,7 @@ async function writeMvProject(withSource: boolean): Promise<{
       mode: "active",
       authoring: {
         music: { kind: "music-contract", id: music.contract_id, digest: music.digest },
+        ...(lyrics ? { lyrics: { kind: "lyrics-contract", id: lyrics.contract_id, digest: lyrics.digest } } : {}),
         generation_units: [{ kind: "mv-generation-unit", id: unit.unit_id, digest: unit.digest }]
       }
     },
@@ -174,6 +211,67 @@ async function writeMvProject(withSource: boolean): Promise<{
 }
 
 describe("PO-4 follow-up security and profile regressions", () => {
+  it("selects one exact model+mode route independent of profile array order", async () => {
+    const { model, connection } = await realProfiles("v6", "pixverse");
+    const split = {
+      ...connection.profile,
+      exact_model_routes: [
+        { model: "v6", provider_model: "v6-text", modes: ["text-to-video"] },
+        { model: "v6", provider_model: "v6-image", modes: ["first-frame"] }
+      ]
+    };
+    const text = routeFromProfiles({ model: "v6", mode: "text-to-video", model_profile: model.profile, connection_profile: split, model_profile_digest: model.digest });
+    const image = routeFromProfiles({ model: "v6", mode: "first-frame", model_profile: model.profile, connection_profile: split, model_profile_digest: model.digest });
+    const reversed = routeFromProfiles({ model: "v6", mode: "text-to-video", model_profile: model.profile, connection_profile: { ...split, exact_model_routes: [...split.exact_model_routes].reverse() }, model_profile_digest: model.digest });
+    expect(text.ok && text.route.provider_model).toBe("v6-text");
+    expect(image.ok && image.route.provider_model).toBe("v6-image");
+    expect(reversed.ok && reversed.route.provider_model).toBe("v6-text");
+    const ambiguous = routeFromProfiles({ model: "v6", mode: "text-to-video", model_profile: model.profile, connection_profile: { ...split, exact_model_routes: [...split.exact_model_routes, { model: "v6", provider_model: "v6-other", modes: ["text-to-video"] }] }, model_profile_digest: model.digest });
+    expect(ambiguous.ok).toBe(false);
+  });
+
+  it("rejects a lyrics token swapped between two authoritative generation-unit sources", async () => {
+    const a = await writeMvProject(true, true);
+    const b = await writeMvProject(true, true);
+    try {
+      const projectA = await loadProject(a.configPath);
+      const projectB = await loadProject(b.configPath);
+      const requestA = projectA.generation!.requests[0]!;
+      const requestB = projectB.generation!.requests[0]!;
+      const irA = a.ir;
+      const sourceA = await createProjectGenerationUnitSourceResolver(a.configPath)({ project: projectA, request: requestA, ir: irA, requestIndex: 0 });
+      const sourceB = await createProjectGenerationUnitSourceResolver(b.configPath)({ project: projectB, request: requestB, ir: b.ir, requestIndex: 0 });
+      expect(sourceA && sourceB && isAuthoritativeGenerationUnitSource(sourceA) && isAuthoritativeGenerationUnitSource(sourceB)).toBe(true);
+      if (!sourceA || !sourceB) return;
+      const tokenA = consumeGenerationUnitLyricsToken(sourceA);
+      const tokenB = consumeGenerationUnitLyricsToken(sourceB);
+      expect(tokenA && tokenB).toBeTruthy();
+      expect(consumeGenerationUnitLyricsForSource(sourceA, tokenB!)).toBeUndefined();
+      const profiles = await realProfiles("v6", "pixverse");
+      const capability = await loadAdapterDialectCapability("pixverse", ["adapters"], {
+        model_profile_id: "v6", provider_model: profiles.route.provider_model, mode: "text-to-video"
+      });
+      expect(capability.ok).toBe(true);
+      if (!capability.ok || !tokenB) return;
+      const compiled = compileVideoPromptIrV2(irA, {
+        route: profiles.route,
+        model_profile: profiles.model.profile,
+        model_profile_digest: profiles.model.digest,
+        connection_profile: profiles.connection.profile,
+        connection_capability_digest: profiles.connection.digest,
+        adapter_dialect_capability: capability.capability,
+        generation_unit_source: sourceA,
+        generation_unit_lyrics_token: tokenB,
+        require_exact_sync: true
+      });
+      expect(compiled.ok).toBe(false);
+      expect(compiled.issues.map((issue) => issue.code)).toContain("VPD-L002");
+    } finally {
+      await rm(a.root, { recursive: true, force: true });
+      await rm(b.root, { recursive: true, force: true });
+    }
+  });
+
   it("uses a loaded provider-neutral adapter capability for a new non-H3 route", async () => {
     const { model, connection, route } = await realProfiles("v6", "pixverse");
     const capability = await loadAdapterDialectCapability("pixverse", ["adapters"], { model_profile_id: "v6", provider_model: "v6", mode: "text-to-video" });

@@ -47,6 +47,16 @@ export type GenerationUnitContractFacts = {
     byte_size: number;
     external_send: "allowed" | "forbidden" | "needs-human";
   };
+  asset_contract_entries?: Array<{
+    contract_id: string;
+    revision: number;
+    digest: string;
+    entry_id: string;
+    path: string;
+    sha256: string;
+    byte_size: number;
+    external_send: "allowed" | "forbidden" | "needs-human";
+  }>;
 };
 
 /**
@@ -107,7 +117,18 @@ export function generationUnitContractFacts(source: GenerationUnitProgramSourceV
       reference_audio_asset_id: unit.reference_audio_binding.derived_asset_id,
       reference_audio_asset_digest: unit.reference_audio_binding.derived_asset_digest
     } : {}),
-    ...(assetContract && referenceEntry ? {
+    ...(assetContract ? {
+      asset_contract_entries: assetContract.assets.map((entry) => ({
+        contract_id: assetContract.contract_id,
+        revision: assetContract.revision,
+        digest: assetContract.digest,
+        entry_id: entry.asset_id,
+        path: entry.project_relative_path,
+        sha256: entry.sha256,
+        byte_size: entry.byte_size,
+        external_send: entry.external_send
+      })),
+      ...(referenceEntry ? {
       asset_contract: {
         contract_id: assetContract.contract_id,
         revision: assetContract.revision,
@@ -118,6 +139,7 @@ export function generationUnitContractFacts(source: GenerationUnitProgramSourceV
         byte_size: referenceEntry.byte_size,
         external_send: referenceEntry.external_send
       }
+      } : {})
     } : {})
   });
 }
@@ -133,8 +155,14 @@ export function consumeGenerationUnitLyricsToken(source: GenerationUnitProgramSo
   return token && trustedGenerationUnitLyricsTokens.has(token as object) ? token : undefined;
 }
 
-export function materializeGenerationUnitLyrics(token: TrustedGenerationUnitLyricsToken): LyricsSource | undefined {
-  if (!trustedGenerationUnitLyricsTokens.has(token as object)) return undefined;
+/** Compiler-only source-bound handoff; a token from another source is invalid. */
+export function consumeGenerationUnitLyricsForSource(
+  source: GenerationUnitProgramSourceV1,
+  token: TrustedGenerationUnitLyricsToken
+): LyricsSource | undefined {
+  if (!isAuthoritativeGenerationUnitSource(source)
+    || lyricsTokenBySource.get(source as object) !== token
+    || !trustedGenerationUnitLyricsTokens.has(token as object)) return undefined;
   const snapshot = lyricsSnapshots.get(token as object);
   return snapshot ? deepFreeze(structuredClone(snapshot)) : undefined;
 }
@@ -252,20 +280,24 @@ async function resolveAuthoritativeGenerationUnit(
     if (unit.audio_policy === "reference-only") {
       const binding = unit.reference_audio_binding;
       const referenceAsset = ir.assets.find((asset) => asset.id === binding?.derived_asset_id);
+      const irAudioIds = ir.assets.filter((asset) => asset.type === "audio").map((asset) => asset.id);
       if (!binding || !referenceAsset || referenceAsset.type !== "audio"
         || referenceAsset.sha256 !== binding.derived_asset_digest
         || binding.source_start_ms !== unit.program.start_ms
         || binding.source_end_ms !== unit.program.end_ms
         || !ir.audio.reference_asset_ids.includes(binding.derived_asset_id)
-        || ir.audio.reference_asset_ids.length !== 1) return undefined;
+        || ir.audio.reference_asset_ids.length !== 1
+        || irAudioIds.length !== 1
+        || irAudioIds[0] !== binding.derived_asset_id) return undefined;
       const assetRef = project.orchestration?.authoring?.assets;
       if (!assetRef || assetRef.id.length === 0 || assetRef.digest.length !== 64) return undefined;
       assetContract = parseArtifact(await store.readBounded(assetRef.id, MAX_CONTRACT_ARTIFACT_BYTES), assetContractSchema, assetRef.digest);
       const assetEntry = assetContract.assets.find((asset) => asset.asset_id === binding.derived_asset_id);
-      if (!assetEntry || assetEntry.kind !== "audio" || assetEntry.sha256 !== binding.derived_asset_digest
+      if (!assetEntry || assetEntry.kind !== "audio" || assetEntry.project_relative_path !== referenceAsset.path
+        || assetEntry.sha256 !== binding.derived_asset_digest
         || assetEntry.external_send !== "allowed") return undefined;
       if (!(await verifyProjectAssetBytes(canonicalProjectRoot, assetEntry.project_relative_path, assetEntry.sha256, assetEntry.byte_size))) return undefined;
-    }
+    } else if (ir.assets.some((asset) => asset.type === "audio") || ir.audio.reference_asset_ids.length > 0) return undefined;
 
     let lyrics: LyricsContractV1 | undefined;
     const lyricsRef = project.orchestration?.authoring?.lyrics;

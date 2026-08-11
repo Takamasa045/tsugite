@@ -36,6 +36,7 @@ export {
   resolveConnectionPinPath,
   verifyConnectionPinFile,
   resolveExactModelRoute,
+  resolveExactModelRouteForMode,
   connectionRouteSupportsMode,
   assertConnectionModeSupported,
   CONNECTION_CAPABILITY_UNKNOWN_CODE,
@@ -233,15 +234,10 @@ export {
 export {
   compilationBundleSchema,
   compilationRevisionId,
-  createCompilationBundle,
-  createVerifiedAssetPin,
-  verifyVerifiedAssetPin,
-  isTrustedAssetPin,
-  loadCreateOnlyArtifactStoreEnvelope,
-  createExecutionCompilationBundleArtifact,
   deriveExecutionCompilationBundleFromPlanningArtifact,
-  adoptExecutionCompilationBundle,
   isAdoptedExecutionCompilationBundle,
+  createExecutionSubmissionLease,
+  consumeExecutionSubmissionLease,
   verifyCompilationBundle,
   assertCompilationBundleAssets,
   isProjectAssetIdentityContained,
@@ -254,5 +250,6 @@ export {
   type CompilationBundleInput,
   type ExecutionCompilationBundle,
   type ExecutionBundleAuthorityContext,
+  type ExecutionSubmissionLease,
   type CreateOnlyArtifactStoreEnvelope
 } from "./compilationBundle.js";

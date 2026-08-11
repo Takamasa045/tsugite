@@ -398,21 +398,40 @@ export function connectionRouteSupportsMode(
   return route.modes.includes(mode);
 }
 
+/** Resolve exactly one route by the complete model+mode selector. */
+export function resolveExactModelRouteForMode(
+  profile: ConnectionCapabilityProfile,
+  modelId: string,
+  mode: H3Mode | string
+): { ok: true; route: ExactModelRoute } | { ok: false; code: string; message: string } {
+  const matches = profile.exact_model_routes.filter((route) => route.model === modelId && route.modes.includes(mode));
+  if (matches.length === 1) return { ok: true, route: matches[0]! };
+  if (matches.length > 1) return {
+    ok: false,
+    code: CONNECTION_ROUTE_EXACT_MISMATCH_CODE,
+    message: `connection '${profile.connection_id}' has ambiguous exact route for '${modelId}/${mode}'`
+  };
+  const exactModel = profile.exact_model_routes.filter((route) => route.model === modelId);
+  if (exactModel.length === 0 && profile.exact_model_routes.some((route) => route.family === modelId)) {
+    return {
+      ok: false,
+      code: CONNECTION_FAMILY_ONLY_CODE,
+      message: `connection '${profile.connection_id}' has only a family route for '${modelId}'`
+    };
+  }
+  return {
+    ok: false,
+    code: CONNECTION_ROUTE_UNSUPPORTED_CODE,
+    message: `connection '${profile.connection_id}' has no exact route for '${modelId}/${mode}'`
+  };
+}
+
 export function assertConnectionModeSupported(
   profile: ConnectionCapabilityProfile,
   modelId: string,
   mode: H3Mode | string
 ): { ok: true; route: ExactModelRoute } | { ok: false; code: string; message: string } {
-  const resolved = resolveExactModelRoute(profile, modelId);
+  const resolved = resolveExactModelRouteForMode(profile, modelId, mode);
   if (!resolved.ok) return resolved;
-  if (!connectionRouteSupportsMode(resolved.route, mode)) {
-    return {
-      ok: false,
-      code: CONNECTION_ROUTE_UNSUPPORTED_CODE,
-      message:
-        `connection '${profile.connection_id}' exact route for model '${modelId}' `
-        + `does not support mode '${mode}'`
-    };
-  }
   return { ok: true, route: resolved.route };
 }

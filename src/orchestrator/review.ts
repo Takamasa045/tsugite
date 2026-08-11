@@ -40,7 +40,7 @@ import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirecto
 import { validateProject } from "../project/validateProject.js";
 import { loadProject } from "../project/loadProject.js";
 import { sha256Canonical } from "../integrity/canonical.js";
-import { readCompilationBundleAtomic } from "../videoPromptDirector/compilationBundle.js";
+import { compilationRevisionId, readCompilationBundleAtomic } from "../videoPromptDirector/compilationBundle.js";
 import { safeParseVideoPromptIrV2 } from "../videoPromptDirector/schemaV2.js";
 import { upgradeH3V1ToVideoPromptV2, upgradeVideoPromptV1ToV2 } from "../videoPromptDirector/upgradeV1.js";
 import { loadConnectionCapabilityProfile, routeFromProfiles } from "../videoPromptDirector/index.js";
@@ -236,6 +236,8 @@ export type VideoPromptReviewProjection = {
   request_id: string;
   request_identity: {
     request_id: string;
+    revision_id: string;
+    artifact_ref: string;
     authoring_surface: "video_prompt";
     authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
     compiler_workflow: "video-prompt-v3";
@@ -252,6 +254,8 @@ export type VideoPromptReviewProjection = {
     adapter_capability_digest: string;
     grammar_profile_digest?: string;
     generation_unit_source_digest?: string;
+    revision_id: string;
+    artifact_ref: string;
   };
 };
 
@@ -267,6 +271,8 @@ export function createVideoPromptReviewProjection(
       request_id: compilation.request_id,
       request_identity: {
         request_id: compilation.request_id,
+        revision_id: compilationRevisionId(compilation.bundle),
+        artifact_ref: `${compilationRevisionId(compilation.bundle)}/video-prompt/${compilation.request_id}`,
         authoring_surface: "video_prompt" as const,
         authoring_schema: authoringSchema,
         compiler_workflow: "video-prompt-v3" as const
@@ -284,7 +290,9 @@ export function createVideoPromptReviewProjection(
         ...(compilation.bundle.grammar_profile ? { grammar_profile_digest: compilation.bundle.grammar_profile.digest } : {}),
         ...(compilation.bundle.lineage.generation_unit_source_digest
           ? { generation_unit_source_digest: compilation.bundle.lineage.generation_unit_source_digest }
-          : {})
+          : {}),
+        revision_id: compilationRevisionId(compilation.bundle),
+        artifact_ref: `${compilationRevisionId(compilation.bundle)}/video-prompt/${compilation.request_id}`
       }
     } satisfies VideoPromptReviewProjection];
   });
@@ -590,6 +598,7 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
       if (!normalized) throw new Error(`request '${request.id}' is not strict V2/V1 authoring`);
       const expectedNormalizedDigest = sha256Canonical(normalized.ir);
       const candidates = [] as Array<{ bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1; revision: string }>;
+      const requestIndex = requests.indexOf(request);
       for (const revision of revisions) {
         try {
           const persisted = readCompilationBundleAtomic(artifactRoot, {
@@ -598,6 +607,8 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
             request_id: request.id
           });
           if (persisted.bundle.normalized_ir_digest === expectedNormalizedDigest) {
+            await assertCommittedRouteStillMatches(project, persisted.bundle);
+            await assertCommittedT04StillMatches(configPath, project, request, normalized.ir, requestIndex, persisted.bundle);
             candidates.push({ bundle: persisted.bundle, revision });
           }
         } catch {
@@ -609,8 +620,7 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
       if (unique.size === 0) throw new Error(`request '${request.id}' has no committed compilation manifest for the current authoring digest`);
       if (unique.size > 1) throw new Error(`request '${request.id}' has ambiguous committed compilation revisions`);
       const committed = [...unique.values()][0]!.bundle;
-      await assertCommittedRouteStillMatches(project, committed);
-      projection.push(videoPromptReviewProjectionFromCommittedBundle(committed));
+      projection.push(videoPromptReviewProjectionFromCommittedBundle(committed, [...unique.values()][0]!.revision));
     }
     return { ok: true, projection };
   } catch {
@@ -642,7 +652,7 @@ function normalizeCommittedVideoPromptAuthoring(value: unknown): { ir: import(".
   }
 }
 
-function videoPromptReviewProjectionFromCommittedBundle(bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1): VideoPromptReviewProjection {
+function videoPromptReviewProjectionFromCommittedBundle(bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1, revision: string): VideoPromptReviewProjection {
   const authoringSchema = bundle.lineage.authoring_schema;
   if (authoringSchema !== "VideoPromptIrV2" && authoringSchema !== "V1" && authoringSchema !== "H3-V1") {
     throw new Error("committed bundle authoring schema is unsupported");
@@ -651,6 +661,8 @@ function videoPromptReviewProjectionFromCommittedBundle(bundle: import("../video
     request_id: bundle.request_id,
     request_identity: {
       request_id: bundle.request_id,
+      revision_id: revision,
+      artifact_ref: `${revision}/video-prompt/${bundle.request_id}`,
       authoring_surface: "video_prompt",
       authoring_schema: authoringSchema,
       compiler_workflow: "video-prompt-v3"
@@ -666,7 +678,9 @@ function videoPromptReviewProjectionFromCommittedBundle(bundle: import("../video
       connection_capability_digest: bundle.connection_capability_digest,
       adapter_capability_digest: bundle.adapter_capability_digest,
       ...(bundle.grammar_profile ? { grammar_profile_digest: bundle.grammar_profile.digest } : {}),
-      ...(bundle.lineage.generation_unit_source_digest ? { generation_unit_source_digest: bundle.lineage.generation_unit_source_digest } : {})
+      ...(bundle.lineage.generation_unit_source_digest ? { generation_unit_source_digest: bundle.lineage.generation_unit_source_digest } : {}),
+      revision_id: revision,
+      artifact_ref: `${revision}/video-prompt/${bundle.request_id}`
     }
   };
 }
@@ -690,12 +704,34 @@ async function assertCommittedRouteStillMatches(project: Project, bundle: import
     connection_profile_digest: connection.digest
   });
   if (!route.ok || sha256Canonical(route.route) !== sha256Canonical(bundle.route)) throw new Error("committed route no longer matches the selected capability");
+  const adapter = await import("../videoPromptDirector/adapterDialect.js").then(({ loadAdapterDialectCapability }) => loadAdapterDialectCapability(
+    bundle.route.adapter_id,
+    ["adapters"],
+    { model_profile_id: bundle.route.ir_model, provider_model: bundle.route.provider_model, mode: bundle.route.mode_binding }
+  ));
+  if (!adapter.ok || adapter.capability.source_digest !== bundle.adapter_capability_digest) throw new Error("committed adapter capability is stale");
   if (bundle.grammar_profile) {
     const grammar = await loadPinnedH3GrammarProfile();
     if (grammar.digest !== bundle.grammar_profile.digest) throw new Error("committed grammar provenance is stale");
   } else if (model.profile.renderer === "h3-grammar") {
     throw new Error("H3 committed bundle is missing its pinned grammar profile");
   }
+}
+
+async function assertCommittedT04StillMatches(
+  configPath: string,
+  project: Project,
+  request: GenerationRequest,
+  ir: import("../videoPromptDirector/schemaV2.js").VideoPromptIrV2,
+  requestIndex: number,
+  bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1
+): Promise<void> {
+  if (ir.program_kind !== "mv") return;
+  const source = await createProjectGenerationUnitSourceResolver(configPath)({ project, request, ir, requestIndex });
+  if (!source || !bundle.lineage.generation_unit_source_canonical_digest
+    || sha256Canonical(source) !== bundle.lineage.generation_unit_source_canonical_digest
+    || source.unit_id !== request.id
+    || source.ordinal !== requestIndex) throw new Error("committed T04 generation-unit source is stale");
 }
 
 function isSafeReviewId(value: string): boolean {

@@ -7,9 +7,7 @@ import {
   assertEffectiveGenerationContract,
   compileProjectVideoPrompts,
   compileVideoPromptIrV2,
-  createVerifiedAssetPin,
   h3GrammarProfileDigest,
-  isTrustedAssetPin,
   loadAdapterDialectCapability,
   loadConnectionCapabilityProfile,
   loadModelPromptProfile,
@@ -17,6 +15,7 @@ import {
   routeFromProfiles,
   type VideoPromptIrV2
 } from "../src/videoPromptDirector/index.js";
+import { createVerifiedAssetPin, isTrustedAssetPin } from "../src/videoPromptDirector/compilationBundle.js";
 import { sha256Text } from "../src/integrity/canonical.js";
 import { parseH3CreativeIr } from "../src/h3/schema.js";
 

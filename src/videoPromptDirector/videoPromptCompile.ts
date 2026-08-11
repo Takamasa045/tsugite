@@ -312,12 +312,23 @@ async function compileVideoPromptV2Request(
   if (!modelLoad.ok) return { ok: false, issues: [issue(modelLoad.code, modelLoad.message, "error", ["target", "model_profile_id"])] };
   const connectionLoad = await loadConnectionCapabilityProfile(options.connectionId, options.connectionProfileRoots);
   if (!connectionLoad.ok) return { ok: false, issues: [issue(connectionLoad.code, connectionLoad.message, "error", ["connection"])] };
+  // Resolve the unique model+requested-mode route before loading any adapter
+  // capability. Adapter selection must never use a model-only first match.
+  const selectedRoute = routeFromProfiles({
+    model: ir.target.model_profile_id,
+    mode: ir.target.mode,
+    model_profile: modelLoad.profile,
+    connection_profile: connectionLoad.profile,
+    model_profile_digest: modelLoad.digest,
+    connection_profile_digest: connectionLoad.digest
+  });
+  if (!selectedRoute.ok) return { ok: false, issues: selectedRoute.issues };
   const adapterDialectLoad = await loadAdapterDialectCapability(
     connectionLoad.profile.adapter_id ?? "",
     options.adapterDirs,
     {
       model_profile_id: modelLoad.profile.id,
-      provider_model: (connectionLoad.profile.exact_model_routes.find((candidate) => candidate.model === modelLoad.profile.id)?.provider_model) ?? "",
+      provider_model: selectedRoute.route.provider_model,
       mode: ir.target.mode
     }
   );
@@ -339,16 +350,7 @@ async function compileVideoPromptV2Request(
     intent: options.intent ?? "planning"
   });
   if (!readiness.ok) issues.push(issue(readiness.code, readiness.message, "error", ["target", "mode"]));
-  const selectedRoute = routeFromProfiles({
-    model: ir.target.model_profile_id,
-    mode: ir.target.mode,
-    model_profile: modelLoad.profile,
-    connection_profile: connectionLoad.profile,
-    model_profile_digest: modelLoad.digest,
-    connection_profile_digest: connectionLoad.digest
-  });
-  if (!selectedRoute.ok) issues.push(...selectedRoute.issues);
-  if (!selectedRoute.ok || !adapterCheck.ok) return { ok: false, issues };
+  if (!adapterCheck.ok) return { ok: false, issues };
   const requireExactSync = options.require_exact_sync ?? ir.shots.some((shot) => shot.vocal_events.some((event) => event.kind === "singing" && event.content.source === "lyrics-cue"));
   const compiled = compileVideoPromptIrV2(ir, {
     request_id: request.id,
@@ -782,7 +784,9 @@ export async function compileProjectVideoPrompts(
 
 function assertOperationOutputKind(request: GenerationRequest): string | undefined {
   const operation = request.operation;
-  const expected = operation === "image"
+  const expected = operation === undefined
+    ? "video"
+    : operation === "image"
     ? "image"
     : operation === "voice" || operation === "music"
       ? "audio"

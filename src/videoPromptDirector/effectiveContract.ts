@@ -415,7 +415,10 @@ export function createEffectiveGenerationContract(
   issues.push(...validatePromptBudget(budget));
   if (issues.some((item) => item.severity === "error")) return { ok: false, issues };
 
-  const profileRoute = input.connection_profile?.exact_model_routes.find((item) => item.model === route.ir_model);
+  const matchingProfileRoutes = input.connection_profile?.exact_model_routes.filter((item) =>
+    item.model === route.ir_model && item.modes.includes(input.mode)
+  ) ?? [];
+  const profileRoute = matchingProfileRoutes.length === 1 ? matchingProfileRoutes[0] : undefined;
   const derivedEvidence: EffectiveCapabilityEvidence = {
     duration: input.model_profile ? "hard" : "unknown",
     aspect: input.model_profile ? "hard" : "unknown",

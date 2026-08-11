@@ -58,7 +58,7 @@ import {
   type GenerationUnitProgramSourceV1
 } from "../productionControl/programBinding.js";
 import { generationUnitContractFacts, isAuthoritativeGenerationUnitSource } from "./generationUnitSourceResolver.js";
-import { materializeGenerationUnitLyrics, type TrustedGenerationUnitLyricsToken } from "./generationUnitSourceResolver.js";
+import { consumeGenerationUnitLyricsForSource, type TrustedGenerationUnitLyricsToken } from "./generationUnitSourceResolver.js";
 
 export const VIDEO_PROMPT_V2_WORKFLOW_ID = "video-prompt-v3" as const;
 export const VIDEO_PROMPT_V2_WORKFLOW_VERSION = H3_GRAMMAR_V3_VERSION;
@@ -247,8 +247,8 @@ export function compileVideoPromptIrV2(
   const grammarProfile = options.model_profile?.renderer === "plain-prompt"
     ? undefined
     : (suppliedGrammarProfile ?? (options.require_pinned_grammar ? undefined : DEFAULT_H3_GRAMMAR_PROFILE_V3));
-  const lyricsSource = options.generation_unit_lyrics_token
-    ? materializeGenerationUnitLyrics(options.generation_unit_lyrics_token)
+  const lyricsSource = options.generation_unit_lyrics_token && options.generation_unit_source
+    ? consumeGenerationUnitLyricsForSource(options.generation_unit_source, options.generation_unit_lyrics_token)
     : undefined;
   if (ir.program_kind === "mv" && ir.shots.some((shot) => shot.vocal_events.some((event) => event.content.source === "lyrics-cue")) && !lyricsSource) {
     issues.push(issue("VPD-L002", "MV lyrics must be materialized from the authoritative T04 source token", "error", ["generation_unit_lyrics_token"]));
@@ -275,6 +275,18 @@ export function compileVideoPromptIrV2(
     ? renderProviderNeutralPrompt(semantic.ast)
     : renderH3GrammarV3(semantic.ast, grammarOptions);
   issues.push(...rendered.issues);
+  const audioAssets = ir.assets.filter((asset) => asset.type === "audio");
+  const requestedReferenceIds = [...ir.audio.reference_asset_ids];
+  if (ir.audio.policy === "reference-only") {
+    const audioIds = audioAssets.map((asset) => asset.id).sort();
+    const referenceIds = [...requestedReferenceIds].sort();
+    if (audioIds.length !== 1 || referenceIds.length !== 1 || audioIds[0] !== referenceIds[0]
+      || !["voice_reference", "other"].includes(audioAssets[0]?.role ?? "")) {
+      issues.push(issue("VPD-J002", "reference-only audio must bind exactly one authoritative audio_reference asset", "error", ["audio"]));
+    }
+  } else if (audioAssets.length > 0 || requestedReferenceIds.length > 0) {
+    issues.push(issue("VPD-J002", `${ir.audio.policy} cannot send unauthorized audio assets or reference ids`, "error", ["audio"]));
+  }
   if (!plainRenderer && ir.shots.some((shot) => shot.vocal_events.some((event) => event.speaker_ids.length > 1))
     && grammarProfile && !grammarProfile.features.group_speaker) {
     issues.push(issue("VPD-V001", "selected grammar profile cannot serialize all group speakers", "error", ["shots", "vocal_events", "speaker_ids"]));
