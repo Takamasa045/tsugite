@@ -76,7 +76,19 @@ export const connectionCapabilityProfileSchema = z
       })
       .strict()
   })
-  .strict();
+  .strict()
+  .superRefine((profile, context) => {
+    const selectors = new Set<string>();
+    for (const [index, route] of profile.exact_model_routes.entries()) {
+      for (const mode of route.modes) {
+        const selector = `${route.model}\u0000${mode}`;
+        if (selectors.has(selector)) {
+          context.addIssue({ code: z.ZodIssueCode.custom, path: ["exact_model_routes", index, "modes"], message: "exact model route selectors must be unique" });
+        }
+        selectors.add(selector);
+      }
+    }
+  });
 
 export type ConnectionCapabilityProfile = z.infer<typeof connectionCapabilityProfileSchema>;
 export type ExactModelRoute = z.infer<typeof exactModelRouteSchema>;

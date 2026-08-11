@@ -1,11 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   H3_WORKFLOW_VERSION,
   compileH3Request,
-  compileVideoPromptIrV2,
+  compileVideoPromptIrV2 as compileVideoPromptIrV2Impl,
   createEffectiveGenerationContract,
   createRouteIdentity,
   evaluatePlanningReadiness,
@@ -23,12 +23,14 @@ import {
   assertHomogeneousRouteIdentity,
   routeFromProfiles,
   renderH3GrammarV3,
+  buildSemanticBlocks,
   type PromptBudget,
   type VideoPromptIrV2
 } from "../src/videoPromptDirector/index.js";
+import { renderProviderNeutralPrompt, validateGrammarShape } from "../src/videoPromptDirector/render/h3GrammarV3.js";
 import { sha256Canonical, sha256Text } from "../src/integrity/canonical.js";
 import { sha256Bytes } from "../src/productionControl/canonical.js";
-import { loadConnectionCapabilityProfile, loadModelPromptProfile } from "../src/videoPromptDirector/index.js";
+import { loadAdapterDialectCapability, loadConnectionCapabilityProfile, loadModelPromptProfile } from "../src/videoPromptDirector/index.js";
 import type { GenerationRequest } from "../src/project/schema.js";
 
 const ZERO = "0".repeat(64);
@@ -45,13 +47,27 @@ const MODES = [
 function route(mode: VideoPromptIrV2["target"]["mode"] = "text-to-video") {
   return createRouteIdentity({
     ir_model: "minimax-h3",
-    provider_model: "minimax-h3",
+    provider_model: "MiniMax-H3",
     model_profile_digest: ZERO,
     connection_id: "fixture-connection",
     connection_digest: ZERO,
-    adapter_id: "fixture-adapter",
+    adapter_id: "minimax",
     transport: "manual",
     mode_binding: mode
+  });
+}
+
+let fixtureDialect: Awaited<ReturnType<typeof loadAdapterDialectCapability>> extends { ok: true; capability: infer T } ? T : never;
+beforeAll(async () => {
+  const loaded = await loadAdapterDialectCapability("minimax", ["adapters"], { model_profile_id: "minimax-h3", provider_model: "MiniMax-H3", mode: "text-to-video" });
+  if (!loaded.ok) throw new Error("fixture adapter capability unavailable");
+  fixtureDialect = loaded.capability as typeof fixtureDialect;
+});
+
+function compileVideoPromptIrV2(input: unknown, options: Parameters<typeof compileVideoPromptIrV2Impl>[1] = {}) {
+  return compileVideoPromptIrV2Impl(input, {
+    ...options,
+    adapter_dialect_capability: options.adapter_dialect_capability ?? fixtureDialect
   });
 }
 
@@ -180,8 +196,7 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
         constraints: { positive: [], exact_text_refs: ["dialogue-1", "singing-1", "voiceover-1", "caption-1", "model-text-1"] }
       }]
     });
-    const result = compileVideoPromptIrV2(ir, {
-      route: route(),
+    const result = buildSemanticBlocks(ir, {
       require_exact_sync: true,
       lyrics_source: {
         canonical_text: lyricText,
@@ -190,14 +205,14 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
         cues: [{ cue_id: "cue-1", occurrence_id: "occ-1", timing: "timed", lyrics_contract_digest: ZERO, language_bcp47: "ja-JP", source_span: { start_utf8_byte: 0, end_utf8_byte: Buffer.byteLength(lyricText), text_digest: lyricDigest }, start_ms: 1_000, end_ms: 10_000, singer_ids: ["S1", "S2"], use: ["generated-singing"] }]
       }
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.compilation.canonical_prompt).toContain("<d>[ja-JP]  こんにちは\n世界  </d>");
-    expect(result.compilation.canonical_prompt).toContain("<d>[ja-JP]  ねえ\n世界  </d>");
-    expect(result.compilation.canonical_prompt).toContain("<scenetrans>");
-    expect(result.compilation.canonical_prompt).toContain("<cutoff>");
-    expect(result.compilation.canonical_prompt).toContain("On-screen text: RIVER");
-    expect(result.compilation.canonical_prompt).not.toContain("正確な字幕");
+    expect(result.issues.filter((item) => item.severity === "error")).toHaveLength(0);
+    const text = result.blocks.map((block) => block.text).join("\n");
+    expect(text).toContain("<d>[ja-JP]  こんにちは\n世界  </d>");
+    expect(text).toContain("<d>[ja-JP]  ねえ\n世界  </d>");
+    expect(text).toContain("<scenetrans>");
+    expect(text).toContain("<cutoff>");
+    expect(text).toContain("On-screen text: RIVER");
+    expect(text).not.toContain("正確な字幕");
   });
 
   it("rejects untimed exact-sync cues and reserved delimiter injection without rewriting text", () => {
@@ -209,12 +224,58 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
         visible_text_events: [], constraints: { positive: [], exact_text_refs: ["singing-1"] }
       }]
     });
-    const result = compileVideoPromptIrV2(ir, {
-      route: route(), require_exact_sync: true,
+    const result = buildSemanticBlocks(ir, {
+      require_exact_sync: true,
       lyrics_source: { canonical_text: text, text_digest: sha256Text(text), cues: [{ cue_id: "cue-1", occurrence_id: "occ-1", timing: "untimed", lyrics_contract_digest: ZERO, source_span: { start_utf8_byte: 0, end_utf8_byte: Buffer.byteLength(text), text_digest: sha256Text(text) } }] }
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.issues.map((item) => item.code)).toEqual(expect.arrayContaining(["VPD-L003", "VPD-X001"]));
+    expect(result.issues.map((item) => item.code)).toEqual(expect.arrayContaining(["VPD-L003", "VPD-X001"]));
+  });
+
+  it("fails closed for every lossless lyrics authority mismatch", () => {
+    const text = "歌";
+    const digest = sha256Text(text);
+    const makeEvent = (overrides: Record<string, unknown> = {}) => ({
+      id: "singing-1",
+      kind: "singing" as const,
+      speaker_ids: ["S1"],
+      language_id: "ja-JP",
+      content: { source: "lyrics-cue" as const, lyrics_contract_digest: ZERO, cue_id: "cue-1", occurrence_id: "occ-1", text_digest: digest },
+      start_ms: 500,
+      end_ms: 1_500,
+      continuity: "contained" as const,
+      ...overrides
+    });
+    const makeSource = (overrides: Record<string, unknown> = {}, sourceOverrides: Record<string, unknown> = {}) => ({
+      canonical_text: text,
+      text_digest: digest,
+      language_bcp47: "ja-JP",
+      program_start_ms: 1_000,
+      ...sourceOverrides,
+      cues: [{
+        cue_id: "cue-1", occurrence_id: "occ-1", timing: "timed" as const, lyrics_contract_digest: ZERO,
+        language_bcp47: "ja-JP", source_span: { start_utf8_byte: 0, end_utf8_byte: Buffer.byteLength(text), text_digest: digest },
+        start_ms: 1_500, end_ms: 2_500, singer_ids: ["S1"], use: ["generated-singing" as const],
+        ...overrides
+      }]
+    });
+    const run = (event: Record<string, unknown>, source: Record<string, unknown>, options: Record<string, unknown> = {}) => buildSemanticBlocks(baseV2({
+      shots: [{ ...baseV2().shots[0]!, vocal_events: [event] }]
+    }), { require_exact_sync: true, ...options, lyrics_source: source });
+
+    expect(buildSemanticBlocks(baseV2({ shots: [{ ...baseV2().shots[0]!, vocal_events: [{ ...makeEvent(), content: { source: "inline-exact", exact_text: text, text_digest: digest } }] } as never] }), { allowed_language_map: { en: "en" } }).issues.map((item) => item.code)).toContain("VPD-L005");
+    expect(run(makeEvent(), makeSource({}, { text_digest: ZERO })).issues.map((item) => item.code)).toContain("VPD-L001");
+    expect(run(makeEvent({ content: { source: "story-cue", exact_text: text, text_digest: digest } }), makeSource()).issues.map((item) => item.code)).toContain("VPD-L002");
+    expect(run(makeEvent({ content: { source: "lyrics-cue", lyrics_contract_digest: ZERO, cue_id: "missing", occurrence_id: "occ-1", text_digest: digest } }), makeSource()).issues.map((item) => item.code)).toContain("VPD-L002");
+    expect(run(makeEvent(), makeSource({ use: ["caption-overlay"] })).issues.map((item) => item.code)).toContain("VPD-L002");
+    expect(run(makeEvent(), makeSource({ singer_ids: ["S2"] })).issues.map((item) => item.code)).toContain("VPD-L004");
+    expect(run(makeEvent(), makeSource(), { allowed_language_map: {} }).issues.map((item) => item.code)).toContain("VPD-L005");
+    expect(run(makeEvent(), makeSource(), { allowed_language_map: { "ja-JP": "en" } }).issues.map((item) => item.code)).toContain("VPD-L005");
+    expect(run(makeEvent(), makeSource({ start_ms: 1_000, end_ms: 1_500 }, { program_start_ms: undefined })).issues.map((item) => item.code)).toContain("VPD-L003");
+    expect(run(makeEvent({ start_ms: undefined, end_ms: undefined }), makeSource()).issues.map((item) => item.code)).toContain("VPD-L003");
+    expect(run(makeEvent({ start_ms: 600, end_ms: 1_500 }), makeSource()).issues.map((item) => item.code)).toContain("VPD-L003");
+    expect(run(makeEvent(), makeSource({ start_ms: 500, end_ms: 900 })).issues.map((item) => item.code)).toContain("VPD-L003");
+    expect(run(makeEvent(), makeSource({ source_span: { start_utf8_byte: 0, end_utf8_byte: 99, text_digest: digest } })).issues.map((item) => item.code)).toContain("VPD-L001");
+    expect(run(makeEvent(), makeSource({ source_span: { start_utf8_byte: 0, end_utf8_byte: Buffer.byteLength(text), text_digest: sha256Text("違う") } })).issues.map((item) => item.code)).toContain("VPD-L001");
   });
 
   it("never rewrites an exact vocal body that contains a canonical asset label", () => {
@@ -654,12 +715,28 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
       modelProfileRoots: ["profiles/model-prompts"],
       connectionProfileRoots: ["profiles/connection-capabilities"]
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.ok ? "" : JSON.stringify(result.issues)).toBe(true);
     if (result.ok) {
       expect(result.plan.compiler_workflow).toBe("video-prompt-v3");
       expect(result.plan.v2_compilation?.bundle.lineage.authoring_schema).toBe("V1");
       expect(result.plan.v2_compilation?.bundle.lineage.upgrader_version).toBe("video-prompt-v1-to-v2@1");
     }
+  });
+
+  it("enforces the exact provider-audio policy set before dialect serialization", () => {
+    const audio = { id: "voice", type: "audio" as const, path: "assets/voice.wav", role: "voice_reference" as const, sha256: ZERO };
+    const image = { id: "hero", type: "image" as const, path: "assets/hero.png", role: "subject_reference" as const, sha256: ZERO };
+    expect(safeParseVideoPromptIrV2(baseV2({ assets: [audio], audio: { policy: "silent", reference_asset_ids: [], final_mix: "discard-generated" } })).success).toBe(false);
+    expect(safeParseVideoPromptIrV2(baseV2({
+      target: { model_profile_id: "minimax-h3", mode: "reference", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: true },
+      assets: [image, audio, { ...audio, id: "voice-2", path: "assets/voice-2.wav" }],
+      audio: { policy: "reference-only", reference_asset_ids: ["voice"], final_mix: "use-generated" }
+    })).success).toBe(false);
+    expect(safeParseVideoPromptIrV2(baseV2({
+      target: { model_profile_id: "minimax-h3", mode: "reference", duration_ms: 10_000, quality: "768p", aspect: "16:9", audio: true },
+      assets: [image, audio],
+      audio: { policy: "reference-only", reference_asset_ids: ["voice"], final_mix: "use-generated" }
+    })).success).toBe(true);
   });
 
   it("keeps the public renderer compatibility call deterministic while active compile uses AST", () => {
@@ -670,6 +747,95 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
     expect(rendered.issues.filter((item) => item.severity === "error")).toHaveLength(0);
     expect(rendered.text).toContain("LOCATION MAP:");
     expect(rendered.text).toContain("On-screen text: RIVER");
+  });
+
+  it("covers every H3 alignment, identity, vocal, and provider-neutral serializer branch", () => {
+    const exact = "spoken exactly";
+    const fullIr = baseV2({
+      creative: {
+        intent: undefined,
+        style: { medium: "film", tone: "quiet", lighting: "dawn", palette: ["blue"] },
+        must_include: ["lantern"],
+        prohibited: ["forbidden-word"]
+      },
+      subjects: [
+        {
+          id: "hero",
+          description: "traveler",
+          speaker_id: "S1",
+          source_asset_id: "first",
+          preservation: { identity: "same face", clothing: "red coat", hairstyle: "short hair" },
+          locked_blocks: {
+            voice: { text: "calm voice", sha256: sha256Text("calm voice") },
+            appearance: { text: "red coat", sha256: sha256Text("red coat") },
+            manner: { text: "steady hands", sha256: sha256Text("steady hands") }
+          }
+        }
+      ],
+      scenes: [{ id: "scene-1", location_map: "river bank", wardrobe: "red coat", props: ["lantern"], time_of_day: "dawn", weather: "mist", screen_direction: "left to right", palette: "blue" }],
+      assets: [
+        { id: "first", type: "image", path: "first.png", role: "first_frame", sha256: ZERO },
+        { id: "last", type: "image", path: "last.png", role: "last_frame", sha256: ZERO },
+        { id: "clip", type: "video", path: "clip.mp4", role: "subject_reference", sha256: ZERO },
+        { id: "sound", type: "audio", path: "sound.wav", role: "voice_reference", sha256: ZERO }
+      ],
+      shots: [{
+        ...baseV2().shots[0]!,
+        scene_id: "scene-1",
+        cast: [{ subject_id: "hero", variant_id: "night" }, { subject_id: "missing" }],
+        camera: { type: "pan", direction: "left", amplitude: "small", speed: "slow", optics: { fov_degrees: 35, lens_mm: 50 } },
+        vocal_events: [
+          { id: "voiceover", kind: "voiceover", speaker_ids: ["S1"], language_id: "en", content: { source: "inline-exact", exact_text: exact, text_digest: sha256Text(exact) }, continuity: "contained" },
+          { id: "singing", kind: "singing", speaker_ids: ["S1"], language_id: "en", content: { source: "inline-exact", exact_text: "la", text_digest: sha256Text("la") }, continuity: "continues-out" },
+          { id: "dialogue", kind: "dialogue", speaker_ids: ["unknown"], language_id: "en", content: { source: "inline-exact", exact_text: "hello", text_digest: sha256Text("hello") }, continuity: "cutoff" }
+        ],
+        visible_text_events: [
+          { id: "editor-caption", text: "forbidden-word", text_digest: sha256Text("forbidden-word"), purpose: "caption-overlay", render_target: "editor" },
+          { id: "model-text", text: "lantern", text_digest: sha256Text("lantern"), purpose: "generated-scene-text", render_target: "model" }
+        ]
+      }]
+    }) as VideoPromptIrV2;
+
+    for (const [mode, assets] of [
+      ["first-frame", fullIr.assets.filter((asset) => asset.id === "first")],
+      ["first-last", fullIr.assets.filter((asset) => asset.id === "first" || asset.id === "last")],
+      ["last-frame", fullIr.assets.filter((asset) => asset.id === "last")],
+      ["text-to-video", []],
+      ["reference", fullIr.assets.filter((asset) => asset.type === "image")]
+    ] as const) {
+      const candidate = { ...fullIr, target: { ...fullIr.target, mode }, assets } as VideoPromptIrV2;
+      const rendered = renderH3GrammarV3(candidate);
+      expect(rendered.text).toContain(mode === "reference" ? "subject_definitions:" : "integrated_multimodal_description:");
+    }
+
+    const featureless = {
+      ...DEFAULT_H3_GRAMMAR_PROFILE_V3,
+      features: { ...DEFAULT_H3_GRAMMAR_PROFILE_V3.features, scenetrans: false, cutoff: false },
+    };
+    const featurelessProfile = { ...featureless, digest: h3GrammarProfileDigest(featureless) } as typeof DEFAULT_H3_GRAMMAR_PROFILE_V3;
+    const unsupported = renderH3GrammarV3(fullIr, { grammar_profile: featurelessProfile });
+    expect(unsupported.issues.map((item) => item.code)).toEqual(expect.arrayContaining(["VPD-C002"]));
+    expect(renderH3GrammarV3(fullIr, { grammar_profile: { ...featurelessProfile, digest: ZERO } }).issues.map((item) => item.code)).toContain("VPD-C003");
+
+    const semantic = buildSemanticBlocks(fullIr).ast;
+    const neutral = renderProviderNeutralPrompt({
+      ...semantic,
+      sections: {
+        ...semantic.sections,
+        integrated_multimodal_description: "<d>keep <Picture 1> exact</d> <scenetrans> <cutoff> <Picture 1>",
+        overall_soundscape: "clear",
+        non_diegetic_music: "none"
+      },
+      prohibited: ["never-present"],
+      must_include: ["keep"]
+    });
+    expect(neutral.issues).toEqual([]);
+    expect(neutral.text).toContain("<Picture 1> exact");
+    expect(neutral.text).toContain("first");
+    expect(neutral.text).not.toContain("<scenetrans>");
+    expect(neutral.text).not.toContain("<cutoff>");
+    expect(renderProviderNeutralPrompt({ ...semantic, must_include: ["missing"], prohibited: ["clear"] }).issues.map((item) => item.code)).toEqual(expect.arrayContaining(["VPD-C001"]));
+    expect(validateGrammarShape("summary:\nwrong\nsummary:\nwrong", "base")).toEqual(expect.arrayContaining([expect.objectContaining({ code: "VPD-C002" })]));
   });
 
   it("detects mutation of the real bytes bound by a compilation bundle", async () => {

@@ -1,16 +1,17 @@
 import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { loadProject } from "../src/project/loadProject.js";
 import { validateProject } from "../src/project/validateProject.js";
 import { createDryRun, createPlan } from "../src/orchestrator/plan.js";
 import { createReviewDocument } from "../src/orchestrator/review.js";
 import {
   assertCompilationBundleAssets,
-  compileVideoPromptIrV2,
+  compileVideoPromptIrV2 as compileVideoPromptIrV2Impl,
   createEffectiveGenerationContract,
   loadConnectionCapabilityProfile,
+  loadAdapterDialectCapability,
   loadModelPromptProfile,
   routeFromProfiles,
   type VideoPromptIrV2
@@ -24,6 +25,15 @@ import { createMusicStructureContract } from "../src/productionControl/contracts
 
 const ZERO = "0".repeat(64);
 const FIXTURE_ROOT = resolve("examples/local-fixture");
+let fixtureDialect: any;
+beforeAll(async () => {
+  const loaded = await loadAdapterDialectCapability("minimax", ["adapters"], { model_profile_id: "minimax-h3", provider_model: "MiniMax-H3", mode: "text-to-video" });
+  if (!loaded.ok) throw new Error("fixture adapter capability unavailable");
+  fixtureDialect = loaded.capability;
+});
+function compileVideoPromptIrV2(input: unknown, options: Parameters<typeof compileVideoPromptIrV2Impl>[1] = {}) {
+  return compileVideoPromptIrV2Impl(input, { ...options, adapter_dialect_capability: options.adapter_dialect_capability ?? fixtureDialect });
+}
 
 function baseV2(overrides: Partial<Record<string, unknown>> = {}): VideoPromptIrV2 {
   return {
@@ -272,8 +282,8 @@ describe("PO-4 independent audit reproductions", () => {
         assets: [{ id: "hero", type: "image", path: "assets/hero.png", role: "subject_reference", sha256: ZERO }]
       }), {
         route: createRouteIdentity({
-          ir_model: "minimax-h3", provider_model: "minimax-h3", model_profile_digest: ZERO,
-          connection_id: "fixture-connection", connection_digest: ZERO, adapter_id: "fixture-adapter",
+          ir_model: "minimax-h3", provider_model: "MiniMax-H3", model_profile_digest: ZERO,
+          connection_id: "fixture-connection", connection_digest: ZERO, adapter_id: "minimax",
           transport: "manual", mode_binding: "reference"
         }),
         asset_evidence: {

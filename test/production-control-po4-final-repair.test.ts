@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ArtifactStore } from "../src/productionControl/artifactStore.js";
 import {
@@ -22,6 +22,8 @@ import {
   writeShadowComparisonAtomic,
   createVerifiedAssetPin,
   verifyVerifiedAssetPin,
+  isTrustedAssetPin,
+  isProjectAssetIdentityContained,
   verifyCompilationBundle,
   buildAdapterLabelMap,
   compileAdapterDialect,
@@ -69,6 +71,32 @@ async function v6Route() {
 }
 
 describe("PO-4 final repair regressions", () => {
+  it("rejects an active video operation whose declared output kind is image before adapter resolution", async () => {
+    const project = {
+      slug: "active-output-kind-mismatch",
+      name: "active-output-kind-mismatch",
+      manifest: "manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      orchestration: { mode: "active" },
+      generation: {
+        connection: "pixverse",
+        adapter: "pixverse",
+        requests: [{
+          id: "mismatch-1",
+          operation: "video",
+          output_kind: "image",
+          prompt: "raw prompt must not reach an adapter",
+          params: {}
+        }]
+      }
+    } as never;
+    const result = await compileProjectVideoPrompts(project);
+    expect(result.ok).toBe(false);
+    expect(result.plans).toHaveLength(0);
+    expect(result.issues.map((item) => item.code)).toContain("VPD-E022");
+  });
+
   it("does not let active legacy H3 silently pass without an explicit connection", async () => {
     const project = {
       slug: "active-no-connection",
@@ -128,6 +156,21 @@ describe("PO-4 final repair regressions", () => {
     expect(result.issues.map((item) => item.code)).toContain("VPD-C003");
   });
 
+  it("rejects malformed and stale pinned grammar provenance", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-grammar-tamper-"));
+    try {
+      const profileRoot = join(root, "profiles");
+      await mkdir(profileRoot);
+      const yaml = await readFile("profiles/grammar/h3-v3.yaml", "utf8");
+      await writeFile(join(profileRoot, "h3-v3.yaml"), yaml.replace("source_commit: h3-grammar-v3-official-pinned-2026-08-08", "source_commit: forged").replace("digest: e725e8b2135108c27122a110c6f690f9f4beaa3d501b4731dcbfd2414f89ab43", `digest: ${"0".repeat(64)}`));
+      await expect(loadPinnedH3GrammarProfile(profileRoot)).rejects.toThrow("VPD-C003");
+      await writeFile(join(profileRoot, "h3-v3.yaml"), "features:\n  scenetrans: true\n");
+      await expect(loadPinnedH3GrammarProfile(profileRoot)).rejects.toThrow("VPD-C003");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("generates shadow V2 comparison evidence without changing legacy authority", async () => {
     const request = { id: "shadow-1", prompt: "", params: {}, h3: standalone("v6") };
     const project = {
@@ -170,6 +213,9 @@ describe("PO-4 final repair regressions", () => {
       expect((await stat(target)).isDirectory()).toBe(true);
       const marker = JSON.parse(await readFile(join(target, "compilation-manifest.json"), "utf8")) as { compilation_digest: string };
       expect(marker.compilation_digest).toBe(compiled.compilation.bundle.compilation_digest);
+      for (const file of ["ir.normalized.json", "semantic-blocks.json", "labels.json", "prompt.canonical.txt", "prompt.pixverse.txt"]) {
+        expect((await stat(join(target, file))).isFile(), file).toBe(true);
+      }
       const persisted = JSON.parse(await readFile(join(target, "bundle.json"), "utf8")) as Record<string, unknown>;
       await writeFile(join(target, "bundle.json"), JSON.stringify({ ...persisted, canonical_prompt: "tampered" }));
       await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, { project_root: root, revision_id: "revision-1", request_id: compiled.compilation.bundle.request_id, allow_existing_same_digest: true })).rejects.toThrow(/VPD-K002/);
@@ -267,7 +313,7 @@ describe("PO-4 final repair regressions", () => {
         trusted_pinned_budget_evidence: {},
         asset_pins: {},
         artifact_store_envelope: { ...trustedEnvelope }
-      })).toThrow(/VPD-K003/);
+      })).toThrow(/VPD-(?:K003|C003)/);
       const exactEnvelope = await createExecutionCompilationBundleArtifact({ store, bundle: forged, revision_id: "plan-1" });
       expect(exactEnvelope.raw_bytes_digest).toBe(exactEnvelope.artifact_digest);
       expect(exactEnvelope.compilation_digest).toBe(forged.compilation_digest);
@@ -280,7 +326,7 @@ describe("PO-4 final repair regressions", () => {
         asset_pins: {},
         revision_id: "plan-1",
         artifact_store_envelope: exactEnvelope
-      })).toThrow(/VPD-K003/);
+      })).toThrow(/VPD-(?:K003|C003)/);
       expect(() => adoptExecutionCompilationBundle(forged, {
       effective_contract: forgedContract,
       grammar_profile: pinnedGrammar,
@@ -292,7 +338,7 @@ describe("PO-4 final repair regressions", () => {
         artifact_id: forged.request_id,
         artifact_digest: "0".repeat(64)
       }
-      })).toThrow(/VPD-K003/);
+      })).toThrow(/VPD-(?:K003|C003)/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -322,6 +368,41 @@ describe("PO-4 final repair regressions", () => {
     }
   });
 
+  it("keeps opaque pin creation bounded across digest, identity, root, and leaf failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-pin-failures-"));
+    try {
+      const realRoot = await realpath(root);
+      await mkdir(join(root, "assets"));
+      await writeFile(join(root, "assets", "voice.wav"), "AAAA");
+      await mkdir(join(root, "new-pins"));
+      const source = join(realRoot, "assets", "voice.wav");
+      const input = {
+        asset_id: "voice",
+        project_root: realRoot,
+        project_relative_path: "assets/voice.wav",
+        expected_sha256: sha256Text("AAAA"),
+        expected_size: 4,
+        expected_real_path: source,
+        pin_root: join(realRoot, "new-pins")
+      };
+      expect(() => createVerifiedAssetPin({ ...input, expected_size: 5 })).toThrow(/VPD-J002/);
+      expect(() => createVerifiedAssetPin({ ...input, expected_sha256: sha256Text("BBBB"), asset_id: "wrong-digest" })).toThrow(/VPD-J002/);
+      const pin = createVerifiedAssetPin(input);
+      expect(isTrustedAssetPin(pin)).toBe(true);
+      expect(isTrustedAssetPin({ ...pin })).toBe(false);
+      expect(isProjectAssetIdentityContained(realRoot, source)).toBe(true);
+      expect(isProjectAssetIdentityContained(realRoot, join(realRoot, "..", "outside"))).toBe(false);
+      expect(() => createVerifiedAssetPin({ ...input, asset_id: "voice" })).toThrow(/EEXIST|VPD-J002/);
+      expect(() => createVerifiedAssetPin({ ...input, pin_root: join(realRoot, "..", "outside") })).toThrow(/VPD-J002/);
+      expect(() => verifyVerifiedAssetPin(pin, { project_root: realRoot, pin_root: input.pin_root, expected_sha256: sha256Text("BBBB") })).toThrow(/VPD-J002/);
+      await rm(join(realRoot, "new-pins", "asset-pins", "voice.bin"));
+      await symlink(source, join(realRoot, "new-pins", "asset-pins", "voice.bin"));
+      expect(() => verifyVerifiedAssetPin(pin, { project_root: realRoot, pin_root: input.pin_root })).toThrow(/VPD-J002/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps nonzero MV lyrics timing clip-local and serializes every group singer", () => {
     const ir = standalone();
     ir.subjects = [
@@ -332,7 +413,7 @@ describe("PO-4 final repair regressions", () => {
       id: "cue-1",
       kind: "singing",
       speaker_ids: ["S1", "S2"],
-      language_id: "ja",
+      language_id: "ja-JP",
       content: {
         source: "lyrics-cue",
         lyrics_contract_digest: "a".repeat(64),
@@ -426,6 +507,8 @@ describe("PO-4 final repair regressions", () => {
     try {
       const options = { project_root: root, revision_id: "revision-1", request_id: compiled.compilation.bundle.request_id };
       await writeCompilationBundleAtomic(root, compiled.compilation.bundle, options);
+      await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, { ...options, allow_existing_same_digest: true })).resolves.toBeUndefined();
+      await rm(join(root, "revision-1", "video-prompt", compiled.compilation.bundle.request_id, "compilation-manifest.json"));
       await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, { ...options, allow_existing_same_digest: true })).resolves.toBeUndefined();
       await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, { ...options, request_id: "../escape" })).rejects.toThrow(/VPD-K002/);
       const target = join(root, "revision-1", "video-prompt", compiled.compilation.bundle.request_id);
@@ -542,5 +625,34 @@ describe("PO-4 final repair regressions", () => {
       connection_capability_digest: "0".repeat(64),
       intent: "planning"
     }).ok).toBe(false);
+  });
+
+  it("rejects forged create-only envelope inputs before any execution adoption", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-envelope-failures-"));
+    try {
+      const storeRoot = join(await realpath(root), "artifacts");
+      await mkdir(storeRoot, { recursive: true });
+      const store = new ArtifactStore(storeRoot);
+      const stored = await store.create({ artifact_id: "raw", bytes: "raw artifact" });
+      await expect(loadCreateOnlyArtifactStoreEnvelope({ store, artifact_id: stored.artifact_id, artifact_digest: "z".repeat(64) })).rejects.toThrow(/VPD-K003/);
+      await expect(loadCreateOnlyArtifactStoreEnvelope({ store, artifact_id: stored.artifact_id, artifact_digest: "0".repeat(64) })).rejects.toThrow(/VPD-K003/);
+      await expect(loadCreateOnlyArtifactStoreEnvelope({ store: {} as ArtifactStore, artifact_id: stored.artifact_id, artifact_digest: stored.sha256 })).rejects.toThrow(/VPD-K003/);
+      expect(isProjectAssetIdentityContained(await realpath(root), join(await realpath(root), "missing"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps MV source and lyric authority separator-aware and opaque", () => {
+    const winPath = { resolve: win32.resolve, relative: win32.relative, isAbsolute: win32.isAbsolute, sep: win32.sep };
+    expect(generationUnitResolver.isGenerationUnitPathContained("C:\\project", "C:\\project\\generation-units\\unit.json", winPath)).toBe(true);
+    expect(generationUnitResolver.isGenerationUnitPathContained("C:\\project", "C:\\project\\..\\outside.json", winPath)).toBe(false);
+    expect(generationUnitResolver.isGenerationUnitPathContained("C:\\project", "D:\\project\\unit.json", winPath)).toBe(false);
+    expect(generationUnitResolver.isGenerationUnitPathContained("\\\\server\\share\\project", "\\\\server\\share\\project\\unit.json", winPath)).toBe(true);
+    const forged = {} as never;
+    expect(generationUnitResolver.isAuthoritativeGenerationUnitSource(forged)).toBe(false);
+    expect(generationUnitResolver.generationUnitContractFacts(forged)).toBeUndefined();
+    expect(generationUnitResolver.consumeGenerationUnitLyricsToken(forged)).toBeUndefined();
+    expect(generationUnitResolver.materializeGenerationUnitLyrics(forged)).toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, writeSync } from "node:fs";
 import { constants as fsConstants } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { link, mkdir, readdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import * as nativePath from "node:path";
 import { z } from "zod";
@@ -10,11 +10,18 @@ import { ArtifactStore } from "../productionControl/artifactStore.js";
 import { programBindingSchema, routeIdentitySchema, type GenerationUnitProgramSourceV1 } from "../productionControl/programBinding.js";
 import { digestSchema, safeIdSchema } from "../productionControl/schema.js";
 import type { SemanticPromptBlock } from "./semanticBlocks.js";
+import type { AdapterLabelMap } from "./adapterDialect.js";
 import type { VideoPromptIrV2 } from "./schemaV2.js";
 import type { GenerationUnitContractFacts } from "./generationUnitSourceResolver.js";
-import { effectiveGenerationContractSchema, routeIdentityDigest, type EffectiveGenerationContractV1 } from "./effectiveContract.js";
+import { createEffectiveGenerationContract, effectiveGenerationContractSchema, routeFromProfiles, routeIdentityDigest, type EffectiveGenerationContractV1 } from "./effectiveContract.js";
 import { isExecutionAuthoritativePinnedPromptBudgetEvidence } from "./promptBudgetEvidence.js";
 import { isTrustedH3GrammarProfile } from "./render/h3GrammarV3.js";
+import { safeParseVideoPromptIrV2 } from "./schemaV2.js";
+import type { ModelPromptProfile } from "./modelProfile.js";
+import type { ConnectionCapabilityProfile } from "./connectionCapability.js";
+import { modelProfileDigest } from "./modelProfile.js";
+import { connectionCapabilityDigest } from "./connectionCapability.js";
+import type { TrustedPinnedPromptBudgetEvidence } from "./promptBudgetEvidence.js";
 
 const issueSchema = z.object({
   code: safeIdSchema,
@@ -34,6 +41,16 @@ const assetLineageSchema = z.object({
     regular_file: z.literal(true),
     contained_in_project_root: z.literal(true)
   }).strict().optional(),
+  asset_contract: z.object({
+    contract_id: safeIdSchema,
+    revision: z.number().int().nonnegative(),
+    digest: digestSchema,
+    entry_id: safeIdSchema,
+    path: z.string().min(1),
+    sha256: digestSchema,
+    byte_size: z.number().int().nonnegative(),
+    external_send: z.enum(["allowed", "forbidden", "needs-human"])
+  }).strict().optional(),
   /** Project-relative immutable run-local pin; never an absolute source path. */
   pin: z.object({
     relative_path: z.string().min(1).refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes("..")),
@@ -46,6 +63,7 @@ export const compilationBundleSchema = z.object({
   schema_version: z.literal(1),
   workflow: z.literal("video-prompt-v3"),
   request_id: safeIdSchema,
+  normalized_ir: z.record(z.string(), z.unknown()),
   normalized_ir_digest: digestSchema,
   normalized_ir_version: z.literal(2),
   canonical_prompt: z.string(),
@@ -60,6 +78,11 @@ export const compilationBundleSchema = z.object({
     digest: digestSchema,
     exact_text_digests: z.array(digestSchema)
   }).strict()).min(1),
+  labels: z.object({
+    assets: z.array(z.object({ asset_id: safeIdSchema, type: z.enum(["image", "video", "audio"]), canonical: z.string(), adapter: z.string() }).strict()),
+    subjects: z.array(z.object({ subject_id: safeIdSchema, canonical: z.string() }).strict()),
+    digest: digestSchema
+  }).strict(),
   block_digests: z.record(safeIdSchema, digestSchema),
   model_profile_digest: digestSchema,
   connection_capability_digest: digestSchema,
@@ -76,6 +99,7 @@ export const compilationBundleSchema = z.object({
     source_digest: digestSchema,
     section_order: z.array(z.string().min(1)),
     reference_section_order: z.array(z.string().min(1)),
+    language_map: z.record(z.string().min(1), z.string().min(2)),
     features: z.object({
       scenetrans: z.boolean(),
       cutoff: z.boolean(),
@@ -120,13 +144,25 @@ export const compilationBundleSchema = z.object({
       clip_duration_ms: z.number().int().positive(),
       audio_policy: z.enum(["reuse-master", "reference-only", "native-generated", "silent"]),
       reference_audio_asset_id: safeIdSchema.optional(),
-      reference_audio_asset_digest: digestSchema.optional()
+      reference_audio_asset_digest: digestSchema.optional(),
+      asset_contract: z.object({
+        contract_id: safeIdSchema,
+        revision: z.number().int().nonnegative(),
+        digest: digestSchema,
+        entry_id: safeIdSchema,
+        path: z.string().min(1),
+        sha256: digestSchema,
+        byte_size: z.number().int().nonnegative(),
+        external_send: z.enum(["allowed", "forbidden", "needs-human"])
+      }).strict().optional()
     }).strict().optional()
   }).strict(),
   compilation_digest: digestSchema
 }).strict().superRefine((bundle, context) => {
   if (bundle.canonical_prompt_digest !== sha256Text(bundle.canonical_prompt)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["canonical_prompt_digest"], message: "canonical prompt digest mismatch" });
   if (bundle.adapter_prompt_digest !== sha256Text(bundle.adapter_prompt)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["adapter_prompt_digest"], message: "adapter prompt digest mismatch" });
+  if (sha256Canonical(bundle.normalized_ir) !== bundle.normalized_ir_digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["normalized_ir_digest"], message: "normalized IR digest mismatch" });
+  if (sha256Canonical({ assets: bundle.labels.assets, subjects: bundle.labels.subjects }) !== bundle.labels.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["labels", "digest"], message: "label map digest mismatch" });
   if (bundle.block_digests && Object.keys(bundle.block_digests).length !== bundle.semantic_blocks.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["block_digests"], message: "block digest map must cover every semantic block" });
   for (const block of bundle.semantic_blocks) {
     if (bundle.block_digests[block.block_id] !== block.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["block_digests", block.block_id], message: "semantic block digest mismatch" });
@@ -154,6 +190,11 @@ export const compilationBundleSchema = z.object({
 export type CompilationBundleV1 = z.infer<typeof compilationBundleSchema>;
 export type CompilationBundle = CompilationBundleV1;
 
+/** Immutable PO-4 revision identity; run_id/slug are mutable project labels, not revision truth. */
+export function compilationRevisionId(bundle: Pick<CompilationBundleV1, "compilation_digest">): string {
+  return `revision-${bundle.compilation_digest.slice(0, 32)}`;
+}
+
 declare const executionCompilationBundleBrand: unique symbol;
 export type ExecutionCompilationBundle = CompilationBundleV1 & { readonly [executionCompilationBundleBrand]: true };
 const adoptedExecutionBundles = new WeakSet<object>();
@@ -168,6 +209,8 @@ export type CreateOnlyArtifactStoreEnvelope = {
   readonly compilation_digest?: string;
   readonly request_id?: string;
   readonly revision_id?: string;
+  readonly production_id?: string;
+  readonly project_id?: string;
   readonly [createOnlyArtifactStoreEnvelopeBrand]: true;
 };
 const trustedArtifactStoreEnvelopes = new WeakSet<object>();
@@ -180,6 +223,16 @@ export type RuntimeAssetPinEvidence = {
   byte_size: number;
   regular_file: true;
   contained_in_project_root: true;
+  asset_contract?: {
+    contract_id: string;
+    revision: number;
+    digest: string;
+    entry_id: string;
+    path: string;
+    sha256: string;
+    byte_size: number;
+    external_send: "allowed" | "forbidden" | "needs-human";
+  };
 };
 
 export type AssetPin = {
@@ -309,6 +362,7 @@ export type CompilationBundleInput = {
   canonical_prompt: string;
   adapter_prompt: string;
   semantic_blocks: readonly SemanticPromptBlock[];
+  labels: AdapterLabelMap;
   model_profile_digest: string;
   connection_capability_digest: string;
   adapter_capability_digest: string;
@@ -331,17 +385,14 @@ export type CompilationBundleInput = {
 };
 
 export function createCompilationBundle(input: CompilationBundleInput): CompilationBundleV1 {
-  if (input.execution_capable) {
-    // Creation is a structural/planning boundary. Execution authority is
-    // adopted only by adoptExecutionCompilationBundle with live trusted
-    // evidence and an opaque asset-pin set.
-    throw new Error("VPD-K003: execution-capable bundles require the live authority adoption boundary");
-  }
+  // This is a structural serializer only. Even an execution-shaped bundle is
+  // not execution authority until the opaque live-evidence adoption boundary.
   const semanticBlocks = input.semantic_blocks.map((block) => ({ ...block, source_paths: [...block.source_paths], exact_text_digests: [...block.exact_text_digests] }));
   const withoutDigest = {
     schema_version: 1 as const,
     workflow: "video-prompt-v3" as const,
     request_id: input.request_id,
+    normalized_ir: input.ir,
     normalized_ir_digest: sha256Canonical(input.ir),
     normalized_ir_version: 2 as const,
     canonical_prompt: input.canonical_prompt,
@@ -349,6 +400,11 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
     canonical_prompt_digest: sha256Text(input.canonical_prompt),
     adapter_prompt_digest: sha256Text(input.adapter_prompt),
     semantic_blocks: semanticBlocks,
+    labels: {
+      assets: input.labels.assets.map((label) => ({ ...label })),
+      subjects: input.labels.subjects.map((label) => ({ ...label })),
+      digest: input.labels.digest
+    },
     block_digests: Object.fromEntries(semanticBlocks.map((block) => [block.block_id, block.digest])),
     model_profile_digest: input.model_profile_digest,
     connection_capability_digest: input.connection_capability_digest,
@@ -362,6 +418,9 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
       asset_id: asset.id,
       path: asset.path,
       ...(asset.sha256 ? { declared_sha256: asset.sha256 } : {}),
+      ...(input.generation_unit_source_facts?.asset_contract?.entry_id === asset.id
+        ? { asset_contract: input.generation_unit_source_facts.asset_contract }
+        : {}),
       ...(input.asset_evidence?.[asset.id] ? {
         pin_evidence: {
           source: input.asset_evidence[asset.id].source,
@@ -369,7 +428,8 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
           byte_size: input.asset_evidence[asset.id].byte_size,
           regular_file: input.asset_evidence[asset.id].regular_file,
           contained_in_project_root: input.asset_evidence[asset.id].contained_in_project_root
-        }
+        },
+        ...(input.asset_evidence[asset.id].asset_contract ? { asset_contract: input.asset_evidence[asset.id].asset_contract } : {})
       } : {}),
       ...(input.asset_pins?.[asset.id] && isTrustedAssetPin(input.asset_pins[asset.id]) ? {
         pin: {
@@ -415,6 +475,8 @@ export type ExecutionBundleAuthorityContext = {
   revision_id?: string;
   project_root?: string;
   asset_pin_root?: string;
+  production_id?: string;
+  project_id?: string;
 };
 
 /**
@@ -429,6 +491,8 @@ export async function loadCreateOnlyArtifactStoreEnvelope(input: {
   expected_compilation_digest?: string;
   request_id?: string;
   revision_id?: string;
+  production_id?: string;
+  project_id?: string;
 }): Promise<CreateOnlyArtifactStoreEnvelope> {
   if (!(input.store instanceof ArtifactStore) || !/^[a-f0-9]{64}$/u.test(input.artifact_digest)) {
     throw new Error("VPD-K003: create-only artifact-store resolver is unavailable");
@@ -454,7 +518,9 @@ export async function loadCreateOnlyArtifactStoreEnvelope(input: {
     artifact_digest: actualDigest,
     ...(compilationDigest ? { raw_bytes_digest: actualDigest, compilation_digest: compilationDigest } : {}),
     ...(input.request_id ? { request_id: input.request_id } : {}),
-    ...(input.revision_id ? { revision_id: input.revision_id } : {})
+    ...(input.revision_id ? { revision_id: input.revision_id } : {}),
+    ...(input.production_id ? { production_id: input.production_id } : {}),
+    ...(input.project_id ? { project_id: input.project_id } : {})
   }) as CreateOnlyArtifactStoreEnvelope;
   trustedArtifactStoreEnvelopes.add(envelope as object);
   artifactStoreEnvelopeSnapshots.set(envelope as object, sha256Canonical(envelope));
@@ -465,20 +531,131 @@ export async function createExecutionCompilationBundleArtifact(input: {
   store: ArtifactStore;
   bundle: CompilationBundleV1;
   revision_id: string;
+  production_id?: string;
+  project_id?: string;
 }): Promise<CreateOnlyArtifactStoreEnvelope> {
   const bundle = verifyCompilationBundle(input.bundle);
   if (!bundle.execution_capable) throw new Error("VPD-K003: planning-only bundle cannot be persisted as execution authority");
   if (!isSafeRelativeId(input.revision_id)) throw new Error("VPD-K002: revision id is unsafe");
   const bytes = Buffer.from(JSON.stringify(bundle), "utf8");
-  const stored = await input.store.create({ artifact_id: `compilation-${input.revision_id}-${bundle.request_id}`, bytes });
+  const productionId = input.production_id ?? "production";
+  const projectId = input.project_id ?? "project";
+  if (!isSafeRelativeId(productionId) || !isSafeRelativeId(projectId)) throw new Error("VPD-K002: execution artifact namespace is unsafe");
+  const artifactId = `compilation-${productionId}-${projectId}-${input.revision_id}-${bundle.request_id}`;
+  const stored = await input.store.create({ artifact_id: artifactId, bytes });
   return loadCreateOnlyArtifactStoreEnvelope({
     store: input.store,
     artifact_id: stored.artifact_id,
     artifact_digest: stored.sha256,
     expected_compilation_digest: bundle.compilation_digest,
     request_id: bundle.request_id,
-    revision_id: input.revision_id
+    revision_id: input.revision_id,
+    production_id: productionId,
+    project_id: projectId
   });
+}
+
+/**
+ * The sole PO-4 execution derivation path. It recomputes the effective
+ * contract from trusted live profiles/evidence and persists/adopts the exact
+ * resulting bytes; callers cannot turn a structural JSON assertion into this
+ * authority.
+ */
+export async function deriveExecutionCompilationBundleFromPlanningArtifact(input: {
+  planning_bundle: CompilationBundleV1;
+  model_profile: ModelPromptProfile;
+  connection_profile: ConnectionCapabilityProfile;
+  grammar_profile?: Parameters<typeof isTrustedH3GrammarProfile>[0];
+  trusted_pinned_budget_evidence: TrustedPinnedPromptBudgetEvidence;
+  asset_pins: Readonly<Record<string, AssetPin>>;
+  project_root: string;
+  asset_pin_root: string;
+  store: ArtifactStore;
+  production_id: string;
+  project_id: string;
+  revision_id: string;
+}): Promise<{ bundle: ExecutionCompilationBundle; envelope: CreateOnlyArtifactStoreEnvelope }> {
+  const planning = verifyCompilationBundle(input.planning_bundle);
+  if (planning.execution_capable) throw new Error("VPD-K003: execution derivation requires a planning artifact");
+  if (!isExecutionAuthoritativePinnedPromptBudgetEvidence(input.trusted_pinned_budget_evidence)) throw new Error("VPD-K003: budget evidence is not execution-authoritative");
+  if (planning.route.ir_model !== input.model_profile.id
+    || planning.route.connection_id !== input.connection_profile.connection_id
+    || planning.route.adapter_id !== input.connection_profile.adapter_id
+    || planning.model_profile_digest !== modelProfileDigest(input.model_profile)
+    || planning.connection_capability_digest !== connectionCapabilityDigest(input.connection_profile)) throw new Error("VPD-K002: planning route/profile does not match trusted live profiles");
+  const normalized = safeParseVideoPromptIrV2(planning.normalized_ir);
+  if (!normalized.success
+    || normalized.data.target.model_profile_id !== planning.route.ir_model
+    || normalized.data.target.mode !== planning.route.mode_binding) throw new Error("VPD-K002: planning IR does not match the committed route");
+  const selectedRoute = routeFromProfiles({
+    model: normalized.data.target.model_profile_id,
+    mode: normalized.data.target.mode,
+    model_profile: input.model_profile,
+    connection_profile: input.connection_profile,
+    model_profile_digest: planning.model_profile_digest,
+    connection_profile_digest: planning.connection_capability_digest
+  });
+  if (!selectedRoute.ok || sha256Canonical(selectedRoute.route) !== sha256Canonical(planning.route)) throw new Error("VPD-R002: planning route is not the unique current model/mode route");
+  const trustedGrammar = input.grammar_profile && isTrustedH3GrammarProfile(input.grammar_profile as never)
+    ? input.grammar_profile
+    : undefined;
+  if (planning.grammar_profile && (!trustedGrammar || sha256Canonical(planning.grammar_profile) !== sha256Canonical(trustedGrammar))) throw new Error("VPD-C003: planning grammar is not the exact trusted profile");
+  const effective = createEffectiveGenerationContract({
+    mode: planning.route.mode_binding as never,
+    route: planning.route,
+    model_profile: input.model_profile,
+    model_profile_digest: planning.model_profile_digest,
+    connection_profile: input.connection_profile,
+    connection_profile_digest: planning.connection_capability_digest,
+    trusted_pinned_budget_evidence: input.trusted_pinned_budget_evidence,
+    capability_evidence: {
+      duration: "hard",
+      aspect: "hard",
+      resolution: "hard",
+      mode: "hard",
+      reference: "hard",
+      group_speaker: trustedGrammar?.features.group_speaker ? "hard" : "unknown",
+      exact_text: trustedGrammar?.features.exact_dialogue ? "hard" : "unknown"
+    },
+    execution_capable: true
+  });
+  if (!effective.ok) throw new Error(`VPD-K003: trusted profiles cannot derive an execution contract (${effective.issues.map((item) => item.code).join(",")})`);
+  for (const asset of planning.asset_lineage) {
+    const pin = input.asset_pins[asset.asset_id];
+    if (!asset.pin_evidence || !asset.pin || !pin || !isTrustedAssetPin(pin)
+      || pin.relative_path !== asset.pin.relative_path
+      || pin.sha256 !== asset.pin.sha256
+      || pin.byte_size !== asset.pin.byte_size) throw new Error(`VPD-J002: asset '${asset.asset_id}' is not fully pinned`);
+    verifyVerifiedAssetPin(pin, { project_root: input.project_root, pin_root: input.asset_pin_root, expected_sha256: asset.pin.sha256, expected_size: asset.pin.byte_size });
+  }
+  const { compilation_digest: _planningDigest, ...body } = planning;
+  const executionBody = {
+    ...body,
+    effective_contract: effective.contract,
+    effective_contract_digest: effective.contract.digest,
+    execution_capable: true as const
+  };
+  const executionBundle = verifyCompilationBundle({ ...executionBody, compilation_digest: sha256Canonical(executionBody) });
+  const envelope = await createExecutionCompilationBundleArtifact({
+    store: input.store,
+    bundle: executionBundle,
+    revision_id: input.revision_id,
+    production_id: input.production_id,
+    project_id: input.project_id
+  });
+  const adopted = adoptExecutionCompilationBundle(executionBundle, {
+    effective_contract: effective.contract,
+    grammar_profile: input.grammar_profile,
+    trusted_pinned_budget_evidence: input.trusted_pinned_budget_evidence,
+    asset_pins: input.asset_pins,
+    artifact_store_envelope: envelope,
+    revision_id: input.revision_id,
+    production_id: input.production_id,
+    project_id: input.project_id,
+    project_root: input.project_root,
+    asset_pin_root: input.asset_pin_root
+  });
+  return { bundle: adopted, envelope };
 }
 
 function isTrustedCreateOnlyArtifactStoreEnvelope(value: unknown): value is CreateOnlyArtifactStoreEnvelope {
@@ -498,9 +675,23 @@ export function adoptExecutionCompilationBundle(
 ): ExecutionCompilationBundle {
   const bundle = verifyCompilationBundle(value);
   if (!bundle.execution_capable) throw new Error("VPD-K003: planning-only bundle cannot be adopted for execution");
-  if (!isTrustedH3GrammarProfile(context.grammar_profile as never)) throw new Error("VPD-C003: execution requires a trusted pinned grammar profile");
+  if (bundle.grammar_profile) {
+    if (!isTrustedH3GrammarProfile(context.grammar_profile as never)
+      || sha256Canonical(bundle.grammar_profile) !== sha256Canonical(context.grammar_profile)) {
+      throw new Error("VPD-C003: execution grammar provenance does not match the committed bundle");
+    }
+  } else if (context.grammar_profile !== undefined) {
+    throw new Error("VPD-C003: plain execution bundle must not carry an H3 grammar profile");
+  }
   if (!isTrustedCreateOnlyArtifactStoreEnvelope(context.artifact_store_envelope)) throw new Error("VPD-K003: create-only artifact-store provenance is missing");
   if (!isExecutionAuthoritativePinnedPromptBudgetEvidence(context.trusted_pinned_budget_evidence)) throw new Error("VPD-K003: execution requires authoritative budget evidence");
+  const budgetEvidence = bundle.effective_contract.effective.prompt_budget.evidence;
+  if (!budgetEvidence || budgetEvidence.digest !== context.trusted_pinned_budget_evidence.digest
+    || budgetEvidence.model_profile_digest !== bundle.model_profile_digest
+    || budgetEvidence.connection_profile_digest !== bundle.connection_capability_digest
+    || budgetEvidence.route_digest !== bundle.route.route_digest) {
+    throw new Error("VPD-K003: budget evidence does not match the committed route/profile bundle");
+  }
   const liveEffective = effectiveGenerationContractSchema.parse(context.effective_contract);
   if (liveEffective.mode !== bundle.route.mode_binding
     || liveEffective.route.route_digest !== bundle.route.route_digest
@@ -512,11 +703,17 @@ export function adoptExecutionCompilationBundle(
     || liveEffective.execution.status !== "execution-capable") {
     throw new Error("VPD-K002: live effective contract route/profile/mode/freshness does not match bundle");
   }
+  for (const [name, value] of Object.entries(liveEffective.execution.capability_evidence)) {
+    if (value !== "hard") throw new Error(`VPD-K003: execution capability '${name}' is not proven by trusted evidence`);
+  }
   const { digest: _effectiveDigest, ...effectiveBody } = context.effective_contract;
   if (sha256Canonical(effectiveBody) !== bundle.effective_contract_digest
     || context.effective_contract.digest !== bundle.effective_contract_digest) throw new Error("VPD-K002: live effective contract does not match bundle");
   const envelope = context.artifact_store_envelope;
-  if (envelope.artifact_id !== `compilation-${context.revision_id ?? envelope.revision_id ?? ""}-${bundle.request_id}`
+  const expectedProductionId = context.production_id ?? envelope.production_id ?? "production";
+  const expectedProjectId = context.project_id ?? envelope.project_id ?? "project";
+  if (!isSafeRelativeId(expectedProductionId) || !isSafeRelativeId(expectedProjectId)
+    || envelope.artifact_id !== `compilation-${expectedProductionId}-${expectedProjectId}-${context.revision_id ?? envelope.revision_id ?? ""}-${bundle.request_id}`
     || envelope.compilation_digest !== bundle.compilation_digest
     || envelope.raw_bytes_digest !== envelope.artifact_digest
     || envelope.request_id !== bundle.request_id
@@ -533,7 +730,10 @@ export function adoptExecutionCompilationBundle(
       || pin.sha256 !== asset.pin.sha256
       || pin.byte_size !== asset.pin.byte_size
       || asset.pin_evidence?.sha256 !== pin.sha256
-      || asset.pin_evidence.byte_size !== pin.byte_size) {
+      || asset.pin_evidence.byte_size !== pin.byte_size
+      || (asset.asset_contract && (asset.asset_contract.sha256 !== pin.sha256
+        || asset.asset_contract.byte_size !== pin.byte_size
+        || asset.asset_contract.external_send !== "allowed"))) {
       throw new Error(`VPD-J002: live opaque asset pin does not match '${asset.asset_id}'`);
     }
     verifyVerifiedAssetPin(pin, { project_root: context.project_root, pin_root: context.asset_pin_root, expected_sha256: asset.pin.sha256, expected_size: asset.pin.byte_size });
@@ -577,7 +777,8 @@ export function assertCompilationBundleAssets(
             throw new Error("asset bytes changed");
           }
           const after = fstatSync(fd);
-          if ((stat.dev !== 0 && stat.ino !== 0 && (stat.dev !== after.dev || stat.ino !== after.ino))
+          if (stat.dev === 0 || stat.ino === 0 || after.dev === 0 || after.ino === 0
+            || stat.dev !== after.dev || stat.ino !== after.ino
             || stat.size !== after.size
             || stat.mtimeMs !== after.mtimeMs) throw new Error("asset identity changed");
         } finally {
@@ -671,9 +872,10 @@ function generationUnitSourceIdentity(source: GenerationUnitProgramSourceV1) {
 }
 
 /**
- * Persist a complete bundle under a trusted project root. The directory is
- * renamed atomically only after bounded files and the final manifest marker
- * have been fsynced. Existing final paths and links are never replaced.
+ * Persist a complete bundle under a trusted project root. A no-replace final
+ * directory reservation and hard-link publication expose the commit marker
+ * only after every bounded staged file has been fsynced. Existing final paths
+ * and links are never replaced.
  */
 export async function writeCompilationBundleAtomic(
   path: string,
@@ -688,11 +890,12 @@ export async function writeCompilationBundleAtomic(
   const checked = verifyCompilationBundle(bundle);
   if (!options.project_root) throw new Error("VPD-K002: compilation artifact project root is required");
   const projectRoot = resolve(options.project_root);
+  if (resolve(path) !== projectRoot) throw new Error("VPD-K002: compilation artifact root must equal the trusted project root");
+  await ensureTrustedProjectRoot(projectRoot);
   const target = resolveCompilationTarget(projectRoot, options.revision_id, options.request_id);
   const parent = dirname(target);
   if (!isAbsolute(target) || !isProjectAssetIdentityContained(projectRoot, target)) throw new Error("VPD-K002: compilation artifact path escapes the trusted project root");
-  await mkdir(parent, { recursive: true });
-  assertDirectoryIdentity(projectRoot);
+  await ensureTrustedDirectoryChain(parent, projectRoot);
   assertStrongDirectoryChain(parent, projectRoot);
   try {
     const existing = lstatSync(target);
@@ -703,57 +906,64 @@ export async function writeCompilationBundleAtomic(
         if (persisted.manifest.compilation_digest === checked.compilation_digest
           && persisted.bundle.compilation_digest === checked.compilation_digest) return;
       } catch {
-        // A partial or malformed final directory is never adopted.
+        // A marker-less final directory may be resumed only after the staged
+        // bytes are compared leaf-by-leaf by publishNoReplaceDirectory.
       }
+    } else if (existing.isDirectory()) {
+      throw new Error("VPD-K002: compilation artifact already exists");
     }
-    throw new Error("VPD-K002: compilation artifact already exists");
+    if (!existing.isDirectory()) throw new Error("VPD-K002: compilation artifact already exists");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   const temp = join(parent, `.${target.split(nativePath.sep).pop() ?? "bundle"}.${randomBytes(8).toString("hex")}.tmp`);
   try {
     await mkdir(temp, { recursive: false, mode: 0o700 });
-    await writeCreateOnlyText(join(temp, "canonical-prompt.txt"), checked.canonical_prompt);
-    await writeCreateOnlyText(join(temp, "adapter-prompt.txt"), checked.adapter_prompt);
-    await writeCreateOnlyText(join(temp, "validation.json"), JSON.stringify(checked.validation));
-    await writeCreateOnlyText(join(temp, "route.json"), JSON.stringify(checked.route));
-    await writeCreateOnlyText(join(temp, "effective-contract.json"), JSON.stringify(checked.effective_contract));
-    await writeCreateOnlyText(join(temp, "lineage.json"), JSON.stringify(checked.lineage));
-    await writeCreateOnlyText(join(temp, "bundle.json"), JSON.stringify(checked));
-    await writeCreateOnlyText(join(temp, "compilation-manifest.json"), JSON.stringify({
+    const adapterPromptName = `prompt.${checked.route.adapter_id}.txt`;
+    const contents: Record<string, string> = {
+      "ir.normalized.json": JSON.stringify(checked.normalized_ir),
+      "effective-contract.json": JSON.stringify(checked.effective_contract),
+      "semantic-blocks.json": JSON.stringify(checked.semantic_blocks),
+      "prompt.canonical.txt": checked.canonical_prompt,
+      [adapterPromptName]: checked.adapter_prompt,
+      "labels.json": JSON.stringify(checked.labels),
+      "validation.json": JSON.stringify(checked.validation),
+      "route.json": JSON.stringify(checked.route),
+      "lineage.json": JSON.stringify(checked.lineage),
+      "bundle.json": JSON.stringify(checked),
+      // Keep the pre-v3 filenames readable for existing local consumers; the
+      // v3 names above remain the authoritative file set.
+      "canonical-prompt.txt": checked.canonical_prompt,
+      "adapter-prompt.txt": checked.adapter_prompt
+    };
+    const fileDigests: Record<string, string> = {};
+    for (const [file, value] of Object.entries(contents)) {
+      await writeCreateOnlyText(join(temp, file), value);
+      fileDigests[file] = sha256Text(`${value}\n`);
+    }
+    const manifest = JSON.stringify({
       schema_version: 1,
+      request_id: checked.request_id,
+      revision_id: options.revision_id,
       compilation_digest: checked.compilation_digest,
       canonical_prompt_digest: checked.canonical_prompt_digest,
       adapter_prompt_digest: checked.adapter_prompt_digest,
+      file_digests: fileDigests,
       committed: true
-    }));
+    });
+    await writeCreateOnlyText(join(temp, "compilation-manifest.json"), manifest);
     fsyncDirectory(temp);
-    // Do not rename over the final directory: POSIX rename replaces an empty
-    // destination. A final mkdir is the no-replace publication primitive; the
-    // manifest is then created last as the commit marker readers require.
-    try {
-      await mkdir(target, { recursive: false, mode: 0o700 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("VPD-K002: compilation artifact appeared during atomic write");
-      throw error;
-    }
-    assertStrongDirectoryChain(target, projectRoot);
-    const files = [
-      "canonical-prompt.txt",
-      "adapter-prompt.txt",
-      "validation.json",
-      "route.json",
-      "effective-contract.json",
-      "lineage.json",
-      "bundle.json"
-    ];
-    for (const file of files) {
-      await writeCreateOnlyText(join(target, file), readBoundedFile(join(temp, file)).replace(/\n$/u, ""));
-    }
-    assertStrongDirectoryChain(target, projectRoot);
-    await writeCreateOnlyText(join(target, "compilation-manifest.json"), readBoundedFile(join(temp, "compilation-manifest.json")).replace(/\n$/u, ""));
-    fsyncDirectory(target);
-    fsyncDirectory(parent);
+    await publishNoReplaceDirectory({
+      temp,
+      target,
+      project_root: projectRoot,
+      parent,
+      expected_files: contents,
+      manifest_name: "compilation-manifest.json",
+      manifest_value: manifest,
+      allow_existing_same_digest: options.allow_existing_same_digest,
+      expected_compilation_digest: checked.compilation_digest
+    });
   } catch (error) {
     try { await rm(temp, { recursive: true, force: true }); } catch { /* best-effort cleanup of a private temp sibling */ }
     throw error;
@@ -785,22 +995,46 @@ export function readCompilationBundleAtomic(
   assertStrongDirectoryChain(target, projectRoot);
   const marker = z.object({
     schema_version: z.literal(1),
+    request_id: safeIdSchema,
+    revision_id: safeIdSchema,
     compilation_digest: digestSchema,
     canonical_prompt_digest: digestSchema,
     adapter_prompt_digest: digestSchema,
+    file_digests: z.record(safeIdSchema.or(z.string().regex(/^prompt\.[A-Za-z0-9][A-Za-z0-9._-]*\.txt$/u)), digestSchema),
     committed: z.literal(true)
   }).strict().parse(JSON.parse(readBoundedFile(join(target, "compilation-manifest.json"))));
   const bundle = verifyCompilationBundle(JSON.parse(readBoundedFile(join(target, "bundle.json"))));
-  if (bundle.compilation_digest !== marker.compilation_digest
+  if (bundle.request_id !== marker.request_id
+    || bundle.compilation_digest !== marker.compilation_digest
     || bundle.canonical_prompt_digest !== marker.canonical_prompt_digest
     || bundle.adapter_prompt_digest !== marker.adapter_prompt_digest) {
     throw new Error("VPD-K002: persisted compilation manifest does not match bundle");
   }
-  for (const file of ["canonical-prompt.txt", "adapter-prompt.txt", "validation.json", "route.json", "effective-contract.json", "lineage.json"]) {
+  const files = [
+    "ir.normalized.json",
+    "effective-contract.json",
+    "semantic-blocks.json",
+    "prompt.canonical.txt",
+    `prompt.${bundle.route.adapter_id}.txt`,
+    "labels.json",
+    "validation.json",
+    "route.json",
+    "lineage.json",
+    "bundle.json",
+    "canonical-prompt.txt",
+    "adapter-prompt.txt"
+  ];
+  for (const file of files) {
     if (readBoundedFile(join(target, file)).length === 0) throw new Error("VPD-K002: persisted compilation file is empty");
+    if (marker.file_digests[file] !== sha256Text(readBoundedFile(join(target, file)))) throw new Error("VPD-K002: persisted compilation file digest mismatch");
   }
-  if (readBoundedFile(join(target, "canonical-prompt.txt")) !== `${bundle.canonical_prompt}\n`
+  if (readBoundedFile(join(target, "prompt.canonical.txt")) !== `${bundle.canonical_prompt}\n`
+    || readBoundedFile(join(target, `prompt.${bundle.route.adapter_id}.txt`)) !== `${bundle.adapter_prompt}\n`
+    || readBoundedFile(join(target, "canonical-prompt.txt")) !== `${bundle.canonical_prompt}\n`
     || readBoundedFile(join(target, "adapter-prompt.txt")) !== `${bundle.adapter_prompt}\n`
+    || sha256Canonical(JSON.parse(readBoundedFile(join(target, "ir.normalized.json")))) !== bundle.normalized_ir_digest
+    || sha256Canonical(JSON.parse(readBoundedFile(join(target, "semantic-blocks.json")))) !== sha256Canonical(bundle.semantic_blocks)
+    || sha256Canonical(JSON.parse(readBoundedFile(join(target, "labels.json")))) !== sha256Canonical(bundle.labels)
     || sha256Canonical(JSON.parse(readBoundedFile(join(target, "validation.json")))) !== sha256Canonical(bundle.validation)
     || sha256Canonical(JSON.parse(readBoundedFile(join(target, "route.json")))) !== sha256Canonical(bundle.route)
     || sha256Canonical(JSON.parse(readBoundedFile(join(target, "effective-contract.json")))) !== sha256Canonical(bundle.effective_contract)
@@ -813,6 +1047,110 @@ export function readCompilationBundleAtomic(
 function resolveCompilationTarget(projectRoot: string, revisionId: string | undefined, requestId: string): string {
   if (!revisionId || !isSafeRelativeId(revisionId) || !isSafeRelativeId(requestId)) throw new Error("VPD-K002: revision and request ids must be safe relative ids");
   return join(projectRoot, revisionId, "video-prompt", requestId);
+}
+
+async function ensureTrustedDirectoryChain(candidate: string, root: string): Promise<void> {
+  const resolvedRoot = resolve(root);
+  const resolvedCandidate = resolve(candidate);
+  if (!isProjectAssetIdentityContained(resolvedRoot, resolvedCandidate)) throw new Error("VPD-K002: compilation artifact path escapes the trusted project root");
+  assertDirectoryIdentity(resolvedRoot);
+  const relativePath = nativePath.relative(resolvedRoot, resolvedCandidate);
+  let current = resolvedRoot;
+  for (const part of relativePath ? relativePath.split(nativePath.sep) : []) {
+    if (!isSafeRelativeId(part)) throw new Error("VPD-K002: compilation artifact path contains an unsafe segment");
+    current = join(current, part);
+    try {
+      assertDirectoryIdentity(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await mkdir(current, { recursive: false, mode: 0o700 });
+      assertDirectoryIdentity(current);
+    }
+  }
+}
+
+async function ensureTrustedProjectRoot(root: string): Promise<void> {
+  try {
+    assertDirectoryIdentity(root);
+    return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const parent = dirname(root);
+  assertDirectoryIdentity(parent);
+  await mkdir(root, { recursive: false, mode: 0o700 });
+  assertDirectoryIdentity(root);
+}
+
+async function publishNoReplaceDirectory(input: {
+  temp: string;
+  target: string;
+  project_root: string;
+  parent: string;
+  expected_files: Readonly<Record<string, string>>;
+  manifest_name: string;
+  manifest_value: string;
+  allow_existing_same_digest?: boolean;
+  expected_compilation_digest?: string;
+}): Promise<void> {
+  const expectedNames = [...Object.keys(input.expected_files), input.manifest_name];
+  let created = false;
+  try {
+    // mkdir is the no-replace directory reservation. Unlike rename(temp,target)
+    // it cannot replace a concurrent or malicious final directory.
+    await mkdir(input.target, { recursive: false, mode: 0o700 });
+    created = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (!input.allow_existing_same_digest) throw new Error("VPD-K002: compilation artifact already exists");
+  }
+  assertStrongDirectoryChain(input.target, input.project_root);
+  if (!created && input.expected_compilation_digest) {
+    try {
+      const persisted = readCompilationBundleAtomic(input.target, { project_root: input.project_root });
+      if (persisted.bundle.compilation_digest === input.expected_compilation_digest) return;
+      throw new Error("VPD-K002: committed compilation digest differs");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("committed compilation digest differs")) throw error;
+      // A marker-less directory is resumable only when its existing leaves
+      // are a byte-exact subset of this staged publication.
+    }
+  }
+  const entries = await readdir(input.target, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!expectedNames.includes(entry.name) || entry.isSymbolicLink() || !entry.isFile()) {
+      throw new Error("VPD-K002: compilation artifact destination contains an unexpected leaf");
+    }
+  }
+  const allExpected: Array<[string, string]> = [
+    ...Object.entries(input.expected_files),
+    [input.manifest_name, input.manifest_value]
+  ];
+  for (const [name, expectedValue] of allExpected) {
+    const destination = join(input.target, name);
+    let exists = false;
+    try {
+      const stat = lstatSync(destination);
+      if (stat.isSymbolicLink() || !stat.isFile() || stat.dev === 0 || stat.ino === 0) throw new Error("VPD-K002: compilation artifact destination leaf identity is unsafe");
+      exists = true;
+      if (readBoundedFile(destination) !== `${expectedValue}\n`) throw new Error("VPD-K002: compilation artifact destination bytes differ");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (!exists) {
+      try {
+        // Hard-linking the fsynced staged file is atomic and no-replace on the
+        // destination leaf; no mutable pathname is copied or reopened.
+        await link(join(input.temp, name), destination);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw new Error("VPD-K002: no-replace compilation publication failed");
+        if (readBoundedFile(destination) !== `${expectedValue}\n`) throw new Error("VPD-K002: concurrent compilation publication differs");
+      }
+    }
+  }
+  assertStrongDirectoryChain(input.target, input.project_root);
+  fsyncDirectory(input.target);
+  fsyncDirectory(input.parent);
 }
 
 function isSafeRelativeId(value: string): boolean {
@@ -828,22 +1166,54 @@ export async function writeShadowComparisonAtomic(
   if (!options.project_root) throw new Error("VPD-K002: shadow artifact project root is required");
   const projectRoot = resolve(options.project_root);
   const target = resolveCompilationTarget(projectRoot, options.revision_id, comparison.request_id);
-  assertDirectoryIdentity(projectRoot);
-  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-  assertStrongDirectoryChain(dirname(target), projectRoot);
-  try { await mkdir(target, { recursive: false, mode: 0o700 }); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
+  await ensureTrustedProjectRoot(projectRoot);
+  const parent = dirname(target);
+  await ensureTrustedDirectoryChain(parent, projectRoot);
+  assertStrongDirectoryChain(parent, projectRoot);
   const payload = JSON.stringify({ ...comparison, authoritative: "legacy", gate_binding: null, run_binding: null });
   try {
-    await writeCreateOnlyText(join(target, "comparison.json"), payload);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    assertStrongDirectoryChain(target, projectRoot);
     const existing = readBoundedFile(join(target, "comparison.json"));
-    if (existing !== `${payload}\n`) throw new Error("VPD-C004: shadow comparison artifact changed after commit");
+    const manifest = z.object({
+      schema_version: z.literal(1),
+      request_id: safeIdSchema,
+      comparison_digest: digestSchema,
+      committed: z.literal(true)
+    }).strict().parse(JSON.parse(readBoundedFile(join(target, "comparison-manifest.json"))));
+    if (existing === `${payload}\n`
+      && manifest.request_id === comparison.request_id
+      && manifest.comparison_digest === sha256Text(`${payload}\n`)
+      && manifest.committed === true) return;
+    throw new Error("VPD-C004: shadow comparison artifact changed after commit");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if (error instanceof Error && error.message.startsWith("VPD-C004")) throw error;
+      // A missing final directory is the only state eligible for publication.
+    }
+  }
+  const temp = join(parent, `.shadow-${randomBytes(8).toString("hex")}.tmp`);
+  try {
+    await mkdir(temp, { recursive: false, mode: 0o700 });
+    await writeCreateOnlyText(join(temp, "comparison.json"), payload);
+    const manifest = JSON.stringify({ schema_version: 1, request_id: comparison.request_id, comparison_digest: sha256Text(`${payload}\n`), committed: true });
+    await writeCreateOnlyText(join(temp, "comparison-manifest.json"), manifest);
+    fsyncDirectory(temp);
+    await publishNoReplaceDirectory({
+      temp,
+      target,
+      project_root: projectRoot,
+      parent,
+      expected_files: { "comparison.json": payload },
+      manifest_name: "comparison-manifest.json",
+      manifest_value: manifest,
+      allow_existing_same_digest: true
+    });
+  } catch (error) {
+    try { await rm(temp, { recursive: true, force: true }); } catch { /* best effort */ }
+    throw error;
   }
   fsyncDirectory(target);
-  fsyncDirectory(dirname(target));
+  fsyncDirectory(parent);
 }
 
 const MAX_BUNDLE_FILE_BYTES = 32 * 1024 * 1024;

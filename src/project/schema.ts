@@ -176,6 +176,20 @@ const generationRequestSchema = z
     if (request.operation === "voice" && !request.prompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "voice requires text in prompt", path: ["prompt"] });
     }
+    const expectedOutputKind = request.operation === "image"
+      ? "image"
+      : request.operation === "voice" || request.operation === "music"
+        ? "audio"
+        : ["video", "transition", "extend", "modify", "upscale", "reference", "motion-control"].includes(request.operation ?? "")
+          ? "video"
+          : undefined;
+    if (expectedOutputKind && request.output_kind && request.output_kind !== expectedOutputKind) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `operation '${request.operation}' requires output_kind '${expectedOutputKind}'`,
+        path: ["output_kind"]
+      });
+    }
     const hasH3 = request.h3 !== undefined;
     const hasVideoPrompt = request.video_prompt !== undefined;
     if (hasH3 && hasVideoPrompt) {

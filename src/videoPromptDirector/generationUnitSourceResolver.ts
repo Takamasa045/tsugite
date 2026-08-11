@@ -28,7 +28,7 @@ export type TrustedGenerationUnitLyricsToken = {
 const trustedGenerationUnitLyricsTokens = new WeakSet<object>();
 const lyricsSnapshots = new WeakMap<object, LyricsSource>();
 const lyricsTokenBySource = new WeakMap<object, TrustedGenerationUnitLyricsToken>();
-const fullT04Snapshots = new WeakMap<object, { unit: unknown; lyrics?: unknown }>();
+const fullT04Snapshots = new WeakMap<object, { unit: unknown; lyrics?: unknown; assets?: unknown }>();
 
 export type GenerationUnitContractFacts = {
   generation_unit_digest: string;
@@ -37,6 +37,16 @@ export type GenerationUnitContractFacts = {
   audio_policy: "reuse-master" | "reference-only" | "native-generated" | "silent";
   reference_audio_asset_id?: string;
   reference_audio_asset_digest?: string;
+  asset_contract?: {
+    contract_id: string;
+    revision: number;
+    digest: string;
+    entry_id: string;
+    path: string;
+    sha256: string;
+    byte_size: number;
+    external_send: "allowed" | "forbidden" | "needs-human";
+  };
 };
 
 /**
@@ -84,6 +94,10 @@ export function generationUnitContractFacts(source: GenerationUnitProgramSourceV
   const snapshot = fullT04Snapshots.get(source as object);
   if (!snapshot) return undefined;
   const unit = generationUnitContractSchema.parse(snapshot.unit);
+  const assetContract = snapshot.assets ? assetContractSchema.parse(snapshot.assets) : undefined;
+  const referenceEntry = unit.reference_audio_binding && assetContract
+    ? assetContract.assets.find((entry) => entry.asset_id === unit.reference_audio_binding?.derived_asset_id)
+    : undefined;
   return deepFreeze({
     generation_unit_digest: unit.digest,
     master_duration_ms: unit.program.master_duration_ms,
@@ -92,6 +106,18 @@ export function generationUnitContractFacts(source: GenerationUnitProgramSourceV
     ...(unit.reference_audio_binding ? {
       reference_audio_asset_id: unit.reference_audio_binding.derived_asset_id,
       reference_audio_asset_digest: unit.reference_audio_binding.derived_asset_digest
+    } : {}),
+    ...(assetContract && referenceEntry ? {
+      asset_contract: {
+        contract_id: assetContract.contract_id,
+        revision: assetContract.revision,
+        digest: assetContract.digest,
+        entry_id: referenceEntry.asset_id,
+        path: referenceEntry.project_relative_path,
+        sha256: referenceEntry.sha256,
+        byte_size: referenceEntry.byte_size,
+        external_send: referenceEntry.external_send
+      }
     } : {})
   });
 }
@@ -222,6 +248,7 @@ async function resolveAuthoritativeGenerationUnit(
       const section = music.sections.find((candidate) => candidate.id === unit.program.section_id);
       if (!section || unit.program.start_ms < section.start_ms || unit.program.end_ms > section.end_ms) return undefined;
     }
+    let assetContract: import("../productionControl/contracts/asset.js").AssetContractV1 | undefined;
     if (unit.audio_policy === "reference-only") {
       const binding = unit.reference_audio_binding;
       const referenceAsset = ir.assets.find((asset) => asset.id === binding?.derived_asset_id);
@@ -233,7 +260,7 @@ async function resolveAuthoritativeGenerationUnit(
         || ir.audio.reference_asset_ids.length !== 1) return undefined;
       const assetRef = project.orchestration?.authoring?.assets;
       if (!assetRef || assetRef.id.length === 0 || assetRef.digest.length !== 64) return undefined;
-      const assetContract = parseArtifact(await store.readBounded(assetRef.id, MAX_CONTRACT_ARTIFACT_BYTES), assetContractSchema, assetRef.digest);
+      assetContract = parseArtifact(await store.readBounded(assetRef.id, MAX_CONTRACT_ARTIFACT_BYTES), assetContractSchema, assetRef.digest);
       const assetEntry = assetContract.assets.find((asset) => asset.asset_id === binding.derived_asset_id);
       if (!assetEntry || assetEntry.kind !== "audio" || assetEntry.sha256 !== binding.derived_asset_digest
         || assetEntry.external_send !== "allowed") return undefined;
@@ -259,7 +286,7 @@ async function resolveAuthoritativeGenerationUnit(
     const source = deepFreeze(toProgramBindingSource(unit));
     trustedGenerationUnitSources.add(source as object);
     generationUnitSourceSnapshots.set(source as object, sha256Canonical(source));
-    fullT04Snapshots.set(source as object, deepFreeze({ unit: structuredClone(unit), ...(lyrics ? { lyrics: structuredClone(lyrics) } : {}) }));
+    fullT04Snapshots.set(source as object, deepFreeze({ unit: structuredClone(unit), ...(lyrics ? { lyrics: structuredClone(lyrics) } : {}), ...(assetContract ? { assets: structuredClone(assetContract) } : {}) }));
     if (lyrics) {
       const lyricsSource = deepFreeze({
         canonical_text: lyrics.source.canonical_text,

@@ -333,6 +333,16 @@ export const videoPromptIrV2Schema = z.discriminatedUnion("program_kind", [stand
     if (!asset) context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "reference_asset_ids", index], message: "audio reference asset is undefined", params: { code: "VPD-A001" } });
     else if (asset.type !== "audio" || !["voice_reference", "other"].includes(asset.role)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "reference_asset_ids", index], message: "audio reference must bind an audio asset with an audio role", params: { code: "VPD-A001" } });
   }
+  const audioAssets = ir.assets.filter((asset) => asset.type === "audio");
+  const audioAssetIds = audioAssets.map((asset) => asset.id).sort();
+  const referenceAssetIds = [...ir.audio.reference_asset_ids].sort();
+  if (ir.audio.policy === "reference-only") {
+    if (referenceAssetIds.length !== 1 || audioAssetIds.join("\u0000") !== referenceAssetIds.join("\u0000")) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "reference_asset_ids"], message: "reference-only audio must send exactly its one authoritative reference asset", params: { code: "VPD-A001" } });
+    }
+  } else if (referenceAssetIds.length > 0 || audioAssetIds.length > 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio"], message: "only reference-only audio policy may bind provider audio assets", params: { code: "VPD-A001" } });
+  }
   if (ir.audio.policy === "reuse-master" && ir.audio.final_mix !== "discard-generated") context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "final_mix"], message: "reuse-master must discard generated audio" });
   if (ir.audio.policy === "native-generated" && ir.audio.final_mix === "discard-generated") context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "final_mix"], message: "native-generated audio must be used or explicitly mixed" });
   if (ir.audio.policy === "silent" && ir.audio.final_mix !== "discard-generated") context.addIssue({ code: z.ZodIssueCode.custom, path: ["audio", "final_mix"], message: "silent audio policy cannot use generated audio" });

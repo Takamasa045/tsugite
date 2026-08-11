@@ -117,7 +117,6 @@ export async function validateProject(
       generationUnitSourceResolver,
       ...(options.grammarProfileRoot ? { grammarProfileRoot: options.grammarProfileRoot } : {}),
       compilationArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir),
-      revision_id: project.run_id ?? project.slug,
       shadowArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir, "shadow", "video-prompt"),
     });
     videoPromptPlans = videoCompile.plans ?? [];

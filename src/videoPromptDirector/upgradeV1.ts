@@ -144,10 +144,15 @@ function upgradeV1(input: H3CreativeIr | VideoCreativeIr, options: V1UpgradeOpti
     })),
     shots,
     audio: {
-      policy: input.sound.music.enabled ? "native-generated" as const : "silent" as const,
+      // A legacy voice-reference asset is already an explicit audio authority;
+      // preserve that declared input rather than letting native-generated or
+      // silent policy discard it during the V2 upgrade.
+      policy: input.assets.some((asset) => asset.type === "audio")
+        ? "reference-only" as const
+        : input.sound.music.enabled ? "native-generated" as const : "silent" as const,
       soundscape: input.sound.soundscape,
       ...(input.sound.music.description ? { non_diegetic_music: input.sound.music.description } : {}),
-      reference_asset_ids: [],
+      reference_asset_ids: input.assets.filter((asset) => asset.type === "audio").map((asset) => asset.id),
       final_mix: input.sound.music.enabled ? "use-generated" as const : "discard-generated" as const
     },
     program_kind: programKind,

@@ -56,14 +56,18 @@ export async function loadAdapterDialectCapability(
   if (!selection) {
     return { ok: false, code: ADAPTER_DIALECT_PROFILE_CODE, message: "adapter dialect requires an exact model-profile/route selection" };
   }
-  const profile = adapter.prompt_capabilities?.find((candidate) =>
+  if (adapter.name !== adapterId) {
+    return { ok: false, code: ADAPTER_DIALECT_PROFILE_CODE, message: "adapter profile identity does not match the selected route" };
+  }
+  const matches = adapter.prompt_capabilities?.filter((candidate) =>
     candidate.model_profile_id === selection.model_profile_id
     && candidate.provider_model === selection.provider_model
     && candidate.modes.includes(selection.mode)
-  );
-  if (!profile) {
+  ) ?? [];
+  if (matches.length !== 1) {
     return { ok: false, code: ADAPTER_DIALECT_PROFILE_CODE, message: "selected adapter has no exact model-profile/route capability" };
   }
+  const profile = matches[0]!;
   const sourceBody = { ...adapter } as Record<string, unknown>;
   delete sourceBody.root;
   return {
@@ -105,22 +109,6 @@ export function resolveRendererDialectCapability(input: {
     if (profile.renderer === "h3-grammar" && profile.label_dialect !== "picture") return undefined;
     if (profile.renderer === "plain-prompt" && profile.label_dialect !== "none") return undefined;
     return capability;
-  }
-  // Hand-built unit fixtures may use the explicit fixture route. This is not
-  // a production adapter registry: every real route must load an exact
-  // adapter-profile entry above, and unknown manual adapter ids fail closed.
-  if (!input.model_profile && !input.connection_profile
-    && input.route.transport === "manual"
-    && input.route.adapter_id === "fixture-adapter") {
-    const profile = {
-      adapter_id: input.route.adapter_id,
-      model_profile_id: input.route.ir_model,
-      provider_model: input.route.provider_model,
-      modes: [input.route.mode_binding],
-      renderer: "h3-grammar" as const,
-      label_dialect: "picture" as const
-    };
-    return { ...profile, source_digest: adapterDialectProfileDigest(profile) };
   }
   return undefined;
 }

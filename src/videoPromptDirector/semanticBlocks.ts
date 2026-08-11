@@ -86,6 +86,8 @@ export type SemanticBlockOptions = {
   lyrics_source?: LyricsSource;
   require_exact_sync?: boolean;
   grammar_reserved_tokens?: readonly string[];
+  /** Exact language-id to BCP47 map supplied by the pinned grammar profile. */
+  allowed_language_map?: Readonly<Record<string, string>>;
 };
 
 export const DEFAULT_RESERVED_EXACT_TEXT_TOKENS = [
@@ -304,6 +306,9 @@ export function resolveVocalEventText(
 ): { text?: string; issues: H3Issue[] } {
   const reserved = options.grammar_reserved_tokens ?? DEFAULT_RESERVED_EXACT_TEXT_TOKENS;
   if (event.content.source === "inline-exact" || event.content.source === "legacy-unaligned") {
+    if (options.allowed_language_map && options.allowed_language_map[event.language_id] === undefined) {
+      return { issues: [issue("VPD-L005", "vocal event language id is not in the pinned grammar language allowlist", "error", path.split("."))] };
+    }
     return { text: event.content.exact_text, issues: validateExactText(event.content.exact_text, event.content.text_digest, `${path}.content.exact_text`, reserved) };
   }
 
@@ -325,19 +330,20 @@ export function resolveVocalEventText(
   }
   const hasAuthoritativeCueMetadata = cue.singer_ids !== undefined || cue.language_bcp47 !== undefined || source.program_start_ms !== undefined;
   if (hasAuthoritativeCueMetadata) {
-    const allowedUses = event.kind === "singing"
-      ? ["generated-singing"]
-      : ["story-cue", "generated-singing"];
-    if (!cue.use || !cue.use.some((use) => allowedUses.includes(use))) {
-      return { issues: [issue("VPD-L002", "caption-only, editor-only, or audio-reference lyrics cue cannot flow into a provider vocal event", "error", path.split("."))] };
+    if (!cue.use || !cue.use.includes("generated-singing")) {
+      return { issues: [issue("VPD-L002", "only generated-singing lyrics cues may flow into a provider vocal event", "error", path.split("."))] };
     }
     const cueSingers = [...(cue.singer_ids ?? [])].sort();
     const eventSingers = [...event.speaker_ids].sort();
     if (cueSingers.length === 0 || cueSingers.join("\u0000") !== eventSingers.join("\u0000")) {
       return { issues: [issue("VPD-L004", "lyrics cue singers must exactly match every serialized vocal speaker", "error", path.split("."))] };
     }
-    if (cue.language_bcp47 && event.language_id.toLowerCase() !== cue.language_bcp47.toLowerCase()
-      && event.language_id.toLowerCase() !== cue.language_bcp47.split("-")[0]!.toLowerCase()) {
+    const mappedLanguage = options.allowed_language_map?.[event.language_id];
+    if (options.allowed_language_map && mappedLanguage === undefined) {
+      return { issues: [issue("VPD-L005", "vocal event language id is not in the pinned grammar language allowlist", "error", path.split("."))] };
+    }
+    const effectiveLanguage = options.allowed_language_map ? mappedLanguage : event.language_id;
+    if (cue.language_bcp47 && effectiveLanguage?.toLowerCase() !== cue.language_bcp47.toLowerCase()) {
       return { issues: [issue("VPD-L005", "vocal event language is outside the authoritative lyrics language allowlist", "error", path.split("."))] };
     }
   }

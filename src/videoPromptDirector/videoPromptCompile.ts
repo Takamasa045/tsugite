@@ -44,11 +44,10 @@ import type { GenerationUnitProgramSourceV1 } from "../productionControl/program
 import { loadAdapterDialectCapability } from "./adapterDialect.js";
 import {
   consumeGenerationUnitLyricsToken,
-  materializeGenerationUnitLyrics,
   type TrustedGenerationUnitLyricsToken
 } from "./generationUnitSourceResolver.js";
 import { loadPinnedH3GrammarProfile, type H3GrammarProfileV3 } from "./render/h3GrammarV3.js";
-import { readCompilationBundleAtomic, writeCompilationBundleAtomic, writeShadowComparisonAtomic } from "./compilationBundle.js";
+import { compilationRevisionId, readCompilationBundleAtomic, writeCompilationBundleAtomic, writeShadowComparisonAtomic } from "./compilationBundle.js";
 import { resolve } from "node:path";
 import { sha256Text } from "../integrity/canonical.js";
 
@@ -362,11 +361,7 @@ async function compileVideoPromptV2Request(
     require_exact_sync: requireExactSync,
     request_index: options.requestIndex,
     ...(options.generationUnitSource ? { generation_unit_source: options.generationUnitSource } : {}),
-    ...(options.generationUnitSource ? {
-      ...(options.generationUnitLyricsToken
-        ? { lyrics_source: materializeGenerationUnitLyrics(options.generationUnitLyricsToken) }
-        : {}),
-    } : {}),
+    ...(options.generationUnitLyricsToken ? { generation_unit_lyrics_token: options.generationUnitLyricsToken } : {}),
     ...(options.grammar_profile ? { grammar_profile: options.grammar_profile } : {}),
     require_pinned_grammar: options.require_pinned_grammar,
     adapter_dialect_capability: adapterDialectLoad.capability,
@@ -545,6 +540,12 @@ export async function compileProjectVideoPrompts(
   }
 
   for (const [index, request] of project.generation.requests.entries()) {
+    const operationOutputIssue = assertOperationOutputKind(request);
+    if (operationOutputIssue) {
+      issues.push({ code: "VPD-E022", message: operationOutputIssue, path: `generation.requests.${index}.output_kind` });
+      nextRequests.push(request);
+      continue;
+    }
     const dual = rejectDualAuthoring(request);
     if (dual.length > 0) {
       issues.push(...dual.map((item) => h3IssueToProjectIssue(item, index, "video_prompt")));
@@ -709,14 +710,14 @@ export async function compileProjectVideoPrompts(
         result.plan.v2_compilation.bundle,
         {
           project_root: resolve(options.compilationArtifactRoot),
-          revision_id: options.revision_id ?? project.run_id ?? project.slug,
+          revision_id: options.revision_id ?? compilationRevisionId(result.plan.v2_compilation.bundle),
           request_id: result.plan.v2_compilation.request_id,
           allow_existing_same_digest: true
         }
       );
       const persisted = readCompilationBundleAtomic(resolve(options.compilationArtifactRoot), {
         project_root: resolve(options.compilationArtifactRoot),
-        revision_id: options.revision_id ?? project.run_id ?? project.slug,
+        revision_id: options.revision_id ?? compilationRevisionId(result.plan.v2_compilation.bundle),
         request_id: result.plan.v2_compilation.request_id
       });
       result.plan.v2_compilation = {
@@ -762,7 +763,7 @@ export async function compileProjectVideoPrompts(
       try {
         await writeShadowComparisonAtomic(options.shadowArtifactRoot, comparison, {
           project_root: options.shadowArtifactRoot,
-          revision_id: options.revision_id ?? project.run_id ?? project.slug
+          revision_id: options.revision_id ?? `shadow-${sha256Text(JSON.stringify(comparison)).slice(0, 32)}`
         });
       } catch (error) {
         // Shadow persistence is non-authoritative: report the failed artifact
@@ -777,6 +778,21 @@ export async function compileProjectVideoPrompts(
     return { ok: false, issues, project: nextProject, plans, ...(shadowComparisons.length > 0 ? { shadow_comparisons: shadowComparisons } : {}) };
   }
   return { ok: true, issues: [], project: nextProject, plans, ...(shadowComparisons.length > 0 ? { shadow_comparisons: shadowComparisons } : {}) };
+}
+
+function assertOperationOutputKind(request: GenerationRequest): string | undefined {
+  const operation = request.operation;
+  const expected = operation === "image"
+    ? "image"
+    : operation === "voice" || operation === "music"
+      ? "audio"
+      : ["video", "transition", "extend", "modify", "upscale", "reference", "motion-control"].includes(operation ?? "")
+        ? "video"
+        : undefined;
+  if (expected && request.output_kind && request.output_kind !== expected) {
+    return `operation '${operation}' cannot declare output_kind '${request.output_kind}'`;
+  }
+  return undefined;
 }
 
 function buildExecutionRequest(

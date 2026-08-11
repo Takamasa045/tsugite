@@ -346,10 +346,11 @@ export function routeFromProfiles(input: {
 }): { ok: true; route: RouteIdentityV1 } | { ok: false; issues: H3Issue[] } {
   const modelDigest = input.model_profile_digest ?? modelProfileDigest(input.model_profile);
   const connectionDigest = input.connection_profile_digest ?? connectionCapabilityDigest(input.connection_profile);
-  const route = input.connection_profile.exact_model_routes.find((candidate) => candidate.model === input.model);
-  if (!route) {
+  const routes = input.connection_profile.exact_model_routes.filter((candidate) => candidate.model === input.model && candidate.modes.includes(input.mode));
+  if (routes.length !== 1) {
     return { ok: false, issues: [issue("VPD-R001", "connection capability has no exact model route", "error", ["route"])] };
   }
+  const route = routes[0]!;
   if (!input.connection_profile.adapter_id) {
     return { ok: false, issues: [issue("VPD-R001", "connection capability route has no adapter identity", "error", ["route", "adapter_id"])] };
   }

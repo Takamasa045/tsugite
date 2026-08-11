@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, type Stats } from "node:fs";
-import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Manifest } from "../manifest/schema.js";
@@ -38,6 +38,14 @@ import type { ProductionControlShadowSummary } from "../productionControl/contra
 import type { VideoPromptV2Compilation } from "../videoPromptDirector/compileV2.js";
 import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { validateProject } from "../project/validateProject.js";
+import { loadProject } from "../project/loadProject.js";
+import { sha256Canonical } from "../integrity/canonical.js";
+import { readCompilationBundleAtomic } from "../videoPromptDirector/compilationBundle.js";
+import { safeParseVideoPromptIrV2 } from "../videoPromptDirector/schemaV2.js";
+import { upgradeH3V1ToVideoPromptV2, upgradeVideoPromptV1ToV2 } from "../videoPromptDirector/upgradeV1.js";
+import { loadConnectionCapabilityProfile, routeFromProfiles } from "../videoPromptDirector/index.js";
+import { loadModelPromptProfile } from "../videoPromptDirector/modelProfile.js";
+import { loadPinnedH3GrammarProfile } from "../videoPromptDirector/render/h3GrammarV3.js";
 import { computeReviewPreviewDigest } from "./reviewPreview.js";
 import {
   lintShotlistMonotony,
@@ -561,44 +569,137 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
   | { ok: true; projection: VideoPromptReviewProjection[] }
   | { ok: false; issues: Array<{ code: string; message: string; path?: string }> }
 > {
-  const validation = await validateProject(configPath, {
-    generationUnitSourceResolver: createProjectGenerationUnitSourceResolver(configPath)
-  });
-  if (!validation.ok) {
-    return {
-      ok: false,
-      issues: [{
-        code: "gate.video_prompt_changed",
-        message: "current V2 video prompt compilation is no longer valid; regenerate the Gate 1 review",
-        path: "generation.requests"
-      }]
-    };
-  }
   try {
-    const plan = createPlan(
-      validation.project,
-      validation.manifest,
-      validation.adapter,
-      validation.analysisAdapter,
-      validation.promptGuides,
-      validation.audioAdapter,
-      validation.generationConnection,
-      validation.audioConnection,
-      validation.backend,
-      validation.h3_compilations,
-      validation.video_prompt_plans
+    const project = await loadProject(configPath);
+    if (project.orchestration?.mode !== "active") return { ok: true, projection: [] };
+    const requests = project.generation?.requests ?? [];
+    const videoRequests = requests.filter((request) =>
+      generationRequestOutputKind(request) === "video"
+      || (request as { video_prompt?: unknown }).video_prompt !== undefined
+      || request.h3 !== undefined
     );
-    return { ok: true, projection: createVideoPromptReviewProjection(plan.video_prompt_plans) };
+    if (videoRequests.length === 0) return { ok: true, projection: [] };
+    const artifactRoot = resolve(dirname(resolve(configPath)), project.dist_dir);
+    const revisions = (await readdir(artifactRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && isSafeReviewId(entry.name))
+      .map((entry) => entry.name);
+    const projection: VideoPromptReviewProjection[] = [];
+    for (const request of videoRequests) {
+      const authoring = (request as { video_prompt?: unknown }).video_prompt ?? request.h3;
+      const normalized = normalizeCommittedVideoPromptAuthoring(authoring);
+      if (!normalized) throw new Error(`request '${request.id}' is not strict V2/V1 authoring`);
+      const expectedNormalizedDigest = sha256Canonical(normalized.ir);
+      const candidates = [] as Array<{ bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1; revision: string }>;
+      for (const revision of revisions) {
+        try {
+          const persisted = readCompilationBundleAtomic(artifactRoot, {
+            project_root: artifactRoot,
+            revision_id: revision,
+            request_id: request.id
+          });
+          if (persisted.bundle.normalized_ir_digest === expectedNormalizedDigest) {
+            candidates.push({ bundle: persisted.bundle, revision });
+          }
+        } catch {
+          // Unrelated revisions and shadow namespaces are ignored; a matching
+          // request must still have one complete committed manifest below.
+        }
+      }
+      const unique = new Map(candidates.map((candidate) => [candidate.bundle.compilation_digest, candidate]));
+      if (unique.size === 0) throw new Error(`request '${request.id}' has no committed compilation manifest for the current authoring digest`);
+      if (unique.size > 1) throw new Error(`request '${request.id}' has ambiguous committed compilation revisions`);
+      const committed = [...unique.values()][0]!.bundle;
+      await assertCommittedRouteStillMatches(project, committed);
+      projection.push(videoPromptReviewProjectionFromCommittedBundle(committed));
+    }
+    return { ok: true, projection };
   } catch {
     return {
       ok: false,
       issues: [{
         code: "gate.video_prompt_changed",
-        message: "current V2 video prompt plan cannot be reconstructed; regenerate the Gate 1 review",
+        message: "committed V2 video prompt manifest is missing, stale, ambiguous, or tampered; regenerate the Gate 1 review",
         path: "generation.requests"
       }]
     };
   }
+}
+
+function normalizeCommittedVideoPromptAuthoring(value: unknown): { ir: import("../videoPromptDirector/schemaV2.js").VideoPromptIrV2; authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1" } | undefined {
+  const parsed = safeParseVideoPromptIrV2(value);
+  if (parsed.success) return { ir: parsed.data, authoring_schema: "VideoPromptIrV2" };
+  if (!value || typeof value !== "object") return undefined;
+  try {
+    const upgraded = upgradeH3V1ToVideoPromptV2(value as never);
+    return { ir: upgraded.ir, authoring_schema: "H3-V1" };
+  } catch {
+    try {
+      const upgraded = upgradeVideoPromptV1ToV2(value as never);
+      return { ir: upgraded.ir, authoring_schema: "V1" };
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+function videoPromptReviewProjectionFromCommittedBundle(bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1): VideoPromptReviewProjection {
+  const authoringSchema = bundle.lineage.authoring_schema;
+  if (authoringSchema !== "VideoPromptIrV2" && authoringSchema !== "V1" && authoringSchema !== "H3-V1") {
+    throw new Error("committed bundle authoring schema is unsupported");
+  }
+  return {
+    request_id: bundle.request_id,
+    request_identity: {
+      request_id: bundle.request_id,
+      authoring_surface: "video_prompt",
+      authoring_schema: authoringSchema,
+      compiler_workflow: "video-prompt-v3"
+    },
+    compilation: {
+      canonical_prompt: bundle.canonical_prompt,
+      adapter_prompt: bundle.adapter_prompt,
+      validation: bundle.validation,
+      route: bundle.route,
+      effective_contract: bundle.effective_contract,
+      compilation_digest: bundle.compilation_digest,
+      model_profile_digest: bundle.model_profile_digest,
+      connection_capability_digest: bundle.connection_capability_digest,
+      adapter_capability_digest: bundle.adapter_capability_digest,
+      ...(bundle.grammar_profile ? { grammar_profile_digest: bundle.grammar_profile.digest } : {}),
+      ...(bundle.lineage.generation_unit_source_digest ? { generation_unit_source_digest: bundle.lineage.generation_unit_source_digest } : {})
+    }
+  };
+}
+
+async function assertCommittedRouteStillMatches(project: Project, bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1): Promise<void> {
+  const connectionId = project.generation?.connection;
+  if (!connectionId || connectionId !== bundle.route.connection_id) throw new Error("committed route no longer matches the project connection");
+  const [model, connection] = await Promise.all([
+    loadModelPromptProfile(bundle.route.ir_model),
+    loadConnectionCapabilityProfile(connectionId)
+  ]);
+  if (!model.ok || !connection.ok || model.digest !== bundle.model_profile_digest || connection.digest !== bundle.connection_capability_digest) {
+    throw new Error("committed route/profile digest is stale");
+  }
+  const route = routeFromProfiles({
+    model: bundle.route.ir_model,
+    mode: bundle.route.mode_binding as never,
+    model_profile: model.profile,
+    connection_profile: connection.profile,
+    model_profile_digest: model.digest,
+    connection_profile_digest: connection.digest
+  });
+  if (!route.ok || sha256Canonical(route.route) !== sha256Canonical(bundle.route)) throw new Error("committed route no longer matches the selected capability");
+  if (bundle.grammar_profile) {
+    const grammar = await loadPinnedH3GrammarProfile();
+    if (grammar.digest !== bundle.grammar_profile.digest) throw new Error("committed grammar provenance is stale");
+  } else if (model.profile.renderer === "h3-grammar") {
+    throw new Error("H3 committed bundle is missing its pinned grammar profile");
+  }
+}
+
+function isSafeReviewId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value);
 }
 
 type ReviewConnectionSnapshot = {

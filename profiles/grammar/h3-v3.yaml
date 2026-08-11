@@ -12,10 +12,15 @@ reference_section_order:
   - detailed_description
   - overall_soundscape
   - non_diegetic_music
+language_map:
+  ja-JP: ja-JP
+  Japanese: ja-JP
+  en: en
+  en-US: en-US
 features:
   scenetrans: true
   cutoff: true
   group_speaker: true
   exact_dialogue: true
 serialization_rules_digest: ec227bbccaa04a23f693dbed96e279e62bc905941940b6ad4682adde4ded7474
-digest: 25a694538d83cad8d303ee605527e904978e6d36931f221c031757efad59aebc
+digest: e725e8b2135108c27122a110c6f690f9f4beaa3d501b4731dcbfd2414f89ab43

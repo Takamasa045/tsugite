@@ -27,7 +27,6 @@ import {
 import {
   buildSemanticBlocks,
   semanticBlockDigestMap,
-  type LyricsSource,
   type SemanticPromptBlock
 } from "./semanticBlocks.js";
 import {
@@ -59,6 +58,7 @@ import {
   type GenerationUnitProgramSourceV1
 } from "../productionControl/programBinding.js";
 import { generationUnitContractFacts, isAuthoritativeGenerationUnitSource } from "./generationUnitSourceResolver.js";
+import { materializeGenerationUnitLyrics, type TrustedGenerationUnitLyricsToken } from "./generationUnitSourceResolver.js";
 
 export const VIDEO_PROMPT_V2_WORKFLOW_ID = "video-prompt-v3" as const;
 export const VIDEO_PROMPT_V2_WORKFLOW_VERSION = H3_GRAMMAR_V3_VERSION;
@@ -75,7 +75,8 @@ export type CompileVideoPromptV2Options = {
   effective_contract?: EffectiveGenerationContractV1;
   budget?: PromptBudget;
   trusted_pinned_budget_evidence?: TrustedPinnedPromptBudgetEvidence;
-  lyrics_source?: LyricsSource;
+  /** Public callers cannot provide raw lyric authority; MV lyrics come from this opaque T04 token. */
+  generation_unit_lyrics_token?: TrustedGenerationUnitLyricsToken;
   require_exact_sync?: boolean;
   grammar_profile?: H3GrammarProfileV3;
   require_pinned_grammar?: boolean;
@@ -103,6 +104,16 @@ export type AssetPinEvidence = {
   byte_size: number;
   regular_file: true;
   contained_in_project_root: true;
+  asset_contract?: {
+    contract_id: string;
+    revision: number;
+    digest: string;
+    entry_id: string;
+    path: string;
+    sha256: string;
+    byte_size: number;
+    external_send: "allowed" | "forbidden" | "needs-human";
+  };
 };
 
 export type VideoPromptV2Compilation = {
@@ -219,8 +230,9 @@ export function compileVideoPromptIrV2(
   }
   if (options.connection_profile) {
     if (options.connection_capability_digest && connectionCapabilityDigest(options.connection_profile) !== options.connection_capability_digest) issues.push(issue("VPD-K002", "connection capability digest is stale", "error", ["connection_profile", "digest"]));
-    const exactRoute = options.connection_profile.exact_model_routes.find((candidate) => candidate.model === ir.target.model_profile_id);
-    if (!exactRoute || !route || exactRoute.provider_model !== route.provider_model || !exactRoute.modes.includes(ir.target.mode)) {
+    const exactRoutes = options.connection_profile.exact_model_routes.filter((candidate) => candidate.model === ir.target.model_profile_id && candidate.modes.includes(ir.target.mode));
+    const exactRoute = exactRoutes.length === 1 ? exactRoutes[0] : undefined;
+    if (!exactRoute || !route || exactRoute.provider_model !== route.provider_model) {
       issues.push(issue("VPD-R002", "connection capability and RouteIdentity do not prove the requested model/mode", "error", ["connection_profile", "exact_model_routes"]));
     }
   }
@@ -231,21 +243,31 @@ export function compileVideoPromptIrV2(
     issues.push(issue("VPD-K003", "execution requires current model and connection capability profiles", "error", ["effective_contract", "execution"]));
   }
 
+  const suppliedGrammarProfile = options.grammar_profile;
+  const grammarProfile = options.model_profile?.renderer === "plain-prompt"
+    ? undefined
+    : (suppliedGrammarProfile ?? (options.require_pinned_grammar ? undefined : DEFAULT_H3_GRAMMAR_PROFILE_V3));
+  const lyricsSource = options.generation_unit_lyrics_token
+    ? materializeGenerationUnitLyrics(options.generation_unit_lyrics_token)
+    : undefined;
+  if (ir.program_kind === "mv" && ir.shots.some((shot) => shot.vocal_events.some((event) => event.content.source === "lyrics-cue")) && !lyricsSource) {
+    issues.push(issue("VPD-L002", "MV lyrics must be materialized from the authoritative T04 source token", "error", ["generation_unit_lyrics_token"]));
+  }
   const semantic = buildSemanticBlocks(ir, {
-    lyrics_source: options.lyrics_source,
+    ...(lyricsSource ? { lyrics_source: lyricsSource } : {}),
+    ...(grammarProfile ? { allowed_language_map: grammarProfile.language_map } : {}),
     require_exact_sync: options.require_exact_sync
   });
   issues.push(...semantic.issues);
   const plainRenderer = options.model_profile?.renderer === "plain-prompt";
-  const suppliedGrammarProfile = options.grammar_profile;
-  const grammarProfile = plainRenderer ? undefined : (suppliedGrammarProfile ?? (options.require_pinned_grammar ? undefined : DEFAULT_H3_GRAMMAR_PROFILE_V3));
   if (!plainRenderer && options.require_pinned_grammar && !grammarProfile) {
     issues.push(issue("VPD-C003", "H3 compilation requires the repo-local pinned grammar profile", "error", ["grammar_profile"]));
   } else if (suppliedGrammarProfile && !isTrustedH3GrammarProfile(suppliedGrammarProfile)) {
     issues.push(issue("VPD-C003", "H3 grammar profile was not loaded by the trusted pinned-profile loader", "error", ["grammar_profile"]));
   }
   const grammarOptions: H3GrammarV3Options = {
-    ...(options.lyrics_source ? { lyrics_source: options.lyrics_source } : {}),
+    ...(lyricsSource ? { lyrics_source: lyricsSource } : {}),
+    ...(grammarProfile ? { allowed_language_map: grammarProfile.language_map } : {}),
     ...(options.require_exact_sync !== undefined ? { require_exact_sync: options.require_exact_sync } : {}),
     ...(grammarProfile ? { grammar_profile: grammarProfile } : {})
   };
@@ -408,6 +430,7 @@ export function compileVideoPromptIrV2(
     canonical_prompt: rendered.text,
     adapter_prompt: dialect.adapter_prompt,
     semantic_blocks: semantic.blocks,
+    labels: dialect.labels,
     model_profile_digest: effective.digests.model_profile,
     connection_capability_digest: effective.digests.connection_profile,
     adapter_capability_digest: rendererDialect?.source_digest ?? "0".repeat(64),
@@ -657,6 +680,9 @@ function verifyAssetPinEvidence(
   if (!isAbsolute(evidence.real_path)) return false;
   if (!/^[a-f0-9]{64}$/.test(evidence.sha256) || (declaredSha256 !== undefined && declaredSha256 !== evidence.sha256)) return false;
   if (!Number.isSafeInteger(evidence.byte_size) || evidence.byte_size < 0) return false;
+  if (evidence.asset_contract && (evidence.asset_contract.path !== projectRelativePath
+    || evidence.asset_contract.sha256 !== evidence.sha256
+    || evidence.asset_contract.byte_size !== evidence.byte_size)) return false;
   if (!projectRoot) return false;
   try {
     const root = realpathSync(resolve(projectRoot));
@@ -669,7 +695,7 @@ function verifyAssetPinEvidence(
     const fd = openSync(actualPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
     try {
       const before = fstatSync(fd);
-      if (!before.isFile() || before.size !== evidence.byte_size || before.size > MAX_PINNED_ASSET_BYTES) return false;
+      if (!before.isFile() || before.dev === 0 || before.ino === 0 || before.size !== evidence.byte_size || before.size > MAX_PINNED_ASSET_BYTES) return false;
       const hash = createHash("sha256");
       const chunk = Buffer.allocUnsafe(64 * 1024);
       let offset = 0;
@@ -680,7 +706,9 @@ function verifyAssetPinEvidence(
         offset += read;
       }
       const after = fstatSync(fd);
-      const sameIdentity = (before.dev === 0 || before.ino === 0 || (before.dev === after.dev && before.ino === after.ino))
+      const sameIdentity = before.dev !== 0 && before.ino !== 0
+        && after.dev !== 0 && after.ino !== 0
+        && before.dev === after.dev && before.ino === after.ino
         && before.size === after.size
         && before.mtimeMs === after.mtimeMs;
       return sameIdentity && hash.digest("hex") === evidence.sha256;

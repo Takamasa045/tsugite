@@ -22,6 +22,7 @@ const grammarProfileSchema = z.object({
   source_digest: z.string().regex(/^[a-f0-9]{64}$/u),
   section_order: z.array(z.string().min(1)).min(1),
   reference_section_order: z.array(z.string().min(1)).length(6),
+  language_map: z.record(z.string().min(1), z.string().min(2)),
   features: z.object({
     scenetrans: z.boolean(),
     cutoff: z.boolean(),
@@ -53,6 +54,7 @@ export type H3GrammarProfileV3 = {
   source_digest: string;
   section_order: readonly string[];
   reference_section_order: readonly string[];
+  language_map: Readonly<Record<string, string>>;
   features: {
     scenetrans: boolean;
     cutoff: boolean;
@@ -86,6 +88,7 @@ export const DEFAULT_H3_GRAMMAR_PROFILE_V3: H3GrammarProfileV3 = {
   source_digest: "3f7c1d93d2a4c1c6f5c3f9f6a37b8bbad6ef5a53b3274efc46d9d7a3b9f9c811",
   section_order: H3_BASE_SECTION_ORDER_V3,
   reference_section_order: H3_REFERENCE_SECTION_ORDER_V3,
+  language_map: { "ja-JP": "ja-JP", "Japanese": "ja-JP", "en": "en", "en-US": "en-US" },
   features: { scenetrans: true, cutoff: true, group_speaker: true, exact_dialogue: true },
   serialization_rules_digest: sha256Text("h3-grammar-v3-serialization"),
   digest: sha256Canonical({
@@ -94,6 +97,7 @@ export const DEFAULT_H3_GRAMMAR_PROFILE_V3: H3GrammarProfileV3 = {
     source_digest: "3f7c1d93d2a4c1c6f5c3f9f6a37b8bbad6ef5a53b3274efc46d9d7a3b9f9c811",
     section_order: H3_BASE_SECTION_ORDER_V3,
     reference_section_order: H3_REFERENCE_SECTION_ORDER_V3,
+    language_map: { "ja-JP": "ja-JP", "Japanese": "ja-JP", "en": "en", "en-US": "en-US" },
     features: { scenetrans: true, cutoff: true, group_speaker: true, exact_dialogue: true },
     serialization_rules_digest: sha256Text("h3-grammar-v3-serialization")
   })
@@ -101,6 +105,7 @@ export const DEFAULT_H3_GRAMMAR_PROFILE_V3: H3GrammarProfileV3 = {
 Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.features);
 Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.section_order);
 Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.reference_section_order);
+Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.language_map);
 Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3);
 // The compatibility default is deliberately not execution-trusted. Only the
 // async repo-local pinned-profile loader may mint a trusted runtime snapshot.
@@ -119,6 +124,7 @@ export async function loadPinnedH3GrammarProfile(root = "profiles/grammar"): Pro
     ...raw as Record<string, unknown>,
     section_order: [...((raw as Partial<H3GrammarProfileV3>).section_order ?? [])],
     reference_section_order: [...((raw as Partial<H3GrammarProfileV3>).reference_section_order ?? [])],
+    language_map: { ...((raw as Partial<H3GrammarProfileV3>).language_map ?? {}) },
     features: { ...((raw as Partial<H3GrammarProfileV3>).features ?? {}) }
   };
   const parsed = grammarProfileSchema.safeParse(candidate);
@@ -134,6 +140,7 @@ export async function loadPinnedH3GrammarProfile(root = "profiles/grammar"): Pro
   Object.freeze(normalized.features);
   Object.freeze(normalized.section_order);
   Object.freeze(normalized.reference_section_order);
+  Object.freeze(normalized.language_map);
   Object.freeze(normalized);
   trustedGrammarProfiles.add(normalized);
   grammarProfileSnapshots.set(normalized, h3GrammarProfileDigest(normalized));
@@ -394,8 +401,11 @@ function renderShot(
 }
 
 function renderVocalEvent(event: VocalEventV2, text: string, ir: VideoPromptIrV2): string {
-  const subject = ir.subjects.find((candidate) => candidate.speaker_id === event.speaker_ids[0]);
-  const description = subject ? `The ${subject.description} (${event.speaker_ids[0]})` : `The speaker (${event.speaker_ids[0]})`;
+  const speakers = event.speaker_ids.map((speakerId) => {
+    const subject = ir.subjects.find((candidate) => candidate.speaker_id === speakerId);
+    return subject ? `the ${subject.description} (${speakerId})` : `the speaker (${speakerId})`;
+  }).join(", ");
+  const description = speakers || "the speaker";
   const tag = `<d>[${event.language_id}]${text}</d>`;
   if (event.kind === "voiceover") return `${description} says in an off-screen voiceover:\n${tag}\nwhile his lips remain completely closed.`;
   if (event.kind === "singing") return `${description} sings:\n${tag}`;

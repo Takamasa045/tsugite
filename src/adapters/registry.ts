@@ -191,6 +191,20 @@ const adapterSchema = z.object({
       path: ["network"]
     });
   }
+  const selectors = new Set<string>();
+  for (const [index, capability] of (adapter.prompt_capabilities ?? []).entries()) {
+    for (const mode of capability.modes) {
+      const selector = `${capability.model_profile_id}\u0000${capability.provider_model}\u0000${mode}`;
+      if (selectors.has(selector)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "prompt capability selectors must be unique for each model/provider/mode",
+          path: ["prompt_capabilities", index, "modes"]
+        });
+      }
+      selectors.add(selector);
+    }
+  }
 });
 
 export type AdapterDefinition = z.infer<typeof adapterSchema> & {

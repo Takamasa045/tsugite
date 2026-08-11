@@ -232,12 +232,14 @@ export {
 
 export {
   compilationBundleSchema,
+  compilationRevisionId,
   createCompilationBundle,
   createVerifiedAssetPin,
   verifyVerifiedAssetPin,
   isTrustedAssetPin,
   loadCreateOnlyArtifactStoreEnvelope,
   createExecutionCompilationBundleArtifact,
+  deriveExecutionCompilationBundleFromPlanningArtifact,
   adoptExecutionCompilationBundle,
   isAdoptedExecutionCompilationBundle,
   verifyCompilationBundle,
