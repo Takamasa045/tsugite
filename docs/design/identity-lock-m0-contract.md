@@ -1,9 +1,8 @@
 # M0 契約: Identity Lock Phase A
 
-**状態:** Phase A 実装完了  
+**状態:** Phase A 実装完了 + スキル配線済み  
 **親設計:** `docs/design/identity-lock-and-scene-consistency.md`  
-**branch:** `codex/identity-lock-scene-consistency`  
-**worktree:** `/Users/takamasa/Projects/*開発/tsugite-identity-lock`
+**エージェント手順:** `.agents/skills/tsugite/SKILL.md` → Identity Lock Protocol（自然言語向け）
 
 ## North-star
 

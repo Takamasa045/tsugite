@@ -1,6 +1,6 @@
 # 設計メモ: アイデンティティ・ロックとシーン一貫性（長尺・ストーリー制作向け）
 
-**状態:** Phase A–E 実装済み（branch `codex/identity-lock-scene-consistency` / PR #118）。M0 契約は `identity-lock-m0-contract.md`。
+**状態:** Phase A–E 実装済み（PR #118）。自然言語フローは `.agents/skills/tsugite/SKILL.md` の Identity Lock Protocol でエージェント必須化。M0 契約は `identity-lock-m0-contract.md`。
 **対象:** キャラ一貫性の機械的固定 + シーン層の共有ブロック + プロンプト骨格カタログ + イテレーション規律
 **正本参照:**
 
