@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -13,9 +15,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ArtifactStore,
+  type ArtifactStoreHooks,
   EventStore,
+  type EventStoreHooks,
   ProductionControlError,
   SnapshotStore,
+  type SnapshotHooks,
   assertEventIntegrity,
   canonicalJson,
   makeProductionEvent,
@@ -31,6 +36,31 @@ import {
 
 const DIGEST_A = "a".repeat(64);
 const DIGEST_B = "b".repeat(64);
+const productionControlModuleUrl = new URL("../src/productionControl/index.ts", import.meta.url).href;
+const childStoreScript = `
+  const { EventStore, SnapshotStore } = await import(${JSON.stringify(productionControlModuleUrl)});
+  const [mode, root] = process.argv.slice(1);
+  const holdMs = Number(process.env.PC_TEST_HOLD_MS ?? "0");
+  const hooks = { afterRootLockAcquired: async () => {
+    if (holdMs > 0) await new Promise((resolve) => setTimeout(resolve, holdMs));
+  }};
+  try {
+    if (mode === "event") {
+      await new EventStore(root, { hooks }).append({
+        type: "mission-created",
+        production_id: "production-1",
+        payload: { mission_digest: "${"a".repeat(64)}", tree_revision: 1 },
+        coordinator_instance_id: "child"
+      });
+    } else {
+      await new SnapshotStore(root, { hooks }).compareAndSwap(JSON.parse(process.env.PC_TEST_STATE), null);
+    }
+    process.stdout.write(JSON.stringify({ ok: true }));
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ ok: false, code: error?.code ?? "UNKNOWN" }));
+    process.exitCode = 2;
+  }
+`;
 
 async function tempRoot(prefix: string): Promise<string> {
   return mkdtemp(join("/private/tmp", `tsugite-po1-${prefix}-`));
@@ -38,6 +68,32 @@ async function tempRoot(prefix: string): Promise<string> {
 
 function expectCode(action: () => unknown | Promise<unknown>, code: string) {
   return expect(action()).rejects.toMatchObject({ code });
+}
+
+function runChildStore(mode: "event" | "snapshot", root: string, state?: MissionState, holdMs = 0): Promise<{ exitCode: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", childStoreScript, mode, root], {
+      cwd: process.cwd(),
+      env: { ...process.env, PC_TEST_HOLD_MS: String(holdMs), ...(state ? { PC_TEST_STATE: JSON.stringify(state) } : {}) },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
+    child.on("error", reject);
+    child.on("close", (exitCode) => resolve({ exitCode, output }));
+  });
+}
+
+async function waitForPath(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await lstat(path);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`timed out waiting for ${path}`);
 }
 
 function eventInput<T extends ProductionEvent["type"]>(input: {
@@ -53,7 +109,7 @@ function eventInput<T extends ProductionEvent["type"]>(input: {
   } as const;
 }
 
-async function buildAcceptedStore(root: string): Promise<{ store: EventStore; artifactDigest: string; state: MissionState }> {
+async function buildPendingAcceptanceStore(root: string): Promise<{ store: EventStore; artifactDigest: string }> {
   const store = new EventStore(root);
   await store.append(eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } }));
   await store.append(eventInput({
@@ -82,22 +138,32 @@ async function buildAcceptedStore(root: string): Promise<{ store: EventStore; ar
     type: "artifact-created",
     payload: { artifact_id: "artifact-1", artifact_digest: artifactDigest, node_id: "node-1", attempt_id: "attempt-1" }
   }));
+  return { store, artifactDigest };
+}
+
+async function buildAcceptedStore(root: string): Promise<{ store: EventStore; artifactDigest: string; state: MissionState }> {
+  const { store, artifactDigest } = await buildPendingAcceptanceStore(root);
   await store.append(eventInput({
     type: "artifact-accepted",
-    payload: {
-      artifact_id: "artifact-1",
-      artifact_digest: artifactDigest,
-      node_id: "node-1",
-      attempt_id: "attempt-1",
-      expected_event_sequence: 5,
-      tree_revision: 1,
-      task_revision: 1,
-      input_digest: DIGEST_A,
-      lease_digest: DIGEST_B,
-      dependency_closure_digest: DIGEST_B
-    }
+    payload: acceptedPayload(artifactDigest)
   }));
   return { store, artifactDigest, state: await store.replay("production-1") };
+}
+
+function acceptedPayload(artifactDigest: string, overrides: Record<string, unknown> = {}) {
+  return {
+    artifact_id: "artifact-1",
+    artifact_digest: artifactDigest,
+    node_id: "node-1",
+    attempt_id: "attempt-1",
+    expected_event_sequence: 5,
+    tree_revision: 1,
+    task_revision: 1,
+    input_digest: DIGEST_A,
+    lease_digest: DIGEST_B,
+    dependency_closure_digest: DIGEST_B,
+    ...overrides
+  } as never;
 }
 
 describe("PO-1 canonical and strict schema", () => {
@@ -226,6 +292,37 @@ describe("PO-1 ArtifactStore", () => {
     }
   });
 
+  it("covers each artifact write crash boundary without adopting temp state", async () => {
+    const stages: Array<{ name: keyof ArtifactStoreHooks; published: boolean }> = [
+      { name: "afterTempWriteBeforeSync", published: false },
+      { name: "afterTempSync", published: false },
+      { name: "beforePublish", published: false },
+      { name: "afterReserveBeforeRename", published: false },
+      { name: "afterFinalCheckBeforePublish", published: false },
+      { name: "afterPublishBeforeDirectorySync", published: true },
+      { name: "afterDirectorySync", published: true }
+    ];
+    for (const [index, stage] of stages.entries()) {
+      const root = await tempRoot(`artifact-crash-${index}`);
+      try {
+        const hooks: ArtifactStoreHooks = {
+          [stage.name]: () => { throw new Error(`simulated ${stage.name}`); }
+        };
+        const store = new ArtifactStore(root, { hooks });
+        await expect(store.create({ artifact_id: "artifact-1", bytes: "crash-matrix" }))
+          .rejects.toThrow(`simulated ${stage.name}`);
+        if (stage.published) {
+          expect(await new ArtifactStore(root).read("artifact-1")).toEqual(Buffer.from("crash-matrix"));
+        } else {
+          await expectCode(() => new ArtifactStore(root).read("artifact-1"), "PC_ARTIFACT_NOT_FOUND");
+        }
+        expect(await new ArtifactStore(root).recover()).toEqual({ removed_temp_files: 0 });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("does not adopt a partial temp artifact during recovery", async () => {
     const root = await tempRoot("artifact-recovery");
     try {
@@ -282,6 +379,30 @@ describe("PO-1 event chain and pure reducer", () => {
     }
   });
 
+  it("rejects every artifact acceptance expected-value mismatch", async () => {
+    const cases: Array<{ name: string; override: Record<string, unknown>; code: string }> = [
+      { name: "expected sequence", override: { expected_event_sequence: 4 }, code: "PC_EVENT_CONFLICT" },
+      { name: "tree revision", override: { tree_revision: 2 }, code: "PC_INVALID_TRANSITION" },
+      { name: "task revision", override: { task_revision: 2 }, code: "PC_INVALID_TRANSITION" },
+      { name: "input digest", override: { input_digest: DIGEST_B }, code: "PC_INVALID_TRANSITION" },
+      { name: "lease digest", override: { lease_digest: DIGEST_A }, code: "PC_INVALID_TRANSITION" },
+      { name: "dependency closure", override: { dependency_closure_digest: DIGEST_A }, code: "PC_INVALID_TRANSITION" },
+      { name: "artifact digest", override: { artifact_digest: DIGEST_B }, code: "PC_INVALID_TRANSITION" }
+    ];
+    for (const [index, mismatch] of cases.entries()) {
+      const root = await tempRoot(`accept-mismatch-${index}`);
+      try {
+        const { store, artifactDigest } = await buildPendingAcceptanceStore(root);
+        await expectCode(() => store.append(eventInput({
+          type: "artifact-accepted",
+          payload: acceptedPayload(artifactDigest, mismatch.override)
+        })), mismatch.code);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("ignores an unterminated event tail and reports it as uncommitted", async () => {
     const root = await tempRoot("event-crash");
     try {
@@ -320,6 +441,92 @@ describe("PO-1 event chain and pure reducer", () => {
       expect(await store.readAll()).toHaveLength(1);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("covers event write/commit crash boundaries with an explicit commit marker", async () => {
+    const stages: Array<{ name: keyof EventStoreHooks; committed: boolean; code?: string }> = [
+      { name: "afterEventWriteBeforeFsync", committed: false, code: "PC_EVENT_CHAIN" },
+      { name: "afterEventFsyncBeforeCommit", committed: false },
+      { name: "beforeCommit", committed: false },
+      { name: "afterCommitRenameBeforeDirectorySync", committed: true, code: "PC_EVENT_CHAIN" },
+      { name: "afterCommitDirectorySync", committed: true, code: "PC_EVENT_CHAIN" },
+      { name: "afterCommit", committed: true }
+    ];
+    for (const [index, stage] of stages.entries()) {
+      const root = await tempRoot(`event-crash-${index}`);
+      try {
+        const hooks: EventStoreHooks = {
+          [stage.name]: () => { throw new Error(`simulated ${stage.name}`); }
+        };
+        const store = new EventStore(root, { hooks });
+        const mission = eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } });
+        if (stage.code) {
+          await expectCode(() => store.append(mission), stage.code);
+        } else {
+          await expect(store.append(mission)).rejects.toThrow(`simulated ${stage.name}`);
+        }
+        expect(await store.readAll()).toHaveLength(stage.committed ? 1 : 0);
+        expect((await store.recover()).uncommitted_line_count).toBe(stage.committed ? 0 : 1);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("serializes separate processes and preserves a single event chain", async () => {
+    const root = await tempRoot("event-cross-process");
+    try {
+      const first = runChildStore("event", root, undefined, 250);
+      await waitForPath(join(root, ".production-control.lock"));
+      const second = runChildStore("event", root);
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.exitCode).toBe(0);
+      expect(JSON.parse(firstResult.output)).toEqual({ ok: true });
+      expect(secondResult.exitCode).toBe(2);
+      expect(JSON.parse(secondResult.output)).toMatchObject({ ok: false, code: "PC_LOCK_CONFLICT" });
+      const events = await new EventStore(root).readAll();
+      expect(events).toHaveLength(1);
+      expect(events[0].sequence).toBe(1);
+      assertEventIntegrity(events[0]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects symlinked, stale, and replaced root locks without unlinking foreign leaves", async () => {
+    const root = await tempRoot("root-lock-adversarial");
+    const external = await tempRoot("root-lock-external");
+    const lockPath = join(root, ".production-control.lock");
+    const mission = eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } });
+    try {
+      await writeFile(join(external, "sentinel"), "external\n", "utf8");
+      await symlink(join(external, "sentinel"), lockPath);
+      await expectCode(() => new EventStore(root).append(mission), "PC_LOCK_UNSAFE");
+      expect(await readFile(join(external, "sentinel"), "utf8")).toBe("external\n");
+      await rm(lockPath, { force: true });
+
+      await writeFile(lockPath, `${JSON.stringify({
+        schema_version: 1,
+        pid: 2_147_483_646,
+        token: "00000000-0000-4000-8000-000000000000",
+        acquired_at: "2020-01-01T00:00:00.000Z"
+      })}\n`, "utf8");
+      await expectCode(() => new EventStore(root).append(mission), "PC_LOCK_CONFLICT");
+      expect((await readFile(lockPath, "utf8"))).toContain("00000000-0000-4000-8000-000000000000");
+      await rm(lockPath, { force: true });
+
+      const replaced = new EventStore(root, { hooks: {
+        afterLockCreatedBeforeValidate: async () => {
+          await rm(lockPath, { force: true });
+          await symlink(join(external, "sentinel"), lockPath);
+        }
+      } });
+      await expectCode(() => replaced.append(mission), "PC_LOCK_UNSAFE");
+      expect(await readFile(join(external, "sentinel"), "utf8")).toBe("external\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(external, { recursive: true, force: true });
     }
   });
 
@@ -430,6 +637,55 @@ describe("PO-1 snapshot CAS and recovery", () => {
         state_digest: first.state_digest
       }), "PC_RECOVERY_INVALID");
       expect((await stable.read())?.state_digest).toBe(first.state_digest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("covers snapshot temp/rename/directory-sync crash boundaries", async () => {
+    const stages: Array<{ name: keyof SnapshotHooks; published: boolean }> = [
+      { name: "afterTempWriteBeforeSync", published: false },
+      { name: "afterTempSync", published: false },
+      { name: "beforeRename", published: false },
+      { name: "afterRenameBeforeDirectorySync", published: true },
+      { name: "afterDirectorySync", published: true }
+    ];
+    for (const [index, stage] of stages.entries()) {
+      const root = await tempRoot(`snapshot-crash-${index}`);
+      try {
+        const { state } = await buildAcceptedStore(root);
+        const stable = new SnapshotStore(root);
+        const first = await stable.compareAndSwap(state, null);
+        const nextState = { ...state, revision: state.revision + 1 };
+        const hooks: SnapshotHooks = {
+          [stage.name]: () => { throw new Error(`simulated ${stage.name}`); }
+        };
+        await expectCode(() => new SnapshotStore(root, { hooks }).compareAndSwap(nextState, {
+          applied_event_sequence: state.applied_event_sequence,
+          state_digest: first.state_digest
+        }), "PC_RECOVERY_INVALID");
+        expect((await stable.read())?.state_digest)
+          .toBe(stage.published ? missionStateDigest(nextState) : first.state_digest);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("serializes separate snapshot CAS writers so exactly one null-expected writer wins", async () => {
+    const root = await tempRoot("snapshot-cross-process");
+    try {
+      const { state } = await buildAcceptedStore(root);
+      const first = runChildStore("snapshot", root, state, 250);
+      await waitForPath(join(root, ".production-control.lock"));
+      const second = runChildStore("snapshot", root, state);
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.exitCode).toBe(0);
+      expect(JSON.parse(firstResult.output)).toEqual({ ok: true });
+      expect(secondResult.exitCode).toBe(2);
+      expect(JSON.parse(secondResult.output)).toMatchObject({ ok: false, code: "PC_LOCK_CONFLICT" });
+      const snapshot = await new SnapshotStore(root).read();
+      expect(snapshot?.state_digest).toBe(missionStateDigest(state));
     } finally {
       await rm(root, { recursive: true, force: true });
     }

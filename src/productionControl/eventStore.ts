@@ -10,7 +10,12 @@ import {
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { pcError, ProductionControlError } from "./errors.js";
+import {
+  acquireProductionControlRootLock,
+  pcError,
+  ProductionControlError,
+  type ProductionControlRootLockHooks
+} from "./errors.js";
 import {
   assertEventIntegrity,
   makeProductionEvent,
@@ -25,9 +30,12 @@ import {
   ZERO_DIGEST
 } from "./schema.js";
 
-export type EventStoreHooks = {
+export type EventStoreHooks = ProductionControlRootLockHooks & {
+  afterEventWriteBeforeFsync?: () => void | Promise<void>;
   afterEventFsyncBeforeCommit?: () => void | Promise<void>;
   beforeCommit?: () => void | Promise<void>;
+  afterCommitRenameBeforeDirectorySync?: () => void | Promise<void>;
+  afterCommitDirectorySync?: () => void | Promise<void>;
   afterCommit?: () => void | Promise<void>;
 };
 
@@ -57,6 +65,8 @@ export class EventStore {
   async append<T extends ProductionEventType>(input: NewProductionEvent<T> | ProductionEvent): Promise<ProductionEvent> {
     return this.withLock(async () => {
       await this.prepareRoot();
+      const rootLock = await acquireProductionControlRootLock(this.root, this.hooks);
+      try {
       const events = await this.readCommitted();
       const expectedSequence = events.length + 1;
       const candidateInput = input as NewProductionEvent<T>;
@@ -94,6 +104,9 @@ export class EventStore {
       await this.writeCommit({ schema_version: 1, sequence: event.sequence, event_digest: event.event_digest });
       await this.hooks.afterCommit?.();
       return event;
+      } finally {
+        await rootLock.release();
+      }
     });
   }
 
@@ -155,6 +168,7 @@ export class EventStore {
         0o600
       );
       await handle.writeFile(`${JSON.stringify(event)}\n`, "utf8");
+      await this.hooks.afterEventWriteBeforeFsync?.();
       await handle.sync();
     } catch (error) {
       if (error instanceof ProductionControlError) throw error;
@@ -184,7 +198,9 @@ export class EventStore {
       if (!sameDirectory(rootIdentity, liveRoot)) throw pcError("PC_PATH_UNSAFE", "event root identity changed");
       await assertRegularOrMissing(this.commitPath);
       await rename(temporary, this.commitPath);
+      await this.hooks.afterCommitRenameBeforeDirectorySync?.();
       await fsyncDirectory(this.root);
+      await this.hooks.afterCommitDirectorySync?.();
       const syncedRoot = await captureDirectory(this.root);
       if (!sameDirectory(rootIdentity, syncedRoot)) throw pcError("PC_PATH_UNSAFE", "event root identity changed after sync");
     } catch (error) {

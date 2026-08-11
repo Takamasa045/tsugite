@@ -19,11 +19,13 @@ import { parseArtifactEnvelope, type ArtifactEnvelope } from "./schema.js";
 import { z } from "zod";
 
 export type ArtifactStoreHooks = {
+  afterTempWriteBeforeSync?: () => void | Promise<void>;
   afterTempSync?: () => void | Promise<void>;
   beforePublish?: () => void | Promise<void>;
   afterReserveBeforeRename?: () => void | Promise<void>;
   afterFinalCheckBeforePublish?: () => void | Promise<void>;
   afterPublishBeforeDirectorySync?: () => void | Promise<void>;
+  afterDirectorySync?: () => void | Promise<void>;
 };
 
 export type ArtifactCreateInput = {
@@ -106,6 +108,7 @@ export class ArtifactStore {
         0o600
       );
       await handle.writeFile(bytes);
+      await this.hooks.afterTempWriteBeforeSync?.();
       await handle.sync();
       await handle.close();
       handle = undefined;
@@ -143,6 +146,7 @@ export class ArtifactStore {
       await verifyRegularFile(finalPath, bytes.byteLength, digest);
       await this.hooks.afterPublishBeforeDirectorySync?.();
       await fsyncDirectory(layout.artifactDir);
+      await this.hooks.afterDirectorySync?.();
       await assertLayoutIdentity(layout);
       return {
         artifact_id: input.artifact_id,

@@ -9,7 +9,12 @@ import {
   type FileHandle
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { pcError, ProductionControlError } from "./errors.js";
+import {
+  acquireProductionControlRootLock,
+  pcError,
+  ProductionControlError,
+  type ProductionControlRootLockHooks
+} from "./errors.js";
 import { missionStateDigest, replayProductionEvents } from "./reducer.js";
 import {
   parseMissionState,
@@ -25,10 +30,12 @@ export type SnapshotExpected = {
   state_digest: string;
 };
 
-export type SnapshotHooks = {
+export type SnapshotHooks = ProductionControlRootLockHooks & {
+  afterTempWriteBeforeSync?: () => void | Promise<void>;
   afterTempSync?: () => void | Promise<void>;
   beforeRename?: () => void | Promise<void>;
   afterRenameBeforeDirectorySync?: () => void | Promise<void>;
+  afterDirectorySync?: () => void | Promise<void>;
 };
 
 const snapshotLocks = new Map<string, Promise<void>>();
@@ -62,6 +69,9 @@ export class SnapshotStore {
 
   async compareAndSwap(state: MissionState, expected: SnapshotExpected | null): Promise<Snapshot> {
     return this.withLock(async () => {
+      await this.prepareRoot();
+      const rootLock = await acquireProductionControlRootLock(this.root, this.hooks);
+      try {
       const nextState = parseMissionState(state);
       const nextDigest = missionStateDigest(nextState);
       const current = await this.read();
@@ -80,6 +90,9 @@ export class SnapshotStore {
       snapshotSchema.parse(snapshot);
       await this.atomicWrite(snapshot);
       return snapshot;
+      } finally {
+        await rootLock.release();
+      }
     });
   }
 
@@ -133,6 +146,7 @@ export class SnapshotStore {
         0o600
       );
       await handle.writeFile(`${JSON.stringify(snapshot)}\n`, "utf8");
+      await this.hooks.afterTempWriteBeforeSync?.();
       await handle.sync();
       await handle.close();
       handle = undefined;
@@ -145,6 +159,7 @@ export class SnapshotStore {
       await rename(temporary, this.snapshotPath);
       await this.hooks.afterRenameBeforeDirectorySync?.();
       await fsyncDirectory(this.root);
+      await this.hooks.afterDirectorySync?.();
       const syncedRoot = await captureDirectory(this.root);
       if (!sameDirectory(rootIdentity, syncedRoot)) throw pcError("PC_PATH_UNSAFE", "snapshot root identity changed after sync");
     } catch (error) {
