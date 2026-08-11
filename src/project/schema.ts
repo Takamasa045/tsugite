@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { win32 } from "node:path";
 import { h3CreativeIrSchema, videoCreativeIrSchema } from "../h3/schema.js";
+import { productionControlModeSchema } from "../productionControl/schema.js";
 
 const safeIdSchema = z
   .string()
@@ -384,7 +385,14 @@ export const projectSchema = z
     composition: compositionSchema.optional(),
     gates: gatePolicySchema.optional(),
     /** Optional quality / semantic QA policies. Absent keeps legacy behavior. */
-    quality: qualityPolicySchema
+    quality: qualityPolicySchema,
+    /** Optional production-control rollout mode. Unspecified preserves legacy behavior. */
+    orchestration: z
+      .object({
+        mode: productionControlModeSchema
+      })
+      .strict()
+      .optional()
   })
   .passthrough()
   .superRefine((project, context) => {

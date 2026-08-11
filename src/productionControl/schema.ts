@@ -32,6 +32,256 @@ export const contractFragmentRefSchema = z.object({
 }).strict();
 export type ContractFragmentRef = z.infer<typeof contractFragmentRefSchema>;
 
+export const productionControlModeSchema = z.enum(["disabled", "shadow", "active"]);
+export type ProductionControlMode = z.infer<typeof productionControlModeSchema>;
+
+export const humanDecisionRefSchema = z.object({
+  decision_id: safeIdSchema,
+  decision: z.string().min(1).max(120),
+  actor: z.string().min(1).max(256),
+  decided_at: isoDateSchema,
+  subject_digest: digestSchema,
+  reason: z.string().min(1).max(2_000).optional()
+}).strict();
+export type HumanDecisionRef = z.infer<typeof humanDecisionRefSchema>;
+
+export const contractRequirementSchema = z.object({
+  requirement: z.enum(["required", "optional", "not_applicable"]),
+  reason: z.string().min(1).max(500)
+}).strict();
+export type ContractRequirement = z.infer<typeof contractRequirementSchema>;
+
+const deliverableSchema = z.object({
+  id: safeIdSchema,
+  kind: z.enum(["video", "audio", "image", "package"]),
+  required: z.boolean(),
+  acceptance_summary: z.string().min(1).max(2_000)
+}).strict();
+
+const productionConstraintsSchema = z.object({
+  duration_ms: nonNegativeInt.optional(),
+  aspect: safeIdSchema.optional(),
+  locale: safeIdSchema.optional(),
+  must_include: z.array(z.string().min(1).max(500)).max(256),
+  prohibited: z.array(z.string().min(1).max(500)).max(256)
+}).strict();
+
+const productionAuthoritySchema = z.object({
+  gate_1: z.literal("human"),
+  gate_2: z.literal("human-or-existing-safe-auto-pass"),
+  gate_3: z.literal("human"),
+  render: z.literal("explicit-human-command"),
+  publish: z.literal("explicit-human-command")
+}).strict();
+
+const productionContractSlotsSchema = z.object({
+  assets: contractRequirementSchema,
+  identity: contractRequirementSchema,
+  music: contractRequirementSchema,
+  lyrics: contractRequirementSchema
+}).strict();
+
+const productionLimitsSchema = z.object({
+  max_tree_depth: nonNegativeInt,
+  max_nodes: nonNegativeInt,
+  max_parallel_pure_tasks: nonNegativeInt,
+  max_effectful_tasks: z.literal(1)
+}).strict();
+
+const productionCreatedFromSchema = z.object({
+  brief_digest: digestSchema,
+  compiler_version: safeIdSchema
+}).strict();
+
+export const productionContractSchema = z.object({
+  schema_version: z.literal(1),
+  production_id: safeIdSchema,
+  project: z.object({
+    slug: safeIdSchema,
+    project_yaml_digest: digestSchema
+  }).strict(),
+  objective: z.string().min(1).max(2_000),
+  deliverables: z.array(deliverableSchema).min(1).max(64),
+  constraints: productionConstraintsSchema,
+  authority: productionAuthoritySchema,
+  contract_slots: productionContractSlotsSchema,
+  limits: productionLimitsSchema,
+  created_from: productionCreatedFromSchema,
+  rule_set_digest: digestSchema,
+  root_digest: digestSchema
+}).strict().superRefine((value, context) => {
+  if (sha256Canonical(withoutField(value, "root_digest")) !== value.root_digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["root_digest"], message: "production contract root digest mismatch" });
+  }
+});
+export type ProductionContract = z.infer<typeof productionContractSchema>;
+export type ProductionContractV1 = ProductionContract;
+
+export const contractSetEntrySchema = z.object({
+  slot: z.enum(["assets", "identity", "music", "lyrics"]),
+  contract_id: safeIdSchema,
+  contract_revision: nonNegativeInt,
+  artifact_id: safeIdSchema,
+  digest: digestSchema
+}).strict();
+
+export const contractSetSchema = z.object({
+  schema_version: z.literal(1),
+  production_id: safeIdSchema,
+  revision: nonNegativeInt,
+  contracts: z.array(contractSetEntrySchema).max(4),
+  digest: digestSchema
+}).strict().superRefine((value, context) => {
+  if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "contract set digest mismatch" });
+  }
+});
+export type ContractSet = z.infer<typeof contractSetSchema>;
+export type ContractSetV1 = ContractSet;
+
+export const contractFragmentIndexSchema = z.object({
+  schema_version: z.literal(1),
+  slot: z.enum(["assets", "identity-definition", "music", "lyrics", "rules"]),
+  contract_id: safeIdSchema,
+  revision: nonNegativeInt,
+  fragments: z.array(contractFragmentRefSchema).min(1).max(10_000),
+  digest: digestSchema
+}).strict().superRefine((value, context) => {
+  if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "contract fragment index digest mismatch" });
+  }
+});
+export type ContractFragmentIndex = z.infer<typeof contractFragmentIndexSchema>;
+export type ContractFragmentIndexV1 = ContractFragmentIndex;
+
+export const PRODUCTION_CONTROL_ROLE_IDS = [
+  "coordinator",
+  "director",
+  "story",
+  "music",
+  "identity",
+  "visual",
+  "generator",
+  "editor",
+  "critic",
+  "learning"
+] as const;
+export const PRODUCTION_CONTROL_TASK_KINDS = [
+  "source-and-rights",
+  "asset-provenance",
+  "music-analysis",
+  "lyrics-alignment",
+  "identity-definition",
+  "treatment-and-story",
+  "story-guides-selection",
+  "visual-system",
+  "production-plan",
+  "generation-batch",
+  "branch-critique",
+  "edit-and-compose",
+  "output-qa",
+  "closeout-learning"
+] as const;
+
+const taskAggregationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("all") }).strict(),
+  z.object({ kind: z.literal("ordered") }).strict(),
+  z.object({ kind: z.literal("bounded_map") }).strict(),
+  z.object({ kind: z.literal("choose_one"), selection: z.literal("human-branch-selection") }).strict()
+]);
+
+export const missionNodeSchema = z.object({
+  node_type: z.literal("mission"),
+  node_id: safeIdSchema,
+  parent_id: safeIdSchema.optional(),
+  aggregation: taskAggregationSchema,
+  child_ids: z.array(safeIdSchema).max(256)
+}).strict();
+export type MissionNode = z.infer<typeof missionNodeSchema>;
+
+export const taskNodeSchema = z.object({
+  node_type: z.literal("task"),
+  node_id: safeIdSchema,
+  parent_id: safeIdSchema,
+  kind: z.enum(PRODUCTION_CONTROL_TASK_KINDS),
+  role: z.enum(PRODUCTION_CONTROL_ROLE_IDS),
+  effect: z.enum([
+    "read",
+    "propose",
+    "local-write",
+    "external-observe",
+    "external-submit",
+    "paid",
+    "render",
+    "gate"
+  ]),
+  dependencies: z.array(safeIdSchema).max(256),
+  required_contract_fragments: z.array(contractFragmentRefSchema).max(256),
+  required_artifacts: z.array(digestRefSchema).max(256),
+  output_schema: safeIdSchema,
+  risk_class: z.enum(["low", "medium", "high"]),
+  invalidation_tags: z.array(safeIdSchema).max(64)
+}).strict();
+export type TaskNode = z.infer<typeof taskNodeSchema>;
+
+export const taskTreeNodeSchema = z.discriminatedUnion("node_type", [missionNodeSchema, taskNodeSchema]);
+export type TaskTreeNode = z.infer<typeof taskTreeNodeSchema>;
+
+export const taskTreeSpecSchema = z.object({
+  schema_version: z.literal(1),
+  production_id: safeIdSchema,
+  tree_revision: nonNegativeInt,
+  root_node_id: safeIdSchema,
+  nodes: z.array(taskTreeNodeSchema).max(256),
+  digest: digestSchema
+}).strict().superRefine((value, context) => {
+  if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "task tree digest mismatch" });
+  }
+});
+export type TaskTreeSpec = z.infer<typeof taskTreeSpecSchema>;
+export type TaskTreeSpecV1 = TaskTreeSpec;
+
+export const branchSelectionSchema = z.object({
+  schema_version: z.literal(1),
+  production_id: safeIdSchema,
+  mission_node_id: safeIdSchema,
+  candidate_artifact_refs: z.array(digestRefSchema).min(1).max(256),
+  selected_artifact_ref: digestRefSchema,
+  decision: humanDecisionRefSchema,
+  digest: digestSchema
+}).strict().superRefine((value, context) => {
+  const withoutDigest = withoutField(value, "digest");
+  if (sha256Canonical(withoutDigest) !== value.digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["digest"], message: "branch selection digest mismatch" });
+  }
+  const { decision: _decision, ...subject } = withoutDigest;
+  if (sha256Canonical(subject) !== value.decision.subject_digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["decision", "subject_digest"], message: "branch selection decision subject mismatch" });
+  }
+  const candidateIds = value.candidate_artifact_refs.map((ref) => ref.id);
+  if (new Set(candidateIds).size !== candidateIds.length || !candidateIds.includes(value.selected_artifact_ref.id)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["selected_artifact_ref"], message: "selected branch must be one of the candidates" });
+  }
+});
+export type BranchSelection = z.infer<typeof branchSelectionSchema>;
+export type BranchSelectionV1 = BranchSelection;
+
+export const seriesProductionGraphSchema = z.object({
+  schema_version: z.literal(1),
+  series_id: safeIdSchema,
+  child_productions: z.array(z.object({
+    production_id: safeIdSchema,
+    production_contract_digest: digestSchema,
+    gate_scope_id: safeIdSchema,
+    budget_scope_id: safeIdSchema
+  }).strict()).min(1).max(256),
+  dependencies: z.array(z.object({ before: safeIdSchema, after: safeIdSchema }).strict()).max(256),
+  digest: digestSchema
+}).strict();
+export type SeriesProductionGraph = z.infer<typeof seriesProductionGraphSchema>;
+export type SeriesProductionGraphV1 = SeriesProductionGraph;
+
 export const artifactEnvelopeSchema = z.object({
   schema_version: z.literal(1),
   artifact_id: safeIdSchema,

@@ -24,7 +24,13 @@ export type ProductionControlErrorCode =
   | "PC_SNAPSHOT_CONFLICT"
   | "PC_LOCK_CONFLICT"
   | "PC_LOCK_UNSAFE"
-  | "PC_RECOVERY_INVALID";
+  | "PC_RECOVERY_INVALID"
+  | "PC_CONTRACT_INVALID"
+  | "PC_FRAGMENT_INVALID"
+  | "PC_TREE_INVALID"
+  | "PC_ROLE_FORBIDDEN"
+  | "PC_PROGRAM_BINDING_INVALID"
+  | "PC_INVALIDATION_INVALID";
 
 /** Error boundary for the production-control shadow foundation. */
 export class ProductionControlError extends Error {

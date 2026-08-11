@@ -16,6 +16,10 @@ import {
 import { compileProjectH3, type H3Compilation } from "../h3/compile.js";
 import { rejectUncompiledVideoPrompt } from "../videoPromptDirector/dualAuthoring.js";
 import type { VideoPromptPlan } from "../videoPromptDirector/videoPromptCompile.js";
+import {
+  buildProductionControlShadowSummary,
+  type ProductionControlShadowSummary
+} from "../productionControl/contractCompiler.js";
 import { PipelineError } from "../types.js";
 
 export type PlanStep = {
@@ -84,6 +88,8 @@ export type ExecutionPlan = {
   h3_compilations?: H3Compilation[];
   /** Planning-only video_prompt compilations (no provider execution). */
   video_prompt_plans?: VideoPromptPlan[];
+  /** Non-enumerable read-only shadow projection; never part of legacy plan digest. */
+  production_control_shadow?: ProductionControlShadowSummary;
   steps: PlanStep[];
 };
 
@@ -127,7 +133,7 @@ export function createPlan(
   const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
   const compilations = h3Compilations ?? compileProjectH3(project).compilations ?? [];
 
-  return {
+  const plan: ExecutionPlan = {
     run_id: project.run_id ?? project.slug,
     slug: project.slug,
     backend: project.edit.backend,
@@ -181,6 +187,15 @@ export function createPlan(
       { name: "gate-3", status: "gate" }
     ]
   };
+  if (project.orchestration?.mode === "shadow") {
+    Object.defineProperty(plan, "production_control_shadow", {
+      value: buildProductionControlShadowSummary(project),
+      enumerable: false,
+      writable: false,
+      configurable: false
+    });
+  }
+  return plan;
 }
 
 function createAnalysisPlan(

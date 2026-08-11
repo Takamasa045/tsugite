@@ -34,6 +34,7 @@ import {
 } from "./compositionProposal.js";
 import type { ExecutionPlan } from "./plan.js";
 import type { H3Compilation } from "../h3/compile.js";
+import type { ProductionControlShadowSummary } from "../productionControl/contractCompiler.js";
 import { computeReviewPreviewDigest } from "./reviewPreview.js";
 import {
   lintShotlistMonotony,
@@ -181,6 +182,8 @@ export type ReviewDocument = {
   prompt_guidance: NonNullable<ExecutionPlan["prompt_guidance"]>;
   /** Deterministic H3 compilations from the plan for Gate 1 human inspection. */
   h3_compilations?: H3Compilation[];
+  /** Read-only shadow tree summary; it does not alter Gate or legacy plan state. */
+  production_control_shadow?: ProductionControlShadowSummary;
   steps: ExecutionPlan["steps"];
   warnings: string[];
   approval_digest?: string;
@@ -798,6 +801,9 @@ export function createReviewDocument(
     prompt_guidance: plan.prompt_guidance ?? [],
     ...(plan.h3_compilations && plan.h3_compilations.length > 0
       ? { h3_compilations: plan.h3_compilations }
+      : {}),
+    ...(plan.production_control_shadow
+      ? { production_control_shadow: plan.production_control_shadow }
       : {}),
     steps: plan.steps,
     warnings,
