@@ -20,7 +20,7 @@ allowed-tools:
    - エージェントが IR に `locked_blocks` / `scenes` / `cast` を書き、`lock-block` で hash を入れる。
    - ユーザーに schema を説明しない。確認は「この固定で進めてよいか」だけ。
 3. 構成やカットを提案する前に `story-guides` を実行する（identity lock 時は continuity / scene-master-blocking を意識）。
-4. generationがあれば `guides`、続いて `validate` と `plan` を実行する。`LOCK-E001` は Gate 1 前に解消。`identity.subject_unlocked` は平易な日本語でリスクを伝える。
+4. generationがあれば `guides`、続いて `validate` と `plan` を実行する。`LOCK-E001` は Gate 1 前に解消。`identity.subject_unlocked` は平易な日本語でリスクを伝える（固定文の承認だけでは `locked: true` にしない。生成結果の目視確認後のみ）。
 5. `review` を実行し、`review/index.html` と `review-data.json` を確認する。
 6. 必要なら `run --dry-run` まで実行する。
 7. 第一候補、補助候補、不採用理由、尺配分、映像文法、identity 固定の有無、Gate状態を日本語で簡潔に報告する。
