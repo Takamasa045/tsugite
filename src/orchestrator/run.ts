@@ -530,7 +530,7 @@ export async function inspectGate2RunForApproval(
   // Stage 1 format compile + stage 2 selected-adapter route revalidation.
   let h3Compilations: H3Compilation[] = [];
   let h3Project = project;
-  if (isGeneration) {
+  if (isGeneration && project.orchestration?.mode !== "active") {
     const h3Compile = compileProjectH3(project);
     if (!h3Compile.ok) {
       return { ok: false, issues: h3Compile.issues };
@@ -679,7 +679,9 @@ async function assembleGeneratedMediaRun(
   // Recompile H3 before any run-dir mutation or adapter invocation. Fail closed
   // on H3-C / H3-E / PV-E so invalid Creative IR never reaches billing paths.
   // Stage 1 is format-only; stage 2 injects the selected adapter route profile.
-  const h3Compile = compileProjectH3(project);
+  const h3Compile = project.orchestration?.mode === "active"
+    ? { ok: true as const, project, compilations: [] as H3Compilation[], issues: [] }
+    : compileProjectH3(project);
   if (!h3Compile.ok) {
     return { ok: false, issues: h3Compile.issues };
   }

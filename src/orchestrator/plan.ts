@@ -131,7 +131,8 @@ export function createPlan(
   );
   const analysis = createAnalysisPlan(project, manifest, analysisAdapter);
   const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
-  const compilations = h3Compilations ?? compileProjectH3(project).compilations ?? [];
+  const compilations = h3Compilations
+    ?? (project.orchestration?.mode === "active" ? [] : compileProjectH3(project).compilations ?? []);
 
   const plan: ExecutionPlan = {
     run_id: project.run_id ?? project.slug,

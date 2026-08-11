@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -16,8 +16,11 @@ import {
   type VideoPromptIrV2
 } from "../src/videoPromptDirector/index.js";
 import { createRouteIdentity } from "../src/videoPromptDirector/effectiveContract.js";
-import { sha256Canonical } from "../src/integrity/canonical.js";
+import { sha256Canonical, sha256Text } from "../src/integrity/canonical.js";
 import { buildProgramBinding, type GenerationUnitProgramSourceV1 } from "../src/productionControl/programBinding.js";
+import { createArtifactStore } from "../src/productionControl/artifactStore.js";
+import { createGenerationUnit, toProgramBindingSource } from "../src/productionControl/contracts/generationUnit.js";
+import { createMusicStructureContract } from "../src/productionControl/contracts/music.js";
 
 const ZERO = "0".repeat(64);
 const FIXTURE_ROOT = resolve("examples/local-fixture");
@@ -104,6 +107,7 @@ async function writeFixtureProject(ir: VideoPromptIrV2, requestId: string): Prom
     manifest: "manifest.json",
     dist_dir: "dist",
     edit: { backend: "remotion" },
+    orchestration: { mode: "active" },
     generation: {
       connection: "minimax-direct",
       adapter: "minimax",
@@ -159,7 +163,7 @@ function sourceFor(route: ReturnType<typeof createRouteIdentity>): GenerationUni
     lyric_cue_refs: [{ slot: "lyrics", contract_id: "lyrics-1", revision: 1, kind: "lyric-cue", fragment_id: "cue-1", digest: ZERO }],
     route
   };
-  return { ...body, generation_unit_digest: sha256Canonical(body) };
+  return { ...body, generation_unit_digest: sha256Canonical({ kind: "mv-generation-unit", body }) };
 }
 
 describe("PO-4 independent audit reproductions", () => {
@@ -295,7 +299,13 @@ describe("PO-4 independent audit reproductions", () => {
 
   it("resolves typed MV source at the actual project entrypoint and carries full binding lineage", async () => {
     const { route } = await realProfiles();
-    const source = sourceFor(route);
+    const music = createMusicStructureContract({
+      contract_id: "music-1", revision: 1,
+      master_audio: { asset_id: "master-audio", sha256: sha256Text("master-audio"), duration_ms: 72_000 },
+      analysis: { status: "imported" }, tempo_map: [], beat_markers: [], sections: [], section_policy: { gaps: "allow", overlaps: "forbid" }
+    });
+    const unit = createGenerationUnit({ production_id: "production-1", unit_id: "mv-72s-unit-01", ordinal: 0, music, start_ms: 0, end_ms: 10_000, audio_policy: "reuse-master", route });
+    const source = toProgramBindingSource(unit);
     const ir = baseV2({
       program_kind: "mv",
       program_binding: buildProgramBinding(source),
@@ -310,11 +320,20 @@ describe("PO-4 independent audit reproductions", () => {
       expect(withoutSource.ok).toBe(false);
       expect(withoutSource.issues.map((item) => item.code)).toContain("VPD-U001");
 
+      await mkdir(join(fixture.root, "production-control"), { recursive: true });
+      const store = await createArtifactStore(join(await realpath(fixture.root), "production-control"));
+      await store.create({ artifact_id: music.contract_id, bytes: JSON.stringify(music) });
+      await store.create({ artifact_id: unit.unit_id, bytes: JSON.stringify(unit) });
+      const project = JSON.parse(await readFile(fixture.configPath, "utf8")) as Record<string, any>;
+      project.orchestration.authoring = {
+        music: { kind: "music-contract", id: music.contract_id, digest: music.digest },
+        generation_units: [{ kind: "mv-generation-unit", id: unit.unit_id, digest: unit.digest }]
+      };
+      project.generation.requests[0].video_prompt.program_binding = buildProgramBinding(source);
+      await writeFile(fixture.configPath, JSON.stringify(project));
       const withSource = await validateProject(fixture.configPath, {
         connectionCatalogPath: fixture.catalogPath,
-        adapterDirs: ["adapters"],
-        generationUnitSourceResolver: ({ request }: { request: { id: string } }) =>
-          request.id === "mv-72s-unit-01" ? source : undefined
+        adapterDirs: ["adapters"]
       });
       expect(withSource.ok).toBe(true);
       if (!withSource.ok) return;

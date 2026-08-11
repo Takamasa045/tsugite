@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { constants as fsConstants, closeSync, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { sha256Canonical } from "../integrity/canonical.js";
@@ -37,6 +37,7 @@ export type TrustedPinnedPromptBudgetEvidence = PinnedPromptBudgetEvidence & {
 const trustedEvidence = new WeakSet<object>();
 const fixtureOnlyEvidence = new WeakSet<object>();
 const evidenceSnapshots = new WeakMap<object, string>();
+const MAX_BUDGET_ARTIFACT_BYTES = 1 * 1024 * 1024;
 
 const artifactSchema = z.object({
   schema_version: z.literal(1),
@@ -82,8 +83,17 @@ export function loadPlanningOnlyPinnedPromptBudgetEvidence(input: {
   try {
     const realRoot = realpathSync(repoRoot);
     const realPath = realpathSync(artifactPath);
-    if (!contained(realRoot, realPath) || lstatSync(artifactPath).isSymbolicLink() || !lstatSync(realPath).isFile()) return undefined;
-    const bytes = readFileSync(realPath);
+    const lexicalStat = lstatSync(artifactPath);
+    const stat = lstatSync(realPath);
+    if (!contained(realRoot, realPath)
+      || realPath !== artifactPath
+      || lexicalStat.isSymbolicLink()
+      || !stat.isFile()
+      || stat.dev === 0
+      || stat.ino === 0
+      || stat.size > MAX_BUDGET_ARTIFACT_BYTES) return undefined;
+    const bytes = readBoundedStableFile(realPath, stat);
+    if (!bytes) return undefined;
     const parsed = artifactSchema.safeParse(JSON.parse(bytes.toString("utf8")));
     if (!parsed.success) return undefined;
     const artifact = parsed.data;
@@ -132,6 +142,43 @@ function contained(root: string, candidate: string): boolean {
 
 function sha256Bytes(value: Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function readBoundedStableFile(
+  path: string,
+  expected: { dev: number; ino: number; size: number; mtimeMs: number }
+): Buffer | undefined {
+  let fd = -1;
+  try {
+    fd = openSync(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const before = fstatSync(fd);
+    if (!before.isFile()
+      || before.dev === 0
+      || before.ino === 0
+      || before.dev !== expected.dev
+      || before.ino !== expected.ino
+      || before.size !== expected.size
+      || before.size > MAX_BUDGET_ARTIFACT_BYTES) return undefined;
+    const bytes = Buffer.alloc(before.size);
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let offset = 0;
+    while (offset < before.size) {
+      const read = readSync(fd, chunk, 0, Math.min(chunk.length, before.size - offset), offset);
+      if (read <= 0) return undefined;
+      chunk.copy(bytes, offset, 0, read);
+      offset += read;
+    }
+    const after = fstatSync(fd);
+    if (after.dev !== before.dev
+      || after.ino !== before.ino
+      || after.size !== before.size
+      || after.mtimeMs !== before.mtimeMs) return undefined;
+    return bytes;
+  } catch {
+    return undefined;
+  } finally {
+    if (fd >= 0) closeSync(fd);
+  }
 }
 
 function deepFreeze<T>(value: T): T {

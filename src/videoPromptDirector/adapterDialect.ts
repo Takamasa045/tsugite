@@ -8,6 +8,9 @@ import { issue, type H3Issue } from "./validation/types.js";
 
 export type AdapterDialectCapability = {
   adapter_id: string;
+  model_profile_id?: string;
+  provider_model?: string;
+  modes?: readonly string[];
   renderer: "h3-grammar" | "plain-prompt";
   label_dialect: "picture" | "none";
   /** Digest of the loaded adapter profile body, excluding its runtime root. */
@@ -48,7 +51,12 @@ export function adapterDialectProfileDigest(
 /** Load the capability from the selected adapter profile; there is no core adapter registry. */
 export async function loadAdapterDialectCapability(
   adapterId: string,
-  adapterDirs: readonly string[] = ["adapters"]
+  adapterDirs: readonly string[] = ["adapters"],
+  selection?: {
+    model_profile_id: string;
+    provider_model: string;
+    mode: string;
+  }
 ): Promise<
   | { ok: true; capability: AdapterDialectCapability; source: "adapter-profile" }
   | { ok: false; code: string; message: string }
@@ -59,21 +67,32 @@ export async function loadAdapterDialectCapability(
   } catch {
     return { ok: false, code: ADAPTER_DIALECT_PROFILE_CODE, message: "selected adapter profile is unavailable" };
   }
-  if (!adapter.prompt_capability) {
-    return { ok: false, code: ADAPTER_DIALECT_PROFILE_CODE, message: "selected adapter profile has no prompt capability" };
+  if (!selection) {
+    return { ok: false, code: ADAPTER_DIALECT_PROFILE_CODE, message: "adapter dialect requires an exact model-profile/route selection" };
   }
-  const profile = {
-    adapter_id: adapter.name,
-    renderer: adapter.prompt_capability.renderer,
-    label_dialect: adapter.prompt_capability.label_dialect
-  } as const;
+  const profile = adapter.prompt_capabilities?.find((candidate) =>
+    candidate.model_profile_id === selection.model_profile_id
+    && candidate.provider_model === selection.provider_model
+    && candidate.modes.includes(selection.mode)
+  );
+  if (!profile) {
+    return { ok: false, code: ADAPTER_DIALECT_PROFILE_CODE, message: "selected adapter has no exact model-profile/route capability" };
+  }
   const sourceBody = { ...adapter } as Record<string, unknown>;
   delete sourceBody.root;
   return {
     ok: true,
     source: "adapter-profile",
     capability: (() => {
-      const capability = deepFreeze({ ...profile, source_digest: sha256Canonical(sourceBody) }) as TrustedAdapterDialectCapability;
+      const capability = deepFreeze({
+        adapter_id: adapter.name,
+        model_profile_id: profile.model_profile_id,
+        provider_model: profile.provider_model,
+        modes: [...profile.modes],
+        renderer: profile.renderer,
+        label_dialect: profile.label_dialect,
+        source_digest: sha256Canonical(sourceBody)
+      }) as unknown as TrustedAdapterDialectCapability;
       trustedAdapterDialectCapabilities.add(capability);
       adapterDialectSnapshots.set(capability, sha256Canonical(capability));
       return capability;
@@ -92,6 +111,9 @@ export function resolveRendererDialectCapability(input: {
     const { source_digest: _sourceDigest, ...profile } = capability;
     if (!trustedAdapterDialectCapabilities.has(capability as object)
       || profile.adapter_id !== input.route.adapter_id
+      || (profile.model_profile_id !== undefined && profile.model_profile_id !== input.route.ir_model)
+      || (profile.provider_model !== undefined && profile.provider_model !== input.route.provider_model)
+      || (profile.modes !== undefined && !profile.modes.includes(input.route.mode_binding))
       || !/^[a-f0-9]{64}$/.test(capability.source_digest)) return undefined;
     if (!snapshotMatches(capability)) return undefined;
     if (profile.renderer === "h3-grammar" && profile.label_dialect !== "picture") return undefined;

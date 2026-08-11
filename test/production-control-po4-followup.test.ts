@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, writeFile, rm, symlink } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, realpath, writeFile, rm, symlink } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
@@ -16,6 +16,9 @@ import {
   type VideoPromptIrV2
 } from "../src/videoPromptDirector/index.js";
 import { buildProgramBinding, type GenerationUnitProgramSourceV1 } from "../src/productionControl/programBinding.js";
+import { createArtifactStore } from "../src/productionControl/artifactStore.js";
+import { createGenerationUnit, toProgramBindingSource } from "../src/productionControl/contracts/generationUnit.js";
+import { createMusicStructureContract } from "../src/productionControl/contracts/music.js";
 import { createDryRun, createPlan } from "../src/orchestrator/plan.js";
 import { createReviewDocument, inspectGate1Review, renderReviewHtml, writeCreativeReview } from "../src/orchestrator/review.js";
 import { validateProject } from "../src/project/validateProject.js";
@@ -24,7 +27,7 @@ import { h3IssueToProjectIssue } from "../src/videoPromptDirector/compile.js";
 import { loadPlanningOnlyPinnedPromptBudgetEvidence } from "../src/videoPromptDirector/promptBudgetEvidence.js";
 import { sha256Canonical, sha256Text } from "../src/integrity/canonical.js";
 import { isProjectAssetIdentityContained } from "../src/videoPromptDirector/compilationBundle.js";
-import { createProjectGenerationUnitSourceResolver, isGenerationUnitPathContained } from "../src/videoPromptDirector/generationUnitSourceResolver.js";
+import { createProjectGenerationUnitSourceResolver, isAuthoritativeGenerationUnitSource, isGenerationUnitPathContained } from "../src/videoPromptDirector/generationUnitSourceResolver.js";
 
 const ZERO = "0".repeat(64);
 
@@ -104,13 +107,14 @@ function sourceFor(route: Awaited<ReturnType<typeof realProfiles>>["route"], uni
     lyric_cue_refs: [{ slot: "lyrics", contract_id: "lyrics-1", revision: 1, kind: "lyric-cue", fragment_id: "cue-1", digest: ZERO }],
     route
   };
-  return { ...body, generation_unit_digest: sha256Canonical(body) };
+  return { ...body, generation_unit_digest: sha256Canonical({ kind: "mv-generation-unit", body }) };
 }
 
 async function writeMvProject(withSource: boolean): Promise<{
   root: string;
   configPath: string;
   source: GenerationUnitProgramSourceV1;
+  unitPath: string;
   ir: VideoPromptIrV2;
 }> {
   const root = await mkdtemp(join(tmpdir(), "tsugite-po4-cli-"));
@@ -122,7 +126,21 @@ async function writeMvProject(withSource: boolean): Promise<{
   await copyFile("examples/local-fixture/media/clip-001.mp4", join(root, "media/clip-001.mp4"));
   await copyFile("examples/local-fixture/media/clip-002.mp4", join(root, "media/clip-002.mp4"));
   const { route } = await realProfiles("v6", "pixverse");
-  const source = sourceFor(route);
+  const music = createMusicStructureContract({
+    contract_id: "music-1",
+    revision: 1,
+    master_audio: { asset_id: "master-audio", sha256: sha256Text("master-audio"), duration_ms: 72_000 },
+    analysis: { status: "imported" },
+    tempo_map: [],
+    beat_markers: [],
+    sections: [],
+    section_policy: { gaps: "allow", overlaps: "forbid" }
+  });
+  const unit = createGenerationUnit({ production_id: "production-1", unit_id: "mv-unit-01", ordinal: 0, music, start_ms: 0, end_ms: 10_000, audio_policy: "reuse-master", route });
+  const source = toProgramBindingSource(unit);
+  const store = await createArtifactStore(join(await realpath(root), "production-control"));
+  await store.create({ artifact_id: music.contract_id, bytes: JSON.stringify(music) });
+  if (withSource) await store.create({ artifact_id: unit.unit_id, bytes: JSON.stringify(unit) });
   const ir = {
     ...baseV2("v6"),
     program_kind: "mv",
@@ -135,7 +153,13 @@ async function writeMvProject(withSource: boolean): Promise<{
     manifest: "manifest.json",
     dist_dir: "dist",
     edit: { backend: "remotion" },
-    production_control: { generation_unit_sources_dir: "production-control/generation-units" },
+    orchestration: {
+      mode: "active",
+      authoring: {
+        music: { kind: "music-contract", id: music.contract_id, digest: music.digest },
+        generation_units: [{ kind: "mv-generation-unit", id: unit.unit_id, digest: unit.digest }]
+      }
+    },
     generation: {
       connection: "pixverse",
       adapter: "pixverse",
@@ -144,14 +168,14 @@ async function writeMvProject(withSource: boolean): Promise<{
   };
   const configPath = join(root, "project.yaml");
   await writeFile(configPath, JSON.stringify(project));
-  if (withSource) await writeFile(join(root, "production-control", "generation-units", "mv-unit-01.json"), JSON.stringify(source));
-  return { root, configPath, source, ir };
+  const unitPath = join(root, "production-control", "artifacts", "mv-unit-01.json");
+  return { root, configPath, source, unitPath, ir };
 }
 
 describe("PO-4 follow-up security and profile regressions", () => {
   it("uses a loaded provider-neutral adapter capability for a new non-H3 route", async () => {
     const { model, connection, route } = await realProfiles("v6", "pixverse");
-    const capability = await loadAdapterDialectCapability("pixverse");
+    const capability = await loadAdapterDialectCapability("pixverse", ["adapters"], { model_profile_id: "v6", provider_model: "v6", mode: "text-to-video" });
     expect(capability.ok).toBe(true);
     if (!capability.ok) return;
     const result = compileVideoPromptIrV2(baseV2("v6"), {
@@ -172,7 +196,7 @@ describe("PO-4 follow-up security and profile regressions", () => {
   it("loads the minimax-http api adapter profile and compiles its native H3 route", async () => {
     const model = await loadModelPromptProfile("minimax-h3");
     const connection = await loadConnectionCapabilityProfile("minimax-http");
-    const capability = await loadAdapterDialectCapability("minimax-http");
+    const capability = await loadAdapterDialectCapability("minimax-http", ["adapters"], { model_profile_id: "minimax-h3", provider_model: "MiniMax-H3", mode: "last-frame" });
     expect(model.ok && connection.ok && capability.ok).toBe(true);
     if (!model.ok || !connection.ok || !capability.ok) return;
     const selected = routeFromProfiles({
@@ -213,7 +237,8 @@ describe("PO-4 follow-up security and profile regressions", () => {
         connection: "minimax-direct",
         adapter: "minimax",
         requests: [{ id: "legacy-h3-01", prompt: "", params: {}, h3: legacy }]
-      }
+      },
+      orchestration: { mode: "active" }
     } as never;
     const result = await compileProjectVideoPrompts(project, {
       connectionId: "minimax-direct",
@@ -301,7 +326,7 @@ describe("PO-4 follow-up security and profile regressions", () => {
 
   it("does not let provider-neutral rendering retain H3 controls or grammar profile", async () => {
     const { model, connection, route } = await realProfiles("v6", "pixverse");
-    const capability = await loadAdapterDialectCapability("pixverse");
+    const capability = await loadAdapterDialectCapability("pixverse", ["adapters"], { model_profile_id: "v6", provider_model: "v6", mode: "text-to-video" });
     expect(capability.ok).toBe(true);
     if (!capability.ok) return;
     const exact = "line 1\n🙂";
@@ -340,13 +365,28 @@ describe("PO-4 follow-up security and profile regressions", () => {
   it("binds the complete MV source artifact and rejects source-field mutation", async () => {
     const fixture = await writeMvProject(true);
     try {
+      const project = JSON.parse(await readFile(fixture.configPath, "utf8")) as never;
+      const resolver = createProjectGenerationUnitSourceResolver(fixture.configPath);
+      const resolved = await resolver({
+        project,
+        request: { id: "mv-unit-01" } as never,
+        ir: fixture.ir,
+        requestIndex: 0
+      });
+      expect(resolved).toBeDefined();
+      if (!resolved) return;
+      expect(isAuthoritativeGenerationUnitSource(resolved)).toBe(true);
+      expect(Object.isFrozen(resolved)).toBe(true);
+      expect(isAuthoritativeGenerationUnitSource({ ...resolved, music: { ...resolved.music, revision: 2 } })).toBe(false);
       const validation = await validateProject(fixture.configPath);
       expect(validation.ok).toBe(true);
       if (!validation.ok) return;
       const plan = validation.video_prompt_plans?.[0];
-      expect(plan?.v2_compilation?.bundle.lineage.generation_unit_source_digest).toBe(sha256Canonical(fixture.source));
+      expect(plan?.v2_compilation?.bundle.lineage.generation_unit_source_digest).toBe(fixture.source.generation_unit_digest);
       const mutated = { ...fixture.source, music: { ...fixture.source.music, revision: 2 } };
-      await writeFile(join(fixture.root, "production-control", "generation-units", "mv-unit-01.json"), JSON.stringify(mutated));
+      const rawUnit = JSON.parse(await readFile(fixture.unitPath, "utf8")) as Record<string, unknown>;
+      rawUnit.music_binding = { ...(rawUnit.music_binding as Record<string, unknown>), revision: 2 };
+      await writeFile(fixture.unitPath, JSON.stringify(rawUnit));
       const stale = await validateProject(fixture.configPath);
       expect(stale.ok).toBe(false);
       expect(stale.issues.map((item) => item.code)).toContain("VPD-U001");
@@ -428,8 +468,9 @@ describe("PO-4 follow-up security and profile regressions", () => {
     }
     const mismatch = await writeMvProject(true);
     try {
-      const wrong = { ...mismatch.source, program_end_ms: 9_000 };
-      await writeFile(join(mismatch.root, "production-control", "generation-units", "mv-unit-01.json"), JSON.stringify(wrong));
+      const wrong = JSON.parse(await readFile(mismatch.unitPath, "utf8")) as Record<string, unknown>;
+      wrong.program_end_ms = 9_000;
+      await writeFile(mismatch.unitPath, JSON.stringify(wrong));
       const result = cli(["validate", "--config", mismatch.configPath, "--json"], mismatch.root);
       expect(result.status).not.toBe(0);
       expect(`${result.stdout}\n${result.stderr}`).toContain("VPD-U001");
@@ -509,7 +550,7 @@ describe("PO-4 follow-up security and profile regressions", () => {
       await writeFile(expectedPath, "same bytes");
       await writeFile(foreignPath, "same bytes");
       const { model, connection, route } = await realProfiles("minimax-h3", "minimax-direct", "reference");
-      const adapter = await loadAdapterDialectCapability("minimax");
+      const adapter = await loadAdapterDialectCapability("minimax", ["adapters"], { model_profile_id: "minimax-h3", provider_model: "MiniMax-H3", mode: "text-to-video" });
       expect(adapter.ok).toBe(true);
       if (!adapter.ok) return;
       const result = compileVideoPromptIrV2({
@@ -678,7 +719,7 @@ describe("PO-4 follow-up security and profile regressions", () => {
     if (!trusted) return;
     expect(Object.isFrozen(trusted)).toBe(true);
     expect(Object.isFrozen(trusted.hard)).toBe(true);
-    const adapter = await loadAdapterDialectCapability("minimax");
+    const adapter = await loadAdapterDialectCapability("minimax", ["adapters"], { model_profile_id: "minimax-h3", provider_model: "MiniMax-H3", mode: "text-to-video" });
     expect(adapter.ok).toBe(true);
     if (!adapter.ok) return;
     const accepted = compileVideoPromptIrV2(baseV2(), {

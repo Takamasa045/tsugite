@@ -167,19 +167,43 @@ export class ArtifactStore {
   }
 
   async read(artifactId: string): Promise<Buffer> {
+    return this.readBounded(artifactId, 64 * 1024 * 1024);
+  }
+
+  /**
+   * Identity-safe bounded read for typed JSON artifacts. The checked leaf and
+   * opened descriptor are the same object; no pathname is reopened after the
+   * bytes have been read.
+   */
+  async readBounded(artifactId: string, maxBytes: number): Promise<Buffer> {
     if (!isSafeArtifactId(artifactId)) throw pcError("PC_PATH_UNSAFE", "artifact id is not a safe id");
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw pcError("PC_SCHEMA_INVALID", "artifact read bound is invalid");
     const layout = await this.prepareLayout(false);
     const finalPath = join(layout.artifactDir, `${artifactId}.json`);
-    await verifyRegularFile(finalPath);
     try {
       const expected = await lstat(finalPath);
+      if (expected.isSymbolicLink() || !expected.isFile() || expected.size > maxBytes || expected.dev === 0 || expected.ino === 0) {
+        throw pcError("PC_PATH_UNSAFE", "artifact leaf is not a bounded regular file with stable identity");
+      }
       const handle = await open(finalPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
       try {
         const stats = await handle.stat();
-        if (!stats.isFile() || stats.dev !== expected.dev || stats.ino !== expected.ino) {
+        if (!stats.isFile() || stats.dev === 0 || stats.ino === 0 || stats.dev !== expected.dev || stats.ino !== expected.ino || stats.size > maxBytes) {
           throw pcError("PC_PATH_UNSAFE", "artifact leaf identity changed");
         }
-        return await handle.readFile();
+        const bytes = Buffer.alloc(stats.size);
+        let offset = 0;
+        while (offset < stats.size) {
+          const result = await handle.read(bytes, offset, stats.size - offset, offset);
+          if (result.bytesRead <= 0) throw pcError("PC_PATH_UNSAFE", "artifact short read");
+          offset += result.bytesRead;
+        }
+        const after = await handle.stat();
+        if (after.dev !== stats.dev || after.ino !== stats.ino || after.size !== stats.size || after.mtimeMs !== stats.mtimeMs) {
+          throw pcError("PC_PATH_UNSAFE", "artifact leaf identity changed during read");
+        }
+        await assertLayoutIdentity(layout);
+        return bytes;
       } finally {
         await handle.close().catch(() => undefined);
       }

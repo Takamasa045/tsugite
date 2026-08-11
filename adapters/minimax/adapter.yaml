@@ -1,8 +1,11 @@
 name: minimax
 kind: cli
-prompt_capability:
-  renderer: h3-grammar
-  label_dialect: picture
+prompt_capabilities:
+  - model_profile_id: minimax-h3
+    provider_model: MiniMax-H3
+    modes: [text-to-video, first-frame, first-last, last-frame, reference]
+    renderer: h3-grammar
+    label_dialect: picture
 dry_run_estimate: true
 batch: false
 credit_estimate:

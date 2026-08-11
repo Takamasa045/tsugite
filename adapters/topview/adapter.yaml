@@ -1,9 +1,12 @@
 name: topview
 kind: cli
 class: generation
-prompt_capability:
-  renderer: plain-prompt
-  label_dialect: none
+prompt_capabilities:
+  - model_profile_id: topview-default
+    provider_model: topview-default
+    modes: [text-to-video, first-frame, reference]
+    renderer: plain-prompt
+    label_dialect: none
 dry_run_estimate: true
 batch: false
 credit_estimate:

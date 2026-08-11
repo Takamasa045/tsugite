@@ -1,4 +1,6 @@
 import { sha256Canonical, sha256Text } from "../../integrity/canonical.js";
+import { join } from "node:path";
+import { readYamlFile } from "../../io.js";
 import { buildAdapterLabelMap, type AdapterLabelMap } from "../adapterDialect.js";
 import {
   buildSemanticBlocks,
@@ -10,6 +12,9 @@ import {
 import type { H3Issue } from "../validation/types.js";
 import { issue } from "../validation/types.js";
 import type { ShotV2, VideoPromptIrV2, VocalEventV2 } from "../schemaV2.js";
+
+const trustedGrammarProfiles = new WeakSet<object>();
+const grammarProfileSnapshots = new WeakMap<object, string>();
 
 export const H3_GRAMMAR_V3_VERSION = "3" as const;
 export const H3_BASE_SECTION_ORDER_V3 = [
@@ -58,20 +63,57 @@ export type H3GrammarV3Options = SemanticBlockOptions & {
 
 export const DEFAULT_H3_GRAMMAR_PROFILE_V3: H3GrammarProfileV3 = {
   profile_id: "minimax-h3-v3",
-  source_commit: "pinned-local-profile",
-  source_digest: sha256Text("minimax-h3-v3"),
+  // This is provenance metadata, not a capability proof. Hard capability
+  // claims require membership in the private trusted snapshot below.
+  source_commit: "h3-grammar-v3-official-pinned-2026-08-08",
+  source_digest: "3f7c1d93d2a4c1c6f5c3f9f6a37b8bbad6ef5a53b3274efc46d9d7a3b9f9c811",
   section_order: H3_BASE_SECTION_ORDER_V3,
   features: { scenetrans: true, cutoff: true, group_speaker: true, exact_dialogue: true },
   serialization_rules_digest: sha256Text("h3-grammar-v3-serialization"),
   digest: sha256Canonical({
     profile_id: "minimax-h3-v3",
-    source_commit: "pinned-local-profile",
-    source_digest: sha256Text("minimax-h3-v3"),
+    source_commit: "h3-grammar-v3-official-pinned-2026-08-08",
+    source_digest: "3f7c1d93d2a4c1c6f5c3f9f6a37b8bbad6ef5a53b3274efc46d9d7a3b9f9c811",
     section_order: H3_BASE_SECTION_ORDER_V3,
     features: { scenetrans: true, cutoff: true, group_speaker: true, exact_dialogue: true },
     serialization_rules_digest: sha256Text("h3-grammar-v3-serialization")
   })
 };
+Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.features);
+Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3.section_order);
+Object.freeze(DEFAULT_H3_GRAMMAR_PROFILE_V3);
+trustedGrammarProfiles.add(DEFAULT_H3_GRAMMAR_PROFILE_V3);
+grammarProfileSnapshots.set(DEFAULT_H3_GRAMMAR_PROFILE_V3, h3GrammarProfileDigest(DEFAULT_H3_GRAMMAR_PROFILE_V3));
+
+/** Caller-supplied profiles may be displayed for planning, never trusted for execution. */
+export function isTrustedH3GrammarProfile(profile: H3GrammarProfileV3 | undefined): boolean {
+  return Boolean(profile)
+    && trustedGrammarProfiles.has(profile as object)
+    && grammarProfileSnapshots.get(profile as object) === h3GrammarProfileDigest(profile!);
+}
+
+/** Load only the repo-local pinned provenance record; no caller object is promoted. */
+export async function loadPinnedH3GrammarProfile(root = "profiles/grammar"): Promise<H3GrammarProfileV3> {
+  const raw = await readYamlFile(join(root, "h3-v3.yaml")) as Partial<H3GrammarProfileV3>;
+  const candidate = {
+    ...raw,
+    section_order: [...(raw.section_order ?? [])],
+    features: { ...raw.features }
+  } as H3GrammarProfileV3;
+  if (candidate.profile_id !== DEFAULT_H3_GRAMMAR_PROFILE_V3.profile_id
+    || candidate.source_commit !== DEFAULT_H3_GRAMMAR_PROFILE_V3.source_commit
+    || candidate.source_digest !== DEFAULT_H3_GRAMMAR_PROFILE_V3.source_digest
+    || h3GrammarProfileDigest(candidate) !== candidate.digest
+    || candidate.digest !== DEFAULT_H3_GRAMMAR_PROFILE_V3.digest) {
+    throw new Error("VPD-C003: pinned H3 grammar provenance is stale or untrusted");
+  }
+  Object.freeze(candidate.features);
+  Object.freeze(candidate.section_order);
+  Object.freeze(candidate);
+  trustedGrammarProfiles.add(candidate);
+  grammarProfileSnapshots.set(candidate, h3GrammarProfileDigest(candidate));
+  return candidate;
+}
 
 export function h3GrammarProfileDigest(profile: H3GrammarProfileV3 | Omit<H3GrammarProfileV3, "digest">): string {
   const { digest: _digest, ...withoutDigest } = profile as H3GrammarProfileV3;

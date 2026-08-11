@@ -588,6 +588,7 @@ describe("P4 PixVerse / Kling T2V I2V planning dry-run", () => {
       manifest: "manifest.json",
       dist_dir: "dist",
       edit: { backend: "remotion" as const },
+      orchestration: { mode: "active" },
       generation: {
         adapter: "pixverse",
         connection: "pixverse",
@@ -931,6 +932,7 @@ async function writeVideoPromptOnlyProject(options?: {
     manifest: "../manifests/manifest.json",
     dist_dir: "dist",
     edit: { backend: "remotion" },
+    orchestration: { mode: "active" },
     generation
   };
   const configPath = join(root, "projects/project.yaml");

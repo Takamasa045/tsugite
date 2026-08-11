@@ -116,7 +116,11 @@ export {
   type VideoPromptPlan
 } from "./videoPromptCompile.js";
 
-export { createProjectGenerationUnitSourceResolver } from "./generationUnitSourceResolver.js";
+export {
+  createProjectGenerationUnitSourceResolver,
+  isAuthoritativeGenerationUnitSource,
+  lyricsSourceForGenerationUnitSource
+} from "./generationUnitSourceResolver.js";
 
 export {
   videoPromptIrV2Schema,
@@ -219,6 +223,8 @@ export {
   H3_BASE_SECTION_ORDER_V3,
   H3_REFERENCE_SECTION_ORDER_V3,
   h3GrammarProfileDigest,
+  isTrustedH3GrammarProfile,
+  loadPinnedH3GrammarProfile,
   type H3GrammarProfileV3,
   type H3GrammarV3Result,
   type H3GrammarV3Options
@@ -227,11 +233,14 @@ export {
 export {
   compilationBundleSchema,
   createCompilationBundle,
+  createVerifiedAssetPin,
+  isTrustedAssetPin,
   verifyCompilationBundle,
   assertCompilationBundleAssets,
   isProjectAssetIdentityContained,
   writeCompilationBundleAtomic,
   type RuntimeAssetPinEvidence,
+  type AssetPin,
   type CompilationBundleV1,
   type CompilationBundleInput
 } from "./compilationBundle.js";

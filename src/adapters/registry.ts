@@ -52,12 +52,14 @@ const inputModeContractSchema = z.object({
 });
 
 /** Provider-neutral prompt serializer capability. Adapter-specific details stay in adapter.yaml. */
-const promptCapabilitySchema = z
-  .object({
-    renderer: z.enum(["h3-grammar", "plain-prompt"]),
-    label_dialect: z.enum(["picture", "none"])
-  })
-  .strict();
+const promptCapabilityEntrySchema = z.object({
+  renderer: z.enum(["h3-grammar", "plain-prompt"]),
+  label_dialect: z.enum(["picture", "none"]),
+  /** Exact model-profile/route selector. Adapter profiles remain provider-neutral. */
+  model_profile_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  provider_model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  modes: z.array(z.string().min(1)).min(1)
+}).strict();
 
 const adapterSchema = z.object({
   name: z.string().min(1),
@@ -107,7 +109,8 @@ const adapterSchema = z.object({
       "first-last-frame-to-video": inputModeContractSchema.optional()
     })
     .optional(),
-  prompt_capability: promptCapabilitySchema.optional(),
+  /** Exact capability map; a singleton adapter-wide capability is forbidden. */
+  prompt_capabilities: z.array(promptCapabilityEntrySchema).min(1).optional(),
   audio_capabilities: z
     .object({
       bgm_modes: z.array(z.enum(["generate", "retrieve"])).min(1).default(["generate"]),

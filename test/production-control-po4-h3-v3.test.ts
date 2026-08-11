@@ -400,14 +400,15 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
       lyric_cue_refs: [],
       route: mvRoute
     };
-    const source = { ...sourceBody, generation_unit_digest: sha256Canonical(sourceBody) };
+    const source = { ...sourceBody, generation_unit_digest: sha256Canonical({ kind: "mv-generation-unit", body: sourceBody }) };
     const binding = { generation_unit_digest: source.generation_unit_digest, production_id: "production-1", music_contract_digest: ZERO, program_start_ms: 0, program_end_ms: 10_000, beat_anchor_ids: [], lyric_cue_ids: [] };
     const mv = baseV2({ program_kind: "mv", program_binding: binding });
     const missing = compileVideoPromptIrV2(mv, { route: mvRoute });
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.issues.map((item) => item.code)).toContain("VPD-U001");
-    const valid = compileVideoPromptIrV2(mv, { route: mvRoute, generation_unit_source: source });
-    expect(valid.ok).toBe(true);
+    const forged = compileVideoPromptIrV2(mv, { route: mvRoute, generation_unit_source: source });
+    expect(forged.ok).toBe(false);
+    if (!forged.ok) expect(forged.issues.map((item) => item.code)).toContain("VPD-U001");
     const mismatched = compileVideoPromptIrV2(mv, { route: mvRoute, generation_unit_source: { ...source, production_id: "other-production" } });
     expect(mismatched.ok).toBe(false);
     if (!mismatched.ok) expect(mismatched.issues.map((item) => item.code)).toContain("VPD-U001");
@@ -433,6 +434,7 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
       manifest: "manifest.json",
       dist_dir: "dist",
       edit: { backend: "remotion" },
+      orchestration: { mode: "active" },
       generation: {
         adapter: "minimax",
         connection: "minimax-direct",

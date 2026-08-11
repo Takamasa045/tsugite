@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, fstatSync, openSync, readSync, realpathSync } from "node:fs";
+import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, writeSync } from "node:fs";
 import { constants as fsConstants } from "node:fs";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import * as nativePath from "node:path";
 import { z } from "zod";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
@@ -29,6 +29,12 @@ const assetLineageSchema = z.object({
     byte_size: z.number().int().nonnegative(),
     regular_file: z.literal(true),
     contained_in_project_root: z.literal(true)
+  }).strict().optional(),
+  /** Project-relative immutable run-local pin; never an absolute source path. */
+  pin: z.object({
+    relative_path: z.string().min(1).refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes("..")),
+    sha256: digestSchema,
+    byte_size: z.number().int().nonnegative()
   }).strict().optional()
 }).strict();
 
@@ -115,7 +121,7 @@ export const compilationBundleSchema = z.object({
   if (bundle.effective_contract_digest !== bundle.effective_contract.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["effective_contract_digest"], message: "effective contract digest mismatch" });
   if (bundle.execution_capable !== (bundle.effective_contract.execution.status === "execution-capable")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["execution_capable"], message: "execution capability status mismatch" });
   for (const [index, asset] of bundle.asset_lineage.entries()) {
-    if (bundle.execution_capable && !asset.pin_evidence) context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_lineage", index, "pin_evidence"], message: "execution-capable bundles require pin evidence for every asset" });
+    if (bundle.execution_capable && (!asset.pin_evidence || !asset.pin)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_lineage", index], message: "execution-capable bundles require verified evidence and an immutable pin for every asset" });
     if (asset.pin_evidence && asset.declared_sha256 && asset.declared_sha256 !== asset.pin_evidence.sha256) context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_lineage", index, "pin_evidence", "sha256"], message: "asset pin evidence does not match declared sha256" });
   }
   if (!bundle.validation.ok) context.addIssue({ code: z.ZodIssueCode.custom, path: ["validation", "ok"], message: "compilation bundle cannot commit a failed validation" });
@@ -140,6 +146,83 @@ export type RuntimeAssetPinEvidence = {
   contained_in_project_root: true;
 };
 
+export type AssetPin = {
+  asset_id: string;
+  relative_path: string;
+  sha256: string;
+  byte_size: number;
+};
+const trustedAssetPins = new WeakSet<object>();
+const assetPinSnapshots = new WeakMap<object, string>();
+
+export function isTrustedAssetPin(pin: AssetPin | undefined): boolean {
+  return Boolean(pin) && trustedAssetPins.has(pin as object) && assetPinSnapshots.get(pin as object) === sha256Canonical(pin!);
+}
+
+/**
+ * Verify and copy from the same opened source descriptor into a create-only
+ * project-local pin. The returned token is the only asset authority accepted
+ * by execution-capable bundle construction.
+ */
+export function createVerifiedAssetPin(input: {
+  asset_id: string;
+  project_root: string;
+  project_relative_path: string;
+  expected_sha256?: string;
+  expected_size?: number;
+  expected_real_path?: string;
+  pin_root: string;
+}): AssetPin {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(input.asset_id)) throw new Error("VPD-J002: unsafe asset id");
+  const root = realpathSync(input.project_root);
+  if (isAbsolute(input.project_relative_path) || !isProjectAssetIdentityContained(root, join(root, input.project_relative_path))) throw new Error("VPD-J002: asset path escapes project root");
+  const sourcePath = join(root, input.project_relative_path);
+  if (realpathSync(sourcePath) !== sourcePath || !isProjectAssetIdentityContained(root, sourcePath)) throw new Error("VPD-J002: asset path contains a link");
+  if (input.expected_real_path !== undefined && resolve(input.expected_real_path) !== sourcePath) throw new Error("VPD-J002: asset identity path does not match the project asset");
+  const pathIdentity = lstatSync(sourcePath);
+  if (pathIdentity.isSymbolicLink() || !pathIdentity.isFile() || pathIdentity.dev === 0 || pathIdentity.ino === 0) throw new Error("VPD-J002: asset path identity is unavailable");
+  const pinRoot = resolvePinRoot(input.pin_root, root);
+  const pinRelativePath = `asset-pins/${input.asset_id}.bin`;
+  const pinPath = join(pinRoot, pinRelativePath);
+  mkdirSync(join(pinRoot, "asset-pins"), { recursive: true, mode: 0o700 });
+  let sourceFd = -1;
+  let pinFd = -1;
+  try {
+    sourceFd = openSync(sourcePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const before = fstatSync(sourceFd);
+    if (!before.isFile() || before.dev === 0 || before.ino === 0 || before.dev !== pathIdentity.dev || before.ino !== pathIdentity.ino || before.size > MAX_PINNED_ASSET_BYTES || (input.expected_size !== undefined && before.size !== input.expected_size)) throw new Error("VPD-J002: asset identity or bound changed");
+    pinFd = openSync(pinPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0), 0o600);
+    const hash = createHash("sha256");
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let offset = 0;
+    while (offset < before.size) {
+      const read = readSync(sourceFd, chunk, 0, Math.min(chunk.length, before.size - offset), offset);
+      if (read <= 0) throw new Error("VPD-J002: short asset read");
+      hash.update(chunk.subarray(0, read));
+      let written = 0;
+      while (written < read) {
+        written += writeSync(pinFd, chunk, written, read - written);
+      }
+      offset += read;
+    }
+    const digest = hash.digest("hex");
+    const after = fstatSync(sourceFd);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || input.expected_sha256 !== undefined && digest !== input.expected_sha256) throw new Error("VPD-J002: asset changed during pin");
+    fsyncSync(pinFd);
+    const pinStat = fstatSync(pinFd);
+    if (!pinStat.isFile() || pinStat.size !== before.size) throw new Error("VPD-J002: pin is not a complete regular file");
+    const pin: AssetPin = Object.freeze({ asset_id: input.asset_id, relative_path: pinRelativePath, sha256: digest, byte_size: before.size });
+    trustedAssetPins.add(pin as object);
+    assetPinSnapshots.set(pin as object, sha256Canonical(pin));
+    return pin;
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("VPD-J002: asset pin failed");
+  } finally {
+    if (sourceFd >= 0) closeSync(sourceFd);
+    if (pinFd >= 0) closeSync(pinFd);
+  }
+}
+
 export type CompilationBundleInput = {
   request_id: string;
   ir: VideoPromptIrV2;
@@ -163,9 +246,18 @@ export type CompilationBundleInput = {
   source_digest?: string;
   generation_unit_source?: GenerationUnitProgramSourceV1;
   asset_evidence?: Readonly<Record<string, RuntimeAssetPinEvidence>>;
+  asset_pins?: Readonly<Record<string, AssetPin>>;
 };
 
 export function createCompilationBundle(input: CompilationBundleInput): CompilationBundleV1 {
+  if (input.execution_capable) {
+    for (const asset of input.ir.assets) {
+      const pin = input.asset_pins?.[asset.id];
+      if (!pin || !isTrustedAssetPin(pin) || pin.sha256 !== asset.sha256) {
+        throw new Error(`VPD-J002: execution-capable bundle requires an opaque verified pin for '${asset.id}'`);
+      }
+    }
+  }
   const semanticBlocks = input.semantic_blocks.map((block) => ({ ...block, source_paths: [...block.source_paths], exact_text_digests: [...block.exact_text_digests] }));
   const withoutDigest = {
     schema_version: 1 as const,
@@ -199,6 +291,13 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
           regular_file: input.asset_evidence[asset.id].regular_file,
           contained_in_project_root: input.asset_evidence[asset.id].contained_in_project_root
         }
+      } : {}),
+      ...(input.asset_pins?.[asset.id] && isTrustedAssetPin(input.asset_pins[asset.id]) ? {
+        pin: {
+          relative_path: input.asset_pins[asset.id].relative_path,
+          sha256: input.asset_pins[asset.id].sha256,
+          byte_size: input.asset_pins[asset.id].byte_size
+        }
       } : {})
     })),
     ...(input.grammar_profile ? { grammar_profile: input.grammar_profile } : {}),
@@ -211,7 +310,7 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
       exact_text_digests: [...(input.exact_text_digests ?? [])],
       ...(input.source_digest ? { source_digest: input.source_digest } : {}),
       ...(input.generation_unit_source ? {
-        generation_unit_source_digest: sha256Canonical(input.generation_unit_source),
+        generation_unit_source_digest: input.generation_unit_source.generation_unit_digest,
         generation_unit_source_identity: generationUnitSourceIdentity(input.generation_unit_source)
       } : {})
     }
@@ -287,6 +386,13 @@ export function isProjectAssetIdentityContained(root: string, candidate: string,
 }
 
 const MAX_PINNED_ASSET_BYTES = 512 * 1024 * 1024;
+
+function resolvePinRoot(pinRoot: string, projectRoot: string): string {
+  if (!isAbsolute(pinRoot) || !isProjectAssetIdentityContained(projectRoot, pinRoot) || realpathSync(pinRoot) !== resolve(pinRoot)) {
+    throw new Error("VPD-J002: asset pin root must be a project-local regular directory");
+  }
+  return resolve(pinRoot);
+}
 
 function sha256Fd(fd: number, byteSize: number): string {
   if (!Number.isSafeInteger(byteSize) || byteSize < 0 || byteSize > MAX_PINNED_ASSET_BYTES) {

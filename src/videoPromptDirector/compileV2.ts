@@ -20,6 +20,7 @@ import {
 } from "./adapterDialect.js";
 import {
   createCompilationBundle,
+  createVerifiedAssetPin,
   isProjectAssetIdentityContained,
   type CompilationBundleV1
 } from "./compilationBundle.js";
@@ -45,6 +46,7 @@ import {
   type H3GrammarV3Options,
   DEFAULT_H3_GRAMMAR_PROFILE_V3
 } from "./render/h3GrammarV3.js";
+import { isTrustedH3GrammarProfile } from "./render/h3GrammarV3.js";
 import { renderH3Prompt } from "./render/h3Grammar.js";
 import { issue, type H3Issue, type H3ValidationResult } from "./validation/types.js";
 import type { RouteIdentityV1 } from "../productionControl/programBinding.js";
@@ -56,6 +58,7 @@ import {
   generationUnitProgramSourceSchema,
   type GenerationUnitProgramSourceV1
 } from "../productionControl/programBinding.js";
+import { isAuthoritativeGenerationUnitSource } from "./generationUnitSourceResolver.js";
 
 export const VIDEO_PROMPT_V2_WORKFLOW_ID = "video-prompt-v3" as const;
 export const VIDEO_PROMPT_V2_WORKFLOW_VERSION = H3_GRAMMAR_V3_VERSION;
@@ -89,6 +92,7 @@ export type CompileVideoPromptV2Options = {
   adapter_dialect_capability?: AdapterDialectCapability;
   project_root?: string;
   asset_evidence?: Readonly<Record<string, AssetPinEvidence>>;
+  asset_pin_root?: string;
 };
 
 export type AssetPinEvidence = {
@@ -184,14 +188,22 @@ export function compileVideoPromptIrV2(
       issues.push(issue("VPD-R002", "route adapter does not match the pinned connection profile adapter", "error", ["route", "adapter_id"]));
     }
   }
-  if (ir.program_kind === "mv") issues.push(...validateMvBinding(
-    ir.program_binding,
-    ir.target.duration_ms,
-    options.generation_unit_source,
-    route,
-    options.request_id,
-    options.request_index
-  ));
+  if (ir.program_kind === "mv") {
+    if (!options.generation_unit_source) {
+      issues.push(issue("VPD-U001", "MV compilation requires the authoritative T04 GenerationUnitProgramSource", "error", ["generation_unit_source"]));
+    } else if (!isAuthoritativeGenerationUnitSource(options.generation_unit_source)) {
+      issues.push(issue("VPD-U001", "MV source must be derived by the authoritative T04 artifact resolver", "error", ["generation_unit_source"]));
+    } else {
+      issues.push(...validateMvBinding(
+        ir.program_binding,
+        ir.target.duration_ms,
+        options.generation_unit_source,
+        route,
+        options.request_id,
+        options.request_index
+      ));
+    }
+  }
   if (ir.program_kind === "standalone" && "program_binding" in ir && ir.program_binding !== undefined) {
     issues.push(issue("VPD-U001", "standalone VideoPromptIrV2 must not contain program_binding", "error", ["program_binding"]));
   }
@@ -234,11 +246,28 @@ export function compileVideoPromptIrV2(
     && grammarProfile && !grammarProfile.features.group_speaker) {
     issues.push(issue("VPD-V001", "selected grammar profile cannot serialize all group speakers", "error", ["shots", "vocal_events", "speaker_ids"]));
   }
+  const assetPins: Record<string, import("./compilationBundle.js").AssetPin> = {};
   for (const [assetIndex, asset] of ir.assets.entries()) {
     if (intent === "execute") {
       const evidence = options.asset_evidence?.[asset.id];
       if (!evidence || !verifyAssetPinEvidence(asset.path, asset.sha256, evidence, options.project_root)) {
         issues.push(issue("VPD-J002", "execution-capable compilation requires verified asset bytes and containment evidence", "error", ["assets", assetIndex]));
+      } else if (!options.asset_pin_root || !options.project_root) {
+        issues.push(issue("VPD-J002", "execution-capable compilation requires a project-local immutable asset pin root", "error", ["assets", assetIndex]));
+      } else {
+        try {
+          assetPins[asset.id] = createVerifiedAssetPin({
+            asset_id: asset.id,
+            project_root: options.project_root,
+            project_relative_path: asset.path,
+            expected_sha256: asset.sha256,
+            expected_size: evidence.byte_size,
+            expected_real_path: evidence.real_path,
+            pin_root: options.asset_pin_root
+          });
+        } catch {
+          issues.push(issue("VPD-J002", "execution-capable compilation could not create an immutable asset pin", "error", ["assets", assetIndex]));
+        }
       }
     }
   }
@@ -353,7 +382,7 @@ export function compileVideoPromptIrV2(
       adapter_capability_digest: rendererDialect?.source_digest ?? "0".repeat(64),
       ...(ir.program_kind === "mv" ? { program_binding_digest: sha256Canonical(ir.program_binding) } : {}),
       ...(options.generation_unit_source ? {
-        generation_unit_source_digest: sha256Canonical(options.generation_unit_source)
+        generation_unit_source_digest: options.generation_unit_source.generation_unit_digest
       } : {})
     }
   };
@@ -380,6 +409,11 @@ export function compileVideoPromptIrV2(
     ...(options.source?.authoring_schema ? { authoring_schema: options.source.authoring_schema } : {}),
     contract_bindings: [
       ...(options.contract_bindings ?? []),
+      ...(options.generation_unit_source ? [
+        options.generation_unit_source.generation_unit_digest,
+        options.generation_unit_source.music.contract_digest,
+        ...(options.generation_unit_source.lyrics ? [options.generation_unit_source.lyrics.contract_digest] : [])
+      ] : []),
       ...((ir as VideoPromptIrV2 & { identity_definition?: IdentityDefinitionContractV1 }).identity_definition
         ? [(ir as VideoPromptIrV2 & { identity_definition: IdentityDefinitionContractV1 }).identity_definition.digest]
         : [])
@@ -389,6 +423,7 @@ export function compileVideoPromptIrV2(
     effective_contract: effective,
     execution_capable: intent === "execute",
     asset_evidence: options.asset_evidence,
+    ...(Object.keys(assetPins).length > 0 ? { asset_pins: assetPins } : {}),
     ...(options.generation_unit_source ? {
       generation_unit_source: options.generation_unit_source
     } : {})
@@ -459,8 +494,10 @@ export function validateMvBinding(
   try {
     const parsedSource = generationUnitProgramSourceSchema.parse(source);
     const { generation_unit_digest: declaredGenerationUnitDigest, ...sourceBody } = parsedSource;
-    if (sha256Canonical(sourceBody) !== declaredGenerationUnitDigest) {
-      issues.push(issue("VPD-U001", "MV GenerationUnitProgramSource generation_unit_digest is not the digest of its create-only source body", "error", ["generation_unit_source", "generation_unit_digest"]));
+    // T04 owns this digest. A reduced T03 source must never self-promote its
+    // own body hash into the GenerationUnit authority slot.
+    if (sha256Canonical(sourceBody) === declaredGenerationUnitDigest) {
+      issues.push(issue("VPD-U001", "MV source is a self-hashed reduced source, not a T04 GenerationUnitContract digest", "error", ["generation_unit_source", "generation_unit_digest"]));
     }
     if (requestId !== undefined && parsedSource.unit_id !== requestId) {
       issues.push(issue("VPD-U001", "MV source unit_id must exactly match the request id", "error", ["generation_unit_source", "unit_id"]));
@@ -548,13 +585,14 @@ function effectiveCapabilityEvidence(
   ir: VideoPromptIrV2,
   grammarProfile?: H3GrammarProfileV3
 ): Partial<EffectiveGenerationContractV1["execution"]["capability_evidence"]> {
+  const trusted = isTrustedH3GrammarProfile(grammarProfile);
   return {
     group_speaker: ir.shots.some((shot) => shot.vocal_events.some((event) => event.speaker_ids.length > 1))
-      ? (grammarProfile?.features.group_speaker ? "hard" : "unknown")
-      : (grammarProfile ? "hard" : "unknown"),
+      ? (trusted && grammarProfile?.features.group_speaker ? "hard" : "unknown")
+      : (trusted ? "hard" : "unknown"),
     exact_text: ir.shots.some((shot) => shot.vocal_events.some((event) => event.content.source !== "legacy-unaligned"))
-      ? (grammarProfile?.features.exact_dialogue ? "hard" : "unknown")
-      : (grammarProfile ? "hard" : "unknown")
+      ? (trusted && grammarProfile?.features.exact_dialogue ? "hard" : "unknown")
+      : (trusted ? "hard" : "unknown")
   };
 }
 

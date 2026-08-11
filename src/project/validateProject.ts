@@ -81,7 +81,11 @@ export async function validateProject(
 
   // Stage 1: format/render/asset mapping only so operation/model/mode are
   // available for connection resolution. Route PV-E* runs after adapter load.
-  const h3Compile = compileProjectH3(project);
+  // Active rollout owns the H3/V1 authoring boundary; invoking the legacy
+  // compiler there would create a second authoritative serializer.
+  const h3Compile = project.orchestration?.mode === "active"
+    ? { ok: true as const, issues: [] as Issue[], project, compilations: [] as H3Compilation[] }
+    : compileProjectH3(project);
   h3Compilations = h3Compile.compilations ?? [];
   if (h3Compile.project) {
     project = h3Compile.project;

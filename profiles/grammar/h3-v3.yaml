@@ -1,0 +1,14 @@
+profile_id: minimax-h3-v3
+source_commit: h3-grammar-v3-official-pinned-2026-08-08
+source_digest: 3f7c1d93d2a4c1c6f5c3f9f6a37b8bbad6ef5a53b3274efc46d9d7a3b9f9c811
+section_order:
+  - integrated_multimodal_description
+  - overall_soundscape
+  - non_diegetic_music
+features:
+  scenetrans: true
+  cutoff: true
+  group_speaker: true
+  exact_dialogue: true
+serialization_rules_digest: ec227bbccaa04a23f693dbed96e279e62bc905941940b6ad4682adde4ded7474
+digest: d8e952dbe409d1c63d91700524364942b9f85954060fe95f6607933e475b6331

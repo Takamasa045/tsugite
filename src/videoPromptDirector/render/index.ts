@@ -32,6 +32,8 @@ export {
   H3_BASE_SECTION_ORDER_V3,
   H3_REFERENCE_SECTION_ORDER_V3,
   h3GrammarProfileDigest,
+  isTrustedH3GrammarProfile,
+  loadPinnedH3GrammarProfile,
   type H3GrammarProfileV3,
   type H3GrammarV3Result,
   type H3GrammarV3Options

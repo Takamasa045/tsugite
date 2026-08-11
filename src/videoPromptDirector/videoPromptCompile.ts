@@ -42,6 +42,7 @@ import { validateH3CreativeIr } from "./validation/index.js";
 import { h3IssueToProjectIssue } from "./compile.js";
 import type { GenerationUnitProgramSourceV1 } from "../productionControl/programBinding.js";
 import { loadAdapterDialectCapability } from "./adapterDialect.js";
+import { lyricsSourceForGenerationUnitSource } from "./generationUnitSourceResolver.js";
 
 export {
   VIDEO_PROMPT_DUAL_AUTHORING_CODE,
@@ -175,9 +176,10 @@ export async function compileVideoPromptRequest(
     issues.push(issue(readiness.code, readiness.message, "error", ["target", "mode"]));
   }
 
-  // Legacy video_prompt V1 for H3 is an in-memory compatibility authoring
-  // surface; it never writes back to the request and enters the same V2 path.
-  if (ir.target.model === "minimax-h3") {
+  // A profile-declared grammar renderer selects the legacy V1 compatibility
+  // upgrader. The core must not identify that route by a vendor/model id;
+  // model profiles are the only authority for renderer selection.
+  if (modelLoad.profile.renderer === "h3-grammar") {
     try {
       const upgraded = upgradeVideoPromptV1ToV2(ir as VideoCreativeIr);
       return compileVideoPromptV2Request(request, upgraded.ir, options, {
@@ -194,24 +196,20 @@ export async function compileVideoPromptRequest(
   // Profile is mandatory for renderVideoPrompt (no default-H3 fallback).
   const rendered = renderVideoPrompt(ir as H3CreativeIr, modelLoad.profile);
   const validation = validateH3CreativeIr(ir as H3CreativeIr, {
-    renderedText: modelLoad.profile.renderer === "h3-grammar" ? rendered.text : undefined,
-    includeWarnings: modelLoad.profile.renderer === "h3-grammar"
+    renderedText: undefined,
+    includeWarnings: false
   });
   // Plain-prompt skips H3 section grammar checks (H3-E001..) which require H3 sections.
   // Renderer-independent issues (LOCK-* / scene.* / identity.*) still apply.
-  if (modelLoad.profile.renderer === "h3-grammar") {
-    issues.push(...validation.issues);
-  } else {
-    issues.push(
-      ...validation.issues.filter(
-        (item) =>
-          item.code.startsWith("LOCK-")
-          || item.code.startsWith("scene.")
-          || item.code.startsWith("identity.")
-          || item.code.startsWith("iteration.")
-      )
-    );
-  }
+  issues.push(
+    ...validation.issues.filter(
+      (item) =>
+        item.code.startsWith("LOCK-")
+        || item.code.startsWith("scene.")
+        || item.code.startsWith("identity.")
+        || item.code.startsWith("iteration.")
+    )
+  );
 
   const mapping = mapMode(ir.target.mode);
   const assetFields = buildAssetFields(ir as H3CreativeIr);
@@ -233,12 +231,8 @@ export async function compileVideoPromptRequest(
     rendered.text,
     request,
     {
-      workflow_id: ir.target.model === "minimax-h3" && modelLoad.profile.renderer === "h3-grammar"
-        ? undefined
-        : VIDEO_PROMPT_WORKFLOW_ID,
-      workflow_version: ir.target.model === "minimax-h3" && modelLoad.profile.renderer === "h3-grammar"
-        ? undefined
-        : VIDEO_PROMPT_WORKFLOW_VERSION,
+      workflow_id: VIDEO_PROMPT_WORKFLOW_ID,
+      workflow_version: VIDEO_PROMPT_WORKFLOW_VERSION,
       model_profile_digest: modelLoad.digest,
       connection_capability_digest: connectionLoad.digest
     }
@@ -302,7 +296,12 @@ async function compileVideoPromptV2Request(
   if (!connectionLoad.ok) return { ok: false, issues: [issue(connectionLoad.code, connectionLoad.message, "error", ["connection"])] };
   const adapterDialectLoad = await loadAdapterDialectCapability(
     connectionLoad.profile.adapter_id ?? "",
-    options.adapterDirs
+    options.adapterDirs,
+    {
+      model_profile_id: modelLoad.profile.id,
+      provider_model: (connectionLoad.profile.exact_model_routes.find((candidate) => candidate.model === modelLoad.profile.id)?.provider_model) ?? "",
+      mode: ir.target.mode
+    }
   );
   if (!adapterDialectLoad.ok) return { ok: false, issues: [issue(adapterDialectLoad.code, adapterDialectLoad.message, "error", ["connection", "adapter_id"])] };
   const adapterCheck = await resolveAdapterImplementation({
@@ -342,6 +341,9 @@ async function compileVideoPromptV2Request(
     intent: options.intent === "execute" ? "execute" : "planning",
     request_index: options.requestIndex,
     ...(options.generationUnitSource ? { generation_unit_source: options.generationUnitSource } : {}),
+    ...(options.generationUnitSource ? {
+      lyrics_source: lyricsSourceForGenerationUnitSource(options.generationUnitSource),
+    } : {}),
     adapter_dialect_capability: adapterDialectLoad.capability,
     ...(source ? { source } : {})
   });
@@ -455,11 +457,24 @@ export async function compileProjectVideoPrompts(
   const v2Routes = [] as Array<NonNullable<VideoPromptPlan["v2_compilation"]>["route"]>;
   const issues: Issue[] = [];
   const nextRequests: GenerationRequest[] = [];
+  const rolloutMode = project.orchestration?.mode;
 
   for (const [index, request] of project.generation.requests.entries()) {
     const dual = rejectDualAuthoring(request);
     if (dual.length > 0) {
       issues.push(...dual.map((item) => h3IssueToProjectIssue(item, index, "video_prompt")));
+      nextRequests.push(request);
+      continue;
+    }
+
+    const hasNativeVideoPrompt = hasVideoPromptField(request);
+    // The project entrypoint is intentionally rollout-gated. Legacy H3 is
+    // authoritative until active; native V2 authoring is never silently
+    // downgraded to the legacy compiler.
+    if (rolloutMode !== "active") {
+      if (hasNativeVideoPrompt) {
+        issues.push(h3IssueToProjectIssue(issue("VPD-E022", "native VideoPromptIrV2 requires orchestration.mode=active", "error", ["video_prompt"]), index, "video_prompt"));
+      }
       nextRequests.push(request);
       continue;
     }
@@ -473,7 +488,7 @@ export async function compileProjectVideoPrompts(
       nextRequests.push(request);
       continue;
     }
-    if (!hasVideoPromptField(request) && !hasLegacyH3) {
+    if (!hasNativeVideoPrompt && !hasLegacyH3) {
       nextRequests.push(request);
       continue;
     }

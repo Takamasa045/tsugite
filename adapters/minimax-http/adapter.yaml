@@ -1,8 +1,11 @@
 name: minimax-http
 kind: api
-prompt_capability:
-  renderer: h3-grammar
-  label_dialect: picture
+prompt_capabilities:
+  - model_profile_id: minimax-h3
+    provider_model: MiniMax-H3
+    modes: [last-frame]
+    renderer: h3-grammar
+    label_dialect: picture
 dry_run_estimate: true
 batch: false
 credit_estimate:
