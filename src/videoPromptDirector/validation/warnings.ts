@@ -118,5 +118,17 @@ export function validateH3Warnings(ir: H3CreativeIr): H3ValidationResult {
     ));
   }
 
+  // identity.subject_unlocked: subject used in generation plan without human locked:true
+  // Warning only — never auto stress-test or block plan (credits stay human-gated).
+  for (const [index, subject] of ir.subjects.entries()) {
+    if (subject.locked === true) continue;
+    issues.push(issue(
+      "identity.subject_unlocked",
+      `subject '${subject.id}' is not locked:true; confirm identity before paid generation`,
+      "warning",
+      ["subjects", index, "locked"]
+    ));
+  }
+
   return finalizeValidation(issues);
 }

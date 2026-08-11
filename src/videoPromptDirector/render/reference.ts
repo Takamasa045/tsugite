@@ -1,4 +1,6 @@
+import { appendSubjectDefinitionLocks } from "../lockedBlocks.js";
 import type { H3CreativeIr } from "../schema.js";
+import { resolveSubjectSourceAsset } from "../subjectResolve.js";
 import {
   REFERENCE_SECTION_ORDER,
   buildLabels,
@@ -43,15 +45,24 @@ function defaultSubjectDefinitions(
   const lines: string[] = [];
   for (const subject of ir.subjects) {
     const subjectLabel = labels.subjects[subject.id]?.h3 ?? subject.id;
-    const assetLabel = subject.source_asset
-      ? labels.assets[subject.source_asset]
+    const sourceAssetId = resolveSubjectSourceAsset(subject);
+    const assetLabel = sourceAssetId
+      ? labels.assets[sourceAssetId]
       : undefined;
     if (assetLabel) {
       lines.push(
-        `${subjectLabel} is the ${subject.description} shown in ${assetLabel.h3} (${assetLabel.adapter}).`
+        appendSubjectDefinitionLocks(
+          `${subjectLabel} is the ${subject.description} shown in ${assetLabel.h3} (${assetLabel.adapter}).`,
+          subject
+        )
       );
     } else {
-      lines.push(`${subjectLabel} is the ${subject.description}.`);
+      lines.push(
+        appendSubjectDefinitionLocks(
+          `${subjectLabel} is the ${subject.description}.`,
+          subject
+        )
+      );
     }
     if (subject.voice?.source_asset) {
       const audio = labels.assets[subject.voice.source_asset];
@@ -60,6 +71,9 @@ function defaultSubjectDefinitions(
           `${audio.h3} is ${audio.adapter} and provides the voice timbre reference for ${subjectLabel}.`
         );
       }
+    }
+    if (subject.locked_blocks?.voice) {
+      lines.push(`VOICE:\n${subject.locked_blocks.voice.text}`);
     }
   }
 

@@ -77,6 +77,19 @@ export const modelPromptProfileSchema = z
     renderer: z.enum(["h3-grammar", "plain-prompt"]),
     /** H3-only label dialect. Other models must not declare picture. */
     label_dialect: z.enum(["picture", "none"]).default("none"),
+    /**
+     * Optional prompt skeleton opt-in (Phase D).
+     * When set, plain-prompt compile may emit skeleton-ordered sections.
+     * H3 grammar ignores this and keeps BASE/REFERENCE section order.
+     */
+    prompt_skeleton: z
+      .object({
+        id: z.string().min(1),
+        /** Optional explicit block order; otherwise catalog default for id is used. */
+        blocks: z.array(z.string().min(1)).min(1).optional()
+      })
+      .strict()
+      .optional(),
     /** Explicitly unsupported modes (fail-closed, no silent remap). */
     unsupported: z.array(z.string().min(1)).default([]),
     /** Semantics that must not leak to other models (e.g. last-frame-only). */

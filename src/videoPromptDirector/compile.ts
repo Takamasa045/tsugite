@@ -10,6 +10,8 @@
 import type { GenerationRequest, Project } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
+import { collectPromptBlockDigests } from "./blockDigests.js";
+import { collectLockedBlockHashes } from "./lockedBlocks.js";
 import {
   hasVideoPromptField,
   rejectDualAuthoring,
@@ -53,6 +55,10 @@ export type H3Lineage = {
   prompt_guide_hash?: string;
   /** Pin-time asset id → sha256 of the regular file under the run directory. */
   asset_hashes?: Record<string, string>;
+  /** Declared sha256 of subject locked_blocks fields ("subjectId.field" → hex). */
+  locked_block_hashes?: Record<string, string>;
+  /** IR field digests for iteration multi-block comparison (Phase E). */
+  block_digests?: Record<string, string>;
 };
 
 /** Loaded prompt guide shape for content hashing (root/path are excluded). */
@@ -562,6 +568,13 @@ function buildLineage(
     lineage.prompt_guide_identity = guideIdentity;
     // Guide file content is not loaded here; never invent a content hash.
   }
+
+  const lockedBlockHashes = collectLockedBlockHashes(ir);
+  if (lockedBlockHashes) {
+    lineage.locked_block_hashes = lockedBlockHashes;
+  }
+
+  lineage.block_digests = collectPromptBlockDigests(ir);
 
   return lineage;
 }

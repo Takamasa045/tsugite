@@ -552,6 +552,11 @@ principles:
     instruction: 場面冒頭で空間関係を示し、配置が変わったら再提示する。
     rationale: Close-upが続いても観客が場所と人物関係を追える。
     source_ids: [continuity-editing]
+  - id: scene-master-blocking
+    category: continuity
+    instruction: シーン冒頭で広角・約1秒・セリフなしのマスターショットによりブロッキングと位置関係を固定する。
+    rationale: 以降の寄り・切替でも空間と人物配置を共有基準にでき、ショット間のテレポートを抑えられる。
+    source_ids: [continuity-editing]
   - id: shot-reverse-shot
     category: continuity
     instruction: 会話では視線、肩越しの向き、サイズ差を対応させる。

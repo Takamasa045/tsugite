@@ -1,4 +1,7 @@
 import type { H3CreativeIr } from "../schema.js";
+import { validateLockedBlocks } from "../lockedBlocks.js";
+import { validateScenes } from "../scenes.js";
+import { renderShotBody } from "../render/shared.js";
 import { validateH3Format } from "./h3Format.js";
 import {
   validateH3AdapterRoute,
@@ -19,6 +22,15 @@ export {
 } from "./adapterRoute.js";
 export { validateH3Warnings } from "./warnings.js";
 export type { H3Issue, H3IssueSeverity, H3ValidationResult } from "./types.js";
+export {
+  validateLockedBlocks,
+  LOCK_HASH_MISMATCH_CODE
+} from "../lockedBlocks.js";
+export {
+  validateScenes,
+  SCENE_LOCATION_MAP_MISMATCH_CODE,
+  SCENE_UNDECLARED_SUBJECT_CODE
+} from "../scenes.js";
 
 export type H3ValidateOptions = {
   /** When provided, also check rendered section headers, shot stamps, dialogue tags, and labels. */
@@ -37,12 +49,20 @@ export type H3ValidateOptions = {
  * Compose H3 format validation with optional route checks and warnings.
  * Format rules and adapter route rules remain separate code paths.
  * Route limits are never invented in core — callers inject a profile.
+ * locked_blocks hash checks are renderer-independent and always run.
  */
 export function validateH3CreativeIr(
   ir: H3CreativeIr,
   options: H3ValidateOptions = {}
 ): H3ValidationResult {
   const issues: H3Issue[] = [];
+  // Always: hash integrity of locked identity blocks (plain + H3).
+  issues.push(...validateLockedBlocks(ir));
+  // Scene auditor: IR undeclared checks + post-inject LOCATION integrity via shot bodies.
+  const shotBodies = (ir.scenes?.length ?? 0) > 0
+    ? ir.shots.map((shot) => renderShotBody(shot, ir))
+    : undefined;
+  issues.push(...validateScenes(ir, shotBodies ? { shotBodies } : {}));
   issues.push(...validateH3Format(ir, options.renderedText).issues);
   if (options.routeProfile) {
     issues.push(...validateH3AdapterRoute(ir, options.routeProfile).issues);

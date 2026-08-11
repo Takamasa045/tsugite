@@ -7,9 +7,14 @@
 import type { H3CreativeIr } from "../schema.js";
 import type { H3LabelMap } from "../assetLabels.js";
 import {
+  buildScenePrefixParts,
+  resolveShotScene
+} from "../scenes.js";
+import {
   formatCutTimestamp,
   renderCameraSentence,
-  renderDialogueBlock
+  renderDialogueBlock,
+  renderShotActingLocks
 } from "./neutralHelpers.js";
 
 export type PlainRenderResult = {
@@ -26,9 +31,16 @@ export type PlainRenderResult = {
 export function renderPlainPrompt(ir: H3CreativeIr): PlainRenderResult {
   const shotLines = ir.shots.map((shot, index) => {
     const number = index + 1;
-    const parts: string[] = [shot.visual.trim()];
+    const scene = resolveShotScene(ir, shot);
+    const parts: string[] = [
+      ...(scene ? buildScenePrefixParts(scene) : []),
+      shot.visual.trim()
+    ];
     if (shot.camera) parts.push(renderCameraSentence(shot.camera));
     if (shot.dialogue) parts.push(renderDialogueBlock(shot.dialogue, ir.subjects));
+    for (const lockLine of renderShotActingLocks(shot, ir.subjects)) {
+      parts.push(lockLine);
+    }
     if (shot.on_screen_text !== undefined) parts.push(`On-screen text: ${shot.on_screen_text}`);
     if (shot.lyrics !== undefined) parts.push(`Lyrics: ${shot.lyrics}`);
     const body = parts.join(" ");

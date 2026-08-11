@@ -27,6 +27,7 @@ export {
   type H3ModelAspect,
   type H3Asset,
   type H3Subject,
+  type H3Scene,
   type H3Shot,
   type H3Dialogue,
   type H3Camera

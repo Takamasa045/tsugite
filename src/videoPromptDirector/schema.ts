@@ -148,6 +148,30 @@ const h3CreativeSchema = z
   .strict()
   .optional();
 
+const lockedBlockFieldSchema = z
+  .object({
+    text: z.string().min(1),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/, "must be lowercase sha256 hex")
+  })
+  .strict();
+
+const lockedBlocksSchema = z
+  .object({
+    voice: lockedBlockFieldSchema.optional(),
+    appearance: lockedBlockFieldSchema.optional(),
+    manner: lockedBlockFieldSchema.optional()
+  })
+  .strict();
+
+const subjectVariantSchema = z
+  .object({
+    id: safeIdSchema,
+    source_asset: safeIdSchema
+  })
+  .strict();
+
 const h3SubjectSchema = z
   .object({
     id: safeIdSchema,
@@ -165,6 +189,18 @@ const h3SubjectSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * Verbatim identity text blocks (voice / appearance / manner).
+     * Optional; when present, validate checks sha256 and compile injects text without paraphrase.
+     */
+    locked_blocks: lockedBlocksSchema.optional(),
+    /**
+     * Human-confirmed identity lock after stress tests (operational flag).
+     * Default false / omitted → plan warning only; never auto stress-test.
+     */
+    locked: z.boolean().optional(),
+    /** State-separated appearance assets (clean / wet / injured, …). */
+    variants: z.array(subjectVariantSchema).optional(),
     preservation: z
       .object({
         identity: z.enum(["strict", "loose"]).optional(),
@@ -235,12 +271,26 @@ const h3DialogueSchema = z
     }
   });
 
+const h3SceneSchema = z
+  .object({
+    id: safeIdSchema,
+    /** Anchor-based spatial description; compile injects verbatim into LOCATION MAP. */
+    location_map: z.string().min(1),
+    /** World palette / lighting prose; compile injects into LIGHTING when set. */
+    palette: z.string().min(1).optional(),
+    /** Subjects allowed in this scene. Empty = undeclared_subject check off. */
+    active_subjects: z.array(safeIdSchema).default([])
+  })
+  .strict();
+
 const h3ShotSchema = z
   .object({
     id: safeIdSchema,
     start_ms: z.number().int().nonnegative(),
     end_ms: z.number().int().positive(),
     transition: z.enum(["cut", "none"]).optional(),
+    /** Optional scene id; when set, compile prepends scene location_map / palette. */
+    scene: safeIdSchema.optional(),
     composition: z
       .object({
         framing: z.string().min(1).optional(),
@@ -252,6 +302,17 @@ const h3ShotSchema = z
     visual: z.string().min(1),
     camera: h3CameraSchema.optional(),
     dialogue: h3DialogueSchema.optional(),
+    /** Optional cast with per-shot state variants. */
+    cast: z
+      .array(
+        z
+          .object({
+            subject: safeIdSchema,
+            variant: safeIdSchema.optional()
+          })
+          .strict()
+      )
+      .optional(),
     on_screen_text: z.string().min(1).optional(),
     lyrics: z.string().min(1).optional(),
     /** Optional per-shot subject visibility for person-consistency QA (Phase B). */
@@ -307,6 +368,8 @@ const creativeIrObjectSchema = (targetSchema: typeof videoTargetSchema | typeof 
     creative: h3CreativeSchema,
     subjects: z.array(h3SubjectSchema).default([]),
     assets: z.array(h3AssetSchema).default([]),
+    /** Optional scene layer for shared location/palette inject across shots. */
+    scenes: z.array(h3SceneSchema).optional(),
     shots: z.array(h3ShotSchema).min(1),
     sound: h3SoundSchema
   })
@@ -348,6 +411,45 @@ const creativeIrObjectSchema = (targetSchema: typeof videoTargetSchema | typeof 
           path: ["subjects", index, "voice", "source_asset"]
         });
       }
+      const variantIds = new Set<string>();
+      for (const [variantIndex, variant] of (subject.variants ?? []).entries()) {
+        if (variantIds.has(variant.id)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "variant ids must be unique within a subject",
+            path: ["subjects", index, "variants", variantIndex, "id"]
+          });
+        }
+        variantIds.add(variant.id);
+        if (!assetIds.has(variant.source_asset)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `variant source_asset '${variant.source_asset}' is undefined`,
+            path: ["subjects", index, "variants", variantIndex, "source_asset"]
+          });
+        }
+      }
+    }
+
+    const sceneIds = new Set<string>();
+    for (const [index, scene] of (ir.scenes ?? []).entries()) {
+      if (sceneIds.has(scene.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "scene ids must be unique",
+          path: ["scenes", index, "id"]
+        });
+      }
+      sceneIds.add(scene.id);
+      for (const [subIndex, subjectId] of scene.active_subjects.entries()) {
+        if (!subjectIds.has(subjectId)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `scene active_subjects '${subjectId}' is undefined`,
+            path: ["scenes", index, "active_subjects", subIndex]
+          });
+        }
+      }
     }
 
     const shotIds = new Set<string>();
@@ -360,12 +462,46 @@ const creativeIrObjectSchema = (targetSchema: typeof videoTargetSchema | typeof 
         });
       }
       shotIds.add(shot.id);
+      if (shot.scene && !sceneIds.has(shot.scene)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `shot scene '${shot.scene}' is undefined`,
+          path: ["shots", index, "scene"]
+        });
+      }
       if (shot.dialogue?.speaker && !subjectIds.has(shot.dialogue.speaker)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           message: `dialogue speaker '${shot.dialogue.speaker}' is undefined`,
           path: ["shots", index, "dialogue", "speaker"]
         });
+      }
+      for (const [castIndex, castEntry] of (shot.cast ?? []).entries()) {
+        if (!subjectIds.has(castEntry.subject)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `cast subject '${castEntry.subject}' is undefined`,
+            path: ["shots", index, "cast", castIndex, "subject"]
+          });
+          continue;
+        }
+        const subject = ir.subjects.find((item) => item.id === castEntry.subject);
+        if (castEntry.variant) {
+          const variants = subject?.variants ?? [];
+          if (variants.length === 0) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `cast variant '${castEntry.variant}' requires subject variants`,
+              path: ["shots", index, "cast", castIndex, "variant"]
+            });
+          } else if (!variants.some((variant) => variant.id === castEntry.variant)) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `cast variant '${castEntry.variant}' is undefined on subject '${castEntry.subject}'`,
+              path: ["shots", index, "cast", castIndex, "variant"]
+            });
+          }
+        }
       }
     }
 
@@ -428,6 +564,7 @@ export type H3CreativeIr = z.infer<typeof h3CreativeIrSchema>;
 export type VideoCreativeIr = z.infer<typeof videoCreativeIrSchema>;
 export type H3Asset = H3CreativeIr["assets"][number];
 export type H3Subject = H3CreativeIr["subjects"][number];
+export type H3Scene = NonNullable<H3CreativeIr["scenes"]>[number];
 export type H3Shot = H3CreativeIr["shots"][number];
 export type H3Dialogue = NonNullable<H3Shot["dialogue"]>;
 export type H3Camera = NonNullable<H3Shot["camera"]>;

@@ -5,15 +5,22 @@
 import type { H3CreativeIr, H3Shot } from "../schema.js";
 import { mapH3AssetLabels, type H3LabelMap } from "../assetLabels.js";
 import {
+  buildScenePrefixParts,
+  resolveShotScene
+} from "../scenes.js";
+import {
   formatCutTimestamp,
   renderCameraSentence,
-  renderDialogueBlock
+  renderDialogueBlock,
+  renderShotActingLocks
 } from "./neutralHelpers.js";
 
 export {
   formatCutTimestamp,
   renderCameraSentence,
+  renderDialogueActingLocks,
   renderDialogueBlock,
+  renderShotActingLocks,
   resolveSpeakerId
 } from "./neutralHelpers.js";
 
@@ -56,9 +63,18 @@ export function renderSoundscapeSection(ir: H3CreativeIr): string {
  * Generated English framing/visual prose may be lightly normalized; locked payloads may not.
  */
 export function renderShotBody(shot: H3Shot, ir: H3CreativeIr): string {
-  const parts: string[] = [normalizeVisualProse(shot.visual)];
+  const scene = resolveShotScene(ir, shot);
+  const parts: string[] = [
+    // Scene shared blocks first (verbatim); shot may only append after these.
+    ...(scene ? buildScenePrefixParts(scene) : []),
+    normalizeVisualProse(shot.visual)
+  ];
   if (shot.camera) parts.push(renderCameraSentence(shot.camera));
   if (shot.dialogue) parts.push(renderDialogueBlock(shot.dialogue, ir.subjects));
+  // Locked appearance/manner for dialogue / cast / visible expectations (verbatim).
+  for (const lockLine of renderShotActingLocks(shot, ir.subjects)) {
+    parts.push(lockLine);
+  }
   // Do not trim/rewrite on_screen_text or lyrics — including leading/trailing spaces and newlines.
   if (shot.on_screen_text !== undefined) parts.push(`On-screen text: ${shot.on_screen_text}`);
   if (shot.lyrics !== undefined) parts.push(`Lyrics: ${shot.lyrics}`);
