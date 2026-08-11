@@ -1,6 +1,6 @@
 # 設計メモ: アイデンティティ・ロックとシーン一貫性（長尺・ストーリー制作向け）
 
-**状態:** Phase A 実装済み（worktree / branch `codex/identity-lock-scene-consistency`）。M0 契約は `identity-lock-m0-contract.md`。Phase B–E は未実装。
+**状態:** Phase A–B 実装済み（branch `codex/identity-lock-scene-consistency` / PR に積む）。M0 契約は `identity-lock-m0-contract.md`。Phase C–E は未実装。
 **対象:** キャラ一貫性の機械的固定 + シーン層の共有ブロック + プロンプト骨格カタログ + イテレーション規律
 **正本参照:**
 
@@ -147,7 +147,7 @@ shots:
 | Phase | 範囲 | 完了条件 |
 |---|---|---|
 | A | 提案1（固定ブロック + ハッシュ検証 + verbatim 注入） | **完了** — `test/locked-blocks-phase-a.test.ts`。LOCK-E001 / verbatim 注入 / lineage / `lock-block` CLI / golden 不変 |
-| B | 提案3（シーン層 + Auditor 2 チェック） | mismatch / undeclared_subject の再現フィクスチャとテスト。既存プロジェクト（scenes なし）が無変更で通る |
+| B | 提案3（シーン層 + Auditor 2 チェック） | **完了** — `test/scenes-phase-b.test.ts`。LOCATION prepend / scene.* Auditor / scenes なし golden 不変 / story principle |
 | C | 提案2（バリアント + locked 警告） | variant 解決のユニットテスト + plan 警告のフィクスチャ |
 | D | 提案4（骨格カタログ + compile テンプレート） | 骨格宣言あり / なしの compile スナップショットテスト |
 | E | 提案5（lineage lint） | diff 判定・回数判定のユニットテスト |

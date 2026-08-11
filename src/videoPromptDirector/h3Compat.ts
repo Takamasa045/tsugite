@@ -28,6 +28,7 @@ export {
   type H3ModelAspect,
   type H3Asset,
   type H3Subject,
+  type H3Scene,
   type H3Shot,
   type H3Dialogue,
   type H3Camera
@@ -60,7 +61,10 @@ export {
   validateH3AdapterRoute,
   validateH3Warnings,
   validateLockedBlocks,
+  validateScenes,
   LOCK_HASH_MISMATCH_CODE,
+  SCENE_LOCATION_MAP_MISMATCH_CODE,
+  SCENE_UNDECLARED_SUBJECT_CODE,
   H3_ROUTE_MODEL_MISMATCH_CODE,
   H3_ROUTE_UNSUPPORTED_MODE_CODE,
   H3_ASSET_BINDING_MISMATCH_CODE,
@@ -72,6 +76,13 @@ export {
   type H3ValidationResult,
   type H3ValidateOptions
 } from "./validation/index.js";
+
+export {
+  resolveShotScene,
+  buildScenePrefixParts,
+  formatSceneLocationBlock,
+  formatScenePaletteBlock
+} from "./scenes.js";
 
 export {
   hashLockedText,

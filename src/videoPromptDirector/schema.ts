@@ -257,12 +257,26 @@ const h3DialogueSchema = z
     }
   });
 
+const h3SceneSchema = z
+  .object({
+    id: safeIdSchema,
+    /** Anchor-based spatial description; compile injects verbatim into LOCATION MAP. */
+    location_map: z.string().min(1),
+    /** World palette / lighting prose; compile injects into LIGHTING when set. */
+    palette: z.string().min(1).optional(),
+    /** Subjects allowed in this scene. Empty = undeclared_subject check off. */
+    active_subjects: z.array(safeIdSchema).default([])
+  })
+  .strict();
+
 const h3ShotSchema = z
   .object({
     id: safeIdSchema,
     start_ms: z.number().int().nonnegative(),
     end_ms: z.number().int().positive(),
     transition: z.enum(["cut", "none"]).optional(),
+    /** Optional scene id; when set, compile prepends scene location_map / palette. */
+    scene: safeIdSchema.optional(),
     composition: z
       .object({
         framing: z.string().min(1).optional(),
@@ -329,6 +343,8 @@ const creativeIrObjectSchema = (targetSchema: typeof videoTargetSchema | typeof 
     creative: h3CreativeSchema,
     subjects: z.array(h3SubjectSchema).default([]),
     assets: z.array(h3AssetSchema).default([]),
+    /** Optional scene layer for shared location/palette inject across shots. */
+    scenes: z.array(h3SceneSchema).optional(),
     shots: z.array(h3ShotSchema).min(1),
     sound: h3SoundSchema
   })
@@ -372,6 +388,27 @@ const creativeIrObjectSchema = (targetSchema: typeof videoTargetSchema | typeof 
       }
     }
 
+    const sceneIds = new Set<string>();
+    for (const [index, scene] of (ir.scenes ?? []).entries()) {
+      if (sceneIds.has(scene.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "scene ids must be unique",
+          path: ["scenes", index, "id"]
+        });
+      }
+      sceneIds.add(scene.id);
+      for (const [subIndex, subjectId] of scene.active_subjects.entries()) {
+        if (!subjectIds.has(subjectId)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `scene active_subjects '${subjectId}' is undefined`,
+            path: ["scenes", index, "active_subjects", subIndex]
+          });
+        }
+      }
+    }
+
     const shotIds = new Set<string>();
     for (const [index, shot] of ir.shots.entries()) {
       if (shotIds.has(shot.id)) {
@@ -382,6 +419,13 @@ const creativeIrObjectSchema = (targetSchema: typeof videoTargetSchema | typeof 
         });
       }
       shotIds.add(shot.id);
+      if (shot.scene && !sceneIds.has(shot.scene)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `shot scene '${shot.scene}' is undefined`,
+          path: ["shots", index, "scene"]
+        });
+      }
       if (shot.dialogue?.speaker && !subjectIds.has(shot.dialogue.speaker)) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -450,6 +494,7 @@ export type H3CreativeIr = z.infer<typeof h3CreativeIrSchema>;
 export type VideoCreativeIr = z.infer<typeof videoCreativeIrSchema>;
 export type H3Asset = H3CreativeIr["assets"][number];
 export type H3Subject = H3CreativeIr["subjects"][number];
+export type H3Scene = NonNullable<H3CreativeIr["scenes"]>[number];
 export type H3Shot = H3CreativeIr["shots"][number];
 export type H3Dialogue = NonNullable<H3Shot["dialogue"]>;
 export type H3Camera = NonNullable<H3Shot["camera"]>;

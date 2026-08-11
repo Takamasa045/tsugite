@@ -141,12 +141,14 @@ export async function compileVideoPromptRequest(
     includeWarnings: modelLoad.profile.renderer === "h3-grammar"
   });
   // Plain-prompt skips H3 section grammar checks (H3-E001..) which require H3 sections.
-  // Renderer-independent issues (e.g. LOCK-E001 locked_blocks hash) still apply.
+  // Renderer-independent issues (LOCK-* / scene.*) still apply.
   if (modelLoad.profile.renderer === "h3-grammar") {
     issues.push(...validation.issues);
   } else {
     issues.push(
-      ...validation.issues.filter((item) => item.code.startsWith("LOCK-"))
+      ...validation.issues.filter(
+        (item) => item.code.startsWith("LOCK-") || item.code.startsWith("scene.")
+      )
     );
   }
 

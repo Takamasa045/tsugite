@@ -7,6 +7,10 @@
 import type { H3CreativeIr } from "../schema.js";
 import type { H3LabelMap } from "../assetLabels.js";
 import {
+  buildScenePrefixParts,
+  resolveShotScene
+} from "../scenes.js";
+import {
   formatCutTimestamp,
   renderCameraSentence,
   renderDialogueActingLocks,
@@ -27,7 +31,11 @@ export type PlainRenderResult = {
 export function renderPlainPrompt(ir: H3CreativeIr): PlainRenderResult {
   const shotLines = ir.shots.map((shot, index) => {
     const number = index + 1;
-    const parts: string[] = [shot.visual.trim()];
+    const scene = resolveShotScene(ir, shot);
+    const parts: string[] = [
+      ...(scene ? buildScenePrefixParts(scene) : []),
+      shot.visual.trim()
+    ];
     if (shot.camera) parts.push(renderCameraSentence(shot.camera));
     if (shot.dialogue) parts.push(renderDialogueBlock(shot.dialogue, ir.subjects));
     for (const lockLine of renderDialogueActingLocks(shot.dialogue, ir.subjects)) {
