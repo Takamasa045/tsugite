@@ -4,6 +4,8 @@ import { join, relative, resolve } from "node:path";
 
 export const VIEWER_BUNDLE_MANIFEST_FILE = "bundle-manifest.json";
 export const VIEWER_BUNDLE_SCHEMA_VERSION = 1;
+export const WORKFLOW_VIEWER_WORKFLOW_DTO_SCHEMA_VERSION = 1;
+export const WORKFLOW_VIEWER_RENDERING_CAPABILITY_MODE = "runtime-negotiated";
 const MAX_ENTRIES = 512;
 const MAX_DEPTH = 32;
 
@@ -32,6 +34,8 @@ export async function createViewerBundleManifest(viewerRoot) {
   return {
     schema_version: VIEWER_BUNDLE_SCHEMA_VERSION,
     source_version: sourceVersion,
+    workflow_dto_schema_version: WORKFLOW_VIEWER_WORKFLOW_DTO_SCHEMA_VERSION,
+    rendering_capability_mode: WORKFLOW_VIEWER_RENDERING_CAPABILITY_MODE,
     bundle_digest: digest.digest("hex"),
     files
   };

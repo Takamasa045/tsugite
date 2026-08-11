@@ -15,16 +15,6 @@ const IGNORED_BUILD_INPUT_ROOTS = [
   ":(glob)apps/workflow-viewer/vite.config.*"
 ];
 const ALLOWED_UNTRACKED_BUILD_INPUTS = new Set([
-  // Development-only dependency symlink used by the constrained PO-0A worktree;
-  // runtime staging copies only generated dist files and never follows it.
-  "apps/workflow-viewer/node_modules",
-  "apps/workflow-viewer/src/app/App.scene.integration.test.tsx",
-  "apps/workflow-viewer/src/components/scene/SceneErrorBoundary.test.tsx",
-  "apps/workflow-viewer/src/components/scene/SceneErrorBoundary.tsx",
-  "apps/workflow-viewer/src/components/scene/WorkflowFallback.tsx",
-  "apps/workflow-viewer/src/components/scene/WorkflowScene.test.tsx",
-  "apps/workflow-viewer/src/components/scene/scene-state.ts",
-  "apps/workflow-viewer/tests/production-orchestration-browser.test.mjs",
   "apps/workflow-viewer/public/assets/tsugite-favicon.png",
   "apps/workflow-viewer/src/components/launcher/WorkflowCanvas.test.tsx",
   "apps/workflow-viewer/src/components/launcher/WorkflowCanvas.tsx",

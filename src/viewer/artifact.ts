@@ -63,10 +63,16 @@ export type WorkflowViewerSnapshotFile = {
 
 export const WORKFLOW_VIEWER_SOURCE_VERSION = "po-0a-v1";
 export const WORKFLOW_VIEWER_BUNDLE_SCHEMA_VERSION = 1;
+export const WORKFLOW_VIEWER_WORKFLOW_DTO_SCHEMA_VERSION = 1;
+export const WORKFLOW_VIEWER_RENDERING_CAPABILITY_MODE = "runtime-negotiated" as const;
+
+export type WorkflowViewerRenderingCapabilityMode = typeof WORKFLOW_VIEWER_RENDERING_CAPABILITY_MODE;
 
 export type WorkflowViewerBundleMetadata = {
   schema_version: number;
   source_version: string;
+  workflow_dto_schema_version: number;
+  rendering_capability_mode: WorkflowViewerRenderingCapabilityMode;
   bundle_digest: string;
   files: WorkflowViewerSnapshotFile[];
 };
@@ -120,6 +126,8 @@ export async function inspectWorkflowViewerBundle(
   return {
     schema_version: WORKFLOW_VIEWER_BUNDLE_SCHEMA_VERSION,
     source_version: sourceVersion,
+    workflow_dto_schema_version: WORKFLOW_VIEWER_WORKFLOW_DTO_SCHEMA_VERSION,
+    rendering_capability_mode: WORKFLOW_VIEWER_RENDERING_CAPABILITY_MODE,
     bundle_digest: digest.digest("hex"),
     files
   };
@@ -188,6 +196,8 @@ export async function writeWorkflowViewer(
     evidencePath,
     `${JSON.stringify({
       schema_version: 1,
+      workflow_dto_schema_version: WORKFLOW_VIEWER_WORKFLOW_DTO_SCHEMA_VERSION,
+      rendering_capability_mode: WORKFLOW_VIEWER_RENDERING_CAPABILITY_MODE,
       ...(reviewDigest ? { review_digest: reviewDigest } : {}),
       viewer_index_digest: viewerIndexDigest,
       workflow_digest: workflowDigest,

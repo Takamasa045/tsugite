@@ -153,6 +153,30 @@ test("PO-0A actual browser covers Canvas, node hit, and all degraded scene paths
     assert.match(workflowEvidence.summaryText, /8\s*工程/);
     await actualCanvas.screenshot({ path: join(evidenceRoot, "actual-canvas.png") });
 
+    const highDprCanvas = await newPage(browser, server.url);
+    pages.push(highDprCanvas);
+    await highDprCanvas.setViewport({ width: 1280, height: 800, deviceScaleFactor: 2 });
+    await highDprCanvas.reload({ waitUntil: "domcontentloaded" });
+    await waitForActualCanvas(highDprCanvas);
+    const highDprEvidence = await highDprCanvas.$eval("canvas", (canvas) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        devicePixelRatio: window.devicePixelRatio,
+        cssWidth: rect.width,
+        cssHeight: rect.height,
+        pixelWidth: canvas.width,
+        pixelHeight: canvas.height,
+        timelineNodeCount: document.querySelectorAll(
+          'section[aria-label="タイムライン操作"] ol[aria-label="工程一覧"] > li'
+        ).length
+      };
+    });
+    assert.ok(highDprEvidence.devicePixelRatio > 1);
+    assert.ok(highDprEvidence.cssWidth > 0 && highDprEvidence.cssHeight > 0);
+    assert.ok(highDprEvidence.pixelWidth >= highDprEvidence.cssWidth);
+    assert.ok(highDprEvidence.pixelHeight >= highDprEvidence.cssHeight);
+    assert.equal(highDprEvidence.timelineNodeCount, 8);
+
     const firstNode = await actualCanvas.$eval(".scene-node-label", (label) => {
       const rect = label.getBoundingClientRect();
       return { name: label.getAttribute("aria-label"), x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
@@ -190,6 +214,38 @@ test("PO-0A actual browser covers Canvas, node hit, and all degraded scene paths
     assert.equal(nullContextValue, null);
     await nullContext.screenshot({ path: join(evidenceRoot, "fallback-webgl-unavailable.png") });
 
+    const retry = await newPage(browser, server.url, () => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      globalThis.__TSUGITE_PO_0A_ALLOW_WEBGL__ = false;
+      HTMLCanvasElement.prototype.getContext = function getContext(kind, ...args) {
+        if (
+          typeof kind === "string"
+          && kind.toLowerCase().includes("webgl")
+          && !globalThis.__TSUGITE_PO_0A_ALLOW_WEBGL__
+        ) return null;
+        return original.call(this, kind, ...args);
+      };
+    });
+    pages.push(retry);
+    await waitForFallback(retry, "viewer.scene.webgl_unavailable");
+    await retry.evaluate(() => {
+      globalThis.__TSUGITE_PO_0A_ALLOW_WEBGL__ = true;
+    });
+    await retry.click('[data-testid="workflow-scene-fallback"] button');
+    await waitForScene(retry, "ready");
+    const retryEvidence = await retry.evaluate(() => ({
+      fallback: Boolean(document.querySelector('[data-testid="workflow-scene-fallback"]')),
+      loading: Boolean(document.querySelector('[data-scene-loading="true"]')),
+      canvas: document.querySelectorAll("canvas").length,
+      renderer: document.querySelector("[data-scene-surface]")?.getAttribute("data-renderer"),
+      firstFrame: document.querySelector("[data-scene-surface]")?.getAttribute("data-first-frame")
+    }));
+    assert.equal(retryEvidence.fallback, false);
+    assert.equal(retryEvidence.loading, false);
+    assert.equal(retryEvidence.canvas, 1);
+    assert.equal(retryEvidence.renderer, "webgl");
+    assert.equal(retryEvidence.firstFrame, "true");
+
     const keyboard = await newPage(browser, server.url, () => {
       const original = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function getContext(kind, ...args) {
@@ -198,10 +254,12 @@ test("PO-0A actual browser covers Canvas, node hit, and all degraded scene paths
       };
     });
     pages.push(keyboard);
-    await keyboard.setViewport({ width: 420, height: 700, deviceScaleFactor: 1 });
+    await keyboard.setViewport({ width: 420, height: 700, deviceScaleFactor: 2 });
     await keyboard.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
     await keyboard.reload({ waitUntil: "domcontentloaded" });
     await waitForFallback(keyboard, "viewer.scene.webgl_unavailable");
+    const zoomSession = await keyboard.createCDPSession();
+    await zoomSession.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1.25 });
     await keyboard.focus("[data-testid=workflow-scene-fallback] [data-node-id]");
     assert.equal(await keyboard.evaluate(() => document.activeElement?.getAttribute("data-node-id")), "plan");
     await keyboard.keyboard.press("ArrowDown");
@@ -211,10 +269,13 @@ test("PO-0A actual browser covers Canvas, node hit, and all degraded scene paths
     const responsiveEvidence = await keyboard.evaluate(() => ({
       viewport: window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,
+      devicePixelRatio: window.devicePixelRatio,
       reducedMotion: document.querySelector("[data-testid=workflow-scene-fallback]")?.getAttribute("data-reduced-motion")
     }));
     assert.equal(responsiveEvidence.reducedMotion, "true");
+    assert.ok(responsiveEvidence.devicePixelRatio > 1);
     assert.ok(responsiveEvidence.documentWidth <= responsiveEvidence.viewport + 1);
+    assert.equal(await nodeCount(keyboard), 8);
     await keyboard.screenshot({ path: join(evidenceRoot, "fallback-keyboard-responsive.png") });
 
     const contextLost = await newPage(browser, server.url);

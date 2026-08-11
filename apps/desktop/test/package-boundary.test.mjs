@@ -11,6 +11,7 @@ import {
   cleanGeneratedOutputs
 } from "../scripts/clean-generated.mjs";
 import { stageRuntime } from "../scripts/prepare-runtime.mjs";
+import { createViewerBundleManifest } from "../scripts/viewer-bundle.mjs";
 
 async function put(root, path, contents = path) {
   const target = join(root, path);
@@ -71,7 +72,10 @@ test("stages generated outputs and only safe tracked runtime assets", async () =
   const viewerManifest = JSON.parse(
     await readFile(join(result.runtimeRoot, "viewer", "bundle-manifest.json"), "utf8")
   );
+  assert.deepEqual(viewerManifest, await createViewerBundleManifest(join(root, "apps/workflow-viewer/dist")));
   assert.equal(viewerManifest.source_version, "fixture-v1");
+  assert.equal(viewerManifest.workflow_dto_schema_version, 1);
+  assert.equal(viewerManifest.rendering_capability_mode, "runtime-negotiated");
   assert.match(viewerManifest.bundle_digest, /^[a-f0-9]{64}$/);
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "bin", "node"), "utf8"), "node-22");
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "adapters", "demo", "adapter.yaml"), "utf8"), "id: demo\n");
@@ -149,7 +153,6 @@ test("cleans only root build and Viewer dist before packaging builds", async () 
 
 test("rejects untracked build inputs outside the explicit Desktop source allowlist", () => {
   assert.doesNotThrow(() => assertUntrackedBuildInputsAllowed([
-    "apps/workflow-viewer/node_modules",
     "apps/workflow-viewer/public/assets/tsugite-favicon.png",
     "apps/workflow-viewer/src/components/launcher/WorkflowCanvas.tsx",
     "apps/workflow-viewer/src/components/workspace/DesktopWorkspaceRecovery.test.tsx",
