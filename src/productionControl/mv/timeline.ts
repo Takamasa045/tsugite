@@ -40,6 +40,7 @@ export function compileMvTimeline(input: CompileMvTimelineInput): MvTimelineV1 {
   const lyrics = input.lyrics ? lyricsContractSchema.parse(input.lyrics) : undefined;
   const units = input.units.map((unit) => generationUnitContractSchema.parse(unit));
   if (units.length === 0) throw new Error("MV timeline requires at least one generation unit");
+  if (input.exact_sync && (!lyrics || lyrics.timing_digest === null)) throw new Error("exact-sync MV timeline requires aligned timed lyrics");
   const seenOrdinals = new Set<number>();
   let previousEnd = 0;
   for (const [index, unit] of units.entries()) {
@@ -63,7 +64,7 @@ export function compileMvTimeline(input: CompileMvTimelineInput): MvTimelineV1 {
     }
     if (unit.lyric_cue_refs.length > 0 && !lyrics) throw new Error("MV generation unit lyric refs require a lyrics contract");
     if (lyrics) {
-      if (unit.lyrics_binding?.contract_id !== lyrics.contract_id || unit.lyrics_binding.revision !== lyrics.revision || (unit.lyrics_binding.contract_digest !== undefined && unit.lyrics_binding.contract_digest !== lyrics.digest) || unit.lyrics_binding.text_digest !== lyrics.source.text_digest || unit.lyrics_binding.timing_digest !== lyrics.timing_digest) throw new Error("MV generation unit lyrics binding mismatch");
+      if (!unit.lyrics_binding || unit.lyrics_binding.contract_id !== lyrics.contract_id || unit.lyrics_binding.revision !== lyrics.revision || (unit.lyrics_binding.contract_digest !== undefined && unit.lyrics_binding.contract_digest !== lyrics.digest) || unit.lyrics_binding.text_digest !== lyrics.source.text_digest || unit.lyrics_binding.timing_digest !== lyrics.timing_digest) throw new Error("MV generation unit lyrics binding mismatch");
       const cueIds = new Set(lyrics.cues.map((cue) => cue.id));
       for (const ref of unit.lyric_cue_refs) {
         if (!cueIds.has(ref.fragment_id)) throw new Error("MV generation unit references a missing lyric cue");

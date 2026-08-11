@@ -161,14 +161,16 @@ function validatePlacementOverlap(placements: readonly CompositionPlacementV1[],
   });
   for (const entries of byTrack.values()) {
     entries.sort((left, right) => left.placement.timeline_start_ms - right.placement.timeline_start_ms);
-    for (let index = 1; index < entries.length; index += 1) {
-      const previous = entries[index - 1]!;
-      const current = entries[index]!;
-      if (current.placement.timeline_start_ms < previous.placement.timeline_end_ms
-        && (current.placement.layer === previous.placement.layer
-          || current.placement.blend_policy === "replace"
-          || previous.placement.blend_policy === "replace")) {
-        context.addIssue({ code: z.ZodIssueCode.custom, path: ["placements", current.index], message: "overlap requires distinct layers and explicit overlay/crossfade blend" });
+    for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
+        const left = entries[leftIndex]!;
+        const right = entries[rightIndex]!;
+        if (right.placement.timeline_start_ms >= left.placement.timeline_end_ms) continue;
+        if (left.placement.layer === right.placement.layer
+          || left.placement.blend_policy === "replace"
+          || right.placement.blend_policy === "replace") {
+          context.addIssue({ code: z.ZodIssueCode.custom, path: ["placements", right.index], message: "overlap requires distinct layers and explicit overlay/crossfade blend" });
+        }
       }
     }
   }
@@ -183,12 +185,14 @@ function validateResolvedOverlap(clips: readonly z.infer<typeof compositionClipS
   });
   for (const entries of byTrack.values()) {
     entries.sort((left, right) => left.clip.timeline_start_ms - right.clip.timeline_start_ms);
-    for (let index = 1; index < entries.length; index += 1) {
-      const previous = entries[index - 1]!;
-      const current = entries[index]!;
-      if (current.clip.timeline_start_ms < previous.clip.timeline_end_ms
-        && (current.clip.layer === previous.clip.layer || current.clip.blend_policy === "replace" || previous.clip.blend_policy === "replace")) {
-        context.addIssue({ code: z.ZodIssueCode.custom, path: ["clips", current.index], message: "resolved clip overlap is not explicitly blended" });
+    for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
+        const left = entries[leftIndex]!;
+        const right = entries[rightIndex]!;
+        if (right.clip.timeline_start_ms >= left.clip.timeline_end_ms) continue;
+        if (left.clip.layer === right.clip.layer || left.clip.blend_policy === "replace" || right.clip.blend_policy === "replace") {
+          context.addIssue({ code: z.ZodIssueCode.custom, path: ["clips", right.index], message: "resolved clip overlap is not explicitly blended" });
+        }
       }
     }
   }

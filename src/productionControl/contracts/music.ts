@@ -79,6 +79,12 @@ export const musicStructureContractSchema = musicStructureContentSchema.extend({
   if (value.analysis.status === "unknown" && value.tempo_map.length > 0) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["tempo_map"], message: "unknown BPM cannot carry invented tempo entries" });
   }
+  if (value.analysis.status === "unknown" && value.beat_markers.length > 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["beat_markers"], message: "unknown Music cannot carry beat markers" });
+  }
+  if (value.analysis.status === "unknown" && value.sections.length > 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["sections"], message: "unknown Music cannot carry sections" });
+  }
   for (const [index, tempo] of value.tempo_map.entries()) {
     if (tempo.start_ms >= duration || tempo.end_ms !== undefined && tempo.end_ms > duration || tempo.end_ms !== undefined && tempo.end_ms <= tempo.start_ms) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["tempo_map", index], message: "tempo interval is outside master audio" });

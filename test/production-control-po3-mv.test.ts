@@ -219,6 +219,20 @@ describe("PO-3 strict MV contracts", () => {
     })).toThrow();
     expect(() => createMusicStructureContract({
       ...music,
+      analysis: { status: "unknown" },
+      tempo_map: [],
+      beat_markers: music.beat_markers,
+      sections: [],
+    })).toThrow();
+    expect(() => createMusicStructureContract({
+      ...music,
+      analysis: { status: "unknown" },
+      tempo_map: [],
+      beat_markers: [],
+      sections: music.sections,
+    })).toThrow();
+    expect(() => createMusicStructureContract({
+      ...music,
       sections: [music.sections[0]!, { ...music.sections[1]!, start_ms: 17_000 }],
     })).toThrow();
     expect(() => createMusicStructureContract({
@@ -230,6 +244,8 @@ describe("PO-3 strict MV contracts", () => {
       ...music,
       analysis: { status: "unknown" },
       tempo_map: [],
+      beat_markers: [],
+      sections: [],
     });
     expect(unknownBpm.tempo_map).toEqual([]);
   });
@@ -245,6 +261,49 @@ describe("PO-3 strict MV contracts", () => {
     expect(() => createLyricsContract({ ...input, alignment_state: "complete", alignment_basis: "not-aligned" })).toThrow();
     expect(() => createLyricsContract({ ...input, alignment_state: "partial", cues: input.cues.map((cue) => ({ ...cue, timing: "untimed" as const })) })).toThrow();
     expect(() => createLyricsContract({ ...input, cues: input.cues.map((cue) => ({ ...cue, source_span: { ...cue.source_span, end_utf8_byte: cue.source_span.end_utf8_byte + 1 } })) })).toThrow();
+    const firstCue = input.cues[0]!;
+    const firstWord = "ひかり";
+    const firstWordEnd = firstCue.source_span.start_utf8_byte + new TextEncoder().encode(firstWord).byteLength;
+    const withWordTiming = {
+      ...input,
+      cues: input.cues.map((cue, index) => index === 0 ? {
+        ...cue,
+        word_timings: [{
+          source_span: {
+            occurrence_id: "word-occurrence-01",
+            start_utf8_byte: firstCue.source_span.start_utf8_byte,
+            end_utf8_byte: firstWordEnd,
+            text_digest: textDigest(firstWord),
+          },
+          start_ms: 0,
+          end_ms: 1_000,
+        }],
+      } : cue),
+    };
+    expect(createLyricsContract(withWordTiming).cues[0]?.timing).toBe("timed");
+    expect(() => createLyricsContract({
+      ...withWordTiming,
+      cues: withWordTiming.cues.map((cue, index) => index === 0 ? {
+        ...cue,
+        word_timings: [{
+          ...cue.word_timings![0]!,
+          source_span: { ...cue.word_timings![0]!.source_span, text_digest: ZERO },
+        }],
+      } : cue),
+    })).toThrow();
+    expect(() => createLyricsContract({
+      ...withWordTiming,
+      cues: withWordTiming.cues.map((cue, index) => index === 0 ? {
+        ...cue,
+        word_timings: [{
+          ...cue.word_timings![0]!,
+          source_span: {
+            ...cue.word_timings![0]!.source_span,
+            start_utf8_byte: cue.source_span.start_utf8_byte + 1,
+          },
+        }],
+      } : cue),
+    })).toThrow();
     const repeated = createLyricsContract({
       ...input,
       cues: input.cues.slice(0, 3).map((cue, index) => ({ ...cue, id: `repeat-${index}`, source_span: { ...cue.source_span, occurrence_id: `repeat-occurrence-${index}` } })),
@@ -355,6 +414,34 @@ describe("PO-3 strict MV contracts", () => {
     expect(timeline.units.map((unit) => unit.unit_id)).toEqual(["intro-unit", "verse-unit", "chorus-unit", "outro-unit"]);
     expect(() => compileMvTimeline({ music, lyrics, units: [units[1]!, units[0]!, units[2]!, units[3]!] })).toThrow();
     expect(() => compileMvTimeline({ music, lyrics, units: units.map((unit) => ({ ...unit, lyric_cue_refs: [] })) })).toThrow();
+    const unalignedLyrics = createLyricsContract({
+      ...makeLyricsInput(),
+      alignment_state: "unaligned",
+      alignment_basis: "not-aligned",
+      cues: makeLyricsInput().cues.map((cue) => ({
+        timing: "untimed" as const,
+        id: cue.id,
+        section_id: cue.section_id,
+        source_span: cue.source_span,
+        singer_ids: cue.singer_ids,
+        use: cue.use,
+      })),
+    });
+    const emptyCueUnit = createGenerationUnit({
+      production_id: "production-72s",
+      unit_id: "empty-cue-unit",
+      ordinal: 0,
+      music,
+      lyrics: unalignedLyrics,
+      start_ms: 0,
+      end_ms: 18_000,
+      section_id: "intro",
+      beat_anchor_ids: ["beat-0"],
+      lyric_cue_ids: [],
+      audio_policy: "reuse-master",
+      route,
+    });
+    expect(() => compileMvTimeline({ music, lyrics: unalignedLyrics, units: [emptyCueUnit], exact_sync: true })).toThrow();
   });
 
   it("invalidates the whole master timeline but preserves non-Chorus siblings", () => {
@@ -437,6 +524,47 @@ describe("PO-3 strict MV contracts", () => {
       placements: [
         { ...intent.placements[0]!, timeline_start_ms: 0, timeline_end_ms: 18_000 },
         { ...intent.placements[1]!, timeline_start_ms: 17_000, timeline_end_ms: 35_000 },
+      ],
+      required_visual_coverage_intervals: [],
+      caption_cue_refs: [],
+    })).toThrow();
+    const layeredIntent = createCompositionIntent({
+      music,
+      lyrics,
+      units,
+      placements: [
+        { ...intent.placements[0]!, generation_unit_digest: units[0]!.digest, timeline_start_ms: 0, timeline_end_ms: 18_000, layer: 0, blend_policy: "overlay" },
+        { ...intent.placements[1]!, generation_unit_digest: units[1]!.digest, timeline_start_ms: 6_000, timeline_end_ms: 24_000, layer: 1, blend_policy: "overlay" },
+        { ...intent.placements[2]!, generation_unit_digest: units[2]!.digest, timeline_start_ms: 12_000, timeline_end_ms: 30_000, layer: 2, blend_policy: "overlay" },
+      ],
+      required_visual_coverage_intervals: [],
+      caption_cue_refs: [],
+    });
+    const layeredPlan = resolveCompositionPlan({
+      intent: layeredIntent,
+      music,
+      lyrics,
+      units,
+      artifacts: units.slice(0, 3).map((unit) => ({
+        generation_unit_digest: unit.digest,
+        artifact_id: `${unit.unit_id}-layered-artifact`,
+        artifact_digest: sha256Canonical({ layered: unit.unit_id }),
+        duration_ms: unit.clip_duration_ms,
+      })),
+    });
+    const invalidPlanBase = {
+      ...withoutField(layeredPlan, "digest"),
+      clips: layeredPlan.clips.map((clip, index) => index === 2 ? { ...clip, layer: 0 } : clip),
+    };
+    expect(() => compositionPlanSchema.parse({ ...invalidPlanBase, digest: sha256Canonical(invalidPlanBase) })).toThrow();
+    expect(() => createCompositionIntent({
+      music,
+      lyrics,
+      units,
+      placements: [
+        { ...intent.placements[0]!, generation_unit_digest: units[0]!.digest, timeline_start_ms: 0, timeline_end_ms: 18_000, layer: 0, blend_policy: "overlay" },
+        { ...intent.placements[1]!, generation_unit_digest: units[1]!.digest, timeline_start_ms: 6_000, timeline_end_ms: 24_000, layer: 1, blend_policy: "overlay" },
+        { ...intent.placements[2]!, generation_unit_digest: units[2]!.digest, timeline_start_ms: 12_000, timeline_end_ms: 30_000, layer: 0, blend_policy: "overlay" },
       ],
       required_visual_coverage_intervals: [],
       caption_cue_refs: [],

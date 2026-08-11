@@ -19,6 +19,27 @@ export const lyricsSourceSpanSchema = z.object({
 });
 export type LyricsSourceSpanV1 = z.infer<typeof lyricsSourceSpanSchema>;
 
+function validateSourceSpan(
+  span: LyricsSourceSpanV1,
+  bytes: Uint8Array,
+  context: z.RefinementCtx,
+  path: Array<string | number>,
+): void {
+  if (span.end_utf8_byte > bytes.byteLength) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path, message: "lyrics source span exceeds UTF-8 source" });
+    return;
+  }
+  const raw = bytes.slice(span.start_utf8_byte, span.end_utf8_byte);
+  if (sha256Bytes(raw) !== span.text_digest) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: [...path, "text_digest"], message: "lyrics source span text digest mismatch" });
+  }
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(raw);
+  } catch {
+    context.addIssue({ code: z.ZodIssueCode.custom, path, message: "lyrics source span must align to UTF-8 boundaries" });
+  }
+}
+
 const lyricUseArray = z.array(lyricsUseSchema).min(1).max(4).superRefine((value, context) => {
   if (new Set(value).size !== value.length) context.addIssue({ code: z.ZodIssueCode.custom, message: "lyrics uses must be unique" });
 });
@@ -89,20 +110,33 @@ export const lyricsContractSchema = lyricsContractBaseSchema.superRefine((value,
   const occurrenceIds = value.cues.map((cue) => cue.source_span.occurrence_id);
   if (new Set(cueIds).size !== cueIds.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["cues"], message: "lyrics cue ids must be unique" });
   if (new Set(occurrenceIds).size !== occurrenceIds.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["cues"], message: "lyrics occurrence ids must be unique" });
-  const sortedSpans = [...value.cues].sort((left, right) => left.source_span.start_utf8_byte - right.source_span.start_utf8_byte);
-  for (const [index, cue] of sortedSpans.entries()) {
+  for (const [index, cue] of value.cues.entries()) {
     const span = cue.source_span;
-    if (span.end_utf8_byte > bytes.byteLength) context.addIssue({ code: z.ZodIssueCode.custom, path: ["cues", index, "source_span"], message: "lyrics source span exceeds UTF-8 source" });
-    else {
-      const raw = bytes.slice(span.start_utf8_byte, span.end_utf8_byte);
-      if (sha256Bytes(raw) !== span.text_digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["cues", index, "source_span", "text_digest"], message: "lyrics cue text digest mismatch" });
-      try {
-        new TextDecoder("utf-8", { fatal: true }).decode(raw);
-      } catch {
-        context.addIssue({ code: z.ZodIssueCode.custom, path: ["cues", index, "source_span"], message: "lyrics source span must align to UTF-8 boundaries" });
+    validateSourceSpan(span, bytes, context, ["cues", index, "source_span"]);
+    if (cue.timing === "timed" && cue.word_timings) {
+      for (const [wordIndex, word] of cue.word_timings.entries()) {
+        const wordPath = ["cues", index, "word_timings", wordIndex, "source_span"];
+        validateSourceSpan(word.source_span, bytes, context, wordPath);
+        if (word.source_span.start_utf8_byte < span.start_utf8_byte || word.source_span.end_utf8_byte > span.end_utf8_byte) {
+          context.addIssue({ code: z.ZodIssueCode.custom, path: wordPath, message: "word timing source span must be inside cue source span" });
+        }
+        for (const [previousIndex, previousWord] of cue.word_timings.entries()) {
+          if (previousIndex >= wordIndex) break;
+          if (word.source_span.start_utf8_byte < previousWord.source_span.end_utf8_byte && previousWord.source_span.start_utf8_byte < word.source_span.end_utf8_byte) {
+            context.addIssue({ code: z.ZodIssueCode.custom, path: wordPath, message: "word timing source spans must not overlap" });
+            break;
+          }
+        }
       }
     }
-    if (index > 0 && span.start_utf8_byte < sortedSpans[index - 1]!.source_span.end_utf8_byte) context.addIssue({ code: z.ZodIssueCode.custom, path: ["cues", index, "source_span"], message: "lyrics source spans must not overlap" });
+  }
+  const sortedSpans = value.cues.map((cue, index) => ({ cue, index })).sort((left, right) => left.cue.source_span.start_utf8_byte - right.cue.source_span.start_utf8_byte);
+  for (let index = 1; index < sortedSpans.length; index += 1) {
+    const previous = sortedSpans[index - 1]!;
+    const current = sortedSpans[index]!;
+    if (current.cue.source_span.start_utf8_byte < previous.cue.source_span.end_utf8_byte) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["cues", current.index, "source_span"], message: "lyrics source spans must not overlap" });
+    }
   }
   const timedCount = value.cues.filter((cue) => cue.timing === "timed").length;
   if (value.alignment_state === "unaligned" && (value.alignment_basis !== "not-aligned" || timedCount !== 0)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["alignment_state"], message: "unaligned lyrics require not-aligned basis and all untimed cues" });
