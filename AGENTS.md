@@ -13,6 +13,7 @@
 - `run` / `render` は Coordinator だけが、明示承認後に実行できる。
 - Planner / Reviewer は `validate`、`plan`、`review`、`run --dry-run` まで。
 - 構成やカットを提案する前に `story-guides` を実行し、第一候補、補助候補、不採用理由、尺配分、映像文法を確認する。
+- キャラ付き・複数ショット物語・一貫性を求める自然言語依頼では、正本スキルの **Identity Lock Protocol** を適用する。声・外見・仕草・場所の固定を平易な文で一度確認し、エージェントが `locked_blocks` / `scenes` / `lock-block` を書く。ユーザーに YAML や sha256 を書かせない。Gate / 課金は従来どおり人間承認後のみ。
 - Gate 1を承認する前に `review` を実行し、`dist/<run-id>/review/index.html` と `review-data.json` を確認する。成果物がない、または対象projectと一致しない場合は承認しない。
 - generationを計画するときは `guides` と `plan.prompt_guidance` を確認し、catalogの存在を実行能力とみなさない。
 - Output QA は manifest と成果物検査のみ。編集や実行はしない。
