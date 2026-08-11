@@ -1,4 +1,5 @@
 import { constants as fsConstants } from "node:fs";
+import { createHash } from "node:crypto";
 import { lstat, open, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import * as nativePath from "node:path";
@@ -8,6 +9,7 @@ import { sha256Canonical } from "../productionControl/canonical.js";
 import { generationUnitContractSchema, toProgramBindingSource } from "../productionControl/contracts/generationUnit.js";
 import { lyricsContractSchema, type LyricsContractV1 } from "../productionControl/contracts/lyrics.js";
 import { musicStructureContractSchema } from "../productionControl/contracts/music.js";
+import { assetContractSchema } from "../productionControl/contracts/asset.js";
 import {
   generationUnitProgramSourceSchema,
   type GenerationUnitProgramSourceV1
@@ -27,6 +29,15 @@ const trustedGenerationUnitLyricsTokens = new WeakSet<object>();
 const lyricsSnapshots = new WeakMap<object, LyricsSource>();
 const lyricsTokenBySource = new WeakMap<object, TrustedGenerationUnitLyricsToken>();
 const fullT04Snapshots = new WeakMap<object, { unit: unknown; lyrics?: unknown }>();
+
+export type GenerationUnitContractFacts = {
+  generation_unit_digest: string;
+  master_duration_ms: number;
+  clip_duration_ms: number;
+  audio_policy: "reuse-master" | "reference-only" | "native-generated" | "silent";
+  reference_audio_asset_id?: string;
+  reference_audio_asset_digest?: string;
+};
 
 /**
  * Separator-aware containment used by the source resolver and its Windows
@@ -66,6 +77,23 @@ export function isAuthoritativeGenerationUnitSource(source: GenerationUnitProgra
   } catch {
     return false;
   }
+}
+
+export function generationUnitContractFacts(source: GenerationUnitProgramSourceV1): GenerationUnitContractFacts | undefined {
+  if (!isAuthoritativeGenerationUnitSource(source)) return undefined;
+  const snapshot = fullT04Snapshots.get(source as object);
+  if (!snapshot) return undefined;
+  const unit = generationUnitContractSchema.parse(snapshot.unit);
+  return deepFreeze({
+    generation_unit_digest: unit.digest,
+    master_duration_ms: unit.program.master_duration_ms,
+    clip_duration_ms: unit.clip_duration_ms,
+    audio_policy: unit.audio_policy,
+    ...(unit.reference_audio_binding ? {
+      reference_audio_asset_id: unit.reference_audio_binding.derived_asset_id,
+      reference_audio_asset_digest: unit.reference_audio_binding.derived_asset_digest
+    } : {})
+  });
 }
 
 /**
@@ -200,7 +228,16 @@ async function resolveAuthoritativeGenerationUnit(
       if (!binding || !referenceAsset || referenceAsset.type !== "audio"
         || referenceAsset.sha256 !== binding.derived_asset_digest
         || binding.source_start_ms !== unit.program.start_ms
-        || binding.source_end_ms !== unit.program.end_ms) return undefined;
+        || binding.source_end_ms !== unit.program.end_ms
+        || !ir.audio.reference_asset_ids.includes(binding.derived_asset_id)
+        || ir.audio.reference_asset_ids.length !== 1) return undefined;
+      const assetRef = project.orchestration?.authoring?.assets;
+      if (!assetRef || assetRef.id.length === 0 || assetRef.digest.length !== 64) return undefined;
+      const assetContract = parseArtifact(await store.readBounded(assetRef.id, MAX_CONTRACT_ARTIFACT_BYTES), assetContractSchema, assetRef.digest);
+      const assetEntry = assetContract.assets.find((asset) => asset.asset_id === binding.derived_asset_id);
+      if (!assetEntry || assetEntry.kind !== "audio" || assetEntry.sha256 !== binding.derived_asset_digest
+        || assetEntry.external_send !== "allowed") return undefined;
+      if (!(await verifyProjectAssetBytes(canonicalProjectRoot, assetEntry.project_relative_path, assetEntry.sha256, assetEntry.byte_size))) return undefined;
     }
 
     let lyrics: LyricsContractV1 | undefined;
@@ -227,6 +264,8 @@ async function resolveAuthoritativeGenerationUnit(
       const lyricsSource = deepFreeze({
         canonical_text: lyrics.source.canonical_text,
         text_digest: lyrics.source.text_digest,
+        language_bcp47: lyrics.language_bcp47,
+        program_start_ms: unit.program.start_ms,
         cues: unit.lyric_cue_refs.map((ref) => {
           const cue = lyrics!.cues.find((candidate) => candidate.id === ref.fragment_id)!;
           return {
@@ -234,8 +273,19 @@ async function resolveAuthoritativeGenerationUnit(
             occurrence_id: cue.source_span.occurrence_id,
             timing: cue.timing,
             lyrics_contract_digest: lyrics!.digest,
+            language_bcp47: lyrics!.language_bcp47,
             source_span: cue.source_span,
-            ...(cue.timing === "timed" ? { start_ms: cue.start_ms, end_ms: cue.end_ms } : {}),
+            ...(cue.timing === "timed" ? {
+              start_ms: cue.start_ms,
+              end_ms: cue.end_ms,
+              ...(cue.word_timings ? {
+                word_timings: cue.word_timings.map((word) => ({
+                  start_ms: word.start_ms - unit.program.start_ms,
+                  end_ms: word.end_ms - unit.program.start_ms,
+                  source_span: word.source_span
+                }))
+              } : {})
+            } : {}),
             singer_ids: [...cue.singer_ids],
             use: [...cue.use]
           };
@@ -282,6 +332,37 @@ function sameFileIdentity(
     && before.dev === after.dev && before.ino === after.ino
     && before.size === after.size
     && before.mtimeMs === after.mtimeMs;
+}
+
+async function verifyProjectAssetBytes(root: string, projectRelativePath: string, expectedDigest: string, expectedSize: number): Promise<boolean> {
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    const realRoot = await realpath(root);
+    const lexical = join(realRoot, projectRelativePath);
+    const lexicalStat = await lstat(lexical);
+    if (lexicalStat.isSymbolicLink() || !lexicalStat.isFile() || lexicalStat.dev === 0 || lexicalStat.ino === 0 || lexicalStat.size !== expectedSize) return false;
+    const real = await realpath(lexical);
+    if (real !== lexical || !isGenerationUnitPathContained(realRoot, real)) return false;
+    handle = await open(lexical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const before = await handle.stat();
+    if (!before.isFile() || before.dev === 0 || before.ino === 0 || before.dev !== lexicalStat.dev || before.ino !== lexicalStat.ino || before.size !== expectedSize) return false;
+    const hash = createHash("sha256");
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    let offset = 0;
+    while (offset < before.size) {
+      const read = await handle.read(chunk, 0, Math.min(chunk.byteLength, before.size - offset), offset);
+      if (read.bytesRead <= 0) return false;
+      hash.update(chunk.subarray(0, read.bytesRead));
+      offset += read.bytesRead;
+    }
+    const after = await handle.stat();
+    return hash.digest("hex") === expectedDigest
+      && after.dev === before.dev && after.ino === before.ino && after.size === before.size && after.mtimeMs === before.mtimeMs;
+  } catch {
+    return false;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 function deepFreeze<T>(value: T): T {

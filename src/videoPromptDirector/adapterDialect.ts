@@ -28,20 +28,6 @@ export type RendererDialectCapability = AdapterDialectCapability;
 
 export const ADAPTER_DIALECT_PROFILE_CODE = "VPD-R002";
 
-/** Explicit compatibility-only dialect registry for hand-built unit fixtures. */
-const FIXTURE_DIALECT_REGISTRY = new Map<string, AdapterDialectCapability>([
-  ["fixture-adapter:minimax-h3", {
-    adapter_id: "fixture-adapter",
-    renderer: "h3-grammar",
-    label_dialect: "picture",
-    source_digest: adapterDialectProfileDigest({
-      adapter_id: "fixture-adapter",
-      renderer: "h3-grammar",
-      label_dialect: "picture"
-    })
-  }]
-]);
-
 export function adapterDialectProfileDigest(
   profile: Omit<AdapterDialectCapability, "source_digest">
 ): string {
@@ -120,10 +106,21 @@ export function resolveRendererDialectCapability(input: {
     if (profile.renderer === "plain-prompt" && profile.label_dialect !== "none") return undefined;
     return capability;
   }
-  // Compatibility fixtures are deliberately confined to manual fixture routes;
-  // production routes must carry a loaded adapter profile.
-  if (!input.model_profile && !input.connection_profile) {
-    return FIXTURE_DIALECT_REGISTRY.get(`${input.route.adapter_id}:${input.route.ir_model}`);
+  // Hand-built unit fixtures may use the explicit fixture route. This is not
+  // a production adapter registry: every real route must load an exact
+  // adapter-profile entry above, and unknown manual adapter ids fail closed.
+  if (!input.model_profile && !input.connection_profile
+    && input.route.transport === "manual"
+    && input.route.adapter_id === "fixture-adapter") {
+    const profile = {
+      adapter_id: input.route.adapter_id,
+      model_profile_id: input.route.ir_model,
+      provider_model: input.route.provider_model,
+      modes: [input.route.mode_binding],
+      renderer: "h3-grammar" as const,
+      label_dialect: "picture" as const
+    };
+    return { ...profile, source_digest: adapterDialectProfileDigest(profile) };
   }
   return undefined;
 }
@@ -193,6 +190,15 @@ export function compileAdapterDialect(
     if (occurrences === 0 && canonicalPrompt.includes(label.asset_id)) {
       issues.push(issue("VPD-R001", `asset '${label.asset_id}' is mentioned without its canonical label`, "error", ["assets", label.asset_id]));
     }
+  }
+  const exactSourceTexts = ir.shots.flatMap((shot) => [
+    ...shot.vocal_events.flatMap((event) => event.content.source === "inline-exact" || event.content.source === "legacy-unaligned" ? [event.content.exact_text] : []),
+    ...shot.visible_text_events.map((event) => event.text)
+  ]);
+  const exactCanonicalLabel = labels.assets.find((label) => exactSourceTexts.some((text) => text.includes(label.canonical)));
+  if (exactCanonicalLabel) {
+    issues.push(issue("VPD-X001", `exact text contains canonical media label '${exactCanonicalLabel.canonical}' and cannot be adapter-rewritten`, "error", ["prompt", "exact_text"]));
+    return { canonical_prompt: canonicalPrompt, adapter_prompt: canonicalPrompt, labels, issues };
   }
   const protectedRanges = exactTextRanges(canonicalPrompt);
   const adapterPrompt = mapCanonicalLabels(canonicalPrompt, labels.assets, protectedRanges, (label) => {

@@ -38,7 +38,7 @@ import {
 } from "../videoPromptDirector/videoPromptCompile.js";
 import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { loadProject } from "./loadProject.js";
-import { generationRequestCapability, type AnalysisRequest, type Project } from "./schema.js";
+import { generationRequestCapability, generationRequestOutputKind, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
 
 export type ValidateProjectOptions = {
@@ -105,7 +105,9 @@ export async function validateProject(
   // Stage 1b: video_prompt authoring — planning compile only (no provider).
   // Fail-closed: empty prompt video_prompt must never pass through silently.
   const hasVideoPrompt = project.generation?.requests.some(
-    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined || request.h3 !== undefined
+    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
+      || request.h3 !== undefined
+      || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
   );
   if (hasVideoPrompt) {
     const generationUnitSourceResolver = options.generationUnitSourceResolver
@@ -114,8 +116,9 @@ export async function validateProject(
       intent: "planning",
       generationUnitSourceResolver,
       ...(options.grammarProfileRoot ? { grammarProfileRoot: options.grammarProfileRoot } : {}),
-      compilationArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir, "compilations"),
-      shadowArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir, "shadow", "video-prompt")
+      compilationArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir),
+      revision_id: project.run_id ?? project.slug,
+      shadowArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir, "shadow", "video-prompt"),
     });
     videoPromptPlans = videoCompile.plans ?? [];
     videoPromptShadowComparisons = videoCompile.shadow_comparisons ?? [];

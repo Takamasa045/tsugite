@@ -58,7 +58,7 @@ import {
   generationUnitProgramSourceSchema,
   type GenerationUnitProgramSourceV1
 } from "../productionControl/programBinding.js";
-import { isAuthoritativeGenerationUnitSource } from "./generationUnitSourceResolver.js";
+import { generationUnitContractFacts, isAuthoritativeGenerationUnitSource } from "./generationUnitSourceResolver.js";
 
 export const VIDEO_PROMPT_V2_WORKFLOW_ID = "video-prompt-v3" as const;
 export const VIDEO_PROMPT_V2_WORKFLOW_VERSION = H3_GRAMMAR_V3_VERSION;
@@ -196,6 +196,9 @@ export function compileVideoPromptIrV2(
     } else if (!isAuthoritativeGenerationUnitSource(options.generation_unit_source)) {
       issues.push(issue("VPD-U001", "MV source must be derived by the authoritative T04 artifact resolver", "error", ["generation_unit_source"]));
     } else {
+      if (!generationUnitContractFacts(options.generation_unit_source)) {
+        issues.push(issue("VPD-U001", "MV source is missing the complete T04 GenerationUnitContract snapshot", "error", ["generation_unit_source"]));
+      }
       issues.push(...validateMvBinding(
         ir.program_binding,
         ir.target.duration_ms,
@@ -438,7 +441,10 @@ export function compileVideoPromptIrV2(
     asset_evidence: options.asset_evidence,
     ...(Object.keys(assetPins).length > 0 ? { asset_pins: assetPins } : {}),
     ...(options.generation_unit_source ? {
-      generation_unit_source: options.generation_unit_source
+      generation_unit_source: options.generation_unit_source,
+      ...(generationUnitContractFacts(options.generation_unit_source)
+        ? { generation_unit_source_facts: generationUnitContractFacts(options.generation_unit_source) }
+        : {})
     } : {})
   });
   return { ok: true, compilation: { ...partial, bundle }, issues: [] };

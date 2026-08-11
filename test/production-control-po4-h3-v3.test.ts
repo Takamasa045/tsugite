@@ -186,7 +186,8 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
       lyrics_source: {
         canonical_text: lyricText,
         text_digest: lyricDigest,
-        cues: [{ cue_id: "cue-1", occurrence_id: "occ-1", timing: "timed", lyrics_contract_digest: ZERO, source_span: { start_utf8_byte: 0, end_utf8_byte: Buffer.byteLength(lyricText), text_digest: lyricDigest } }]
+        language_bcp47: "ja-JP",
+        cues: [{ cue_id: "cue-1", occurrence_id: "occ-1", timing: "timed", lyrics_contract_digest: ZERO, language_bcp47: "ja-JP", source_span: { start_utf8_byte: 0, end_utf8_byte: Buffer.byteLength(lyricText), text_digest: lyricDigest }, start_ms: 1_000, end_ms: 10_000, singer_ids: ["S1", "S2"], use: ["generated-singing"] }]
       }
     });
     expect(result.ok).toBe(true);
@@ -532,7 +533,7 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
   it("rejects a non-H3 renderer/dialect combination instead of leaking H3 labels", () => {
     const plainRoute = createRouteIdentity({
       ir_model: "c1", provider_model: "c1", model_profile_digest: ZERO, connection_id: "fixture-connection",
-      connection_digest: ZERO, adapter_id: "fixture-adapter", transport: "manual", mode_binding: "text-to-video"
+      connection_digest: ZERO, adapter_id: "unknown-dialect", transport: "manual", mode_binding: "text-to-video"
     });
     const result = compileVideoPromptIrV2(baseV2({ target: { ...baseV2().target, model_profile_id: "c1" } }), { route: plainRoute });
     expect(result.ok).toBe(false);

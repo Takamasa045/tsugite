@@ -61,6 +61,7 @@ export type LyricsCueSource = {
   occurrence_id: string;
   timing: "timed" | "untimed";
   lyrics_contract_digest: string;
+  language_bcp47?: string;
   source_span: {
     start_utf8_byte: number;
     end_utf8_byte: number;
@@ -68,6 +69,7 @@ export type LyricsCueSource = {
   };
   start_ms?: number;
   end_ms?: number;
+  word_timings?: Array<{ start_ms: number; end_ms: number; source_span: LyricsCueSource["source_span"] }>;
   singer_ids?: string[];
   use?: Array<"caption-overlay" | "story-cue" | "generated-singing" | "audio-reference">;
 };
@@ -75,6 +77,8 @@ export type LyricsCueSource = {
 export type LyricsSource = {
   canonical_text: string;
   text_digest: string;
+  language_bcp47?: string;
+  program_start_ms?: number;
   cues: LyricsCueSource[];
 };
 
@@ -319,16 +323,39 @@ export function resolveVocalEventText(
   if (!cue || cue.lyrics_contract_digest !== content.lyrics_contract_digest) {
     return { issues: [issue("VPD-L002", "lyrics cue or contract binding is missing", "error", path.split("."))] };
   }
-  if (event.kind === "singing" && cue.use && !cue.use.includes("generated-singing")) {
-    return { issues: [issue("VPD-L002", "caption-only or editor-only lyrics cue cannot flow into generated singing", "error", path.split("."))] };
+  const hasAuthoritativeCueMetadata = cue.singer_ids !== undefined || cue.language_bcp47 !== undefined || source.program_start_ms !== undefined;
+  if (hasAuthoritativeCueMetadata) {
+    const allowedUses = event.kind === "singing"
+      ? ["generated-singing"]
+      : ["story-cue", "generated-singing"];
+    if (!cue.use || !cue.use.some((use) => allowedUses.includes(use))) {
+      return { issues: [issue("VPD-L002", "caption-only, editor-only, or audio-reference lyrics cue cannot flow into a provider vocal event", "error", path.split("."))] };
+    }
+    const cueSingers = [...(cue.singer_ids ?? [])].sort();
+    const eventSingers = [...event.speaker_ids].sort();
+    if (cueSingers.length === 0 || cueSingers.join("\u0000") !== eventSingers.join("\u0000")) {
+      return { issues: [issue("VPD-L004", "lyrics cue singers must exactly match every serialized vocal speaker", "error", path.split("."))] };
+    }
+    if (cue.language_bcp47 && event.language_id.toLowerCase() !== cue.language_bcp47.toLowerCase()
+      && event.language_id.toLowerCase() !== cue.language_bcp47.split("-")[0]!.toLowerCase()) {
+      return { issues: [issue("VPD-L005", "vocal event language is outside the authoritative lyrics language allowlist", "error", path.split("."))] };
+    }
   }
-  const timingIssues = options.require_exact_sync && cue.timing === "untimed"
+  const exactSync = options.require_exact_sync === true || event.kind === "singing";
+  const timingIssues = exactSync && cue.timing === "untimed"
     ? [issue("VPD-L003", "untimed lyrics cue cannot be used where exact synchronization is required", "error", path.split("."))]
     : [];
-  if (cue.timing === "timed" && cue.start_ms !== undefined && cue.end_ms !== undefined
-    && event.start_ms !== undefined && event.end_ms !== undefined
-    && (event.start_ms !== cue.start_ms || event.end_ms !== cue.end_ms)) {
-    timingIssues.push(issue("VPD-L003", "lyrics event timing does not match the authoritative cue timing", "error", path.split(".")));
+  if (cue.timing === "timed" && cue.start_ms !== undefined && cue.end_ms !== undefined) {
+    const offset = source.program_start_ms ?? 0;
+    const localStart = cue.start_ms - offset;
+    const localEnd = cue.end_ms - offset;
+    if (localStart < 0 || localEnd <= localStart) timingIssues.push(issue("VPD-L003", "lyrics cue is outside the nonzero MV unit clip", "error", path.split(".")));
+    if (exactSync && (event.start_ms === undefined || event.end_ms === undefined)) {
+      timingIssues.push(issue("VPD-L003", "exactly synchronized lyrics events require explicit start and end", "error", path.split(".")));
+    } else if (event.start_ms !== undefined && event.end_ms !== undefined
+      && (event.start_ms !== localStart || event.end_ms !== localEnd)) {
+      timingIssues.push(issue("VPD-L003", "lyrics event timing does not match the clip-local authoritative cue timing", "error", path.split(".")));
+    }
   }
   const bytes = Buffer.from(source.canonical_text, "utf8");
   const { start_utf8_byte: start, end_utf8_byte: end } = cue.source_span;

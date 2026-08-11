@@ -774,7 +774,9 @@ async function assembleGeneratedMediaRun(
   // video_prompt authoring is planning/dry-run only in P0–P4. Re-evaluate with
   // intent=execute so planning-only compilations never reach billing adapters.
   const hasVideoPrompt = project.generation!.requests.some(
-    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined || request.h3 !== undefined
+    (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
+      || request.h3 !== undefined
+      || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
   );
   if (hasVideoPrompt) {
     const generationUnitSourceResolver = options.generationUnitSourceResolver

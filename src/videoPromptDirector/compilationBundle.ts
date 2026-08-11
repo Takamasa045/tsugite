@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, writeSync } from "node:fs";
 import { constants as fsConstants } from "node:fs";
-import { mkdir, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import * as nativePath from "node:path";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { programBindingSchema, routeIdentitySchema, type GenerationUnitProgramSo
 import { digestSchema, safeIdSchema } from "../productionControl/schema.js";
 import type { SemanticPromptBlock } from "./semanticBlocks.js";
 import type { VideoPromptIrV2 } from "./schemaV2.js";
+import type { GenerationUnitContractFacts } from "./generationUnitSourceResolver.js";
 import { effectiveGenerationContractSchema, routeIdentityDigest, type EffectiveGenerationContractV1 } from "./effectiveContract.js";
 import { isExecutionAuthoritativePinnedPromptBudgetEvidence } from "./promptBudgetEvidence.js";
 import { isTrustedH3GrammarProfile } from "./render/h3GrammarV3.js";
@@ -112,6 +113,14 @@ export const compilationBundleSchema = z.object({
       beat_anchor_ids: z.array(safeIdSchema).max(256),
       lyric_cue_ids: z.array(safeIdSchema).max(256),
       route_digest: digestSchema
+    }).strict().optional(),
+    generation_unit_contract_facts: z.object({
+      generation_unit_digest: digestSchema,
+      master_duration_ms: z.number().int().positive(),
+      clip_duration_ms: z.number().int().positive(),
+      audio_policy: z.enum(["reuse-master", "reference-only", "native-generated", "silent"]),
+      reference_audio_asset_id: safeIdSchema.optional(),
+      reference_audio_asset_digest: digestSchema.optional()
     }).strict().optional()
   }).strict(),
   compilation_digest: digestSchema
@@ -128,6 +137,9 @@ export const compilationBundleSchema = z.object({
   for (const [index, asset] of bundle.asset_lineage.entries()) {
     if (bundle.execution_capable && (!asset.pin_evidence || !asset.pin)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_lineage", index], message: "execution-capable bundles require verified evidence and an immutable pin for every asset" });
     if (asset.pin_evidence && asset.declared_sha256 && asset.declared_sha256 !== asset.pin_evidence.sha256) context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_lineage", index, "pin_evidence", "sha256"], message: "asset pin evidence does not match declared sha256" });
+  }
+  if (bundle.lineage.generation_unit_source_digest && !bundle.lineage.generation_unit_contract_facts) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["lineage", "generation_unit_contract_facts"], message: "MV lineage must bind complete T04 GenerationUnitContract facts" });
   }
   if (!bundle.validation.ok) context.addIssue({ code: z.ZodIssueCode.custom, path: ["validation", "ok"], message: "compilation bundle cannot commit a failed validation" });
   if (bundle.grammar_profile) {
@@ -152,6 +164,10 @@ export type CreateOnlyArtifactStoreEnvelope = {
   readonly create_only: true;
   readonly artifact_id: string;
   readonly artifact_digest: string;
+  readonly raw_bytes_digest?: string;
+  readonly compilation_digest?: string;
+  readonly request_id?: string;
+  readonly revision_id?: string;
   readonly [createOnlyArtifactStoreEnvelopeBrand]: true;
 };
 const trustedArtifactStoreEnvelopes = new WeakSet<object>();
@@ -174,6 +190,7 @@ export type AssetPin = {
 };
 const trustedAssetPins = new WeakSet<object>();
 const assetPinSnapshots = new WeakMap<object, string>();
+const assetPinRuntimeSnapshots = new WeakMap<object, { project_root: string; pin_root: string; pin_path: string; dev: number; ino: number; size: number; mtimeMs: number }>();
 
 export function isTrustedAssetPin(pin: AssetPin | undefined): boolean {
   return Boolean(pin) && trustedAssetPins.has(pin as object) && assetPinSnapshots.get(pin as object) === sha256Canonical(pin!);
@@ -242,12 +259,47 @@ export function createVerifiedAssetPin(input: {
     const pin: AssetPin = Object.freeze({ asset_id: input.asset_id, relative_path: pinRelativePath, sha256: digest, byte_size: before.size });
     trustedAssetPins.add(pin as object);
     assetPinSnapshots.set(pin as object, sha256Canonical(pin));
+    assetPinRuntimeSnapshots.set(pin as object, {
+      project_root: root,
+      pin_root: pinRoot,
+      pin_path: pinPath,
+      dev: pinStat.dev,
+      ino: pinStat.ino,
+      size: pinStat.size,
+      mtimeMs: pinStat.mtimeMs
+    });
     return pin;
   } catch (error) {
     throw error instanceof Error ? error : new Error("VPD-J002: asset pin failed");
   } finally {
     if (sourceFd >= 0) closeSync(sourceFd);
     if (pinFd >= 0) closeSync(pinFd);
+  }
+}
+
+/** Re-read the already-created pin at the execution boundary; the source IR path is never reopened. */
+export function verifyVerifiedAssetPin(
+  pin: AssetPin,
+  input: { project_root: string; pin_root: string; expected_sha256?: string; expected_size?: number }
+): void {
+  if (!isTrustedAssetPin(pin)) throw new Error("VPD-J002: asset pin is not an opaque trusted token");
+  const runtime = assetPinRuntimeSnapshots.get(pin as object);
+  if (!runtime || resolve(input.project_root) !== runtime.project_root || resolve(input.pin_root) !== runtime.pin_root) throw new Error("VPD-J002: asset pin root identity does not match");
+  assertStrongDirectoryChain(runtime.pin_root, runtime.project_root);
+  const lexical = join(runtime.pin_root, pin.relative_path);
+  if (!isProjectAssetIdentityContained(runtime.pin_root, lexical) || resolve(lexical) !== runtime.pin_path) throw new Error("VPD-J002: asset pin path identity does not match");
+  const leaf = lstatSync(lexical);
+  if (leaf.isSymbolicLink() || !leaf.isFile() || leaf.dev === 0 || leaf.ino === 0) throw new Error("VPD-J002: asset pin leaf identity is unavailable");
+  const fd = openSync(lexical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.dev !== runtime.dev || before.ino !== runtime.ino || before.size !== runtime.size || before.mtimeMs !== runtime.mtimeMs) throw new Error("VPD-J002: asset pin changed before execution");
+    const digest = sha256Fd(fd, before.size);
+    if (digest !== pin.sha256 || (input.expected_sha256 !== undefined && digest !== input.expected_sha256) || (input.expected_size !== undefined && before.size !== input.expected_size)) throw new Error("VPD-J002: asset pin bytes do not match expected digest");
+    const after = fstatSync(fd);
+    if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || after.mtimeMs !== before.mtimeMs) throw new Error("VPD-J002: asset pin changed during execution verification");
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -273,6 +325,7 @@ export type CompilationBundleInput = {
   upgrader_version?: string;
   source_digest?: string;
   generation_unit_source?: GenerationUnitProgramSourceV1;
+  generation_unit_source_facts?: GenerationUnitContractFacts;
   asset_evidence?: Readonly<Record<string, RuntimeAssetPinEvidence>>;
   asset_pins?: Readonly<Record<string, AssetPin>>;
 };
@@ -339,7 +392,8 @@ export function createCompilationBundle(input: CompilationBundleInput): Compilat
         generation_unit_source_digest: input.generation_unit_source.generation_unit_digest,
         generation_unit_source_canonical_digest: sha256Canonical(input.generation_unit_source),
         generation_unit_source_identity: generationUnitSourceIdentity(input.generation_unit_source)
-      } : {})
+      } : {}),
+      ...(input.generation_unit_source_facts ? { generation_unit_contract_facts: input.generation_unit_source_facts } : {})
     }
   };
   return deepFreeze(compilationBundleSchema.parse({
@@ -358,6 +412,9 @@ export type ExecutionBundleAuthorityContext = {
   trusted_pinned_budget_evidence?: unknown;
   asset_pins: Readonly<Record<string, AssetPin>>;
   artifact_store_envelope?: unknown;
+  revision_id?: string;
+  project_root?: string;
+  asset_pin_root?: string;
 };
 
 /**
@@ -369,6 +426,9 @@ export async function loadCreateOnlyArtifactStoreEnvelope(input: {
   store: ArtifactStore;
   artifact_id: string;
   artifact_digest: string;
+  expected_compilation_digest?: string;
+  request_id?: string;
+  revision_id?: string;
 }): Promise<CreateOnlyArtifactStoreEnvelope> {
   if (!(input.store instanceof ArtifactStore) || !/^[a-f0-9]{64}$/u.test(input.artifact_digest)) {
     throw new Error("VPD-K003: create-only artifact-store resolver is unavailable");
@@ -376,15 +436,49 @@ export async function loadCreateOnlyArtifactStoreEnvelope(input: {
   const bytes = await input.store.readBounded(input.artifact_id, 32 * 1024 * 1024);
   const actualDigest = createHash("sha256").update(bytes).digest("hex");
   if (actualDigest !== input.artifact_digest) throw new Error("VPD-K003: create-only artifact-store digest mismatch");
+  let compilationDigest: string | undefined;
+  if (input.expected_compilation_digest !== undefined) {
+    let parsed: CompilationBundleV1;
+    try { parsed = verifyCompilationBundle(JSON.parse(bytes.toString("utf8"))); } catch { throw new Error("VPD-K003: artifact bytes are not a strict compilation bundle"); }
+    if (parsed.compilation_digest !== input.expected_compilation_digest
+      || (input.request_id !== undefined && parsed.request_id !== input.request_id)) {
+      throw new Error("VPD-K003: stored compilation bundle identity mismatch");
+    }
+    if (!Buffer.from(JSON.stringify(parsed), "utf8").equals(bytes)) throw new Error("VPD-K003: stored compilation bundle bytes are not canonical");
+    compilationDigest = parsed.compilation_digest;
+  }
   const envelope = Object.freeze({
     kind: "create-only-artifact-store-envelope" as const,
     create_only: true as const,
     artifact_id: input.artifact_id,
-    artifact_digest: actualDigest
+    artifact_digest: actualDigest,
+    ...(compilationDigest ? { raw_bytes_digest: actualDigest, compilation_digest: compilationDigest } : {}),
+    ...(input.request_id ? { request_id: input.request_id } : {}),
+    ...(input.revision_id ? { revision_id: input.revision_id } : {})
   }) as CreateOnlyArtifactStoreEnvelope;
   trustedArtifactStoreEnvelopes.add(envelope as object);
   artifactStoreEnvelopeSnapshots.set(envelope as object, sha256Canonical(envelope));
   return envelope;
+}
+
+export async function createExecutionCompilationBundleArtifact(input: {
+  store: ArtifactStore;
+  bundle: CompilationBundleV1;
+  revision_id: string;
+}): Promise<CreateOnlyArtifactStoreEnvelope> {
+  const bundle = verifyCompilationBundle(input.bundle);
+  if (!bundle.execution_capable) throw new Error("VPD-K003: planning-only bundle cannot be persisted as execution authority");
+  if (!isSafeRelativeId(input.revision_id)) throw new Error("VPD-K002: revision id is unsafe");
+  const bytes = Buffer.from(JSON.stringify(bundle), "utf8");
+  const stored = await input.store.create({ artifact_id: `compilation-${input.revision_id}-${bundle.request_id}`, bytes });
+  return loadCreateOnlyArtifactStoreEnvelope({
+    store: input.store,
+    artifact_id: stored.artifact_id,
+    artifact_digest: stored.sha256,
+    expected_compilation_digest: bundle.compilation_digest,
+    request_id: bundle.request_id,
+    revision_id: input.revision_id
+  });
 }
 
 function isTrustedCreateOnlyArtifactStoreEnvelope(value: unknown): value is CreateOnlyArtifactStoreEnvelope {
@@ -407,12 +501,31 @@ export function adoptExecutionCompilationBundle(
   if (!isTrustedH3GrammarProfile(context.grammar_profile as never)) throw new Error("VPD-C003: execution requires a trusted pinned grammar profile");
   if (!isTrustedCreateOnlyArtifactStoreEnvelope(context.artifact_store_envelope)) throw new Error("VPD-K003: create-only artifact-store provenance is missing");
   if (!isExecutionAuthoritativePinnedPromptBudgetEvidence(context.trusted_pinned_budget_evidence)) throw new Error("VPD-K003: execution requires authoritative budget evidence");
-  if (sha256Canonical(context.effective_contract) !== bundle.effective_contract_digest
+  const liveEffective = effectiveGenerationContractSchema.parse(context.effective_contract);
+  if (liveEffective.mode !== bundle.route.mode_binding
+    || liveEffective.route.route_digest !== bundle.route.route_digest
+    || liveEffective.route.ir_model !== bundle.route.ir_model
+    || liveEffective.route.provider_model !== bundle.route.provider_model
+    || liveEffective.digests.model_profile !== bundle.model_profile_digest
+    || liveEffective.digests.connection_profile !== bundle.connection_capability_digest
+    || liveEffective.freshness.status !== "fresh"
+    || liveEffective.execution.status !== "execution-capable") {
+    throw new Error("VPD-K002: live effective contract route/profile/mode/freshness does not match bundle");
+  }
+  const { digest: _effectiveDigest, ...effectiveBody } = context.effective_contract;
+  if (sha256Canonical(effectiveBody) !== bundle.effective_contract_digest
     || context.effective_contract.digest !== bundle.effective_contract_digest) throw new Error("VPD-K002: live effective contract does not match bundle");
   const envelope = context.artifact_store_envelope;
-  if (envelope.artifact_id !== bundle.request_id) {
+  if (envelope.artifact_id !== `compilation-${context.revision_id ?? envelope.revision_id ?? ""}-${bundle.request_id}`
+    || envelope.compilation_digest !== bundle.compilation_digest
+    || envelope.raw_bytes_digest !== envelope.artifact_digest
+    || envelope.request_id !== bundle.request_id
+    || (context.revision_id !== undefined && envelope.revision_id !== context.revision_id)) {
     throw new Error("VPD-K003: create-only artifact-store provenance is missing");
   }
+  if (!context.project_root || !context.asset_pin_root) throw new Error("VPD-J002: execution requires a bound project-local asset pin root");
+  const expectedAssetIds = new Set(bundle.asset_lineage.map((asset) => asset.asset_id));
+  if (Object.keys(context.asset_pins).some((assetId) => !expectedAssetIds.has(assetId))) throw new Error("VPD-J002: live asset pin set contains an unbound asset");
   for (const asset of bundle.asset_lineage) {
     const pin = context.asset_pins[asset.asset_id];
     if (!pin || !isTrustedAssetPin(pin) || !asset.pin
@@ -423,6 +536,7 @@ export function adoptExecutionCompilationBundle(
       || asset.pin_evidence.byte_size !== pin.byte_size) {
       throw new Error(`VPD-J002: live opaque asset pin does not match '${asset.asset_id}'`);
     }
+    verifyVerifiedAssetPin(pin, { project_root: context.project_root, pin_root: context.asset_pin_root, expected_sha256: asset.pin.sha256, expected_size: asset.pin.byte_size });
   }
   adoptedExecutionBundles.add(bundle as object);
   return bundle as ExecutionCompilationBundle;
@@ -564,12 +678,18 @@ function generationUnitSourceIdentity(source: GenerationUnitProgramSourceV1) {
 export async function writeCompilationBundleAtomic(
   path: string,
   bundle: CompilationBundleV1,
-  options: { project_root?: string; allow_existing_same_digest?: boolean } = {}
+  options: {
+    project_root: string;
+    revision_id: string;
+    request_id: string;
+    allow_existing_same_digest?: boolean;
+  }
 ): Promise<void> {
   const checked = verifyCompilationBundle(bundle);
-  const target = resolve(path);
+  if (!options.project_root) throw new Error("VPD-K002: compilation artifact project root is required");
+  const projectRoot = resolve(options.project_root);
+  const target = resolveCompilationTarget(projectRoot, options.revision_id, options.request_id);
   const parent = dirname(target);
-  const projectRoot = resolve(options.project_root ?? parent);
   if (!isAbsolute(target) || !isProjectAssetIdentityContained(projectRoot, target)) throw new Error("VPD-K002: compilation artifact path escapes the trusted project root");
   await mkdir(parent, { recursive: true });
   assertDirectoryIdentity(projectRoot);
@@ -579,10 +699,9 @@ export async function writeCompilationBundleAtomic(
     if (existing.isSymbolicLink() || existing.isFile()) throw new Error("VPD-K002: compilation artifact already exists");
     if (existing.isDirectory() && options.allow_existing_same_digest) {
       try {
-        const marker = JSON.parse(await readFile(join(target, "compilation-manifest.json"), "utf8")) as { compilation_digest?: unknown };
-        const persisted = verifyCompilationBundle(JSON.parse(await readFile(join(target, "bundle.json"), "utf8")));
-        if (marker.compilation_digest === checked.compilation_digest
-          && marker.compilation_digest === persisted.compilation_digest) return;
+        const persisted = readCompilationBundleAtomic(target, { project_root: projectRoot });
+        if (persisted.manifest.compilation_digest === checked.compilation_digest
+          && persisted.bundle.compilation_digest === checked.compilation_digest) return;
       } catch {
         // A partial or malformed final directory is never adopted.
       }
@@ -609,13 +728,31 @@ export async function writeCompilationBundleAtomic(
       committed: true
     }));
     fsyncDirectory(temp);
+    // Do not rename over the final directory: POSIX rename replaces an empty
+    // destination. A final mkdir is the no-replace publication primitive; the
+    // manifest is then created last as the commit marker readers require.
     try {
-      const raced = lstatSync(target);
-      if (raced.isSymbolicLink() || raced.isDirectory() || raced.isFile()) throw new Error("VPD-K002: compilation artifact appeared during atomic write");
+      await mkdir(target, { recursive: false, mode: 0o700 });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("VPD-K002: compilation artifact appeared during atomic write");
+      throw error;
     }
-    await rename(temp, target);
+    assertStrongDirectoryChain(target, projectRoot);
+    const files = [
+      "canonical-prompt.txt",
+      "adapter-prompt.txt",
+      "validation.json",
+      "route.json",
+      "effective-contract.json",
+      "lineage.json",
+      "bundle.json"
+    ];
+    for (const file of files) {
+      await writeCreateOnlyText(join(target, file), readBoundedFile(join(temp, file)).replace(/\n$/u, ""));
+    }
+    assertStrongDirectoryChain(target, projectRoot);
+    await writeCreateOnlyText(join(target, "compilation-manifest.json"), readBoundedFile(join(temp, "compilation-manifest.json")).replace(/\n$/u, ""));
+    fsyncDirectory(target);
     fsyncDirectory(parent);
   } catch (error) {
     try { await rm(temp, { recursive: true, force: true }); } catch { /* best-effort cleanup of a private temp sibling */ }
@@ -623,21 +760,90 @@ export async function writeCompilationBundleAtomic(
   }
 }
 
+export type PersistedCompilationBundle = {
+  bundle: CompilationBundleV1;
+  manifest: {
+    schema_version: 1;
+    compilation_digest: string;
+    canonical_prompt_digest: string;
+    adapter_prompt_digest: string;
+    committed: true;
+  };
+};
+
+export function readCompilationBundleAtomic(
+  path: string,
+  options: { project_root: string; revision_id?: string; request_id?: string }
+): PersistedCompilationBundle {
+  if (!options.project_root) throw new Error("VPD-K002: compilation artifact project root is required");
+  const projectRoot = resolve(options.project_root);
+  const target = options.revision_id !== undefined || options.request_id !== undefined
+    ? resolveCompilationTarget(projectRoot, options.revision_id, options.request_id ?? "")
+    : resolve(path);
+  if (!isProjectAssetIdentityContained(projectRoot, target)) throw new Error("VPD-K002: compilation artifact path escapes the trusted project root");
+  assertDirectoryIdentity(projectRoot);
+  assertStrongDirectoryChain(target, projectRoot);
+  const marker = z.object({
+    schema_version: z.literal(1),
+    compilation_digest: digestSchema,
+    canonical_prompt_digest: digestSchema,
+    adapter_prompt_digest: digestSchema,
+    committed: z.literal(true)
+  }).strict().parse(JSON.parse(readBoundedFile(join(target, "compilation-manifest.json"))));
+  const bundle = verifyCompilationBundle(JSON.parse(readBoundedFile(join(target, "bundle.json"))));
+  if (bundle.compilation_digest !== marker.compilation_digest
+    || bundle.canonical_prompt_digest !== marker.canonical_prompt_digest
+    || bundle.adapter_prompt_digest !== marker.adapter_prompt_digest) {
+    throw new Error("VPD-K002: persisted compilation manifest does not match bundle");
+  }
+  for (const file of ["canonical-prompt.txt", "adapter-prompt.txt", "validation.json", "route.json", "effective-contract.json", "lineage.json"]) {
+    if (readBoundedFile(join(target, file)).length === 0) throw new Error("VPD-K002: persisted compilation file is empty");
+  }
+  if (readBoundedFile(join(target, "canonical-prompt.txt")) !== `${bundle.canonical_prompt}\n`
+    || readBoundedFile(join(target, "adapter-prompt.txt")) !== `${bundle.adapter_prompt}\n`
+    || sha256Canonical(JSON.parse(readBoundedFile(join(target, "validation.json")))) !== sha256Canonical(bundle.validation)
+    || sha256Canonical(JSON.parse(readBoundedFile(join(target, "route.json")))) !== sha256Canonical(bundle.route)
+    || sha256Canonical(JSON.parse(readBoundedFile(join(target, "effective-contract.json")))) !== sha256Canonical(bundle.effective_contract)
+    || sha256Canonical(JSON.parse(readBoundedFile(join(target, "lineage.json")))) !== sha256Canonical(bundle.lineage)) {
+    throw new Error("VPD-K002: persisted compilation file set does not match the committed bundle");
+  }
+  return { bundle, manifest: marker };
+}
+
+function resolveCompilationTarget(projectRoot: string, revisionId: string | undefined, requestId: string): string {
+  if (!revisionId || !isSafeRelativeId(revisionId) || !isSafeRelativeId(requestId)) throw new Error("VPD-K002: revision and request ids must be safe relative ids");
+  return join(projectRoot, revisionId, "video-prompt", requestId);
+}
+
+function isSafeRelativeId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value);
+}
+
 /** Shadow comparison is intentionally a separate, non-authoritative namespace. */
 export async function writeShadowComparisonAtomic(
   root: string,
-  comparison: { request_id: string; authoritative: "legacy"; status: string; compilation_digest?: string; issues: unknown[] }
+  comparison: { request_id: string; authoritative: "legacy"; status: string; compilation_digest?: string; issues: unknown[]; revision_id?: string; legacy_canonical_prompt_digest?: string; legacy_adapter_prompt_digest?: string; v2_canonical_prompt_digest?: string; v2_adapter_prompt_digest?: string; diff?: unknown },
+  options: { project_root: string; revision_id: string }
 ): Promise<void> {
-  const target = join(resolve(root), comparison.request_id);
-  await mkdir(target, { recursive: true, mode: 0o700 });
+  if (!options.project_root) throw new Error("VPD-K002: shadow artifact project root is required");
+  const projectRoot = resolve(options.project_root);
+  const target = resolveCompilationTarget(projectRoot, options.revision_id, comparison.request_id);
+  assertDirectoryIdentity(projectRoot);
+  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+  assertStrongDirectoryChain(dirname(target), projectRoot);
+  try { await mkdir(target, { recursive: false, mode: 0o700 }); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
   const payload = JSON.stringify({ ...comparison, authoritative: "legacy", gate_binding: null, run_binding: null });
   try {
     await writeCreateOnlyText(join(target, "comparison.json"), payload);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    const existing = await readFile(join(target, "comparison.json"), "utf8");
+    const existing = readBoundedFile(join(target, "comparison.json"));
     if (existing !== `${payload}\n`) throw new Error("VPD-C004: shadow comparison artifact changed after commit");
   }
+  fsyncDirectory(target);
+  fsyncDirectory(dirname(target));
 }
 
 const MAX_BUNDLE_FILE_BYTES = 32 * 1024 * 1024;
@@ -650,6 +856,34 @@ async function writeCreateOnlyText(path: string, value: string): Promise<void> {
     let offset = 0;
     while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
     fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function readBoundedFile(path: string): string {
+  const expected = lstatSync(path);
+  if (expected.isSymbolicLink() || !expected.isFile() || expected.dev === 0 || expected.ino === 0 || expected.size > MAX_BUNDLE_FILE_BYTES) {
+    throw new Error("VPD-K002: compilation artifact leaf is not a bounded stable regular file");
+  }
+  const fd = openSync(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.dev === 0 || opened.ino === 0 || opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size !== expected.size || opened.size > MAX_BUNDLE_FILE_BYTES) {
+      throw new Error("VPD-K002: compilation artifact leaf identity changed");
+    }
+    const bytes = Buffer.alloc(opened.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = readSync(fd, bytes, offset, bytes.length - offset, offset);
+      if (count <= 0) throw new Error("VPD-K002: compilation artifact short read");
+      offset += count;
+    }
+    const after = fstatSync(fd);
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) {
+      throw new Error("VPD-K002: compilation artifact leaf changed during read");
+    }
+    return bytes.toString("utf8");
   } finally {
     closeSync(fd);
   }
