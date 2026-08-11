@@ -17,7 +17,7 @@ import {
   rejectDualAuthoring,
   VIDEO_PROMPT_DUAL_AUTHORING_CODE
 } from "./dualAuthoring.js";
-import { renderH3Prompt } from "./render/h3Grammar.js";
+import { compileLegacyH3V1 } from "./compileV2.js";
 import type { H3Asset, H3CreativeIr, H3Mode } from "./schema.js";
 import {
   H3_ASSET_BINDING_MISMATCH_CODE,
@@ -145,10 +145,15 @@ export function compileH3Request(
   issues.push(...validateAuthorConflicts(request, ir));
   issues.push(...validateModeAssets(ir));
 
-  const rendered = renderH3Prompt(ir);
-  const canonicalPrompt = rendered.text;
+  let legacyCompatibility: ReturnType<typeof compileLegacyH3V1>;
+  try {
+    legacyCompatibility = compileLegacyH3V1(ir);
+  } catch (error) {
+    return { ok: false, issues: [issue("H3-C000", error instanceof Error ? error.message : "legacy H3 upgrade failed", "error")] };
+  }
+  const canonicalPrompt = legacyCompatibility.canonical_prompt;
   // Separate field for a future label-dialect renderer; identical for contract v1.
-  const adapterPrompt = rendered.text;
+  const adapterPrompt = legacyCompatibility.adapter_prompt;
 
   // Empty author prompt, or exact deterministic compiler output, is allowed so
   // compileProjectH3(compileProjectH3(project).project) stays idempotent.

@@ -114,3 +114,105 @@ export {
   type CompileProjectVideoPromptResult,
   type VideoPromptPlan
 } from "./videoPromptCompile.js";
+
+export {
+  videoPromptIrV2Schema,
+  videoPromptModeV2Schema,
+  parseVideoPromptIrV2,
+  safeParseVideoPromptIrV2,
+  programBindingSchema,
+  routeIdentitySchema,
+  type VideoPromptIrV2,
+  type VideoPromptIrV2Standalone,
+  type VideoPromptIrV2Mv,
+  type ShotV2,
+  type VocalEventV2,
+  type VisibleTextEventV2,
+  type ProgramBindingForV2,
+  type RouteIdentityForV2
+} from "./schemaV2.js";
+
+export {
+  upgradeH3V1ToVideoPromptV2,
+  upgradeVideoPromptV1ToV2,
+  type V1UpgradeOptions,
+  type V1UpgradeResult
+} from "./upgradeV1.js";
+
+export {
+  buildSemanticBlocks,
+  semanticBlockDigestMap,
+  semanticBlocksDigest,
+  validateExactText,
+  resolveVocalEventText,
+  DEFAULT_RESERVED_EXACT_TEXT_TOKENS,
+  type LyricsSource,
+  type LyricsCueSource,
+  type SemanticPromptBlock,
+  type SemanticBlockResult,
+  type SemanticBlockOptions
+} from "./semanticBlocks.js";
+
+export {
+  createEffectiveGenerationContract,
+  createRouteIdentity,
+  routeFromProfiles,
+  routeIdentityDigest,
+  assertRouteIdentity,
+  assertEffectiveGenerationContract,
+  assertHomogeneousRouteIdentity,
+  validatePromptBudget,
+  validatePromptLength,
+  type EffectiveGenerationContractV1,
+  type PromptBudget,
+  type BudgetLimit,
+  type CapabilityClaim,
+  type RouteIdentityInput,
+  effectiveGenerationContractSchema
+} from "./effectiveContract.js";
+
+export {
+  buildAdapterLabelMap,
+  compileAdapterDialect,
+  validateAdapterDialect,
+  type AdapterLabel,
+  type AdapterLabelMap,
+  type AdapterDialectResult
+} from "./adapterDialect.js";
+
+export {
+  compileVideoPromptIrV2,
+  compileH3V1ThroughV2,
+  compileLegacyH3V1,
+  validateMvBinding,
+  VIDEO_PROMPT_V2_WORKFLOW_ID,
+  VIDEO_PROMPT_V2_WORKFLOW_VERSION,
+  type CompileVideoPromptV2Options,
+  type CompileVideoPromptV2Result,
+  type VideoPromptV2Compilation,
+  type GenerationUnitDurationBinding,
+  type LegacyH3CompatibilityCompilation
+} from "./compileV2.js";
+
+export {
+  renderH3GrammarV3,
+  validateGrammarShape,
+  DEFAULT_H3_GRAMMAR_PROFILE_V3,
+  H3_GRAMMAR_V3_VERSION,
+  H3_BASE_SECTION_ORDER_V3,
+  H3_REFERENCE_SECTION_ORDER_V3,
+  h3GrammarProfileDigest,
+  type H3GrammarProfileV3,
+  type H3GrammarV3Result,
+  type H3GrammarV3Options
+} from "./render/h3GrammarV3.js";
+
+export {
+  compilationBundleSchema,
+  createCompilationBundle,
+  verifyCompilationBundle,
+  assertCompilationBundleAssets,
+  writeCompilationBundleAtomic,
+  type CompilationBundleV1,
+  type CompilationBundleInput
+} from "./compilationBundle.js";

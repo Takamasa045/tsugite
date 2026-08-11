@@ -19,3 +19,12 @@ export {
   type CompileH3Options,
   type ModeMapping
 } from "../videoPromptDirector/compile.js";
+
+export {
+  compileLegacyH3V1,
+  compileH3V1ThroughV2,
+  compileVideoPromptIrV2,
+  validateMvBinding,
+  type CompileVideoPromptV2Options,
+  type CompileVideoPromptV2Result
+} from "../videoPromptDirector/compileV2.js";

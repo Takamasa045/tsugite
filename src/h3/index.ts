@@ -116,3 +116,24 @@ export {
   sha256Canonical,
   sha256Text
 } from "./hash.js";
+
+export {
+  videoPromptIrV2Schema,
+  videoPromptModeV2Schema,
+  parseVideoPromptIrV2,
+  safeParseVideoPromptIrV2,
+  type VideoPromptIrV2,
+  type VideoPromptIrV2Standalone,
+  type VideoPromptIrV2Mv
+} from "../videoPromptDirector/schemaV2.js";
+
+export {
+  upgradeH3V1ToVideoPromptV2,
+  compileLegacyH3V1,
+  compileH3V1ThroughV2,
+  compileVideoPromptIrV2,
+  type V1UpgradeOptions,
+  type V1UpgradeResult,
+  type CompileVideoPromptV2Options,
+  type CompileVideoPromptV2Result
+} from "../videoPromptDirector/index.js";

@@ -1,0 +1,192 @@
+import { randomBytes } from "node:crypto";
+import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { z } from "zod";
+import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
+import { programBindingSchema, routeIdentitySchema } from "../productionControl/programBinding.js";
+import { digestSchema, safeIdSchema } from "../productionControl/schema.js";
+import type { SemanticPromptBlock } from "./semanticBlocks.js";
+import type { VideoPromptIrV2 } from "./schemaV2.js";
+import { routeIdentityDigest } from "./effectiveContract.js";
+
+const issueSchema = z.object({
+  code: safeIdSchema,
+  message: z.string(),
+  severity: z.enum(["error", "warning"]),
+  path: z.array(z.union([z.string(), z.number()])).optional()
+}).strict();
+
+const assetLineageSchema = z.object({
+  asset_id: safeIdSchema,
+  path: z.string().min(1).refine((value) => !value.startsWith("/") && !value.includes("\\") && !value.split("/").includes(".."), "asset path must be project-relative"),
+  declared_sha256: digestSchema
+}).strict();
+
+export const compilationBundleSchema = z.object({
+  schema_version: z.literal(1),
+  workflow: z.literal("video-prompt-v3"),
+  request_id: safeIdSchema,
+  normalized_ir_digest: digestSchema,
+  normalized_ir_version: z.literal(2),
+  canonical_prompt: z.string(),
+  adapter_prompt: z.string(),
+  canonical_prompt_digest: digestSchema,
+  adapter_prompt_digest: digestSchema,
+  semantic_blocks: z.array(z.object({
+    block_id: safeIdSchema,
+    kind: z.string().min(1),
+    source_paths: z.array(z.string().min(1)),
+    text: z.string(),
+    digest: digestSchema,
+    exact_text_digests: z.array(digestSchema)
+  }).strict()).min(1),
+  block_digests: z.record(safeIdSchema, digestSchema),
+  model_profile_digest: digestSchema,
+  connection_capability_digest: digestSchema,
+  route: routeIdentitySchema,
+  program_binding: programBindingSchema.optional(),
+  asset_lineage: z.array(assetLineageSchema).max(256),
+  grammar_profile: z.object({
+    profile_id: safeIdSchema,
+    source_commit: z.string().min(1),
+    source_digest: digestSchema,
+    section_order: z.array(z.string().min(1)),
+    features: z.object({
+      scenetrans: z.boolean(),
+      cutoff: z.boolean(),
+      group_speaker: z.boolean(),
+      exact_dialogue: z.boolean()
+    }).strict(),
+    serialization_rules_digest: digestSchema,
+    digest: digestSchema
+  }).strict(),
+  labels_digest: digestSchema,
+  validation: z.object({
+    ok: z.boolean(),
+    issues: z.array(issueSchema),
+    errors: z.array(issueSchema),
+    warnings: z.array(issueSchema)
+  }).strict(),
+  lineage: z.object({
+    authoring_schema: z.string().min(1),
+    upgrader_version: z.string().min(1),
+    contract_bindings: z.array(digestSchema),
+    exact_text_digests: z.array(digestSchema),
+    source_digest: digestSchema.optional()
+  }).strict(),
+  compilation_digest: digestSchema
+}).strict().superRefine((bundle, context) => {
+  if (bundle.canonical_prompt_digest !== sha256Text(bundle.canonical_prompt)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["canonical_prompt_digest"], message: "canonical prompt digest mismatch" });
+  if (bundle.adapter_prompt_digest !== sha256Text(bundle.adapter_prompt)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["adapter_prompt_digest"], message: "adapter prompt digest mismatch" });
+  if (bundle.block_digests && Object.keys(bundle.block_digests).length !== bundle.semantic_blocks.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["block_digests"], message: "block digest map must cover every semantic block" });
+  for (const block of bundle.semantic_blocks) {
+    if (bundle.block_digests[block.block_id] !== block.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["block_digests", block.block_id], message: "semantic block digest mismatch" });
+  }
+  if (routeIdentityDigest(bundle.route) !== bundle.route.route_digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["route", "route_digest"], message: "route identity digest mismatch" });
+  if (!bundle.validation.ok) context.addIssue({ code: z.ZodIssueCode.custom, path: ["validation", "ok"], message: "compilation bundle cannot commit a failed validation" });
+  const { digest: _grammarDigest, ...grammarWithoutDigest } = bundle.grammar_profile;
+  if (sha256Canonical(grammarWithoutDigest) !== bundle.grammar_profile.digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["grammar_profile", "digest"], message: "grammar profile digest mismatch" });
+  const withoutDigest = { ...bundle } as Record<string, unknown>;
+  delete withoutDigest.compilation_digest;
+  if (sha256Canonical(withoutDigest) !== bundle.compilation_digest) context.addIssue({ code: z.ZodIssueCode.custom, path: ["compilation_digest"], message: "compilation digest mismatch" });
+});
+
+export type CompilationBundleV1 = z.infer<typeof compilationBundleSchema>;
+export type CompilationBundle = CompilationBundleV1;
+
+export type CompilationBundleInput = {
+  request_id: string;
+  ir: VideoPromptIrV2;
+  canonical_prompt: string;
+  adapter_prompt: string;
+  semantic_blocks: readonly SemanticPromptBlock[];
+  model_profile_digest: string;
+  connection_capability_digest: string;
+  route: CompilationBundleV1["route"];
+  program_binding?: CompilationBundleV1["program_binding"];
+  grammar_profile: CompilationBundleV1["grammar_profile"];
+  labels_digest: string;
+  validation: CompilationBundleV1["validation"];
+  authoring_schema?: "VideoPromptIrV2" | "V1" | "H3-V1";
+  contract_bindings?: string[];
+  exact_text_digests?: string[];
+  upgrader_version?: string;
+  source_digest?: string;
+};
+
+export function createCompilationBundle(input: CompilationBundleInput): CompilationBundleV1 {
+  const semanticBlocks = input.semantic_blocks.map((block) => ({ ...block, source_paths: [...block.source_paths], exact_text_digests: [...block.exact_text_digests] }));
+  const withoutDigest = {
+    schema_version: 1 as const,
+    workflow: "video-prompt-v3" as const,
+    request_id: input.request_id,
+    normalized_ir_digest: sha256Canonical(input.ir),
+    normalized_ir_version: 2 as const,
+    canonical_prompt: input.canonical_prompt,
+    adapter_prompt: input.adapter_prompt,
+    canonical_prompt_digest: sha256Text(input.canonical_prompt),
+    adapter_prompt_digest: sha256Text(input.adapter_prompt),
+    semantic_blocks: semanticBlocks,
+    block_digests: Object.fromEntries(semanticBlocks.map((block) => [block.block_id, block.digest])),
+    model_profile_digest: input.model_profile_digest,
+    connection_capability_digest: input.connection_capability_digest,
+    route: input.route,
+    ...(input.program_binding ? { program_binding: input.program_binding } : {}),
+    asset_lineage: input.ir.assets.map((asset) => ({ asset_id: asset.id, path: asset.path, declared_sha256: asset.sha256! })),
+    grammar_profile: input.grammar_profile,
+    labels_digest: input.labels_digest,
+    validation: input.validation,
+    lineage: {
+      authoring_schema: input.authoring_schema ?? "VideoPromptIrV2",
+      upgrader_version: input.upgrader_version ?? "native-v2",
+      contract_bindings: [...(input.contract_bindings ?? [])],
+      exact_text_digests: [...(input.exact_text_digests ?? [])],
+      ...(input.source_digest ? { source_digest: input.source_digest } : {})
+    }
+  };
+  return deepFreeze(compilationBundleSchema.parse({
+    ...withoutDigest,
+    compilation_digest: sha256Canonical(withoutDigest)
+  }));
+}
+
+export function verifyCompilationBundle(bundle: unknown): CompilationBundleV1 {
+  return deepFreeze(compilationBundleSchema.parse(bundle));
+}
+
+export function assertCompilationBundleAssets(
+  bundle: CompilationBundleV1,
+  currentAssets: Readonly<Record<string, { path: string; sha256?: string }>>
+): void {
+  for (const expected of bundle.asset_lineage) {
+    const current = currentAssets[expected.asset_id];
+    if (!current || current.path !== expected.path || (expected.declared_sha256 && current.sha256 !== expected.declared_sha256)) {
+      throw new Error(`VPD-J002: compilation bundle asset lineage changed for '${expected.asset_id}'`);
+    }
+  }
+}
+
+/** Write a complete bundle through a sibling temp file; the final file is the commit marker. */
+export async function writeCompilationBundleAtomic(
+  path: string,
+  bundle: CompilationBundleV1
+): Promise<void> {
+  const checked = verifyCompilationBundle(bundle);
+  await mkdir(dirname(path), { recursive: true });
+  const temp = join(dirname(path), `.${path.split("/").pop() ?? "bundle"}.${randomBytes(8).toString("hex")}.tmp`);
+  try {
+    await writeFile(temp, `${JSON.stringify(checked, null, 2)}\n`, "utf8");
+    await rename(temp, path);
+  } catch (error) {
+    try { await unlink(temp); } catch { /* best-effort cleanup of a private temp sibling */ }
+    throw error;
+  }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  }
+  return value;
+}

@@ -24,6 +24,18 @@ export {
 export { renderH3BasePrompt } from "./base.js";
 export { renderH3ReferencePrompt } from "./reference.js";
 export { renderH3Prompt } from "./h3Grammar.js";
+export {
+  renderH3GrammarV3,
+  validateGrammarShape,
+  DEFAULT_H3_GRAMMAR_PROFILE_V3,
+  H3_GRAMMAR_V3_VERSION,
+  H3_BASE_SECTION_ORDER_V3,
+  H3_REFERENCE_SECTION_ORDER_V3,
+  h3GrammarProfileDigest,
+  type H3GrammarProfileV3,
+  type H3GrammarV3Result,
+  type H3GrammarV3Options
+} from "./h3GrammarV3.js";
 export { renderPlainPrompt } from "./plain.js";
 export {
   renderSkeletonPrompt,
