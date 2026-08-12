@@ -1,5 +1,5 @@
 /**
- * PO-8 / T09 — RC structural repair round 6 (EB1/EB2 exit blockers).
+ * PO-8 / T09 — RC structural repair round 7 (EB1 real-entry authority + EB2 retained).
  * Fixture-only: no provider DNS, billing, real Gate, non-dry-run run/render/finalize.
  */
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -1433,11 +1433,10 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
   }, 180_000);
 });
 
-describe("PO-8 round6 EB1 video-prompt authority thread", () => {
-  it("migration preview→apply active→review→gate inspect recomputes V2 projection without YAML rewrite", async () => {
+describe("PO-8 round7 EB1 video-prompt authority real entry", () => {
+  it("CLI migrate→native V2 with YAML mode omit/disabled→validate→plan→review→inspect (pointer sole SoT)", async () => {
     const { copyFile } = await import("node:fs/promises");
-    const { inspectGate1Review, writeCreativeReview } = await import("../src/orchestrator/review.js");
-    const { createPlan } = await import("../src/orchestrator/plan.js");
+    const { inspectGate1Review } = await import("../src/orchestrator/review.js");
     const { validateProject } = await import("../src/project/validateProject.js");
     const {
       loadModelPromptProfile,
@@ -1459,7 +1458,7 @@ describe("PO-8 round6 EB1 video-prompt authority thread", () => {
     } = await import("../src/productionControl/runtimeAuthority.js");
     const { loadProject } = await import("../src/project/loadProject.js");
 
-    const root = await realTempDir("tsugite-po8-eb1-");
+    const root = await realTempDir("tsugite-po8-eb1-r7-");
     try {
       await mkdir(join(root, "media"), { recursive: true });
       await mkdir(join(root, "production-control"), { recursive: true });
@@ -1477,7 +1476,7 @@ describe("PO-8 round6 EB1 video-prompt authority thread", () => {
         join(root, "media/clip-002.mp4")
       );
 
-      // Phase 1: local project — CLI migration preview→apply (no provider/gate effect).
+      // Phase 1: production migrate preview→apply target active. Source YAML never writes mode=active.
       const config = join(root, "project.yaml");
       await writeFile(config, JSON.stringify({
         slug: "po8-eb1-mv",
@@ -1510,17 +1509,13 @@ describe("PO-8 round6 EB1 video-prompt authority thread", () => {
       ]);
       expect(activeApply.code, activeApply.text).toBe(0);
       expect(activeApply.payload.generation_submitted).toBe("unknown");
+      expect(activeApply.payload.gate_mutated === "unknown" || activeApply.payload.gate_mutated === 0).toBe(true);
+      // Disk YAML must never carry mode=active (migration non-rewrite).
       expect(await readFile(config, "utf8")).not.toMatch(/"mode"\s*:\s*"active"/);
+      expect(await readFile(config, "utf8")).not.toMatch(/mode:\s*active/);
 
-      // Dry planning readers after migrate (local fixture; provider 0).
-      expect((await captureCli(["plan", "--config", config])).code).toBe(0);
-      expect((await captureCli(["review", "--config", config])).code).toBe(0);
-      const dryLocal = await captureCli(["run", "--config", config, "--dry-run"]);
-      expect([0, 1]).toContain(dryLocal.code);
-
-      // Phase 2: author native V2 under YAML mode=active (required by compile gate),
-      // write Gate1 review, then strip YAML mode to disabled while durable pointer stays active.
-      // This is the migration non-rewrite split: pointer SoT active, disk YAML not active.
+      // Phase 2: author native V2 with YAML mode omit/disabled only — no temporary YAML active rewrite.
+      // Pointer remains the sole active SoT for validate/plan/review/inspect.
       const model = await loadModelPromptProfile("v6");
       const connection = await loadConnectionCapabilityProfile("pixverse");
       expect(model.ok && connection.ok).toBe(true);
@@ -1588,7 +1583,8 @@ describe("PO-8 round6 EB1 video-prompt authority thread", () => {
         audio: { policy: "reuse-master", reference_asset_ids: [], final_mix: "discard-generated" },
         program_binding: buildProgramBinding(source)
       };
-      const v2Active = {
+      // YAML mode explicitly disabled (not active). Pointer active is sole SoT.
+      const v2PointerOnly = {
         slug: "po8-eb1-mv",
         name: "PO8 EB1 MV",
         run_id: "po8-eb1-mv-run",
@@ -1596,7 +1592,7 @@ describe("PO-8 round6 EB1 video-prompt authority thread", () => {
         dist_dir: "dist",
         edit: { backend: "remotion" },
         orchestration: {
-          mode: "active",
+          mode: "disabled",
           authoring: {
             music: { kind: "music-contract", id: music.contract_id, digest: music.digest },
             generation_units: [{ kind: "mv-generation-unit", id: unit.unit_id, digest: unit.digest }]
@@ -1616,64 +1612,36 @@ describe("PO-8 round6 EB1 video-prompt authority thread", () => {
           }]
         }
       };
-      await writeFile(config, JSON.stringify(v2Active));
+      await writeFile(config, JSON.stringify(v2PointerOnly));
+      const diskYaml = await readFile(config, "utf8");
+      expect(diskYaml).toMatch(/"mode"\s*:\s*"disabled"/);
+      expect(diskYaml).not.toMatch(/"mode"\s*:\s*"active"/);
 
+      // Real production entry: validate must compile V2 from pointer authority (no YAML active).
       const validation = await validateProject(config);
       expect(validation.ok, JSON.stringify(validation.issues)).toBe(true);
       if (!validation.ok || !validation.project || !validation.manifest) return;
-      // Pointer remains durable active; YAML active matches during authoring/review write.
       expect(validation.runtime_authority?.runtime_mode).toBe("active");
-
-      const trusted = projectWithRuntimeAuthority(
-        validation.project,
-        validation.runtime_authority
-      );
-      const plan = createPlan(
-        trusted as never,
-        validation.manifest,
-        validation.adapter,
-        validation.analysisAdapter,
-        validation.promptGuides,
-        validation.audioAdapter,
-        validation.generationConnection,
-        validation.audioConnection,
-        validation.backend,
-        validation.h3_compilations,
-        validation.video_prompt_plans,
-        validation.runtime_authority
-      );
-      expect((plan.video_prompt_plans ?? []).length).toBeGreaterThan(0);
-      await writeCreativeReview({
-        configPath: config,
-        project: trusted as never,
-        manifest: validation.manifest,
-        plan,
-        stateDir: join(root, "dist"),
-        runtime_authority: validation.runtime_authority
-      });
-
-      // Simulate migration non-rewrite aftermath: YAML no longer projects active.
-      // Durable pointer stays active (resolveRuntimeAuthority = validate-derived SoT).
-      const v2DisabledYaml = {
-        ...v2Active,
-        orchestration: {
-          ...v2Active.orchestration,
-          mode: "disabled"
-        }
-      };
-      await writeFile(config, JSON.stringify(v2DisabledYaml));
+      expect(validation.runtime_authority?.source).toBe("durable_pointer");
+      expect((validation.video_prompt_plans ?? []).length).toBeGreaterThan(0);
+      // Returned project keeps authoring YAML mode (disabled); pointer is runtime SoT only.
+      expect(validation.project.orchestration?.mode).toBe("disabled");
       expect(await readFile(config, "utf8")).toMatch(/"mode"\s*:\s*"disabled"/);
-      expect(await readFile(config, "utf8")).not.toMatch(/"mode"\s*:\s*"active"/);
 
-      const diskProject = await loadProject(config);
-      const authority = await resolveRuntimeAuthority({
-        configPath: config,
-        project: diskProject
-      });
-      expect(authority.runtime_mode).toBe("active");
-      expect(authority.source).toBe("durable_pointer");
+      // CLI plan + review (production entry; provider/effect 0).
+      const planCli = await captureCli(["plan", "--config", config]);
+      expect(planCli.code, planCli.text).toBe(0);
+      expect(planCli.payload.ok).toBe(true);
+      const reviewCli = await captureCli(["review", "--config", config]);
+      expect(reviewCli.code, reviewCli.text).toBe(0);
+      expect(reviewCli.payload.ok).toBe(true);
 
-      const projected = projectWithRuntimeAuthority(diskProject, authority);
+      // Gate1 dry boundary: inspect with validate-derived authority (CLI path).
+      const authority = validation.runtime_authority!;
+      const projected = projectWithRuntimeAuthority(
+        await loadProject(config) as unknown as Record<string, unknown>,
+        authority
+      );
       const withAuth = await inspectGate1Review({
         configPath: config,
         project: projected as never,
@@ -1684,7 +1652,8 @@ describe("PO-8 round6 EB1 video-prompt authority thread", () => {
       expect(withAuth.ok, withAuth.ok ? "" : JSON.stringify(withAuth.issues)).toBe(true);
       expect((withAuth.issues ?? []).map((i) => i.code)).not.toContain("gate.video_prompt_changed");
 
-      // Caller without validate-derived authority reloads YAML disabled → empty V2 projection.
+      // Without authority: YAML disabled → empty V2 projection → fail closed.
+      const diskProject = await loadProject(config);
       const withoutAuth = await inspectGate1Review({
         configPath: config,
         project: diskProject as never,
@@ -1695,6 +1664,61 @@ describe("PO-8 round6 EB1 video-prompt authority thread", () => {
       if (!withoutAuth.ok) {
         expect(withoutAuth.issues.map((i) => i.code)).toContain("gate.video_prompt_changed");
       }
+
+      // Shadow mismatch fail-closed: YAML non-legacy shadow vs pointer active.
+      await writeFile(config, JSON.stringify({
+        ...v2PointerOnly,
+        orchestration: { ...v2PointerOnly.orchestration, mode: "shadow" }
+      }));
+      const mismatch = await validateProject(config);
+      expect(mismatch.ok).toBe(false);
+      expect((mismatch.issues ?? []).some((i) =>
+        i.code === "runtime_authority.mismatch" || /mismatch/i.test(i.message)
+      )).toBe(true);
+
+      // Disabled legacy invariant: no pointer → native V2 rejected; YAML disabled stays legacy.
+      const legacyRoot = await realTempDir("tsugite-po8-eb1-legacy-");
+      try {
+        await mkdir(join(legacyRoot, "media"), { recursive: true });
+        await writeFile(join(legacyRoot, "manifest.json"), JSON.stringify(manifest));
+        await copyFile(
+          join(REPO_ROOT, "examples/local-fixture/media/clip-001.mp4"),
+          join(legacyRoot, "media/clip-001.mp4")
+        );
+        await copyFile(
+          join(REPO_ROOT, "examples/local-fixture/media/clip-002.mp4"),
+          join(legacyRoot, "media/clip-002.mp4")
+        );
+        const legacyConfig = join(legacyRoot, "project.yaml");
+        await writeFile(legacyConfig, JSON.stringify({
+          ...v2PointerOnly,
+          slug: "po8-eb1-legacy",
+          run_id: "po8-eb1-legacy-run",
+          orchestration: {
+            mode: "disabled",
+            authoring: v2PointerOnly.orchestration.authoring
+          }
+        }));
+        const legacyValidation = await validateProject(legacyConfig);
+        expect(legacyValidation.ok).toBe(false);
+        expect((legacyValidation.issues ?? []).some((i) => i.code === "VPD-E022")).toBe(true);
+        expect(legacyValidation.runtime_authority?.runtime_mode === "legacy"
+          || legacyValidation.runtime_authority === undefined
+          || legacyValidation.runtime_authority?.source !== "durable_pointer").toBe(true);
+      } finally {
+        await rm(legacyRoot, { recursive: true, force: true });
+      }
+
+      // Restore disabled YAML; pointer remains sole active SoT. Provider/effect 0.
+      await writeFile(config, JSON.stringify(v2PointerOnly));
+      const finalAuthority = await resolveRuntimeAuthority({
+        configPath: config,
+        project: await loadProject(config)
+      });
+      expect(finalAuthority.runtime_mode).toBe("active");
+      expect(finalAuthority.source).toBe("durable_pointer");
+      expect(activeApply.payload.generation_submitted).toBe("unknown");
+      expect(await readFile(config, "utf8")).not.toMatch(/"mode"\s*:\s*"active"/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

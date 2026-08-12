@@ -91,10 +91,19 @@ export function isGenerationUnitPathContained(
       && !descendant.startsWith(`..${pathApi.sep}`));
 }
 
-/** Resolve T03's typed source from the project-local, non-authoring store. */
+/**
+ * Resolve T03's typed source from the project-local, non-authoring store.
+ * Active vs legacy is decided from the project object only after callers apply
+ * trusted projection (`projectWithRuntimeAuthority`) or pass a project whose
+ * orchestration.mode already reflects ResolvedRuntimeAuthority. This resolver
+ * never re-reads durable pointer or re-resolves YAML against pointer itself —
+ * untrusted disk YAML with mode disabled/omit must not reach here as "active"
+ * unless the validate/CLI entry already projected authority.
+ */
 export function createProjectGenerationUnitSourceResolver(configPath: string): GenerationUnitSourceResolver {
   const projectRoot = dirname(resolve(configPath));
   return async ({ project, request, ir, requestIndex }: { project: Project; request: GenerationRequest; ir: import("./schemaV2.js").VideoPromptIrV2; requestIndex: number }) => {
+    // Trust projected mode only (no independent YAML re-resolve).
     if (project.orchestration?.mode === "active") {
       return resolveAuthoritativeGenerationUnit(projectRoot, project, request, ir, requestIndex);
     }

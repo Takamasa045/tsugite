@@ -57,6 +57,10 @@ import {
   writeShadowComparisonAtomic
 } from "./compilationBundle.js";
 import type { ArtifactStore } from "../productionControl/artifactStore.js";
+import {
+  orchestrationModeFromAuthority,
+  type ResolvedRuntimeAuthority
+} from "../productionControl/runtimeAuthority.js";
 import { resolve } from "node:path";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
 
@@ -121,6 +125,12 @@ export type CompileVideoPromptOptions = {
   projectId?: string;
   /** The project entrypoint is crossing the active V2 authority boundary. */
   activeV2?: boolean;
+  /**
+   * Trusted runtime authority from validate/CLI (pointer SoT).
+   * When present, mode decisions use this — not untrusted YAML-only project.orchestration.mode.
+   * Callers cannot forge authority by inventing project fields alone when DI is provided.
+   */
+  runtime_authority?: ResolvedRuntimeAuthority;
 };
 
 export type VideoPromptPlan = {
@@ -609,7 +619,10 @@ export async function compileProjectVideoPrompts(
   const v2Routes = [] as Array<NonNullable<VideoPromptPlan["v2_compilation"]>["route"]>;
   const issues: Issue[] = [];
   const nextRequests: GenerationRequest[] = [];
-  const rolloutMode = project.orchestration?.mode;
+  // Prefer explicit ResolvedRuntimeAuthority (pointer SoT). Fall back to project.mode
+  // only for trusted-projected projects or intentional in-memory unit fixtures.
+  // Untrusted YAML-only mode must not drive active decisions when authority is present.
+  const rolloutMode = orchestrationModeFromAuthority(options.runtime_authority, project);
   let pinnedGrammar: H3GrammarProfileV3 | undefined;
   let grammarLoadError: string | undefined;
   const hasVideoBoundaryRequest = project.generation.requests.some((request) =>

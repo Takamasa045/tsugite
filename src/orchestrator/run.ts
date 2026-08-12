@@ -919,6 +919,7 @@ async function assembleGeneratedMediaRun(
       ?? (options.configPath ? createProjectGenerationUnitSourceResolver(options.configPath) : undefined);
     const videoCompile = await compileProjectVideoPrompts(project, {
       intent: "execute",
+      runtime_authority: options.runtime_authority,
       ...(generationUnitSourceResolver ? { generationUnitSourceResolver } : {})
     });
     if (!videoCompile.ok) {

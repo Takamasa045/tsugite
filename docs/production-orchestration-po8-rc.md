@@ -1,13 +1,18 @@
 # Production Orchestration PO-8 RC integration
 
-**Status:** fixture-only structural repair (round 6) in tree. Package version remains `0.9.0`. Readiness stays **GO-WITH-CAVEATS** (Windows/live/browser/packaged desktop incomplete). Exit blockers EB1 (Gate1 V2 projection authority) and EB2 (gate_mutation effect_policy thread) are closed with focused evidence.
+**Status:** fixture-only structural repair (round 7) in tree. Package version remains `0.9.0`. Readiness stays **GO-WITH-CAVEATS** (Windows/live/browser/packaged desktop incomplete). Exit blockers EB1 (validate→compile authority real entry) and EB2 (gate_mutation effect_policy thread) are closed with focused evidence.
 
 This document is **outside** the frozen T00 design pack under `docs/design/production-orchestration-v1/`. Design pack hashes must not change.
 
-## Structural repair round 6 (Exit blockers)
+## Structural repair round 7 (EB1 real-entry split-brain)
 
-- **EB1 Critical:** `inspectGate1Review` / `resolveCurrentVideoPromptReview` now thread trusted `ResolvedRuntimeAuthority` from CLI validate (not disk YAML re-resolve). Migration active is pointer-only (YAML non-rewrite); without authority, empty V2 projection falsely triggered `gate.video_prompt_changed`. Gate1 inspect/run CLI paths pass `validation.runtime_authority`. E2E: migrate preview→apply active→review→inspect with/without authority; provider/effect 0.
-- **EB2 High:** `renderAssembledMedia` markGateAwaiting(gate_3)→`writeState` and CLI active cascade `writeState` (run/render/finalize) now thread the same observer `effect_policy` + `previous` to deepest gate_mutation boundary. Wrapper self-registers + notes; deny stops before mutation; semantic no-op count 0; shadow migration keeps gate_mutation 0/unknown. Legacy `approved_input_digest` semantics unchanged. Policy-less direct library calls remain compatible.
+- **EB1 Critical (round 7):** `validateProject` resolved pointer authority but still passed raw YAML `project` into `compileProjectVideoPrompts` / generation-unit resolver. Those bodies re-read `project.orchestration.mode`, so migration `pointer=active` + YAML `disabled|omit` became outer-active / inner-legacy split-brain. Fix: after authority resolve, build trusted `projectWithRuntimeAuthority` before all active-mode-dependent compile/asset/resolver work; `compileProjectVideoPrompts` prefers explicit `runtime_authority` DI over untrusted YAML-only mode. Round6 inspect-only temporary YAML `mode=active` rewrite removed. Real CLI temp fixture: migrate preview→apply active → native V2 with YAML mode omit/disabled → validate→plan→review→inspectGate1Review / gate dry boundary; pointer sole SoT; shadow mismatch fail-closed; disabled legacy invariant; provider/effect 0.
+- **EB2 High (retained from round 6):** `renderAssembledMedia` markGateAwaiting(gate_3)→`writeState` and CLI active cascade `writeState` (run/render/finalize) thread observer `effect_policy` + `previous` to deepest gate_mutation boundary. Deny stops before mutation; semantic no-op count 0; shadow migration keeps gate_mutation 0/unknown. Legacy `approved_input_digest` semantics unchanged.
+
+## Structural repair round 6 (Exit blockers — retained)
+
+- **EB1 (inspect thread):** `inspectGate1Review` / `resolveCurrentVideoPromptReview` thread trusted `ResolvedRuntimeAuthority` from CLI validate (not disk YAML re-resolve alone). Gate1 inspect/run CLI paths pass `validation.runtime_authority`.
+- **EB2 High:** deepest gate_mutation `writeState` effect_policy thread as above.
 
 ## What landed
 
