@@ -166,7 +166,7 @@ export function requireResolvedModeForEffect(
 /** Active job/generation effect boundary: mode must be explicitly active. */
 export function requireActiveModeForEffect(
   mode: ProductionControlMode | undefined,
-  effect: "external-submit" | "gate" | "job"
+  effect: "external-submit" | "gate" | "job" | "paid-regeneration"
 ): "active" {
   if (mode === "active") return "active";
   throw pcError("PC_MODE_INACTIVE", `active mode required at ${effect} boundary`);

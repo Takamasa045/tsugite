@@ -3,6 +3,15 @@
  * Reserve before external effect; commit actual usage once; release only known
  * non-submission; quarantine/hold submission_unknown. No overwrite, no rollback
  * of committed usage, no negative balance, no concurrent double-reserve.
+ *
+ * Crash-atomic protocol (under root O_EXCL lock):
+ *   1. write prepare journal (tx/<id>.prepared.json)
+ *   2. write reservation leaf (reserved or terminal successor)
+ *   3. replace budget (CAS revision)
+ *   4. append audit entry
+ *   5. write applied journal (tx/<id>.applied.json)
+ * Incomplete prepare journals are recovered deterministically on next lock entry.
+ * Terminal reservation leaves are preferred over the reserved predecessor leaf.
  */
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -12,12 +21,13 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
   realpath,
   rename,
   unlink,
   type FileHandle
 } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { assertSafeJsonValue, sha256Canonical, withoutField } from "./canonical.js";
 import { acquireProductionControlRootLock, pcError } from "./errors.js";
@@ -134,14 +144,49 @@ export const ledgerBudgetSchema = z
   });
 export type LedgerBudget = z.infer<typeof ledgerBudgetSchema>;
 
+const txKindSchema = z.enum(["reserve", "commit", "release", "quarantine"]);
+const ledgerTxPreparedSchema = z
+  .object({
+    schema_version: z.literal(1),
+    tx_id: safeIdSchema,
+    kind: txKindSchema,
+    phase: z.literal("prepared"),
+    reservation_id: safeIdSchema,
+    previous_budget_revision: nonNegativeInt,
+    planned_budget_revision: nonNegativeInt,
+    planned_budget_digest: digestSchema,
+    planned_reservation_digest: digestSchema,
+    planned_budget: ledgerBudgetSchema,
+    planned_reservation: ledgerReservationSchema,
+    created_at: isoDateSchema,
+    digest: digestSchema
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["digest"],
+        message: "ledger tx prepared digest mismatch"
+      });
+    }
+  });
+type LedgerTxPrepared = z.infer<typeof ledgerTxPreparedSchema>;
+
+/**
+ * Durable-boundary hooks for crash-injection tests.
+ * Names match real publish points (not pre-write placeholders).
+ */
 export type GrantLedgerHooks = {
-  afterReserveWrittenBeforePublish?: () => void | Promise<void>;
-  afterCommitWrittenBeforePublish?: () => void | Promise<void>;
-  afterReleaseWrittenBeforePublish?: () => void | Promise<void>;
-  afterQuarantineWrittenBeforePublish?: () => void | Promise<void>;
+  afterTxPrepared?: () => void | Promise<void>;
+  afterReservationLeafPublished?: () => void | Promise<void>;
+  afterTerminalReservationPublished?: () => void | Promise<void>;
+  afterBudgetPublished?: () => void | Promise<void>;
+  afterEntryAppended?: () => void | Promise<void>;
+  afterTxApplied?: () => void | Promise<void>;
 };
 
-type DirectoryIdentity = { device: number; inode: number; real_path: string };
+export type DirectoryIdentity = { device: number; inode: number; real_path: string };
 type FileIdentity = { device: number; inode: number };
 
 function budgetDigestBody(budget: Omit<LedgerBudget, "digest">): Omit<LedgerBudget, "digest"> {
@@ -177,6 +222,14 @@ function sealReservation(input: Omit<LedgerReservation, "digest">): LedgerReserv
   });
 }
 
+function sealPreparedTx(input: Omit<LedgerTxPrepared, "digest">): LedgerTxPrepared {
+  assertSafeJsonValue(input, "ledger tx prepared");
+  return ledgerTxPreparedSchema.parse({
+    ...input,
+    digest: sha256Canonical(input)
+  });
+}
+
 function availableCredits(budget: LedgerBudget): number {
   return (
     budget.max_incremental_credits
@@ -190,12 +243,15 @@ function availableCredits(budget: LedgerBudget): number {
  * Durable grant credit ledger rooted under production-control.
  * Layout:
  *   <root>/grant-ledger/budget.json
- *   <root>/grant-ledger/reservations/<id>.json  (create-only)
- *   <root>/grant-ledger/entries/<seq>-<kind>-<id>.json (create-only audit)
+ *   <root>/grant-ledger/reservations/<id>.json  (create-only reserved leaf)
+ *   <root>/grant-ledger/reservations/<id>.{committed,released,quarantined}.json
+ *   <root>/grant-ledger/entries/<seq>-<kind>-<id>.json
+ *   <root>/grant-ledger/tx/<tx_id>.prepared.json / .applied.json
  */
 export class GrantCreditLedger {
   private readonly root: string;
   private readonly hooks: GrantLedgerHooks;
+  private rootIdentity: DirectoryIdentity | undefined;
 
   constructor(root: string, options: { hooks?: GrantLedgerHooks } = {}) {
     this.root = resolve(root);
@@ -204,6 +260,14 @@ export class GrantCreditLedger {
 
   get ledgerRoot(): string {
     return join(this.root, "grant-ledger");
+  }
+
+  /** Public root identity for seal binding (revalidated under lock). */
+  async captureRootIdentity(): Promise<DirectoryIdentity> {
+    return this.withRootLock(async () => {
+      const layout = await this.prepareLayout();
+      return layout.identity;
+    });
   }
 
   async openBudget(input: {
@@ -217,6 +281,7 @@ export class GrantCreditLedger {
   }): Promise<LedgerBudget> {
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
+      await this.recoverIncompleteTransactions(layout);
       const existing = await this.readBudgetUnlocked(layout);
       if (existing) {
         if (
@@ -267,6 +332,7 @@ export class GrantCreditLedger {
   async readBudget(): Promise<LedgerBudget | undefined> {
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
+      await this.recoverIncompleteTransactions(layout);
       return this.readBudgetUnlocked(layout);
     });
   }
@@ -274,14 +340,14 @@ export class GrantCreditLedger {
   async readReservation(reservationId: string): Promise<LedgerReservation | undefined> {
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
+      await this.recoverIncompleteTransactions(layout);
       return this.readReservationUnlocked(layout, reservationId);
     });
   }
 
   /**
-   * Atomic reserve. Fails closed on unknown price (caller must pass known credits > 0
-   * or explicit zero with cap), attempt/submission exhaustion, concurrent double-reserve
-   * of the same attempt_key, or insufficient remaining credits.
+   * Atomic reserve. Fails closed on unknown price, attempt/submission exhaustion,
+   * concurrent double-reserve of the same attempt_key, or insufficient credits.
    */
   async reserve(input: {
     reservation_id: string;
@@ -292,7 +358,6 @@ export class GrantCreditLedger {
     attempt_key: string;
     pricing_binding_digest: string;
     requested_credits: number;
-    /** When true, price is unknown — always reject before reserve. */
     price_unknown?: boolean;
     now?: string;
   }): Promise<LedgerReservation> {
@@ -305,6 +370,7 @@ export class GrantCreditLedger {
 
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
+      await this.recoverIncompleteTransactions(layout);
       const budget = await this.requireBudget(layout);
       if (budget.grant_digest !== input.grant_digest || budget.production_id !== input.production_id) {
         throw pcError("PC_LEDGER_CONFLICT", "reserve grant/production does not match budget");
@@ -323,7 +389,6 @@ export class GrantCreditLedger {
         throw pcError("PC_GRANT_EXHAUSTED", "insufficient remaining credits for reserve");
       }
 
-      // Reject reuse of reservation id or open attempt_key.
       const existing = await this.readReservationUnlocked(layout, input.reservation_id);
       if (existing) {
         throw pcError("PC_LEDGER_CONFLICT", "reservation id already exists");
@@ -357,14 +422,15 @@ export class GrantCreditLedger {
         updated_at: now
       });
 
-      await this.hooks.afterReserveWrittenBeforePublish?.();
-      await this.writeReservationCreateOnly(layout, reservation);
-      await this.writeBudgetReplace(layout, nextBudget, budget.revision);
-      await this.appendEntry(layout, {
+      await this.executeTransaction(layout, {
         kind: "reserve",
-        budget_revision: nextBudget.revision,
-        reservation_id: reservation.reservation_id,
-        payload_digest: reservation.digest
+        previous_budget_revision: budget.revision,
+        planned_budget: nextBudget,
+        planned_reservation: reservation,
+        writeReservation: async () => {
+          await this.writeReservationCreateOnly(layout, reservation);
+          await this.hooks.afterReservationLeafPublished?.();
+        }
       });
       return reservation;
     });
@@ -381,6 +447,7 @@ export class GrantCreditLedger {
     }
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
+      await this.recoverIncompleteTransactions(layout);
       const budget = await this.requireBudget(layout);
       const reservation = await this.requireReservation(layout, input.reservation_id);
       if (reservation.status !== "reserved") {
@@ -390,7 +457,6 @@ export class GrantCreditLedger {
         throw pcError("PC_RESERVATION_INVALID", "actual credits exceed reserved amount");
       }
       const now = input.now ?? new Date().toISOString();
-      const releasedBack = reservation.reserved_credits - input.actual_credits;
       const nextBudget = sealBudget({
         ...budgetDigestBody(budget),
         reserved_credits: budget.reserved_credits - reservation.reserved_credits,
@@ -398,8 +464,6 @@ export class GrantCreditLedger {
         submission_count: budget.submission_count + 1,
         revision: budget.revision + 1
       });
-      // releasedBack returns to available (not encumbered).
-      void releasedBack;
       const nextReservation = sealReservation({
         schema_version: 1,
         reservation_id: reservation.reservation_id,
@@ -411,15 +475,15 @@ export class GrantCreditLedger {
         created_at: reservation.created_at,
         updated_at: now
       });
-      await this.hooks.afterCommitWrittenBeforePublish?.();
-      // Create-only successor leaf; never overwrite original reservation evidence.
-      await this.writeReservationTerminal(layout, nextReservation, reservation);
-      await this.writeBudgetReplace(layout, nextBudget, budget.revision);
-      await this.appendEntry(layout, {
+      await this.executeTransaction(layout, {
         kind: "commit",
-        budget_revision: nextBudget.revision,
-        reservation_id: reservation.reservation_id,
-        payload_digest: nextReservation.digest
+        previous_budget_revision: budget.revision,
+        planned_budget: nextBudget,
+        planned_reservation: nextReservation,
+        writeReservation: async () => {
+          await this.writeReservationTerminal(layout, nextReservation, reservation);
+          await this.hooks.afterTerminalReservationPublished?.();
+        }
       });
       return nextReservation;
     });
@@ -436,8 +500,12 @@ export class GrantCreditLedger {
     }
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
+      await this.recoverIncompleteTransactions(layout);
       const budget = await this.requireBudget(layout);
       const reservation = await this.requireReservation(layout, input.reservation_id);
+      if (reservation.status === "committed") {
+        throw pcError("PC_RESERVATION_INVALID", "committed reservation can never be released");
+      }
       if (reservation.status !== "reserved") {
         throw pcError("PC_RESERVATION_INVALID", "only reserved entries can be released");
       }
@@ -445,7 +513,6 @@ export class GrantCreditLedger {
       const nextBudget = sealBudget({
         ...budgetDigestBody(budget),
         reserved_credits: budget.reserved_credits - reservation.reserved_credits,
-        // attempt_count stays — attempt was used even if not submitted
         revision: budget.revision + 1
       });
       const nextReservation = sealReservation({
@@ -458,14 +525,15 @@ export class GrantCreditLedger {
         created_at: reservation.created_at,
         updated_at: now
       });
-      await this.hooks.afterReleaseWrittenBeforePublish?.();
-      await this.writeReservationTerminal(layout, nextReservation, reservation);
-      await this.writeBudgetReplace(layout, nextBudget, budget.revision);
-      await this.appendEntry(layout, {
+      await this.executeTransaction(layout, {
         kind: "release",
-        budget_revision: nextBudget.revision,
-        reservation_id: reservation.reservation_id,
-        payload_digest: nextReservation.digest
+        previous_budget_revision: budget.revision,
+        planned_budget: nextBudget,
+        planned_reservation: nextReservation,
+        writeReservation: async () => {
+          await this.writeReservationTerminal(layout, nextReservation, reservation);
+          await this.hooks.afterTerminalReservationPublished?.();
+        }
       });
       return nextReservation;
     });
@@ -481,6 +549,7 @@ export class GrantCreditLedger {
   }): Promise<LedgerReservation> {
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
+      await this.recoverIncompleteTransactions(layout);
       const budget = await this.requireBudget(layout);
       const reservation = await this.requireReservation(layout, input.reservation_id);
       if (reservation.status !== "reserved") {
@@ -504,17 +573,171 @@ export class GrantCreditLedger {
         created_at: reservation.created_at,
         updated_at: now
       });
-      await this.hooks.afterQuarantineWrittenBeforePublish?.();
-      await this.writeReservationTerminal(layout, nextReservation, reservation);
-      await this.writeBudgetReplace(layout, nextBudget, budget.revision);
-      await this.appendEntry(layout, {
+      await this.executeTransaction(layout, {
         kind: "quarantine",
-        budget_revision: nextBudget.revision,
-        reservation_id: reservation.reservation_id,
-        payload_digest: nextReservation.digest
+        previous_budget_revision: budget.revision,
+        planned_budget: nextBudget,
+        planned_reservation: nextReservation,
+        writeReservation: async () => {
+          await this.writeReservationTerminal(layout, nextReservation, reservation);
+          await this.hooks.afterTerminalReservationPublished?.();
+        }
       });
       return nextReservation;
     });
+  }
+
+  /** Force recovery pass (also runs under every mutating call). */
+  async recover(): Promise<{ recovered_tx_ids: string[] }> {
+    return this.withRootLock(async () => {
+      const layout = await this.prepareLayout();
+      return this.recoverIncompleteTransactions(layout);
+    });
+  }
+
+  private async executeTransaction(
+    layout: Layout,
+    input: {
+      kind: "reserve" | "commit" | "release" | "quarantine";
+      previous_budget_revision: number;
+      planned_budget: LedgerBudget;
+      planned_reservation: LedgerReservation;
+      writeReservation: () => Promise<void>;
+    }
+  ): Promise<void> {
+    await this.recheckRootIdentity(layout);
+    const txId = `tx-${randomSuffix()}`;
+    const prepared = sealPreparedTx({
+      schema_version: 1,
+      tx_id: txId,
+      kind: input.kind,
+      phase: "prepared",
+      reservation_id: input.planned_reservation.reservation_id,
+      previous_budget_revision: input.previous_budget_revision,
+      planned_budget_revision: input.planned_budget.revision,
+      planned_budget_digest: input.planned_budget.digest,
+      planned_reservation_digest: input.planned_reservation.digest,
+      planned_budget: input.planned_budget,
+      planned_reservation: input.planned_reservation,
+      created_at: new Date().toISOString()
+    });
+    await this.writePreparedTx(layout, prepared);
+    await this.hooks.afterTxPrepared?.();
+
+    await input.writeReservation();
+    await this.recheckRootIdentity(layout);
+
+    await this.writeBudgetReplace(layout, input.planned_budget, input.previous_budget_revision);
+    await this.hooks.afterBudgetPublished?.();
+    await this.recheckRootIdentity(layout);
+
+    await this.appendEntry(layout, {
+      kind: input.kind,
+      budget_revision: input.planned_budget.revision,
+      reservation_id: input.planned_reservation.reservation_id,
+      payload_digest: input.planned_reservation.digest
+    });
+    await this.hooks.afterEntryAppended?.();
+
+    await this.writeAppliedTx(layout, prepared);
+    await this.hooks.afterTxApplied?.();
+  }
+
+  private async recoverIncompleteTransactions(
+    layout: Layout
+  ): Promise<{ recovered_tx_ids: string[] }> {
+    const recovered: string[] = [];
+    let names: string[];
+    try {
+      names = await readdir(layout.txDir);
+    } catch {
+      return { recovered_tx_ids: recovered };
+    }
+    const preparedIds = names
+      .filter((name) => name.endsWith(".prepared.json"))
+      .map((name) => name.replace(/\.prepared\.json$/, ""))
+      .filter((id) => isSafeId(id));
+
+    for (const txId of preparedIds.sort()) {
+      const appliedPath = join(layout.txDir, `${txId}.applied.json`);
+      if (await pathExists(appliedPath)) {
+        // Applied already published; prepared is historical evidence only.
+        continue;
+      }
+      const preparedPath = join(layout.txDir, `${txId}.prepared.json`);
+      let prepared: LedgerTxPrepared;
+      try {
+        await assertSafeRegularFile(preparedPath, layout.rootPath);
+        prepared = ledgerTxPreparedSchema.parse(JSON.parse(await readFile(preparedPath, "utf8")));
+      } catch {
+        // Unreadable prepared journal → quarantine name by renaming aside.
+        const quarantine = join(layout.txDir, `${txId}.prepared.quarantined.${randomSuffix()}.json`);
+        await rename(preparedPath, quarantine).catch(() => undefined);
+        continue;
+      }
+
+      const liveReservation = await this.readReservationUnlocked(layout, prepared.reservation_id);
+      const liveBudget = await this.readBudgetUnlocked(layout);
+
+      if (!liveReservation && (!liveBudget || liveBudget.revision === prepared.previous_budget_revision)) {
+        // Nothing durable from this tx — safe orphan prepared marker.
+        // Keep marker as evidence; do not invent reservation/budget.
+        continue;
+      }
+
+      if (
+        liveReservation
+        && liveReservation.digest === prepared.planned_reservation_digest
+        && liveBudget
+        && liveBudget.revision === prepared.planned_budget_revision
+        && liveBudget.digest === prepared.planned_budget_digest
+      ) {
+        await this.writeAppliedTx(layout, prepared);
+        recovered.push(txId);
+        continue;
+      }
+
+      if (
+        liveReservation
+        && liveReservation.digest === prepared.planned_reservation_digest
+        && liveBudget
+        && liveBudget.revision === prepared.previous_budget_revision
+      ) {
+        // Reservation published, budget not yet — complete budget + entry + applied.
+        await this.writeBudgetReplace(
+          layout,
+          prepared.planned_budget,
+          prepared.previous_budget_revision
+        );
+        await this.appendEntry(layout, {
+          kind: prepared.kind,
+          budget_revision: prepared.planned_budget.revision,
+          reservation_id: prepared.reservation_id,
+          payload_digest: prepared.planned_reservation_digest
+        });
+        await this.writeAppliedTx(layout, prepared);
+        recovered.push(txId);
+        continue;
+      }
+
+      if (
+        liveBudget
+        && liveBudget.revision === prepared.planned_budget_revision
+        && liveBudget.digest === prepared.planned_budget_digest
+        && (!liveReservation || liveReservation.digest !== prepared.planned_reservation_digest)
+      ) {
+        // Budget advanced without matching reservation — fail closed.
+        throw pcError(
+          "PC_LEDGER_UNSAFE",
+          "incomplete ledger transaction: budget advanced without matching reservation"
+        );
+      }
+
+      // Ambiguous partial — quarantine prepared for human inspection; do not invent state.
+      const quarantine = join(layout.txDir, `${txId}.prepared.quarantined.${randomSuffix()}.json`);
+      await rename(preparedPath, quarantine).catch(() => undefined);
+    }
+    return { recovered_tx_ids: recovered };
   }
 
   private async withRootLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -526,34 +749,61 @@ export class GrantCreditLedger {
     }
   }
 
-  private async prepareLayout(): Promise<{
-    rootPath: string;
-    ledgerDir: string;
-    reservationsDir: string;
-    entriesDir: string;
-    budgetPath: string;
-    identity: DirectoryIdentity;
-  }> {
+  private async prepareLayout(): Promise<Layout> {
     const rootPath = resolve(this.root);
     await assertSafeDirectory(rootPath);
     const ledgerDir = join(rootPath, "grant-ledger");
     const reservationsDir = join(ledgerDir, "reservations");
     const entriesDir = join(ledgerDir, "entries");
+    const txDir = join(ledgerDir, "tx");
     await mkdir(ledgerDir, { recursive: true, mode: 0o700 });
     await mkdir(reservationsDir, { recursive: true, mode: 0o700 });
     await mkdir(entriesDir, { recursive: true, mode: 0o700 });
+    await mkdir(txDir, { recursive: true, mode: 0o700 });
     await assertSafeDirectory(ledgerDir);
     await assertSafeDirectory(reservationsDir);
     await assertSafeDirectory(entriesDir);
+    await assertSafeDirectory(txDir);
     const identity = await captureDirIdentity(rootPath);
+    if (this.rootIdentity) {
+      if (
+        this.rootIdentity.device !== identity.device
+        || this.rootIdentity.inode !== identity.inode
+        || this.rootIdentity.real_path !== identity.real_path
+      ) {
+        throw pcError("PC_PATH_UNSAFE", "ledger root identity changed");
+      }
+    } else {
+      this.rootIdentity = identity;
+    }
     return {
       rootPath,
       ledgerDir,
       reservationsDir,
       entriesDir,
+      txDir,
       budgetPath: join(ledgerDir, "budget.json"),
       identity
     };
+  }
+
+  private async recheckRootIdentity(layout: Layout): Promise<void> {
+    const live = await captureDirIdentity(layout.rootPath);
+    if (
+      live.device !== layout.identity.device
+      || live.inode !== layout.identity.inode
+      || live.real_path !== layout.identity.real_path
+    ) {
+      throw pcError("PC_PATH_UNSAFE", "ledger root identity changed during mutation");
+    }
+    if (this.rootIdentity) {
+      if (
+        this.rootIdentity.device !== live.device
+        || this.rootIdentity.inode !== live.inode
+      ) {
+        throw pcError("PC_PATH_UNSAFE", "ledger root identity drift");
+      }
+    }
   }
 
   private async readBudgetUnlocked(layout: {
@@ -580,6 +830,10 @@ export class GrantCreditLedger {
     return budget;
   }
 
+  /**
+   * Terminal leaves win over the reserved predecessor so a reserved leaf can
+   * never override committed/released/quarantined truth after terminal publish.
+   */
   private async readReservationUnlocked(
     layout: { reservationsDir: string; rootPath: string },
     reservationId: string
@@ -587,17 +841,17 @@ export class GrantCreditLedger {
     if (!isSafeId(reservationId)) {
       throw pcError("PC_PATH_UNSAFE", "reservation id is not a safe id");
     }
-    // Prefer terminal successor if present (committed/released/quarantined).
-    for (const suffix of ["", ".committed", ".released", ".quarantined"] as const) {
+    const terminalOrder = [".committed", ".released", ".quarantined"] as const;
+    for (const suffix of terminalOrder) {
       const path = join(layout.reservationsDir, `${reservationId}${suffix}.json`);
       try {
         await assertSafeRegularFile(path, layout.rootPath);
         const raw = await readFile(path, "utf8");
         const parsed = ledgerReservationSchema.parse(JSON.parse(raw));
-        if (suffix === "" && parsed.status === "reserved") return parsed;
         if (suffix === ".committed" && parsed.status === "committed") return parsed;
         if (suffix === ".released" && parsed.status === "released") return parsed;
         if (suffix === ".quarantined" && parsed.status === "quarantined") return parsed;
+        throw pcError("PC_LEDGER_UNSAFE", "terminal reservation status/path mismatch");
       } catch (error) {
         if (isNotFound(error)) continue;
         if (error && typeof error === "object" && "name" in error && (error as { name?: string }).name === "ZodError") {
@@ -607,7 +861,20 @@ export class GrantCreditLedger {
         throw pcError("PC_LEDGER_UNSAFE", "reservation file is unreadable");
       }
     }
-    return undefined;
+    const reservedPath = join(layout.reservationsDir, `${reservationId}.json`);
+    try {
+      await assertSafeRegularFile(reservedPath, layout.rootPath);
+      const parsed = ledgerReservationSchema.parse(JSON.parse(await readFile(reservedPath, "utf8")));
+      if (parsed.status === "reserved") return parsed;
+      throw pcError("PC_LEDGER_UNSAFE", "reserved leaf has non-reserved status");
+    } catch (error) {
+      if (isNotFound(error)) return undefined;
+      if (error && typeof error === "object" && "name" in error && (error as { name?: string }).name === "ZodError") {
+        throw pcError("PC_LEDGER_UNSAFE", "reservation file failed schema validation");
+      }
+      if (error && typeof error === "object" && "code" in error) throw error;
+      throw pcError("PC_LEDGER_UNSAFE", "reservation file is unreadable");
+    }
   }
 
   private async requireReservation(
@@ -623,8 +890,6 @@ export class GrantCreditLedger {
     layout: { reservationsDir: string; rootPath: string },
     attemptKey: string
   ): Promise<void> {
-    // Scan reservation leaves for active (reserved) same attempt_key.
-    const { readdir } = await import("node:fs/promises");
     let names: string[];
     try {
       names = await readdir(layout.reservationsDir);
@@ -632,13 +897,26 @@ export class GrantCreditLedger {
       return;
     }
     for (const name of names) {
-      if (!name.endsWith(".json") || name.includes(".committed") || name.includes(".released") || name.includes(".quarantined")) {
+      if (!name.endsWith(".json")) continue;
+      // Skip terminal successor filenames for open-key scan; still read reserved leaves only.
+      if (
+        name.includes(".committed.")
+        || name.endsWith(".committed.json")
+        || name.includes(".released.")
+        || name.endsWith(".released.json")
+        || name.includes(".quarantined.")
+        || name.endsWith(".quarantined.json")
+      ) {
         continue;
       }
       const path = join(layout.reservationsDir, name);
       try {
         await assertSafeRegularFile(path, layout.rootPath);
         const parsed = ledgerReservationSchema.parse(JSON.parse(await readFile(path, "utf8")));
+        // Terminal truth may coexist as sibling leaf; only open reserved blocks the key.
+        const id = parsed.reservation_id;
+        const terminal = await this.readReservationUnlocked(layout, id);
+        if (terminal && terminal.status !== "reserved") continue;
         if (parsed.status === "reserved" && parsed.subject.attempt_key === attemptKey) {
           throw pcError("PC_LEDGER_CONFLICT", "attempt_key already has an open reservation");
         }
@@ -663,7 +941,6 @@ export class GrantCreditLedger {
     budget: LedgerBudget,
     expectedPreviousRevision: number
   ): Promise<void> {
-    // Budget is the only mutable projection; replace via temp+rename after CAS check.
     const current = await this.readBudgetUnlocked(layout);
     if (!current || current.revision !== expectedPreviousRevision) {
       throw pcError("PC_LEDGER_CONFLICT", "budget revision CAS mismatch");
@@ -683,7 +960,6 @@ export class GrantCreditLedger {
       await handle.sync();
       await handle.close();
       handle = undefined;
-      // Re-check CAS immediately before rename (TOCTOU).
       const recheck = await this.readBudgetUnlocked(layout);
       if (!recheck || recheck.revision !== expectedPreviousRevision) {
         throw pcError("PC_LEDGER_CONFLICT", "budget revision changed before replace");
@@ -726,9 +1002,49 @@ export class GrantCreditLedger {
             ? ".quarantined"
             : null;
     if (!suffix) throw pcError("PC_RESERVATION_INVALID", "invalid terminal reservation status");
+    // Refuse if any terminal already exists (create-only terminal race).
+    for (const existing of [".committed", ".released", ".quarantined"] as const) {
+      const path = join(layout.reservationsDir, `${next.reservation_id}${existing}.json`);
+      if (await pathExists(path)) {
+        throw pcError("PC_LEDGER_CONFLICT", "terminal reservation already exists");
+      }
+    }
     const finalPath = join(layout.reservationsDir, `${next.reservation_id}${suffix}.json`);
     await publishCreateOnlyJson(finalPath, layout.rootPath, layout.reservationsDir, next);
-    // Keep original reserved leaf as immutable evidence (no overwrite/delete).
+  }
+
+  private async writePreparedTx(layout: Layout, prepared: LedgerTxPrepared): Promise<void> {
+    const path = join(layout.txDir, `${prepared.tx_id}.prepared.json`);
+    await publishCreateOnlyJson(path, layout.rootPath, layout.txDir, prepared);
+  }
+
+  private async writeAppliedTx(layout: Layout, prepared: LedgerTxPrepared): Promise<void> {
+    const body = {
+      schema_version: 1 as const,
+      tx_id: prepared.tx_id,
+      kind: prepared.kind,
+      phase: "applied" as const,
+      reservation_id: prepared.reservation_id,
+      planned_budget_revision: prepared.planned_budget_revision,
+      planned_budget_digest: prepared.planned_budget_digest,
+      planned_reservation_digest: prepared.planned_reservation_digest,
+      applied_at: new Date().toISOString()
+    };
+    assertSafeJsonValue(body, "ledger tx applied");
+    const sealed = {
+      ...body,
+      digest: sha256Canonical(body)
+    };
+    const path = join(layout.txDir, `${prepared.tx_id}.applied.json`);
+    try {
+      await publishCreateOnlyJson(path, layout.rootPath, layout.txDir, sealed);
+    } catch (error) {
+      // Idempotent recovery may race applied publish.
+      if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "PC_LEDGER_CONFLICT") {
+        return;
+      }
+      throw error;
+    }
   }
 
   private async appendEntry(
@@ -750,17 +1066,32 @@ export class GrantCreditLedger {
       created_at: new Date().toISOString()
     };
     assertSafeJsonValue(body, "ledger entry");
-    if (!isSafeId(body.entry_id.replace(/\./g, "-").slice(0, 128))) {
-      // entry_id uses hyphens and digits; write with sanitized filename
-    }
     const fileName = `${String(entry.budget_revision).padStart(8, "0")}-${entry.kind}-${entry.reservation_id ?? "budget"}.json`;
-    if (fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) {
+    if (fileName.includes("/") || fileName.includes("\\") || fileName.includes("\0")) {
       throw pcError("PC_PATH_UNSAFE", "ledger entry name is unsafe");
     }
     const finalPath = join(layout.entriesDir, fileName);
-    await publishCreateOnlyJson(finalPath, layout.rootPath, layout.entriesDir, body);
+    try {
+      await publishCreateOnlyJson(finalPath, layout.rootPath, layout.entriesDir, body);
+    } catch (error) {
+      // Recovery replay of entry is idempotent when the same revision already exists.
+      if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "PC_LEDGER_CONFLICT") {
+        return;
+      }
+      throw error;
+    }
   }
 }
+
+type Layout = {
+  rootPath: string;
+  ledgerDir: string;
+  reservationsDir: string;
+  entriesDir: string;
+  txDir: string;
+  budgetPath: string;
+  identity: DirectoryIdentity;
+};
 
 async function publishCreateOnlyJson(
   finalPath: string,
@@ -877,11 +1208,25 @@ async function captureDirIdentity(path: string): Promise<DirectoryIdentity> {
   return { device: stats.dev, inode: stats.ino, real_path: await realpath(path) };
 }
 
+/**
+ * Robust containment: resolve both sides, require relative path that does not
+ * escape via `..` segments (never use substring includes("..")).
+ */
 function assertContained(target: string, root: string): void {
   const resolvedTarget = resolve(target);
   const resolvedRoot = resolve(root);
+  if (resolvedTarget === resolvedRoot) return;
   const rel = relative(resolvedRoot, resolvedTarget);
-  if (rel.startsWith("..") || rel.includes("..") || !resolvedTarget.startsWith(`${resolvedRoot}/`) && resolvedTarget !== resolvedRoot) {
+  if (rel === "" || isAbsolute(rel)) {
+    throw pcError("PC_PATH_UNSAFE", "ledger path escapes root");
+  }
+  const segments = rel.split(/[/\\]/);
+  if (segments[0] === ".." || segments.includes("..")) {
+    throw pcError("PC_PATH_UNSAFE", "ledger path escapes root");
+  }
+  // Defense in depth for platforms where relative() is surprising.
+  const rootPrefix = resolvedRoot.endsWith(sep) ? resolvedRoot : `${resolvedRoot}${sep}`;
+  if (!resolvedTarget.startsWith(rootPrefix)) {
     throw pcError("PC_PATH_UNSAFE", "ledger path escapes root");
   }
 }
@@ -896,6 +1241,15 @@ function isNotFound(error: unknown): boolean {
 
 function isAlreadyExists(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "EEXIST");
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function randomSuffix(): string {
@@ -914,4 +1268,3 @@ async function fsyncDirectory(path: string): Promise<void> {
     await handle?.close().catch(() => undefined);
   }
 }
-

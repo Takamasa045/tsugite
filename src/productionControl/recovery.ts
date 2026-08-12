@@ -12,8 +12,10 @@ import { assertGateBundleExecutable, gateBundleHasUnknownPrice } from "./gateBun
 import { gateDecisionDigest } from "./gateSubjects.js";
 import {
   GrantCreditLedger,
+  type DirectoryIdentity,
   type LedgerReservation
 } from "./grantLedger.js";
+import { DurableRegenerationStore } from "./grantStore.js";
 import type { RouteIdentity } from "./programBinding.js";
 import {
   assertNotExpired,
@@ -40,12 +42,14 @@ import {
   type TaskTreeSpec
 } from "./schema.js";
 import {
+  gateDriftKindsForRevisionIntent,
   isPolicyEligibleRevisionIntent,
   parseRevisionIntent,
   type RevisionIntent
 } from "./revisionIntent.js";
+import type { GateDriftKind } from "./gateSubjects.js";
 
-/** Opaque sealed paid authorization — only mint functions can place tokens in the WeakSet. */
+/** Opaque sealed paid authorization — only authorizePaidRegeneration / rehydrate may mint. */
 export type SealedPaidAuthorization = {
   readonly kind: "pc-sealed-paid-authorization";
   readonly authorization_digest: string;
@@ -58,6 +62,10 @@ export type SealedPaidAuthorization = {
   readonly base_compilation_digest: string;
   readonly pricing_binding_digest: string;
   readonly observed_error_code: string;
+  readonly reserved_credits: number;
+  readonly ledger_root_identity: DirectoryIdentity;
+  readonly policy_digest: string;
+  readonly ordinal: number;
 };
 
 /** Opaque sealed local recovery permit. */
@@ -206,6 +214,43 @@ export function issueRegenerationGrant(input: {
 }
 
 /**
+ * Issue grant and persist create-only under DurableRegenerationStore with ledger root binding.
+ * One grant digest → one ledger root identity; cross-root reopen rejects.
+ */
+export async function issueAndPersistRegenerationGrant(input: {
+  grant_id: string;
+  policy: RegenerationPolicySpec;
+  gate_bundle: GateBundle;
+  gate_1_decision: HumanDecisionRef;
+  live_gate_1_subject_digest: string;
+  live_gate_1_decision_digest: string;
+  issued_at: string;
+  production_id: string;
+  store: DurableRegenerationStore;
+  ledger: GrantCreditLedger;
+  now?: Date;
+}): Promise<RegenerationGrant> {
+  const grant = issueRegenerationGrant({
+    grant_id: input.grant_id,
+    policy: input.policy,
+    gate_bundle: input.gate_bundle,
+    gate_1_decision: input.gate_1_decision,
+    live_gate_1_subject_digest: input.live_gate_1_subject_digest,
+    live_gate_1_decision_digest: input.live_gate_1_decision_digest,
+    issued_at: input.issued_at,
+    now: input.now
+  });
+  const identity = await input.ledger.captureRootIdentity();
+  await input.store.writeGrantCreateOnly({
+    grant,
+    policy: parseRegenerationPolicySpec(input.policy),
+    production_id: input.production_id,
+    ledger_root_identity: identity
+  });
+  return grant;
+}
+
+/**
  * Coordinator issues a one-shot local permit bound to current production/tree/task/input.
  * Never authorizes new submissions or credits. Stale context rejects reuse.
  */
@@ -331,11 +376,17 @@ export type AuthorizePaidRegenerationInput = {
     submission_unknown?: boolean;
     provider_job_id?: string;
   };
+  /**
+   * Durable create-only store. When provided, grant/auth are re-read/written
+   * under durable identity; resume must use rehydrateSealedPaidAuthorization.
+   */
+  store?: DurableRegenerationStore;
 };
 
 /**
- * Full paid regeneration authorization: policy + grant + reserve + attempt auth.
- * One-shot: reservation id is bound into the authorization digest.
+ * Full paid regeneration authorization: re-read durable grant/auth/reservation/budget
+ * under live ledger, reserve, create durable attempt auth, mint one-shot opaque seal.
+ * mintSealedPaidAuthorization is intentionally not a public caller API.
  */
 export async function authorizePaidRegeneration(
   input: AuthorizePaidRegenerationInput
@@ -345,7 +396,7 @@ export async function authorizePaidRegeneration(
   sealed: SealedPaidAuthorization;
 }> {
   const policy = parseRegenerationPolicySpec(input.policy);
-  const grant = parseRegenerationGrant(input.grant);
+  let grant = parseRegenerationGrant(input.grant);
   const bundle = input.gate_bundle;
   const now = input.now ?? new Date();
 
@@ -367,6 +418,17 @@ export async function authorizePaidRegeneration(
     throw pcError("PC_POLICY_MISMATCH", "grant execution_context_digest does not match policy");
   }
 
+  // Authorize enforces ordinal / max attempts / totals itself (not openBudget trust alone).
+  if (!Number.isInteger(input.ordinal) || input.ordinal < 0) {
+    throw pcError("PC_AUTHORIZATION_INVALID", "ordinal must be a non-negative integer");
+  }
+  if (input.ordinal >= policy.max_attempts_per_task) {
+    throw pcError("PC_GRANT_EXHAUSTED", "ordinal exceeds policy max_attempts_per_task");
+  }
+  if (input.requested_credits > policy.max_incremental_credits + 1e-12) {
+    throw pcError("PC_GRANT_EXHAUSTED", "requested credits exceed policy total cap");
+  }
+
   if (input.previous_job) {
     if (input.previous_job.status === "submission_unknown" || input.previous_job.submission_unknown) {
       throw pcError("PC_SUBMISSION_UNKNOWN", "automatic recovery forbidden after submission_unknown");
@@ -386,7 +448,6 @@ export async function authorizePaidRegeneration(
   if (!baseInPolicy || baseInPolicy.compilation_digest !== input.base_compilation_digest) {
     throw pcError("PC_POLICY_MISMATCH", "base compilation does not match policy for node");
   }
-  // Base must still be a member of the live GateBundle.
   const baseInBundle = bundle.generation_batches.some((batch) =>
     batch.ordered_units.some((unit) => unit.base_compilation_digest === input.base_compilation_digest)
   );
@@ -394,7 +455,6 @@ export async function authorizePaidRegeneration(
     throw pcError("PC_POLICY_MISMATCH", "base compilation is not in live GateBundle");
   }
 
-  // Route / pricing must match policy (no model/connection/price basis change).
   const pricing = policy.execution_context.pricing_binding_digest;
   const routeMatch = bundle.generation_batches.some(
     (batch) =>
@@ -405,6 +465,11 @@ export async function authorizePaidRegeneration(
     throw pcError("PC_POLICY_MISMATCH", "route or pricing drifted from policy");
   }
 
+  // Changed prompt block / parameter limits enforced here (not openBudget caller trust).
+  const changedBlocks = input.changed_prompt_block_id ? 1 : 0;
+  if (changedBlocks > policy.max_changed_prompt_blocks_per_attempt) {
+    throw pcError("PC_RECOVERY_DENIED", "changed prompt blocks exceed policy max of 1");
+  }
   if (input.changed_prompt_block_id) {
     if (!policy.allowed_prompt_block_ids.includes(input.changed_prompt_block_id)) {
       throw pcError("PC_RECOVERY_DENIED", "changed prompt block is not in policy allowlist");
@@ -428,10 +493,6 @@ export async function authorizePaidRegeneration(
       throw pcError("PC_RECOVERY_DENIED", "parameter value not in policy values");
     }
   }
-  // max_changed_prompt_blocks_per_attempt is always 1.
-  if (input.changed_prompt_block_id === undefined && paramKeys.length === 0) {
-    // Allow pure local-technical re-runs that only change derived compilation via patch.
-  }
 
   if (input.revision_intent) {
     const intent = parseRevisionIntent(input.revision_intent);
@@ -446,11 +507,57 @@ export async function authorizePaidRegeneration(
   if (input.derived_compilation_digest === input.base_compilation_digest) {
     throw pcError("PC_AUTHORIZATION_INVALID", "derived compilation must differ from base");
   }
-  if (input.requested_credits > policy.max_incremental_credits) {
-    throw pcError("PC_GRANT_EXHAUSTED", "requested credits exceed policy total cap");
+
+  // Live ledger budget re-read before reserve (do not trust caller openBudget snapshot).
+  const budgetBefore = await input.ledger.readBudget();
+  if (!budgetBefore) {
+    throw pcError("PC_LEDGER_CONFLICT", "ledger budget is not open");
+  }
+  if (budgetBefore.grant_digest !== grant.digest) {
+    throw pcError("PC_LEDGER_CONFLICT", "live budget grant_digest does not match grant");
+  }
+  if (budgetBefore.production_id !== input.production_id) {
+    throw pcError("PC_LEDGER_CONFLICT", "live budget production_id does not match");
+  }
+  if (budgetBefore.attempt_count >= budgetBefore.max_attempts) {
+    throw pcError("PC_GRANT_EXHAUSTED", "max attempts exhausted");
+  }
+  if (budgetBefore.submission_count >= budgetBefore.max_submissions) {
+    throw pcError("PC_GRANT_EXHAUSTED", "max submissions exhausted");
+  }
+  if (budgetBefore.attempt_count >= policy.max_attempts_per_task) {
+    throw pcError("PC_GRANT_EXHAUSTED", "policy max_attempts_per_task exhausted on live budget");
+  }
+  if (budgetBefore.submission_count >= policy.max_total_new_submissions) {
+    throw pcError("PC_GRANT_EXHAUSTED", "policy max_total_new_submissions exhausted on live budget");
+  }
+  if (
+    budgetBefore.committed_credits + budgetBefore.reserved_credits + budgetBefore.quarantined_credits
+      + input.requested_credits
+    > policy.max_incremental_credits + 1e-12
+  ) {
+    throw pcError("PC_GRANT_EXHAUSTED", "requested credits would exceed policy total on live budget");
   }
 
-  // Advisory estimated_credits on batches are never pricing authority — ignored here.
+  if (input.store) {
+    // Prefer durable grant body when present; reject structural grant drift.
+    const durableGrant = await input.store.loadGrant(grant.digest).catch(() => undefined);
+    if (durableGrant) {
+      if (durableGrant.digest !== grant.digest) {
+        throw pcError("PC_GRANT_INVALID", "durable grant digest mismatch");
+      }
+      grant = durableGrant;
+    }
+    const identity = await input.ledger.captureRootIdentity();
+    await input.store.writeGrantCreateOnly({
+      grant,
+      policy,
+      production_id: input.production_id,
+      ledger_root_identity: identity
+    });
+    await input.store.assertLedgerRootForGrant(grant.digest, identity);
+  }
+
   const reservationId = input.reservation_id ?? `rsv-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
   const reservation = await input.ledger.reserve({
     reservation_id: reservationId,
@@ -465,6 +572,18 @@ export async function authorizePaidRegeneration(
     now: now.toISOString()
   });
 
+  // Re-read reservation from ledger (terminal-preferring) — never mint from caller struct.
+  const liveReservation = await input.ledger.readReservation(reservation.reservation_id);
+  if (!liveReservation || liveReservation.status !== "reserved") {
+    throw pcError(
+      "PC_AUTHORIZATION_INVALID",
+      "paid authorization requires a live reserved reservation after reserve"
+    );
+  }
+  if (liveReservation.digest !== reservation.digest) {
+    throw pcError("PC_AUTHORIZATION_INVALID", "live reservation digest mismatch after reserve");
+  }
+
   const authorization = createRegenerationAttemptAuthorization({
     grant,
     node_id: input.node_id,
@@ -478,27 +597,36 @@ export async function authorizePaidRegeneration(
     parameter_changes: input.parameter_changes,
     derived_compilation_digest: input.derived_compilation_digest,
     pricing_binding_digest: pricing,
-    credit_ledger_reservation_id: reservation.reservation_id,
-    credit_ledger_reservation_digest: reservation.digest
+    credit_ledger_reservation_id: liveReservation.reservation_id,
+    credit_ledger_reservation_digest: liveReservation.digest
   });
 
-  const sealed = mintSealedPaidAuthorization({
+  if (input.store) {
+    await input.store.writeAuthorizationCreateOnly(authorization);
+  }
+
+  const ledgerRootIdentity = await input.ledger.captureRootIdentity();
+  const sealed = mintSealedPaidAuthorizationInternal({
     authorization,
-    reservation,
-    grant
+    reservation: liveReservation,
+    grant,
+    policy_digest: policy.digest,
+    ledger_root_identity: ledgerRootIdentity
   });
 
-  return { authorization, reservation, sealed };
+  return { authorization, reservation: liveReservation, sealed };
 }
 
 /**
- * Mint opaque paid authorization from live grant + reservation + attempt auth.
- * Structural copies never pass isSealedPaidAuthorization.
+ * Internal mint only. Not exported — callers must use authorizePaidRegeneration
+ * or rehydrateSealedPaidAuthorization after durable revalidation.
  */
-export function mintSealedPaidAuthorization(input: {
+function mintSealedPaidAuthorizationInternal(input: {
   authorization: RegenerationAttemptAuthorization;
   reservation: LedgerReservation;
   grant: RegenerationGrant;
+  policy_digest: string;
+  ledger_root_identity: DirectoryIdentity;
 }): SealedPaidAuthorization {
   const auth = parseRegenerationAttemptAuthorization(input.authorization);
   const grant = parseRegenerationGrant(input.grant);
@@ -523,6 +651,9 @@ export function mintSealedPaidAuthorization(input: {
   if (input.reservation.subject.grant_digest !== grant.digest) {
     throw pcError("PC_AUTHORIZATION_INVALID", "reservation grant_digest does not match grant");
   }
+  if (input.reservation.subject.pricing_binding_digest !== auth.pricing_binding_digest) {
+    throw pcError("PC_AUTHORIZATION_INVALID", "reservation pricing does not match authorization");
+  }
 
   const sealed = Object.freeze({
     kind: "pc-sealed-paid-authorization" as const,
@@ -535,10 +666,63 @@ export function mintSealedPaidAuthorization(input: {
     derived_compilation_digest: auth.derived_compilation_digest,
     base_compilation_digest: auth.base_compilation_digest,
     pricing_binding_digest: auth.pricing_binding_digest,
-    observed_error_code: auth.observed_error_code
+    observed_error_code: auth.observed_error_code,
+    reserved_credits: input.reservation.reserved_credits,
+    ledger_root_identity: Object.freeze({ ...input.ledger_root_identity }),
+    policy_digest: input.policy_digest,
+    ordinal: auth.ordinal
   });
   sealedPaidAuthorizations.add(sealed);
   return sealed;
+}
+
+/** Burn opaque seal after effect commit/release/quarantine so one-shot cannot reuse. */
+export function burnSealedPaidAuthorization(sealed: SealedPaidAuthorization): void {
+  if (isObject(sealed)) {
+    sealedPaidAuthorizations.delete(sealed);
+  }
+}
+
+/**
+ * Resume rehydrate: load durable grant+auth, re-read live ledger reservation (terminal-first),
+ * re-bind seal only when still reserved and root identity matches. WeakSet alone is never enough.
+ */
+export async function rehydrateSealedPaidAuthorization(input: {
+  store: DurableRegenerationStore;
+  ledger: GrantCreditLedger;
+  authorization_digest: string;
+  now?: Date;
+}): Promise<SealedPaidAuthorization> {
+  const auth = await input.store.loadAuthorization(input.authorization_digest);
+  const grant = await input.store.loadGrant(auth.grant_digest);
+  const policy = await input.store.loadPolicy(grant.policy_spec_digest);
+  const now = input.now ?? new Date();
+  assertNotExpired(grant.expires_at, now, "PC_GRANT_EXPIRED");
+  assertNotExpired(policy.expires_at, now, "PC_POLICY_MISMATCH");
+
+  const identity = await input.ledger.captureRootIdentity();
+  await input.store.assertLedgerRootForGrant(grant.digest, identity);
+
+  const reservation = await input.ledger.readReservation(auth.credit_ledger_reservation_id);
+  if (!reservation) {
+    throw pcError("PC_AUTHORIZATION_INVALID", "reservation missing during rehydrate");
+  }
+  if (reservation.status !== "reserved") {
+    throw pcError(
+      "PC_AUTHORIZATION_INVALID",
+      `cannot remint paid authority after terminal reservation status=${reservation.status}`
+    );
+  }
+  if (reservation.digest !== auth.credit_ledger_reservation_digest) {
+    throw pcError("PC_AUTHORIZATION_INVALID", "reservation digest mismatch during rehydrate");
+  }
+  return mintSealedPaidAuthorizationInternal({
+    authorization: auth,
+    reservation,
+    grant,
+    policy_digest: policy.digest,
+    ledger_root_identity: identity
+  });
 }
 
 /**
@@ -747,4 +931,34 @@ export function assertRouteUnchanged(policyRoute: RouteIdentity, liveRoute: Rout
   ) {
     throw pcError("PC_POLICY_MISMATCH", "model or connection changed outside policy");
   }
+}
+
+/**
+ * Policy-exempt Gate cascade requires a genuine sealed paid authorization.
+ * Caller boolean `policy_exempt_authorized` alone never keeps Gate1.
+ */
+export function assertPolicyExemptSealedAuthorization(
+  sealed: unknown
+): asserts sealed is SealedPaidAuthorization {
+  if (!isSealedPaidAuthorization(sealed)) {
+    throw pcError(
+      "PC_AUTHORIZATION_INVALID",
+      "policy-exempt Gate cascade requires genuine sealed paid authorization"
+    );
+  }
+}
+
+export function gateDriftKindsForSealedRevisionIntent(input: {
+  intent: RevisionIntent;
+  sealed_paid_authorization: SealedPaidAuthorization;
+}): GateDriftKind[] {
+  assertPolicyExemptSealedAuthorization(input.sealed_paid_authorization);
+  const intent = parseRevisionIntent(input.intent);
+  if (input.sealed_paid_authorization.node_id !== intent.target_node_id) {
+    throw pcError("PC_AUTHORIZATION_INVALID", "sealed authorization node does not match revision intent");
+  }
+  return gateDriftKindsForRevisionIntent({
+    intent,
+    _sealed_policy_exempt_validated: true
+  });
 }

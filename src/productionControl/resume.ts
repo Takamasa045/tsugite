@@ -89,6 +89,16 @@ export async function resumeProductionControl(options: ResumeOptions): Promise<R
     reverifyArtifactEnvelopes(state, options.artifact_envelopes);
   }
 
+  // PO-6: recover incomplete grant-ledger transactions under the same root.
+  // Never remints paid authority; terminal reservations stay terminal.
+  try {
+    const { GrantCreditLedger } = await import("./grantLedger.js");
+    const ledger = new GrantCreditLedger(options.root);
+    await ledger.recover();
+  } catch {
+    // Absent ledger is fine (base PO-5 path). Corrupt ledger fails closed on paid path.
+  }
+
   // Resume never reselects model / connection / budget — those live in immutable digests.
   return {
     state,

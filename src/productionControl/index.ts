@@ -36,4 +36,6 @@ export * from "./activeRunGeneration.js";
 export * from "./recoveryContracts.js";
 export * from "./revisionIntent.js";
 export * from "./grantLedger.js";
+export * from "./grantStore.js";
 export * from "./recovery.js";
+export * from "./activeRecovery.js";

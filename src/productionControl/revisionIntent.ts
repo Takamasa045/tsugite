@@ -134,18 +134,30 @@ export function selectActiveRevisionIntent(input: {
 
 /**
  * Map a revision intent to Gate drift kinds for cascade evaluation.
- * Policy-exempt derived compilation must pass `policy_exempt_authorized: true`
- * with a live AttemptAuthorization — never inferred from change_class alone.
+ * Policy-exempt derived compilation is NEVER granted here from a caller boolean.
+ * Use recovery.gateDriftKindsForSealedRevisionIntent with a genuine sealed token.
  */
 export function gateDriftKindsForRevisionIntent(input: {
   intent: RevisionIntent;
-  /** True only when a valid RegenerationAttemptAuthorization covers this intent. */
+  /**
+   * @deprecated Boolean cannot exempt Gate1. Ignored for exemption.
+   */
   policy_exempt_authorized?: boolean;
+  /**
+   * Pre-validated by recovery.gateDriftKindsForSealedRevisionIntent only.
+   * When true, returns policy-exempt kind; never set from caller boolean alone.
+   */
+  _sealed_policy_exempt_validated?: boolean;
 }): GateDriftKind[] {
   const intent = parseRevisionIntent(input.intent);
-  if (input.policy_exempt_authorized === true && POLICY_ELIGIBLE_CHANGE_CLASSES.has(intent.change_class)) {
+  // Only recovery may set _sealed_policy_exempt_validated after WeakSet seal check.
+  if (
+    input._sealed_policy_exempt_validated === true
+    && POLICY_ELIGIBLE_CHANGE_CLASSES.has(intent.change_class)
+  ) {
     return ["policy-exempt-derived-compilation"];
   }
+  void input.policy_exempt_authorized; // never authority
   if (intent.change_class === "identity") {
     return ["identity-definition", "prompt", "compilation"];
   }
@@ -155,7 +167,7 @@ export function gateDriftKindsForRevisionIntent(input: {
   if (GATE1_CASCADE_CHANGE_CLASSES.has(intent.change_class)) {
     return ["prompt", "compilation"];
   }
-  // local-technical / parameter-tune / mutable-prompt-block without policy auth → Gate1 cascade
+  // local-technical / parameter-tune / mutable-prompt-block without sealed auth → Gate1 cascade
   return ["prompt", "compilation"];
 }
 
