@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ArtifactStore } from "../src/productionControl/artifactStore.js";
 import {
   compileProjectVideoPrompts,
@@ -42,8 +42,11 @@ import { createAssetContract } from "../src/productionControl/contracts/asset.js
 import { createCompilationBundle, createVerifiedAssetPin, verifyVerifiedAssetPin, isTrustedAssetPin, loadCreateOnlyArtifactStoreEnvelope, persistPlanningCompilationArtifact, loadPlanningArtifactRef } from "../src/videoPromptDirector/compilationBundle.js";
 import * as generationUnitResolver from "../src/videoPromptDirector/generationUnitSourceResolver.js";
 import * as videoPromptDirector from "../src/videoPromptDirector/index.js";
-import * as promptBudgetEvidence from "../src/videoPromptDirector/promptBudgetEvidence.js";
-import { loadPlanningOnlyPinnedPromptBudgetEvidence } from "../src/videoPromptDirector/promptBudgetEvidence.js";
+import {
+  isExecutionAuthoritativePinnedPromptBudgetEvidence,
+  isTrustedPinnedPromptBudgetEvidence,
+  loadPlanningOnlyPinnedPromptBudgetEvidence
+} from "../src/videoPromptDirector/promptBudgetEvidence.js";
 
 function standalone(model = "v6"): VideoPromptIrV2 {
   return {
@@ -1259,7 +1262,7 @@ describe("PO-4 final repair regressions", () => {
               else await symlink(root, target);
             }
           }
-        })).rejects.toThrow(/identity|already exists/);
+        })).rejects.toThrow(/VPD-K002: compilation artifact destination identity is unsafe/);
       } finally {
         await rm(root, { recursive: true, force: true });
       }
@@ -2230,7 +2233,9 @@ describe("PO-4 final repair regressions", () => {
         revision_id: revision
       });
 
-      // Fixture budget is planning-only; elevate only for this surface-success path.
+      // Fixture-only budget loader marks trusted planning evidence, but must not
+      // grant production execution authority. Prove surface/digest on planning
+      // and recompile paths only — do not spy or elevate authority.
       const fixturePath = join(root, "budget.json");
       await writeFile(fixturePath, JSON.stringify({
         schema_version: 1,
@@ -2250,37 +2255,45 @@ describe("PO-4 final repair regressions", () => {
         retrieved_at: "2026-08-11T00:00:00Z",
         expires_at: "2099-12-31T00:00:00Z"
       }));
-      const trustedBudget = loadPlanningOnlyPinnedPromptBudgetEvidence({
+      const fixtureOnlyBudget = loadPlanningOnlyPinnedPromptBudgetEvidence({
         artifactPath: fixturePath,
         repoRoot: root,
         route: h3Route.route,
         model_profile_digest: h3Model.digest,
         connection_profile_digest: h3Connection.digest
       });
-      expect(trustedBudget).toBeDefined();
-      if (!trustedBudget) return;
-      const authSpy = vi.spyOn(promptBudgetEvidence, "isExecutionAuthoritativePinnedPromptBudgetEvidence")
-        .mockImplementation((value) => promptBudgetEvidence.isTrustedPinnedPromptBudgetEvidence(value));
-      try {
-        const derived = await videoPromptDirector.deriveExecutionCompilationBundleFromPlanningArtifact({
-          planning_artifact: planning,
-          store,
-          production_id: "production",
-          project_id: "project",
-          revision_id: revision,
-          project_root: root,
-          asset_pin_root: join(root, "pins"),
-          model_profile: h3Model.profile,
-          connection_profile: h3Connection.profile,
-          grammar_profile: h3Grammar,
-          trusted_pinned_budget_evidence: trustedBudget
-        });
-        expect(derived.bundle.execution_capable).toBe(true);
-        expect(derived.bundle.lineage.authoring_surface).toBe("h3");
-        expect(derived.bundle.lineage.authoring_schema).toBe("VideoPromptIrV2");
-      } finally {
-        authSpy.mockRestore();
-      }
+      expect(fixtureOnlyBudget).toBeDefined();
+      if (!fixtureOnlyBudget) return;
+      expect(isTrustedPinnedPromptBudgetEvidence(fixtureOnlyBudget)).toBe(true);
+      expect(isExecutionAuthoritativePinnedPromptBudgetEvidence(fixtureOnlyBudget)).toBe(false);
+
+      const reloadedPlanning = await loadPlanningArtifactRef({
+        store,
+        artifact_id: planning.artifact_id,
+        artifact_digest: planning.artifact_digest,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision,
+        request_id: h3Compiled.compilation.bundle.request_id,
+        expected_store_root: storeRoot
+      });
+      expect(reloadedPlanning.artifact_digest).toBe(planning.artifact_digest);
+      expect(h3Compiled.compilation.bundle.lineage.authoring_surface).toBe("h3");
+      expect(h3Compiled.compilation.bundle.lineage.authoring_schema).toBe("VideoPromptIrV2");
+
+      await expect(videoPromptDirector.deriveExecutionCompilationBundleFromPlanningArtifact({
+        planning_artifact: planning,
+        store,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision,
+        project_root: root,
+        asset_pin_root: join(root, "pins"),
+        model_profile: h3Model.profile,
+        connection_profile: h3Connection.profile,
+        grammar_profile: h3Grammar,
+        trusted_pinned_budget_evidence: fixtureOnlyBudget
+      })).rejects.toThrow(/VPD-K003: production prompt budget evidence is unknown or not authoritative/);
 
       const v2Compiled = compileVideoPromptIrV2(standalone(), {
         request_id: "surface-vp-1",
@@ -2435,6 +2448,8 @@ describe("PO-4 final repair regressions", () => {
       })).rejects.toThrow(/not a strict compilation bundle|not canonical|stale or execution-capable/);
 
       // Execution-capable payload cannot become planning authority.
+      // Rebuild digests so verifyCompilationBundle accepts the structural flip;
+      // the loader must still reject with the exact execution-capable identity error.
       const executionShaped = JSON.parse(JSON.stringify(bundle)) as Record<string, any>;
       executionShaped.execution_capable = true;
       executionShaped.effective_contract.execution.status = "execution-capable";
@@ -2445,28 +2460,24 @@ describe("PO-4 final repair regressions", () => {
       executionShaped.compilation_digest = sha256Canonical(Object.fromEntries(
         Object.entries(executionShaped).filter(([key]) => key !== "compilation_digest")
       ));
-      // Schema may reject missing pin evidence for execution-capable; either path is fail-closed.
-      try {
-        const execBytes = Buffer.from(JSON.stringify(executionShaped), "utf8");
-        const execRoot = join(root, "exec-store");
-        await mkdir(execRoot);
-        const execStore = new ArtifactStore(execRoot);
-        const execRevision = compilationRevisionId({ compilation_digest: executionShaped.compilation_digest } as never);
-        const execId = `planning-production-project-${execRevision}-${bundle.request_id}`;
-        await execStore.create({ artifact_id: execId, bytes: execBytes });
-        await expect(loadPlanningArtifactRef({
-          store: execStore,
-          artifact_id: execId,
-          artifact_digest: createHash("sha256").update(execBytes).digest("hex"),
-          production_id: "production",
-          project_id: "project",
-          revision_id: execRevision,
-          request_id: bundle.request_id,
-          expected_store_root: execRoot
-        })).rejects.toThrow(/strict compilation bundle|stale or execution-capable|not canonical/);
-      } catch (error) {
-        expect(String(error)).toMatch(/VPD-K003|execution|bundle|digest/i);
-      }
+      expect(() => verifyCompilationBundle(executionShaped)).not.toThrow();
+      const execBytes = Buffer.from(JSON.stringify(executionShaped), "utf8");
+      const execRoot = join(root, "exec-store");
+      await mkdir(execRoot);
+      const execStore = new ArtifactStore(execRoot);
+      const execRevision = compilationRevisionId({ compilation_digest: executionShaped.compilation_digest } as never);
+      const execId = `planning-production-project-${execRevision}-${bundle.request_id}`;
+      await execStore.create({ artifact_id: execId, bytes: execBytes });
+      await expect(loadPlanningArtifactRef({
+        store: execStore,
+        artifact_id: execId,
+        artifact_digest: createHash("sha256").update(execBytes).digest("hex"),
+        production_id: "production",
+        project_id: "project",
+        revision_id: execRevision,
+        request_id: bundle.request_id,
+        expected_store_root: execRoot
+      })).rejects.toThrow(/VPD-K003: planning authority identity is stale or execution-capable/);
 
       // Tamper after persist: rewrite artifact bytes under the same id is create-only rejected;
       // a second store with same namespace but different bytes fails digest match on reload.
@@ -2540,12 +2551,12 @@ describe("PO-4 final repair regressions", () => {
       await mkdir(join(shadowRoot, "media"));
       await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(shadowRoot, "media", "clip-001.mp4"));
       const shadow = await validateProject(join(shadowRoot, "project.yaml"));
-      // Shadow may keep legacy authority or report asset issues; either way it must not write active planning authority.
-      if (shadow.ok) {
-        await expect(stat(join(shadowRoot, "production-control", "video-prompt-planning"))).rejects.toThrow();
-      } else {
-        expect(shadow.issues.map((issue) => issue.code).join(",")).toMatch(/VPD-J002|asset|orchestration|shadow/i);
-      }
+      // Shadow must never promote native V2 under production-control planning authority.
+      await expect(stat(join(shadowRoot, "production-control", "video-prompt-planning"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(shadowRoot, "production-control"))).rejects.toMatchObject({ code: "ENOENT" });
+      // Missing authoring asset contracts are advisory in shadow; validation stays open
+      // while comparison artifacts may write under dist/shadow only.
+      expect(shadow.ok).toBe(true);
     } finally {
       await rm(shadowRoot, { recursive: true, force: true });
     }
@@ -2620,12 +2631,13 @@ describe("PO-4 final repair regressions", () => {
         revision_id: revision,
         request_id: bundle.request_id,
         allow_existing_same_digest: true
-      })).rejects.toThrow(/committed compilation manifest is invalid|already exists|VPD-K002/);
+      })).rejects.toThrow(/VPD-K002: committed compilation manifest is invalid/);
     } finally {
       await rm(rootC, { recursive: true, force: true });
     }
 
-    // Failed link path still runs cleanup; cleanup identity failure remains fail-closed.
+    // Failed link path rejects with the pre-link error. Cleanup-hook exceptions on
+    // the failure path are swallowed so the original publication failure stays visible.
     const rootD = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-pub-cleanup-")));
     try {
       await expect(writeCompilationBundleAtomic(rootD, bundle, {
@@ -2640,9 +2652,50 @@ describe("PO-4 final repair regressions", () => {
             throw new Error("cleanup identity changed");
           }
         }
-      })).rejects.toThrow(/cleanup identity changed|publication-before-link|no-replace compilation publication failed/);
+      })).rejects.toThrow(/^publication-before-link$/);
+      await expect(stat(join(rootD, revision, "video-prompt", bundle.request_id))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(rootD, { recursive: true, force: true });
+    }
+
+    // Reachable cleanup identity failure: mid-flight same-digest adoption leaves
+    // the staging directory in place, so success-path cleanup runs and must fail closed.
+    const rootCleanup = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-pub-cleanup-identity-")));
+    const rootCleanupRef = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-pub-cleanup-ref-")));
+    try {
+      await writeCompilationBundleAtomic(rootCleanupRef, bundle, {
+        project_root: rootCleanupRef,
+        revision_id: revision,
+        request_id: bundle.request_id
+      });
+      const refTarget = join(rootCleanupRef, revision, "video-prompt", bundle.request_id);
+      const cleanupTarget = join(rootCleanup, revision, "video-prompt", bundle.request_id);
+      await expect(writeCompilationBundleAtomic(rootCleanup, bundle, {
+        project_root: rootCleanup,
+        revision_id: revision,
+        request_id: bundle.request_id,
+        allow_existing_same_digest: true,
+        hooks: {
+          before_target_reserve: async () => {
+            await mkdir(join(rootCleanup, revision, "video-prompt"), { recursive: true, mode: 0o700 });
+            await cp(refTarget, cleanupTarget, { recursive: true });
+          },
+          before_cleanup: async () => {
+            throw new Error("cleanup identity changed");
+          }
+        }
+      })).rejects.toThrow(/^cleanup identity changed$/);
+      // Same-digest target remains published; staging is left quarantined.
+      expect(readCompilationBundleAtomic(rootCleanup, {
+        project_root: rootCleanup,
+        revision_id: revision,
+        request_id: bundle.request_id
+      }).bundle.compilation_digest).toBe(bundle.compilation_digest);
+      const siblings = await readdir(join(rootCleanup, revision, "video-prompt"));
+      expect(siblings.some((name) => name.endsWith(".tmp"))).toBe(true);
+    } finally {
+      await rm(rootCleanup, { recursive: true, force: true });
+      await rm(rootCleanupRef, { recursive: true, force: true });
     }
 
     // before_marker_write failure aborts without publishing the target.
@@ -2657,14 +2710,14 @@ describe("PO-4 final repair regressions", () => {
             throw new Error("marker write blocked");
           }
         }
-      })).rejects.toThrow(/marker write blocked|no-replace compilation publication failed/);
-      await expect(stat(join(rootE, revision, "video-prompt", bundle.request_id))).rejects.toThrow();
+      })).rejects.toThrow(/^marker write blocked$/);
+      await expect(stat(join(rootE, revision, "video-prompt", bundle.request_id))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(rootE, { recursive: true, force: true });
     }
   });
 
-  it("rejects review surface when current asset contract is missing, stale, or surface-forged", async () => {
+  it("rejects review Gate1 when current asset contract is missing or stale", async () => {
     const raw = await mkdtemp(join(tmpdir(), "tsugite-po4-review-surface-"));
     const root = await realpath(raw);
     try {
