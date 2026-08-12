@@ -1,4 +1,5 @@
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { lstat, mkdir, realpath } from "node:fs/promises";
 import { loadAdapterDefinition, type AdapterDefinition } from "../adapters/registry.js";
 import {
   loadProjectPromptGuides,
@@ -36,10 +37,11 @@ import {
   rejectUncompiledVideoPrompt,
   type VideoPromptPlan
 } from "../videoPromptDirector/videoPromptCompile.js";
-import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
+import { createProjectGenerationUnitSourceResolver, resolveProjectAssetContract } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { loadProject } from "./loadProject.js";
 import { generationRequestCapability, generationRequestOutputKind, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
+import { ArtifactStore } from "../productionControl/artifactStore.js";
 
 export type ValidateProjectOptions = {
   adapterDirs?: string[];
@@ -112,12 +114,19 @@ export async function validateProject(
   if (hasVideoPrompt) {
     const generationUnitSourceResolver = options.generationUnitSourceResolver
       ?? createProjectGenerationUnitSourceResolver(configPath);
+    const assetContractResolution = await resolveProjectAssetContract(configPath, project);
+    const projectRoot = await realpath(dirname(resolve(configPath)));
+    const planningStoreRoot = await ensureVideoPromptPlanningStoreRoot(projectRoot);
     const videoCompile = await compileProjectVideoPrompts(project, {
       intent: "planning",
       generationUnitSourceResolver,
       ...(options.grammarProfileRoot ? { grammarProfileRoot: options.grammarProfileRoot } : {}),
-      compilationArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir),
-      shadowArtifactRoot: join(dirname(resolve(configPath)), project.dist_dir, "shadow", "video-prompt"),
+      compilationArtifactRoot: join(projectRoot, project.dist_dir),
+      shadowArtifactRoot: join(projectRoot, project.dist_dir, "shadow", "video-prompt"),
+      planningArtifactStore: new ArtifactStore(await realpath(planningStoreRoot)),
+      productionId: "production",
+      projectId: project.slug,
+      ...(assetContractResolution ? { assetContractResolution } : {})
     });
     videoPromptPlans = videoCompile.plans ?? [];
     videoPromptShadowComparisons = videoCompile.shadow_comparisons ?? [];
@@ -543,6 +552,33 @@ export async function validateProject(
     ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {}),
     ...(videoPromptShadowComparisons.length > 0 ? { video_prompt_shadow_comparisons: videoPromptShadowComparisons } : {})
   };
+}
+
+async function ensureVideoPromptPlanningStoreRoot(projectRoot: string): Promise<string> {
+  const root = resolve(projectRoot);
+  const control = join(root, "production-control");
+  const planning = join(control, "video-prompt-planning");
+  for (const directory of [control, planning]) {
+    try {
+      const identity = await lstat(directory);
+      if (!identity.isDirectory() || identity.isSymbolicLink() || identity.dev === 0 || identity.ino === 0) {
+        throw new Error("VPD-K002: planning ArtifactStore ancestor identity is unsafe");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = dirname(directory);
+      const parentIdentity = await lstat(parent);
+      if (!parentIdentity.isDirectory() || parentIdentity.isSymbolicLink() || parentIdentity.dev === 0 || parentIdentity.ino === 0) {
+        throw new Error("VPD-K002: planning ArtifactStore parent identity is unsafe");
+      }
+      await mkdir(directory, { recursive: false, mode: 0o700 });
+      const created = await lstat(directory);
+      if (!created.isDirectory() || created.isSymbolicLink() || created.dev === 0 || created.ino === 0) {
+        throw new Error("VPD-K002: planning ArtifactStore directory identity changed");
+      }
+    }
+  }
+  return realpath(planning);
 }
 
 function generationConnectionRequirements(project: Project): {

@@ -25,8 +25,15 @@ import { acquireProductionControlRootLock } from "../productionControl/errors.js
 import { loadAdapterDialectCapability } from "./adapterDialect.js";
 import { loadConnectionCapabilityProfile } from "./connectionCapability.js";
 import { loadModelPromptProfile } from "./modelProfile.js";
-import { generationUnitContractFacts, isAuthoritativeGenerationUnitSource, type TrustedGenerationUnitLyricsToken } from "./generationUnitSourceResolver.js";
-import { assetContractSchema, type AssetContractV1 } from "../productionControl/contracts/asset.js";
+import {
+  generationUnitContractFacts,
+  isAuthoritativeAssetContractResolution,
+  isAuthoritativeGenerationUnitSource,
+  reloadAuthoritativeAssetContract,
+  type TrustedAssetContractResolution,
+  type TrustedGenerationUnitLyricsToken
+} from "./generationUnitSourceResolver.js";
+import type { AssetContractV1 } from "../productionControl/contracts/asset.js";
 
 const issueSchema = z.object({
   code: safeIdSchema,
@@ -247,7 +254,25 @@ const submissionLeaseSnapshots = new WeakMap<object, {
   revision_id: string;
   project_root: string;
   asset_pin_root: string;
+  attempt_id: string;
+  job_id: string;
   assets: ReadonlyArray<{ asset_id: string; pin: AssetPin }>;
+}>();
+declare const executionSubmissionInputBrand: unique symbol;
+export type ExecutionSubmissionInput = {
+  readonly kind: "video-prompt-execution-submission-input";
+  readonly [executionSubmissionInputBrand]: true;
+};
+const trustedExecutionSubmissionInputs = new WeakSet<object>();
+const executionSubmissionInputSnapshots = new WeakMap<object, {
+  bundle_digest: string;
+  request_id: string;
+  production_id: string;
+  project_id: string;
+  revision_id: string;
+  attempt_id: string;
+  job_id: string;
+  assets: ReadonlyArray<{ asset_id: string; fd: number; sha256: string; byte_size: number }>;
 }>();
 
 declare const createOnlyArtifactStoreEnvelopeBrand: unique symbol;
@@ -266,6 +291,27 @@ export type CreateOnlyArtifactStoreEnvelope = {
 };
 const trustedArtifactStoreEnvelopes = new WeakSet<object>();
 const artifactStoreEnvelopeSnapshots = new WeakMap<object, string>();
+
+declare const planningArtifactRefBrand: unique symbol;
+/**
+ * A planning reference is minted only after the production compiler has
+ * written and strictly reread the exact planning bytes from ArtifactStore.
+ * The fields are intentionally not sufficient to construct authority: the
+ * private WeakSet brand is checked by the execution derivation boundary.
+ */
+export type PlanningArtifactRef = {
+  readonly kind: "video-prompt-planning-artifact-ref";
+  readonly artifact_id: string;
+  readonly artifact_digest: string;
+  readonly production_id: string;
+  readonly project_id: string;
+  readonly revision_id: string;
+  readonly request_id: string;
+  readonly [planningArtifactRefBrand]: true;
+};
+const trustedPlanningArtifactRefs = new WeakSet<object>();
+const planningArtifactRefSnapshots = new WeakMap<object, string>();
+const planningArtifactRefStores = new WeakMap<object, ArtifactStore>();
 
 export type RuntimeAssetPinEvidence = {
   source: "project-bytes" | "asset-contract";
@@ -549,6 +595,76 @@ export function verifyCompilationBundle(bundle: unknown): CompilationBundleV1 {
   return deepFreeze(compilationBundleSchema.parse(bundle));
 }
 
+/**
+ * Production compiler handoff for the sole execution derivation path. The
+ * ArtifactStore object and exact bytes are bound before the opaque reference
+ * is returned; a caller-made object with matching strings is not accepted.
+ */
+export async function persistPlanningCompilationArtifact(input: {
+  store: ArtifactStore;
+  bundle: CompilationBundleV1;
+  production_id: string;
+  project_id: string;
+  revision_id?: string;
+}): Promise<PlanningArtifactRef> {
+  if (!(input.store instanceof ArtifactStore)) throw new Error("VPD-K003: planning artifact requires the production ArtifactStore");
+  const bundle = verifyCompilationBundle(input.bundle);
+  if (bundle.execution_capable) throw new Error("VPD-K003: execution-capable bundle cannot be a planning artifact");
+  if (![input.production_id, input.project_id].every(isSafeRelativeId)) throw new Error("VPD-K003: planning artifact namespace is unsafe");
+  const revisionId = input.revision_id ?? compilationRevisionId(bundle);
+  if (revisionId !== compilationRevisionId(bundle) || !isSafeRelativeId(revisionId)) {
+    throw new Error("VPD-K003: planning revision must be the immutable digest-bound revision id");
+  }
+  const artifactId = planningArtifactId(input.production_id, input.project_id, revisionId, bundle.request_id);
+  const bytes = Buffer.from(JSON.stringify(bundle), "utf8");
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  try {
+    await input.store.create({ artifact_id: artifactId, bytes, expected_sha256: digest, expected_size: bytes.byteLength });
+  } catch (error) {
+    // Same-revision retries are idempotent only when the create-only bytes are
+    // exact. Any other existing object remains a hard conflict.
+    const existing = await input.store.readBounded(artifactId, MAX_BUNDLE_FILE_BYTES);
+    if (!existing.equals(bytes)) throw error;
+  }
+  const stored = await input.store.readBounded(artifactId, MAX_BUNDLE_FILE_BYTES);
+  if (createHash("sha256").update(stored).digest("hex") !== digest
+    || !stored.equals(bytes)
+    || !Buffer.from(JSON.stringify(verifyCompilationBundle(JSON.parse(stored.toString("utf8")))), "utf8").equals(stored)) {
+    throw new Error("VPD-K003: planning ArtifactStore bytes are not the exact strict bundle");
+  }
+  const ref = Object.freeze({
+    kind: "video-prompt-planning-artifact-ref" as const,
+    artifact_id: artifactId,
+    artifact_digest: digest,
+    production_id: input.production_id,
+    project_id: input.project_id,
+    revision_id: revisionId,
+    request_id: bundle.request_id
+  }) as PlanningArtifactRef;
+  trustedPlanningArtifactRefs.add(ref as object);
+  planningArtifactRefSnapshots.set(ref as object, planningArtifactRefSnapshot(ref));
+  planningArtifactRefStores.set(ref as object, input.store);
+  return ref;
+}
+
+function isTrustedPlanningArtifactRef(value: unknown): value is PlanningArtifactRef {
+  return Boolean(value && typeof value === "object"
+    && trustedPlanningArtifactRefs.has(value as object)
+    && planningArtifactRefSnapshots.get(value as object) === planningArtifactRefSnapshot(value as PlanningArtifactRef));
+}
+
+function planningArtifactRefSnapshot(value: PlanningArtifactRef): string {
+  return sha256Canonical({
+    kind: value.kind,
+    artifact_id: value.artifact_id,
+    artifact_digest: value.artifact_digest,
+    production_id: value.production_id,
+    project_id: value.project_id,
+    revision_id: value.revision_id,
+    request_id: value.request_id
+  });
+}
+
 export type ExecutionBundleAuthorityContext = {
   effective_contract: EffectiveGenerationContractV1;
   grammar_profile?: unknown;
@@ -647,14 +763,13 @@ async function createExecutionCompilationBundleArtifact(input: {
 export async function deriveExecutionCompilationBundleFromPlanningArtifact(input: {
   /** Exact create-only planning artifact; raw planning JSON is not accepted. */
   planning_artifact: {
-    store: ArtifactStore;
     artifact_id: string;
     artifact_digest: string;
     production_id: string;
     project_id: string;
     revision_id: string;
     request_id: string;
-  };
+  } & PlanningArtifactRef;
   /** These are reloaded and compared to the caller snapshot before use. */
   model_profile?: ModelPromptProfile;
   connection_profile?: ConnectionCapabilityProfile;
@@ -670,10 +785,12 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
   revision_id: string;
   generation_unit_source?: GenerationUnitProgramSourceV1;
   generation_unit_lyrics_token?: TrustedGenerationUnitLyricsToken;
+  asset_contract_resolution?: TrustedAssetContractResolution;
+  /** @deprecated raw contract JSON is never execution authority. */
   asset_contract?: AssetContractV1;
 }): Promise<{ bundle: ExecutionCompilationBundle; envelope: CreateOnlyArtifactStoreEnvelope }> {
-  if (!input.planning_artifact || !(input.planning_artifact.store instanceof ArtifactStore)
-    || input.planning_artifact.store !== input.store
+  if (!isTrustedPlanningArtifactRef(input.planning_artifact)
+    || planningArtifactRefStores.get(input.planning_artifact as object) !== input.store
     || input.planning_artifact.production_id !== input.production_id
     || input.planning_artifact.project_id !== input.project_id
     || input.planning_artifact.revision_id !== input.revision_id
@@ -681,7 +798,7 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
     throw new Error("VPD-K003: execution derivation requires the exact committed planning artifact identity");
   }
   const planningEnvelope = await loadCreateOnlyArtifactStoreEnvelope({
-    store: input.planning_artifact.store,
+    store: input.store,
     artifact_id: input.planning_artifact.artifact_id,
     artifact_digest: input.planning_artifact.artifact_digest,
     request_id: input.planning_artifact.request_id,
@@ -717,10 +834,14 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
   const normalized = safeParseVideoPromptIrV2(planning.normalized_ir);
   if (!normalized.success || normalized.data.target.model_profile_id !== planning.route.ir_model
     || normalized.data.target.mode !== planning.route.mode_binding) throw new Error("VPD-K002: planning IR does not match the committed route");
+  if (!(["VideoPromptIrV2", "V1", "H3-V1"] as const).includes(planning.lineage.authoring_schema as "VideoPromptIrV2" | "V1" | "H3-V1")
+    || !planning.lineage.upgrader_version.trim()) {
+    throw new Error("VPD-K003: committed planning authoring source tuple is unsupported");
+  }
 
   const [modelLoad, connectionLoad] = await Promise.all([
     loadModelPromptProfile(normalized.data.target.model_profile_id),
-    loadConnectionCapabilityProfile(input.planning_artifact.store instanceof ArtifactStore ? planning.route.connection_id : "")
+    loadConnectionCapabilityProfile(planning.route.connection_id)
   ]);
   if (!modelLoad.ok || !connectionLoad.ok) throw new Error("VPD-K002: current model or connection profile is unavailable");
   if (!input.model_profile || !input.connection_profile
@@ -767,6 +888,22 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
     ...(trustedGrammar ? { grammar_profile: trustedGrammar, require_pinned_grammar: true } : {}),
     ...(input.generation_unit_source ? { generation_unit_source: input.generation_unit_source } : {}),
     ...(input.generation_unit_lyrics_token ? { generation_unit_lyrics_token: input.generation_unit_lyrics_token } : {}),
+    ...(planning.asset_lineage.some((asset) => asset.asset_contract) ? {
+      asset_evidence: Object.fromEntries(planning.asset_lineage.filter((asset) => asset.asset_contract).map((asset) => [asset.asset_id, {
+        source: "asset-contract" as const,
+        real_path: join(resolve(input.project_root), asset.asset_contract!.path),
+        sha256: asset.asset_contract!.sha256,
+        byte_size: asset.asset_contract!.byte_size,
+        regular_file: true as const,
+        contained_in_project_root: true as const,
+        asset_contract: asset.asset_contract
+      }]))
+    } : {}),
+    source: {
+      authoring_schema: planning.lineage.authoring_schema as "VideoPromptIrV2" | "V1" | "H3-V1",
+      upgrader_version: planning.lineage.upgrader_version,
+      ...(planning.lineage.source_digest ? { source_digest: planning.lineage.source_digest } : {})
+    },
     intent: "planning"
   });
   if (!recompiled.ok || !recompiled.compilation.bundle
@@ -803,9 +940,16 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
 
   const assetPins: Record<string, AssetPin> = {};
   let contract: AssetContractV1 | undefined;
-  if (input.asset_contract) {
+  if (input.asset_contract !== undefined) {
+    throw new Error("VPD-J002: raw caller AssetContract cannot become execution authority");
+  }
+  if (input.asset_contract_resolution !== undefined) {
+    if (!isAuthoritativeAssetContractResolution(input.asset_contract_resolution)) {
+      throw new Error("VPD-J002: AssetContract authority must come from the project ArtifactStore resolver");
+    }
     try {
-      contract = assetContractSchema.parse(input.asset_contract);
+      if (resolve(input.asset_contract_resolution.project_root) !== resolve(input.project_root)) throw new Error("asset contract project root mismatch");
+      contract = await reloadAuthoritativeAssetContract(input.asset_contract_resolution);
     } catch {
       throw new Error("VPD-J002: execution derivation requires a strict authoritative AssetContract");
     }
@@ -817,7 +961,7 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
     && (!currentFacts || sha256Canonical(currentFacts) !== sha256Canonical(planning.lineage.generation_unit_contract_facts))) {
     throw new Error("VPD-J002: current T04 contract facts no longer match the committed planning artifact");
   }
-  if (planning.asset_lineage.length > 0 && (!contract || !currentFacts?.asset_contract_entries)) {
+  if (planning.asset_lineage.length > 0 && (!contract || (normalized.data.program_kind === "mv" && !currentFacts?.asset_contract_entries))) {
     throw new Error("VPD-J002: execution derivation requires current authoritative AssetContract facts");
   }
   if (contract && currentFacts?.asset_contract_entries) {
@@ -1060,9 +1204,13 @@ export function isAdoptedExecutionCompilationBundle(value: unknown): value is Ex
  * and consumption and remain bound to the adopted bundle identity.
  */
 export function createExecutionSubmissionLease(
-  bundle: ExecutionCompilationBundle
+  bundle: ExecutionCompilationBundle,
+  binding?: { attempt_id: string; job_id: string }
 ): ExecutionSubmissionLease {
   if (!isAdoptedExecutionCompilationBundle(bundle)) throw new Error("VPD-K003: submission lease requires an adopted execution bundle");
+  if (!binding || !isSafeRelativeId(binding.attempt_id) || !isSafeRelativeId(binding.job_id)) {
+    throw new Error("VPD-K003: submission lease requires a bound attempt and job identity");
+  }
   const context = adoptedExecutionBundleContexts.get(bundle as object);
   if (!context) throw new Error("VPD-K003: adopted bundle provenance is unavailable");
   const parsed = verifyCompilationBundle(bundle);
@@ -1085,40 +1233,103 @@ export function createExecutionSubmissionLease(
     revision_id: context.revision_id,
     project_root: context.project_root,
     asset_pin_root: context.asset_pin_root,
+    attempt_id: binding.attempt_id,
+    job_id: binding.job_id,
     assets: Object.freeze(assets)
   }));
   return lease;
 }
 
-export function consumeExecutionSubmissionLease(lease: ExecutionSubmissionLease): {
-  bundle_digest: string;
-  request_id: string;
-  production_id: string;
-  project_id: string;
-  revision_id: string;
-  pin_root: string;
-  assets: ReadonlyArray<{ asset_id: string; relative_path: string; sha256: string; byte_size: number }>;
-} {
+/**
+ * Atomically consume a lease and retain the verified pin descriptors through
+ * the submission boundary. No pathname or caller-reopenable asset reference is
+ * returned. A failed verification still burns the lease.
+ */
+export function consumeExecutionSubmissionLease(lease: ExecutionSubmissionLease): ExecutionSubmissionInput {
   if (!lease || typeof lease !== "object" || !submissionLeases.has(lease as object)) throw new Error("VPD-K003: submission lease is not an opaque trusted token");
   const snapshot = submissionLeaseSnapshots.get(lease as object);
   if (!snapshot) throw new Error("VPD-K003: submission lease provenance is unavailable");
-  for (const asset of snapshot.assets) {
-    verifyVerifiedAssetPin(asset.pin, { project_root: snapshot.project_root, pin_root: snapshot.asset_pin_root, expected_sha256: asset.pin.sha256, expected_size: asset.pin.byte_size });
+  // WeakSet deletion is the one-shot invalidation point, before any IO.
+  submissionLeases.delete(lease as object);
+  submissionLeaseSnapshots.delete(lease as object);
+  const opened: Array<{ asset_id: string; fd: number; sha256: string; byte_size: number }> = [];
+  try {
+    for (const asset of snapshot.assets) {
+      const runtime = assetPinRuntimeSnapshots.get(asset.pin as object);
+      if (!runtime || resolve(snapshot.project_root) !== runtime.project_root || resolve(snapshot.asset_pin_root) !== runtime.pin_root) {
+        throw new Error("VPD-J002: submission pin provenance does not match the adopted bundle");
+      }
+      assertStrongDirectoryChain(runtime.pin_root, runtime.project_root);
+      const fd = openSync(runtime.pin_path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+      try {
+        const before = fstatSync(fd);
+        if (!before.isFile() || before.dev === 0 || before.ino === 0 || before.dev !== runtime.dev || before.ino !== runtime.ino || before.size !== asset.pin.byte_size) {
+          throw new Error("VPD-J002: submission pin identity changed before handoff");
+        }
+        const digest = sha256Fd(fd, before.size);
+        const after = fstatSync(fd);
+        if (digest !== asset.pin.sha256 || after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+          throw new Error("VPD-J002: submission pin bytes changed before handoff");
+        }
+        opened.push({ asset_id: asset.asset_id, fd, sha256: asset.pin.sha256, byte_size: asset.pin.byte_size });
+      } catch (error) {
+        closeSync(fd);
+        throw error;
+      }
+    }
+  } catch (error) {
+    for (const asset of opened) closeSync(asset.fd);
+    throw error;
   }
-  return Object.freeze({
+  const input = Object.freeze({ kind: "video-prompt-execution-submission-input" as const }) as ExecutionSubmissionInput;
+  trustedExecutionSubmissionInputs.add(input as object);
+  executionSubmissionInputSnapshots.set(input as object, Object.freeze({
     bundle_digest: snapshot.bundle_digest,
     request_id: snapshot.request_id,
     production_id: snapshot.production_id,
     project_id: snapshot.project_id,
     revision_id: snapshot.revision_id,
-    pin_root: snapshot.asset_pin_root,
-    assets: Object.freeze(snapshot.assets.map(({ asset_id, pin }) => Object.freeze({
-      asset_id,
-      relative_path: pin.relative_path,
-      sha256: pin.sha256,
-      byte_size: pin.byte_size
-    })))
-  });
+    attempt_id: snapshot.attempt_id,
+    job_id: snapshot.job_id,
+    assets: Object.freeze(opened)
+  }));
+  return input;
+}
+
+/** Read a verified asset through the held descriptor; the source pathname is never reopened. */
+export function readExecutionSubmissionAsset(input: ExecutionSubmissionInput, assetId: string): Buffer {
+  if (!input || typeof input !== "object" || !trustedExecutionSubmissionInputs.has(input as object)) throw new Error("VPD-K003: submission input is not an opaque trusted token");
+  const snapshot = executionSubmissionInputSnapshots.get(input as object);
+  const asset = snapshot?.assets.find((candidate) => candidate.asset_id === assetId);
+  if (!asset) throw new Error("VPD-J002: submission asset is not bound to the adopted bundle");
+  const before = fstatSync(asset.fd);
+  if (!before.isFile() || before.dev === 0 || before.ino === 0 || before.size !== asset.byte_size) throw new Error("VPD-J002: held submission pin identity changed");
+  if (before.size > MAX_SUBMISSION_READ_BYTES) throw new Error("VPD-J002: submission asset exceeds the bounded handoff read limit");
+  const chunks: Buffer[] = [];
+  let offset = 0;
+  while (offset < before.size) {
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, before.size - offset));
+    const count = readSync(asset.fd, chunk, 0, chunk.byteLength, offset);
+    if (count <= 0) throw new Error("VPD-J002: held submission pin short read");
+    chunks.push(Buffer.from(chunk.subarray(0, count)));
+    offset += count;
+  }
+  const bytes = Buffer.concat(chunks, before.size);
+  const after = fstatSync(asset.fd);
+  if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || createHash("sha256").update(bytes).digest("hex") !== asset.sha256) {
+    throw new Error("VPD-J002: held submission pin changed during handoff");
+  }
+  return bytes;
+}
+
+/** Close the held descriptor after the external submission boundary completes. */
+export function releaseExecutionSubmissionInput(input: ExecutionSubmissionInput): void {
+  if (!input || typeof input !== "object" || !trustedExecutionSubmissionInputs.has(input as object)) throw new Error("VPD-K003: submission input is not an opaque trusted token");
+  const snapshot = executionSubmissionInputSnapshots.get(input as object);
+  if (!snapshot) throw new Error("VPD-K003: submission input provenance is unavailable");
+  trustedExecutionSubmissionInputs.delete(input as object);
+  executionSubmissionInputSnapshots.delete(input as object);
+  for (const asset of snapshot.assets) closeSync(asset.fd);
 }
 
 export function assertCompilationBundleAssets(
@@ -1183,6 +1394,7 @@ export function isProjectAssetIdentityContained(root: string, candidate: string,
 }
 
 const MAX_PINNED_ASSET_BYTES = 512 * 1024 * 1024;
+const MAX_SUBMISSION_READ_BYTES = 64 * 1024 * 1024;
 
 function resolvePinRoot(pinRoot: string, projectRoot: string): string {
   if (!isAbsolute(pinRoot) || !isProjectAssetIdentityContained(projectRoot, pinRoot)) {
@@ -1303,9 +1515,11 @@ export async function writeCompilationBundleAtomic(
     let stagedNames: string[] = [];
     try {
       await options.hooks?.before_temp_create?.();
+      assertStrongDirectoryChain(parent, projectRoot);
       await mkdir(temp, { recursive: false, mode: 0o700 });
       tempIdentity = captureDirectoryIdentitySnapshot(temp);
       await options.hooks?.after_temp_create?.();
+      assertStrongDirectoryChain(temp, projectRoot);
     const adapterPromptName = `prompt.${checked.route.adapter_id}.txt`;
     const contents: Record<string, string> = {
       "ir.normalized.json": JSON.stringify(checked.normalized_ir),
@@ -1323,6 +1537,7 @@ export async function writeCompilationBundleAtomic(
     const fileDigests: Record<string, string> = {};
     for (const [file, value] of Object.entries(contents)) {
       await options.hooks?.before_stage_file?.(file);
+      assertStrongDirectoryChain(temp, projectRoot);
       await writeCreateOnlyText(join(temp, file), value);
       fileDigests[file] = sha256Text(`${value}\n`);
     }
@@ -1337,6 +1552,7 @@ export async function writeCompilationBundleAtomic(
       committed: true
     });
     await options.hooks?.before_marker_write?.();
+    assertStrongDirectoryChain(temp, projectRoot);
     await writeCreateOnlyText(join(temp, "compilation-manifest.json"), manifest);
     fsyncDirectory(temp);
     await publishNoReplaceDirectory({
@@ -1352,15 +1568,15 @@ export async function writeCompilationBundleAtomic(
       hooks: options.hooks,
       temp_identity: tempIdentity
     });
+    await cleanupStagingDirectory(temp, tempIdentity, [...stagedNames, "compilation-manifest.json"], options.hooks, projectRoot);
+    assertNoStagingAliases(target, [...stagedNames, "compilation-manifest.json"]);
     readCompilationBundleAtomic(target, {
       project_root: projectRoot,
       revision_id: options.revision_id,
       request_id: options.request_id
     });
-    await cleanupStagingDirectory(temp, tempIdentity, [...stagedNames, "compilation-manifest.json"], options.hooks);
-    assertNoStagingAliases(target, [...stagedNames, "compilation-manifest.json"]);
   } catch (error) {
-    await cleanupStagingDirectory(temp, tempIdentity, [...stagedNames, "compilation-manifest.json"], options.hooks).catch(() => undefined);
+    await cleanupStagingDirectory(temp, tempIdentity, [...stagedNames, "compilation-manifest.json"], options.hooks, projectRoot).catch(() => undefined);
     throw error;
   }
   } finally {
@@ -1457,6 +1673,10 @@ export function readCompilationBundleAtomic(
   if (manifestNames.length !== files.length || manifestNames.some((name, index) => name !== [...files].sort()[index])) {
     throw new Error("VPD-K002: compilation manifest file digest keys are not exact");
   }
+  // A marker is not a commit while any staged hard-link alias remains. This
+  // rejects crash-before-cleanup states instead of allowing an early
+  // same-digest adoption to bless an unpublished alias set.
+  assertNoStagingAliases(target, [...files, "compilation-manifest.json"]);
   const fileContents = Object.fromEntries(files.map((file) => [file, readBoundedFile(join(target, file))]));
   for (const file of files) {
     if (fileContents[file]!.length === 0) throw new Error("VPD-K002: persisted compilation file is empty");
@@ -1503,6 +1723,7 @@ async function ensureTrustedDirectoryChain(candidate: string, root: string): Pro
       assertDirectoryIdentity(current);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      assertStrongDirectoryChain(dirname(current), resolvedRoot);
       await mkdir(current, { recursive: false, mode: 0o700 });
       assertDirectoryIdentity(current);
     }
@@ -1539,10 +1760,15 @@ async function publishNoReplaceDirectory(input: {
   let created = false;
   try {
     await input.hooks?.before_target_reserve?.();
-    // Node does not expose a portable openat/renameat2 API here. Under that
-    // limitation the root-local exclusive lock, strong identity checks,
-    // create-only leaves, and post-publication reread are the fail-closed
-    // equivalent; a path swap is never allowed to become a successful commit.
+    assertStrongDirectoryChain(input.parent, input.project_root);
+    // Node 22 does not expose a portable openat/renameat2 API here. The
+    // strongest portable equivalent is the PO-1 root-local exclusive lock,
+    // direct-child safe namespace, strong identity checks, create-only leaves,
+    // held staging identity, and post-publication reread/quarantine. A
+    // non-cooperating OS rename between the final identity check and a path
+    // syscall cannot be eliminated by portable Node; any mismatch observed by
+    // the following checks fails closed, and a native descriptor-relative
+    // primitive remains required for a stronger cross-process guarantee.
     // mkdir is the no-replace directory reservation. Unlike rename(temp,target)
     // it cannot replace a concurrent or malicious final directory.
     await mkdir(input.target, { recursive: false, mode: 0o700 });
@@ -1588,6 +1814,7 @@ async function publishNoReplaceDirectory(input: {
     if (!exists) {
       try {
         await input.hooks?.before_link?.(name);
+        assertStrongDirectoryChain(input.target, input.project_root);
         // Hard-linking the fsynced staged file is atomic and no-replace on the
         // destination leaf; no mutable pathname is copied or reopened.
         await link(join(input.temp, name), destination);
@@ -1623,10 +1850,12 @@ async function cleanupStagingDirectory(
   path: string,
   expected: DirectoryIdentitySnapshot | undefined,
   allowedNames: readonly string[],
-  hooks?: CompilationPublicationHooks
+  hooks?: CompilationPublicationHooks,
+  projectRoot?: string
 ): Promise<void> {
   if (!expected) return;
   await hooks?.before_cleanup?.();
+  if (projectRoot) assertStrongDirectoryChain(path, projectRoot);
   assertDirectoryIdentitySnapshot(path, expected);
   const allowed = new Set(allowedNames);
   const entries = await readdir(path, { withFileTypes: true });
@@ -1636,6 +1865,7 @@ async function cleanupStagingDirectory(
     }
   }
   for (const entry of entries) {
+    if (projectRoot) assertStrongDirectoryChain(path, projectRoot);
     assertDirectoryIdentitySnapshot(path, expected);
     const leaf = join(path, entry.name);
     const leafStat = lstatSync(leaf);
@@ -1644,6 +1874,7 @@ async function cleanupStagingDirectory(
     }
     await unlink(leaf);
   }
+  if (projectRoot) assertStrongDirectoryChain(path, projectRoot);
   assertDirectoryIdentitySnapshot(path, expected);
   await rmdir(path);
 }
@@ -1702,10 +1933,13 @@ export async function writeShadowComparisonAtomic(
     const temp = join(parent, `.shadow-${randomBytes(8).toString("hex")}.tmp`);
     let tempIdentity: DirectoryIdentitySnapshot | undefined;
     try {
+      assertStrongDirectoryChain(parent, projectRoot);
       await mkdir(temp, { recursive: false, mode: 0o700 });
       tempIdentity = captureDirectoryIdentitySnapshot(temp);
+      assertStrongDirectoryChain(temp, projectRoot);
       await writeCreateOnlyText(join(temp, "comparison.json"), payload);
       const manifest = JSON.stringify({ schema_version: 1, request_id: comparison.request_id, comparison_digest: sha256Text(`${payload}\n`), committed: true });
+      assertStrongDirectoryChain(temp, projectRoot);
       await writeCreateOnlyText(join(temp, "comparison-manifest.json"), manifest);
       fsyncDirectory(temp);
       await publishNoReplaceDirectory({
@@ -1719,10 +1953,10 @@ export async function writeShadowComparisonAtomic(
         allow_existing_same_digest: true,
         temp_identity: tempIdentity
       });
-      await cleanupStagingDirectory(temp, tempIdentity, ["comparison.json", "comparison-manifest.json"]);
+      await cleanupStagingDirectory(temp, tempIdentity, ["comparison.json", "comparison-manifest.json"], undefined, projectRoot);
       assertNoStagingAliases(target, ["comparison.json", "comparison-manifest.json"]);
     } catch (error) {
-      await cleanupStagingDirectory(temp, tempIdentity, ["comparison.json", "comparison-manifest.json"]).catch(() => undefined);
+      await cleanupStagingDirectory(temp, tempIdentity, ["comparison.json", "comparison-manifest.json"], undefined, projectRoot).catch(() => undefined);
       throw error;
     }
     fsyncDirectory(target);

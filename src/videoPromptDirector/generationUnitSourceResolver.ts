@@ -6,10 +6,11 @@ import * as nativePath from "node:path";
 import type { GenerationRequest, Project } from "../project/schema.js";
 import { ArtifactStore } from "../productionControl/artifactStore.js";
 import { sha256Canonical } from "../productionControl/canonical.js";
+import { sha256Canonical as runtimeSha256Canonical } from "../integrity/canonical.js";
 import { generationUnitContractSchema, toProgramBindingSource } from "../productionControl/contracts/generationUnit.js";
 import { lyricsContractSchema, type LyricsContractV1 } from "../productionControl/contracts/lyrics.js";
 import { musicStructureContractSchema } from "../productionControl/contracts/music.js";
-import { assetContractSchema } from "../productionControl/contracts/asset.js";
+import { assetContractSchema, type AssetContractV1 } from "../productionControl/contracts/asset.js";
 import {
   generationUnitProgramSourceSchema,
   type GenerationUnitProgramSourceV1
@@ -29,6 +30,18 @@ const trustedGenerationUnitLyricsTokens = new WeakSet<object>();
 const lyricsSnapshots = new WeakMap<object, LyricsSource>();
 const lyricsTokenBySource = new WeakMap<object, TrustedGenerationUnitLyricsToken>();
 const fullT04Snapshots = new WeakMap<object, { unit: unknown; lyrics?: unknown; assets?: unknown }>();
+declare const trustedAssetContractResolutionBrand: unique symbol;
+export type TrustedAssetContractResolution = {
+  readonly kind: "authoritative-project-asset-contract";
+  readonly contract: AssetContractV1;
+  readonly project_root: string;
+  readonly artifact_id: string;
+  readonly artifact_digest: string;
+  readonly [trustedAssetContractResolutionBrand]: true;
+};
+const trustedAssetContractResolutions = new WeakSet<object>();
+const assetContractResolutionSnapshots = new WeakMap<object, string>();
+const assetContractResolutionStores = new WeakMap<object, ArtifactStore>();
 
 export type GenerationUnitContractFacts = {
   generation_unit_digest: string;
@@ -145,6 +158,65 @@ export function generationUnitContractFacts(source: GenerationUnitProgramSourceV
 }
 
 /**
+ * Standalone asset authority. It follows the same project-local create-only
+ * ArtifactStore/ref contract as the T04 MV resolver; caller-supplied asset
+ * JSON is never promoted by the execution derivation boundary.
+ */
+export async function resolveProjectAssetContract(configPath: string, project: Project): Promise<TrustedAssetContractResolution | undefined> {
+  const ref = project.orchestration?.authoring?.assets;
+  if (!ref || ref.kind !== "asset-contract") return undefined;
+  const configured = (project as unknown as { production_control?: { artifact_store_dir?: unknown } }).production_control?.artifact_store_dir;
+  if (configured !== undefined && (typeof configured !== "string" || !isSafeProjectRelative(configured))) return undefined;
+  try {
+    const projectRoot = await realpath(dirname(resolve(configPath)));
+    const store = new ArtifactStore(join(projectRoot, typeof configured === "string" ? configured : "production-control"));
+    const contract = parseArtifact(await store.readBounded(ref.id, MAX_CONTRACT_ARTIFACT_BYTES), assetContractSchema, ref.digest);
+    const resolved = deepFreeze({
+      kind: "authoritative-project-asset-contract" as const,
+      contract: deepFreeze(structuredClone(contract)),
+      project_root: projectRoot,
+      artifact_id: ref.id,
+      artifact_digest: ref.digest
+    }) as TrustedAssetContractResolution;
+    trustedAssetContractResolutions.add(resolved as object);
+    assetContractResolutionSnapshots.set(resolved as object, runtimeSha256Canonical({
+      kind: resolved.kind,
+      contract: resolved.contract,
+      project_root: resolved.project_root,
+      artifact_id: resolved.artifact_id,
+      artifact_digest: resolved.artifact_digest
+    }));
+    assetContractResolutionStores.set(resolved as object, store);
+    return resolved;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function reloadAuthoritativeAssetContract(resolution: TrustedAssetContractResolution): Promise<AssetContractV1> {
+  if (!isAuthoritativeAssetContractResolution(resolution)) throw new Error("VPD-J002: AssetContract resolver token is not authoritative");
+  const store = assetContractResolutionStores.get(resolution as object);
+  if (!store) throw new Error("VPD-J002: AssetContract resolver provenance is unavailable");
+  const current = parseArtifact(await store.readBounded(resolution.artifact_id, MAX_CONTRACT_ARTIFACT_BYTES), assetContractSchema, resolution.artifact_digest);
+  if (current.digest !== resolution.contract.digest || sha256Canonical(current) !== sha256Canonical(resolution.contract)) {
+    throw new Error("VPD-J002: authoritative AssetContract changed after resolution");
+  }
+  return current;
+}
+
+export function isAuthoritativeAssetContractResolution(value: unknown): value is TrustedAssetContractResolution {
+  return Boolean(value && typeof value === "object"
+    && trustedAssetContractResolutions.has(value as object)
+    && assetContractResolutionSnapshots.get(value as object) === runtimeSha256Canonical({
+      kind: (value as TrustedAssetContractResolution).kind,
+      contract: (value as TrustedAssetContractResolution).contract,
+      project_root: (value as TrustedAssetContractResolution).project_root,
+      artifact_id: (value as TrustedAssetContractResolution).artifact_id,
+      artifact_digest: (value as TrustedAssetContractResolution).artifact_digest
+    }));
+}
+
+/**
  * Compiler-internal handoff. The public API exposes no mutable LyricsSource
  * getter; only an opaque token minted beside the full T04 artifact snapshot
  * can be materialized inside the compiler boundary.
@@ -212,14 +284,16 @@ async function resolveLegacyGenerationUnitSource(
         || !sameFileIdentity(lexicalCandidateStat, before)) return undefined;
 
       // Read from the opened descriptor, never by reopening the checked path.
-      const bytes = Buffer.alloc(before.size);
+      const chunks: Buffer[] = [];
       let offset = 0;
       while (offset < before.size) {
-        const read = await fileHandle.read(bytes, offset, before.size - offset, offset);
+        const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, before.size - offset));
+        const read = await fileHandle.read(chunk, 0, chunk.byteLength, offset);
         if (read.bytesRead <= 0) return undefined;
+        chunks.push(Buffer.from(chunk.subarray(0, read.bytesRead)));
         offset += read.bytesRead;
       }
-      const parsed = JSON.parse(bytes.toString("utf8")) as unknown;
+      const parsed = JSON.parse(Buffer.concat(chunks, before.size).toString("utf8")) as unknown;
       const after = await fileHandle.stat();
       const directoryAfter = await directoryHandle.stat();
       const afterPath = await realpath(lexicalCandidate);

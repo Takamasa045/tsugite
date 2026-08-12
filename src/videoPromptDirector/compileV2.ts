@@ -22,7 +22,8 @@ import {
   createCompilationBundle,
   createVerifiedAssetPin,
   isProjectAssetIdentityContained,
-  type CompilationBundleV1
+  type CompilationBundleV1,
+  type PlanningArtifactRef
 } from "./compilationBundle.js";
 import {
   buildSemanticBlocks,
@@ -128,6 +129,8 @@ export type VideoPromptV2Compilation = {
   validation: H3ValidationResult;
   route: RouteIdentityV1;
   bundle: CompilationBundleV1;
+  /** Opaque ArtifactStore ref minted by the production compile entrypoint. */
+  planning_artifact?: PlanningArtifactRef;
   lineage: {
     workflow_id: typeof VIDEO_PROMPT_V2_WORKFLOW_ID;
     workflow_version: typeof VIDEO_PROMPT_V2_WORKFLOW_VERSION;
@@ -457,7 +460,7 @@ export function compileVideoPromptIrV2(
     } : {}),
     labels_digest: dialect.labels.digest,
     validation,
-    ...(options.source?.authoring_schema ? { authoring_schema: options.source.authoring_schema } : {}),
+    authoring_schema: options.source?.authoring_schema ?? "VideoPromptIrV2",
     contract_bindings: [
       ...(options.contract_bindings ?? []),
       ...(options.generation_unit_source ? [
@@ -465,12 +468,15 @@ export function compileVideoPromptIrV2(
         options.generation_unit_source.music.contract_digest,
         ...(options.generation_unit_source.lyrics ? [options.generation_unit_source.lyrics.contract_digest] : [])
       ] : []),
+      ...Object.values(options.asset_evidence ?? {})
+        .flatMap((evidence) => evidence.asset_contract ? [evidence.asset_contract.digest] : []),
       ...((ir as VideoPromptIrV2 & { identity_definition?: IdentityDefinitionContractV1 }).identity_definition
         ? [(ir as VideoPromptIrV2 & { identity_definition: IdentityDefinitionContractV1 }).identity_definition.digest]
         : [])
     ],
     exact_text_digests: semantic.blocks.flatMap((block) => block.exact_text_digests),
-    ...(options.source ? { upgrader_version: options.source.upgrader_version, ...(options.source.source_digest ? { source_digest: options.source.source_digest } : {}) } : {}),
+    upgrader_version: options.source?.upgrader_version ?? "native-v2",
+    source_digest: options.source?.source_digest ?? normalizedDigest,
     effective_contract: effective,
     execution_capable: intent === "execute",
     asset_evidence: options.asset_evidence,

@@ -44,10 +44,19 @@ import type { GenerationUnitProgramSourceV1 } from "../productionControl/program
 import { loadAdapterDialectCapability } from "./adapterDialect.js";
 import {
   consumeGenerationUnitLyricsToken,
-  type TrustedGenerationUnitLyricsToken
+  isAuthoritativeAssetContractResolution,
+  type TrustedGenerationUnitLyricsToken,
+  type TrustedAssetContractResolution
 } from "./generationUnitSourceResolver.js";
 import { loadPinnedH3GrammarProfile, type H3GrammarProfileV3 } from "./render/h3GrammarV3.js";
-import { compilationRevisionId, readCompilationBundleAtomic, writeCompilationBundleAtomic, writeShadowComparisonAtomic } from "./compilationBundle.js";
+import {
+  compilationRevisionId,
+  persistPlanningCompilationArtifact,
+  readCompilationBundleAtomic,
+  writeCompilationBundleAtomic,
+  writeShadowComparisonAtomic
+} from "./compilationBundle.js";
+import type { ArtifactStore } from "../productionControl/artifactStore.js";
 import { resolve } from "node:path";
 import { sha256Text } from "../integrity/canonical.js";
 
@@ -94,10 +103,23 @@ export type CompileVideoPromptOptions = {
   grammarProfileRoot?: string;
   /** Compiler-internal opaque token; callers cannot manufacture lyrics authority. */
   generationUnitLyricsToken?: TrustedGenerationUnitLyricsToken;
+  /** Authoritative project-local AssetContract ref for standalone assets. */
+  assetContractResolution?: TrustedAssetContractResolution;
+  source?: {
+    authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
+    upgrader_version: string;
+    source_digest?: string;
+  };
   compilationArtifactRoot?: string;
   /** Safe durable run/plan revision under compilationArtifactRoot. */
   revision_id?: string;
   shadowArtifactRoot?: string;
+  /** Production-owned create-only planning truth; not caller-made JSON. */
+  planningArtifactStore?: ArtifactStore;
+  productionId?: string;
+  projectId?: string;
+  /** The project entrypoint is crossing the active V2 authority boundary. */
+  activeV2?: boolean;
 };
 
 export type VideoPromptPlan = {
@@ -308,6 +330,37 @@ async function compileVideoPromptV2Request(
   }
 ): Promise<CompileVideoPromptResult> {
   const issues: H3Issue[] = [];
+  const sourceTuple = source ?? options.source;
+  // Native V2 active authoring has no caller-controlled provider payload. The
+  // IR, route, effective contract, and compiled asset pins are the only
+  // sources for adapter parameters. Legacy compatibility keeps its existing
+  // byte-preserving surface and is handled by the pure upgrader tuple.
+  if (!sourceTuple || options.activeV2) {
+    const paramKeys = Object.keys(request.params ?? {});
+    if (paramKeys.length > 0) {
+      return {
+        ok: false,
+        issues: [issue("VPD-E033", "active V2 request.params must be empty; provider-impact fields must be compiled from the IR", "error", ["params"])]
+      };
+    }
+  }
+  if (options.assetContractResolution && !isAuthoritativeAssetContractResolution(options.assetContractResolution)) {
+    return {
+      ok: false,
+      issues: [issue("VPD-J002", "standalone assets require the authoritative project AssetContract resolver", "error", ["assets"])]
+    };
+  }
+  if (options.assetContractResolution) {
+    for (const asset of ir.assets) {
+      const entry = options.assetContractResolution.contract.assets.find((candidate) => candidate.asset_id === asset.id);
+      if (!entry || entry.project_relative_path !== asset.path || entry.sha256 !== asset.sha256) {
+        return {
+          ok: false,
+          issues: [issue("VPD-J002", `asset '${asset.id}' is not the exact project AssetContract entry`, "error", ["assets", asset.id])]
+        };
+      }
+    }
+  }
   const modelLoad = await loadModelPromptProfile(ir.target.model_profile_id, options.modelProfileRoots);
   if (!modelLoad.ok) return { ok: false, issues: [issue(modelLoad.code, modelLoad.message, "error", ["target", "model_profile_id"])] };
   const connectionLoad = await loadConnectionCapabilityProfile(options.connectionId, options.connectionProfileRoots);
@@ -364,10 +417,35 @@ async function compileVideoPromptV2Request(
     request_index: options.requestIndex,
     ...(options.generationUnitSource ? { generation_unit_source: options.generationUnitSource } : {}),
     ...(options.generationUnitLyricsToken ? { generation_unit_lyrics_token: options.generationUnitLyricsToken } : {}),
+    ...(options.assetContractResolution ? {
+      asset_evidence: Object.fromEntries(options.assetContractResolution.contract.assets
+        .filter((entry) => ir.assets.some((asset) => asset.id === entry.asset_id))
+        .map((entry) => [entry.asset_id, {
+          source: "asset-contract" as const,
+          real_path: resolve(options.assetContractResolution!.project_root, entry.project_relative_path),
+          sha256: entry.sha256,
+          byte_size: entry.byte_size,
+          regular_file: true as const,
+          contained_in_project_root: true as const,
+          asset_contract: {
+            contract_id: options.assetContractResolution!.contract.contract_id,
+            revision: options.assetContractResolution!.contract.revision,
+            digest: options.assetContractResolution!.contract.digest,
+            entry_id: entry.asset_id,
+            path: entry.project_relative_path,
+            sha256: entry.sha256,
+            byte_size: entry.byte_size,
+            external_send: entry.external_send
+          }
+        }]))
+    } : {}),
+    ...(options.assetContractResolution ? {
+      project_root: options.assetContractResolution.project_root
+    } : {}),
     ...(options.grammar_profile ? { grammar_profile: options.grammar_profile } : {}),
     require_pinned_grammar: options.require_pinned_grammar,
     adapter_dialect_capability: adapterDialectLoad.capability,
-    ...(source ? { source } : {})
+    ...(sourceTuple ? { source: sourceTuple } : {})
   });
   issues.push(...compiled.issues);
   const v2Compilation = compiled.compilation;
@@ -430,20 +508,6 @@ function buildV2ExecutionRequest(
   pinnedAssetPaths?: Readonly<Record<string, string>>,
   pinnedAssetRecords?: Readonly<Record<string, { relative_path: string; sha256: string; byte_size: number }>>
 ): GenerationRequest {
-  const {
-    h3: _h3,
-    video_prompt: _videoPrompt,
-    prompt_guide: _promptGuide,
-    mode: _mode,
-    first_frame: _firstFrame,
-    last_frame: _lastFrame,
-    reference_images: _referenceImages,
-    input_images: _inputImages,
-    input_video: _inputVideo,
-    input_videos: _inputVideos,
-    input_audios: _inputAudios,
-    ...rest
-  } = request as GenerationRequest & { video_prompt?: unknown };
   const pathFor = (asset: VideoPromptIrV2["assets"][number]): string | undefined => pinnedAssetPaths?.[asset.id] ?? (pinnedAssetPaths ? undefined : asset.path);
   const assets = (role: string, type: "image" | "video" | "audio") => ir.assets.filter((asset) => asset.type === type && asset.role === role).map(pathFor).filter((value): value is string => Boolean(value));
   const inputImages = ir.assets.filter((asset) => asset.type === "image" && ["subject_reference", "motion_reference", "environment_reference", "style_reference", "other"].includes(asset.role)).map(pathFor).filter((value): value is string => Boolean(value));
@@ -453,7 +517,6 @@ function buildV2ExecutionRequest(
     ? Object.entries(pinnedAssetRecords).map(([asset_id, pin]) => ({ asset_id, ...pin }))
     : [];
   return {
-    ...rest,
     id: request.id,
     prompt: adapterPrompt,
     model: ir.target.model_profile_id,
@@ -462,7 +525,6 @@ function buildV2ExecutionRequest(
     operation: mapMode(ir.target.mode).operation,
     input_mode: mapMode(ir.target.mode).input_mode,
     params: {
-      ...(request.params ?? {}),
       quality: ir.target.quality,
       audio: ir.target.audio,
       ...(pinnedAssetRequestRecords.length > 0 ? { asset_pins: pinnedAssetRequestRecords } : {})
@@ -694,7 +756,8 @@ export async function compileProjectVideoPrompts(
       grammar_profile: pinnedGrammar,
       require_pinned_grammar: true,
       ...(generationUnitSource ? { generationUnitSource } : {}),
-      ...(generationUnitLyricsToken ? { generationUnitLyricsToken } : {})
+      ...(generationUnitLyricsToken ? { generationUnitLyricsToken } : {}),
+      activeV2: rolloutMode === "active"
     });
     if (result.plan) {
       plans.push(result.plan);
@@ -728,6 +791,19 @@ export async function compileProjectVideoPrompts(
         canonical_prompt: persisted.bundle.canonical_prompt,
         adapter_prompt: persisted.bundle.adapter_prompt,
         effective_contract: persisted.bundle.effective_contract
+      };
+    }
+    if (options.planningArtifactStore && result.plan.v2_compilation) {
+      const planningArtifact = await persistPlanningCompilationArtifact({
+        store: options.planningArtifactStore,
+        bundle: result.plan.v2_compilation.bundle,
+        production_id: options.productionId ?? "production",
+        project_id: options.projectId ?? project.slug,
+        revision_id: options.revision_id ?? compilationRevisionId(result.plan.v2_compilation.bundle)
+      });
+      result.plan.v2_compilation = {
+        ...result.plan.v2_compilation,
+        planning_artifact: planningArtifact
       };
     }
 

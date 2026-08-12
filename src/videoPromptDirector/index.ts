@@ -238,6 +238,8 @@ export {
   isAdoptedExecutionCompilationBundle,
   createExecutionSubmissionLease,
   consumeExecutionSubmissionLease,
+  readExecutionSubmissionAsset,
+  releaseExecutionSubmissionInput,
   verifyCompilationBundle,
   assertCompilationBundleAssets,
   isProjectAssetIdentityContained,
@@ -251,5 +253,7 @@ export {
   type ExecutionCompilationBundle,
   type ExecutionBundleAuthorityContext,
   type ExecutionSubmissionLease,
+  type ExecutionSubmissionInput,
+  type PlanningArtifactRef,
   type CreateOnlyArtifactStoreEnvelope
 } from "./compilationBundle.js";

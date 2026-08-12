@@ -240,6 +240,8 @@ export type VideoPromptReviewProjection = {
     artifact_ref: string;
     authoring_surface: "video_prompt";
     authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
+    upgrader_version: string;
+    source_digest: string;
     compiler_workflow: "video-prompt-v3";
   };
   compilation: {
@@ -275,6 +277,8 @@ export function createVideoPromptReviewProjection(
         artifact_ref: `${compilationRevisionId(compilation.bundle)}/video-prompt/${compilation.request_id}`,
         authoring_surface: "video_prompt" as const,
         authoring_schema: authoringSchema,
+        upgrader_version: compilation.bundle.lineage.upgrader_version,
+        source_digest: compilation.bundle.lineage.source_digest ?? compilation.bundle.normalized_ir_digest,
         compiler_workflow: "video-prompt-v3" as const
       },
       compilation: {
@@ -607,6 +611,11 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
             request_id: request.id
           });
           if (persisted.bundle.normalized_ir_digest === expectedNormalizedDigest) {
+            if (persisted.bundle.lineage.authoring_schema !== normalized.authoring_schema
+              || persisted.bundle.lineage.upgrader_version !== normalized.upgrader_version
+              || persisted.bundle.lineage.source_digest !== normalized.source_digest) {
+              throw new Error("committed authoring source tuple is stale");
+            }
             await assertCommittedRouteStillMatches(project, persisted.bundle);
             await assertCommittedT04StillMatches(configPath, project, request, normalized.ir, requestIndex, persisted.bundle);
             candidates.push({ bundle: persisted.bundle, revision });
@@ -635,17 +644,17 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
   }
 }
 
-function normalizeCommittedVideoPromptAuthoring(value: unknown): { ir: import("../videoPromptDirector/schemaV2.js").VideoPromptIrV2; authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1" } | undefined {
+function normalizeCommittedVideoPromptAuthoring(value: unknown): { ir: import("../videoPromptDirector/schemaV2.js").VideoPromptIrV2; authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1"; upgrader_version: string; source_digest: string } | undefined {
   const parsed = safeParseVideoPromptIrV2(value);
-  if (parsed.success) return { ir: parsed.data, authoring_schema: "VideoPromptIrV2" };
+  if (parsed.success) return { ir: parsed.data, authoring_schema: "VideoPromptIrV2", upgrader_version: "native-v2", source_digest: sha256Canonical(parsed.data) };
   if (!value || typeof value !== "object") return undefined;
   try {
     const upgraded = upgradeH3V1ToVideoPromptV2(value as never);
-    return { ir: upgraded.ir, authoring_schema: "H3-V1" };
+    return { ir: upgraded.ir, authoring_schema: "H3-V1", upgrader_version: "h3-v1-to-v2@1", source_digest: upgraded.source_sha256 };
   } catch {
     try {
       const upgraded = upgradeVideoPromptV1ToV2(value as never);
-      return { ir: upgraded.ir, authoring_schema: "V1" };
+      return { ir: upgraded.ir, authoring_schema: "V1", upgrader_version: "video-prompt-v1-to-v2@1", source_digest: upgraded.source_sha256 };
     } catch {
       return undefined;
     }
@@ -665,6 +674,8 @@ function videoPromptReviewProjectionFromCommittedBundle(bundle: import("../video
       artifact_ref: `${revision}/video-prompt/${bundle.request_id}`,
       authoring_surface: "video_prompt",
       authoring_schema: authoringSchema,
+      upgrader_version: bundle.lineage.upgrader_version,
+      source_digest: bundle.lineage.source_digest ?? bundle.normalized_ir_digest,
       compiler_workflow: "video-prompt-v3"
     },
     compilation: {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -33,7 +33,8 @@ import {
   type VideoPromptIrV2
 } from "../src/videoPromptDirector/index.js";
 import { sha256Canonical, sha256Text } from "../src/integrity/canonical.js";
-import { createCompilationBundle, createVerifiedAssetPin, verifyVerifiedAssetPin, isTrustedAssetPin, loadCreateOnlyArtifactStoreEnvelope } from "../src/videoPromptDirector/compilationBundle.js";
+import { createAssetContract } from "../src/productionControl/contracts/asset.js";
+import { createCompilationBundle, createVerifiedAssetPin, verifyVerifiedAssetPin, isTrustedAssetPin, loadCreateOnlyArtifactStoreEnvelope, persistPlanningCompilationArtifact } from "../src/videoPromptDirector/compilationBundle.js";
 import * as generationUnitResolver from "../src/videoPromptDirector/generationUnitSourceResolver.js";
 import * as videoPromptDirector from "../src/videoPromptDirector/index.js";
 
@@ -136,6 +137,99 @@ describe("PO-4 final repair regressions", () => {
     expect(result.ok).toBe(false);
     expect(result.plans).toHaveLength(0);
     expect(result.issues.map((item) => item.code)).toContain("VPD-E022");
+  });
+
+  it("rejects provider-impact params on the active legacy H3 to V2 boundary", async () => {
+    const legacy = JSON.parse(await readFile("test/fixtures/h3/t2v.json", "utf8"));
+    const project = {
+      slug: "active-legacy-params",
+      name: "active-legacy-params",
+      manifest: "manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      orchestration: { mode: "active" },
+      generation: {
+        connection: "minimax-direct",
+        adapter: "minimax",
+        requests: [{ id: "legacy-params-1", prompt: "", h3: legacy, params: { image: "caller-controlled.png" } }]
+      }
+    } as never;
+    const result = await compileProjectVideoPrompts(project);
+    expect(result.ok).toBe(false);
+    expect(result.plans).toHaveLength(0);
+    expect(result.issues.map((item) => item.code)).toContain("VPD-E033");
+  });
+
+  it("uses the repo-local AssetContract resolver for standalone planning and rejects path substitution", async () => {
+    const raw = await mkdtemp(join(tmpdir(), "tsugite-po4-standalone-assets-"));
+    const root = await realpath(raw);
+    try {
+      const bytes = Buffer.from("authoritative-asset\n", "utf8");
+      const mediaDir = join(root, "media");
+      await mkdir(mediaDir);
+      await writeFile(join(mediaDir, "reference.bin"), bytes);
+      const contract = createAssetContract({
+        contract_id: "standalone-assets",
+        revision: 1,
+        assets: [{
+          asset_id: "reference",
+          kind: "image",
+          project_relative_path: "media/reference.bin",
+          sha256: sha256Text(bytes.toString("utf8")),
+          byte_size: bytes.byteLength,
+          roles: ["subject-reference"],
+          provenance: { source: "user", usage_confirmed: true },
+          external_send: "allowed"
+        }]
+      });
+      const storeRoot = join(root, "production-control");
+      await mkdir(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
+      await store.create({ artifact_id: "standalone-assets", bytes: JSON.stringify(contract) });
+      const videoRequest = {
+        id: "standalone-asset-request",
+        prompt: "",
+        params: {},
+        video_prompt: standalone("v6")
+      };
+      const project = {
+        slug: "standalone-assets-project",
+        name: "standalone-assets-project",
+        manifest: "manifest.json",
+        dist_dir: "dist",
+        edit: { backend: "remotion" },
+        orchestration: {
+          mode: "active",
+          authoring: { assets: { kind: "asset-contract", id: "standalone-assets", digest: contract.digest } }
+        },
+        generation: {
+          connection: "pixverse",
+          adapter: "pixverse",
+          requests: [videoRequest]
+        }
+      } as never;
+      const resolution = await generationUnitResolver.resolveProjectAssetContract(join(root, "project.yaml"), project);
+      expect(resolution).toBeDefined();
+      if (!resolution) return;
+      await expect(generationUnitResolver.reloadAuthoritativeAssetContract(resolution)).resolves.toEqual(contract);
+      await expect(generationUnitResolver.reloadAuthoritativeAssetContract({ ...resolution })).rejects.toThrow(/resolver token is not authoritative/);
+      const ir = standalone("v6");
+      ir.target = { ...ir.target, mode: "first-frame" };
+      ir.assets = [{ id: "reference", type: "image", path: "media/reference.bin", role: "first_frame", sha256: contract.assets[0]!.sha256 }];
+      videoRequest.video_prompt = ir;
+      const result = await compileProjectVideoPrompts(project, { assetContractResolution: resolution } as never);
+      expect(result.ok, JSON.stringify(result.issues)).toBe(true);
+      expect(result.plans[0]?.v2_compilation?.bundle.asset_lineage[0]?.asset_contract?.digest).toBe(contract.digest);
+      expect(result.plans[0]?.v2_compilation?.bundle.lineage.contract_bindings).toContain(contract.digest);
+
+      const substituted = { ...ir, assets: [{ ...ir.assets[0]!, path: "media/other.bin" }] };
+      videoRequest.video_prompt = substituted;
+      const rejected = await compileProjectVideoPrompts(project, { assetContractResolution: resolution } as never);
+      expect(rejected.ok).toBe(false);
+      expect(rejected.issues.map((item) => item.code)).toContain("VPD-J002");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("does not treat an omitted operation plus image output as a non-video bypass", async () => {
@@ -370,21 +464,19 @@ describe("PO-4 final repair regressions", () => {
     try {
       const storeRoot = join(root, "production-control");
       await mkdir(storeRoot);
-      const store = new ArtifactStore(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
       const bundle = compiled.compilation.bundle;
       const revision = compilationRevisionId(bundle);
       const artifactId = `planning-production-project-${revision}-${bundle.request_id}`;
-      const stored = await store.create({ artifact_id: artifactId, bytes: JSON.stringify(bundle) });
+      const trustedPlanningRef = await persistPlanningCompilationArtifact({
+        store,
+        bundle,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision
+      });
       const base = {
-        planning_artifact: {
-          store,
-          artifact_id: stored.artifact_id,
-          artifact_digest: stored.sha256,
-          production_id: "production",
-          project_id: "project",
-          revision_id: revision,
-          request_id: bundle.request_id
-        },
+        planning_artifact: trustedPlanningRef,
         store,
         production_id: "production",
         project_id: "project",
@@ -406,7 +498,7 @@ describe("PO-4 final repair regressions", () => {
       await expect(videoPromptDirector.deriveExecutionCompilationBundleFromPlanningArtifact({
         ...base,
         planning_artifact: { ...base.planning_artifact, artifact_digest: "0".repeat(64) }
-      } as never)).rejects.toThrow(/digest mismatch/);
+      } as never)).rejects.toThrow(/exact committed planning artifact identity|opaque/);
       const paddedStoreRoot = join(root, "padded-store");
       await mkdir(paddedStoreRoot);
       const paddedStore = new ArtifactStore(paddedStoreRoot);
@@ -416,7 +508,7 @@ describe("PO-4 final repair regressions", () => {
         ...base,
         store: paddedStore,
         planning_artifact: { ...base.planning_artifact, store: paddedStore, artifact_id: paddedId, artifact_digest: padded.sha256 }
-      } as never)).rejects.toThrow(/not canonical/);
+      } as never)).rejects.toThrow(/exact committed planning artifact identity|opaque/);
       await expect(videoPromptDirector.deriveExecutionCompilationBundleFromPlanningArtifact({
         ...base,
         adapter_dirs: [join(root, "missing-adapters")]
@@ -487,6 +579,16 @@ describe("PO-4 final repair regressions", () => {
       await rm(join(realRoot, "new-pins", "asset-pins", "voice.bin"));
       await symlink(source, join(realRoot, "new-pins", "asset-pins", "voice.bin"));
       expect(() => verifyVerifiedAssetPin(pin, { project_root: realRoot, pin_root: input.pin_root })).toThrow(/VPD-J002/);
+
+      await symlink(source, join(realRoot, "assets", "source-link.wav"));
+      expect(() => createVerifiedAssetPin({ ...input, project_relative_path: "assets/source-link.wav", expected_real_path: source, asset_id: "source-link" })).toThrow(/VPD-J002/);
+      const linkedPinRoot = join(realRoot, "linked-pins");
+      await mkdir(linkedPinRoot);
+      await symlink(join(realRoot, "new-pins"), join(linkedPinRoot, "asset-pins"));
+      expect(() => createVerifiedAssetPin({ ...input, pin_root: linkedPinRoot, asset_id: "linked-root" })).toThrow(/VPD-J002/);
+      const filePinRoot = join(realRoot, "file-pins");
+      await writeFile(filePinRoot, "not-a-directory");
+      expect(() => createVerifiedAssetPin({ ...input, pin_root: filePinRoot, asset_id: "file-root" })).toThrow(/VPD-J002/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -722,6 +824,42 @@ describe("PO-4 final repair regressions", () => {
     }
   });
 
+  it("does not publish into an outside tree when an ancestor is swapped before reservation", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-publication-swap-"));
+    const outside = await mkdtemp(join(tmpdir(), "tsugite-po4-publication-outside-"));
+    try {
+      const revision = compilationRevisionId(compiled.compilation.bundle);
+      const parent = join(root, revision, "video-prompt");
+      await mkdir(parent, { recursive: true });
+      await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, {
+        project_root: root,
+        revision_id: revision,
+        request_id: compiled.compilation.bundle.request_id,
+        hooks: {
+          before_target_reserve: async () => {
+            await rm(parent, { recursive: true, force: false });
+            await symlink(outside, parent);
+          }
+        }
+      })).rejects.toThrow(/identity|symlink|path|artifact/);
+      expect(await readdir(outside)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("rejects every persisted bundle digest and authority inconsistency", async () => {
     const { model, connection, adapter, route } = await v6Route();
     const compiled = compileVideoPromptIrV2(standalone(), {
@@ -878,7 +1016,7 @@ describe("PO-4 final repair regressions", () => {
     try {
       const storeRoot = join(await realpath(root), "artifacts");
       await mkdir(storeRoot, { recursive: true });
-      const store = new ArtifactStore(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
       const stored = await store.create({ artifact_id: "raw", bytes: "raw artifact" });
       await expect(loadCreateOnlyArtifactStoreEnvelope({ store, artifact_id: stored.artifact_id, artifact_digest: "z".repeat(64) })).rejects.toThrow(/VPD-K003/);
       await expect(loadCreateOnlyArtifactStoreEnvelope({ store, artifact_id: stored.artifact_id, artifact_digest: "0".repeat(64) })).rejects.toThrow(/VPD-K003/);
@@ -1006,6 +1144,473 @@ describe("PO-4 final repair regressions", () => {
         },
         ir: mv
       } as never)).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("wires the production compiler to one namespaced planning ArtifactStore truth", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-planning-wire-"));
+    try {
+      const storeRoot = join(root, "production-control");
+      await mkdir(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
+      const project = {
+        slug: "planning-wire",
+        name: "planning-wire",
+        manifest: "manifest.json",
+        dist_dir: "dist",
+        edit: { backend: "remotion" },
+        orchestration: { mode: "active" },
+        generation: {
+          connection: "pixverse",
+          adapter: "pixverse",
+          requests: [{ id: "planning-wire-1", operation: "video", prompt: "", params: {}, video_prompt: standalone() }]
+        }
+      } as never;
+      const result = await compileProjectVideoPrompts(project, {
+        intent: "planning",
+        compilationArtifactRoot: join(root, "dist"),
+        planningArtifactStore: store,
+        productionId: "production",
+        projectId: "planning-wire"
+      } as never);
+      expect(result.ok).toBe(true);
+      const ref = result.plans[0]?.v2_compilation?.planning_artifact;
+      expect(ref).toMatchObject({ production_id: "production", project_id: "planning-wire", request_id: "planning-wire-1" });
+      expect(ref?.artifact_id).toContain("planning-production-planning-wire-");
+      const stored = JSON.parse((await store.read((ref as { artifact_id: string }).artifact_id)).toString("utf8")) as { execution_capable: boolean; compilation_digest: string };
+      expect(stored.execution_capable).toBe(false);
+      expect(stored.compilation_digest).toBe(result.plans[0]?.v2_compilation?.bundle.compilation_digest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects active V2 provider-impact params instead of carrying caller fields into the adapter request", async () => {
+    const project = {
+      slug: "active-v2-params",
+      name: "active-v2-params",
+      manifest: "manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      orchestration: { mode: "active" },
+      generation: {
+        connection: "pixverse",
+        adapter: "pixverse",
+        requests: [{
+          id: "active-v2-params-1",
+          operation: "video",
+          prompt: "",
+          params: { image: "caller.jpg", provider_flag: true, input_audio: "caller.wav" },
+          video_prompt: standalone()
+        }]
+      }
+    } as never;
+    const result = await compileProjectVideoPrompts(project);
+    expect(result.ok).toBe(false);
+    expect(result.plans).toHaveLength(0);
+    expect(result.issues.map((item) => item.code)).toContain("VPD-E033");
+  });
+
+  it("rejects a hard-link alias while rereading a committed bundle", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-alias-reader-")));
+    try {
+      const revision = compilationRevisionId(compiled.compilation.bundle);
+      await writeCompilationBundleAtomic(root, compiled.compilation.bundle, {
+        project_root: root,
+        revision_id: revision,
+        request_id: compiled.compilation.bundle.request_id
+      });
+      const target = join(root, revision, "video-prompt", compiled.compilation.bundle.request_id);
+      await (await import("node:fs/promises")).link(join(target, "bundle.json"), join(target, "bundle-alias.json"));
+      expect(() => readCompilationBundleAtomic(target, { project_root: root, revision_id: revision, request_id: compiled.compilation.bundle.request_id })).toThrow(/unexpected|alias|file set/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps planning ArtifactStore publication create-only and idempotent", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      request_id: "planning-idempotent-1",
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-planning-idempotent-")));
+    try {
+      const storeRoot = join(root, "store");
+      await mkdir(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
+      const revision = compilationRevisionId(compiled.compilation.bundle);
+      const first = await persistPlanningCompilationArtifact({
+        store,
+        bundle: compiled.compilation.bundle,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision
+      });
+      const second = await persistPlanningCompilationArtifact({
+        store,
+        bundle: compiled.compilation.bundle,
+        production_id: "production",
+        project_id: "project"
+      });
+      expect(second).toMatchObject(first);
+      await expect(persistPlanningCompilationArtifact({
+        store,
+        bundle: compiled.compilation.bundle,
+        production_id: "../outside",
+        project_id: "project",
+        revision_id: revision
+      })).rejects.toThrow(/namespace is unsafe/);
+      await expect(persistPlanningCompilationArtifact({
+        store,
+        bundle: compiled.compilation.bundle,
+        production_id: "production",
+        project_id: "project",
+        revision_id: "revision-forged"
+      })).rejects.toThrow(/digest-bound revision/);
+      const envelope = await loadCreateOnlyArtifactStoreEnvelope({
+        store,
+        artifact_id: first.artifact_id,
+        artifact_digest: first.artifact_digest
+      });
+      expect(envelope.compilation_digest).toBeUndefined();
+      expect(envelope.artifact_id).toBe(first.artifact_id);
+
+      await mkdir(join(root, "assets"));
+      expect(() => createVerifiedAssetPin({
+        asset_id: "directory-source",
+        project_root: root,
+        project_relative_path: "assets",
+        expected_real_path: join(root, "assets"),
+        pin_root: join(root, "pins")
+      })).toThrow(/VPD-J002/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a caller-shaped AssetContract resolution at the production compiler boundary", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-forged-asset-resolution-")));
+    try {
+      const project = {
+        slug: "forged-asset-resolution",
+        name: "forged-asset-resolution",
+        manifest: "manifest.json",
+        dist_dir: "dist",
+        edit: { backend: "remotion" },
+        orchestration: { mode: "active" },
+        generation: {
+          connection: "pixverse",
+          adapter: "pixverse",
+          requests: [{ id: "forged-asset-resolution-1", operation: "video", prompt: "", params: {}, video_prompt: standalone() }]
+        }
+      } as never;
+      const resolution = await generationUnitResolver.resolveProjectAssetContract(join(root, "project.yaml"), project);
+      expect(resolution).toBeUndefined();
+      const authoringProject = {
+        ...project,
+        orchestration: {
+          mode: "active",
+          authoring: { assets: { kind: "asset-contract", id: "missing-contract", digest: "0".repeat(64) } }
+        }
+      } as never;
+      expect(await generationUnitResolver.resolveProjectAssetContract(join(root, "project.yaml"), {
+        ...authoringProject,
+        production_control: { artifact_store_dir: "../outside" }
+      } as never)).toBeUndefined();
+      expect(await generationUnitResolver.resolveProjectAssetContract(join(root, "project.yaml"), authoringProject)).toBeUndefined();
+      const artifactRoot = join(root, "production-control");
+      await mkdir(artifactRoot);
+      const malformedStore = new ArtifactStore(await realpath(artifactRoot));
+      const malformed = await malformedStore.create({ artifact_id: "malformed-contract", bytes: "{}" });
+      expect(await generationUnitResolver.resolveProjectAssetContract(join(root, "project.yaml"), {
+        ...authoringProject,
+        orchestration: { mode: "active", authoring: { assets: { kind: "asset-contract", id: malformed.artifact_id, digest: malformed.sha256 } } }
+      } as never)).toBeUndefined();
+      const validShape = createAssetContract({ contract_id: "shape-only", revision: 1, assets: [] });
+      const digestMismatch = await malformedStore.create({ artifact_id: "digest-mismatch", bytes: JSON.stringify(validShape) });
+      expect(await generationUnitResolver.resolveProjectAssetContract(join(root, "project.yaml"), {
+        ...authoringProject,
+        orchestration: { mode: "active", authoring: { assets: { kind: "asset-contract", id: digestMismatch.artifact_id, digest: "0".repeat(64) } } }
+      } as never)).toBeUndefined();
+      const result = await compileProjectVideoPrompts(project, {
+        assetContractResolution: {
+          kind: "trusted-asset-contract-resolution",
+          project_root: root,
+          artifact_id: "caller-made",
+          contract_id: "caller-made",
+          revision: 1,
+          digest: "0".repeat(64),
+          contract: {}
+        }
+      } as never);
+      expect(result.ok).toBe(false);
+      expect(result.issues.map((item) => item.code)).toContain("VPD-J002");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("strictly resolves create-only envelopes from bounded bytes and namespace identity", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      request_id: "envelope-1",
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-envelope-")));
+    try {
+      const store = new ArtifactStore(root);
+      const bundleBytes = Buffer.from(JSON.stringify(compiled.compilation.bundle), "utf8");
+      const bundleDigest = sha256Text(bundleBytes.toString("utf8"));
+      const stored = await store.create({ artifact_id: "bundle", bytes: bundleBytes });
+      const envelope = await loadCreateOnlyArtifactStoreEnvelope({
+        store,
+        artifact_id: stored.artifact_id,
+        artifact_digest: bundleDigest,
+        expected_compilation_digest: compiled.compilation.bundle.compilation_digest,
+        request_id: compiled.compilation.bundle.request_id,
+        revision_id: "revision-1",
+        production_id: "production",
+        project_id: "project"
+      });
+      expect(envelope).toMatchObject({
+        compilation_digest: compiled.compilation.bundle.compilation_digest,
+        raw_bytes_digest: bundleDigest,
+        request_id: compiled.compilation.bundle.request_id,
+        revision_id: "revision-1",
+        production_id: "production",
+        project_id: "project"
+      });
+      await expect(loadCreateOnlyArtifactStoreEnvelope({ store: {} as never, artifact_id: "bundle", artifact_digest: bundleDigest })).rejects.toThrow(/resolver is unavailable/);
+      await expect(loadCreateOnlyArtifactStoreEnvelope({ store, artifact_id: "bundle", artifact_digest: "0".repeat(64) })).rejects.toThrow(/digest mismatch/);
+      await expect(loadCreateOnlyArtifactStoreEnvelope({
+        store,
+        artifact_id: stored.artifact_id,
+        artifact_digest: bundleDigest,
+        expected_compilation_digest: "0".repeat(64)
+      })).rejects.toThrow(/identity mismatch/);
+      await expect(loadCreateOnlyArtifactStoreEnvelope({
+        store,
+        artifact_id: stored.artifact_id,
+        artifact_digest: bundleDigest,
+        expected_compilation_digest: compiled.compilation.bundle.compilation_digest,
+        request_id: "other-request"
+      })).rejects.toThrow(/identity mismatch/);
+      const spaced = Buffer.from(` ${bundleBytes.toString("utf8")} `, "utf8");
+      const spacedStored = await store.create({ artifact_id: "spaced", bytes: spaced });
+      await expect(loadCreateOnlyArtifactStoreEnvelope({
+        store,
+        artifact_id: spacedStored.artifact_id,
+        artifact_digest: sha256Text(spaced.toString("utf8")),
+        expected_compilation_digest: compiled.compilation.bundle.compilation_digest
+      })).rejects.toThrow(/canonical/);
+      const malformed = await store.create({ artifact_id: "malformed", bytes: "not-json" });
+      await expect(loadCreateOnlyArtifactStoreEnvelope({
+        store,
+        artifact_id: malformed.artifact_id,
+        artifact_digest: malformed.sha256,
+        expected_compilation_digest: compiled.compilation.bundle.compilation_digest
+      })).rejects.toThrow(/strict compilation bundle/);
+      await expect(loadCreateOnlyArtifactStoreEnvelope({
+        store,
+        artifact_id: stored.artifact_id,
+        artifact_digest: bundleDigest,
+        expected_compilation_digest: compiled.compilation.bundle.compilation_digest,
+        request_id: compiled.compilation.bundle.request_id
+      })).resolves.toMatchObject({ artifact_id: stored.artifact_id });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not let planning persistence or create-only collisions grant execution", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      request_id: "planning-authority-1",
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-planning-authority-")));
+    try {
+      const store = new ArtifactStore(root);
+      const bundle = compiled.compilation.bundle;
+      const revision = compilationRevisionId(bundle);
+      await expect(persistPlanningCompilationArtifact({
+        store: {} as never,
+        bundle,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision
+      })).rejects.toThrow(/ArtifactStore/);
+
+      const executionCandidate = JSON.parse(JSON.stringify(bundle)) as Record<string, any>;
+      executionCandidate.execution_capable = true;
+      executionCandidate.effective_contract.execution.status = "execution-capable";
+      const effectiveBody = { ...executionCandidate.effective_contract };
+      delete effectiveBody.digest;
+      executionCandidate.effective_contract.digest = sha256Canonical(effectiveBody);
+      executionCandidate.effective_contract_digest = executionCandidate.effective_contract.digest;
+      const withoutDigest = { ...executionCandidate };
+      delete withoutDigest.compilation_digest;
+      executionCandidate.compilation_digest = sha256Canonical(withoutDigest);
+      await expect(persistPlanningCompilationArtifact({
+        store,
+        bundle: executionCandidate as never,
+        production_id: "production",
+        project_id: "project",
+        revision_id: compilationRevisionId(executionCandidate as never)
+      })).rejects.toThrow(/execution-capable bundle/);
+
+      const artifactId = `planning-production-project-${revision}-${bundle.request_id}`;
+      await store.create({ artifact_id: artifactId, bytes: "different bytes" });
+      await expect(persistPlanningCompilationArtifact({
+        store,
+        bundle,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision
+      })).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed on each committed planning identity mutation before budget authority", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      request_id: "planning-identity-1",
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-planning-identity-")));
+    try {
+      const store = new ArtifactStore(root);
+      const base = compiled.compilation.bundle;
+      const recompute = (candidate: Record<string, any>) => {
+        candidate.compilation_digest = sha256Canonical(Object.fromEntries(Object.entries(candidate).filter(([key]) => key !== "compilation_digest")));
+        return candidate;
+      };
+      const persist = async (candidate: Record<string, any>) => {
+        const revision = compilationRevisionId(candidate as never);
+        const planning = await persistPlanningCompilationArtifact({ store, bundle: candidate as never, production_id: "production", project_id: "project", revision_id: revision });
+        return { planning, revision };
+      };
+      const deriveBase = (planning: any, revision: string, extra: Record<string, unknown> = {}) => videoPromptDirector.deriveExecutionCompilationBundleFromPlanningArtifact({
+        planning_artifact: planning,
+        store,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision,
+        project_root: root,
+        asset_pin_root: join(root, "pins"),
+        model_profile: model.profile,
+        connection_profile: connection.profile,
+        trusted_pinned_budget_evidence: {} as never,
+        ...extra
+      } as never);
+
+      const unsupported = recompute({ ...JSON.parse(JSON.stringify(base)), lineage: { ...base.lineage, authoring_schema: "caller-forged" } });
+      const unsupportedRef = await persist(unsupported);
+      await expect(deriveBase(unsupportedRef.planning, unsupportedRef.revision)).rejects.toThrow(/authoring source tuple/);
+
+      const wrongMode = JSON.parse(JSON.stringify(base)) as Record<string, any>;
+      wrongMode.normalized_ir.target.mode = "reference";
+      wrongMode.normalized_ir_digest = sha256Canonical(wrongMode.normalized_ir);
+      const wrongModeRef = await persist(recompute(wrongMode));
+      await expect(deriveBase(wrongModeRef.planning, wrongModeRef.revision)).rejects.toThrow(/committed route/);
+
+      const missingConnection = JSON.parse(JSON.stringify(base)) as Record<string, any>;
+      missingConnection.route.connection_id = "missing-connection";
+      const routeWithoutDigest = { ...missingConnection.route };
+      delete routeWithoutDigest.route_digest;
+      missingConnection.route.route_digest = sha256Canonical(routeWithoutDigest);
+      const missingConnectionRef = await persist(recompute(missingConnection));
+      await expect(deriveBase(missingConnectionRef.planning, missingConnectionRef.revision)).rejects.toThrow(/profile is unavailable/);
+
+      const missingAdapter = JSON.parse(JSON.stringify(base)) as Record<string, any>;
+      missingAdapter.adapter_capability_digest = "0".repeat(64);
+      const missingAdapterRef = await persist(recompute(missingAdapter));
+      await expect(deriveBase(missingAdapterRef.planning, missingAdapterRef.revision)).rejects.toThrow(/adapter capability/);
+
+      const h3Model = await loadModelPromptProfile("minimax-h3");
+      const h3Connection = await loadConnectionCapabilityProfile("minimax-direct");
+      const h3Adapter = await loadAdapterDialectCapability("minimax", ["adapters"], { model_profile_id: "minimax-h3", provider_model: "MiniMax-H3", mode: "text-to-video" });
+      const h3Grammar = await loadPinnedH3GrammarProfile();
+      expect(h3Model.ok && h3Connection.ok && h3Adapter.ok && isTrustedH3GrammarProfile(h3Grammar)).toBe(true);
+      if (!h3Model.ok || !h3Connection.ok || !h3Adapter.ok || !isTrustedH3GrammarProfile(h3Grammar)) return;
+      const h3Route = routeFromProfiles({ model: "minimax-h3", mode: "text-to-video", model_profile: h3Model.profile, connection_profile: h3Connection.profile, model_profile_digest: h3Model.digest, connection_profile_digest: h3Connection.digest });
+      expect(h3Route.ok).toBe(true);
+      if (!h3Route.ok) return;
+      const h3Ir = standalone("minimax-h3");
+      h3Ir.target = { ...h3Ir.target, quality: "768p" };
+      const h3Compiled = compileVideoPromptIrV2(h3Ir, {
+        request_id: "planning-h3-1",
+        route: h3Route.route,
+        model_profile: h3Model.profile,
+        model_profile_digest: h3Model.digest,
+        connection_profile: h3Connection.profile,
+        connection_capability_digest: h3Connection.digest,
+        adapter_dialect_capability: h3Adapter.capability,
+        grammar_profile: h3Grammar,
+        require_pinned_grammar: true
+      });
+      expect(h3Compiled.ok, JSON.stringify(h3Compiled)).toBe(true);
+      if (!h3Compiled.ok) return;
+      const h3Ref = await persist(h3Compiled.compilation.bundle as never);
+      await expect(deriveBase(h3Ref.planning, h3Ref.revision, {
+        model_profile: h3Model.profile,
+        connection_profile: h3Connection.profile,
+        grammar_profile: h3Grammar
+      })).rejects.toThrow(/unknown or not authoritative/);
+
+      expect(() => verifyCompilationBundle(h3Compiled.compilation.bundle)).not.toThrow();
+      const forgedGrammar = JSON.parse(JSON.stringify(h3Compiled.compilation.bundle)) as Record<string, any>;
+      forgedGrammar.grammar_profile.digest = "0".repeat(64);
+      expect(() => verifyCompilationBundle(forgedGrammar)).toThrow(/grammar profile digest/);
+
+      const plainWithGrammar = JSON.parse(JSON.stringify(base)) as Record<string, any>;
+      plainWithGrammar.grammar_profile = h3Grammar;
+      const plainGrammarRef = await persist(recompute(plainWithGrammar));
+      await expect(deriveBase(plainGrammarRef.planning, plainGrammarRef.revision)).rejects.toThrow(/plain-prompt execution/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
