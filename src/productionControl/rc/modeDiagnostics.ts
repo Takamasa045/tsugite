@@ -2,6 +2,7 @@
  * RC mode diagnostics: legacy / shadow / active.
  * Default remains legacy (design: disabled / unspecified). Active requires authority.
  * Shadow is read-only: no execution, no Gate subject mutation.
+ * Invalid/unknown mode → unsafe_unknown (never collapsed to legacy).
  */
 import type { Project } from "../../project/schema.js";
 import {
@@ -53,18 +54,56 @@ export type ModeDiagnosticsReport = {
 
 const MODE_ORDER: readonly RcRuntimeMode[] = ["legacy", "shadow", "active"] as const;
 
+const EFFECTFUL_REQUESTS = new Set([
+  "external-submit",
+  "provider_submit",
+  "gate",
+  "gate_mutation",
+  "job",
+  "paid-regeneration",
+  "billing",
+  "billing_spend",
+  "local-recovery",
+  "render",
+  "finalize",
+  "finalize_apply",
+  "network_fetch"
+]);
+
+/**
+ * Map known ProductionControlMode / legacy alias to runtime mode.
+ * Unknown non-empty strings throw PC_MODE_UNSAFE_UNKNOWN (never silent legacy).
+ */
 export function toRuntimeMode(
-  mode: ProductionControlMode | undefined | "legacy"
+  mode: ProductionControlMode | undefined | "legacy" | string
 ): RcRuntimeMode {
   if (mode === "active") return "active";
   if (mode === "shadow") return "shadow";
-  return "legacy";
+  if (mode === "disabled" || mode === "legacy" || mode === undefined) return "legacy";
+  throw pcError(
+    "PC_MODE_UNSAFE_UNKNOWN",
+    `unsafe_unknown production control mode: ${String(mode)}`
+  );
+}
+
+/** Inspect raw project.orchestration.mode without collapsing unknown → legacy. */
+export function readRawOrchestrationMode(
+  project: Pick<Project, "orchestration"> | { orchestration?: { mode?: unknown } } | undefined
+): unknown {
+  return project?.orchestration?.mode;
 }
 
 export function resolveRuntimeMode(
   project: Pick<Project, "orchestration"> | { orchestration?: { mode?: string } } | undefined
 ): RcRuntimeMode {
-  return toRuntimeMode(resolveOrchestrationMode(project));
+  const raw = readRawOrchestrationMode(project);
+  if (raw === undefined || raw === null || raw === "") {
+    return "legacy";
+  }
+  if (typeof raw !== "string") {
+    throw pcError("PC_MODE_UNSAFE_UNKNOWN", `unsafe_unknown production control mode type: ${typeof raw}`);
+  }
+  return toRuntimeMode(raw);
 }
 
 export function modeCapabilities(mode: RcRuntimeMode): ModeCapability {
@@ -72,7 +111,7 @@ export function modeCapabilities(mode: RcRuntimeMode): ModeCapability {
     return {
       reads_control_plane: true,
       writes_shadow_artifacts: true,
-      mutates_gate_subject: false, // Gate mutation still requires human decision path
+      mutates_gate_subject: false,
       may_execute_generation: true,
       may_paid_submit: true,
       may_render: true,
@@ -127,7 +166,6 @@ export function evaluateModeTransition(
     };
   }
 
-  // Rollback paths: always allowed as mode switch; never delete artifacts.
   if (
     (from === "active" && (to === "shadow" || to === "legacy"))
     || (from === "shadow" && to === "legacy")
@@ -144,7 +182,6 @@ export function evaluateModeTransition(
     };
   }
 
-  // Forward: legacy → shadow
   if (from === "legacy" && to === "shadow") {
     return {
       from,
@@ -158,7 +195,6 @@ export function evaluateModeTransition(
     };
   }
 
-  // Forward: shadow → active or legacy → active
   if (to === "active" && (from === "shadow" || from === "legacy")) {
     const blocked: string[] = [];
     if (!options.coordinator) blocked.push("coordinator actor required");
@@ -183,7 +219,6 @@ export function evaluateModeTransition(
     };
   }
 
-  // shadow → active already covered; forbid active → active etc.
   return {
     from,
     to,
@@ -192,15 +227,28 @@ export function evaluateModeTransition(
   };
 }
 
-export function assertShadowNoExecution(mode: RcRuntimeMode): void {
-  if (mode === "shadow") {
-    // Shadow may compute digests and write shadow artifacts only.
-    return;
+/**
+ * Enforce shadow no-execution against an actual effect request.
+ * Without an effect argument this is a no-op capability check (shadow is allowed to exist).
+ */
+export function assertShadowNoExecution(
+  mode: RcRuntimeMode,
+  effect?: string
+): void {
+  if (mode !== "shadow") return;
+  if (effect === undefined || effect === "") return;
+  if (EFFECTFUL_REQUESTS.has(effect)) {
+    throw pcError(
+      "PC_MODE_INACTIVE",
+      `shadow mode forbids effect request: ${effect}`
+    );
   }
-  if (mode === "legacy") return;
 }
 
-export function assertActiveAuthority(mode: RcRuntimeMode, effect: "external-submit" | "gate" | "job" | "paid-regeneration" | "local-recovery"): void {
+export function assertActiveAuthority(
+  mode: RcRuntimeMode,
+  effect: "external-submit" | "gate" | "job" | "paid-regeneration" | "local-recovery"
+): void {
   if (mode !== "active") {
     throw pcError("PC_MODE_INACTIVE", `active mode required at ${effect} boundary`);
   }
@@ -210,9 +258,10 @@ export function assertActiveAuthority(mode: RcRuntimeMode, effect: "external-sub
 export function diagnoseMode(
   project: Pick<Project, "orchestration"> | { orchestration?: { mode?: string } } | undefined
 ): ModeDiagnosticsReport {
+  // Fail closed on unknown modes before any capability projection.
+  const runtime = resolveRuntimeMode(project);
   const resolved = resolveOrchestrationMode(project);
   const projectMode: ProductionControlMode | "unspecified" = resolved ?? "unspecified";
-  const runtime = toRuntimeMode(resolved);
   const caps = modeCapabilities(runtime);
   const transitions: ModeTransition[] = [];
   for (const from of MODE_ORDER) {

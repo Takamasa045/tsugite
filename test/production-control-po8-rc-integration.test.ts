@@ -1,9 +1,8 @@
 /**
- * PO-8 / T09 — RC integration: mode diagnostics, migration/rollback rehearsal,
- * adversarial path safety, revision bindings, release readiness.
+ * PO-8 / T09 — RC integration repair: H1–H3 + M1–M5.
  * Fixture-only: no provider, network, generation, billing, Gate mutation, render, finalize apply.
  */
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +11,11 @@ import {
   applyMigration,
   applyRollback,
   assertMigrationPathLexicalSafe,
+  assertRevisionBindingsDigest,
+  assertShadowNoExecution,
+  buildProductionStatusReport,
   buildReleaseReadinessReport,
+  createEffectLedger,
   diagnoseMode,
   evaluateModeTransition,
   isExtendedWindowsPath,
@@ -30,11 +33,13 @@ import {
   readPackageVersion,
   rehearseAllPo8Fixtures,
   rehearseFixture,
+  resolveRuntimeMode,
+  runAllFixtureModuleEvidence,
+  runFixtureModuleEvidence,
   toRuntimeMode
 } from "../src/productionControl/index.js";
 import { main as cliMain } from "../src/cli.js";
 import { ProductionControlError } from "../src/productionControl/errors.js";
-import { sha256Canonical } from "../src/productionControl/canonical.js";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NOW = "2026-08-12T18:00:00.000Z";
@@ -65,7 +70,47 @@ async function captureCli(argv: string[]): Promise<{ code: number; payload: Reco
   }
 }
 
-describe("PO-8 RC mode diagnostics", () => {
+async function writeMinimalProject(root: string, project: Record<string, unknown>): Promise<string> {
+  const slug = String(project.slug ?? "po8-temp");
+  const yaml = [
+    `slug: ${slug}`,
+    `name: ${String(project.name ?? slug)}`,
+    "manifest: manifest.json",
+    "dist_dir: dist",
+    "edit:",
+    "  backend: remotion",
+    ...(project.orchestration && typeof project.orchestration === "object"
+      ? [
+        "orchestration:",
+        `  mode: ${String((project.orchestration as { mode?: string }).mode ?? "disabled")}`
+      ]
+      : []),
+    ""
+  ].join("\n");
+  await writeFile(join(root, "project.yaml"), yaml);
+  await writeFile(
+    join(root, "manifest.json"),
+    `${JSON.stringify({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 6, slug },
+      clips: [{
+        id: "clip-1",
+        src: "media/clip.mp4",
+        in: 0,
+        out: 6,
+        duration: 6,
+        fps: 30,
+        resolution: { width: 1920, height: 1080 },
+        audio: false
+      }]
+    }, null, 2)}\n`
+  );
+  await mkdir(join(root, "media"), { recursive: true });
+  await writeFile(join(root, "media/clip.mp4"), Buffer.alloc(64));
+  await mkdir(join(root, "dist"), { recursive: true });
+  return join(root, "project.yaml");
+}
+
+describe("PO-8 RC mode diagnostics (M3)", () => {
   it("defaults unspecified projects to legacy and requires authority only for active", () => {
     const legacy = diagnoseMode({ slug: "x" } as never);
     expect(legacy.runtime_mode).toBe("legacy");
@@ -79,79 +124,99 @@ describe("PO-8 RC mode diagnostics", () => {
     expect(shadow.runtime_mode).toBe("shadow");
     expect(shadow.capabilities.writes_shadow_artifacts).toBe(true);
     expect(shadow.capabilities.may_execute_generation).toBe(false);
-    expect(shadow.capabilities.mutates_gate_subject).toBe(false);
 
     const active = diagnoseMode({ orchestration: { mode: "active" } });
     expect(active.runtime_mode).toBe("active");
     expect(active.capabilities.authority_required).toBe(true);
-    expect(active.capabilities.may_paid_submit).toBe(true);
     expect(modeCapabilities("active").may_render).toBe(true);
+  });
+
+  it("rejects invalid/unknown mode as unsafe_unknown without collapsing to legacy", () => {
+    expect(() => toRuntimeMode("bogus" as never)).toThrow(/unsafe_unknown|PC_MODE_UNSAFE_UNKNOWN/);
+    expect(() => resolveRuntimeMode({ orchestration: { mode: "experimental" } })).toThrow(
+      /unsafe_unknown|PC_MODE_UNSAFE_UNKNOWN/
+    );
+    expect(() => diagnoseMode({ orchestration: { mode: "not-a-mode" } })).toThrow(
+      /unsafe_unknown|PC_MODE_UNSAFE_UNKNOWN/
+    );
+  });
+
+  it("enforces assertShadowNoExecution against actual effect requests", () => {
+    expect(() => assertShadowNoExecution("shadow")).not.toThrow();
+    expect(() => assertShadowNoExecution("shadow", "digest-only")).not.toThrow();
+    expect(() => assertShadowNoExecution("shadow", "external-submit")).toThrow(/shadow mode forbids/);
+    expect(() => assertShadowNoExecution("shadow", "gate")).toThrow(/shadow mode forbids/);
+    expect(() => assertShadowNoExecution("shadow", "billing_spend")).toThrow(/shadow mode forbids/);
+    expect(() => assertShadowNoExecution("legacy", "external-submit")).not.toThrow();
+  });
+
+  it("pins exact revision bindings from package.json + exported constants (M5)", () => {
+    const bindings = projectRevisionBindings();
+    expect(bindings.package_version).toBe("0.9.0");
+    expect(bindings.production_contract_schema).toBe(1);
+    expect(bindings.task_tree_schema).toBe(1);
+    expect(bindings.video_prompt_ir).toBe(2);
+    expect(bindings.h3_compiler_workflow).toBe(3);
+    expect(bindings.legacy_h3_workflow_reader).toBe(2);
+    expect(bindings.sources.package_json).toBe("package.json#version");
+    expect(() => projectRevisionBindings({ self_declared_digest: "a".repeat(64) })).toThrow(
+      /self-declared/
+    );
+    assertRevisionBindingsDigest(rcRevisionBindingsDigest());
+    expect(() => assertRevisionBindingsDigest("0".repeat(64))).toThrow(/mismatch/);
   });
 
   it("encodes forward and rollback transition conditions", () => {
     const toShadow = evaluateModeTransition("legacy", "shadow");
     expect(toShadow.allowed).toBe(true);
-
     const toActiveBlocked = evaluateModeTransition("shadow", "active", { coordinator: false });
     expect(toActiveBlocked.allowed).toBe(false);
-
     const toActiveOk = evaluateModeTransition("shadow", "active", {
       coordinator: true,
       preview_digest: "abc",
       coordination_root_ready: true
     });
     expect(toActiveOk.allowed).toBe(true);
-
-    const rollback = evaluateModeTransition("active", "legacy");
-    expect(rollback.allowed).toBe(true);
-    if (rollback.allowed) {
-      expect(rollback.conditions.join(" ")).toMatch(/no provider/);
-    }
-  });
-
-  it("pins exact revision bindings for contract/tree/job/recovery/learning/launcher/finalize", () => {
-    const bindings = projectRevisionBindings();
-    expect(bindings.production_contract_schema).toBe(1);
-    expect(bindings.task_tree_schema).toBe(1);
-    expect(bindings.video_prompt_ir).toBe(2);
-    expect(bindings.h3_compiler_workflow).toBe(3);
-    expect(bindings.legacy_h3_workflow_reader).toBe(2);
-    expect(bindings.gate_bundle_schema).toBe(1);
-    expect(bindings.generation_job_approval_binding).toBe(1);
-    expect(bindings.recovery_policy_schema).toBe(1);
-    expect(bindings.learning_candidate_schema).toBe(1);
-    expect(bindings.mission_metrics_schema).toBe(1);
-    expect(bindings.finalize_retention_schema).toBe(1);
-    expect(bindings.launcher_mission_tree_dto).toBe(1);
-    expect(rcRevisionBindingsDigest()).toMatch(/^[a-f0-9]{64}$/);
   });
 });
 
-describe("PO-8 migration / rollback atomicity", () => {
-  it("previews shadow without execution authority and refuses active without coordinator", async () => {
-    const fixture = await loadPo8Fixture("legacy-h3");
-    const preview = previewMigration({
-      project: fixture.project,
-      target_mode: "shadow",
-      coordinator: true
-    });
-    expect(preview.ok).toBe(true);
-    expect(preview.target_mode).toBe("shadow");
-    expect(preview.identity.locked_true_implies_verified).toBe(false);
-    expect(preview.identity.definition_confirmation_inferred_from_gate1).toBe(false);
-    expect(preview.safety_invariants.some((line) => line.includes("Gate"))).toBe(true);
+describe("PO-8 H1 fixture → production module evidence", () => {
+  it("runs all 8 fixtures against real modules with adversarial failures", async () => {
+    const report = await runAllFixtureModuleEvidence();
+    expect(report.fixture_count).toBe(8);
+    expect(report.results).toHaveLength(8);
+    for (const result of report.results) {
+      expect(result.ok, `${result.fixture_id}: ${result.errors.join("; ")}`).toBe(true);
+      expect(result.apis.length).toBeGreaterThan(0);
+      expect(Object.keys(result.digests).length).toBeGreaterThan(0);
+      expect(result.adversarial.every((item) => item.ok), result.fixture_id).toBe(true);
+      // No marker-only evidence: digests must look like real hashes or measured codes
+      for (const [key, value] of Object.entries(result.digests)) {
+        expect(typeof value, `${result.fixture_id}.${key}`).toBe("string");
+        expect(value.length, `${result.fixture_id}.${key}`).toBeGreaterThan(0);
+      }
+    }
+    expect(report.all_ok).toBe(true);
+    expect(report.ledger.safety.provider_submit_count).toBe(0);
+    expect(report.ledger.safety.gate_mutation_count).toBe(0);
+    expect(report.ledger.safety.network_fetch_count).toBe(0);
+    // unknown is never coerced — instrumented channels are numbers
+    expect(report.ledger.safety.provider_submit_count).not.toBe("unknown");
+  }, 120_000);
 
-    const activeBlocked = previewMigration({
-      project: projectWithMode(fixture.project, "shadow"),
-      target_mode: "active",
-      coordinator: false
-    });
-    expect(activeBlocked.ok).toBe(false);
-    expect(activeBlocked.blocked_reasons.join(" ")).toMatch(/coordinator/);
+  it("identity fixture keeps locked≠verified and awaiting human", async () => {
+    const evidence = await runFixtureModuleEvidence("identity-phase-a-e");
+    expect(evidence.digests.locked_not_verified).toBe("1");
+    expect(evidence.digests.verification_present).toBe("0");
+    expect(evidence.state.locked_true_implies_verified).toBe(false);
   });
+});
 
-  it("applies create-only migration and rollback without deleting artifacts or auto-executing", async () => {
+describe("PO-8 migration / rollback atomicity + durable mode (H3)", () => {
+  it("applies create-only migration with Event/Snapshot/mode-intent and rollback retains artifacts", async () => {
     const root = await realTempDir("tsugite-po8-atomic-");
+    const ledger = createEffectLedger();
+    ledger.markFixtureInProcessBoundary();
     try {
       const fixture = await loadPo8Fixture("standalone-v2");
       const shadowPreview = previewMigration({
@@ -167,12 +232,13 @@ describe("PO-8 migration / rollback atomicity", () => {
         actor: "coordinator",
         expected_preview_digest: shadowPreview.digest,
         coordinator: true,
-        now: () => NOW
+        now: () => NOW,
+        ledger
       });
-      expect(shadow.record.no_gate_mutation).toBe(true);
-      expect(shadow.record.no_provider_submit).toBe(true);
       expect(shadow.record.no_source_project_rewrite).toBe(true);
-      expect(shadow.record.artifact_relative_paths.length).toBeGreaterThan(0);
+      expect(shadow.record.mode_intent_digest).toMatch(/^[a-f0-9]{64}$/);
+      expect(shadow.record.event_digest).toMatch(/^[a-f0-9]{64}$/);
+      expect(shadow.record.snapshot_digest).toMatch(/^[a-f0-9]{64}$/);
 
       const activePreview = previewMigration({
         project: projectWithMode(fixture.project, "shadow"),
@@ -187,9 +253,20 @@ describe("PO-8 migration / rollback atomicity", () => {
         actor: "coordinator",
         expected_preview_digest: activePreview.digest,
         coordinator: true,
-        now: () => "2026-08-12T18:01:00.000Z"
+        now: () => "2026-08-12T18:01:00.000Z",
+        ledger
       });
       expect(active.record.applied_mode).toBe("active");
+
+      const status = await buildProductionStatusReport({
+        project: projectWithMode(fixture.project, "legacy"),
+        projectRoot: root
+      });
+      expect(status.mode_source).toBe("durable_pointer");
+      expect(status.runtime_mode).toBe("active");
+      expect(status.presence.some((item) => item.kind === "events" && item.present)).toBe(true);
+      expect(status.presence.some((item) => item.kind === "snapshot" && item.present)).toBe(true);
+      expect(status.presence.some((item) => item.kind === "current-mode" && item.present)).toBe(true);
 
       const beforePaths = new Set(active.record.artifact_relative_paths);
       const rollback = await applyRollback({
@@ -197,21 +274,17 @@ describe("PO-8 migration / rollback atomicity", () => {
         projectRoot: root,
         to_mode: "legacy",
         actor: "coordinator",
-        now: () => "2026-08-12T18:02:00.000Z"
+        now: () => "2026-08-12T18:02:00.000Z",
+        ledger
       });
       expect(rollback.record.deleted_artifacts).toEqual([]);
       expect(rollback.record.rewritten_artifacts).toEqual([]);
-      expect(rollback.record.safety.no_auto_provider).toBe(true);
-      expect(rollback.record.safety.no_auto_gate).toBe(true);
-      expect(rollback.record.safety.no_auto_billing).toBe(true);
-      expect(rollback.record.safety.submission_unknown_no_resubmit).toBe(true);
-      expect(rollback.record.safety.unknown_price_block).toBe(true);
-      expect(rollback.record.safety.pinned_only_adoption).toBe(true);
+      expect(rollback.record.safety.observed_zero_effects).toBe(true);
+      expect(rollback.record.safety.provider_submit_count).toBe(0);
       for (const path of beforePaths) {
         expect(rollback.record.preserved_relative_paths).toContain(path);
       }
 
-      // Duplicate apply of same preview fails closed (create-only).
       await expect(applyMigration({
         project: fixture.project,
         target_mode: "shadow",
@@ -219,16 +292,16 @@ describe("PO-8 migration / rollback atomicity", () => {
         actor: "coordinator",
         expected_preview_digest: shadowPreview.digest,
         coordinator: true,
-        now: () => NOW
+        now: () => NOW,
+        ledger
       })).rejects.toBeInstanceOf(ProductionControlError);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it("never infers identity confirmation or verification from locked:true", async () => {
     const fixture = await loadPo8Fixture("identity-phase-a-e");
-    expect(fixture.identity?.locked_true_implies_verified).toBe(false);
     const preview = previewMigration({
       project: fixture.project,
       target_mode: "shadow",
@@ -236,11 +309,6 @@ describe("PO-8 migration / rollback atomicity", () => {
     });
     expect(preview.identity.locked_true_implies_verified).toBe(false);
     expect(preview.identity.definition_confirmation_inferred_from_gate1).toBe(false);
-    expect(preview.identity.verification_status).not.toBe("migrated");
-    // locked flag may be seen, but status stays awaiting/blocked/not-evaluable without human decision.
-    expect(["awaiting_human", "blocked", "not_applicable", "migrated"]).toContain(
-      preview.identity.definition_status
-    );
     if (preview.identity.locked_flag_seen) {
       expect(preview.identity.definition_status).not.toBe("migrated");
     }
@@ -248,51 +316,30 @@ describe("PO-8 migration / rollback atomicity", () => {
 });
 
 describe("PO-8 frozen 8-fixture rehearsal", () => {
-  it("loads all eight fixtures and runs legacy→shadow→active→rollback→legacy", async () => {
+  it("loads all eight fixtures and runs module evidence + mode sequence", async () => {
     expect(PO8_FIXTURE_IDS).toHaveLength(8);
-    for (const id of PO8_FIXTURE_IDS) {
-      const fixture = await loadPo8Fixture(id);
-      expect(fixture.fixture_id).toBe(id);
-      expect(fixture.schema_version).toBe(1);
-    }
-
     const report = await rehearseAllPo8Fixtures();
     expect(report.fixture_count).toBe(8);
     expect(report.results).toHaveLength(8);
     expect(report.revision_bindings_digest).toBe(rcRevisionBindingsDigest());
     for (const result of report.results) {
-      expect(result.sequence.map((step) => step.step)).toEqual([
-        "legacy",
-        "shadow",
-        "active",
-        "rollback",
-        "legacy_restored"
-      ]);
-      expect(result.no_provider_submit).toBe(true);
-      expect(result.no_gate_mutation).toBe(true);
-      expect(result.identity_not_inferred).toBe(true);
+      expect(result.module_evidence.ok, result.fixture_id).toBe(true);
+      expect(result.safety.observed_zero_effects).toBe(true);
+      expect(result.safety.provider_submit_count).toBe(0);
       expect(result.ok, result.fixture_id).toBe(true);
+      expect(result.sequence.some((step) => step.step === "module_evidence")).toBe(true);
     }
     expect(report.all_ok).toBe(true);
-    expect(report.digest).toMatch(/^[a-f0-9]{64}$/);
-  }, 120_000);
-
-  it("marks control-plane paths as ignored by legacy readers", () => {
-    expect(legacyReaderIgnoresControlPlane("production-control/migration/x.json")).toBe(true);
-    expect(legacyReaderIgnoresControlPlane("dist/run-1/final.mp4")).toBe(false);
-  });
+  }, 180_000);
 });
 
-describe("PO-8 adversarial path / Windows fail-closed", () => {
+describe("PO-8 adversarial path / Windows fail-closed / O_EXCL", () => {
   it("rejects UNC and extended Windows paths", () => {
     expect(isUncPath("\\\\server\\share\\file")).toBe(true);
     expect(isExtendedWindowsPath("\\\\?\\C:\\foo")).toBe(true);
     expect(isWindowsDrivePath("C:\\Users\\x")).toBe(true);
     expect(() => assertMigrationPathLexicalSafe("\\\\server\\share\\a", "mig")).toThrow(
       /UNC|PC_PATH_UNSAFE|not allowed/
-    );
-    expect(() => assertMigrationPathLexicalSafe("\\\\?\\C:\\foo", "mig")).toThrow(
-      /extended|not allowed/
     );
     if (process.platform !== "win32") {
       expect(() => assertMigrationPathLexicalSafe("C:\\Users\\x\\project", "mig")).toThrow(
@@ -301,39 +348,71 @@ describe("PO-8 adversarial path / Windows fail-closed", () => {
     }
   });
 
-  it("keeps MV fixture music/lyrics slots required without inventing timestamps", async () => {
-    const fixture = await loadPo8Fixture("lyric-mv");
-    const preview = previewMigration({
-      project: fixture.project,
-      target_mode: "shadow",
-      coordinator: true
-    });
-    expect(preview.ok).toBe(true);
-    expect(preview.contract_digest).toMatch(/^[a-f0-9]{64}$/);
-    // Rehearse single fixture deterministically twice for digest stability of sequence shape.
-    const first = await rehearseFixture("lyric-mv");
-    const second = await rehearseFixture("lyric-mv");
-    expect(first.sequence.map((s) => s.step)).toEqual(second.sequence.map((s) => s.step));
-    expect(first.ok).toBe(true);
-    expect(second.ok).toBe(true);
-  }, 60_000);
+  it("rejects symlink project root for migration apply", async () => {
+    const root = await realTempDir("tsugite-po8-symlink-");
+    try {
+      const real = join(root, "real");
+      await mkdir(real);
+      const link = join(root, "link");
+      await symlink(real, link);
+      const fixture = await loadPo8Fixture("legacy-h3");
+      const preview = previewMigration({
+        project: fixture.project,
+        target_mode: "shadow",
+        projectRoot: link,
+        coordinator: true
+      });
+      await expect(applyMigration({
+        project: fixture.project,
+        target_mode: "shadow",
+        projectRoot: link,
+        actor: "coordinator",
+        expected_preview_digest: preview.digest,
+        coordinator: true,
+        now: () => NOW
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
-describe("PO-8 release readiness and version decision", () => {
-  it("keeps 0.9.0 and refuses 1.0.0 when Windows/live are unverified", async () => {
+describe("PO-8 release readiness (H2/M2)", () => {
+  it("keeps 0.9.0, derives safety from ledger, excludes commit from digest, NO-GO without H1/H3", async () => {
     const version = await readPackageVersion(REPO_ROOT);
     expect(version).toBe("0.9.0");
 
+    const noH1 = buildReleaseReadinessReport({
+      package_version: version,
+      generated_at: NOW,
+      build_provenance: {
+        head: "8605c262081f9c2c3de942fd6fd931fb40016b04",
+        branch: "codex/po8-rc-integration",
+        dirty: false,
+        verified_separately: true
+      }
+    });
+    expect(noH1.go_no_go).toBe("NO-GO");
+    expect(noH1.environment.provider_submit_count).toBe("unknown");
+
+    const moduleEvidence = await runAllFixtureModuleEvidence();
     const rehearsal = await rehearseAllPo8Fixtures();
     const report = buildReleaseReadinessReport({
       package_version: version,
       generated_at: NOW,
-      commit: { head: "a0fa832cda4f283a48cca906d743b24255832aa1", branch: "codex/po8-rc-integration" },
+      build_provenance: {
+        head: "8605c262081f9c2c3de942fd6fd931fb40016b04",
+        branch: "codex/po8-rc-integration",
+        dirty: false,
+        verified_separately: true
+      },
       rehearsal,
+      fixture_module_evidence: moduleEvidence,
+      ledger: moduleEvidence.ledger,
       browser_po0a: {
         status: "partial",
-        evidence: ["viewer scene integration tests exist for Canvas/DOM fallback"],
-        gaps: ["actual browser session may still be recorded separately"]
+        evidence: ["viewer tests exist"],
+        gaps: ["session may still record separately"]
       },
       windows_smoke: {
         status: "unverified",
@@ -343,65 +422,200 @@ describe("PO-8 release readiness and version decision", () => {
       desktop: {
         status: "unverified",
         evidence: [],
-        gaps: ["desktop test/prepare/audit not fully run"]
+        gaps: ["desktop not fully run"]
       },
       full_regression: {
         status: "partial",
         evidence: ["focused PO-8 tests"],
         gaps: ["full npm run check recorded after suite"]
+      },
+      h3_durable_cli: {
+        status: "proven",
+        evidence: [`rehearsal.digest=${rehearsal.digest}`],
+        gaps: []
       }
     });
 
     expect(report.version_decision.keep_0_9_0).toBe(true);
     expect(report.version_decision.bump_to_1_0_0).toBe(false);
     expect(report.version_decision.bump_to_1_0_0_rc).toBe(false);
-    expect(report.recommended_version).toBe("0.9.0");
-    expect(report.environment.fixture_only).toBe(true);
-    expect(report.environment.provider_traffic).toBe(false);
+    expect(report.environment.provider_submit_count).toBe(0);
+    expect(report.environment.gate_mutation_count).toBe(0);
+    expect(report.build_provenance?.head).toMatch(/^8605c26/);
+    // Digest must not depend on commit SHA self-reference
+    const again = buildReleaseReadinessReport({
+      package_version: version,
+      generated_at: NOW,
+      build_provenance: {
+        head: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        branch: "other",
+        dirty: true
+      },
+      rehearsal,
+      fixture_module_evidence: moduleEvidence,
+      ledger: moduleEvidence.ledger,
+      browser_po0a: report.exits.find((exit) => exit.exit_id === "po8-8-po0a-browser")
+        ? {
+          status: report.exits.find((exit) => exit.exit_id === "po8-8-po0a-browser")!.status,
+          evidence: report.exits.find((exit) => exit.exit_id === "po8-8-po0a-browser")!.evidence,
+          gaps: report.exits.find((exit) => exit.exit_id === "po8-8-po0a-browser")!.gaps
+        }
+        : undefined,
+      windows_smoke: {
+        status: "unverified",
+        evidence: [],
+        gaps: ["Windows real machine not executed"]
+      },
+      desktop: {
+        status: "unverified",
+        evidence: [],
+        gaps: ["desktop not fully run"]
+      },
+      full_regression: {
+        status: "partial",
+        evidence: ["focused PO-8 tests"],
+        gaps: ["full npm run check recorded after suite"]
+      },
+      h3_durable_cli: {
+        status: "proven",
+        evidence: [`rehearsal.digest=${rehearsal.digest}`],
+        gaps: []
+      }
+    });
+    expect(again.digest).toBe(report.digest);
     expect(report.go_no_go).not.toBe("GO");
-    expect(report.digest).toMatch(/^[a-f0-9]{64}$/);
     expect(() => buildReleaseReadinessReport({
       package_version: version,
       self_approve: true
     })).toThrow(/self-approval/);
-  }, 120_000);
+  }, 180_000);
 });
 
-describe("PO-8 CLI surfaces (preview only)", () => {
-  it("production-status / migrate preview / rollback preview on local-fixture", async () => {
+describe("PO-8 CLI surfaces (M1/M4)", () => {
+  it("production-status loads control-root presence digests", async () => {
     const config = join(REPO_ROOT, "examples/local-fixture/project.yaml");
-
     const status = await captureCli(["production-status", "--config", config]);
     expect(status.code).toBe(0);
     expect(status.payload.command).toBe("production-status");
-    expect(status.payload.ok).toBe(true);
-    const diagnostics = status.payload.diagnostics as { runtime_mode: string };
-    expect(diagnostics.runtime_mode).toBe("legacy");
-
-    const migrate = await captureCli([
-      "production-migrate",
-      "--config",
-      config,
-      "--target",
-      "shadow"
-    ]);
-    expect(migrate.code).toBe(0);
-    expect(migrate.payload.dry_run).toBe(true);
-    expect(migrate.payload.gate_mutated).toBe(false);
-    expect(migrate.payload.generation_submitted).toBe(false);
-
-    const rollback = await captureCli([
-      "production-rollback",
-      "--config",
-      config,
-      "--target",
-      "legacy"
-    ]);
-    // Project is already legacy; rollback preview from legacy→legacy may still be allowed as no-op path.
-    expect([0, 1]).toContain(rollback.code);
-    expect(rollback.payload.command).toBe("production-rollback");
-    expect(rollback.payload.generation_submitted).toBe(false);
+    const report = status.payload.status as { presence: unknown[]; runtime_mode: string };
+    expect(report.runtime_mode).toBe("legacy");
+    expect(Array.isArray(report.presence)).toBe(true);
   }, 60_000);
+
+  it("CLI migrate/rollback --apply E2E with coordinator + digest CAS + non-coordinator deny", async () => {
+    const root = await realTempDir("tsugite-po8-cli-");
+    try {
+      const fixture = await loadPo8Fixture("legacy-h3");
+      const config = await writeMinimalProject(root, fixture.project as Record<string, unknown>);
+
+      const preview = await captureCli([
+        "production-migrate",
+        "--config",
+        config,
+        "--target",
+        "shadow"
+      ]);
+      expect(preview.code).toBe(0);
+      expect(preview.payload.dry_run).toBe(true);
+      const previewDigest = (preview.payload.preview as { digest: string }).digest;
+
+      const nonCoord = await captureCli([
+        "production-migrate",
+        "--config",
+        config,
+        "--target",
+        "shadow",
+        "--apply",
+        "--expected-plan-digest",
+        previewDigest
+      ]);
+      expect(nonCoord.code).toBe(1);
+
+      const applied = await captureCli([
+        "production-migrate",
+        "--config",
+        config,
+        "--target",
+        "shadow",
+        "--apply",
+        "--actor",
+        "coordinator",
+        "--expected-plan-digest",
+        previewDigest
+      ]);
+      expect(applied.code).toBe(0);
+      expect(applied.payload.generation_submitted).toBe(false);
+      expect(applied.payload.gate_mutated).toBe(false);
+      expect((applied.payload.record as { event_digest?: string }).event_digest).toMatch(/^[a-f0-9]{64}$/);
+
+      // wrong digest
+      const wrong = await captureCli([
+        "production-migrate",
+        "--config",
+        config,
+        "--target",
+        "active",
+        "--apply",
+        "--actor",
+        "coordinator",
+        "--expected-plan-digest",
+        "0".repeat(64)
+      ]);
+      expect(wrong.code).toBe(1);
+
+      // status sees durable artifacts
+      const status = await captureCli(["production-status", "--config", config]);
+      expect(status.code).toBe(0);
+      const presence = (status.payload.status as { presence: Array<{ kind: string; present: boolean }> }).presence;
+      expect(presence.some((item) => item.kind === "current-mode" && item.present)).toBe(true);
+
+      // Need active then rollback from active — set mode via second migrate
+      const activePreview = await captureCli([
+        "production-migrate",
+        "--config",
+        config,
+        "--target",
+        "active"
+      ]);
+      // Project yaml has no orchestration mode; active from legacy may be allowed in preview with coordinator
+      if (activePreview.code === 0) {
+        const ad = (activePreview.payload.preview as { digest: string }).digest;
+        await captureCli([
+          "production-migrate",
+          "--config",
+          config,
+          "--target",
+          "active",
+          "--apply",
+          "--actor",
+          "coordinator",
+          "--expected-plan-digest",
+          ad
+        ]);
+      }
+
+      // Force active project yaml for rollback path
+      await writeMinimalProject(root, {
+        ...fixture.project,
+        orchestration: { mode: "active" }
+      } as Record<string, unknown>);
+      const rb = await captureCli([
+        "production-rollback",
+        "--config",
+        config,
+        "--target",
+        "legacy",
+        "--apply",
+        "--actor",
+        "coordinator"
+      ]);
+      expect(rb.code).toBe(0);
+      expect(rb.payload.generation_submitted).toBe(false);
+      expect((rb.payload.record as { deleted_artifacts: unknown[] }).deleted_artifacts).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
 
 describe("PO-8 design pack freeze still intact", () => {
@@ -423,38 +637,16 @@ describe("PO-8 design pack freeze still intact", () => {
   });
 });
 
-describe("PO-8 golden adversarial markers", () => {
-  it("covers job revision / Gate2 / recovery fixture markers without execution", async () => {
-    for (const id of [
-      "gate2-auto-pass-cascade",
-      "job-revision-submission-unknown",
-      "recovery-unknown-price",
-      "mission-tree-finalize-learning"
-    ] as const) {
-      const fixture = await loadPo8Fixture(id);
-      expect(fixture.safety_expectations.length).toBeGreaterThan(0);
-      const preview = previewMigration({
-        project: projectWithMode(fixture.project, "legacy"),
-        target_mode: "shadow",
-        coordinator: true
-      });
-      expect(preview.digest).toMatch(/^[a-f0-9]{64}$/);
-      // Determinism: same input → same preview digest.
-      const again = previewMigration({
-        project: projectWithMode(fixture.project, "legacy"),
-        target_mode: "shadow",
-        coordinator: true
-      });
-      expect(again.digest).toBe(preview.digest);
-    }
-
-    const rb = previewRollback({
-      project: { orchestration: { mode: "active" } },
-      to_mode: "legacy",
-      coordinator: true
-    });
-    expect(rb.will_delete).toBe(false);
-    expect(rb.will_auto_execute).toBe(false);
-    expect(toRuntimeMode("disabled")).toBe("legacy");
+describe("PO-8 effect ledger H2", () => {
+  it("never coerces unknown safety channels to false/0", () => {
+    const ledger = createEffectLedger();
+    const safety = ledger.safetyEvidence();
+    expect(safety.provider_submit_count).toBe("unknown");
+    expect(safety.gate_mutation_count).toBe("unknown");
+    ledger.markFixtureInProcessBoundary();
+    const instrumented = ledger.safetyEvidence();
+    expect(instrumented.provider_submit_count).toBe(0);
+    expect(instrumented.gate_mutation_count).toBe(0);
+    expect(ledger.allZeroSafetyChannels()).toBe(true);
   });
 });

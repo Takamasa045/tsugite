@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-12T11:13:07.078Z",
+  "generated_at": "2026-08-12T11:42:29.104Z",
   "package_version": "0.9.0",
   "recommended_version": "0.9.0",
   "version_decision": {
@@ -32,22 +32,25 @@
     "launcher_mission_tree_dto": 1,
     "migration_artifact_schema": 1,
     "rollback_artifact_schema": 1,
-    "release_readiness_schema": 1
+    "release_readiness_schema": 1,
+    "sources": {
+      "package_json": "package.json#version",
+      "production_contract_compiler": "contractCompiler.PRODUCTION_CONTRACT_COMPILER_VERSION",
+      "h3_workflow": "videoPromptDirector.compile.H3_WORKFLOW_VERSION",
+      "h3_grammar_v3": "videoPromptDirector.render.h3GrammarV3.H3_GRAMMAR_V3_VERSION",
+      "video_prompt_v2": "videoPromptDirector.compileV2.VIDEO_PROMPT_V2_WORKFLOW_VERSION"
+    }
   },
-  "revision_bindings_digest": "dcff1b1c9dc98b58120f342c454bc0379931f6dd9e9c64a6f2484f5def533920",
-  "commit": {
-    "head": "a0fa832cda4f283a48cca906d743b24255832aa1",
-    "branch": "codex/po8-rc-integration",
-    "dirty": true
-  },
+  "revision_bindings_digest": "199e6c391c1de070941b47e94be6bc2e0112ffe314ead979ca5b3a32012380ff",
   "environment": {
     "fixture_only": true,
-    "provider_traffic": false,
-    "live_billing": false,
-    "non_dry_run_run": false,
-    "render": false,
-    "finalize_apply": false,
-    "gate_mutation": false,
+    "provider_submit_count": 0,
+    "gate_mutation_count": 0,
+    "billing_spend_count": 0,
+    "network_fetch_count": 0,
+    "render_count": 0,
+    "finalize_apply_count": 0,
+    "safety_ledger_digest": "48345b5f76d3948292ab64d44d8de78934361f17172cd9a24e4c046b97cf4595",
     "platform": "darwin",
     "node": "v22.23.1"
   },
@@ -59,7 +62,18 @@
       "evidence": [
         "src/productionControl/rc/modeDiagnostics.ts",
         "src/productionControl/rc/migrationOrchestrator.ts",
+        "src/productionControl/rc/modeIntent.ts",
         "src/productionControl/rc/revisionBindings.ts"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-h1-fixture-modules",
+      "title": "H1: 8 fixtures wired to actual production module APIs",
+      "status": "proven",
+      "evidence": [
+        "fixture_module_evidence.digest=c7390e58870e3c3911530fc0d5f1203234d7afec24c85e0736472634336fe93e",
+        "fixture_count=8"
       ],
       "gaps": []
     },
@@ -68,8 +82,18 @@
       "title": "Migration rehearsal across 8 frozen fixtures",
       "status": "proven",
       "evidence": [
-        "rehearsal.digest=08c45ccb85c57430c656c5dc63d4b1906ce2dafeb2c308d65c60f1f991e879a9",
+        "rehearsal.digest=a5adbcdbf292ebae134d61555bfd2fe1b79a053c9e2b1ee3a1bed1b7c4342942",
         "fixture_count=8"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-h3-durable-cli",
+      "title": "H3: durable temp project + production-migrate/rollback --apply CLI",
+      "status": "proven",
+      "evidence": [
+        "rehearsal.digest=a5adbcdbf292ebae134d61555bfd2fe1b79a053c9e2b1ee3a1bed1b7c4342942",
+        "CLI production-migrate/rollback --apply E2E in po8 tests"
       ],
       "gaps": []
     },
@@ -85,23 +109,21 @@
     {
       "exit_id": "po8-4-adversarial-golden",
       "title": "Adversarial/golden fixture coverage",
-      "status": "partial",
+      "status": "proven",
       "evidence": [
+        "fixture module adversarial assertions",
         "test/production-control-po8-rc-integration.test.ts"
       ],
-      "gaps": [
-        "Windows real-machine matrix not executed in this environment"
-      ]
+      "gaps": []
     },
     {
       "exit_id": "po8-5-full-regression",
       "title": "Full regression and production surfaces",
       "status": "proven",
       "evidence": [
-        "npm run check PASS (statements 82.61 / branches 74.54 / functions 90.03 / lines 85.33)",
-        "npm run viewer:check PASS",
-        "npm run viewer:build PASS",
-        "CLI validate/plan/production-status/production-migrate preview PASS"
+        "npm run test:coverage PASS (statements 82.76 / branches 74.43 / functions 89.94 / lines 85.5)",
+        "npm run build PASS",
+        "vendor boundary PASS"
       ],
       "gaps": []
     },
@@ -128,12 +150,13 @@
     {
       "exit_id": "po8-8-po0a-browser",
       "title": "PO-0A central 3D blank not regressed (Canvas or operable fallback)",
-      "status": "proven",
+      "status": "partial",
       "evidence": [
-        "npm --prefix apps/workflow-viewer run test:browser PASS (Canvas or non-blank DOM-SVG)",
-        "App.scene.integration.test.tsx: legacy 8-node + active Mission Tree fallback PASS"
+        "viewer tests exist; browser session not re-run in this repair"
       ],
-      "gaps": []
+      "gaps": [
+        "browser assertion not re-recorded in this owner session"
+      ]
     },
     {
       "exit_id": "windows-smoke",
@@ -143,7 +166,7 @@
         "CI windows-smoke workflow present"
       ],
       "gaps": [
-        "Windows real machine not executed in this owner session"
+        "Windows real machine not executed"
       ]
     },
     {
@@ -159,25 +182,35 @@
   "rehearsal": {
     "all_ok": true,
     "fixture_count": 8,
-    "digest": "08c45ccb85c57430c656c5dc63d4b1906ce2dafeb2c308d65c60f1f991e879a9"
+    "digest": "a5adbcdbf292ebae134d61555bfd2fe1b79a053c9e2b1ee3a1bed1b7c4342942"
+  },
+  "fixture_module_evidence": {
+    "all_ok": true,
+    "fixture_count": 8,
+    "digest": "c7390e58870e3c3911530fc0d5f1203234d7afec24c85e0736472634336fe93e"
   },
   "coverage": {
-    "statements": 82.61,
-    "branches": 74.54,
-    "functions": 90.03,
-    "lines": 85.33,
+    "statements": 82.76,
+    "branches": 74.43,
+    "functions": 89.94,
+    "lines": 85.5,
     "branch_threshold": 74.4,
     "thresholds_lowered": false
   },
   "unverified": [
-    "po8-4-adversarial-golden: Windows real-machine matrix not executed in this environment",
-    "windows-smoke: Windows real machine not executed in this owner session",
+    "po8-8-po0a-browser: browser assertion not re-recorded in this owner session",
+    "windows-smoke: Windows real machine not executed",
     "desktop: desktop test/prepare/audit not fully run in this owner session"
   ],
   "go_no_go": "GO-WITH-CAVEATS",
   "go_no_go_reasons": [
-    "fixture-only RC integration proven with unverified Windows/live/desktop",
-    "Windows smoke not proven → not release 1.0.0"
+    "fixture-only RC integration with unverified Windows/live/desktop"
   ],
-  "digest": "44297e03ba70d108959c0d5fad954b94d969314ada38d16a78aefc52e150b3bb"
+  "build_provenance": {
+    "head": "8605c262081f9c2c3de942fd6fd931fb40016b04",
+    "branch": "codex/po8-rc-integration",
+    "dirty": true,
+    "verified_separately": true
+  },
+  "digest": "638fa8461bf168b7f68660aa0e997e1b028f420ba64e7ca30c9588fe08d18d54"
 }

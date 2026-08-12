@@ -1086,16 +1086,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   if (args.command === "production-status") {
-    const diagnostics = diagnoseMode(validation.project!);
-    return output(args, 0, {
-      ok: true,
-      command: "production-status",
-      fixture_only: true,
-      billing_action: false,
-      generation_submitted: false,
-      gate_mutated: false,
-      diagnostics
-    });
+    const { dirname, resolve } = await import("node:path");
+    const projectRoot = resolve(dirname(args.config!));
+    const { buildProductionStatusReport } = await import("./productionControl/rc/controlPlaneStatus.js");
+    try {
+      const status = await buildProductionStatusReport({
+        project: validation.project!,
+        projectRoot
+      });
+      return output(args, status.ok ? 0 : 1, {
+        ok: status.ok,
+        command: "production-status",
+        fixture_only: true,
+        billing_action: false,
+        generation_submitted: false,
+        gate_mutated: false,
+        status,
+        diagnostics: status.diagnostics
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-status",
+        issues: cliIssuesFromError(error)
+      });
+    }
   }
 
   if (args.command === "production-migrate") {

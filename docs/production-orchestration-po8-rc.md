@@ -9,11 +9,15 @@ This document is **outside** the frozen T00 design pack under `docs/design/produ
 | Surface | Path |
 | --- | --- |
 | Mode diagnostics | `src/productionControl/rc/modeDiagnostics.ts` |
-| Revision bindings | `src/productionControl/rc/revisionBindings.ts` |
+| Durable mode intent | `src/productionControl/rc/modeIntent.ts` |
+| Effect ledger (H2) | `src/productionControl/rc/effectLedger.ts` |
+| Fixture module evidence (H1) | `src/productionControl/rc/fixtureEvidence.ts` |
+| Control-plane status (M1) | `src/productionControl/rc/controlPlaneStatus.ts` |
+| Revision bindings (M5) | `src/productionControl/rc/revisionBindings.ts` |
 | Migration orchestrator | `src/productionControl/rc/migrationOrchestrator.ts` |
 | Rollback orchestrator | `src/productionControl/rc/rollbackOrchestrator.ts` |
 | 8-fixture rehearsal | `src/productionControl/rc/rehearsal.ts` |
-| Release readiness | `src/productionControl/rc/releaseReadiness.ts` |
+| Release readiness (M2) | `src/productionControl/rc/releaseReadiness.ts` |
 | Path fail-closed | `src/productionControl/rc/pathSafety.ts` |
 | Fixtures | `test/fixtures/production-control/po8/` |
 | Tests | `test/production-control-po8-rc-integration.test.ts` |

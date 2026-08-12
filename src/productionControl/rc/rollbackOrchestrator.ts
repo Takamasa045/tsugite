@@ -2,6 +2,7 @@
  * RC rollback orchestrator: active → shadow → legacy.
  * Append-only artifacts are never deleted or rewritten.
  * Rollback never auto-runs provider, Gate, billing, or submit.
+ * Safety counts come from an EffectLedger when provided — never hardcoded true.
  */
 import { constants } from "node:fs";
 import {
@@ -28,6 +29,8 @@ import {
   type RcRuntimeMode
 } from "./revisionBindings.js";
 import { assertMigrationPathContained } from "./pathSafety.js";
+import { appendModeIntent } from "./modeIntent.js";
+import type { EffectLedger } from "./effectLedger.js";
 
 export type RollbackRecordV1 = {
   schema_version: 1;
@@ -36,19 +39,15 @@ export type RollbackRecordV1 = {
   preserved_relative_paths: string[];
   deleted_artifacts: [];
   rewritten_artifacts: [];
+  mode_intent_digest?: string;
   safety: {
-    gate_1_human: true;
-    gate_3_human: true;
-    gate_2_limited_auto_pass_only: true;
-    explicit_render: true;
-    submission_unknown_no_resubmit: true;
-    unknown_price_block: true;
-    pinned_only_adoption: true;
-    paid_attempts_credits_retained: true;
-    no_auto_provider: true;
-    no_auto_gate: true;
-    no_auto_billing: true;
-    no_auto_submit: true;
+    provider_submit_count: number | "unknown";
+    gate_mutation_count: number | "unknown";
+    billing_spend_count: number | "unknown";
+    network_fetch_count: number | "unknown";
+    ledger_digest?: string;
+    /** True only when all instrumented channels are 0; unknown never becomes true. */
+    observed_zero_effects: boolean;
   };
   revision_bindings_digest: string;
   actor: string;
@@ -155,12 +154,6 @@ export function previewRollback(input: {
   if (!transition.allowed) {
     blocked.push(...("blocked_reasons" in transition ? transition.blocked_reasons : ["transition denied"]));
   }
-  if (!(input.coordinator ?? false) && from === "active") {
-    // Rollback from active is still a human/coordinator decision in RC.
-    if (!blocked.includes("coordinator actor required")) {
-      // evaluateModeTransition allows rollback without coordinator; RC CLI requires it for apply.
-    }
-  }
   const body = {
     schema_version: 1 as const,
     from_mode: from,
@@ -183,6 +176,7 @@ export async function applyRollback(input: {
   to_mode: "shadow" | "legacy";
   actor: string;
   now?: () => string;
+  ledger?: EffectLedger;
 }): Promise<{ preview: RollbackPreviewV1; record: RollbackRecordV1 }> {
   if (input.actor !== "coordinator") {
     throw pcError("PC_AUTHORITY_DENIED", "rollback apply requires actor=coordinator");
@@ -206,10 +200,37 @@ export async function applyRollback(input: {
   });
 
   await mkdir(controlRoot, { recursive: true, mode: 0o700 });
+
+  input.ledger?.markFixtureInProcessBoundary();
+  input.ledger?.recordCall({
+    module: "productionControl/rc/rollbackOrchestrator",
+    api: "applyRollback",
+    result: "ok",
+    digests: { preview: preview.digest }
+  });
+
+  const modeIntent = await appendModeIntent({
+    projectRoot,
+    intended_mode: input.to_mode,
+    previous_mode: preview.from_mode,
+    actor: "coordinator",
+    now: input.now
+  });
+
   const rootLock = await acquireProductionControlRootLock(controlRoot);
   try {
     const before = await listPreservedRelativePaths(projectRoot, controlRoot);
     const recordedAt = (input.now ?? (() => new Date().toISOString()))();
+    const safetyEvidence = input.ledger?.safetyEvidence();
+    const safety = {
+      provider_submit_count: safetyEvidence?.provider_submit_count ?? ("unknown" as const),
+      gate_mutation_count: safetyEvidence?.gate_mutation_count ?? ("unknown" as const),
+      billing_spend_count: safetyEvidence?.billing_spend_count ?? ("unknown" as const),
+      network_fetch_count: safetyEvidence?.network_fetch_count ?? ("unknown" as const),
+      ...(safetyEvidence ? { ledger_digest: safetyEvidence.digest } : {}),
+      observed_zero_effects: input.ledger?.allZeroSafetyChannels() === true
+    };
+
     const recordBody = {
       schema_version: 1 as const,
       from_mode: preview.from_mode,
@@ -217,20 +238,8 @@ export async function applyRollback(input: {
       preserved_relative_paths: before,
       deleted_artifacts: [] as [],
       rewritten_artifacts: [] as [],
-      safety: {
-        gate_1_human: true as const,
-        gate_3_human: true as const,
-        gate_2_limited_auto_pass_only: true as const,
-        explicit_render: true as const,
-        submission_unknown_no_resubmit: true as const,
-        unknown_price_block: true as const,
-        pinned_only_adoption: true as const,
-        paid_attempts_credits_retained: true as const,
-        no_auto_provider: true as const,
-        no_auto_gate: true as const,
-        no_auto_billing: true as const,
-        no_auto_submit: true as const
-      },
+      mode_intent_digest: modeIntent.intent.digest,
+      safety,
       revision_bindings_digest: rcRevisionBindingsDigest(),
       actor: input.actor,
       recorded_at: recordedAt,
@@ -244,6 +253,7 @@ export async function applyRollback(input: {
       preserved_relative_paths: recordBody.preserved_relative_paths,
       deleted_artifacts: [],
       rewritten_artifacts: [],
+      mode_intent_digest: recordBody.mode_intent_digest,
       safety: recordBody.safety,
       revision_bindings_digest: recordBody.revision_bindings_digest,
       actor: recordBody.actor,
@@ -255,14 +265,7 @@ export async function applyRollback(input: {
     await mkdir(migrationDir, { recursive: true, mode: 0o700 });
     await atomicCreateJson(join(migrationDir, `rollback-${digest.slice(0, 16)}.json`), record);
 
-    // Verify nothing was deleted.
     const after = await listPreservedRelativePaths(projectRoot, controlRoot);
-    for (const path of before) {
-      if (!after.includes(path) && !path.includes(`rollback-${digest.slice(0, 16)}`)) {
-        // Newly written rollback file is the only addition; prior files must remain.
-        throw pcError("PC_RECOVERY_INVALID", `rollback deleted artifact: ${path}`);
-      }
-    }
     for (const path of before) {
       if (!after.includes(path)) {
         throw pcError("PC_RECOVERY_INVALID", `rollback lost preserved path: ${path}`);
@@ -285,5 +288,7 @@ export function legacyReaderIgnoresControlPlane(relativePath: string): boolean {
     portable === "production-control"
     || portable.startsWith("production-control/")
     || portable.includes("/production-control/")
+    || portable === "coordination"
+    || portable.startsWith("coordination/")
   );
 }

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Added PO-8 / T09 RC integration for production-control: explicit legacy/shadow/active diagnostics, create-only migration preview/apply, rollback that retains append-only artifacts, frozen 8-fixture rehearsal, and digest-bound release-readiness reporting. Package version stays **0.9.0** (not 1.0.0 / not 1.0.0-rc) while Windows real-machine, live provider, and full Desktop gates remain unverified. CLI: `production-status`, `production-migrate`, `production-rollback` (preview by default; apply is create-only, no Gate/provider/render/finalize-apply). Fixture-only.
+- Repaired PO-8 / T09 RC integration against independent audit NO-GOs (H1–H3, M1–M5): each of the 8 fixtures now exercises real production modules (H3/V2/MV/identity/Gate/job/recovery/learning) with adversarial fail-closed cases; Exit safety counts come from an instrumented effect ledger (unknown never coerced to false/0); durable append-only mode-intent + current-mode pointer is the active SoT with EventStore/SnapshotStore/ArtifactStore on migrate apply; `production-status` loads control-root presence digests; readiness digests exclude commit self-reference; invalid modes raise `unsafe_unknown`; revision bindings recompute from `package.json` + exported schema/compiler constants. Package version stays **0.9.0** (not 1.0.0 / not 1.0.0-rc). CLI: `production-status`, `production-migrate`, `production-rollback` (preview by default; apply is create-only, no Gate/provider/render/finalize-apply). Fixture-only.
 
 ## 0.9.0 - 2026-08-10
 
