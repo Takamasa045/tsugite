@@ -587,11 +587,18 @@ export class GrantCreditLedger {
     });
   }
 
-  /** Force recovery pass (also runs under every mutating call). */
+  /**
+   * Force recovery pass (also runs under every mutating call).
+   * When a budget leaf exists, re-parse it so corrupt ledger state surfaces
+   * on resume instead of being silently ignored until the next paid mutation.
+   */
   async recover(): Promise<{ recovered_tx_ids: string[] }> {
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
-      return this.recoverIncompleteTransactions(layout);
+      const recovered = await this.recoverIncompleteTransactions(layout);
+      // Fail closed on corrupt budget evidence when present.
+      await this.readBudgetUnlocked(layout);
+      return recovered;
     });
   }
 

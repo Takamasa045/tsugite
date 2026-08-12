@@ -37,5 +37,28 @@ export * from "./recoveryContracts.js";
 export * from "./revisionIntent.js";
 export * from "./grantLedger.js";
 export * from "./grantStore.js";
-export * from "./recovery.js";
+// LocalRecoveryPermit mint is intentionally not a public package export.
+// Only the local recovery executor (activeRecovery) and authority path mint/consume.
+export {
+  type SealedPaidAuthorization,
+  type SealedLocalRecoveryPermit,
+  isSealedPaidAuthorization,
+  isSealedLocalRecoveryPermit,
+  type RecoveryStopReason,
+  type RecoveryDecision,
+  createPolicySpec,
+  issueRegenerationGrant,
+  issueAndPersistRegenerationGrant,
+  type AuthorizePaidRegenerationInput,
+  authorizePaidRegeneration,
+  burnSealedPaidAuthorization,
+  rehydrateSealedPaidAuthorization,
+  selectRecoveryAction,
+  safeStopAwaitingHuman,
+  computeRegenerationAttemptKey,
+  assertPaidAuthorizationMatchesBinding,
+  assertRouteUnchanged,
+  assertPolicyExemptSealedAuthorization,
+  gateDriftKindsForSealedRevisionIntent
+} from "./recovery.js";
 export * from "./activeRecovery.js";

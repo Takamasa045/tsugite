@@ -26,7 +26,8 @@ export type CommandName =
   | "review-preview"
   | "run"
   | "gate"
-  | "render";
+  | "render"
+  | "recover";
 
 export type CommandOptionSpec = Readonly<{
   name: string;
@@ -144,6 +145,25 @@ const OPTIONS = {
     "--arguments",
     "JSON object of tool arguments.",
     "<json-object>"
+  ),
+  recovery: defineOption(
+    "--recovery",
+    "Recovery mode: local (poll/download only) or paid (explicit opt-in regeneration).",
+    "<local|paid>"
+  ),
+  confirmPaid: defineOption(
+    "--confirm-paid",
+    "Required with paid apply; never enables silent credit spend."
+  ),
+  errorCode: defineOption(
+    "--error-code",
+    "Observed failure error code used for recovery selection.",
+    "<code>"
+  ),
+  node: defineOption(
+    "--node",
+    "Failed mission node id eligible for recovery (failed_known only).",
+    "<node-id>"
   )
 } as const satisfies Record<string, CommandOptionSpec>;
 
@@ -411,6 +431,28 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "approval-gated",
     options: [OPTIONS.config, OPTIONS.actor, OPTIONS.stateDir]
+  }),
+  defineCommand({
+    name: "recover",
+    summary:
+      "Coordinator recovery: plan or apply local poll/download or explicit paid regeneration (no silent spend).",
+    usage:
+      "node bin/pipeline recover --config <project.yaml> --actor coordinator --node <node-id> --error-code <code> --recovery <local|paid> [--dry-run | --apply [--confirm-paid]] [--path <recovery-package>] [--state-dir <directory>] [--json]",
+    requiresConfig: true,
+    safety: "approval-gated",
+    options: [
+      OPTIONS.config,
+      OPTIONS.actor,
+      OPTIONS.node,
+      OPTIONS.errorCode,
+      OPTIONS.recovery,
+      OPTIONS.dryRun,
+      OPTIONS.apply,
+      OPTIONS.confirmPaid,
+      OPTIONS.path,
+      OPTIONS.stateDir,
+      OPTIONS.runId
+    ]
   })
 ]);
 

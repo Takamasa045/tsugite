@@ -22,6 +22,11 @@ export type ResumeResult = {
   snapshot_used: boolean;
   snapshot_rebuilt: boolean;
   applied_from_sequence: number;
+  /** Present when grant-ledger recovery ran under the production-control root. */
+  ledger_recovery?: {
+    status: "ok";
+    recovered_tx_ids: string[];
+  };
 };
 
 export type ResumeOptions = {
@@ -91,12 +96,31 @@ export async function resumeProductionControl(options: ResumeOptions): Promise<R
 
   // PO-6: recover incomplete grant-ledger transactions under the same root.
   // Never remints paid authority; terminal reservations stay terminal.
-  try {
+  // Unsafe ledger state is surfaced — never swallowed into a silent ok resume.
+  let ledgerRecovery: ResumeResult["ledger_recovery"];
+  {
     const { GrantCreditLedger } = await import("./grantLedger.js");
+    const { ProductionControlError } = await import("./errors.js");
     const ledger = new GrantCreditLedger(options.root);
-    await ledger.recover();
-  } catch {
-    // Absent ledger is fine (base PO-5 path). Corrupt ledger fails closed on paid path.
+    try {
+      const recovered = await ledger.recover();
+      ledgerRecovery = {
+        status: "ok",
+        recovered_tx_ids: recovered.recovered_tx_ids
+      };
+    } catch (error) {
+      if (error instanceof ProductionControlError) {
+        throw pcError(
+          error.code === "PC_LEDGER_UNSAFE" || error.code === "PC_LEDGER_CONFLICT" || error.code === "PC_PATH_UNSAFE"
+            ? error.code
+            : "PC_RESUME_INVALID",
+          `grant ledger recovery failed: ${error.message}`,
+          { ...(error.details ?? {}), cause_code: error.code }
+        );
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw pcError("PC_RESUME_INVALID", `grant ledger recovery failed: ${message}`);
+    }
   }
 
   // Resume never reselects model / connection / budget — those live in immutable digests.
@@ -105,7 +129,8 @@ export async function resumeProductionControl(options: ResumeOptions): Promise<R
     events,
     snapshot_used: snapshotUsed,
     snapshot_rebuilt: snapshotRebuilt,
-    applied_from_sequence: appliedFrom
+    applied_from_sequence: appliedFrom,
+    ledger_recovery: ledgerRecovery
   };
 }
 

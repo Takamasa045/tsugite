@@ -764,16 +764,13 @@ export function selectRecoveryAction(input: {
       public_reason: "identity drift requires human decision; verification is never inferred"
     };
   }
-  // Preserve siblings: only the failed node is eligible.
-  if (node.status !== "failed_known" && node.status !== "stale" && node.status !== "awaiting_human") {
-    // Allow recovery planning for failed_known primarily.
-    if (node.status !== "ready") {
-      return {
-        action: "awaiting_human",
-        reason_code: "disallowed_scope",
-        public_reason: "node status is not eligible for automatic recovery"
-      };
-    }
+  // Recovery selection is failed_known only — ready/stale/running never auto-recover.
+  if (node.status !== "failed_known") {
+    return {
+      action: "awaiting_human",
+      reason_code: "disallowed_scope",
+      public_reason: "recovery selection requires failed_known node status"
+    };
   }
 
   if (input.paid_authorization && isSealedPaidAuthorization(input.paid_authorization)) {

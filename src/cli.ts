@@ -93,6 +93,8 @@ import {
 } from "./productionControl/durableGateEvidence.js";
 import { digest as canonicalDigest } from "./orchestrator/editorialProposal.js";
 import { compileProductionContract } from "./productionControl/contractCompiler.js";
+import { runCoordinatorRecoverCli } from "./productionControl/coordinatorRecoveryCli.js";
+import { resolveCanonicalProductionControlRoot } from "./productionControl/activeRunGeneration.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import {
   callRemoteTool,
@@ -174,6 +176,10 @@ type ParsedArgs = {
   defer: boolean;
   reconcile: boolean;
   allowExternalAnalysis: boolean;
+  confirmPaid: boolean;
+  recovery?: string;
+  errorCode?: string;
+  node?: string;
   paths: string[];
   expectedPlanDigest?: string;
   expectedApprovalDigest?: string;
@@ -1071,6 +1077,75 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
+  if (args.command === "recover") {
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) {
+      return output(args, 1, { ok: false, command: "recover", issues: [coordinatorIssue] });
+    }
+    const recoveryMode = args.recovery === "local" || args.recovery === "paid" ? args.recovery : undefined;
+    const issues: Issue[] = [
+      ...(args.node
+        ? []
+        : [{ code: "recover.node_required", message: "--node is required", path: "--node" }]),
+      ...(args.errorCode
+        ? []
+        : [{ code: "recover.error_code_required", message: "--error-code is required", path: "--error-code" }]),
+      ...(recoveryMode
+        ? []
+        : [{
+          code: "recover.mode_required",
+          message: "--recovery must be local or paid",
+          path: "--recovery"
+        }]),
+      ...(args.apply && args.dryRun
+        ? [{
+          code: "recover.apply_dry_run_conflict",
+          message: "use either --apply or --dry-run, not both"
+        }]
+        : [])
+    ];
+    if (issues.length > 0) {
+      return output(args, 1, { ok: false, command: "recover", issues });
+    }
+
+    if (resolveOrchestrationMode(validation.project!) !== "active") {
+      return output(args, 1, {
+        ok: false,
+        command: "recover",
+        issues: [{
+          code: "recover.active_mode_required",
+          message: "recover requires orchestration.mode=active"
+        }]
+      });
+    }
+
+    // Canonical production-control root under the project config directory.
+    const configPath = args.config!;
+    const { dirname, resolve } = await import("node:path");
+    const rootFromConfig = resolve(dirname(configPath));
+    const productionControlRoot = resolveCanonicalProductionControlRoot(rootFromConfig);
+    const packageDir = args.paths[0];
+    const result = await runCoordinatorRecoverCli({
+      recovery: recoveryMode!,
+      apply: Boolean(args.apply),
+      confirm_paid: Boolean(args.confirmPaid),
+      node_id: args.node!,
+      error_code: args.errorCode!,
+      productionControlRoot,
+      ...(packageDir ? { packageDir } : {}),
+      production_id: validation.project?.slug
+    });
+    if (!result.ok) {
+      return output(args, 1, { ok: false, command: "recover", issues: result.issues });
+    }
+    return output(args, 0, {
+      command: "recover",
+      dry_run: !args.apply,
+      ...result,
+      silent_paid_spend: false
+    });
+  }
+
   let runLock: RunLock | undefined;
   // finalize --apply acquires its lock only after the project-local stateDir preflight below.
   if (shouldAcquireRunLock(args) && args.command !== "finalize") {
@@ -1914,6 +1989,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       defer: false,
       reconcile: false,
       allowExternalAnalysis: false,
+      confirmPaid: false,
       paths: [],
       issues: helpRequest.issues
     };
@@ -1929,6 +2005,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     defer: false,
     reconcile: false,
     allowExternalAnalysis: false,
+    confirmPaid: false,
     paths: [],
     issues: []
   };
@@ -1998,6 +2075,18 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       continue;
     }
+    if (arg === "--confirm-paid") {
+      if (isCommandOptionAllowed(parsed.command, arg)) {
+        parsed.confirmPaid = true;
+      } else {
+        parsed.issues.push({
+          code: "cli.option_unsupported",
+          message: `${arg} is not supported by '${parsed.command}'`,
+          path: arg
+        });
+      }
+      continue;
+    }
     if (arg === "--path") {
       if (!isCommandOptionAllowed(parsed.command, arg)) {
         parsed.issues.push({
@@ -2025,7 +2114,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -2076,7 +2165,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--expected-plan-digest": "expectedPlanDigest",
       "--service": "service",
       "--tool": "tool",
-      "--arguments": "argumentsJson"
+      "--arguments": "argumentsJson",
+      "--recovery": "recovery",
+      "--error-code": "errorCode",
+      "--node": "node"
     };
     const target = valueOptions[arg];
     if (target) {
@@ -2455,6 +2547,9 @@ function shouldAcquireRunLock(args: ParsedArgs): boolean {
   if (args.command === "review" || args.command === "review-preview" || args.command === "compose") return true;
   if (args.command === "finalize" && args.apply) return args.actor === "coordinator";
   if ((args.command === "run" && !args.dryRun) || args.command === "render") {
+    return args.actor === "coordinator";
+  }
+  if (args.command === "recover" && args.apply) {
     return args.actor === "coordinator";
   }
   if (args.command !== "gate" || args.actor !== "coordinator") return false;

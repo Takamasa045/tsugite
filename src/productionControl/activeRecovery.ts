@@ -36,11 +36,16 @@ import {
   burnSealedPaidAuthorization,
   computeRegenerationAttemptKey,
   issueAndPersistRegenerationGrant,
+  issueLocalRecoveryPermit,
   selectRecoveryAction,
+  type RecoveryDecision,
+  type SealedLocalRecoveryPermit,
   type SealedPaidAuthorization
 } from "./recovery.js";
 import {
   parseRegenerationPolicySpec,
+  type LocalRecoveryAction,
+  type LocalRecoveryPermit,
   type RegenerationGrant,
   type RegenerationPolicySpec
 } from "./recoveryContracts.js";
@@ -133,16 +138,21 @@ export type ActivePaidRegenerationResult =
 
 /**
  * Live paid regeneration controller entry — production call graph, not helper-only.
+ * Reachable only via explicit Coordinator recovery command / library entry.
+ * Never auto-invoked from silent run/resume paths.
  */
 export async function runActivePaidRegeneration(
   input: ActivePaidRegenerationInput
 ): Promise<ActivePaidRegenerationResult> {
   requireActiveModeForEffect("active", "paid-regeneration");
   let adapterInvokes = 0;
+  const missionState = input.mission_state
+    ?? emptyMission(input.production_id, input.node_id, "failed_known");
 
+  // Eligibility before any reserve: failed_known + known-failure only.
   if (input.failure_kind !== "known-failure") {
     const decision = selectRecoveryAction({
-      mission_state: input.mission_state ?? emptyMission(input.production_id, input.node_id),
+      mission_state: missionState,
       failed_node_id: input.node_id,
       observed_error_code: input.observed_error_code,
       failure_kind: input.failure_kind,
@@ -153,6 +163,18 @@ export async function runActivePaidRegeneration(
         status: "awaiting_human",
         reason_code: decision.reason_code,
         public_reason: decision.public_reason,
+        adapter_invokes: 0,
+        sibling_statuses: siblingSnapshot(input)
+      };
+    }
+  }
+  {
+    const node = missionState.nodes[input.node_id];
+    if (!node || node.status !== "failed_known") {
+      return {
+        status: "awaiting_human",
+        reason_code: "disallowed_scope",
+        public_reason: "recovery selection requires failed_known node status",
         adapter_invokes: 0,
         sibling_statuses: siblingSnapshot(input)
       };
@@ -279,7 +301,7 @@ export async function runActivePaidRegeneration(
   }
 
   const selection = selectRecoveryAction({
-    mission_state: input.mission_state ?? emptyMission(input.production_id, input.node_id, "failed_known"),
+    mission_state: missionState,
     failed_node_id: input.node_id,
     observed_error_code: input.observed_error_code,
     failure_kind: "known-failure",
@@ -287,7 +309,7 @@ export async function runActivePaidRegeneration(
     policy
   });
   if (selection.action !== "paid-regeneration") {
-    await ledger.release({ reservation_id: reservationId, reason: "known-non-submission" }).catch(() => undefined);
+    await terminalizeReservation(ledger, reservationId, "release");
     burnSealedPaidAuthorization(sealed);
     return {
       status: "awaiting_human",
@@ -427,7 +449,20 @@ export async function runActivePaidRegeneration(
     adapterInvokes = Math.max(adapterInvokes, machine.lastActiveSubmitUsedT05 ? 1 : adapterInvokes);
 
     if (current.status === "submission_unknown") {
-      await ledger.quarantine({ reservation_id: reservationId });
+      // Adapter never invoked and no provider id ⇒ pre-effect / known non-submission.
+      // Do not collapse into quarantine (credits held as spent).
+      if (adapterInvokes === 0 && !current.provider_job_id) {
+        await terminalizeReservation(ledger, reservationId, "release");
+        burnSealedPaidAuthorization(sealed);
+        return {
+          status: "awaiting_human",
+          reason_code: "awaiting_human",
+          public_reason: current.error?.message ?? "pre-effect failure before provider submit",
+          adapter_invokes: 0,
+          sibling_statuses: siblingSnapshot(input)
+        };
+      }
+      await terminalizeReservation(ledger, reservationId, "quarantine");
       burnSealedPaidAuthorization(sealed);
       return {
         status: "quarantined",
@@ -445,10 +480,7 @@ export async function runActivePaidRegeneration(
         || current.error?.code === "KNOWN_NON_SUBMISSION"
       )
     ) {
-      await ledger.release({
-        reservation_id: reservationId,
-        reason: "known-non-submission"
-      });
+      await terminalizeReservation(ledger, reservationId, "release");
       burnSealedPaidAuthorization(sealed);
       return {
         status: "released",
@@ -460,6 +492,12 @@ export async function runActivePaidRegeneration(
     }
 
     if (current.status === "failed") {
+      // Known terminal failure after effect: hold credits (no reserved leftover).
+      await terminalizeReservation(
+        ledger,
+        reservationId,
+        adapterInvokes > 0 ? "quarantine" : "release"
+      );
       burnSealedPaidAuthorization(sealed);
       return {
         status: "awaiting_human",
@@ -478,6 +516,12 @@ export async function runActivePaidRegeneration(
     }
     current = await jobStore.load(jobId);
     if (current.status !== "pinned" || !current.artifact?.pinned) {
+      // Effect may have occurred; never leave reserved. Quarantine when adapter ran.
+      await terminalizeReservation(
+        ledger,
+        reservationId,
+        adapterInvokes > 0 ? "quarantine" : "release"
+      );
       burnSealedPaidAuthorization(sealed);
       return {
         status: "awaiting_human",
@@ -515,17 +559,30 @@ export async function runActivePaidRegeneration(
       submitted_compilation_digest: input.derived_compilation_digest
     };
   } catch (error) {
-    // Throw after durable submitting / unknown POST → quarantine (no resubmit).
-    await ledger.quarantine({ reservation_id: reservationId }).catch(() => undefined);
-    burnSealedPaidAuthorization(sealed);
     const message = error instanceof Error ? error.message : String(error);
-    void message;
+    const postEffectUnknown = isPostEffectOutcomeUnknown(error, adapterInvokes);
+    if (postEffectUnknown) {
+      // Post-effect outcome unknown → quarantine (no resubmit).
+      await terminalizeReservation(ledger, reservationId, "quarantine");
+      burnSealedPaidAuthorization(sealed);
+      return {
+        status: "quarantined",
+        authorization_digest: authorizationDigest,
+        reservation_id: reservationId,
+        adapter_invokes: adapterInvokes,
+        reason: "submission_unknown"
+      };
+    }
+    // Pre-effect exception: release reservation and surface as safe stop (not quarantine).
+    await terminalizeReservation(ledger, reservationId, "release");
+    burnSealedPaidAuthorization(sealed);
+    const code = error instanceof ProductionControlError ? error.code : "PC_RECOVERY_DENIED";
     return {
-      status: "quarantined",
-      authorization_digest: authorizationDigest,
-      reservation_id: reservationId,
+      status: "awaiting_human",
+      reason_code: mapErrorToStopReason(code),
+      public_reason: message,
       adapter_invokes: adapterInvokes,
-      reason: "submission_unknown"
+      sibling_statuses: siblingSnapshot(input)
     };
   }
 }
@@ -554,6 +611,272 @@ export async function resumePaidRegenerationContext(input: {
   return { sealed, ledger, store };
 }
 
+export type ActiveLocalRecoveryInput = {
+  production_id: string;
+  node_id: string;
+  mission_state: MissionState;
+  tree_revision: number;
+  task_revision: number;
+  input_digest: string;
+  /** Only poll/download of a known provider job id — never submit. */
+  action: Extract<LocalRecoveryAction, "resume-known-job-poll" | "retry-verified-download">;
+  known_job: NonNullable<LocalRecoveryPermit["known_job"]>;
+  job_id: string;
+  jobStore: GenerationJobStore;
+  machine: GenerationJobMachine;
+  issued_at?: string;
+  expires_at?: string;
+  max_attempts?: number;
+  now?: Date;
+  sibling_node_ids?: string[];
+};
+
+export type ActiveLocalRecoveryResult =
+  | {
+      status: "local_ok";
+      action: ActiveLocalRecoveryInput["action"];
+      permit_digest: string;
+      job: GenerationJobRecord;
+      submit_invokes: 0;
+    }
+  | {
+      status: "awaiting_human";
+      reason_code: string;
+      public_reason: string;
+      submit_invokes: 0;
+      sibling_statuses?: Record<string, string | undefined>;
+    };
+
+/**
+ * Local recovery executor. Mints and consumes LocalRecoveryPermit internally —
+ * mint is not a public API surface. Poll/download only; submit count is always 0.
+ */
+export async function runActiveLocalRecovery(
+  input: ActiveLocalRecoveryInput
+): Promise<ActiveLocalRecoveryResult> {
+  requireActiveModeForEffect("active", "local-recovery");
+  const node = input.mission_state.nodes[input.node_id];
+  if (!node || node.status !== "failed_known") {
+    return {
+      status: "awaiting_human",
+      reason_code: "disallowed_scope",
+      public_reason: "recovery selection requires failed_known node status",
+      submit_invokes: 0,
+      sibling_statuses: localSiblingSnapshot(input)
+    };
+  }
+  if (!input.known_job.provider_job_id) {
+    return {
+      status: "awaiting_human",
+      reason_code: "stale_permit",
+      public_reason: "local recovery requires a known provider job id",
+      submit_invokes: 0,
+      sibling_statuses: localSiblingSnapshot(input)
+    };
+  }
+
+  const now = input.now ?? new Date();
+  const issuedAt = input.issued_at ?? now.toISOString();
+  const expiresAt = input.expires_at
+    ?? new Date(now.getTime() + 15 * 60_000).toISOString();
+
+  let sealed: SealedLocalRecoveryPermit;
+  let permitDigest: string;
+  try {
+    // Permit mint is internal to this executor (not a public package export).
+    const issued = issueLocalRecoveryPermit({
+      permit_id: `local-${input.production_id}-${input.node_id}`.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 128),
+      production_id: input.production_id,
+      tree_revision: input.tree_revision,
+      node_id: input.node_id,
+      task_revision: input.task_revision,
+      input_digest: input.input_digest,
+      action: input.action,
+      known_job: input.known_job,
+      issued_at: issuedAt,
+      expires_at: expiresAt,
+      max_attempts: input.max_attempts ?? 1,
+      live: {
+        production_id: input.production_id,
+        tree_revision: input.tree_revision,
+        node_id: input.node_id,
+        task_revision: input.task_revision,
+        input_digest: input.input_digest
+      },
+      now
+    });
+    sealed = issued.sealed;
+    permitDigest = issued.permit.digest;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      status: "awaiting_human",
+      reason_code: "stale_permit",
+      public_reason: message,
+      submit_invokes: 0,
+      sibling_statuses: localSiblingSnapshot(input)
+    };
+  }
+
+  const decision = selectRecoveryAction({
+    mission_state: input.mission_state,
+    failed_node_id: input.node_id,
+    observed_error_code: "LOCAL_RECOVERY",
+    failure_kind: "known-failure",
+    local_permit: sealed
+  });
+  if (decision.action !== "local") {
+    return {
+      status: "awaiting_human",
+      reason_code: decision.action === "awaiting_human" ? decision.reason_code : "awaiting_human",
+      public_reason: decision.action === "awaiting_human" ? decision.public_reason : "local recovery not selected",
+      submit_invokes: 0,
+      sibling_statuses: localSiblingSnapshot(input)
+    };
+  }
+
+  const job = await input.jobStore.load(input.job_id);
+  if (!job.provider_job_id || job.provider_job_id !== input.known_job.provider_job_id) {
+    return {
+      status: "awaiting_human",
+      reason_code: "stale_permit",
+      public_reason: "job provider id does not match local recovery permit",
+      submit_invokes: 0,
+      sibling_statuses: localSiblingSnapshot(input)
+    };
+  }
+  if (job.connection_id !== input.known_job.connection_id) {
+    return {
+      status: "awaiting_human",
+      reason_code: "stale_permit",
+      public_reason: "job connection does not match local recovery permit",
+      submit_invokes: 0,
+      sibling_statuses: localSiblingSnapshot(input)
+    };
+  }
+
+  // Never submit on the local path — poll / download only.
+  let current = job;
+  if (input.action === "resume-known-job-poll") {
+    current = await input.machine.poll(input.job_id);
+  }
+  if (
+    input.action === "retry-verified-download"
+    || current.status === "succeeded"
+    || current.status === "downloading"
+  ) {
+    if (current.status === "succeeded" || current.status === "downloading" || current.status === "pinned") {
+      if (current.status !== "pinned") {
+        current = await input.machine.downloadAndPin(input.job_id);
+      }
+    }
+  }
+  current = await input.jobStore.load(input.job_id);
+  return {
+    status: "local_ok",
+    action: input.action,
+    permit_digest: permitDigest,
+    job: current,
+    submit_invokes: 0
+  };
+}
+
+export type CoordinatorRecoveryPlanInput = {
+  production_id: string;
+  node_id: string;
+  observed_error_code: string;
+  failure_kind: ActivePaidRegenerationInput["failure_kind"];
+  mission_state: MissionState;
+  policy?: RegenerationPolicySpec;
+  paid_authorization?: SealedPaidAuthorization;
+  local_permit?: SealedLocalRecoveryPermit;
+  /** Durable evidence digests for audit (optional). */
+  evidence?: {
+    gate_bundle_digest?: string;
+    grant_digest?: string;
+    gate_1_decision_digest?: string;
+    identity_verification_digest?: string;
+    job_id?: string;
+  };
+};
+
+export type CoordinatorRecoveryPlan = {
+  decision: RecoveryDecision;
+  eligible: boolean;
+  node_status: string | undefined;
+  evidence: CoordinatorRecoveryPlanInput["evidence"];
+  /** True when paid path would require explicit confirm (never silent). */
+  requires_confirm_paid: boolean;
+};
+
+/**
+ * Load selection from durable mission + optional sealed authority.
+ * Never spends credits. Used by CLI dry-run and preflight.
+ */
+export function planCoordinatorRecovery(input: CoordinatorRecoveryPlanInput): CoordinatorRecoveryPlan {
+  const node = input.mission_state.nodes[input.node_id];
+  const decision = selectRecoveryAction({
+    mission_state: input.mission_state,
+    failed_node_id: input.node_id,
+    observed_error_code: input.observed_error_code,
+    failure_kind: input.failure_kind,
+    policy: input.policy,
+    paid_authorization: input.paid_authorization,
+    local_permit: input.local_permit
+  });
+  return {
+    decision,
+    eligible: decision.action !== "awaiting_human",
+    node_status: node?.status,
+    evidence: input.evidence,
+    requires_confirm_paid: decision.action === "paid-regeneration"
+  };
+}
+
+/**
+ * Explicit Coordinator paid recovery entry. Requires confirm_paid=true.
+ * Silent auto-spend from run/resume is forbidden; this is the only paid gate.
+ */
+export async function executeCoordinatorPaidRecovery(
+  input: ActivePaidRegenerationInput & { confirm_paid: true }
+): Promise<ActivePaidRegenerationResult> {
+  if (input.confirm_paid !== true) {
+    throw pcError("PC_RECOVERY_DENIED", "paid recovery requires explicit confirm_paid");
+  }
+  return runActivePaidRegeneration(input);
+}
+
+async function terminalizeReservation(
+  ledger: GrantCreditLedger,
+  reservationId: string,
+  mode: "release" | "quarantine"
+): Promise<void> {
+  try {
+    if (mode === "release") {
+      await ledger.release({
+        reservation_id: reservationId,
+        reason: "known-non-submission"
+      });
+    } else {
+      await ledger.quarantine({ reservation_id: reservationId });
+    }
+  } catch {
+    // Best-effort if already terminal; caller still burns the seal.
+  }
+}
+
+function isPostEffectOutcomeUnknown(error: unknown, adapterInvokes: number): boolean {
+  if (adapterInvokes > 0) return true;
+  if (error instanceof ProductionControlError && error.code === "PC_SUBMISSION_UNKNOWN") {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code ?? "")
+    : "";
+  return /submission_unknown|SUBMISSION_OUTCOME_UNKNOWN|outcome unknown/i.test(`${message} ${code}`);
+}
+
 function emptyMission(
   productionId: string,
   nodeId: string,
@@ -579,6 +902,15 @@ function emptyMission(
 function siblingSnapshot(input: ActivePaidRegenerationInput): Record<string, string | undefined> {
   const out: Record<string, string | undefined> = {};
   if (!input.mission_state || !input.sibling_node_ids) return out;
+  for (const id of input.sibling_node_ids) {
+    out[id] = input.mission_state.nodes[id]?.status;
+  }
+  return out;
+}
+
+function localSiblingSnapshot(input: ActiveLocalRecoveryInput): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  if (!input.sibling_node_ids) return out;
   for (const id of input.sibling_node_ids) {
     out[id] = input.mission_state.nodes[id]?.status;
   }
