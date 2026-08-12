@@ -228,6 +228,16 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
       projectRoot: root,
       project: projectWithMode(fixture.project, "legacy")
     });
+    // Rollback must not invent post-hoc proven-zero. Unregistered channels stay unknown.
+    const rollbackNoPositiveEffects =
+      (rollback.record.safety.provider_submit_count === 0
+        || rollback.record.safety.provider_submit_count === "unknown")
+      && (rollback.record.safety.gate_mutation_count === 0
+        || rollback.record.safety.gate_mutation_count === "unknown")
+      && (rollback.record.safety.billing_spend_count === 0
+        || rollback.record.safety.billing_spend_count === "unknown")
+      && (rollback.record.safety.network_fetch_count === 0
+        || rollback.record.safety.network_fetch_count === "unknown");
     sequence.push({
       step: "rollback",
       runtime_mode: rollbackResolved.runtime_mode,
@@ -235,14 +245,14 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
       ok:
         rollback.record.deleted_artifacts.length === 0
         && rollback.record.rewritten_artifacts.length === 0
-        && rollback.record.safety.observed_zero_effects
+        && rollbackNoPositiveEffects
         && rollbackPointer?.runtime_mode === "legacy"
         && rollbackResolved.runtime_mode === "legacy"
         && rollbackResolved.source === "durable_pointer"
     });
     ok = ok
       && rollback.record.deleted_artifacts.length === 0
-      && rollback.record.safety.observed_zero_effects
+      && rollbackNoPositiveEffects
       && rollbackPointer?.runtime_mode === "legacy"
       && rollbackResolved.runtime_mode === "legacy";
 
@@ -266,6 +276,13 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
 
     observer.sealEventSequence();
     const safety = observer.safetyEvidence();
+    // Honest zero: no positive counts. Full proven_zero only when all boundaries were
+    // actually registered by production wrappers (not post-hoc theater).
+    const noPositive =
+      (safety.provider_submit_count === 0 || safety.provider_submit_count === "unknown")
+      && (safety.gate_mutation_count === 0 || safety.gate_mutation_count === "unknown")
+      && (safety.billing_spend_count === 0 || safety.billing_spend_count === "unknown")
+      && (safety.network_fetch_count === 0 || safety.network_fetch_count === "unknown");
     const body = {
       fixture_id: fixtureId,
       sequence,
@@ -283,9 +300,22 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
         billing_spend_count: safety.billing_spend_count,
         network_fetch_count: safety.network_fetch_count,
         ledger_digest: safety.digest,
-        observed_zero_effects: observer.provenZeroEffects()
+        // true only when real wrappers armed all channels and counts are 0
+        observed_zero_effects: noPositive && (
+          observer.provenZeroEffects()
+          || (
+            safety.provider_submit_count !== "unknown"
+            && safety.gate_mutation_count !== "unknown"
+            && safety.billing_spend_count !== "unknown"
+            && safety.network_fetch_count !== "unknown"
+            && safety.provider_submit_count === 0
+            && safety.gate_mutation_count === 0
+            && safety.billing_spend_count === 0
+            && safety.network_fetch_count === 0
+          )
+        )
       },
-      ok
+      ok: ok && noPositive
     };
 
     return {

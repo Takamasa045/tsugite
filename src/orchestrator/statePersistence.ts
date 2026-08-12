@@ -54,21 +54,54 @@ const runStateSchema = z.object({
     .default(defaultGates)
 });
 
-/** Canonical Gate semantic fingerprint (status + digests + binding fields). */
+/**
+ * Canonical Gate semantic fingerprint.
+ * Explicitly binds GateBundle/decision/approval, Gate2 selected completion, and Gate3 final SHA.
+ * Does not change legacy approved_input_digest storage semantics on RunState.
+ */
 export function gateSemanticFingerprint(state: RunState): string {
-  const pick = (gate: RunState["gates"]["gate_1"]) => ({
-    status: gate.status,
-    approved_input_digest: gate.approved_input_digest ?? null,
-    person_qa_approval_digest: gate.person_qa_approval_digest ?? null,
-    decision_source: gate.decision_source ?? null,
-    production_subject_digest: gate.production_subject_digest ?? null,
-    production_decision_digest: gate.production_decision_digest ?? null
-  });
+  const g1 = state.gates.gate_1;
+  const g2 = state.gates.gate_2;
+  const g3 = state.gates.gate_3;
   return JSON.stringify({
     run_status: state.status,
-    gate_1: pick(state.gates.gate_1),
-    gate_2: pick(state.gates.gate_2),
-    gate_3: pick(state.gates.gate_3)
+    gate_1: {
+      status: g1.status,
+      // Legacy review subject (unchanged semantics)
+      legacy_approved_input_digest: g1.approved_input_digest ?? null,
+      // GateBundle subject + human decision + optional person-QA approval binding
+      gate_bundle_subject_digest: g1.production_subject_digest ?? null,
+      decision_digest: g1.production_decision_digest ?? null,
+      approval_binding_digest: g1.person_qa_approval_digest ?? null,
+      person_qa_approval_digest: g1.person_qa_approval_digest ?? null,
+      decision_source: g1.decision_source ?? null,
+      production_subject_digest: g1.production_subject_digest ?? null,
+      production_decision_digest: g1.production_decision_digest ?? null
+    },
+    gate_2: {
+      status: g2.status,
+      // Selected completion / QC+manifest subject (legacy approved_input_digest for Gate2)
+      selected_completion_digest: g2.approved_input_digest ?? null,
+      legacy_approved_input_digest: g2.approved_input_digest ?? null,
+      production_subject_digest: g2.production_subject_digest ?? null,
+      production_decision_digest: g2.production_decision_digest ?? null,
+      decision_digest: g2.production_decision_digest ?? null,
+      approval_binding_digest: g2.person_qa_approval_digest ?? null,
+      person_qa_approval_digest: g2.person_qa_approval_digest ?? null,
+      decision_source: g2.decision_source ?? null
+    },
+    gate_3: {
+      status: g3.status,
+      // Final output SHA-256 (legacy approved_input_digest for Gate3)
+      final_output_sha256: g3.approved_input_digest ?? null,
+      legacy_approved_input_digest: g3.approved_input_digest ?? null,
+      production_subject_digest: g3.production_subject_digest ?? null,
+      production_decision_digest: g3.production_decision_digest ?? null,
+      decision_digest: g3.production_decision_digest ?? null,
+      approval_binding_digest: g3.person_qa_approval_digest ?? null,
+      person_qa_approval_digest: g3.person_qa_approval_digest ?? null,
+      decision_source: g3.decision_source ?? null
+    }
   });
 }
 

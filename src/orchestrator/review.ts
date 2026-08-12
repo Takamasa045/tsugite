@@ -37,6 +37,10 @@ import { ArtifactStore } from "../productionControl/artifactStore.js";
 import type { H3Compilation } from "../h3/compile.js";
 import type { ProductionControlShadowSummary } from "../productionControl/contractCompiler.js";
 import {
+  orchestrationModeFromAuthority,
+  type ResolvedRuntimeAuthority
+} from "../productionControl/runtimeAuthority.js";
+import {
   buildActiveGateBundleForProject,
   buildGateBundleReviewProjection,
   buildGenerationBatchesFromEvidence,
@@ -369,6 +373,8 @@ type WriteCreativeReviewOptions = {
   plan: ExecutionPlan;
   outputDir?: string;
   stateDir?: string;
+  /** Explicit resolved authority preferred over project.orchestration.mode. */
+  runtime_authority?: ResolvedRuntimeAuthority;
 };
 
 type ManifestMotionPlan = NonNullable<Manifest["clips"][number]["motion"]>;
@@ -620,7 +626,9 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
 > {
   try {
     const project = await loadProject(configPath);
-    if (project.orchestration?.mode !== "active") return { ok: true, projection: [] };
+    // resolveCurrentVideoPromptReview is CLI-adjacent; loadProject has no pointer projection.
+    // Active path only when YAML already projects active (trusted projection applied by caller).
+    if (orchestrationModeFromAuthority(undefined, project) !== "active") return { ok: true, projection: [] };
     const requests = project.generation?.requests ?? [];
     const videoRequests = requests.filter((request) =>
       generationRequestOutputKind(request) === "video"
@@ -1200,8 +1208,10 @@ export function createReviewDocument(
   manifest: Manifest,
   plan: ExecutionPlan,
   editorial?: EditorialReview,
-  composition?: CompositionReview
+  composition?: CompositionReview,
+  runtime_authority?: ResolvedRuntimeAuthority
 ): ReviewDocument {
+  const orchestrationMode = orchestrationModeFromAuthority(runtime_authority, project);
   const images = new Map(manifest.images.map((image) => [image.id, image]));
   const speakers = new Map(manifest.speakers.map((speaker) => [speaker.id, speaker]));
   const clips = new Map(manifest.clips.map((clip) => [clip.id, clip]));
@@ -1353,7 +1363,7 @@ export function createReviewDocument(
       ? { production_control_shadow: plan.production_control_shadow }
       : {}),
     ...(() => {
-      if (project.orchestration?.mode !== "active") return {};
+      if (orchestrationMode !== "active") return {};
       try {
         const built = buildActiveReviewGateBundle(project, plan);
         return { gate_bundle_review: buildGateBundleReviewProjection(built.bundle) };
@@ -1713,12 +1723,13 @@ export async function writeCreativeReview(
           approvalDigest: loadedComposition.approvalDigest,
           ...(loadedComposition.compilation ? { compilation: loadedComposition.compilation } : {})
         }
-      : undefined
+      : undefined,
+    options.runtime_authority
   );
   // Durable canonical GateBundle for active mode: same digest Gate1 will load.
   // Incomplete plan/compilation evidence leaves review readable (Gate1 approve fails closed).
   // Durable write failure after a successful build is always surfaced.
-  if (options.project.orchestration?.mode === "active") {
+  if (orchestrationModeFromAuthority(options.runtime_authority, options.project) === "active") {
     let built: ReturnType<typeof buildActiveReviewGateBundle> | undefined;
     try {
       built = buildActiveReviewGateBundle(options.project, options.plan);

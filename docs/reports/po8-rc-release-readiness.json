@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-12T13:20:28.327Z",
+  "generated_at": "2026-08-12T13:47:20.494Z",
   "package_version": "0.9.0",
   "recommended_version": "0.9.0",
   "version_decision": {
@@ -66,7 +66,7 @@
       "evidence": [
         "command=rehearsal mode sequence + CLI migrate/rollback E2E",
         "exit_code=0",
-        "output_digest=547a9b94fda7040ecf7a1626be9c135a8b520b5649e595a243164a608725509e"
+        "output_digest=01804b4aa7f0ecdb27b0e732ce45ea9fa6f26edcc0e0d9aa341c43c1a69a047f"
       ],
       "gaps": []
     },
@@ -75,7 +75,7 @@
       "title": "H1: 8 fixtures wired to actual production module APIs",
       "status": "proven",
       "evidence": [
-        "fixture_module_evidence.digest=d9a09690c973d33c6f37b2ab68a53044fa833cd1184b4110663c3830e0f55eab",
+        "fixture_module_evidence.digest=fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34",
         "fixture_count=8"
       ],
       "gaps": []
@@ -85,7 +85,7 @@
       "title": "Migration rehearsal across 8 frozen fixtures",
       "status": "proven",
       "evidence": [
-        "rehearsal.digest=0cc0fda532a0c46dd7e10840349b9c42fb05ae895a48e183cb0ac60e54ab58a7",
+        "rehearsal.digest=c198531dbf830ec7afa95242d870ba6a62be94037204770a33022ba23d4db939",
         "fixture_count=8"
       ],
       "gaps": []
@@ -97,7 +97,7 @@
       "evidence": [
         "command=cli production-migrate/rollback --apply E2E",
         "exit_code=0",
-        "output_digest=64590c89fc73780a75f23aff5cc49b655974b903a4310c53a8445561bbc4f616"
+        "output_digest=c4c910e78a10884f5b86214858c5ec52d66f325396da28ca6af201a2044e033d"
       ],
       "gaps": []
     },
@@ -106,7 +106,7 @@
       "title": "Rollback rehearsal preserves append-only artifacts",
       "status": "proven",
       "evidence": [
-        "rehearsal.digest=0cc0fda532a0c46dd7e10840349b9c42fb05ae895a48e183cb0ac60e54ab58a7",
+        "rehearsal.digest=c198531dbf830ec7afa95242d870ba6a62be94037204770a33022ba23d4db939",
         "rollback sequence in rehearsal"
       ],
       "gaps": []
@@ -116,7 +116,7 @@
       "title": "Adversarial/golden fixture coverage",
       "status": "proven",
       "evidence": [
-        "fixture_module_evidence.digest=d9a09690c973d33c6f37b2ab68a53044fa833cd1184b4110663c3830e0f55eab",
+        "fixture_module_evidence.digest=fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34",
         "golden exact compare + field mutation digests"
       ],
       "gaps": []
@@ -128,9 +128,9 @@
       "evidence": [
         "command=npm run check",
         "exit_code=0",
-        "output_digest=125ff4de949ebcdfb683097442f44322ee7409c6cbf0dcf592365ab9750e539b",
-        "branches=74.42",
-        "statements=82.76"
+        "output_digest=419aa13b67900c4332cf0b9aa082e110f5c03d098dfd9070b46ef1b1db5bc830",
+        "branches=74.46",
+        "statements=82.74"
       ],
       "gaps": []
     },
@@ -141,7 +141,7 @@
       "evidence": [
         "package_version=0.9.0",
         "revision_bindings_digest=0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
-        "Windows/live provider incomplete → not 1.0.0"
+        "Windows/live provider incomplete \u2192 not 1.0.0"
       ],
       "gaps": []
     },
@@ -152,9 +152,9 @@
       "evidence": [
         "src/productionControl/rc/releaseReadiness.ts",
         "status recomputed from evidence store (not caller forged exits)",
-        "migration_journal.digest=449c33bb97788221d5a6ebf2020ce56a0ba4c85dfaefbc858604706c5e38fcc6",
+        "migration_journal.digest=5e764fec513fd4135d351d26ff9d17e1a761773615f2883e9ed05f7106f8d3c5",
         "effect_observer_digest=4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286",
-        "reader_commands.output_digest=4f15ff0bfc026eaaf52157bdcb69f4874cd325e7a455cd6d7915ef7e2f3fe3d0"
+        "reader_commands.output_digest=df24ebd1f972ac354db39b34e27f9b1e504871e4ceab27ec6c56983378e74c50"
       ],
       "gaps": []
     },
@@ -179,46 +179,54 @@
     {
       "exit_id": "desktop",
       "title": "Desktop test/prepare/audit",
-      "status": "proven",
+      "status": "partial",
       "evidence": [
-        "command=npm run desktop:test + desktop:prepare (audit needs package out)",
+        "command=npm run desktop:test + desktop:prepare (desktop:audit needs package out)",
         "exit_code=0",
-        "output_digest=a35c0988206867b50bdd2ec82ab3fdc8fd5f4713239104b669bf74c0079d0951"
+        "output_digest=79a88b315112326e0c5bda4645e6f734395ff82246b5badee87da0c8e7759c8d",
+        "detail=desktop:audit failed: no packaged app under apps/desktop/out"
       ],
-      "gaps": []
+      "gaps": [
+        "desktop:audit not reached; status partial/unverified from exit evidence",
+        "desktop exit evidence marks partial/unverified",
+        "Windows/live/browser/packaged desktop remain caveats"
+      ]
     }
   ],
   "rehearsal": {
     "all_ok": true,
     "fixture_count": 8,
-    "digest": "0cc0fda532a0c46dd7e10840349b9c42fb05ae895a48e183cb0ac60e54ab58a7"
+    "digest": "c198531dbf830ec7afa95242d870ba6a62be94037204770a33022ba23d4db939"
   },
   "fixture_module_evidence": {
     "all_ok": true,
     "fixture_count": 8,
-    "digest": "d9a09690c973d33c6f37b2ab68a53044fa833cd1184b4110663c3830e0f55eab"
+    "digest": "fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34"
   },
   "coverage": {
-    "statements": 82.76,
-    "branches": 74.42,
-    "functions": 89.8,
-    "lines": 85.48,
+    "statements": 82.74,
+    "branches": 74.46,
+    "functions": 89.66,
+    "lines": 85.46,
     "branch_threshold": 74.4,
     "thresholds_lowered": false
   },
   "unverified": [
     "po8-8-po0a-browser: browser assertion not yet recorded with exit_code+hash",
-    "windows-smoke: Windows real machine not executed in this owner session"
+    "windows-smoke: Windows real machine not executed in this owner session",
+    "desktop: desktop:audit not reached; status partial/unverified from exit evidence",
+    "desktop: desktop exit evidence marks partial/unverified",
+    "desktop: Windows/live/browser/packaged desktop remain caveats"
   ],
   "go_no_go": "GO-WITH-CAVEATS",
   "go_no_go_reasons": [
     "fixture-only RC integration with unverified Windows/live/desktop/browser"
   ],
   "build_provenance": {
-    "head": "e71fef4c10592d8c45009b458b408ee6fad5df46",
+    "head": "c2182c131bae460ac7a8f9e0a07236fe9eb14865",
     "branch": "codex/po8-rc-integration",
     "dirty": false,
     "verified_separately": true
   },
-  "digest": "beecd749270baafb97f4f4aa2630890e137d3774a258dd8fd524cb7ed6442996"
+  "digest": "275de19c927003998dee216afa065a804ffaa9e812f06faea80babc75f03d7f0"
 }

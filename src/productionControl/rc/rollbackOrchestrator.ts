@@ -247,22 +247,8 @@ export async function applyRollback(input: {
   try {
     const before = await listPreservedRelativePaths(projectRoot, controlRoot);
     const recordedAt = (input.now ?? (() => new Date().toISOString()))();
-    // Arm via real production wrappers so zero-effect is proven (no bulk arm).
-    if (!observer.provenZeroEffects()) {
-      const { registerBoundariesViaProductionWrappers } = await import("./fixtureEvidence.js");
-      const { mkdtemp, realpath, rm } = await import("node:fs/promises");
-      const { tmpdir } = await import("node:os");
-      const { join: pathJoin } = await import("node:path");
-      const registerRoot = await realpath(await mkdtemp(pathJoin(tmpdir(), "tsugite-po8-rb-wrap-")));
-      try {
-        await registerBoundariesViaProductionWrappers(
-          { kind: "noop", observer },
-          registerRoot
-        );
-      } finally {
-        await rm(registerRoot, { recursive: true, force: true });
-      }
-    }
+    // No post-hoc cross-boundary arming. Unregistered channels stay unknown; proven-zero
+    // only for boundaries that real production wrappers registered during this path.
     observer.sealEventSequence();
     const safetyEvidence = observer.safetyEvidence();
     const safety = {
@@ -271,6 +257,7 @@ export async function applyRollback(input: {
       billing_spend_count: safetyEvidence.billing_spend_count,
       network_fetch_count: safetyEvidence.network_fetch_count,
       ledger_digest: safetyEvidence.digest,
+      // false unless this rollback path actually registered + zeroed all channels
       observed_zero_effects: observer.provenZeroEffects()
     };
 

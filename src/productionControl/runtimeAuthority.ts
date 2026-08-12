@@ -106,4 +106,44 @@ export async function readModePointerIfPresent(
   return readCurrentModePointer(projectRoot);
 }
 
+/**
+ * Single trusted projection of orchestration.mode from resolved authority.
+ * Durable pointer is SoT when present; YAML is not re-resolved inside pipeline bodies.
+ * Use this projection (or explicit runtime_authority options) for plan/run/review/render/gate.
+ */
+export function projectWithRuntimeAuthority<T extends Record<string, unknown>>(
+  project: T,
+  authority: ResolvedRuntimeAuthority | undefined
+): T {
+  if (!authority) return project;
+  const base = { ...project } as Record<string, unknown>;
+  if (authority.runtime_mode === "legacy") {
+    const { orchestration: _drop, ...rest } = base;
+    return rest as unknown as T;
+  }
+  const prior = base.orchestration && typeof base.orchestration === "object" && !Array.isArray(base.orchestration)
+    ? base.orchestration as Record<string, unknown>
+    : {};
+  return {
+    ...base,
+    orchestration: {
+      ...prior,
+      mode: authority.runtime_mode === "shadow" ? "shadow" : "active"
+    }
+  } as unknown as T;
+}
+
+/**
+ * Prefer explicit runtime_authority over project.orchestration.mode (no internal YAML re-resolve).
+ */
+export function orchestrationModeFromAuthority(
+  authority: ResolvedRuntimeAuthority | undefined,
+  project?: { orchestration?: { mode?: string } }
+): "disabled" | "shadow" | "active" | undefined {
+  if (authority) return authorityToOrchestrationMode(authority);
+  const mode = project?.orchestration?.mode;
+  if (mode === "active" || mode === "shadow" || mode === "disabled") return mode;
+  return undefined;
+}
+
 export type { EffectPolicy, RuntimeModeResolution, RcRuntimeMode };

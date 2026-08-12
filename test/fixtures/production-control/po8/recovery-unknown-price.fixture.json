@@ -69,7 +69,7 @@
   "expected": {
     "golden_digests": {
       "unknown_price_blocked": "6644ecca740397a4ca4f34ed18e296238d15600da263595c25a990b464faa2ce",
-      "paid_path_deny": "0df9dbb6f12884003ccf472363debb889a1006519bf8a38ba89b30def3dbaf1d",
+      "paid_path_deny": "41e99a1360354252690b3ec4fdb1c9f7286e690696061944aabbe70517c2e5b8",
       "local_recovery": "2eb57d5b7c1e58160029aa262f808d070bd7d1311eb55e8297449e8ed14b4e0f",
       "local_recovery_status": "local_ok",
       "local_action": "resume-known-job-poll"

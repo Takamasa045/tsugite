@@ -53,6 +53,7 @@ import {
   advanceJournalStage,
   beginOrResumeJournal,
   journalIsComplete,
+  readMigrationJournal,
   type JournalCrashHook,
   type MigrationJournalStage
 } from "./migrationJournal.js";
@@ -116,6 +117,11 @@ export type MigrationPreviewInput = {
   target_mode: "shadow" | "active";
   projectRoot?: string;
   fixture_id?: string;
+  /**
+   * Explicit from_mode from durable pointer reader chain (preferred).
+   * When set, overrides YAML orchestration.mode for source_mode.
+   */
+  from_mode?: RcRuntimeMode;
   /** Explicit human definition confirmation only — never inferred. */
   definition_confirmation?: Parameters<typeof migrateIdentityLockPhaseAtoE>[0]["definition_confirmation"];
   verification?: Parameters<typeof migrateIdentityLockPhaseAtoE>[0]["verification"];
@@ -211,9 +217,9 @@ function relativeWritePaths(projectRoot: string | undefined, target: "shadow" | 
 
 export function previewMigration(input: MigrationPreviewInput): MigrationPreviewV1 {
   const project = projectRecord(input.project);
-  // Prefer durable pointer mode when present (async read is done by apply; preview uses sync YAML
-  // unless caller already projected mode via projectWithMode / CLI durable merge).
-  const sourceMode = resolveRuntimeMode(project as { orchestration?: { mode?: string } });
+  // Prefer explicit from_mode (pointer truth from reader chain). YAML only when from_mode absent.
+  const sourceMode = input.from_mode
+    ?? resolveRuntimeMode(project as { orchestration?: { mode?: string } });
   const transition = evaluateModeTransition(sourceMode, input.target_mode, {
     coordinator: input.coordinator ?? false,
     preview_digest: "pending",
@@ -279,6 +285,28 @@ export function previewMigration(input: MigrationPreviewInput): MigrationPreview
   };
 }
 
+/**
+ * Preview with real durable pointer reader chain (async).
+ * Pointer present → from_mode = pointer.runtime_mode (YAML non-legacy mismatch fail-closed).
+ * Pointer absent → YAML/legacy.
+ */
+export async function previewMigrationWithPointer(
+  input: MigrationPreviewInput
+): Promise<MigrationPreviewV1> {
+  if (!input.projectRoot) {
+    return previewMigration(input);
+  }
+  const { resolveProjectRuntimeMode } = await import("./modeIntent.js");
+  const resolved = await resolveProjectRuntimeMode({
+    projectRoot: input.projectRoot,
+    project: input.project
+  });
+  return previewMigration({
+    ...input,
+    from_mode: resolved.runtime_mode
+  });
+}
+
 async function fsyncDirectory(path: string): Promise<void> {
   if (process.platform === "win32") return;
   const handle = await open(path, constants.O_RDONLY);
@@ -286,6 +314,62 @@ async function fsyncDirectory(path: string): Promise<void> {
     await handle.sync();
   } finally {
     await handle.close();
+  }
+}
+
+/**
+ * ArtifactStore create with exact-byte adoption on PC_ARTIFACT_DUPLICATE/EEXIST.
+ * Never swallows duplicates without readback+digest match.
+ */
+async function createOrAdoptArtifact(
+  store: ArtifactStore,
+  input: { artifact_id: string; bytes: string }
+): Promise<"created" | "adopted"> {
+  const { sha256Bytes } = await import("../canonical.js");
+  const intended = Buffer.from(input.bytes, "utf8");
+  const intendedDigest = sha256Bytes(intended);
+  try {
+    await store.create({
+      artifact_id: input.artifact_id,
+      bytes: input.bytes,
+      expected_sha256: intendedDigest,
+      expected_size: intended.byteLength
+    });
+    return "created";
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error
+      ? String((error as { code?: string }).code)
+      : "";
+    if (code !== "PC_ARTIFACT_DUPLICATE" && code !== "EEXIST") {
+      throw error;
+    }
+    // Readback: adopt only when on-disk bytes and digest exactly match intended.
+    const existing = await store.read(input.artifact_id);
+    if (existing.byteLength !== intended.byteLength || !existing.equals(intended)) {
+      throw pcError(
+        "PC_ARTIFACT_DUPLICATE",
+        `artifact ${input.artifact_id} already exists with different bytes`
+      );
+    }
+    const existingDigest = sha256Bytes(existing);
+    if (existingDigest !== intendedDigest) {
+      throw pcError(
+        "PC_ARTIFACT_MISMATCH",
+        `artifact ${input.artifact_id} digest mismatch on adopt`
+      );
+    }
+    return "adopted";
+  }
+}
+
+async function assertExactJsonArtifact(filePath: string, value: unknown): Promise<void> {
+  const expected = `${JSON.stringify(value, null, 2)}\n`;
+  const existing = await readFile(filePath, "utf8");
+  if (existing !== expected) {
+    throw pcError(
+      "PC_ARTIFACT_MISMATCH",
+      `required migration artifact exact mismatch: ${filePath}`
+    );
   }
 }
 
@@ -365,7 +449,31 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
   if (input.actor !== "coordinator") {
     throw pcError("PC_AUTHORITY_DENIED", "migration apply requires actor=coordinator");
   }
-  const preview = previewMigration({ ...input, coordinator: true });
+  // Resolve from_mode: explicit → journal sealed source_mode (resume) → pointer reader chain.
+  // Resume must not re-derive from_mode from a pointer written mid-apply (digest CAS stable).
+  let fromMode = input.from_mode;
+  if (fromMode === undefined && input.projectRoot) {
+    const existingJournal = await readMigrationJournal(input.projectRoot).catch(() => undefined);
+    if (
+      existingJournal
+      && existingJournal.preview_digest === input.expected_preview_digest
+      && existingJournal.source_mode
+    ) {
+      fromMode = existingJournal.source_mode as RcRuntimeMode;
+    } else {
+      const { resolveProjectRuntimeMode } = await import("./modeIntent.js");
+      const resolved = await resolveProjectRuntimeMode({
+        projectRoot: input.projectRoot,
+        project: input.project
+      });
+      fromMode = resolved.runtime_mode;
+    }
+  }
+  const preview = previewMigration({
+    ...input,
+    ...(fromMode ? { from_mode: fromMode } : {}),
+    coordinator: true
+  });
   if (preview.digest !== input.expected_preview_digest) {
     throw pcError("PC_CONTRACT_INVALID", "migration preview digest mismatch");
   }
@@ -510,33 +618,16 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
   // Stage: artifacts (create-only preview/contract/tree + optional artifact store)
   {
     if (input.target_mode === "active") {
-      try {
-        await artifactStore.create({
-          artifact_id: `contract-${contract.root_digest.slice(0, 12)}`,
-          bytes: `${JSON.stringify(contract)}\n`
-        });
-      } catch (error) {
-        // Exact duplicate with same digest is adopt; other failures fail-closed.
-        const code = error && typeof error === "object" && "code" in error
-          ? String((error as { code?: string }).code)
-          : "";
-        if (code !== "PC_ARTIFACT_DUPLICATE" && code !== "EEXIST") {
-          throw error;
-        }
-      }
-      try {
-        await artifactStore.create({
-          artifact_id: `tree-${tree.digest.slice(0, 12)}`,
-          bytes: `${JSON.stringify(tree)}\n`
-        });
-      } catch (error) {
-        const code = error && typeof error === "object" && "code" in error
-          ? String((error as { code?: string }).code)
-          : "";
-        if (code !== "PC_ARTIFACT_DUPLICATE" && code !== "EEXIST") {
-          throw error;
-        }
-      }
+      const contractBytes = `${JSON.stringify(contract)}\n`;
+      const treeBytes = `${JSON.stringify(tree)}\n`;
+      await createOrAdoptArtifact(artifactStore, {
+        artifact_id: `contract-${contract.root_digest.slice(0, 12)}`,
+        bytes: contractBytes
+      });
+      await createOrAdoptArtifact(artifactStore, {
+        artifact_id: `tree-${tree.digest.slice(0, 12)}`,
+        bytes: treeBytes
+      });
     }
 
     const migrationDir = join(controlRoot, "migration");
@@ -551,9 +642,14 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
     const treePath = join(shadowOrActiveDir, `task-tree-${tree.digest.slice(0, 16)}.json`);
 
     // Required artifacts: create-only or byte-identical adoption only (no soft-fail).
+    // Journal advance is only after all required artifacts pass exact verification.
     await atomicCreateJson(previewPath, preview);
     await atomicCreateJson(contractPath, contract);
     await atomicCreateJson(treePath, tree);
+    // Re-read required artifacts and verify exact payload before journal advance.
+    await assertExactJsonArtifact(previewPath, preview);
+    await assertExactJsonArtifact(contractPath, contract);
+    await assertExactJsonArtifact(treePath, tree);
 
     journal = await advanceJournalStage({
       projectRoot,
@@ -645,21 +741,7 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
       ...(mode_intent_digest ? { mode_intent: mode_intent_digest } : {})
     }
   });
-  // Arm via real production wrappers so zero-effect is proven (no bulk arm).
-  if (!observer.provenZeroEffects()) {
-    const { registerBoundariesViaProductionWrappers } = await import("./fixtureEvidence.js");
-    const { mkdtemp, realpath, rm } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const registerRoot = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po8-mig-wrap-")));
-    try {
-      await registerBoundariesViaProductionWrappers(
-        { kind: "noop", observer },
-        registerRoot
-      );
-    } finally {
-      await rm(registerRoot, { recursive: true, force: true });
-    }
-  }
+  // No post-hoc cross-boundary arming. Unregistered channels stay unknown.
   try {
     observer.sealEventSequence();
   } catch {

@@ -154,6 +154,8 @@ function observedZero(count: ObservedCount | undefined): boolean {
 function commandStatus(cmd: CommandEvidence | undefined): ExitEvidence["status"] {
   if (!cmd) return "unverified";
   if (cmd.status === "failed" || cmd.exit_code !== 0) return "failed";
+  // Explicit partial/unverified from exit evidence is never upgraded to proven.
+  if (cmd.status === "partial" || cmd.status === "unverified") return cmd.status;
   if (cmd.status === "proven" && typeof cmd.output_digest === "string" && /^[a-f0-9]{64}$/.test(cmd.output_digest)) {
     return "proven";
   }
@@ -388,18 +390,48 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
   }
 
   if (measured.desktop) {
+    // desktop:audit must be a completed primary step for proven; test/prepare alone → partial/unverified.
+    const desktopBase = commandStatus(measured.desktop);
+    // Require a real audit run token, not a parenthetical note that audit is missing.
+    const hasAudit =
+      /\bdesktop:audit\b/.test(measured.desktop.command)
+      && !/needs package|not reached|partial|unverified/i.test(measured.desktop.command)
+      && !/\(desktop:audit/.test(measured.desktop.command);
+    const desktopStatus: ExitEvidence["status"] =
+      desktopBase === "failed"
+        ? "failed"
+        : desktopBase === "proven" && hasAudit
+          ? "proven"
+          : desktopBase === "unverified"
+            ? "unverified"
+            : "partial";
+    const desktopGaps: string[] = [];
+    if (desktopStatus !== "proven") {
+      if (!hasAudit) {
+        desktopGaps.push("desktop:audit not reached; status partial/unverified from exit evidence");
+      }
+      if (desktopBase === "failed") {
+        desktopGaps.push(`desktop command failed exit_code=${measured.desktop.exit_code}`);
+      } else if (desktopBase === "partial" || desktopBase === "unverified") {
+        desktopGaps.push("desktop exit evidence marks partial/unverified");
+      } else if (desktopBase !== "proven") {
+        desktopGaps.push("desktop exit evidence incomplete (missing output_digest or non-zero exit)");
+      }
+      desktopGaps.push("Windows/live/browser/packaged desktop remain caveats");
+    }
     exits.push({
       exit_id: "desktop",
       title: "Desktop test/prepare/audit",
-      status: commandStatus(measured.desktop),
+      status: desktopStatus,
       evidence: [
         `command=${measured.desktop.command}`,
         `exit_code=${measured.desktop.exit_code}`,
         ...(measured.desktop.output_digest
           ? [`output_digest=${measured.desktop.output_digest}`]
-          : [])
+          : []),
+        ...(measured.desktop.detail ? [`detail=${measured.desktop.detail}`] : [])
       ],
-      gaps: commandStatus(measured.desktop) === "proven" ? [] : ["desktop partial/unverified"]
+      gaps: desktopGaps
     });
   } else {
     exits.push({
@@ -407,7 +439,10 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
       title: "Desktop test/prepare/audit",
       status: "unverified",
       evidence: [],
-      gaps: ["Desktop surfaces not fully verified in this owner session"]
+      gaps: [
+        "Desktop surfaces not fully verified in this owner session",
+        "desktop:audit not reached; Windows/live/browser/packaged desktop remain caveats"
+      ]
     });
   }
 

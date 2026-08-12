@@ -97,6 +97,7 @@ import { runCoordinatorRecoverCli } from "./productionControl/coordinatorRecover
 import { resolveCanonicalProductionControlRoot } from "./productionControl/activeRunGeneration.js";
 import {
   authorityToOrchestrationMode,
+  projectWithRuntimeAuthority,
   type ResolvedRuntimeAuthority
 } from "./productionControl/runtimeAuthority.js";
 import {
@@ -104,6 +105,7 @@ import {
   applyRollback,
   diagnoseMode,
   previewMigration,
+  previewMigrationWithPointer,
   previewRollback
 } from "./productionControl/rc/index.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
@@ -1023,6 +1025,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   const generationUnitSourceResolver = createProjectGenerationUnitSourceResolver(args.config);
   const validation = await validateProject(args.config, { generationUnitSourceResolver });
+  // Single trusted projection: durable pointer runtime_mode overrides YAML for pipeline bodies.
+  // Bodies also accept explicit runtime_authority; never re-resolve YAML against pointer silently.
+  const trustedProject = validation.project
+    ? projectWithRuntimeAuthority(validation.project, validation.runtime_authority) as Project
+    : undefined;
   const launcherShelf = validation.ok && validation.project
     ? await ensureProjectVisibleOnLauncherShelf({
         configPath: args.config,
@@ -1147,21 +1154,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const { resolveProjectRuntimeMode } = await import("./productionControl/rc/modeIntent.js");
       return resolveProjectRuntimeMode({ projectRoot, project: validation.project! });
     })();
-    const projectForPreview = modeResolved.source === "durable_pointer"
-      ? {
-        ...validation.project!,
-        orchestration: {
-          mode: modeResolved.runtime_mode === "legacy" ? "disabled" : modeResolved.runtime_mode
-        }
-      }
-      : validation.project!;
-    // Preview is non-destructive: evaluate as coordinator so digest is available for apply CAS.
-    // Apply still requires explicit --actor coordinator.
-    const preview = previewMigration({
-      project: projectForPreview,
+    // Preview uses real pointer reader chain (from_mode), not YAML-only.
+    const preview = await previewMigrationWithPointer({
+      project: validation.project!,
       target_mode: target,
       projectRoot,
-      coordinator: true
+      coordinator: true,
+      from_mode: modeResolved.runtime_mode
     });
     if (!args.apply) {
       const flags = deriveCliSafetyFlags({});
@@ -1193,34 +1192,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     try {
       const observer = createEffectObserver();
-      // Same durable-projected project as preview so expected_preview_digest matches.
+      // Thread effect_policy into migration; no post-hoc cross-boundary arming theater.
+      const effect_policy = { kind: "noop" as const, observer };
       const applied = await applyMigration({
-        project: projectForPreview,
+        project: validation.project!,
         target_mode: target,
         projectRoot,
         actor: "coordinator",
         expected_preview_digest: args.expectedPlanDigest,
         coordinator: true,
         observer,
-        effect_policy: { kind: "noop", observer }
+        effect_policy,
+        from_mode: modeResolved.runtime_mode
       });
-      // Arm via real production wrappers only (no bulk armAllBoundaries).
-      const { registerBoundariesViaProductionWrappers } = await import(
-        "./productionControl/rc/fixtureEvidence.js"
-      );
-      const { mkdtemp, realpath, rm } = await import("node:fs/promises");
-      const { tmpdir } = await import("node:os");
-      const registerRoot = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po8-mig-reg-")));
-      try {
-        await registerBoundariesViaProductionWrappers(
-          { kind: "noop", observer },
-          registerRoot
-        );
-      } finally {
-        await rm(registerRoot, { recursive: true, force: true });
-      }
       observer.sealEventSequence();
       const flags = deriveCliSafetyFlags({ observer });
+      // Unregistered channels stay unknown; proven-zero only for actually registered boundaries.
       return output(args, 0, {
         ok: true,
         command: "production-migrate",
@@ -1302,6 +1289,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     try {
       const observer = createEffectObserver();
+      // Thread observer; no post-hoc registerBoundariesViaProductionWrappers theater.
       const applied = await applyRollback({
         project: validation.project!,
         projectRoot,
@@ -1309,20 +1297,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         actor: "coordinator",
         observer
       });
-      const { registerBoundariesViaProductionWrappers } = await import(
-        "./productionControl/rc/fixtureEvidence.js"
-      );
-      const { mkdtemp, realpath, rm } = await import("node:fs/promises");
-      const { tmpdir } = await import("node:os");
-      const registerRoot = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po8-rb-reg-")));
-      try {
-        await registerBoundariesViaProductionWrappers(
-          { kind: "noop", observer },
-          registerRoot
-        );
-      } finally {
-        await rm(registerRoot, { recursive: true, force: true });
-      }
       observer.sealEventSequence();
       const flags = deriveCliSafetyFlags({ observer });
       const after = await resolveRuntimeAuthority({
@@ -1613,14 +1587,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
+    const { createEffectObserver: createFinalizeObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const finalizeObserver = createFinalizeObserver();
+    const finalizeEffectPolicy = { kind: "noop" as const, observer: finalizeObserver };
     const finalized = await finalizeCompletedProject({
       configPath: args.config,
-      project: validation.project!,
+      project: trustedProject!,
       manifest: validation.manifest!,
       stateDir: args.stateDir,
       apply: args.apply,
       expectedPlanDigest: args.expectedPlanDigest,
       expectedProductionCompletionDigest: args.expectedProductionCompletionDigest,
+      effect_policy: finalizeEffectPolicy,
       // Pin preflight identities through apply so a post-lock stateDir/runDir swap fail-closes.
       ...(args.apply && finalizeBoundaryIdentities
         ? {
@@ -1628,7 +1608,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             expectedRunDirIdentity: finalizeBoundaryIdentities.runDirIdentity
           }
         : {})
-    });
+    } as never);
     if (finalized.ok && finalized.applied) {
       const projectRoot = dirname(resolve(args.config!));
       const runId = validation.project!.run_id ?? validation.project!.slug;
@@ -1674,7 +1654,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ok: true,
       command: "plan",
       plan: createPlan(
-        validation.project!,
+        trustedProject!,
         validation.manifest!,
         validation.adapter,
         validation.analysisAdapters ?? validation.analysisAdapter,
@@ -1684,7 +1664,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.audioConnection,
         validation.backend,
         validation.h3_compilations,
-        validation.video_prompt_plans
+        validation.video_prompt_plans,
+        validation.runtime_authority
       )
     });
   }
@@ -1802,7 +1783,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   if (args.command === "review") {
     const plan = createPlan(
-      validation.project!,
+      trustedProject!,
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapters ?? validation.analysisAdapter,
@@ -1812,16 +1793,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioConnection,
       validation.backend,
       validation.h3_compilations,
-      validation.video_prompt_plans
+      validation.video_prompt_plans,
+      validation.runtime_authority
     );
     try {
       const review = await writeCreativeReview({
         configPath: args.config,
-        project: validation.project!,
+        project: trustedProject!,
         manifest: validation.manifest!,
         plan,
         outputDir: args.output,
-        stateDir: args.stateDir
+        stateDir: args.stateDir,
+        runtime_authority: validation.runtime_authority
       });
       if (args.open) {
         try {
@@ -1873,7 +1856,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return output(args, 1, { ok: false, command: "review-preview", issues: [coordinatorIssue] });
     }
     const plan = createPlan(
-      validation.project!,
+      trustedProject!,
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapters ?? validation.analysisAdapter,
@@ -1883,11 +1866,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioConnection,
       validation.backend,
       validation.h3_compilations,
-      validation.video_prompt_plans
+      validation.video_prompt_plans,
+      validation.runtime_authority
     );
     const preview = await renderReviewPreview({
       configPath: args.config!,
-      project: validation.project!,
+      project: trustedProject!,
       manifest: validation.manifest!,
       shotId: args.shot,
       outputDir: args.output,
@@ -1899,11 +1883,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     try {
       const review = await writeCreativeReview({
         configPath: args.config!,
-        project: validation.project!,
+        project: trustedProject!,
         manifest: validation.manifest!,
         plan,
         outputDir: args.output,
-        stateDir: args.stateDir
+        stateDir: args.stateDir,
+        runtime_authority: validation.runtime_authority
       });
       return output(args, 0, {
         ok: true,
@@ -1934,7 +1919,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ok: true,
       command: "run",
       dry_run: createDryRun(
-        validation.project!,
+        trustedProject!,
         validation.manifest!,
         validation.adapter,
         validation.analysisAdapters ?? validation.analysisAdapter,
@@ -1944,7 +1929,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.generationConnection,
         validation.audioConnection,
         validation.h3_compilations,
-        validation.video_prompt_plans
+        validation.video_prompt_plans,
+        validation.runtime_authority
       )
     });
   }
@@ -1966,9 +1952,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     ];
     if (issues.length > 0) return output(args, 1, { ok: false, command: "gate", issues });
 
+    // Thread effect_policy for writeState gate_mutation registration on real gate path.
+    const { createEffectObserver } = await import("./productionControl/rc/effectCapability.js");
+    const gateObserver = createEffectObserver();
+    const gateEffectPolicy = { kind: "noop" as const, observer: gateObserver };
     const gateResult = await recordGate(
       args,
-      validation.project!,
+      trustedProject!,
       validation.manifest!,
       gate!,
       decision!,
@@ -1976,7 +1966,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioAdapter,
       // Keep Gate 2 inspect on the same guide set used at Gate 1 / run (custom dirs included).
       validation.promptGuides,
-      validation.runtime_authority
+      validation.runtime_authority,
+      gateEffectPolicy
     );
     return output(args, gateResult.ok ? 0 : 1, {
       ok: gateResult.ok,
@@ -2093,9 +2084,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    const runResult = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+    const { createEffectObserver: createRunObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const runObserver = createRunObserver();
+    const runEffectPolicy = { kind: "noop" as const, observer: runObserver };
+    const runResult = await assembleLocalMediaRun(trustedProject!, validation.manifest!, {
       configPath: resolve(args.config!),
-      manifestPath: resolve(dirname(resolve(args.config!)), validation.project!.manifest),
+      manifestPath: resolve(dirname(resolve(args.config!)), trustedProject!.manifest),
       stateDir: stateResult.stateDir,
       state: stateResult.state,
       generationConnection: validation.generationConnection,
@@ -2105,11 +2101,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // Keep Gate 1 / run lineage on the same guide set (including custom promptGuideDirs).
       promptGuides: validation.promptGuides,
       generationUnitSourceResolver,
+      runtime_authority: validation.runtime_authority,
+      effect_policy: runEffectPolicy,
       ...(review.compilation ? { compilation: review.compilation } : {}),
       verifyApprovedInputs: async () => {
         const currentReview = await inspectGate1Review({
           configPath: args.config!,
-          project: validation.project!,
+          project: trustedProject!,
           manifest: validation.manifest!,
           stateDir: stateResult.stateDir
         });
@@ -2295,11 +2293,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    const renderResult = await renderAssembledMedia(validation.project!, {
+    const { createEffectObserver: createRenderObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const renderObserver = createRenderObserver();
+    const renderEffectPolicy = { kind: "noop" as const, observer: renderObserver };
+    const renderResult = await renderAssembledMedia(trustedProject!, {
       stateDir: stateResult.stateDir,
       state: stateResult.state,
-      configPath: resolve(args.config!)
-    });
+      configPath: resolve(args.config!),
+      effect_policy: renderEffectPolicy
+    } as never);
     return output(args, renderResult.ok ? 0 : 1, {
       ok: renderResult.ok,
       command: "render",
@@ -2940,7 +2944,8 @@ async function recordGate(
   adapter?: AdapterDefinition,
   audioAdapter?: AdapterDefinition,
   promptGuides?: PromptGuide[],
-  runtime_authority?: ResolvedRuntimeAuthority
+  runtime_authority?: ResolvedRuntimeAuthority,
+  effect_policy?: import("./productionControl/rc/effectCapability.js").EffectPolicy
 ): Promise<Result<{ state: RunState; statePath: string; reviewPath?: string; reviewDataPath?: string }>> {
   const stateLocation = getStateLocation(args, project);
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
@@ -3437,7 +3442,14 @@ async function recordGate(
   }
 
   try {
-    await writeState(stateLocation.stateDir, nextState);
+    await writeState(stateLocation.stateDir, nextState, {
+      ...(effect_policy
+        ? {
+          effect_policy,
+          ...(persistedPrevious ? { previous: persistedPrevious } : {})
+        }
+        : {})
+    });
     // Optional sikumi Outbox (default OFF; fail-soft; never blocks gate write).
     const projectRoot = args.config
       ? dirname(resolve(args.config))

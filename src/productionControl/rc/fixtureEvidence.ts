@@ -13,7 +13,6 @@ import { EffectLedger, type EffectLedgerSnapshot } from "./effectLedger.js";
 import {
   createDenyEffectPolicy,
   createEffectObserver,
-  noteEffectBoundary,
   type EffectCapability,
   type EffectObserver,
   type EffectPolicy
@@ -1124,50 +1123,200 @@ async function runJobRevision(
       adversarial.push({ name: "identity-drift", ok: true });
     }
 
+    // Real GenerationJobMachine transitions produce submission_unknown (no handwritten constants).
+    const { GenerationJobStore } = await import("../../generationJobs/store.js");
+    const { GenerationJobMachine } = await import("../../generationJobs/machine.js");
+    const { computeRequestDigest, createApproval } = await import("../../generationJobs/approval.js");
+    const { mkdtemp, realpath, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const jobRoot = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po8-job-su-")));
     try {
-      assertNoResubmitOnSubmissionUnknown({
-        status: "submission_unknown",
-        submission_unknown: true
+      const store = new GenerationJobStore({ rootDir: jobRoot });
+      const connectionId = route.connection_id;
+      const pricing = {
+        status: "known" as const,
+        version: "v1",
+        currency: "USD",
+        amount: 0,
+        max_amount: 0
+      };
+      const makeRequest = (text: string) => {
+        const request = {
+          digest: "",
+          model_id: "fixture-model",
+          mode: "text-to-video" as const,
+          connection_id: connectionId,
+          auth_env_names: [] as string[],
+          asset_paths: [] as string[],
+          params: { text }
+        };
+        request.digest = computeRequestDigest(request);
+        return request;
+      };
+      async function approveJob(jobId: string) {
+        await store.transition(jobId, "awaiting_cost_approval");
+        await store.transition(jobId, "approved", (j) => ({
+          ...j,
+          approval: createApproval(j, "coordinator", new Date().toISOString())
+        }));
+      }
+
+      // Case A — no provider_job_id: adapter acceptance_possible → machine marks submission_unknown
+      const noId = await store.create({
+        job_id: "job-su-no-id",
+        connection_id: connectionId,
+        model_id: "fixture-model",
+        mode: "text-to-video",
+        request: makeRequest("su-no-id"),
+        model_profile_digest: seedDigest("fixture-model-profile"),
+        connection_capability_digest: seedDigest(route.connection_id),
+        pricing,
+        status: "planned"
       });
-      adversarial.push({ name: "no-resubmit", ok: false });
-      ok = false;
-    } catch {
-      adversarial.push({ name: "no-resubmit", ok: true });
-      apis.push("assertNoResubmitOnSubmissionUnknown");
+      await approveJob(noId.job_id);
+      const machineNoId = new GenerationJobMachine({
+        store,
+        adapter: {
+          adapter_id: "fixture-adapter",
+          connection_id: connectionId,
+          capabilities: { submit: true, poll: false, download: false, cancel: false },
+          async preflight() {
+            return { ok: true as const, execution_ready: true };
+          },
+          async submit() {
+            return {
+              ok: false as const,
+              acceptance_possible: true,
+              code: "FIXTURE_TIMEOUT",
+              message: "possible acceptance without provider id"
+            };
+          },
+          async poll() {
+            throw new Error("poll not expected");
+          },
+          async download() {
+            throw new Error("download not expected");
+          }
+        } as never,
+        orchestrationMode: "disabled"
+      });
+      const unknownNoId = await machineNoId.submit(noId.job_id);
+      if (unknownNoId.status !== "submission_unknown" || !unknownNoId.submission_unknown || unknownNoId.provider_job_id) {
+        ok = false;
+        errors.push(`expected submission_unknown without provider_job_id, got ${unknownNoId.status}`);
+      }
+      apis.push("GenerationJobMachine.submit→submission_unknown");
+      digests.submission_unknown_no_provider = sha256Canonical({
+        status: unknownNoId.status,
+        submission_unknown: unknownNoId.submission_unknown,
+        provider_job_id: unknownNoId.provider_job_id ?? null
+      });
+      try {
+        await machineNoId.submit(noId.job_id);
+        adversarial.push({ name: "no-resubmit", ok: false });
+        ok = false;
+      } catch {
+        adversarial.push({ name: "no-resubmit", ok: true });
+        apis.push("GenerationJobMachine.submit(resubmit-forbidden)");
+        ledger.recordCall({
+          module: "generationJobs/machine",
+          api: "submit(resubmit-forbidden)",
+          result: "blocked",
+          digests: { fixture_digest: fixture.fixture_digest }
+        });
+      }
+      const actionNoId = resolveSubmissionUnknownAction(unknownNoId);
+      if (actionNoId.may_submit !== false || actionNoId.action !== "awaiting_human") ok = false;
+
+      // Case B — provider_job_id present: submitting + known id → submission_unknown (same edge as machine.markSubmissionUnknown)
+      const providerJobId = job.provider_job_id || "prov-fixture-1";
+      const withId = await store.create({
+        job_id: "job-su-with-id",
+        connection_id: connectionId,
+        model_id: "fixture-model",
+        mode: "text-to-video",
+        request: makeRequest("su-with-id"),
+        model_profile_digest: seedDigest("fixture-model-profile"),
+        connection_capability_digest: seedDigest(route.connection_id),
+        pricing,
+        status: "planned"
+      });
+      await approveJob(withId.job_id);
+      // Durable mid-flight: submitting with provider_job_id observed, acceptance still unknown.
+      await store.transition(withId.job_id, "submitting", (j) => ({
+        ...j,
+        provider_job_id: providerJobId
+      }));
+      const unknownWithId = await store.transition(
+        withId.job_id,
+        "submission_unknown",
+        (j) => ({
+          ...j,
+          submission_unknown: true,
+          provider_job_id: providerJobId
+        })
+      );
+      digests.submission_unknown_with_provider = sha256Canonical({
+        status: unknownWithId.status,
+        submission_unknown: unknownWithId.submission_unknown,
+        provider_job_id: unknownWithId.provider_job_id ?? null
+      });
+      const machineWithId = new GenerationJobMachine({
+        store,
+        adapter: {
+          adapter_id: "fixture-adapter-id",
+          connection_id: connectionId,
+          capabilities: { submit: true, poll: true, download: false, cancel: false },
+          async preflight() {
+            return { ok: true as const, execution_ready: true };
+          },
+          async submit() {
+            throw new Error("must not resubmit");
+          },
+          async poll() {
+            return { ok: true as const, status: "running" as const };
+          },
+          async download() {
+            throw new Error("download not expected");
+          }
+        } as never,
+        orchestrationMode: "disabled"
+      });
+      try {
+        await machineWithId.submit(withId.job_id);
+        ok = false;
+        errors.push("resubmit with provider_job_id must be refused");
+      } catch {
+        digests.resubmit_with_provider_blocked = sha256Canonical({
+          blocked: true,
+          provider_job_id: unknownWithId.provider_job_id ?? null
+        });
+      }
+      const actionWithId = resolveSubmissionUnknownAction(unknownWithId);
+      // Golden digests bind real machine/store outcomes (provider_job_id present → poll_or_download).
+      digests.submission_unknown_action = actionWithId.action;
+      digests.may_submit = actionWithId.may_submit === false ? "false" : "true";
+      digests.submission_binding = sha256Canonical({
+        action: actionWithId.action,
+        may_submit: actionWithId.may_submit,
+        provider_job_known: actionWithId.provider_job_known,
+        immutable_identity_digest: binding.immutable_identity_digest
+      });
+      if (actionWithId.may_submit !== false || actionWithId.action !== "poll_or_download") ok = false;
+      apis.push("resolveSubmissionUnknownAction");
       ledger.recordCall({
         module: "productionControl/generationBridge",
-        api: "assertNoResubmitOnSubmissionUnknown",
-        result: "blocked",
-        digests: { fixture_digest: fixture.fixture_digest }
+        api: "resolveSubmissionUnknownAction",
+        result: "ok",
+        digests: {
+          action: createHash("sha256").update(actionWithId.action).digest("hex"),
+          fixture_digest: fixture.fixture_digest
+        }
       });
+    } finally {
+      await rm(jobRoot, { recursive: true, force: true });
     }
     void capability;
-
-    const actionKnown = resolveSubmissionUnknownAction({
-      status: "submission_unknown",
-      submission_unknown: true,
-      provider_job_id: job.provider_job_id
-    });
-    // Production enum literal only (generationBridge result).
-    digests.submission_unknown_action = actionKnown.action;
-    digests.may_submit = actionKnown.may_submit === false ? "false" : "true";
-    digests.submission_binding = sha256Canonical({
-      action: actionKnown.action,
-      may_submit: actionKnown.may_submit,
-      provider_job_known: actionKnown.provider_job_known,
-      immutable_identity_digest: binding.immutable_identity_digest
-    });
-    if (actionKnown.may_submit !== false) ok = false;
-    apis.push("resolveSubmissionUnknownAction");
-    ledger.recordCall({
-      module: "productionControl/generationBridge",
-      api: "resolveSubmissionUnknownAction",
-      result: "ok",
-      digests: {
-        action: createHash("sha256").update(actionKnown.action).digest("hex"),
-        fixture_digest: fixture.fixture_digest
-      }
-    });
 
     const recomputed = computeImmutableIdentityDigest(bindingInput);
     digests.recomputed_identity = recomputed;
@@ -1272,21 +1421,42 @@ async function runRecovery(
       });
     }
 
-    // Paid path deny: real grantLedger.reserve under deny policy (after registration).
-    // billing_spend is already registered by the price_unknown reserve above when policy present.
-    const denyPolicy = policy?.kind === "deny"
-      ? policy
-      : createDenyEffectPolicy(createEffectObserver());
+    // Paid path deny: real GrantCreditLedger.reserve with deny policy (no direct observer API).
+    // Wrapper self-registers; noteEffectBoundary under deny → PC_EFFECT_DENIED before billing.
+    const denyObserver = createEffectObserver();
+    const denyPolicy = createDenyEffectPolicy(denyObserver);
+    let adapterBillingCount = 0;
     try {
-      // Ensure wrapper registered then attempt paid note under deny.
-      const { registerEffectBoundary } = await import("./effectCapability.js");
-      registerEffectBoundary(denyPolicy, "billing_spend");
-      noteEffectBoundary(denyPolicy, "billing_spend", "recovery.paidSpend");
+      await grantLedger.reserve({
+        reservation_id: `${recovery.reservation_id}-paid-deny`,
+        grant_digest: seedDigest(recovery.grant_seed),
+        production_id: recovery.production_id,
+        run_id: recovery.run_id,
+        node_id: recovery.node_id,
+        attempt_key: seedDigest(`${recovery.attempt_key_seed}-paid-deny`),
+        pricing_binding_digest: seedDigest(recovery.pricing_binding_seed),
+        requested_credits: 1,
+        price_unknown: false,
+        effect_policy: denyPolicy
+      });
+      adapterBillingCount += 1;
       adversarial.push({ name: "paid-path-deny", ok: false });
       ok = false;
-    } catch {
-      adversarial.push({ name: "paid-path-deny", ok: true });
-      digests.paid_path_deny = sha256Canonical({ boundary: "billing_spend", result: "blocked" });
+    } catch (error) {
+      const code = error instanceof ProductionControlError ? error.code : "";
+      const denied = code === "PC_EFFECT_DENIED";
+      adversarial.push({
+        name: "paid-path-deny",
+        ok: denied && adapterBillingCount === 0,
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 120)
+      });
+      if (!denied || adapterBillingCount !== 0) ok = false;
+      digests.paid_path_deny = sha256Canonical({
+        boundary: "billing_spend",
+        result: "blocked",
+        code: code || "PC_EFFECT_DENIED",
+        adapter_billing_count: adapterBillingCount
+      });
     }
 
     // Seed real job + events, then call real runActiveLocalRecovery (no missing-job fake).
@@ -1436,13 +1606,6 @@ async function runRecovery(
         fixture_digest: fixture.fixture_digest,
         local_recovery: digests.local_recovery
       }
-    });
-
-    // submission_unknown real result: no-resubmit policy on seeded unknown job.
-    digests.submission_unknown_status = "submission_unknown";
-    digests.submission_unknown_no_resubmit = sha256Canonical({
-      status: "submission_unknown",
-      may_submit: false
     });
 
     // Grant exhaustion on a dedicated ledger: real openBudget + reserve with max_attempts=0.

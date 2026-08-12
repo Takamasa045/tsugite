@@ -1,5 +1,5 @@
 /**
- * PO-8 / T09 — RC structural repair round 4.
+ * PO-8 / T09 — RC structural repair round 5.
  * Fixture-only: no provider DNS, billing, real Gate, non-dry-run run/render/finalize.
  */
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -561,8 +561,9 @@ describe("PO-8 migration / rollback atomicity + durable mode (C/D)", () => {
       });
       expect(rollback.record.deleted_artifacts).toEqual([]);
       expect(rollback.record.rewritten_artifacts).toEqual([]);
-      expect(rollback.record.safety.observed_zero_effects).toBe(true);
-      expect(rollback.record.safety.provider_submit_count).toBe(0);
+      // No post-hoc arming theater: unregistered channels stay unknown / not proven-zero.
+      expect(rollback.record.safety.observed_zero_effects).toBe(false);
+      expect(rollback.record.safety.provider_submit_count).toBe("unknown");
       for (const path of beforePaths) {
         expect(rollback.record.preserved_relative_paths).toContain(path);
       }
@@ -652,8 +653,17 @@ describe("PO-8 frozen 8-fixture rehearsal", () => {
     expect(report.revision_bindings_digest).toBe(rcRevisionBindingsDigest());
     for (const result of report.results) {
       expect(result.module_evidence.ok, result.fixture_id).toBe(true);
-      expect(result.safety.observed_zero_effects).toBe(true);
-      expect(result.safety.provider_submit_count).toBe(0);
+      // Unregistered channels may be unknown; never claim positive effects.
+      expect(
+        result.safety.provider_submit_count === 0
+          || result.safety.provider_submit_count === "unknown",
+        result.fixture_id
+      ).toBe(true);
+      expect(
+        result.safety.gate_mutation_count === 0
+          || result.safety.gate_mutation_count === "unknown",
+        result.fixture_id
+      ).toBe(true);
       expect(result.ok, result.fixture_id).toBe(true);
       expect(result.sequence.some((step) => step.step === "module_evidence")).toBe(true);
     }
@@ -885,9 +895,10 @@ describe("PO-8 CLI surfaces (M1/M4/D)", () => {
         previewDigest
       ]);
       expect(applied.code).toBe(0);
-      expect(applied.payload.generation_submitted).toBe(false);
-      expect(applied.payload.gate_mutated).toBe(false);
-      expect(applied.payload.safety_proven_zero).toBe(true);
+      // Unregistered effect channels stay unknown (no post-hoc arming theater).
+      expect(applied.payload.generation_submitted).toBe("unknown");
+      expect(applied.payload.gate_mutated).toBe("unknown");
+      expect(applied.payload.safety_proven_zero).toBe(false);
       expect((applied.payload.record as { event_digest?: string }).event_digest).toMatch(/^[a-f0-9]{64}$/);
 
       // Shadow effect attempt denial E2E via production-status + mode authority
@@ -904,6 +915,8 @@ describe("PO-8 CLI surfaces (M1/M4/D)", () => {
         "active"
       ]);
       expect(activePreview.code).toBe(0);
+      // from_mode must be pointer truth (shadow), not YAML legacy
+      expect((activePreview.payload.preview as { source_mode: string }).source_mode).toBe("shadow");
       const ad = (activePreview.payload.preview as { digest: string }).digest;
       const activeApply = await captureCli([
         "production-migrate",
@@ -918,6 +931,18 @@ describe("PO-8 CLI surfaces (M1/M4/D)", () => {
         ad
       ]);
       expect(activeApply.code).toBe(0);
+      expect(activeApply.payload.safety_proven_zero).toBe(false);
+      expect(activeApply.payload.generation_submitted).toBe("unknown");
+
+      // Active control plane: plan/review/run dry-run use pointer authority (not YAML legacy)
+      const activeStatus = await captureCli(["production-status", "--config", config]);
+      expect(activeStatus.code).toBe(0);
+      expect((activeStatus.payload.status as { runtime_mode: string }).runtime_mode).toBe("active");
+      const activePlan = await captureCli(["plan", "--config", config]);
+      expect([0, 1]).toContain(activePlan.code);
+      // YAML project is still legacy (no rewrite) but trusted projection is active
+      const yamlText = await readFile(config, "utf8");
+      expect(yamlText).not.toMatch(/mode:\s*active/);
 
       // wrong digest CAS
       const wrong = await captureCli([
@@ -946,9 +971,9 @@ describe("PO-8 CLI surfaces (M1/M4/D)", () => {
         "coordinator"
       ]);
       expect(rb.code).toBe(0);
-      expect(rb.payload.generation_submitted).toBe(false);
+      expect(rb.payload.generation_submitted).toBe("unknown");
       expect((rb.payload.record as { deleted_artifacts: unknown[] }).deleted_artifacts).toEqual([]);
-      expect(rb.payload.safety_proven_zero).toBe(true);
+      expect(rb.payload.safety_proven_zero).toBe(false);
 
       const pointer = await readCurrentModePointer(root);
       expect(pointer?.runtime_mode).toBe("legacy");
