@@ -472,6 +472,68 @@ describe("PO-4 final repair regressions", () => {
     }
   });
 
+  it("revalidates AssetContract lineage through the committed active review lifecycle", async () => {
+    const raw = await mkdtemp(join(tmpdir(), "tsugite-po4-review-assets-"));
+    const root = await realpath(raw);
+    try {
+      const bytes = Buffer.from("review-authoritative-asset\n", "utf8");
+      await mkdir(join(root, "media"));
+      await writeFile(join(root, "media", "reference.bin"), bytes);
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(root, "media", "clip-001.mp4"));
+      const contract = createAssetContract({
+        contract_id: "review-assets",
+        revision: 1,
+        assets: [{
+          asset_id: "reference",
+          kind: "image",
+          project_relative_path: "media/reference.bin",
+          sha256: sha256Text(bytes.toString("utf8")),
+          byte_size: bytes.byteLength,
+          roles: ["first-frame"],
+          provenance: { source: "user", usage_confirmed: true },
+          external_send: "allowed"
+        }]
+      });
+      await mkdir(join(root, "production-control"));
+      const store = new ArtifactStore(join(root, "production-control"));
+      await store.create({ artifact_id: contract.contract_id, bytes: JSON.stringify(contract) });
+      const ir = standalone("v6");
+      ir.target = { ...ir.target, mode: "first-frame" };
+      ir.assets = [{ id: "reference", type: "image", path: "media/reference.bin", role: "first_frame", sha256: contract.assets[0]!.sha256 }];
+      const configPath = join(root, "project.yaml");
+      await writeFile(configPath, JSON.stringify({
+        slug: "review-assets",
+        name: "review-assets",
+        manifest: "manifest.json",
+        dist_dir: "dist",
+        edit: { backend: "remotion" },
+        orchestration: { mode: "active", authoring: { assets: { kind: "asset-contract", id: contract.contract_id, digest: contract.digest } } },
+        generation: { connection: "pixverse", adapter: "pixverse", requests: [{ id: "asset-review-1", prompt: "", params: {}, video_prompt: ir }] }
+      }));
+      await writeFile(join(root, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      const validation = await validateProject(configPath);
+      expect(validation.ok, validation.ok ? "" : JSON.stringify(validation.issues)).toBe(true);
+      if (!validation.ok) return;
+      const plan = createPlan(validation.project, validation.manifest, validation.adapter, undefined, validation.promptGuides, validation.audioAdapter, validation.generationConnection, validation.audioConnection, validation.backend, validation.h3_compilations, validation.video_prompt_plans);
+      const stateDir = join(root, "review-state");
+      await writeCreativeReview({ configPath, project: validation.project, manifest: validation.manifest, plan, stateDir });
+      const initial = await inspectGate1Review({ configPath, project: validation.project, manifest: validation.manifest, stateDir });
+      expect(initial.ok, initial.ok ? "" : JSON.stringify(initial.issues)).toBe(true);
+
+      const changed = createAssetContract({
+        contract_id: contract.contract_id,
+        revision: 2,
+        assets: [{ ...contract.assets[0]!, external_send: "needs-human" }]
+      });
+      await writeFile(join(root, "production-control", "artifacts", `${contract.contract_id}.json`), JSON.stringify(changed));
+      const stale = await inspectGate1Review({ configPath, project: validation.project, manifest: validation.manifest, stateDir });
+      expect(stale.ok).toBe(false);
+      expect(stale.issues.map((issue) => issue.code)).toContain("VPD-J002");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not treat an omitted operation plus image output as a non-video bypass", async () => {
     const project = {
       slug: "active-omitted-operation-image",
@@ -1130,6 +1192,74 @@ describe("PO-4 final repair regressions", () => {
       }
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects missing project roots and root/path identity mismatches before publication", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-publication-identity-"));
+    const other = await mkdtemp(join(tmpdir(), "tsugite-po4-publication-other-"));
+    try {
+      const revision = compilationRevisionId(compiled.compilation.bundle);
+      const requestId = compiled.compilation.bundle.request_id;
+      await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, {
+        project_root: "",
+        revision_id: revision,
+        request_id: requestId
+      })).rejects.toThrow(/project root is required/);
+      await expect(writeCompilationBundleAtomic(other, compiled.compilation.bundle, {
+        project_root: root,
+        revision_id: revision,
+        request_id: requestId
+      })).rejects.toThrow(/artifact root must equal/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(other, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a symlink or file introduced at the final reserve boundary", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    for (const kind of ["file", "symlink"] as const) {
+      const root = await mkdtemp(join(tmpdir(), `tsugite-po4-publication-reserve-${kind}-`));
+      try {
+        const revision = compilationRevisionId(compiled.compilation.bundle);
+        const parent = join(root, revision, "video-prompt");
+        const target = join(parent, compiled.compilation.bundle.request_id);
+        await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, {
+          project_root: root,
+          revision_id: revision,
+          request_id: compiled.compilation.bundle.request_id,
+          hooks: {
+            before_target_reserve: async () => {
+              if (kind === "file") await writeFile(target, "outside-sentinel\n");
+              else await symlink(root, target);
+            }
+          }
+        })).rejects.toThrow(/identity|already exists/);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     }
   });
 
