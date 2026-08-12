@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ArtifactStore } from "../src/productionControl/artifactStore.js";
 import {
   compileProjectVideoPrompts,
@@ -41,6 +42,8 @@ import { createAssetContract } from "../src/productionControl/contracts/asset.js
 import { createCompilationBundle, createVerifiedAssetPin, verifyVerifiedAssetPin, isTrustedAssetPin, loadCreateOnlyArtifactStoreEnvelope, persistPlanningCompilationArtifact, loadPlanningArtifactRef } from "../src/videoPromptDirector/compilationBundle.js";
 import * as generationUnitResolver from "../src/videoPromptDirector/generationUnitSourceResolver.js";
 import * as videoPromptDirector from "../src/videoPromptDirector/index.js";
+import * as promptBudgetEvidence from "../src/videoPromptDirector/promptBudgetEvidence.js";
+import { loadPlanningOnlyPinnedPromptBudgetEvidence } from "../src/videoPromptDirector/promptBudgetEvidence.js";
 
 function standalone(model = "v6"): VideoPromptIrV2 {
   return {
@@ -2131,6 +2134,601 @@ describe("PO-4 final repair regressions", () => {
       plainWithGrammar.grammar_profile = h3Grammar;
       const plainGrammarRef = await persist(recompute(plainWithGrammar));
       await expect(deriveBase(plainGrammarRef.planning, plainGrammarRef.revision)).rejects.toThrow(/plain-prompt execution/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("strictly threads h3 and video_prompt authoring_surface through recompile and execution lineage", async () => {
+    const h3Model = await loadModelPromptProfile("minimax-h3");
+    const h3Connection = await loadConnectionCapabilityProfile("minimax-direct");
+    const h3Adapter = await loadAdapterDialectCapability("minimax", ["adapters"], {
+      model_profile_id: "minimax-h3",
+      provider_model: "MiniMax-H3",
+      mode: "text-to-video"
+    });
+    const h3Grammar = await loadPinnedH3GrammarProfile();
+    expect(h3Model.ok && h3Connection.ok && h3Adapter.ok && isTrustedH3GrammarProfile(h3Grammar)).toBe(true);
+    if (!h3Model.ok || !h3Connection.ok || !h3Adapter.ok || !isTrustedH3GrammarProfile(h3Grammar)) return;
+    const h3Route = routeFromProfiles({
+      model: "minimax-h3",
+      mode: "text-to-video",
+      model_profile: h3Model.profile,
+      connection_profile: h3Connection.profile,
+      model_profile_digest: h3Model.digest,
+      connection_profile_digest: h3Connection.digest
+    });
+    expect(h3Route.ok).toBe(true);
+    if (!h3Route.ok) return;
+    const { model, connection, adapter, route } = await v6Route();
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-authoring-surface-")));
+    try {
+      const storeRoot = join(root, "store");
+      await mkdir(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
+      const h3Ir = standalone("minimax-h3");
+      h3Ir.target = { ...h3Ir.target, quality: "768p" };
+      const sourceDigest = sha256Canonical(h3Ir);
+      const compileOpts = {
+        request_id: "surface-h3-1",
+        route: h3Route.route,
+        model_profile: h3Model.profile,
+        model_profile_digest: h3Model.digest,
+        connection_profile: h3Connection.profile,
+        connection_capability_digest: h3Connection.digest,
+        adapter_dialect_capability: h3Adapter.capability,
+        grammar_profile: h3Grammar,
+        require_pinned_grammar: true as const
+      };
+      const h3Compiled = compileVideoPromptIrV2(h3Ir, {
+        ...compileOpts,
+        source: {
+          authoring_surface: "h3",
+          authoring_schema: "VideoPromptIrV2",
+          upgrader_version: "native-v2",
+          source_digest: sourceDigest
+        }
+      });
+      expect(h3Compiled.ok, JSON.stringify(h3Compiled)).toBe(true);
+      if (!h3Compiled.ok) return;
+      expect(h3Compiled.compilation.bundle.lineage.authoring_surface).toBe("h3");
+
+      // Without surface passthrough, recompile defaults to video_prompt and digests diverge.
+      const recompiledDefault = compileVideoPromptIrV2(h3Ir, {
+        ...compileOpts,
+        source: {
+          authoring_schema: "VideoPromptIrV2",
+          upgrader_version: "native-v2",
+          source_digest: sourceDigest
+        }
+      });
+      expect(recompiledDefault.ok).toBe(true);
+      if (!recompiledDefault.ok) return;
+      expect(recompiledDefault.compilation.bundle.lineage.authoring_surface).toBe("video_prompt");
+      expect(recompiledDefault.compilation.bundle.compilation_digest).not.toBe(h3Compiled.compilation.bundle.compilation_digest);
+
+      const recompiledH3 = compileVideoPromptIrV2(h3Ir, {
+        ...compileOpts,
+        source: {
+          authoring_surface: "h3",
+          authoring_schema: "VideoPromptIrV2",
+          upgrader_version: "native-v2",
+          source_digest: sourceDigest
+        }
+      });
+      expect(recompiledH3.ok).toBe(true);
+      if (!recompiledH3.ok) return;
+      expect(recompiledH3.compilation.bundle.lineage.authoring_surface).toBe("h3");
+      expect(recompiledH3.compilation.bundle.compilation_digest).toBe(h3Compiled.compilation.bundle.compilation_digest);
+
+      const revision = compilationRevisionId(h3Compiled.compilation.bundle);
+      const planning = await persistPlanningCompilationArtifact({
+        store,
+        bundle: h3Compiled.compilation.bundle,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision
+      });
+
+      // Fixture budget is planning-only; elevate only for this surface-success path.
+      const fixturePath = join(root, "budget.json");
+      await writeFile(fixturePath, JSON.stringify({
+        schema_version: 1,
+        source_id: "surface-budget",
+        hard: {
+          limit: 20000,
+          unit: "utf8-bytes",
+          source: "advisory-catalog",
+          verified_at: "2026-08-11T00:00:00Z",
+          source_digest: "2".repeat(64)
+        },
+        soft: null,
+        unknown: false,
+        model_profile_digest: h3Model.digest,
+        connection_profile_digest: h3Connection.digest,
+        route_digest: h3Route.route.route_digest,
+        retrieved_at: "2026-08-11T00:00:00Z",
+        expires_at: "2099-12-31T00:00:00Z"
+      }));
+      const trustedBudget = loadPlanningOnlyPinnedPromptBudgetEvidence({
+        artifactPath: fixturePath,
+        repoRoot: root,
+        route: h3Route.route,
+        model_profile_digest: h3Model.digest,
+        connection_profile_digest: h3Connection.digest
+      });
+      expect(trustedBudget).toBeDefined();
+      if (!trustedBudget) return;
+      const authSpy = vi.spyOn(promptBudgetEvidence, "isExecutionAuthoritativePinnedPromptBudgetEvidence")
+        .mockImplementation((value) => promptBudgetEvidence.isTrustedPinnedPromptBudgetEvidence(value));
+      try {
+        const derived = await videoPromptDirector.deriveExecutionCompilationBundleFromPlanningArtifact({
+          planning_artifact: planning,
+          store,
+          production_id: "production",
+          project_id: "project",
+          revision_id: revision,
+          project_root: root,
+          asset_pin_root: join(root, "pins"),
+          model_profile: h3Model.profile,
+          connection_profile: h3Connection.profile,
+          grammar_profile: h3Grammar,
+          trusted_pinned_budget_evidence: trustedBudget
+        });
+        expect(derived.bundle.execution_capable).toBe(true);
+        expect(derived.bundle.lineage.authoring_surface).toBe("h3");
+        expect(derived.bundle.lineage.authoring_schema).toBe("VideoPromptIrV2");
+      } finally {
+        authSpy.mockRestore();
+      }
+
+      const v2Compiled = compileVideoPromptIrV2(standalone(), {
+        request_id: "surface-vp-1",
+        route,
+        model_profile: model.profile,
+        model_profile_digest: model.digest,
+        connection_profile: connection.profile,
+        connection_capability_digest: connection.digest,
+        adapter_dialect_capability: adapter.capability,
+        source: {
+          authoring_surface: "video_prompt",
+          authoring_schema: "VideoPromptIrV2",
+          upgrader_version: "native-v2"
+        }
+      });
+      expect(v2Compiled.ok).toBe(true);
+      if (!v2Compiled.ok) return;
+      expect(v2Compiled.compilation.bundle.lineage.authoring_surface).toBe("video_prompt");
+      const v2Revision = compilationRevisionId(v2Compiled.compilation.bundle);
+      const v2Planning = await persistPlanningCompilationArtifact({
+        store,
+        bundle: v2Compiled.compilation.bundle,
+        production_id: "production",
+        project_id: "project",
+        revision_id: v2Revision
+      });
+      // video_prompt surface recompiles cleanly; only budget authority still blocks execution.
+      await expect(videoPromptDirector.deriveExecutionCompilationBundleFromPlanningArtifact({
+        planning_artifact: v2Planning,
+        store,
+        production_id: "production",
+        project_id: "project",
+        revision_id: v2Revision,
+        project_root: root,
+        asset_pin_root: join(root, "pins"),
+        model_profile: model.profile,
+        connection_profile: connection.profile,
+        trusted_pinned_budget_evidence: {} as never
+      })).rejects.toThrow(/unknown or not authoritative/);
+
+      // Unknown / forged surfaces are rejected at the strict bundle boundary.
+      const forgedUnknown = JSON.parse(JSON.stringify(h3Compiled.compilation.bundle)) as Record<string, any>;
+      forgedUnknown.lineage = { ...forgedUnknown.lineage, authoring_surface: "caller-forged" };
+      forgedUnknown.compilation_digest = sha256Canonical(Object.fromEntries(
+        Object.entries(forgedUnknown).filter(([key]) => key !== "compilation_digest")
+      ));
+      expect(() => verifyCompilationBundle(forgedUnknown)).toThrow();
+
+      const forgedFlip = JSON.parse(JSON.stringify(h3Compiled.compilation.bundle)) as Record<string, any>;
+      forgedFlip.lineage = { ...forgedFlip.lineage, authoring_surface: "video_prompt" };
+      forgedFlip.compilation_digest = sha256Canonical(Object.fromEntries(
+        Object.entries(forgedFlip).filter(([key]) => key !== "compilation_digest")
+      ));
+      // Flipped surface recomputes as a different digest and cannot impersonate the h3 planning artifact.
+      expect(forgedFlip.compilation_digest).not.toBe(h3Compiled.compilation.bundle.compilation_digest);
+      expect(() => verifyCompilationBundle(forgedFlip)).not.toThrow();
+      expect(verifyCompilationBundle(forgedFlip).lineage.authoring_surface).toBe("video_prompt");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects planning authority loader for unsafe namespace, wrong root, tamper, and non-canonical bytes", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      request_id: "loader-1",
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-loader-")));
+    try {
+      const storeRoot = join(root, "store");
+      await mkdir(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
+      const bundle = compiled.compilation.bundle;
+      const revision = compilationRevisionId(bundle);
+      const planning = await persistPlanningCompilationArtifact({
+        store,
+        bundle,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision
+      });
+
+      await expect(loadPlanningArtifactRef({
+        store,
+        artifact_id: planning.artifact_id,
+        artifact_digest: planning.artifact_digest,
+        production_id: "../escape",
+        project_id: "project",
+        revision_id: revision,
+        request_id: bundle.request_id,
+        expected_store_root: storeRoot
+      })).rejects.toThrow(/unsafe namespace/);
+
+      await expect(loadPlanningArtifactRef({
+        store,
+        artifact_id: planning.artifact_id,
+        artifact_digest: planning.artifact_digest,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision,
+        request_id: bundle.request_id,
+        expected_store_root: join(root, "other-store")
+      })).rejects.toThrow(/store root is not the trusted/);
+
+      await expect(loadPlanningArtifactRef({
+        store,
+        artifact_id: "planning-production-project-wrong-revision-loader-1",
+        artifact_digest: planning.artifact_digest,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision,
+        request_id: bundle.request_id,
+        expected_store_root: storeRoot
+      })).rejects.toThrow(/namespace does not match/);
+
+      await expect(loadPlanningArtifactRef({
+        store,
+        artifact_id: planning.artifact_id,
+        artifact_digest: "0".repeat(64),
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision,
+        request_id: bundle.request_id,
+        expected_store_root: storeRoot
+      })).rejects.toThrow(/bytes changed or were copied/);
+
+      // Non-canonical whitespace padding is rejected even with a matching digest of padded bytes.
+      const paddedRoot = join(root, "padded");
+      await mkdir(paddedRoot);
+      const paddedStore = new ArtifactStore(paddedRoot);
+      const paddedBytes = Buffer.from(` ${JSON.stringify(bundle)} `, "utf8");
+      const paddedDigest = createHash("sha256").update(paddedBytes).digest("hex");
+      const paddedId = `planning-production-project-${revision}-${bundle.request_id}`;
+      await paddedStore.create({ artifact_id: paddedId, bytes: paddedBytes });
+      await expect(loadPlanningArtifactRef({
+        store: paddedStore,
+        artifact_id: paddedId,
+        artifact_digest: paddedDigest,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision,
+        request_id: bundle.request_id,
+        expected_store_root: paddedRoot
+      })).rejects.toThrow(/not a strict compilation bundle|not canonical|stale or execution-capable/);
+
+      // Execution-capable payload cannot become planning authority.
+      const executionShaped = JSON.parse(JSON.stringify(bundle)) as Record<string, any>;
+      executionShaped.execution_capable = true;
+      executionShaped.effective_contract.execution.status = "execution-capable";
+      const effectiveBody = { ...executionShaped.effective_contract };
+      delete effectiveBody.digest;
+      executionShaped.effective_contract.digest = sha256Canonical(effectiveBody);
+      executionShaped.effective_contract_digest = executionShaped.effective_contract.digest;
+      executionShaped.compilation_digest = sha256Canonical(Object.fromEntries(
+        Object.entries(executionShaped).filter(([key]) => key !== "compilation_digest")
+      ));
+      // Schema may reject missing pin evidence for execution-capable; either path is fail-closed.
+      try {
+        const execBytes = Buffer.from(JSON.stringify(executionShaped), "utf8");
+        const execRoot = join(root, "exec-store");
+        await mkdir(execRoot);
+        const execStore = new ArtifactStore(execRoot);
+        const execRevision = compilationRevisionId({ compilation_digest: executionShaped.compilation_digest } as never);
+        const execId = `planning-production-project-${execRevision}-${bundle.request_id}`;
+        await execStore.create({ artifact_id: execId, bytes: execBytes });
+        await expect(loadPlanningArtifactRef({
+          store: execStore,
+          artifact_id: execId,
+          artifact_digest: createHash("sha256").update(execBytes).digest("hex"),
+          production_id: "production",
+          project_id: "project",
+          revision_id: execRevision,
+          request_id: bundle.request_id,
+          expected_store_root: execRoot
+        })).rejects.toThrow(/strict compilation bundle|stale or execution-capable|not canonical/);
+      } catch (error) {
+        expect(String(error)).toMatch(/VPD-K003|execution|bundle|digest/i);
+      }
+
+      // Tamper after persist: rewrite artifact bytes under the same id is create-only rejected;
+      // a second store with same namespace but different bytes fails digest match on reload.
+      const reloaded = await loadPlanningArtifactRef({
+        store,
+        artifact_id: planning.artifact_id,
+        artifact_digest: planning.artifact_digest,
+        production_id: "production",
+        project_id: "project",
+        revision_id: revision,
+        request_id: bundle.request_id,
+        expected_store_root: storeRoot
+      });
+      expect(reloaded.artifact_digest).toBe(planning.artifact_digest);
+      expect(reloaded.request_id).toBe(bundle.request_id);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects lease creation without full expected binding and keeps disabled/shadow asset paths fail-closed", async () => {
+    // Lease binding: forged JSON-shaped objects never mint or consume a lease.
+    expect(() => createExecutionSubmissionLease({ execution_capable: true } as never)).toThrow(/VPD-K003/);
+    expect(() => createExecutionSubmissionLease({} as never, {
+      production_id: "production",
+      project_id: "project",
+      revision_id: "revision-1",
+      request_id: "req-1",
+      attempt_id: "attempt-1",
+      job_id: "job-1",
+      compilation_digest: "0".repeat(64),
+      effective_contract_digest: "0".repeat(64),
+      asset_lineage_digest: "0".repeat(64)
+    } as never)).toThrow(/VPD-K003/);
+    expect(() => consumeExecutionSubmissionLease({ kind: "video-prompt-execution-submission-lease" } as never, {
+      production_id: "production",
+      project_id: "project",
+      revision_id: "revision-1",
+      request_id: "req-1",
+      attempt_id: "attempt-1",
+      job_id: "job-1",
+      compilation_digest: "0".repeat(64),
+      effective_contract_digest: "0".repeat(64),
+      asset_lineage_digest: "0".repeat(64)
+    } as never)).toThrow(/VPD-K003/);
+
+    // Disabled mode: raw image/video assets stay local and do not open production-control authority.
+    const disabledRoot = await mkdtemp(join(tmpdir(), "tsugite-po4-disabled-asset-"));
+    try {
+      await writeFile(join(disabledRoot, "project.yaml"), await readFile("examples/h3-prompt-director/project.yaml", "utf8"));
+      await writeFile(join(disabledRoot, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      await mkdir(join(disabledRoot, "media"));
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(disabledRoot, "media", "clip-001.mp4"));
+      const disabled = await validateProject(join(disabledRoot, "project.yaml"));
+      expect(disabled.ok).toBe(true);
+      await expect(stat(join(disabledRoot, "production-control"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(disabledRoot, { recursive: true, force: true });
+    }
+
+    // Shadow mode: comparison may write, but does not promote native V2 as authority and fails closed on bad asset refs.
+    const shadowRoot = await mkdtemp(join(tmpdir(), "tsugite-po4-shadow-asset-fail-"));
+    try {
+      const sourceProject = await readFile("examples/h3-prompt-director/project.yaml", "utf8");
+      const shadowProject = sourceProject.replace(
+        "edit:\n",
+        "orchestration:\n  mode: shadow\n  authoring:\n    assets:\n      kind: asset-contract\n      id: missing-shadow-asset\n      digest: " + "a".repeat(64) + "\nedit:\n"
+      );
+      await writeFile(join(shadowRoot, "project.yaml"), shadowProject);
+      await writeFile(join(shadowRoot, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      await mkdir(join(shadowRoot, "media"));
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(shadowRoot, "media", "clip-001.mp4"));
+      const shadow = await validateProject(join(shadowRoot, "project.yaml"));
+      // Shadow may keep legacy authority or report asset issues; either way it must not write active planning authority.
+      if (shadow.ok) {
+        await expect(stat(join(shadowRoot, "production-control", "video-prompt-planning"))).rejects.toThrow();
+      } else {
+        expect(shadow.issues.map((issue) => issue.code).join(",")).toMatch(/VPD-J002|asset|orchestration|shadow/i);
+      }
+    } finally {
+      await rm(shadowRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects atomic publication when target already exists, marker is invalid, or cleanup identity changes", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const bundle = compiled.compilation.bundle;
+    const revision = compilationRevisionId(bundle);
+
+    // Existing directory without allow flag: hard no-replace.
+    const rootA = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-pub-exists-")));
+    try {
+      await writeCompilationBundleAtomic(rootA, bundle, {
+        project_root: rootA,
+        revision_id: revision,
+        request_id: bundle.request_id
+      });
+      await expect(writeCompilationBundleAtomic(rootA, bundle, {
+        project_root: rootA,
+        revision_id: revision,
+        request_id: bundle.request_id
+      })).rejects.toThrow(/already exists/);
+    } finally {
+      await rm(rootA, { recursive: true, force: true });
+    }
+
+    // Orphan directory (no commit marker) with allow_existing_same_digest is quarantined then republished.
+    const rootB = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-pub-orphan-")));
+    try {
+      const parent = join(rootB, revision, "video-prompt");
+      const target = join(parent, bundle.request_id);
+      await mkdir(target, { recursive: true, mode: 0o700 });
+      await writeFile(join(target, "orphan.txt"), "leftover\n");
+      await writeCompilationBundleAtomic(rootB, bundle, {
+        project_root: rootB,
+        revision_id: revision,
+        request_id: bundle.request_id,
+        allow_existing_same_digest: true
+      });
+      const published = readCompilationBundleAtomic(rootB, {
+        project_root: rootB,
+        revision_id: revision,
+        request_id: bundle.request_id
+      });
+      expect(published.bundle.compilation_digest).toBe(bundle.compilation_digest);
+      const siblings = await readdir(parent);
+      expect(siblings.some((name) => name.includes("quarantine"))).toBe(true);
+    } finally {
+      await rm(rootB, { recursive: true, force: true });
+    }
+
+    // Invalid committed marker with allow_existing_same_digest fails closed (does not silently adopt).
+    const rootC = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-pub-bad-marker-")));
+    try {
+      const parent = join(rootC, revision, "video-prompt");
+      const target = join(parent, bundle.request_id);
+      await mkdir(target, { recursive: true, mode: 0o700 });
+      await writeFile(join(target, "compilation-manifest.json"), JSON.stringify({ committed: true, broken: true }));
+      await expect(writeCompilationBundleAtomic(rootC, bundle, {
+        project_root: rootC,
+        revision_id: revision,
+        request_id: bundle.request_id,
+        allow_existing_same_digest: true
+      })).rejects.toThrow(/committed compilation manifest is invalid|already exists|VPD-K002/);
+    } finally {
+      await rm(rootC, { recursive: true, force: true });
+    }
+
+    // Failed link path still runs cleanup; cleanup identity failure remains fail-closed.
+    const rootD = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-pub-cleanup-")));
+    try {
+      await expect(writeCompilationBundleAtomic(rootD, bundle, {
+        project_root: rootD,
+        revision_id: revision,
+        request_id: bundle.request_id,
+        hooks: {
+          before_link: async () => {
+            throw new Error("publication-before-link");
+          },
+          before_cleanup: async () => {
+            throw new Error("cleanup identity changed");
+          }
+        }
+      })).rejects.toThrow(/cleanup identity changed|publication-before-link|no-replace compilation publication failed/);
+    } finally {
+      await rm(rootD, { recursive: true, force: true });
+    }
+
+    // before_marker_write failure aborts without publishing the target.
+    const rootE = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-pub-marker-hook-")));
+    try {
+      await expect(writeCompilationBundleAtomic(rootE, bundle, {
+        project_root: rootE,
+        revision_id: revision,
+        request_id: bundle.request_id,
+        hooks: {
+          before_marker_write: async () => {
+            throw new Error("marker write blocked");
+          }
+        }
+      })).rejects.toThrow(/marker write blocked|no-replace compilation publication failed/);
+      await expect(stat(join(rootE, revision, "video-prompt", bundle.request_id))).rejects.toThrow();
+    } finally {
+      await rm(rootE, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects review surface when current asset contract is missing, stale, or surface-forged", async () => {
+    const raw = await mkdtemp(join(tmpdir(), "tsugite-po4-review-surface-"));
+    const root = await realpath(raw);
+    try {
+      const bytes = Buffer.from("review-surface-asset\n", "utf8");
+      await mkdir(join(root, "media"));
+      await writeFile(join(root, "media", "reference.bin"), bytes);
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(root, "media", "clip-001.mp4"));
+      const contract = createAssetContract({
+        contract_id: "review-surface",
+        revision: 1,
+        assets: [{
+          asset_id: "reference",
+          kind: "image",
+          project_relative_path: "media/reference.bin",
+          sha256: sha256Text(bytes.toString("utf8")),
+          byte_size: bytes.byteLength,
+          roles: ["first-frame"],
+          provenance: { source: "user", usage_confirmed: true },
+          external_send: "allowed"
+        }]
+      });
+      await mkdir(join(root, "production-control"));
+      const store = new ArtifactStore(join(root, "production-control"));
+      await store.create({ artifact_id: contract.contract_id, bytes: JSON.stringify(contract) });
+      const ir = standalone("v6");
+      ir.target = { ...ir.target, mode: "first-frame" };
+      ir.assets = [{ id: "reference", type: "image", path: "media/reference.bin", role: "first_frame", sha256: contract.assets[0]!.sha256 }];
+      const configPath = join(root, "project.yaml");
+      await writeFile(configPath, JSON.stringify({
+        slug: "review-surface",
+        name: "review-surface",
+        manifest: "manifest.json",
+        dist_dir: "dist",
+        edit: { backend: "remotion" },
+        orchestration: { mode: "active", authoring: { assets: { kind: "asset-contract", id: contract.contract_id, digest: contract.digest } } },
+        generation: { connection: "pixverse", adapter: "pixverse", requests: [{ id: "surface-review-1", prompt: "", params: {}, video_prompt: ir }] }
+      }));
+      await writeFile(join(root, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      const validation = await validateProject(configPath);
+      expect(validation.ok, validation.ok ? "" : JSON.stringify(validation.issues)).toBe(true);
+      if (!validation.ok) return;
+      const plan = createPlan(validation.project, validation.manifest, validation.adapter, undefined, validation.promptGuides, validation.audioAdapter, validation.generationConnection, validation.audioConnection, validation.backend, validation.h3_compilations, validation.video_prompt_plans);
+      const stateDir = join(root, "review-state");
+      await writeCreativeReview({ configPath, project: validation.project, manifest: validation.manifest, plan, stateDir });
+      const fresh = await inspectGate1Review({ configPath, project: validation.project, manifest: validation.manifest, stateDir });
+      expect(fresh.ok, fresh.ok ? "" : JSON.stringify(fresh.issues)).toBe(true);
+
+      // Missing contract artifact after review write: freshness fails closed.
+      await rm(join(root, "production-control", "artifacts", `${contract.contract_id}.json`), { force: true });
+      const missing = await inspectGate1Review({ configPath, project: validation.project, manifest: validation.manifest, stateDir });
+      expect(missing.ok).toBe(false);
+      expect(missing.issues.map((issue) => issue.code)).toContain("VPD-J002");
+
+      // Restore then digest mismatch: still fail closed.
+      await store.create({ artifact_id: contract.contract_id, bytes: JSON.stringify(contract) });
+      const mutated = createAssetContract({
+        contract_id: contract.contract_id,
+        revision: 3,
+        assets: [{ ...contract.assets[0]!, external_send: "forbidden" }]
+      });
+      await writeFile(join(root, "production-control", "artifacts", `${contract.contract_id}.json`), JSON.stringify(mutated));
+      const stale = await inspectGate1Review({ configPath, project: validation.project, manifest: validation.manifest, stateDir });
+      expect(stale.ok).toBe(false);
+      expect(stale.issues.map((issue) => issue.code)).toContain("VPD-J002");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

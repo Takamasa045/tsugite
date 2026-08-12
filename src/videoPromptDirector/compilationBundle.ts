@@ -909,6 +909,11 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
     || !planning.lineage.upgrader_version.trim()) {
     throw new Error("VPD-K003: committed planning authoring source tuple is unsupported");
   }
+  // Strict surface passthrough: never re-default legacy H3 planning to video_prompt.
+  if (planning.lineage.authoring_surface !== "h3" && planning.lineage.authoring_surface !== "video_prompt") {
+    throw new Error("VPD-K003: committed planning authoring surface is unsupported");
+  }
+  const authoringSurface = planning.lineage.authoring_surface;
 
   const [modelLoad, connectionLoad] = await Promise.all([
     loadModelPromptProfile(normalized.data.target.model_profile_id),
@@ -971,6 +976,7 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
       }]))
     } : {}),
     source: {
+      authoring_surface: authoringSurface,
       authoring_schema: planning.lineage.authoring_schema as "VideoPromptIrV2" | "V1" | "H3-V1",
       upgrader_version: planning.lineage.upgrader_version,
       ...(planning.lineage.source_digest ? { source_digest: planning.lineage.source_digest } : {})
@@ -979,6 +985,7 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
   });
   if (!recompiled.ok || !recompiled.compilation.bundle
     || recompiled.compilation.bundle.compilation_digest !== planning.compilation_digest
+    || recompiled.compilation.bundle.lineage.authoring_surface !== authoringSurface
     || recompiled.compilation.canonical_prompt !== planning.canonical_prompt
     || recompiled.compilation.adapter_prompt !== planning.adapter_prompt
     || sha256Canonical(recompiled.compilation.semantic_blocks) !== sha256Canonical(planning.semantic_blocks)) {
@@ -1091,6 +1098,7 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
     } : {}),
     labels_digest: planning.labels_digest,
     validation: planning.validation,
+    authoring_surface: authoringSurface,
     authoring_schema: planning.lineage.authoring_schema === "V1" || planning.lineage.authoring_schema === "H3-V1" || planning.lineage.authoring_schema === "VideoPromptIrV2"
       ? planning.lineage.authoring_schema
       : undefined,
