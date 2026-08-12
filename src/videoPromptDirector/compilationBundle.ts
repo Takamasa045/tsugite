@@ -999,6 +999,13 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
     if (input.generation_unit_source.unit_id !== planning.request_id) throw new Error("VPD-K002: generation unit source does not match request identity");
   }
   if (!isExecutionAuthoritativePinnedPromptBudgetEvidence(input.trusted_pinned_budget_evidence)) throw new Error("VPD-K003: production prompt budget evidence is unknown or not authoritative");
+  // Plain-prompt has no H3 grammar feature space: unused group/exact claims are
+  // hard by non-use. When the IR actually requires them, only a trusted grammar
+  // feature can elevate the claim.
+  const needsGroupSpeaker = normalized.data.shots.some((shot) =>
+    shot.vocal_events.some((event) => event.speaker_ids.length > 1));
+  const needsExactText = normalized.data.shots.some((shot) =>
+    shot.vocal_events.some((event) => event.content.source !== "legacy-unaligned"));
   const effective = createEffectiveGenerationContract({
     mode: planning.route.mode_binding as never,
     route: planning.route,
@@ -1009,8 +1016,12 @@ export async function deriveExecutionCompilationBundleFromPlanningArtifact(input
     trusted_pinned_budget_evidence: input.trusted_pinned_budget_evidence,
     capability_evidence: {
       duration: "hard", aspect: "hard", resolution: "hard", mode: "hard", reference: "hard",
-      group_speaker: trustedGrammar?.features.group_speaker ? "hard" : "unknown",
-      exact_text: trustedGrammar?.features.exact_dialogue ? "hard" : "unknown"
+      group_speaker: needsGroupSpeaker
+        ? (trustedGrammar?.features.group_speaker ? "hard" : "unknown")
+        : "hard",
+      exact_text: needsExactText
+        ? (trustedGrammar?.features.exact_dialogue ? "hard" : "unknown")
+        : "hard"
     },
     execution_capable: true
   });
