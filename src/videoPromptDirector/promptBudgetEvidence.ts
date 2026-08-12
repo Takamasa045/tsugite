@@ -38,6 +38,7 @@ const trustedEvidence = new WeakSet<object>();
 const fixtureOnlyEvidence = new WeakSet<object>();
 const evidenceSnapshots = new WeakMap<object, string>();
 const MAX_BUDGET_ARTIFACT_BYTES = 1 * 1024 * 1024;
+const EXECUTION_AUTHORITATIVE_SOURCES = new Set(["official-api", "adapter"]);
 
 const artifactSchema = z.object({
   schema_version: z.literal(1),
@@ -64,19 +65,25 @@ const artifactSchema = z.object({
   expires_at: z.string().min(1)
 }).strict();
 
-/**
- * Planning-only artifact loader used by fixture tests to exercise containment
- * and anti-forgery mechanics. It intentionally cannot grant execution
- * authority, and it has no provider-specific path or digest in core.
- */
-export function loadPlanningOnlyPinnedPromptBudgetEvidence(input: {
+type BudgetArtifactLoadInput = {
   artifactPath: string;
   repoRoot?: string;
   route: RouteIdentityV1;
   model_profile_digest: string;
   connection_profile_digest: string;
   now?: string;
-}): TrustedPinnedPromptBudgetEvidence | undefined {
+};
+
+/**
+ * Shared trusted artifact reader. Performs containment / realpath / lstat
+ * symlink rejection / regular-file / size-cap / same-FD fstat-read-fstat /
+ * schema / canonical digest / route+model+connection exact match / expiry
+ * checks and freezes the resulting evidence object. Callers decide how to
+ * brand the object (planning fixture-only vs execution-authoritative).
+ */
+function readTrustedPinnedPromptBudgetArtifact(
+  input: BudgetArtifactLoadInput
+): TrustedPinnedPromptBudgetEvidence | undefined {
   const repoRoot = resolve(input.repoRoot ?? process.cwd());
   const artifactPath = resolve(input.artifactPath);
   if (!contained(repoRoot, artifactPath)) return undefined;
@@ -115,14 +122,52 @@ export function loadPlanningOnlyPinnedPromptBudgetEvidence(input: {
       connection_profile_digest: artifact.connection_profile_digest,
       route_digest: artifact.route_digest
     };
-    const evidence = deepFreeze({ ...body, digest: sha256Canonical(body) }) as TrustedPinnedPromptBudgetEvidence;
-    trustedEvidence.add(evidence);
-    fixtureOnlyEvidence.add(evidence);
-    evidenceSnapshots.set(evidence, sha256Canonical(evidence));
-    return evidence;
+    return deepFreeze({ ...body, digest: sha256Canonical(body) }) as TrustedPinnedPromptBudgetEvidence;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Planning-only artifact loader used by fixture tests to exercise containment
+ * and anti-forgery mechanics. It intentionally cannot grant execution
+ * authority, and it has no provider-specific path or digest in core.
+ */
+export function loadPlanningOnlyPinnedPromptBudgetEvidence(input: {
+  artifactPath: string;
+  repoRoot?: string;
+  route: RouteIdentityV1;
+  model_profile_digest: string;
+  connection_profile_digest: string;
+  now?: string;
+}): TrustedPinnedPromptBudgetEvidence | undefined {
+  const evidence = readTrustedPinnedPromptBudgetArtifact(input);
+  if (!evidence) return undefined;
+  trustedEvidence.add(evidence);
+  fixtureOnlyEvidence.add(evidence);
+  evidenceSnapshots.set(evidence, sha256Canonical(evidence));
+  return evidence;
+}
+
+/**
+ * Execution-authoritative local pinned budget loader. Accepts only explicit
+ * official-api / adapter source limits (design truth for hard execution
+ * claims). Never marks fixtureOnly. No network / provider calls.
+ */
+export function loadExecutionAuthoritativePinnedPromptBudgetEvidence(input: {
+  artifactPath: string;
+  repoRoot?: string;
+  route: RouteIdentityV1;
+  model_profile_digest: string;
+  connection_profile_digest: string;
+  now?: string;
+}): TrustedPinnedPromptBudgetEvidence | undefined {
+  const evidence = readTrustedPinnedPromptBudgetArtifact(input);
+  if (!evidence) return undefined;
+  if (!hasExecutionAuthoritativeSources(evidence)) return undefined;
+  trustedEvidence.add(evidence);
+  evidenceSnapshots.set(evidence, sha256Canonical(evidence));
+  return evidence;
 }
 
 export function isTrustedPinnedPromptBudgetEvidence(value: unknown): value is TrustedPinnedPromptBudgetEvidence {
@@ -132,6 +177,12 @@ export function isTrustedPinnedPromptBudgetEvidence(value: unknown): value is Tr
 
 export function isExecutionAuthoritativePinnedPromptBudgetEvidence(value: unknown): value is TrustedPinnedPromptBudgetEvidence {
   return isTrustedPinnedPromptBudgetEvidence(value) && !fixtureOnlyEvidence.has(value);
+}
+
+function hasExecutionAuthoritativeSources(evidence: PinnedPromptBudgetEvidence): boolean {
+  const limits = [evidence.hard, evidence.soft].filter((limit): limit is BudgetLimitEvidence => limit !== null);
+  if (limits.length === 0) return false;
+  return limits.every((limit) => EXECUTION_AUTHORITATIVE_SOURCES.has(limit.source));
 }
 
 function contained(root: string, candidate: string): boolean {

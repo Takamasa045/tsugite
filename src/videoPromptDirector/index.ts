@@ -183,6 +183,10 @@ export {
 } from "./effectiveContract.js";
 
 export {
+  loadPlanningOnlyPinnedPromptBudgetEvidence,
+  loadExecutionAuthoritativePinnedPromptBudgetEvidence,
+  isTrustedPinnedPromptBudgetEvidence,
+  isExecutionAuthoritativePinnedPromptBudgetEvidence,
   type PinnedPromptBudgetEvidence,
   type TrustedPinnedPromptBudgetEvidence
 } from "./promptBudgetEvidence.js";
