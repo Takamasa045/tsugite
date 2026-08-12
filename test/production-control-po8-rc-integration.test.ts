@@ -1,5 +1,5 @@
 /**
- * PO-8 / T09 — RC structural repair round 5.
+ * PO-8 / T09 — RC structural repair round 6 (EB1/EB2 exit blockers).
  * Fixture-only: no provider DNS, billing, real Gate, non-dry-run run/render/finalize.
  */
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -1431,4 +1431,403 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
     // package version override rejected
     expect(() => projectRevisionBindings({ package_version: "1.0.0" })).toThrow(/override/);
   }, 180_000);
+});
+
+describe("PO-8 round6 EB1 video-prompt authority thread", () => {
+  it("migration preview→apply active→review→gate inspect recomputes V2 projection without YAML rewrite", async () => {
+    const { copyFile } = await import("node:fs/promises");
+    const { inspectGate1Review, writeCreativeReview } = await import("../src/orchestrator/review.js");
+    const { createPlan } = await import("../src/orchestrator/plan.js");
+    const { validateProject } = await import("../src/project/validateProject.js");
+    const {
+      loadModelPromptProfile,
+      loadConnectionCapabilityProfile,
+      routeFromProfiles
+    } = await import("../src/videoPromptDirector/index.js");
+    const { buildProgramBinding } = await import("../src/productionControl/programBinding.js");
+    const { createArtifactStore } = await import("../src/productionControl/artifactStore.js");
+    const { createGenerationUnit, toProgramBindingSource } = await import(
+      "../src/productionControl/contracts/generationUnit.js"
+    );
+    const { createMusicStructureContract } = await import(
+      "../src/productionControl/contracts/music.js"
+    );
+    const { sha256Text } = await import("../src/integrity/canonical.js");
+    const {
+      projectWithRuntimeAuthority,
+      resolveRuntimeAuthority
+    } = await import("../src/productionControl/runtimeAuthority.js");
+    const { loadProject } = await import("../src/project/loadProject.js");
+
+    const root = await realTempDir("tsugite-po8-eb1-");
+    try {
+      await mkdir(join(root, "media"), { recursive: true });
+      await mkdir(join(root, "production-control"), { recursive: true });
+      const manifest = JSON.parse(
+        await readFile(join(REPO_ROOT, "examples/local-fixture/manifest.json"), "utf8")
+      ) as Record<string, unknown>;
+      (manifest.meta as Record<string, unknown>).target_duration_seconds = 72;
+      await writeFile(join(root, "manifest.json"), JSON.stringify(manifest));
+      await copyFile(
+        join(REPO_ROOT, "examples/local-fixture/media/clip-001.mp4"),
+        join(root, "media/clip-001.mp4")
+      );
+      await copyFile(
+        join(REPO_ROOT, "examples/local-fixture/media/clip-002.mp4"),
+        join(root, "media/clip-002.mp4")
+      );
+
+      // Phase 1: local project — CLI migration preview→apply (no provider/gate effect).
+      const config = join(root, "project.yaml");
+      await writeFile(config, JSON.stringify({
+        slug: "po8-eb1-mv",
+        name: "PO8 EB1 MV",
+        run_id: "po8-eb1-mv-run",
+        manifest: "manifest.json",
+        dist_dir: "dist",
+        edit: { backend: "remotion" }
+      }));
+
+      const shadowPreview = await captureCli([
+        "production-migrate", "--config", config, "--target", "shadow"
+      ]);
+      expect(shadowPreview.code, shadowPreview.text).toBe(0);
+      const shadowDigest = (shadowPreview.payload.preview as { digest: string }).digest;
+      expect((await captureCli([
+        "production-migrate", "--config", config, "--target", "shadow",
+        "--apply", "--actor", "coordinator", "--expected-plan-digest", shadowDigest
+      ])).code).toBe(0);
+
+      const activePreview = await captureCli([
+        "production-migrate", "--config", config, "--target", "active"
+      ]);
+      expect(activePreview.code, activePreview.text).toBe(0);
+      expect((activePreview.payload.preview as { source_mode: string }).source_mode).toBe("shadow");
+      const activeDigest = (activePreview.payload.preview as { digest: string }).digest;
+      const activeApply = await captureCli([
+        "production-migrate", "--config", config, "--target", "active",
+        "--apply", "--actor", "coordinator", "--expected-plan-digest", activeDigest
+      ]);
+      expect(activeApply.code, activeApply.text).toBe(0);
+      expect(activeApply.payload.generation_submitted).toBe("unknown");
+      expect(await readFile(config, "utf8")).not.toMatch(/"mode"\s*:\s*"active"/);
+
+      // Dry planning readers after migrate (local fixture; provider 0).
+      expect((await captureCli(["plan", "--config", config])).code).toBe(0);
+      expect((await captureCli(["review", "--config", config])).code).toBe(0);
+      const dryLocal = await captureCli(["run", "--config", config, "--dry-run"]);
+      expect([0, 1]).toContain(dryLocal.code);
+
+      // Phase 2: author native V2 under YAML mode=active (required by compile gate),
+      // write Gate1 review, then strip YAML mode to disabled while durable pointer stays active.
+      // This is the migration non-rewrite split: pointer SoT active, disk YAML not active.
+      const model = await loadModelPromptProfile("v6");
+      const connection = await loadConnectionCapabilityProfile("pixverse");
+      expect(model.ok && connection.ok).toBe(true);
+      if (!model.ok || !connection.ok) return;
+      const selected = routeFromProfiles({
+        model: "v6",
+        mode: "text-to-video",
+        model_profile: model.profile,
+        connection_profile: connection.profile,
+        model_profile_digest: model.digest,
+        connection_profile_digest: connection.digest
+      });
+      expect(selected.ok).toBe(true);
+      if (!selected.ok) return;
+      const music = createMusicStructureContract({
+        contract_id: "music-1",
+        revision: 1,
+        master_audio: { asset_id: "master-audio", sha256: sha256Text("master-audio"), duration_ms: 72_000 },
+        analysis: { status: "imported" },
+        tempo_map: [],
+        beat_markers: [],
+        sections: [],
+        section_policy: { gaps: "allow", overlaps: "forbid" }
+      });
+      const unit = createGenerationUnit({
+        production_id: "production-1",
+        unit_id: "mv-unit-01",
+        ordinal: 0,
+        music,
+        start_ms: 0,
+        end_ms: 10_000,
+        audio_policy: "reuse-master",
+        route: selected.route
+      });
+      const source = toProgramBindingSource(unit);
+      const store = await createArtifactStore(join(root, "production-control"));
+      await store.create({ artifact_id: music.contract_id, bytes: JSON.stringify(music) });
+      await store.create({ artifact_id: unit.unit_id, bytes: JSON.stringify(unit) });
+      const ir = {
+        version: 2,
+        program_kind: "mv",
+        target: {
+          model_profile_id: "v6",
+          mode: "text-to-video",
+          duration_ms: 10_000,
+          quality: "720p",
+          aspect: "16:9",
+          audio: false
+        },
+        creative: { must_include: [], prohibited: [] },
+        subjects: [],
+        scenes: [],
+        assets: [],
+        shots: [{
+          id: "shot-1",
+          start_ms: 0,
+          end_ms: 10_000,
+          cast: [],
+          composition: "medium shot",
+          action_beats: [{ description: "A lantern turns toward the camera." }],
+          vocal_events: [],
+          visible_text_events: [],
+          constraints: { positive: [], exact_text_refs: [] }
+        }],
+        audio: { policy: "reuse-master", reference_asset_ids: [], final_mix: "discard-generated" },
+        program_binding: buildProgramBinding(source)
+      };
+      const v2Active = {
+        slug: "po8-eb1-mv",
+        name: "PO8 EB1 MV",
+        run_id: "po8-eb1-mv-run",
+        manifest: "manifest.json",
+        dist_dir: "dist",
+        edit: { backend: "remotion" },
+        orchestration: {
+          mode: "active",
+          authoring: {
+            music: { kind: "music-contract", id: music.contract_id, digest: music.digest },
+            generation_units: [{ kind: "mv-generation-unit", id: unit.unit_id, digest: unit.digest }]
+          }
+        },
+        generation: {
+          connection: "pixverse",
+          adapter: "pixverse",
+          requests: [{
+            id: "mv-unit-01",
+            operation: "video",
+            model: "v6",
+            mode: "text-to-video",
+            prompt: "",
+            params: {},
+            video_prompt: ir
+          }]
+        }
+      };
+      await writeFile(config, JSON.stringify(v2Active));
+
+      const validation = await validateProject(config);
+      expect(validation.ok, JSON.stringify(validation.issues)).toBe(true);
+      if (!validation.ok || !validation.project || !validation.manifest) return;
+      // Pointer remains durable active; YAML active matches during authoring/review write.
+      expect(validation.runtime_authority?.runtime_mode).toBe("active");
+
+      const trusted = projectWithRuntimeAuthority(
+        validation.project,
+        validation.runtime_authority
+      );
+      const plan = createPlan(
+        trusted as never,
+        validation.manifest,
+        validation.adapter,
+        validation.analysisAdapter,
+        validation.promptGuides,
+        validation.audioAdapter,
+        validation.generationConnection,
+        validation.audioConnection,
+        validation.backend,
+        validation.h3_compilations,
+        validation.video_prompt_plans,
+        validation.runtime_authority
+      );
+      expect((plan.video_prompt_plans ?? []).length).toBeGreaterThan(0);
+      await writeCreativeReview({
+        configPath: config,
+        project: trusted as never,
+        manifest: validation.manifest,
+        plan,
+        stateDir: join(root, "dist"),
+        runtime_authority: validation.runtime_authority
+      });
+
+      // Simulate migration non-rewrite aftermath: YAML no longer projects active.
+      // Durable pointer stays active (resolveRuntimeAuthority = validate-derived SoT).
+      const v2DisabledYaml = {
+        ...v2Active,
+        orchestration: {
+          ...v2Active.orchestration,
+          mode: "disabled"
+        }
+      };
+      await writeFile(config, JSON.stringify(v2DisabledYaml));
+      expect(await readFile(config, "utf8")).toMatch(/"mode"\s*:\s*"disabled"/);
+      expect(await readFile(config, "utf8")).not.toMatch(/"mode"\s*:\s*"active"/);
+
+      const diskProject = await loadProject(config);
+      const authority = await resolveRuntimeAuthority({
+        configPath: config,
+        project: diskProject
+      });
+      expect(authority.runtime_mode).toBe("active");
+      expect(authority.source).toBe("durable_pointer");
+
+      const projected = projectWithRuntimeAuthority(diskProject, authority);
+      const withAuth = await inspectGate1Review({
+        configPath: config,
+        project: projected as never,
+        manifest: validation.manifest,
+        stateDir: join(root, "dist"),
+        runtime_authority: authority
+      });
+      expect(withAuth.ok, withAuth.ok ? "" : JSON.stringify(withAuth.issues)).toBe(true);
+      expect((withAuth.issues ?? []).map((i) => i.code)).not.toContain("gate.video_prompt_changed");
+
+      // Caller without validate-derived authority reloads YAML disabled → empty V2 projection.
+      const withoutAuth = await inspectGate1Review({
+        configPath: config,
+        project: diskProject as never,
+        manifest: validation.manifest,
+        stateDir: join(root, "dist")
+      });
+      expect(withoutAuth.ok).toBe(false);
+      if (!withoutAuth.ok) {
+        expect(withoutAuth.issues.map((i) => i.code)).toContain("gate.video_prompt_changed");
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 180_000);
+});
+
+describe("PO-8 round6 EB2 effect_policy gate_mutation thread", () => {
+  it("deny policy stops writeState before mutation; semantic no-op count0; cascade real change counts", async () => {
+    const root = await realTempDir("tsugite-po8-eb2-");
+    try {
+      const dist = join(root, "dist");
+      await mkdir(dist, { recursive: true });
+      const gates = defaultGates();
+      const approved = {
+        run_id: "eb2-cascade",
+        status: "running" as const,
+        updated_at: NOW,
+        gates: {
+          ...gates,
+          gate_1: {
+            ...gates.gate_1,
+            status: "approved" as const,
+            approved_input_digest: "a".repeat(64),
+            production_subject_digest: "b".repeat(64),
+            production_decision_digest: "c".repeat(64),
+            decision_source: "human" as const
+          }
+        }
+      };
+      await writeState(dist, approved);
+      const statePath = join(dist, "eb2-cascade", "state.json");
+      const before = await readFile(statePath, "utf8");
+
+      // deny + real semantic change → count, mutation blocked
+      const denyObserver = createEffectObserver();
+      const denyPolicy = createDenyEffectPolicy(denyObserver);
+      const cascaded = {
+        ...approved,
+        status: "planned" as const,
+        gates: {
+          ...approved.gates,
+          gate_1: {
+            ...gates.gate_1,
+            status: "pending" as const
+          }
+        }
+      };
+      expect(gateSemanticsChanged(approved, cascaded)).toBe(true);
+      await expect(writeState(dist, cascaded, {
+        effect_policy: denyPolicy,
+        previous: approved
+      })).rejects.toThrow(/blocked|PC_EFFECT|DENIED/i);
+      expect(denyObserver.safetyEvidence().gate_mutation_count).toBe(1);
+      const afterDeny = await readFile(statePath, "utf8");
+      expect(afterDeny).toBe(before);
+
+      // active cascade with noop: real change registers + notes without blocking; count stays 0 under noop
+      const noopObserver = createEffectObserver();
+      const noopPolicy = createNoopEffectPolicy(noopObserver);
+      await writeState(dist, cascaded, {
+        effect_policy: noopPolicy,
+        previous: approved
+      });
+      expect(noopObserver.isArmed("gate_mutation")).toBe(true);
+      expect(noopObserver.safetyEvidence().gate_mutation_count).toBe(0);
+      const afterNoop = JSON.parse(await readFile(statePath, "utf8")) as typeof cascaded;
+      expect(afterNoop.gates.gate_1.status).toBe("pending");
+      expect(afterNoop.gates.gate_1.approved_input_digest).toBeUndefined();
+
+      // semantic no-op → count 0 under deny (no note)
+      const noOpObserver = createEffectObserver();
+      const noOpPolicy = createDenyEffectPolicy(noOpObserver);
+      await writeState(dist, afterNoop, {
+        effect_policy: noOpPolicy,
+        previous: afterNoop
+      });
+      expect(noOpObserver.safetyEvidence().gate_mutation_count).toBe(0);
+
+      // shadow zero: shadow path does not mutate gates via migration
+      const shadowRoot = await realTempDir("tsugite-po8-eb2-shadow-");
+      try {
+        const fixture = await loadPo8Fixture("standalone-v2");
+        const observer = createEffectObserver();
+        const preview = previewMigration({
+          project: fixture.project,
+          target_mode: "shadow",
+          projectRoot: shadowRoot,
+          coordinator: true
+        });
+        const applied = await applyMigration({
+          project: fixture.project,
+          target_mode: "shadow",
+          projectRoot: shadowRoot,
+          actor: "coordinator",
+          expected_preview_digest: preview.digest,
+          coordinator: true,
+          now: () => NOW,
+          observer
+        });
+        expect(applied.record.applied_mode).toBe("shadow");
+        const safety = observer.safetyEvidence();
+        expect(
+          safety.gate_mutation_count === 0 || safety.gate_mutation_count === "unknown"
+        ).toBe(true);
+      } finally {
+        await rm(shadowRoot, { recursive: true, force: true });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("production CLI/render thread effect_policy into deepest gate_mutation writeState", async () => {
+    const renderSrc = await readFile(join(REPO_ROOT, "src/orchestrator/render.ts"), "utf8");
+    expect(renderSrc).toMatch(/markGateAwaiting\(options\.state, "gate_3"\)/);
+    expect(renderSrc).toMatch(
+      /writeState\(\s*options\.stateDir,\s*nextState,\s*\{[\s\S]*?effect_policy:\s*effectPolicy[\s\S]*?previous:\s*options\.state/
+    );
+
+    const cliSrc = await readFile(join(REPO_ROOT, "src/cli.ts"), "utf8");
+    // Three active cascade writeState sites must pass effect_policy + previous
+    const cascadeWrites = cliSrc.match(
+      /writeState\(\s*stateResult\.stateDir,\s*phaseCheck\.cascadedState,\s*\{[\s\S]*?effect_policy:[\s\S]*?previous:\s*stateResult\.state[\s\S]*?\}\)/g
+    );
+    expect(cascadeWrites?.length ?? 0).toBeGreaterThanOrEqual(3);
+
+    // run/render/finalize create observer policy before cascade
+    expect(cliSrc).toMatch(/const runEffectPolicy = \{ kind: "noop"/);
+    expect(cliSrc).toMatch(/const renderEffectPolicy = \{ kind: "noop"/);
+    expect(cliSrc).toMatch(/const finalizeEffectPolicy = \{ kind: "noop"/);
+
+    // inspectGate1Review receives runtime_authority from validate-derived CLI path
+    expect(cliSrc).toMatch(/inspectGate1Review\(\{[\s\S]*?runtime_authority:\s*validation\.runtime_authority/);
+    expect(cliSrc).toMatch(/inspectGate1Review\(\{[\s\S]*?runtime_authority\n/);
+  });
 });

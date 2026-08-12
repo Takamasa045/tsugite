@@ -1,8 +1,13 @@
 # Production Orchestration PO-8 RC integration
 
-**Status:** fixture-only structural repair (round 5) in tree. Package version remains `0.9.0`. Independent audit remains **NO-GO** for Windows/live/packaged desktop; structural production-path repairs for authority, effect observer honesty, recovery, Gate fingerprint, migration durability, and runtime readers are in tree.
+**Status:** fixture-only structural repair (round 6) in tree. Package version remains `0.9.0`. Readiness stays **GO-WITH-CAVEATS** (Windows/live/browser/packaged desktop incomplete). Exit blockers EB1 (Gate1 V2 projection authority) and EB2 (gate_mutation effect_policy thread) are closed with focused evidence.
 
 This document is **outside** the frozen T00 design pack under `docs/design/production-orchestration-v1/`. Design pack hashes must not change.
+
+## Structural repair round 6 (Exit blockers)
+
+- **EB1 Critical:** `inspectGate1Review` / `resolveCurrentVideoPromptReview` now thread trusted `ResolvedRuntimeAuthority` from CLI validate (not disk YAML re-resolve). Migration active is pointer-only (YAML non-rewrite); without authority, empty V2 projection falsely triggered `gate.video_prompt_changed`. Gate1 inspect/run CLI paths pass `validation.runtime_authority`. E2E: migrate preview→apply active→review→inspect with/without authority; provider/effect 0.
+- **EB2 High:** `renderAssembledMedia` markGateAwaiting(gate_3)→`writeState` and CLI active cascade `writeState` (run/render/finalize) now thread the same observer `effect_policy` + `previous` to deepest gate_mutation boundary. Wrapper self-registers + notes; deny stops before mutation; semantic no-op count 0; shadow migration keeps gate_mutation 0/unknown. Legacy `approved_input_digest` semantics unchanged. Policy-less direct library calls remain compatible.
 
 ## What landed
 
@@ -25,7 +30,7 @@ This document is **outside** the frozen T00 design pack under `docs/design/produ
 | Fixtures (authoring/expected/adversarial) | `test/fixtures/production-control/po8/` |
 | Tests | `test/production-control-po8-rc-integration.test.ts` |
 
-## Structural repair round 5
+## Structural repair round 5 (retained)
 
 - **Pointer/YAML split-brain:** `ResolvedRuntimeAuthority.runtime_mode` is projected via `projectWithRuntimeAuthority` / `orchestrationModeFromAuthority` into plan/run/review bodies (not CLI entry checks alone). Durable pointer is SoT; YAML non-legacy mismatch fail-closed. Migration does not rewrite `project.yaml`.
 - **Effect observer honesty:** post-migrate/rollback `registerBoundariesViaProductionWrappers` theater removed. Production CLI threads `effect_policy` to gate/run/render/finalize wrappers. Unregistered channels stay `unknown`; proven-zero only for actually registered boundaries.

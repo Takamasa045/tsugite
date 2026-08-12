@@ -1519,6 +1519,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
       }
     }
+    // Thread effect_policy before active cascade so gate_mutation writeState is covered.
+    const { createEffectObserver: createFinalizeObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const finalizeObserver = createFinalizeObserver();
+    const finalizeEffectPolicy = { kind: "noop" as const, observer: finalizeObserver };
+
     // Active mode: recompute Gate1+2+3 from durable evidence before finalize.
     // Never pass stored production digests as expected. Uses pointer authority when present.
     if (effectiveRuntimeMode({
@@ -1558,7 +1565,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             production_id: productionId
           });
           if (!phaseCheck.ok) {
-            await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+            await writeState(stateResult.stateDir, phaseCheck.cascadedState, {
+              effect_policy: finalizeEffectPolicy,
+              previous: stateResult.state
+            });
             return output(args, 1, {
               ok: false,
               command: "finalize",
@@ -1587,11 +1597,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    const { createEffectObserver: createFinalizeObserver } = await import(
-      "./productionControl/rc/effectCapability.js"
-    );
-    const finalizeObserver = createFinalizeObserver();
-    const finalizeEffectPolicy = { kind: "noop" as const, observer: finalizeObserver };
     const finalized = await finalizeCompletedProject({
       configPath: args.config,
       project: trustedProject!,
@@ -2012,7 +2017,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       configPath: args.config!,
       project: validation.project!,
       manifest: validation.manifest!,
-      stateDir: stateResult.stateDir
+      stateDir: stateResult.stateDir,
+      runtime_authority: validation.runtime_authority
     });
     if (!review.ok) {
       return output(args, 1, { ok: false, command: "run", issues: review.issues });
@@ -2024,6 +2030,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         issues: [{ code: "gate.review_changed", message: "Gate 1 approval does not match the current review and input artifacts" }]
       });
     }
+
+    // Thread effect_policy before active cascade so gate_mutation writeState is covered.
+    const { createEffectObserver: createRunObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const runObserver = createRunObserver();
+    const runEffectPolicy = { kind: "noop" as const, observer: runObserver };
 
     // Active mode: recompute expected Gate1 from durable GateBundle + HumanDecisionRef.
     // Never pass stored production digests as expected (no tautological self-comparison).
@@ -2055,7 +2068,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
         if (!phaseCheck.ok) {
           // Persist cascade under the serial state boundary before throwing the phase error.
-          await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+          await writeState(stateResult.stateDir, phaseCheck.cascadedState, {
+            effect_policy: runEffectPolicy,
+            previous: stateResult.state
+          });
           stateResult.state = phaseCheck.cascadedState;
           return output(args, 1, {
             ok: false,
@@ -2084,11 +2100,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    const { createEffectObserver: createRunObserver } = await import(
-      "./productionControl/rc/effectCapability.js"
-    );
-    const runObserver = createRunObserver();
-    const runEffectPolicy = { kind: "noop" as const, observer: runObserver };
     const runResult = await assembleLocalMediaRun(trustedProject!, validation.manifest!, {
       configPath: resolve(args.config!),
       manifestPath: resolve(dirname(resolve(args.config!)), trustedProject!.manifest),
@@ -2109,7 +2120,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           configPath: args.config!,
           project: trustedProject!,
           manifest: validation.manifest!,
-          stateDir: stateResult.stateDir
+          stateDir: stateResult.stateDir,
+          runtime_authority: validation.runtime_authority
         });
         if (!currentReview.ok) return { ok: false as const, issues: currentReview.issues };
         if (stateResult.state!.gates.gate_1.approved_input_digest !== currentReview.approvalDigest) {
@@ -2171,13 +2183,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    // Thread effect_policy before active cascade so gate_mutation writeState is covered.
+    const { createEffectObserver: createRenderObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const renderObserver = createRenderObserver();
+    const renderEffectPolicy = { kind: "noop" as const, observer: renderObserver };
+
     let approvedCompilation;
     if (validation.project!.edit.editorial || validation.project!.edit.composition) {
       const review = await inspectGate1Review({
         configPath: args.config!,
         project: validation.project!,
         manifest: validation.manifest!,
-        stateDir: stateResult.stateDir
+        stateDir: stateResult.stateDir,
+        runtime_authority: validation.runtime_authority
       });
       if (!review.ok) return output(args, 1, { ok: false, command: "render", issues: review.issues });
       if (
@@ -2265,7 +2285,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           production_id: productionId
         });
         if (!phaseCheck.ok) {
-          await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+          await writeState(stateResult.stateDir, phaseCheck.cascadedState, {
+            effect_policy: renderEffectPolicy,
+            previous: stateResult.state
+          });
           return output(args, 1, {
             ok: false,
             command: "render",
@@ -2293,17 +2316,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    const { createEffectObserver: createRenderObserver } = await import(
-      "./productionControl/rc/effectCapability.js"
-    );
-    const renderObserver = createRenderObserver();
-    const renderEffectPolicy = { kind: "noop" as const, observer: renderObserver };
     const renderResult = await renderAssembledMedia(trustedProject!, {
       stateDir: stateResult.stateDir,
       state: stateResult.state,
       configPath: resolve(args.config!),
       effect_policy: renderEffectPolicy
-    } as never);
+    });
     return output(args, renderResult.ok ? 0 : 1, {
       ok: renderResult.ok,
       command: "render",
@@ -2962,7 +2980,8 @@ async function recordGate(
       configPath: args.config!,
       project,
       manifest,
-      stateDir: stateLocation.stateDir
+      stateDir: stateLocation.stateDir,
+      runtime_authority
     });
     if (!review.ok) {
       return {
@@ -3030,7 +3049,8 @@ async function recordGate(
         configPath: args.config!,
         project,
         manifest,
-        stateDir: existing.stateDir
+        stateDir: existing.stateDir,
+        runtime_authority
       });
       if (!review.ok) {
         return { ok: false, issues: review.issues, state, statePath: stateLocation.statePath };

@@ -38,6 +38,7 @@ import type { H3Compilation } from "../h3/compile.js";
 import type { ProductionControlShadowSummary } from "../productionControl/contractCompiler.js";
 import {
   orchestrationModeFromAuthority,
+  projectWithRuntimeAuthority,
   type ResolvedRuntimeAuthority
 } from "../productionControl/runtimeAuthority.js";
 import {
@@ -403,6 +404,11 @@ export async function inspectGate1Review(options: {
   project: Project;
   manifest: Manifest;
   stateDir?: string;
+  /**
+   * Trusted runtime authority from CLI validate only.
+   * Never re-resolve durable pointer from disk YAML inside Gate 1 inspect.
+   */
+  runtime_authority?: ResolvedRuntimeAuthority;
 }): Promise<Result<{
   reviewPath: string;
   dataPath: string;
@@ -549,7 +555,10 @@ export async function inspectGate1Review(options: {
         dataPath
       };
     }
-    const currentVideoPrompt = await resolveCurrentVideoPromptReview(options.configPath);
+    const currentVideoPrompt = await resolveCurrentVideoPromptReview(
+      options.configPath,
+      options.runtime_authority
+    );
     if (!currentVideoPrompt.ok) {
       return { ok: false, issues: currentVideoPrompt.issues, reviewPath, dataPath };
     }
@@ -620,15 +629,22 @@ export async function inspectGate1Review(options: {
   return { ok: true, issues: [], reviewPath, dataPath };
 }
 
-async function resolveCurrentVideoPromptReview(configPath: string): Promise<
+async function resolveCurrentVideoPromptReview(
+  configPath: string,
+  runtime_authority?: ResolvedRuntimeAuthority
+): Promise<
   | { ok: true; projection: VideoPromptReviewProjection[] }
   | { ok: false; issues: Array<{ code: string; message: string; path?: string }> }
 > {
   try {
-    const project = await loadProject(configPath);
-    // resolveCurrentVideoPromptReview is CLI-adjacent; loadProject has no pointer projection.
-    // Active path only when YAML already projects active (trusted projection applied by caller).
-    if (orchestrationModeFromAuthority(undefined, project) !== "active") return { ok: true, projection: [] };
+    const diskProject = await loadProject(configPath);
+    // Migration active writes durable pointer only (no YAML rewrite). Re-resolving
+    // mode from disk YAML alone yields empty V2 projection and false gate.video_prompt_changed.
+    // Prefer trusted validate-derived authority; projectWithRuntimeAuthority projects mode.
+    const project = projectWithRuntimeAuthority(diskProject, runtime_authority);
+    if (orchestrationModeFromAuthority(runtime_authority, project) !== "active") {
+      return { ok: true, projection: [] };
+    }
     const requests = project.generation?.requests ?? [];
     const videoRequests = requests.filter((request) =>
       generationRequestOutputKind(request) === "video"

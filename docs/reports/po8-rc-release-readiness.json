@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-12T13:47:20.494Z",
+  "generated_at": "2026-08-12T14:16:40.793Z",
   "package_version": "0.9.0",
   "recommended_version": "0.9.0",
   "version_decision": {
@@ -66,7 +66,7 @@
       "evidence": [
         "command=rehearsal mode sequence + CLI migrate/rollback E2E",
         "exit_code=0",
-        "output_digest=01804b4aa7f0ecdb27b0e732ce45ea9fa6f26edcc0e0d9aa341c43c1a69a047f"
+        "output_digest=7a6b9c245f4125b13782b2748b5654e424fb2749121aa7e62f0634c199101bde"
       ],
       "gaps": []
     },
@@ -85,7 +85,7 @@
       "title": "Migration rehearsal across 8 frozen fixtures",
       "status": "proven",
       "evidence": [
-        "rehearsal.digest=c198531dbf830ec7afa95242d870ba6a62be94037204770a33022ba23d4db939",
+        "rehearsal.digest=0e30b63e62cb931685a193014f7592d7efcbe28cbff36aa2c8a016412a7178fb",
         "fixture_count=8"
       ],
       "gaps": []
@@ -95,9 +95,9 @@
       "title": "H3: durable temp project + production-migrate/rollback --apply CLI",
       "status": "proven",
       "evidence": [
-        "command=cli production-migrate/rollback --apply E2E",
+        "command=cli production-migrate/rollback --apply E2E + EB1 migrate→plan→review",
         "exit_code=0",
-        "output_digest=c4c910e78a10884f5b86214858c5ec52d66f325396da28ca6af201a2044e033d"
+        "output_digest=7893fd0b52b420a9941fbba5263d87e04a724924229ec1c809bbfac5993f8e5a"
       ],
       "gaps": []
     },
@@ -106,7 +106,7 @@
       "title": "Rollback rehearsal preserves append-only artifacts",
       "status": "proven",
       "evidence": [
-        "rehearsal.digest=c198531dbf830ec7afa95242d870ba6a62be94037204770a33022ba23d4db939",
+        "rehearsal.digest=0e30b63e62cb931685a193014f7592d7efcbe28cbff36aa2c8a016412a7178fb",
         "rollback sequence in rehearsal"
       ],
       "gaps": []
@@ -128,7 +128,7 @@
       "evidence": [
         "command=npm run check",
         "exit_code=0",
-        "output_digest=419aa13b67900c4332cf0b9aa082e110f5c03d098dfd9070b46ef1b1db5bc830",
+        "output_digest=bc2369efc94941642674a4ac205ab7bfc130b20ab78b3e190fae0e1e3ec6b43f",
         "branches=74.46",
         "statements=82.74"
       ],
@@ -141,7 +141,7 @@
       "evidence": [
         "package_version=0.9.0",
         "revision_bindings_digest=0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
-        "Windows/live provider incomplete \u2192 not 1.0.0"
+        "Windows/live provider incomplete → not 1.0.0"
       ],
       "gaps": []
     },
@@ -152,9 +152,9 @@
       "evidence": [
         "src/productionControl/rc/releaseReadiness.ts",
         "status recomputed from evidence store (not caller forged exits)",
-        "migration_journal.digest=5e764fec513fd4135d351d26ff9d17e1a761773615f2883e9ed05f7106f8d3c5",
+        "migration_journal.digest=f39b8995a0bfe722371d764a50015990ba5d8c8edc2212c1f0c7e77d8a29551d",
         "effect_observer_digest=4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286",
-        "reader_commands.output_digest=df24ebd1f972ac354db39b34e27f9b1e504871e4ceab27ec6c56983378e74c50"
+        "reader_commands.output_digest=0e500f2c252eb52041922b7d507dbcca4d60ebd57cb18da5bc25603a435fa746"
       ],
       "gaps": []
     },
@@ -183,8 +183,7 @@
       "evidence": [
         "command=npm run desktop:test + desktop:prepare (desktop:audit needs package out)",
         "exit_code=0",
-        "output_digest=79a88b315112326e0c5bda4645e6f734395ff82246b5badee87da0c8e7759c8d",
-        "detail=desktop:audit failed: no packaged app under apps/desktop/out"
+        "output_digest=4f103ec7de12b5e200b76d91a15e09b92775551b912d443351046fd8e0ae54b6"
       ],
       "gaps": [
         "desktop:audit not reached; status partial/unverified from exit evidence",
@@ -196,7 +195,7 @@
   "rehearsal": {
     "all_ok": true,
     "fixture_count": 8,
-    "digest": "c198531dbf830ec7afa95242d870ba6a62be94037204770a33022ba23d4db939"
+    "digest": "0e30b63e62cb931685a193014f7592d7efcbe28cbff36aa2c8a016412a7178fb"
   },
   "fixture_module_evidence": {
     "all_ok": true,
@@ -207,7 +206,7 @@
     "statements": 82.74,
     "branches": 74.46,
     "functions": 89.66,
-    "lines": 85.46,
+    "lines": 85.45,
     "branch_threshold": 74.4,
     "thresholds_lowered": false
   },
@@ -223,10 +222,10 @@
     "fixture-only RC integration with unverified Windows/live/desktop/browser"
   ],
   "build_provenance": {
-    "head": "6dcc9722c94fb0a2c5fb1c5ba87c8b0e50eb6ae6",
+    "head": "PENDING_COMMIT",
     "branch": "codex/po8-rc-integration",
-    "dirty": false,
+    "dirty": true,
     "verified_separately": true
   },
-  "digest": "275de19c927003998dee216afa065a804ffaa9e812f06faea80babc75f03d7f0"
+  "digest": "db54fac19c9d73f0a0c8374afd0018df01f41d0290c9166e4c1f2132ca0c34ed"
 }

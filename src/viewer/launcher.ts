@@ -3333,7 +3333,8 @@ async function inspectProject(
       ? await inspectGate1Review({
           configPath,
           project: validation.project,
-          manifest: validation.manifest
+          manifest: validation.manifest,
+          runtime_authority: validation.runtime_authority
         })
       : undefined;
     let hasReview = reviewInspection?.ok === true;
