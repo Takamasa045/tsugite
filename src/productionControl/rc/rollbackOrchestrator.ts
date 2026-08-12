@@ -32,7 +32,6 @@ import { assertMigrationPathContained } from "./pathSafety.js";
 import { appendModeIntent, readCurrentModePointer } from "./modeIntent.js";
 import type { EffectLedger } from "./effectLedger.js";
 import {
-  createDenyEffectPolicy,
   createEffectObserver,
   type EffectObserver
 } from "./effectCapability.js";
@@ -226,7 +225,7 @@ export async function applyRollback(input: {
 
   const observer = input.observer
     ?? (input.ledger ? createEffectObserver(input.ledger) : createEffectObserver());
-  createDenyEffectPolicy(observer);
+  // No bulk-arm — rollback itself has zero effects; callers may register wrappers for zero-proof.
   observer.effectLedger.recordCall({
     module: "productionControl/rc/rollbackOrchestrator",
     api: "applyRollback",
@@ -248,6 +247,22 @@ export async function applyRollback(input: {
   try {
     const before = await listPreservedRelativePaths(projectRoot, controlRoot);
     const recordedAt = (input.now ?? (() => new Date().toISOString()))();
+    // Arm via real production wrappers so zero-effect is proven (no bulk arm).
+    if (!observer.provenZeroEffects()) {
+      const { registerBoundariesViaProductionWrappers } = await import("./fixtureEvidence.js");
+      const { mkdtemp, realpath, rm } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const { join: pathJoin } = await import("node:path");
+      const registerRoot = await realpath(await mkdtemp(pathJoin(tmpdir(), "tsugite-po8-rb-wrap-")));
+      try {
+        await registerBoundariesViaProductionWrappers(
+          { kind: "noop", observer },
+          registerRoot
+        );
+      } finally {
+        await rm(registerRoot, { recursive: true, force: true });
+      }
+    }
     observer.sealEventSequence();
     const safetyEvidence = observer.safetyEvidence();
     const safety = {

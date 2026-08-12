@@ -1007,13 +1007,13 @@ describe("local media run assembly", () => {
     const cli = await readFile("src/cli.ts", "utf8");
     const launcher = await readFile("src/viewer/launcher.ts", "utf8");
 
-    // CLI gate branch forwards validation.promptGuides into recordGate.
+    // CLI gate branch forwards validation.promptGuides + runtime_authority into recordGate.
     expect(cli).toMatch(
-      /const gateResult = await recordGate\(\s*args,\s*validation\.project!,\s*validation\.manifest!,\s*gate!,\s*decision!,\s*validation\.adapter,\s*validation\.audioAdapter,\s*(?:\/\/[^\n]*\n\s*)*validation\.promptGuides\s*\)/
+      /const gateResult = await recordGate\(\s*args,\s*validation\.project!,\s*validation\.manifest!,\s*gate!,\s*decision!,\s*validation\.adapter,\s*validation\.audioAdapter,\s*(?:\/\/[^\n]*\n\s*)*validation\.promptGuides,\s*validation\.runtime_authority\s*\)/
     );
-    // recordGate accepts promptGuides and passes them into Gate2 inspect.
+    // recordGate accepts promptGuides and runtime_authority, and passes guides into Gate2 inspect.
     expect(cli).toMatch(
-      /async function recordGate\([\s\S]*?promptGuides\?: PromptGuide\[]/
+      /async function recordGate\([\s\S]*?promptGuides\?: PromptGuide\[][\s\S]*?runtime_authority\?: ResolvedRuntimeAuthority/
     );
     expect(cli).toMatch(
       /const inspected = await inspectGate2RunForApproval\(\s*project,\s*manifest,\s*existing\.stateDir,\s*adapter,\s*approvedCompilation,\s*audioAdapter,\s*promptGuides(?:,\s*personQaDecision)?\s*\)/

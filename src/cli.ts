@@ -96,6 +96,10 @@ import { compileProductionContract } from "./productionControl/contractCompiler.
 import { runCoordinatorRecoverCli } from "./productionControl/coordinatorRecoveryCli.js";
 import { resolveCanonicalProductionControlRoot } from "./productionControl/activeRunGeneration.js";
 import {
+  authorityToOrchestrationMode,
+  type ResolvedRuntimeAuthority
+} from "./productionControl/runtimeAuthority.js";
+import {
   applyMigration,
   applyRollback,
   diagnoseMode,
@@ -1137,7 +1141,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const { dirname, resolve } = await import("node:path");
     const projectRoot = resolve(dirname(args.config!));
-    const { createDenyEffectPolicy, createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
     // Prefer validation-time runtime_authority (same resolved context as other main entries).
     const modeResolved = validation.runtime_authority ?? await (async () => {
       const { resolveProjectRuntimeMode } = await import("./productionControl/rc/modeIntent.js");
@@ -1189,7 +1193,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     try {
       const observer = createEffectObserver();
-      const effect_policy = createDenyEffectPolicy(observer);
       // Same durable-projected project as preview so expected_preview_digest matches.
       const applied = await applyMigration({
         project: projectForPreview,
@@ -1201,7 +1204,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         observer,
         effect_policy: { kind: "noop", observer }
       });
-      void effect_policy;
+      // Arm via real production wrappers only (no bulk armAllBoundaries).
+      const { registerBoundariesViaProductionWrappers } = await import(
+        "./productionControl/rc/fixtureEvidence.js"
+      );
+      const { mkdtemp, realpath, rm } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const registerRoot = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po8-mig-reg-")));
+      try {
+        await registerBoundariesViaProductionWrappers(
+          { kind: "noop", observer },
+          registerRoot
+        );
+      } finally {
+        await rm(registerRoot, { recursive: true, force: true });
+      }
       observer.sealEventSequence();
       const flags = deriveCliSafetyFlags({ observer });
       return output(args, 0, {
@@ -1243,7 +1260,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const { dirname, resolve } = await import("node:path");
     const projectRoot = resolve(dirname(args.config!));
-    const { createDenyEffectPolicy, createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
     const { readCurrentModePointer } = await import("./productionControl/rc/modeIntent.js");
     const { resolveRuntimeAuthority } = await import("./productionControl/runtimeAuthority.js");
     const pointer = await readCurrentModePointer(projectRoot).catch(() => undefined);
@@ -1285,7 +1302,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     try {
       const observer = createEffectObserver();
-      createDenyEffectPolicy(observer);
       const applied = await applyRollback({
         project: validation.project!,
         projectRoot,
@@ -1293,6 +1309,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         actor: "coordinator",
         observer
       });
+      const { registerBoundariesViaProductionWrappers } = await import(
+        "./productionControl/rc/fixtureEvidence.js"
+      );
+      const { mkdtemp, realpath, rm } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const registerRoot = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po8-rb-reg-")));
+      try {
+        await registerBoundariesViaProductionWrappers(
+          { kind: "noop", observer },
+          registerRoot
+        );
+      } finally {
+        await rm(registerRoot, { recursive: true, force: true });
+      }
       observer.sealEventSequence();
       const flags = deriveCliSafetyFlags({ observer });
       const after = await resolveRuntimeAuthority({
@@ -1354,8 +1384,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     {
-      const mode = validation.runtime_authority?.runtime_mode
-        ?? (resolveOrchestrationMode(validation.project!) === "active" ? "active" : undefined);
+      const mode = effectiveRuntimeMode({
+        runtime_authority: validation.runtime_authority,
+        project: validation.project!
+      });
       if (mode === "shadow") {
         return output(args, 1, {
           ok: false,
@@ -1372,7 +1404,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           command: "recover",
           issues: [{
             code: "recover.active_mode_required",
-            message: "recover requires orchestration.mode=active"
+            message: "recover requires active runtime authority (durable pointer or YAML active)"
           }]
         });
       }
@@ -1514,8 +1546,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
     // Active mode: recompute Gate1+2+3 from durable evidence before finalize.
-    // Never pass stored production digests as expected.
-    if (resolveOrchestrationMode(validation.project!) === "active") {
+    // Never pass stored production digests as expected. Uses pointer authority when present.
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "active") {
       const stateResult = await loadState(args, validation.project!, { allowMissing: true });
       if (stateResult.ok && stateResult.state) {
         const g1 = stateResult.state.gates.gate_1;
@@ -1940,7 +1975,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.adapter,
       validation.audioAdapter,
       // Keep Gate 2 inspect on the same guide set used at Gate 1 / run (custom dirs included).
-      validation.promptGuides
+      validation.promptGuides,
+      validation.runtime_authority
     );
     return output(args, gateResult.ok ? 0 : 1, {
       ok: gateResult.ok,
@@ -1956,6 +1992,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (args.command === "run") {
     const coordinatorIssue = requireCoordinator(args);
     if (coordinatorIssue) return output(args, 1, { ok: false, command: "run", issues: [coordinatorIssue] });
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "shadow") {
+      return output(args, 1, {
+        ok: false,
+        command: "run",
+        issues: [{
+          code: "run.shadow_denies_effect",
+          message: "shadow mode forbids non-dry-run run effect entry"
+        }]
+      });
+    }
 
     const stateResult = await loadState(args, validation.project!, { allowMissing: true });
     if (!stateResult.ok) return output(args, 1, { ok: false, command: "run", issues: stateResult.issues });
@@ -1987,7 +2036,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     // Active mode: recompute expected Gate1 from durable GateBundle + HumanDecisionRef.
     // Never pass stored production digests as expected (no tautological self-comparison).
-    if (resolveOrchestrationMode(validation.project!) === "active") {
+    // Uses durable pointer authority when present (same resolver as validate).
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "active") {
       const g1 = stateResult.state.gates.gate_1;
       if (!g1.production_subject_digest || !g1.production_decision_digest) {
         return output(args, 1, {
@@ -2095,6 +2148,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (args.command === "render") {
     const coordinatorIssue = requireCoordinator(args);
     if (coordinatorIssue) return output(args, 1, { ok: false, command: "render", issues: [coordinatorIssue] });
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "shadow") {
+      return output(args, 1, {
+        ok: false,
+        command: "render",
+        issues: [{
+          code: "render.shadow_denies_effect",
+          message: "shadow mode forbids render effect entry"
+        }]
+      });
+    }
 
     const stateResult = await loadState(args, validation.project!, { allowMissing: true });
     if (!stateResult.ok) return output(args, 1, { ok: false, command: "render", issues: stateResult.issues });
@@ -2168,7 +2234,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     // Active mode: live recompute Gate 1+2 subject+decision (not presence-only) before render.
-    if (resolveOrchestrationMode(validation.project!) === "active") {
+    // Uses durable pointer authority when present (same resolver as validate).
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "active") {
       const g1 = stateResult.state.gates.gate_1;
       const g2 = stateResult.state.gates.gate_2;
       if (
@@ -2821,6 +2891,31 @@ function requireCoordinator(args: ParsedArgs): Issue | undefined {
   };
 }
 
+/**
+ * Downstream CLI entries consume durable pointer authority when present.
+ * YAML-only resolveOrchestrationMode is used only when pointer is fully absent.
+ */
+function effectiveOrchestrationMode(input: {
+  runtime_authority?: ResolvedRuntimeAuthority;
+  project?: { orchestration?: { mode?: string } };
+}): "disabled" | "shadow" | "active" | undefined {
+  if (input.runtime_authority) {
+    return authorityToOrchestrationMode(input.runtime_authority);
+  }
+  return resolveOrchestrationMode(input.project);
+}
+
+function effectiveRuntimeMode(input: {
+  runtime_authority?: ResolvedRuntimeAuthority;
+  project?: { orchestration?: { mode?: string } };
+}): "legacy" | "shadow" | "active" {
+  if (input.runtime_authority) return input.runtime_authority.runtime_mode;
+  const mode = resolveOrchestrationMode(input.project);
+  if (mode === "active") return "active";
+  if (mode === "shadow") return "shadow";
+  return "legacy";
+}
+
 function shouldAcquireRunLock(args: ParsedArgs): boolean {
   if (args.command === "review" || args.command === "review-preview" || args.command === "compose") return true;
   if (args.command === "finalize" && args.apply) return args.actor === "coordinator";
@@ -2844,7 +2939,8 @@ async function recordGate(
   decision: GateDecision,
   adapter?: AdapterDefinition,
   audioAdapter?: AdapterDefinition,
-  promptGuides?: PromptGuide[]
+  promptGuides?: PromptGuide[],
+  runtime_authority?: ResolvedRuntimeAuthority
 ): Promise<Result<{ state: RunState; statePath: string; reviewPath?: string; reviewDataPath?: string }>> {
   const stateLocation = getStateLocation(args, project);
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
@@ -3017,8 +3113,22 @@ async function recordGate(
   // Active mode: bind exact production subject+decision for Gate1/2/3 human approvals.
   // Gate1: durable GateBundle digest (review must match rebuild). Unknown price / empty evidence refuse.
   // Gate2/3: exact HumanDecisionRef subjects. Legacy approved_input_digest preserved separately.
+  // Pointer authority is preferred when present (same resolver as validate/run/render/finalize).
   let productionBinding: import("./orchestrator/stateTransitions.js").ProductionGateBinding | undefined;
-  const orchestrationMode = resolveOrchestrationMode(project);
+  const orchestrationMode = effectiveOrchestrationMode({ runtime_authority, project });
+  if (orchestrationMode === "shadow") {
+    return {
+      ok: false,
+      issues: [{
+        code: "gate.shadow_denies_mutation",
+        message: "shadow mode forbids Gate mutation"
+      }],
+      state,
+      statePath: stateLocation.statePath,
+      reviewPath,
+      reviewDataPath
+    };
+  }
   if (orchestrationMode === "active" && decision === "approved") {
     try {
       const decidedAt = new Date().toISOString();

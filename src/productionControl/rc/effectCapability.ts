@@ -103,16 +103,21 @@ export class EffectObserver {
   /**
    * Register one actual boundary wrapper/adapter.
    * Only registration path that arms a channel (createEffectObserver never bulk-arms).
+   * Must be called from the real production boundary wrapper itself.
    */
   registerBoundary(boundary: RcEffectBoundary): void {
     this.arm(boundary);
   }
 
-  /** @deprecated Prefer registerBoundary from actual wrappers. Kept for migration tests. */
-  armAllBoundaries(): void {
-    for (const boundary of RC_EFFECT_BOUNDARIES) {
-      this.arm(boundary);
-    }
+  /**
+   * Bulk arm is forbidden. Production wrappers must register their own boundary.
+   * @deprecated Always throws — kept only so call sites fail closed in tests.
+   */
+  armAllBoundaries(): never {
+    throw pcError(
+      "PC_EFFECT_UNKNOWN_CHANNEL",
+      "armAllBoundaries is forbidden; each production boundary wrapper must registerBoundary itself"
+    );
   }
 
   arm(boundary: RcEffectBoundary): void {
@@ -293,29 +298,26 @@ export function createEffectObserver(ledger?: EffectLedger): EffectObserver {
 }
 
 /**
- * Build deny EffectPolicy and register every actual boundary wrapper.
- * Used by RC fixture / rehearsal / CLI dry-run coverage (not production default).
+ * Build deny EffectPolicy without bulk-arming boundaries.
+ * Real production wrappers must registerBoundary at their own callsite.
  */
 export function createDenyEffectPolicy(observer?: EffectObserver): EffectPolicy {
   const active = observer ?? createEffectObserver();
-  for (const boundary of RC_EFFECT_BOUNDARIES) {
-    active.registerBoundary(boundary);
-  }
   return { kind: "deny", observer: active };
 }
 
-/** No-op policy that still registers boundaries for coverage proof. */
+/**
+ * No-op policy without bulk-arming. Coverage still requires real wrapper registration.
+ */
 export function createNoopEffectPolicy(observer?: EffectObserver): EffectPolicy {
   const active = observer ?? createEffectObserver();
-  for (const boundary of RC_EFFECT_BOUNDARIES) {
-    active.registerBoundary(boundary);
-  }
   return { kind: "noop", observer: active };
 }
 
 /**
  * Production boundary hook — call immediately before actual effect.
  * Missing policy: no-op (production path unchanged; zero stays unknown).
+ * Unregistered boundary: fail-closed before any effect (no late auto-arm).
  * deny: count + throw. noop: proceed after prior authority checks.
  */
 export function noteEffectBoundary(
@@ -326,15 +328,18 @@ export function noteEffectBoundary(
 ): void {
   if (!policy) return;
   if (!policy.observer.isArmed(boundary)) {
-    // Late registration at first actual call still arms the channel.
-    policy.observer.registerBoundary(boundary);
+    throw pcError(
+      "PC_EFFECT_UNKNOWN_CHANNEL",
+      `unregistered effect boundary ${boundary} via ${api}; production wrapper must registerBoundary first`,
+      { boundary, api }
+    );
   }
   if (policy.kind === "deny") {
     policy.observer.attempt(boundary, api, detail);
   }
 }
 
-/** Register a single boundary without invoking the effect (adapter construction). */
+/** Register a single boundary without invoking the effect (adapter/wrapper construction). */
 export function registerEffectBoundary(
   policy: EffectPolicy | undefined,
   boundary: RcEffectBoundary

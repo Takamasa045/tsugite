@@ -289,7 +289,11 @@ async function fsyncDirectory(path: string): Promise<void> {
   }
 }
 
-async function atomicCreateJson(filePath: string, value: unknown): Promise<void> {
+/**
+ * Create-only JSON write. On EEXIST, adopt only when on-disk bytes are identical.
+ * Any other conflict or IO failure fails closed (no soft-swallow).
+ */
+async function atomicCreateJson(filePath: string, value: unknown): Promise<"created" | "adopted"> {
   assertSafeJsonValue(value, filePath);
   const bytes = `${JSON.stringify(value, null, 2)}\n`;
   const dir = dirname(filePath);
@@ -315,11 +319,20 @@ async function atomicCreateJson(filePath: string, value: unknown): Promise<void>
     await reserve.close();
     await rename(temp, filePath);
     await fsyncDirectory(dir);
+    return "created";
   } catch (error) {
     if (handle) await handle.close().catch(() => undefined);
     await rm(temp, { force: true }).catch(() => undefined);
     if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "EEXIST") {
-      throw pcError("PC_ARTIFACT_DUPLICATE", `migration artifact already exists: ${filePath}`);
+      // Exact EEXIST: adopt only when byte-identical to intended payload.
+      const existing = await readFile(filePath, "utf8");
+      if (existing === bytes) {
+        return "adopted";
+      }
+      throw pcError(
+        "PC_ARTIFACT_DUPLICATE",
+        `migration artifact already exists with different bytes: ${filePath}`
+      );
     }
     throw error;
   }
@@ -497,14 +510,33 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
   // Stage: artifacts (create-only preview/contract/tree + optional artifact store)
   {
     if (input.target_mode === "active") {
-      await artifactStore.create({
-        artifact_id: `contract-${contract.root_digest.slice(0, 12)}`,
-        bytes: `${JSON.stringify(contract)}\n`
-      }).catch(() => undefined);
-      await artifactStore.create({
-        artifact_id: `tree-${tree.digest.slice(0, 12)}`,
-        bytes: `${JSON.stringify(tree)}\n`
-      }).catch(() => undefined);
+      try {
+        await artifactStore.create({
+          artifact_id: `contract-${contract.root_digest.slice(0, 12)}`,
+          bytes: `${JSON.stringify(contract)}\n`
+        });
+      } catch (error) {
+        // Exact duplicate with same digest is adopt; other failures fail-closed.
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: string }).code)
+          : "";
+        if (code !== "PC_ARTIFACT_DUPLICATE" && code !== "EEXIST") {
+          throw error;
+        }
+      }
+      try {
+        await artifactStore.create({
+          artifact_id: `tree-${tree.digest.slice(0, 12)}`,
+          bytes: `${JSON.stringify(tree)}\n`
+        });
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error
+          ? String((error as { code?: string }).code)
+          : "";
+        if (code !== "PC_ARTIFACT_DUPLICATE" && code !== "EEXIST") {
+          throw error;
+        }
+      }
     }
 
     const migrationDir = join(controlRoot, "migration");
@@ -518,14 +550,10 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
     const contractPath = join(shadowOrActiveDir, `production-contract-${contract.root_digest.slice(0, 16)}.json`);
     const treePath = join(shadowOrActiveDir, `task-tree-${tree.digest.slice(0, 16)}.json`);
 
-    await atomicCreateJson(previewPath, preview).catch((error) => {
-      if (!(error && typeof error === "object"
-        && String((error as { message?: string }).message ?? "").includes("already exists"))) {
-        throw error;
-      }
-    });
-    await atomicCreateJson(contractPath, contract).catch(() => undefined);
-    await atomicCreateJson(treePath, tree).catch(() => undefined);
+    // Required artifacts: create-only or byte-identical adoption only (no soft-fail).
+    await atomicCreateJson(previewPath, preview);
+    await atomicCreateJson(contractPath, contract);
+    await atomicCreateJson(treePath, tree);
 
     journal = await advanceJournalStage({
       projectRoot,
@@ -617,12 +645,25 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
       ...(mode_intent_digest ? { mode_intent: mode_intent_digest } : {})
     }
   });
+  // Arm via real production wrappers so zero-effect is proven (no bulk arm).
   if (!observer.provenZeroEffects()) {
+    const { registerBoundariesViaProductionWrappers } = await import("./fixtureEvidence.js");
+    const { mkdtemp, realpath, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const registerRoot = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po8-mig-wrap-")));
     try {
-      observer.sealEventSequence();
-    } catch {
-      // observer may already be sealed from prior resume
+      await registerBoundariesViaProductionWrappers(
+        { kind: "noop", observer },
+        registerRoot
+      );
+    } finally {
+      await rm(registerRoot, { recursive: true, force: true });
     }
+  }
+  try {
+    observer.sealEventSequence();
+  } catch {
+    // observer may already be sealed from prior resume
   }
 
   const safetyEvidence = observer.safetyEvidence();
@@ -669,7 +710,8 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
   };
 
   const applyPath = join(migrationDir, `apply-${digest.slice(0, 16)}.json`);
-  await atomicCreateJson(applyPath, finalRecord).catch(() => undefined);
+  // Apply record is required durable evidence — fail-closed (or byte-identical adopt).
+  await atomicCreateJson(applyPath, finalRecord);
   finalRecord.artifact_relative_paths = [
     ...finalRecord.artifact_relative_paths,
     relative(projectRoot, applyPath).split(sep).join("/")

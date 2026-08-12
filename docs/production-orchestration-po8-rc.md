@@ -1,6 +1,6 @@
 # Production Orchestration PO-8 RC integration
 
-**Status:** fixture-only structural repair (round 3) in tree. Package version remains `0.9.0`. Readiness is **NO-GO** until durable journal complete + 8 exact module evidence + same-observer boundary zero + actual reader command evidence are all present (Windows/live/desktop remain caveats).
+**Status:** fixture-only structural repair (round 4) in tree. Package version remains `0.9.0`. Independent audit remains **NO-GO** for Windows/live/desktop; structural production-path repairs for authority, effect observer, recovery seed, Gate semantics, migration durability, and runtime readers are in tree.
 
 This document is **outside** the frozen T00 design pack under `docs/design/production-orchestration-v1/`. Design pack hashes must not change.
 
@@ -25,14 +25,15 @@ This document is **outside** the frozen T00 design pack under `docs/design/produ
 | Fixtures (authoring/expected/adversarial) | `test/fixtures/production-control/po8/` |
 | Tests | `test/production-control-po8-rc-integration.test.ts` |
 
-## Structural repair round 3 (F1–F6)
+## Structural repair round 4
 
-- **F1/B** Real effect boundaries: `createEffectObserver` does **not** auto-arm. Armed only when each actual boundary wrapper registers. Explicit `EffectPolicy` (deny/noop) at production entries (generationJobs T05 submit, poll/download, Gate writeState, grant reserve/commit, render start, finalize apply). No AsyncLocal. Observer-less production stays unknown (never safe-zero). Proven zero only when all boundaries registered, sequence sealed, attempt count 0. Self-probe / separate zeroObserver removed. CLI flags from same sealed observer only.
-- **F2/C** Production mode resolution once at validate/load via `runtimeAuthority` → `ValidateProjectResult.runtime_authority` (non-authoring). CLI main entries reuse it. Pointer authoritative when present; YAML/legacy only when pointer fully absent. YAML non-legacy / production_id / revision mismatch fail-closed. Shadow effect entry denied for recover/run/render/finalize.
-- **F3/A** Fixture exact goldens are compiler/upgrader digests or production exported enums only. Job revision + binding digests. Recovery runs `runActiveLocalRecovery` (fixture poll/download, no submit) + unknown-price reserve block + paid deny observer. Mutation with expected unchanged fails.
-- **F4/D** Migration journal create-only stages: planned → events → snapshot → artifacts → pointer → complete (fsync/readback/digest each). Resume exact same preview/production/revision only; conflicting journal fails. Crash hook matrix all stages. Rollback pointer rebuild; CLI post-rollback asserts `resolved_mode=legacy` / `source=pointer`.
-- **F5/E** Readiness `buildReleaseReadinessReport` is NO-GO unless durable journal complete + 8 module evidence + same-observer zero + reader command evidence. `build_provenance` head/dirty never proves exits (`verified_separately` only).
-- **F6** Production revision bindings reject package_version override; package.json digest fail-closed (no synthetic fallback).
+- **Runtime authority:** validate + CLI run/render/finalize/gate/recover/migrate/rollback consume the same durable pointer resolver (`runtimeAuthority` / `effectiveRuntimeMode`). YAML mismatch fail-closed. `GenerationJobMachine` shadow never falls through to direct `adapter.submit`.
+- **Effect observer:** `armAllBoundaries` / fixture bulk-arm abolished. Each real production wrapper (`machine`, `writeState`, `grantLedger`, `render`, `finalize`) self-registers. Unregistered effect fails closed before execution. Proven zero only after real wrapper registration + sealed zero attempts.
+- **Recovery:** seeds real job/event + runs `runActiveLocalRecovery` (no missing-job catch→awaiting_human fake). Unknown price, grant exhaustion, and local_ok proven from real outcomes.
+- **Gate semantics:** `gateSemanticFingerprint` compares status + subject/decision/approval digests; shadow denies Gate mutation; writeState notes only on semantic change.
+- **Migration/rollback durability:** required artifact create-only or byte-identical adoption only; soft-fail `.catch(() => undefined)` removed. CLI E2E preview→apply→status→rollback→status with journal/digest proof.
+- **Runtime readers:** pointer authority consumed on run/render/finalize/gate/recover paths (not status display alone).
+- **Version:** package remains `0.9.0`; design pack frozen.
 
 ## CLI (no non-dry-run run/render/finalize apply)
 

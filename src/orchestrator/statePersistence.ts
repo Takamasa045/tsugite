@@ -54,6 +54,29 @@ const runStateSchema = z.object({
     .default(defaultGates)
 });
 
+/** Canonical Gate semantic fingerprint (status + digests + binding fields). */
+export function gateSemanticFingerprint(state: RunState): string {
+  const pick = (gate: RunState["gates"]["gate_1"]) => ({
+    status: gate.status,
+    approved_input_digest: gate.approved_input_digest ?? null,
+    person_qa_approval_digest: gate.person_qa_approval_digest ?? null,
+    decision_source: gate.decision_source ?? null,
+    production_subject_digest: gate.production_subject_digest ?? null,
+    production_decision_digest: gate.production_decision_digest ?? null
+  });
+  return JSON.stringify({
+    run_status: state.status,
+    gate_1: pick(state.gates.gate_1),
+    gate_2: pick(state.gates.gate_2),
+    gate_3: pick(state.gates.gate_3)
+  });
+}
+
+export function gateSemanticsChanged(previous: RunState | undefined, next: RunState): boolean {
+  if (!previous) return true;
+  return gateSemanticFingerprint(previous) !== gateSemanticFingerprint(next);
+}
+
 export async function writeState(
   distDir: string,
   state: RunState,
@@ -64,14 +87,13 @@ export async function writeState(
   }
 ): Promise<string> {
   if (options?.effect_policy) {
-    const prev = options.previous;
-    const gateChanged = !prev || (
-      prev.gates.gate_1.status !== state.gates.gate_1.status
-      || prev.gates.gate_2.status !== state.gates.gate_2.status
-      || prev.gates.gate_3.status !== state.gates.gate_3.status
-    );
-    if (gateChanged) {
-      const { noteEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+    const {
+      noteEffectBoundary,
+      registerEffectBoundary
+    } = await import("../productionControl/rc/effectCapability.js");
+    // Real production boundary wrapper registers itself (no fixture bulk-arm).
+    registerEffectBoundary(options.effect_policy, "gate_mutation");
+    if (gateSemanticsChanged(options.previous, state)) {
       noteEffectBoundary(options.effect_policy, "gate_mutation", "orchestrator.writeState");
     }
   }

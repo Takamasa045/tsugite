@@ -1,6 +1,6 @@
 /**
- * PO-8 / T09 — RC structural repair round 3 (F1–F6).
- * Fixture-only: no provider, network, generation, billing, Gate mutation, render, finalize apply.
+ * PO-8 / T09 — RC structural repair round 4.
+ * Fixture-only: no provider DNS, billing, real Gate, non-dry-run run/render/finalize.
  */
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -45,6 +45,7 @@ import {
   rehearseAllPo8Fixtures,
   rehearseFixture,
   resolveProjectRuntimeMode,
+  registerBoundariesViaProductionWrappers,
   resolveRuntimeAuthority,
   resolveRuntimeMode,
   runAllFixtureModuleEvidence,
@@ -54,6 +55,15 @@ import {
 } from "../src/productionControl/index.js";
 import { main as cliMain } from "../src/cli.js";
 import { ProductionControlError } from "../src/productionControl/errors.js";
+import {
+  gateSemanticFingerprint,
+  gateSemanticsChanged,
+  writeState
+} from "../src/orchestrator/statePersistence.js";
+import { defaultGates } from "../src/orchestrator/stateTransitions.js";
+import { GenerationJobMachine } from "../src/generationJobs/machine.js";
+import { GenerationJobStore } from "../src/generationJobs/store.js";
+import { computeRequestDigest, createApproval } from "../src/generationJobs/approval.js";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NOW = "2026-08-12T18:00:00.000Z";
@@ -269,7 +279,7 @@ describe("PO-8 H1 fixture exact authoring bind (A)", () => {
 });
 
 describe("PO-8 effect observer (B)", () => {
-  it("createEffectObserver does not auto-arm; proven zero needs registration + zero attempts", () => {
+  it("createEffectObserver does not auto-arm; bulk arm forbidden; unregistered fails closed", async () => {
     const ledger = createEffectLedger();
     expect(() => ledger.markFixtureInProcessBoundary()).toThrow(/removed|registerBoundary/);
     const safety = ledger.safetyEvidence();
@@ -280,13 +290,33 @@ describe("PO-8 effect observer (B)", () => {
     expect(bare.provenZeroEffects()).toBe(false);
 
     const observer = createEffectObserver();
+    // createDenyEffectPolicy must NOT bulk-arm
     createDenyEffectPolicy(observer);
     observer.sealEventSequence();
-    expect(observer.provenZeroEffects()).toBe(true);
-    expect(observer.safetyEvidence().provider_submit_count).toBe(0);
-
-    expect(() => noteEffectBoundary({ kind: "deny", observer }, "provider_submit", "test")).toThrow(/blocked|PC_EFFECT/);
     expect(observer.provenZeroEffects()).toBe(false);
+    expect(() => observer.armAllBoundaries()).toThrow(/forbidden|armAllBoundaries/);
+
+    // Unregistered note fails closed (no late auto-arm)
+    expect(() => noteEffectBoundary(
+      { kind: "deny", observer },
+      "provider_submit",
+      "test"
+    )).toThrow(/unregistered|UNKNOWN_CHANNEL|PC_EFFECT/);
+
+    // Real production wrappers arm all boundaries → proven zero
+    const root = await realTempDir("tsugite-po8-arm-");
+    try {
+      const armed = createEffectObserver();
+      await registerBoundariesViaProductionWrappers(
+        { kind: "noop", observer: armed },
+        root
+      );
+      armed.sealEventSequence();
+      expect(armed.provenZeroEffects()).toBe(true);
+      expect(armed.safetyEvidence().provider_submit_count).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("production modules import effect hook / runtime authority (call graph)", async () => {
@@ -297,26 +327,160 @@ describe("PO-8 effect observer (B)", () => {
     const validateSrc = await readFile(join(REPO_ROOT, "src/project/validateProject.ts"), "utf8");
     expect(machineSrc).toMatch(/noteEffectBoundary/);
     expect(machineSrc).toMatch(/registerEffectBoundary/);
+    expect(machineSrc).toMatch(/shadow mode forbids provider submit|orchestrationMode === \"shadow\"/);
     expect(grantSrc).toMatch(/noteEffectBoundary/);
+    expect(grantSrc).toMatch(/registerEffectBoundary/);
     expect(renderSrc).toMatch(/noteEffectBoundary/);
+    expect(renderSrc).toMatch(/registerEffectBoundary/);
     expect(finalizeSrc).toMatch(/noteEffectBoundary/);
+    expect(finalizeSrc).toMatch(/registerEffectBoundary/);
     expect(validateSrc).toMatch(/resolveRuntimeAuthority/);
   });
 
-  it("boundary attempt adversarial denies each actual boundary under deny policy", () => {
+  it("boundary attempt adversarial denies each actual boundary under deny policy after wrapper registration", async () => {
     const observer = createEffectObserver();
     const policy = createDenyEffectPolicy(observer);
-    for (const boundary of [
-      "provider_submit",
-      "gate_mutation",
-      "billing_spend",
-      "network_fetch",
-      "render",
-      "finalize_apply"
-    ] as const) {
-      expect(() => noteEffectBoundary(policy, boundary, `adv.${boundary}`)).toThrow(/blocked|PC_EFFECT/);
+    const root = await realTempDir("tsugite-po8-deny-");
+    try {
+      await registerBoundariesViaProductionWrappers(policy, root);
+      for (const boundary of [
+        "provider_submit",
+        "gate_mutation",
+        "billing_spend",
+        "network_fetch",
+        "render",
+        "finalize_apply"
+      ] as const) {
+        expect(() => noteEffectBoundary(policy, boundary, `adv.${boundary}`)).toThrow(/blocked|PC_EFFECT/);
+      }
+      expect(observer.provenZeroEffects()).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
-    expect(observer.provenZeroEffects()).toBe(false);
+  });
+
+  it("shadow GenerationJobMachine never reaches direct adapter.submit", async () => {
+    const root = await realTempDir("tsugite-po8-shadow-submit-");
+    try {
+      const store = new GenerationJobStore({ rootDir: join(root, "jobs") });
+      let submitCount = 0;
+      const request = {
+        digest: "",
+        model_id: "m",
+        mode: "text-to-video" as const,
+        connection_id: "c",
+        auth_env_names: [] as string[],
+        asset_paths: [] as string[],
+        params: { text: "x" }
+      };
+      request.digest = computeRequestDigest(request);
+      const pricing = {
+        status: "known" as const,
+        version: "v1",
+        currency: "USD",
+        amount: 0,
+        max_amount: 1
+      };
+      const planned = {
+        request,
+        model_profile_digest: "a".repeat(64),
+        connection_capability_digest: "b".repeat(64),
+        pricing
+      };
+      const approval = createApproval(planned, "coordinator", NOW);
+      await store.create({
+        job_id: "job-shadow-1",
+        connection_id: "c",
+        model_id: "m",
+        mode: "text-to-video",
+        request,
+        model_profile_digest: planned.model_profile_digest,
+        connection_capability_digest: planned.connection_capability_digest,
+        pricing,
+        status: "approved",
+        approval
+      });
+      const machine = new GenerationJobMachine({
+        store,
+        adapter: {
+          adapter_id: "a",
+          connection_id: "c",
+          capabilities: { submit: true, poll: true, download: false, cancel: false },
+          async preflight() { return { ok: true as const, execution_ready: true }; },
+          async submit() {
+            submitCount += 1;
+            return { ok: true as const, provider_job_id: "p", accepted: true as const };
+          },
+          async poll() { return { ok: true as const, status: "succeeded" as const }; },
+          async download() { throw new Error("no"); }
+        } as never,
+        orchestrationMode: "shadow"
+      });
+      await expect(machine.submit("job-shadow-1")).rejects.toThrow(/shadow|SUBMIT|forbids|PC_MODE|GJ-E027/i);
+      expect(submitCount).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("Gate semantic fingerprint detects subject/decision digest mutation beyond status", async () => {
+    const gates = defaultGates();
+    const approved = {
+      run_id: "gate-sem",
+      status: "running" as const,
+      updated_at: NOW,
+      gates: {
+        ...gates,
+        gate_1: {
+          ...gates.gate_1,
+          status: "approved" as const,
+          approved_input_digest: "a".repeat(64),
+          production_subject_digest: "b".repeat(64),
+          production_decision_digest: "c".repeat(64),
+          decision_source: "human" as const
+        }
+      }
+    };
+    const mutatedSubject = {
+      ...approved,
+      gates: {
+        ...approved.gates,
+        gate_1: {
+          ...approved.gates.gate_1,
+          production_subject_digest: "d".repeat(64)
+        }
+      }
+    };
+    expect(gateSemanticsChanged(approved, mutatedSubject)).toBe(true);
+    expect(gateSemanticFingerprint(approved)).not.toBe(gateSemanticFingerprint(mutatedSubject));
+    // status-only equality is insufficient — digests must match
+    expect(approved.gates.gate_1.status).toBe(mutatedSubject.gates.gate_1.status);
+
+    const root = await realTempDir("tsugite-po8-gate-sem-");
+    try {
+      const dist = join(root, "dist");
+      await mkdir(dist, { recursive: true });
+      const observer = createEffectObserver();
+      const policy = createNoopEffectPolicy(observer);
+      // Register via writeState entry; semantic-identical write → mutation 0
+      const path1 = await writeState(dist, approved, {
+        effect_policy: policy,
+        previous: approved
+      });
+      const path2 = await writeState(dist, {
+        ...approved,
+        updated_at: "2026-08-12T18:01:00.000Z"
+      }, {
+        effect_policy: policy,
+        previous: approved
+      });
+      expect(path1).toBeTruthy();
+      expect(path2).toBeTruthy();
+      // updated_at is NOT part of gate semantic fingerprint — no gate_mutation note under noop
+      expect(observer.safetyEvidence().gate_mutation_count).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -566,7 +730,15 @@ describe("PO-8 release readiness authenticity (E)", () => {
     const moduleEvidence = await runAllFixtureModuleEvidence();
     const rehearsal = await rehearseAllPo8Fixtures();
     const observer = createEffectObserver();
-    createDenyEffectPolicy(observer);
+    const armRoot = await realTempDir("tsugite-po8-ready-arm-");
+    try {
+      await registerBoundariesViaProductionWrappers(
+        { kind: "noop", observer },
+        armRoot
+      );
+    } finally {
+      await rm(armRoot, { recursive: true, force: true });
+    }
     observer.sealEventSequence();
     const report = buildReleaseReadinessReport({
       package_version: version,
@@ -847,13 +1019,28 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
     // unarmed channel attempt
     const raw = new EffectObserver();
     expect(() => raw.createDenyCapability().networkFetch("x")).toThrow(/UNKNOWN_CHANNEL|blocked|PC_EFFECT/);
+    // createDenyEffectPolicy no longer bulk-arms; register via production wrappers
     createDenyEffectPolicy(raw);
+    const regRoot = await realTempDir("tsugite-po8-wrap-");
+    try {
+      await registerBoundariesViaProductionWrappers({ kind: "deny", observer: raw }, regRoot);
+    } finally {
+      await rm(regRoot, { recursive: true, force: true });
+    }
     const wrappedOk = raw.wrapProductionApi("noop", () => 42);
     expect(wrappedOk).toEqual({ ok: true, value: 42 });
     const wrappedBlock = raw.wrapProductionApi("submit", (cap) => cap.providerSubmit("p"));
     expect(wrappedBlock.ok).toBe(false);
 
-    createDenyEffectPolicy(observer);
+    const armRoot = await realTempDir("tsugite-po8-flags-");
+    try {
+      await registerBoundariesViaProductionWrappers(
+        { kind: "noop", observer },
+        armRoot
+      );
+    } finally {
+      await rm(armRoot, { recursive: true, force: true });
+    }
     observer.sealEventSequence();
     const flags = deriveCliSafetyFlags({ observer });
     expect(flags.generation_submitted).toBe(false);
@@ -1133,9 +1320,15 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
       runtime_mode: "shadow"
     })).toBe("shadow");
 
-    // noop policy registration + note no-op path
+    // noop policy: register via real production wrappers, then note no-op path
     const obs = createEffectObserver();
     const noop = createNoopEffectPolicy(obs);
+    const noopRoot = await realTempDir("tsugite-po8-noop-");
+    try {
+      await registerBoundariesViaProductionWrappers(noop, noopRoot);
+    } finally {
+      await rm(noopRoot, { recursive: true, force: true });
+    }
     noteEffectBoundary(noop, "render", "noop.render");
     noteEffectBoundary(undefined, "render", "no-policy");
     obs.sealEventSequence();
@@ -1149,7 +1342,15 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
     // readiness GO-WITH-CAVEATS when all structural evidence present but Windows unverified
     const moduleEvidence = await runAllFixtureModuleEvidence();
     const observer = createEffectObserver();
-    createDenyEffectPolicy(observer);
+    const readyRoot = await realTempDir("tsugite-po8-ready2-");
+    try {
+      await registerBoundariesViaProductionWrappers(
+        { kind: "noop", observer },
+        readyRoot
+      );
+    } finally {
+      await rm(readyRoot, { recursive: true, force: true });
+    }
     observer.sealEventSequence();
     const journalDigest = hashCommandOutput("journal-complete");
     const report = buildReleaseReadinessReport({

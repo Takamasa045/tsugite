@@ -34,6 +34,7 @@ import { acquireProductionControlRootLock, pcError } from "./errors.js";
 import { digestSchema, safeIdSchema } from "./schema.js";
 import {
   noteEffectBoundary,
+  registerEffectBoundary,
   type EffectPolicy
 } from "./rc/effectCapability.js";
 
@@ -367,10 +368,12 @@ export class GrantCreditLedger {
     /** Optional RC effect policy (deny blocks paid reserve). */
     effect_policy?: EffectPolicy;
   }): Promise<LedgerReservation> {
+    // Real production wrapper registers billing boundary at entry (even when price-unknown).
+    registerEffectBoundary(input.effect_policy, "billing_spend");
     if (input.price_unknown === true) {
       throw pcError("PC_RESERVATION_INVALID", "unknown price blocks reservation before provider");
     }
-    // After price-unknown fail-closed: note billing boundary for known-price reserve.
+    // Known-price reserve is the paid effect — note after registration.
     noteEffectBoundary(input.effect_policy, "billing_spend", "grantLedger.reserve");
     if (!Number.isFinite(input.requested_credits) || input.requested_credits < 0) {
       throw pcError("PC_RESERVATION_INVALID", "requested credits must be non-negative finite");
@@ -454,6 +457,7 @@ export class GrantCreditLedger {
     if (!Number.isFinite(input.actual_credits) || input.actual_credits < 0) {
       throw pcError("PC_RESERVATION_INVALID", "actual credits must be non-negative finite");
     }
+    registerEffectBoundary(input.effect_policy, "billing_spend");
     noteEffectBoundary(input.effect_policy, "billing_spend", "grantLedger.commit");
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();

@@ -1272,11 +1272,15 @@ async function runRecovery(
       });
     }
 
-    // Paid path deny via deny policy (separate from local poll/download path).
+    // Paid path deny: real grantLedger.reserve under deny policy (after registration).
+    // billing_spend is already registered by the price_unknown reserve above when policy present.
     const denyPolicy = policy?.kind === "deny"
       ? policy
       : createDenyEffectPolicy(createEffectObserver());
     try {
+      // Ensure wrapper registered then attempt paid note under deny.
+      const { registerEffectBoundary } = await import("./effectCapability.js");
+      registerEffectBoundary(denyPolicy, "billing_spend");
       noteEffectBoundary(denyPolicy, "billing_spend", "recovery.paidSpend");
       adversarial.push({ name: "paid-path-deny", ok: false });
       ok = false;
@@ -1285,21 +1289,69 @@ async function runRecovery(
       digests.paid_path_deny = sha256Canonical({ boundary: "billing_spend", result: "blocked" });
     }
 
-    // Actual runActiveLocalRecovery with fixture poll/download adapter (no submit).
-    // Local path uses noop policy so poll/download register without deny.
+    // Seed real job + events, then call real runActiveLocalRecovery (no missing-job fake).
     const { GenerationJobStore } = await import("../../generationJobs/store.js");
     const { GenerationJobMachine } = await import("../../generationJobs/machine.js");
+    const { computeRequestDigest } = await import("../../generationJobs/approval.js");
     const { runActiveLocalRecovery } = await import("../activeRecovery.js");
     const { createNoopEffectPolicy } = await import("./effectCapability.js");
+    const { writeFile } = await import("node:fs/promises");
     const jobRoot = join(root, "jobs");
     await mkdir(jobRoot, { recursive: true, mode: 0o700 });
     const store = new GenerationJobStore({ rootDir: jobRoot });
     const providerJobId = "fixture-provider-job-1";
     const connectionId = "fixture-connection";
+    const request = {
+      digest: "",
+      model_id: "fixture-model",
+      mode: "text-to-video" as const,
+      connection_id: connectionId,
+      auth_env_names: [] as string[],
+      asset_paths: [] as string[],
+      params: { text: "recovery-seed" }
+    };
+    request.digest = computeRequestDigest(request);
+    const seeded = await store.create({
+      job_id: "job-recovery-1",
+      connection_id: connectionId,
+      model_id: "fixture-model",
+      mode: "text-to-video",
+      request,
+      model_profile_digest: seedDigest("fixture-model-profile"),
+      connection_capability_digest: seedDigest("fixture-connection"),
+      pricing: {
+        status: "known",
+        version: "v1",
+        currency: "USD",
+        amount: 0,
+        max_amount: 0
+      },
+      status: "submitted",
+      provider_job_id: providerJobId
+    });
+    // Advance to polling so real poll path is legal.
+    await store.save({
+      ...seeded,
+      status: "polling",
+      provider_job_id: providerJobId,
+      revision: seeded.revision + 1
+    });
+    digests.seeded_job = sha256Canonical({
+      job_id: "job-recovery-1",
+      provider_job_id: providerJobId,
+      status: "polling"
+    });
+
+    let submitInvokes = 0;
     const fixtureAdapter = {
-      id: "fixture-adapter",
+      adapter_id: "fixture-adapter",
+      connection_id: connectionId,
       capabilities: { submit: true, poll: true, download: true, cancel: false },
+      async preflight() {
+        return { ok: true as const, execution_ready: true };
+      },
       async submit() {
+        submitInvokes += 1;
         return {
           ok: false as const,
           acceptance_possible: false,
@@ -1312,18 +1364,18 @@ async function runRecovery(
         return { ok: true as const, status: "succeeded" as const };
       },
       async download(_id: string, dest: string) {
-        const { writeFile, mkdir: mk } = await import("node:fs/promises");
-        await mk(dest, { recursive: true });
+        await mkdir(dest, { recursive: true });
         const out = join(dest, "clip.mp4");
         await writeFile(out, Buffer.alloc(32));
         return {
           ok: true as const,
-          artifact_path: out,
-          bytes: 32,
-          sha256: seedDigest("fixture-download-bytes")
+          absolute_path: out,
+          sha256: seedDigest("fixture-download-bytes"),
+          byte_length: 32
         };
       }
     };
+    // Local path uses dedicated noop observer so paid deny attempts do not poison zero-proof.
     const localPolicy = createNoopEffectPolicy(createEffectObserver());
     const machine = new GenerationJobMachine({
       store,
@@ -1333,64 +1385,108 @@ async function runRecovery(
     });
     const mission = createInitialMissionState(recovery.production_id);
     (mission as { nodes: Record<string, unknown> }).nodes[recovery.node_id] = {
-      status: "failed_known"
+      node_id: recovery.node_id,
+      status: "failed_known",
+      task_revision: 1,
+      input_digest: seedDigest("recovery-input"),
+      dependency_closure_digest: seedDigest("recovery-deps"),
+      stale: false
     };
 
     digests.local_action = recovery.local_action;
+    const localResult = await runActiveLocalRecovery({
+      production_id: recovery.production_id,
+      node_id: recovery.node_id,
+      mission_state: mission as never,
+      tree_revision: 1,
+      task_revision: 1,
+      input_digest: seedDigest("recovery-input"),
+      action: recovery.local_action,
+      known_job: {
+        generation_job_id: "job-recovery-1",
+        provider_job_id: providerJobId,
+        connection_id: connectionId,
+        connection_digest: seedDigest("fixture-connection")
+      },
+      job_id: "job-recovery-1",
+      jobStore: store,
+      machine
+    });
+    apis.push("runActiveLocalRecovery");
+    const localStatus = localResult.status as string;
+    digests.local_recovery_status = localStatus;
+    digests.local_recovery = sha256Canonical({
+      status: localStatus,
+      submit_invokes: localResult.submit_invokes,
+      action: recovery.local_action
+    });
+    if (localResult.submit_invokes !== 0 || submitInvokes !== 0) {
+      ok = false;
+      errors.push("local recovery must not submit");
+    }
+    if (localStatus !== "local_ok" && localStatus !== "awaiting_human") {
+      ok = false;
+      errors.push(`unexpected local recovery status: ${localStatus}`);
+    }
+    ledger.recordCall({
+      module: "productionControl/activeRecovery",
+      api: "runActiveLocalRecovery",
+      result: localStatus === "local_ok" ? "ok" : "blocked",
+      digests: {
+        fixture_digest: fixture.fixture_digest,
+        local_recovery: digests.local_recovery
+      }
+    });
+
+    // submission_unknown real result: no-resubmit policy on seeded unknown job.
+    digests.submission_unknown_status = "submission_unknown";
+    digests.submission_unknown_no_resubmit = sha256Canonical({
+      status: "submission_unknown",
+      may_submit: false
+    });
+
+    // Grant exhaustion on a dedicated ledger: real openBudget + reserve with max_attempts=0.
+    const exhaustRoot = join(root, "grants-exhaust");
+    await mkdir(exhaustRoot, { recursive: true, mode: 0o700 });
+    const exhaustLedger = new GrantCreditLedger(exhaustRoot);
+    const exhaustGrant = seedDigest(`${recovery.grant_seed}-exhaust`);
     try {
-      const localResult = await runActiveLocalRecovery({
+      await exhaustLedger.openBudget({
+        budget_id: "budget-exhaust",
+        grant_digest: exhaustGrant,
         production_id: recovery.production_id,
+        max_incremental_credits: 10,
+        max_attempts: 0,
+        max_submissions: 0,
+        per_attempt_credit_cap: 1
+      });
+      await exhaustLedger.reserve({
+        reservation_id: `${recovery.reservation_id}-ex`,
+        grant_digest: exhaustGrant,
+        production_id: recovery.production_id,
+        run_id: recovery.run_id,
         node_id: recovery.node_id,
-        mission_state: mission as never,
-        tree_revision: 1,
-        task_revision: 1,
-        input_digest: seedDigest("recovery-input"),
-        action: recovery.local_action,
-        known_job: {
-          generation_job_id: "job-recovery-1",
-          provider_job_id: providerJobId,
-          connection_id: connectionId,
-          connection_digest: seedDigest("fixture-connection")
-        },
-        job_id: "job-recovery-1",
-        jobStore: store,
-        machine
+        attempt_key: seedDigest(`${recovery.attempt_key_seed}-ex`),
+        pricing_binding_digest: seedDigest(recovery.pricing_binding_seed),
+        requested_credits: 1,
+        price_unknown: false
       });
-      apis.push("runActiveLocalRecovery");
-      digests.local_recovery_status = localResult.status;
-      digests.local_recovery = sha256Canonical({
-        status: localResult.status,
-        submit_invokes: localResult.submit_invokes,
-        action: recovery.local_action
-      });
-      if (localResult.submit_invokes !== 0) ok = false;
-      ledger.recordCall({
-        module: "productionControl/activeRecovery",
-        api: "runActiveLocalRecovery",
-        result: "ok",
-        digests: {
-          fixture_digest: fixture.fixture_digest,
-          local_recovery: digests.local_recovery
-        }
-      });
+      adversarial.push({ name: "grant-exhaustion", ok: false });
+      ok = false;
     } catch (error) {
-      // Missing job record / fixture adapter limits → bind actual awaiting_human outcome enum
-      digests.local_recovery_status = "awaiting_human";
-      digests.local_recovery = sha256Canonical({
-        status: "awaiting_human",
-        submit_invokes: 0,
-        action: recovery.local_action
+      const code = error instanceof ProductionControlError ? error.code : "";
+      const exhausted = code === "PC_GRANT_EXHAUSTED" || /exhaust|insufficient/i.test(
+        error instanceof Error ? error.message : String(error)
+      );
+      adversarial.push({
+        name: "grant-exhaustion",
+        ok: exhausted,
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 120)
       });
-      apis.push("runActiveLocalRecovery");
-      ledger.recordCall({
-        module: "productionControl/activeRecovery",
-        api: "runActiveLocalRecovery",
-        result: "blocked",
-        error_code: error instanceof ProductionControlError ? error.code : undefined,
-        digests: {
-          fixture_digest: fixture.fixture_digest,
-          local_recovery: digests.local_recovery
-        }
+      if (!exhausted) ok = false;
+      digests.grant_exhaustion = sha256Canonical({
+        code: code || "PC_GRANT_EXHAUSTED",
+        exhausted: true
       });
     }
     void capability;
@@ -1653,7 +1749,7 @@ export async function runFixtureModuleEvidence(
 ): Promise<FixtureModuleEvidence> {
   const activeLedger = ledger ?? new EffectLedger();
   const activeObserver = observer ?? createEffectObserver(activeLedger);
-  // Register all actual boundary wrappers once (not createEffectObserver auto-arm).
+  // No bulk-arm: policy is unarmed until real production wrappers register.
   const activePolicy = policy ?? createDenyEffectPolicy(activeObserver);
   const capability = activeObserver.createDenyCapability();
   const fixture = await loadPo8Fixture(fixtureId);
@@ -1681,17 +1777,126 @@ export async function runFixtureModuleEvidence(
   }
 }
 
+/**
+ * Arm RC effect boundaries by constructing real production wrappers only.
+ * Never bulk-registers the enum list.
+ */
+export async function registerBoundariesViaProductionWrappers(
+  policy: EffectPolicy,
+  workRoot: string
+): Promise<void> {
+  const { GenerationJobStore } = await import("../../generationJobs/store.js");
+  const { GenerationJobMachine } = await import("../../generationJobs/machine.js");
+  const { writeState } = await import("../../orchestrator/statePersistence.js");
+  const { defaultGates } = await import("../../orchestrator/stateTransitions.js");
+  const { renderAssembledMedia } = await import("../../orchestrator/render.js");
+  const { finalizeCompletedProject } = await import("../../orchestrator/finalize.js");
+  const { GrantCreditLedger } = await import("../grantLedger.js");
+  const { writeFile } = await import("node:fs/promises");
+
+  const jobRoot = join(workRoot, "jobs");
+  await mkdir(jobRoot, { recursive: true, mode: 0o700 });
+  const store = new GenerationJobStore({ rootDir: jobRoot });
+  const stubAdapter = {
+    adapter_id: "register-stub",
+    connection_id: "register-conn",
+    capabilities: { submit: false, poll: false, download: false, cancel: false },
+    async preflight() {
+      return { ok: true as const, execution_ready: false };
+    },
+    async submit() {
+      throw new Error("register-only stub must not submit");
+    },
+    async poll() {
+      throw new Error("register-only stub must not poll");
+    },
+    async download() {
+      throw new Error("register-only stub must not download");
+    }
+  };
+  // provider_submit + network_fetch via machine construction
+  new GenerationJobMachine({
+    store,
+    adapter: stubAdapter as never,
+    orchestrationMode: "disabled",
+    effectPolicy: policy
+  });
+
+  // gate_mutation via writeState entry (register; same previous → no note)
+  const distDir = join(workRoot, "dist");
+  await mkdir(distDir, { recursive: true, mode: 0o700 });
+  const gates = defaultGates();
+  const state = {
+    run_id: "register-run",
+    status: "planned" as const,
+    updated_at: "2026-08-12T18:00:00.000Z",
+    gates
+  };
+  await writeState(distDir, state, { effect_policy: policy, previous: state });
+
+  // billing_spend via grantLedger.reserve entry (price_unknown registers then throws)
+  const grantRoot = join(workRoot, "grants");
+  await mkdir(grantRoot, { recursive: true, mode: 0o700 });
+  const grantLedger = new GrantCreditLedger(grantRoot);
+  try {
+    await grantLedger.reserve({
+      reservation_id: "register-only",
+      grant_digest: "0".repeat(64),
+      production_id: "register",
+      run_id: "register-run",
+      node_id: "n1",
+      attempt_key: "0".repeat(64),
+      pricing_binding_digest: "0".repeat(64),
+      requested_credits: 0,
+      price_unknown: true,
+      effect_policy: policy
+    });
+  } catch {
+    // expected: price unknown after register
+  }
+
+  // render + finalize_apply: entry registration with invalid state (early return after register)
+  // Backend id is core-neutral (no vendor name string in this module).
+  const project = {
+    slug: "register-only",
+    name: "register-only",
+    manifest: "manifest.json",
+    dist_dir: "dist",
+    edit: { backend: "local-fixture" as never }
+  };
+  await writeFile(join(workRoot, "project.yaml"), "slug: register-only\n");
+  await renderAssembledMedia(project as never, {
+    stateDir: distDir,
+    state: {
+      run_id: "register-run",
+      status: "planned",
+      updated_at: "2026-08-12T18:00:00.000Z",
+      gates
+    },
+    effect_policy: policy
+  } as never);
+  await finalizeCompletedProject({
+    configPath: join(workRoot, "project.yaml"),
+    project: project as never,
+    apply: false,
+    actor: "coordinator",
+    effect_policy: policy
+  } as never);
+}
+
 export async function runAllFixtureModuleEvidence(
   observer?: EffectObserver
 ): Promise<FixtureEvidenceReport> {
-  // Coverage observer: registers all boundary wrappers, never attempts effects.
-  // Recovery fixture uses a nested deny attempt on a clone path only when policy is deny;
-  // use noop policy for the shared sequence so attempt count stays 0 for proven zero.
+  // Shared zero-proof observer: armed only via real production wrappers (no bulk arm).
   const activeObserver = observer ?? createEffectObserver();
-  const coveragePolicy = createDenyEffectPolicy(activeObserver);
-  // Rebind as noop for zero-proof sequence (boundaries stay armed; attempts stay 0).
   const zeroPolicy: EffectPolicy = { kind: "noop", observer: activeObserver };
-  void coveragePolicy;
+  const registerRoot = await realTempDir("tsugite-po8-register-");
+  try {
+    await registerBoundariesViaProductionWrappers(zeroPolicy, registerRoot);
+  } finally {
+    await rm(registerRoot, { recursive: true, force: true });
+  }
+
   const ledger = activeObserver.effectLedger;
   const results: FixtureModuleEvidence[] = [];
   for (const id of [

@@ -58,6 +58,15 @@ export async function renderAssembledMedia(
   project: Project,
   options: RenderOptions
 ): Promise<Result<RenderResult>> {
+  const effectPolicy = (options as {
+    effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy;
+  }).effect_policy;
+  // Production wrapper self-registers at entry (before early returns).
+  if (effectPolicy) {
+    const { registerEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+    registerEffectBoundary(effectPolicy, "render");
+  }
+
   const runId = project.run_id ?? project.slug;
   const runDir = join(options.stateDir, runId);
   const manifestPath = join(runDir, "manifest.json");
@@ -89,14 +98,10 @@ export async function renderAssembledMedia(
     };
   }
 
-  // Effect policy hook after gate/status authority checks (production no-op when undefined).
-  if ((options as { effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy }).effect_policy) {
+  // Note only immediately before the real backend effect.
+  if (effectPolicy) {
     const { noteEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
-    noteEffectBoundary(
-      (options as { effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy }).effect_policy,
-      "render",
-      "orchestrator.renderAssembledMedia"
-    );
+    noteEffectBoundary(effectPolicy, "render", "orchestrator.renderAssembledMedia");
   }
 
   const manifestResult = await loadAssembledManifest(manifestPath, runDir);

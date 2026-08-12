@@ -467,6 +467,11 @@ export class GenerationJobMachine {
       throw new GenerationJobError(GJ_ROUTE_UNSUPPORTED, "adapter does not support submit");
     }
 
+    // Shadow never falls through to legacy direct adapter.submit.
+    if (this.orchestrationMode === "shadow") {
+      requireActiveModeForEffect("shadow", "external-submit");
+    }
+
     // Effect policy hook after existing authority checks (production no-op when undefined).
     noteEffectBoundary(this.effectPolicy, "provider_submit", "generationJobs.machine.submit");
 
@@ -481,8 +486,14 @@ export class GenerationJobMachine {
         // Authority failures before adapter effect fail closed without submission_unknown
         // (adapter was never invoked; acceptance is known-impossible).
         result = await this.submitViaT05(submitting);
+      } else if (this.orchestrationMode === "shadow") {
+        // Unreachable when requireActiveModeForEffect throws; keep fail-closed.
+        throw new GenerationJobError(
+          GJ_SUBMIT_NOT_ALLOWED,
+          "shadow mode forbids provider submit; direct adapter.submit is closed"
+        );
       } else {
-        // Legacy / disabled / shadow: existing direct adapter path.
+        // Legacy / disabled only: existing direct adapter path.
         result = await this.adapter.submit(submitting.request, this.ctx(submitting));
       }
     } catch (error) {

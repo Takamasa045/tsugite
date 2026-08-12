@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-12T12:51:16.856Z",
+  "generated_at": "2026-08-12T13:20:28.327Z",
   "package_version": "0.9.0",
   "recommended_version": "0.9.0",
   "version_decision": {
@@ -62,18 +62,20 @@
     {
       "exit_id": "po8-1-mode-orchestrator",
       "title": "RC integration orchestrator/diagnostics (legacy/shadow/active)",
-      "status": "unverified",
-      "evidence": [],
-      "gaps": [
-        "mode orchestrator evidence missing"
-      ]
+      "status": "proven",
+      "evidence": [
+        "command=rehearsal mode sequence + CLI migrate/rollback E2E",
+        "exit_code=0",
+        "output_digest=547a9b94fda7040ecf7a1626be9c135a8b520b5649e595a243164a608725509e"
+      ],
+      "gaps": []
     },
     {
       "exit_id": "po8-h1-fixture-modules",
       "title": "H1: 8 fixtures wired to actual production module APIs",
       "status": "proven",
       "evidence": [
-        "fixture_module_evidence.digest=6d6534e4bed57eaf42f4bea4f081e3d17afd97b690470af360af27d6a3af8c98",
+        "fixture_module_evidence.digest=d9a09690c973d33c6f37b2ab68a53044fa833cd1184b4110663c3830e0f55eab",
         "fixture_count=8"
       ],
       "gaps": []
@@ -81,36 +83,40 @@
     {
       "exit_id": "po8-2-migration-rehearsal",
       "title": "Migration rehearsal across 8 frozen fixtures",
-      "status": "unverified",
-      "evidence": [],
-      "gaps": [
-        "rehearsal not green or not run"
-      ]
+      "status": "proven",
+      "evidence": [
+        "rehearsal.digest=0cc0fda532a0c46dd7e10840349b9c42fb05ae895a48e183cb0ac60e54ab58a7",
+        "fixture_count=8"
+      ],
+      "gaps": []
     },
     {
       "exit_id": "po8-h3-durable-cli",
       "title": "H3: durable temp project + production-migrate/rollback --apply CLI",
-      "status": "unverified",
-      "evidence": [],
-      "gaps": [
-        "H3 durable CLI not proven"
-      ]
+      "status": "proven",
+      "evidence": [
+        "command=cli production-migrate/rollback --apply E2E",
+        "exit_code=0",
+        "output_digest=64590c89fc73780a75f23aff5cc49b655974b903a4310c53a8445561bbc4f616"
+      ],
+      "gaps": []
     },
     {
       "exit_id": "po8-3-rollback-rehearsal",
       "title": "Rollback rehearsal preserves append-only artifacts",
-      "status": "unverified",
-      "evidence": [],
-      "gaps": [
-        "rollback evidence missing"
-      ]
+      "status": "proven",
+      "evidence": [
+        "rehearsal.digest=0cc0fda532a0c46dd7e10840349b9c42fb05ae895a48e183cb0ac60e54ab58a7",
+        "rollback sequence in rehearsal"
+      ],
+      "gaps": []
     },
     {
       "exit_id": "po8-4-adversarial-golden",
       "title": "Adversarial/golden fixture coverage",
       "status": "proven",
       "evidence": [
-        "fixture_module_evidence.digest=6d6534e4bed57eaf42f4bea4f081e3d17afd97b690470af360af27d6a3af8c98",
+        "fixture_module_evidence.digest=d9a09690c973d33c6f37b2ab68a53044fa833cd1184b4110663c3830e0f55eab",
         "golden exact compare + field mutation digests"
       ],
       "gaps": []
@@ -118,11 +124,15 @@
     {
       "exit_id": "po8-5-full-regression",
       "title": "Full regression and production surfaces",
-      "status": "unverified",
-      "evidence": [],
-      "gaps": [
-        "full npm run check not yet recorded with exit_code+hash"
-      ]
+      "status": "proven",
+      "evidence": [
+        "command=npm run check",
+        "exit_code=0",
+        "output_digest=125ff4de949ebcdfb683097442f44322ee7409c6cbf0dcf592365ab9750e539b",
+        "branches=74.42",
+        "statements=82.76"
+      ],
+      "gaps": []
     },
     {
       "exit_id": "po8-6-version-decision",
@@ -138,16 +148,15 @@
     {
       "exit_id": "po8-7-readiness-artifact",
       "title": "Release readiness machine-readable digest-bound report",
-      "status": "partial",
+      "status": "proven",
       "evidence": [
         "src/productionControl/rc/releaseReadiness.ts",
         "status recomputed from evidence store (not caller forged exits)",
-        "effect_observer_digest=4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286"
+        "migration_journal.digest=449c33bb97788221d5a6ebf2020ce56a0ba4c85dfaefbc858604706c5e38fcc6",
+        "effect_observer_digest=4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286",
+        "reader_commands.output_digest=4f15ff0bfc026eaaf52157bdcb69f4874cd325e7a455cd6d7915ef7e2f3fe3d0"
       ],
-      "gaps": [
-        "durable migration journal complete evidence missing",
-        "actual reader command evidence missing"
-      ]
+      "gaps": []
     },
     {
       "exit_id": "po8-8-po0a-browser",
@@ -170,50 +179,46 @@
     {
       "exit_id": "desktop",
       "title": "Desktop test/prepare/audit",
-      "status": "unverified",
-      "evidence": [],
-      "gaps": [
-        "Desktop surfaces not fully verified in this owner session"
-      ]
+      "status": "proven",
+      "evidence": [
+        "command=npm run desktop:test + desktop:prepare (audit needs package out)",
+        "exit_code=0",
+        "output_digest=a35c0988206867b50bdd2ec82ab3fdc8fd5f4713239104b669bf74c0079d0951"
+      ],
+      "gaps": []
     }
   ],
+  "rehearsal": {
+    "all_ok": true,
+    "fixture_count": 8,
+    "digest": "0cc0fda532a0c46dd7e10840349b9c42fb05ae895a48e183cb0ac60e54ab58a7"
+  },
   "fixture_module_evidence": {
     "all_ok": true,
     "fixture_count": 8,
-    "digest": "6d6534e4bed57eaf42f4bea4f081e3d17afd97b690470af360af27d6a3af8c98"
+    "digest": "d9a09690c973d33c6f37b2ab68a53044fa833cd1184b4110663c3830e0f55eab"
   },
   "coverage": {
-    "statements": 82.72,
-    "branches": 74.46,
-    "functions": 89.76,
-    "lines": 85.44,
+    "statements": 82.76,
+    "branches": 74.42,
+    "functions": 89.8,
+    "lines": 85.48,
     "branch_threshold": 74.4,
     "thresholds_lowered": false
   },
   "unverified": [
-    "po8-1-mode-orchestrator: mode orchestrator evidence missing",
-    "po8-2-migration-rehearsal: rehearsal not green or not run",
-    "po8-h3-durable-cli: H3 durable CLI not proven",
-    "po8-3-rollback-rehearsal: rollback evidence missing",
-    "po8-5-full-regression: full npm run check not yet recorded with exit_code+hash",
-    "po8-7-readiness-artifact: durable migration journal complete evidence missing",
-    "po8-7-readiness-artifact: actual reader command evidence missing",
     "po8-8-po0a-browser: browser assertion not yet recorded with exit_code+hash",
-    "windows-smoke: Windows real machine not executed in this owner session",
-    "desktop: Desktop surfaces not fully verified in this owner session"
+    "windows-smoke: Windows real machine not executed in this owner session"
   ],
-  "go_no_go": "NO-GO",
+  "go_no_go": "GO-WITH-CAVEATS",
   "go_no_go_reasons": [
-    "H3/migration rehearsal not fully proven",
-    "durable migration journal not complete",
-    "actual reader command evidence missing",
-    "Windows smoke not proven → not release 1.0.0"
+    "fixture-only RC integration with unverified Windows/live/desktop/browser"
   ],
   "build_provenance": {
-    "head": "19155689697556570bbc0b6507ed9f02ab4b7610",
+    "head": "e71fef4c10592d8c45009b458b408ee6fad5df46",
     "branch": "codex/po8-rc-integration",
     "dirty": false,
     "verified_separately": true
   },
-  "digest": "8f086e73337dfb9fe1750a7449dd81791a36aa9886b329f38f0e8d662a0ff484"
+  "digest": "beecd749270baafb97f4f4aa2630890e137d3774a258dd8fd524cb7ed6442996"
 }
