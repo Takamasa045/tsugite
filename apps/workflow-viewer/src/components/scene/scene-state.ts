@@ -4,6 +4,7 @@ export const SCENE_REASON_CODES = [
   'viewer.scene.context_lost',
   'viewer.scene.first_frame_timeout',
   'viewer.scene.runtime_error',
+  'viewer.scene.task_tree_empty',
 ] as const
 
 export type SceneReasonCode = (typeof SCENE_REASON_CODES)[number]
@@ -24,6 +25,8 @@ export const SCENE_REASON_LABELS: Record<SceneReasonCode, string> = {
   'viewer.scene.context_lost': '3D表示の接続が失われました。',
   'viewer.scene.first_frame_timeout': '3D表示の初回描画を確認できませんでした。',
   'viewer.scene.runtime_error': '3D表示中に問題が発生しました。',
+  'viewer.scene.task_tree_empty':
+    'TaskTree 成果物が無く、表示できる工程ノードがありません。',
 }
 
 export type SceneFailurePhase = 'initializing' | 'ready'

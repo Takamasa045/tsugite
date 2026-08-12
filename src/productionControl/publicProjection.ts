@@ -46,12 +46,16 @@ export const publicMissionNodeSchema = z
   .strict();
 export type PublicMissionNodeV1 = z.infer<typeof publicMissionNodeSchema>;
 
+/**
+ * Public Gate surface: presence / stale only.
+ * Authority digests (subject_digest / decision_digest / approved_input_digest) are
+ * forbidden here — Gate authority schemas stay on the authority plane unchanged.
+ * Unknown keys are strict-rejected (no wire leakage of digest fields).
+ */
 export const publicGateSummarySchema = z
   .object({
     gate: z.enum(["gate_1", "gate_2", "gate_3"]),
-    status: z.enum(["absent", "current", "stale"]),
-    subject_digest: digestSchema.optional(),
-    decision_digest: digestSchema.optional()
+    status: z.enum(["absent", "current", "stale"])
   })
   .strict();
 export type PublicGateSummaryV1 = z.infer<typeof publicGateSummarySchema>;

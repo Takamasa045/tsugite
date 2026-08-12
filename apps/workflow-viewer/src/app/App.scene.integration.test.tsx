@@ -208,4 +208,75 @@ describe('App scene fallback integration', () => {
     expect(useWorkflowStore.getState().workflow?.missionTree?.taskTreeReadOnly).toBe(true)
     expect(useWorkflowStore.getState().workflow?.nodes).toHaveLength(3)
   }, 20_000)
+
+  it('R4 shows dedicated empty Mission Tree DOM fallback with keyboard affordances', async () => {
+    const user = userEvent.setup()
+    const emptyMissionWorkflow: WorkflowData = {
+      id: 'mission-empty',
+      name: 'Empty Mission Tree',
+      description: 'current decision: TaskTree 成果物が無いため Mission Tree を構築できません',
+      status: 'error',
+      duration: 10,
+      nodes: [],
+      edges: [],
+      events: [],
+      missionTree: {
+        productionId: 'prod-empty',
+        mode: 'active',
+        missionStatus: 'ready',
+        treeRevision: 1,
+        sourceEventSequence: 1,
+        currentDecision: {
+          kind: 'blocked',
+          summary: 'TaskTree 成果物が無いため Mission Tree を構築できません',
+          reasonCode: 'mission_tree.task_tree_unavailable',
+        },
+        recovery: {
+          active: false,
+          attempts: 0,
+          limit: null,
+          lastErrorCode: 'mission_tree.task_tree_unavailable',
+        },
+        taskTreeReadOnly: true,
+        legacyWorkflowPreserved: true,
+      },
+    }
+
+    render(
+      <App samples={[{ id: 'empty-mission', label: 'Empty MT', data: emptyMissionWorkflow }]} />,
+    )
+
+    const fallback = await screen.findByTestId('workflow-scene-fallback', undefined, {
+      timeout: 15_000,
+    })
+    expect(fallback).toBeVisible()
+    expect(fallback).toHaveAttribute('data-empty-mission-tree', 'true')
+    expect(fallback.textContent?.trim().length ?? 0).toBeGreaterThan(0)
+
+    const empty = screen.getByTestId('mission-tree-empty-fallback')
+    expect(empty).toBeVisible()
+    expect(empty).toHaveAttribute('role', 'status')
+    expect(screen.getByTestId('scene-fallback-reason')).toHaveTextContent(
+      'viewer.scene.task_tree_empty',
+    )
+    expect(screen.getByTestId('mission-tree-empty-summary')).toBeVisible()
+    expect(screen.getByTestId('mission-tree-status')).toBeVisible()
+    expect(screen.getByTestId('mission-tree-decision-kind')).toHaveTextContent('blocked')
+
+    // Diagnostic / retry / navigation affordances are keyboard operable without WebGL.
+    const retry = screen.getByTestId('mission-tree-empty-retry')
+    const clear = screen.getByTestId('mission-tree-empty-clear-selection')
+    expect(retry).toBeVisible()
+    expect(clear).toBeVisible()
+    retry.focus()
+    expect(retry).toHaveFocus()
+    await user.keyboard('{Tab}')
+    expect(clear).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(useWorkflowStore.getState().selectedNodeId).toBeNull()
+
+    // Center is not a blank void: empty status + mission strip both present.
+    expect(screen.getByTestId('scene-fallback-node-count')).toHaveTextContent('0')
+    expect(document.body.textContent).not.toMatch(/subject_digest|decision_digest/)
+  }, 20_000)
 })

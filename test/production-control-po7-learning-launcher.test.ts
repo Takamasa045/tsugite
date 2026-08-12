@@ -38,6 +38,7 @@ import {
   projectMissionMetrics,
   projectMissionTree,
   proposalSubjectDigest,
+  publicGateSummarySchema,
   resolveAuthoritativeProductionId,
   runLearningExperiment,
   safetySloViolations,
@@ -1033,7 +1034,99 @@ describe("PO-7 production path wiring", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("R1 fail-closes authoritative production_id when control-plane exists but snapshot is unsafe", async () => {
+    const { mkdir, symlink, writeFile: writeLeaf } = await import("node:fs/promises");
+    // Control plane present (events) + missing snapshot → no slug fallback.
+    const missingSnap = await realTempDir("tsugite-po7-r1-missing-");
+    try {
+      await mkdir(join(missingSnap, "coordination"), { recursive: true });
+      await writeLeaf(join(missingSnap, "coordination", "events.jsonl"), "{}\n");
+      await expect(
+        resolveAuthoritativeProductionId(missingSnap, { slug: "slug-should-not-win" })
+      ).rejects.toThrow(/refusing slug fallback|snapshot is missing/i);
+    } finally {
+      await rm(missingSnap, { recursive: true, force: true });
+    }
+
+    // Control plane present + snapshot symlink → fail closed.
+    const symlinkRoot = await realTempDir("tsugite-po7-r1-symlink-");
+    try {
+      await mkdir(join(symlinkRoot, "coordination"), { recursive: true });
+      await writeLeaf(join(symlinkRoot, "coordination", "events.jsonl"), "{}\n");
+      const outside = join(symlinkRoot, "outside-state.json");
+      await writeLeaf(outside, JSON.stringify({
+        schema_version: 1,
+        state: createInitialMissionState("evil-id"),
+        state_digest: DIGEST_A
+      }));
+      await symlink(outside, join(symlinkRoot, "coordination", "coordination-state.json"));
+      await expect(
+        resolveAuthoritativeProductionId(symlinkRoot, { slug: "slug-should-not-win" })
+      ).rejects.toThrow(/symlink|refusing slug fallback/i);
+    } finally {
+      await rm(symlinkRoot, { recursive: true, force: true });
+    }
+
+    // Control plane present + unreadable/corrupt snapshot → fail closed.
+    const corruptRoot = await realTempDir("tsugite-po7-r1-corrupt-");
+    try {
+      await mkdir(join(corruptRoot, "coordination"), { recursive: true });
+      await writeLeaf(join(corruptRoot, "coordination", "events.jsonl"), "{}\n");
+      await writeLeaf(join(corruptRoot, "coordination", "coordination-state.json"), "{not-json");
+      await expect(
+        resolveAuthoritativeProductionId(corruptRoot, { slug: "slug-should-not-win" })
+      ).rejects.toThrow(/refusing slug fallback|invalid|unreadable|identity/i);
+    } finally {
+      await rm(corruptRoot, { recursive: true, force: true });
+    }
+
+    // Completely absent control plane remains legacy slug (preview/apply same path).
+    const legacyOnly = await realTempDir("tsugite-po7-r1-legacy-");
+    try {
+      const legacy = await resolveAuthoritativeProductionId(legacyOnly, { slug: "legacy-only" });
+      expect(legacy).toBe("legacy-only");
+    } finally {
+      await rm(legacyOnly, { recursive: true, force: true });
+    }
+  });
+
+  it("R2 publicGateSummarySchema strict-rejects authority digests", () => {
+    expect(publicGateSummarySchema.safeParse({
+      gate: "gate_1",
+      status: "current"
+    }).success).toBe(true);
+    expect(publicGateSummarySchema.safeParse({
+      gate: "gate_1",
+      status: "current",
+      subject_digest: DIGEST_A
+    }).success).toBe(false);
+    expect(publicGateSummarySchema.safeParse({
+      gate: "gate_1",
+      status: "current",
+      decision_digest: DIGEST_B
+    }).success).toBe(false);
+
+    // Full projection parse fail-closes if a public gate carries authority digests.
+    const state = missionWithStatuses("prod-r2", [{ id: "task-a", status: "ready" }]);
+    const projection = projectMissionTree({
+      production_id: "prod-r2",
+      mode: "active",
+      mission_state: state
+    });
+    const smuggled = {
+      ...projection,
+      gates: projection.gates.map((gate) =>
+        gate.gate === "gate_1"
+          ? { ...gate, subject_digest: DIGEST_A, decision_digest: DIGEST_B }
+          : gate
+      )
+    };
+    expect(() => parseMissionTreePublicProjection(smuggled)).toThrow();
+    expect(JSON.stringify(projection)).not.toMatch(/subject_digest|decision_digest/);
+  });
 });
+
 
 describe("PO-7 schema adversarial", () => {
   it("rejects promotion proposal schema with unknown fields and digest mismatch", () => {

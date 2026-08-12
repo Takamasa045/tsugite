@@ -2,7 +2,7 @@
  * Read-only loaders for authoritative coordination identity and TaskTree.
  * Fixture-safe: no provider, network, billing, Gate mutation, or finalize apply.
  */
-import { lstat } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { ArtifactStore } from "./artifactStore.js";
 import { pcError, ProductionControlError } from "./errors.js";
@@ -96,8 +96,23 @@ export async function loadAuthoritativeTaskTree(
 }
 
 /**
- * Prefer coordination snapshot / state production_id; fall back to project.slug only when absent.
- * Preview and apply must call the same resolver so completion digests bind to one identity.
+ * True when at least one non-symlink regular coordination control-plane file exists.
+ * Symlinks are never treated as control-plane truth (matches finalize retention).
+ * Does not create directories.
+ */
+export async function hasCoordinationControlPlaneArtifacts(
+  projectRoot: string
+): Promise<boolean> {
+  const coordinationRoot = join(resolve(projectRoot), "coordination");
+  return walkHasRegularControlPlaneFile(coordinationRoot);
+}
+
+/**
+ * Prefer coordination snapshot / state production_id.
+ * Slug fallback is legacy-only when the control plane is completely absent.
+ * When any coordination control-plane artifact exists, snapshot/state that is a
+ * symlink, broken, unreadable, or identity-mismatched fails closed (no slug).
+ * Preview and apply must call this same resolver so completion digests bind to one identity.
  * Does not create coordination directories (legacy finalize stays side-effect free).
  */
 export async function resolveAuthoritativeProductionId(
@@ -105,26 +120,95 @@ export async function resolveAuthoritativeProductionId(
   project: { slug: string }
 ): Promise<string> {
   const legacySlug = safeIdSchema.parse(project.slug);
-  const coordinationRoot = join(resolve(projectRoot), "coordination");
+  const root = resolve(projectRoot);
+  const coordinationRoot = join(root, "coordination");
   const snapshotPath = join(coordinationRoot, "coordination-state.json");
+  const hasControlPlane = await hasCoordinationControlPlaneArtifacts(root);
+
+  let leafKind: "missing" | "symlink" | "file" | "other" = "missing";
   try {
     const leaf = await lstat(snapshotPath);
-    if (leaf.isSymbolicLink() || !leaf.isFile()) return legacySlug;
+    if (leaf.isSymbolicLink()) leafKind = "symlink";
+    else if (leaf.isFile()) leafKind = "file";
+    else leafKind = "other";
   } catch {
-    // Absent snapshot → legacy slug fallback (no mkdir / no SnapshotStore probe).
+    leafKind = "missing";
+  }
+
+  if (!hasControlPlane) {
+    // Completely absent control plane → legacy slug only (no SnapshotStore probe / mkdir).
     return legacySlug;
+  }
+
+  // Control plane present: never invent identity via project.slug.
+  if (leafKind === "symlink") {
+    throw pcError(
+      "PC_PATH_UNSAFE",
+      "coordination snapshot is a symlink while control-plane artifacts exist; refusing slug fallback"
+    );
+  }
+  if (leafKind === "other") {
+    throw pcError(
+      "PC_PATH_UNSAFE",
+      "coordination snapshot leaf is not a regular file while control-plane artifacts exist"
+    );
+  }
+  if (leafKind === "missing") {
+    throw pcError(
+      "PC_ARTIFACT_NOT_FOUND",
+      "control-plane artifacts exist but coordination snapshot is missing; refusing slug fallback"
+    );
   }
 
   try {
     const snapshot = await new SnapshotStore(coordinationRoot).read();
-    if (snapshot?.state.production_id) {
-      return safeIdSchema.parse(snapshot.state.production_id);
+    if (!snapshot) {
+      throw pcError(
+        "PC_ARTIFACT_NOT_FOUND",
+        "control-plane artifacts exist but coordination snapshot is unreadable; refusing slug fallback"
+      );
     }
-  } catch {
-    // Unreadable snapshot leaf: do not invent; keep legacy slug identity.
-    return legacySlug;
+    if (!snapshot.state.production_id) {
+      throw pcError(
+        "PC_ARTIFACT_MISMATCH",
+        "coordination snapshot production_id is missing; refusing slug fallback"
+      );
+    }
+    return safeIdSchema.parse(snapshot.state.production_id);
+  } catch (error) {
+    if (error instanceof ProductionControlError) throw error;
+    throw pcError(
+      "PC_RECOVERY_INVALID",
+      "coordination snapshot/state is invalid or identity-mismatched; refusing slug fallback"
+    );
   }
-  return legacySlug;
+}
+
+async function walkHasRegularControlPlaneFile(absDir: string): Promise<boolean> {
+  let entries;
+  try {
+    entries = await readdir(absDir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const entry of entries) {
+    const abs = join(absDir, entry.name);
+    let stats;
+    try {
+      stats = await lstat(abs);
+    } catch {
+      continue;
+    }
+    if (stats.isSymbolicLink()) continue;
+    if (stats.isDirectory()) {
+      if (await walkHasRegularControlPlaneFile(abs)) return true;
+      continue;
+    }
+    if (!stats.isFile()) continue;
+    // Align with finalize retention: JSON/jsonl/logs/text under coordination/.
+    if (/\.(json|jsonl|log|md|txt|html)$/i.test(entry.name)) return true;
+  }
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

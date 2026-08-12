@@ -450,9 +450,19 @@ export async function finalizeCompletedProject(
   }));
   const coordinationEvidence = coordinationEvidenceOnly(controlPlaneEvidence);
   const hasControlPlane = hasCoordinationControlPlane(coordinationEvidence);
-  // Prefer coordination snapshot production_id; legacy slug only when coordination is absent.
-  // Preview and apply share this resolver so completion digests bind to the same identity.
-  const productionId = await resolveAuthoritativeProductionId(projectRoot, options.project);
+  // Prefer coordination snapshot production_id; legacy slug only when control plane is absent.
+  // Preview and apply share this resolver. Control-plane present + bad snapshot → fail closed.
+  let productionId: string;
+  try {
+    productionId = await resolveAuthoritativeProductionId(projectRoot, options.project);
+  } catch (error) {
+    return failure(empty, {
+      code: "finalize.authoritative_production_id",
+      message: error instanceof Error
+        ? error.message
+        : "authoritative production_id could not be resolved from coordination control plane"
+    });
+  }
   const productionCompletionDigest = hasControlPlane
     ? buildProductionCompletionDigest({
       production_id: productionId,

@@ -200,6 +200,29 @@ select {
 .workflow-fallback-node strong { min-width: 0; overflow-wrap: anywhere; font-size: .78rem; line-height: 1.35; }
 .workflow-fallback-node-status { min-width: 0; overflow-wrap: anywhere; color: #bad0c6; font-size: .65rem; line-height: 1.4; }
 .workflow-fallback-node-progress { align-self: end; color: #e1c38f; font-size: .68rem; font-variant-numeric: tabular-nums; }
+.workflow-fallback-empty {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  min-height: 220px;
+  align-content: center;
+  justify-items: start;
+  border: 1px solid rgba(216, 189, 145, .28);
+  border-radius: 3px 16px 3px 16px;
+  padding: 20px 18px;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(169, 79, 68, 0.16), transparent 42%),
+    rgba(18, 31, 28, .96);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, .22);
+}
+.workflow-fallback-empty p { margin: 0; color: #e7efe9; font-size: .78rem; line-height: 1.55; }
+.workflow-fallback-empty-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.control-button--ghost {
+  background: transparent;
+  border-color: rgba(216, 189, 145, .35);
+  color: #e7efe9;
+}
 @media (prefers-reduced-motion: reduce) {
   .workflow-fallback-node, .scene-focus-progress i { transition: none; }
   .workflow-fallback-node:hover, .workflow-fallback-node[data-selected="true"], .workflow-fallback-node[data-featured="true"] { transform: none; }
