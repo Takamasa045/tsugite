@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "fixture_id": "standalone-v2",
+  "kind": "standalone-v2",
+  "description": "Standalone VideoPromptIrV2 authoring marker (fixture-only)",
+  "project": {
+    "slug": "po8-standalone-v2",
+    "name": "PO8 fixture",
+    "run_id": "po8-standalone-v2",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": [
+        {
+          "id": "vp-1",
+          "video_prompt": {
+            "version": 2,
+            "subjects": [],
+            "scenes": [],
+            "shots": [
+              {
+                "id": "s1",
+                "action": "stand"
+              }
+            ],
+            "target": {
+              "mode": "text-to-video",
+              "model_profile_id": "fixture-model"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "safety_expectations": [
+    "V2 authoring remains opt-in"
+  ]
+}

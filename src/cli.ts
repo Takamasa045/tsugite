@@ -95,6 +95,13 @@ import { digest as canonicalDigest } from "./orchestrator/editorialProposal.js";
 import { compileProductionContract } from "./productionControl/contractCompiler.js";
 import { runCoordinatorRecoverCli } from "./productionControl/coordinatorRecoveryCli.js";
 import { resolveCanonicalProductionControlRoot } from "./productionControl/activeRunGeneration.js";
+import {
+  applyMigration,
+  applyRollback,
+  diagnoseMode,
+  previewMigration,
+  previewRollback
+} from "./productionControl/rc/index.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import {
   callRemoteTool,
@@ -1076,6 +1083,159 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       requests: inspected.requests,
       issues: inspected.issues
     });
+  }
+
+  if (args.command === "production-status") {
+    const diagnostics = diagnoseMode(validation.project!);
+    return output(args, 0, {
+      ok: true,
+      command: "production-status",
+      fixture_only: true,
+      billing_action: false,
+      generation_submitted: false,
+      gate_mutated: false,
+      diagnostics
+    });
+  }
+
+  if (args.command === "production-migrate") {
+    const target = args.target === "shadow" || args.target === "active" ? args.target : undefined;
+    if (!target) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-migrate",
+        issues: [{
+          code: "production_migrate.target_required",
+          message: "--target must be shadow or active",
+          path: "--target"
+        }]
+      });
+    }
+    const { dirname, resolve } = await import("node:path");
+    const projectRoot = resolve(dirname(args.config!));
+    const preview = previewMigration({
+      project: validation.project!,
+      target_mode: target,
+      projectRoot,
+      coordinator: args.actor === "coordinator"
+    });
+    if (!args.apply) {
+      return output(args, preview.ok ? 0 : 1, {
+        ok: preview.ok,
+        command: "production-migrate",
+        dry_run: true,
+        fixture_only: true,
+        billing_action: false,
+        generation_submitted: false,
+        gate_mutated: false,
+        preview
+      });
+    }
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) {
+      return output(args, 1, { ok: false, command: "production-migrate", issues: [coordinatorIssue] });
+    }
+    if (!args.expectedPlanDigest) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-migrate",
+        issues: [{
+          code: "production_migrate.preview_digest_required",
+          message: "--expected-plan-digest must equal preview.digest from production-migrate preview",
+          path: "--expected-plan-digest"
+        }]
+      });
+    }
+    try {
+      const applied = await applyMigration({
+        project: validation.project!,
+        target_mode: target,
+        projectRoot,
+        actor: "coordinator",
+        expected_preview_digest: args.expectedPlanDigest,
+        coordinator: true
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "production-migrate",
+        dry_run: false,
+        fixture_only: true,
+        billing_action: false,
+        generation_submitted: false,
+        gate_mutated: false,
+        preview: applied.preview,
+        record: applied.record
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-migrate",
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "production-rollback") {
+    const target = args.target === "shadow" || args.target === "legacy" ? args.target : undefined;
+    if (!target) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-rollback",
+        issues: [{
+          code: "production_rollback.target_required",
+          message: "--target must be shadow or legacy",
+          path: "--target"
+        }]
+      });
+    }
+    const preview = previewRollback({
+      project: validation.project!,
+      to_mode: target,
+      coordinator: args.actor === "coordinator"
+    });
+    if (!args.apply) {
+      return output(args, preview.allowed ? 0 : 1, {
+        ok: preview.allowed,
+        command: "production-rollback",
+        dry_run: true,
+        fixture_only: true,
+        billing_action: false,
+        generation_submitted: false,
+        gate_mutated: false,
+        preview
+      });
+    }
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) {
+      return output(args, 1, { ok: false, command: "production-rollback", issues: [coordinatorIssue] });
+    }
+    try {
+      const { dirname, resolve } = await import("node:path");
+      const projectRoot = resolve(dirname(args.config!));
+      const applied = await applyRollback({
+        project: validation.project!,
+        projectRoot,
+        to_mode: target,
+        actor: "coordinator"
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "production-rollback",
+        dry_run: false,
+        fixture_only: true,
+        billing_action: false,
+        generation_submitted: false,
+        gate_mutated: false,
+        preview: applied.preview,
+        record: applied.record
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-rollback",
+        issues: cliIssuesFromError(error)
+      });
+    }
   }
 
   if (args.command === "recover") {

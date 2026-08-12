@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added PO-8 / T09 RC integration for production-control: explicit legacy/shadow/active diagnostics, create-only migration preview/apply, rollback that retains append-only artifacts, frozen 8-fixture rehearsal, and digest-bound release-readiness reporting. Package version stays **0.9.0** (not 1.0.0 / not 1.0.0-rc) while Windows real-machine, live provider, and full Desktop gates remain unverified. CLI: `production-status`, `production-migrate`, `production-rollback` (preview by default; apply is create-only, no Gate/provider/render/finalize-apply). Fixture-only.
+
 ## 0.9.0 - 2026-08-10
 
 - Added a launcher **Safe Maintenance** shelf (安全な整理) that keeps Git worktree cleanup and completed-project media finalize as separate preview → review → explicit apply flows. Browsers send only short-lived server-held review IDs (never full paths); apply revalidates live state and invokes the canonical `worktrees` / `finalize` CLI without `--force`, branch deletion, or bulk delete.

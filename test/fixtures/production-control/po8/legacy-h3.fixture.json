@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "fixture_id": "legacy-h3",
+  "kind": "legacy-h3",
+  "description": "Legacy H3 authoring project without orchestration mode",
+  "project": {
+    "slug": "po8-legacy-h3",
+    "name": "PO8 fixture",
+    "run_id": "po8-legacy-h3",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": [
+        {
+          "id": "shot-1",
+          "h3": {
+            "subjects": [],
+            "scenes": [],
+            "shots": [
+              {
+                "id": "s1",
+                "action": "walk"
+              }
+            ],
+            "global": {
+              "style": "cinematic"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "safety_expectations": [
+    "legacy pure upgrader path",
+    "no orchestration mode"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "fixture_id": "gate2-auto-pass-cascade",
+  "kind": "gate2-cascade",
+  "description": "Limited Gate2 auto-pass opt-in and subject cascade fixture marker",
+  "project": {
+    "slug": "po8-gate2",
+    "name": "PO8 fixture",
+    "run_id": "po8-gate2",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "gates": {
+      "gate_2": {
+        "auto_pass": "qc_ok_no_new_assets"
+      }
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": []
+    }
+  },
+  "safety_expectations": [
+    "Gate1/3 remain human",
+    "Gate2 only existing limited exception"
+  ]
+}

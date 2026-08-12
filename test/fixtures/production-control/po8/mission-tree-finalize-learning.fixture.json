@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "fixture_id": "mission-tree-finalize-learning",
+  "kind": "mission-tree-learning",
+  "description": "Active Mission Tree + finalize retention + learning metrics fixture marker",
+  "project": {
+    "slug": "po8-mission-learning",
+    "name": "PO8 fixture",
+    "run_id": "po8-mission-learning",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "orchestration": {
+      "mode": "active"
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": [
+        {
+          "id": "ml-1",
+          "h3": {
+            "subjects": [],
+            "scenes": [],
+            "shots": [
+              {
+                "id": "s1",
+                "action": "closeout"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "safety_expectations": [
+    "learning never auto-applies rules",
+    "finalize retains control plane"
+  ]
+}

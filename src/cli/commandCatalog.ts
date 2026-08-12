@@ -27,7 +27,10 @@ export type CommandName =
   | "run"
   | "gate"
   | "render"
-  | "recover";
+  | "recover"
+  | "production-status"
+  | "production-migrate"
+  | "production-rollback";
 
 export type CommandOptionSpec = Readonly<{
   name: string;
@@ -169,6 +172,11 @@ const OPTIONS = {
     "--node",
     "Failed mission node id eligible for recovery (failed_known only).",
     "<node-id>"
+  ),
+  productionTarget: defineOption(
+    "--target",
+    "Production mode target: shadow|active for migrate, shadow|legacy for rollback.",
+    "<shadow|active|legacy>"
   )
 } as const satisfies Record<string, CommandOptionSpec>;
 
@@ -464,6 +472,46 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
       OPTIONS.path,
       OPTIONS.stateDir,
       OPTIONS.runId
+    ]
+  }),
+  defineCommand({
+    name: "production-status",
+    summary:
+      "Read-only production-control mode diagnostics (legacy/shadow/active) with exact revision bindings. No Gate, provider, or billing side effects.",
+    usage: "node bin/pipeline production-status --config <project.yaml> [--json]",
+    requiresConfig: true,
+    safety: "read-only",
+    options: [OPTIONS.config]
+  }),
+  defineCommand({
+    name: "production-migrate",
+    summary:
+      "Preview or apply create-only migration into shadow/active production-control artifacts. Never rewrites project.yaml in place, mutates Gates, submits providers, renders, or finalize-applies.",
+    usage:
+      "node bin/pipeline production-migrate --config <project.yaml> --target <shadow|active> [--apply --actor coordinator --expected-plan-digest <preview-digest>] [--json]",
+    requiresConfig: true,
+    safety: "local-write",
+    options: [
+      OPTIONS.config,
+      OPTIONS.productionTarget,
+      OPTIONS.apply,
+      OPTIONS.actor,
+      OPTIONS.expectedPlanDigest
+    ]
+  }),
+  defineCommand({
+    name: "production-rollback",
+    summary:
+      "Preview or apply mode rollback to shadow/legacy while retaining append-only control-plane artifacts. Never auto-runs provider, Gate, billing, or submit.",
+    usage:
+      "node bin/pipeline production-rollback --config <project.yaml> --target <shadow|legacy> [--apply --actor coordinator] [--json]",
+    requiresConfig: true,
+    safety: "local-write",
+    options: [
+      OPTIONS.config,
+      OPTIONS.productionTarget,
+      OPTIONS.apply,
+      OPTIONS.actor
     ]
   })
 ]);

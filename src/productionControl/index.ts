@@ -42,6 +42,7 @@ export * from "./publicProjection.js";
 export * from "./authoritativeCoordination.js";
 export * from "./finalizeRetention.js";
 export * from "./learning/index.js";
+export * from "./rc/index.js";
 // LocalRecoveryPermit mint is intentionally not a public package export.
 // Only the local recovery executor (activeRecovery) and authority path mint/consume.
 export {

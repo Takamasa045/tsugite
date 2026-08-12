@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "fixture_id": "identity-phase-a-e",
+  "kind": "identity-lock",
+  "description": "Identity lock Phase A-E exact text; locked:true does not imply verified",
+  "project": {
+    "slug": "po8-identity",
+    "name": "PO8 fixture",
+    "run_id": "po8-identity",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": [
+        {
+          "id": "id-1",
+          "h3": {
+            "subjects": [
+              {
+                "id": "hero",
+                "locked": true,
+                "locked_blocks": {
+                  "voice": {
+                    "text": "calm low register",
+                    "sha256": "88ff0a7acb796096de11432671420b414f11d9f2942a8a70feb26e4ed80056fb"
+                  },
+                  "appearance": {
+                    "text": "black coat silver hair",
+                    "sha256": "37e083522d5247c9dc7dc960e75cbc8b1fbba7245ef9a971d50394a5c275f72d"
+                  },
+                  "manner": {
+                    "text": "slow deliberate gaze",
+                    "sha256": "249df47cd31ee03fc13204568da0aa24cc4fd1bf3bedf8ca3b92a1b8b8a2c721"
+                  }
+                }
+              }
+            ],
+            "scenes": [
+              {
+                "id": "dock",
+                "location_map": "night ferry dock anchored by red buoy",
+                "palette": "cool blue sodium"
+              }
+            ],
+            "shots": [
+              {
+                "id": "s1",
+                "scene": "dock",
+                "cast": [
+                  "hero"
+                ],
+                "action": "looks at water"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "quality": {
+      "person_consistency": {
+        "enabled": true
+      }
+    }
+  },
+  "identity": {
+    "locked_true_implies_verified": false,
+    "definition_confirmation_inferred_from_gate1": false
+  },
+  "safety_expectations": [
+    "no invented confirmation",
+    "no invented verification"
+  ]
+}

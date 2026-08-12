@@ -1,0 +1,447 @@
+/**
+ * RC migration orchestrator: legacy → shadow → active (create-only).
+ * Never invents identity confirmation/verification. Never mutates Gate subjects.
+ * Never submits to providers. Source project.yaml is not rewritten in-place.
+ */
+import { constants } from "node:fs";
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  type FileHandle
+} from "node:fs/promises";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import type { Project } from "../../project/schema.js";
+import { assertSafeJsonValue, sha256Canonical } from "../canonical.js";
+import {
+  buildProductionControlShadowSummary,
+  compileProductionContract
+} from "../contractCompiler.js";
+import { createDefaultTaskTreeTemplate } from "../taskTreeTemplates.js";
+import { compileTaskTree } from "../taskTreeCompiler.js";
+import { migrateIdentityLockPhaseAtoE } from "../../personConsistency/migration.js";
+import { pcError } from "../errors.js";
+import { acquireProductionControlRootLock } from "../errors.js";
+import {
+  projectRevisionBindings,
+  rcRevisionBindingsDigest,
+  type RcRuntimeMode
+} from "./revisionBindings.js";
+import {
+  evaluateModeTransition,
+  resolveRuntimeMode,
+  toRuntimeMode
+} from "./modeDiagnostics.js";
+import { assertMigrationPathContained } from "./pathSafety.js";
+import { resolveCanonicalProductionControlRoot } from "../activeRunGeneration.js";
+
+export type IdentityMigrationProjection = {
+  definition_status: "not_applicable" | "awaiting_human" | "migrated" | "blocked";
+  verification_status: "not-evaluable" | "awaiting_human" | "not_applicable" | "blocked" | "migrated";
+  locked_true_implies_verified: false;
+  definition_confirmation_inferred_from_gate1: false;
+  locked_flag_seen: boolean;
+  locked_block_count: number;
+  issue_codes: string[];
+};
+
+export type MigrationPreviewV1 = {
+  schema_version: 1;
+  fixture_id?: string;
+  source_mode: RcRuntimeMode;
+  target_mode: "shadow" | "active";
+  project_slug: string;
+  project_yaml_digest: string;
+  production_id: string;
+  contract_digest: string;
+  tree_digest: string;
+  node_count: number;
+  revision_bindings_digest: string;
+  identity: IdentityMigrationProjection;
+  safety_invariants: string[];
+  write_paths: string[];
+  blocked_reasons: string[];
+  ok: boolean;
+  digest: string;
+};
+
+export type MigrationApplyRecordV1 = {
+  schema_version: 1;
+  preview_digest: string;
+  applied_mode: "shadow" | "active";
+  coordination_root_relative: string;
+  artifact_relative_paths: string[];
+  no_gate_mutation: true;
+  no_provider_submit: true;
+  no_source_project_rewrite: true;
+  no_auto_render: true;
+  no_auto_finalize_apply: true;
+  actor: string;
+  applied_at: string;
+  digest: string;
+};
+
+export type MigrationPreviewInput = {
+  project: Project | Record<string, unknown>;
+  target_mode: "shadow" | "active";
+  projectRoot?: string;
+  fixture_id?: string;
+  /** Explicit human definition confirmation only — never inferred. */
+  definition_confirmation?: Parameters<typeof migrateIdentityLockPhaseAtoE>[0]["definition_confirmation"];
+  verification?: Parameters<typeof migrateIdentityLockPhaseAtoE>[0]["verification"];
+  asset_digests?: Record<string, string>;
+  coordinator?: boolean;
+};
+
+function projectRecord(project: Project | Record<string, unknown>): Record<string, unknown> {
+  if (!project || typeof project !== "object" || Array.isArray(project)) {
+    throw pcError("PC_SCHEMA_INVALID", "migration requires a project object");
+  }
+  return project as Record<string, unknown>;
+}
+
+function extractPrimaryIr(project: Record<string, unknown>): unknown {
+  const generation = project.generation;
+  if (!generation || typeof generation !== "object" || Array.isArray(generation)) return undefined;
+  const requests = (generation as Record<string, unknown>).requests;
+  if (!Array.isArray(requests)) return undefined;
+  for (const request of requests) {
+    if (!request || typeof request !== "object" || Array.isArray(request)) continue;
+    const value = request as Record<string, unknown>;
+    if (value.h3) return value.h3;
+    if (value.video_prompt) return value.video_prompt;
+  }
+  return undefined;
+}
+
+function projectIdentityProjection(
+  project: Record<string, unknown>,
+  productionId: string,
+  options: Pick<MigrationPreviewInput, "definition_confirmation" | "verification" | "asset_digests">
+): IdentityMigrationProjection {
+  const ir = extractPrimaryIr(project);
+  if (!ir) {
+    return {
+      definition_status: "not_applicable",
+      verification_status: "not_applicable",
+      locked_true_implies_verified: false,
+      definition_confirmation_inferred_from_gate1: false,
+      locked_flag_seen: false,
+      locked_block_count: 0,
+      issue_codes: []
+    };
+  }
+  const result = migrateIdentityLockPhaseAtoE({
+    ir,
+    production_id: productionId,
+    ...(options.definition_confirmation ? { definition_confirmation: options.definition_confirmation } : {}),
+    ...(options.verification ? { verification: options.verification } : {}),
+    ...(options.asset_digests ? { asset_digests: options.asset_digests } : {})
+  });
+  const verificationStatus: IdentityMigrationProjection["verification_status"] =
+    result.verification
+      ? "migrated"
+      : result.status === "not_applicable"
+      ? "not_applicable"
+      : result.status === "blocked"
+      ? "blocked"
+      : "not-evaluable";
+  return {
+    definition_status:
+      result.status === "migrated"
+        ? "migrated"
+        : result.status === "blocked"
+        ? "blocked"
+        : result.status === "not_applicable"
+        ? "not_applicable"
+        : "awaiting_human",
+    verification_status: verificationStatus,
+    locked_true_implies_verified: false,
+    definition_confirmation_inferred_from_gate1: false,
+    locked_flag_seen: result.legacy_evidence.locked_flag_seen,
+    locked_block_count: result.legacy_evidence.locked_block_count,
+    issue_codes: result.issues.map((issue) => issue.code)
+  };
+}
+
+function relativeWritePaths(projectRoot: string | undefined, target: "shadow" | "active"): string[] {
+  if (!projectRoot) {
+    return [
+      "production-control/migration/",
+      target === "active" ? "production-control/" : "production-control/shadow/"
+    ];
+  }
+  const root = resolveCanonicalProductionControlRoot(projectRoot);
+  const rel = (path: string) => relative(projectRoot, path).split(sep).join("/");
+  return [
+    rel(join(root, "migration")),
+    rel(join(root, target === "shadow" ? "shadow" : "artifacts"))
+  ];
+}
+
+export function previewMigration(input: MigrationPreviewInput): MigrationPreviewV1 {
+  const project = projectRecord(input.project);
+  const sourceMode = resolveRuntimeMode(project as { orchestration?: { mode?: string } });
+  const transition = evaluateModeTransition(sourceMode, input.target_mode, {
+    coordinator: input.coordinator ?? false,
+    preview_digest: "pending",
+    coordination_root_ready: true,
+    identity_blocked: false
+  });
+
+  const contract = compileProductionContract({ project });
+  const tree = compileTaskTree({
+    production: contract,
+    template: createDefaultTaskTreeTemplate(contract)
+  });
+  // Shadow summary proves read-only compile path (does not mutate Gate).
+  if (input.target_mode === "shadow" || sourceMode === "legacy") {
+    buildProductionControlShadowSummary(project);
+  }
+
+  const identity = projectIdentityProjection(project, contract.production_id, input);
+  const blocked: string[] = [];
+  if (!transition.allowed) {
+    blocked.push(...("blocked_reasons" in transition ? transition.blocked_reasons : []));
+  }
+  // Active never invents identity confirmation; blocked identity stops active apply.
+  if (input.target_mode === "active" && identity.definition_status === "blocked") {
+    blocked.push("identity migration blocked");
+  }
+  if (input.target_mode === "active" && !(input.coordinator ?? false)) {
+    if (!blocked.includes("coordinator actor required")) {
+      blocked.push("coordinator actor required");
+    }
+  }
+
+  const safety = [
+    "legacy project.yaml not rewritten in-place",
+    "Gate subjects not mutated by migration",
+    "provider submit not invoked",
+    "identity confirmation/verification not inferred from locked:true or Gate 1",
+    "create-only coordination / migration artifacts"
+  ];
+
+  const body = {
+    schema_version: 1 as const,
+    ...(input.fixture_id ? { fixture_id: input.fixture_id } : {}),
+    source_mode: sourceMode,
+    target_mode: input.target_mode,
+    project_slug: contract.project.slug,
+    project_yaml_digest: contract.project.project_yaml_digest,
+    production_id: contract.production_id,
+    contract_digest: contract.root_digest,
+    tree_digest: tree.digest,
+    node_count: tree.nodes.length,
+    revision_bindings_digest: rcRevisionBindingsDigest(),
+    identity,
+    safety_invariants: safety,
+    write_paths: relativeWritePaths(input.projectRoot, input.target_mode),
+    blocked_reasons: blocked,
+    ok: blocked.length === 0
+  };
+  assertSafeJsonValue(body, "migration preview");
+  return {
+    ...body,
+    digest: sha256Canonical(body)
+  };
+}
+
+async function fsyncDirectory(path: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const handle = await open(path, constants.O_RDONLY);
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function atomicCreateJson(filePath: string, value: unknown): Promise<void> {
+  assertSafeJsonValue(value, filePath);
+  const bytes = `${JSON.stringify(value, null, 2)}\n`;
+  const dir = dirname(filePath);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const temp = join(dir, `.${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`);
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(
+      temp,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+      0o600
+    );
+    await handle.writeFile(bytes, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    // Create-only reservation on final path closes TOCTOU with concurrent writers.
+    const reserve = await open(
+      filePath,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+      0o600
+    );
+    await reserve.close();
+    await rename(temp, filePath);
+    await fsyncDirectory(dir);
+  } catch (error) {
+    if (handle) await handle.close().catch(() => undefined);
+    await rm(temp, { force: true }).catch(() => undefined);
+    if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "EEXIST") {
+      throw pcError("PC_ARTIFACT_DUPLICATE", `migration artifact already exists: ${filePath}`);
+    }
+    throw error;
+  }
+}
+
+export type MigrationApplyInput = MigrationPreviewInput & {
+  projectRoot: string;
+  actor: string;
+  /** Must match preview.digest from the same inputs. */
+  expected_preview_digest: string;
+  now?: () => string;
+};
+
+/**
+ * Apply migration: create-only migration + shadow/active coordination artifacts.
+ * Does not rewrite project.yaml, mutate Gates, submit, render, or finalize-apply.
+ */
+export async function applyMigration(input: MigrationApplyInput): Promise<{
+  preview: MigrationPreviewV1;
+  record: MigrationApplyRecordV1;
+}> {
+  if (input.actor !== "coordinator") {
+    throw pcError("PC_AUTHORITY_DENIED", "migration apply requires actor=coordinator");
+  }
+  const preview = previewMigration({ ...input, coordinator: true });
+  if (preview.digest !== input.expected_preview_digest) {
+    throw pcError("PC_CONTRACT_INVALID", "migration preview digest mismatch");
+  }
+  if (!preview.ok) {
+    throw pcError("PC_CONTRACT_INVALID", `migration blocked: ${preview.blocked_reasons.join("; ")}`);
+  }
+
+  const projectRoot = await realpath(resolve(input.projectRoot));
+  const rootStat = await lstat(projectRoot);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw pcError("PC_PATH_UNSAFE", "project root must be a real directory");
+  }
+
+  const controlRoot = resolveCanonicalProductionControlRoot(projectRoot);
+  await assertMigrationPathContained({
+    projectRoot,
+    candidate: controlRoot,
+    label: "production-control",
+    allowMissingLeaf: true
+  });
+
+  await mkdir(controlRoot, { recursive: true, mode: 0o700 });
+  const rootLock = await acquireProductionControlRootLock(controlRoot);
+  try {
+    const migrationDir = join(controlRoot, "migration");
+    await mkdir(migrationDir, { recursive: true, mode: 0o700 });
+
+    const previewPath = join(migrationDir, `preview-${preview.digest.slice(0, 16)}.json`);
+    const contract = compileProductionContract({ project: projectRecord(input.project) });
+    const tree = compileTaskTree({
+      production: contract,
+      template: createDefaultTaskTreeTemplate(contract)
+    });
+
+    const shadowOrActiveDir = join(
+      controlRoot,
+      input.target_mode === "shadow" ? "shadow" : "artifacts"
+    );
+    await mkdir(shadowOrActiveDir, { recursive: true, mode: 0o700 });
+
+    const contractPath = join(shadowOrActiveDir, `production-contract-${contract.root_digest.slice(0, 16)}.json`);
+    const treePath = join(shadowOrActiveDir, `task-tree-${tree.digest.slice(0, 16)}.json`);
+
+    await atomicCreateJson(previewPath, preview);
+    await atomicCreateJson(contractPath, contract);
+    await atomicCreateJson(treePath, tree);
+
+    const artifact_relative_paths = [previewPath, contractPath, treePath].map((path) =>
+      relative(projectRoot, path).split(sep).join("/")
+    );
+
+    const appliedAt = (input.now ?? (() => new Date().toISOString()))();
+    const recordBody = {
+      schema_version: 1 as const,
+      preview_digest: preview.digest,
+      applied_mode: input.target_mode,
+      coordination_root_relative: relative(projectRoot, controlRoot).split(sep).join("/"),
+      artifact_relative_paths,
+      no_gate_mutation: true as const,
+      no_provider_submit: true as const,
+      no_source_project_rewrite: true as const,
+      no_auto_render: true as const,
+      no_auto_finalize_apply: true as const,
+      actor: input.actor,
+      applied_at: appliedAt,
+      revision_bindings: projectRevisionBindings()
+    };
+    const digest = sha256Canonical(recordBody);
+    const finalRecord: MigrationApplyRecordV1 = {
+      schema_version: 1,
+      preview_digest: recordBody.preview_digest,
+      applied_mode: recordBody.applied_mode,
+      coordination_root_relative: recordBody.coordination_root_relative,
+      artifact_relative_paths: recordBody.artifact_relative_paths,
+      no_gate_mutation: true,
+      no_provider_submit: true,
+      no_source_project_rewrite: true,
+      no_auto_render: true,
+      no_auto_finalize_apply: true,
+      actor: recordBody.actor,
+      applied_at: recordBody.applied_at,
+      digest
+    };
+
+    const applyPath = join(migrationDir, `apply-${digest.slice(0, 16)}.json`);
+    await atomicCreateJson(applyPath, finalRecord);
+
+    // Mode intent journal — evidence only; project.yaml remains source of runtime mode.
+    const intent = {
+      schema_version: 1 as const,
+      intended_mode: input.target_mode,
+      preview_digest: preview.digest,
+      apply_digest: digest,
+      no_runtime_auto_switch: true as const,
+      revision_bindings_digest: rcRevisionBindingsDigest()
+    };
+    await atomicCreateJson(join(migrationDir, `mode-intent-${digest.slice(0, 16)}.json`), {
+      ...intent,
+      digest: sha256Canonical(intent)
+    });
+
+    return { preview, record: finalRecord };
+  } finally {
+    await rootLock.release();
+  }
+}
+
+export function projectWithMode(
+  project: Project | Record<string, unknown>,
+  mode: RcRuntimeMode
+): Record<string, unknown> {
+  const base = { ...projectRecord(project) };
+  if (mode === "legacy") {
+    const { orchestration: _drop, ...rest } = base;
+    return rest;
+  }
+  return {
+    ...base,
+    orchestration: {
+      ...(base.orchestration && typeof base.orchestration === "object" && !Array.isArray(base.orchestration)
+        ? base.orchestration as Record<string, unknown>
+        : {}),
+      mode: mode === "shadow" ? "shadow" : "active"
+    }
+  };
+}
+
+export { toRuntimeMode };
