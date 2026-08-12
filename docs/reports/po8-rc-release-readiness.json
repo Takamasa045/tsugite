@@ -95,7 +95,7 @@
       "title": "H3: durable temp project + production-migrate/rollback --apply CLI",
       "status": "proven",
       "evidence": [
-        "command=cli production-migrate/rollback --apply E2E + EB1 migrate→plan→review",
+        "command=cli production-migrate/rollback --apply E2E + EB1 migrate→validate→plan→review→inspect (pointer SoT, no YAML active rewrite)",
         "exit_code=0",
         "output_digest=7893fd0b52b420a9941fbba5263d87e04a724924229ec1c809bbfac5993f8e5a"
       ],
@@ -222,7 +222,7 @@
     "fixture-only RC integration with unverified Windows/live/desktop/browser"
   ],
   "build_provenance": {
-    "head": "62c29fd93703396c338eedc3657f3a1f9304f206",
+    "head": "95b566b3c2b61a9eb2e78084b2d374c5486dd1ca",
     "branch": "codex/po8-rc-integration",
     "dirty": false,
     "verified_separately": true
