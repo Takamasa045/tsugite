@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { videoWorkflow } from '../../data'
 import { calculateNodePositions } from '../../lib/layout-engine'
-import { WorkflowScene } from './WorkflowScene'
+import { isWebglAvailable, WorkflowScene } from './WorkflowScene'
 
 afterEach(() => {
   cleanup()
@@ -87,5 +87,22 @@ describe('WorkflowScene degraded projection', () => {
     expect(selected).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('scene-fallback-node-count')).toHaveTextContent('8')
     expect(props.workflow.nodes).toHaveLength(8)
+  })
+
+  it('WebGL probe releases the temporary context so the real canvas can claim a slot', () => {
+    const loseContext = vi.fn()
+    const gl = {
+      getExtension: vi.fn((name: string) => {
+        expect(name).toBe('WEBGL_lose_context')
+        return { loseContext }
+      }),
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((kind: string) => {
+      if (kind.toLowerCase().includes('webgl')) return gl as never
+      return null as never
+    }) as typeof HTMLCanvasElement.prototype.getContext)
+
+    expect(isWebglAvailable()).toBe(true)
+    expect(loseContext).toHaveBeenCalledTimes(1)
   })
 })

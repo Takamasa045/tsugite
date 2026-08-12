@@ -18,6 +18,8 @@ import {
 } from './scene-utils'
 import {
   reasonForSceneError,
+  releaseWebglContext,
+  shouldSurfaceContextLost,
   type SceneFailurePhase,
   type ScenePresentationStateV1,
   type SceneTestInjection,
@@ -168,6 +170,7 @@ export function WorkflowScene(props: WorkflowSceneProps) {
   const [sceneState, setSceneState] = useState<ScenePresentationStateV1>({ status: 'initializing' })
   const phaseRef = useRef<ScenePhase>('initializing')
   const contextCleanupRef = useRef<(() => void) | null>(null)
+  const canvasGenerationRef = useRef(0)
   const presentationPositions = useMemo(
     () => createPresentationPositions(props.positions),
     [props.positions],
@@ -290,8 +293,22 @@ export function WorkflowScene(props: WorkflowSceneProps) {
 
   const onCanvasCreated = useCallback((canvas: HTMLCanvasElement) => {
     contextCleanupRef.current?.()
+    const generation = canvasGenerationRef.current + 1
+    canvasGenerationRef.current = generation
     const onContextLost = (event: Event) => {
       event.preventDefault()
+      // StrictMode / retry dispose the previous canvas; those events must not
+      // flip a healthy remount into degraded context_lost.
+      if (
+        !shouldSurfaceContextLost({
+          canvasConnected: canvas.isConnected,
+          eventGeneration: generation,
+          activeGeneration: canvasGenerationRef.current,
+          phase: phaseRef.current,
+        })
+      ) {
+        return
+      }
       phaseRef.current = 'degraded'
       setWatchdogEnabled(false)
       setSceneState({
@@ -302,7 +319,13 @@ export function WorkflowScene(props: WorkflowSceneProps) {
       })
     }
     canvas.addEventListener('webglcontextlost', onContextLost)
-    contextCleanupRef.current = () => canvas.removeEventListener('webglcontextlost', onContextLost)
+    contextCleanupRef.current = () => {
+      canvas.removeEventListener('webglcontextlost', onContextLost)
+      // Bump generation so in-flight lost events from this canvas are ignored.
+      if (canvasGenerationRef.current === generation) {
+        canvasGenerationRef.current = generation + 1
+      }
+    }
     setWatchdogEnabled(true)
   }, [])
 
@@ -346,7 +369,9 @@ export function WorkflowScene(props: WorkflowSceneProps) {
           <Canvas
             camera={{ far: 140, fov: 42, near: 0.1, position: cameraPosition }}
             dpr={[1, 1.75]}
-            gl={{ antialias: true, powerPreference: 'high-performance' }}
+            // default power preference keeps software / headless GL usable;
+            // high-performance can lose the only available context on SwiftShader.
+            gl={{ antialias: true, powerPreference: 'default' }}
             key={retryNonce}
             onCreated={({ gl }) => onCanvasCreated(gl.domElement)}
             onPointerMissed={() => props.onSelect(null)}
@@ -378,11 +403,14 @@ function readSceneTestInjection(): SceneTestInjection | undefined {
 export function isWebglAvailable(): boolean {
   try {
     const canvas = document.createElement('canvas')
-    return Boolean(
+    const gl =
       canvas.getContext('webgl2')
       ?? canvas.getContext('webgl')
-      ?? canvas.getContext('experimental-webgl'),
-    )
+      ?? canvas.getContext('experimental-webgl')
+    const available = Boolean(gl)
+    // Release the probe context so the real R3F canvas can claim a slot.
+    releaseWebglContext(gl as { getExtension: (name: string) => unknown } | null)
+    return available
   } catch {
     return false
   }
