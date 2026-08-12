@@ -93,8 +93,12 @@ const productionCreatedFromSchema = z.object({
   compiler_version: safeIdSchema
 }).strict();
 
+/** Exported schema version for RC revision bindings (single source of truth). */
+export const PRODUCTION_CONTRACT_SCHEMA_VERSION = 1 as const;
+export const TASK_TREE_SCHEMA_VERSION = 1 as const;
+
 export const productionContractSchema = z.object({
-  schema_version: z.literal(1),
+  schema_version: z.literal(PRODUCTION_CONTRACT_SCHEMA_VERSION),
   production_id: safeIdSchema,
   project: z.object({
     slug: safeIdSchema,

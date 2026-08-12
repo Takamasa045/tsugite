@@ -1,6 +1,6 @@
 # Production Orchestration PO-8 RC integration
 
-**Status:** fixture-only implementation in tree. Package version remains `0.9.0`.
+**Status:** fixture-only structural repair (round 2) in tree. Package version remains `0.9.0`.
 
 This document is **outside** the frozen T00 design pack under `docs/design/production-orchestration-v1/`. Design pack hashes must not change.
 
@@ -9,18 +9,29 @@ This document is **outside** the frozen T00 design pack under `docs/design/produ
 | Surface | Path |
 | --- | --- |
 | Mode diagnostics | `src/productionControl/rc/modeDiagnostics.ts` |
-| Durable mode intent | `src/productionControl/rc/modeIntent.ts` |
+| Durable mode intent + CAS pointer | `src/productionControl/rc/modeIntent.ts` |
 | Effect ledger (H2) | `src/productionControl/rc/effectLedger.ts` |
-| Fixture module evidence (H1) | `src/productionControl/rc/fixtureEvidence.ts` |
+| Effect capability/observer (call-site) | `src/productionControl/rc/effectCapability.ts` |
+| Fixture module evidence (H1, strict authoring) | `src/productionControl/rc/fixtureEvidence.ts` |
 | Control-plane status (M1) | `src/productionControl/rc/controlPlaneStatus.ts` |
-| Revision bindings (M5) | `src/productionControl/rc/revisionBindings.ts` |
+| Revision bindings (M5, production exports) | `src/productionControl/rc/revisionBindings.ts` |
 | Migration orchestrator | `src/productionControl/rc/migrationOrchestrator.ts` |
 | Rollback orchestrator | `src/productionControl/rc/rollbackOrchestrator.ts` |
 | 8-fixture rehearsal | `src/productionControl/rc/rehearsal.ts` |
-| Release readiness (M2) | `src/productionControl/rc/releaseReadiness.ts` |
+| Release readiness (store-recomputed) | `src/productionControl/rc/releaseReadiness.ts` |
 | Path fail-closed | `src/productionControl/rc/pathSafety.ts` |
-| Fixtures | `test/fixtures/production-control/po8/` |
+| Fixtures (authoring/expected/adversarial) | `test/fixtures/production-control/po8/` |
 | Tests | `test/production-control-po8-rc-integration.test.ts` |
+
+## Structural repair round 2 (A–G)
+
+- **A** Fixture exact authoring bind: strict parse of `fixture_id` / `project` / `authoring` / `expected.golden_digests` / `adversarial`; `fixture_digest` bound into every module evidence; no hardcoded DIGEST_A–F, bare marker `"0"`/`"1"`, or void project inputs.
+- **B** Effect evidence at actual call-sites: `EffectObserver` + deny `EffectCapability`; `markFixtureInProcessBoundary` removed; CLI safety flags derived from observer/ledger; uninstrumented channels stay `unknown` → readiness NO-GO.
+- **C** Durable mode authority: control-root `current-mode` pointer is authoritative; YAML/pointer production_id / revision mismatch fail-closed; pointer CAS with `expected_previous_intent_digest` + root lock + readback; shadow denies effect entry in production path (`assertShadowModeDeniesEffect`).
+- **D** Rollback real readers: CLI main path `legacy → shadow → active → rollback → legacy` without hand-writing YAML active; after rollback, validate/plan/review/run --dry-run/finalize preview read durable legacy pointer.
+- **E** Readiness authenticity: exits recomputed from evidence store digests / command exit_code+hash; no unconditional proven; commit SHA is `verified_separately` only.
+- **F** Revision bindings import exported production schema versions; `package.json` realpath/regular/hash.
+- **G** `production-status` returns sanitized mode authority, presence digest, and read-only effect evidence (no absolute paths / secrets).
 
 ## CLI (no non-dry-run run/render/finalize apply)
 

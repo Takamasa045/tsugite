@@ -229,7 +229,8 @@ export function evaluateModeTransition(
 
 /**
  * Enforce shadow no-execution against an actual effect request.
- * Without an effect argument this is a no-op capability check (shadow is allowed to exist).
+ * Production entry points also call assertShadowModeDeniesEffect via activePipeline;
+ * this helper is the shared RC diagnostic surface (not test-only).
  */
 export function assertShadowNoExecution(
   mode: RcRuntimeMode,
@@ -244,6 +245,9 @@ export function assertShadowNoExecution(
     );
   }
 }
+
+/** Re-export production effect-entry denial for RC callers. */
+export { assertShadowModeDeniesEffect } from "../activePipeline.js";
 
 export function assertActiveAuthority(
   mode: RcRuntimeMode,

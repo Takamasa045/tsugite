@@ -41,8 +41,9 @@ import { resolveCanonicalProductionControlRoot } from "../activeRunGeneration.js
 import { EventStore } from "../eventStore.js";
 import { SnapshotStore } from "../statePersistence.js";
 import { ArtifactStore } from "../artifactStore.js";
-import { appendModeIntent } from "./modeIntent.js";
+import { appendModeIntent, readCurrentModePointer } from "./modeIntent.js";
 import type { EffectLedger } from "./effectLedger.js";
+import { createEffectObserver, type EffectObserver } from "./effectCapability.js";
 
 export type IdentityMigrationProjection = {
   definition_status: "not_applicable" | "awaiting_human" | "migrated" | "blocked";
@@ -198,6 +199,8 @@ function relativeWritePaths(projectRoot: string | undefined, target: "shadow" | 
 
 export function previewMigration(input: MigrationPreviewInput): MigrationPreviewV1 {
   const project = projectRecord(input.project);
+  // Prefer durable pointer mode when present (async read is done by apply; preview uses sync YAML
+  // unless caller already projected mode via projectWithMode / CLI durable merge).
   const sourceMode = resolveRuntimeMode(project as { orchestration?: { mode?: string } });
   const transition = evaluateModeTransition(sourceMode, input.target_mode, {
     coordinator: input.coordinator ?? false,
@@ -317,6 +320,7 @@ export type MigrationApplyInput = MigrationPreviewInput & {
   expected_preview_digest: string;
   now?: () => string;
   ledger?: EffectLedger;
+  observer?: EffectObserver;
 };
 
 /**
@@ -431,13 +435,22 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
     }).catch(() => undefined);
   }
 
-  // Durable mode pointer (own root lock section inside appendModeIntent)
+  const observer = input.observer
+    ?? (input.ledger ? createEffectObserver(input.ledger) : createEffectObserver());
+  observer.armAllBoundaries();
+  // Migration must never attempt effect boundaries; deny capability is available for callers.
+  void observer.createDenyCapability();
+
+  // Durable mode pointer (own root lock section inside appendModeIntent) with CAS
+  const priorPointer = await readCurrentModePointer(projectRoot);
   const modeIntent = await appendModeIntent({
     projectRoot,
     intended_mode: input.target_mode,
-    previous_mode: preview.source_mode,
+    previous_mode: priorPointer?.runtime_mode ?? preview.source_mode,
     actor: "coordinator",
+    production_id: contract.production_id,
     preview_digest: preview.digest,
+    ...(priorPointer ? { expected_previous_intent_digest: priorPointer.intent_digest } : {}),
     now: input.now
   });
 
@@ -480,8 +493,8 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
       );
     }
 
-    input.ledger?.markFixtureInProcessBoundary();
-    input.ledger?.recordCall({
+    const ledger = observer.effectLedger;
+    ledger.recordCall({
       module: "productionControl/rc/migrationOrchestrator",
       api: "applyMigration",
       result: "ok",
@@ -492,15 +505,14 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
       }
     });
 
-    const safety = input.ledger
-      ? {
-        provider_submit_count: input.ledger.safetyEvidence().provider_submit_count,
-        gate_mutation_count: input.ledger.safetyEvidence().gate_mutation_count,
-        billing_spend_count: input.ledger.safetyEvidence().billing_spend_count,
-        network_fetch_count: input.ledger.safetyEvidence().network_fetch_count,
-        ledger_digest: input.ledger.safetyEvidence().digest
-      }
-      : undefined;
+    const safetyEvidence = observer.safetyEvidence();
+    const safety = {
+      provider_submit_count: safetyEvidence.provider_submit_count,
+      gate_mutation_count: safetyEvidence.gate_mutation_count,
+      billing_spend_count: safetyEvidence.billing_spend_count,
+      network_fetch_count: safetyEvidence.network_fetch_count,
+      ledger_digest: safetyEvidence.digest
+    };
 
     const appliedAt = nowIso;
     const recordBody = {

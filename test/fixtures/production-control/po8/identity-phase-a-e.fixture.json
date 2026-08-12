@@ -18,6 +18,15 @@
         {
           "id": "id-1",
           "h3": {
+            "version": 1,
+            "target": {
+              "model": "fixture-h3",
+              "mode": "text-to-video",
+              "duration": 6,
+              "quality": "1080p",
+              "aspect": "16:9",
+              "audio": true
+            },
             "subjects": [
               {
                 "id": "hero",
@@ -45,16 +54,22 @@
                 "palette": "cool blue sodium"
               }
             ],
+            "assets": [],
             "shots": [
               {
                 "id": "s1",
+                "start_ms": 0,
+                "end_ms": 6000,
                 "scene": "dock",
-                "cast": [
-                  "hero"
-                ],
-                "action": "looks at water"
+                "cast": ["hero"],
+                "visual": "Live-action cinematic shot: looks at water from the dock",
+                "camera": { "type": "static" }
               }
-            ]
+            ],
+            "sound": {
+              "soundscape": "night harbor water",
+              "music": { "enabled": false }
+            }
           }
         }
       ]
@@ -65,6 +80,25 @@
       }
     }
   },
+  "authoring": {
+    "identity": {
+      "production_id": "po8-identity",
+      "forged_output_seed": "po8-forged-output-v1",
+      "forged_evidence_seed": "po8-forged-evidence-v1",
+      "forged_subject_seed": "po8-forged-subject-v1"
+    }
+  },
+  "expected": {
+    "golden_digests": {
+      "locked_not_verified": "locked_not_verified",
+      "verification_present": "verification_absent",
+      "locked_flag_seen": "locked_flag_present"
+    }
+  },
+  "adversarial": [
+    { "name": "verification-requires-explicit-input", "expect": "blocked" },
+    { "name": "mutate-locked-text-changes-digest", "expect": "digest_change" }
+  ],
   "identity": {
     "locked_true_implies_verified": false,
     "definition_confirmation_inferred_from_gate1": false

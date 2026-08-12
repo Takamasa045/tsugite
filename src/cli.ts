@@ -1089,18 +1089,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const { dirname, resolve } = await import("node:path");
     const projectRoot = resolve(dirname(args.config!));
     const { buildProductionStatusReport } = await import("./productionControl/rc/controlPlaneStatus.js");
+    const { deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
     try {
       const status = await buildProductionStatusReport({
         project: validation.project!,
         projectRoot
       });
+      const flags = deriveCliSafetyFlags({});
       return output(args, status.ok ? 0 : 1, {
         ok: status.ok,
         command: "production-status",
-        fixture_only: true,
-        billing_action: false,
-        generation_submitted: false,
-        gate_mutated: false,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
         status,
         diagnostics: status.diagnostics
       });
@@ -1128,21 +1130,39 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const { dirname, resolve } = await import("node:path");
     const projectRoot = resolve(dirname(args.config!));
+    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    const { resolveProjectRuntimeMode } = await import("./productionControl/rc/modeIntent.js");
+    // Durable mode authority for source_mode (YAML not rewritten on migrate)
+    const modeResolved = await resolveProjectRuntimeMode({
+      projectRoot,
+      project: validation.project!
+    });
+    const projectForPreview = modeResolved.source === "durable_pointer"
+      ? {
+        ...validation.project!,
+        orchestration: {
+          mode: modeResolved.runtime_mode === "legacy" ? "disabled" : modeResolved.runtime_mode
+        }
+      }
+      : validation.project!;
+    // Preview is non-destructive: evaluate as coordinator so digest is available for apply CAS.
+    // Apply still requires explicit --actor coordinator.
     const preview = previewMigration({
-      project: validation.project!,
+      project: projectForPreview,
       target_mode: target,
       projectRoot,
-      coordinator: args.actor === "coordinator"
+      coordinator: true
     });
     if (!args.apply) {
+      const flags = deriveCliSafetyFlags({});
       return output(args, preview.ok ? 0 : 1, {
         ok: preview.ok,
         command: "production-migrate",
         dry_run: true,
-        fixture_only: true,
-        billing_action: false,
-        generation_submitted: false,
-        gate_mutated: false,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
         preview
       });
     }
@@ -1162,22 +1182,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
     try {
+      const observer = createEffectObserver();
+      observer.armAllBoundaries();
+      // Same durable-projected project as preview so expected_preview_digest matches.
       const applied = await applyMigration({
-        project: validation.project!,
+        project: projectForPreview,
         target_mode: target,
         projectRoot,
         actor: "coordinator",
         expected_preview_digest: args.expectedPlanDigest,
-        coordinator: true
+        coordinator: true,
+        observer
       });
+      observer.sealEventSequence();
+      const flags = deriveCliSafetyFlags({ observer });
       return output(args, 0, {
         ok: true,
         command: "production-migrate",
         dry_run: false,
-        fixture_only: true,
-        billing_action: false,
-        generation_submitted: false,
-        gate_mutated: false,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
+        safety_proven_zero: flags.safety_proven_zero,
         preview: applied.preview,
         record: applied.record
       });
@@ -1203,20 +1230,34 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }]
       });
     }
+    const { dirname, resolve } = await import("node:path");
+    const projectRoot = resolve(dirname(args.config!));
+    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    const { readCurrentModePointer } = await import("./productionControl/rc/modeIntent.js");
+    const pointer = await readCurrentModePointer(projectRoot).catch(() => undefined);
+    const previewProject = pointer
+      ? {
+        ...validation.project!,
+        orchestration: {
+          mode: pointer.runtime_mode === "legacy" ? "disabled" : pointer.runtime_mode
+        }
+      }
+      : validation.project!;
     const preview = previewRollback({
-      project: validation.project!,
+      project: previewProject,
       to_mode: target,
       coordinator: args.actor === "coordinator"
     });
     if (!args.apply) {
-      return output(args, preview.allowed ? 0 : 1, {
-        ok: preview.allowed,
+      const flags = deriveCliSafetyFlags({});
+      return output(args, preview.allowed || Boolean(pointer) ? 0 : 1, {
+        ok: preview.allowed || Boolean(pointer),
         command: "production-rollback",
         dry_run: true,
-        fixture_only: true,
-        billing_action: false,
-        generation_submitted: false,
-        gate_mutated: false,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
         preview
       });
     }
@@ -1225,22 +1266,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return output(args, 1, { ok: false, command: "production-rollback", issues: [coordinatorIssue] });
     }
     try {
-      const { dirname, resolve } = await import("node:path");
-      const projectRoot = resolve(dirname(args.config!));
+      const observer = createEffectObserver();
+      observer.armAllBoundaries();
       const applied = await applyRollback({
         project: validation.project!,
         projectRoot,
         to_mode: target,
-        actor: "coordinator"
+        actor: "coordinator",
+        observer
       });
+      observer.sealEventSequence();
+      const flags = deriveCliSafetyFlags({ observer });
       return output(args, 0, {
         ok: true,
         command: "production-rollback",
         dry_run: false,
-        fixture_only: true,
-        billing_action: false,
-        generation_submitted: false,
-        gate_mutated: false,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
+        safety_proven_zero: flags.safety_proven_zero,
         preview: applied.preview,
         record: applied.record
       });

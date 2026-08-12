@@ -6,6 +6,7 @@ export * from "./rollbackOrchestrator.js";
 export * from "./rehearsal.js";
 export * from "./releaseReadiness.js";
 export * from "./effectLedger.js";
+export * from "./effectCapability.js";
 export * from "./modeIntent.js";
 export * from "./fixtureEvidence.js";
 export * from "./controlPlaneStatus.js";

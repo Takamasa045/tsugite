@@ -1,6 +1,7 @@
 /**
  * Durable production-control mode intent (append-only) + current-mode pointer.
  * project.yaml is never rewritten. Active readers prefer durable SoT when present.
+ * Pointer updates use expected previous intent digest CAS + root lock + readback.
  */
 import { constants } from "node:fs";
 import {
@@ -19,17 +20,20 @@ import { acquireProductionControlRootLock, pcError } from "../errors.js";
 import { resolveCanonicalProductionControlRoot } from "../activeRunGeneration.js";
 import { assertMigrationPathContained } from "./pathSafety.js";
 import { projectRevisionBindings, rcRevisionBindingsDigest, type RcRuntimeMode } from "./revisionBindings.js";
+import { resolveRuntimeMode, toRuntimeMode } from "./modeDiagnostics.js";
 
 export type ModeIntentV1 = {
   schema_version: 1;
   intended_mode: RcRuntimeMode;
   previous_mode: RcRuntimeMode;
+  production_id?: string;
   preview_digest?: string;
   apply_digest?: string;
   actor: string;
   recorded_at: string;
   no_source_project_rewrite: true;
   revision_bindings_digest: string;
+  previous_intent_digest?: string;
   digest: string;
 };
 
@@ -38,6 +42,9 @@ export type CurrentModePointerV1 = {
   runtime_mode: RcRuntimeMode;
   intent_digest: string;
   intent_relative_path: string;
+  production_id?: string;
+  revision_bindings_digest: string;
+  previous_intent_digest?: string;
   updated_at: string;
   digest: string;
 };
@@ -118,6 +125,15 @@ function modeDir(controlRoot: string): string {
   return join(controlRoot, "mode");
 }
 
+function parsePointer(raw: CurrentModePointerV1): CurrentModePointerV1 {
+  const { digest: claimed, ...body } = raw;
+  const expected = sha256Canonical(body);
+  if (claimed !== expected) {
+    throw pcError("PC_CONTRACT_INVALID", "current-mode pointer digest mismatch");
+  }
+  return raw;
+}
+
 export async function readCurrentModePointer(
   projectRoot: string
 ): Promise<CurrentModePointerV1 | undefined> {
@@ -130,12 +146,7 @@ export async function readCurrentModePointer(
       throw pcError("PC_PATH_UNSAFE", "current-mode pointer must be a regular file");
     }
     const raw = JSON.parse(await readFile(pointerPath, "utf8")) as CurrentModePointerV1;
-    const { digest: claimed, ...body } = raw;
-    const expected = sha256Canonical(body);
-    if (claimed !== expected) {
-      throw pcError("PC_CONTRACT_INVALID", "current-mode pointer digest mismatch");
-    }
-    return raw;
+    return parsePointer(raw);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ENOENT") {
       return undefined;
@@ -149,8 +160,14 @@ export async function appendModeIntent(input: {
   intended_mode: RcRuntimeMode;
   previous_mode: RcRuntimeMode;
   actor: string;
+  production_id?: string;
   preview_digest?: string;
   apply_digest?: string;
+  /**
+   * CAS: when a current pointer exists, must equal pointer.intent_digest.
+   * Omit only when no pointer exists yet (first intent).
+   */
+  expected_previous_intent_digest?: string;
   now?: () => string;
 }): Promise<{ intent: ModeIntentV1; pointer: CurrentModePointerV1; relative_paths: string[] }> {
   if (input.actor !== "coordinator") {
@@ -167,17 +184,44 @@ export async function appendModeIntent(input: {
   await mkdir(controlRoot, { recursive: true, mode: 0o700 });
   const rootLock = await acquireProductionControlRootLock(controlRoot);
   try {
+    const existing = await readCurrentModePointer(projectRoot);
+    if (existing) {
+      if (!input.expected_previous_intent_digest) {
+        throw pcError(
+          "PC_LEDGER_CONFLICT",
+          "mode pointer CAS requires expected_previous_intent_digest when pointer exists"
+        );
+      }
+      if (input.expected_previous_intent_digest !== existing.intent_digest) {
+        throw pcError(
+          "PC_LEDGER_CONFLICT",
+          "mode pointer CAS mismatch: expected previous intent digest does not match current pointer"
+        );
+      }
+    } else if (
+      input.expected_previous_intent_digest !== undefined
+      && input.expected_previous_intent_digest !== ""
+    ) {
+      throw pcError(
+        "PC_LEDGER_CONFLICT",
+        "mode pointer CAS: expected previous intent but pointer is absent"
+      );
+    }
+
     const recordedAt = (input.now ?? (() => new Date().toISOString()))();
+    const revision_bindings_digest = rcRevisionBindingsDigest();
     const intentBody = {
       schema_version: 1 as const,
       intended_mode: input.intended_mode,
       previous_mode: input.previous_mode,
+      ...(input.production_id ? { production_id: input.production_id } : {}),
       ...(input.preview_digest ? { preview_digest: input.preview_digest } : {}),
       ...(input.apply_digest ? { apply_digest: input.apply_digest } : {}),
       actor: input.actor,
       recorded_at: recordedAt,
       no_source_project_rewrite: true as const,
-      revision_bindings_digest: rcRevisionBindingsDigest(),
+      revision_bindings_digest,
+      ...(existing ? { previous_intent_digest: existing.intent_digest } : {}),
       revision_bindings: projectRevisionBindings()
     };
     const digest = sha256Canonical(intentBody);
@@ -185,12 +229,16 @@ export async function appendModeIntent(input: {
       schema_version: 1,
       intended_mode: intentBody.intended_mode,
       previous_mode: intentBody.previous_mode,
+      ...(intentBody.production_id ? { production_id: intentBody.production_id } : {}),
       ...(intentBody.preview_digest ? { preview_digest: intentBody.preview_digest } : {}),
       ...(intentBody.apply_digest ? { apply_digest: intentBody.apply_digest } : {}),
       actor: intentBody.actor,
       recorded_at: intentBody.recorded_at,
       no_source_project_rewrite: true,
       revision_bindings_digest: intentBody.revision_bindings_digest,
+      ...(intentBody.previous_intent_digest
+        ? { previous_intent_digest: intentBody.previous_intent_digest }
+        : {}),
       digest
     };
     const dir = modeDir(controlRoot);
@@ -204,17 +252,27 @@ export async function appendModeIntent(input: {
       runtime_mode: input.intended_mode,
       intent_digest: digest,
       intent_relative_path: intentRel,
+      ...(input.production_id ? { production_id: input.production_id } : {}),
+      revision_bindings_digest,
+      ...(existing ? { previous_intent_digest: existing.intent_digest } : {}),
       updated_at: recordedAt
     };
     const pointer: CurrentModePointerV1 = {
       ...pointerBody,
       digest: sha256Canonical(pointerBody)
     };
-    await atomicReplaceJson(join(dir, "current-mode.json"), pointer);
+    const pointerPath = join(dir, "current-mode.json");
+    await atomicReplaceJson(pointerPath, pointer);
+
+    // Readback: re-read pointer and require exact match
+    const readback = await readCurrentModePointer(projectRoot);
+    if (!readback || readback.digest !== pointer.digest || readback.intent_digest !== digest) {
+      throw pcError("PC_CONTRACT_INVALID", "mode pointer readback mismatch after CAS update");
+    }
 
     return {
       intent,
-      pointer,
+      pointer: readback,
       relative_paths: [
         intentRel,
         "production-control/mode/current-mode.json"
@@ -225,9 +283,104 @@ export async function appendModeIntent(input: {
   }
 }
 
+export type RuntimeModeResolution = {
+  runtime_mode: RcRuntimeMode;
+  source: "durable_pointer" | "project_yaml" | "default_legacy";
+  pointer?: CurrentModePointerV1;
+  yaml_mode?: RcRuntimeMode;
+  production_id?: string;
+  revision_bindings_digest?: string;
+  /** Fail-closed mismatches (empty when ok). */
+  mismatches: string[];
+};
+
+/**
+ * Common runtime mode resolver for project loader / validate / plan / review / run --dry-run.
+ * - Pointer complete absence only → YAML / legacy fallback.
+ * - Pointer present is authoritative for active/shadow exact mode.
+ * - YAML vs pointer production_id / revision_bindings_digest mismatch → fail-closed.
+ */
+export async function resolveProjectRuntimeMode(input: {
+  projectRoot?: string;
+  project?: { orchestration?: { mode?: string }; slug?: string; run_id?: string } | Record<string, unknown>;
+  production_id?: string;
+}): Promise<RuntimeModeResolution> {
+  const mismatches: string[] = [];
+  let yaml_mode: RcRuntimeMode | undefined;
+  if (input.project) {
+    try {
+      yaml_mode = resolveRuntimeMode(input.project as { orchestration?: { mode?: string } });
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  if (input.projectRoot) {
+    const pointer = await readCurrentModePointer(input.projectRoot);
+    if (pointer) {
+      const liveBindings = rcRevisionBindingsDigest();
+      if (pointer.revision_bindings_digest && pointer.revision_bindings_digest !== liveBindings) {
+        mismatches.push(
+          `pointer revision_bindings_digest ${pointer.revision_bindings_digest.slice(0, 12)}… differs from live ${liveBindings.slice(0, 12)}…`
+        );
+      }
+      if (
+        input.production_id
+        && pointer.production_id
+        && pointer.production_id !== input.production_id
+      ) {
+        mismatches.push(
+          `pointer production_id ${pointer.production_id} differs from expected ${input.production_id}`
+        );
+      }
+      // YAML non-legacy that disagrees with pointer is fail-closed (not silent override).
+      if (
+        yaml_mode
+        && yaml_mode !== "legacy"
+        && yaml_mode !== pointer.runtime_mode
+      ) {
+        mismatches.push(
+          `durable mode ${pointer.runtime_mode} differs from project.yaml mode ${yaml_mode}`
+        );
+      }
+      if (mismatches.length > 0) {
+        throw pcError(
+          "PC_MODE_UNSAFE_UNKNOWN",
+          `runtime mode authority mismatch: ${mismatches.join("; ")}`
+        );
+      }
+      return {
+        runtime_mode: pointer.runtime_mode,
+        source: "durable_pointer",
+        pointer,
+        yaml_mode,
+        production_id: pointer.production_id,
+        revision_bindings_digest: pointer.revision_bindings_digest,
+        mismatches: []
+      };
+    }
+  }
+
+  if (yaml_mode) {
+    return {
+      runtime_mode: yaml_mode,
+      source: yaml_mode === "legacy" ? "default_legacy" : "project_yaml",
+      yaml_mode,
+      production_id: input.production_id,
+      mismatches: []
+    };
+  }
+  return {
+    runtime_mode: "legacy",
+    source: "default_legacy",
+    mismatches: []
+  };
+}
+
 /**
  * Resolve runtime mode: durable current-mode pointer is authoritative when present;
  * otherwise project.yaml orchestration.mode (legacy default when unspecified).
+ * @deprecated Prefer resolveProjectRuntimeMode for fail-closed authority checks.
  */
 export async function resolveDurableRuntimeMode(input: {
   projectRoot?: string;
@@ -237,14 +390,17 @@ export async function resolveDurableRuntimeMode(input: {
   source: "durable_pointer" | "project_yaml" | "default_legacy";
   pointer?: CurrentModePointerV1;
 }> {
-  if (input.projectRoot) {
-    const pointer = await readCurrentModePointer(input.projectRoot);
-    if (pointer) {
-      return { runtime_mode: pointer.runtime_mode, source: "durable_pointer", pointer };
-    }
-  }
-  if (input.project_mode) {
-    return { runtime_mode: input.project_mode, source: "project_yaml" };
-  }
-  return { runtime_mode: "legacy", source: "default_legacy" };
+  const resolved = await resolveProjectRuntimeMode({
+    projectRoot: input.projectRoot,
+    project: input.project_mode
+      ? { orchestration: { mode: input.project_mode === "legacy" ? "disabled" : input.project_mode } }
+      : undefined
+  });
+  return {
+    runtime_mode: resolved.runtime_mode,
+    source: resolved.source,
+    ...(resolved.pointer ? { pointer: resolved.pointer } : {})
+  };
 }
+
+export { toRuntimeMode };

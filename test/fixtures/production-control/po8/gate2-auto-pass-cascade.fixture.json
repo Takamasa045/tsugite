@@ -2,7 +2,7 @@
   "schema_version": 1,
   "fixture_id": "gate2-auto-pass-cascade",
   "kind": "gate2-cascade",
-  "description": "Limited Gate2 auto-pass opt-in and subject cascade fixture marker",
+  "description": "Limited Gate2 auto-pass opt-in and subject cascade from fixture gate authoring",
   "project": {
     "slug": "po8-gate2",
     "name": "PO8 fixture",
@@ -22,6 +22,76 @@
       "requests": []
     }
   },
+  "authoring": {
+    "route": {
+      "ir_model": "neutral-video-v2",
+      "provider_model": "fixture-video",
+      "model_profile_seed": "po8-model-profile-v1",
+      "connection_id": "fixture-connection",
+      "connection_seed": "po8-connection-v1",
+      "adapter_id": "fixture-adapter",
+      "transport": "fixture",
+      "mode_binding": "text-to-video"
+    },
+    "gate": {
+      "production_id": "po8-gate2",
+      "run_id": "po8-gate2",
+      "production_contract_seed": "po8-production-contract-v1",
+      "contract_set_seed": "po8-contract-set-v1",
+      "task_tree_seed": "po8-task-tree-v1",
+      "review_artifact_seed": "po8-review-artifact-v1",
+      "generation_unit_seed": "po8-generation-unit-v1",
+      "compilation_seed": "po8-compilation-v1",
+      "pricing": {
+        "status": "known",
+        "version": "price-v1",
+        "currency": "USD",
+        "amount": 0,
+        "max_amount": 0,
+        "zero_cost_policy_id": "local-zero"
+      },
+      "unknown_pricing": {
+        "status": "unknown",
+        "version": "price-unknown",
+        "currency": null,
+        "amount": null,
+        "max_amount": null
+      },
+      "gate2_auto_pass_input": {
+        "project_opt_in": true,
+        "credits_consumed": 0,
+        "newly_generated_assets": 0,
+        "technical_qa_issue_count": 0,
+        "has_semantic_qa": false
+      },
+      "gate2_credits_block_input": {
+        "project_opt_in": true,
+        "credits_consumed": 1,
+        "newly_generated_assets": 0,
+        "technical_qa_issue_count": 0,
+        "has_semantic_qa": false
+      },
+      "human_decision": {
+        "decision_id": "d1",
+        "decision": "approved",
+        "actor": "human",
+        "decided_at": "2026-08-12T00:00:00.000Z"
+      }
+    }
+  },
+  "expected": {
+    "golden_digests": {
+      "gate2_auto_pass": "auto_pass_allowed",
+      "project_gate2_opt_in": "qc_ok_no_new_assets",
+      "authority_allowed": "authority_denied",
+      "unknown_price_review": "has_unknown_price"
+    }
+  },
+  "adversarial": [
+    { "name": "gate2-credits-block", "expect": "blocked" },
+    { "name": "unknown-price-executable", "expect": "error" },
+    { "name": "mutate-contract-seed-changes-digest", "expect": "digest_change" }
+  ],
   "safety_expectations": [
     "Gate1/3 remain human",
     "Gate2 only existing limited exception"

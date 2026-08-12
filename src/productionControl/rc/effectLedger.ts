@@ -5,6 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import { sha256Canonical } from "../canonical.js";
+import { pcError } from "../errors.js";
 
 export type EffectKind =
   | "provider_submit"
@@ -98,14 +99,15 @@ export class EffectLedger {
     return record;
   }
 
-  /** In-process fixture adapters never open network; record 0 when fixture path runs. */
+  /**
+   * @deprecated Removed — zero-effect proof requires EffectObserver.armAllBoundaries()
+   * at actual call-site instrumentation. Do not invent instrumented zeros.
+   */
   markFixtureInProcessBoundary(): void {
-    this.instrument("provider_submit");
-    this.instrument("network_fetch");
-    this.instrument("billing_spend");
-    this.instrument("gate_mutation");
-    this.instrument("render");
-    this.instrument("finalize_apply");
+    throw pcError(
+      "PC_CONTRACT_INVALID",
+      "markFixtureInProcessBoundary is removed; use EffectObserver.armAllBoundaries() + actual boundary wrappers"
+    );
   }
 
   private observed(kind: EffectKind): ObservedCount {

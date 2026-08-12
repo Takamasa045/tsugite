@@ -11,6 +11,9 @@ import { sha256Canonical, withoutField } from "./canonical.js";
 import { pcError } from "./errors.js";
 import { digestSchema, safeIdSchema } from "./schema.js";
 
+/** Exported schema version for RC revision bindings. */
+export const FINALIZE_RETENTION_SCHEMA_VERSION = 1 as const;
+
 const CONTROL_PLANE_RELATIVE_ROOTS = [
   "coordination",
   "dist", // state/run logs live under dist; media cleanup already excludes retained run
@@ -61,7 +64,7 @@ export type ProductionCompletionDigestInput = z.infer<typeof productionCompletio
 
 export const productionCompletionRecordSchema = z
   .object({
-    schema_version: z.literal(1),
+    schema_version: z.literal(FINALIZE_RETENTION_SCHEMA_VERSION),
     production_id: safeIdSchema,
     /** Legacy plan_digest preserved byte-for-byte / same algorithm. */
     plan_digest: digestSchema,

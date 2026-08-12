@@ -12,9 +12,9 @@ import { applyMigration, previewMigration, projectWithMode } from "./migrationOr
 import { applyRollback, legacyReaderIgnoresControlPlane } from "./rollbackOrchestrator.js";
 import { diagnoseMode, resolveRuntimeMode } from "./modeDiagnostics.js";
 import { rcRevisionBindingsDigest } from "./revisionBindings.js";
-import { EffectLedger } from "./effectLedger.js";
+import { createEffectObserver } from "./effectCapability.js";
 import { runFixtureModuleEvidence, type FixtureModuleEvidence } from "./fixtureEvidence.js";
-import { readCurrentModePointer } from "./modeIntent.js";
+import { readCurrentModePointer, resolveProjectRuntimeMode } from "./modeIntent.js";
 import {
   loadPo8Fixture,
   PO8_FIXTURE_IDS,
@@ -79,8 +79,9 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
   let identityNotInferred = true;
   let preserved = true;
   let ok = true;
-  const ledger = new EffectLedger();
-  ledger.markFixtureInProcessBoundary();
+  const observer = createEffectObserver();
+  observer.armAllBoundaries();
+  const ledger = observer.effectLedger;
 
   try {
     await writeFile(join(root, "project.json"), `${JSON.stringify(fixture.project, null, 2)}\n`);
@@ -98,8 +99,8 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
     await writeFile(join(root, "manifest.json"), `${JSON.stringify({ meta: { aspect: "16:9", fps: 30, target_duration_seconds: 6, slug: fixtureId }, clips: [] }, null, 2)}\n`);
     await mkdir(join(root, "dist"), { recursive: true });
 
-    // H1: actual module evidence
-    const module_evidence = await runFixtureModuleEvidence(fixtureId, ledger);
+    // H1: actual module evidence (shares armed ledger; probes use dedicated observers)
+    const module_evidence = await runFixtureModuleEvidence(fixtureId, ledger, observer);
     sequence.push({
       step: "module_evidence",
       module_evidence_digest: module_evidence.digest,
@@ -134,7 +135,8 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
       expected_preview_digest: shadowPreview.digest,
       coordinator: true,
       now: () => "2026-08-12T00:00:00.000Z",
-      ledger
+      ledger,
+      observer
     });
     sequence.push({
       step: "shadow",
@@ -175,21 +177,29 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
       expected_preview_digest: activePreview.digest,
       coordinator: true,
       now: () => "2026-08-12T00:01:00.000Z",
-      ledger
+      ledger,
+      observer
     });
     const activePointer = await readCurrentModePointer(root);
+    const activeResolved = await resolveProjectRuntimeMode({
+      projectRoot: root,
+      project: projectWithMode(fixture.project, "legacy")
+    });
     const activeDiag = diagnoseMode(projectWithMode(fixture.project, "active"));
     sequence.push({
       step: "active",
-      runtime_mode: activePointer?.runtime_mode ?? activeDiag.runtime_mode,
+      runtime_mode: activeResolved.runtime_mode,
       preview_digest: activePreview.digest,
       apply_digest: activeApply.record.digest,
       ok:
         activePreview.ok
         && activePointer?.runtime_mode === "active"
+        && activeResolved.runtime_mode === "active"
+        && activeResolved.source === "durable_pointer"
         && activeDiag.capabilities.authority_required
     });
-    ok = ok && activePreview.ok && activePointer?.runtime_mode === "active";
+    ok = ok && activePreview.ok && activePointer?.runtime_mode === "active"
+      && activeResolved.runtime_mode === "active";
 
     if (
       activePreview.identity.locked_true_implies_verified
@@ -200,45 +210,59 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
     }
 
     // 4) rollback to legacy
+    // Rollback uses durable pointer authority (no YAML hand-written active swap)
     const rollback = await applyRollback({
-      project: projectWithMode(fixture.project, "active"),
+      project: projectWithMode(fixture.project, "legacy"),
       projectRoot: root,
       to_mode: "legacy",
       actor: "coordinator",
       now: () => "2026-08-12T00:02:00.000Z",
-      ledger
+      ledger,
+      observer
     });
     const rollbackPointer = await readCurrentModePointer(root);
+    const rollbackResolved = await resolveProjectRuntimeMode({
+      projectRoot: root,
+      project: projectWithMode(fixture.project, "legacy")
+    });
     sequence.push({
       step: "rollback",
-      runtime_mode: rollbackPointer?.runtime_mode ?? "legacy",
+      runtime_mode: rollbackResolved.runtime_mode,
       rollback_digest: rollback.record.digest,
       ok:
         rollback.record.deleted_artifacts.length === 0
         && rollback.record.rewritten_artifacts.length === 0
         && rollback.record.safety.observed_zero_effects
         && rollbackPointer?.runtime_mode === "legacy"
+        && rollbackResolved.runtime_mode === "legacy"
+        && rollbackResolved.source === "durable_pointer"
     });
     ok = ok
       && rollback.record.deleted_artifacts.length === 0
       && rollback.record.safety.observed_zero_effects
-      && rollbackPointer?.runtime_mode === "legacy";
+      && rollbackPointer?.runtime_mode === "legacy"
+      && rollbackResolved.runtime_mode === "legacy";
 
     preserved = rollback.record.preserved_relative_paths.every((path) =>
       legacyReaderIgnoresControlPlane(path) || path.startsWith("production-control/")
     );
 
-    // 5) legacy restored (in-memory project without orchestration)
+    // 5) legacy restored via durable pointer (YAML still has no orchestration)
     const restored = projectWithMode(fixture.project, "legacy");
     const restoredMode = resolveRuntimeMode(restored);
+    const restoredDurable = await resolveProjectRuntimeMode({
+      projectRoot: root,
+      project: restored
+    });
     sequence.push({
       step: "legacy_restored",
-      runtime_mode: restoredMode,
-      ok: restoredMode === "legacy"
+      runtime_mode: restoredDurable.runtime_mode,
+      ok: restoredMode === "legacy" && restoredDurable.runtime_mode === "legacy"
     });
-    ok = ok && restoredMode === "legacy";
+    ok = ok && restoredMode === "legacy" && restoredDurable.runtime_mode === "legacy";
 
-    const safety = ledger.safetyEvidence();
+    observer.sealEventSequence();
+    const safety = observer.safetyEvidence();
     const body = {
       fixture_id: fixtureId,
       sequence,
@@ -256,7 +280,7 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
         billing_spend_count: safety.billing_spend_count,
         network_fetch_count: safety.network_fetch_count,
         ledger_digest: safety.digest,
-        observed_zero_effects: ledger.allZeroSafetyChannels()
+        observed_zero_effects: observer.provenZeroEffects()
       },
       ok
     };

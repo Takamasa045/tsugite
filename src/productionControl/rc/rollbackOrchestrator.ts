@@ -29,8 +29,9 @@ import {
   type RcRuntimeMode
 } from "./revisionBindings.js";
 import { assertMigrationPathContained } from "./pathSafety.js";
-import { appendModeIntent } from "./modeIntent.js";
+import { appendModeIntent, readCurrentModePointer } from "./modeIntent.js";
 import type { EffectLedger } from "./effectLedger.js";
+import { createEffectObserver, type EffectObserver } from "./effectCapability.js";
 
 export type RollbackRecordV1 = {
   schema_version: 1;
@@ -177,20 +178,38 @@ export async function applyRollback(input: {
   actor: string;
   now?: () => string;
   ledger?: EffectLedger;
+  observer?: EffectObserver;
 }): Promise<{ preview: RollbackPreviewV1; record: RollbackRecordV1 }> {
   if (input.actor !== "coordinator") {
     throw pcError("PC_AUTHORITY_DENIED", "rollback apply requires actor=coordinator");
   }
+  const projectRoot = await realpath(resolve(input.projectRoot));
+  // Prefer durable pointer for from_mode — never require hand-written YAML active.
+  const pointer = await readCurrentModePointer(projectRoot);
+  const fromMode = pointer?.runtime_mode
+    ?? resolveRuntimeMode(input.project as { orchestration?: { mode?: string } });
+  const previewProject = pointer
+    ? { orchestration: { mode: pointer.runtime_mode === "legacy" ? "disabled" : pointer.runtime_mode } }
+    : input.project;
   const preview = previewRollback({
-    project: input.project,
+    project: previewProject,
     to_mode: input.to_mode,
     coordinator: true
   });
-  if (!preview.allowed) {
+  // Override from_mode with durable authority when pointer present
+  if (pointer && preview.from_mode !== fromMode) {
+    // rebuild body with durable from
+  }
+  if (!preview.allowed && !pointer) {
     throw pcError("PC_CONTRACT_INVALID", `rollback blocked: ${preview.blocked_reasons.join("; ")}`);
   }
+  if (pointer && (fromMode === "legacy") && input.to_mode === "legacy") {
+    throw pcError("PC_CONTRACT_INVALID", "already legacy; nothing to roll back");
+  }
+  if (pointer && fromMode !== "active" && fromMode !== "shadow") {
+    throw pcError("PC_CONTRACT_INVALID", `rollback from ${fromMode} is not defined`);
+  }
 
-  const projectRoot = await realpath(resolve(input.projectRoot));
   const controlRoot = resolveCanonicalProductionControlRoot(projectRoot);
   await assertMigrationPathContained({
     projectRoot,
@@ -201,8 +220,10 @@ export async function applyRollback(input: {
 
   await mkdir(controlRoot, { recursive: true, mode: 0o700 });
 
-  input.ledger?.markFixtureInProcessBoundary();
-  input.ledger?.recordCall({
+  const observer = input.observer
+    ?? (input.ledger ? createEffectObserver(input.ledger) : createEffectObserver());
+  observer.armAllBoundaries();
+  observer.effectLedger.recordCall({
     module: "productionControl/rc/rollbackOrchestrator",
     api: "applyRollback",
     result: "ok",
@@ -212,8 +233,10 @@ export async function applyRollback(input: {
   const modeIntent = await appendModeIntent({
     projectRoot,
     intended_mode: input.to_mode,
-    previous_mode: preview.from_mode,
+    previous_mode: fromMode,
     actor: "coordinator",
+    production_id: pointer?.production_id,
+    ...(pointer ? { expected_previous_intent_digest: pointer.intent_digest } : {}),
     now: input.now
   });
 
@@ -221,19 +244,20 @@ export async function applyRollback(input: {
   try {
     const before = await listPreservedRelativePaths(projectRoot, controlRoot);
     const recordedAt = (input.now ?? (() => new Date().toISOString()))();
-    const safetyEvidence = input.ledger?.safetyEvidence();
+    observer.sealEventSequence();
+    const safetyEvidence = observer.safetyEvidence();
     const safety = {
-      provider_submit_count: safetyEvidence?.provider_submit_count ?? ("unknown" as const),
-      gate_mutation_count: safetyEvidence?.gate_mutation_count ?? ("unknown" as const),
-      billing_spend_count: safetyEvidence?.billing_spend_count ?? ("unknown" as const),
-      network_fetch_count: safetyEvidence?.network_fetch_count ?? ("unknown" as const),
-      ...(safetyEvidence ? { ledger_digest: safetyEvidence.digest } : {}),
-      observed_zero_effects: input.ledger?.allZeroSafetyChannels() === true
+      provider_submit_count: safetyEvidence.provider_submit_count,
+      gate_mutation_count: safetyEvidence.gate_mutation_count,
+      billing_spend_count: safetyEvidence.billing_spend_count,
+      network_fetch_count: safetyEvidence.network_fetch_count,
+      ledger_digest: safetyEvidence.digest,
+      observed_zero_effects: observer.provenZeroEffects()
     };
 
     const recordBody = {
       schema_version: 1 as const,
-      from_mode: preview.from_mode,
+      from_mode: fromMode,
       to_mode: input.to_mode,
       preserved_relative_paths: before,
       deleted_artifacts: [] as [],

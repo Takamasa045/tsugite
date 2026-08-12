@@ -18,14 +18,31 @@
         {
           "id": "shot-1",
           "h3": {
+            "version": 1,
+            "target": {
+              "model": "fixture-h3",
+              "mode": "text-to-video",
+              "duration": 6,
+              "quality": "1080p",
+              "aspect": "16:9",
+              "audio": true
+            },
             "subjects": [],
             "scenes": [],
+            "assets": [],
             "shots": [
               {
                 "id": "s1",
-                "action": "walk"
+                "start_ms": 0,
+                "end_ms": 6000,
+                "visual": "Live-action cinematic shot: walk across a quiet dock at dawn",
+                "camera": { "type": "static" }
               }
             ],
+            "sound": {
+              "soundscape": "quiet water and distant gulls",
+              "music": { "enabled": false }
+            },
             "global": {
               "style": "cinematic"
             }
@@ -34,6 +51,27 @@
       ]
     }
   },
+  "authoring": {
+    "route": {
+      "ir_model": "neutral-video-v2",
+      "provider_model": "fixture-video",
+      "model_profile_seed": "po8-model-profile-v1",
+      "connection_id": "fixture-connection",
+      "connection_seed": "po8-connection-v1",
+      "adapter_id": "fixture-adapter",
+      "transport": "fixture",
+      "mode_binding": "text-to-video"
+    }
+  },
+  "expected": {
+    "golden_digests": {
+      "path": "legacy-v1-pure-upgrader-grammar-golden-text-route"
+    }
+  },
+  "adversarial": [
+    { "name": "invalid-v2-parse", "expect": "error" },
+    { "name": "mutate-visual-changes-digest", "expect": "digest_change" }
+  ],
   "safety_expectations": [
     "legacy pure upgrader path",
     "no orchestration mode"

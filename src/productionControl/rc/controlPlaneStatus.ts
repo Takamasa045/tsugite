@@ -1,15 +1,17 @@
 /**
- * M1: production-status loads YAML mode plus actual control-root presence/digests.
+ * M1: production-status loads YAML mode plus actual control-root presence/digests,
+ * durable mode authority, and sanitized effect evidence.
  * Never leaks secrets, raw prompts, or absolute paths.
  */
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { sha256Bytes, sha256Canonical } from "../canonical.js";
 import { resolveCanonicalProductionControlRoot } from "../activeRunGeneration.js";
-import { diagnoseMode, resolveRuntimeMode, type ModeDiagnosticsReport } from "./modeDiagnostics.js";
-import { readCurrentModePointer } from "./modeIntent.js";
+import { diagnoseMode, type ModeDiagnosticsReport } from "./modeDiagnostics.js";
+import { resolveProjectRuntimeMode } from "./modeIntent.js";
 import { rcRevisionBindingsDigest } from "./revisionBindings.js";
 import type { Project } from "../../project/schema.js";
+import type { ObservedCount } from "./effectLedger.js";
 
 export type ControlPlanePresence = {
   path: string;
@@ -24,10 +26,28 @@ export type ProductionStatusReport = {
   schema_version: 1;
   runtime_mode: string;
   mode_source: "durable_pointer" | "project_yaml" | "default_legacy";
+  mode_authority: {
+    source: "durable_pointer" | "project_yaml" | "default_legacy";
+    runtime_mode: string;
+    production_id?: string;
+    revision_bindings_digest?: string;
+    pointer_intent_digest?: string;
+  };
   diagnostics: ModeDiagnosticsReport;
   revision_bindings_digest: string;
   control_root_relative: string;
   presence: ControlPlanePresence[];
+  presence_digest: string;
+  effect_evidence: {
+    provider_submit_count: ObservedCount;
+    gate_mutation_count: ObservedCount;
+    billing_spend_count: ObservedCount;
+    network_fetch_count: ObservedCount;
+    render_count: ObservedCount;
+    finalize_apply_count: ObservedCount;
+    /** Status command itself performs no effects; channels remain unknown until instrumented run. */
+    note: "status_is_read_only";
+  };
   mismatches: string[];
   unsafe: string[];
   ok: boolean;
@@ -74,14 +94,10 @@ export async function buildProductionStatusReport(input: {
   const rel = (path: string) => relative(projectRoot, path).split(sep).join("/");
 
   const diagnostics = diagnoseMode(input.project as { orchestration?: { mode?: string } });
-  const pointer = await readCurrentModePointer(projectRoot).catch(() => undefined);
-  const yamlMode = resolveRuntimeMode(input.project as { orchestration?: { mode?: string } });
-  const runtime_mode = pointer?.runtime_mode ?? yamlMode;
-  const mode_source = pointer
-    ? "durable_pointer" as const
-    : yamlMode !== "legacy"
-      ? "project_yaml" as const
-      : "default_legacy" as const;
+  const resolved = await resolveProjectRuntimeMode({
+    projectRoot,
+    project: input.project as { orchestration?: { mode?: string } }
+  });
 
   const candidates: Array<{ kind: string; relative: string; isDir?: boolean }> = [
     { kind: "mode-intent-dir", relative: "production-control/mode", isDir: true },
@@ -98,7 +114,7 @@ export async function buildProductionStatusReport(input: {
   ];
 
   const presence: ControlPlanePresence[] = [];
-  const mismatches: string[] = [];
+  const mismatches: string[] = [...resolved.mismatches];
   const unsafe: string[] = [];
 
   for (const candidate of candidates) {
@@ -126,14 +142,6 @@ export async function buildProductionStatusReport(input: {
     if (result.status === "unsafe") unsafe.push(candidate.relative);
   }
 
-  // Pointer vs diagnostics mismatch
-  if (pointer && pointer.runtime_mode !== yamlMode && yamlMode !== "legacy") {
-    mismatches.push(
-      `durable mode ${pointer.runtime_mode} differs from project.yaml mode ${yamlMode}`
-    );
-  }
-
-  // List migration intent files without content leakage
   try {
     const migrationDir = join(controlRoot, "migration");
     const names = await readdir(migrationDir);
@@ -153,14 +161,46 @@ export async function buildProductionStatusReport(input: {
     // absent ok
   }
 
+  const presence_digest = sha256Canonical(
+    presence.map((item) => ({
+      path: item.path,
+      kind: item.kind,
+      status: item.status,
+      digest: item.digest ?? null
+    }))
+  );
+
+  const effect_evidence = {
+    provider_submit_count: "unknown" as ObservedCount,
+    gate_mutation_count: "unknown" as ObservedCount,
+    billing_spend_count: "unknown" as ObservedCount,
+    network_fetch_count: "unknown" as ObservedCount,
+    render_count: "unknown" as ObservedCount,
+    finalize_apply_count: "unknown" as ObservedCount,
+    note: "status_is_read_only" as const
+  };
+
   const body = {
     schema_version: 1 as const,
-    runtime_mode,
-    mode_source,
+    runtime_mode: resolved.runtime_mode,
+    mode_source: resolved.source,
+    mode_authority: {
+      source: resolved.source,
+      runtime_mode: resolved.runtime_mode,
+      ...(resolved.production_id ? { production_id: resolved.production_id } : {}),
+      ...(resolved.revision_bindings_digest
+        ? { revision_bindings_digest: resolved.revision_bindings_digest }
+        : {}),
+      ...(resolved.pointer
+        ? { pointer_intent_digest: resolved.pointer.intent_digest }
+        : {})
+    },
     diagnostics,
     revision_bindings_digest: rcRevisionBindingsDigest(),
     control_root_relative: rel(controlRoot),
     presence,
+    presence_digest,
+    effect_evidence,
     mismatches,
     unsafe,
     ok: unsafe.length === 0 && mismatches.length === 0

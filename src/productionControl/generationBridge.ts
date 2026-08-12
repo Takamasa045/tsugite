@@ -23,6 +23,9 @@ import { digestSchema, safeIdSchema } from "./schema.js";
 
 const nonNegativeInt = z.number().int().nonnegative();
 
+/** Exported schema version for RC revision bindings. */
+export const GENERATION_JOB_APPROVAL_BINDING_SCHEMA_VERSION = 1 as const;
+
 export const generationJobApprovalBindingSchema = z.object({
   production_id: safeIdSchema,
   run_id: safeIdSchema,
