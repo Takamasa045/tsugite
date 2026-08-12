@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-12T14:16:40.793Z",
+  "generated_at": "2026-08-12T14:47:17.520Z",
   "package_version": "0.9.0",
   "recommended_version": "0.9.0",
   "version_decision": {
@@ -66,7 +66,7 @@
       "evidence": [
         "command=rehearsal mode sequence + CLI migrate/rollback E2E",
         "exit_code=0",
-        "output_digest=7a6b9c245f4125b13782b2748b5654e424fb2749121aa7e62f0634c199101bde"
+        "output_digest=ef993c4c841ad467f43be0d9c490756faa62e9b07a38af9f7fa9abe3c4308fe0"
       ],
       "gaps": []
     },
@@ -85,7 +85,7 @@
       "title": "Migration rehearsal across 8 frozen fixtures",
       "status": "proven",
       "evidence": [
-        "rehearsal.digest=0e30b63e62cb931685a193014f7592d7efcbe28cbff36aa2c8a016412a7178fb",
+        "rehearsal.digest=3f8f0f82c53bc8809f4c7eb74fd81ade0fc477be03a43bc0644abd839d3822bc",
         "fixture_count=8"
       ],
       "gaps": []
@@ -97,7 +97,7 @@
       "evidence": [
         "command=cli production-migrate/rollback --apply E2E + EB1 migrate→validate→plan→review→inspect (pointer SoT, no YAML active rewrite)",
         "exit_code=0",
-        "output_digest=7893fd0b52b420a9941fbba5263d87e04a724924229ec1c809bbfac5993f8e5a"
+        "output_digest=4ce3c44a138acb8d29306fe555b88899ffd8e6bfc6f9f3ec01ec2fb7f14e3ef1"
       ],
       "gaps": []
     },
@@ -106,7 +106,7 @@
       "title": "Rollback rehearsal preserves append-only artifacts",
       "status": "proven",
       "evidence": [
-        "rehearsal.digest=0e30b63e62cb931685a193014f7592d7efcbe28cbff36aa2c8a016412a7178fb",
+        "rehearsal.digest=3f8f0f82c53bc8809f4c7eb74fd81ade0fc477be03a43bc0644abd839d3822bc",
         "rollback sequence in rehearsal"
       ],
       "gaps": []
@@ -152,9 +152,9 @@
       "evidence": [
         "src/productionControl/rc/releaseReadiness.ts",
         "status recomputed from evidence store (not caller forged exits)",
-        "migration_journal.digest=f39b8995a0bfe722371d764a50015990ba5d8c8edc2212c1f0c7e77d8a29551d",
+        "migration_journal.digest=6a74dff339aa3c27582865fec1348fb148e8a57367e22ce829ec1a5a4184d982",
         "effect_observer_digest=4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286",
-        "reader_commands.output_digest=0e500f2c252eb52041922b7d507dbcca4d60ebd57cb18da5bc25603a435fa746"
+        "reader_commands.output_digest=0756781fc1657806b5e233d3c68f735ffb6d7df21ff0134cffefeb129c21aa0e"
       ],
       "gaps": []
     },
@@ -195,7 +195,7 @@
   "rehearsal": {
     "all_ok": true,
     "fixture_count": 8,
-    "digest": "0e30b63e62cb931685a193014f7592d7efcbe28cbff36aa2c8a016412a7178fb"
+    "digest": "3f8f0f82c53bc8809f4c7eb74fd81ade0fc477be03a43bc0644abd839d3822bc"
   },
   "fixture_module_evidence": {
     "all_ok": true,
@@ -227,5 +227,5 @@
     "dirty": false,
     "verified_separately": true
   },
-  "digest": "db54fac19c9d73f0a0c8374afd0018df01f41d0290c9166e4c1f2132ca0c34ed"
+  "digest": "c4695b002efb333c1bd3e55498e6c7f82fb302a93b22ed4dfa41d76b3c07060b"
 }

@@ -1,8 +1,13 @@
 # Production Orchestration PO-8 RC integration
 
-**Status:** fixture-only structural repair (round 7) in tree. Package version remains `0.9.0`. Readiness stays **GO-WITH-CAVEATS** (Windows/live/browser/packaged desktop incomplete). Exit blockers EB1 (validate→compile authority real entry) and EB2 (gate_mutation effect_policy thread) are closed with focused evidence.
+**Status:** fixture-only structural repair (round 7 code + round 8 readiness rebind) in tree. Package version remains `0.9.0`. Readiness stays **GO-WITH-CAVEATS** (Windows/live/browser/packaged desktop incomplete). Exit blockers EB1 (validate→compile authority real entry) and EB2 (gate_mutation effect_policy thread) are closed with focused evidence.
 
 This document is **outside** the frozen T00 design pack under `docs/design/production-orchestration-v1/`. Design pack hashes must not change.
+
+## Readiness provenance (round 8)
+
+- `docs/reports/po8-rc-release-readiness.json` is regenerated only via production `buildReleaseReadinessReport` from a measured evidence store (fixture suite + H3 CLI/EB1 real entry). Exit `output_digest` values and the envelope `digest` are never hand-substituted.
+- `build_provenance.head` records the **real code commit** that closed EB1: `95b566b3c2b61a9eb2e78084b2d374c5486dd1ca`. Docs-only tip commits that refresh this report (or this note) do **not** replace that head and never upgrade exit status (`verified_separately: true`).
 
 ## Structural repair round 7 (EB1 real-entry split-brain)
 
