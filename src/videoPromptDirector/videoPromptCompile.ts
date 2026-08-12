@@ -58,7 +58,7 @@ import {
 } from "./compilationBundle.js";
 import type { ArtifactStore } from "../productionControl/artifactStore.js";
 import { resolve } from "node:path";
-import { sha256Text } from "../integrity/canonical.js";
+import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
 
 export {
   VIDEO_PROMPT_DUAL_AUTHORING_CODE,
@@ -106,6 +106,7 @@ export type CompileVideoPromptOptions = {
   /** Authoritative project-local AssetContract ref for standalone assets. */
   assetContractResolution?: TrustedAssetContractResolution;
   source?: {
+    authoring_surface?: "h3" | "video_prompt";
     authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
     upgrader_version: string;
     source_digest?: string;
@@ -155,7 +156,19 @@ export async function compileVideoPromptRequest(
 
   const v2 = safeParseVideoPromptIrV2(ir);
   if (v2.success) {
-    return compileVideoPromptV2Request(request, v2.data, options);
+    return compileVideoPromptV2Request(
+      request,
+      v2.data,
+      options,
+      request.h3 === ir
+        ? {
+            authoring_surface: "h3",
+            authoring_schema: "VideoPromptIrV2",
+            upgrader_version: "native-v2",
+            source_digest: sha256Canonical(v2.data)
+          }
+        : undefined
+    );
   }
 
   // Legacy request.h3 is read-only authoring. Upgrade it in memory and send
@@ -165,6 +178,7 @@ export async function compileVideoPromptRequest(
     try {
       const upgraded = upgradeH3V1ToVideoPromptV2(request.h3);
       return compileVideoPromptV2Request(request, upgraded.ir, options, {
+        authoring_surface: "h3",
         authoring_schema: "H3-V1",
         upgrader_version: "h3-v1-to-v2@1",
         source_digest: upgraded.source_sha256
@@ -223,6 +237,7 @@ export async function compileVideoPromptRequest(
     try {
       const upgraded = upgradeVideoPromptV1ToV2(ir as VideoCreativeIr);
       return compileVideoPromptV2Request(request, upgraded.ir, options, {
+        authoring_surface: "video_prompt",
         authoring_schema: "V1",
         upgrader_version: "video-prompt-v1-to-v2@1",
         source_digest: upgraded.source_sha256
@@ -324,6 +339,7 @@ async function compileVideoPromptV2Request(
   ir: VideoPromptIrV2,
   options: CompileVideoPromptOptions,
   source?: {
+    authoring_surface?: "h3" | "video_prompt";
     authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
     upgrader_version: string;
     source_digest?: string;
@@ -350,10 +366,17 @@ async function compileVideoPromptV2Request(
       issues: [issue("VPD-J002", "standalone assets require the authoritative project AssetContract resolver", "error", ["assets"])]
     };
   }
+  if (ir.assets.length > 0 && !options.assetContractResolution) {
+    return {
+      ok: false,
+      issues: [issue("VPD-J002", "asset-bearing video authoring requires the authoritative project AssetContract resolver", "error", ["assets"])]
+    };
+  }
   if (options.assetContractResolution) {
     for (const asset of ir.assets) {
       const entry = options.assetContractResolution.contract.assets.find((candidate) => candidate.asset_id === asset.id);
-      if (!entry || entry.project_relative_path !== asset.path || entry.sha256 !== asset.sha256) {
+      if (!entry || entry.project_relative_path !== asset.path || entry.sha256 !== asset.sha256
+        || options.assetContractResolution.artifact_digest !== options.assetContractResolution.contract.digest) {
         return {
           ok: false,
           issues: [issue("VPD-J002", `asset '${asset.id}' is not the exact project AssetContract entry`, "error", ["assets", asset.id])]
@@ -734,6 +757,16 @@ export async function compileProjectVideoPrompts(
       continue;
     }
     const parsedV2 = safeParseVideoPromptIrV2(ir);
+    const requiresAuthoritativeAssets = parsedV2.success && parsedV2.data.assets.length > 0;
+    if (rolloutMode === "active" && requiresAuthoritativeAssets && !isAuthoritativeAssetContractResolution(options.assetContractResolution)) {
+      issues.push({
+        code: "VPD-J002",
+        message: "asset-bearing active video authoring requires a current authoritative AssetContract",
+        path: `generation.requests.${index}.video_prompt.assets`
+      });
+      nextRequests.push(request);
+      continue;
+    }
     let generationUnitSource: GenerationUnitProgramSourceV1 | undefined = options.generationUnitSource;
     if (parsedV2.success && parsedV2.data.program_kind === "mv") {
       generationUnitSource = options.generationUnitSourceByRequestId?.[request.id]
@@ -769,7 +802,7 @@ export async function compileProjectVideoPrompts(
       continue;
     }
 
-    if (options.compilationArtifactRoot && result.plan.v2_compilation) {
+    if (options.compilationArtifactRoot && !options.planningArtifactStore && result.plan.v2_compilation) {
       await writeCompilationBundleAtomic(
         resolve(options.compilationArtifactRoot),
         result.plan.v2_compilation.bundle,

@@ -234,6 +234,7 @@ export {
 export {
   compilationBundleSchema,
   compilationRevisionId,
+  loadPlanningArtifactRef,
   deriveExecutionCompilationBundleFromPlanningArtifact,
   isAdoptedExecutionCompilationBundle,
   createExecutionSubmissionLease,
@@ -253,6 +254,7 @@ export {
   type ExecutionCompilationBundle,
   type ExecutionBundleAuthorityContext,
   type ExecutionSubmissionLease,
+  type ExecutionSubmissionBinding,
   type ExecutionSubmissionInput,
   type PlanningArtifactRef,
   type CreateOnlyArtifactStoreEnvelope

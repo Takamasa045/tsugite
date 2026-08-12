@@ -111,19 +111,35 @@ export async function validateProject(
       || request.h3 !== undefined
       || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
   );
-  if (hasVideoPrompt) {
+  const rolloutMode = project.orchestration?.mode;
+  const usesV2ProjectBoundary = rolloutMode === "active" || rolloutMode === "shadow";
+  if (hasVideoPrompt && usesV2ProjectBoundary) {
     const generationUnitSourceResolver = options.generationUnitSourceResolver
       ?? createProjectGenerationUnitSourceResolver(configPath);
     const assetContractResolution = await resolveProjectAssetContract(configPath, project);
+    const assetRef = project.orchestration?.authoring?.assets;
+    if (rolloutMode === "active" && assetRef && !assetContractResolution) {
+      return {
+        ok: false,
+        issues: [{
+          code: "VPD-J002",
+          message: "authoritative AssetContract could not be resolved from the project create-only ArtifactStore",
+          path: "orchestration.authoring.assets"
+        }],
+        project,
+        h3_compilations: h3Compilations
+      };
+    }
     const projectRoot = await realpath(dirname(resolve(configPath)));
-    const planningStoreRoot = await ensureVideoPromptPlanningStoreRoot(projectRoot);
     const videoCompile = await compileProjectVideoPrompts(project, {
       intent: "planning",
       generationUnitSourceResolver,
       ...(options.grammarProfileRoot ? { grammarProfileRoot: options.grammarProfileRoot } : {}),
-      compilationArtifactRoot: join(projectRoot, project.dist_dir),
-      shadowArtifactRoot: join(projectRoot, project.dist_dir, "shadow", "video-prompt"),
-      planningArtifactStore: new ArtifactStore(await realpath(planningStoreRoot)),
+      ...(rolloutMode === "active" ? {
+        planningArtifactStore: new ArtifactStore(await realpath(await ensureVideoPromptPlanningStoreRoot(projectRoot)))
+      } : {
+        shadowArtifactRoot: join(projectRoot, project.dist_dir, "shadow", "video-prompt")
+      }),
       productionId: "production",
       projectId: project.slug,
       ...(assetContractResolution ? { assetContractResolution } : {})
@@ -142,6 +158,21 @@ export async function validateProject(
         video_prompt_plans: videoPromptPlans,
         ...(videoCompile.shadow_comparisons ? { video_prompt_shadow_comparisons: videoCompile.shadow_comparisons } : {})
       };
+    }
+  } else if (hasVideoPrompt && !usesV2ProjectBoundary) {
+    // Disabled/unspecified projects retain the read-only legacy compiler. In
+    // particular, do not create a production-control store or pin anything.
+    for (const [index, request] of (project.generation?.requests ?? []).entries()) {
+      if ((request as { video_prompt?: unknown }).video_prompt !== undefined) {
+        issues.push({
+          code: "VPD-E022",
+          message: "native VideoPromptIrV2 authoring requires orchestration.mode=active",
+          path: `generation.requests.${index}.video_prompt`
+        });
+      }
+    }
+    if (issues.length > 0) {
+      return { ok: false, issues, project, h3_compilations: h3Compilations };
     }
   } else {
     // Defensive: still reject any uncompiled empty video_prompt edge cases.

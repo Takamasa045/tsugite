@@ -83,6 +83,7 @@ export type CompileVideoPromptV2Options = {
   require_pinned_grammar?: boolean;
   contract_bindings?: string[];
   source?: {
+    authoring_surface?: "h3" | "video_prompt";
     authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
     upgrader_version: string;
     source_digest?: string;
@@ -460,6 +461,7 @@ export function compileVideoPromptIrV2(
     } : {}),
     labels_digest: dialect.labels.digest,
     validation,
+    authoring_surface: options.source?.authoring_surface ?? "video_prompt",
     authoring_schema: options.source?.authoring_schema ?? "VideoPromptIrV2",
     contract_bindings: [
       ...(options.contract_bindings ?? []),

@@ -33,14 +33,20 @@ import {
   type RawAnalysisForComposition
 } from "./compositionProposal.js";
 import { createPlan, type ExecutionPlan } from "./plan.js";
+import { ArtifactStore } from "../productionControl/artifactStore.js";
 import type { H3Compilation } from "../h3/compile.js";
 import type { ProductionControlShadowSummary } from "../productionControl/contractCompiler.js";
 import type { VideoPromptV2Compilation } from "../videoPromptDirector/compileV2.js";
-import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
+import { createProjectGenerationUnitSourceResolver, reloadAuthoritativeAssetContract, resolveProjectAssetContract } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { validateProject } from "../project/validateProject.js";
 import { loadProject } from "../project/loadProject.js";
 import { sha256Canonical } from "../integrity/canonical.js";
-import { compilationRevisionId, readCompilationBundleAtomic } from "../videoPromptDirector/compilationBundle.js";
+import {
+  compilationRevisionId,
+  loadPlanningArtifactRef,
+  readCompilationBundleAtomic,
+  verifyCompilationBundle
+} from "../videoPromptDirector/compilationBundle.js";
 import { safeParseVideoPromptIrV2 } from "../videoPromptDirector/schemaV2.js";
 import { upgradeH3V1ToVideoPromptV2, upgradeVideoPromptV1ToV2 } from "../videoPromptDirector/upgradeV1.js";
 import { loadConnectionCapabilityProfile, routeFromProfiles } from "../videoPromptDirector/index.js";
@@ -238,7 +244,7 @@ export type VideoPromptReviewProjection = {
     request_id: string;
     revision_id: string;
     artifact_ref: string;
-    authoring_surface: "video_prompt";
+    authoring_surface: "h3" | "video_prompt";
     authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
     upgrader_version: string;
     source_digest: string;
@@ -269,13 +275,15 @@ export function createVideoPromptReviewProjection(
     if (!compilation) return [];
     const authoringSchema = compilation.bundle.lineage.authoring_schema;
     if (authoringSchema !== "VideoPromptIrV2" && authoringSchema !== "V1" && authoringSchema !== "H3-V1") return [];
+    const authoringSurface = compilation.bundle.lineage.authoring_surface;
+    if (authoringSurface !== "h3" && authoringSurface !== "video_prompt") return [];
     return [{
       request_id: compilation.request_id,
       request_identity: {
         request_id: compilation.request_id,
         revision_id: compilationRevisionId(compilation.bundle),
         artifact_ref: `${compilationRevisionId(compilation.bundle)}/video-prompt/${compilation.request_id}`,
-        authoring_surface: "video_prompt" as const,
+        authoring_surface: authoringSurface,
         authoring_schema: authoringSchema,
         upgrader_version: compilation.bundle.lineage.upgrader_version,
         source_digest: compilation.bundle.lineage.source_digest ?? compilation.bundle.normalized_ir_digest,
@@ -592,9 +600,14 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
     );
     if (videoRequests.length === 0) return { ok: true, projection: [] };
     const artifactRoot = resolve(dirname(resolve(configPath)), project.dist_dir);
-    const revisions = (await readdir(artifactRoot, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && isSafeReviewId(entry.name))
-      .map((entry) => entry.name);
+    let revisions: string[] = [];
+    try {
+      revisions = (await readdir(artifactRoot, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && isSafeReviewId(entry.name))
+        .map((entry) => entry.name);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
     const projection: VideoPromptReviewProjection[] = [];
     for (const request of videoRequests) {
       const authoring = (request as { video_prompt?: unknown }).video_prompt ?? request.h3;
@@ -617,12 +630,26 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
               throw new Error("committed authoring source tuple is stale");
             }
             await assertCommittedRouteStillMatches(project, persisted.bundle);
+            await assertCommittedAssetContractStillMatches(configPath, project, persisted.bundle);
             await assertCommittedT04StillMatches(configPath, project, request, normalized.ir, requestIndex, persisted.bundle);
             candidates.push({ bundle: persisted.bundle, revision });
           }
         } catch {
           // Unrelated revisions and shadow namespaces are ignored; a matching
           // request must still have one complete committed manifest below.
+        }
+      }
+      for (const planningCandidate of await readPlanningVideoPromptBundles(configPath, project.slug, request.id)) {
+        if (planningCandidate.bundle.normalized_ir_digest === expectedNormalizedDigest) {
+          if (planningCandidate.bundle.lineage.authoring_schema !== normalized.authoring_schema
+            || planningCandidate.bundle.lineage.upgrader_version !== normalized.upgrader_version
+            || planningCandidate.bundle.lineage.source_digest !== normalized.source_digest) {
+            throw new Error("committed authoring source tuple is stale");
+          }
+          await assertCommittedRouteStillMatches(project, planningCandidate.bundle);
+          await assertCommittedAssetContractStillMatches(configPath, project, planningCandidate.bundle);
+          await assertCommittedT04StillMatches(configPath, project, request, normalized.ir, requestIndex, planningCandidate.bundle);
+          candidates.push(planningCandidate);
         }
       }
       const unique = new Map(candidates.map((candidate) => [candidate.bundle.compilation_digest, candidate]));
@@ -632,16 +659,90 @@ async function resolveCurrentVideoPromptReview(configPath: string): Promise<
       projection.push(videoPromptReviewProjectionFromCommittedBundle(committed, [...unique.values()][0]!.revision));
     }
     return { ok: true, projection };
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const stableCode = /^VPD-[A-Z]\d{3}/u.exec(message)?.[0];
     return {
       ok: false,
       issues: [{
-        code: "gate.video_prompt_changed",
-        message: "committed V2 video prompt manifest is missing, stale, ambiguous, or tampered; regenerate the Gate 1 review",
+        code: stableCode ?? "gate.video_prompt_changed",
+        message: stableCode
+          ? message
+          : "committed V2 video prompt manifest is missing, stale, ambiguous, or tampered; regenerate the Gate 1 review",
         path: "generation.requests"
       }]
     };
   }
+}
+
+/**
+ * Active PO-4 planning is committed to the project-local ArtifactStore before
+ * review. Review must consume that exact create-only object when the durable
+ * filesystem publication backend is unavailable; it must never reconstruct a
+ * bundle from the in-memory validation result or from an arbitrary JSON copy.
+ */
+async function readPlanningVideoPromptBundles(
+  configPath: string,
+  projectId: string,
+  requestId: string
+): Promise<Array<{ bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1; revision: string }>> {
+  if (!isSafeReviewId(projectId) || !isSafeReviewId(requestId)) throw new Error("VPD-K003: planning review identity is unsafe");
+  const projectRoot = await realpath(resolve(dirname(resolve(configPath))));
+  const lexicalRoot = join(projectRoot, "production-control", "video-prompt-planning");
+  let planningRoot: string;
+  try {
+    planningRoot = await realpath(lexicalRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  if (planningRoot !== resolve(lexicalRoot)) throw new Error("VPD-K003: planning ArtifactStore root is not project-local");
+  const artifactDirectory = join(planningRoot, "artifacts");
+  let entries;
+  try {
+    entries = await readdir(artifactDirectory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const store = new ArtifactStore(planningRoot);
+  const bundles: Array<{ bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1; revision: string }> = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) continue;
+    const artifactId = entry.name.slice(0, -".json".length);
+    if (!isSafeReviewId(artifactId)) continue;
+    const looksLikeCurrentRequest = artifactId.startsWith(`planning-production-${projectId}-`)
+      && artifactId.endsWith(`-${requestId}`);
+    try {
+      const bytes = await store.readBounded(artifactId, 32 * 1024 * 1024);
+      const bundle = verifyCompilationBundle(JSON.parse(bytes.toString("utf8")));
+      if (bundle.execution_capable || bundle.request_id !== requestId) continue;
+      if (Buffer.from(JSON.stringify(bundle), "utf8").compare(bytes) !== 0) {
+        throw new Error("VPD-K003: planning ArtifactStore bytes are not canonical");
+      }
+      const revision = compilationRevisionId(bundle);
+      const expectedArtifactId = `planning-production-${projectId}-${revision}-${requestId}`;
+      if (artifactId !== expectedArtifactId) throw new Error("VPD-K003: planning artifact namespace is stale");
+      const ref = await loadPlanningArtifactRef({
+        store,
+        artifact_id: artifactId,
+        artifact_digest: createHash("sha256").update(bytes).digest("hex"),
+        production_id: "production",
+        project_id: projectId,
+        revision_id: revision,
+        request_id: requestId,
+        expected_store_root: planningRoot
+      });
+      void ref;
+      bundles.push({ bundle, revision });
+    } catch (error) {
+      if (looksLikeCurrentRequest) throw error;
+      if (error instanceof Error && error.message.includes("planning artifact namespace is stale")) throw error;
+      // Unrelated artifacts are ignored; a matching current artifact is only
+      // accepted after the strict loader above succeeds.
+    }
+  }
+  return bundles;
 }
 
 function normalizeCommittedVideoPromptAuthoring(value: unknown): { ir: import("../videoPromptDirector/schemaV2.js").VideoPromptIrV2; authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1"; upgrader_version: string; source_digest: string } | undefined {
@@ -666,13 +767,17 @@ function videoPromptReviewProjectionFromCommittedBundle(bundle: import("../video
   if (authoringSchema !== "VideoPromptIrV2" && authoringSchema !== "V1" && authoringSchema !== "H3-V1") {
     throw new Error("committed bundle authoring schema is unsupported");
   }
+  const authoringSurface = bundle.lineage.authoring_surface;
+  if (authoringSurface !== "h3" && authoringSurface !== "video_prompt") {
+    throw new Error("committed bundle authoring surface is unsupported");
+  }
   return {
     request_id: bundle.request_id,
     request_identity: {
       request_id: bundle.request_id,
       revision_id: revision,
       artifact_ref: `${revision}/video-prompt/${bundle.request_id}`,
-      authoring_surface: "video_prompt",
+      authoring_surface: authoringSurface,
       authoring_schema: authoringSchema,
       upgrader_version: bundle.lineage.upgrader_version,
       source_digest: bundle.lineage.source_digest ?? bundle.normalized_ir_digest,
@@ -706,6 +811,10 @@ async function assertCommittedRouteStillMatches(project: Project, bundle: import
   if (!model.ok || !connection.ok || model.digest !== bundle.model_profile_digest || connection.digest !== bundle.connection_capability_digest) {
     throw new Error("committed route/profile digest is stale");
   }
+  const reviewAfter = model.profile.source.review_after;
+  if (!reviewAfter || reviewAfter <= new Date().toISOString()) {
+    throw new Error("committed effective contract review_after is stale or unknown");
+  }
   const route = routeFromProfiles({
     model: bundle.route.ir_model,
     mode: bundle.route.mode_binding as never,
@@ -726,6 +835,36 @@ async function assertCommittedRouteStillMatches(project: Project, bundle: import
     if (grammar.digest !== bundle.grammar_profile.digest) throw new Error("committed grammar provenance is stale");
   } else if (model.profile.renderer === "h3-grammar") {
     throw new Error("H3 committed bundle is missing its pinned grammar profile");
+  }
+}
+
+async function assertCommittedAssetContractStillMatches(
+  configPath: string,
+  project: Project,
+  bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1
+): Promise<void> {
+  if (bundle.asset_lineage.length === 0) return;
+  const resolution = await resolveProjectAssetContract(configPath, project);
+  if (!resolution) throw new Error("VPD-J002: current authoritative AssetContract is unavailable");
+  const contract = await reloadAuthoritativeAssetContract(resolution);
+  for (const asset of bundle.asset_lineage) {
+    const committed = asset.asset_contract;
+    const current = contract.assets.find((entry) => entry.asset_id === asset.asset_id);
+    if (!committed || !current
+      || committed.contract_id !== contract.contract_id
+      || committed.revision !== contract.revision
+      || committed.digest !== contract.digest
+      || committed.entry_id !== current.asset_id
+      || committed.path !== current.project_relative_path
+      || committed.sha256 !== current.sha256
+      || committed.byte_size !== current.byte_size
+      || committed.external_send !== current.external_send
+      || asset.path !== current.project_relative_path
+      || asset.declared_sha256 !== current.sha256
+      || asset.pin_evidence?.sha256 !== current.sha256
+      || asset.pin_evidence?.byte_size !== current.byte_size) {
+      throw new Error("VPD-J002: committed AssetContract lineage is stale or mismatched");
+    }
   }
 }
 

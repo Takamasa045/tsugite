@@ -591,7 +591,7 @@ describe("PO-4 follow-up security and profile regressions", () => {
       expect(renderReviewHtml(document)).toContain("data-testid=\"video-prompt-plans\"");
       await writeCreativeReview({ configPath: fixture.configPath, project: validation.project, manifest: validation.manifest, plan, stateDir: join(fixture.root, "dist") });
       const first = await inspectGate1Review({ configPath: fixture.configPath, project: validation.project, manifest: validation.manifest, stateDir: join(fixture.root, "dist") });
-      expect(first.ok).toBe(true);
+      expect(first.ok, first.ok ? "" : JSON.stringify(first.issues)).toBe(true);
       const dataPath = join(fixture.root, "dist", "po4-cli-mv-run", "review", "review-data.json");
       const reviewPath = join(fixture.root, "dist", "po4-cli-mv-run", "review", "index.html");
       const data = JSON.parse(await readFile(dataPath, "utf8")) as typeof document;

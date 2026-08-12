@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ArtifactStore } from "../src/productionControl/artifactStore.js";
 import {
   compileProjectVideoPrompts,
+  compileVideoPromptRequest,
   compileVideoPromptIrV2,
   buildSemanticBlocks,
   DEFAULT_H3_GRAMMAR_PROFILE_V3,
@@ -32,9 +33,12 @@ import {
   consumeExecutionSubmissionLease,
   type VideoPromptIrV2
 } from "../src/videoPromptDirector/index.js";
+import { validateProject } from "../src/project/validateProject.js";
+import { createVideoPromptReviewProjection, inspectGate1Review, writeCreativeReview } from "../src/orchestrator/review.js";
+import { createPlan } from "../src/orchestrator/plan.js";
 import { sha256Canonical, sha256Text } from "../src/integrity/canonical.js";
 import { createAssetContract } from "../src/productionControl/contracts/asset.js";
-import { createCompilationBundle, createVerifiedAssetPin, verifyVerifiedAssetPin, isTrustedAssetPin, loadCreateOnlyArtifactStoreEnvelope, persistPlanningCompilationArtifact } from "../src/videoPromptDirector/compilationBundle.js";
+import { createCompilationBundle, createVerifiedAssetPin, verifyVerifiedAssetPin, isTrustedAssetPin, loadCreateOnlyArtifactStoreEnvelope, persistPlanningCompilationArtifact, loadPlanningArtifactRef } from "../src/videoPromptDirector/compilationBundle.js";
 import * as generationUnitResolver from "../src/videoPromptDirector/generationUnitSourceResolver.js";
 import * as videoPromptDirector from "../src/videoPromptDirector/index.js";
 
@@ -101,6 +105,217 @@ describe("PO-4 final repair regressions", () => {
     expect(result.issues.map((item) => item.code)).toContain("VPD-E022");
   });
 
+  it("rejects active asset-bearing authoring when the authoritative contract resolver fails", async () => {
+    const ir = standalone();
+    ir.target.mode = "reference";
+    ir.assets = [{ id: "ref-1", type: "image", role: "subject_reference", path: "assets/ref.png", sha256: "1".repeat(64) }];
+    const result = await compileVideoPromptRequest(
+      { id: "asset-1", operation: "video", prompt: "", params: {}, video_prompt: ir } as never,
+      ir,
+      {
+        connectionId: "pixverse",
+        intent: "planning",
+        activeV2: true,
+        modelProfileRoots: ["profiles/model-prompts"],
+        connectionProfileRoots: ["profiles/connection-capabilities"],
+        adapterDirs: ["adapters"]
+      }
+    );
+    expect(result.ok).toBe(false);
+    expect(result.plan).toBeUndefined();
+    expect(result.issues.map((item) => item.code)).toContain("VPD-J002");
+  });
+
+  it("rejects an active project asset reference during validate before creating a planning bundle", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-validate-asset-ref-"));
+    try {
+      const sourceProject = await readFile("examples/h3-prompt-director/project.yaml", "utf8");
+      const activeProject = sourceProject.replace(
+        "edit:\n",
+        "orchestration:\n  mode: active\n  authoring:\n    assets:\n      kind: asset-contract\n      id: missing-asset-contract\n      digest: " + "f".repeat(64) + "\nedit:\n"
+      );
+      const configPath = join(root, "project.yaml");
+      await writeFile(configPath, activeProject);
+      await writeFile(join(root, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      await mkdir(join(root, "media"));
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(root, "media/clip-001.mp4"));
+      const result = await validateProject(configPath);
+      expect(result.ok).toBe(false);
+      expect(result.issues.map((issue) => issue.code)).toContain("VPD-J002");
+      await expect(stat(join(root, "production-control", "video-prompt-planning"))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("binds the exact H3 versus video_prompt authoring surface into review projection", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const h3 = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability,
+      source: { authoring_surface: "h3", authoring_schema: "VideoPromptIrV2", upgrader_version: "native-v2", source_digest: sha256Canonical(standalone()) }
+    });
+    const v2 = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(h3.ok).toBe(true);
+    expect(v2.ok).toBe(true);
+    if (!h3.ok || !v2.ok) return;
+    expect(createVideoPromptReviewProjection([{ v2_compilation: h3.compilation } as never])[0]?.request_identity.authoring_surface).toBe("h3");
+    expect(createVideoPromptReviewProjection([{ v2_compilation: v2.compilation } as never])[0]?.request_identity.authoring_surface).toBe("video_prompt");
+  });
+
+  it("keeps disabled legacy validation read-only and creates no production-control planning store", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-disabled-readonly-"));
+    try {
+      await writeFile(join(root, "project.yaml"), await readFile("examples/h3-prompt-director/project.yaml", "utf8"));
+      await writeFile(join(root, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      await mkdir(join(root, "media"));
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(root, "media/clip-001.mp4"));
+      const result = await validateProject(join(root, "project.yaml"));
+      expect(result.ok).toBe(true);
+      await expect(stat(join(root, "production-control"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(root, "dist"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("commits the active validate entrypoint to one project-local planning ArtifactStore", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-active-planning-entrypoint-"));
+    try {
+      const sourceProject = await readFile("examples/h3-prompt-director/project.yaml", "utf8");
+      const activeProject = sourceProject.replace("edit:\n", "orchestration:\n  mode: active\nedit:\n");
+      await writeFile(join(root, "project.yaml"), activeProject);
+      await writeFile(join(root, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      await mkdir(join(root, "media"));
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(root, "media/clip-001.mp4"));
+
+      const result = await validateProject(join(root, "project.yaml"));
+      expect(result.ok, result.ok ? "" : JSON.stringify(result.issues)).toBe(true);
+      if (!result.ok) return;
+      const planning = result.video_prompt_plans?.[0]?.v2_compilation?.planning_artifact;
+      expect(planning).toMatchObject({ kind: "video-prompt-planning-artifact-ref", production_id: "production" });
+      const artifacts = await readdir(join(root, "production-control", "video-prompt-planning", "artifacts"));
+      expect(artifacts).toContain(`${(planning as { artifact_id: string }).artifact_id}.json`);
+      await expect(stat(join(root, "dist"))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reviews the committed planning artifact through the real validate-plan-review lifecycle", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-planning-review-lifecycle-"));
+    try {
+      const sourceProject = await readFile("examples/h3-prompt-director/project.yaml", "utf8");
+      await writeFile(join(root, "project.yaml"), sourceProject.replace("edit:\n", "orchestration:\n  mode: active\nedit:\n"));
+      await writeFile(join(root, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      await mkdir(join(root, "media"));
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(root, "media/clip-001.mp4"));
+
+      const validation = await validateProject(join(root, "project.yaml"));
+      expect(validation.ok, validation.ok ? "" : JSON.stringify(validation.issues)).toBe(true);
+      if (!validation.ok) return;
+      const plan = createPlan(
+        validation.project,
+        validation.manifest,
+        validation.adapter,
+        undefined,
+        validation.promptGuides,
+        validation.audioAdapter,
+        validation.generationConnection,
+        validation.audioConnection,
+        validation.backend,
+        validation.h3_compilations,
+        validation.video_prompt_plans
+      );
+      const stateDir = join(root, "dist");
+      await writeCreativeReview({
+        configPath: join(root, "project.yaml"),
+        project: validation.project,
+        manifest: validation.manifest,
+        plan,
+        stateDir
+      });
+      const reviewed = await inspectGate1Review({
+        configPath: join(root, "project.yaml"),
+        project: validation.project,
+        manifest: validation.manifest,
+        stateDir
+      });
+      expect(reviewed.ok, reviewed.ok ? "" : JSON.stringify(reviewed.issues)).toBe(true);
+
+      const artifactsDir = join(root, "production-control", "video-prompt-planning", "artifacts");
+      const [artifactName] = await readdir(artifactsDir);
+      await writeFile(join(artifactsDir, artifactName!), "tampered\n");
+      const tampered = await inspectGate1Review({
+        configPath: join(root, "project.yaml"),
+        project: validation.project,
+        manifest: validation.manifest,
+        stateDir
+      });
+      expect(tampered.ok).toBe(false);
+      expect(tampered.issues.map((issue) => issue.code)).toContain("gate.video_prompt_changed");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails review closed when the active planning namespace is absent or contains unsafe copies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-planning-missing-review-"));
+    try {
+      const sourceProject = await readFile("examples/h3-prompt-director/project.yaml", "utf8");
+      const configPath = join(root, "project.yaml");
+      await writeFile(configPath, sourceProject.replace("edit:\n", "orchestration:\n  mode: active\nedit:\n"));
+      await writeFile(join(root, "manifest.json"), await readFile("examples/h3-prompt-director/manifest.json", "utf8"));
+      await mkdir(join(root, "media"));
+      await copyFile("examples/h3-prompt-director/media/clip-001.mp4", join(root, "media/clip-001.mp4"));
+      const validation = await validateProject(configPath);
+      expect(validation.ok).toBe(true);
+      if (!validation.ok) return;
+      await rm(join(root, "production-control"), { recursive: true, force: true });
+      const plan = createPlan(validation.project, validation.manifest, validation.adapter, undefined, validation.promptGuides, validation.audioAdapter, validation.generationConnection, validation.audioConnection, validation.backend, validation.h3_compilations, validation.video_prompt_plans);
+      const stateDir = join(root, "review-state");
+      await writeCreativeReview({ configPath, project: validation.project, manifest: validation.manifest, plan, stateDir });
+      const missing = await inspectGate1Review({ configPath, project: validation.project, manifest: validation.manifest, stateDir });
+      expect(missing.ok).toBe(false);
+      expect(missing.issues.map((issue) => issue.code)).toContain("gate.video_prompt_changed");
+
+      const planningRoot = join(root, "production-control", "video-prompt-planning");
+      await mkdir(join(planningRoot, "artifacts"), { recursive: true });
+      await writeFile(join(planningRoot, "artifacts", "unsafe name.json"), "not a planning artifact\n");
+      await mkdir(join(planningRoot, "artifacts", "directory.json"));
+      const { model, connection, adapter, route } = await v6Route();
+      const unrelated = compileVideoPromptIrV2(standalone("v6"), {
+        request_id: "different-request",
+        route,
+        model_profile: model.profile,
+        model_profile_digest: model.digest,
+        connection_profile: connection.profile,
+        connection_capability_digest: connection.digest,
+        adapter_dialect_capability: adapter.capability
+      });
+      expect(unrelated.ok).toBe(true);
+      if (!unrelated.ok) return;
+      const unrelatedId = `planning-production-${validation.project.slug}-${compilationRevisionId(unrelated.compilation.bundle)}-different-request`;
+      await writeFile(join(planningRoot, "artifacts", `${unrelatedId}.json`), JSON.stringify(unrelated.compilation.bundle));
+      const stillClosed = await inspectGate1Review({ configPath, project: validation.project, manifest: validation.manifest, stateDir });
+      expect(stillClosed.ok).toBe(false);
+      expect(stillClosed.issues.map((issue) => issue.code)).toContain("gate.video_prompt_changed");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not let active legacy H3 silently pass without an explicit connection", async () => {
     const project = {
       slug: "active-no-connection",
@@ -131,6 +346,31 @@ describe("PO-4 final repair regressions", () => {
         connection: "pixverse",
         adapter: "pixverse",
         requests: [{ id: "raw-video", operation: "video", prompt: "raw caller prompt", params: {} }]
+      }
+    } as never;
+    const result = await compileProjectVideoPrompts(project);
+    expect(result.ok).toBe(false);
+    expect(result.plans).toHaveLength(0);
+    expect(result.issues.map((item) => item.code)).toContain("VPD-E022");
+  });
+
+  it("does not infer video authority from an omitted operation when output_kind is image", async () => {
+    const project = {
+      slug: "active-omitted-operation-image",
+      name: "active-omitted-operation-image",
+      manifest: "manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      orchestration: { mode: "active" },
+      generation: {
+        connection: "pixverse",
+        adapter: "pixverse",
+        requests: [{
+          id: "raw-ambiguous",
+          output_kind: "image",
+          prompt: "raw prompt must never reach an adapter",
+          params: {}
+        }]
       }
     } as never;
     const result = await compileProjectVideoPrompts(project);
@@ -718,7 +958,7 @@ describe("PO-4 final repair regressions", () => {
       await writeShadowComparisonAtomic(root, comparison, { project_root: root, revision_id: "revision-1" });
       await writeShadowComparisonAtomic(root, comparison, { project_root: root, revision_id: "revision-1" });
       await expect(writeShadowComparisonAtomic(root, { ...comparison, status: "changed" }, { project_root: root, revision_id: "revision-1" })).rejects.toThrow(/VPD-C004/);
-      await expect(writeShadowComparisonAtomic(root, comparison, { project_root: "", revision_id: "revision-2" })).rejects.toThrow(/VPD-K002/);
+      await expect(writeShadowComparisonAtomic(root, comparison, { project_root: "", revision_id: "revision-2" })).rejects.toThrow(/project root is required/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -773,12 +1013,15 @@ describe("PO-4 final repair regressions", () => {
         project_root: root,
         revision_id: compilationRevisionId(compiled.compilation.bundle),
         request_id: compiled.compilation.bundle.request_id,
-        hooks: { before_cleanup: () => { throw new Error("cleanup identity changed"); } }
-      })).rejects.toThrow(/cleanup identity changed/);
+        hooks: {
+          before_link: () => { throw new Error("publication-before-link"); },
+          before_cleanup: () => { throw new Error("cleanup identity changed"); }
+        }
+      })).rejects.toThrow(/publication-before-link/);
       const revisionRoot = join(root, compilationRevisionId(compiled.compilation.bundle), "video-prompt");
-      const entries = await (await import("node:fs/promises")).readdir(revisionRoot);
+      const entries = await readdir(revisionRoot);
       expect(entries.some((name) => name.endsWith(".tmp"))).toBe(true);
-      expect(entries.some((name) => name === compiled.compilation.bundle.request_id)).toBe(true);
+      expect(entries.some((name) => name === compiled.compilation.bundle.request_id)).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -821,6 +1064,72 @@ describe("PO-4 final repair regressions", () => {
       } finally {
         await rm(raw, { recursive: true, force: true });
       }
+    }
+  });
+
+  it("does not adopt a target created during the publication reserve boundary", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-publication-target-race-"));
+    try {
+      const revision = compilationRevisionId(compiled.compilation.bundle);
+      const target = join(root, revision, "video-prompt", compiled.compilation.bundle.request_id);
+      await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, {
+        project_root: root,
+        revision_id: revision,
+        request_id: compiled.compilation.bundle.request_id,
+        allow_existing_same_digest: true,
+        hooks: {
+          before_target_reserve: async () => { await mkdir(target, { recursive: false, mode: 0o700 }); }
+        }
+      })).rejects.toThrow(/VPD-K002|file set|marker|compilation/);
+      expect((await readdir(join(root, revision, "video-prompt"))).some((name) => name === compiled.compilation.bundle.request_id)).toBe(true);
+      await expect(stat(join(target, "compilation-manifest.json"))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unsafe pre-existing file, symlink, and directory targets without replacement", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-publication-existing-targets-"));
+    try {
+      const revision = compilationRevisionId(compiled.compilation.bundle);
+      const parent = join(root, revision, "video-prompt");
+      const target = join(parent, compiled.compilation.bundle.request_id);
+      for (const kind of ["file", "symlink", "directory"] as const) {
+        await mkdir(parent, { recursive: true });
+        if (kind === "file") await writeFile(target, "sentinel\n");
+        if (kind === "directory") await mkdir(target);
+        if (kind === "symlink") await symlink(root, target);
+        await expect(writeCompilationBundleAtomic(root, compiled.compilation.bundle, {
+          project_root: root,
+          revision_id: revision,
+          request_id: compiled.compilation.bundle.request_id
+        })).rejects.toThrow(/VPD-K002|already exists|identity/);
+        await rm(target, { recursive: true, force: false });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 
@@ -1170,7 +1479,6 @@ describe("PO-4 final repair regressions", () => {
       } as never;
       const result = await compileProjectVideoPrompts(project, {
         intent: "planning",
-        compilationArtifactRoot: join(root, "dist"),
         planningArtifactStore: store,
         productionId: "production",
         projectId: "planning-wire"
@@ -1182,6 +1490,88 @@ describe("PO-4 final repair regressions", () => {
       const stored = JSON.parse((await store.read((ref as { artifact_id: string }).artifact_id)).toString("utf8")) as { execution_capable: boolean; compilation_digest: string };
       expect(stored.execution_capable).toBe(false);
       expect(stored.compilation_digest).toBe(result.plans[0]?.v2_compilation?.bundle.compilation_digest);
+      const reloadedStore = new ArtifactStore(await realpath(storeRoot));
+      const reloaded = await loadPlanningArtifactRef({
+        store: reloadedStore,
+        artifact_id: (ref as { artifact_id: string }).artifact_id,
+        artifact_digest: (ref as { artifact_digest: string }).artifact_digest,
+        production_id: "production",
+        project_id: "planning-wire",
+        revision_id: (ref as { revision_id: string }).revision_id,
+        request_id: "planning-wire-1",
+        expected_store_root: await realpath(storeRoot)
+      });
+      expect(reloaded).toMatchObject(ref);
+      const copiedRoot = join(root, "copied-planning-store");
+      await mkdir(copiedRoot);
+      const copiedStoreRoot = await realpath(copiedRoot);
+      const copiedStore = new ArtifactStore(copiedStoreRoot);
+      await copiedStore.create({ artifact_id: (ref as { artifact_id: string }).artifact_id, bytes: await store.read((ref as { artifact_id: string }).artifact_id) });
+      await expect(loadPlanningArtifactRef({
+        store: copiedStore,
+        artifact_id: (ref as { artifact_id: string }).artifact_id,
+        artifact_digest: (ref as { artifact_digest: string }).artifact_digest,
+        production_id: "production",
+        project_id: "planning-wire",
+        revision_id: (ref as { revision_id: string }).revision_id,
+        request_id: "planning-wire-1",
+        expected_store_root: await realpath(storeRoot)
+      })).rejects.toThrow(/store root/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects every forged planning ArtifactStore identity before review adoption", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      request_id: "planning-loader-1",
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po4-planning-loader-")));
+    try {
+      const store = new ArtifactStore(root);
+      const bundle = compiled.compilation.bundle;
+      const revision = compilationRevisionId(bundle);
+      const artifactId = `planning-production-loader-${revision}-${bundle.request_id}`;
+      const bytes = Buffer.from(JSON.stringify(bundle));
+      const stored = await store.create({ artifact_id: artifactId, bytes });
+      const base = {
+        store,
+        artifact_id: artifactId,
+        artifact_digest: stored.sha256,
+        production_id: "production",
+        project_id: "loader",
+        revision_id: revision,
+        request_id: bundle.request_id,
+        expected_store_root: root
+      };
+      await expect(loadPlanningArtifactRef({ ...base, store: {} as never })).rejects.toThrow(/unsafe namespace/);
+      await expect(loadPlanningArtifactRef({ ...base, project_id: "../copy" })).rejects.toThrow(/unsafe namespace/);
+      await expect(loadPlanningArtifactRef({ ...base, expected_store_root: join(root, "other") })).rejects.toThrow(/store root/);
+      await expect(loadPlanningArtifactRef({ ...base, artifact_id: "planning-production-loader-other-request" })).rejects.toThrow(/namespace/);
+      await expect(loadPlanningArtifactRef({ ...base, artifact_digest: "0".repeat(64) })).rejects.toThrow(/bytes changed/);
+
+      const malformedRoot = join(root, "malformed-store");
+      await mkdir(malformedRoot);
+      const malformedStore = new ArtifactStore(await realpath(malformedRoot));
+      await malformedStore.create({ artifact_id: artifactId, bytes: "not-json" });
+      await expect(loadPlanningArtifactRef({ ...base, store: malformedStore, artifact_digest: sha256Text("not-json"), expected_store_root: await realpath(malformedRoot) })).rejects.toThrow(/strict compilation bundle/);
+
+      const nonCanonicalRoot = join(root, "noncanonical-store");
+      await mkdir(nonCanonicalRoot);
+      const nonCanonicalStore = new ArtifactStore(await realpath(nonCanonicalRoot));
+      const nonCanonicalId = artifactId;
+      const padded = ` ${bytes.toString("utf8")} `;
+      await nonCanonicalStore.create({ artifact_id: nonCanonicalId, bytes: padded });
+      await expect(loadPlanningArtifactRef({ ...base, store: nonCanonicalStore, artifact_id: nonCanonicalId, artifact_digest: sha256Text(padded), expected_store_root: await realpath(nonCanonicalRoot), request_id: bundle.request_id })).rejects.toThrow(/canonical/);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
