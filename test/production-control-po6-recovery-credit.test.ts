@@ -3,7 +3,7 @@
  * Fixture-only: no provider, network, DNS, billing, Gate mutation, render, non-dry-run.
  */
 import { fork } from "node:child_process";
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -3250,6 +3250,917 @@ describe("PO-6 fixture E2E active recovery call graph", () => {
       expect(networkHits).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("PO-6 T07 branch closeout: ledger/store/recovery adversarial", () => {
+  it("hits price_unknown, cap, attempt/submission exhaust, terminal status, corrupt resume, budget-only unsafe", async () => {
+    const root = await realTempDir("tsugite-po6-t07-ledger-");
+    try {
+      const ledger = new GrantCreditLedger(root);
+      await ledger.openBudget({
+        budget_id: "b-close",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        max_incremental_credits: 4,
+        max_attempts: 4,
+        max_submissions: 1,
+        per_attempt_credit_cap: 2
+      });
+
+      await expect(ledger.reserve({
+        reservation_id: "price-unknown",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_key: sha256Canonical({ k: "price-unknown" }),
+        pricing_binding_digest: DIGEST_C,
+        requested_credits: 1,
+        price_unknown: true
+      })).rejects.toMatchObject({
+        code: "PC_RESERVATION_INVALID",
+        message: "unknown price blocks reservation before provider"
+      });
+
+      await expect(ledger.reserve({
+        reservation_id: "neg-credits",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_key: sha256Canonical({ k: "neg" }),
+        pricing_binding_digest: DIGEST_C,
+        requested_credits: -1
+      })).rejects.toMatchObject({
+        code: "PC_RESERVATION_INVALID",
+        message: "requested credits must be non-negative finite"
+      });
+
+      await expect(ledger.reserve({
+        reservation_id: "grant-mismatch",
+        grant_digest: DIGEST_B,
+        production_id: "prod-1",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_key: sha256Canonical({ k: "grant-mismatch" }),
+        pricing_binding_digest: DIGEST_C,
+        requested_credits: 1
+      })).rejects.toMatchObject({
+        code: "PC_LEDGER_CONFLICT",
+        message: "reserve grant/production does not match budget"
+      });
+
+      await expect(ledger.reserve({
+        reservation_id: "prod-mismatch",
+        grant_digest: DIGEST_A,
+        production_id: "prod-other",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_key: sha256Canonical({ k: "prod-mismatch" }),
+        pricing_binding_digest: DIGEST_C,
+        requested_credits: 1
+      })).rejects.toMatchObject({
+        code: "PC_LEDGER_CONFLICT",
+        message: "reserve grant/production does not match budget"
+      });
+
+      const first = await ledger.reserve({
+        reservation_id: "first-rsv",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_key: sha256Canonical({ k: "first" }),
+        pricing_binding_digest: DIGEST_C,
+        requested_credits: 1
+      });
+      expect(first.status).toBe("reserved");
+
+      await expect(ledger.reserve({
+        reservation_id: "first-rsv",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_key: sha256Canonical({ k: "dup-id" }),
+        pricing_binding_digest: DIGEST_C,
+        requested_credits: 1
+      })).rejects.toMatchObject({
+        code: "PC_LEDGER_CONFLICT",
+        message: "reservation id already exists"
+      });
+
+      await expect(ledger.commit({
+        reservation_id: "first-rsv",
+        actual_credits: Number.NaN
+      })).rejects.toMatchObject({
+        code: "PC_RESERVATION_INVALID",
+        message: "actual credits must be non-negative finite"
+      });
+      await expect(ledger.commit({
+        reservation_id: "missing-rsv",
+        actual_credits: 1
+      })).rejects.toMatchObject({
+        code: "PC_RESERVATION_INVALID",
+        message: "reservation not found"
+      });
+
+      await ledger.commit({ reservation_id: "first-rsv", actual_credits: 1 });
+      // max_submissions=1 → further reserve exhausts submissions
+      await expect(ledger.reserve({
+        reservation_id: "after-submit-cap",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_key: sha256Canonical({ k: "after-submit" }),
+        pricing_binding_digest: DIGEST_C,
+        requested_credits: 1
+      })).rejects.toMatchObject({
+        code: "PC_GRANT_EXHAUSTED",
+        message: "max submissions exhausted"
+      });
+
+      await expect(ledger.quarantine({ reservation_id: "first-rsv" })).rejects.toMatchObject({
+        code: "PC_RESERVATION_INVALID",
+        message: "only reserved entries can be quarantined"
+      });
+
+      // Corrupt reserved leaf: non-reserved status under reserved filename
+      const resDir = join(root, "grant-ledger", "reservations");
+      const corruptReserved = {
+        schema_version: 1,
+        reservation_id: "corrupt-status",
+        status: "committed",
+        subject: {
+          grant_digest: DIGEST_A,
+          production_id: "prod-1",
+          run_id: "run-1",
+          node_id: "n1",
+          attempt_key: sha256Canonical({ k: "corrupt-status" }),
+          pricing_binding_digest: DIGEST_C,
+          per_attempt_credit_cap: 2,
+          requested_credits: 1
+        },
+        reserved_credits: 1,
+        committed_credits: 1,
+        ledger_revision: 1,
+        created_at: NOW,
+        updated_at: NOW
+      };
+      const sealedCorrupt = {
+        ...corruptReserved,
+        digest: sha256Canonical(corruptReserved)
+      };
+      await writeFile(join(resDir, "corrupt-status.json"), `${JSON.stringify(sealedCorrupt)}\n`);
+      await expect(ledger.readReservation("corrupt-status")).rejects.toMatchObject({
+        code: "PC_LEDGER_UNSAFE",
+        message: "reserved leaf has non-reserved status"
+      });
+
+      // Terminal path/status mismatch (.committed file with released status)
+      const mismatchBody = {
+        schema_version: 1 as const,
+        reservation_id: "term-mismatch",
+        status: "released" as const,
+        subject: {
+          grant_digest: DIGEST_A,
+          production_id: "prod-1",
+          run_id: "run-1",
+          node_id: "n1",
+          attempt_key: sha256Canonical({ k: "term-mismatch" }),
+          pricing_binding_digest: DIGEST_C,
+          per_attempt_credit_cap: 2,
+          requested_credits: 1
+        },
+        reserved_credits: 1,
+        ledger_revision: 2,
+        created_at: NOW,
+        updated_at: NOW
+      };
+      await writeFile(
+        join(resDir, "term-mismatch.committed.json"),
+        `${JSON.stringify({ ...mismatchBody, digest: sha256Canonical(mismatchBody) })}\n`
+      );
+      await expect(ledger.readReservation("term-mismatch")).rejects.toMatchObject({
+        code: "PC_LEDGER_UNSAFE",
+        message: "terminal reservation status/path mismatch"
+      });
+
+      // Zod/schema failure on reservation leaf
+      await writeFile(join(resDir, "bad-schema.json"), `${JSON.stringify({ not: "a reservation" })}\n`);
+      await expect(ledger.readReservation("bad-schema")).rejects.toMatchObject({
+        code: "PC_LEDGER_UNSAFE",
+        message: "reservation file failed schema validation"
+      });
+
+      // Digest mismatch on budget (corrupt resume)
+      const budgetPath = join(root, "grant-ledger", "budget.json");
+      const liveBudget = JSON.parse(await readFile(budgetPath, "utf8")) as Record<string, unknown>;
+      await writeFile(
+        budgetPath,
+        `${JSON.stringify({ ...liveBudget, digest: "0".repeat(64) })}\n`
+      );
+      await expect(ledger.readBudget()).rejects.toMatchObject({
+        code: "PC_LEDGER_UNSAFE",
+        message: "budget file is unreadable or invalid"
+      });
+
+      // Restore a valid budget for remaining ledger tests in a fresh root below.
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+
+    // Replay: budget advanced without matching reservation → PC_LEDGER_UNSAFE
+    const unsafeRoot = await realTempDir("tsugite-po6-t07-budget-only-");
+    try {
+      const ledger = new GrantCreditLedger(unsafeRoot);
+      await ledger.openBudget({
+        budget_id: "b-unsafe",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        max_incremental_credits: 5,
+        max_attempts: 3,
+        max_submissions: 3,
+        per_attempt_credit_cap: 2
+      });
+      // Advance budget to revision 1 so orphan path (revision === previous) does not apply.
+      await ledger.reserve({
+        reservation_id: "anchor-rsv",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_key: sha256Canonical({ k: "anchor" }),
+        pricing_binding_digest: DIGEST_C,
+        requested_credits: 1
+      });
+      const budget = await ledger.readBudget();
+      expect(budget?.revision).toBe(1);
+      // Prepared claims ghost reservation while live budget already equals planned.
+      const plannedReservationBody = {
+        schema_version: 1 as const,
+        reservation_id: "ghost-rsv",
+        status: "reserved" as const,
+        subject: {
+          grant_digest: DIGEST_A,
+          production_id: "prod-1",
+          run_id: "run-1",
+          node_id: "n1",
+          attempt_key: sha256Canonical({ k: "ghost" }),
+          pricing_binding_digest: DIGEST_C,
+          per_attempt_credit_cap: 2,
+          requested_credits: 1
+        },
+        reserved_credits: 1,
+        ledger_revision: budget!.revision,
+        created_at: NOW,
+        updated_at: NOW
+      };
+      const plannedReservation = {
+        ...plannedReservationBody,
+        digest: sha256Canonical(plannedReservationBody)
+      };
+      const preparedBody = {
+        schema_version: 1 as const,
+        tx_id: "tx-budget-only",
+        kind: "reserve" as const,
+        phase: "prepared" as const,
+        reservation_id: "ghost-rsv",
+        previous_budget_revision: 0,
+        planned_budget_revision: budget!.revision,
+        planned_budget_digest: budget!.digest,
+        planned_reservation_digest: plannedReservation.digest,
+        planned_budget: budget!,
+        planned_reservation: plannedReservation,
+        created_at: NOW
+      };
+      const prepared = {
+        ...preparedBody,
+        digest: sha256Canonical(preparedBody)
+      };
+      await writeFile(
+        join(unsafeRoot, "grant-ledger", "tx", "tx-budget-only.prepared.json"),
+        `${JSON.stringify(prepared)}\n`
+      );
+      await expect(ledger.recover()).rejects.toMatchObject({
+        code: "PC_LEDGER_UNSAFE",
+        message: "incomplete ledger transaction: budget advanced without matching reservation"
+      });
+    } finally {
+      await rm(unsafeRoot, { recursive: true, force: true });
+    }
+
+    // Corrupt prepared journal is quarantined; unreadable does not invent state
+    const corruptPrepRoot = await realTempDir("tsugite-po6-t07-corrupt-prep-");
+    try {
+      const ledger = new GrantCreditLedger(corruptPrepRoot);
+      await ledger.openBudget({
+        budget_id: "b-prep",
+        grant_digest: DIGEST_A,
+        production_id: "prod-1",
+        max_incremental_credits: 2,
+        max_attempts: 2,
+        max_submissions: 2,
+        per_attempt_credit_cap: 1
+      });
+      await writeFile(
+        join(corruptPrepRoot, "grant-ledger", "tx", "tx-garbage.prepared.json"),
+        "{not-json\n"
+      );
+      const recovery = await ledger.recover();
+      expect(recovery.recovered_tx_ids).toEqual([]);
+      expect((await ledger.readBudget())?.reserved_credits).toBe(0);
+    } finally {
+      await rm(corruptPrepRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("store rejects identity drift, unsafe digests, policy mismatch, symlink leaf/ancestor", async () => {
+    const root = await realTempDir("tsugite-po6-t07-store-");
+    try {
+      const policy = samplePolicy({ max_attempts: 2, max_submissions: 2, max_credits: 4 });
+      const bundle = sampleBundleWithPolicy(policy);
+      const g1 = gate1Pair(bundle);
+      const grant = issueRegenerationGrant({
+        grant_id: "grant-store-close",
+        policy,
+        gate_bundle: bundle,
+        gate_1_decision: g1.decision,
+        live_gate_1_subject_digest: g1.subject_digest,
+        live_gate_1_decision_digest: g1.decision_digest,
+        issued_at: NOW
+      });
+      const store = new DurableRegenerationStore(root);
+      const ledger = new GrantCreditLedger(root);
+      const identity = await ledger.captureRootIdentity();
+
+      const otherPolicy = samplePolicy({ max_credits: 9 });
+      const otherGrant = createRegenerationGrant({
+        grant_id: "grant-other-policy",
+        policy: otherPolicy,
+        gate_bundle_digest: bundle.digest,
+        gate_1_decision: g1.decision,
+        issued_at: NOW
+      });
+      await expect(store.writeGrantCreateOnly({
+        grant: otherGrant,
+        policy,
+        production_id: "prod-1",
+        ledger_root_identity: identity
+      })).rejects.toMatchObject({
+        code: "PC_GRANT_INVALID",
+        message: "grant policy_spec_digest does not match durable policy"
+      });
+
+      await store.writeGrantCreateOnly({
+        grant,
+        policy,
+        production_id: "prod-1",
+        ledger_root_identity: identity
+      });
+      // Idempotent same binding
+      await store.writeGrantCreateOnly({
+        grant,
+        policy,
+        production_id: "prod-1",
+        ledger_root_identity: identity
+      });
+
+      await expect(store.assertLedgerRootForGrant(grant.digest, {
+        device: identity.device + 1,
+        inode: identity.inode,
+        real_path: identity.real_path
+      })).rejects.toMatchObject({
+        code: "PC_LEDGER_CONFLICT",
+        message: "cross-root double budget rejected: live ledger root does not match grant binding"
+      });
+
+      await expect(store.loadGrant("not-a-digest")).rejects.toMatchObject({
+        code: "PC_PATH_UNSAFE",
+        message: "digest is not a safe path id"
+      });
+
+      // Binding digest mismatch on disk
+      const bindingPath = join(root, "regeneration", "grant-bindings", `${grant.digest}.json`);
+      const binding = JSON.parse(await readFile(bindingPath, "utf8")) as Record<string, unknown>;
+      await writeFile(bindingPath, `${JSON.stringify({ ...binding, digest: "f".repeat(64) })}\n`);
+      await expect(store.loadGrantBinding(grant.digest)).rejects.toMatchObject({
+        code: "PC_LEDGER_UNSAFE",
+        message: "regeneration store file is unreadable or invalid"
+      });
+
+      // Symlink leaf under policies
+      const policyLeaf = join(root, "regeneration", "policies", `${policy.digest}.json`);
+      const evil = join(root, "evil-policy.json");
+      await writeFile(evil, await readFile(policyLeaf, "utf8"));
+      await rm(policyLeaf);
+      await symlink(evil, policyLeaf);
+      await expect(store.loadPolicy(policy.digest)).rejects.toMatchObject({
+        code: "PC_PATH_UNSAFE",
+        message: "store file must be a regular file"
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+
+    // Symlink child directory under real store root is rejected
+    const base = await realTempDir("tsugite-po6-t07-anc-");
+    try {
+      const storeRoot = join(base, "pc");
+      await mkdir(storeRoot, { recursive: true, mode: 0o700 });
+      const store = new DurableRegenerationStore(storeRoot);
+      const p1 = samplePolicy({ max_credits: 2 });
+      await store.writePolicyCreateOnly(p1);
+      const policiesDir = join(storeRoot, "regeneration", "policies");
+      const relocated = join(base, "policies-elsewhere");
+      await mkdir(relocated, { recursive: true, mode: 0o700 });
+      // Replace policies dir with a symlink (unsafe store directory / ancestor).
+      await rm(policiesDir, { recursive: true, force: true });
+      await symlink(relocated, policiesDir);
+      const p2 = samplePolicy({ max_credits: 3 });
+      await expect(store.writePolicyCreateOnly(p2)).rejects.toMatchObject({
+        code: "PC_PATH_UNSAFE",
+        message: "store directory must be a real directory"
+      });
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("authorize/rehydrate/burn deny paths and activeRecovery stop reason mapping", async () => {
+    const policy = samplePolicy({ max_attempts: 2, max_submissions: 2, max_credits: 3 });
+    const bundle = sampleBundleWithPolicy(policy);
+    const g1 = gate1Pair(bundle);
+    const grant = issueRegenerationGrant({
+      grant_id: "grant-auth-close",
+      policy,
+      gate_bundle: bundle,
+      gate_1_decision: g1.decision,
+      live_gate_1_subject_digest: g1.subject_digest,
+      live_gate_1_decision_digest: g1.decision_digest,
+      issued_at: NOW
+    });
+
+    const root = await realTempDir("tsugite-po6-t07-auth-");
+    try {
+      const store = new DurableRegenerationStore(root);
+      const ledger = new GrantCreditLedger(root);
+
+      // No open budget
+      await expect(authorizePaidRegeneration({
+        policy,
+        grant,
+        gate_bundle: bundle,
+        ledger,
+        store,
+        node_id: "node-gen-1",
+        ordinal: 0,
+        attempt_key: sha256Canonical({ a: "nobudget" }),
+        trigger_failure_ref: { kind: "failure", id: "f", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: DIGEST_D,
+        requested_credits: 1,
+        run_id: "run-1",
+        production_id: "prod-1"
+      })).rejects.toMatchObject({
+        code: "PC_LEDGER_CONFLICT",
+        message: "ledger budget is not open"
+      });
+
+      await ledger.openBudget({
+        budget_id: "b-auth",
+        grant_digest: grant.digest,
+        production_id: "prod-1",
+        max_incremental_credits: policy.max_incremental_credits,
+        max_attempts: policy.max_attempts_per_task,
+        max_submissions: policy.max_total_new_submissions,
+        per_attempt_credit_cap: 2
+      });
+
+      await expect(authorizePaidRegeneration({
+        policy,
+        grant,
+        gate_bundle: bundle,
+        ledger,
+        node_id: "node-gen-1",
+        ordinal: -1,
+        attempt_key: sha256Canonical({ a: "ord" }),
+        trigger_failure_ref: { kind: "failure", id: "f", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: DIGEST_D,
+        requested_credits: 1,
+        run_id: "run-1",
+        production_id: "prod-1"
+      })).rejects.toMatchObject({
+        code: "PC_AUTHORIZATION_INVALID",
+        message: "ordinal must be a non-negative integer"
+      });
+
+      await expect(authorizePaidRegeneration({
+        policy,
+        grant,
+        gate_bundle: bundle,
+        ledger,
+        node_id: "node-gen-1",
+        ordinal: 0,
+        attempt_key: sha256Canonical({ a: "cap" }),
+        trigger_failure_ref: { kind: "failure", id: "f", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: DIGEST_D,
+        requested_credits: 99,
+        run_id: "run-1",
+        production_id: "prod-1"
+      })).rejects.toMatchObject({
+        code: "PC_GRANT_EXHAUSTED",
+        message: "requested credits exceed policy total cap"
+      });
+
+      const wrongPolicyGrant = createRegenerationGrant({
+        grant_id: "grant-wrong-policy",
+        policy: samplePolicy({ max_credits: 9 }),
+        gate_bundle_digest: bundle.digest,
+        gate_1_decision: g1.decision,
+        issued_at: NOW
+      });
+      await expect(authorizePaidRegeneration({
+        policy,
+        grant: wrongPolicyGrant,
+        gate_bundle: bundle,
+        ledger,
+        node_id: "node-gen-1",
+        ordinal: 0,
+        attempt_key: sha256Canonical({ a: "policy" }),
+        trigger_failure_ref: { kind: "failure", id: "f", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: DIGEST_D,
+        requested_credits: 1,
+        run_id: "run-1",
+        production_id: "prod-1"
+      })).rejects.toMatchObject({
+        code: "PC_POLICY_MISMATCH",
+        message: "grant policy_spec_digest does not match policy"
+      });
+
+      await expect(authorizePaidRegeneration({
+        policy,
+        grant,
+        gate_bundle: bundle,
+        ledger,
+        node_id: "node-gen-1",
+        ordinal: 0,
+        attempt_key: sha256Canonical({ a: "prod" }),
+        trigger_failure_ref: { kind: "failure", id: "f", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: DIGEST_D,
+        requested_credits: 1,
+        run_id: "run-1",
+        production_id: "prod-other"
+      })).rejects.toMatchObject({
+        code: "PC_LEDGER_CONFLICT",
+        message: "live budget production_id does not match"
+      });
+
+      const identityIntent = createRevisionIntent({
+        revision_intent_id: "ri-identity",
+        source_critique_artifact_id: "crit",
+        target_node_id: "node-gen-1",
+        change_class: "identity",
+        changed_paths: ["identity"],
+        expected_stale_nodes: ["node-gen-1"],
+        rationale: "identity not policy-eligible"
+      });
+      await expect(authorizePaidRegeneration({
+        policy,
+        grant,
+        gate_bundle: bundle,
+        ledger,
+        node_id: "node-gen-1",
+        ordinal: 0,
+        attempt_key: sha256Canonical({ a: "intent" }),
+        trigger_failure_ref: { kind: "failure", id: "f", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: DIGEST_D,
+        requested_credits: 1,
+        run_id: "run-1",
+        production_id: "prod-1",
+        revision_intent: identityIntent
+      })).rejects.toMatchObject({
+        code: "PC_RECOVERY_DENIED",
+        message: "revision intent change_class is not policy-eligible"
+      });
+
+      // Happy authorize → burn → rehydrate still works while reserved; then commit refuses remint
+      const authorized = await authorizePaidRegeneration({
+        policy,
+        grant,
+        gate_bundle: bundle,
+        ledger,
+        store,
+        node_id: "node-gen-1",
+        ordinal: 0,
+        attempt_key: sha256Canonical({ a: "ok" }),
+        trigger_failure_ref: { kind: "failure", id: "f", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: sha256Canonical({ derived: "auth-close" }),
+        requested_credits: 1,
+        run_id: "run-1",
+        production_id: "prod-1"
+      });
+      expect(isSealedPaidAuthorization(authorized.sealed)).toBe(true);
+      burnSealedPaidAuthorization(authorized.sealed);
+      expect(isSealedPaidAuthorization(authorized.sealed)).toBe(false);
+
+      const reminted = await rehydrateSealedPaidAuthorization({
+        store,
+        ledger,
+        authorization_digest: authorized.authorization.digest
+      });
+      expect(isSealedPaidAuthorization(reminted)).toBe(true);
+      expect(reminted.reservation_id).toBe(authorized.reservation.reservation_id);
+
+      // Live reserved leaf rewritten with different digest → rehydrate refuses
+      const rsvPath = join(
+        root,
+        "grant-ledger",
+        "reservations",
+        `${authorized.reservation.reservation_id}.json`
+      );
+      const rsvJson = JSON.parse(await readFile(rsvPath, "utf8")) as Record<string, unknown>;
+      const driftedRsvBody = withoutField(
+        {
+          ...rsvJson,
+          reserved_credits: 0.5
+        },
+        "digest"
+      );
+      await writeFile(
+        rsvPath,
+        `${JSON.stringify({ ...driftedRsvBody, digest: sha256Canonical(driftedRsvBody) })}\n`
+      );
+      await expect(rehydrateSealedPaidAuthorization({
+        store,
+        ledger,
+        authorization_digest: authorized.authorization.digest
+      })).rejects.toMatchObject({
+        code: "PC_AUTHORIZATION_INVALID",
+        message: "reservation digest mismatch during rehydrate"
+      });
+
+      // Restore reserved leaf, commit, then rehydrate refuses terminal
+      await writeFile(rsvPath, `${JSON.stringify(rsvJson)}\n`);
+      await ledger.commit({
+        reservation_id: authorized.reservation.reservation_id,
+        actual_credits: 1
+      });
+      await expect(rehydrateSealedPaidAuthorization({
+        store,
+        ledger,
+        authorization_digest: authorized.authorization.digest
+      })).rejects.toMatchObject({
+        code: "PC_AUTHORIZATION_INVALID",
+        message: "cannot remint paid authority after terminal reservation status=committed"
+      });
+
+      // Missing reservation file after auth
+      const missingAuth = await authorizePaidRegeneration({
+        policy,
+        grant,
+        gate_bundle: bundle,
+        ledger,
+        store,
+        node_id: "node-gen-1",
+        ordinal: 1,
+        attempt_key: sha256Canonical({ a: "missing-rsv" }),
+        trigger_failure_ref: { kind: "failure", id: "f", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: sha256Canonical({ derived: "missing" }),
+        requested_credits: 1,
+        run_id: "run-1",
+        production_id: "prod-1"
+      });
+      await rm(join(
+        root,
+        "grant-ledger",
+        "reservations",
+        `${missingAuth.reservation.reservation_id}.json`
+      ));
+      // After delete, budget still holds reserved credits but reservation missing on re-read
+      await expect(rehydrateSealedPaidAuthorization({
+        store,
+        ledger,
+        authorization_digest: missingAuth.authorization.digest
+      })).rejects.toMatchObject({
+        code: "PC_AUTHORIZATION_INVALID",
+        message: "reservation missing during rehydrate"
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+
+    // selectRecoveryAction node missing / sealed mismatches
+    const emptyMission = createInitialMissionState("prod-1");
+    const missingNode = selectRecoveryAction({
+      mission_state: emptyMission,
+      failed_node_id: "absent",
+      observed_error_code: "GEN_TECHNICAL_FAIL",
+      failure_kind: "known-failure",
+      policy
+    });
+    expect(missingNode).toMatchObject({
+      action: "awaiting_human",
+      reason_code: "disallowed_scope",
+      public_reason: "failed node is not in the mission state"
+    });
+
+    // activeRecovery stop reason mapping via real controller entry
+    const ctrlRoot = await realTempDir("tsugite-po6-t07-ctrl-");
+    try {
+      const { computeRequestDigest } = await import("../src/generationJobs/approval.js");
+      const jobRequest = {
+        digest: "",
+        model_id: "m",
+        mode: "text-to-video",
+        connection_id: "c",
+        auth_env_names: [] as string[],
+        asset_paths: [] as string[],
+        params: { text: "x" }
+      };
+      jobRequest.digest = computeRequestDigest(jobRequest);
+      const principalBody = {
+        schema_version: 1 as const,
+        kind: "coordinator-principal" as const,
+        actor: "coordinator" as const,
+        gate_1_decision_digest: g1.decision_digest
+      };
+      const fakeAdapter = {
+        adapter_id: "stub",
+        connection_id: "c",
+        capabilities: { submit: true, poll: true, download: true, cancel: false },
+        async preflight() { return { ok: true as const, execution_ready: true }; },
+        async submit() {
+          return { ok: true as const, provider_job_id: "p1", accepted: true as const };
+        },
+        async poll() { return { ok: true as const, status: "succeeded" as const }; },
+        async download() {
+          return {
+            ok: true as const,
+            absolute_path: join(ctrlRoot, "x.bin"),
+            sha256: DIGEST_A,
+            byte_length: 1
+          };
+        }
+      };
+      const base = {
+        production_id: "prod-1",
+        run_id: "run-1",
+        project_id: "proj-1",
+        revision_id: "rev-1",
+        productionControlRoot: join(ctrlRoot, "pc"),
+        node_id: "node-gen-1",
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        failure_kind: "known-failure" as const,
+        policy,
+        gate_bundle: bundle,
+        gate_1_decision: g1.decision,
+        live_gate_1_subject_digest: g1.subject_digest,
+        live_gate_1_decision_digest: g1.decision_digest,
+        base_compilation_digest: DIGEST_F,
+        derived_compilation_digest: DIGEST_D,
+        patch_artifact_digest: DIGEST_B,
+        requested_credits: 1,
+        ordinal: 0,
+        trigger_failure_ref: { kind: "failure" as const, id: "f", digest: DIGEST_A },
+        job_request: jobRequest,
+        adapter: fakeAdapter as never,
+        resolveExecutionBundle: async () => {
+          throw new Error("not used on early stop");
+        },
+        live_gate1: {
+          subject_digest: g1.subject_digest,
+          decision_digest: g1.decision_digest,
+          production_id: "prod-1",
+          run_id: "run-1",
+          legacy_approved_input_digest: DIGEST_A,
+          decision: {
+            decision_id: g1.decision.decision_id,
+            decision: g1.decision.decision,
+            actor: g1.decision.actor,
+            decided_at: g1.decision.decided_at
+          }
+        },
+        coordinator_principal: {
+          ...principalBody,
+          digest: sha256Canonical(principalBody)
+        }
+      };
+
+      // Default Date path (no issued_at / now) still issues grant under open policy
+      const noNow = await runActivePaidRegeneration({
+        ...base,
+        productionControlRoot: join(ctrlRoot, "pc-now"),
+        previous_job: { status: "submission_unknown", submission_unknown: true }
+      });
+      expect(noNow.status).toBe("awaiting_human");
+      if (noNow.status === "awaiting_human") {
+        expect(noNow.reason_code).toBe("submission_unknown");
+        expect(noNow.adapter_invokes).toBe(0);
+      }
+
+      const expiredGrant = createRegenerationGrant({
+        grant_id: "grant-expired-ctrl",
+        policy,
+        gate_bundle_digest: bundle.digest,
+        gate_1_decision: g1.decision,
+        issued_at: PAST,
+        expires_at: PAST
+      });
+      const expired = await runActivePaidRegeneration({
+        ...base,
+        productionControlRoot: join(ctrlRoot, "pc-exp"),
+        grant: expiredGrant,
+        issued_at: PAST,
+        now: new Date(NOW)
+      });
+      expect(expired.status).toBe("awaiting_human");
+      if (expired.status === "awaiting_human") {
+        expect(expired.reason_code).toBe("grant_expired");
+      }
+
+      // Same policy digest so store write succeeds; gate_bundle_digest drift → PC_POLICY_MISMATCH
+      const policyMismatch = await runActivePaidRegeneration({
+        ...base,
+        productionControlRoot: join(ctrlRoot, "pc-pol"),
+        grant: createRegenerationGrant({
+          grant_id: "grant-pol-mis",
+          policy,
+          gate_bundle_digest: DIGEST_E,
+          gate_1_decision: g1.decision,
+          issued_at: NOW
+        }),
+        issued_at: NOW,
+        now: new Date(NOW)
+      });
+      expect(policyMismatch.status).toBe("awaiting_human");
+      if (policyMismatch.status === "awaiting_human") {
+        expect(policyMismatch.reason_code).toBe("policy_mismatch");
+      }
+
+      const denied = await runActivePaidRegeneration({
+        ...base,
+        productionControlRoot: join(ctrlRoot, "pc-deny"),
+        changed_prompt_block_id: "not-allowed-block",
+        issued_at: NOW,
+        now: new Date(NOW)
+      });
+      expect(denied.status).toBe("awaiting_human");
+      if (denied.status === "awaiting_human") {
+        expect(denied.reason_code).toBe("disallowed_scope");
+      }
+
+      const exhausted = await runActivePaidRegeneration({
+        ...base,
+        productionControlRoot: join(ctrlRoot, "pc-exh"),
+        ordinal: 99,
+        issued_at: NOW,
+        now: new Date(NOW)
+      });
+      expect(exhausted.status).toBe("awaiting_human");
+      if (exhausted.status === "awaiting_human") {
+        expect(exhausted.reason_code).toBe("grant_exhausted");
+      }
+
+      const outcomeUnknown = await runActivePaidRegeneration({
+        ...base,
+        productionControlRoot: join(ctrlRoot, "pc-out"),
+        failure_kind: "outcome_unknown",
+        issued_at: NOW,
+        now: new Date(NOW)
+      });
+      expect(outcomeUnknown.status).toBe("awaiting_human");
+      if (outcomeUnknown.status === "awaiting_human") {
+        expect(outcomeUnknown.reason_code).toBe("submission_unknown");
+      }
+    } finally {
+      await rm(ctrlRoot, { recursive: true, force: true });
     }
   });
 });
