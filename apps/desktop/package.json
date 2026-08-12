@@ -15,8 +15,8 @@
     "prepare-runtime": "node scripts/prepare-runtime.mjs",
     "package:audit": "node scripts/audit-package.mjs",
     "build:runtime": "node scripts/clean-generated.mjs && npm --prefix ../.. run build && npm --prefix ../workflow-viewer run build && npm run prepare-runtime",
-    "package": "npm run build:runtime && electron-forge package && npm run package:audit",
-    "make": "npm run build:runtime && electron-forge make && npm run package:audit"
+    "package": "npm run build:runtime && node ./node_modules/@electron-forge/cli/dist/electron-forge.js package && npm run package:audit",
+    "make": "npm run build:runtime && node ./node_modules/@electron-forge/cli/dist/electron-forge.js make && npm run package:audit"
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",

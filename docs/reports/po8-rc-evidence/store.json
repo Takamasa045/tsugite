@@ -1,0 +1,1296 @@
+{
+  "schema_version": 1,
+  "fixture_only": true,
+  "package_version": "0.9.0",
+  "measured": {
+    "browser_po0a": {
+      "command": "npm --prefix apps/workflow-viewer run test:browser",
+      "exit_code": 0,
+      "output_digest": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+      "status": "proven",
+      "detail": "primary_mode=canvas first_frame=true all_injected_paths_measured; retry after port 4188 conflict",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/browser_po0a.log",
+          "sha256": "f56f17d802f5f61f39c900209d6601d218fc77b11e4538caaf5a52fd6783395f",
+          "bytes": 925
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/actual-canvas-node-hit.png",
+          "sha256": "458d1fbdebbb0c77908b9c8d0129467b23dc1b95d4e3863a1609c1c85b6a3fbd",
+          "bytes": 454876
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/actual-canvas.png",
+          "sha256": "f5857a2a4079781de7f528700254a70d2b0f7a4fcf468ee9951efdad0c0d8a26",
+          "bytes": 401065
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-context-lost-canvas-event.png",
+          "sha256": "15dc135cc312928e8f069c02e1189ee7928d4c16033fa557b34c2b9c578c04d9",
+          "bytes": 298560
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-context-lost.png",
+          "sha256": "a648198ad2aea1417f0637c3bd31adb65203bafefc1c1ee7109a6a224bd9c4b9",
+          "bytes": 289447
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-first-frame-timeout.png",
+          "sha256": "447687d02a19509d422cc1f9a5f5b4987cdc55343da7a5bda5b63dddbc83f5e5",
+          "bytes": 290600
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-initialization-failed.png",
+          "sha256": "f774be80386ebdb46864a6e844ba3458021fd987ed262fa91ab005f6bbbea1bf",
+          "bytes": 289663
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-keyboard-responsive.png",
+          "sha256": "27bf0e5b7b1ff8826d69c9a998eacce4da3834ffde1347acf46713c1d505a3b1",
+          "bytes": 139578
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-webgl-unavailable.png",
+          "sha256": "67b1c5c27afafc059a0259a3871a9d8f58eaf8fc73d16b38789ffe7842eff1a6",
+          "bytes": 290042
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/mission-tree-canvas.png",
+          "sha256": "8fdd58bc2a95573d02b50d663364a1f3350f5b3812736042853dd61f39607bf9",
+          "bytes": 472985
+        },
+        {
+          "kind": "manifest",
+          "relative_path": "browser/manifest.json",
+          "sha256": "3f1087cc9a517bca2ef81475e6906f295986f68060d6cf51cdb8bd3b3585cdc2",
+          "bytes": 2104
+        }
+      ]
+    },
+    "full_regression": {
+      "command": "npm run check",
+      "exit_code": 0,
+      "output_digest": "545aff6a67f05b858fa19731db9278f07a41a9356213faf9d9f261c4c47c79a8",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/full_regression.log",
+          "sha256": "64e73945a16e0f28b2d85889021249f42dc017d0f98b3914da28a94a977f9d4b",
+          "bytes": 61887
+        }
+      ]
+    },
+    "desktop": {
+      "command": "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
+      "exit_code": 0,
+      "output_digest": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+      "status": "partial",
+      "detail": "prepare fixture-only no npm ci; official local Forge package blocked missing physical node-pty@1.1.0; desktop:audit blocked no apps/desktop/out; desktop:prepare is not audit proof",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop.log",
+          "sha256": "721a1a323ea5faf901f48f5a0fd6dabb3c645733cbd76576809096cbd549d230",
+          "bytes": 6095
+        }
+      ]
+    },
+    "windows_smoke": {
+      "command": "windows real-machine/CI",
+      "exit_code": 0,
+      "output_digest": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+      "status": "unverified",
+      "detail": "Windows real machine and CI not executed in this owner session",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/windows_smoke.log",
+          "sha256": "fee3e04f2e7466c3420c41c37505104276453fd3e8808934f7f3148f0449f897",
+          "bytes": 83
+        }
+      ]
+    },
+    "reader_commands": {
+      "command": "npm test -- test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot",
+      "exit_code": 0,
+      "output_digest": "de40a87c94b50714d9875176b45c33bb3bf8461d2410d127669404afe6a90c58",
+      "status": "proven",
+      "detail": "includes CLI migrate/rollback/validate/plan/review/run-dry",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/reader_commands.log",
+          "sha256": "b778b7b0c8cda9b2d6db144aeb40a6e13ae16e0dac48a2233552c563fbe5e6e6",
+          "bytes": 914
+        }
+      ]
+    },
+    "mode_orchestrator": {
+      "command": "rehearsal mode sequence",
+      "exit_code": 0,
+      "output_digest": "5bf1edbb88287f85e62e14227a9a93e513b9946f7676f00620aec1410676ab9d",
+      "status": "proven"
+    },
+    "h3_durable_cli": {
+      "command": "production applyMigration shadow journal (in-process fixture)",
+      "exit_code": 0,
+      "output_digest": "fcba47644d1efb4fee82caa1b4ab517fcc0b9c2a5be14187923e89f5b735c49c",
+      "status": "proven",
+      "detail": "in-process fixture migrate apply; CLI E2E recorded separately when present"
+    }
+  },
+  "browser_manifest_digest": "1878d2e349aa102040840b26d6b3d4355b5b7a01f4e934ead7c1771c2a3a2dce",
+  "commands": [
+    {
+      "command": "focused_windows_evidence",
+      "exit_code": 0,
+      "output_digest": "005a43e1ad0c601c127b6b26a79532b24d50b080111de17008513523104b4de5",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/command.log",
+          "sha256": "005a43e1ad0c601c127b6b26a79532b24d50b080111de17008513523104b4de5",
+          "bytes": 2046
+        }
+      ]
+    },
+    {
+      "command": "focused_desktop_package",
+      "exit_code": 0,
+      "output_digest": "dd095f64e3383ff4ff93cb297ea97745fbd1440c7ee30a9800445e0573b842f2",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/command.log",
+          "sha256": "dd095f64e3383ff4ff93cb297ea97745fbd1440c7ee30a9800445e0573b842f2",
+          "bytes": 3313
+        }
+      ]
+    },
+    {
+      "command": "focused_viewer_scene",
+      "exit_code": 0,
+      "output_digest": "aba9459c553a4e709d0e73027e1e7c545f2dd58b62ab7a8bc438b174af2b7ab9",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/command.log",
+          "sha256": "aba9459c553a4e709d0e73027e1e7c545f2dd58b62ab7a8bc438b174af2b7ab9",
+          "bytes": 890
+        }
+      ]
+    },
+    {
+      "command": "build",
+      "exit_code": 0,
+      "output_digest": "b283bd5130418d8a95c40ba3266e308feb9a234e159d2807a6a44968d411a825",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/command.log",
+          "sha256": "b283bd5130418d8a95c40ba3266e308feb9a234e159d2807a6a44968d411a825",
+          "bytes": 85
+        }
+      ]
+    },
+    {
+      "command": "vitest production-control-po8-rc-integration CLI migrate/rollback/validate/plan/review/run-dry",
+      "exit_code": 0,
+      "output_digest": "b778b7b0c8cda9b2d6db144aeb40a6e13ae16e0dac48a2233552c563fbe5e6e6",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/reader_commands.log",
+          "sha256": "b778b7b0c8cda9b2d6db144aeb40a6e13ae16e0dac48a2233552c563fbe5e6e6",
+          "bytes": 914
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/desktop run package",
+      "exit_code": 1,
+      "output_digest": "721a1a323ea5faf901f48f5a0fd6dabb3c645733cbd76576809096cbd549d230",
+      "status": "partial",
+      "detail": "blocked: local node-pty 1.1.0 not present in physical node_modules; no install attempted",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_package.log",
+          "sha256": "721a1a323ea5faf901f48f5a0fd6dabb3c645733cbd76576809096cbd549d230",
+          "bytes": 6095
+        }
+      ]
+    },
+    {
+      "command": "npm run build",
+      "exit_code": 0,
+      "output_digest": "d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/build.log",
+          "sha256": "d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
+          "bytes": 89
+        }
+      ]
+    },
+    {
+      "command": "node --test apps/desktop/test/package-boundary.test.mjs apps/desktop/test/package-config.test.mjs apps/desktop/test/package-audit.test.mjs",
+      "exit_code": 0,
+      "output_digest": "c920003db699c952bc15d0181f473e3df559a5042b670683dbf6e5bdc063eba4",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/focused_desktop_package.log",
+          "sha256": "c920003db699c952bc15d0181f473e3df559a5042b670683dbf6e5bdc063eba4",
+          "bytes": 191
+        }
+      ]
+    },
+    {
+      "command": "npm test -- test/windows-path-lex.test.ts test/windows-support-contract.test.ts test/platform-process.test.ts --reporter=dot",
+      "exit_code": 0,
+      "output_digest": "4ec3649a0970c907975e179c04d1466163eddc9812d307a7c0186dbe0ed0c9d2",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/focused_windows_evidence.log",
+          "sha256": "4ec3649a0970c907975e179c04d1466163eddc9812d307a7c0186dbe0ed0c9d2",
+          "bytes": 1244
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/workflow-viewer run test -- src/components/scene/scene-state.test.ts --reporter=dot",
+      "exit_code": 0,
+      "output_digest": "c9591300aae6e55784a41b0b0e9bbecc81afe880b2c6b1c4dadec771794d90d9",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/focused_viewer_scene.log",
+          "sha256": "c9591300aae6e55784a41b0b0e9bbecc81afe880b2c6b1c4dadec771794d90d9",
+          "bytes": 856
+        }
+      ]
+    },
+    {
+      "command": "npm run test:coverage",
+      "exit_code": 0,
+      "output_digest": "341dbaf0ef05f44c6ab05142bc0c5ed763a5cd4352ba582aa39b869a9602283d",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/test_coverage.log",
+          "sha256": "341dbaf0ef05f44c6ab05142bc0c5ed763a5cd4352ba582aa39b869a9602283d",
+          "bytes": 61675
+        }
+      ]
+    },
+    {
+      "command": "npm run viewer:check",
+      "exit_code": 0,
+      "output_digest": "aaa018e9ed665f2fbcddf1bf11799d89600fcc150fd4b28c1253f01362b14fa0",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/viewer_check.log",
+          "sha256": "aaa018e9ed665f2fbcddf1bf11799d89600fcc150fd4b28c1253f01362b14fa0",
+          "bytes": 20908
+        }
+      ]
+    },
+    {
+      "command": "npm run viewer:build",
+      "exit_code": 0,
+      "output_digest": "b7badcfa1a5aa893f49439be60f8a15e64210cbe770bc8cf000388e00c47de00",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/viewer_build.log",
+          "sha256": "b7badcfa1a5aa893f49439be60f8a15e64210cbe770bc8cf000388e00c47de00",
+          "bytes": 1481
+        }
+      ]
+    },
+    {
+      "command": "npm run vendor:check",
+      "exit_code": 0,
+      "output_digest": "d0072019ccae979504661d57a73327e5d03eed73cd43379251a678aaca0d427d",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/vendor_check.log",
+          "sha256": "d0072019ccae979504661d57a73327e5d03eed73cd43379251a678aaca0d427d",
+          "bytes": 140
+        }
+      ]
+    },
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "output_digest": "545aff6a67f05b858fa19731db9278f07a41a9356213faf9d9f261c4c47c79a8",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/full_regression.log",
+          "sha256": "64e73945a16e0f28b2d85889021249f42dc017d0f98b3914da28a94a977f9d4b",
+          "bytes": 61887
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:test",
+      "exit_code": 0,
+      "output_digest": "c4b0dcfb48965c9e521365e5987809056a9e56b7eb7b83723bf2e415e943dba4",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_test.log",
+          "sha256": "c4b0dcfb48965c9e521365e5987809056a9e56b7eb7b83723bf2e415e943dba4",
+          "bytes": 19974
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:prepare",
+      "exit_code": 0,
+      "output_digest": "d7e0884f0eb7624f0ef0fe5dbc61a600e7f82482a153357cb54b8835f1295fa8",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_prepare.log",
+          "sha256": "d7e0884f0eb7624f0ef0fe5dbc61a600e7f82482a153357cb54b8835f1295fa8",
+          "bytes": 2550
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:package",
+      "exit_code": 1,
+      "output_digest": "c8c5ca3f022ad33a8e057905e72ff5c0d9074912f05c3d105094f7fb40c2b470",
+      "status": "partial",
+      "detail": "blocked: official local Forge package; physical node-pty@1.1.0 missing; no install/npx/npm exec attempted",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_package.log",
+          "sha256": "c8c5ca3f022ad33a8e057905e72ff5c0d9074912f05c3d105094f7fb40c2b470",
+          "bytes": 6159
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
+      "exit_code": 0,
+      "output_digest": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+      "status": "partial",
+      "detail": "prepare fixture-only no npm ci; official local Forge package blocked missing physical node-pty@1.1.0; desktop:audit blocked no apps/desktop/out; desktop:prepare is not audit proof",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop.log",
+          "sha256": "721a1a323ea5faf901f48f5a0fd6dabb3c645733cbd76576809096cbd549d230",
+          "bytes": 6095
+        }
+      ]
+    },
+    {
+      "command": "windows real-machine/CI",
+      "exit_code": 0,
+      "output_digest": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+      "status": "unverified",
+      "detail": "Windows real machine and CI not executed in this owner session",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/windows_smoke.log",
+          "sha256": "fee3e04f2e7466c3420c41c37505104276453fd3e8808934f7f3148f0449f897",
+          "bytes": 83
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/workflow-viewer run test:browser",
+      "exit_code": 0,
+      "output_digest": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+      "status": "proven",
+      "detail": "primary_mode=canvas first_frame=true all_injected_paths_measured; retry after port 4188 conflict",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/browser_po0a.log",
+          "sha256": "f56f17d802f5f61f39c900209d6601d218fc77b11e4538caaf5a52fd6783395f",
+          "bytes": 925
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/actual-canvas-node-hit.png",
+          "sha256": "91f84ae79fa1cb4c85d09f70f6e43b64efdb719deb6790aef01948060123d07b",
+          "bytes": 457213
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/actual-canvas.png",
+          "sha256": "c2c4c031f6f32293bef6e2c5904b72ce1906d212374cfe0fea404afd57a2477e",
+          "bytes": 401264
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-context-lost-canvas-event.png",
+          "sha256": "db6ac817b4542b4b6d357ddc8ab598048c4b24f84079b824a1122e9945945906",
+          "bytes": 298488
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-context-lost.png",
+          "sha256": "2f0cc6e568056f1efa608dcd1972b088c12c1812c04ea7349d3c3b9dc7b8bffa",
+          "bytes": 289426
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-first-frame-timeout.png",
+          "sha256": "b17fa12c8aaeba16206c1eefcf81e32366ae12416be23ea54d306f07403d71d2",
+          "bytes": 290580
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-initialization-failed.png",
+          "sha256": "aa287c060560d4400d4f1c845d3b10bf58889b31446064fc4e1b4d1d11820c0b",
+          "bytes": 289692
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-keyboard-responsive.png",
+          "sha256": "8603850a18c1ac1c59419dfcb40a1edad06dd32769004be1d3b308fb89719df9",
+          "bytes": 139555
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/fallback-webgl-unavailable.png",
+          "sha256": "db4ac3f118d5ccdc9d47a46d027a9c494f8e82e00e673d01099d64db9213c29c",
+          "bytes": 290028
+        },
+        {
+          "kind": "screenshot",
+          "relative_path": "browser/mission-tree-canvas.png",
+          "sha256": "d64db6246ca877ba23b424761e0a46ea9d2fcc84a309ceea8af4cdd61c26dc8e",
+          "bytes": 473234
+        },
+        {
+          "kind": "manifest",
+          "relative_path": "browser/manifest.json",
+          "sha256": "dd1da8cd4797585df4b89a7c018ad0ea97984f6c0ca067684bdb226baf463b33",
+          "bytes": 2104
+        }
+      ]
+    },
+    {
+      "command": "npm test -- test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot",
+      "exit_code": 0,
+      "output_digest": "de40a87c94b50714d9875176b45c33bb3bf8461d2410d127669404afe6a90c58",
+      "status": "proven",
+      "detail": "includes CLI migrate/rollback/validate/plan/review/run-dry",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/reader_commands.log",
+          "sha256": "b778b7b0c8cda9b2d6db144aeb40a6e13ae16e0dac48a2233552c563fbe5e6e6",
+          "bytes": 914
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:audit",
+      "exit_code": 1,
+      "output_digest": "0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
+      "status": "partial",
+      "detail": "blocked: no packaged app under apps/desktop/out; desktop:prepare is not audit proof",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_audit.log",
+          "sha256": "0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
+          "bytes": 645
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/workflow-viewer run test:browser (port 4188 occupied)",
+      "exit_code": 1,
+      "output_digest": "9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
+      "status": "partial",
+      "detail": "blocked: port 4188 already in use; retried on 43188",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/npm_--prefix_apps_workflow-viewer_run_test_browser_port_4188_occupied.log",
+          "sha256": "9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
+          "bytes": 2051
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "statements": 82.81,
+    "branches": 74.53,
+    "functions": 89.7,
+    "lines": 85.51
+  },
+  "rehearsal": {
+    "schema_version": 1,
+    "fixture_count": 8,
+    "revision_bindings_digest": "0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
+    "results": [],
+    "all_ok": true,
+    "digest": "844254e84522351e36a256fd3a106f38d0a9bb42ddb7b380433f36c4013c72b0"
+  },
+  "fixture_module_evidence": {
+    "schema_version": 1,
+    "fixture_count": 8,
+    "results": [],
+    "ledger": {
+      "schema_version": 1,
+      "calls": [
+        {
+          "sequence": 1,
+          "module": "videoPromptDirector/upgradeV1",
+          "api": "upgradeH3V1ToVideoPromptV2",
+          "result": "ok",
+          "digests": {
+            "source_sha256": "59289e55ea14307832199437952d4e063e1434448492c2491007c697ebeaa716",
+            "fixture_digest": "f0bd3aab09bf4283e3b6000fb0c060b7de127f8f3b9eefb9093bbdbcd590e004"
+          }
+        },
+        {
+          "sequence": 2,
+          "module": "videoPromptDirector/compileV2",
+          "api": "compileLegacyH3V1",
+          "result": "ok",
+          "digests": {
+            "canonical_text": "fa57ed03d453ec008793ccd68d0810550204e05051451ca002a30912848e67c8",
+            "fixture_digest": "f0bd3aab09bf4283e3b6000fb0c060b7de127f8f3b9eefb9093bbdbcd590e004"
+          }
+        },
+        {
+          "sequence": 3,
+          "module": "videoPromptDirector/compileV2",
+          "api": "compileH3V1ThroughV2",
+          "result": "error",
+          "digests": {
+            "fixture_digest": "f0bd3aab09bf4283e3b6000fb0c060b7de127f8f3b9eefb9093bbdbcd590e004"
+          }
+        },
+        {
+          "sequence": 4,
+          "module": "videoPromptDirector/schemaV2",
+          "api": "parseVideoPromptIrV2",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "f0bd3aab09bf4283e3b6000fb0c060b7de127f8f3b9eefb9093bbdbcd590e004"
+          }
+        },
+        {
+          "sequence": 5,
+          "module": "videoPromptDirector/schemaV2",
+          "api": "parseVideoPromptIrV2",
+          "result": "ok",
+          "digests": {
+            "ir": "e3820273e84e94a27590211477b3efc6d48be0a11508d8f530489441825cf776",
+            "fixture_digest": "2e21449a26896a58ab6c34b2a343f54135a40a4a8c3c289616b6415f04f19b6b"
+          }
+        },
+        {
+          "sequence": 6,
+          "module": "videoPromptDirector/compileV2",
+          "api": "compileVideoPromptIrV2",
+          "result": "error",
+          "digests": {
+            "fixture_digest": "2e21449a26896a58ab6c34b2a343f54135a40a4a8c3c289616b6415f04f19b6b"
+          }
+        },
+        {
+          "sequence": 7,
+          "module": "videoPromptDirector/compileV2",
+          "api": "compileVideoPromptIrV2(forged-route)",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "2e21449a26896a58ab6c34b2a343f54135a40a4a8c3c289616b6415f04f19b6b"
+          }
+        },
+        {
+          "sequence": 8,
+          "module": "productionControl/contracts/music",
+          "api": "createMusicStructureContract",
+          "result": "ok",
+          "digests": {
+            "music": "6b7b78898ce75dcd8d8530b4cc870a83346137c9d74ecb81436695c6d99321f0",
+            "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+          }
+        },
+        {
+          "sequence": 9,
+          "module": "productionControl/contracts/lyrics",
+          "api": "createLyricsContract",
+          "result": "ok",
+          "digests": {
+            "lyrics": "0edb551def4f54340fe54ad4ce2ef2500129ad383e5ac91985b977b1a040bcab",
+            "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+          }
+        },
+        {
+          "sequence": 10,
+          "module": "productionControl/contracts/generationUnit",
+          "api": "createGenerationUnit",
+          "result": "ok",
+          "digests": {
+            "generation_unit": "091826aae23b0ed9ae827a9686c1866e21b2c89276cc6190e6d721e58c781723",
+            "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+          }
+        },
+        {
+          "sequence": 11,
+          "module": "productionControl/mv/composition",
+          "api": "createCompositionIntent",
+          "result": "ok",
+          "digests": {
+            "composition_intent": "d692724612e7bdde9b00deff275659f242d3049f2b439a02e71217a3d30cc749",
+            "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+          }
+        },
+        {
+          "sequence": 12,
+          "module": "productionControl/contracts/generationUnit",
+          "api": "createGenerationUnit(adversarial)",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+          }
+        },
+        {
+          "sequence": 13,
+          "module": "personConsistency/migration",
+          "api": "migrateIdentityLockPhaseAtoE",
+          "result": "ok",
+          "digests": {
+            "status": "e078e6bb516fd7ed074eea08671d6a1ce6f5091be8266ad03365df217f14d670",
+            "fixture_digest": "fb6f305269b9186d440664d3761347cc0501c7387c585a63910de2776d8c8543"
+          }
+        },
+        {
+          "sequence": 14,
+          "module": "productionControl/gateBundle",
+          "api": "createGateBundle",
+          "result": "ok",
+          "digests": {
+            "gate_bundle": "0b9affdd4c404426e9abfb030d4522e43d1c9b595830cdcf45a6d1a3ddc64793",
+            "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+          }
+        },
+        {
+          "sequence": 15,
+          "module": "productionControl/gateSubjects",
+          "api": "evaluateGate2AutoPass",
+          "result": "ok",
+          "digests": {
+            "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+          }
+        },
+        {
+          "sequence": 16,
+          "module": "productionControl/gateSubjects",
+          "api": "cascadeFromDrift",
+          "result": "ok",
+          "digests": {
+            "cascade": "324fc21323ee0c2b3cda121856dab3414a8ab03f72d4d28dc535415a59a2695c",
+            "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+          }
+        },
+        {
+          "sequence": 17,
+          "module": "productionControl/authorityGuard",
+          "api": "checkAuthority",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+          }
+        },
+        {
+          "sequence": 18,
+          "module": "productionControl/gateBundle",
+          "api": "assertGateBundleExecutable",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+          }
+        },
+        {
+          "sequence": 19,
+          "module": "productionControl/generationBridge",
+          "api": "createGenerationJobApprovalBinding",
+          "result": "ok",
+          "digests": {
+            "immutable_identity": "c63a557759a76d3e1ac416852ac9cf973f1e533be678644cbf140eb12ced264e",
+            "fixture_digest": "2fb6a14ea183e266ec48f4b1eccfdbf2604a8fdb3059cfae585d649a052fb00e"
+          }
+        },
+        {
+          "sequence": 20,
+          "module": "productionControl/generationBridge",
+          "api": "assertJobRevisionAndIdentity(rollback)",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "2fb6a14ea183e266ec48f4b1eccfdbf2604a8fdb3059cfae585d649a052fb00e"
+          }
+        },
+        {
+          "sequence": 21,
+          "module": "generationJobs/machine",
+          "api": "submit(resubmit-forbidden)",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "2fb6a14ea183e266ec48f4b1eccfdbf2604a8fdb3059cfae585d649a052fb00e"
+          }
+        },
+        {
+          "sequence": 22,
+          "module": "productionControl/generationBridge",
+          "api": "resolveSubmissionUnknownAction",
+          "result": "ok",
+          "digests": {
+            "action": "721a76d6604c90a16704ecdd59b58cd999206247d93e365c52ca77c4dfa5781a",
+            "fixture_digest": "2fb6a14ea183e266ec48f4b1eccfdbf2604a8fdb3059cfae585d649a052fb00e"
+          }
+        },
+        {
+          "sequence": 23,
+          "module": "productionControl/grantLedger",
+          "api": "reserve(price_unknown)",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "44e63a18770d6cffcfc3318eaea66100a98f357bb2646c997609cb8be8875972"
+          },
+          "error_code": "PC_RESERVATION_INVALID"
+        },
+        {
+          "sequence": 24,
+          "module": "productionControl/activeRecovery",
+          "api": "runActiveLocalRecovery",
+          "result": "ok",
+          "digests": {
+            "fixture_digest": "44e63a18770d6cffcfc3318eaea66100a98f357bb2646c997609cb8be8875972",
+            "local_recovery": "2eb57d5b7c1e58160029aa262f808d070bd7d1311eb55e8297449e8ed14b4e0f"
+          }
+        },
+        {
+          "sequence": 25,
+          "module": "productionControl/reducer",
+          "api": "createInitialMissionState",
+          "result": "ok",
+          "digests": {
+            "mission_state": "f10c10383ac89933ae7df8b06d5c5eb2e287975533761934e1451a937c5e4a53",
+            "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+          }
+        },
+        {
+          "sequence": 26,
+          "module": "productionControl/publicProjection",
+          "api": "projectMissionTree",
+          "result": "ok",
+          "digests": {
+            "public_projection": "3682dcaa44a1e736020799f65178764d5b580c6134b76b3f0422df5a147e4df4",
+            "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+          }
+        },
+        {
+          "sequence": 27,
+          "module": "productionControl/finalizeRetention",
+          "api": "buildProductionCompletionDigest",
+          "result": "ok",
+          "digests": {
+            "completion": "4502fb3151cfbd20dd00a1342c8a13a4717adf1375c370c0037d82f2551e74ae",
+            "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+          }
+        },
+        {
+          "sequence": 28,
+          "module": "productionControl/learning/candidate",
+          "api": "createLearningCandidate",
+          "result": "ok",
+          "digests": {
+            "candidate": "628ef84aaf9ddb4c86492c4d58c15c2c10f6490c38b6a64b97f73d871888e301",
+            "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+          }
+        },
+        {
+          "sequence": 29,
+          "module": "productionControl/learning/experiment",
+          "api": "runLearningExperiment",
+          "result": "ok",
+          "digests": {
+            "experiment": "ea21e347c2b418b3b288e62f1fd7334a53ca22f9bdbaff010c3fd032dc9f811e",
+            "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+          }
+        },
+        {
+          "sequence": 30,
+          "module": "productionControl/learning/promotion",
+          "api": "createPromotionProposal",
+          "result": "blocked",
+          "digests": {
+            "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+          }
+        }
+      ],
+      "effects": {
+        "provider_submit": 0,
+        "network_fetch": 0,
+        "gate_mutation": 0,
+        "billing_spend": 0,
+        "render": 0,
+        "finalize_apply": 0,
+        "api_call": 30
+      },
+      "instrumented_effects": [
+        "api_call",
+        "billing_spend",
+        "finalize_apply",
+        "gate_mutation",
+        "network_fetch",
+        "provider_submit",
+        "render"
+      ],
+      "safety": {
+        "provider_submit_count": 0,
+        "gate_mutation_count": 0,
+        "billing_spend_count": 0,
+        "network_fetch_count": 0,
+        "render_count": 0,
+        "finalize_apply_count": 0,
+        "api_call_count": 30,
+        "sequence": 30,
+        "digest": "48345b5f76d3948292ab64d44d8de78934361f17172cd9a24e4c046b97cf4595"
+      },
+      "digest": "73fd46549416a9ee5a585d935ce8fbc65c7a7480a356044a61b251858ecb9388"
+    },
+    "observer_digest": "398a7d3e3cf3dadcf9da0659bfe9305c2ebd484b423d43592921698542e03b2d",
+    "proven_zero_effects": true,
+    "all_ok": true,
+    "digest": "fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34"
+  },
+  "ledger": {
+    "schema_version": 1,
+    "calls": [
+      {
+        "sequence": 1,
+        "module": "videoPromptDirector/upgradeV1",
+        "api": "upgradeH3V1ToVideoPromptV2",
+        "result": "ok",
+        "digests": {
+          "source_sha256": "59289e55ea14307832199437952d4e063e1434448492c2491007c697ebeaa716",
+          "fixture_digest": "f0bd3aab09bf4283e3b6000fb0c060b7de127f8f3b9eefb9093bbdbcd590e004"
+        }
+      },
+      {
+        "sequence": 2,
+        "module": "videoPromptDirector/compileV2",
+        "api": "compileLegacyH3V1",
+        "result": "ok",
+        "digests": {
+          "canonical_text": "fa57ed03d453ec008793ccd68d0810550204e05051451ca002a30912848e67c8",
+          "fixture_digest": "f0bd3aab09bf4283e3b6000fb0c060b7de127f8f3b9eefb9093bbdbcd590e004"
+        }
+      },
+      {
+        "sequence": 3,
+        "module": "videoPromptDirector/compileV2",
+        "api": "compileH3V1ThroughV2",
+        "result": "error",
+        "digests": {
+          "fixture_digest": "f0bd3aab09bf4283e3b6000fb0c060b7de127f8f3b9eefb9093bbdbcd590e004"
+        }
+      },
+      {
+        "sequence": 4,
+        "module": "videoPromptDirector/schemaV2",
+        "api": "parseVideoPromptIrV2",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "f0bd3aab09bf4283e3b6000fb0c060b7de127f8f3b9eefb9093bbdbcd590e004"
+        }
+      },
+      {
+        "sequence": 5,
+        "module": "videoPromptDirector/schemaV2",
+        "api": "parseVideoPromptIrV2",
+        "result": "ok",
+        "digests": {
+          "ir": "e3820273e84e94a27590211477b3efc6d48be0a11508d8f530489441825cf776",
+          "fixture_digest": "2e21449a26896a58ab6c34b2a343f54135a40a4a8c3c289616b6415f04f19b6b"
+        }
+      },
+      {
+        "sequence": 6,
+        "module": "videoPromptDirector/compileV2",
+        "api": "compileVideoPromptIrV2",
+        "result": "error",
+        "digests": {
+          "fixture_digest": "2e21449a26896a58ab6c34b2a343f54135a40a4a8c3c289616b6415f04f19b6b"
+        }
+      },
+      {
+        "sequence": 7,
+        "module": "videoPromptDirector/compileV2",
+        "api": "compileVideoPromptIrV2(forged-route)",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "2e21449a26896a58ab6c34b2a343f54135a40a4a8c3c289616b6415f04f19b6b"
+        }
+      },
+      {
+        "sequence": 8,
+        "module": "productionControl/contracts/music",
+        "api": "createMusicStructureContract",
+        "result": "ok",
+        "digests": {
+          "music": "6b7b78898ce75dcd8d8530b4cc870a83346137c9d74ecb81436695c6d99321f0",
+          "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+        }
+      },
+      {
+        "sequence": 9,
+        "module": "productionControl/contracts/lyrics",
+        "api": "createLyricsContract",
+        "result": "ok",
+        "digests": {
+          "lyrics": "0edb551def4f54340fe54ad4ce2ef2500129ad383e5ac91985b977b1a040bcab",
+          "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+        }
+      },
+      {
+        "sequence": 10,
+        "module": "productionControl/contracts/generationUnit",
+        "api": "createGenerationUnit",
+        "result": "ok",
+        "digests": {
+          "generation_unit": "091826aae23b0ed9ae827a9686c1866e21b2c89276cc6190e6d721e58c781723",
+          "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+        }
+      },
+      {
+        "sequence": 11,
+        "module": "productionControl/mv/composition",
+        "api": "createCompositionIntent",
+        "result": "ok",
+        "digests": {
+          "composition_intent": "d692724612e7bdde9b00deff275659f242d3049f2b439a02e71217a3d30cc749",
+          "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+        }
+      },
+      {
+        "sequence": 12,
+        "module": "productionControl/contracts/generationUnit",
+        "api": "createGenerationUnit(adversarial)",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "8e20b518dfb03b165ed594c4a8e57740fb30f11b9f1a26f6b0051a512cd8c61c"
+        }
+      },
+      {
+        "sequence": 13,
+        "module": "personConsistency/migration",
+        "api": "migrateIdentityLockPhaseAtoE",
+        "result": "ok",
+        "digests": {
+          "status": "e078e6bb516fd7ed074eea08671d6a1ce6f5091be8266ad03365df217f14d670",
+          "fixture_digest": "fb6f305269b9186d440664d3761347cc0501c7387c585a63910de2776d8c8543"
+        }
+      },
+      {
+        "sequence": 14,
+        "module": "productionControl/gateBundle",
+        "api": "createGateBundle",
+        "result": "ok",
+        "digests": {
+          "gate_bundle": "0b9affdd4c404426e9abfb030d4522e43d1c9b595830cdcf45a6d1a3ddc64793",
+          "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+        }
+      },
+      {
+        "sequence": 15,
+        "module": "productionControl/gateSubjects",
+        "api": "evaluateGate2AutoPass",
+        "result": "ok",
+        "digests": {
+          "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+        }
+      },
+      {
+        "sequence": 16,
+        "module": "productionControl/gateSubjects",
+        "api": "cascadeFromDrift",
+        "result": "ok",
+        "digests": {
+          "cascade": "324fc21323ee0c2b3cda121856dab3414a8ab03f72d4d28dc535415a59a2695c",
+          "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+        }
+      },
+      {
+        "sequence": 17,
+        "module": "productionControl/authorityGuard",
+        "api": "checkAuthority",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+        }
+      },
+      {
+        "sequence": 18,
+        "module": "productionControl/gateBundle",
+        "api": "assertGateBundleExecutable",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "f35a707116dd10091a707d24a900d2fcd8c2038f67e6386ac485261368856920"
+        }
+      },
+      {
+        "sequence": 19,
+        "module": "productionControl/generationBridge",
+        "api": "createGenerationJobApprovalBinding",
+        "result": "ok",
+        "digests": {
+          "immutable_identity": "c63a557759a76d3e1ac416852ac9cf973f1e533be678644cbf140eb12ced264e",
+          "fixture_digest": "2fb6a14ea183e266ec48f4b1eccfdbf2604a8fdb3059cfae585d649a052fb00e"
+        }
+      },
+      {
+        "sequence": 20,
+        "module": "productionControl/generationBridge",
+        "api": "assertJobRevisionAndIdentity(rollback)",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "2fb6a14ea183e266ec48f4b1eccfdbf2604a8fdb3059cfae585d649a052fb00e"
+        }
+      },
+      {
+        "sequence": 21,
+        "module": "generationJobs/machine",
+        "api": "submit(resubmit-forbidden)",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "2fb6a14ea183e266ec48f4b1eccfdbf2604a8fdb3059cfae585d649a052fb00e"
+        }
+      },
+      {
+        "sequence": 22,
+        "module": "productionControl/generationBridge",
+        "api": "resolveSubmissionUnknownAction",
+        "result": "ok",
+        "digests": {
+          "action": "721a76d6604c90a16704ecdd59b58cd999206247d93e365c52ca77c4dfa5781a",
+          "fixture_digest": "2fb6a14ea183e266ec48f4b1eccfdbf2604a8fdb3059cfae585d649a052fb00e"
+        }
+      },
+      {
+        "sequence": 23,
+        "module": "productionControl/grantLedger",
+        "api": "reserve(price_unknown)",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "44e63a18770d6cffcfc3318eaea66100a98f357bb2646c997609cb8be8875972"
+        },
+        "error_code": "PC_RESERVATION_INVALID"
+      },
+      {
+        "sequence": 24,
+        "module": "productionControl/activeRecovery",
+        "api": "runActiveLocalRecovery",
+        "result": "ok",
+        "digests": {
+          "fixture_digest": "44e63a18770d6cffcfc3318eaea66100a98f357bb2646c997609cb8be8875972",
+          "local_recovery": "2eb57d5b7c1e58160029aa262f808d070bd7d1311eb55e8297449e8ed14b4e0f"
+        }
+      },
+      {
+        "sequence": 25,
+        "module": "productionControl/reducer",
+        "api": "createInitialMissionState",
+        "result": "ok",
+        "digests": {
+          "mission_state": "f10c10383ac89933ae7df8b06d5c5eb2e287975533761934e1451a937c5e4a53",
+          "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+        }
+      },
+      {
+        "sequence": 26,
+        "module": "productionControl/publicProjection",
+        "api": "projectMissionTree",
+        "result": "ok",
+        "digests": {
+          "public_projection": "3682dcaa44a1e736020799f65178764d5b580c6134b76b3f0422df5a147e4df4",
+          "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+        }
+      },
+      {
+        "sequence": 27,
+        "module": "productionControl/finalizeRetention",
+        "api": "buildProductionCompletionDigest",
+        "result": "ok",
+        "digests": {
+          "completion": "4502fb3151cfbd20dd00a1342c8a13a4717adf1375c370c0037d82f2551e74ae",
+          "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+        }
+      },
+      {
+        "sequence": 28,
+        "module": "productionControl/learning/candidate",
+        "api": "createLearningCandidate",
+        "result": "ok",
+        "digests": {
+          "candidate": "628ef84aaf9ddb4c86492c4d58c15c2c10f6490c38b6a64b97f73d871888e301",
+          "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+        }
+      },
+      {
+        "sequence": 29,
+        "module": "productionControl/learning/experiment",
+        "api": "runLearningExperiment",
+        "result": "ok",
+        "digests": {
+          "experiment": "ea21e347c2b418b3b288e62f1fd7334a53ca22f9bdbaff010c3fd032dc9f811e",
+          "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+        }
+      },
+      {
+        "sequence": 30,
+        "module": "productionControl/learning/promotion",
+        "api": "createPromotionProposal",
+        "result": "blocked",
+        "digests": {
+          "fixture_digest": "16bb7a94f52f891f04c1d00bb20cc0a07d1ffed017ab90072096fb8dfbe9f818"
+        }
+      }
+    ],
+    "effects": {
+      "provider_submit": 0,
+      "network_fetch": 0,
+      "gate_mutation": 0,
+      "billing_spend": 0,
+      "render": 0,
+      "finalize_apply": 0,
+      "api_call": 30
+    },
+    "instrumented_effects": [
+      "api_call",
+      "billing_spend",
+      "finalize_apply",
+      "gate_mutation",
+      "network_fetch",
+      "provider_submit",
+      "render"
+    ],
+    "safety": {
+      "provider_submit_count": 0,
+      "gate_mutation_count": 0,
+      "billing_spend_count": 0,
+      "network_fetch_count": 0,
+      "render_count": 0,
+      "finalize_apply_count": 0,
+      "api_call_count": 30,
+      "sequence": 30,
+      "digest": "48345b5f76d3948292ab64d44d8de78934361f17172cd9a24e4c046b97cf4595"
+    },
+    "digest": "73fd46549416a9ee5a585d935ce8fbc65c7a7480a356044a61b251858ecb9388"
+  },
+  "observer": {
+    "schema_version": 1,
+    "armed_boundaries": [
+      "billing_spend",
+      "finalize_apply",
+      "gate_mutation",
+      "network_fetch",
+      "provider_submit",
+      "render"
+    ],
+    "attempts": [],
+    "attempt_counts": {
+      "provider_submit": 0,
+      "gate_mutation": 0,
+      "billing_spend": 0,
+      "network_fetch": 0,
+      "render": 0,
+      "finalize_apply": 0
+    },
+    "event_sequence": 0,
+    "event_sequence_digest": "07d98569f612e4cb135dd3847c2af618ca4aec1e77acbcae3b96b79943978500",
+    "readback_digest": "07d98569f612e4cb135dd3847c2af618ca4aec1e77acbcae3b96b79943978500",
+    "all_boundaries_armed": true,
+    "proven_zero_effects": true,
+    "ledger": {
+      "schema_version": 1,
+      "calls": [],
+      "effects": {
+        "provider_submit": 0,
+        "network_fetch": 0,
+        "gate_mutation": 0,
+        "billing_spend": 0,
+        "render": 0,
+        "finalize_apply": 0
+      },
+      "instrumented_effects": [
+        "billing_spend",
+        "finalize_apply",
+        "gate_mutation",
+        "network_fetch",
+        "provider_submit",
+        "render"
+      ],
+      "safety": {
+        "provider_submit_count": 0,
+        "gate_mutation_count": 0,
+        "billing_spend_count": 0,
+        "network_fetch_count": 0,
+        "render_count": 0,
+        "finalize_apply_count": 0,
+        "api_call_count": 0,
+        "sequence": 0,
+        "digest": "8765b241c350f4ed0896feaf3a93beffcfdb83c467ab461aebfae4a8d929785c"
+      },
+      "digest": "c69c3ea4db219e7bead698df8a961fece56fc4c05d6ef506b13e3ee3b2235ee8"
+    },
+    "digest": "4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286"
+  },
+  "migration_journal": {
+    "complete": true,
+    "preview_digest": "28d61e5c4d9c90043d0b14913d37e01ad6f6256ad63cd44e87a83209694bfb01",
+    "stage": "complete",
+    "digest": "f39fd707c23f25858ad61366bf88190e44ea15f8c0f62180a5255dd953381226"
+  }
+}

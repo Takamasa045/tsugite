@@ -10,6 +10,7 @@ import {
   DEFAULT_READINESS_RELATIVE_PATH,
   buildReadinessFromStore,
   ingestBrowserRuntimeEvidence,
+  publicStructuralProjection,
   readEvidenceStore,
   recordCommandEvidence,
   recordCoverage,
@@ -102,8 +103,12 @@ async function dispatch(argv: string[]): Promise<ReadinessCliResult> {
     if (has(argv, "--recompute-structural")) {
       const { collectStructuralEvidence } = await import("./structuralEvidence.js");
       const structural = await collectStructuralEvidence();
-      store.rehearsal = structural.rehearsal;
-      store.fixture_module_evidence = structural.fixture_module_evidence;
+      const publicStructural = publicStructuralProjection({
+        rehearsal: structural.rehearsal,
+        fixture_module_evidence: structural.fixture_module_evidence
+      });
+      store.rehearsal = publicStructural.rehearsal;
+      store.fixture_module_evidence = publicStructural.fixture_module_evidence;
       store.ledger = structural.ledger;
       store.observer = structural.observer;
       store.migration_journal = structural.migration_journal;
@@ -113,7 +118,7 @@ async function dispatch(argv: string[]): Promise<ReadinessCliResult> {
       if (!store.measured.h3_durable_cli) {
         store.measured.h3_durable_cli = structural.h3_durable_cli;
       }
-      if (!store.measured.reader_commands) {
+      if (!store.measured.reader_commands && structural.reader_commands) {
         store.measured.reader_commands = structural.reader_commands;
       }
       await writeEvidenceStore(storeRoot, store);

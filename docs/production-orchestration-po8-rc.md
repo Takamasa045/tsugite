@@ -1,13 +1,15 @@
 # Production Orchestration PO-8 RC integration
 
-**Status:** fixture-only structural repair (round 7 code + round 8 readiness rebind) in tree. Package version remains `0.9.0`. Readiness stays **GO-WITH-CAVEATS** (Windows/live/browser/packaged desktop incomplete). Exit blockers EB1 (validate→compile authority real entry) and EB2 (gate_mutation effect_policy thread) are closed with focused evidence.
+**Status:** fixture-only RC remaining (PO-0A actual browser + Desktop/Windows honesty). Package version remains `0.9.0`. Readiness is **GO-WITH-CAVEATS**: PO-0A Canvas first-frame is measured; packaged Desktop is partial because local `node-pty` is absent and must not be installed in this session; Windows real-machine/CI and live provider/billing stay unverified. Exit blockers EB1 and EB2 remain closed.
 
 This document is **outside** the frozen T00 design pack under `docs/design/production-orchestration-v1/`. Design pack hashes must not change.
 
-## Readiness provenance (round 8)
+## Readiness provenance (round 9 remaining)
 
-- `docs/reports/po8-rc-release-readiness.json` is regenerated only via production `buildReleaseReadinessReport` from a measured evidence store (fixture suite + H3 CLI/EB1 real entry). Exit `output_digest` values and the envelope `digest` are never hand-substituted.
-- `build_provenance.head` records the **real code commit** that closed EB1: `95b566b3c2b61a9eb2e78084b2d374c5486dd1ca`. Docs-only tip commits that refresh this report (or this note) do **not** replace that head and never upgrade exit status (`verified_separately: true`).
+- `docs/reports/po8-rc-release-readiness.json` is regenerated only via production `buildReleaseReadinessReport` from `docs/reports/po8-rc-evidence/`. Exit `output_digest` values and the envelope `digest` are never hand-substituted.
+- PO-0A browser evidence is a measured Canvas first-frame plus forced webgl-unavailable / context-lost / initialization / timeout / keyboard / Mission Tree paths.
+- Packaged Desktop is **partial**: `desktop:prepare` is fixture-only (no implicit `npm ci`); official local Forge package could not locate physical `node-pty@1.1.0` and `desktop:audit` found no `apps/desktop/out`. That blocked pair must not flip the envelope to NO-GO.
+- `build_provenance.head` is the implementation commit for this remaining work. Docs-only tip commits do not replace that head (`verified_separately: true`).
 
 ## Structural repair round 7 (EB1 real-entry split-brain)
 

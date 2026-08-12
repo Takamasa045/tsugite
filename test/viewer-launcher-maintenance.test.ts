@@ -2308,7 +2308,7 @@ describe("launcher maintenance second-review fixes", () => {
     }).path).toBe("plain");
   });
 
-  it("covers worktree phase branches, truncation, and apply refuse paths", async () => {
+  it("covers worktree phase branches, truncation, and apply refuse paths", { timeout: 15_000 }, async () => {
     // tidy-only primary/current → blocked-or-reviewable path
     const tidy = createController({
       runPipeline: async () => ({

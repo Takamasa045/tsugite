@@ -1,0 +1,22 @@
+command=npm run desktop:audit
+---
+
+> tsugite@0.9.0 desktop:audit
+> npm --prefix apps/desktop run package:audit
+
+
+> @tsugite/desktop@0.6.0 package:audit
+> node scripts/audit-package.mjs
+
+(node:61198) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [redacted-path][redacted-path]
+  if (roots.length === 0) throw new Error("Package audit found no packaged app under apps/desktop/out");
+                                ^
+
+Error: Package audit found no packaged app under apps/desktop/out
+    at [redacted-path]
+
+Node.js v22.23.1
+---
+exit_code=1

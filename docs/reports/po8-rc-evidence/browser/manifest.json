@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "fixture_only": true,
+  "primary_mode": "canvas",
+  "measured": {
+    "webgl_unavailable": true,
+    "context_lost": true,
+    "initialization_failed": true,
+    "first_frame_timeout": true,
+    "non_blank_fallback": true,
+    "keyboard_selection": true,
+    "mission_tree_decision": true,
+    "mission_tree_exit": true
+  },
+  "artifacts": [
+    {
+      "relative_path": "browser/actual-canvas-node-hit.png",
+      "sha256": "458d1fbdebbb0c77908b9c8d0129467b23dc1b95d4e3863a1609c1c85b6a3fbd",
+      "bytes": 454876
+    },
+    {
+      "relative_path": "browser/actual-canvas.png",
+      "sha256": "f5857a2a4079781de7f528700254a70d2b0f7a4fcf468ee9951efdad0c0d8a26",
+      "bytes": 401065
+    },
+    {
+      "relative_path": "browser/fallback-context-lost-canvas-event.png",
+      "sha256": "15dc135cc312928e8f069c02e1189ee7928d4c16033fa557b34c2b9c578c04d9",
+      "bytes": 298560
+    },
+    {
+      "relative_path": "browser/fallback-context-lost.png",
+      "sha256": "a648198ad2aea1417f0637c3bd31adb65203bafefc1c1ee7109a6a224bd9c4b9",
+      "bytes": 289447
+    },
+    {
+      "relative_path": "browser/fallback-first-frame-timeout.png",
+      "sha256": "447687d02a19509d422cc1f9a5f5b4987cdc55343da7a5bda5b63dddbc83f5e5",
+      "bytes": 290600
+    },
+    {
+      "relative_path": "browser/fallback-initialization-failed.png",
+      "sha256": "f774be80386ebdb46864a6e844ba3458021fd987ed262fa91ab005f6bbbea1bf",
+      "bytes": 289663
+    },
+    {
+      "relative_path": "browser/fallback-keyboard-responsive.png",
+      "sha256": "27bf0e5b7b1ff8826d69c9a998eacce4da3834ffde1347acf46713c1d505a3b1",
+      "bytes": 139578
+    },
+    {
+      "relative_path": "browser/fallback-webgl-unavailable.png",
+      "sha256": "67b1c5c27afafc059a0259a3871a9d8f58eaf8fc73d16b38789ffe7842eff1a6",
+      "bytes": 290042
+    },
+    {
+      "relative_path": "browser/mission-tree-canvas.png",
+      "sha256": "8fdd58bc2a95573d02b50d663364a1f3350f5b3812736042853dd61f39607bf9",
+      "bytes": 472985
+    }
+  ],
+  "output_digest": "1878d2e349aa102040840b26d6b3d4355b5b7a01f4e934ead7c1771c2a3a2dce"
+}

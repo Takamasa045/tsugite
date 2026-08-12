@@ -1422,10 +1422,32 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
           exit_code: 0,
           output_digest: hashCommandOutput("check"),
           status: "proven"
+        },
+        desktop: {
+          command: "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
+          exit_code: 0,
+          output_digest: hashCommandOutput("desktop-partial"),
+          status: "partial",
+          detail: "package blocked: local node-pty missing"
         }
-      }
+      },
+      commands: [
+        {
+          command: "npm --prefix apps/desktop run package",
+          exit_code: 1,
+          output_digest: hashCommandOutput("package-blocked"),
+          status: "partial"
+        },
+        {
+          command: "npm run desktop:audit",
+          exit_code: 1,
+          output_digest: hashCommandOutput("audit-blocked"),
+          status: "partial"
+        }
+      ]
     });
     expect(report.go_no_go).toBe("GO-WITH-CAVEATS");
+    expect(report.exits.find((exit) => exit.exit_id === "command-evidence")?.status).toBe("partial");
     expect(report.environment.proven_zero_effects).toBe(true);
 
     // package version override rejected

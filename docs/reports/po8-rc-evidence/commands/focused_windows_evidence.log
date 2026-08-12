@@ -1,0 +1,26 @@
+command=npm test -- test/windows-path-lex.test.ts test/windows-support-contract.test.ts test/platform-process.test.ts --reporter=dot
+---
+
+> tsugite@0.9.0 test
+> vitest run --exclude="apps/**" test/windows-path-lex.test.ts test/windows-support-contract.test.ts test/platform-process.test.ts --reporter=dot
+
+(node:79627) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ RUN  v4.1.10 [redacted-path]takamasa/.codex/worktrees/77fe/tsugite
+
+(node:79630) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:79629) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:79628) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+·············
+
+ Test Files  3 passed (3)
+      Tests  13 passed (13)
+   Start at  07:54:29
+   Duration  141ms (transform 103ms, setup 0ms, import 144ms, tests 14ms, environment 0ms)
+
+---
+exit_code=0

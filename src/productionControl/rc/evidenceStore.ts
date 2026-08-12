@@ -23,6 +23,8 @@ export const DEFAULT_READINESS_RELATIVE_PATH = "docs/reports/po8-rc-release-read
 export const EVIDENCE_STORE_FILE = "store.json";
 
 const ABSOLUTE_PATH = /(?:^|[\s"'`=(])(?:\/(?:Users|home|private|tmp|var|etc)\/|[A-Za-z]:[\\/]|\\\\|file:\/\/|~\/)/;
+const HOST_PATH_RESIDUAL = /\/(?:Users|home|private|tmp|var|etc)\/|[A-Za-z]:[\\/]|file:\/\/|~\//;
+const ANSI_ESCAPE = /\u001b\[[0-9;]*m/g;
 const SECRETISH = /(?:api[_-]?key|secret|password|token|authorization|raw_prompt|BEGIN (?:RSA |OPENSSH )?PRIVATE KEY)/i;
 const MEASURED_COMMAND_IDS = new Set([
   "browser_po0a",
@@ -59,12 +61,18 @@ export type DurableEvidenceStore = {
 
 export function sanitizePublicText(text: string): string {
   return text
+    .replace(ANSI_ESCAPE, "")
     .split(/\r?\n/)
     .map((line) => {
       if (SECRETISH.test(line)) return "[redacted-sensitive]";
       let next = line;
-      while (ABSOLUTE_PATH.test(next)) {
-        next = next.replace(ABSOLUTE_PATH, " [redacted-path]");
+      for (let i = 0; i < 8 && (ABSOLUTE_PATH.test(next) || HOST_PATH_RESIDUAL.test(next)); i++) {
+        next = next
+          .replace(/file:\/\/\S*/gi, "[redacted-path]")
+          .replace(/\/(?:Users|home|private|tmp|var|etc)\/\S*/g, "[redacted-path]")
+          .replace(/[A-Za-z]:[\\/]\S*/g, "[redacted-path]")
+          .replace(/\\\\[^\s]+/g, "[redacted-path]")
+          .replace(/~\/\S*/g, "[redacted-path]");
       }
       return next;
     })
@@ -175,7 +183,7 @@ export async function recordCommandEvidence(input: {
 }): Promise<{ evidence: CommandEvidence; log_relative_path: string }> {
   const root = await assertSafeStoreRoot(input.storeRoot);
   const sanitized = sanitizePublicText(input.output);
-  if (ABSOLUTE_PATH.test(sanitized) && /\/Users\/|C:\\|file:\/\//.test(sanitized)) {
+  if (HOST_PATH_RESIDUAL.test(sanitized) || /\/Users\/|C:\\|file:\/\//.test(sanitized)) {
     throw pcError("PC_SECRET_OR_PATH", "command evidence still contains an absolute path");
   }
   const digest = hashCommandOutput(sanitized);
@@ -353,6 +361,38 @@ export async function ingestBrowserRuntimeEvidence(input: {
   };
   await writeEvidenceStore(storeRoot, store);
   return { manifest: raw, output_digest, artifact_refs };
+}
+
+/** Persist only digest-bound structural fields; drop host paths from fixture results. */
+export function publicStructuralProjection(input: {
+  rehearsal?: DurableEvidenceStore["rehearsal"];
+  fixture_module_evidence?: DurableEvidenceStore["fixture_module_evidence"];
+}): Pick<DurableEvidenceStore, "rehearsal" | "fixture_module_evidence"> {
+  const rehearsal = input.rehearsal
+    ? {
+      schema_version: input.rehearsal.schema_version,
+      fixture_count: input.rehearsal.fixture_count,
+      revision_bindings_digest: input.rehearsal.revision_bindings_digest,
+      results: [],
+      all_ok: input.rehearsal.all_ok,
+      digest: input.rehearsal.digest
+    }
+    : undefined;
+  const fixture_module_evidence = input.fixture_module_evidence
+    ? {
+      schema_version: input.fixture_module_evidence.schema_version,
+      fixture_count: input.fixture_module_evidence.fixture_count,
+      results: [],
+      ledger: input.fixture_module_evidence.ledger,
+      ...(input.fixture_module_evidence.observer_digest
+        ? { observer_digest: input.fixture_module_evidence.observer_digest }
+        : {}),
+      proven_zero_effects: input.fixture_module_evidence.proven_zero_effects,
+      all_ok: input.fixture_module_evidence.all_ok,
+      digest: input.fixture_module_evidence.digest
+    }
+    : undefined;
+  return { rehearsal, fixture_module_evidence };
 }
 
 export function buildReadinessFromStore(

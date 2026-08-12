@@ -1,0 +1,52 @@
+command=npm --prefix apps/workflow-viewer run test:browser (port 4188 occupied)
+---
+
+> @tsugite/workflow-viewer@0.1.0 test:browser
+> node --test tests/production-orchestration-browser.test.mjs
+
+(node:61233) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:61234) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded paths, Mission Tree
+not ok 1 - PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded paths, Mission Tree
+  ---
+  duration_ms: 307.323875
+  type: 'test'
+  location: '[redacted-path]
+  failureType: 'testCodeFailure'
+  error: |-
+    Viewer dev server exited before ready (1): (node:61311) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+    (Use `node --trace-warnings ...` to show where the warning was created)
+    error when starting dev server:
+    Error: Port 4188 is already in use
+        at httpServerStart ([redacted-path]
+        at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+        at async startServer ([redacted-path]
+        at async Object.listen ([redacted-path]
+        at async CAC.<anonymous> ([redacted-path]
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    httpServerStart ([redacted-path]
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async startServer ([redacted-path]
+    async Object.listen ([redacted-path]
+    async CAC.<anonymous> ([redacted-path]
+    ChildProcess.<anonymous> ([redacted-path]
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    ChildProcess._handle.onexit (node:internal/child_process:293:12)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 473.455333
+---
+exit_code=1

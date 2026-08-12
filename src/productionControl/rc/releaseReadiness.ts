@@ -162,9 +162,10 @@ function observedZero(count: ObservedCount | undefined): boolean {
 
 function commandStatus(cmd: CommandEvidence | undefined): ExitEvidence["status"] {
   if (!cmd) return "unverified";
-  if (cmd.status === "failed" || cmd.exit_code !== 0) return "failed";
-  // Explicit partial/unverified from exit evidence is never upgraded to proven.
+  // Explicit blocked/unverified environment evidence must not be upgraded to failed
+  // just because the recorded command exited non-zero (e.g. missing local node-pty).
   if (cmd.status === "partial" || cmd.status === "unverified") return cmd.status;
+  if (cmd.status === "failed" || cmd.exit_code !== 0) return "failed";
   if (cmd.status === "proven" && typeof cmd.output_digest === "string" && /^[a-f0-9]{64}$/.test(cmd.output_digest)) {
     return "proven";
   }
@@ -459,7 +460,11 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
   }
 
   if (input.commands?.length) {
-    const failed = input.commands.filter((cmd) => cmd.status === "failed" || cmd.exit_code !== 0);
+    const failed = input.commands.filter((cmd) => commandStatus(cmd) === "failed");
+    const blocked = input.commands.filter((cmd) => {
+      const status = commandStatus(cmd);
+      return status === "partial" || status === "unverified";
+    });
     const allProven = input.commands.every((cmd) => commandStatus(cmd) === "proven");
     exits.push({
       exit_id: "command-evidence",
@@ -468,7 +473,10 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
       evidence: input.commands.map((cmd) =>
         `${cmd.command} exit=${cmd.exit_code} ${cmd.status}${cmd.output_digest ? ` digest=${cmd.output_digest}` : ""}`
       ),
-      gaps: failed.map((cmd) => `${cmd.command} failed`)
+      gaps: [
+        ...failed.map((cmd) => `${cmd.command} failed`),
+        ...blocked.map((cmd) => `${cmd.command} ${commandStatus(cmd)}`)
+      ]
     });
   }
 

@@ -1,0 +1,100 @@
+command=npm run desktop:package
+---
+
+> tsugite@0.9.0 desktop:package
+> npm --prefix apps/desktop run package
+
+
+> @tsugite/desktop@0.6.0 package
+> npm run build:runtime && node ./node_modules/@electron-forge/cli/dist/electron-forge.js package && npm run package:audit
+
+
+> @tsugite/desktop@0.6.0 build:runtime
+> node scripts/clean-generated.mjs && npm --prefix ../.. run build && npm --prefix ../workflow-viewer run build && npm run prepare-runtime
+
+(node:60519) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"ok":true,"cleaned":[ [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/build", [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/workflow-viewer/dist"],"allowed_untracked_inputs":[],"ignored_build_inputs":[]}
+
+> tsugite@0.9.0 build
+> tsc -p tsconfig.json
+
+
+> @tsugite/workflow-viewer@0.1.0 build
+> npm run typecheck && vite build --configLoader runner
+
+
+> @tsugite/workflow-viewer@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.app.json --pretty false && tsc --noEmit -p tsconfig.node.json --pretty false
+
+(node:60787) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+vite v8.1.4 building client environment for production...
+[2Ktransforming...[32m✓[0m 2409 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[0m[32mindex.html                 [0m[1;2m    0.77 kB[0m[2m │ gzip:   0.48 kB[0m
+[2mdist/[0m[2massets/[0m[32mxterm-Ri7I-oLU.mjs  [0m[1;2m  344.97 kB[0m
+[2mdist/[0m[2massets/[0m[35mindex-BIfbgdaU.css  [0m[1;2m  235.76 kB[0m[2m │ gzip:  39.10 kB[0m
+[2mdist/[0m[2massets/[0m[36mindex-kYO-yE1I.js   [0m[33;1m1,482.66 kB[0m[2m │ gzip: 408.13 kB[0m
+
+✓ built in 411ms
+[plugin builtin:vite-reporter] [33;1m
+(!) Some chunks are larger than 1400 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[0m
+
+> @tsugite/desktop@0.6.0 prepare-runtime
+> node scripts/prepare-runtime.mjs
+
+(node:60842) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"ok":true,"runtime_root": [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop/runtime","staged_file_count":382,"production_dependencies_installed":false,"offline_dependencies_copied":false}
+(node:60908) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+❯ Checking your system
+❯ Checking package manager version
+✔ Found npm@10.9.8
+✔ Checking your system
+[?25h(node:60910) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+❯ Preparing to package application
+✔ Preparing to package application
+❯ Running packaging hooks
+❯ Running [33mgenerateAssets[39m hook
+✔ Running [33mgenerateAssets[39m hook
+❯ Running [33mprePackage[39m hook
+✔ Running [33mprePackage[39m hook
+✔ Running packaging hooks
+❯ Packaging application
+› Determining targets...
+❯ Packaging for [36marm64[39m on [36mdarwin[39m
+❯ Copying files
+❯ Preparing native dependencies
+❯ Finalizing package
+✖ Copying files [FAILED: Failed to locate module "node-pty" from  [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop"
+
+        This normally means that either you have deleted this package already somehow (check your ignore settings if using electron-packager).  Or your module installation failed.]
+✖ Preparing native dependencies [FAILED: Failed to locate module "node-pty" from  [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop"
+
+        This normally means that either you have deleted this package already somehow (check your ignore settings if using electron-packager).  Or your module installation failed.]
+✖ Finalizing package [FAILED: Failed to locate module "node-pty" from  [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop"
+
+        This normally means that either you have deleted this package already somehow (check your ignore settings if using electron-packager).  Or your module installation failed.]
+✖ Packaging for [36marm64[39m on [36mdarwin[39m [FAILED: Failed to locate module "node-pty" from  [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop"
+
+        This normally means that either you have deleted this package already somehow (check your ignore settings if using electron-packager).  Or your module installation failed.]
+✖ Packaging application [FAILED: Failed to locate module "node-pty" from  [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop"
+
+        This normally means that either you have deleted this package already somehow (check your ignore settings if using electron-packager).  Or your module installation failed.]
+[?25h[31m[39m
+[31mAn unhandled rejection has occurred inside Forge:[39m
+[31mError: Failed to locate module "node-pty" from  [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop"[39m
+[31m[39m
+[31m        This normally means that either you have deleted this package already somehow (check your ignore settings if using electron-packager).  Or your module installation failed.[39m
+[31mat Walker.walkDependenciesForModuleInModule  [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop/node_modules/flora-colossus/lib/Walker.js:57:19)[39m
+[31m    at async Walker.walkDependenciesForModule  [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop/node_modules/flora-colossus/lib/Walker.js:113:13)[39m
+[31m    at async [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/desktop/node_modules/flora-colossus/lib/Walker.js:133:21[39m
+---
+exit_code=1

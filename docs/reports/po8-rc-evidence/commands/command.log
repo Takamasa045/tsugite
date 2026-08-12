@@ -1,0 +1,7 @@
+command=npm run build
+---
+
+> tsugite@0.9.0 build
+> tsc -p tsconfig.json
+
+exit_code=0

@@ -8,6 +8,7 @@ import {
   buildReadinessFromStore,
   commandOutputDigest,
   ingestBrowserRuntimeEvidence,
+  publicStructuralProjection,
   readEvidenceStore,
   recordCommandEvidence,
   recordCoverage,
@@ -35,6 +36,13 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     ].join("\n");
     expect(sanitizePublicText(dirty)).not.toMatch(/\/Users\//);
     expect(sanitizePublicText(dirty)).toMatch(/redacted/);
+    const ansiFileUrl = "    at \u001b[90mfile:///Users/takamasa/.codex/worktrees/x/apps/desktop/scripts/audit-package.mjs:273:33";
+    const cleanedStack = sanitizePublicText(ansiFileUrl);
+    expect(cleanedStack).not.toMatch(/\/Users\//);
+    expect(cleanedStack).not.toMatch(/file:\/\//);
+    expect(cleanedStack).not.toMatch(/\u001b/);
+    expect(cleanedStack).toMatch(/redacted-path/);
+    expect(sanitizePublicText("at [redacted-path]/Users/takamasa/.codex/foo.js:1")).not.toMatch(/\/Users\//);
 
     const recorded = await recordCommandEvidence({
       storeRoot,
@@ -192,6 +200,44 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     expect(report.digest).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("does not treat blocked desktop package/audit as command-evidence failure", () => {
+    const report = buildReadinessFromStore({
+      schema_version: 1,
+      fixture_only: true,
+      package_version: "0.9.0",
+      generated_at: "2026-08-13T00:00:00.000Z",
+      measured: {
+        desktop: {
+          command: "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
+          exit_code: 0,
+          output_digest: commandOutputDigest("desktop-partial"),
+          status: "partial",
+          detail: "package blocked: local node-pty missing"
+        }
+      },
+      commands: [
+        {
+          command: "npm --prefix apps/desktop run package",
+          exit_code: 1,
+          output_digest: commandOutputDigest("package-blocked"),
+          status: "partial",
+          detail: "local node-pty missing; no install attempted"
+        },
+        {
+          command: "npm run desktop:audit",
+          exit_code: 1,
+          output_digest: commandOutputDigest("audit-blocked"),
+          status: "partial",
+          detail: "no packaged app under apps/desktop/out"
+        }
+      ]
+    });
+    expect(report.exits.find((exit) => exit.exit_id === "desktop")?.status).toBe("partial");
+    expect(report.exits.find((exit) => exit.exit_id === "command-evidence")?.status).toBe("partial");
+    expect(report.exits.some((exit) => exit.status === "failed")).toBe(false);
+    expect(report.go_no_go).not.toBe("GO");
+  });
+
   it("records coverage, rejects unsafe relative paths, and covers CLI error/help branches", async () => {
     const storeRoot = await tempDir("tsugite-po8-cov-");
     await recordCoverage(storeRoot, { statements: 82.7, branches: 74.45, functions: 89.7, lines: 85.4 });
@@ -269,5 +315,22 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     expect(structural.migration_journal.complete).toBe(true);
     expect(structural.mode_orchestrator.status).toBe("proven");
     expect(structural.h3_durable_cli.output_digest).toMatch(/^[a-f0-9]{64}$/);
+    const storeRoot = await tempDir("tsugite-po8-struct-store-");
+    const projected = publicStructuralProjection({
+      rehearsal: structural.rehearsal,
+      fixture_module_evidence: structural.fixture_module_evidence
+    });
+    await writeEvidenceStore(storeRoot, {
+      schema_version: 1,
+      fixture_only: true,
+      package_version: "0.9.0",
+      measured: {},
+      rehearsal: projected.rehearsal,
+      fixture_module_evidence: projected.fixture_module_evidence
+    });
+    const saved = await readFile(join(storeRoot, "store.json"), "utf8");
+    expect(saved.includes("/Users/")).toBe(false);
+    expect(saved.includes("/private/tmp")).toBe(false);
+    expect(JSON.parse(saved).rehearsal.digest).toBe(structural.rehearsal.digest);
   }, 180_000);
 });

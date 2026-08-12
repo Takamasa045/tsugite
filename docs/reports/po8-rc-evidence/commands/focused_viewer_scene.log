@@ -1,0 +1,22 @@
+command=npm --prefix apps/workflow-viewer run test -- src/components/scene/scene-state.test.ts --reporter=dot
+---
+
+> @tsugite/workflow-viewer@0.1.0 test
+> vitest run --configLoader runner src/components/scene/scene-state.test.ts --reporter=dot
+
+(node:79663) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ RUN  v4.1.10 [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/workflow-viewer
+
+(node:79664) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+····
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  07:54:30
+   Duration  852ms (transform 14ms, setup 63ms, import 10ms, tests 3ms, environment 641ms)
+
+---
+exit_code=0

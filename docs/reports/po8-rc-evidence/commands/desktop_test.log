@@ -1,0 +1,562 @@
+command=npm run desktop:test
+---
+
+> tsugite@0.9.0 desktop:test
+> npm --prefix apps/desktop test
+
+
+> @tsugite/desktop@0.6.0 test
+> node --test test/*.test.mjs
+
+(node:59493) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:59494) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: preload exposes only narrow agents and workspace bridges
+ok 1 - preload exposes only narrow agents and workspace bridges
+  ---
+  duration_ms: 7.643542
+  type: 'test'
+  ...
+# Subtest: lists only the fixed Codex and Claude host allowlist without exposing executable paths
+ok 2 - lists only the fixed Codex and Claude host allowlist without exposing executable paths
+  ---
+  duration_ms: 0.671125
+  type: 'test'
+  ...
+# Subtest: executable discovery checks only allowlisted names on absolute PATH entries and returns the canonical executable
+ok 3 - executable discovery checks only allowlisted names on absolute PATH entries and returns the canonical executable
+  ---
+  duration_ms: 0.397666
+  type: 'test'
+  ...
+# Subtest: Windows executable discovery uses Windows PATH delimiters and PATHEXT casing
+ok 4 - Windows executable discovery uses Windows PATH delimiters and PATHEXT casing
+  ---
+  duration_ms: 0.124958
+  type: 'test'
+  ...
+# Subtest: executable discovery includes common macOS GUI install directories when PATH is minimal
+ok 5 - executable discovery includes common macOS GUI install directories when PATH is minimal
+  ---
+  duration_ms: 0.289625
+  type: 'test'
+  ...
+[redacted-sensitive]
+[redacted-sensitive]
+  ---
+  duration_ms: 0.6
+  type: 'test'
+  ...
+# Subtest: preserves Windows environment key casing while matching allowed keys case-insensitively
+ok 7 - preserves Windows environment key casing while matching allowed keys case-insensitively
+  ---
+  duration_ms: 0.439583
+  type: 'test'
+  ...
+# Subtest: starts Windows npm command shims through the fixed command interpreter
+ok 8 - starts Windows npm command shims through the fixed command interpreter
+  ---
+  duration_ms: 0.205417
+  type: 'test'
+  ...
+# Subtest: adds common macOS GUI install directories to the PTY PATH
+ok 9 - adds common macOS GUI install directories to the PTY PATH
+  ---
+  duration_ms: 0.459667
+  type: 'test'
+  ...
+# Subtest: rejects arbitrary hosts, commands, cwd, environment, and invalid terminal dimensions
+ok 10 - rejects arbitrary hosts, commands, cwd, environment, and invalid terminal dimensions
+  ---
+  duration_ms: 0.669875
+  type: 'test'
+  ...
+# Subtest: rejects oversized terminal input before it reaches the PTY
+ok 11 - rejects oversized terminal input before it reaches the PTY
+  ---
+  duration_ms: 0.334459
+  type: 'test'
+  ...
+# Subtest: forwards bounded input, resize, output, and exit events for the owning session
+ok 12 - forwards bounded input, resize, output, and exit events for the owning session
+  ---
+  duration_ms: 0.265458
+  type: 'test'
+  ...
+# Subtest: stop waits for PTY exit and prevents a second session from running in parallel
+ok 13 - stop waits for PTY exit and prevents a second session from running in parallel
+  ---
+  duration_ms: 1.238667
+  type: 'test'
+  ...
+# Subtest: dispose prevents an in-flight start from spawning after executable discovery
+ok 14 - dispose prevents an in-flight start from spawning after executable discovery
+  ---
+  duration_ms: 0.164542
+  type: 'test'
+  ...
+# Subtest: dispose reports a PTY kill failure, keeps the session active, and retries later
+ok 15 - dispose reports a PTY kill failure, keeps the session active, and retries later
+  ---
+  duration_ms: 0.16425
+  type: 'test'
+  ...
+# Subtest: stop terminates the Unix PTY process group and escalates when it does not exit
+ok 16 - stop terminates the Unix PTY process group and escalates when it does not exit
+  ---
+  duration_ms: 1.873625
+  type: 'test'
+  ...
+# Subtest: stop uses taskkill for the Windows PTY process tree
+ok 17 - stop uses taskkill for the Windows PTY process tree
+  ---
+  duration_ms: 0.187875
+  type: 'test'
+  ...
+# Subtest: stop and dispose share one in-flight termination attempt
+ok 18 - stop and dispose share one in-flight termination attempt
+  ---
+  duration_ms: 0.100458
+  type: 'test'
+  ...
+# Subtest: IPC handlers reject untrusted origins and expose only the declared agent operations
+ok 19 - IPC handlers reject untrusted origins and expose only the declared agent operations
+  ---
+  duration_ms: 0.293583
+  type: 'test'
+  ...
+# (node:59495) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: active work can cancel quit without disposing or closing the launcher
+ok 20 - active work can cancel quit without disposing or closing the launcher
+  ---
+  duration_ms: 0.919875
+  type: 'test'
+  ...
+# Subtest: confirmed quit stops children before closing the launcher and quitting
+ok 21 - confirmed quit stops children before closing the launcher and quitting
+  ---
+  duration_ms: 0.122666
+  type: 'test'
+  ...
+# Subtest: cleanup failure keeps new launcher work paused
+ok 22 - cleanup failure keeps new launcher work paused
+  ---
+  duration_ms: 0.947334
+  type: 'test'
+  ...
+# Subtest: quit without active work skips confirmation
+ok 23 - quit without active work skips confirmation
+  ---
+  duration_ms: 0.225291
+  type: 'test'
+  ...
+# Subtest: closing the last window requests quit before destruction and can later be released
+ok 24 - closing the last window requests quit before destruction and can later be released
+  ---
+  duration_ms: 0.165291
+  type: 'test'
+  ...
+# (node:59496) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: runner uses the selected Node, strips only the pipeline entry, and captures output
+ok 25 - runner uses the selected Node, strips only the pipeline entry, and captures output
+  ---
+  duration_ms: 3.251875
+  type: 'test'
+  ...
+# Subtest: generation runs through the managed pipeline process and returns parsed JSON
+ok 26 - generation runs through the managed pipeline process and returns parsed JSON
+  ---
+  duration_ms: 0.426791
+  type: 'test'
+  ...
+# Subtest: dispose terminates a managed generation process
+ok 27 - dispose terminates a managed generation process
+  ---
+  duration_ms: 5.699833
+  type: 'test'
+  ...
+# Subtest: runner caps retained stdout and stderr without stopping stream draining
+ok 28 - runner caps retained stdout and stderr without stopping stream draining
+  ---
+  duration_ms: 0.611417
+  type: 'test'
+  ...
+# Subtest: B1: per-call maxOutputBytes retains full ~74KiB maintenance JSON with exit 0
+ok 29 - B1: per-call maxOutputBytes retains full ~74KiB maintenance JSON with exit 0
+  ---
+  duration_ms: 1.3245
+  type: 'test'
+  ...
+# Subtest: dispose terminates active Unix process groups and prevents new commands
+ok 30 - dispose terminates active Unix process groups and prevents new commands
+  ---
+  duration_ms: 2.35425
+  type: 'test'
+  ...
+# Subtest: dispose uses taskkill with argument boundaries on Windows
+ok 31 - dispose uses taskkill with argument boundaries on Windows
+  ---
+  duration_ms: 1.273333
+  type: 'test'
+  ...
+# Subtest: dispose rejects when Windows cannot terminate an active child
+ok 32 - dispose rejects when Windows cannot terminate an active child
+  ---
+  duration_ms: 0.503125
+  type: 'test'
+  ...
+# Subtest: dispose rejects when a Unix child remains active after SIGKILL
+ok 33 - dispose rejects when a Unix child remains active after SIGKILL
+  ---
+  duration_ms: 3.423042
+  type: 'test'
+  ...
+# (node:59497) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: dev runtime paths resolve from the desktop source module to the repo
+ok 34 - dev runtime paths resolve from the desktop source module to the repo
+  ---
+  duration_ms: 1.123542
+  type: 'test'
+  ...
+# Subtest: packaged runtime paths resolve below resourcesPath
+ok 35 - packaged runtime paths resolve below resourcesPath
+  ---
+  duration_ms: 0.405792
+  type: 'test'
+  ...
+# Subtest: runtime validation paths are rooted in the bundled runtime
+ok 36 - runtime validation paths are rooted in the bundled runtime
+  ---
+  duration_ms: 0.213458
+  type: 'test'
+  ...
+# Subtest: Node executable uses packaged runtime and the dev npm Node when available
+ok 37 - Node executable uses packaged runtime and the dev npm Node when available
+  ---
+  duration_ms: 0.109125
+  type: 'test'
+  ...
+# Subtest: workspace selection follows CLI, environment, dev repo, packaged userData priority
+ok 38 - workspace selection follows CLI, environment, dev repo, packaged userData priority
+  ---
+  duration_ms: 0.240625
+  type: 'test'
+  ...
+# Subtest: explicit workspace selection can be detected before packaged first-run selection
+ok 39 - explicit workspace selection can be detected before packaged first-run selection
+  ---
+  duration_ms: 0.068875
+  type: 'test'
+  ...
+# Subtest: workspace preference is written atomically and ignores malformed or relative values
+ok 40 - workspace preference is written atomically and ignores malformed or relative values
+  ---
+  duration_ms: 10.20125
+  type: 'test'
+  ...
+# Subtest: packaged resources cannot be selected as a writable workspace
+ok 41 - packaged resources cannot be selected as a writable workspace
+  ---
+  duration_ms: 0.444917
+  type: 'test'
+  ...
+# Subtest: desktop workspace rejects a protected destination before creating managed directories
+ok 42 - desktop workspace rejects a protected destination before creating managed directories
+  ---
+  duration_ms: 1.749666
+  type: 'test'
+  ...
+# Subtest: desktop workspace resolves a symlinked ancestor before creating below protected resources
+ok 43 - desktop workspace resolves a symlinked ancestor before creating below protected resources
+  ---
+  duration_ms: 2.758666
+  type: 'test'
+  ...
+# Subtest: desktop workspace rejects filesystem and home roots before creating managed directories
+ok 44 - desktop workspace rejects filesystem and home roots before creating managed directories
+  ---
+  duration_ms: 1.355125
+  type: 'test'
+  ...
+# Subtest: protected resources are canonicalized before workspace comparison
+ok 45 - protected resources are canonicalized before workspace comparison
+  ---
+  duration_ms: 0.915209
+  type: 'test'
+  ...
+# Subtest: workspace preparation creates absolute real directories
+ok 46 - workspace preparation creates absolute real directories
+  ---
+  duration_ms: 3.043167
+  type: 'test'
+  ...
+# Subtest: workspace preparation canonicalizes an existing leaf below a symlinked ancestor
+ok 47 - workspace preparation canonicalizes an existing leaf below a symlinked ancestor
+  ---
+  duration_ms: 3.618958
+  type: 'test'
+  ...
+# Subtest: workspace preparation rejects symlinked managed directories
+ok 48 - workspace preparation rejects symlinked managed directories
+  ---
+  duration_ms: 2.288958
+  type: 'test'
+  ...
+# Subtest: BrowserWindow options keep renderer capabilities disabled and load only the trusted preload
+ok 49 - BrowserWindow options keep renderer capabilities disabled and load only the trusted preload
+  ---
+  duration_ms: 0.121541
+  type: 'test'
+  ...
+# Subtest: IPC origin guard accepts only the launcher main frame from the owning window
+ok 50 - IPC origin guard accepts only the launcher main frame from the owning window
+  ---
+  duration_ms: 0.116042
+  type: 'test'
+  ...
+# Subtest: navigation guards allow only the exact launcher and artifact origins
+ok 51 - navigation guards allow only the exact launcher and artifact origins
+  ---
+  duration_ms: 0.250958
+  type: 'test'
+  ...
+# Subtest: navigation guards keep an active embedded CLI on the launcher
+ok 52 - navigation guards keep an active embedded CLI on the launcher
+  ---
+  duration_ms: 0.092125
+  type: 'test'
+  ...
+# Subtest: navigation setup rejects non-loopback base origins
+ok 53 - navigation setup rejects non-loopback base origins
+  ---
+  duration_ms: 0.050125
+  type: 'test'
+  ...
+# Subtest: session permissions allow only clipboard writes from the launcher main frame
+ok 54 - session permissions allow only clipboard writes from the launcher main frame
+  ---
+  duration_ms: 0.162083
+  type: 'test'
+  ...
+# (node:59498) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: relaunch arguments replace every previous workspace option and preserve unrelated arguments
+ok 55 - relaunch arguments replace every previous workspace option and preserve unrelated arguments
+  ---
+  duration_ms: 0.70975
+  type: 'test'
+  ...
+# Subtest: workspace controller exposes the current workspace without accepting a renderer path
+ok 56 - workspace controller exposes the current workspace without accepting a renderer path
+  ---
+  duration_ms: 0.254208
+  type: 'test'
+  ...
+# Subtest: workspace controller validates, persists, and relaunches a newly selected workspace
+ok 57 - workspace controller validates, persists, and relaunches a newly selected workspace
+  ---
+  duration_ms: 0.291
+  type: 'test'
+  ...
+# Subtest: workspace controller preserves the current session when selection is canceled or unchanged
+ok 58 - workspace controller preserves the current session when selection is canceled or unchanged
+  ---
+  duration_ms: 0.206917
+  type: 'test'
+  ...
+# Subtest: workspace controller blocks selection while a pipeline or agent terminal is active
+ok 59 - workspace controller blocks selection while a pipeline or agent terminal is active
+  ---
+  duration_ms: 0.086083
+  type: 'test'
+  ...
+# Subtest: workspace controller serializes concurrent selection requests
+ok 60 - workspace controller serializes concurrent selection requests
+  ---
+  duration_ms: 0.169667
+  type: 'test'
+  ...
+# Subtest: packaged startup replaces an invalid saved workspace only after validating the replacement
+ok 61 - packaged startup replaces an invalid saved workspace only after validating the replacement
+  ---
+  duration_ms: 0.404666
+  type: 'test'
+  ...
+# Subtest: packaged startup never persists a replacement that fails validation
+ok 62 - packaged startup never persists a replacement that fails validation
+  ---
+  duration_ms: 0.731417
+  type: 'test'
+  ...
+# Subtest: workspace IPC accepts only the owning launcher main frame and removes both handlers
+ok 63 - workspace IPC accepts only the owning launcher main frame and removes both handlers
+  ---
+  duration_ms: 0.914458
+  type: 'test'
+  ...
+# (node:59499) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: audits the stage manifest against the actual runtime directory
+ok 64 - audits the stage manifest against the actual runtime directory
+  ---
+  duration_ms: 15.870667
+  type: 'test'
+  ...
+# Subtest: rejects a packaged Viewer whose source tree changed after staging
+ok 65 - rejects a packaged Viewer whose source tree changed after staging
+  ---
+  duration_ms: 4.579792
+  type: 'test'
+  ...
+# Subtest: rejects forbidden and unlisted creative/runtime files
+ok 66 - rejects forbidden and unlisted creative/runtime files
+  ---
+  duration_ms: 4.303125
+  type: 'test'
+  ...
+# Subtest: rejects an untracked file even under an allowed runtime root
+ok 67 - rejects an untracked file even under an allowed runtime root
+  ---
+  duration_ms: 5.222584
+  type: 'test'
+  ...
+# Subtest: audits an app.asar containing only the explicit Desktop source allowlist
+ok 68 - audits an app.asar containing only the explicit Desktop source allowlist
+  ---
+  duration_ms: 20.287333
+  type: 'test'
+  ...
+# Subtest: rejects a package missing an allowlisted Desktop source
+ok 69 - rejects a package missing an allowlisted Desktop source
+  ---
+  duration_ms: 12.352584
+  type: 'test'
+  ...
+# Subtest: rejects a package missing native files for the target platform and architecture
+ok 70 - rejects a package missing native files for the target platform and architecture
+  ---
+  duration_ms: 9.661
+  type: 'test'
+  ...
+# Subtest: rejects a non-executable node-pty spawn helper
+ok 71 - rejects a non-executable node-pty spawn helper
+  ---
+  duration_ms: 11.868209
+  type: 'test'
+  ...
+# Subtest: rejects unpacked files outside node-pty
+ok 72 - rejects unpacked files outside node-pty
+  ---
+  duration_ms: 11.6965
+  type: 'test'
+  ...
+# Subtest: rejects an arbitrary untracked file in app.asar
+ok 73 - rejects an arbitrary untracked file in app.asar
+  ---
+  duration_ms: 12.716792
+  type: 'test'
+  ...
+# Subtest: rejects build-only command shims and Playwright from app.asar
+ok 74 - rejects build-only command shims and Playwright from app.asar
+  ---
+  duration_ms: 24.553167
+  type: 'test'
+  ...
+# (node:59500) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: stages generated outputs and only safe tracked runtime assets
+ok 75 - stages generated outputs and only safe tracked runtime assets
+  ---
+  duration_ms: 83.581667
+  type: 'test'
+  ...
+# Subtest: rejects symlinks inside the tracked runtime allowlist
+ok 76 - rejects symlinks inside the tracked runtime allowlist
+  ---
+  duration_ms: 78.682708
+  type: 'test'
+  ...
+# Subtest: parses fixture-only offline prepare arguments and rejects implicit install
+ok 77 - parses fixture-only offline prepare arguments and rejects implicit install
+  ---
+  duration_ms: 0.248834
+  type: 'test'
+  ...
+# Subtest: copies offline production dependencies without npm ci
+ok 78 - copies offline production dependencies without npm ci
+  ---
+  duration_ms: 71.419667
+  type: 'test'
+  ...
+# Subtest: rejects a non-Node-22 executable
+ok 79 - rejects a non-Node-22 executable
+  ---
+  duration_ms: 47.122792
+  type: 'test'
+  ...
+# Subtest: cleans only root build and Viewer dist before packaging builds
+ok 80 - cleans only root build and Viewer dist before packaging builds
+  ---
+  duration_ms: 1.922833
+  type: 'test'
+  ...
+# Subtest: rejects untracked build inputs outside the explicit Desktop source allowlist
+ok 81 - rejects untracked build inputs outside the explicit Desktop source allowlist
+  ---
+  duration_ms: 0.211083
+  type: 'test'
+  ...
+# (node:59501) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Electron and Forge stay build-time dependencies at the pinned versions
+ok 82 - Electron and Forge stay build-time dependencies at the pinned versions
+  ---
+  duration_ms: 4.881541
+  type: 'test'
+  ...
+# Subtest: Viewer keeps terminal rendering dependencies in its runtime manifest
+ok 83 - Viewer keeps terminal rendering dependencies in its runtime manifest
+  ---
+  duration_ms: 1.152916
+  type: 'test'
+  ...
+# Subtest: Forge makes macOS ZIP/DMG and Windows Squirrel with an external runtime
+ok 84 - Forge makes macOS ZIP/DMG and Windows Squirrel with an external runtime
+  ---
+  duration_ms: 2.179917
+  type: 'test'
+  ...
+# Subtest: Forge makes rebuilt and prebuilt node-pty spawn helpers executable before ASAR
+ok 85 - Forge makes rebuilt and prebuilt node-pty spawn helpers executable before ASAR
+  ---
+  duration_ms: 3.642583
+  type: 'test'
+  ...
+# Subtest: ships the Tsugite joinery icon in source, macOS, and Windows formats
+ok 86 - ships the Tsugite joinery icon in source, macOS, and Windows formats
+  ---
+  duration_ms: 13.912083
+  type: 'test'
+  ...
+# Subtest: Desktop CI keeps packaging manual and developer-only
+ok 87 - Desktop CI keeps packaging manual and developer-only
+  ---
+  duration_ms: 1.148167
+  type: 'test'
+  ...
+1..87
+# tests 87
+# suites 0
+# pass 87
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 341.295458
+---
+exit_code=0
