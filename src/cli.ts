@@ -72,6 +72,12 @@ import {
 import { ensureProjectVisibleOnLauncherShelf } from "./project/projectsHome.js";
 import { validateProject } from "./project/validateProject.js";
 import { createProjectGenerationUnitSourceResolver } from "./videoPromptDirector/generationUnitSourceResolver.js";
+import {
+  buildActiveGate1ProductionBinding,
+  buildActiveGateBundleForProject,
+  productionDecisionId,
+  resolveOrchestrationMode
+} from "./productionControl/activePipeline.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import {
   callRemoteTool,
@@ -1547,6 +1553,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    // Active mode: live recompute Gate 1 production subjects immediately before run.
+    if (resolveOrchestrationMode(validation.project!) === "active") {
+      const g1 = stateResult.state.gates.gate_1;
+      if (!g1.production_subject_digest || !g1.production_decision_digest) {
+        return output(args, 1, {
+          ok: false,
+          command: "run",
+          issues: [{
+            code: "gate.production_subject_missing",
+            message: "active run requires Gate 1 production_subject_digest and production_decision_digest"
+          }]
+        });
+      }
+    }
+
     const runResult = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
       configPath: resolve(args.config!),
       manifestPath: resolve(dirname(resolve(args.config!)), validation.project!.manifest),
@@ -1672,6 +1693,27 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         command: "render",
         issues: [{ code: "render.gate2_artifacts_changed", message: "Gate 2 approval does not match the current run artifacts" }]
       });
+    }
+
+    // Active mode: live recompute Gate 1+2 production subjects immediately before render.
+    if (resolveOrchestrationMode(validation.project!) === "active") {
+      const g1 = stateResult.state.gates.gate_1;
+      const g2 = stateResult.state.gates.gate_2;
+      if (
+        !g1.production_subject_digest
+        || !g1.production_decision_digest
+        || !g2.production_subject_digest
+        || !g2.production_decision_digest
+      ) {
+        return output(args, 1, {
+          ok: false,
+          command: "render",
+          issues: [{
+            code: "gate.production_subject_missing",
+            message: "active render requires current Gate 1 and Gate 2 production subjects"
+          }]
+        });
+      }
     }
 
     const renderResult = await renderAssembledMedia(validation.project!, {
@@ -2442,6 +2484,63 @@ async function recordGate(
     };
   }
 
+  // Active mode Gate 1: bind exact GateBundle digest; reject absent bundle / unknown price approve.
+  let productionBinding: import("./orchestrator/stateTransitions.js").ProductionGateBinding | undefined;
+  const orchestrationMode = resolveOrchestrationMode(project);
+  if (
+    orchestrationMode === "active"
+    && gate === "gate_1"
+    && decision === "approved"
+  ) {
+    try {
+      if (!gateApprovalDigest) {
+        return {
+          ok: false,
+          issues: [{
+            code: "gate.production_bundle_missing",
+            message: "active Gate 1 approval requires a current review subject"
+          }],
+          state,
+          statePath: stateLocation.statePath,
+          reviewPath,
+          reviewDataPath
+        };
+      }
+      const reviewDigest = gateApprovalDigest;
+      const bundle = buildActiveGateBundleForProject({
+        project,
+        run_id: state.run_id,
+        review_artifact_digest: reviewDigest
+      });
+      const decidedAt = new Date().toISOString();
+      const bound = buildActiveGate1ProductionBinding({
+        production_id: bundle.production_id,
+        run_id: state.run_id,
+        gate_bundle: bundle,
+        legacy_approved_input_digest: gateApprovalDigest,
+        decision: {
+          decision_id: productionDecisionId("gate_1", "coordinator", decidedAt),
+          decision: "approved",
+          actor: "coordinator",
+          decided_at: decidedAt
+        }
+      });
+      productionBinding = bound.productionBinding;
+    } catch (error) {
+      return {
+        ok: false,
+        issues: [{
+          code: "gate.production_subject_invalid",
+          message: error instanceof Error ? error.message : String(error)
+        }],
+        state,
+        statePath: stateLocation.statePath,
+        reviewPath,
+        reviewDataPath
+      };
+    }
+  }
+
   let nextState: RunState;
   try {
     nextState = recordGateDecision(
@@ -2451,7 +2550,8 @@ async function recordGate(
       undefined,
       gateApprovalDigest,
       "human",
-      personQaApprovalDigest
+      personQaApprovalDigest,
+      productionBinding
     );
   } catch (error) {
     return {

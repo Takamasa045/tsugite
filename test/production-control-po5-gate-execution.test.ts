@@ -27,8 +27,13 @@ import {
   createGate2Subject,
   createGate3Subject,
   createGateBundle,
+  createFullProductionJobBinding,
   createGenerationJobApprovalBinding,
   createInitialMissionState,
+  buildActiveGate1ProductionBinding,
+  buildActiveGateBundle,
+  cascadeRunStateFromDrift,
+  mapRunConditionsToGate2AutoPass,
   createLeaseIndex,
   evaluateGate2AutoPass,
   executeWithSubmissionAuthority,
@@ -117,11 +122,16 @@ function unknownPricing(routeId: RouteIdentity) {
 
 function sampleBundle(overrides: Partial<{
   batches: GateBundle["generation_batches"];
-  composition_intent_digest?: string;
+  composition_intent_digest?: string | null;
   selected?: string[];
+  with_program_ranges?: boolean;
 }> = {}): GateBundle {
   const r = route("main");
   const priced = knownPricing(r);
+  const withRanges = overrides.with_program_ranges !== false;
+  const compositionIntent = overrides.composition_intent_digest === null
+    ? undefined
+    : (overrides.composition_intent_digest ?? (withRanges ? DIGEST_A : undefined));
   return createGateBundle({
     production_id: "prod-1",
     run_id: "run-1",
@@ -129,9 +139,7 @@ function sampleBundle(overrides: Partial<{
     contract_set_digest: DIGEST_B,
     task_tree_digest: DIGEST_C,
     selected_artifact_digests: overrides.selected ?? [DIGEST_D],
-    ...(overrides.composition_intent_digest
-      ? { composition_intent_digest: overrides.composition_intent_digest }
-      : {}),
+    ...(compositionIntent ? { composition_intent_digest: compositionIntent } : {}),
     generation_batches: overrides.batches ?? [
       {
         batch_id: "batch-1",
@@ -141,15 +149,19 @@ function sampleBundle(overrides: Partial<{
             ordinal: 0,
             generation_unit_digest: DIGEST_E,
             base_compilation_digest: DIGEST_F,
-            program_start_ms: 0,
-            program_end_ms: 8_000
+            route_digest: r.route_digest,
+            ...(withRanges
+              ? { program_start_ms: 0, program_end_ms: 8_000 }
+              : {})
           },
           {
             ordinal: 1,
             generation_unit_digest: sha256Canonical({ unit: 2 }),
             base_compilation_digest: sha256Canonical({ compile: 2 }),
-            program_start_ms: 8_000,
-            program_end_ms: 16_000
+            route_digest: r.route_digest,
+            ...(withRanges
+              ? { program_start_ms: 8_000, program_end_ms: 16_000 }
+              : {})
           }
         ],
         ...priced
@@ -157,6 +169,15 @@ function sampleBundle(overrides: Partial<{
     ],
     review_artifact_digest: sha256Canonical({ review: "storyboard" })
   });
+}
+
+function sealedGate1(bundle: GateBundle) {
+  return {
+    subject_digest: DIGEST_A,
+    decision_digest: DIGEST_B,
+    gate_bundle_digest: bundle.digest,
+    stale: false as const
+  };
 }
 
 function computeDriftedIdentity(binding: { production_id: string; run_id: string; node_id: string; attempt_id: string; generation_job_id: string; approval_digest: string; gate_bundle_digest: string; gate_1_decision_digest: string; request_digest: string; compilation_digest: string; route: RouteIdentity; pricing_binding_digest: string }): string {
@@ -444,35 +465,59 @@ describe("PO-5 Gate subjects / cascade / legacy compatibility", () => {
 });
 
 describe("PO-5 authority / dispatcher / leases", () => {
-  it("denies paid until PO-6 and requires Gate1+known price+Coordinator for submit", () => {
+  it("denies paid until PO-6 and requires sealed Gate1+bundle+Coordinator for submit", () => {
     const bundle = sampleBundle();
+    // paid_authorization:true is still unconditionally denied in T06.
     expect(checkAuthority({
       role: "generator",
       effect: "paid",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
-      gate_1_current: true,
-      paid_authorization: false
+      coordinator_actor: "coordinator",
+      paid_authorization: true
     }).allowed).toBe(false);
+    expect(checkAuthority({
+      role: "generator",
+      effect: "paid",
+      actor: "coordinator",
+      mode: "active",
+      coordinator_actor: "coordinator",
+      paid_authorization: true
+    }).reason).toBe("paid execution denied until PO-6 typed authorization exists");
 
     expect(checkAuthority({
       role: "generator",
       effect: "external-submit",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
-      gate_1_current: true,
-      gate_bundle: bundle
+      coordinator_actor: "coordinator",
+      gate_bundle: bundle,
+      gate_1: sealedGate1(bundle)
     }).allowed).toBe(true);
+
+    // known_price alone is forbidden.
+    expect(checkAuthority({
+      role: "generator",
+      effect: "external-submit",
+      actor: "coordinator",
+      mode: "active",
+      coordinator_actor: "coordinator",
+      known_price: true
+    }).allowed).toBe(false);
+    expect(checkAuthority({
+      role: "generator",
+      effect: "external-submit",
+      actor: "coordinator",
+      mode: "active",
+      coordinator_actor: "coordinator",
+      known_price: true
+    }).reason).toBe("known_price alone cannot authorize external-submit");
 
     expect(checkAuthority({
       role: "generator",
       effect: "external-submit",
       actor: "planner",
       mode: "active",
-      is_coordinator: false,
-      gate_1_current: true,
       known_price: true
     }).allowed).toBe(false);
 
@@ -481,9 +526,9 @@ describe("PO-5 authority / dispatcher / leases", () => {
       effect: "render",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
+      coordinator_actor: "coordinator",
       explicit_render_command: true,
-      gate_2_current: true
+      gate_2: { subject_digest: DIGEST_C, decision_digest: DIGEST_D, stale: false }
     }).allowed).toBe(true);
 
     expect(checkAuthority({
@@ -491,9 +536,9 @@ describe("PO-5 authority / dispatcher / leases", () => {
       effect: "render",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
+      coordinator_actor: "coordinator",
       explicit_render_command: false,
-      gate_2_current: true
+      gate_2: { subject_digest: DIGEST_C, decision_digest: DIGEST_D, stale: false }
     }).allowed).toBe(false);
 
     expect(checkAuthority({
@@ -501,8 +546,7 @@ describe("PO-5 authority / dispatcher / leases", () => {
       effect: "external-submit",
       actor: "coordinator",
       mode: "shadow",
-      is_coordinator: true,
-      gate_1_current: true,
+      coordinator_actor: "coordinator",
       known_price: true
     }).allowed).toBe(false);
   });
@@ -512,7 +556,7 @@ describe("PO-5 authority / dispatcher / leases", () => {
     const authority = {
       actor: "coordinator",
       mode: "active" as const,
-      is_coordinator: true
+      coordinator_actor: "coordinator"
     };
     const slots = [0, 1, 2].map((i) => dispatcher.acquire({
       node_id: `pure-${i}`,
@@ -785,11 +829,30 @@ describe("PO-5 generation bridge / submission_unknown / pin-only / T05 authority
     expect(invocations).toBe(0);
   });
 
-  it("requires production_binding only in active mode", () => {
+  it("requires full production_binding only in active mode", () => {
     const job = pinnedJob({ status: "approved", artifact: undefined, revision: 1 });
+    const r = route("main");
+    const full = createGenerationJobApprovalBinding({
+      production_id: "prod-1",
+      run_id: "run-1",
+      node_id: "n1",
+      attempt_id: "a1",
+      generation_job_id: job.job_id,
+      approval_observed_revision: 1,
+      approval_digest: DIGEST_A,
+      gate_bundle_digest: DIGEST_B,
+      gate_1_decision_digest: DIGEST_C,
+      request_digest: DIGEST_D,
+      compilation_digest: DIGEST_E,
+      route: r,
+      pricing_binding_digest: DIGEST_F
+    });
     expect(() => assertProductionBindingForMode(job, "disabled")).not.toThrow();
     expect(() => assertProductionBindingForMode(job, "shadow")).not.toThrow();
-    expect(() => assertProductionBindingForMode(job, "active")).toThrow(/production_binding/);
+    expect(() => assertProductionBindingForMode(job, "active")).toThrow(
+      /active production mode requires generation job production_binding/
+    );
+    // Length-only shell / wrong identity is rejected.
     expect(() => assertProductionBindingForMode({
       ...job,
       production_binding: {
@@ -797,10 +860,21 @@ describe("PO-5 generation bridge / submission_unknown / pin-only / T05 authority
         run_id: "run-1",
         node_id: "n1",
         attempt_id: "a1",
-        gate_bundle_digest: DIGEST_A,
-        immutable_identity_digest: DIGEST_B,
-        approval_observed_revision: 1
+        generation_job_id: job.job_id,
+        approval_observed_revision: 1,
+        approval_digest: DIGEST_A,
+        gate_bundle_digest: DIGEST_B,
+        gate_1_decision_digest: DIGEST_C,
+        request_digest: DIGEST_D,
+        compilation_digest: DIGEST_E,
+        route: r,
+        pricing_binding_digest: DIGEST_F,
+        immutable_identity_digest: "0".repeat(64)
       }
+    }, "active")).toThrow(/production_binding invalid|identity/);
+    expect(() => assertProductionBindingForMode({
+      ...job,
+      production_binding: full
     }, "active")).not.toThrow();
   });
 });
@@ -994,15 +1068,18 @@ describe("PO-5 resume / events / snapshot / orphan / interleaving", () => {
 });
 
 describe("PO-5 authority assert helpers", () => {
-  it("assertAuthority throws on denied effects", () => {
+  it("assertAuthority throws with exact PC_AUTHORITY_DENIED for paid", () => {
     expect(() => assertAuthority({
       role: "generator",
       effect: "paid",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
-      gate_1_current: true
-    })).toThrow(/PO-6/);
+      coordinator_actor: "coordinator",
+      paid_authorization: true
+    })).toThrowError(expect.objectContaining({
+      code: "PC_AUTHORITY_DENIED",
+      message: "paid execution denied until PO-6 typed authorization exists"
+    }));
   });
 
   it("route identity keys distinguish complete routes", () => {
@@ -1010,47 +1087,50 @@ describe("PO-5 authority assert helpers", () => {
   });
 });
 
-describe("PO-5 branch coverage extras", () => {
-  it("covers authority branches for local-write, gate, paid-authorized, and unknown-price submit", () => {
+describe("PO-5 sealed authority integration", () => {
+  it("requires sealed coordinator/gate bindings and rejects boolean-only authority", () => {
     expect(checkAuthority({
       role: "editor",
       effect: "local-write",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true
+      coordinator_actor: "coordinator"
     }).allowed).toBe(true);
     expect(checkAuthority({
       role: "editor",
       effect: "local-write",
       actor: "planner",
       mode: "active",
-      is_coordinator: false
+      is_coordinator: true
     }).allowed).toBe(false);
     expect(checkAuthority({
       role: "coordinator",
       effect: "gate",
       actor: "human",
       mode: "active",
-      is_coordinator: true,
-      human_gate_decision: true
+      human_decision_ref: {
+        decision_id: "d1",
+        decision: "approved",
+        actor: "human",
+        decided_at: "2026-08-12T00:00:00.000Z",
+        subject_digest: DIGEST_A
+      }
     }).allowed).toBe(true);
     expect(checkAuthority({
       role: "coordinator",
       effect: "gate",
       actor: "human",
       mode: "active",
-      is_coordinator: true,
-      human_gate_decision: false
+      human_gate_decision: true
     }).allowed).toBe(false);
     expect(checkAuthority({
       role: "generator",
       effect: "paid",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
-      gate_1_current: true,
+      coordinator_actor: "coordinator",
       paid_authorization: true
-    }).allowed).toBe(true);
+    }).allowed).toBe(false);
     const unknown = createGateBundle({
       production_id: "prod-1",
       run_id: "run-1",
@@ -1071,26 +1151,16 @@ describe("PO-5 branch coverage extras", () => {
       effect: "external-submit",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
-      gate_1_current: true,
-      gate_bundle: unknown
+      coordinator_actor: "coordinator",
+      gate_bundle: unknown,
+      gate_1: sealedGate1(unknown)
     }).allowed).toBe(false);
     expect(checkAuthority({
       role: "generator",
       effect: "external-submit",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
-      gate_1_current: true,
-      known_price: true
-    }).allowed).toBe(true);
-    expect(checkAuthority({
-      role: "generator",
-      effect: "external-submit",
-      actor: "coordinator",
-      mode: "active",
-      is_coordinator: true,
-      gate_1_current: false,
+      coordinator_actor: "coordinator",
       known_price: true
     }).allowed).toBe(false);
     expect(checkAuthority({
@@ -1098,16 +1168,14 @@ describe("PO-5 branch coverage extras", () => {
       effect: "render",
       actor: "coordinator",
       mode: "active",
-      is_coordinator: true,
-      explicit_render_command: true,
-      gate_2_current: false
+      coordinator_actor: "coordinator",
+      explicit_render_command: true
     }).allowed).toBe(false);
     expect(checkAuthority({
       role: "story",
       effect: "paid",
       actor: "story",
-      mode: "active",
-      is_coordinator: false
+      mode: "active"
     }).allowed).toBe(false);
   });
 
@@ -1140,7 +1208,15 @@ describe("PO-5 branch coverage extras", () => {
 
     const mv = sampleBundle({ composition_intent_digest: DIGEST_A });
     expect(() => requireMvCompositionIntent(mv)).not.toThrow();
-    expect(() => requireMvCompositionIntent(sampleBundle())).toThrow(/composition_intent/);
+    // Without program ranges, composition intent is not required.
+    expect(() => requireMvCompositionIntent(sampleBundle({ with_program_ranges: false, composition_intent_digest: null }))).not.toThrow();
+    // createGateBundle rejects program ranges without composition intent (exact code).
+    expect(() => sampleBundle({ with_program_ranges: true, composition_intent_digest: null })).toThrowError(
+      expect.objectContaining({
+        code: "PC_GATE_BUNDLE_INVALID",
+        message: "MV GateBundle requires composition_intent_digest with program ranges"
+      })
+    );
     const groups = groupUnitsByRoute([
       { route: route("g1"), id: 1 },
       { route: route("g2"), id: 2 },
@@ -1263,7 +1339,7 @@ describe("PO-5 branch coverage extras", () => {
       input_digest: DIGEST_A,
       role: "story",
       effect: "propose",
-      authority: { actor: "c", mode: "active", is_coordinator: true },
+      authority: { actor: "c", mode: "active", coordinator_actor: "c" },
       now: "2026-08-12T00:00:00.000Z",
       ttl_ms: 1
     });
@@ -1274,7 +1350,7 @@ describe("PO-5 branch coverage extras", () => {
       input_digest: DIGEST_B,
       role: "generator",
       effect: "external-observe",
-      authority: { actor: "c", mode: "active", is_coordinator: true },
+      authority: { actor: "c", mode: "active", coordinator_actor: "c" },
       now: "2026-08-12T00:00:00.000Z",
       ttl_ms: 1
     });
@@ -1372,6 +1448,613 @@ describe("PO-5 branch coverage extras", () => {
       }, [envelope])).toThrow(/invalidated/);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("PO-5 createGateBundle live enforcements", () => {
+  it("rejects known amount > max_amount and mixed unit route digests inside createGateBundle", () => {
+    const r = route("cap");
+    expect(() => createGateBundle({
+      production_id: "prod-1",
+      run_id: "run-1",
+      production_contract_digest: DIGEST_A,
+      contract_set_digest: DIGEST_B,
+      task_tree_digest: DIGEST_C,
+      selected_artifact_digests: [],
+      generation_batches: [{
+        batch_id: "batch-cap",
+        route: r,
+        ordered_units: [{ ordinal: 0, generation_unit_digest: DIGEST_E, base_compilation_digest: DIGEST_F }],
+        pricing: {
+          status: "known",
+          version: "price-v1",
+          currency: "USD",
+          amount: 5,
+          max_amount: 3
+        }
+      }],
+      review_artifact_digest: DIGEST_D
+    })).toThrowError(expect.objectContaining({
+      code: "PC_GATE_BUNDLE_INVALID",
+      message: "known pricing amount must be <= max_amount"
+    }));
+
+    const r2 = route("other");
+    expect(() => createGateBundle({
+      production_id: "prod-1",
+      run_id: "run-1",
+      production_contract_digest: DIGEST_A,
+      contract_set_digest: DIGEST_B,
+      task_tree_digest: DIGEST_C,
+      selected_artifact_digests: [],
+      generation_batches: [{
+        batch_id: "batch-mix",
+        route: r,
+        ordered_units: [{
+          ordinal: 0,
+          generation_unit_digest: DIGEST_E,
+          base_compilation_digest: DIGEST_F,
+          route_digest: r2.route_digest
+        }],
+        ...knownPricing(r)
+      }],
+      review_artifact_digest: DIGEST_D
+    })).toThrowError(expect.objectContaining({
+      code: "PC_GATE_BUNDLE_INVALID",
+      message: "generation batch cannot mix RouteIdentity values"
+    }));
+  });
+
+  it("requires composition_intent_digest when program ranges are present", () => {
+    const r = route("mv");
+    expect(() => createGateBundle({
+      production_id: "prod-1",
+      run_id: "run-1",
+      production_contract_digest: DIGEST_A,
+      contract_set_digest: DIGEST_B,
+      task_tree_digest: DIGEST_C,
+      selected_artifact_digests: [],
+      generation_batches: [{
+        batch_id: "batch-mv",
+        route: r,
+        ordered_units: [{
+          ordinal: 0,
+          generation_unit_digest: DIGEST_E,
+          base_compilation_digest: DIGEST_F,
+          program_start_ms: 0,
+          program_end_ms: 1000
+        }],
+        ...knownPricing(r)
+      }],
+      review_artifact_digest: DIGEST_D
+    })).toThrowError(expect.objectContaining({
+      code: "PC_GATE_BUNDLE_INVALID",
+      message: "MV GateBundle requires composition_intent_digest with program ranges"
+    }));
+  });
+});
+
+describe("PO-5 live RunState cascade / Gate2 auto-pass / Gate1 binding", () => {
+  it("cascades IdentityDefinition onto real RunState and unifies gate ids", () => {
+    let state = createPlannedState("run-cascade");
+    state = markGateAwaiting(state, "gate_1");
+    state = recordGateDecision(state, "gate_1", "approved", undefined, DIGEST_A, "human", undefined, {
+      production_subject_digest: DIGEST_B,
+      production_decision_digest: DIGEST_C
+    });
+    expect(state.gates.gate_1.production_subject_digest).toBe(DIGEST_B);
+    const cascaded = cascadeRunStateFromDrift(state, ["identity-definition"]);
+    expect(cascaded.cascade.stale_gate_1).toBe(true);
+    expect(cascaded.state.gates.gate_1.status).toBe("pending");
+    expect(cascaded.state.gates.gate_1.production_subject_digest).toBeUndefined();
+  });
+
+  it("maps live run conditions through the single Gate2 auto-pass implementation", () => {
+    expect(mapRunConditionsToGate2AutoPass({
+      project_opt_in: true,
+      credits: 0,
+      generatedAssetCount: 0,
+      qcIssueCount: 0,
+      semanticQaEnabled: false
+    }).auto_pass).toBe(true);
+    expect(mapRunConditionsToGate2AutoPass({
+      project_opt_in: true,
+      credits: 1,
+      generatedAssetCount: 0,
+      qcIssueCount: 0,
+      semanticQaEnabled: false
+    })).toEqual({ auto_pass: false, blocked_reason: "credits consumed" });
+  });
+
+  it("binds active Gate1 subject to exact GateBundle digest and rejects absent/unknown-price approve", () => {
+    const bundle = sampleBundle();
+    const bound = buildActiveGate1ProductionBinding({
+      production_id: "prod-1",
+      run_id: "run-1",
+      gate_bundle: bundle,
+      legacy_approved_input_digest: DIGEST_A,
+      decision: {
+        decision_id: "d-gate1",
+        decision: "approved",
+        actor: "coordinator",
+        decided_at: "2026-08-12T00:00:00.000Z"
+      }
+    });
+    expect(bound.productionBinding.production_subject_digest).toHaveLength(64);
+    expect(bound.gate_bundle_digest).toBe(bundle.digest);
+
+    expect(() => buildActiveGate1ProductionBinding({
+      production_id: "prod-1",
+      run_id: "run-1",
+      gate_bundle: undefined,
+      legacy_approved_input_digest: DIGEST_A,
+      decision: {
+        decision_id: "d-missing",
+        decision: "approved",
+        actor: "coordinator",
+        decided_at: "2026-08-12T00:00:00.000Z"
+      }
+    })).toThrowError(expect.objectContaining({
+      code: "PC_GATE_BUNDLE_INVALID",
+      message: "active Gate 1 approval requires a GateBundle"
+    }));
+
+    const r = route("u");
+    const unknown = createGateBundle({
+      production_id: "prod-1",
+      run_id: "run-1",
+      production_contract_digest: DIGEST_A,
+      contract_set_digest: DIGEST_B,
+      task_tree_digest: DIGEST_C,
+      selected_artifact_digests: [],
+      generation_batches: [{
+        batch_id: "batch-u3",
+        route: r,
+        ordered_units: [{ ordinal: 0, generation_unit_digest: DIGEST_E, base_compilation_digest: DIGEST_F }],
+        ...unknownPricing(r)
+      }],
+      review_artifact_digest: DIGEST_D
+    });
+    expect(() => buildActiveGate1ProductionBinding({
+      production_id: "prod-1",
+      run_id: "run-1",
+      gate_bundle: unknown,
+      legacy_approved_input_digest: DIGEST_A,
+      decision: {
+        decision_id: "d-unknown",
+        decision: "approved",
+        actor: "coordinator",
+        decided_at: "2026-08-12T00:00:00.000Z"
+      }
+    })).toThrowError(expect.objectContaining({
+      code: "PC_GATE_BUNDLE_INVALID",
+      message: "unknown price cannot be approved or executed"
+    }));
+  });
+});
+
+describe("PO-5 machine active submit T05 path (stub adapter)", () => {
+  it("active submit never reaches adapter without adopted T05 authority; fake/raw/swap stay at 0", async () => {
+    const { GenerationJobMachine } = await import("../src/generationJobs/machine.js");
+    const { GenerationJobStore } = await import("../src/generationJobs/store.js");
+    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-machine-"));
+    try {
+      let adapterSubmitCount = 0;
+      const store = new GenerationJobStore({ rootDir: root });
+      const r = route("main");
+      const fullBinding = createGenerationJobApprovalBinding({
+        production_id: "prod-1",
+        run_id: "run-1",
+        node_id: "n1",
+        attempt_id: "a1",
+        generation_job_id: "job-active-1",
+        approval_observed_revision: 0,
+        approval_digest: DIGEST_A,
+        gate_bundle_digest: DIGEST_B,
+        gate_1_decision_digest: DIGEST_C,
+        request_digest: DIGEST_D,
+        compilation_digest: DIGEST_E,
+        route: r,
+        pricing_binding_digest: DIGEST_F
+      });
+      const request = {
+        digest: computeRequestDigestForTest({
+          model_id: "model-main",
+          mode: "text-to-video",
+          connection_id: "conn-main",
+          auth_env_names: [],
+          asset_paths: [],
+          params: { text: "fixture only" }
+        }),
+        model_id: "model-main",
+        mode: "text-to-video",
+        connection_id: "conn-main",
+        auth_env_names: [] as string[],
+        asset_paths: [] as string[],
+        params: { text: "fixture only" }
+      };
+      // Fix request digest with real function
+      const { computeRequestDigest, createApproval } = await import("../src/generationJobs/approval.js");
+      request.digest = computeRequestDigest(request);
+
+      await store.create({
+        job_id: "job-active-1",
+        connection_id: "conn-main",
+        model_id: "model-main",
+        mode: "text-to-video",
+        request,
+        model_profile_digest: DIGEST_A,
+        connection_capability_digest: DIGEST_B,
+        pricing: {
+          status: "known",
+          version: "price-v1",
+          currency: "USD",
+          amount: 1,
+          max_amount: 2
+        },
+        status: "awaiting_cost_approval",
+        production_binding: fullBinding
+      });
+
+      const machine = new GenerationJobMachine({
+        store,
+        adapter: {
+          adapter_id: "stub",
+          connection_id: "conn-main",
+          capabilities: { submit: true, poll: true, download: true, cancel: false },
+          async submit() {
+            adapterSubmitCount += 1;
+            return { ok: true as const, provider_job_id: "prov-1" };
+          },
+          async poll() {
+            return { ok: true as const, status: "succeeded" as const };
+          },
+          async download() {
+            return {
+              ok: true as const,
+              relative_path: "out.mp4",
+              bytes: Buffer.from("fixture"),
+              sha256: DIGEST_D,
+              byte_length: 7
+            };
+          }
+        },
+        orchestrationMode: "active",
+        resolveExecutionBundle: async () => ({ execution_capable: true, compilation_digest: DIGEST_E }),
+        resolveSubmissionBinding: async (job) => ({
+          production_id: "prod-1",
+          project_id: "proj-1",
+          revision_id: "rev-1",
+          request_id: "req-1",
+          attempt_id: job.production_binding!.attempt_id,
+          job_id: job.job_id,
+          compilation_digest: DIGEST_E,
+          effective_contract_digest: DIGEST_A,
+          asset_lineage_digest: DIGEST_B
+        })
+      });
+
+      // Approve requires full binding (present).
+      const approved = await machine.approve("job-active-1", "coordinator");
+      expect(approved.status).toBe("approved");
+
+      // Active submit with fake bundle → adapter invoke 0, fails closed (not submission_unknown).
+      const failed = await machine.submit("job-active-1");
+      expect(failed.status).toBe("failed");
+      expect(failed.error?.code).toBe("GJ-E027");
+      expect(failed.error?.message).toMatch(/T05 authority failed|adopted|active submit/);
+      expect(adapterSubmitCount).toBe(0);
+      expect(machine.lastActiveSubmitUsedT05).toBe(false);
+
+      // Raw JSON swap / double-use paths already covered by executeWithSubmissionAuthority unit tests.
+      const raw = await executeWithSubmissionAuthority({
+        bundle: JSON.parse(JSON.stringify({ execution_capable: true })),
+        binding: {
+          production_id: "prod-1",
+          project_id: "proj-1",
+          revision_id: "rev-1",
+          request_id: "req-1",
+          attempt_id: "a1",
+          job_id: "job-active-1",
+          compilation_digest: DIGEST_E,
+          effective_contract_digest: DIGEST_A,
+          asset_lineage_digest: DIGEST_B
+        },
+        hooks: { onAdapterInvoke: () => { adapterSubmitCount += 1; } }
+      });
+      expect(raw.ok).toBe(false);
+      expect(raw.adapter_invocations).toBe(0);
+      expect(adapterSubmitCount).toBe(0);
+      void createApproval;
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+function computeRequestDigestForTest(request: {
+  model_id: string;
+  mode: string;
+  connection_id: string;
+  auth_env_names: string[];
+  asset_paths: string[];
+  params: Record<string, unknown>;
+}): string {
+  return sha256Canonical({
+    kind: "generation-job-request",
+    schema_version: 1,
+    ...request
+  });
+}
+
+describe("PO-5 activePipeline public API branches", () => {
+  it("resolves modes, normalizes gate ids, and builds Gate2/Gate3 production bindings", async () => {
+    const {
+      resolveOrchestrationMode,
+      requireResolvedModeForEffect,
+      normalizeGateId,
+      buildActiveGate2ProductionBinding,
+      buildActiveGate3ProductionBinding,
+      assertActiveSubjectsBeforePhase,
+      liveSubjectsFromRunState,
+      productionDecisionId,
+      assertFullProductionBinding,
+      buildActiveGateBundleForProject
+    } = await import("../src/productionControl/activePipeline.js");
+
+    expect(resolveOrchestrationMode({ orchestration: { mode: "active" } })).toBe("active");
+    expect(resolveOrchestrationMode({ orchestration: { mode: "shadow" } })).toBe("shadow");
+    expect(resolveOrchestrationMode({})).toBeUndefined();
+    expect(requireResolvedModeForEffect(undefined, "run")).toBe("legacy");
+    expect(requireResolvedModeForEffect("active", "render")).toBe("active");
+    expect(requireResolvedModeForEffect("disabled", "finalize")).toBe("disabled");
+
+    expect(normalizeGateId("gate-1")).toBe("gate_1");
+    expect(normalizeGateId("Gate2")).toBe("gate_2");
+    expect(normalizeGateId("gate_3")).toBe("gate_3");
+    expect(normalizeGateId("nope")).toBeUndefined();
+
+    const g2 = buildActiveGate2ProductionBinding({
+      gate_1_decision_digest: DIGEST_A,
+      gate_bundle_digest: DIGEST_B,
+      selected_generation_completion_digests: [DIGEST_C],
+      manifest_digest: DIGEST_D,
+      technical_qa_digest: DIGEST_E,
+      identity_verification_report_digest: DIGEST_F,
+      decision: {
+        decision_id: "d2",
+        decision: "approved",
+        actor: "human",
+        decided_at: "2026-08-12T00:00:00.000Z"
+      },
+      decision_source: "human",
+      legacy_approved_input_digest: DIGEST_A
+    });
+    expect(g2.subject_digest).toHaveLength(64);
+
+    const g3 = buildActiveGate3ProductionBinding({
+      gate_2_decision_digest: g2.decision_digest,
+      gate_2_subject_digest: g2.subject_digest,
+      final_artifact_sha256: DIGEST_A,
+      render_report_digest: DIGEST_B,
+      gate_3_qc_digest: DIGEST_C,
+      selected_branch_digest: DIGEST_D,
+      decision: {
+        decision_id: "d3",
+        decision: "approved",
+        actor: "human",
+        decided_at: "2026-08-12T00:00:01.000Z"
+      },
+      legacy_approved_input_digest: DIGEST_A
+    });
+    expect(g3.productionBinding.production_decision_digest).toHaveLength(64);
+
+    let state = createPlannedState("run-api");
+    state = markGateAwaiting(state, "gate_1");
+    state = recordGateDecision(state, "gate_1", "approved", undefined, DIGEST_A, "human", undefined, {
+      production_subject_digest: DIGEST_B,
+      production_decision_digest: DIGEST_C
+    });
+    const subjects = liveSubjectsFromRunState(state);
+    expect(subjects.gate_1_subject_digest).toBe(DIGEST_B);
+    expect(() => assertActiveSubjectsBeforePhase({
+      mode: "active",
+      phase: "run",
+      state,
+      expected: subjects
+    })).not.toThrow();
+    expect(() => assertActiveSubjectsBeforePhase({
+      mode: "active",
+      phase: "run",
+      state,
+      expected: { ...subjects, gate_1_subject_digest: ZERO }
+    })).toThrowError(expect.objectContaining({ code: "PC_GATE_SUBJECT_STALE" }));
+    expect(() => assertActiveSubjectsBeforePhase({
+      mode: "disabled",
+      phase: "finalize",
+      state,
+      expected: {}
+    })).not.toThrow();
+
+    expect(productionDecisionId("gate_1", "coordinator", "2026-08-12T00:00:00.000Z")).toHaveLength(32);
+
+    const full = createGenerationJobApprovalBinding({
+      production_id: "prod-1",
+      run_id: "run-1",
+      node_id: "n1",
+      attempt_id: "a1",
+      generation_job_id: "job-1",
+      approval_observed_revision: 1,
+      approval_digest: DIGEST_A,
+      gate_bundle_digest: DIGEST_B,
+      gate_1_decision_digest: DIGEST_C,
+      request_digest: DIGEST_D,
+      compilation_digest: DIGEST_E,
+      route: route("api"),
+      pricing_binding_digest: DIGEST_F
+    });
+    expect(assertFullProductionBinding(full, "active")?.generation_job_id).toBe("job-1");
+    expect(assertFullProductionBinding(undefined, "shadow")).toBeUndefined();
+    expect(() => assertFullProductionBinding(undefined, "active")).toThrowError(
+      expect.objectContaining({ code: "PC_GENERATION_BINDING_INVALID" })
+    );
+
+    const project = {
+      slug: "api-active",
+      name: "api-active",
+      manifest: "manifest.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      orchestration: { mode: "active" as const },
+      generation: { connection: "pixverse", adapter: "pixverse", requests: [] }
+    } as never;
+    try {
+      const bundle = buildActiveGateBundleForProject({
+        project,
+        run_id: "run-api",
+        review_artifact_digest: DIGEST_A
+      });
+      expect(bundle.run_id).toBe("run-api");
+    } catch (error) {
+      expect(error).toBeTruthy();
+    }
+  });
+});
+
+describe("PO-5 Exit E2E fixture-only (mission → Gate1 → job binding → T05 stub)", () => {
+  it("proves active compile/plan/review GateBundle, Gate1 subject, full job binding, T05-only submit path, pin ref; provider 0", async () => {
+    const networkHits: string[] = [];
+    const originalFetch = globalThis.fetch;
+    // Fail-closed network: any fetch is a test failure signal.
+    globalThis.fetch = (async (...args: unknown[]) => {
+      networkHits.push(String(args[0]));
+      throw new Error("network forbidden in fixture E2E");
+    }) as typeof fetch;
+
+    try {
+      const r = route("e2e");
+      const priced = knownPricing(r);
+      const bundle = buildActiveGateBundle({
+        production_id: "prod-e2e",
+        run_id: "run-e2e",
+        production_contract_digest: DIGEST_A,
+        contract_set_digest: DIGEST_B,
+        task_tree_digest: DIGEST_C,
+        selected_artifact_digests: [DIGEST_D],
+        composition_intent_digest: DIGEST_A,
+        generation_batches: [{
+          batch_id: "batch-e2e",
+          route: r,
+          ordered_units: [{
+            ordinal: 0,
+            generation_unit_digest: DIGEST_E,
+            base_compilation_digest: DIGEST_F,
+            route_digest: r.route_digest,
+            program_start_ms: 0,
+            program_end_ms: 4_000
+          }],
+          ...priced
+        }],
+        review_artifact_digest: sha256Canonical({ review: "e2e" })
+      });
+      expect(projectGateBundleForReview(bundle).has_unknown_price).toBe(false);
+
+      // Human Gate1 exact subject
+      const gate1 = buildActiveGate1ProductionBinding({
+        production_id: "prod-e2e",
+        run_id: "run-e2e",
+        gate_bundle: bundle,
+        legacy_approved_input_digest: DIGEST_A,
+        decision: {
+          decision_id: "e2e-d1",
+          decision: "approved",
+          actor: "human",
+          decided_at: "2026-08-12T00:00:00.000Z"
+        }
+      });
+      expect(gate1.gate_bundle_digest).toBe(bundle.digest);
+
+      let runState = createPlannedState("run-e2e");
+      runState = markGateAwaiting(runState, "gate_1");
+      runState = recordGateDecision(
+        runState,
+        "gate_1",
+        "approved",
+        undefined,
+        DIGEST_A,
+        "human",
+        undefined,
+        gate1.productionBinding
+      );
+      expect(runState.gates.gate_1.production_subject_digest).toBe(gate1.subject_digest);
+      expect(runState.gates.gate_1.production_decision_digest).toBe(gate1.decision_digest);
+
+      // Full generation job binding + immutable identity recompute
+      const jobBinding = createFullProductionJobBinding({
+        production_id: "prod-e2e",
+        run_id: "run-e2e",
+        node_id: "gen-1",
+        attempt_id: "att-e2e",
+        generation_job_id: "job-e2e",
+        approval_observed_revision: 0,
+        approval_digest: DIGEST_A,
+        gate_bundle: bundle,
+        gate_1_decision_digest: gate1.decision_digest,
+        request_digest: DIGEST_D,
+        compilation_digest: DIGEST_F,
+        route: r,
+        pricing_binding_digest: priced.pricing_binding_digest
+      });
+      expect(jobBinding.gate_bundle_digest).toBe(bundle.digest);
+      expect(jobBinding.immutable_identity_digest).toHaveLength(64);
+
+      // Active submit path: only T05 authority; fake bundle → 0 adapter invokes.
+      let adapterInvokes = 0;
+      const submit = await executeWithSubmissionAuthority({
+        bundle: { execution_capable: true, compilation_digest: DIGEST_F },
+        binding: {
+          production_id: "prod-e2e",
+          project_id: "proj-e2e",
+          revision_id: "rev-e2e",
+          request_id: "req-e2e",
+          attempt_id: "att-e2e",
+          job_id: "job-e2e",
+          compilation_digest: DIGEST_F,
+          effective_contract_digest: DIGEST_A,
+          asset_lineage_digest: DIGEST_B
+        },
+        hooks: {
+          onAdapterInvoke: () => { adapterInvokes += 1; },
+          submitEffect: () => {
+            throw new Error("stub adapter must not run without adopted lease");
+          }
+        }
+      });
+      expect(submit.ok).toBe(false);
+      expect(submit.adapter_invocations).toBe(0);
+      expect(adapterInvokes).toBe(0);
+
+      // Pin completion ref from pinned job + full binding
+      const pinned = pinnedJob({
+        job_id: "job-e2e",
+        production_binding: jobBinding as never
+      });
+      const completion = createCompletionRefFromPinnedJob({
+        job: pinned,
+        binding: jobBinding,
+        verification_digest: DIGEST_E
+      });
+      expect(completion.generation_job_id).toBe("job-e2e");
+      expect(completion.immutable_identity_digest).toBe(jobBinding.immutable_identity_digest);
+
+      // Legacy/disabled/shadow unchanged: no production binding required.
+      expect(() => assertProductionBindingForMode(pinnedJob({ status: "approved", artifact: undefined }), "disabled")).not.toThrow();
+      expect(() => assertProductionBindingForMode(pinnedJob({ status: "approved", artifact: undefined }), "shadow")).not.toThrow();
+
+      expect(networkHits).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });

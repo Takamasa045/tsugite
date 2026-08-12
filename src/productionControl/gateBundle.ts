@@ -40,6 +40,8 @@ export const gateOrderedUnitSchema = z.object({
   ordinal: nonNegativeInt,
   generation_unit_digest: digestSchema,
   base_compilation_digest: digestSchema,
+  /** Exact batch route digest this unit is bound to; required for mixed-route rejection. */
+  route_digest: digestSchema.optional(),
   program_start_ms: nonNegativeInt.optional(),
   program_end_ms: finiteNumber.int().positive().optional()
 }).strict().superRefine((unit, context) => {
@@ -77,6 +79,26 @@ export const generationBatchSchema = z.object({
   const expectedPricingDigest = pricingBindingDigest(batch.pricing, batch.route);
   if (batch.pricing_binding_digest !== expectedPricingDigest) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["pricing_binding_digest"], message: "pricing binding digest mismatch" });
+  }
+  if (batch.pricing.status === "known"
+    && batch.pricing.amount !== null
+    && batch.pricing.max_amount !== null
+    && batch.pricing.amount > batch.pricing.max_amount) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["pricing", "amount"],
+      message: "known pricing amount must be <= max_amount"
+    });
+  }
+  for (let index = 0; index < batch.ordered_units.length; index += 1) {
+    const unit = batch.ordered_units[index]!;
+    if (unit.route_digest !== undefined && unit.route_digest !== batch.route.route_digest) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ordered_units", index, "route_digest"],
+        message: "generation batch cannot mix RouteIdentity values"
+      });
+    }
   }
 });
 export type GenerationBatch = z.infer<typeof generationBatchSchema>;
@@ -136,15 +158,43 @@ export function createGateBundle(input: GateBundleInput): GateBundle {
   const batches = input.generation_batches.map((batch) => {
     const route = routeIdentitySchema.parse(batch.route);
     const pricing = gatePricingSchema.parse(batch.pricing);
+    if (pricing.status === "known"
+      && pricing.amount !== null
+      && pricing.max_amount !== null
+      && pricing.amount > pricing.max_amount) {
+      throw pcError("PC_GATE_BUNDLE_INVALID", "known pricing amount must be <= max_amount", {
+        batch_id: batch.batch_id
+      });
+    }
     const pricingDigest = batch.pricing_binding_digest ?? pricingBindingDigest(pricing, route);
+    // Bind every ordered unit to this batch route digest (reject mixed routes in createGateBundle itself).
+    const ordered_units = batch.ordered_units.map((unit) => {
+      const routeDigest = unit.route_digest ?? route.route_digest;
+      if (routeDigest !== route.route_digest) {
+        throw pcError("PC_GATE_BUNDLE_INVALID", "generation batch cannot mix RouteIdentity values", {
+          batch_id: batch.batch_id
+        });
+      }
+      return { ...unit, route_digest: routeDigest };
+    });
     return generationBatchSchema.parse({
       ...batch,
       route,
       pricing,
+      ordered_units,
       pricing_binding_digest: pricingDigest
     });
   });
   assertHomogeneousBatchRoutes(batches);
+  const hasProgramRanges = batches.some((batch) =>
+    batch.ordered_units.some((unit) => unit.program_start_ms !== undefined || unit.program_end_ms !== undefined)
+  );
+  if (hasProgramRanges && !input.composition_intent_digest) {
+    throw pcError(
+      "PC_GATE_BUNDLE_INVALID",
+      "MV GateBundle requires composition_intent_digest with program ranges"
+    );
+  }
   const candidate = {
     schema_version: 1 as const,
     production_id: input.production_id,

@@ -8,6 +8,7 @@ import type {
 } from "./adapter.js";
 import {
   assertApprovalAllowsSubmit,
+  assertProductionBindingForMode,
   assertRequestDigestMatches,
   computeRequestDigest,
   createApproval
@@ -34,6 +35,12 @@ import { redactSecretsInString } from "./secrets.js";
 import type { GenerationJobRecord, GenerationJobRequest } from "./schema.js";
 import { GenerationJobStore } from "./store.js";
 import { isResumableWithProviderJob } from "./transitions.js";
+import {
+  executeWithSubmissionAuthority,
+  type ExecutionSubmitHooks
+} from "../productionControl/generationBridge.js";
+import type { ProductionControlMode } from "../productionControl/schema.js";
+import type { ExecutionSubmissionBinding } from "../videoPromptDirector/compilationBundle.js";
 
 /**
  * Default durable poll budget (max adapter poll invocations per job).
@@ -66,6 +73,30 @@ export type MachineOptions = {
    * Counter is persisted before each invocation so crash/resume cannot reset budget.
    */
   maxDownloadAttempts?: number;
+  /**
+   * Production-control rollout mode. Active submit requires full production
+   * binding and routes exclusively through T05 executeWithSubmissionAuthority.
+   * Unresolved mode fails closed at the active effect boundary.
+   */
+  orchestrationMode?: ProductionControlMode;
+  /**
+   * Active mode only: return a T05-adopted execution compilation bundle for the job.
+   * Raw / fake JSON is rejected by executeWithSubmissionAuthority (adapter invoke 0).
+   */
+  resolveExecutionBundle?: (
+    job: GenerationJobRecord
+  ) => unknown | Promise<unknown>;
+  /**
+   * Active mode only: exact attempt/job submission binding for the T05 lease.
+   */
+  resolveSubmissionBinding?: (
+    job: GenerationJobRecord
+  ) => ExecutionSubmissionBinding | Promise<ExecutionSubmissionBinding>;
+  /**
+   * Test/integration hooks around the active T05 submission path only.
+   * Never grants authority by itself.
+   */
+  activeSubmitHooks?: ExecutionSubmitHooks;
 };
 
 function positiveBound(value: number | undefined, fallback: number, label: string): number {
@@ -108,6 +139,12 @@ export class GenerationJobMachine {
   private readonly preflightOnly: boolean;
   private readonly maxPollAttempts: number;
   private readonly maxDownloadAttempts: number;
+  private readonly orchestrationMode: ProductionControlMode | undefined;
+  private readonly resolveExecutionBundle?: MachineOptions["resolveExecutionBundle"];
+  private readonly resolveSubmissionBinding?: MachineOptions["resolveSubmissionBinding"];
+  private readonly activeSubmitHooks?: ExecutionSubmitHooks;
+  /** Tracks whether the active path invoked adapter.submit via T05 only. */
+  private activeSubmitUsedT05 = false;
 
   constructor(options: MachineOptions) {
     this.store = options.store;
@@ -125,6 +162,15 @@ export class GenerationJobMachine {
       DEFAULT_MAX_DOWNLOAD_ATTEMPTS,
       "maxDownloadAttempts"
     );
+    this.orchestrationMode = options.orchestrationMode;
+    this.resolveExecutionBundle = options.resolveExecutionBundle;
+    this.resolveSubmissionBinding = options.resolveSubmissionBinding;
+    this.activeSubmitHooks = options.activeSubmitHooks;
+  }
+
+  /** True after an active-mode submit that consumed a T05 lease. */
+  get lastActiveSubmitUsedT05(): boolean {
+    return this.activeSubmitUsedT05;
   }
 
   private ctx(job: GenerationJobRecord) {
@@ -261,6 +307,8 @@ export class GenerationJobMachine {
   async approve(jobId: string, actor: string): Promise<GenerationJobRecord> {
     const job = await this.store.load(jobId);
     assertRequestDigestMatches(job.request);
+    // Active mode: full production binding required before approve (not length-only).
+    assertProductionBindingForMode(job, this.orchestrationMode);
     // createApproval also checks amount > max_amount → GJ_PRICE_CAP_EXCEEDED
     const approval = createApproval(job, actor, this.now());
     return this.store.transition(
@@ -317,6 +365,8 @@ export class GenerationJobMachine {
     }
 
     assertApprovalAllowsSubmit(job);
+    // Active mode requires full production binding before any adapter effect.
+    assertProductionBindingForMode(job, this.orchestrationMode);
 
     if (!this.adapter.capabilities.submit) {
       throw new GenerationJobError(GJ_ROUTE_UNSUPPORTED, "adapter does not support submit");
@@ -324,11 +374,40 @@ export class GenerationJobMachine {
 
     // Durable transition before adapter call. Crash after this → submission_unknown on resume.
     const submitting = await this.store.transition(jobId, "submitting");
+    this.activeSubmitUsedT05 = false;
 
     let result: Awaited<ReturnType<GenerationJobProviderAdapter["submit"]>>;
     try {
-      result = await this.adapter.submit(submitting.request, this.ctx(submitting));
+      if (this.orchestrationMode === "active") {
+        // Active: machine direct adapter.submit is impossible — T05 lease only.
+        // Authority failures before adapter effect fail closed without submission_unknown
+        // (adapter was never invoked; acceptance is known-impossible).
+        result = await this.submitViaT05(submitting);
+      } else {
+        // Legacy / disabled / shadow: existing direct adapter path.
+        result = await this.adapter.submit(submitting.request, this.ctx(submitting));
+      }
     } catch (error) {
+      if (
+        this.orchestrationMode === "active"
+        && error instanceof GenerationJobError
+        && error.code === GJ_SUBMIT_NOT_ALLOWED
+        && !this.activeSubmitUsedT05
+      ) {
+        // T05 rejected before any adapter effect — durable fail, not submission_unknown.
+        return this.store.transition(
+          jobId,
+          "failed",
+          (j) => ({
+            ...j,
+            error: {
+              code: error.code,
+              message: safeErrorMessage(error.message),
+              retryable: false
+            }
+          })
+        );
+      }
       // Adapter throw after durable submitting = acceptance unknown (fail-closed).
       const message = safeErrorMessage(
         error instanceof Error ? error.message : "adapter submit threw"
@@ -370,6 +449,65 @@ export class GenerationJobMachine {
         }
       })
     );
+  }
+
+  /**
+   * Active-mode submit: one-shot T05 lease only. Direct adapter.submit is unreachable.
+   * Fake/raw/mismatched bundles yield adapter invocation 0.
+   */
+  private async submitViaT05(
+    submitting: GenerationJobRecord
+  ): Promise<Awaited<ReturnType<GenerationJobProviderAdapter["submit"]>>> {
+    if (!this.resolveExecutionBundle || !this.resolveSubmissionBinding) {
+      throw new GenerationJobError(
+        GJ_SUBMIT_NOT_ALLOWED,
+        "active submit requires execution bundle and submission binding resolvers"
+      );
+    }
+    const binding = await this.resolveSubmissionBinding(submitting);
+    if (
+      !binding
+      || binding.job_id !== submitting.job_id
+      || binding.attempt_id !== submitting.production_binding?.attempt_id
+    ) {
+      throw new GenerationJobError(
+        GJ_SUBMIT_NOT_ALLOWED,
+        "active submit binding must match exact attempt_id and job_id"
+      );
+    }
+    const bundle = await this.resolveExecutionBundle(submitting);
+    let adapterResult: Awaited<ReturnType<GenerationJobProviderAdapter["submit"]>> | undefined;
+    const authority = await executeWithSubmissionAuthority({
+      bundle,
+      binding,
+      hooks: {
+        onAdapterInvoke: () => {
+          this.activeSubmitUsedT05 = true;
+          this.activeSubmitHooks?.onAdapterInvoke?.();
+        },
+        submitEffect: async (input) => {
+          // Same-FD asset reads happen inside T05; adapter only receives durable request.
+          void input;
+          const result = await this.adapter.submit(submitting.request, this.ctx(submitting));
+          adapterResult = result;
+          const hookResult = await this.activeSubmitHooks?.submitEffect?.(input);
+          return hookResult ?? result;
+        }
+      }
+    });
+    if (!authority.ok) {
+      throw new GenerationJobError(
+        GJ_SUBMIT_NOT_ALLOWED,
+        `active submit T05 authority failed: ${authority.error}`
+      );
+    }
+    if (!adapterResult) {
+      throw new GenerationJobError(
+        GJ_SUBMIT_NOT_ALLOWED,
+        "active submit did not reach adapter through T05 lease"
+      );
+    }
+    return adapterResult;
   }
 
   private async markSubmissionUnknown(

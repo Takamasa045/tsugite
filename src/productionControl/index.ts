@@ -29,3 +29,4 @@ export * from "./leases.js";
 export * from "./dispatcher.js";
 export * from "./generationBridge.js";
 export * from "./resume.js";
+export * from "./activePipeline.js";

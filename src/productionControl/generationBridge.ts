@@ -315,11 +315,32 @@ export function rejectFakeExecutionAuthority(value: unknown): never {
 
 export function assertActiveBindingRequired(
   mode: "disabled" | "shadow" | "active",
-  binding: GenerationJobProductionBinding | undefined
+  binding: GenerationJobProductionBinding | GenerationJobApprovalBinding | undefined
 ): void {
   if (mode === "active" && !binding) {
     throw pcError("PC_GENERATION_BINDING_INVALID", "active mode requires generation job production binding");
   }
+}
+
+/**
+ * Active approve/submit require a full GenerationJobApprovalBindingV1.
+ * Recomputes immutable identity; rejects length-only / partial shells.
+ */
+export function assertFullApprovalBindingForActive(
+  mode: "disabled" | "shadow" | "active" | undefined,
+  binding: unknown
+): GenerationJobApprovalBinding | undefined {
+  if (mode === undefined) {
+    throw pcError("PC_MODE_INACTIVE", "unresolved production control mode at generation effect boundary");
+  }
+  if (mode !== "active") return undefined;
+  if (!binding || typeof binding !== "object") {
+    throw pcError(
+      "PC_GENERATION_BINDING_INVALID",
+      "active mode requires full generation job production binding"
+    );
+  }
+  return parseGenerationJobApprovalBinding(binding);
 }
 
 export function assertBindingMatchesGateBundle(

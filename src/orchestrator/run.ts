@@ -474,22 +474,31 @@ async function evaluateGate2AutoPass(input: {
   compilation?: EditorialCompilation | ApprovedCompilation;
   audioAdapter?: AdapterDefinition;
 }): Promise<Gate2AutoPassEvaluation> {
-  if (input.project.gates?.gate_2?.auto_pass !== GATE_2_AUTO_PASS_POLICY) {
-    return { passed: false, reason: "not_configured" };
-  }
-  // Semantic person-consistency QA requires a human decision; never auto-pass.
-  if (personConsistencyRequiredForStage(input.project, "gate_2")
-    || input.project.quality?.person_consistency?.enabled) {
-    return { passed: false, reason: "semantic_qa_enabled" };
-  }
-  if (input.credits !== 0) {
-    return { passed: false, reason: `credits: ${input.credits}` };
-  }
-  if (input.generatedAssetCount !== 0) {
-    return { passed: false, reason: `generated_assets: ${input.generatedAssetCount}` };
-  }
-  if (!input.qcReport.ok) {
-    return { passed: false, reason: `qc_issues: ${input.qcReport.issues.length}` };
+  // Single implementation: shared production-control policy + live inspection.
+  // Hierarchy alone never widens auto-pass; preserve existing narrow conditions.
+  const { mapRunConditionsToGate2AutoPass } = await import("../productionControl/activePipeline.js");
+  const policy = mapRunConditionsToGate2AutoPass({
+    project_opt_in: input.project.gates?.gate_2?.auto_pass === GATE_2_AUTO_PASS_POLICY,
+    credits: input.credits,
+    generatedAssetCount: input.generatedAssetCount,
+    qcIssueCount: input.qcReport.ok ? 0 : input.qcReport.issues.length,
+    semanticQaEnabled:
+      personConsistencyRequiredForStage(input.project, "gate_2")
+      || Boolean(input.project.quality?.person_consistency?.enabled)
+  });
+  if (!policy.auto_pass) {
+    const reason = policy.blocked_reason === "project did not opt in"
+      ? "not_configured"
+      : policy.blocked_reason === "credits consumed"
+        ? `credits: ${input.credits}`
+        : policy.blocked_reason === "new assets generated"
+          ? `generated_assets: ${input.generatedAssetCount}`
+          : policy.blocked_reason === "technical QA reported issues"
+            ? `qc_issues: ${input.qcReport.issues.length}`
+            : policy.blocked_reason === "semantic QA present"
+              ? "semantic_qa_enabled"
+              : policy.blocked_reason ?? "blocked";
+    return { passed: false, reason };
   }
 
   const inspected = await inspectGate2RunForApproval(

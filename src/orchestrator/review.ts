@@ -36,6 +36,10 @@ import { createPlan, type ExecutionPlan } from "./plan.js";
 import { ArtifactStore } from "../productionControl/artifactStore.js";
 import type { H3Compilation } from "../h3/compile.js";
 import type { ProductionControlShadowSummary } from "../productionControl/contractCompiler.js";
+import {
+  buildActiveGateBundleForProject,
+  buildGateBundleReviewProjection
+} from "../productionControl/activePipeline.js";
 import type { VideoPromptV2Compilation } from "../videoPromptDirector/compileV2.js";
 import { createProjectGenerationUnitSourceResolver, reloadAuthoritativeAssetContract, resolveProjectAssetContract } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { validateProject } from "../project/validateProject.js";
@@ -1263,6 +1267,26 @@ export function createReviewDocument(
     ...(plan.production_control_shadow
       ? { production_control_shadow: plan.production_control_shadow }
       : {}),
+    ...(() => {
+      if (project.orchestration?.mode !== "active") return {};
+      try {
+        const reviewDigest = digest({
+          kind: "active-review-artifact",
+          project: project.slug,
+          plan_backend: plan.backend,
+          estimated_credits: plan.estimated_credits
+        });
+        const bundle = buildActiveGateBundleForProject({
+          project,
+          run_id: project.run_id ?? project.slug,
+          review_artifact_digest: reviewDigest
+        });
+        return { gate_bundle_review: buildGateBundleReviewProjection(bundle) };
+      } catch {
+        // Active bundle construction failures surface at Gate 1 approve; review stays readable.
+        return {};
+      }
+    })(),
     steps: plan.steps,
     warnings,
     ...(project.analysis

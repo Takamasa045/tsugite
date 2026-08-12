@@ -256,6 +256,13 @@ export function reduceProductionEvent(state: MissionState, rawEvent: ProductionE
       if (current.gate_bindings[payload.binding_id] && !current.gate_bindings[payload.binding_id]!.stale) {
         throw transition("gate binding id is already current");
       }
+      // Gate decision digest + subject correspondence: both required, non-zero, distinct roles.
+      if (!payload.subject_digest || !payload.decision_digest) {
+        throw transition("gate binding requires subject and decision digests");
+      }
+      if (payload.subject_digest === payload.decision_digest) {
+        throw transition("gate decision digest must not equal subject digest");
+      }
       next.gate_bindings[payload.binding_id] = {
         binding_id: payload.binding_id,
         gate: payload.gate,
@@ -272,6 +279,14 @@ export function reduceProductionEvent(state: MissionState, rawEvent: ProductionE
     case "generation-job-bound": {
       requireMission(current);
       const payload = event.payload;
+      // Recompute-friendly: reject empty identity shells; full identity recompute is
+      // enforced at the generation bridge when the full binding is available.
+      if (!payload.immutable_identity_digest || payload.immutable_identity_digest.length !== 64) {
+        throw transition("generation binding requires full immutable identity digest");
+      }
+      if (!payload.gate_bundle_digest || payload.gate_bundle_digest.length !== 64) {
+        throw transition("generation binding requires gate bundle digest");
+      }
       const existing = current.generation_bindings[payload.binding_id];
       if (existing) {
         if (existing.immutable_identity_digest !== payload.immutable_identity_digest) {

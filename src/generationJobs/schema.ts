@@ -154,17 +154,41 @@ export const generationJobRequestSchema = z
 
 /**
  * Optional production-control binding. Backward-compatible when absent.
- * Active orchestration mode requires this binding before external submit.
+ * Active orchestration mode requires the FULL GenerationJobApprovalBindingV1
+ * fields (not a length-only shell) before approve/submit. Validation and
+ * immutable-identity recompute live in productionControl/generationBridge.
  */
+export const generationJobRouteIdentitySchema = z
+  .object({
+    ir_model: z.string().min(1).max(128),
+    provider_model: z.string().min(1).max(128),
+    model_profile_digest: sha256Hex,
+    connection_id: safeId,
+    connection_digest: sha256Hex,
+    adapter_id: safeId,
+    transport: z.string().min(1).max(64),
+    mode_binding: z.string().min(1).max(64),
+    route_digest: sha256Hex
+  })
+  .strict();
+
 export const generationJobProductionBindingSchema = z
   .object({
     production_id: safeId,
     run_id: safeId,
     node_id: safeId,
     attempt_id: safeId,
+    generation_job_id: safeId,
+    approval_observed_revision: z.number().int().nonnegative(),
+    approval_digest: sha256Hex,
     gate_bundle_digest: sha256Hex,
-    immutable_identity_digest: sha256Hex,
-    approval_observed_revision: z.number().int().nonnegative()
+    gate_1_decision_digest: sha256Hex,
+    request_digest: sha256Hex,
+    compilation_digest: sha256Hex,
+    route: generationJobRouteIdentitySchema,
+    pricing_binding_digest: sha256Hex,
+    regeneration_attempt_authorization_digest: sha256Hex.optional(),
+    immutable_identity_digest: sha256Hex
   })
   .strict();
 
