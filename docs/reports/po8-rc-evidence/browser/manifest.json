@@ -12,6 +12,12 @@
     "mission_tree_decision": true,
     "mission_tree_exit": true
   },
+  "mission_tree": {
+    "decision": true,
+    "exit": true,
+    "artifact_sha256": "8fdd58bc2a95573d02b50d663364a1f3350f5b3812736042853dd61f39607bf9",
+    "digest": "63296929dded91005f043547f8465669af063387a8fda8cbaf2f38d7668b9b79"
+  },
   "artifacts": [
     {
       "relative_path": "browser/actual-canvas-node-hit.png",
@@ -59,5 +65,5 @@
       "bytes": 472985
     }
   ],
-  "output_digest": "1878d2e349aa102040840b26d6b3d4355b5b7a01f4e934ead7c1771c2a3a2dce"
+  "output_digest": "0181dad1fbb0df5beabcb04fb37556f7c0f4fafd637234bfdebc204ee0d36c6a"
 }

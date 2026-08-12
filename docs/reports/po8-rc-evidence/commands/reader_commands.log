@@ -7,7 +7,7 @@ command=npm test -- test/production-control-po8-rc-evidence-store.test.ts test/p
 (node:60314) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
 
- RUN  v4.1.10 [redacted-path]takamasa/.codex/worktrees/77fe/tsugite
+ RUN  v4.1.10 [redacted-path]
 
 (node:60316) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)

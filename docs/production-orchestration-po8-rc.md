@@ -7,9 +7,9 @@ This document is **outside** the frozen T00 design pack under `docs/design/produ
 ## Readiness provenance (round 9 remaining)
 
 - `docs/reports/po8-rc-release-readiness.json` is regenerated only via production `buildReleaseReadinessReport` from `docs/reports/po8-rc-evidence/`. Exit `output_digest` values and the envelope `digest` are never hand-substituted.
-- PO-0A browser evidence is a measured Canvas first-frame plus forced webgl-unavailable / context-lost / initialization / timeout / keyboard / Mission Tree paths.
+- PO-0A browser evidence is a measured Canvas first-frame plus forced webgl-unavailable / context-lost / initialization / timeout / keyboard / Mission Tree paths. A proven PO-0A exit is not described as unverified.
 - Packaged Desktop is **partial**: `desktop:prepare` is fixture-only (no implicit `npm ci`); official local Forge package could not locate physical `node-pty@1.1.0` and `desktop:audit` found no `apps/desktop/out`. That blocked pair must not flip the envelope to NO-GO.
-- `build_provenance.head` is the implementation commit for this remaining work. Docs-only tip commits do not replace that head (`verified_separately: true`).
+- `build_provenance.head` is the code commit that changed readiness/evidence semantics (`aec345c`). A later docs/evidence tip keeps that head, `dirty: false`, and `verified_separately: true`.
 
 ## Structural repair round 7 (EB1 real-entry split-brain)
 

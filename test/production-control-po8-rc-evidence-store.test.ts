@@ -358,6 +358,17 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     })).rejects.toThrow(/symlink|real directory|PC_PATH/);
   });
 
+  it("committed durable evidence artifact_refs match on-disk bytes", async () => {
+    const { DEFAULT_EVIDENCE_RELATIVE_ROOT } = await import("../src/productionControl/rc/evidenceStore.js");
+    await assertEvidenceArtifactsConsistent(DEFAULT_EVIDENCE_RELATIVE_ROOT);
+    const store = await readEvidenceStore(DEFAULT_EVIDENCE_RELATIVE_ROOT);
+    const browser = store.measured.browser_po0a;
+    expect(browser?.status).toBe("proven");
+    const logRef = browser?.artifact_refs?.find((ref) => ref.relative_path === "commands/browser_po0a.log");
+    expect(logRef?.sha256).toBe(browser?.output_digest);
+    expect(browser?.detail ?? "").toMatch(/mission_tree_digest=[a-f0-9]{64}/);
+  });
+
   it("collects fixture-only structural rehearsal/journal evidence", async () => {
     const structural = await collectStructuralEvidence();
     expect(structural.rehearsal.all_ok).toBe(true);

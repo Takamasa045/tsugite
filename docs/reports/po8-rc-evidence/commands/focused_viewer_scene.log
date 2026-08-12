@@ -7,7 +7,7 @@ command=npm --prefix apps/workflow-viewer run test -- src/components/scene/scene
 (node:79663) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)
 
- RUN  v4.1.10 [redacted-path]takamasa/.codex/worktrees/77fe/tsugite/apps/workflow-viewer
+ RUN  v4.1.10 [redacted-path]
 
 (node:79664) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
 (Use `node --trace-warnings ...` to show where the warning was created)

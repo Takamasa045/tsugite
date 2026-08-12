@@ -3,18 +3,62 @@
   "fixture_only": true,
   "package_version": "0.9.0",
   "measured": {
+    "full_regression": {
+      "command": "npm run check",
+      "exit_code": 0,
+      "output_digest": "57a907d445a7eb2566096ba71a1e07d2d97c24cf67826be14f9dec907c3dc947",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/full_regression.log",
+          "sha256": "57a907d445a7eb2566096ba71a1e07d2d97c24cf67826be14f9dec907c3dc947",
+          "bytes": 44983
+        }
+      ]
+    },
+    "desktop": {
+      "command": "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
+      "exit_code": 0,
+      "output_digest": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+      "status": "partial",
+      "detail": "prepare fixture-only no npm ci; official local Forge package blocked missing physical node-pty@1.1.0; desktop:audit blocked no apps/desktop/out; desktop:prepare is not audit proof",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop.log",
+          "sha256": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+          "bytes": 399
+        }
+      ]
+    },
+    "windows_smoke": {
+      "command": "windows real-machine/CI",
+      "exit_code": 0,
+      "output_digest": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+      "status": "unverified",
+      "detail": "Windows real machine and CI not executed in this owner session",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/windows_smoke.log",
+          "sha256": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+          "bytes": 115
+        }
+      ]
+    },
     "browser_po0a": {
       "command": "npm --prefix apps/workflow-viewer run test:browser",
       "exit_code": 0,
       "output_digest": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
       "status": "proven",
-      "detail": "primary_mode=canvas first_frame=true all_injected_paths_measured; retry after port 4188 conflict",
+      "detail": "primary_mode=canvas first_frame=true all_injected_paths_measured; retry after port 4188 conflict; mission_tree_digest=63296929dded91005f043547f8465669af063387a8fda8cbaf2f38d7668b9b79",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/browser_po0a.log",
-          "sha256": "f56f17d802f5f61f39c900209d6601d218fc77b11e4538caaf5a52fd6783395f",
-          "bytes": 925
+          "sha256": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+          "bytes": 905
         },
         {
           "kind": "screenshot",
@@ -73,182 +117,58 @@
         {
           "kind": "manifest",
           "relative_path": "browser/manifest.json",
-          "sha256": "3f1087cc9a517bca2ef81475e6906f295986f68060d6cf51cdb8bd3b3585cdc2",
-          "bytes": 2104
-        }
-      ]
-    },
-    "full_regression": {
-      "command": "npm run check",
-      "exit_code": 0,
-      "output_digest": "545aff6a67f05b858fa19731db9278f07a41a9356213faf9d9f261c4c47c79a8",
-      "status": "proven",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/full_regression.log",
-          "sha256": "64e73945a16e0f28b2d85889021249f42dc017d0f98b3914da28a94a977f9d4b",
-          "bytes": 61887
-        }
-      ]
-    },
-    "desktop": {
-      "command": "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
-      "exit_code": 0,
-      "output_digest": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
-      "status": "partial",
-      "detail": "prepare fixture-only no npm ci; official local Forge package blocked missing physical node-pty@1.1.0; desktop:audit blocked no apps/desktop/out; desktop:prepare is not audit proof",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/desktop.log",
-          "sha256": "721a1a323ea5faf901f48f5a0fd6dabb3c645733cbd76576809096cbd549d230",
-          "bytes": 6095
-        }
-      ]
-    },
-    "windows_smoke": {
-      "command": "windows real-machine/CI",
-      "exit_code": 0,
-      "output_digest": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
-      "status": "unverified",
-      "detail": "Windows real machine and CI not executed in this owner session",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/windows_smoke.log",
-          "sha256": "fee3e04f2e7466c3420c41c37505104276453fd3e8808934f7f3148f0449f897",
-          "bytes": 83
+          "sha256": "0df48ed4682098b6c6f63f436341dc1a202ed4f33618b9f74cdfddc11899c73f",
+          "bytes": 2341
         }
       ]
     },
     "reader_commands": {
       "command": "npm test -- test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot",
       "exit_code": 0,
-      "output_digest": "de40a87c94b50714d9875176b45c33bb3bf8461d2410d127669404afe6a90c58",
+      "output_digest": "db07334a7fbc21be06d8cb34874a9262dd2c7bd1ddfb3b81f3a5c4b2560a767c",
       "status": "proven",
       "detail": "includes CLI migrate/rollback/validate/plan/review/run-dry",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/reader_commands.log",
-          "sha256": "b778b7b0c8cda9b2d6db144aeb40a6e13ae16e0dac48a2233552c563fbe5e6e6",
-          "bytes": 914
+          "sha256": "db07334a7fbc21be06d8cb34874a9262dd2c7bd1ddfb3b81f3a5c4b2560a767c",
+          "bytes": 3008
         }
       ]
     },
     "mode_orchestrator": {
       "command": "rehearsal mode sequence",
       "exit_code": 0,
-      "output_digest": "5bf1edbb88287f85e62e14227a9a93e513b9946f7676f00620aec1410676ab9d",
+      "output_digest": "2ba1a2450dd2cdbe9b53dcca4f9fcac36dac249f536d99ecd7d4670597a7c15f",
       "status": "proven"
     },
     "h3_durable_cli": {
       "command": "production applyMigration shadow journal (in-process fixture)",
       "exit_code": 0,
-      "output_digest": "fcba47644d1efb4fee82caa1b4ab517fcc0b9c2a5be14187923e89f5b735c49c",
+      "output_digest": "3691e626d9d93c29b6af9a2f1e0ab6b57751c83274c32a4424cf45b52e7dfd64",
       "status": "proven",
       "detail": "in-process fixture migrate apply; CLI E2E recorded separately when present"
     }
   },
-  "browser_manifest_digest": "1878d2e349aa102040840b26d6b3d4355b5b7a01f4e934ead7c1771c2a3a2dce",
+  "coverage": {
+    "statements": 82.84,
+    "branches": 74.54,
+    "functions": 89.72,
+    "lines": 85.53
+  },
   "commands": [
     {
-      "command": "focused_windows_evidence",
+      "command": "npm test -- test/windows-path-lex.test.ts test/windows-support-contract.test.ts test/platform-process.test.ts --reporter=dot",
       "exit_code": 0,
-      "output_digest": "005a43e1ad0c601c127b6b26a79532b24d50b080111de17008513523104b4de5",
+      "output_digest": "b56b7615af8d3dc08efea1c59ec198098d87bd85fd5a6beb58745ec0d76942d5",
       "status": "proven",
       "artifact_refs": [
         {
           "kind": "command-log",
-          "relative_path": "commands/command.log",
-          "sha256": "005a43e1ad0c601c127b6b26a79532b24d50b080111de17008513523104b4de5",
-          "bytes": 2046
-        }
-      ]
-    },
-    {
-      "command": "focused_desktop_package",
-      "exit_code": 0,
-      "output_digest": "dd095f64e3383ff4ff93cb297ea97745fbd1440c7ee30a9800445e0573b842f2",
-      "status": "proven",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/command.log",
-          "sha256": "dd095f64e3383ff4ff93cb297ea97745fbd1440c7ee30a9800445e0573b842f2",
-          "bytes": 3313
-        }
-      ]
-    },
-    {
-      "command": "focused_viewer_scene",
-      "exit_code": 0,
-      "output_digest": "aba9459c553a4e709d0e73027e1e7c545f2dd58b62ab7a8bc438b174af2b7ab9",
-      "status": "proven",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/command.log",
-          "sha256": "aba9459c553a4e709d0e73027e1e7c545f2dd58b62ab7a8bc438b174af2b7ab9",
-          "bytes": 890
-        }
-      ]
-    },
-    {
-      "command": "build",
-      "exit_code": 0,
-      "output_digest": "b283bd5130418d8a95c40ba3266e308feb9a234e159d2807a6a44968d411a825",
-      "status": "proven",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/command.log",
-          "sha256": "b283bd5130418d8a95c40ba3266e308feb9a234e159d2807a6a44968d411a825",
-          "bytes": 85
-        }
-      ]
-    },
-    {
-      "command": "vitest production-control-po8-rc-integration CLI migrate/rollback/validate/plan/review/run-dry",
-      "exit_code": 0,
-      "output_digest": "b778b7b0c8cda9b2d6db144aeb40a6e13ae16e0dac48a2233552c563fbe5e6e6",
-      "status": "proven",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/reader_commands.log",
-          "sha256": "b778b7b0c8cda9b2d6db144aeb40a6e13ae16e0dac48a2233552c563fbe5e6e6",
-          "bytes": 914
-        }
-      ]
-    },
-    {
-      "command": "npm --prefix apps/desktop run package",
-      "exit_code": 1,
-      "output_digest": "721a1a323ea5faf901f48f5a0fd6dabb3c645733cbd76576809096cbd549d230",
-      "status": "partial",
-      "detail": "blocked: local node-pty 1.1.0 not present in physical node_modules; no install attempted",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/desktop_package.log",
-          "sha256": "721a1a323ea5faf901f48f5a0fd6dabb3c645733cbd76576809096cbd549d230",
-          "bytes": 6095
-        }
-      ]
-    },
-    {
-      "command": "npm run build",
-      "exit_code": 0,
-      "output_digest": "d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
-      "status": "proven",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/build.log",
-          "sha256": "d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
-          "bytes": 89
+          "relative_path": "commands/focused_windows_evidence.log",
+          "sha256": "b56b7615af8d3dc08efea1c59ec198098d87bd85fd5a6beb58745ec0d76942d5",
+          "bytes": 1206
         }
       ]
     },
@@ -267,72 +187,177 @@
       ]
     },
     {
-      "command": "npm test -- test/windows-path-lex.test.ts test/windows-support-contract.test.ts test/platform-process.test.ts --reporter=dot",
-      "exit_code": 0,
-      "output_digest": "4ec3649a0970c907975e179c04d1466163eddc9812d307a7c0186dbe0ed0c9d2",
-      "status": "proven",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/focused_windows_evidence.log",
-          "sha256": "4ec3649a0970c907975e179c04d1466163eddc9812d307a7c0186dbe0ed0c9d2",
-          "bytes": 1244
-        }
-      ]
-    },
-    {
       "command": "npm --prefix apps/workflow-viewer run test -- src/components/scene/scene-state.test.ts --reporter=dot",
       "exit_code": 0,
-      "output_digest": "c9591300aae6e55784a41b0b0e9bbecc81afe880b2c6b1c4dadec771794d90d9",
+      "output_digest": "89cdc0bc0670f18d59fd6cd8997d9f7a1f36d7f6ab75a987c7b8fda42f6bf3d5",
       "status": "proven",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/focused_viewer_scene.log",
-          "sha256": "c9591300aae6e55784a41b0b0e9bbecc81afe880b2c6b1c4dadec771794d90d9",
-          "bytes": 856
+          "sha256": "89cdc0bc0670f18d59fd6cd8997d9f7a1f36d7f6ab75a987c7b8fda42f6bf3d5",
+          "bytes": 797
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:package",
+      "exit_code": 1,
+      "output_digest": "e2e4dfc4d60624ee06414dc8af9a7e1499560a285aef551466d0d304d180dc9a",
+      "status": "partial",
+      "detail": "blocked: official local Forge package; physical node-pty@1.1.0 missing; no install/npx/npm exec attempted",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_package.log",
+          "sha256": "e2e4dfc4d60624ee06414dc8af9a7e1499560a285aef551466d0d304d180dc9a",
+          "bytes": 4994
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:audit",
+      "exit_code": 1,
+      "output_digest": "0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
+      "status": "partial",
+      "detail": "blocked: no packaged app under apps/desktop/out; desktop:prepare is not audit proof",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_audit.log",
+          "sha256": "0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
+          "bytes": 645
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
+      "exit_code": 0,
+      "output_digest": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+      "status": "partial",
+      "detail": "prepare fixture-only no npm ci; official local Forge package blocked missing physical node-pty@1.1.0; desktop:audit blocked no apps/desktop/out; desktop:prepare is not audit proof",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop.log",
+          "sha256": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+          "bytes": 399
+        }
+      ]
+    },
+    {
+      "command": "windows real-machine/CI",
+      "exit_code": 0,
+      "output_digest": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+      "status": "unverified",
+      "detail": "Windows real machine and CI not executed in this owner session",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/windows_smoke.log",
+          "sha256": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+          "bytes": 115
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/workflow-viewer run test:browser",
+      "exit_code": 0,
+      "output_digest": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+      "status": "proven",
+      "detail": "primary_mode=canvas first_frame=true all_injected_paths_measured; retry after port 4188 conflict",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/browser_po0a.log",
+          "sha256": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+          "bytes": 905
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/workflow-viewer run test:browser (port 4188 occupied)",
+      "exit_code": 1,
+      "output_digest": "9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
+      "status": "partial",
+      "detail": "blocked: port 4188 already in use; retried on 43188",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/browser_po0a_port4188.log",
+          "sha256": "9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
+          "bytes": 2051
+        }
+      ]
+    },
+    {
+      "command": "npm test -- test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot",
+      "exit_code": 0,
+      "output_digest": "db07334a7fbc21be06d8cb34874a9262dd2c7bd1ddfb3b81f3a5c4b2560a767c",
+      "status": "proven",
+      "detail": "includes CLI migrate/rollback/validate/plan/review/run-dry",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/reader_commands.log",
+          "sha256": "db07334a7fbc21be06d8cb34874a9262dd2c7bd1ddfb3b81f3a5c4b2560a767c",
+          "bytes": 3008
+        }
+      ]
+    },
+    {
+      "command": "npm run build",
+      "exit_code": 0,
+      "output_digest": "d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/build.log",
+          "sha256": "d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
+          "bytes": 89
         }
       ]
     },
     {
       "command": "npm run test:coverage",
       "exit_code": 0,
-      "output_digest": "341dbaf0ef05f44c6ab05142bc0c5ed763a5cd4352ba582aa39b869a9602283d",
+      "output_digest": "c415022547f963e3a2a426a5704a436866cbbbdcdef22f748e98196c6e4b74a1",
       "status": "proven",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/test_coverage.log",
-          "sha256": "341dbaf0ef05f44c6ab05142bc0c5ed763a5cd4352ba582aa39b869a9602283d",
-          "bytes": 61675
+          "sha256": "c415022547f963e3a2a426a5704a436866cbbbdcdef22f748e98196c6e4b74a1",
+          "bytes": 44764
         }
       ]
     },
     {
       "command": "npm run viewer:check",
       "exit_code": 0,
-      "output_digest": "aaa018e9ed665f2fbcddf1bf11799d89600fcc150fd4b28c1253f01362b14fa0",
+      "output_digest": "bc77a7ef4c9e4532c4d2a0ffe6151d232a79422495864d146f954e141c4f57b4",
       "status": "proven",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/viewer_check.log",
-          "sha256": "aaa018e9ed665f2fbcddf1bf11799d89600fcc150fd4b28c1253f01362b14fa0",
-          "bytes": 20908
+          "sha256": "bc77a7ef4c9e4532c4d2a0ffe6151d232a79422495864d146f954e141c4f57b4",
+          "bytes": 16185
         }
       ]
     },
     {
       "command": "npm run viewer:build",
       "exit_code": 0,
-      "output_digest": "b7badcfa1a5aa893f49439be60f8a15e64210cbe770bc8cf000388e00c47de00",
+      "output_digest": "3f522d595dc0bb2d56fddde65064a495d41afab8f9d645e94d3fb92838679cea",
       "status": "proven",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/viewer_build.log",
-          "sha256": "b7badcfa1a5aa893f49439be60f8a15e64210cbe770bc8cf000388e00c47de00",
-          "bytes": 1481
+          "sha256": "3f522d595dc0bb2d56fddde65064a495d41afab8f9d645e94d3fb92838679cea",
+          "bytes": 1262
         }
       ]
     },
@@ -353,224 +378,54 @@
     {
       "command": "npm run check",
       "exit_code": 0,
-      "output_digest": "545aff6a67f05b858fa19731db9278f07a41a9356213faf9d9f261c4c47c79a8",
+      "output_digest": "57a907d445a7eb2566096ba71a1e07d2d97c24cf67826be14f9dec907c3dc947",
       "status": "proven",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/full_regression.log",
-          "sha256": "64e73945a16e0f28b2d85889021249f42dc017d0f98b3914da28a94a977f9d4b",
-          "bytes": 61887
+          "sha256": "57a907d445a7eb2566096ba71a1e07d2d97c24cf67826be14f9dec907c3dc947",
+          "bytes": 44983
         }
       ]
     },
     {
       "command": "npm run desktop:test",
       "exit_code": 0,
-      "output_digest": "c4b0dcfb48965c9e521365e5987809056a9e56b7eb7b83723bf2e415e943dba4",
+      "output_digest": "ef3d09db31393e982c20bdd9cd2eb07a2f26c76c6f17cd2576f38e68e63e1cef",
       "status": "proven",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/desktop_test.log",
-          "sha256": "c4b0dcfb48965c9e521365e5987809056a9e56b7eb7b83723bf2e415e943dba4",
-          "bytes": 19974
+          "sha256": "ef3d09db31393e982c20bdd9cd2eb07a2f26c76c6f17cd2576f38e68e63e1cef",
+          "bytes": 19963
         }
       ]
     },
     {
       "command": "npm run desktop:prepare",
       "exit_code": 0,
-      "output_digest": "d7e0884f0eb7624f0ef0fe5dbc61a600e7f82482a153357cb54b8835f1295fa8",
+      "output_digest": "ff1438f355bfe6da3878321b266111dcf755f5531555f97961705ba4413c8533",
       "status": "proven",
       "artifact_refs": [
         {
           "kind": "command-log",
           "relative_path": "commands/desktop_prepare.log",
-          "sha256": "d7e0884f0eb7624f0ef0fe5dbc61a600e7f82482a153357cb54b8835f1295fa8",
-          "bytes": 2550
-        }
-      ]
-    },
-    {
-      "command": "npm run desktop:package",
-      "exit_code": 1,
-      "output_digest": "c8c5ca3f022ad33a8e057905e72ff5c0d9074912f05c3d105094f7fb40c2b470",
-      "status": "partial",
-      "detail": "blocked: official local Forge package; physical node-pty@1.1.0 missing; no install/npx/npm exec attempted",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/desktop_package.log",
-          "sha256": "c8c5ca3f022ad33a8e057905e72ff5c0d9074912f05c3d105094f7fb40c2b470",
-          "bytes": 6159
-        }
-      ]
-    },
-    {
-      "command": "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
-      "exit_code": 0,
-      "output_digest": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
-      "status": "partial",
-      "detail": "prepare fixture-only no npm ci; official local Forge package blocked missing physical node-pty@1.1.0; desktop:audit blocked no apps/desktop/out; desktop:prepare is not audit proof",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/desktop.log",
-          "sha256": "721a1a323ea5faf901f48f5a0fd6dabb3c645733cbd76576809096cbd549d230",
-          "bytes": 6095
-        }
-      ]
-    },
-    {
-      "command": "windows real-machine/CI",
-      "exit_code": 0,
-      "output_digest": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
-      "status": "unverified",
-      "detail": "Windows real machine and CI not executed in this owner session",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/windows_smoke.log",
-          "sha256": "fee3e04f2e7466c3420c41c37505104276453fd3e8808934f7f3148f0449f897",
-          "bytes": 83
-        }
-      ]
-    },
-    {
-      "command": "npm --prefix apps/workflow-viewer run test:browser",
-      "exit_code": 0,
-      "output_digest": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
-      "status": "proven",
-      "detail": "primary_mode=canvas first_frame=true all_injected_paths_measured; retry after port 4188 conflict",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/browser_po0a.log",
-          "sha256": "f56f17d802f5f61f39c900209d6601d218fc77b11e4538caaf5a52fd6783395f",
-          "bytes": 925
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/actual-canvas-node-hit.png",
-          "sha256": "91f84ae79fa1cb4c85d09f70f6e43b64efdb719deb6790aef01948060123d07b",
-          "bytes": 457213
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/actual-canvas.png",
-          "sha256": "c2c4c031f6f32293bef6e2c5904b72ce1906d212374cfe0fea404afd57a2477e",
-          "bytes": 401264
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/fallback-context-lost-canvas-event.png",
-          "sha256": "db6ac817b4542b4b6d357ddc8ab598048c4b24f84079b824a1122e9945945906",
-          "bytes": 298488
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/fallback-context-lost.png",
-          "sha256": "2f0cc6e568056f1efa608dcd1972b088c12c1812c04ea7349d3c3b9dc7b8bffa",
-          "bytes": 289426
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/fallback-first-frame-timeout.png",
-          "sha256": "b17fa12c8aaeba16206c1eefcf81e32366ae12416be23ea54d306f07403d71d2",
-          "bytes": 290580
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/fallback-initialization-failed.png",
-          "sha256": "aa287c060560d4400d4f1c845d3b10bf58889b31446064fc4e1b4d1d11820c0b",
-          "bytes": 289692
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/fallback-keyboard-responsive.png",
-          "sha256": "8603850a18c1ac1c59419dfcb40a1edad06dd32769004be1d3b308fb89719df9",
-          "bytes": 139555
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/fallback-webgl-unavailable.png",
-          "sha256": "db4ac3f118d5ccdc9d47a46d027a9c494f8e82e00e673d01099d64db9213c29c",
-          "bytes": 290028
-        },
-        {
-          "kind": "screenshot",
-          "relative_path": "browser/mission-tree-canvas.png",
-          "sha256": "d64db6246ca877ba23b424761e0a46ea9d2fcc84a309ceea8af4cdd61c26dc8e",
-          "bytes": 473234
-        },
-        {
-          "kind": "manifest",
-          "relative_path": "browser/manifest.json",
-          "sha256": "dd1da8cd4797585df4b89a7c018ad0ea97984f6c0ca067684bdb226baf463b33",
-          "bytes": 2104
-        }
-      ]
-    },
-    {
-      "command": "npm test -- test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot",
-      "exit_code": 0,
-      "output_digest": "de40a87c94b50714d9875176b45c33bb3bf8461d2410d127669404afe6a90c58",
-      "status": "proven",
-      "detail": "includes CLI migrate/rollback/validate/plan/review/run-dry",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/reader_commands.log",
-          "sha256": "b778b7b0c8cda9b2d6db144aeb40a6e13ae16e0dac48a2233552c563fbe5e6e6",
-          "bytes": 914
-        }
-      ]
-    },
-    {
-      "command": "npm run desktop:audit",
-      "exit_code": 1,
-      "output_digest": "0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
-      "status": "partial",
-      "detail": "blocked: no packaged app under apps/desktop/out; desktop:prepare is not audit proof",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/desktop_audit.log",
-          "sha256": "0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
-          "bytes": 645
-        }
-      ]
-    },
-    {
-      "command": "npm --prefix apps/workflow-viewer run test:browser (port 4188 occupied)",
-      "exit_code": 1,
-      "output_digest": "9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
-      "status": "partial",
-      "detail": "blocked: port 4188 already in use; retried on 43188",
-      "artifact_refs": [
-        {
-          "kind": "command-log",
-          "relative_path": "commands/npm_--prefix_apps_workflow-viewer_run_test_browser_port_4188_occupied.log",
-          "sha256": "9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
-          "bytes": 2051
+          "sha256": "ff1438f355bfe6da3878321b266111dcf755f5531555f97961705ba4413c8533",
+          "bytes": 1983
         }
       ]
     }
   ],
-  "coverage": {
-    "statements": 82.81,
-    "branches": 74.53,
-    "functions": 89.7,
-    "lines": 85.51
-  },
+  "browser_manifest_digest": "0181dad1fbb0df5beabcb04fb37556f7c0f4fafd637234bfdebc204ee0d36c6a",
   "rehearsal": {
     "schema_version": 1,
     "fixture_count": 8,
     "revision_bindings_digest": "0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
     "results": [],
     "all_ok": true,
-    "digest": "844254e84522351e36a256fd3a106f38d0a9bb42ddb7b380433f36c4013c72b0"
+    "digest": "2ba1a2450dd2cdbe9b53dcca4f9fcac36dac249f536d99ecd7d4670597a7c15f"
   },
   "fixture_module_evidence": {
     "schema_version": 1,
@@ -1291,6 +1146,6 @@
     "complete": true,
     "preview_digest": "28d61e5c4d9c90043d0b14913d37e01ad6f6256ad63cd44e87a83209694bfb01",
     "stage": "complete",
-    "digest": "f39fd707c23f25858ad61366bf88190e44ea15f8c0f62180a5255dd953381226"
+    "digest": "3691e626d9d93c29b6af9a2f1e0ab6b57751c83274c32a4424cf45b52e7dfd64"
   }
 }
