@@ -71,6 +71,7 @@ import {
 } from "./orchestrator/state.js";
 import { ensureProjectVisibleOnLauncherShelf } from "./project/projectsHome.js";
 import { validateProject } from "./project/validateProject.js";
+import { createProjectGenerationUnitSourceResolver } from "./videoPromptDirector/generationUnitSourceResolver.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import {
   callRemoteTool,
@@ -981,7 +982,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
-  const validation = await validateProject(args.config);
+  const generationUnitSourceResolver = createProjectGenerationUnitSourceResolver(args.config);
+  const validation = await validateProject(args.config, { generationUnitSourceResolver });
   const launcherShelf = validation.ok && validation.project
     ? await ensureProjectVisibleOnLauncherShelf({
         configPath: args.config,
@@ -1556,6 +1558,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       audioConnectionVerificationApproved: true,
       // Keep Gate 1 / run lineage on the same guide set (including custom promptGuideDirs).
       promptGuides: validation.promptGuides,
+      generationUnitSourceResolver,
       ...(review.compilation ? { compilation: review.compilation } : {}),
       verifyApprovedInputs: async () => {
         const currentReview = await inspectGate1Review({

@@ -1,4 +1,5 @@
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { lstat, mkdir, realpath } from "node:fs/promises";
 import { loadAdapterDefinition, type AdapterDefinition } from "../adapters/registry.js";
 import {
   loadProjectPromptGuides,
@@ -32,18 +33,23 @@ import {
 } from "../h3/compile.js";
 import {
   compileProjectVideoPrompts,
+  type GenerationUnitSourceResolver,
   rejectUncompiledVideoPrompt,
   type VideoPromptPlan
 } from "../videoPromptDirector/videoPromptCompile.js";
+import { createProjectGenerationUnitSourceResolver, resolveProjectAssetContract } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { loadProject } from "./loadProject.js";
-import { generationRequestCapability, type AnalysisRequest, type Project } from "./schema.js";
+import { generationRequestCapability, generationRequestOutputKind, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
+import { ArtifactStore } from "../productionControl/artifactStore.js";
 
 export type ValidateProjectOptions = {
   adapterDirs?: string[];
   backendDirs?: string[];
   connectionCatalogPath?: string;
   promptGuideDirs?: string[];
+  generationUnitSourceResolver?: GenerationUnitSourceResolver;
+  grammarProfileRoot?: string;
 };
 
 export async function validateProject(
@@ -63,12 +69,14 @@ export async function validateProject(
     audioConnection?: GenerationConnectionResolution;
     h3_compilations: H3Compilation[];
     video_prompt_plans?: VideoPromptPlan[];
+    video_prompt_shadow_comparisons?: import("../videoPromptDirector/videoPromptCompile.js").VideoPromptShadowComparison[];
   }>
 > {
   const issues: Issue[] = [];
   let project: Project;
   let h3Compilations: H3Compilation[] = [];
   let videoPromptPlans: VideoPromptPlan[] = [];
+  let videoPromptShadowComparisons: import("../videoPromptDirector/videoPromptCompile.js").VideoPromptShadowComparison[] = [];
 
   try {
     project = await loadProject(configPath);
@@ -78,7 +86,11 @@ export async function validateProject(
 
   // Stage 1: format/render/asset mapping only so operation/model/mode are
   // available for connection resolution. Route PV-E* runs after adapter load.
-  const h3Compile = compileProjectH3(project);
+  // Active rollout owns the H3/V1 authoring boundary; invoking the legacy
+  // compiler there would create a second authoritative serializer.
+  const h3Compile = project.orchestration?.mode === "active"
+    ? { ok: true as const, issues: [] as Issue[], project, compilations: [] as H3Compilation[] }
+    : compileProjectH3(project);
   h3Compilations = h3Compile.compilations ?? [];
   if (h3Compile.project) {
     project = h3Compile.project;
@@ -96,12 +108,44 @@ export async function validateProject(
   // Fail-closed: empty prompt video_prompt must never pass through silently.
   const hasVideoPrompt = project.generation?.requests.some(
     (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
+      || request.h3 !== undefined
+      || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
   );
-  if (hasVideoPrompt) {
+  const rolloutMode = project.orchestration?.mode;
+  const usesV2ProjectBoundary = rolloutMode === "active" || rolloutMode === "shadow";
+  if (hasVideoPrompt && usesV2ProjectBoundary) {
+    const generationUnitSourceResolver = options.generationUnitSourceResolver
+      ?? createProjectGenerationUnitSourceResolver(configPath);
+    const assetContractResolution = await resolveProjectAssetContract(configPath, project);
+    const assetRef = project.orchestration?.authoring?.assets;
+    if (rolloutMode === "active" && assetRef && !assetContractResolution) {
+      return {
+        ok: false,
+        issues: [{
+          code: "VPD-J002",
+          message: "authoritative AssetContract could not be resolved from the project create-only ArtifactStore",
+          path: "orchestration.authoring.assets"
+        }],
+        project,
+        h3_compilations: h3Compilations
+      };
+    }
+    const projectRoot = await realpath(dirname(resolve(configPath)));
     const videoCompile = await compileProjectVideoPrompts(project, {
-      intent: "planning"
+      intent: "planning",
+      generationUnitSourceResolver,
+      ...(options.grammarProfileRoot ? { grammarProfileRoot: options.grammarProfileRoot } : {}),
+      ...(rolloutMode === "active" ? {
+        planningArtifactStore: new ArtifactStore(await realpath(await ensureVideoPromptPlanningStoreRoot(projectRoot)))
+      } : {
+        shadowArtifactRoot: join(projectRoot, project.dist_dir, "shadow", "video-prompt")
+      }),
+      productionId: "production",
+      projectId: project.slug,
+      ...(assetContractResolution ? { assetContractResolution } : {})
     });
     videoPromptPlans = videoCompile.plans ?? [];
+    videoPromptShadowComparisons = videoCompile.shadow_comparisons ?? [];
     if (videoCompile.project) {
       project = videoCompile.project;
     }
@@ -111,8 +155,24 @@ export async function validateProject(
         issues: videoCompile.issues,
         project,
         h3_compilations: h3Compilations,
-        video_prompt_plans: videoPromptPlans
+        video_prompt_plans: videoPromptPlans,
+        ...(videoCompile.shadow_comparisons ? { video_prompt_shadow_comparisons: videoCompile.shadow_comparisons } : {})
       };
+    }
+  } else if (hasVideoPrompt && !usesV2ProjectBoundary) {
+    // Disabled/unspecified projects retain the read-only legacy compiler. In
+    // particular, do not create a production-control store or pin anything.
+    for (const [index, request] of (project.generation?.requests ?? []).entries()) {
+      if ((request as { video_prompt?: unknown }).video_prompt !== undefined) {
+        issues.push({
+          code: "VPD-E022",
+          message: "native VideoPromptIrV2 authoring requires orchestration.mode=active",
+          path: `generation.requests.${index}.video_prompt`
+        });
+      }
+    }
+    if (issues.length > 0) {
+      return { ok: false, issues, project, h3_compilations: h3Compilations };
     }
   } else {
     // Defensive: still reject any uncompiled empty video_prompt edge cases.
@@ -501,7 +561,8 @@ export async function validateProject(
       generationConnection,
       audioConnection,
       h3_compilations: h3Compilations,
-      ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {})
+      ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {}),
+      ...(videoPromptShadowComparisons.length > 0 ? { video_prompt_shadow_comparisons: videoPromptShadowComparisons } : {})
     };
   }
 
@@ -519,8 +580,36 @@ export async function validateProject(
     generationConnection,
     audioConnection,
     h3_compilations: h3Compilations,
-    ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {})
+    ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {}),
+    ...(videoPromptShadowComparisons.length > 0 ? { video_prompt_shadow_comparisons: videoPromptShadowComparisons } : {})
   };
+}
+
+async function ensureVideoPromptPlanningStoreRoot(projectRoot: string): Promise<string> {
+  const root = resolve(projectRoot);
+  const control = join(root, "production-control");
+  const planning = join(control, "video-prompt-planning");
+  for (const directory of [control, planning]) {
+    try {
+      const identity = await lstat(directory);
+      if (!identity.isDirectory() || identity.isSymbolicLink() || identity.dev === 0 || identity.ino === 0) {
+        throw new Error("VPD-K002: planning ArtifactStore ancestor identity is unsafe");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = dirname(directory);
+      const parentIdentity = await lstat(parent);
+      if (!parentIdentity.isDirectory() || parentIdentity.isSymbolicLink() || parentIdentity.dev === 0 || parentIdentity.ino === 0) {
+        throw new Error("VPD-K002: planning ArtifactStore parent identity is unsafe");
+      }
+      await mkdir(directory, { recursive: false, mode: 0o700 });
+      const created = await lstat(directory);
+      if (!created.isDirectory() || created.isSymbolicLink() || created.dev === 0 || created.ino === 0) {
+        throw new Error("VPD-K002: planning ArtifactStore directory identity changed");
+      }
+    }
+  }
+  return realpath(planning);
 }
 
 function generationConnectionRequirements(project: Project): {

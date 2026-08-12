@@ -36,6 +36,7 @@ export {
   resolveConnectionPinPath,
   verifyConnectionPinFile,
   resolveExactModelRoute,
+  resolveExactModelRouteForMode,
   connectionRouteSupportsMode,
   assertConnectionModeSupported,
   CONNECTION_CAPABILITY_UNKNOWN_CODE,
@@ -112,5 +113,149 @@ export {
   type CompileVideoPromptOptions,
   type CompileVideoPromptResult,
   type CompileProjectVideoPromptResult,
+  type GenerationUnitSourceResolver,
   type VideoPromptPlan
 } from "./videoPromptCompile.js";
+
+export {
+  createProjectGenerationUnitSourceResolver,
+  isAuthoritativeGenerationUnitSource,
+  generationUnitContractFacts
+} from "./generationUnitSourceResolver.js";
+
+export {
+  videoPromptIrV2Schema,
+  videoPromptModeV2Schema,
+  parseVideoPromptIrV2,
+  safeParseVideoPromptIrV2,
+  programBindingSchema,
+  routeIdentitySchema,
+  type VideoPromptIrV2,
+  type VideoPromptIrV2Standalone,
+  type VideoPromptIrV2Mv,
+  type ShotV2,
+  type VocalEventV2,
+  type VisibleTextEventV2,
+  type ProgramBindingForV2,
+  type RouteIdentityForV2
+} from "./schemaV2.js";
+
+export { identityDefinitionSchema, type IdentityDefinitionContractV1 } from "../personConsistency/schema.js";
+
+export {
+  upgradeH3V1ToVideoPromptV2,
+  upgradeVideoPromptV1ToV2,
+  type V1UpgradeOptions,
+  type V1UpgradeResult
+} from "./upgradeV1.js";
+
+export {
+  buildSemanticBlocks,
+  semanticBlockDigestMap,
+  semanticBlocksDigest,
+  validateExactText,
+  resolveVocalEventText,
+  DEFAULT_RESERVED_EXACT_TEXT_TOKENS,
+  type LyricsSource,
+  type LyricsCueSource,
+  type SemanticPromptBlock,
+  type SemanticBlockResult,
+  type SemanticBlockOptions
+} from "./semanticBlocks.js";
+
+export {
+  createEffectiveGenerationContract,
+  createRouteIdentity,
+  routeFromProfiles,
+  routeIdentityDigest,
+  assertRouteIdentity,
+  assertEffectiveGenerationContract,
+  assertHomogeneousRouteIdentity,
+  validatePromptBudget,
+  validatePromptLength,
+  type EffectiveGenerationContractV1,
+  type PromptBudget,
+  type BudgetLimit,
+  type CapabilityClaim,
+  type EffectiveContractTruth,
+  type RouteIdentityInput,
+  effectiveGenerationContractSchema
+} from "./effectiveContract.js";
+
+export {
+  type PinnedPromptBudgetEvidence,
+  type TrustedPinnedPromptBudgetEvidence
+} from "./promptBudgetEvidence.js";
+
+export {
+  buildAdapterLabelMap,
+  compileAdapterDialect,
+  validateAdapterDialect,
+  loadAdapterDialectCapability,
+  adapterDialectProfileDigest,
+  resolveRendererDialectCapability,
+  ADAPTER_DIALECT_PROFILE_CODE,
+  type AdapterDialectCapability,
+  type RendererDialectCapability,
+  type AdapterLabel,
+  type AdapterLabelMap,
+  type AdapterDialectResult
+} from "./adapterDialect.js";
+
+export {
+  compileVideoPromptIrV2,
+  compileH3V1ThroughV2,
+  compileLegacyH3V1,
+  validateMvBinding,
+  VIDEO_PROMPT_V2_WORKFLOW_ID,
+  VIDEO_PROMPT_V2_WORKFLOW_VERSION,
+  type CompileVideoPromptV2Options,
+  type CompileVideoPromptV2Result,
+  type VideoPromptV2Compilation,
+  type GenerationUnitDurationBinding,
+  type LegacyH3CompatibilityCompilation
+} from "./compileV2.js";
+
+export {
+  renderH3GrammarV3,
+  validateGrammarShape,
+  DEFAULT_H3_GRAMMAR_PROFILE_V3,
+  H3_GRAMMAR_V3_VERSION,
+  H3_BASE_SECTION_ORDER_V3,
+  H3_REFERENCE_SECTION_ORDER_V3,
+  h3GrammarProfileDigest,
+  isTrustedH3GrammarProfile,
+  loadPinnedH3GrammarProfile,
+  type H3GrammarProfileV3,
+  type H3GrammarV3Result,
+  type H3GrammarV3Options
+} from "./render/h3GrammarV3.js";
+
+export {
+  compilationBundleSchema,
+  compilationRevisionId,
+  loadPlanningArtifactRef,
+  deriveExecutionCompilationBundleFromPlanningArtifact,
+  isAdoptedExecutionCompilationBundle,
+  createExecutionSubmissionLease,
+  consumeExecutionSubmissionLease,
+  readExecutionSubmissionAsset,
+  releaseExecutionSubmissionInput,
+  verifyCompilationBundle,
+  assertCompilationBundleAssets,
+  isProjectAssetIdentityContained,
+  writeCompilationBundleAtomic,
+  readCompilationBundleAtomic,
+  writeShadowComparisonAtomic,
+  type RuntimeAssetPinEvidence,
+  type AssetPin,
+  type CompilationBundleV1,
+  type CompilationBundleInput,
+  type ExecutionCompilationBundle,
+  type ExecutionBundleAuthorityContext,
+  type ExecutionSubmissionLease,
+  type ExecutionSubmissionBinding,
+  type ExecutionSubmissionInput,
+  type PlanningArtifactRef,
+  type CreateOnlyArtifactStoreEnvelope
+} from "./compilationBundle.js";

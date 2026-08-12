@@ -3,7 +3,7 @@
  * No provider network calls. Fail-closed on unknown/stale/unsupported/exact-route mismatch.
  */
 
-import type { GenerationRequest, Project } from "../project/schema.js";
+import { generationRequestOutputKind, type GenerationRequest, type Project } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import { resolveAdapterImplementation } from "./adapterImplementation.js";
 import {
@@ -33,9 +33,32 @@ import {
 import { renderVideoPrompt } from "./render/index.js";
 import type { H3CreativeIr, VideoCreativeIr } from "./schema.js";
 import { mapMode, type H3Compilation, type CompileH3RequestResult } from "./compile.js";
+import { compileLegacyH3V1, compileVideoPromptIrV2, type VideoPromptV2Compilation } from "./compileV2.js";
+import { assertHomogeneousRouteIdentity, routeFromProfiles } from "./effectiveContract.js";
+import { safeParseVideoPromptIrV2, type VideoPromptIrV2 } from "./schemaV2.js";
+import { upgradeH3V1ToVideoPromptV2, upgradeVideoPromptV1ToV2 } from "./upgradeV1.js";
 import { finalizeValidation, issue, type H3Issue } from "./validation/types.js";
 import { validateH3CreativeIr } from "./validation/index.js";
 import { h3IssueToProjectIssue } from "./compile.js";
+import type { GenerationUnitProgramSourceV1 } from "../productionControl/programBinding.js";
+import { loadAdapterDialectCapability } from "./adapterDialect.js";
+import {
+  consumeGenerationUnitLyricsToken,
+  isAuthoritativeAssetContractResolution,
+  type TrustedGenerationUnitLyricsToken,
+  type TrustedAssetContractResolution
+} from "./generationUnitSourceResolver.js";
+import { loadPinnedH3GrammarProfile, type H3GrammarProfileV3 } from "./render/h3GrammarV3.js";
+import {
+  compilationRevisionId,
+  persistPlanningCompilationArtifact,
+  readCompilationBundleAtomic,
+  writeCompilationBundleAtomic,
+  writeShadowComparisonAtomic
+} from "./compilationBundle.js";
+import type { ArtifactStore } from "../productionControl/artifactStore.js";
+import { resolve } from "node:path";
+import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
 
 export {
   VIDEO_PROMPT_DUAL_AUTHORING_CODE,
@@ -43,6 +66,13 @@ export {
   rejectDualAuthoring,
   rejectUncompiledVideoPrompt
 } from "./dualAuthoring.js";
+
+export type GenerationUnitSourceResolver = (input: {
+  project: Project;
+  request: GenerationRequest;
+  ir: VideoPromptIrV2;
+  requestIndex: number;
+}) => GenerationUnitProgramSourceV1 | undefined | Promise<GenerationUnitProgramSourceV1 | undefined>;
 
 export type CompileVideoPromptOptions = {
   connectionId: string;
@@ -62,6 +92,35 @@ export type CompileVideoPromptOptions = {
   connectionProfileRoots?: string[];
   adapterDirs?: string[];
   intent?: "planning" | "dry-run" | "execute";
+  generationUnitSource?: GenerationUnitProgramSourceV1;
+  generationUnitSourceByRequestId?: Readonly<Record<string, GenerationUnitProgramSourceV1>>;
+  generationUnitSourceResolver?: GenerationUnitSourceResolver;
+  requestIndex?: number;
+  require_exact_sync?: boolean;
+  /** Repo-local pinned grammar loaded by the project entrypoint. */
+  grammar_profile?: H3GrammarProfileV3;
+  require_pinned_grammar?: boolean;
+  grammarProfileRoot?: string;
+  /** Compiler-internal opaque token; callers cannot manufacture lyrics authority. */
+  generationUnitLyricsToken?: TrustedGenerationUnitLyricsToken;
+  /** Authoritative project-local AssetContract ref for standalone assets. */
+  assetContractResolution?: TrustedAssetContractResolution;
+  source?: {
+    authoring_surface?: "h3" | "video_prompt";
+    authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
+    upgrader_version: string;
+    source_digest?: string;
+  };
+  compilationArtifactRoot?: string;
+  /** Safe durable run/plan revision under compilationArtifactRoot. */
+  revision_id?: string;
+  shadowArtifactRoot?: string;
+  /** Production-owned create-only planning truth; not caller-made JSON. */
+  planningArtifactStore?: ArtifactStore;
+  productionId?: string;
+  projectId?: string;
+  /** The project entrypoint is crossing the active V2 authority boundary. */
+  activeV2?: boolean;
 };
 
 export type VideoPromptPlan = {
@@ -71,6 +130,9 @@ export type VideoPromptPlan = {
   connection_capability_digest: string;
   readiness: Extract<PlanningReadinessResult, { ok: true }>;
   compilation: H3Compilation;
+  /** Present when the request crossed the V2 single-compiler boundary. */
+  v2_compilation?: VideoPromptV2Compilation;
+  compiler_workflow?: "video-prompt-v3" | "video-prompt-director";
 };
 
 export type CompileVideoPromptResult =
@@ -90,6 +152,40 @@ export async function compileVideoPromptRequest(
   issues.push(...rejectDualAuthoring(request));
   if (issues.length > 0) {
     return { ok: false, issues };
+  }
+
+  const v2 = safeParseVideoPromptIrV2(ir);
+  if (v2.success) {
+    return compileVideoPromptV2Request(
+      request,
+      v2.data,
+      options,
+      request.h3 === ir
+        ? {
+            authoring_surface: "h3",
+            authoring_schema: "VideoPromptIrV2",
+            upgrader_version: "native-v2",
+            source_digest: sha256Canonical(v2.data)
+          }
+        : undefined
+    );
+  }
+
+  // Legacy request.h3 is read-only authoring. Upgrade it in memory and send
+  // the result through the same V2 compiler boundary; the source request is
+  // restored by the project projection below and is never rewritten.
+  if (request.h3 && request.h3 === ir) {
+    try {
+      const upgraded = upgradeH3V1ToVideoPromptV2(request.h3);
+      return compileVideoPromptV2Request(request, upgraded.ir, options, {
+        authoring_surface: "h3",
+        authoring_schema: "H3-V1",
+        upgrader_version: "h3-v1-to-v2@1",
+        source_digest: upgraded.source_sha256
+      });
+    } catch (error) {
+      return { ok: false, issues: [issue("VPD-U001", error instanceof Error ? error.message : "legacy H3 upgrade failed", "error", ["h3"])] };
+    }
   }
 
   const modelLoad = await loadModelPromptProfile(ir.target.model, options.modelProfileRoots);
@@ -134,27 +230,41 @@ export async function compileVideoPromptRequest(
     issues.push(issue(readiness.code, readiness.message, "error", ["target", "mode"]));
   }
 
+  // A profile-declared grammar renderer selects the legacy V1 compatibility
+  // upgrader. The core must not identify that route by a vendor/model id;
+  // model profiles are the only authority for renderer selection.
+  if (modelLoad.profile.renderer === "h3-grammar") {
+    try {
+      const upgraded = upgradeVideoPromptV1ToV2(ir as VideoCreativeIr);
+      return compileVideoPromptV2Request(request, upgraded.ir, options, {
+        authoring_surface: "video_prompt",
+        authoring_schema: "V1",
+        upgrader_version: "video-prompt-v1-to-v2@1",
+        source_digest: upgraded.source_sha256
+      });
+    } catch (error) {
+      issues.push(issue("VPD-U001", error instanceof Error ? error.message : "legacy video_prompt upgrade failed", "error", ["video_prompt"]));
+      return { ok: false, issues };
+    }
+  }
+
   // Profile is mandatory for renderVideoPrompt (no default-H3 fallback).
   const rendered = renderVideoPrompt(ir as H3CreativeIr, modelLoad.profile);
   const validation = validateH3CreativeIr(ir as H3CreativeIr, {
-    renderedText: modelLoad.profile.renderer === "h3-grammar" ? rendered.text : undefined,
-    includeWarnings: modelLoad.profile.renderer === "h3-grammar"
+    renderedText: undefined,
+    includeWarnings: false
   });
   // Plain-prompt skips H3 section grammar checks (H3-E001..) which require H3 sections.
   // Renderer-independent issues (LOCK-* / scene.* / identity.*) still apply.
-  if (modelLoad.profile.renderer === "h3-grammar") {
-    issues.push(...validation.issues);
-  } else {
-    issues.push(
-      ...validation.issues.filter(
-        (item) =>
-          item.code.startsWith("LOCK-")
-          || item.code.startsWith("scene.")
-          || item.code.startsWith("identity.")
-          || item.code.startsWith("iteration.")
-      )
-    );
-  }
+  issues.push(
+    ...validation.issues.filter(
+      (item) =>
+        item.code.startsWith("LOCK-")
+        || item.code.startsWith("scene.")
+        || item.code.startsWith("identity.")
+        || item.code.startsWith("iteration.")
+    )
+  );
 
   const mapping = mapMode(ir.target.mode);
   const assetFields = buildAssetFields(ir as H3CreativeIr);
@@ -176,12 +286,8 @@ export async function compileVideoPromptRequest(
     rendered.text,
     request,
     {
-      workflow_id: ir.target.model === "minimax-h3" && modelLoad.profile.renderer === "h3-grammar"
-        ? undefined
-        : VIDEO_PROMPT_WORKFLOW_ID,
-      workflow_version: ir.target.model === "minimax-h3" && modelLoad.profile.renderer === "h3-grammar"
-        ? undefined
-        : VIDEO_PROMPT_WORKFLOW_VERSION,
+      workflow_id: VIDEO_PROMPT_WORKFLOW_ID,
+      workflow_version: VIDEO_PROMPT_WORKFLOW_VERSION,
       model_profile_digest: modelLoad.digest,
       connection_capability_digest: connectionLoad.digest
     }
@@ -228,6 +334,232 @@ export async function compileVideoPromptRequest(
   };
 }
 
+async function compileVideoPromptV2Request(
+  request: GenerationRequest,
+  ir: VideoPromptIrV2,
+  options: CompileVideoPromptOptions,
+  source?: {
+    authoring_surface?: "h3" | "video_prompt";
+    authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
+    upgrader_version: string;
+    source_digest?: string;
+  }
+): Promise<CompileVideoPromptResult> {
+  const issues: H3Issue[] = [];
+  const sourceTuple = source ?? options.source;
+  // Native V2 active authoring has no caller-controlled provider payload. The
+  // IR, route, effective contract, and compiled asset pins are the only
+  // sources for adapter parameters. Legacy compatibility keeps its existing
+  // byte-preserving surface and is handled by the pure upgrader tuple.
+  if (!sourceTuple || options.activeV2) {
+    const paramKeys = Object.keys(request.params ?? {});
+    if (paramKeys.length > 0) {
+      return {
+        ok: false,
+        issues: [issue("VPD-E033", "active V2 request.params must be empty; provider-impact fields must be compiled from the IR", "error", ["params"])]
+      };
+    }
+  }
+  if (options.assetContractResolution && !isAuthoritativeAssetContractResolution(options.assetContractResolution)) {
+    return {
+      ok: false,
+      issues: [issue("VPD-J002", "standalone assets require the authoritative project AssetContract resolver", "error", ["assets"])]
+    };
+  }
+  if (ir.assets.length > 0 && !options.assetContractResolution) {
+    return {
+      ok: false,
+      issues: [issue("VPD-J002", "asset-bearing video authoring requires the authoritative project AssetContract resolver", "error", ["assets"])]
+    };
+  }
+  if (options.assetContractResolution) {
+    for (const asset of ir.assets) {
+      const entry = options.assetContractResolution.contract.assets.find((candidate) => candidate.asset_id === asset.id);
+      if (!entry || entry.project_relative_path !== asset.path || entry.sha256 !== asset.sha256
+        || options.assetContractResolution.artifact_digest !== options.assetContractResolution.contract.digest) {
+        return {
+          ok: false,
+          issues: [issue("VPD-J002", `asset '${asset.id}' is not the exact project AssetContract entry`, "error", ["assets", asset.id])]
+        };
+      }
+    }
+  }
+  const modelLoad = await loadModelPromptProfile(ir.target.model_profile_id, options.modelProfileRoots);
+  if (!modelLoad.ok) return { ok: false, issues: [issue(modelLoad.code, modelLoad.message, "error", ["target", "model_profile_id"])] };
+  const connectionLoad = await loadConnectionCapabilityProfile(options.connectionId, options.connectionProfileRoots);
+  if (!connectionLoad.ok) return { ok: false, issues: [issue(connectionLoad.code, connectionLoad.message, "error", ["connection"])] };
+  // Resolve the unique model+requested-mode route before loading any adapter
+  // capability. Adapter selection must never use a model-only first match.
+  const selectedRoute = routeFromProfiles({
+    model: ir.target.model_profile_id,
+    mode: ir.target.mode,
+    model_profile: modelLoad.profile,
+    connection_profile: connectionLoad.profile,
+    model_profile_digest: modelLoad.digest,
+    connection_profile_digest: connectionLoad.digest
+  });
+  if (!selectedRoute.ok) return { ok: false, issues: selectedRoute.issues };
+  const adapterDialectLoad = await loadAdapterDialectCapability(
+    connectionLoad.profile.adapter_id ?? "",
+    options.adapterDirs,
+    {
+      model_profile_id: modelLoad.profile.id,
+      provider_model: selectedRoute.route.provider_model,
+      mode: ir.target.mode
+    }
+  );
+  if (!adapterDialectLoad.ok) return { ok: false, issues: [issue(adapterDialectLoad.code, adapterDialectLoad.message, "error", ["connection", "adapter_id"])] };
+  const adapterCheck = await resolveAdapterImplementation({
+    adapterId: connectionLoad.profile.adapter_id,
+    implementedAdapterIds: options.implementedAdapterIds,
+    adapterDirs: options.adapterDirs,
+    callerClaimsImplemented: options.adapterImplemented
+  });
+  if (!adapterCheck.ok) issues.push(issue(adapterCheck.code, adapterCheck.message, "error", ["connection", "adapter_id"]));
+  const readiness = evaluatePlanningReadiness({
+    modelProfile: modelLoad.profile,
+    connectionProfile: connectionLoad.profile,
+    mode: ir.target.mode,
+    semantics: requiredSemanticsForMode(modelLoad.profile, ir.target.mode),
+    adapterImplemented: adapterCheck.ok,
+    catalogPresent: options.catalogPresent,
+    intent: options.intent ?? "planning"
+  });
+  if (!readiness.ok) issues.push(issue(readiness.code, readiness.message, "error", ["target", "mode"]));
+  if (!adapterCheck.ok) return { ok: false, issues };
+  const requireExactSync = options.require_exact_sync ?? ir.shots.some((shot) => shot.vocal_events.some((event) => event.kind === "singing" && event.content.source === "lyrics-cue"));
+  const compiled = compileVideoPromptIrV2(ir, {
+    request_id: request.id,
+    route: selectedRoute.route,
+    model_profile: modelLoad.profile,
+    connection_profile: connectionLoad.profile,
+    model_profile_digest: modelLoad.digest,
+    connection_capability_digest: connectionLoad.digest,
+    intent: options.intent === "execute" ? "execute" : "planning",
+    require_exact_sync: requireExactSync,
+    request_index: options.requestIndex,
+    ...(options.generationUnitSource ? { generation_unit_source: options.generationUnitSource } : {}),
+    ...(options.generationUnitLyricsToken ? { generation_unit_lyrics_token: options.generationUnitLyricsToken } : {}),
+    ...(options.assetContractResolution ? {
+      asset_evidence: Object.fromEntries(options.assetContractResolution.contract.assets
+        .filter((entry) => ir.assets.some((asset) => asset.id === entry.asset_id))
+        .map((entry) => [entry.asset_id, {
+          source: "asset-contract" as const,
+          real_path: resolve(options.assetContractResolution!.project_root, entry.project_relative_path),
+          sha256: entry.sha256,
+          byte_size: entry.byte_size,
+          regular_file: true as const,
+          contained_in_project_root: true as const,
+          asset_contract: {
+            contract_id: options.assetContractResolution!.contract.contract_id,
+            revision: options.assetContractResolution!.contract.revision,
+            digest: options.assetContractResolution!.contract.digest,
+            entry_id: entry.asset_id,
+            path: entry.project_relative_path,
+            sha256: entry.sha256,
+            byte_size: entry.byte_size,
+            external_send: entry.external_send
+          }
+        }]))
+    } : {}),
+    ...(options.assetContractResolution ? {
+      project_root: options.assetContractResolution.project_root
+    } : {}),
+    ...(options.grammar_profile ? { grammar_profile: options.grammar_profile } : {}),
+    require_pinned_grammar: options.require_pinned_grammar,
+    adapter_dialect_capability: adapterDialectLoad.capability,
+    ...(sourceTuple ? { source: sourceTuple } : {})
+  });
+  issues.push(...compiled.issues);
+  const v2Compilation = compiled.compilation;
+  if (!v2Compilation) return { ok: false, issues };
+  if (!v2Compilation.bundle) return { ok: false, issues };
+  const pinnedAssetPaths = Object.fromEntries(
+    v2Compilation.bundle.asset_lineage
+      .filter((asset) => asset.pin)
+      .map((asset) => [asset.asset_id, asset.pin!.relative_path])
+  );
+  const pinnedAssetRecords = Object.fromEntries(
+    v2Compilation.bundle.asset_lineage
+      .filter((asset) => asset.pin)
+      .map((asset) => [asset.asset_id, asset.pin!])
+  );
+  const executionRequest = buildV2ExecutionRequest(
+    request,
+    ir,
+    v2Compilation.adapter_prompt,
+    options.intent === "execute" ? pinnedAssetPaths : undefined,
+    options.intent === "execute" ? pinnedAssetRecords : undefined
+  );
+  const lineage = {
+    workflow_id: "video-prompt-v3",
+    workflow_version: "3",
+    creative_ir_hash: v2Compilation.normalized_ir_digest,
+    canonical_prompt_hash: v2Compilation.lineage.canonical_prompt_digest,
+    adapter_prompt_hash: v2Compilation.lineage.adapter_prompt_digest,
+    model_profile_digest: modelLoad.digest,
+    connection_capability_digest: connectionLoad.digest,
+    block_digests: v2Compilation.lineage.block_digests
+  } as H3Compilation["lineage"];
+  const compilation = {
+    request_id: request.id,
+    creative_ir: ir as never,
+    canonical_prompt: v2Compilation.canonical_prompt,
+    adapter_prompt: v2Compilation.adapter_prompt,
+    validation: v2Compilation.validation,
+    lineage,
+    execution_request: executionRequest
+  } as H3Compilation;
+  const plan = {
+    model_profile: modelLoad.profile,
+    model_profile_digest: modelLoad.digest,
+    connection_profile: connectionLoad.profile,
+    connection_capability_digest: connectionLoad.digest,
+    readiness: readiness.ok ? readiness : { ok: true, planning_only: true, external_submission_allowed: false } as never,
+    compilation,
+    v2_compilation: v2Compilation as VideoPromptV2Compilation,
+    compiler_workflow: "video-prompt-v3" as const
+  };
+  if (issues.some((item) => item.severity === "error") || !compiled.ok || !readiness.ok) return { ok: false, plan, issues };
+  return { ok: true, plan, issues: [] };
+}
+
+function buildV2ExecutionRequest(
+  request: GenerationRequest,
+  ir: VideoPromptIrV2,
+  adapterPrompt: string,
+  pinnedAssetPaths?: Readonly<Record<string, string>>,
+  pinnedAssetRecords?: Readonly<Record<string, { relative_path: string; sha256: string; byte_size: number }>>
+): GenerationRequest {
+  const pathFor = (asset: VideoPromptIrV2["assets"][number]): string | undefined => pinnedAssetPaths?.[asset.id] ?? (pinnedAssetPaths ? undefined : asset.path);
+  const assets = (role: string, type: "image" | "video" | "audio") => ir.assets.filter((asset) => asset.type === type && asset.role === role).map(pathFor).filter((value): value is string => Boolean(value));
+  const inputImages = ir.assets.filter((asset) => asset.type === "image" && ["subject_reference", "motion_reference", "environment_reference", "style_reference", "other"].includes(asset.role)).map(pathFor).filter((value): value is string => Boolean(value));
+  const inputVideos = ir.assets.filter((asset) => asset.type === "video").map(pathFor).filter((value): value is string => Boolean(value));
+  const inputAudios = ir.assets.filter((asset) => asset.type === "audio").map(pathFor).filter((value): value is string => Boolean(value));
+  const pinnedAssetRequestRecords = pinnedAssetRecords
+    ? Object.entries(pinnedAssetRecords).map(([asset_id, pin]) => ({ asset_id, ...pin }))
+    : [];
+  return {
+    id: request.id,
+    prompt: adapterPrompt,
+    model: ir.target.model_profile_id,
+    duration: ir.target.duration_ms / 1_000,
+    aspect: ir.target.aspect,
+    operation: mapMode(ir.target.mode).operation,
+    input_mode: mapMode(ir.target.mode).input_mode,
+    params: {
+      quality: ir.target.quality,
+      audio: ir.target.audio,
+      ...(pinnedAssetRequestRecords.length > 0 ? { asset_pins: pinnedAssetRequestRecords } : {})
+    },
+    ...(assets("first_frame", "image").length ? { first_frame: assets("first_frame", "image")[0] } : {}),
+    ...(assets("last_frame", "image").length ? { last_frame: assets("last_frame", "image")[0] } : {}),
+    ...(inputImages.length ? { input_images: inputImages } : {}),
+    ...(inputVideos.length ? { input_videos: inputVideos } : {}),
+    ...(inputAudios.length ? { input_audios: inputAudios } : {})
+  } as GenerationRequest;
+}
+
 /** Alias for planning-oriented callers. */
 export async function planVideoPrompt(
   request: GenerationRequest,
@@ -240,7 +572,21 @@ export async function planVideoPrompt(
 export type CompileProjectVideoPromptResult = Result<{
   project: Project;
   plans: VideoPromptPlan[];
+  shadow_comparisons?: VideoPromptShadowComparison[];
 }>;
+
+export type VideoPromptShadowComparison = {
+  request_id: string;
+  authoritative: "legacy";
+  status: "compiled" | "failed" | "not-attempted";
+  compilation_digest?: string;
+  legacy_canonical_prompt_digest?: string;
+  legacy_adapter_prompt_digest?: string;
+  v2_canonical_prompt_digest?: string;
+  v2_adapter_prompt_digest?: string;
+  diff?: { fields: string[] };
+  issues: Array<{ code: string; message: string }>;
+};
 
 /**
  * Compile every video_prompt-bearing request on a project for planning / dry-run.
@@ -257,22 +603,138 @@ export async function compileProjectVideoPrompts(
     return { ok: true, issues: [], project, plans: [] };
   }
 
-  const connectionId = options.connectionId
-    ?? project.generation.connection
-    ?? project.generation.adapter;
+  const connectionId = options.connectionId ?? project.generation.connection;
   const plans: VideoPromptPlan[] = [];
+  const shadowComparisons: VideoPromptShadowComparison[] = [];
+  const v2Routes = [] as Array<NonNullable<VideoPromptPlan["v2_compilation"]>["route"]>;
   const issues: Issue[] = [];
   const nextRequests: GenerationRequest[] = [];
+  const rolloutMode = project.orchestration?.mode;
+  let pinnedGrammar: H3GrammarProfileV3 | undefined;
+  let grammarLoadError: string | undefined;
+  const hasVideoBoundaryRequest = project.generation.requests.some((request) =>
+    generationRequestOutputKind(request) === "video" || hasVideoPromptField(request) || request.h3 !== undefined
+  );
+  if ((rolloutMode === "active" || rolloutMode === "shadow") && hasVideoBoundaryRequest) {
+    try {
+      pinnedGrammar = await loadPinnedH3GrammarProfile(options.grammarProfileRoot ?? "profiles/grammar");
+    } catch (error) {
+      grammarLoadError = error instanceof Error ? error.message : String(error);
+      if (rolloutMode === "active") {
+        issues.push({ code: "VPD-C003", message: grammarLoadError, path: "profiles/grammar/h3-v3.yaml" });
+      }
+    }
+  }
 
   for (const [index, request] of project.generation.requests.entries()) {
+    const operationOutputIssue = assertOperationOutputKind(request);
+    if (operationOutputIssue) {
+      issues.push({ code: "VPD-E022", message: operationOutputIssue, path: `generation.requests.${index}.output_kind` });
+      nextRequests.push(request);
+      continue;
+    }
     const dual = rejectDualAuthoring(request);
     if (dual.length > 0) {
-      issues.push(...dual.map((item) => h3IssueToProjectIssue(item, index)));
+      issues.push(...dual.map((item) => h3IssueToProjectIssue(item, index, "video_prompt")));
       nextRequests.push(request);
       continue;
     }
 
-    if (!hasVideoPromptField(request)) {
+    const hasNativeVideoPrompt = hasVideoPromptField(request);
+    const isActiveVideoRequest = rolloutMode === "active" && generationRequestOutputKind(request) === "video";
+    // The project entrypoint is intentionally rollout-gated. Legacy H3 is
+    // authoritative until active; native V2 authoring is never silently
+    // downgraded to the legacy compiler.
+    if (rolloutMode === "shadow") {
+      if (hasNativeVideoPrompt) {
+        issues.push(h3IssueToProjectIssue(issue("VPD-E022", "native VideoPromptIrV2 requires orchestration.mode=active", "error", ["video_prompt"]), index, "video_prompt"));
+        nextRequests.push(request);
+        continue;
+      }
+      const hasLegacyH3 = Boolean(request.h3);
+      if (!hasLegacyH3) {
+        nextRequests.push(request);
+        continue;
+      }
+      if (!project.generation.connection || !connectionId) {
+        shadowComparisons.push({ request_id: request.id, authoritative: "legacy", status: "not-attempted", issues: [{ code: "VPD-E022", message: "shadow V2 comparison requires an explicit generation.connection" }] });
+        nextRequests.push(request);
+        continue;
+      }
+      if (grammarLoadError || !pinnedGrammar) {
+        shadowComparisons.push({ request_id: request.id, authoritative: "legacy", status: "failed", issues: [{ code: "VPD-C003", message: grammarLoadError ?? "pinned grammar profile is unavailable" }] });
+        nextRequests.push(request);
+        continue;
+      }
+      const shadowIr = request.h3;
+      if (!shadowIr) {
+        nextRequests.push(request);
+        continue;
+      }
+      try {
+        const legacy = compileLegacyH3V1(shadowIr);
+        const shadowResult = await compileVideoPromptRequest(request, shadowIr, {
+          ...options,
+          connectionId,
+          requestIndex: index,
+          grammar_profile: pinnedGrammar,
+          require_pinned_grammar: true,
+          ...(options.shadowArtifactRoot ? { shadowArtifactRoot: options.shadowArtifactRoot } : {})
+        });
+        const comparison: VideoPromptShadowComparison = shadowResult.ok && shadowResult.plan?.v2_compilation
+          ? {
+              request_id: request.id,
+              authoritative: "legacy",
+              status: "compiled",
+              compilation_digest: shadowResult.plan.v2_compilation.bundle.compilation_digest,
+              legacy_canonical_prompt_digest: sha256Text(legacy.canonical_prompt),
+              legacy_adapter_prompt_digest: sha256Text(legacy.adapter_prompt),
+              v2_canonical_prompt_digest: shadowResult.plan.v2_compilation.bundle.canonical_prompt_digest,
+              v2_adapter_prompt_digest: shadowResult.plan.v2_compilation.bundle.adapter_prompt_digest,
+              diff: {
+                fields: [
+                  ...(legacy.canonical_prompt === shadowResult.plan.v2_compilation.canonical_prompt ? [] : ["canonical_prompt"]),
+                  ...(legacy.adapter_prompt === shadowResult.plan.v2_compilation.adapter_prompt ? [] : ["adapter_prompt"])
+                ]
+              },
+              issues: []
+            }
+          : { request_id: request.id, authoritative: "legacy", status: "failed", issues: shadowResult.issues.map((item) => ({ code: item.code, message: item.message })) };
+        shadowComparisons.push(comparison);
+      } catch (error) {
+        shadowComparisons.push({ request_id: request.id, authoritative: "legacy", status: "failed", issues: [{ code: "VPD-C004", message: error instanceof Error ? error.message : String(error) }] });
+      }
+      nextRequests.push(request);
+      continue;
+    }
+    if (rolloutMode !== "active") {
+      if (hasNativeVideoPrompt) {
+        issues.push(h3IssueToProjectIssue(issue("VPD-E022", "native VideoPromptIrV2 requires orchestration.mode=active", "error", ["video_prompt"]), index, "video_prompt"));
+      }
+      nextRequests.push(request);
+      continue;
+    }
+
+    const hasLegacyH3 = Boolean(request.h3);
+    // Non-video requests keep their own authority path; the active V2 video
+    // boundary must not impose a generation connection on voice/music/image.
+    if (generationRequestOutputKind(request) !== "video" && !hasNativeVideoPrompt && !hasLegacyH3) {
+      nextRequests.push(request);
+      continue;
+    }
+    // Active is an explicit V2 authority boundary. An adapter name is not a
+    // route and must never be promoted into a connection by this compiler.
+    if (!project.generation.connection || !connectionId) {
+      issues.push({ code: "VPD-E022", message: "active video prompt compilation requires an explicit generation.connection; adapter-only projects are planning-invalid", path: `generation.requests.${index}.video_prompt` });
+      nextRequests.push(request);
+      continue;
+    }
+    if (!hasNativeVideoPrompt && !hasLegacyH3 && isActiveVideoRequest) {
+      issues.push({ code: "VPD-E022", message: "active video generation requires canonical VideoPromptIrV2 authoring or a legacy H3/V1 input that can be upgraded in memory; raw prompt-only requests are forbidden", path: `generation.requests.${index}.video_prompt` });
+      nextRequests.push(request);
+      continue;
+    }
+    if (!hasNativeVideoPrompt && !hasLegacyH3) {
       nextRequests.push(request);
       continue;
     }
@@ -289,27 +751,108 @@ export async function compileProjectVideoPrompts(
       continue;
     }
 
-    const ir = (request as GenerationRequest & { video_prompt: VideoCreativeIr }).video_prompt;
+    const ir = (request as GenerationRequest & { video_prompt?: VideoCreativeIr }).video_prompt ?? request.h3;
+    if (!ir) {
+      nextRequests.push(request);
+      continue;
+    }
+    const parsedV2 = safeParseVideoPromptIrV2(ir);
+    const requiresAuthoritativeAssets = parsedV2.success && parsedV2.data.assets.length > 0;
+    if (rolloutMode === "active" && requiresAuthoritativeAssets && !isAuthoritativeAssetContractResolution(options.assetContractResolution)) {
+      issues.push({
+        code: "VPD-J002",
+        message: "asset-bearing active video authoring requires a current authoritative AssetContract",
+        path: `generation.requests.${index}.video_prompt.assets`
+      });
+      nextRequests.push(request);
+      continue;
+    }
+    let generationUnitSource: GenerationUnitProgramSourceV1 | undefined = options.generationUnitSource;
+    if (parsedV2.success && parsedV2.data.program_kind === "mv") {
+      generationUnitSource = options.generationUnitSourceByRequestId?.[request.id]
+        ?? (options.generationUnitSourceResolver
+          ? await options.generationUnitSourceResolver({
+              project,
+              request,
+              ir: parsedV2.data,
+              requestIndex: index
+            })
+          : generationUnitSource);
+    }
+    const generationUnitLyricsToken = generationUnitSource
+      ? consumeGenerationUnitLyricsToken(generationUnitSource)
+      : undefined;
     const result = await compileVideoPromptRequest(request, ir, {
       ...options,
-      connectionId
+      connectionId,
+      requestIndex: index,
+      grammar_profile: pinnedGrammar,
+      require_pinned_grammar: true,
+      ...(generationUnitSource ? { generationUnitSource } : {}),
+      ...(generationUnitLyricsToken ? { generationUnitLyricsToken } : {}),
+      activeV2: rolloutMode === "active"
     });
     if (result.plan) {
       plans.push(result.plan);
+      if (result.plan.v2_compilation) v2Routes.push(result.plan.v2_compilation.route);
     }
     if (!result.ok) {
-      issues.push(...result.issues.map((item) => h3IssueToProjectIssue(item, index)));
+      issues.push(...result.issues.map((item) => h3IssueToProjectIssue(item, index, "video_prompt")));
       nextRequests.push(request);
       continue;
+    }
+
+    if (options.compilationArtifactRoot && !options.planningArtifactStore && result.plan.v2_compilation) {
+      await writeCompilationBundleAtomic(
+        resolve(options.compilationArtifactRoot),
+        result.plan.v2_compilation.bundle,
+        {
+          project_root: resolve(options.compilationArtifactRoot),
+          revision_id: options.revision_id ?? compilationRevisionId(result.plan.v2_compilation.bundle),
+          request_id: result.plan.v2_compilation.request_id,
+          allow_existing_same_digest: true
+        }
+      );
+      const persisted = readCompilationBundleAtomic(resolve(options.compilationArtifactRoot), {
+        project_root: resolve(options.compilationArtifactRoot),
+        revision_id: options.revision_id ?? compilationRevisionId(result.plan.v2_compilation.bundle),
+        request_id: result.plan.v2_compilation.request_id
+      });
+      result.plan.v2_compilation = {
+        ...result.plan.v2_compilation,
+        bundle: persisted.bundle,
+        canonical_prompt: persisted.bundle.canonical_prompt,
+        adapter_prompt: persisted.bundle.adapter_prompt,
+        effective_contract: persisted.bundle.effective_contract
+      };
+    }
+    if (options.planningArtifactStore && result.plan.v2_compilation) {
+      const planningArtifact = await persistPlanningCompilationArtifact({
+        store: options.planningArtifactStore,
+        bundle: result.plan.v2_compilation.bundle,
+        production_id: options.productionId ?? "production",
+        project_id: options.projectId ?? project.slug,
+        revision_id: options.revision_id ?? compilationRevisionId(result.plan.v2_compilation.bundle)
+      });
+      result.plan.v2_compilation = {
+        ...result.plan.v2_compilation,
+        planning_artifact: planningArtifact
+      };
     }
 
     // Keep authoring IR for digests; fill execution fields including non-empty prompt.
     nextRequests.push({
       ...result.plan.compilation.execution_request,
-      video_prompt: ir,
+      ...(hasLegacyH3 ? { h3: request.h3 } : { video_prompt: ir }),
       ...(request.prompt_guide ? { prompt_guide: request.prompt_guide } : {})
     } as GenerationRequest);
   }
+
+  issues.push(...assertHomogeneousRouteIdentity(v2Routes).map((item) => ({
+    code: item.code,
+    message: item.message,
+    path: "generation.requests"
+  })));
 
   const nextProject: Project = {
     ...project,
@@ -322,14 +865,47 @@ export async function compileProjectVideoPrompts(
   // Final fail-closed: any remaining empty-prompt video_prompt is an error.
   for (const [index, request] of nextRequests.entries()) {
     for (const item of rejectUncompiledVideoPrompt(request)) {
-      issues.push(h3IssueToProjectIssue(item, index));
+      issues.push(h3IssueToProjectIssue(item, index, "video_prompt"));
+    }
+  }
+
+  if (options.shadowArtifactRoot) {
+    for (const comparison of shadowComparisons) {
+      try {
+        await writeShadowComparisonAtomic(options.shadowArtifactRoot, comparison, {
+          project_root: options.shadowArtifactRoot,
+          revision_id: options.revision_id ?? `shadow-${sha256Text(JSON.stringify(comparison)).slice(0, 32)}`
+        });
+      } catch (error) {
+        // Shadow persistence is non-authoritative: report the failed artifact
+        // without changing the legacy result or Gate/run digest.
+        comparison.issues.push({ code: "VPD-C004", message: error instanceof Error ? error.message : String(error) });
+        comparison.status = "failed";
+      }
     }
   }
 
   if (issues.length > 0) {
-    return { ok: false, issues, project: nextProject, plans };
+    return { ok: false, issues, project: nextProject, plans, ...(shadowComparisons.length > 0 ? { shadow_comparisons: shadowComparisons } : {}) };
   }
-  return { ok: true, issues: [], project: nextProject, plans };
+  return { ok: true, issues: [], project: nextProject, plans, ...(shadowComparisons.length > 0 ? { shadow_comparisons: shadowComparisons } : {}) };
+}
+
+function assertOperationOutputKind(request: GenerationRequest): string | undefined {
+  const operation = request.operation;
+  const expected = operation === undefined
+    ? "video"
+    : operation === "image"
+    ? "image"
+    : operation === "voice" || operation === "music"
+      ? "audio"
+      : ["video", "transition", "extend", "modify", "upscale", "reference", "motion-control"].includes(operation ?? "")
+        ? "video"
+        : undefined;
+  if (expected && request.output_kind && request.output_kind !== expected) {
+    return `operation '${operation}' cannot declare output_kind '${request.output_kind}'`;
+  }
+  return undefined;
 }
 
 function buildExecutionRequest(

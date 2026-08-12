@@ -57,7 +57,8 @@ import {
 } from "../h3/runArtifacts.js";
 import { loadProjectPromptGuides } from "../adapters/promptKnowledge.js";
 import { loadH3ExecutionRouteProfile } from "../adapters/constraints.js";
-import { compileProjectVideoPrompts } from "../videoPromptDirector/videoPromptCompile.js";
+import { compileProjectVideoPrompts, type GenerationUnitSourceResolver } from "../videoPromptDirector/videoPromptCompile.js";
+import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
 
 export type LocalRunH3Artifacts = {
   request_id: string;
@@ -100,6 +101,8 @@ type AssembleOptions = {
    * lineage hashing. Direct unit callers may omit to fall back to default dirs.
    */
   promptGuides?: H3PromptGuideSource[];
+  /** Typed MV source resolver; request ids are never treated as source truth. */
+  generationUnitSourceResolver?: GenerationUnitSourceResolver;
 };
 
 export type ApprovedCompilation = {
@@ -527,7 +530,7 @@ export async function inspectGate2RunForApproval(
   // Stage 1 format compile + stage 2 selected-adapter route revalidation.
   let h3Compilations: H3Compilation[] = [];
   let h3Project = project;
-  if (isGeneration) {
+  if (isGeneration && project.orchestration?.mode !== "active") {
     const h3Compile = compileProjectH3(project);
     if (!h3Compile.ok) {
       return { ok: false, issues: h3Compile.issues };
@@ -676,7 +679,9 @@ async function assembleGeneratedMediaRun(
   // Recompile H3 before any run-dir mutation or adapter invocation. Fail closed
   // on H3-C / H3-E / PV-E so invalid Creative IR never reaches billing paths.
   // Stage 1 is format-only; stage 2 injects the selected adapter route profile.
-  const h3Compile = compileProjectH3(project);
+  const h3Compile = project.orchestration?.mode === "active"
+    ? { ok: true as const, project, compilations: [] as H3Compilation[], issues: [] }
+    : compileProjectH3(project);
   if (!h3Compile.ok) {
     return { ok: false, issues: h3Compile.issues };
   }
@@ -770,10 +775,15 @@ async function assembleGeneratedMediaRun(
   // intent=execute so planning-only compilations never reach billing adapters.
   const hasVideoPrompt = project.generation!.requests.some(
     (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
+      || request.h3 !== undefined
+      || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
   );
   if (hasVideoPrompt) {
+    const generationUnitSourceResolver = options.generationUnitSourceResolver
+      ?? (options.configPath ? createProjectGenerationUnitSourceResolver(options.configPath) : undefined);
     const videoCompile = await compileProjectVideoPrompts(project, {
-      intent: "execute"
+      intent: "execute",
+      ...(generationUnitSourceResolver ? { generationUnitSourceResolver } : {})
     });
     if (!videoCompile.ok) {
       return { ok: false, issues: videoCompile.issues };

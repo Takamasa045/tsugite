@@ -1,5 +1,21 @@
 name: pixverse
 kind: cli
+prompt_capabilities:
+  - model_profile_id: minimax-h3
+    provider_model: minimax-h3
+    modes: [text-to-video, first-frame, first-last, reference]
+    renderer: h3-grammar
+    label_dialect: picture
+  - model_profile_id: v6
+    provider_model: v6
+    modes: [text-to-video, first-frame]
+    renderer: plain-prompt
+    label_dialect: none
+  - model_profile_id: c1
+    provider_model: c1
+    modes: [text-to-video, first-frame]
+    renderer: plain-prompt
+    label_dialect: none
 dry_run_estimate: true
 batch: true
 credit_estimate:
