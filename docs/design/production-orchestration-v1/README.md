@@ -1,6 +1,6 @@
 # Production Orchestration v1
 
-**状態:** 設計確定。実装前。
+**状態:** PO-0〜PO-7 実装済み（fixture-only）。PO-8 / version bump は未着手。
 
 **設計レビュー:** 2026-08-11に階層/runtime安全性、MV/H3/metrics、現行Launcher描画の3観点で再監査し、残存P0/P1なし。
 

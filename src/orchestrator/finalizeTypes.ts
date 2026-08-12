@@ -53,6 +53,11 @@ export type FinalizeCompletedProjectOptions = {
    */
   expectedPlanDigest?: string;
   /**
+   * Additive PO-7 control-plane completion digest. Required on apply only when
+   * the project has production-control evidence. Never substitutes for plan_digest.
+   */
+  expectedProductionCompletionDigest?: string;
+  /**
    * Optional identities captured at CLI preflight / lock acquire. When set, apply
    * refuses if stateDir/runDir no longer match these real directories.
    */
@@ -81,6 +86,18 @@ export type FinalizeCompletedProjectResult = {
   deletedBytes: number;
   /** Deterministic digest of deletion candidates and retention conditions. */
   planDigest?: string;
+  /**
+   * Additive production-control completion digest. Undefined for pure legacy
+   * projects without coordination evidence. Independent of planDigest.
+   */
+  productionCompletionDigest?: string;
+  /** Project-relative control-plane evidence retained on finalize. */
+  controlPlaneEvidence?: Array<{
+    kind: string;
+    relative_path: string;
+    digest?: string;
+    retained: true;
+  }>;
   /** Regular-file identities for each deletion candidate (project-relative paths). */
   candidateIdentities?: FinalizeFileIdentity[];
   /** Paths that could not be restored from quarantine after a failed apply. */

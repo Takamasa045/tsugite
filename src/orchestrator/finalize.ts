@@ -45,6 +45,13 @@ import {
   resultBase
 } from "./finalizePlanHelpers.js";
 import {
+  assertProductionCompletionDigestMatch,
+  buildProductionCompletionDigest,
+  excludeControlPlaneFromDeletionCandidates,
+  listRetainedControlPlanePaths,
+  type ControlPlaneEvidenceRefV1
+} from "../productionControl/finalizeRetention.js";
+import {
   inspectIncompleteFinalizeTransaction,
   recoverIncompleteFinalizeTransaction,
   type PriorCleanupProgress
@@ -374,8 +381,18 @@ export async function finalizeCompletedProject(
     referencedSourceMedia,
     projectRoot
   );
-  const candidates = partitioned.candidates;
+  // Safety net only: control-plane paths are not media and are not under cleanup
+  // roots, but never allow them into deletion candidates if they appear.
+  const relativePartitionedCandidates = partitioned.candidates.map((path) =>
+    toProjectRelative(projectRoot, path)
+  );
+  const controlPlaneFilter = excludeControlPlaneFromDeletionCandidates(relativePartitionedCandidates);
+  const candidates = partitioned.candidates.filter((path) => {
+    const relative = toProjectRelative(projectRoot, path);
+    return !controlPlaneFilter.retained_extra.includes(relative);
+  });
   const mediaFiles = candidates.map((path) => toProjectRelative(projectRoot, path));
+  // plan_digest retained set stays the legacy media-retention partition only.
   const retainedMedia = partitioned.retained
     .map((path) => toProjectRelative(projectRoot, path))
     .sort(comparePath);
@@ -393,6 +410,7 @@ export async function finalizeCompletedProject(
   const launcherPlan = await planLauncherHome(options.configPath, options.project.slug);
   const canonicalConfigPath = resolve(options.configPath);
   const canonicalManifestPath = resolve(projectRoot, options.project.manifest);
+  // Legacy plan_digest algorithm and payload are intentionally unchanged.
   const planDigest = buildPlanDigest({
     projectRoot,
     configPath: canonicalConfigPath,
@@ -407,6 +425,32 @@ export async function finalizeCompletedProject(
     retainedMedia,
     candidates: identities
   });
+
+  // Additive control-plane evidence + production_completion_digest (independent of plan_digest).
+  const controlPlaneRelative = await listRetainedControlPlanePaths(projectRoot);
+  const controlPlaneEvidence: ControlPlaneEvidenceRefV1[] = controlPlaneRelative.map((relative_path) => ({
+    kind: relative_path.startsWith("coordination/") && relative_path.includes("learning/")
+      ? "learning"
+      : relative_path.startsWith("coordination/") && relative_path.includes("metrics")
+        ? "metrics"
+        : relative_path.startsWith("coordination/") && relative_path.includes("events")
+          ? "events"
+          : relative_path === "feedback.jsonl"
+            ? "feedback"
+            : relative_path.startsWith("coordination/")
+              ? "production-contract"
+              : "state",
+    relative_path,
+    retained: true as const
+  }));
+  const hasControlPlane = controlPlaneEvidence.length > 0;
+  const productionCompletionDigest = hasControlPlane
+    ? buildProductionCompletionDigest({
+      production_id: options.project.slug,
+      plan_digest: planDigest,
+      evidence_refs: controlPlaneEvidence
+    })
+    : undefined;
 
   // Path is always reported; existence is checked separately so callers do not
   // treat a planned record path as proof that finalize already completed.
@@ -428,6 +472,12 @@ export async function finalizeCompletedProject(
     deletedFiles: 0,
     deletedBytes: 0,
     planDigest,
+    ...(productionCompletionDigest
+      ? {
+        productionCompletionDigest,
+        controlPlaneEvidence
+      }
+      : {}),
     candidateIdentities: identities,
     launcherProjectsHome: launcherPlan.projectsHome,
     launcherProjectRoot: launcherPlan.destinationRoot,
@@ -449,6 +499,20 @@ export async function finalizeCompletedProject(
       return failure(base, {
         code: "finalize.plan_stale",
         message: "finalize plan changed after preview; re-run preview before applying cleanup"
+      });
+    }
+    try {
+      assertProductionCompletionDigestMatch({
+        has_control_plane: hasControlPlane,
+        actual: productionCompletionDigest,
+        expected: options.expectedProductionCompletionDigest
+      });
+    } catch (error) {
+      return failure(base, {
+        code: "finalize.production_completion_digest_mismatch",
+        message: error instanceof Error
+          ? error.message
+          : "production_completion_digest mismatch"
       });
     }
   }

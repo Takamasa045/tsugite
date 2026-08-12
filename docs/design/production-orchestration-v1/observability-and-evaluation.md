@@ -1,3 +1,5 @@
+**状態:** implemented (PO-7 / T08). Path: `src/productionControl/metrics.ts`.
+
 # Observability and Evaluation
 
 ## 1. 原則

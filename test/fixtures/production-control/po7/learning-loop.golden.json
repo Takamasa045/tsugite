@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "candidate_lifecycle": [
+    "observed",
+    "candidate",
+    "awaiting-experiment",
+    "experimenting",
+    "validated",
+    "rejected",
+    "inconclusive",
+    "awaiting-human",
+    "approved",
+    "declined",
+    "applied",
+    "monitored"
+  ],
+  "exact_key_recurrence_only": true,
+  "semantic_match_is_advisory": true,
+  "validated_is_not_apply": true,
+  "approved_binds_new_mission_only": true,
+  "default_experiment_modes": ["fixture", "replay", "shadow"],
+  "live_approved_requires_human_authority": true,
+  "append_only": true,
+  "feedback_api_bridge_only": true
+}

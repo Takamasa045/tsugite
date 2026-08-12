@@ -1440,3 +1440,39 @@ select {
   .launcher-feedback-list { grid-template-columns: 1fr; }
   .viewer-back-link span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
 }
+
+/* PO-7 Mission Tree status (read-only overlay) */
+.mission-tree-status {
+  position: absolute;
+  z-index: 8;
+  right: 16px;
+  bottom: 16px;
+  width: min(360px, calc(100% - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  color: #f3eee3;
+  border: 1px solid rgba(216, 189, 145, 0.28);
+  border-radius: 12px;
+  background: rgba(12, 18, 17, 0.92);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+}
+.mission-tree-status__row { display: grid; gap: 4px; }
+.mission-tree-status__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+.mission-tree-status__meta dt {
+  margin: 0;
+  color: #aebfb9;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mission-tree-status__meta dd { margin: 0; color: #fffdf8; font-size: 0.72rem; }
+.mission-tree-status__note { margin: 0; color: #c4d2cd; font-size: 0.62rem; line-height: 1.45; }
+@media (prefers-reduced-motion: reduce) {
+  .mission-tree-status { transition: none; }
+}

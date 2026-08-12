@@ -143,6 +143,30 @@ export interface WorkflowEvent {
   message?: string
 }
 
+/** Optional read-only Mission Tree overlay (PO-7). Never a Gate subject. */
+export interface MissionTreeOverlay {
+  production_id: string
+  mode: 'legacy' | 'shadow' | 'active'
+  mission_status: string
+  tree_revision: number
+  current_decision: {
+    kind: string
+    summary: string
+    reason_code?: string
+    node_id?: string
+    gate?: string
+  }
+  recovery: {
+    active: boolean
+    attempts: number
+    limit: number | null
+    last_error_code?: string
+  }
+  learning_status?: string
+  task_tree_read_only: true
+  legacy_workflow_preserved: boolean
+}
+
 export interface WorkflowData {
   id: string
   name: string
@@ -153,6 +177,8 @@ export interface WorkflowData {
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   events: WorkflowEvent[]
+  /** Active Mission Tree projection; ignored for Gate authority. */
+  missionTree?: MissionTreeOverlay
 }
 
 export interface WorkflowValidationIssue {

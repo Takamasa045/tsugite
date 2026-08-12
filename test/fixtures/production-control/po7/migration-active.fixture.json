@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "mode": "active",
+  "source": "legacy-identity-lock",
+  "identity_definition_status": "awaiting_human",
+  "identity_verification_status": "not-evaluable",
+  "identity_locked_true_implies_verified": false,
+  "definition_confirmation_inferred_from_gate1": false,
+  "notes": [
+    "locked:true alone does not imply confirmed definition or verified output",
+    "missing multi-condition evidence remains not-evaluable",
+    "human decision subjects must match digests; never invent confirmation"
+  ]
+}

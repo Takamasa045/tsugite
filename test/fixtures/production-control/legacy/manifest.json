@@ -16,8 +16,8 @@
       },
       {
         "path": "docs/design/production-orchestration-v1/README.md",
-        "sha256": "f130668bc480e8de2e34870cb9d8692d348a4cd7851d13d73496ee4df329fdb6",
-        "byte_length": 7953
+        "sha256": "6890ab2c4ab10443474808aad06dfdbd0cd0282f0c23ac5818df685d7277ab96",
+        "byte_length": 8006
       },
       {
         "path": "docs/design/production-orchestration-v1/architecture.md",
@@ -36,8 +36,8 @@
       },
       {
         "path": "docs/design/production-orchestration-v1/implementation-plan.md",
-        "sha256": "73ed30164753ca6533d8f50260f84b54207f7d90e845e0904c49774d4d9f6725",
-        "byte_length": 14641
+        "sha256": "1f6c48bb83335302aca548bc88a07bb0fc3f5f4fba0162ac19f79a4dbbf8d299",
+        "byte_length": 14736
       },
       {
         "path": "docs/design/production-orchestration-v1/launcher-and-visualization.md",
@@ -46,13 +46,13 @@
       },
       {
         "path": "docs/design/production-orchestration-v1/learning-loop.md",
-        "sha256": "748f662c6b0b7a6fe794cf80789a542c133053c7fe1122730c937c8d3c934920",
-        "byte_length": 7857
+        "sha256": "2cdb4c98d2063b1a98923c23d5a6b9bb16aae7fd109044cee961a2f7247a66b5",
+        "byte_length": 8066
       },
       {
         "path": "docs/design/production-orchestration-v1/migration-and-release.md",
-        "sha256": "914f7a813b8291bdd30440accb5f5c8805cf6275d19d10465683f78f4b880d88",
-        "byte_length": 13175
+        "sha256": "d2db54d1e08d6bc50151fd29a4383ee74da883cc8d99a2ac99a5467af607e8a4",
+        "byte_length": 13261
       },
       {
         "path": "docs/design/production-orchestration-v1/mv-workflow.md",
@@ -61,8 +61,8 @@
       },
       {
         "path": "docs/design/production-orchestration-v1/observability-and-evaluation.md",
-        "sha256": "75dd40f00ca586c047cee749b01a97166e8f9a1c1cb27fac63aa9ba63d3eb9d5",
-        "byte_length": 9657
+        "sha256": "ddc8e6598b4e4224ee6b927e3a419ec8dcfdebafbb9a0d87315e49e04ac94488",
+        "byte_length": 9738
       },
       {
         "path": "docs/design/production-orchestration-v1/runtime-and-recovery.md",

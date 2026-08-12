@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "production_id": "fixture-mission",
+  "mode": "active",
+  "mission_status": "ready",
+  "tree_revision": 1,
+  "source_event_sequence": 3,
+  "task_tree_read_only": true,
+  "legacy_workflow_preserved": true,
+  "current_decision": {
+    "kind": "awaiting_human",
+    "node_id": "task-closeout",
+    "reason_code": "task.awaiting_human",
+    "summary": "人間の判断待ちです"
+  },
+  "recovery": {
+    "active": false,
+    "attempts": 0,
+    "limit": 2
+  },
+  "learning": {
+    "status": "awaiting-human",
+    "pending_proposal_count": 1
+  },
+  "forbidden_in_public_dto": [
+    "prompt",
+    "absolute_path",
+    "api_key",
+    "provider_response"
+  ]
+}

@@ -1,3 +1,5 @@
+**状態:** implemented (PO-7 / T08). Paths: `src/productionControl/learning/*`, `src/productionControl/metrics.ts`, `src/productionControl/publicProjection.ts`, `src/productionControl/finalizeRetention.ts`.
+
 # Learning and Rule Promotion Loop
 
 ## 1. 目的

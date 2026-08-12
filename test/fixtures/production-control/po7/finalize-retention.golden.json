@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "plan_digest_semantics_unchanged": true,
+  "production_completion_digest": "additive",
+  "retained_classes": [
+    "final-run",
+    "manifest",
+    "state",
+    "run-log",
+    "qa",
+    "review",
+    "feedback",
+    "learning",
+    "metrics",
+    "completion-record",
+    "contract",
+    "events"
+  ],
+  "media_cleanup_superseded_only": true,
+  "control_plane_not_deletion_candidate": true,
+  "expected_digest_exact_match": true,
+  "no_real_finalize_apply_in_po7_tests": true
+}
