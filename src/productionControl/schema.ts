@@ -503,6 +503,24 @@ const invalidatedPayload = z.object({
 const completedPayload = z.object({
   completion_digest: digestSchema
 }).strict();
+const gateBindingRecordedPayload = z.object({
+  binding_id: safeIdSchema,
+  gate: z.enum(["gate_1", "gate_2", "gate_3"]),
+  subject_digest: digestSchema,
+  decision_digest: digestSchema,
+  /** Legacy approved_input_digest preserved as observation only. */
+  legacy_approved_input_digest: digestSchema.optional(),
+  stale: z.boolean().default(false)
+}).strict();
+const generationJobBoundPayload = z.object({
+  binding_id: safeIdSchema,
+  generation_job_id: safeIdSchema,
+  node_id: safeIdSchema,
+  attempt_id: safeIdSchema,
+  immutable_identity_digest: digestSchema,
+  gate_bundle_digest: digestSchema,
+  approval_observed_revision: nonNegativeInt
+}).strict();
 
 export const productionEventSchema = z.discriminatedUnion("type", [
   event("mission-created", missionCreatedPayload),
@@ -517,6 +535,8 @@ export const productionEventSchema = z.discriminatedUnion("type", [
   event("attempt-outcome-unknown", failedPayload),
   event("task-awaiting-human", awaitingHumanPayload),
   event("nodes-invalidated", invalidatedPayload),
+  event("gate-binding-recorded", gateBindingRecordedPayload),
+  event("generation-job-bound", generationJobBoundPayload),
   event("mission-completed", completedPayload)
 ]);
 export type ProductionEvent = z.infer<typeof productionEventSchema>;
@@ -556,6 +576,23 @@ const createdArtifactSchema = z.object({
   node_id: safeIdSchema,
   attempt_id: safeIdSchema
 }).strict();
+const gateBindingStateSchema = z.object({
+  binding_id: safeIdSchema,
+  gate: z.enum(["gate_1", "gate_2", "gate_3"]),
+  subject_digest: digestSchema,
+  decision_digest: digestSchema,
+  legacy_approved_input_digest: digestSchema.optional(),
+  stale: z.boolean()
+}).strict();
+const generationBindingStateSchema = z.object({
+  binding_id: safeIdSchema,
+  generation_job_id: safeIdSchema,
+  node_id: safeIdSchema,
+  attempt_id: safeIdSchema,
+  immutable_identity_digest: digestSchema,
+  gate_bundle_digest: digestSchema,
+  approval_observed_revision: nonNegativeInt
+}).strict();
 
 export const missionStateSchema = z.object({
   schema_version: z.literal(1),
@@ -569,7 +606,10 @@ export const missionStateSchema = z.object({
   attempts: z.record(safeIdSchema, attemptStateSchema),
   created_artifacts: z.record(safeIdSchema, createdArtifactSchema),
   accepted_artifacts: z.record(safeIdSchema, acceptedArtifactSchema),
-  invalidated_node_ids: z.array(safeIdSchema).max(256)
+  invalidated_node_ids: z.array(safeIdSchema).max(256),
+  /** Additive PO-5 projections; absent on pre-PO-5 snapshots is normalized to {}. */
+  gate_bindings: z.record(safeIdSchema, gateBindingStateSchema).default({}),
+  generation_bindings: z.record(safeIdSchema, generationBindingStateSchema).default({})
 }).strict();
 export type MissionState = z.infer<typeof missionStateSchema>;
 

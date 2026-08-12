@@ -152,6 +152,22 @@ export const generationJobRequestSchema = z
     }
   });
 
+/**
+ * Optional production-control binding. Backward-compatible when absent.
+ * Active orchestration mode requires this binding before external submit.
+ */
+export const generationJobProductionBindingSchema = z
+  .object({
+    production_id: safeId,
+    run_id: safeId,
+    node_id: safeId,
+    attempt_id: safeId,
+    gate_bundle_digest: sha256Hex,
+    immutable_identity_digest: sha256Hex,
+    approval_observed_revision: z.number().int().nonnegative()
+  })
+  .strict();
+
 export const generationJobRecordSchema = z
   .object({
     schema_version: z.literal(GENERATION_JOB_SCHEMA_VERSION),
@@ -166,6 +182,8 @@ export const generationJobRecordSchema = z
     connection_capability_digest: sha256Hex,
     pricing: generationJobPricingSchema,
     approval: generationJobApprovalSchema.optional(),
+    /** Optional PO-5 production binding; required only in active orchestration mode. */
+    production_binding: generationJobProductionBindingSchema.optional(),
     /** Provider-side job id once known. Resume poll/download requires this. */
     provider_job_id: z.string().min(1).max(256).optional(),
     /** Number of successful *acceptance* submits (increments only on confirmed accept). */
@@ -242,6 +260,7 @@ export type GenerationJobPricing = z.infer<typeof generationJobPricingSchema>;
 export type GenerationJobApproval = z.infer<typeof generationJobApprovalSchema>;
 export type GenerationJobArtifact = z.infer<typeof generationJobArtifactSchema>;
 export type GenerationJobRequest = z.infer<typeof generationJobRequestSchema>;
+export type GenerationJobProductionBinding = z.infer<typeof generationJobProductionBindingSchema>;
 export type GenerationJobRecord = z.infer<typeof generationJobRecordSchema>;
 
 export function parseGenerationJobRecord(raw: unknown): GenerationJobRecord {

@@ -204,6 +204,20 @@ export type ReviewDocument = {
   video_prompt_subject_digest?: string;
   /** Read-only shadow tree summary; it does not alter Gate or legacy plan state. */
   production_control_shadow?: ProductionControlShadowSummary;
+  /**
+   * Additive PO-5 GateBundle review projection (secret-free).
+   * Stripped from legacy Gate approval subjects; production_subject_digest binds it separately.
+   */
+  gate_bundle_review?: {
+    production_id: string;
+    run_id: string;
+    digest: string;
+    batch_count: number;
+    unit_count: number;
+    has_unknown_price: boolean;
+    composition_intent_bound: boolean;
+    routes: Array<{ batch_id: string; route_digest: string; connection_id: string; adapter_id: string }>;
+  };
   steps: ExecutionPlan["steps"];
   warnings: string[];
   approval_digest?: string;
@@ -311,9 +325,10 @@ export function createVideoPromptReviewProjection(
 }
 
 /** Projection used by legacy Gate approval subjects; shadow data is review-only. */
-export function legacyReviewDocumentProjection(document: ReviewDocument): Omit<ReviewDocument, "production_control_shadow" | "video_prompt_plans" | "video_prompt_subject_digest"> {
+export function legacyReviewDocumentProjection(document: ReviewDocument): Omit<ReviewDocument, "production_control_shadow" | "gate_bundle_review" | "video_prompt_plans" | "video_prompt_subject_digest"> {
   const {
     production_control_shadow: _shadow,
+    gate_bundle_review: _gateBundle,
     video_prompt_plans: _videoPromptPlans,
     video_prompt_subject_digest: _videoPromptSubjectDigest,
     ...legacy

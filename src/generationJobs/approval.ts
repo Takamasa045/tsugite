@@ -205,3 +205,31 @@ export function assertApprovalAllowsSubmit(job: GenerationJobRecord): void {
     );
   }
 }
+
+/**
+ * Active production mode requires the optional production_binding.
+ * Disabled/shadow/legacy jobs without the binding remain submit-eligible via
+ * the existing approval digest checks alone.
+ */
+export function assertProductionBindingForMode(
+  job: GenerationJobRecord,
+  mode: "disabled" | "shadow" | "active" | undefined
+): void {
+  if (mode !== "active") return;
+  if (!job.production_binding) {
+    throw new GenerationJobError(
+      GJ_APPROVAL_MISSING,
+      "active production mode requires generation job production_binding"
+    );
+  }
+  if (
+    job.production_binding.production_id.length < 1
+    || job.production_binding.immutable_identity_digest.length !== 64
+    || job.production_binding.gate_bundle_digest.length !== 64
+  ) {
+    throw new GenerationJobError(
+      GJ_APPROVAL_DIGEST_MISMATCH,
+      "production_binding digests are incomplete"
+    );
+  }
+}

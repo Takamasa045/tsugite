@@ -25,7 +25,10 @@ const gateStateSchema = z.object({
   approved_input_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   // Optional for backward parsing of state written before person-QA binding digests.
   person_qa_approval_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-  decision_source: z.union([z.literal("human"), z.literal("auto_qc")]).optional()
+  decision_source: z.union([z.literal("human"), z.literal("auto_qc")]).optional(),
+  // Additive PO-5 production-control subject/decision digests (legacy fields unchanged).
+  production_subject_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  production_decision_digest: z.string().regex(/^[a-f0-9]{64}$/).optional()
 });
 
 const runStateSchema = z.object({
