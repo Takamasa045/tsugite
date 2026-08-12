@@ -35,6 +35,13 @@ export type BuildProvenance = {
   verified_separately?: boolean;
 };
 
+export type EvidenceArtifactRef = {
+  kind: "command-log" | "screenshot" | "manifest";
+  relative_path: string;
+  sha256: string;
+  bytes: number;
+};
+
 export type CommandEvidence = {
   command: string;
   exit_code: number;
@@ -42,6 +49,8 @@ export type CommandEvidence = {
   output_digest?: string;
   status: "proven" | "partial" | "unverified" | "failed";
   detail?: string;
+  /** Repo-relative artifact refs (no absolute paths). */
+  artifact_refs?: EvidenceArtifactRef[];
 };
 
 export type ReleaseReadinessReport = {
@@ -354,7 +363,10 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
           `exit_code=${measured.browser_po0a.exit_code}`,
           ...(measured.browser_po0a.output_digest
             ? [`output_digest=${measured.browser_po0a.output_digest}`]
-            : [])
+            : []),
+          ...(measured.browser_po0a.artifact_refs ?? []).map(
+            (ref) => `artifact=${ref.relative_path}:${ref.sha256}`
+          )
         ]
         : [],
       gaps: measured.browser_po0a

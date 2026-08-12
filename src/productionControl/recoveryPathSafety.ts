@@ -13,6 +13,11 @@ import {
   sep
 } from "node:path";
 import { pcError } from "./errors.js";
+import {
+  isExtendedWindowsPath,
+  isUncPath,
+  isWindowsDriveRelativePath
+} from "./windowsPathLex.js";
 
 export type ContainedPathResult = {
   /** Lexical resolve under project before realpath. */
@@ -42,12 +47,15 @@ export async function assertContainedUnderProjectRoot(input: {
     throw pcError("PC_PATH_UNSAFE", `${label}: path is required`);
   }
 
-  // Reject Windows extended / UNC paths that skip normal containment semantics.
-  if (isExtendedWinPath(candidateRaw) || isExtendedWinPath(projectRaw)) {
+  // Reject Windows extended / UNC / drive-relative paths that skip containment.
+  if (isExtendedWindowsPath(candidateRaw) || isExtendedWindowsPath(projectRaw)) {
     throw pcError("PC_PATH_UNSAFE", `${label}: extended Windows paths are not allowed`);
   }
   if (isUncPath(candidateRaw) || isUncPath(projectRaw)) {
     throw pcError("PC_PATH_UNSAFE", `${label}: UNC paths are not allowed for recovery confinement`);
+  }
+  if (isWindowsDriveRelativePath(candidateRaw) || isWindowsDriveRelativePath(projectRaw)) {
+    throw pcError("PC_PATH_UNSAFE", `${label}: Windows drive-relative paths are not allowed`);
   }
 
   let projectReal: string;
@@ -188,14 +196,6 @@ export function isWithinPath(parent: string, candidate: string): boolean {
     return false;
   }
   return true;
-}
-
-function isExtendedWinPath(path: string): boolean {
-  return /^\\\\\?\\/i.test(path) || /^\/\/\?\//.test(path);
-}
-
-function isUncPath(path: string): boolean {
-  return /^\\\\[^\\/]+\\[^\\/]+/.test(path) || /^\/\/[^\\/]+\/[^\\/]+/.test(path);
 }
 
 async function hasSymlinkAncestorFromRoot(dir: string): Promise<boolean> {

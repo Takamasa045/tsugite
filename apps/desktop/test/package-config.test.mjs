@@ -21,7 +21,8 @@ test("Electron and Forge stay build-time dependencies at the pinned versions", a
   assert.equal(manifest.devDependencies?.["node-pty"], undefined);
   assert.equal(manifest.overrides.tar, "7.5.20");
   assert.equal(manifest.overrides.tmp, "0.2.7");
-  assert.match(manifest.scripts["build:runtime"], /^node scripts\/clean-generated\.mjs && .*prepare-runtime -- --install$/);
+  assert.match(manifest.scripts["build:runtime"], /^node scripts\/clean-generated\.mjs && .*prepare-runtime$/);
+  assert.doesNotMatch(manifest.scripts["build:runtime"], /--install/);
   assert.match(manifest.scripts.package, /package:audit/);
   assert.match(manifest.scripts.make, /package:audit/);
   assert.equal(manifest.scripts.test, "node --test test/*.test.mjs");

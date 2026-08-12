@@ -8,29 +8,14 @@ import {
   type ContainedPathResult
 } from "../recoveryPathSafety.js";
 import { pcError } from "../errors.js";
+import {
+  isExtendedWindowsPath,
+  isUncPath,
+  isWindowsDrivePath,
+  isWindowsDriveRelativePath
+} from "../windowsPathLex.js";
 
-export { isWithinPath };
-
-const EXTENDED_WIN = /^\\\\\?\\/i;
-const EXTENDED_WIN_FWD = /^\/\/\?\//;
-const UNC = /^\\\\[^\\/]+\\[^\\/]+/;
-const UNC_FWD = /^\/\/[^\\/]+\/[^\\/]+/;
-const WIN_DRIVE = /^[A-Za-z]:[\\/]/;
-
-/** True when path is Windows extended-length or device path. */
-export function isExtendedWindowsPath(path: string): boolean {
-  return EXTENDED_WIN.test(path) || EXTENDED_WIN_FWD.test(path);
-}
-
-/** True when path is UNC (network share). */
-export function isUncPath(path: string): boolean {
-  return UNC.test(path) || UNC_FWD.test(path);
-}
-
-/** True when path starts with a Windows drive root. */
-export function isWindowsDrivePath(path: string): boolean {
-  return WIN_DRIVE.test(path);
-}
+export { isWithinPath, isExtendedWindowsPath, isUncPath, isWindowsDrivePath, isWindowsDriveRelativePath };
 
 /**
  * Fail-closed preflight for migration/rollback write candidates.
@@ -49,6 +34,9 @@ export function assertMigrationPathLexicalSafe(
   }
   if (isUncPath(raw)) {
     throw pcError("PC_PATH_UNSAFE", `${label}: UNC paths are not allowed`);
+  }
+  if (isWindowsDriveRelativePath(raw)) {
+    throw pcError("PC_PATH_UNSAFE", `${label}: Windows drive-relative paths are not allowed`);
   }
   const platform = options.platform ?? process.platform;
   if (platform !== "win32" && isWindowsDrivePath(raw)) {

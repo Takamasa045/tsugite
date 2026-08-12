@@ -77,7 +77,7 @@ $env:TSUGITE_WORKSPACE_ROOT = "D:\Tsugite Workspace"
 npm --prefix apps/desktop start
 ```
 
-開発時は repository の `build/` と `apps/workflow-viewer/dist/` を使います。パッケージ版は `resources/runtime/tsugite/` の実行コードと `resources/runtime/viewer/` の Viewer bundle を使います。adapter / backend 探索を安定させるため child process の cwd は runtime root に固定し、project config は absolute path で渡します。
+開発時は repository の `build/` と `apps/workflow-viewer/dist/` を使います。パッケージ版は `resources/runtime/tsugite/` の実行コードと `resources/runtime/viewer/` の Viewer bundle を使います。adapter / backend 探索を安定させるため child process の cwd は runtime root に固定し、project config は absolute path で渡します。`desktop:prepare` / `build:runtime` は fixture-only で、依存の `npm ci` を暗黙実行しません。既存の physical `node_modules` を使う場合は `prepare-runtime --offline-from <dir>`、ネットワーク導入は明示の `--install` だけです。
 
 ## 開発者向けパッケージ検証
 

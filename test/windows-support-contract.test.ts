@@ -66,4 +66,10 @@ describe("Windows support contract", () => {
     }
     expect(example).not.toMatch(/^bin\/pipeline /m);
   });
+
+  it("resolves npm.cmd / git.exe on Windows without guessing from macOS success", async () => {
+    const bootstrap = await readFile("src/bootstrap/index.mjs", "utf8");
+    expect(bootstrap).toMatch(/platform === "win32" \? "npm\.cmd" : "npm"/);
+    expect(bootstrap).toMatch(/platform === "win32" \? "git\.exe" : "git"/);
+  });
 });

@@ -6,6 +6,8 @@ export * from "./migrationJournal.js";
 export * from "./rollbackOrchestrator.js";
 export * from "./rehearsal.js";
 export * from "./releaseReadiness.js";
+export * from "./evidenceStore.js";
+export * from "./structuralEvidence.js";
 export * from "./effectLedger.js";
 export * from "./effectCapability.js";
 export * from "./modeIntent.js";

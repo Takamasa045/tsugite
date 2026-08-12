@@ -32,7 +32,11 @@ export const SCENE_REASON_LABELS: Record<SceneReasonCode, string> = {
 export type SceneFailurePhase = 'initializing' | 'ready'
 
 /** Development-only browser injection modes used by the PO-0A fixture. */
-export type SceneTestInjection = 'initialization-throw' | 'first-frame-timeout'
+export type SceneTestInjection = 'initialization-throw' | 'first-frame-timeout' | 'context-lost'
+
+export function isSceneTestInjection(value: unknown): value is SceneTestInjection {
+  return value === 'initialization-throw' || value === 'first-frame-timeout' || value === 'context-lost'
+}
 
 export function reasonForSceneError(phase: SceneFailurePhase): SceneReasonCode {
   return phase === 'ready'

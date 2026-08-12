@@ -17,6 +17,7 @@ import {
   getSceneFitDistance,
 } from './scene-utils'
 import {
+  isSceneTestInjection,
   reasonForSceneError,
   releaseWebglContext,
   shouldSurfaceContextLost,
@@ -209,6 +210,14 @@ export function WorkflowScene(props: WorkflowSceneProps) {
         reason_code: 'viewer.scene.task_tree_empty',
         retryable: true,
       })
+    } else if (testInjection === 'context-lost') {
+      phaseRef.current = 'degraded'
+      setSceneState({
+        status: 'degraded',
+        renderer: 'dom-tree',
+        reason_code: 'viewer.scene.context_lost',
+        retryable: true,
+      })
     } else if (!isWebglAvailable()) {
       phaseRef.current = 'degraded'
       setSceneState({
@@ -226,7 +235,7 @@ export function WorkflowScene(props: WorkflowSceneProps) {
       contextCleanupRef.current?.()
       contextCleanupRef.current = null
     }
-  }, [props.workflow.nodes.length, retryNonce])
+  }, [props.workflow.nodes.length, retryNonce, testInjection])
 
   useEffect(() => {
     if (!watchdogEnabled || sceneState.status !== 'initializing') return
@@ -395,9 +404,7 @@ function readSceneTestInjection(): SceneTestInjection | undefined {
   const isDev = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV ?? false
   if (!isDev) return undefined
   const candidate = (globalThis as { __TSUGITE_SCENE_TEST__?: unknown }).__TSUGITE_SCENE_TEST__
-  return candidate === 'initialization-throw' || candidate === 'first-frame-timeout'
-    ? candidate
-    : undefined
+  return isSceneTestInjection(candidate) ? candidate : undefined
 }
 
 export function isWebglAvailable(): boolean {

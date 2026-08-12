@@ -109,14 +109,38 @@ async function installProductionDependencies(runtimeTsugiteRoot) {
   );
 }
 
+async function copyOfflineNodeModules(sourceRoot, targetRoot) {
+  const sourceStat = await lstat(sourceRoot).catch(() => null);
+  if (!sourceStat?.isDirectory() || sourceStat.isSymbolicLink()) {
+    throw new Error(`Offline node_modules must be a physical directory: ${sourceRoot}`);
+  }
+  const entries = await readdir(sourceRoot, { withFileTypes: true });
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    const source = join(sourceRoot, entry.name);
+    const target = join(targetRoot, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      await mkdir(target, { recursive: true });
+      await copyOfflineNodeModules(source, target);
+    } else if (entry.isFile()) {
+      await copyRegularFile(source, target);
+    }
+  }
+}
+
 export async function stageRuntime({
   repoRoot,
   desktopRoot,
   install = false,
+  offlineFrom = null,
   nodeExecutable = process.execPath,
   nodeVersion = process.versions.node,
   nodeExecutableName = process.platform === "win32" ? "node.exe" : "node"
 } = {}) {
+  if (install && offlineFrom) {
+    throw new Error("prepare-runtime cannot combine --install with --offline-from");
+  }
   const resolvedDesktopRoot = resolve(desktopRoot ?? fileURLToPath(new URL("..", import.meta.url)));
   const resolvedRepoRoot = resolve(repoRoot ?? join(resolvedDesktopRoot, "..", ".."));
   const runtimeRoot = join(resolvedDesktopRoot, "runtime");
@@ -176,12 +200,15 @@ export async function stageRuntime({
 
   if (install) {
     await installProductionDependencies(runtimeTsugiteRoot);
+  } else if (offlineFrom) {
+    await copyOfflineNodeModules(resolve(offlineFrom), join(runtimeTsugiteRoot, "node_modules"));
   }
 
   const manifest = {
     schema_version: 1,
     generated_from: "tracked-and-explicit-runtime-allowlist",
-    production_dependencies_installed: install,
+    production_dependencies_installed: Boolean(install || offlineFrom),
+    offline_dependencies_copied: Boolean(offlineFrom),
     files: [...files].sort()
   };
   await writeFile(join(runtimeRoot, "stage-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -190,23 +217,45 @@ export async function stageRuntime({
   return { runtimeRoot, files: [...files].sort(), manifest };
 }
 
-function parseCliArguments(argv) {
-  const unknown = argv.filter((argument) => argument !== "--install");
+export function parsePrepareRuntimeArguments(argv) {
+  const options = { install: false, offlineFrom: null };
+  const unknown = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--install") {
+      options.install = true;
+      continue;
+    }
+    if (argument === "--offline-from") {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("prepare-runtime --offline-from requires a physical node_modules directory");
+      }
+      options.offlineFrom = value;
+      index += 1;
+      continue;
+    }
+    unknown.push(argument);
+  }
   if (unknown.length > 0) {
     throw new Error(`Unknown prepare-runtime option: ${unknown.join(", ")}`);
   }
-  return { install: argv.includes("--install") };
+  if (options.install && options.offlineFrom) {
+    throw new Error("prepare-runtime cannot combine --install with --offline-from");
+  }
+  return options;
 }
 
 const isDirectExecution = process.argv[1]
   && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectExecution) {
-  const options = parseCliArguments(process.argv.slice(2));
+  const options = parsePrepareRuntimeArguments(process.argv.slice(2));
   const result = await stageRuntime(options);
   process.stdout.write(`${JSON.stringify({
     ok: true,
     runtime_root: result.runtimeRoot,
     staged_file_count: result.files.length,
-    production_dependencies_installed: options.install
+    production_dependencies_installed: Boolean(options.install || options.offlineFrom),
+    offline_dependencies_copied: Boolean(options.offlineFrom)
   })}\n`);
 }

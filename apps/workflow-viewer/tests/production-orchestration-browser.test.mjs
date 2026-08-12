@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -8,8 +9,9 @@ import test from "node:test";
 import puppeteer from "puppeteer-core";
 
 const viewerRoot = dirname(fileURLToPath(import.meta.url));
-const evidenceRoot = "/private/tmp/tsugite-po-0a-evidence";
-const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const evidenceRoot = process.env.TSUGITE_PO_0A_EVIDENCE_ROOT ?? "/private/tmp/tsugite-po-0a-evidence";
+const chromePath = process.env.TSUGITE_PO_0A_CHROME
+  ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 /** Active Mission Tree fixture — same shape as App.scene.integration (3 nodes, non-blank center). */
 const ACTIVE_MISSION_TREE_WORKFLOW = {
@@ -450,6 +452,42 @@ async function newPage(browser, url, initScript) {
   return page;
 }
 
+async function writeBrowserEvidenceManifest(root, measured) {
+  const names = (await readdir(root)).filter((name) => name !== "manifest.json").sort();
+  const artifacts = [];
+  for (const name of names) {
+    if (!/^[A-Za-z0-9._-]+\.(png|json|txt)$/.test(name)) continue;
+    const bytes = await readFile(join(root, name));
+    artifacts.push({
+      kind: name.endsWith(".png") ? "screenshot" : "manifest",
+      relative_path: name,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      bytes: bytes.byteLength
+    });
+  }
+  const body = {
+    schema_version: 1,
+    fixture_only: true,
+    primary_mode: measured.primary_mode,
+    measured: {
+      webgl_unavailable: measured.webgl_unavailable === true,
+      context_lost: measured.context_lost === true,
+      initialization_failed: measured.initialization_failed === true,
+      first_frame_timeout: measured.first_frame_timeout === true,
+      non_blank_fallback: measured.non_blank_fallback === true,
+      keyboard_selection: measured.keyboard_selection === true,
+      mission_tree_decision: measured.mission_tree_decision === true,
+      mission_tree_exit: measured.mission_tree_exit === true
+    },
+    scene: measured.scene ?? {},
+    artifacts
+  };
+  const output_digest = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+  const manifest = { ...body, output_digest };
+  await writeFile(join(root, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
+}
+
 async function newPageWithEmbeddedWorkflow(browser, url, workflow) {
   const page = await browser.newPage();
   page.__po0aConsoleTypes = [];
@@ -490,11 +528,28 @@ test("PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded
     ]
   });
   const pages = [];
+  const measured = {
+    primary_mode: "fallback",
+    webgl_unavailable: false,
+    context_lost: false,
+    initialization_failed: false,
+    first_frame_timeout: false,
+    non_blank_fallback: false,
+    keyboard_selection: false,
+    mission_tree_decision: false,
+    mission_tree_exit: false,
+    scene: {}
+  };
   try {
     // --- Legacy 8-stage fixture: capability-aware primary path ---
     const primary = await newPage(browser, server.url);
     pages.push(primary);
     const primaryResult = await waitForSceneTerminal(primary, { expectedNodes: 8 });
+    measured.primary_mode = primaryResult.mode;
+    measured.scene = primaryResult.state;
+    if (primaryResult.mode === "fallback") {
+      measured.non_blank_fallback = primaryResult.state.blankCenter === false;
+    }
     await primary.screenshot({
       path: join(evidenceRoot, primaryResult.mode === "canvas" ? "actual-canvas.png" : "natural-fallback.png"),
     });
@@ -556,6 +611,8 @@ test("PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded
     const nullContextValue = await nullContext.evaluate(() => document.createElement("canvas").getContext("webgl"));
     assert.equal(nullContextValue, null);
     assert.equal(await edgeCount(nullContext), 8);
+    measured.webgl_unavailable = true;
+    measured.non_blank_fallback = true;
     await nullContext.screenshot({ path: join(evidenceRoot, "fallback-webgl-unavailable.png") });
 
     // --- Retry: if environment can host WebGL, reach ready; otherwise stay non-blank degraded ---
@@ -624,9 +681,21 @@ test("PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded
     assert.ok(responsiveEvidence.documentWidth <= responsiveEvidence.viewport + 1);
     assert.equal(await nodeCount(keyboard), 8);
     assert.equal(responsiveEvidence.edges, 8);
+    measured.keyboard_selection = true;
     await keyboard.screenshot({ path: join(evidenceRoot, "fallback-keyboard-responsive.png") });
 
-    // --- Injected context loss (only when Canvas path is available) ---
+    // --- Forced context-lost injection: always measured, never skipped as green ---
+    const injectedLoss = await newPage(browser, server.url, () => {
+      globalThis.__TSUGITE_SCENE_TEST__ = "context-lost";
+    });
+    pages.push(injectedLoss);
+    await waitForFallback(injectedLoss, "viewer.scene.context_lost");
+    assert.equal(await nodeCount(injectedLoss), 8);
+    assert.ok((await edgeCount(injectedLoss)) > 0);
+    measured.context_lost = true;
+    await injectedLoss.screenshot({ path: join(evidenceRoot, "fallback-context-lost.png") });
+
+    // --- Canvas event path when WebGL first-frame is actually available ---
     const contextProbe = await newPage(browser, server.url);
     pages.push(contextProbe);
     const contextProbeResult = await waitForSceneTerminal(contextProbe, { expectedNodes: 8 });
@@ -657,10 +726,8 @@ test("PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded
       );
       assert.ok(await contextProbe.$eval("aside[aria-label=制作の記録]", (aside) => aside.textContent?.includes("素材承認")));
       assert.ok((await edgeCount(contextProbe)) > 0);
-      await contextProbe.screenshot({ path: join(evidenceRoot, "fallback-context-lost.png") });
+      await contextProbe.screenshot({ path: join(evidenceRoot, "fallback-context-lost-canvas-event.png") });
     } else {
-      // Environment already degraded; injected loss path is covered by natural fallback assertions.
-      assert.ok(NATURAL_DEGRADED_REASONS.includes(contextProbeResult.state.reason));
       await contextProbe.screenshot({ path: join(evidenceRoot, "fallback-context-lost-natural.png") });
     }
 
@@ -670,6 +737,7 @@ test("PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded
     });
     pages.push(initialization);
     await waitForFallback(initialization, "viewer.scene.initialization_failed");
+    measured.initialization_failed = true;
     await initialization.screenshot({ path: join(evidenceRoot, "fallback-initialization-failed.png") });
 
     const firstFrameTimeout = await newPage(browser, server.url, () => {
@@ -677,6 +745,7 @@ test("PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded
     });
     pages.push(firstFrameTimeout);
     await waitForFallback(firstFrameTimeout, "viewer.scene.first_frame_timeout");
+    measured.first_frame_timeout = true;
     await firstFrameTimeout.screenshot({ path: join(evidenceRoot, "fallback-first-frame-timeout.png") });
 
     // --- Active Mission Tree: Canvas or non-blank DOM-SVG, decision strip, interaction ---
@@ -705,6 +774,8 @@ test("PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded
     assert.equal(missionUi.timelineCount, 3);
     assert.equal(missionUi.body.includes("subject_digest"), false);
     assert.equal(missionUi.body.includes("/Users/"), false);
+    measured.mission_tree_decision = missionUi.decisionKind === "awaiting_human";
+    measured.mission_tree_exit = /人間の判断待ち/.test(missionUi.decision ?? "");
 
     if (missionResult.mode === "canvas") {
       await assertCanvasPath(missionPage, { expectedTimelineNodes: 3 });
@@ -717,6 +788,20 @@ test("PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded
         secondNodeId: "task-a",
       });
     }
+
+    const requiredMeasured = [
+      "webgl_unavailable",
+      "context_lost",
+      "initialization_failed",
+      "first_frame_timeout",
+      "non_blank_fallback",
+      "keyboard_selection",
+      "mission_tree_decision",
+      "mission_tree_exit"
+    ];
+    const missing = requiredMeasured.filter((key) => measured[key] !== true);
+    assert.equal(missing.length, 0, `Unmeasured browser paths treated as failure: ${missing.join(", ")}`);
+    await writeBrowserEvidenceManifest(evidenceRoot, measured);
   } finally {
     for (const page of pages) await page.close().catch(() => {});
     await browser.close().catch(() => {});

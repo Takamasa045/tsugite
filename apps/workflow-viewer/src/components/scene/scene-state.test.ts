@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  isSceneTestInjection,
   reasonForSceneError,
   releaseWebglContext,
   shouldSurfaceContextLost,
 } from './scene-state'
 
 describe('scene-state context-loss guards', () => {
+  it('accepts the forced context-lost injection used for always-on measurement', () => {
+    expect(isSceneTestInjection('context-lost')).toBe(true)
+    expect(isSceneTestInjection('initialization-throw')).toBe(true)
+    expect(isSceneTestInjection('first-frame-timeout')).toBe(true)
+    expect(isSceneTestInjection('ready')).toBe(false)
+  })
+
   it('maps failure phase to the public reason code', () => {
     expect(reasonForSceneError('initializing')).toBe('viewer.scene.initialization_failed')
     expect(reasonForSceneError('ready')).toBe('viewer.scene.runtime_error')

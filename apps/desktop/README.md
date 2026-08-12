@@ -27,7 +27,7 @@ npm --prefix apps/desktop run package
 npm --prefix apps/desktop run test:packaged-workspace
 ```
 
-`build:runtime` は root CLI と Viewer をビルドし、パッケージ用 runtime を準備します。`package` は Electron Forge で開発者向けの unsigned app を `apps/desktop/out/` に作成します。`test:packaged-workspace` はその実アプリを起動し、空のworkspaceから再選択・設定保存・再起動後の案件表示までを検証します。OSの選択画面はPlaywrightのmain-process stubへ置き換え、製品コードに試験用フックは同梱しません。
+`build:runtime` は root CLI と Viewer をビルドし、パッケージ用 runtime を準備します。依存の `npm ci` は暗黙実行しません。既存 physical `node_modules` を使う場合は `node scripts/prepare-runtime.mjs --offline-from <dir>`、ネットワーク導入は明示の `--install` だけです。`package` は Electron Forge で開発者向けの unsigned app を `apps/desktop/out/` に作成します。`test:packaged-workspace` はその実アプリを起動し、空のworkspaceから再選択・設定保存・再起動後の案件表示までを検証します。OSの選択画面はPlaywrightのmain-process stubへ置き換え、製品コードに試験用フックは同梱しません。
 
 GitHub ActionsのDesktop workflowは手動実行だけです。dependency audit、Desktop test、macOS Arm64とWindows x64の開発者向けpackage smokeを行いますが、インストーラーやActions artifactは公開しません。リリースタグからの自動起動も行いません。
 

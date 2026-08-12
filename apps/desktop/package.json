@@ -14,7 +14,7 @@
     "security:audit": "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
     "prepare-runtime": "node scripts/prepare-runtime.mjs",
     "package:audit": "node scripts/audit-package.mjs",
-    "build:runtime": "node scripts/clean-generated.mjs && npm --prefix ../.. run build && npm --prefix ../workflow-viewer run build && npm run prepare-runtime -- --install",
+    "build:runtime": "node scripts/clean-generated.mjs && npm --prefix ../.. run build && npm --prefix ../workflow-viewer run build && npm run prepare-runtime",
     "package": "npm run build:runtime && electron-forge package && npm run package:audit",
     "make": "npm run build:runtime && electron-forge make && npm run package:audit"
   },
