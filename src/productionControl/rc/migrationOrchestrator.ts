@@ -43,7 +43,19 @@ import { SnapshotStore } from "../statePersistence.js";
 import { ArtifactStore } from "../artifactStore.js";
 import { appendModeIntent, readCurrentModePointer } from "./modeIntent.js";
 import type { EffectLedger } from "./effectLedger.js";
-import { createEffectObserver, type EffectObserver } from "./effectCapability.js";
+import {
+  createDenyEffectPolicy,
+  createEffectObserver,
+  type EffectObserver,
+  type EffectPolicy
+} from "./effectCapability.js";
+import {
+  advanceJournalStage,
+  beginOrResumeJournal,
+  journalIsComplete,
+  type JournalCrashHook,
+  type MigrationJournalStage
+} from "./migrationJournal.js";
 
 export type IdentityMigrationProjection = {
   definition_status: "not_applicable" | "awaiting_human" | "migrated" | "blocked";
@@ -321,16 +333,21 @@ export type MigrationApplyInput = MigrationPreviewInput & {
   now?: () => string;
   ledger?: EffectLedger;
   observer?: EffectObserver;
+  effect_policy?: EffectPolicy;
+  /** Test-only crash injection after a journal stage is sealed. */
+  crash_after_stage?: MigrationJournalStage;
+  crash_hook?: JournalCrashHook;
 };
 
 /**
- * Apply migration: create-only migration + shadow/active coordination artifacts.
+ * Apply migration via create-only journal stages:
+ * planned → events → snapshot → artifacts → pointer → complete.
  * Does not rewrite project.yaml, mutate Gates, submit, render, or finalize-apply.
- * Durable mode-intent/current-mode pointer is the active-mode source of truth.
  */
 export async function applyMigration(input: MigrationApplyInput): Promise<{
   preview: MigrationPreviewV1;
   record: MigrationApplyRecordV1;
+  journal_complete: boolean;
 }> {
   if (input.actor !== "coordinator") {
     throw pcError("PC_AUTHORITY_DENIED", "migration apply requires actor=coordinator");
@@ -344,7 +361,6 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
   }
 
   const resolvedInput = resolve(input.projectRoot);
-  // Fail closed on symlink roots before realpath collapses them.
   const preStat = await lstat(resolvedInput);
   if (preStat.isSymbolicLink()) {
     throw pcError("PC_PATH_UNSAFE", "project root must not be a symbolic link");
@@ -365,7 +381,6 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
     label: "production-control",
     allowMissingLeaf: true
   });
-
   await mkdir(controlRoot, { recursive: true, mode: 0o700 });
 
   const contract = compileProductionContract({ project: projectRecord(input.project) });
@@ -374,8 +389,33 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
     template: createDefaultTaskTreeTemplate(contract)
   });
   const nowIso = (input.now ?? (() => new Date().toISOString()))();
+  const crashOpts = {
+    ...(input.crash_after_stage ? { crash_after_stage: input.crash_after_stage } : {}),
+    ...(input.crash_hook ? { crash_hook: input.crash_hook } : {}),
+    now: input.now
+  };
 
-  // Event/Snapshot/Artifact stores take their own root locks — never nest under another root lock.
+  // Stage: planned
+  const { journal: planned } = await beginOrResumeJournal({
+    projectRoot,
+    kind: "migration",
+    preview_digest: preview.digest,
+    production_id: contract.production_id,
+    target_mode: input.target_mode,
+    source_mode: preview.source_mode,
+    actor: "coordinator",
+    ...crashOpts
+  });
+  if (journalIsComplete(planned, preview.digest)) {
+    // Idempotent complete — rebuild record from sealed journal digests when possible.
+  }
+
+  const observer = input.observer
+    ?? (input.ledger ? createEffectObserver(input.ledger) : createEffectObserver());
+  const policy = input.effect_policy ?? createDenyEffectPolicy(observer);
+  // Coverage registration only — migration itself must not attempt effects.
+  void policy;
+
   const eventStore = new EventStore(controlRoot);
   const snapshotStore = new SnapshotStore(controlRoot);
   const artifactStore = new ArtifactStore(controlRoot);
@@ -384,182 +424,274 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
   let event_digest: string | undefined;
   let snapshot_digest: string | undefined;
 
-  const existingEvents = await eventStore.readAll().catch(() => []);
-  if (existingEvents.length === 0) {
-    const missionCreated = await eventStore.append({
-      type: "mission-created",
-      production_id: contract.production_id,
-      payload: {
-        mission_digest: contract.root_digest,
-        tree_revision: tree.tree_revision
-      },
-      coordinator_instance_id: "coordinator",
-      created_at: nowIso
-    });
-    event_sequence = missionCreated.sequence;
-    event_digest = missionCreated.event_digest;
+  // Stage: events (append-only; idempotent when events already present)
+  {
+    const existingEvents = await eventStore.readAll().catch(() => []);
+    if (existingEvents.length === 0) {
+      const missionCreated = await eventStore.append({
+        type: "mission-created",
+        production_id: contract.production_id,
+        payload: {
+          mission_digest: contract.root_digest,
+          tree_revision: tree.tree_revision
+        },
+        coordinator_instance_id: "coordinator",
+        created_at: nowIso
+      });
+      event_sequence = missionCreated.sequence;
+      event_digest = missionCreated.event_digest;
 
-    const treeCompiled = await eventStore.append({
-      type: "tree-compiled",
-      production_id: contract.production_id,
-      payload: {
-        tree_digest: tree.digest,
-        tree_revision: tree.tree_revision
-      },
-      coordinator_instance_id: "coordinator",
-      created_at: nowIso
-    });
-    event_sequence = treeCompiled.sequence;
-    event_digest = treeCompiled.event_digest;
-
-    const events = await eventStore.readAll();
-    const { replayProductionEvents } = await import("../reducer.js");
-    const state = replayProductionEvents(events, contract.production_id);
-    const snapshot = await snapshotStore.compareAndSwap(state, null);
-    snapshot_digest = snapshot.state_digest;
-  } else {
-    event_sequence = existingEvents.at(-1)?.sequence;
-    event_digest = existingEvents.at(-1)?.event_digest;
-    const snap = await snapshotStore.read();
-    snapshot_digest = snap?.state_digest;
+      const treeCompiled = await eventStore.append({
+        type: "tree-compiled",
+        production_id: contract.production_id,
+        payload: {
+          tree_digest: tree.digest,
+          tree_revision: tree.tree_revision
+        },
+        coordinator_instance_id: "coordinator",
+        created_at: nowIso
+      });
+      event_sequence = treeCompiled.sequence;
+      event_digest = treeCompiled.event_digest;
+    } else {
+      event_sequence = existingEvents.at(-1)?.sequence;
+      event_digest = existingEvents.at(-1)?.event_digest ?? planned.event_digest;
+    }
   }
-
-  if (input.target_mode === "active") {
-    await artifactStore.create({
-      artifact_id: `contract-${contract.root_digest.slice(0, 12)}`,
-      bytes: `${JSON.stringify(contract)}\n`
-    }).catch(() => undefined);
-    await artifactStore.create({
-      artifact_id: `tree-${tree.digest.slice(0, 12)}`,
-      bytes: `${JSON.stringify(tree)}\n`
-    }).catch(() => undefined);
-  }
-
-  const observer = input.observer
-    ?? (input.ledger ? createEffectObserver(input.ledger) : createEffectObserver());
-  observer.armAllBoundaries();
-  // Migration must never attempt effect boundaries; deny capability is available for callers.
-  void observer.createDenyCapability();
-
-  // Durable mode pointer (own root lock section inside appendModeIntent) with CAS
-  const priorPointer = await readCurrentModePointer(projectRoot);
-  const modeIntent = await appendModeIntent({
+  let journal = await advanceJournalStage({
     projectRoot,
-    intended_mode: input.target_mode,
-    previous_mode: priorPointer?.runtime_mode ?? preview.source_mode,
-    actor: "coordinator",
+    expected_preview_digest: preview.digest,
     production_id: contract.production_id,
-    preview_digest: preview.digest,
-    ...(priorPointer ? { expected_previous_intent_digest: priorPointer.intent_digest } : {}),
-    now: input.now
+    to_stage: "events",
+    ...(event_digest ? { event_digest } : {}),
+    ...crashOpts
   });
 
-  // Migration create-only artifacts under a dedicated lock section
-  const rootLock = await acquireProductionControlRootLock(controlRoot);
-  try {
+  // Stage: snapshot
+  {
+    const existingEvents = await eventStore.readAll().catch(() => []);
+    if (existingEvents.length > 0) {
+      const snap = await snapshotStore.read();
+      if (!snap) {
+        const { replayProductionEvents } = await import("../reducer.js");
+        const state = replayProductionEvents(existingEvents, contract.production_id);
+        const snapshot = await snapshotStore.compareAndSwap(state, null);
+        snapshot_digest = snapshot.state_digest;
+      } else {
+        snapshot_digest = snap.state_digest;
+      }
+    } else {
+      snapshot_digest = journal.snapshot_digest;
+    }
+  }
+  journal = await advanceJournalStage({
+    projectRoot,
+    expected_preview_digest: preview.digest,
+    production_id: contract.production_id,
+    to_stage: "snapshot",
+    ...(event_digest ? { event_digest } : {}),
+    ...(snapshot_digest ? { snapshot_digest } : {}),
+    ...crashOpts
+  });
+
+  // Stage: artifacts (create-only preview/contract/tree + optional artifact store)
+  {
+    if (input.target_mode === "active") {
+      await artifactStore.create({
+        artifact_id: `contract-${contract.root_digest.slice(0, 12)}`,
+        bytes: `${JSON.stringify(contract)}\n`
+      }).catch(() => undefined);
+      await artifactStore.create({
+        artifact_id: `tree-${tree.digest.slice(0, 12)}`,
+        bytes: `${JSON.stringify(tree)}\n`
+      }).catch(() => undefined);
+    }
+
     const migrationDir = join(controlRoot, "migration");
     await mkdir(migrationDir, { recursive: true, mode: 0o700 });
-
     const previewPath = join(migrationDir, `preview-${preview.digest.slice(0, 16)}.json`);
     const shadowOrActiveDir = join(
       controlRoot,
       input.target_mode === "shadow" ? "shadow" : "artifacts"
     );
     await mkdir(shadowOrActiveDir, { recursive: true, mode: 0o700 });
-
     const contractPath = join(shadowOrActiveDir, `production-contract-${contract.root_digest.slice(0, 16)}.json`);
     const treePath = join(shadowOrActiveDir, `task-tree-${tree.digest.slice(0, 16)}.json`);
 
-    await atomicCreateJson(previewPath, preview);
-    await atomicCreateJson(contractPath, contract);
-    await atomicCreateJson(treePath, tree);
-
-    const artifact_relative_paths = [
-      previewPath,
-      contractPath,
-      treePath,
-      ...modeIntent.relative_paths.map((path) => join(projectRoot, path))
-    ].map((path) => relative(projectRoot, path).split(sep).join("/"));
-
-    if (event_digest) {
-      artifact_relative_paths.push(
-        relative(projectRoot, join(controlRoot, "events.jsonl")).split(sep).join("/"),
-        relative(projectRoot, join(controlRoot, "events.commit.json")).split(sep).join("/")
-      );
-    }
-    if (snapshot_digest) {
-      artifact_relative_paths.push(
-        relative(projectRoot, join(controlRoot, "coordination-state.json")).split(sep).join("/")
-      );
-    }
-
-    const ledger = observer.effectLedger;
-    ledger.recordCall({
-      module: "productionControl/rc/migrationOrchestrator",
-      api: "applyMigration",
-      result: "ok",
-      digests: {
-        preview: preview.digest,
-        ...(event_digest ? { event: event_digest } : {}),
-        mode_intent: modeIntent.intent.digest
+    await atomicCreateJson(previewPath, preview).catch((error) => {
+      if (!(error && typeof error === "object"
+        && String((error as { message?: string }).message ?? "").includes("already exists"))) {
+        throw error;
       }
     });
+    await atomicCreateJson(contractPath, contract).catch(() => undefined);
+    await atomicCreateJson(treePath, tree).catch(() => undefined);
 
-    const safetyEvidence = observer.safetyEvidence();
-    const safety = {
-      provider_submit_count: safetyEvidence.provider_submit_count,
-      gate_mutation_count: safetyEvidence.gate_mutation_count,
-      billing_spend_count: safetyEvidence.billing_spend_count,
-      network_fetch_count: safetyEvidence.network_fetch_count,
-      ledger_digest: safetyEvidence.digest
-    };
-
-    const appliedAt = nowIso;
-    const recordBody = {
-      schema_version: 1 as const,
-      preview_digest: preview.digest,
-      applied_mode: input.target_mode,
-      coordination_root_relative: relative(projectRoot, controlRoot).split(sep).join("/"),
-      artifact_relative_paths,
-      ...(event_sequence !== undefined ? { event_sequence } : {}),
+    journal = await advanceJournalStage({
+      projectRoot,
+      expected_preview_digest: preview.digest,
+      production_id: contract.production_id,
+      to_stage: "artifacts",
       ...(event_digest ? { event_digest } : {}),
       ...(snapshot_digest ? { snapshot_digest } : {}),
-      mode_intent_digest: modeIntent.intent.digest,
-      ...(safety ? { safety } : {}),
-      no_source_project_rewrite: true as const,
-      actor: input.actor,
-      applied_at: appliedAt,
-      revision_bindings: projectRevisionBindings()
-    };
-    const digest = sha256Canonical(recordBody);
-    const finalRecord: MigrationApplyRecordV1 = {
-      schema_version: 1,
-      preview_digest: recordBody.preview_digest,
-      applied_mode: recordBody.applied_mode,
-      coordination_root_relative: recordBody.coordination_root_relative,
-      artifact_relative_paths: recordBody.artifact_relative_paths,
-      ...(recordBody.event_sequence !== undefined ? { event_sequence: recordBody.event_sequence } : {}),
-      ...(recordBody.event_digest ? { event_digest: recordBody.event_digest } : {}),
-      ...(recordBody.snapshot_digest ? { snapshot_digest: recordBody.snapshot_digest } : {}),
-      mode_intent_digest: recordBody.mode_intent_digest,
-      ...(recordBody.safety ? { safety: recordBody.safety } : {}),
-      no_source_project_rewrite: true,
-      actor: recordBody.actor,
-      applied_at: recordBody.applied_at,
-      digest
-    };
-
-    const applyPath = join(migrationDir, `apply-${digest.slice(0, 16)}.json`);
-    await atomicCreateJson(applyPath, finalRecord);
-    finalRecord.artifact_relative_paths = [
-      ...finalRecord.artifact_relative_paths,
-      relative(projectRoot, applyPath).split(sep).join("/")
-    ];
-
-    return { preview, record: finalRecord };
-  } finally {
-    await rootLock.release();
+      stage_payload: {
+        preview_path: relative(projectRoot, previewPath).split(sep).join("/"),
+        contract_path: relative(projectRoot, contractPath).split(sep).join("/"),
+        tree_path: relative(projectRoot, treePath).split(sep).join("/")
+      },
+      ...crashOpts
+    });
   }
+
+  // Stage: pointer (CAS) — after events/snapshot/artifacts exist
+  let mode_intent_digest = journal.mode_intent_digest;
+  {
+    const priorPointer = await readCurrentModePointer(projectRoot);
+    if (
+      priorPointer?.runtime_mode === input.target_mode
+      && priorPointer.production_id === contract.production_id
+    ) {
+      mode_intent_digest = priorPointer.intent_digest;
+    } else {
+      const modeIntent = await appendModeIntent({
+        projectRoot,
+        intended_mode: input.target_mode,
+        previous_mode: priorPointer?.runtime_mode ?? preview.source_mode,
+        actor: "coordinator",
+        production_id: contract.production_id,
+        preview_digest: preview.digest,
+        ...(priorPointer ? { expected_previous_intent_digest: priorPointer.intent_digest } : {}),
+        now: input.now
+      });
+      mode_intent_digest = modeIntent.intent.digest;
+    }
+    journal = await advanceJournalStage({
+      projectRoot,
+      expected_preview_digest: preview.digest,
+      production_id: contract.production_id,
+      to_stage: "pointer",
+      ...(event_digest ? { event_digest } : {}),
+      ...(snapshot_digest ? { snapshot_digest } : {}),
+      ...(mode_intent_digest ? { mode_intent_digest } : {}),
+      ...crashOpts
+    });
+  }
+
+  // Build apply record + complete journal
+  const migrationDir = join(controlRoot, "migration");
+  await mkdir(migrationDir, { recursive: true, mode: 0o700 });
+  const previewPath = join(migrationDir, `preview-${preview.digest.slice(0, 16)}.json`);
+  const shadowOrActiveDir = join(
+    controlRoot,
+    input.target_mode === "shadow" ? "shadow" : "artifacts"
+  );
+  const contractPath = join(shadowOrActiveDir, `production-contract-${contract.root_digest.slice(0, 16)}.json`);
+  const treePath = join(shadowOrActiveDir, `task-tree-${tree.digest.slice(0, 16)}.json`);
+
+  const artifact_relative_paths = [
+    previewPath,
+    contractPath,
+    treePath,
+    join(projectRoot, "production-control/mode/current-mode.json")
+  ].map((path) => relative(projectRoot, path).split(sep).join("/"));
+
+  if (event_digest) {
+    artifact_relative_paths.push(
+      relative(projectRoot, join(controlRoot, "events.jsonl")).split(sep).join("/"),
+      relative(projectRoot, join(controlRoot, "events.commit.json")).split(sep).join("/")
+    );
+  }
+  if (snapshot_digest) {
+    artifact_relative_paths.push(
+      relative(projectRoot, join(controlRoot, "coordination-state.json")).split(sep).join("/")
+    );
+  }
+
+  observer.effectLedger.recordCall({
+    module: "productionControl/rc/migrationOrchestrator",
+    api: "applyMigration",
+    result: "ok",
+    digests: {
+      preview: preview.digest,
+      ...(event_digest ? { event: event_digest } : {}),
+      ...(mode_intent_digest ? { mode_intent: mode_intent_digest } : {})
+    }
+  });
+  if (!observer.provenZeroEffects()) {
+    try {
+      observer.sealEventSequence();
+    } catch {
+      // observer may already be sealed from prior resume
+    }
+  }
+
+  const safetyEvidence = observer.safetyEvidence();
+  const safety = {
+    provider_submit_count: safetyEvidence.provider_submit_count,
+    gate_mutation_count: safetyEvidence.gate_mutation_count,
+    billing_spend_count: safetyEvidence.billing_spend_count,
+    network_fetch_count: safetyEvidence.network_fetch_count,
+    ledger_digest: safetyEvidence.digest
+  };
+
+  const recordBody = {
+    schema_version: 1 as const,
+    preview_digest: preview.digest,
+    applied_mode: input.target_mode,
+    coordination_root_relative: relative(projectRoot, controlRoot).split(sep).join("/"),
+    artifact_relative_paths,
+    ...(event_sequence !== undefined ? { event_sequence } : {}),
+    ...(event_digest ? { event_digest } : {}),
+    ...(snapshot_digest ? { snapshot_digest } : {}),
+    mode_intent_digest: mode_intent_digest ?? journal.mode_intent_digest ?? "",
+    safety,
+    no_source_project_rewrite: true as const,
+    actor: input.actor,
+    applied_at: nowIso,
+    revision_bindings: projectRevisionBindings()
+  };
+  const digest = sha256Canonical(recordBody);
+  const finalRecord: MigrationApplyRecordV1 = {
+    schema_version: 1,
+    preview_digest: recordBody.preview_digest,
+    applied_mode: recordBody.applied_mode,
+    coordination_root_relative: recordBody.coordination_root_relative,
+    artifact_relative_paths: recordBody.artifact_relative_paths,
+    ...(recordBody.event_sequence !== undefined ? { event_sequence: recordBody.event_sequence } : {}),
+    ...(recordBody.event_digest ? { event_digest: recordBody.event_digest } : {}),
+    ...(recordBody.snapshot_digest ? { snapshot_digest: recordBody.snapshot_digest } : {}),
+    mode_intent_digest: recordBody.mode_intent_digest,
+    safety: recordBody.safety,
+    no_source_project_rewrite: true,
+    actor: recordBody.actor,
+    applied_at: recordBody.applied_at,
+    digest
+  };
+
+  const applyPath = join(migrationDir, `apply-${digest.slice(0, 16)}.json`);
+  await atomicCreateJson(applyPath, finalRecord).catch(() => undefined);
+  finalRecord.artifact_relative_paths = [
+    ...finalRecord.artifact_relative_paths,
+    relative(projectRoot, applyPath).split(sep).join("/")
+  ];
+
+  journal = await advanceJournalStage({
+    projectRoot,
+    expected_preview_digest: preview.digest,
+    production_id: contract.production_id,
+    to_stage: "complete",
+    ...(event_digest ? { event_digest } : {}),
+    ...(snapshot_digest ? { snapshot_digest } : {}),
+    ...(mode_intent_digest ? { mode_intent_digest } : {}),
+    stage_payload: { apply_digest: digest },
+    ...crashOpts
+  });
+
+  return {
+    preview,
+    record: finalRecord,
+    journal_complete: journalIsComplete(journal, preview.digest)
+  };
 }
 
 export function projectWithMode(

@@ -126,23 +126,29 @@ export type RcRevisionBindings = {
 };
 
 export function projectRevisionBindings(options: {
+  /** @deprecated Production entry forbids version override — always read package.json. */
   package_version?: string;
   repoRoot?: string;
   /** Reject if caller tries to inject a precomputed digest. */
   self_declared_digest?: string;
+  /** Test-only: allow package_version override (never on production CLI paths). */
+  allow_package_version_override?: boolean;
 } = {}): RcRevisionBindings {
   if (options.self_declared_digest !== undefined) {
     throw pcError("PC_SCHEMA_INVALID", "self-declared revision bindings digest is rejected");
   }
-  const repoRoot = options.repoRoot ?? REPO_ROOT;
-  const package_version = options.package_version ?? readPackageVersionSync(repoRoot);
-  // When package_version is overridden for tests, still hash live package.json when possible.
-  let package_json_digest: string;
-  try {
-    package_json_digest = packageJsonContentDigest(repoRoot);
-  } catch {
-    package_json_digest = createHash("sha256").update(`version:${package_version}`).digest("hex");
+  if (options.package_version !== undefined && options.allow_package_version_override !== true) {
+    throw pcError(
+      "PC_SCHEMA_INVALID",
+      "production revision bindings reject package_version override; read package.json only"
+    );
   }
+  const repoRoot = options.repoRoot ?? REPO_ROOT;
+  const package_version = options.allow_package_version_override && options.package_version
+    ? options.package_version
+    : readPackageVersionSync(repoRoot);
+  // Fail closed: package.json digest is required (no synthetic version fallback).
+  const package_json_digest = packageJsonContentDigest(repoRoot);
   return {
     schema_version: RELEASE_READINESS_SCHEMA_VERSION,
     package_version,
@@ -177,6 +183,7 @@ export function projectRevisionBindings(options: {
 export function rcRevisionBindingsDigest(options?: {
   package_version?: string;
   repoRoot?: string;
+  allow_package_version_override?: boolean;
 }): string {
   return sha256Canonical(projectRevisionBindings(options));
 }
@@ -185,6 +192,7 @@ export function rcRevisionBindingsDigest(options?: {
 export function assertRevisionBindingsDigest(claimed: string, options?: {
   package_version?: string;
   repoRoot?: string;
+  allow_package_version_override?: boolean;
 }): void {
   const expected = rcRevisionBindingsDigest(options);
   if (claimed !== expected) {

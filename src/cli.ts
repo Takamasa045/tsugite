@@ -1040,6 +1040,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ...(validation.video_prompt_plans && validation.video_prompt_plans.length > 0
         ? { video_prompt_plans: validation.video_prompt_plans }
         : {}),
+      ...(validation.runtime_authority
+        ? {
+          resolved_mode: validation.runtime_authority.runtime_mode,
+          mode_source: validation.runtime_authority.source,
+          intent_digest: validation.runtime_authority.intent_digest
+        }
+        : {}),
       launcher_visible: launcherShelf?.ok ?? false,
       launcher_already_home: launcherShelf?.alreadyHome,
       launcher_linked: launcherShelf?.linked,
@@ -1130,13 +1137,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const { dirname, resolve } = await import("node:path");
     const projectRoot = resolve(dirname(args.config!));
-    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
-    const { resolveProjectRuntimeMode } = await import("./productionControl/rc/modeIntent.js");
-    // Durable mode authority for source_mode (YAML not rewritten on migrate)
-    const modeResolved = await resolveProjectRuntimeMode({
-      projectRoot,
-      project: validation.project!
-    });
+    const { createDenyEffectPolicy, createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    // Prefer validation-time runtime_authority (same resolved context as other main entries).
+    const modeResolved = validation.runtime_authority ?? await (async () => {
+      const { resolveProjectRuntimeMode } = await import("./productionControl/rc/modeIntent.js");
+      return resolveProjectRuntimeMode({ projectRoot, project: validation.project! });
+    })();
     const projectForPreview = modeResolved.source === "durable_pointer"
       ? {
         ...validation.project!,
@@ -1183,7 +1189,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     try {
       const observer = createEffectObserver();
-      observer.armAllBoundaries();
+      const effect_policy = createDenyEffectPolicy(observer);
       // Same durable-projected project as preview so expected_preview_digest matches.
       const applied = await applyMigration({
         project: projectForPreview,
@@ -1192,8 +1198,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         actor: "coordinator",
         expected_preview_digest: args.expectedPlanDigest,
         coordinator: true,
-        observer
+        observer,
+        effect_policy: { kind: "noop", observer }
       });
+      void effect_policy;
       observer.sealEventSequence();
       const flags = deriveCliSafetyFlags({ observer });
       return output(args, 0, {
@@ -1205,6 +1213,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         generation_submitted: flags.generation_submitted,
         gate_mutated: flags.gate_mutated,
         safety_proven_zero: flags.safety_proven_zero,
+        resolved_mode: modeResolved.runtime_mode,
+        mode_source: modeResolved.source,
+        journal_complete: applied.journal_complete,
         preview: applied.preview,
         record: applied.record
       });
@@ -1232,9 +1243,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const { dirname, resolve } = await import("node:path");
     const projectRoot = resolve(dirname(args.config!));
-    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    const { createDenyEffectPolicy, createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
     const { readCurrentModePointer } = await import("./productionControl/rc/modeIntent.js");
+    const { resolveRuntimeAuthority } = await import("./productionControl/runtimeAuthority.js");
     const pointer = await readCurrentModePointer(projectRoot).catch(() => undefined);
+    const runtimeAuth = validation.runtime_authority ?? await resolveRuntimeAuthority({
+      projectRoot,
+      project: validation.project!
+    }).catch(() => undefined);
     const previewProject = pointer
       ? {
         ...validation.project!,
@@ -1258,6 +1274,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         billing_action: flags.billing_action,
         generation_submitted: flags.generation_submitted,
         gate_mutated: flags.gate_mutated,
+        resolved_mode: runtimeAuth?.runtime_mode,
+        mode_source: runtimeAuth?.source,
         preview
       });
     }
@@ -1267,7 +1285,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     try {
       const observer = createEffectObserver();
-      observer.armAllBoundaries();
+      createDenyEffectPolicy(observer);
       const applied = await applyRollback({
         project: validation.project!,
         projectRoot,
@@ -1277,6 +1295,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
       observer.sealEventSequence();
       const flags = deriveCliSafetyFlags({ observer });
+      const after = await resolveRuntimeAuthority({
+        projectRoot,
+        project: validation.project!
+      });
       return output(args, 0, {
         ok: true,
         command: "production-rollback",
@@ -1286,6 +1308,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         generation_submitted: flags.generation_submitted,
         gate_mutated: flags.gate_mutated,
         safety_proven_zero: flags.safety_proven_zero,
+        resolved_mode: after.runtime_mode,
+        mode_source: after.source,
         preview: applied.preview,
         record: applied.record
       });
@@ -1329,15 +1353,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return output(args, 1, { ok: false, command: "recover", issues });
     }
 
-    if (resolveOrchestrationMode(validation.project!) !== "active") {
-      return output(args, 1, {
-        ok: false,
-        command: "recover",
-        issues: [{
-          code: "recover.active_mode_required",
-          message: "recover requires orchestration.mode=active"
-        }]
-      });
+    {
+      const mode = validation.runtime_authority?.runtime_mode
+        ?? (resolveOrchestrationMode(validation.project!) === "active" ? "active" : undefined);
+      if (mode === "shadow") {
+        return output(args, 1, {
+          ok: false,
+          command: "recover",
+          issues: [{
+            code: "recover.shadow_denies_effect",
+            message: "shadow mode forbids recover effect entry"
+          }]
+        });
+      }
+      if (mode !== "active") {
+        return output(args, 1, {
+          ok: false,
+          command: "recover",
+          issues: [{
+            code: "recover.active_mode_required",
+            message: "recover requires orchestration.mode=active"
+          }]
+        });
+      }
     }
 
     // Canonical production-control root under the authoritative project config directory.

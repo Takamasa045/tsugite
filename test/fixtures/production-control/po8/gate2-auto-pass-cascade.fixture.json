@@ -81,16 +81,26 @@
   },
   "expected": {
     "golden_digests": {
+      "gate_bundle": "0b9affdd4c404426e9abfb030d4522e43d1c9b595830cdcf45a6d1a3ddc64793",
       "gate2_auto_pass": "auto_pass_allowed",
-      "project_gate2_opt_in": "qc_ok_no_new_assets",
       "authority_allowed": "authority_denied",
-      "unknown_price_review": "has_unknown_price"
+      "unknown_price_review": "has_unknown_price",
+      "project_gate2_opt_in": "qc_ok_no_new_assets"
     }
   },
   "adversarial": [
-    { "name": "gate2-credits-block", "expect": "blocked" },
-    { "name": "unknown-price-executable", "expect": "error" },
-    { "name": "mutate-contract-seed-changes-digest", "expect": "digest_change" }
+    {
+      "name": "gate2-credits-block",
+      "expect": "blocked"
+    },
+    {
+      "name": "unknown-price-executable",
+      "expect": "error"
+    },
+    {
+      "name": "mutate-contract-seed-changes-digest",
+      "expect": "digest_change"
+    }
   ],
   "safety_expectations": [
     "Gate1/3 remain human",

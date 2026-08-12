@@ -32,6 +32,10 @@ import { z } from "zod";
 import { assertSafeJsonValue, sha256Canonical, withoutField } from "./canonical.js";
 import { acquireProductionControlRootLock, pcError } from "./errors.js";
 import { digestSchema, safeIdSchema } from "./schema.js";
+import {
+  noteEffectBoundary,
+  type EffectPolicy
+} from "./rc/effectCapability.js";
 
 const nonNegativeInt = z.number().int().nonnegative();
 const finiteNonNeg = z.number().refine((n) => Number.isFinite(n) && n >= 0, "non-negative finite");
@@ -360,10 +364,14 @@ export class GrantCreditLedger {
     requested_credits: number;
     price_unknown?: boolean;
     now?: string;
+    /** Optional RC effect policy (deny blocks paid reserve). */
+    effect_policy?: EffectPolicy;
   }): Promise<LedgerReservation> {
     if (input.price_unknown === true) {
       throw pcError("PC_RESERVATION_INVALID", "unknown price blocks reservation before provider");
     }
+    // After price-unknown fail-closed: note billing boundary for known-price reserve.
+    noteEffectBoundary(input.effect_policy, "billing_spend", "grantLedger.reserve");
     if (!Number.isFinite(input.requested_credits) || input.requested_credits < 0) {
       throw pcError("PC_RESERVATION_INVALID", "requested credits must be non-negative finite");
     }
@@ -441,10 +449,12 @@ export class GrantCreditLedger {
     reservation_id: string;
     actual_credits: number;
     now?: string;
+    effect_policy?: EffectPolicy;
   }): Promise<LedgerReservation> {
     if (!Number.isFinite(input.actual_credits) || input.actual_credits < 0) {
       throw pcError("PC_RESERVATION_INVALID", "actual credits must be non-negative finite");
     }
+    noteEffectBoundary(input.effect_policy, "billing_spend", "grantLedger.commit");
     return this.withRootLock(async () => {
       const layout = await this.prepareLayout();
       await this.recoverIncompleteTransactions(layout);

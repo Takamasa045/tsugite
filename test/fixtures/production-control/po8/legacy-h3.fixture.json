@@ -36,12 +36,16 @@
                 "start_ms": 0,
                 "end_ms": 6000,
                 "visual": "Live-action cinematic shot: walk across a quiet dock at dawn",
-                "camera": { "type": "static" }
+                "camera": {
+                  "type": "static"
+                }
               }
             ],
             "sound": {
               "soundscape": "quiet water and distant gulls",
-              "music": { "enabled": false }
+              "music": {
+                "enabled": false
+              }
             },
             "global": {
               "style": "cinematic"
@@ -65,12 +69,21 @@
   },
   "expected": {
     "golden_digests": {
-      "path": "legacy-v1-pure-upgrader-grammar-golden-text-route"
+      "source_sha256": "59289e55ea14307832199437952d4e063e1434448492c2491007c697ebeaa716",
+      "upgraded_ir": "50c219fd9db82274e0cfe624c6d4a3c907c49594e825a0ed8dcbc64697529613",
+      "canonical_text": "fa57ed03d453ec008793ccd68d0810550204e05051451ca002a30912848e67c8",
+      "planning_compile": "fe901c14dddebf810ea10532fbbe4dbd52fc9378a4c23df103088c6675bce24a"
     }
   },
   "adversarial": [
-    { "name": "invalid-v2-parse", "expect": "error" },
-    { "name": "mutate-visual-changes-digest", "expect": "digest_change" }
+    {
+      "name": "invalid-v2-parse",
+      "expect": "error"
+    },
+    {
+      "name": "mutate-visual-changes-digest",
+      "expect": "digest_change"
+    }
   ],
   "safety_expectations": [
     "legacy pure upgrader path",

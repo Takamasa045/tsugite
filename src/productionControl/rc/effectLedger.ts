@@ -100,13 +100,13 @@ export class EffectLedger {
   }
 
   /**
-   * @deprecated Removed — zero-effect proof requires EffectObserver.armAllBoundaries()
-   * at actual call-site instrumentation. Do not invent instrumented zeros.
+   * @deprecated Removed — zero-effect proof requires EffectObserver.registerBoundary()
+   * from actual call-site wrappers. Do not invent instrumented zeros.
    */
   markFixtureInProcessBoundary(): void {
     throw pcError(
       "PC_CONTRACT_INVALID",
-      "markFixtureInProcessBoundary is removed; use EffectObserver.armAllBoundaries() + actual boundary wrappers"
+      "markFixtureInProcessBoundary is removed; use EffectObserver.registerBoundary() via actual boundary wrappers"
     );
   }
 

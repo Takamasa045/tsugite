@@ -36,12 +36,16 @@
                 "start_ms": 0,
                 "end_ms": 3000,
                 "visual": "Live-action cinematic shot: retry framing after a failed take",
-                "camera": { "type": "static" }
+                "camera": {
+                  "type": "static"
+                }
               }
             ],
             "sound": {
               "soundscape": "quiet room tone",
-              "music": { "enabled": false }
+              "music": {
+                "enabled": false
+              }
             }
           }
         }
@@ -64,14 +68,22 @@
   },
   "expected": {
     "golden_digests": {
-      "unknown_price_blocked": "unknown_price_blocked",
-      "local_poll_download_no_submit": "local_poll_only",
-      "paid_no_silent_spend": "no_silent_spend"
+      "unknown_price_blocked": "6644ecca740397a4ca4f34ed18e296238d15600da263595c25a990b464faa2ce",
+      "paid_path_deny": "0df9dbb6f12884003ccf472363debb889a1006519bf8a38ba89b30def3dbaf1d",
+      "local_recovery": "f0c82341efb1a0556ba0cc908c751b66312886f5399bd6a8366ee7d5d3789aea",
+      "local_recovery_status": "awaiting_human",
+      "local_action": "resume-known-job-poll"
     }
   },
   "adversarial": [
-    { "name": "unknown-price-block", "expect": "error" },
-    { "name": "mutate-grant-seed-changes-digest", "expect": "digest_change" }
+    {
+      "name": "unknown-price-block",
+      "expect": "error"
+    },
+    {
+      "name": "mutate-grant-seed-changes-digest",
+      "expect": "digest_change"
+    }
   ],
   "safety_expectations": [
     "unknown price blocks paid",

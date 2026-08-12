@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-12T12:16:54.802Z",
+  "generated_at": "2026-08-12T12:50:52.674Z",
   "package_version": "0.9.0",
   "recommended_version": "0.9.0",
   "version_decision": {
@@ -62,20 +62,18 @@
     {
       "exit_id": "po8-1-mode-orchestrator",
       "title": "RC integration orchestrator/diagnostics (legacy/shadow/active)",
-      "status": "proven",
-      "evidence": [
-        "command=rehearsal mode sequence + diagnostics tests",
-        "exit_code=0",
-        "output_digest=d40c0967244b0f443010fb0742a96d9290c604b459c69224d4794e259026d871"
-      ],
-      "gaps": []
+      "status": "unverified",
+      "evidence": [],
+      "gaps": [
+        "mode orchestrator evidence missing"
+      ]
     },
     {
       "exit_id": "po8-h1-fixture-modules",
       "title": "H1: 8 fixtures wired to actual production module APIs",
       "status": "proven",
       "evidence": [
-        "fixture_module_evidence.digest=8805b2a4d0e502de43055bd84d48f827835a8d74efa8e0e2f514b40058d87b59",
+        "fixture_module_evidence.digest=6d6534e4bed57eaf42f4bea4f081e3d17afd97b690470af360af27d6a3af8c98",
         "fixture_count=8"
       ],
       "gaps": []
@@ -83,40 +81,36 @@
     {
       "exit_id": "po8-2-migration-rehearsal",
       "title": "Migration rehearsal across 8 frozen fixtures",
-      "status": "proven",
-      "evidence": [
-        "rehearsal.digest=6d60f997e241880178187007f1e815f8dbddc01e65e052cb9818238d7ec86896",
-        "fixture_count=8"
-      ],
-      "gaps": []
+      "status": "unverified",
+      "evidence": [],
+      "gaps": [
+        "rehearsal not green or not run"
+      ]
     },
     {
       "exit_id": "po8-h3-durable-cli",
       "title": "H3: durable temp project + production-migrate/rollback --apply CLI",
-      "status": "proven",
-      "evidence": [
-        "command=vitest po8 CLI migrate/rollback/validate/plan/review/run-dry/finalize-preview",
-        "exit_code=0",
-        "output_digest=a622edabf9bb2c7e7e9cae43ee5a0d49bc969bc03022852099eb64f78b272211"
-      ],
-      "gaps": []
+      "status": "unverified",
+      "evidence": [],
+      "gaps": [
+        "H3 durable CLI not proven"
+      ]
     },
     {
       "exit_id": "po8-3-rollback-rehearsal",
       "title": "Rollback rehearsal preserves append-only artifacts",
-      "status": "proven",
-      "evidence": [
-        "rehearsal.digest=6d60f997e241880178187007f1e815f8dbddc01e65e052cb9818238d7ec86896",
-        "rollback sequence in rehearsal"
-      ],
-      "gaps": []
+      "status": "unverified",
+      "evidence": [],
+      "gaps": [
+        "rollback evidence missing"
+      ]
     },
     {
       "exit_id": "po8-4-adversarial-golden",
       "title": "Adversarial/golden fixture coverage",
       "status": "proven",
       "evidence": [
-        "fixture_module_evidence.digest=8805b2a4d0e502de43055bd84d48f827835a8d74efa8e0e2f514b40058d87b59",
+        "fixture_module_evidence.digest=6d6534e4bed57eaf42f4bea4f081e3d17afd97b690470af360af27d6a3af8c98",
         "golden exact compare + field mutation digests"
       ],
       "gaps": []
@@ -124,15 +118,11 @@
     {
       "exit_id": "po8-5-full-regression",
       "title": "Full regression and production surfaces",
-      "status": "proven",
-      "evidence": [
-        "command=npm run test:coverage",
-        "exit_code=0",
-        "output_digest=35e701c6214d909759fc7be5ba538709c2beddfdab8b7f0833b765968838c90c",
-        "branches=74.5",
-        "statements=82.76"
-      ],
-      "gaps": []
+      "status": "unverified",
+      "evidence": [],
+      "gaps": [
+        "full npm run check not yet recorded with exit_code+hash"
+      ]
     },
     {
       "exit_id": "po8-6-version-decision",
@@ -141,7 +131,7 @@
       "evidence": [
         "package_version=0.9.0",
         "revision_bindings_digest=0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
-        "Windows/live provider incomplete \u2192 not 1.0.0"
+        "Windows/live provider incomplete → not 1.0.0"
       ],
       "gaps": []
     },
@@ -151,10 +141,12 @@
       "status": "partial",
       "evidence": [
         "src/productionControl/rc/releaseReadiness.ts",
-        "status recomputed from evidence store (not caller forged exits)"
+        "status recomputed from evidence store (not caller forged exits)",
+        "effect_observer_digest=4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286"
       ],
       "gaps": [
-        "readiness report is self-describing; authenticity proven by digest recompute in tests"
+        "durable migration journal complete evidence missing",
+        "actual reader command evidence missing"
       ]
     },
     {
@@ -185,39 +177,43 @@
       ]
     }
   ],
-  "rehearsal": {
-    "all_ok": true,
-    "fixture_count": 8,
-    "digest": "6d60f997e241880178187007f1e815f8dbddc01e65e052cb9818238d7ec86896"
-  },
   "fixture_module_evidence": {
     "all_ok": true,
     "fixture_count": 8,
-    "digest": "8805b2a4d0e502de43055bd84d48f827835a8d74efa8e0e2f514b40058d87b59"
+    "digest": "6d6534e4bed57eaf42f4bea4f081e3d17afd97b690470af360af27d6a3af8c98"
   },
   "coverage": {
-    "statements": 82.76,
-    "branches": 74.5,
-    "functions": 89.98,
-    "lines": 85.49,
+    "statements": 82.72,
+    "branches": 74.46,
+    "functions": 89.76,
+    "lines": 85.44,
     "branch_threshold": 74.4,
     "thresholds_lowered": false
   },
   "unverified": [
-    "po8-7-readiness-artifact: readiness report is self-describing; authenticity proven by digest recompute in tests",
+    "po8-1-mode-orchestrator: mode orchestrator evidence missing",
+    "po8-2-migration-rehearsal: rehearsal not green or not run",
+    "po8-h3-durable-cli: H3 durable CLI not proven",
+    "po8-3-rollback-rehearsal: rollback evidence missing",
+    "po8-5-full-regression: full npm run check not yet recorded with exit_code+hash",
+    "po8-7-readiness-artifact: durable migration journal complete evidence missing",
+    "po8-7-readiness-artifact: actual reader command evidence missing",
     "po8-8-po0a-browser: browser assertion not yet recorded with exit_code+hash",
     "windows-smoke: Windows real machine not executed in this owner session",
     "desktop: Desktop surfaces not fully verified in this owner session"
   ],
-  "go_no_go": "GO-WITH-CAVEATS",
+  "go_no_go": "NO-GO",
   "go_no_go_reasons": [
-    "fixture-only RC integration with unverified Windows/live/desktop/browser"
+    "H3/migration rehearsal not fully proven",
+    "durable migration journal not complete",
+    "actual reader command evidence missing",
+    "Windows smoke not proven → not release 1.0.0"
   ],
   "build_provenance": {
-    "head": "7e19b46b04445a882a1bb23249b75066ac5c444c",
+    "head": "06c821de42683cd9511f77a029db3653f24b2bde",
     "branch": "codex/po8-rc-integration",
-    "dirty": false,
+    "dirty": true,
     "verified_separately": true
   },
-  "digest": "615a413b6a74d6f09d06b2a4ce505ac303863986af5158c2e41ec3f9072def47"
+  "digest": "2a04f8c47287d7fa358823022c4d2f6ba0ee62777088e242eead17c91167a152"
 }

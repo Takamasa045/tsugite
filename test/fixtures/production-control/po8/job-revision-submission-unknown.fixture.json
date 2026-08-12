@@ -36,12 +36,16 @@
                 "start_ms": 0,
                 "end_ms": 3000,
                 "visual": "Live-action cinematic shot: hard cut between two still frames",
-                "camera": { "type": "static" }
+                "camera": {
+                  "type": "static"
+                }
               }
             ],
             "sound": {
               "soundscape": "quiet room tone",
-              "music": { "enabled": false }
+              "music": {
+                "enabled": false
+              }
             }
           }
         }
@@ -78,16 +82,30 @@
   },
   "expected": {
     "golden_digests": {
-      "revision_ok": "revision_advanced",
+      "revision_ok": "817f3a6fc2a7c472435465c7799707b1eb45166d675da956b1dcd5668e6abfdb",
       "submission_unknown_action": "poll_or_download",
-      "may_submit": "may_not_submit"
+      "may_submit": "false",
+      "submission_binding": "1c398210994aa525adbccf07e3bbd91d78fa5476c5d6ea759196ccd27890d8ad",
+      "immutable_identity": "c63a557759a76d3e1ac416852ac9cf973f1e533be678644cbf140eb12ced264e"
     }
   },
   "adversarial": [
-    { "name": "revision-rollback", "expect": "error" },
-    { "name": "identity-drift", "expect": "error" },
-    { "name": "no-resubmit", "expect": "error" },
-    { "name": "mutate-request-seed-changes-digest", "expect": "digest_change" }
+    {
+      "name": "revision-rollback",
+      "expect": "error"
+    },
+    {
+      "name": "identity-drift",
+      "expect": "error"
+    },
+    {
+      "name": "no-resubmit",
+      "expect": "error"
+    },
+    {
+      "name": "mutate-request-seed-changes-digest",
+      "expect": "digest_change"
+    }
   ],
   "safety_expectations": [
     "submission_unknown no-resubmit",

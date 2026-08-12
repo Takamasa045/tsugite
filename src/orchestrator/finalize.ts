@@ -274,6 +274,14 @@ export async function finalizeCompletedProject(
   // Apply path recovers incomplete journals / orphan quarantine before planning.
   // Re-verify pinned dirs immediately before recovery mutates under stateDir/runDir.
   if (options.apply) {
+    // Effect policy hook after coordinator/digest authority (production no-op when undefined).
+    const effectPolicy = (options as {
+      effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy;
+    }).effect_policy;
+    if (effectPolicy) {
+      const { noteEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+      noteEffectBoundary(effectPolicy, "finalize_apply", "orchestrator.finalizeCompletedProject.apply");
+    }
     const preRecoveryIssue = await revalidatePinnedDirs();
     if (preRecoveryIssue) return failure(empty, preRecoveryIssue);
     const recovered = await recoverIncompleteFinalizeTransaction({

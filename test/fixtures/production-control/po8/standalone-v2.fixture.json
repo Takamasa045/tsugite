@@ -79,12 +79,21 @@
   },
   "expected": {
     "golden_digests": {
-      "adoption": "fail-closed-on-forged-contract"
+      "ir": "e3820273e84e94a27590211477b3efc6d48be0a11508d8f530489441825cf776",
+      "route": "716c974e51939fce617f77bb77b97c2d709725745ccb9ab22a2b02c494c1f1dc",
+      "forged_route_adoption": "4ae31ff20c1b512339692fdac52f9818484594dc43cb9d3ec944cc0132ad278c",
+      "planning_compile": "245e611c50f3f8f01a8d67661a3d88cb6ef76bb9b2f5f6e5fb7d75aa03f7f44f"
     }
   },
   "adversarial": [
-    { "name": "forged-route-adoption", "expect": "blocked" },
-    { "name": "mutate-action-changes-digest", "expect": "digest_change" }
+    {
+      "name": "forged-route-adoption",
+      "expect": "blocked"
+    },
+    {
+      "name": "mutate-action-changes-digest",
+      "expect": "digest_change"
+    }
   ],
   "safety_expectations": [
     "V2 authoring remains opt-in",

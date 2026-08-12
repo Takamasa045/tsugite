@@ -54,7 +54,27 @@ const runStateSchema = z.object({
     .default(defaultGates)
 });
 
-export async function writeState(distDir: string, state: RunState): Promise<string> {
+export async function writeState(
+  distDir: string,
+  state: RunState,
+  options?: {
+    /** Optional RC effect policy — gates mutation only when decision fields change. */
+    effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy;
+    previous?: RunState;
+  }
+): Promise<string> {
+  if (options?.effect_policy) {
+    const prev = options.previous;
+    const gateChanged = !prev || (
+      prev.gates.gate_1.status !== state.gates.gate_1.status
+      || prev.gates.gate_2.status !== state.gates.gate_2.status
+      || prev.gates.gate_3.status !== state.gates.gate_3.status
+    );
+    if (gateChanged) {
+      const { noteEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+      noteEffectBoundary(options.effect_policy, "gate_mutation", "orchestrator.writeState");
+    }
+  }
   const parsedState = parseRunState(state);
   const runDir = join(distDir, parsedState.run_id);
   await mkdir(runDir, { recursive: true });

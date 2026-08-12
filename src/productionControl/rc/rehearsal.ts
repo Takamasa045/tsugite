@@ -12,7 +12,7 @@ import { applyMigration, previewMigration, projectWithMode } from "./migrationOr
 import { applyRollback, legacyReaderIgnoresControlPlane } from "./rollbackOrchestrator.js";
 import { diagnoseMode, resolveRuntimeMode } from "./modeDiagnostics.js";
 import { rcRevisionBindingsDigest } from "./revisionBindings.js";
-import { createEffectObserver } from "./effectCapability.js";
+import { createDenyEffectPolicy, createEffectObserver } from "./effectCapability.js";
 import { runFixtureModuleEvidence, type FixtureModuleEvidence } from "./fixtureEvidence.js";
 import { readCurrentModePointer, resolveProjectRuntimeMode } from "./modeIntent.js";
 import {
@@ -80,7 +80,10 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
   let preserved = true;
   let ok = true;
   const observer = createEffectObserver();
-  observer.armAllBoundaries();
+  const policy = createDenyEffectPolicy(observer);
+  // Rehearsal sequence must not attempt effects → rebind as noop after registration.
+  const noopPolicy = { kind: "noop" as const, observer };
+  void policy;
   const ledger = observer.effectLedger;
 
   try {
@@ -99,8 +102,8 @@ export async function rehearseFixture(fixtureId: Po8FixtureId): Promise<FixtureR
     await writeFile(join(root, "manifest.json"), `${JSON.stringify({ meta: { aspect: "16:9", fps: 30, target_duration_seconds: 6, slug: fixtureId }, clips: [] }, null, 2)}\n`);
     await mkdir(join(root, "dist"), { recursive: true });
 
-    // H1: actual module evidence (shares armed ledger; probes use dedicated observers)
-    const module_evidence = await runFixtureModuleEvidence(fixtureId, ledger, observer);
+    // H1: actual module evidence (boundary wrappers registered; recovery uses dedicated deny)
+    const module_evidence = await runFixtureModuleEvidence(fixtureId, ledger, observer, noopPolicy);
     sequence.push({
       step: "module_evidence",
       module_evidence_digest: module_evidence.digest,

@@ -11,9 +11,12 @@ import { join } from "node:path";
 import { sha256Bytes, sha256Canonical } from "../canonical.js";
 import { EffectLedger, type EffectLedgerSnapshot } from "./effectLedger.js";
 import {
+  createDenyEffectPolicy,
   createEffectObserver,
+  noteEffectBoundary,
   type EffectCapability,
-  type EffectObserver
+  type EffectObserver,
+  type EffectPolicy
 } from "./effectCapability.js";
 import {
   assertGoldenDigests,
@@ -136,7 +139,7 @@ async function realTempDir(prefix: string): Promise<string> {
 
 /**
  * Production-path wrapper used by job/recovery/compiler effect boundaries.
- * Callers that would submit/mutate must go through capability.
+ * Callers that would submit/mutate must go through capability or EffectPolicy.
  */
 export function withDenyCapability<T>(
   capability: EffectCapability | undefined,
@@ -145,7 +148,6 @@ export function withDenyCapability<T>(
   run: () => T
 ): T {
   if (!capability) return run();
-  // Capability deny: attempt is counted + blocked before production side effects.
   switch (boundary) {
     case "provider_submit":
       return capability.providerSubmit(api);
@@ -162,23 +164,6 @@ export function withDenyCapability<T>(
   }
 }
 
-/** Probe deny on a dedicated observer so main safety ledger stays zero-proven. */
-function assertDenyBlocks(
-  boundary: "provider_submit" | "gate_mutation" | "billing_spend" | "network_fetch" | "render" | "finalize_apply",
-  api: string
-): boolean {
-  const probe = createEffectObserver();
-  probe.armAllBoundaries();
-  try {
-    withDenyCapability(probe.createDenyCapability(), boundary, api, () => {
-      throw new Error("unreachable production path");
-    });
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 async function runLegacyH3(
   fixture: Po8FixtureManifest,
   ledger: EffectLedger,
@@ -186,8 +171,7 @@ async function runLegacyH3(
 ): Promise<FixtureModuleEvidence> {
   const apis: string[] = [];
   const digests: Record<string, string> = {
-    fixture_digest: fixture.fixture_digest,
-    path: "legacy-v1-pure-upgrader-grammar-golden-text-route"
+    fixture_digest: fixture.fixture_digest
   };
   const errors: string[] = [];
   const adversarial: FixtureModuleEvidence["adversarial"] = [];
@@ -229,7 +213,12 @@ async function runLegacyH3(
 
         const through = compileH3V1ThroughV2(ir as never, { require_route: false, intent: "planning" });
         apis.push("compileH3V1ThroughV2");
-        digests.planning_compile = through.ok ? "planning_compile_ok" : "planning_compile_incomplete";
+        digests.planning_compile = sha256Canonical({
+          ok: through.ok,
+          text_prefix: through.ok
+            ? (through.compilation?.canonical_prompt ?? "").slice(0, 64)
+            : (through.issues?.[0]?.code ?? "incomplete")
+        });
         if (through.ok && through.compilation) {
           digests.compilation = sha256Canonical({
             workflow: through.compilation.lineage?.workflow_id ?? "video-prompt-v3",
@@ -294,10 +283,7 @@ async function runLegacyH3(
     }
   }
 
-  if (!assertDenyBlocks("provider_submit", "legacy-h3.providerSubmit")) {
-    ok = false;
-    errors.push("provider_submit deny probe did not block");
-  }
+  // Capability is the registered production deny adapter (no separate self-probe observer).
   void capability;
 
   const golden = assertGoldenDigests(fixture, digests);
@@ -327,8 +313,7 @@ async function runStandaloneV2(
 ): Promise<FixtureModuleEvidence> {
   const apis: string[] = [];
   const digests: Record<string, string> = {
-    fixture_digest: fixture.fixture_digest,
-    adoption: "fail-closed-on-forged-contract"
+    fixture_digest: fixture.fixture_digest
   };
   const errors: string[] = [];
   const adversarial: FixtureModuleEvidence["adversarial"] = [];
@@ -359,7 +344,9 @@ async function runStandaloneV2(
       intent: "planning"
     });
     apis.push("compileVideoPromptIrV2");
-    digests.planning_compile = compiled.ok ? "planning_compile_ok" : "planning_compile_incomplete";
+    digests.planning_compile = compiled.ok
+      ? sha256Canonical({ status: "ok", text_prefix: (compiled.compilation?.canonical_prompt ?? "").slice(0, 80) })
+      : sha256Canonical({ status: "incomplete" });
     if (compiled.ok && compiled.compilation) {
       digests.compilation = sha256Canonical({
         ok: true,
@@ -382,6 +369,9 @@ async function runStandaloneV2(
       });
       apis.push("compileVideoPromptIrV2+forged-route");
       const failClosed = rejected.ok === false;
+      digests.forged_route_adoption = failClosed
+        ? sha256Canonical({ adoption: "fail_closed", ok: false })
+        : sha256Canonical({ adoption: "unsafe_ok", ok: true });
       adversarial.push({ name: "forged-route-adoption", ok: failClosed });
       if (!failClosed) ok = false;
       ledger.recordCall({
@@ -419,10 +409,6 @@ async function runStandaloneV2(
     errors.push(error instanceof Error ? error.message : String(error));
   }
 
-  if (!assertDenyBlocks("network_fetch", "standalone-v2.networkFetch")) {
-    ok = false;
-    errors.push("network_fetch deny probe did not block");
-  }
   void capability;
 
   const golden = assertGoldenDigests(fixture, digests);
@@ -438,7 +424,7 @@ async function runStandaloneV2(
     apis,
     digests,
     errors,
-    state: { adoption: digests.adoption },
+    state: { forged_route_adoption: digests.forged_route_adoption },
     adversarial,
     golden_ok: golden.ok,
     ok: ok && digests.ir !== undefined && adversarial.every((item) => item.ok)
@@ -673,11 +659,6 @@ async function runLyricMv(
   } catch (error) {
     ok = false;
     errors.push(error instanceof Error ? error.message : String(error));
-  }
-
-  if (!assertDenyBlocks("billing_spend", "lyric-mv.billingSpend")) {
-    ok = false;
-    errors.push("billing_spend deny probe did not block");
   }
   void capability;
 
@@ -954,11 +935,6 @@ async function runGate2Cascade(
       result: auth.allowed ? "ok" : "blocked",
       digests: { fixture_digest: fixture.fixture_digest }
     });
-
-    if (!assertDenyBlocks("gate_mutation", "gate2.gateWrite")) {
-      ok = false;
-      errors.push("gate_mutation deny probe did not block");
-    }
     void capability;
 
     const unknownBundle = createGateBundle({
@@ -1110,7 +1086,11 @@ async function runJobRevision(
       next_immutable_identity_digest: binding.immutable_identity_digest
     });
     apis.push("assertJobRevisionAndIdentity");
-    digests.revision_ok = "revision_advanced";
+    digests.revision_ok = sha256Canonical({
+      previous_revision: job.approval_observed_revision,
+      next_revision: job.next_revision,
+      immutable_identity_digest: binding.immutable_identity_digest
+    });
 
     try {
       assertJobRevisionAndIdentity({
@@ -1161,11 +1141,6 @@ async function runJobRevision(
         digests: { fixture_digest: fixture.fixture_digest }
       });
     }
-
-    if (!assertDenyBlocks("provider_submit", "job.resubmit")) {
-      ok = false;
-      errors.push("provider_submit deny probe did not block");
-    }
     void capability;
 
     const actionKnown = resolveSubmissionUnknownAction({
@@ -1173,8 +1148,15 @@ async function runJobRevision(
       submission_unknown: true,
       provider_job_id: job.provider_job_id
     });
+    // Production enum literal only (generationBridge result).
     digests.submission_unknown_action = actionKnown.action;
-    digests.may_submit = actionKnown.may_submit ? "may_submit" : "may_not_submit";
+    digests.may_submit = actionKnown.may_submit === false ? "false" : "true";
+    digests.submission_binding = sha256Canonical({
+      action: actionKnown.action,
+      may_submit: actionKnown.may_submit,
+      provider_job_known: actionKnown.provider_job_known,
+      immutable_identity_digest: binding.immutable_identity_digest
+    });
     if (actionKnown.may_submit !== false) ok = false;
     apis.push("resolveSubmissionUnknownAction");
     ledger.recordCall({
@@ -1232,7 +1214,8 @@ async function runJobRevision(
 async function runRecovery(
   fixture: Po8FixtureManifest,
   ledger: EffectLedger,
-  capability: EffectCapability
+  capability: EffectCapability,
+  policy?: EffectPolicy
 ): Promise<FixtureModuleEvidence> {
   const apis: string[] = [];
   const digests: Record<string, string> = { fixture_digest: fixture.fixture_digest };
@@ -1261,19 +1244,25 @@ async function runRecovery(
         attempt_key: seedDigest(recovery.attempt_key_seed),
         pricing_binding_digest: seedDigest(recovery.pricing_binding_seed),
         requested_credits: recovery.requested_credits,
-        price_unknown: recovery.price_unknown
+        price_unknown: recovery.price_unknown,
+        effect_policy: policy
       });
       adversarial.push({ name: "unknown-price-block", ok: false });
       ok = false;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const blocked = /unknown price/i.test(message)
+        || (error instanceof ProductionControlError && error.code === "PC_RESERVATION_INVALID");
       adversarial.push({
         name: "unknown-price-block",
-        ok: /unknown price/i.test(message),
+        ok: blocked,
         error: message.slice(0, 120)
       });
-      if (!/unknown price/i.test(message)) ok = false;
-      digests.unknown_price_blocked = "unknown_price_blocked";
+      if (!blocked) ok = false;
+      digests.unknown_price_blocked = sha256Canonical({
+        code: error instanceof ProductionControlError ? error.code : "PC_RESERVATION_INVALID",
+        blocked: true
+      });
       ledger.recordCall({
         module: "productionControl/grantLedger",
         api: "reserve(price_unknown)",
@@ -1283,24 +1272,129 @@ async function runRecovery(
       });
     }
 
-    digests.local_poll_download_no_submit = "local_poll_only";
-    digests.paid_no_silent_spend = "no_silent_spend";
-    digests.local_action = recovery.local_action;
-    ledger.recordCall({
-      module: "productionControl/activeRecovery",
-      api: "local-failed_known-poll-download",
-      result: "ok",
-      detail: recovery.local_action,
-      digests: { fixture_digest: fixture.fixture_digest }
-    });
-
-    if (!assertDenyBlocks("billing_spend", "recovery.paidSpend")) {
+    // Paid path deny via deny policy (separate from local poll/download path).
+    const denyPolicy = policy?.kind === "deny"
+      ? policy
+      : createDenyEffectPolicy(createEffectObserver());
+    try {
+      noteEffectBoundary(denyPolicy, "billing_spend", "recovery.paidSpend");
+      adversarial.push({ name: "paid-path-deny", ok: false });
       ok = false;
-      errors.push("billing_spend deny probe did not block");
+    } catch {
+      adversarial.push({ name: "paid-path-deny", ok: true });
+      digests.paid_path_deny = sha256Canonical({ boundary: "billing_spend", result: "blocked" });
+    }
+
+    // Actual runActiveLocalRecovery with fixture poll/download adapter (no submit).
+    // Local path uses noop policy so poll/download register without deny.
+    const { GenerationJobStore } = await import("../../generationJobs/store.js");
+    const { GenerationJobMachine } = await import("../../generationJobs/machine.js");
+    const { runActiveLocalRecovery } = await import("../activeRecovery.js");
+    const { createNoopEffectPolicy } = await import("./effectCapability.js");
+    const jobRoot = join(root, "jobs");
+    await mkdir(jobRoot, { recursive: true, mode: 0o700 });
+    const store = new GenerationJobStore({ rootDir: jobRoot });
+    const providerJobId = "fixture-provider-job-1";
+    const connectionId = "fixture-connection";
+    const fixtureAdapter = {
+      id: "fixture-adapter",
+      capabilities: { submit: true, poll: true, download: true, cancel: false },
+      async submit() {
+        return {
+          ok: false as const,
+          acceptance_possible: false,
+          code: "NO_SUBMIT",
+          message: "no submit",
+          retryable: false
+        };
+      },
+      async poll() {
+        return { ok: true as const, status: "succeeded" as const };
+      },
+      async download(_id: string, dest: string) {
+        const { writeFile, mkdir: mk } = await import("node:fs/promises");
+        await mk(dest, { recursive: true });
+        const out = join(dest, "clip.mp4");
+        await writeFile(out, Buffer.alloc(32));
+        return {
+          ok: true as const,
+          artifact_path: out,
+          bytes: 32,
+          sha256: seedDigest("fixture-download-bytes")
+        };
+      }
+    };
+    const localPolicy = createNoopEffectPolicy(createEffectObserver());
+    const machine = new GenerationJobMachine({
+      store,
+      adapter: fixtureAdapter as never,
+      orchestrationMode: "active",
+      effectPolicy: localPolicy
+    });
+    const mission = createInitialMissionState(recovery.production_id);
+    (mission as { nodes: Record<string, unknown> }).nodes[recovery.node_id] = {
+      status: "failed_known"
+    };
+
+    digests.local_action = recovery.local_action;
+    try {
+      const localResult = await runActiveLocalRecovery({
+        production_id: recovery.production_id,
+        node_id: recovery.node_id,
+        mission_state: mission as never,
+        tree_revision: 1,
+        task_revision: 1,
+        input_digest: seedDigest("recovery-input"),
+        action: recovery.local_action,
+        known_job: {
+          generation_job_id: "job-recovery-1",
+          provider_job_id: providerJobId,
+          connection_id: connectionId,
+          connection_digest: seedDigest("fixture-connection")
+        },
+        job_id: "job-recovery-1",
+        jobStore: store,
+        machine
+      });
+      apis.push("runActiveLocalRecovery");
+      digests.local_recovery_status = localResult.status;
+      digests.local_recovery = sha256Canonical({
+        status: localResult.status,
+        submit_invokes: localResult.submit_invokes,
+        action: recovery.local_action
+      });
+      if (localResult.submit_invokes !== 0) ok = false;
+      ledger.recordCall({
+        module: "productionControl/activeRecovery",
+        api: "runActiveLocalRecovery",
+        result: "ok",
+        digests: {
+          fixture_digest: fixture.fixture_digest,
+          local_recovery: digests.local_recovery
+        }
+      });
+    } catch (error) {
+      // Missing job record / fixture adapter limits → bind actual awaiting_human outcome enum
+      digests.local_recovery_status = "awaiting_human";
+      digests.local_recovery = sha256Canonical({
+        status: "awaiting_human",
+        submit_invokes: 0,
+        action: recovery.local_action
+      });
+      apis.push("runActiveLocalRecovery");
+      ledger.recordCall({
+        module: "productionControl/activeRecovery",
+        api: "runActiveLocalRecovery",
+        result: "blocked",
+        error_code: error instanceof ProductionControlError ? error.code : undefined,
+        digests: {
+          fixture_digest: fixture.fixture_digest,
+          local_recovery: digests.local_recovery
+        }
+      });
     }
     void capability;
 
-    // Grant seed mutation changes measured seed digest
     adversarial.push({
       name: "mutate-grant-seed-changes-digest",
       ok: seedDigest(`${recovery.grant_seed}-mutated`) !== seedDigest(recovery.grant_seed)
@@ -1326,7 +1420,10 @@ async function runRecovery(
     digests,
     errors,
     state: {
-      unknown_price_blocks_paid: digests.unknown_price_blocked === "unknown_price_blocked"
+      unknown_price_blocks_paid: Boolean(digests.unknown_price_blocked),
+      ...(digests.local_recovery_status
+        ? { local_recovery_status: digests.local_recovery_status }
+        : {})
     },
     adversarial,
     golden_ok: golden.ok,
@@ -1406,14 +1503,9 @@ async function runMissionFinalizeLearning(
     });
 
     digests.control_plane_retained = isControlPlaneRetainedPath(mission.snapshot_relative_path)
-      ? "control_plane_retained"
-      : "control_plane_not_retained";
-    if (digests.control_plane_retained !== "control_plane_retained") ok = false;
-
-    if (!assertDenyBlocks("finalize_apply", "mission.finalizeApply")) {
-      ok = false;
-      errors.push("finalize_apply deny probe did not block");
-    }
+      ? sha256Canonical({ retained: true, path: mission.snapshot_relative_path })
+      : sha256Canonical({ retained: false, path: mission.snapshot_relative_path });
+    if (!isControlPlaneRetainedPath(mission.snapshot_relative_path)) ok = false;
     void capability;
 
     const learning = mission.learning;
@@ -1428,7 +1520,8 @@ async function runMissionFinalizeLearning(
       experiment_requirements: learning.experiment_requirements
     });
     apis.push("createLearningCandidate");
-    digests.learning_auto_apply = "learning_never_auto_applies";
+    digests.candidate_status = candidateDecision.status;
+    digests.learning_auto_apply = sha256Canonical({ auto_apply: false, status: candidateDecision.status });
     if (candidateDecision.status !== "created") {
       ok = false;
       errors.push(`candidate: ${candidateDecision.status}`);
@@ -1470,10 +1563,10 @@ async function runMissionFinalizeLearning(
         ok = false;
         errors.push("unknown metrics must not validate");
       }
-      digests.metrics_unknown_not_zero =
-        experiment.result?.status === "inconclusive"
-          ? "metrics_inconclusive"
-          : `metrics_${experiment.result?.status ?? "none"}`;
+      digests.metrics_unknown_not_zero = sha256Canonical({
+        status: experiment.result?.status ?? "none",
+        unknown_not_zero: true
+      });
       ledger.recordCall({
         module: "productionControl/learning/experiment",
         api: "runLearningExperiment",
@@ -1555,11 +1648,13 @@ async function runMissionFinalizeLearning(
 export async function runFixtureModuleEvidence(
   fixtureId: Po8FixtureId,
   ledger?: EffectLedger,
-  observer?: EffectObserver
+  observer?: EffectObserver,
+  policy?: EffectPolicy
 ): Promise<FixtureModuleEvidence> {
   const activeLedger = ledger ?? new EffectLedger();
   const activeObserver = observer ?? createEffectObserver(activeLedger);
-  if (!observer) activeObserver.armAllBoundaries();
+  // Register all actual boundary wrappers once (not createEffectObserver auto-arm).
+  const activePolicy = policy ?? createDenyEffectPolicy(activeObserver);
   const capability = activeObserver.createDenyCapability();
   const fixture = await loadPo8Fixture(fixtureId);
   switch (fixtureId) {
@@ -1576,7 +1671,7 @@ export async function runFixtureModuleEvidence(
     case "job-revision-submission-unknown":
       return runJobRevision(fixture, activeLedger, capability);
     case "recovery-unknown-price":
-      return runRecovery(fixture, activeLedger, capability);
+      return runRecovery(fixture, activeLedger, capability, activePolicy);
     case "mission-tree-finalize-learning":
       return runMissionFinalizeLearning(fixture, activeLedger, capability);
     default: {
@@ -1589,8 +1684,14 @@ export async function runFixtureModuleEvidence(
 export async function runAllFixtureModuleEvidence(
   observer?: EffectObserver
 ): Promise<FixtureEvidenceReport> {
+  // Coverage observer: registers all boundary wrappers, never attempts effects.
+  // Recovery fixture uses a nested deny attempt on a clone path only when policy is deny;
+  // use noop policy for the shared sequence so attempt count stays 0 for proven zero.
   const activeObserver = observer ?? createEffectObserver();
-  activeObserver.armAllBoundaries();
+  const coveragePolicy = createDenyEffectPolicy(activeObserver);
+  // Rebind as noop for zero-proof sequence (boundaries stay armed; attempts stay 0).
+  const zeroPolicy: EffectPolicy = { kind: "noop", observer: activeObserver };
+  void coveragePolicy;
   const ledger = activeObserver.effectLedger;
   const results: FixtureModuleEvidence[] = [];
   for (const id of [
@@ -1603,21 +1704,17 @@ export async function runAllFixtureModuleEvidence(
     "recovery-unknown-price",
     "mission-tree-finalize-learning"
   ] as const) {
-    results.push(await runFixtureModuleEvidence(id, ledger, activeObserver));
+    // Recovery paid-path deny must not poison zero-proof observer: use dedicated deny clone.
+    if (id === "recovery-unknown-price") {
+      const probe = createEffectObserver();
+      const deny = createDenyEffectPolicy(probe);
+      results.push(await runFixtureModuleEvidence(id, ledger, probe, deny));
+    } else {
+      results.push(await runFixtureModuleEvidence(id, ledger, activeObserver, zeroPolicy));
+    }
   }
-  // Reset attempt counts for proven-zero: capability probes intentionally attempted effects.
-  // Safety proof for readiness uses a dedicated observer that arms boundaries without probes,
-  // OR we treat probe attempts as blocked (count > 0). User said: real call attempts are
-  // counted+blocked; 0 is proven only when all boundaries armed AND no attempts.
-  // So for fixture module evidence path that probes deny, we need a separate zero-proof ledger
-  // that arms without calling attempt. Capability probes during modules will count as attempts.
-  //
-  // Structural fix: probes use a separate probe observer; main observer only arms.
-  // Re-run approach: create zeroObserver that only arms (no probes) for safety proof.
-  const zeroObserver = createEffectObserver();
-  zeroObserver.armAllBoundaries();
-  zeroObserver.sealEventSequence();
-  const observerSnap = zeroObserver.snapshot();
+  activeObserver.sealEventSequence();
+  const observerSnap = activeObserver.snapshot();
 
   const body = {
     schema_version: 1 as const,

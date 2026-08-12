@@ -121,6 +121,15 @@ export type ReleaseReadinessEvidenceStore = {
     full_regression?: CommandEvidence;
     h3_durable_cli?: CommandEvidence;
     mode_orchestrator?: CommandEvidence;
+    /** Reader commands: validate/plan/review/run dry-run after rollback. */
+    reader_commands?: CommandEvidence;
+  };
+  /** Durable migration journal complete for same preview digest. */
+  migration_journal?: {
+    complete: boolean;
+    preview_digest?: string;
+    stage?: string;
+    digest?: string;
   };
   self_approve?: boolean;
 };
@@ -170,16 +179,24 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
   const ledger = input.ledger;
   const safety = ledger?.safety;
   const observer = input.observer;
+  // Proven zero requires same observer with all boundaries armed + attempt counts 0.
+  // Ledger-only zeros without observer coverage stay unproven.
   const provenZero = observer?.proven_zero_effects === true
-    || (safety !== undefined
-      && observedZero(safety.provider_submit_count)
-      && observedZero(safety.gate_mutation_count)
-      && observedZero(safety.billing_spend_count)
-      && observedZero(safety.network_fetch_count)
-      && observedZero(safety.render_count)
-      && observedZero(safety.finalize_apply_count));
+    && observer.all_boundaries_armed === true
+    && safety !== undefined
+    && observedZero(safety.provider_submit_count)
+    && observedZero(safety.gate_mutation_count)
+    && observedZero(safety.billing_spend_count)
+    && observedZero(safety.network_fetch_count)
+    && observedZero(safety.render_count)
+    && observedZero(safety.finalize_apply_count);
+
+  const journalComplete = input.migration_journal?.complete === true
+    && typeof input.migration_journal.digest === "string"
+    && /^[a-f0-9]{64}$/.test(input.migration_journal.digest);
 
   const measured = input.measured ?? {};
+  const readerOk = commandStatus(measured.reader_commands) === "proven";
 
   const modeStatus: ExitEvidence["status"] = measured.mode_orchestrator
     ? commandStatus(measured.mode_orchestrator)
@@ -304,12 +321,26 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
     {
       exit_id: "po8-7-readiness-artifact",
       title: "Release readiness machine-readable digest-bound report",
-      status: "partial",
+      status: journalComplete && moduleOk && provenZero && readerOk
+        ? "proven"
+        : "partial",
       evidence: [
         "src/productionControl/rc/releaseReadiness.ts",
-        "status recomputed from evidence store (not caller forged exits)"
+        "status recomputed from evidence store (not caller forged exits)",
+        ...(journalComplete
+          ? [`migration_journal.digest=${input.migration_journal!.digest}`]
+          : []),
+        ...(provenZero && observer ? [`effect_observer_digest=${observer.digest}`] : []),
+        ...(readerOk && measured.reader_commands
+          ? [`reader_commands.output_digest=${measured.reader_commands.output_digest}`]
+          : [])
       ],
-      gaps: ["readiness report is self-describing; authenticity proven by digest recompute in tests"]
+      gaps: [
+        ...(!journalComplete ? ["durable migration journal complete evidence missing"] : []),
+        ...(!moduleOk ? ["8 fixture module evidence missing"] : []),
+        ...(!provenZero ? ["same-observer boundary coverage + zero not proven"] : []),
+        ...(!readerOk ? ["actual reader command evidence missing"] : [])
+      ]
     },
     {
       exit_id: "po8-8-po0a-browser",
@@ -409,6 +440,8 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
 
   const anyFailed = exits.some((exit) => exit.status === "failed");
   const h1h3Missing = !moduleOk || !rehearsalOk;
+  // Round 3: GO-WITH-CAVEATS only when journal complete + 8 modules + observer zero + reader cmds.
+  const structuralComplete = moduleOk && rehearsalOk && provenZero && journalComplete && readerOk && !safetyUnknown;
 
   const versionDecision = {
     keep_0_9_0: true as const,
@@ -424,12 +457,14 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
 
   let go_no_go: ReleaseReadinessReport["go_no_go"] = "NO-GO";
   const go_no_go_reasons: string[] = [];
-  if (anyFailed || h1h3Missing || safetyUnknown || !provenZero) {
+  if (anyFailed || !structuralComplete) {
     go_no_go = "NO-GO";
     if (!moduleOk) go_no_go_reasons.push("H1 fixture module evidence not proven");
     if (!rehearsalOk) go_no_go_reasons.push("H3/migration rehearsal not fully proven");
     if (safetyUnknown) go_no_go_reasons.push("effect safety channels unknown or missing");
-    if (!provenZero) go_no_go_reasons.push("zero-effect not proven (unarmed/unknown/non-zero)");
+    if (!provenZero) go_no_go_reasons.push("zero-effect not proven (unarmed/unknown/non-zero/same-observer)");
+    if (!journalComplete) go_no_go_reasons.push("durable migration journal not complete");
+    if (!readerOk) go_no_go_reasons.push("actual reader command evidence missing");
     if (anyFailed) go_no_go_reasons.push("one or more exits failed");
   } else if (unverified.length > 0) {
     go_no_go = "GO-WITH-CAVEATS";
@@ -438,6 +473,9 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
     go_no_go = "GO";
     go_no_go_reasons.push("all recorded exits proven");
   }
+
+  // build_provenance head/dirty never upgrades readiness — verified_separately only.
+  void input.build_provenance;
 
   if (exits.some((exit) => exit.exit_id === "windows-smoke" && exit.status !== "proven")) {
     if (go_no_go === "GO") go_no_go = "GO-WITH-CAVEATS";

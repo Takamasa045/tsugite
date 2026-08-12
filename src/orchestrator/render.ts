@@ -89,6 +89,16 @@ export async function renderAssembledMedia(
     };
   }
 
+  // Effect policy hook after gate/status authority checks (production no-op when undefined).
+  if ((options as { effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy }).effect_policy) {
+    const { noteEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+    noteEffectBoundary(
+      (options as { effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy }).effect_policy,
+      "render",
+      "orchestrator.renderAssembledMedia"
+    );
+  }
+
   const manifestResult = await loadAssembledManifest(manifestPath, runDir);
   if (!manifestResult.ok) return manifestResult;
 

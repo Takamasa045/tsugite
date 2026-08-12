@@ -39,12 +39,16 @@
                 "start_ms": 0,
                 "end_ms": 3000,
                 "visual": "Live-action cinematic shot: project closeout still frame",
-                "camera": { "type": "static" }
+                "camera": {
+                  "type": "static"
+                }
               }
             ],
             "sound": {
               "soundscape": "quiet room tone",
-              "music": { "enabled": false }
+              "music": {
+                "enabled": false
+              }
             }
           }
         }
@@ -68,14 +72,18 @@
             "key": "po8-fixture-learning",
             "summary": "fixture observation one",
             "stage": "observed",
-            "evidence": ["notes.md"]
+            "evidence": [
+              "notes.md"
+            ]
           },
           {
             "id": "obs-2",
             "key": "po8-fixture-learning",
             "summary": "fixture observation two",
             "stage": "recurring",
-            "evidence": ["notes.md"]
+            "evidence": [
+              "notes.md"
+            ]
           }
         ],
         "symptom": "fixture symptom",
@@ -86,8 +94,12 @@
           "scope": "local",
           "minimal_change": "record fixture lesson"
         },
-        "invariants": ["no auto-apply"],
-        "experiment_requirements": ["fixture"],
+        "invariants": [
+          "no auto-apply"
+        ],
+        "experiment_requirements": [
+          "fixture"
+        ],
         "experiment_id": "exp-1",
         "baseline_seed": "po8-baseline-v1",
         "candidate_ref_seed": "po8-candidate-ref-v1",
@@ -98,14 +110,24 @@
   },
   "expected": {
     "golden_digests": {
-      "control_plane_retained": "control_plane_retained",
-      "metrics_unknown_not_zero": "metrics_inconclusive",
-      "learning_auto_apply": "learning_never_auto_applies"
+      "control_plane_retained": "af7e0e60ef1cb6299c9cf719e651eac394d2005ba01ea0028f5b8c88c6ef992d",
+      "metrics_unknown_not_zero": "55419f108b390b04b6e888adb718ac839156a0cd1cf494c8d812f8838882eae9",
+      "learning_auto_apply": "700ae80db77e744653e4c2a5b909848b07493695a75846a27dd81d157b06a063",
+      "candidate": "628ef84aaf9ddb4c86492c4d58c15c2c10f6490c38b6a64b97f73d871888e301",
+      "experiment": "ea21e347c2b418b3b288e62f1fd7334a53ca22f9bdbaff010c3fd032dc9f811e",
+      "experiment_status": "inconclusive",
+      "completion": "4502fb3151cfbd20dd00a1342c8a13a4717adf1375c370c0037d82f2551e74ae"
     }
   },
   "adversarial": [
-    { "name": "non-auto-apply-promotion", "expect": "error" },
-    { "name": "mutate-plan-seed-changes-digest", "expect": "digest_change" }
+    {
+      "name": "non-auto-apply-promotion",
+      "expect": "error"
+    },
+    {
+      "name": "mutate-plan-seed-changes-digest",
+      "expect": "digest_change"
+    }
   ],
   "safety_expectations": [
     "learning never auto-applies rules",

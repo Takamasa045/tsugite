@@ -41,7 +41,9 @@
                 "start_ms": 0,
                 "end_ms": 4000,
                 "visual": "Live-action cinematic shot: singer delivers the chorus under stage lights",
-                "camera": { "type": "static" },
+                "camera": {
+                  "type": "static"
+                },
                 "lyrics": "sing the chorus line",
                 "vocal_events": [
                   {
@@ -54,7 +56,9 @@
             ],
             "sound": {
               "soundscape": "live stage room tone",
-              "music": { "enabled": true }
+              "music": {
+                "enabled": true
+              }
             }
           }
         }
@@ -104,22 +108,28 @@
       "occurrence_id": "occurrence-01",
       "start_ms": 0,
       "end_ms": 1000,
-      "singer_ids": ["lead"]
+      "singer_ids": [
+        "lead"
+      ]
     }
   },
   "expected": {
     "golden_digests": {
-      "lyrics_language": "en-US",
       "lyrics_text": "e5d91565bc2e692988cde9cbda5332b6cd22d4fd7c4f2284e39bf17421d2afa7",
-      "singer_exact": "lead",
-      "cue_start_ms": "ms:0",
-      "program_start_ms": "ms:0",
-      "program_end_ms": "ms:4000"
+      "music": "6b7b78898ce75dcd8d8530b4cc870a83346137c9d74ecb81436695c6d99321f0",
+      "lyrics": "0edb551def4f54340fe54ad4ce2ef2500129ad383e5ac91985b977b1a040bcab",
+      "composition_intent": "d692724612e7bdde9b00deff275659f242d3049f2b439a02e71217a3d30cc749"
     }
   },
   "adversarial": [
-    { "name": "interval-outside-master", "expect": "error" },
-    { "name": "mutate-lyrics-text-changes-digest", "expect": "digest_change" }
+    {
+      "name": "interval-outside-master",
+      "expect": "error"
+    },
+    {
+      "name": "mutate-lyrics-text-changes-digest",
+      "expect": "digest_change"
+    }
   ],
   "safety_expectations": [
     "exact timing/singer/language not invented",

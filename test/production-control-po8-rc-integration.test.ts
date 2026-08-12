@@ -1,5 +1,5 @@
 /**
- * PO-8 / T09 — RC structural repair round 2 (A–G).
+ * PO-8 / T09 — RC structural repair round 3 (F1–F6).
  * Fixture-only: no provider, network, generation, billing, Gate mutation, render, finalize apply.
  */
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -16,17 +16,22 @@ import {
   assertShadowNoExecution,
   buildProductionStatusReport,
   buildReleaseReadinessReport,
+  createDenyEffectPolicy,
   createEffectLedger,
   createEffectObserver,
+  createNoopEffectPolicy,
   diagnoseMode,
   evaluateModeTransition,
   hashCommandOutput,
   isExtendedWindowsPath,
   isUncPath,
   isWindowsDrivePath,
+  journalIsComplete,
   legacyReaderIgnoresControlPlane,
   loadPo8Fixture,
+  MIGRATION_JOURNAL_STAGES,
   modeCapabilities,
+  noteEffectBoundary,
   packageJsonContentDigest,
   PO8_FIXTURE_IDS,
   previewMigration,
@@ -35,10 +40,12 @@ import {
   projectWithMode,
   rcRevisionBindingsDigest,
   readCurrentModePointer,
+  readMigrationJournal,
   readPackageVersion,
   rehearseAllPo8Fixtures,
   rehearseFixture,
   resolveProjectRuntimeMode,
+  resolveRuntimeAuthority,
   resolveRuntimeMode,
   runAllFixtureModuleEvidence,
   runFixtureModuleEvidence,
@@ -262,19 +269,53 @@ describe("PO-8 H1 fixture exact authoring bind (A)", () => {
 });
 
 describe("PO-8 effect observer (B)", () => {
-  it("removes markFixtureInProcessBoundary and requires armed observer for zero proof", () => {
+  it("createEffectObserver does not auto-arm; proven zero needs registration + zero attempts", () => {
     const ledger = createEffectLedger();
-    expect(() => ledger.markFixtureInProcessBoundary()).toThrow(/removed|EffectObserver/);
+    expect(() => ledger.markFixtureInProcessBoundary()).toThrow(/removed|registerBoundary/);
     const safety = ledger.safetyEvidence();
     expect(safety.provider_submit_count).toBe("unknown");
 
+    const bare = createEffectObserver();
+    bare.sealEventSequence();
+    expect(bare.provenZeroEffects()).toBe(false);
+
     const observer = createEffectObserver();
-    observer.armAllBoundaries();
+    createDenyEffectPolicy(observer);
     observer.sealEventSequence();
     expect(observer.provenZeroEffects()).toBe(true);
     expect(observer.safetyEvidence().provider_submit_count).toBe(0);
 
-    expect(() => observer.createDenyCapability().providerSubmit("test")).toThrow(/blocked|PC_EFFECT/);
+    expect(() => noteEffectBoundary({ kind: "deny", observer }, "provider_submit", "test")).toThrow(/blocked|PC_EFFECT/);
+    expect(observer.provenZeroEffects()).toBe(false);
+  });
+
+  it("production modules import effect hook / runtime authority (call graph)", async () => {
+    const machineSrc = await readFile(join(REPO_ROOT, "src/generationJobs/machine.ts"), "utf8");
+    const grantSrc = await readFile(join(REPO_ROOT, "src/productionControl/grantLedger.ts"), "utf8");
+    const renderSrc = await readFile(join(REPO_ROOT, "src/orchestrator/render.ts"), "utf8");
+    const finalizeSrc = await readFile(join(REPO_ROOT, "src/orchestrator/finalize.ts"), "utf8");
+    const validateSrc = await readFile(join(REPO_ROOT, "src/project/validateProject.ts"), "utf8");
+    expect(machineSrc).toMatch(/noteEffectBoundary/);
+    expect(machineSrc).toMatch(/registerEffectBoundary/);
+    expect(grantSrc).toMatch(/noteEffectBoundary/);
+    expect(renderSrc).toMatch(/noteEffectBoundary/);
+    expect(finalizeSrc).toMatch(/noteEffectBoundary/);
+    expect(validateSrc).toMatch(/resolveRuntimeAuthority/);
+  });
+
+  it("boundary attempt adversarial denies each actual boundary under deny policy", () => {
+    const observer = createEffectObserver();
+    const policy = createDenyEffectPolicy(observer);
+    for (const boundary of [
+      "provider_submit",
+      "gate_mutation",
+      "billing_spend",
+      "network_fetch",
+      "render",
+      "finalize_apply"
+    ] as const) {
+      expect(() => noteEffectBoundary(policy, boundary, `adv.${boundary}`)).toThrow(/blocked|PC_EFFECT/);
+    }
     expect(observer.provenZeroEffects()).toBe(false);
   });
 });
@@ -369,13 +410,23 @@ describe("PO-8 migration / rollback atomicity + durable mode (C/D)", () => {
       expect(after.runtime_mode).toBe("legacy");
       expect(after.source).toBe("durable_pointer");
 
-      // Concurrent CAS: stale expected previous intent fails
+      // Concurrent CAS: stale expected previous intent on mode pointer fails
+      const { appendModeIntent } = await import("../src/productionControl/rc/modeIntent.js");
+      await expect(appendModeIntent({
+        projectRoot: root,
+        intended_mode: "shadow",
+        previous_mode: "legacy",
+        actor: "coordinator",
+        expected_previous_intent_digest: "0".repeat(64),
+        now: () => NOW
+      })).rejects.toBeInstanceOf(ProductionControlError);
+      // Stale migration preview digest fails
       await expect(applyMigration({
         project: fixture.project,
         target_mode: "shadow",
         projectRoot: root,
         actor: "coordinator",
-        expected_preview_digest: shadowPreview.digest,
+        expected_preview_digest: "0".repeat(64),
         coordinator: true,
         now: () => NOW,
         observer
@@ -515,7 +566,7 @@ describe("PO-8 release readiness authenticity (E)", () => {
     const moduleEvidence = await runAllFixtureModuleEvidence();
     const rehearsal = await rehearseAllPo8Fixtures();
     const observer = createEffectObserver();
-    observer.armAllBoundaries();
+    createDenyEffectPolicy(observer);
     observer.sealEventSequence();
     const report = buildReleaseReadinessReport({
       package_version: version,
@@ -591,8 +642,9 @@ describe("PO-8 release readiness authenticity (E)", () => {
       }
     });
     expect(again.digest).toBe(report.digest);
-    expect(report.go_no_go).not.toBe("GO");
-    expect(["NO-GO", "GO-WITH-CAVEATS"]).toContain(report.go_no_go);
+    // Round 3: missing journal complete + reader commands → NO-GO even with H1/rehearsal
+    expect(report.go_no_go).toBe("NO-GO");
+    expect(report.go_no_go_reasons.some((r) => /journal|reader/i.test(r))).toBe(true);
     expect(() => buildReleaseReadinessReport({
       package_version: version,
       self_approve: true
@@ -795,13 +847,13 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
     // unarmed channel attempt
     const raw = new EffectObserver();
     expect(() => raw.createDenyCapability().networkFetch("x")).toThrow(/UNKNOWN_CHANNEL|blocked|PC_EFFECT/);
-    raw.armAllBoundaries();
+    createDenyEffectPolicy(raw);
     const wrappedOk = raw.wrapProductionApi("noop", () => 42);
     expect(wrappedOk).toEqual({ ok: true, value: 42 });
     const wrappedBlock = raw.wrapProductionApi("submit", (cap) => cap.providerSubmit("p"));
     expect(wrappedBlock.ok).toBe(false);
 
-    observer.armAllBoundaries();
+    createDenyEffectPolicy(observer);
     observer.sealEventSequence();
     const flags = deriveCliSafetyFlags({ observer });
     expect(flags.generation_submitted).toBe(false);
@@ -895,7 +947,7 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
     expect(withModuleOnly.go_no_go).toBe("NO-GO");
 
     const observer = createEffectObserver();
-    observer.armAllBoundaries();
+    createDenyEffectPolicy(observer);
     observer.sealEventSequence();
     const cmd = {
       command: "npm run test:coverage",
@@ -926,11 +978,92 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
       commands: [cmd, { command: "fail", exit_code: 1, status: "failed" }],
       coverage: { statements: 82, branches: 74.4, functions: 89, lines: 85 }
     });
-    expect(["NO-GO", "GO-WITH-CAVEATS"]).toContain(partial.go_no_go);
+    // Missing durable journal complete + reader command evidence → always NO-GO
+    expect(partial.go_no_go).toBe("NO-GO");
     expect(partial.exits.some((e) => e.exit_id === "desktop" && e.status === "failed")).toBe(true);
     expect(partial.coverage?.branch_threshold).toBe(74.4);
     expect(partial.coverage?.thresholds_lowered).toBe(false);
   }, 120_000);
+
+  it("migration crash matrix resumes each journal stage and rejects conflicting journal", async () => {
+    for (const stage of MIGRATION_JOURNAL_STAGES.filter((s) => s !== "complete")) {
+      const root = await realTempDir(`tsugite-po8-crash-${stage}-`);
+      try {
+        const fixture = await loadPo8Fixture("legacy-h3");
+        const preview = previewMigration({
+          project: fixture.project,
+          target_mode: "shadow",
+          projectRoot: root,
+          coordinator: true
+        });
+        await expect(applyMigration({
+          project: fixture.project,
+          target_mode: "shadow",
+          projectRoot: root,
+          actor: "coordinator",
+          expected_preview_digest: preview.digest,
+          coordinator: true,
+          now: () => NOW,
+          crash_after_stage: stage,
+          crash_hook: async () => {
+            throw new Error(`crash-after-${stage}`);
+          }
+        })).rejects.toThrow(new RegExp(`crash-after-${stage}`));
+
+        const journal = await readMigrationJournal(root);
+        expect(journal?.stage).toBe(stage);
+        expect(journalIsComplete(journal)).toBe(false);
+
+        // Resume exact same preview completes
+        const resumed = await applyMigration({
+          project: fixture.project,
+          target_mode: "shadow",
+          projectRoot: root,
+          actor: "coordinator",
+          expected_preview_digest: preview.digest,
+          coordinator: true,
+          now: () => "2026-08-12T18:05:00.000Z"
+        });
+        expect(resumed.journal_complete).toBe(true);
+        expect(journalIsComplete(await readMigrationJournal(root), preview.digest)).toBe(true);
+
+        // Conflicting journal identity fails
+        await expect(applyMigration({
+          project: fixture.project,
+          target_mode: "active",
+          projectRoot: root,
+          actor: "coordinator",
+          expected_preview_digest: preview.digest,
+          coordinator: true,
+          now: () => "2026-08-12T18:06:00.000Z"
+        })).rejects.toBeTruthy();
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  }, 300_000);
+
+  it("mutation of meaningful authoring with expected golden unchanged fails evidence", async () => {
+    const fixture = await loadPo8Fixture("legacy-h3");
+    // Mutate project visual while keeping expected golden digests (file-level would change fixture_digest).
+    const mutatedProject = structuredClone(fixture.project) as {
+      generation: { requests: Array<{ h3: { shots: Array<{ visual: string }> } }> };
+    };
+    mutatedProject.generation.requests[0]!.h3.shots[0]!.visual += " [mutation-test]";
+    const { compileLegacyH3V1 } = await import("../src/videoPromptDirector/compileV2.js");
+    const { assertGoldenDigests } = await import("../src/productionControl/rc/po8Fixtures.js");
+    const ir = mutatedProject.generation.requests[0]!.h3;
+    const compiled = compileLegacyH3V1(ir as never);
+    const digests = {
+      source_sha256: fixture.expected.golden_digests.source_sha256,
+      upgraded_ir: fixture.expected.golden_digests.upgraded_ir,
+      canonical_text: createHash("sha256").update(compiled.canonical_prompt).digest("hex"),
+      planning_compile: fixture.expected.golden_digests.planning_compile
+    };
+    const golden = assertGoldenDigests(fixture, digests);
+    expect(golden.ok).toBe(false);
+    expect(golden.mismatches.some((m) => m.includes("canonical_text"))).toBe(true);
+  });
 
   it("status ok=false on unsafe presence and rejects secret leakage paths", async () => {
     const root = await realTempDir("tsugite-po8-status-");
@@ -975,4 +1108,101 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
     expect(legacyReaderIgnoresControlPlane("media/clip.mp4")).toBe(false);
     expect(legacyReaderIgnoresControlPlane("coordination/state.json")).toBe(true);
   });
+
+  it("runtime authority + effect policy + readiness GO-WITH-CAVEATS structural gates", async () => {
+    // runtime authority mapping
+    const legacyAuth = await resolveRuntimeAuthority({
+      project: { slug: "x" }
+    });
+    expect(legacyAuth.runtime_mode).toBe("legacy");
+    expect(legacyAuth.pointer_absent).toBe(true);
+    const { authorityToOrchestrationMode, assertAuthorityAllowsEffect } = await import(
+      "../src/productionControl/runtimeAuthority.js"
+    );
+    expect(authorityToOrchestrationMode(legacyAuth)).toBe("disabled");
+    expect(() => assertAuthorityAllowsEffect(
+      { ...legacyAuth, runtime_mode: "shadow" },
+      "render"
+    )).toThrow(/shadow mode forbids/);
+    expect(authorityToOrchestrationMode({
+      ...legacyAuth,
+      runtime_mode: "active"
+    })).toBe("active");
+    expect(authorityToOrchestrationMode({
+      ...legacyAuth,
+      runtime_mode: "shadow"
+    })).toBe("shadow");
+
+    // noop policy registration + note no-op path
+    const obs = createEffectObserver();
+    const noop = createNoopEffectPolicy(obs);
+    noteEffectBoundary(noop, "render", "noop.render");
+    noteEffectBoundary(undefined, "render", "no-policy");
+    obs.sealEventSequence();
+    expect(obs.provenZeroEffects()).toBe(true);
+
+    // boundary wrapper createBoundaryWrapper deny
+    const obs2 = createEffectObserver();
+    const wrap = obs2.createBoundaryWrapper("gate_mutation", "deny");
+    expect(() => wrap("api")).toThrow(/blocked|PC_EFFECT/);
+
+    // readiness GO-WITH-CAVEATS when all structural evidence present but Windows unverified
+    const moduleEvidence = await runAllFixtureModuleEvidence();
+    const observer = createEffectObserver();
+    createDenyEffectPolicy(observer);
+    observer.sealEventSequence();
+    const journalDigest = hashCommandOutput("journal-complete");
+    const report = buildReleaseReadinessReport({
+      package_version: "0.9.0",
+      generated_at: NOW,
+      fixture_module_evidence: moduleEvidence,
+      ledger: moduleEvidence.ledger,
+      observer: observer.snapshot(),
+      rehearsal: {
+        schema_version: 1,
+        fixture_count: 8,
+        revision_bindings_digest: rcRevisionBindingsDigest(),
+        results: [],
+        all_ok: true,
+        digest: hashCommandOutput("rehearsal-ok")
+      },
+      migration_journal: {
+        complete: true,
+        preview_digest: "a".repeat(64),
+        stage: "complete",
+        digest: journalDigest
+      },
+      measured: {
+        mode_orchestrator: {
+          command: "mode",
+          exit_code: 0,
+          output_digest: hashCommandOutput("mode"),
+          status: "proven"
+        },
+        h3_durable_cli: {
+          command: "cli",
+          exit_code: 0,
+          output_digest: hashCommandOutput("cli"),
+          status: "proven"
+        },
+        reader_commands: {
+          command: "validate/plan/review/run-dry",
+          exit_code: 0,
+          output_digest: hashCommandOutput("readers"),
+          status: "proven"
+        },
+        full_regression: {
+          command: "npm run check",
+          exit_code: 0,
+          output_digest: hashCommandOutput("check"),
+          status: "proven"
+        }
+      }
+    });
+    expect(report.go_no_go).toBe("GO-WITH-CAVEATS");
+    expect(report.environment.proven_zero_effects).toBe(true);
+
+    // package version override rejected
+    expect(() => projectRevisionBindings({ package_version: "1.0.0" })).toThrow(/override/);
+  }, 180_000);
 });

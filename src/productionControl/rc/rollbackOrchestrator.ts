@@ -31,7 +31,11 @@ import {
 import { assertMigrationPathContained } from "./pathSafety.js";
 import { appendModeIntent, readCurrentModePointer } from "./modeIntent.js";
 import type { EffectLedger } from "./effectLedger.js";
-import { createEffectObserver, type EffectObserver } from "./effectCapability.js";
+import {
+  createDenyEffectPolicy,
+  createEffectObserver,
+  type EffectObserver
+} from "./effectCapability.js";
 
 export type RollbackRecordV1 = {
   schema_version: 1;
@@ -222,7 +226,7 @@ export async function applyRollback(input: {
 
   const observer = input.observer
     ?? (input.ledger ? createEffectObserver(input.ledger) : createEffectObserver());
-  observer.armAllBoundaries();
+  createDenyEffectPolicy(observer);
   observer.effectLedger.recordCall({
     module: "productionControl/rc/rollbackOrchestrator",
     api: "applyRollback",

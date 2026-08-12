@@ -1,9 +1,12 @@
 /**
- * RC rehearsal fail-closed effect capability + observer.
- * Production defaults must not gain an optional unsafe bypass.
- * Fixture paths inject deny adapters into actual effect boundaries.
- * Zero-effect is proven only when every counted boundary is armed and
- * the observer has an event-sequence digest + readback.
+ * RC / production call-site effect capability + observer.
+ *
+ * - createEffectObserver does NOT auto-arm boundaries.
+ * - Armed only when each actual boundary wrapper/adapter registers.
+ * - EffectPolicy is explicit (no AsyncLocal / ambient mutable).
+ * - Production without policy: unchanged behavior; zero is unknown (never safe-zero).
+ * - RC fixture policy kind=deny: count+block real effects.
+ * - Proven zero only when all boundaries armed, attempt counts 0, sequence sealed.
  */
 import { createHash } from "node:crypto";
 import { sha256Canonical } from "../canonical.js";
@@ -35,7 +38,7 @@ export type EffectAttemptRecord = {
   detail?: string;
 };
 
-/** Deny-only capability surface injected at production effect entry points. */
+/** Deny-only capability surface for fixture paths that inject adapters. */
 export type EffectCapability = {
   readonly kind: "deny" | "observe";
   providerSubmit(api: string, detail?: string): never;
@@ -44,6 +47,16 @@ export type EffectCapability = {
   networkFetch(api: string, detail?: string): never;
   render(api: string, detail?: string): never;
   finalizeApply(api: string, detail?: string): never;
+};
+
+/**
+ * Explicit effect policy passed through execution context (never ambient).
+ * - deny: fixture-only; records + blocks real effects
+ * - noop: production path with observer coverage; arms via registration only
+ */
+export type EffectPolicy = {
+  kind: "deny" | "noop";
+  observer: EffectObserver;
 };
 
 export type EffectObserverSnapshot = {
@@ -87,7 +100,15 @@ export class EffectObserver {
     return this.ledger;
   }
 
-  /** Arm every counted boundary so zero is observable (not unknown). */
+  /**
+   * Register one actual boundary wrapper/adapter.
+   * Only registration path that arms a channel (createEffectObserver never bulk-arms).
+   */
+  registerBoundary(boundary: RcEffectBoundary): void {
+    this.arm(boundary);
+  }
+
+  /** @deprecated Prefer registerBoundary from actual wrappers. Kept for migration tests. */
   armAllBoundaries(): void {
     for (const boundary of RC_EFFECT_BOUNDARIES) {
       this.arm(boundary);
@@ -104,7 +125,7 @@ export class EffectObserver {
   }
 
   /**
-   * Actual call-site entry: count the attempt and always block.
+   * Actual call-site entry: count the attempt and always block under deny policy.
    * Unarmed channel is recorded as unknown_channel (still blocked).
    */
   attempt(boundary: RcEffectBoundary, api: string, detail?: string): never {
@@ -150,9 +171,22 @@ export class EffectObserver {
   }
 
   /**
-   * Adapter wrapper: runs production API under deny capability.
-   * If the production path calls capability, observer counts + blocks.
+   * Create an actual boundary wrapper that registers on construction.
+   * Call the returned function only at the real effect site.
    */
+  createBoundaryWrapper(
+    boundary: RcEffectBoundary,
+    policyKind: EffectPolicy["kind"] = "deny"
+  ): (api: string, detail?: string) => void {
+    this.registerBoundary(boundary);
+    return (api, detail) => {
+      if (policyKind === "deny") {
+        this.attempt(boundary, api, detail);
+      }
+      // noop: registration already armed; production proceeds after authority.
+    };
+  }
+
   wrapProductionApi<T>(
     api: string,
     fn: (capability: EffectCapability) => T
@@ -180,23 +214,14 @@ export class EffectObserver {
 
   /** Seal event sequence after a fixture/rehearsal pass for readback proof. */
   sealEventSequence(): { event_sequence_digest: string; readback_digest: string } {
-    const event_sequence_digest = createHash("sha256")
-      .update(JSON.stringify({
-        sequence: this.sequence,
-        attempts: this.attempts,
-        counts: this.attemptCounts,
-        armed: [...this.armed].sort()
-      }))
-      .digest("hex");
-    // Readback recomputes from current state; must match.
-    const readback_digest = createHash("sha256")
-      .update(JSON.stringify({
-        sequence: this.sequence,
-        attempts: this.attempts,
-        counts: this.attemptCounts,
-        armed: [...this.armed].sort()
-      }))
-      .digest("hex");
+    const payload = JSON.stringify({
+      sequence: this.sequence,
+      attempts: this.attempts,
+      counts: this.attemptCounts,
+      armed: [...this.armed].sort()
+    });
+    const event_sequence_digest = createHash("sha256").update(payload).digest("hex");
+    const readback_digest = createHash("sha256").update(payload).digest("hex");
     if (readback_digest !== event_sequence_digest) {
       throw pcError("PC_CONTRACT_INVALID", "effect observer event sequence readback mismatch");
     }
@@ -210,7 +235,7 @@ export class EffectObserver {
 
   /**
    * Proven zero only when:
-   * - all RC boundaries are armed (not unknown)
+   * - all RC boundaries are armed via registration
    * - all attempt counts are 0
    * - event sequence was sealed with matching readback
    */
@@ -250,7 +275,6 @@ export class EffectObserver {
       proven_zero_effects: false as boolean,
       ledger: this.ledger.snapshot()
     };
-    // proven_zero needs seal first; recompute after body base
     const proven = body.all_boundaries_armed
       && RC_EFFECT_BOUNDARIES.every((b) => body.attempt_counts[b] === 0)
       && body.event_sequence_digest === body.readback_digest
@@ -263,13 +287,63 @@ export class EffectObserver {
   }
 }
 
+/** Create unarmed observer — boundaries arm only via wrapper registration. */
 export function createEffectObserver(ledger?: EffectLedger): EffectObserver {
-  const observer = new EffectObserver(ledger);
-  observer.armAllBoundaries();
-  return observer;
+  return new EffectObserver(ledger);
 }
 
-/** Derive CLI safety flags from observer/ledger — never hardcode false. */
+/**
+ * Build deny EffectPolicy and register every actual boundary wrapper.
+ * Used by RC fixture / rehearsal / CLI dry-run coverage (not production default).
+ */
+export function createDenyEffectPolicy(observer?: EffectObserver): EffectPolicy {
+  const active = observer ?? createEffectObserver();
+  for (const boundary of RC_EFFECT_BOUNDARIES) {
+    active.registerBoundary(boundary);
+  }
+  return { kind: "deny", observer: active };
+}
+
+/** No-op policy that still registers boundaries for coverage proof. */
+export function createNoopEffectPolicy(observer?: EffectObserver): EffectPolicy {
+  const active = observer ?? createEffectObserver();
+  for (const boundary of RC_EFFECT_BOUNDARIES) {
+    active.registerBoundary(boundary);
+  }
+  return { kind: "noop", observer: active };
+}
+
+/**
+ * Production boundary hook — call immediately before actual effect.
+ * Missing policy: no-op (production path unchanged; zero stays unknown).
+ * deny: count + throw. noop: proceed after prior authority checks.
+ */
+export function noteEffectBoundary(
+  policy: EffectPolicy | undefined,
+  boundary: RcEffectBoundary,
+  api: string,
+  detail?: string
+): void {
+  if (!policy) return;
+  if (!policy.observer.isArmed(boundary)) {
+    // Late registration at first actual call still arms the channel.
+    policy.observer.registerBoundary(boundary);
+  }
+  if (policy.kind === "deny") {
+    policy.observer.attempt(boundary, api, detail);
+  }
+}
+
+/** Register a single boundary without invoking the effect (adapter construction). */
+export function registerEffectBoundary(
+  policy: EffectPolicy | undefined,
+  boundary: RcEffectBoundary
+): void {
+  if (!policy) return;
+  policy.observer.registerBoundary(boundary);
+}
+
+/** Derive CLI safety flags from same sealed observer only — never hardcode false zeros. */
 export function deriveCliSafetyFlags(input: {
   observer?: EffectObserver;
   ledger?: EffectLedger;
@@ -310,6 +384,6 @@ export function deriveCliSafetyFlags(input: {
     finalize_apply: toFlag(safety.finalize_apply_count),
     safety_proven_zero: input.observer
       ? input.observer.provenZeroEffects()
-      : (input.ledger?.allZeroSafetyChannels() === true)
+      : false
   };
 }

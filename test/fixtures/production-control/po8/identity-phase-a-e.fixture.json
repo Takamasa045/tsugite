@@ -61,14 +61,20 @@
                 "start_ms": 0,
                 "end_ms": 6000,
                 "scene": "dock",
-                "cast": ["hero"],
+                "cast": [
+                  "hero"
+                ],
                 "visual": "Live-action cinematic shot: looks at water from the dock",
-                "camera": { "type": "static" }
+                "camera": {
+                  "type": "static"
+                }
               }
             ],
             "sound": {
               "soundscape": "night harbor water",
-              "music": { "enabled": false }
+              "music": {
+                "enabled": false
+              }
             }
           }
         }
@@ -90,14 +96,21 @@
   },
   "expected": {
     "golden_digests": {
-      "locked_not_verified": "locked_not_verified",
-      "verification_present": "verification_absent",
-      "locked_flag_seen": "locked_flag_present"
+      "subject_authoring": "242b3e247d0b4ea491fa3d473bf7ed8d147ea311680d26bcba7962926b090bf1",
+      "migration_status": "awaiting_human",
+      "locked_flag_seen": "locked_flag_present",
+      "verification_present": "verification_absent"
     }
   },
   "adversarial": [
-    { "name": "verification-requires-explicit-input", "expect": "blocked" },
-    { "name": "mutate-locked-text-changes-digest", "expect": "digest_change" }
+    {
+      "name": "verification-requires-explicit-input",
+      "expect": "blocked"
+    },
+    {
+      "name": "mutate-locked-text-changes-digest",
+      "expect": "digest_change"
+    }
   ],
   "identity": {
     "locked_true_implies_verified": false,
