@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "fixture_id": "standalone-v2",
+  "kind": "standalone-v2",
+  "description": "Standalone VideoPromptIrV2 authoring with complete IR",
+  "project": {
+    "slug": "po8-standalone-v2",
+    "name": "PO8 fixture",
+    "run_id": "po8-standalone-v2",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": [
+        {
+          "id": "vp-1",
+          "video_prompt": {
+            "version": 2,
+            "program_kind": "standalone",
+            "target": {
+              "model_profile_id": "fixture-model",
+              "mode": "text-to-video",
+              "duration_ms": 3000,
+              "quality": "768p",
+              "aspect": "16:9",
+              "audio": true
+            },
+            "creative": {
+              "must_include": [],
+              "prohibited": []
+            },
+            "subjects": [],
+            "scenes": [],
+            "assets": [],
+            "shots": [
+              {
+                "id": "s1",
+                "start_ms": 0,
+                "end_ms": 3000,
+                "cast": [],
+                "composition": "medium shot",
+                "action_beats": [
+                  {
+                    "description": "Cinematic stand on a windy overlook"
+                  }
+                ],
+                "vocal_events": [],
+                "visible_text_events": [],
+                "constraints": {
+                  "positive": [],
+                  "exact_text_refs": []
+                }
+              }
+            ],
+            "audio": {
+              "policy": "native-generated",
+              "reference_asset_ids": [],
+              "final_mix": "use-generated"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "authoring": {
+    "route": {
+      "ir_model": "neutral-video-v2",
+      "provider_model": "fixture-video",
+      "model_profile_seed": "po8-model-profile-v1",
+      "connection_id": "fixture-connection",
+      "connection_seed": "po8-connection-v1",
+      "adapter_id": "fixture-adapter",
+      "transport": "fixture",
+      "mode_binding": "text-to-video"
+    }
+  },
+  "expected": {
+    "golden_digests": {
+      "ir": "e3820273e84e94a27590211477b3efc6d48be0a11508d8f530489441825cf776",
+      "route": "716c974e51939fce617f77bb77b97c2d709725745ccb9ab22a2b02c494c1f1dc",
+      "forged_route_adoption": "4ae31ff20c1b512339692fdac52f9818484594dc43cb9d3ec944cc0132ad278c",
+      "planning_compile": "245e611c50f3f8f01a8d67661a3d88cb6ef76bb9b2f5f6e5fb7d75aa03f7f44f"
+    }
+  },
+  "adversarial": [
+    {
+      "name": "forged-route-adoption",
+      "expect": "blocked"
+    },
+    {
+      "name": "mutate-action-changes-digest",
+      "expect": "digest_change"
+    }
+  ],
+  "safety_expectations": [
+    "V2 authoring remains opt-in",
+    "forged route fails closed"
+  ]
+}

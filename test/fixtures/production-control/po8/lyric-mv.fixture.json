@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "fixture_id": "lyric-mv",
+  "kind": "lyric-mv",
+  "description": "Lyric MV with music/lyrics contract slots from fixture authoring",
+  "project": {
+    "slug": "po8-lyric-mv",
+    "name": "PO8 fixture",
+    "run_id": "po8-lyric-mv",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "audio": {
+      "adapter": "fixture",
+      "operation": "music"
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": [
+        {
+          "id": "mv-1",
+          "audio_role": "music",
+          "h3": {
+            "version": 1,
+            "target": {
+              "model": "fixture-h3",
+              "mode": "text-to-video",
+              "duration": 4,
+              "quality": "1080p",
+              "aspect": "16:9",
+              "audio": true
+            },
+            "subjects": [],
+            "scenes": [],
+            "assets": [],
+            "shots": [
+              {
+                "id": "chorus",
+                "start_ms": 0,
+                "end_ms": 4000,
+                "visual": "Live-action cinematic shot: singer delivers the chorus under stage lights",
+                "camera": {
+                  "type": "static"
+                },
+                "lyrics": "sing the chorus line",
+                "vocal_events": [
+                  {
+                    "text": "sing the chorus line",
+                    "start_ms": 0,
+                    "end_ms": 1000
+                  }
+                ]
+              }
+            ],
+            "sound": {
+              "soundscape": "live stage room tone",
+              "music": {
+                "enabled": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "contract_slots": {
+      "music": "required",
+      "lyrics": "required",
+      "identity": "not_applicable",
+      "assets": "optional"
+    }
+  },
+  "authoring": {
+    "route": {
+      "ir_model": "neutral-video-v2",
+      "provider_model": "fixture-video",
+      "model_profile_seed": "po8-model-profile-v1",
+      "connection_id": "fixture-connection",
+      "connection_seed": "po8-connection-v1",
+      "adapter_id": "fixture-adapter",
+      "transport": "fixture",
+      "mode_binding": "text-to-video"
+    },
+    "music": {
+      "contract_id": "music-po8",
+      "revision": 0,
+      "master_audio_asset_id": "master-audio",
+      "master_audio_seed": "po8-master-audio-v1",
+      "duration_ms": 4000,
+      "sample_rate": 48000,
+      "channels": 2,
+      "analyzer_id": "fixture-analyzer",
+      "analyzer_version": "1",
+      "tempo_bpm": 120,
+      "meter": "4/4",
+      "section_id": "chorus",
+      "section_label": "Chorus",
+      "section_end_ms": 4000
+    },
+    "lyrics": {
+      "contract_id": "lyrics-po8",
+      "revision": 0,
+      "language_bcp47": "en-US",
+      "canonical_text": "sing the chorus line",
+      "cue_id": "cue-01",
+      "section_id": "chorus",
+      "occurrence_id": "occurrence-01",
+      "start_ms": 0,
+      "end_ms": 1000,
+      "singer_ids": [
+        "lead"
+      ]
+    }
+  },
+  "expected": {
+    "golden_digests": {
+      "lyrics_text": "e5d91565bc2e692988cde9cbda5332b6cd22d4fd7c4f2284e39bf17421d2afa7",
+      "music": "6b7b78898ce75dcd8d8530b4cc870a83346137c9d74ecb81436695c6d99321f0",
+      "lyrics": "0edb551def4f54340fe54ad4ce2ef2500129ad383e5ac91985b977b1a040bcab",
+      "composition_intent": "d692724612e7bdde9b00deff275659f242d3049f2b439a02e71217a3d30cc749"
+    }
+  },
+  "adversarial": [
+    {
+      "name": "interval-outside-master",
+      "expect": "error"
+    },
+    {
+      "name": "mutate-lyrics-text-changes-digest",
+      "expect": "digest_change"
+    }
+  ],
+  "safety_expectations": [
+    "exact timing/singer/language not invented",
+    "master audio binding fixture-only"
+  ]
+}

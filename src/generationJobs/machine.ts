@@ -56,6 +56,11 @@ import type {
   ExecutionSubmissionBinding,
   ExecutionSubmissionInput
 } from "../videoPromptDirector/compilationBundle.js";
+import {
+  noteEffectBoundary,
+  registerEffectBoundary,
+  type EffectPolicy
+} from "../productionControl/rc/effectCapability.js";
 
 /**
  * Default durable poll budget (max adapter poll invocations per job).
@@ -94,6 +99,11 @@ export type MachineOptions = {
    * Unresolved mode fails closed at the active effect boundary.
    */
   orchestrationMode?: ProductionControlMode;
+  /**
+   * Optional explicit effect policy (RC deny / coverage). Never ambient.
+   * Registers provider_submit + network_fetch boundaries on construction.
+   */
+  effectPolicy?: EffectPolicy;
   /**
    * Active mode only: return a T05-adopted execution compilation bundle for the job.
    * Must be genuinely adopted (WeakSet); raw / fake JSON → adapter invoke 0.
@@ -218,6 +228,7 @@ export class GenerationJobMachine {
   private readonly activeSubmitHooks?: ExecutionSubmitHooks;
   private readonly dispatcher: ProductionDispatcher;
   private readonly resolvePaidAuthorization?: MachineOptions["resolvePaidAuthorization"];
+  private readonly effectPolicy?: EffectPolicy;
   /** Tracks whether the active path invoked adapter.submit via T05 only. */
   private activeSubmitUsedT05 = false;
 
@@ -246,6 +257,10 @@ export class GenerationJobMachine {
     this.activeSubmitHooks = options.activeSubmitHooks;
     this.dispatcher = options.dispatcher ?? new ProductionDispatcher();
     this.resolvePaidAuthorization = options.resolvePaidAuthorization;
+    this.effectPolicy = options.effectPolicy;
+    // Actual boundary wrappers register at construction time only.
+    registerEffectBoundary(this.effectPolicy, "provider_submit");
+    registerEffectBoundary(this.effectPolicy, "network_fetch");
   }
 
   /** True after an active-mode submit that consumed a T05 lease. */
@@ -452,6 +467,14 @@ export class GenerationJobMachine {
       throw new GenerationJobError(GJ_ROUTE_UNSUPPORTED, "adapter does not support submit");
     }
 
+    // Shadow never falls through to legacy direct adapter.submit.
+    if (this.orchestrationMode === "shadow") {
+      requireActiveModeForEffect("shadow", "external-submit");
+    }
+
+    // Effect policy hook after existing authority checks (production no-op when undefined).
+    noteEffectBoundary(this.effectPolicy, "provider_submit", "generationJobs.machine.submit");
+
     // Durable transition before adapter call. Crash after this → submission_unknown on resume.
     const submitting = await this.store.transition(jobId, "submitting");
     this.activeSubmitUsedT05 = false;
@@ -463,8 +486,14 @@ export class GenerationJobMachine {
         // Authority failures before adapter effect fail closed without submission_unknown
         // (adapter was never invoked; acceptance is known-impossible).
         result = await this.submitViaT05(submitting);
+      } else if (this.orchestrationMode === "shadow") {
+        // Unreachable when requireActiveModeForEffect throws; keep fail-closed.
+        throw new GenerationJobError(
+          GJ_SUBMIT_NOT_ALLOWED,
+          "shadow mode forbids provider submit; direct adapter.submit is closed"
+        );
       } else {
-        // Legacy / disabled / shadow: existing direct adapter path.
+        // Legacy / disabled only: existing direct adapter path.
         result = await this.adapter.submit(submitting.request, this.ctx(submitting));
       }
     } catch (error) {
@@ -836,6 +865,7 @@ export class GenerationJobMachine {
       }
     );
 
+    noteEffectBoundary(this.effectPolicy, "network_fetch", "generationJobs.machine.poll");
     const result = await this.adapter.poll(job.provider_job_id!, this.ctx(job));
     if (!result.ok) {
       return this.store.transition(
@@ -952,6 +982,7 @@ export class GenerationJobMachine {
     );
 
     const dest = this.store.artifactsDir(jobId);
+    noteEffectBoundary(this.effectPolicy, "network_fetch", "generationJobs.machine.download");
     const result = await this.adapter.download(job.provider_job_id!, dest, this.ctx(job));
     if (!result.ok) {
       return this.store.transition(

@@ -30,6 +30,9 @@ export const LOCAL_RECOVERY_ACTIONS = [
 ] as const;
 export type LocalRecoveryAction = (typeof LOCAL_RECOVERY_ACTIONS)[number];
 
+/** Exported schema version for RC revision bindings. */
+export const RECOVERY_POLICY_SCHEMA_VERSION = 1 as const;
+
 const knownJobSchema = z
   .object({
     generation_job_id: safeIdSchema,

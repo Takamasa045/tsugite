@@ -24,6 +24,9 @@ export const metricProvenanceSchema = z.enum([
 ]);
 export type MetricProvenance = z.infer<typeof metricProvenanceSchema>;
 
+/** Exported schema version for RC revision bindings. */
+export const MISSION_METRICS_SCHEMA_VERSION = 1 as const;
+
 /** Nullable measured value: null = unknown / not-run / legacy_not_recorded. */
 export const measuredNumberSchema = z
   .object({

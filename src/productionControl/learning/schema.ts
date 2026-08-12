@@ -43,6 +43,9 @@ export const learningTargetKindSchema = z.enum([
 ]);
 export type LearningTargetKind = z.infer<typeof learningTargetKindSchema>;
 
+/** Exported schema version for RC revision bindings. */
+export const LEARNING_CANDIDATE_SCHEMA_VERSION = 1 as const;
+
 export const learningExperimentModeSchema = z.enum([
   "fixture",
   "replay",

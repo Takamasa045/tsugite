@@ -29,6 +29,9 @@ export const videoPromptModeV2Schema = z.enum([
 ]);
 export type VideoPromptModeV2 = z.infer<typeof videoPromptModeV2Schema>;
 
+/** Exported IR major version for RC revision bindings. */
+export const VIDEO_PROMPT_IR_VERSION = 2 as const;
+
 const targetSchema = z.object({
   model_profile_id: safeId,
   mode: videoPromptModeV2Schema,
@@ -227,7 +230,7 @@ const creativeSchema = z.object({
 }).strict();
 
 const commonShape = {
-  version: z.literal(2),
+  version: z.literal(VIDEO_PROMPT_IR_VERSION),
   target: targetSchema,
   creative: creativeSchema,
   /** A locked subject is only execution-safe when this typed contract is bound. */

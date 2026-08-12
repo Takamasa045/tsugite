@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "fixture_id": "mission-tree-finalize-learning",
+  "kind": "mission-tree-learning",
+  "description": "Active Mission Tree + finalize retention + learning from fixture mission authoring",
+  "project": {
+    "slug": "po8-mission-learning",
+    "name": "PO8 fixture",
+    "run_id": "po8-mission-learning",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "orchestration": {
+      "mode": "active"
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": [
+        {
+          "id": "ml-1",
+          "h3": {
+            "version": 1,
+            "target": {
+              "model": "fixture-h3",
+              "mode": "text-to-video",
+              "duration": 3,
+              "quality": "768p",
+              "aspect": "16:9",
+              "audio": true
+            },
+            "subjects": [],
+            "scenes": [],
+            "assets": [],
+            "shots": [
+              {
+                "id": "s1",
+                "start_ms": 0,
+                "end_ms": 3000,
+                "visual": "Live-action cinematic shot: project closeout still frame",
+                "camera": {
+                  "type": "static"
+                }
+              }
+            ],
+            "sound": {
+              "soundscape": "quiet room tone",
+              "music": {
+                "enabled": false
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "authoring": {
+    "mission": {
+      "production_id": "po8-mission-learning",
+      "plan_seed": "po8-plan-v1",
+      "contract_seed": "po8-contract-v1",
+      "task_tree_seed": "po8-tree-v1",
+      "snapshot_relative_path": "coordination/coordination-state.json",
+      "snapshot_seed": "po8-snapshot-v1",
+      "learning": {
+        "candidate_id": "cand-1",
+        "feedback_key": "po8-fixture-learning",
+        "observations": [
+          {
+            "id": "obs-1",
+            "key": "po8-fixture-learning",
+            "summary": "fixture observation one",
+            "stage": "observed",
+            "evidence": [
+              "notes.md"
+            ]
+          },
+          {
+            "id": "obs-2",
+            "key": "po8-fixture-learning",
+            "summary": "fixture observation two",
+            "stage": "recurring",
+            "evidence": [
+              "notes.md"
+            ]
+          }
+        ],
+        "symptom": "fixture symptom",
+        "hypothesized_cause": "fixture cause",
+        "proposed_rule": {
+          "target_kind": "lesson",
+          "target_ref": "LESSONS.md",
+          "scope": "local",
+          "minimal_change": "record fixture lesson"
+        },
+        "invariants": [
+          "no auto-apply"
+        ],
+        "experiment_requirements": [
+          "fixture"
+        ],
+        "experiment_id": "exp-1",
+        "baseline_seed": "po8-baseline-v1",
+        "candidate_ref_seed": "po8-candidate-ref-v1",
+        "proposed_patch_seed": "po8-patch-v1",
+        "rollback_ref": "rollback"
+      }
+    }
+  },
+  "expected": {
+    "golden_digests": {
+      "control_plane_retained": "af7e0e60ef1cb6299c9cf719e651eac394d2005ba01ea0028f5b8c88c6ef992d",
+      "metrics_unknown_not_zero": "55419f108b390b04b6e888adb718ac839156a0cd1cf494c8d812f8838882eae9",
+      "learning_auto_apply": "700ae80db77e744653e4c2a5b909848b07493695a75846a27dd81d157b06a063",
+      "candidate": "628ef84aaf9ddb4c86492c4d58c15c2c10f6490c38b6a64b97f73d871888e301",
+      "experiment": "ea21e347c2b418b3b288e62f1fd7334a53ca22f9bdbaff010c3fd032dc9f811e",
+      "experiment_status": "inconclusive",
+      "completion": "4502fb3151cfbd20dd00a1342c8a13a4717adf1375c370c0037d82f2551e74ae"
+    }
+  },
+  "adversarial": [
+    {
+      "name": "non-auto-apply-promotion",
+      "expect": "error"
+    },
+    {
+      "name": "mutate-plan-seed-changes-digest",
+      "expect": "digest_change"
+    }
+  ],
+  "safety_expectations": [
+    "learning never auto-applies rules",
+    "finalize retains control plane"
+  ]
+}

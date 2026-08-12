@@ -169,6 +169,15 @@ export async function preflightFinalizeApplyBoundary(input: {
 export async function finalizeCompletedProject(
   options: FinalizeCompletedProjectOptions
 ): Promise<FinalizeCompletedProjectResult> {
+  const effectPolicy = (options as {
+    effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy;
+  }).effect_policy;
+  // Production finalize wrapper self-registers at entry (before early returns).
+  if (effectPolicy) {
+    const { registerEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+    registerEffectBoundary(effectPolicy, "finalize_apply");
+  }
+
   const projectRoot = dirname(resolve(options.configPath));
   const allowedStateDir = resolve(projectRoot, options.project.dist_dir);
   const requestedStateDir = options.stateDir
@@ -274,6 +283,11 @@ export async function finalizeCompletedProject(
   // Apply path recovers incomplete journals / orphan quarantine before planning.
   // Re-verify pinned dirs immediately before recovery mutates under stateDir/runDir.
   if (options.apply) {
+    // Note only immediately before the real apply effect.
+    if (effectPolicy) {
+      const { noteEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+      noteEffectBoundary(effectPolicy, "finalize_apply", "orchestrator.finalizeCompletedProject.apply");
+    }
     const preRecoveryIssue = await revalidatePinnedDirs();
     if (preRecoveryIssue) return failure(empty, preRecoveryIssue);
     const recovered = await recoverIncompleteFinalizeTransaction({

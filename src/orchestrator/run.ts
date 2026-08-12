@@ -64,6 +64,11 @@ import { loadH3ExecutionRouteProfile } from "../adapters/constraints.js";
 import { compileProjectVideoPrompts, type GenerationUnitSourceResolver } from "../videoPromptDirector/videoPromptCompile.js";
 import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { VPD_RUNTIME_NOT_READY_CODE } from "../videoPromptDirector/executionReadiness.js";
+import {
+  orchestrationModeFromAuthority,
+  type ResolvedRuntimeAuthority,
+  type EffectPolicy
+} from "../productionControl/runtimeAuthority.js";
 
 export type LocalRunH3Artifacts = {
   request_id: string;
@@ -126,6 +131,13 @@ type AssembleOptions = {
     productionControlRoot?: string;
     dispatcher?: import("../productionControl/dispatcher.js").ProductionDispatcher;
   };
+  /**
+   * Explicit resolved runtime authority (durable pointer SoT). Prefer over project.orchestration.mode.
+   * When absent, falls back to project.orchestration.mode for unit callers.
+   */
+  runtime_authority?: ResolvedRuntimeAuthority;
+  /** Optional RC effect policy threaded from CLI to writeState / active generation. */
+  effect_policy?: EffectPolicy;
 };
 
 export type ApprovedCompilation = {
@@ -429,7 +441,7 @@ export async function assembleLocalMediaRun(
 
   const awaitingState = markGateAwaiting(options.state, "gate_2");
   let gate2ProductionBinding: import("./stateTransitions.js").ProductionGateBinding | undefined;
-  if (autoPass.passed && project.orchestration?.mode === "active") {
+  if (autoPass.passed && orchestrationModeFromAuthority(options.runtime_authority, project) === "active") {
     // Narrow Gate2 auto-pass must still bind exact production subject+decision
     // from actual completion digests, manifest, and technical QA — not one composite.
     try {
@@ -511,7 +523,9 @@ export async function assembleLocalMediaRun(
       gate2ProductionBinding
     )
     : awaitingState;
-  const writtenStatePath = await writeState(options.stateDir, nextState);
+  const writtenStatePath = await writeState(options.stateDir, nextState, {
+    ...(options.effect_policy ? { effect_policy: options.effect_policy, previous: options.state } : {})
+  });
   const projectRoot = options.configPath
     ? dirname(resolve(options.configPath))
     : projectRootFromStateDir(options.stateDir, project.dist_dir);
@@ -627,7 +641,8 @@ export async function inspectGate2RunForApproval(
   compilation?: EditorialCompilation | ApprovedCompilation,
   audioAdapter?: AdapterDefinition,
   promptGuides?: H3PromptGuideSource[],
-  personQaDecision?: PersonQaHumanDecisionRecord
+  personQaDecision?: PersonQaHumanDecisionRecord,
+  runtime_authority?: ResolvedRuntimeAuthority
 ): Promise<Result<ResumeMetrics>> {
   const runId = project.run_id ?? project.slug;
   const runDir = join(stateDir, runId);
@@ -637,12 +652,13 @@ export async function inspectGate2RunForApproval(
     : project.edit.composition
       ? "composition"
       : "editorial";
+  const orchestrationMode = orchestrationModeFromAuthority(runtime_authority, project);
 
   // Recompile H3 so Gate 2 evidence can fail closed on missing/tampered artifacts.
   // Stage 1 format compile + stage 2 selected-adapter route revalidation.
   let h3Compilations: H3Compilation[] = [];
   let h3Project = project;
-  if (isGeneration && project.orchestration?.mode !== "active") {
+  if (isGeneration && orchestrationMode !== "active") {
     const h3Compile = compileProjectH3(project);
     if (!h3Compile.ok) {
       return { ok: false, issues: h3Compile.issues };
@@ -791,7 +807,9 @@ async function assembleGeneratedMediaRun(
   // Recompile H3 before any run-dir mutation or adapter invocation. Fail closed
   // on H3-C / H3-E / PV-E so invalid Creative IR never reaches billing paths.
   // Stage 1 is format-only; stage 2 injects the selected adapter route profile.
-  const h3Compile = project.orchestration?.mode === "active"
+  // Prefer explicit runtime_authority (durable pointer) over project.orchestration.mode.
+  const orchestrationMode = orchestrationModeFromAuthority(options.runtime_authority, project);
+  const h3Compile = orchestrationMode === "active"
     ? { ok: true as const, project, compilations: [] as H3Compilation[], issues: [] }
     : compileProjectH3(project);
   if (!h3Compile.ok) {
@@ -894,13 +912,14 @@ async function assembleGeneratedMediaRun(
       || request.h3 !== undefined
   );
   const hasVideoPrompt = hasPlanningVideoAuthoring
-    || (project.orchestration?.mode === "active"
+    || (orchestrationMode === "active"
       && project.generation!.requests.some((request) => generationRequestOutputKind(request) === "video"));
-  if (hasVideoPrompt && project.orchestration?.mode !== "active") {
+  if (hasVideoPrompt && orchestrationMode !== "active") {
     const generationUnitSourceResolver = options.generationUnitSourceResolver
       ?? (options.configPath ? createProjectGenerationUnitSourceResolver(options.configPath) : undefined);
     const videoCompile = await compileProjectVideoPrompts(project, {
       intent: "execute",
+      runtime_authority: options.runtime_authority,
       ...(generationUnitSourceResolver ? { generationUnitSourceResolver } : {})
     });
     if (!videoCompile.ok) {
@@ -995,8 +1014,9 @@ async function assembleGeneratedMediaRun(
 
   // Active: durable GenerationJob + T05 + dispatcher only — never runCliGenerationAdapter.
   // Disabled/shadow/legacy: existing CLI adapter path unchanged.
+  // orchestrationMode already resolved from runtime_authority (pointer SoT) above.
   let generation: Result<CliGenerationResult>;
-  if (project.orchestration?.mode === "active") {
+  if (orchestrationMode === "active") {
     const {
       executeActiveGenerationForRun,
       resolveActiveGenerationInjection,
@@ -1211,7 +1231,9 @@ async function assembleGeneratedMediaRun(
   });
 
   const nextState = markGateAwaiting(options.state, "gate_2");
-  const writtenStatePath = await writeState(options.stateDir, nextState);
+  const writtenStatePath = await writeState(options.stateDir, nextState, {
+    ...(options.effect_policy ? { effect_policy: options.effect_policy, previous: options.state } : {})
+  });
   const generationProjectRoot = options.configPath
     ? dirname(resolve(options.configPath))
     : projectRootFromStateDir(options.stateDir, project.dist_dir);

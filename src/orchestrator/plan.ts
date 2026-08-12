@@ -20,6 +20,10 @@ import {
   buildProductionControlShadowSummary,
   type ProductionControlShadowSummary
 } from "../productionControl/contractCompiler.js";
+import {
+  orchestrationModeFromAuthority,
+  type ResolvedRuntimeAuthority
+} from "../productionControl/runtimeAuthority.js";
 import { PipelineError } from "../types.js";
 
 export type PlanStep = {
@@ -106,7 +110,9 @@ export function createPlan(
   audioConnection?: GenerationConnectionResolution,
   backend?: BackendCapabilities,
   h3Compilations?: H3Compilation[],
-  videoPromptPlans?: VideoPromptPlan[]
+  videoPromptPlans?: VideoPromptPlan[],
+  /** Explicit resolved authority — preferred over project.orchestration.mode (no YAML re-resolve). */
+  runtime_authority?: ResolvedRuntimeAuthority
 ): ExecutionPlan {
   // Fail-closed: uncompiled video_prompt with empty prompt must never plan silently.
   for (const [index, request] of (project.generation?.requests ?? []).entries()) {
@@ -119,6 +125,7 @@ export function createPlan(
     }
   }
 
+  const orchestrationMode = orchestrationModeFromAuthority(runtime_authority, project);
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
   const agentHandoffs = createAgentHandoffs(
@@ -132,7 +139,7 @@ export function createPlan(
   const analysis = createAnalysisPlan(project, manifest, analysisAdapter);
   const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
   const compilations = h3Compilations
-    ?? (project.orchestration?.mode === "active" ? [] : compileProjectH3(project).compilations ?? []);
+    ?? (orchestrationMode === "active" ? [] : compileProjectH3(project).compilations ?? []);
 
   const plan: ExecutionPlan = {
     run_id: project.run_id ?? project.slug,
@@ -188,7 +195,7 @@ export function createPlan(
       { name: "gate-3", status: "gate" }
     ]
   };
-  if (project.orchestration?.mode === "shadow") {
+  if (orchestrationMode === "shadow") {
     Object.defineProperty(plan, "production_control_shadow", {
       value: buildProductionControlShadowSummary(project),
       enumerable: false,
@@ -240,7 +247,8 @@ export function createDryRun(
   generationConnection?: GenerationConnectionResolution,
   audioConnection?: GenerationConnectionResolution,
   h3Compilations?: H3Compilation[],
-  videoPromptPlans?: VideoPromptPlan[]
+  videoPromptPlans?: VideoPromptPlan[],
+  runtime_authority?: ResolvedRuntimeAuthority
 ): {
   executed: false;
   plan: ExecutionPlan;
@@ -259,7 +267,8 @@ export function createDryRun(
     audioConnection,
     backend,
     h3Compilations,
-    videoPromptPlans
+    videoPromptPlans,
+    runtime_authority
   );
   return {
     executed: false,

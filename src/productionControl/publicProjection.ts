@@ -30,6 +30,9 @@ export const PUBLIC_TASK_STATUSES = [
 ] as const;
 export type PublicTaskStatus = (typeof PUBLIC_TASK_STATUSES)[number];
 
+/** Exported schema version for RC revision bindings. */
+export const LAUNCHER_MISSION_TREE_DTO_SCHEMA_VERSION = 1 as const;
+
 export const publicMissionNodeSchema = z
   .object({
     node_id: safeIdSchema,
@@ -90,7 +93,7 @@ export const publicRecoverySummarySchema = z
 
 export const missionTreePublicProjectionSchema = z
   .object({
-    schema_version: z.literal(1),
+    schema_version: z.literal(LAUNCHER_MISSION_TREE_DTO_SCHEMA_VERSION),
     production_id: safeIdSchema,
     mode: z.enum(["legacy", "shadow", "active"]),
     mission_status: z.string().min(1).max(64),

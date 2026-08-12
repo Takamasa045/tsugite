@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-12T14:47:17.520Z",
+  "package_version": "0.9.0",
+  "recommended_version": "0.9.0",
+  "version_decision": {
+    "keep_0_9_0": true,
+    "bump_to_1_0_0": false,
+    "bump_to_1_0_0_rc": false,
+    "rationale": [
+      "migration-and-release.md forbids 1.0.0 before all exit criteria",
+      "Windows real-machine and live provider evidence are unverified",
+      "RC package version bump is not required for fixture-only integration",
+      "current package version remains 0.9.0"
+    ]
+  },
+  "revision_bindings": {
+    "schema_version": 1,
+    "package_version": "0.9.0",
+    "package_json_digest": "cfe84322c4a1fce2ff3fadb3da1b3804f5358e3e92446da1994ec1bde6a5b26d",
+    "production_contract_schema": 1,
+    "task_tree_schema": 1,
+    "video_prompt_ir": 2,
+    "h3_compiler_workflow": 3,
+    "legacy_h3_workflow_reader": 2,
+    "contract_compiler": "po2-contract-compiler-v1",
+    "gate_bundle_schema": 1,
+    "generation_job_approval_binding": 1,
+    "recovery_policy_schema": 1,
+    "learning_candidate_schema": 1,
+    "mission_metrics_schema": 1,
+    "finalize_retention_schema": 1,
+    "launcher_mission_tree_dto": 1,
+    "migration_artifact_schema": 1,
+    "rollback_artifact_schema": 1,
+    "release_readiness_schema": 1,
+    "sources": {
+      "package_json": "package.json#version+sha256",
+      "production_contract_schema": "schema.PRODUCTION_CONTRACT_SCHEMA_VERSION",
+      "production_contract_compiler": "contractCompiler.PRODUCTION_CONTRACT_COMPILER_VERSION",
+      "h3_workflow": "videoPromptDirector.compile.H3_WORKFLOW_VERSION",
+      "h3_grammar_v3": "videoPromptDirector.render.h3GrammarV3.H3_GRAMMAR_V3_VERSION",
+      "video_prompt_ir": "videoPromptDirector.schemaV2.VIDEO_PROMPT_IR_VERSION"
+    }
+  },
+  "revision_bindings_digest": "0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
+  "environment": {
+    "fixture_only": true,
+    "provider_submit_count": 0,
+    "gate_mutation_count": 0,
+    "billing_spend_count": 0,
+    "network_fetch_count": 0,
+    "render_count": 0,
+    "finalize_apply_count": 0,
+    "safety_ledger_digest": "48345b5f76d3948292ab64d44d8de78934361f17172cd9a24e4c046b97cf4595",
+    "effect_observer_digest": "4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286",
+    "proven_zero_effects": true,
+    "platform": "darwin",
+    "node": "v22.23.1"
+  },
+  "exits": [
+    {
+      "exit_id": "po8-1-mode-orchestrator",
+      "title": "RC integration orchestrator/diagnostics (legacy/shadow/active)",
+      "status": "proven",
+      "evidence": [
+        "command=rehearsal mode sequence + CLI migrate/rollback E2E",
+        "exit_code=0",
+        "output_digest=ef993c4c841ad467f43be0d9c490756faa62e9b07a38af9f7fa9abe3c4308fe0"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-h1-fixture-modules",
+      "title": "H1: 8 fixtures wired to actual production module APIs",
+      "status": "proven",
+      "evidence": [
+        "fixture_module_evidence.digest=fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34",
+        "fixture_count=8"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-2-migration-rehearsal",
+      "title": "Migration rehearsal across 8 frozen fixtures",
+      "status": "proven",
+      "evidence": [
+        "rehearsal.digest=3f8f0f82c53bc8809f4c7eb74fd81ade0fc477be03a43bc0644abd839d3822bc",
+        "fixture_count=8"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-h3-durable-cli",
+      "title": "H3: durable temp project + production-migrate/rollback --apply CLI",
+      "status": "proven",
+      "evidence": [
+        "command=cli production-migrate/rollback --apply E2E + EB1 migrate→validate→plan→review→inspect (pointer SoT, no YAML active rewrite)",
+        "exit_code=0",
+        "output_digest=4ce3c44a138acb8d29306fe555b88899ffd8e6bfc6f9f3ec01ec2fb7f14e3ef1"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-3-rollback-rehearsal",
+      "title": "Rollback rehearsal preserves append-only artifacts",
+      "status": "proven",
+      "evidence": [
+        "rehearsal.digest=3f8f0f82c53bc8809f4c7eb74fd81ade0fc477be03a43bc0644abd839d3822bc",
+        "rollback sequence in rehearsal"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-4-adversarial-golden",
+      "title": "Adversarial/golden fixture coverage",
+      "status": "proven",
+      "evidence": [
+        "fixture_module_evidence.digest=fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34",
+        "golden exact compare + field mutation digests"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-5-full-regression",
+      "title": "Full regression and production surfaces",
+      "status": "proven",
+      "evidence": [
+        "command=npm run check",
+        "exit_code=0",
+        "output_digest=bc2369efc94941642674a4ac205ab7bfc130b20ab78b3e190fae0e1e3ec6b43f",
+        "branches=74.46",
+        "statements=82.74"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-6-version-decision",
+      "title": "Version/release decision per migration-and-release.md",
+      "status": "proven",
+      "evidence": [
+        "package_version=0.9.0",
+        "revision_bindings_digest=0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
+        "Windows/live provider incomplete → not 1.0.0"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-7-readiness-artifact",
+      "title": "Release readiness machine-readable digest-bound report",
+      "status": "proven",
+      "evidence": [
+        "src/productionControl/rc/releaseReadiness.ts",
+        "status recomputed from evidence store (not caller forged exits)",
+        "migration_journal.digest=6a74dff339aa3c27582865fec1348fb148e8a57367e22ce829ec1a5a4184d982",
+        "effect_observer_digest=4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286",
+        "reader_commands.output_digest=0756781fc1657806b5e233d3c68f735ffb6d7df21ff0134cffefeb129c21aa0e"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-8-po0a-browser",
+      "title": "PO-0A central 3D blank not regressed (Canvas or operable fallback)",
+      "status": "unverified",
+      "evidence": [],
+      "gaps": [
+        "browser assertion not yet recorded with exit_code+hash"
+      ]
+    },
+    {
+      "exit_id": "windows-smoke",
+      "title": "Windows real-machine / CI smoke",
+      "status": "unverified",
+      "evidence": [],
+      "gaps": [
+        "Windows real machine not executed in this owner session"
+      ]
+    },
+    {
+      "exit_id": "desktop",
+      "title": "Desktop test/prepare/audit",
+      "status": "partial",
+      "evidence": [
+        "command=npm run desktop:test + desktop:prepare (desktop:audit needs package out)",
+        "exit_code=0",
+        "output_digest=4f103ec7de12b5e200b76d91a15e09b92775551b912d443351046fd8e0ae54b6"
+      ],
+      "gaps": [
+        "desktop:audit not reached; status partial/unverified from exit evidence",
+        "desktop exit evidence marks partial/unverified",
+        "Windows/live/browser/packaged desktop remain caveats"
+      ]
+    }
+  ],
+  "rehearsal": {
+    "all_ok": true,
+    "fixture_count": 8,
+    "digest": "3f8f0f82c53bc8809f4c7eb74fd81ade0fc477be03a43bc0644abd839d3822bc"
+  },
+  "fixture_module_evidence": {
+    "all_ok": true,
+    "fixture_count": 8,
+    "digest": "fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34"
+  },
+  "coverage": {
+    "statements": 82.74,
+    "branches": 74.46,
+    "functions": 89.66,
+    "lines": 85.45,
+    "branch_threshold": 74.4,
+    "thresholds_lowered": false
+  },
+  "unverified": [
+    "po8-8-po0a-browser: browser assertion not yet recorded with exit_code+hash",
+    "windows-smoke: Windows real machine not executed in this owner session",
+    "desktop: desktop:audit not reached; status partial/unverified from exit evidence",
+    "desktop: desktop exit evidence marks partial/unverified",
+    "desktop: Windows/live/browser/packaged desktop remain caveats"
+  ],
+  "go_no_go": "GO-WITH-CAVEATS",
+  "go_no_go_reasons": [
+    "fixture-only RC integration with unverified Windows/live/desktop/browser"
+  ],
+  "build_provenance": {
+    "head": "95b566b3c2b61a9eb2e78084b2d374c5486dd1ca",
+    "branch": "codex/po8-rc-integration",
+    "dirty": false,
+    "verified_separately": true
+  },
+  "digest": "c4695b002efb333c1bd3e55498e6c7f82fb302a93b22ed4dfa41d76b3c07060b"
+}

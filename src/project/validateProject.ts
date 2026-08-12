@@ -42,6 +42,12 @@ import { loadProject } from "./loadProject.js";
 import { generationRequestCapability, generationRequestOutputKind, type AnalysisRequest, type Project } from "./schema.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
 import { ArtifactStore } from "../productionControl/artifactStore.js";
+import {
+  orchestrationModeFromAuthority,
+  projectWithRuntimeAuthority,
+  resolveRuntimeAuthority,
+  type ResolvedRuntimeAuthority
+} from "../productionControl/runtimeAuthority.js";
 
 export type ValidateProjectOptions = {
   adapterDirs?: string[];
@@ -50,33 +56,41 @@ export type ValidateProjectOptions = {
   promptGuideDirs?: string[];
   generationUnitSourceResolver?: GenerationUnitSourceResolver;
   grammarProfileRoot?: string;
+  /** Skip durable mode resolution (unit tests only). */
+  skip_runtime_authority?: boolean;
+};
+
+export type ValidateProjectResultData = {
+  project: Project;
+  manifest: Manifest;
+  adapter?: AdapterDefinition;
+  audioAdapter?: AdapterDefinition;
+  analysisAdapter?: AdapterDefinition;
+  analysisAdapters?: AdapterDefinition[];
+  backend?: BackendCapabilities;
+  promptGuides: PromptGuide[];
+  generationConnection?: GenerationConnectionResolution;
+  audioConnection?: GenerationConnectionResolution;
+  h3_compilations: H3Compilation[];
+  video_prompt_plans?: VideoPromptPlan[];
+  video_prompt_shadow_comparisons?: import("../videoPromptDirector/videoPromptCompile.js").VideoPromptShadowComparison[];
+  /**
+   * Internal non-authoring runtime context (pointer/YAML authority).
+   * Never mixed into project.yaml authoring or Gate digests.
+   */
+  runtime_authority?: ResolvedRuntimeAuthority;
 };
 
 export async function validateProject(
   configPath: string,
   options: ValidateProjectOptions = {}
-): Promise<
-  Result<{
-    project: Project;
-    manifest: Manifest;
-    adapter?: AdapterDefinition;
-    audioAdapter?: AdapterDefinition;
-    analysisAdapter?: AdapterDefinition;
-    analysisAdapters?: AdapterDefinition[];
-    backend?: BackendCapabilities;
-    promptGuides: PromptGuide[];
-    generationConnection?: GenerationConnectionResolution;
-    audioConnection?: GenerationConnectionResolution;
-    h3_compilations: H3Compilation[];
-    video_prompt_plans?: VideoPromptPlan[];
-    video_prompt_shadow_comparisons?: import("../videoPromptDirector/videoPromptCompile.js").VideoPromptShadowComparison[];
-  }>
-> {
+): Promise<Result<ValidateProjectResultData>> {
   const issues: Issue[] = [];
   let project: Project;
   let h3Compilations: H3Compilation[] = [];
   let videoPromptPlans: VideoPromptPlan[] = [];
   let videoPromptShadowComparisons: import("../videoPromptDirector/videoPromptCompile.js").VideoPromptShadowComparison[] = [];
+  let runtime_authority: ResolvedRuntimeAuthority | undefined;
 
   try {
     project = await loadProject(configPath);
@@ -84,11 +98,44 @@ export async function validateProject(
     return { ok: false, issues: issuesFromError(error) };
   }
 
+  // Resolve durable runtime authority once (pointer preferred; YAML only when absent).
+  if (!options.skip_runtime_authority) {
+    try {
+      runtime_authority = await resolveRuntimeAuthority({
+        configPath,
+        project
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        issues: [{
+          code: "runtime_authority.mismatch",
+          message,
+          path: "production-control/mode/current-mode.json"
+        }],
+        project
+      };
+    }
+  }
+
+  // Trusted projection for active-mode-dependent work only. Returned project keeps
+  // disk/YAML orchestration.mode (authoring truth) so rollback/re-resolve mismatch
+  // checks still see legacy/disabled/omit — never a forged projected mode.
+  // Pointer SoT reaches compile/asset/resolver via projection + runtime_authority DI.
+  const trustedProject = runtime_authority
+    ? projectWithRuntimeAuthority(
+        project as unknown as Record<string, unknown>,
+        runtime_authority
+      ) as Project
+    : project;
+
   // Stage 1: format/render/asset mapping only so operation/model/mode are
   // available for connection resolution. Route PV-E* runs after adapter load.
   // Active rollout owns the H3/V1 authoring boundary; invoking the legacy
   // compiler there would create a second authoritative serializer.
-  const h3Compile = project.orchestration?.mode === "active"
+  const rolloutMode = orchestrationModeFromAuthority(runtime_authority, trustedProject);
+  const h3Compile = rolloutMode === "active"
     ? { ok: true as const, issues: [] as Issue[], project, compilations: [] as H3Compilation[] }
     : compileProjectH3(project);
   h3Compilations = h3Compile.compilations ?? [];
@@ -100,24 +147,25 @@ export async function validateProject(
       ok: false,
       issues: h3Compile.issues,
       project,
-      h3_compilations: h3Compilations
+      h3_compilations: h3Compilations,
+      ...(runtime_authority ? { runtime_authority } : {})
     };
   }
 
   // Stage 1b: video_prompt authoring — planning compile only (no provider).
   // Fail-closed: empty prompt video_prompt must never pass through silently.
-  const hasVideoPrompt = project.generation?.requests.some(
+  const hasVideoPrompt = trustedProject.generation?.requests.some(
     (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
       || request.h3 !== undefined
-      || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
+      || (rolloutMode === "active" && generationRequestOutputKind(request) === "video")
   );
-  const rolloutMode = project.orchestration?.mode;
   const usesV2ProjectBoundary = rolloutMode === "active" || rolloutMode === "shadow";
   if (hasVideoPrompt && usesV2ProjectBoundary) {
     const generationUnitSourceResolver = options.generationUnitSourceResolver
       ?? createProjectGenerationUnitSourceResolver(configPath);
-    const assetContractResolution = await resolveProjectAssetContract(configPath, project);
-    const assetRef = project.orchestration?.authoring?.assets;
+    // Asset contract + compile/resolver see trusted projection (pointer mode).
+    const assetContractResolution = await resolveProjectAssetContract(configPath, trustedProject);
+    const assetRef = trustedProject.orchestration?.authoring?.assets;
     if (rolloutMode === "active" && assetRef && !assetContractResolution) {
       return {
         ok: false,
@@ -127,27 +175,31 @@ export async function validateProject(
           path: "orchestration.authoring.assets"
         }],
         project,
-        h3_compilations: h3Compilations
+        h3_compilations: h3Compilations,
+        ...(runtime_authority ? { runtime_authority } : {})
       };
     }
     const projectRoot = await realpath(dirname(resolve(configPath)));
-    const videoCompile = await compileProjectVideoPrompts(project, {
+    const videoCompile = await compileProjectVideoPrompts(trustedProject, {
       intent: "planning",
       generationUnitSourceResolver,
+      runtime_authority,
       ...(options.grammarProfileRoot ? { grammarProfileRoot: options.grammarProfileRoot } : {}),
       ...(rolloutMode === "active" ? {
         planningArtifactStore: new ArtifactStore(await realpath(await ensureVideoPromptPlanningStoreRoot(projectRoot)))
       } : {
-        shadowArtifactRoot: join(projectRoot, project.dist_dir, "shadow", "video-prompt")
+        shadowArtifactRoot: join(projectRoot, trustedProject.dist_dir, "shadow", "video-prompt")
       }),
       productionId: "production",
-      projectId: project.slug,
+      projectId: trustedProject.slug,
       ...(assetContractResolution ? { assetContractResolution } : {})
     });
     videoPromptPlans = videoCompile.plans ?? [];
     videoPromptShadowComparisons = videoCompile.shadow_comparisons ?? [];
     if (videoCompile.project) {
-      project = videoCompile.project;
+      // Merge compile mutations (prompts/generation) onto authoring project without
+      // adopting projected orchestration.mode from the trusted compile input.
+      project = mergeCompileProjectKeepingAuthoringMode(project, videoCompile.project);
     }
     if (!videoCompile.ok) {
       return {
@@ -156,6 +208,7 @@ export async function validateProject(
         project,
         h3_compilations: h3Compilations,
         video_prompt_plans: videoPromptPlans,
+        ...(runtime_authority ? { runtime_authority } : {}),
         ...(videoCompile.shadow_comparisons ? { video_prompt_shadow_comparisons: videoCompile.shadow_comparisons } : {})
       };
     }
@@ -172,7 +225,13 @@ export async function validateProject(
       }
     }
     if (issues.length > 0) {
-      return { ok: false, issues, project, h3_compilations: h3Compilations };
+      return {
+        ok: false,
+        issues,
+        project,
+        h3_compilations: h3Compilations,
+        ...(runtime_authority ? { runtime_authority } : {})
+      };
     }
   } else {
     // Defensive: still reject any uncompiled empty video_prompt edge cases.
@@ -561,6 +620,7 @@ export async function validateProject(
       generationConnection,
       audioConnection,
       h3_compilations: h3Compilations,
+      ...(runtime_authority ? { runtime_authority } : {}),
       ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {}),
       ...(videoPromptShadowComparisons.length > 0 ? { video_prompt_shadow_comparisons: videoPromptShadowComparisons } : {})
     };
@@ -580,8 +640,29 @@ export async function validateProject(
     generationConnection,
     audioConnection,
     h3_compilations: h3Compilations,
+    ...(runtime_authority ? { runtime_authority } : {}),
     ...(videoPromptPlans.length > 0 ? { video_prompt_plans: videoPromptPlans } : {}),
     ...(videoPromptShadowComparisons.length > 0 ? { video_prompt_shadow_comparisons: videoPromptShadowComparisons } : {})
+  };
+}
+
+/**
+ * Apply compile mutations onto the authoring project while preserving disk YAML
+ * orchestration entirely (mode + authoring refs). Trusted projection rewrote mode
+ * for compile only and must not leak into returned project / mismatch checks.
+ */
+function mergeCompileProjectKeepingAuthoringMode(
+  authoring: Project,
+  compiled: Project
+): Project {
+  if (authoring.orchestration === undefined) {
+    // Authoring omitted orchestration — do not adopt projected mode block.
+    const { orchestration: _drop, ...rest } = compiled as Project & { orchestration?: unknown };
+    return rest as Project;
+  }
+  return {
+    ...compiled,
+    orchestration: authoring.orchestration
   };
 }
 

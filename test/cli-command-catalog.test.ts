@@ -98,6 +98,20 @@ const expectedOptions = {
     "--path",
     "--state-dir",
     "--run-id"
+  ],
+  "production-status": ["--config"],
+  "production-migrate": [
+    "--config",
+    "--target",
+    "--apply",
+    "--actor",
+    "--expected-plan-digest"
+  ],
+  "production-rollback": [
+    "--config",
+    "--target",
+    "--apply",
+    "--actor"
   ]
 } as const;
 
@@ -118,7 +132,10 @@ const configCommands = new Set([
   "run",
   "gate",
   "render",
-  "recover"
+  "recover",
+  "production-status",
+  "production-migrate",
+  "production-rollback"
 ]);
 
 describe("CLI command catalog", () => {

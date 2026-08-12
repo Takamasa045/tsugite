@@ -149,11 +149,48 @@ export function resolveOrchestrationMode(
  * - Unresolved/unknown or production-control effect (external-submit/gate) without explicit
  *   mode: fail closed (never silently treat as legacy active authority).
  */
+const SHADOW_FORBIDDEN_EFFECTS = new Set([
+  "external-submit",
+  "provider_submit",
+  "gate",
+  "gate_mutation",
+  "job",
+  "paid-regeneration",
+  "billing",
+  "billing_spend",
+  "local-recovery",
+  "render",
+  "finalize",
+  "finalize_apply",
+  "network_fetch"
+]);
+
+/**
+ * Production effect entry: shadow always denies effectful requests.
+ * Not test-only — called from require*ModeForEffect boundaries.
+ */
+export function assertShadowModeDeniesEffect(
+  mode: ProductionControlMode | undefined | "legacy" | "shadow" | "active",
+  effect: string
+): void {
+  if (mode !== "shadow") return;
+  if (SHADOW_FORBIDDEN_EFFECTS.has(effect)) {
+    throw pcError("PC_MODE_INACTIVE", `shadow mode forbids effect request: ${effect}`);
+  }
+}
+
 export function requireResolvedModeForEffect(
   mode: ProductionControlMode | undefined,
   effect: "external-submit" | "gate" | "render" | "finalize" | "run"
 ): ProductionControlMode | "legacy" {
-  if (mode === "disabled" || mode === "shadow" || mode === "active") return mode;
+  if (mode === "disabled" || mode === "shadow" || mode === "active") {
+    // Shadow may exist for read-only compile, but effectful boundaries are denied here
+    // (not test-only). dry-run style "run" without submit is still mode-checked by callers.
+    if (mode === "shadow" && effect !== "run") {
+      assertShadowModeDeniesEffect("shadow", effect);
+    }
+    return mode;
+  }
   if (mode === undefined) {
     if (effect === "external-submit" || effect === "gate") {
       throw pcError("PC_MODE_INACTIVE", `unresolved production control mode at ${effect} boundary`);
@@ -168,6 +205,9 @@ export function requireActiveModeForEffect(
   mode: ProductionControlMode | undefined,
   effect: "external-submit" | "gate" | "job" | "paid-regeneration" | "local-recovery"
 ): "active" {
+  if (mode === "shadow") {
+    assertShadowModeDeniesEffect("shadow", effect);
+  }
   if (mode === "active") return "active";
   throw pcError("PC_MODE_INACTIVE", `active mode required at ${effect} boundary`);
 }

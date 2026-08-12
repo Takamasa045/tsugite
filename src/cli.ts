@@ -95,6 +95,19 @@ import { digest as canonicalDigest } from "./orchestrator/editorialProposal.js";
 import { compileProductionContract } from "./productionControl/contractCompiler.js";
 import { runCoordinatorRecoverCli } from "./productionControl/coordinatorRecoveryCli.js";
 import { resolveCanonicalProductionControlRoot } from "./productionControl/activeRunGeneration.js";
+import {
+  authorityToOrchestrationMode,
+  projectWithRuntimeAuthority,
+  type ResolvedRuntimeAuthority
+} from "./productionControl/runtimeAuthority.js";
+import {
+  applyMigration,
+  applyRollback,
+  diagnoseMode,
+  previewMigration,
+  previewMigrationWithPointer,
+  previewRollback
+} from "./productionControl/rc/index.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import {
   callRemoteTool,
@@ -1012,6 +1025,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   const generationUnitSourceResolver = createProjectGenerationUnitSourceResolver(args.config);
   const validation = await validateProject(args.config, { generationUnitSourceResolver });
+  // Single trusted projection: durable pointer runtime_mode overrides YAML for pipeline bodies.
+  // Bodies also accept explicit runtime_authority; never re-resolve YAML against pointer silently.
+  const trustedProject = validation.project
+    ? projectWithRuntimeAuthority(validation.project, validation.runtime_authority) as Project
+    : undefined;
   const launcherShelf = validation.ok && validation.project
     ? await ensureProjectVisibleOnLauncherShelf({
         configPath: args.config,
@@ -1032,6 +1050,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         : {}),
       ...(validation.video_prompt_plans && validation.video_prompt_plans.length > 0
         ? { video_prompt_plans: validation.video_prompt_plans }
+        : {}),
+      ...(validation.runtime_authority
+        ? {
+          resolved_mode: validation.runtime_authority.runtime_mode,
+          mode_source: validation.runtime_authority.source,
+          intent_digest: validation.runtime_authority.intent_digest
+        }
         : {}),
       launcher_visible: launcherShelf?.ok ?? false,
       launcher_already_home: launcherShelf?.alreadyHome,
@@ -1078,6 +1103,229 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
+  if (args.command === "production-status") {
+    const { dirname, resolve } = await import("node:path");
+    const projectRoot = resolve(dirname(args.config!));
+    const { buildProductionStatusReport } = await import("./productionControl/rc/controlPlaneStatus.js");
+    const { deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    try {
+      const status = await buildProductionStatusReport({
+        project: validation.project!,
+        projectRoot
+      });
+      const flags = deriveCliSafetyFlags({});
+      return output(args, status.ok ? 0 : 1, {
+        ok: status.ok,
+        command: "production-status",
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
+        status,
+        diagnostics: status.diagnostics
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-status",
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "production-migrate") {
+    const target = args.target === "shadow" || args.target === "active" ? args.target : undefined;
+    if (!target) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-migrate",
+        issues: [{
+          code: "production_migrate.target_required",
+          message: "--target must be shadow or active",
+          path: "--target"
+        }]
+      });
+    }
+    const { dirname, resolve } = await import("node:path");
+    const projectRoot = resolve(dirname(args.config!));
+    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    // Prefer validation-time runtime_authority (same resolved context as other main entries).
+    const modeResolved = validation.runtime_authority ?? await (async () => {
+      const { resolveProjectRuntimeMode } = await import("./productionControl/rc/modeIntent.js");
+      return resolveProjectRuntimeMode({ projectRoot, project: validation.project! });
+    })();
+    // Preview uses real pointer reader chain (from_mode), not YAML-only.
+    const preview = await previewMigrationWithPointer({
+      project: validation.project!,
+      target_mode: target,
+      projectRoot,
+      coordinator: true,
+      from_mode: modeResolved.runtime_mode
+    });
+    if (!args.apply) {
+      const flags = deriveCliSafetyFlags({});
+      return output(args, preview.ok ? 0 : 1, {
+        ok: preview.ok,
+        command: "production-migrate",
+        dry_run: true,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
+        preview
+      });
+    }
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) {
+      return output(args, 1, { ok: false, command: "production-migrate", issues: [coordinatorIssue] });
+    }
+    if (!args.expectedPlanDigest) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-migrate",
+        issues: [{
+          code: "production_migrate.preview_digest_required",
+          message: "--expected-plan-digest must equal preview.digest from production-migrate preview",
+          path: "--expected-plan-digest"
+        }]
+      });
+    }
+    try {
+      const observer = createEffectObserver();
+      // Thread effect_policy into migration; no post-hoc cross-boundary arming theater.
+      const effect_policy = { kind: "noop" as const, observer };
+      const applied = await applyMigration({
+        project: validation.project!,
+        target_mode: target,
+        projectRoot,
+        actor: "coordinator",
+        expected_preview_digest: args.expectedPlanDigest,
+        coordinator: true,
+        observer,
+        effect_policy,
+        from_mode: modeResolved.runtime_mode
+      });
+      observer.sealEventSequence();
+      const flags = deriveCliSafetyFlags({ observer });
+      // Unregistered channels stay unknown; proven-zero only for actually registered boundaries.
+      return output(args, 0, {
+        ok: true,
+        command: "production-migrate",
+        dry_run: false,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
+        safety_proven_zero: flags.safety_proven_zero,
+        resolved_mode: modeResolved.runtime_mode,
+        mode_source: modeResolved.source,
+        journal_complete: applied.journal_complete,
+        preview: applied.preview,
+        record: applied.record
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-migrate",
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
+  if (args.command === "production-rollback") {
+    const target = args.target === "shadow" || args.target === "legacy" ? args.target : undefined;
+    if (!target) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-rollback",
+        issues: [{
+          code: "production_rollback.target_required",
+          message: "--target must be shadow or legacy",
+          path: "--target"
+        }]
+      });
+    }
+    const { dirname, resolve } = await import("node:path");
+    const projectRoot = resolve(dirname(args.config!));
+    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+    const { readCurrentModePointer } = await import("./productionControl/rc/modeIntent.js");
+    const { resolveRuntimeAuthority } = await import("./productionControl/runtimeAuthority.js");
+    const pointer = await readCurrentModePointer(projectRoot).catch(() => undefined);
+    const runtimeAuth = validation.runtime_authority ?? await resolveRuntimeAuthority({
+      projectRoot,
+      project: validation.project!
+    }).catch(() => undefined);
+    const previewProject = pointer
+      ? {
+        ...validation.project!,
+        orchestration: {
+          mode: pointer.runtime_mode === "legacy" ? "disabled" : pointer.runtime_mode
+        }
+      }
+      : validation.project!;
+    const preview = previewRollback({
+      project: previewProject,
+      to_mode: target,
+      coordinator: args.actor === "coordinator"
+    });
+    if (!args.apply) {
+      const flags = deriveCliSafetyFlags({});
+      return output(args, preview.allowed || Boolean(pointer) ? 0 : 1, {
+        ok: preview.allowed || Boolean(pointer),
+        command: "production-rollback",
+        dry_run: true,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
+        resolved_mode: runtimeAuth?.runtime_mode,
+        mode_source: runtimeAuth?.source,
+        preview
+      });
+    }
+    const coordinatorIssue = requireCoordinator(args);
+    if (coordinatorIssue) {
+      return output(args, 1, { ok: false, command: "production-rollback", issues: [coordinatorIssue] });
+    }
+    try {
+      const observer = createEffectObserver();
+      // Thread observer; no post-hoc registerBoundariesViaProductionWrappers theater.
+      const applied = await applyRollback({
+        project: validation.project!,
+        projectRoot,
+        to_mode: target,
+        actor: "coordinator",
+        observer
+      });
+      observer.sealEventSequence();
+      const flags = deriveCliSafetyFlags({ observer });
+      const after = await resolveRuntimeAuthority({
+        projectRoot,
+        project: validation.project!
+      });
+      return output(args, 0, {
+        ok: true,
+        command: "production-rollback",
+        dry_run: false,
+        fixture_only: flags.fixture_only,
+        billing_action: flags.billing_action,
+        generation_submitted: flags.generation_submitted,
+        gate_mutated: flags.gate_mutated,
+        safety_proven_zero: flags.safety_proven_zero,
+        resolved_mode: after.runtime_mode,
+        mode_source: after.source,
+        preview: applied.preview,
+        record: applied.record
+      });
+    } catch (error) {
+      return output(args, 1, {
+        ok: false,
+        command: "production-rollback",
+        issues: cliIssuesFromError(error)
+      });
+    }
+  }
+
   if (args.command === "recover") {
     const coordinatorIssue = requireCoordinator(args);
     if (coordinatorIssue) {
@@ -1109,15 +1357,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return output(args, 1, { ok: false, command: "recover", issues });
     }
 
-    if (resolveOrchestrationMode(validation.project!) !== "active") {
-      return output(args, 1, {
-        ok: false,
-        command: "recover",
-        issues: [{
-          code: "recover.active_mode_required",
-          message: "recover requires orchestration.mode=active"
-        }]
+    {
+      const mode = effectiveRuntimeMode({
+        runtime_authority: validation.runtime_authority,
+        project: validation.project!
       });
+      if (mode === "shadow") {
+        return output(args, 1, {
+          ok: false,
+          command: "recover",
+          issues: [{
+            code: "recover.shadow_denies_effect",
+            message: "shadow mode forbids recover effect entry"
+          }]
+        });
+      }
+      if (mode !== "active") {
+        return output(args, 1, {
+          ok: false,
+          command: "recover",
+          issues: [{
+            code: "recover.active_mode_required",
+            message: "recover requires active runtime authority (durable pointer or YAML active)"
+          }]
+        });
+      }
     }
 
     // Canonical production-control root under the authoritative project config directory.
@@ -1255,9 +1519,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
       }
     }
+    // Thread effect_policy before active cascade so gate_mutation writeState is covered.
+    const { createEffectObserver: createFinalizeObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const finalizeObserver = createFinalizeObserver();
+    const finalizeEffectPolicy = { kind: "noop" as const, observer: finalizeObserver };
+
     // Active mode: recompute Gate1+2+3 from durable evidence before finalize.
-    // Never pass stored production digests as expected.
-    if (resolveOrchestrationMode(validation.project!) === "active") {
+    // Never pass stored production digests as expected. Uses pointer authority when present.
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "active") {
       const stateResult = await loadState(args, validation.project!, { allowMissing: true });
       if (stateResult.ok && stateResult.state) {
         const g1 = stateResult.state.gates.gate_1;
@@ -1291,7 +1565,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             production_id: productionId
           });
           if (!phaseCheck.ok) {
-            await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+            await writeState(stateResult.stateDir, phaseCheck.cascadedState, {
+              effect_policy: finalizeEffectPolicy,
+              previous: stateResult.state
+            });
             return output(args, 1, {
               ok: false,
               command: "finalize",
@@ -1322,12 +1599,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     const finalized = await finalizeCompletedProject({
       configPath: args.config,
-      project: validation.project!,
+      project: trustedProject!,
       manifest: validation.manifest!,
       stateDir: args.stateDir,
       apply: args.apply,
       expectedPlanDigest: args.expectedPlanDigest,
       expectedProductionCompletionDigest: args.expectedProductionCompletionDigest,
+      effect_policy: finalizeEffectPolicy,
       // Pin preflight identities through apply so a post-lock stateDir/runDir swap fail-closes.
       ...(args.apply && finalizeBoundaryIdentities
         ? {
@@ -1335,7 +1613,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             expectedRunDirIdentity: finalizeBoundaryIdentities.runDirIdentity
           }
         : {})
-    });
+    } as never);
     if (finalized.ok && finalized.applied) {
       const projectRoot = dirname(resolve(args.config!));
       const runId = validation.project!.run_id ?? validation.project!.slug;
@@ -1381,7 +1659,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ok: true,
       command: "plan",
       plan: createPlan(
-        validation.project!,
+        trustedProject!,
         validation.manifest!,
         validation.adapter,
         validation.analysisAdapters ?? validation.analysisAdapter,
@@ -1391,7 +1669,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.audioConnection,
         validation.backend,
         validation.h3_compilations,
-        validation.video_prompt_plans
+        validation.video_prompt_plans,
+        validation.runtime_authority
       )
     });
   }
@@ -1509,7 +1788,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   if (args.command === "review") {
     const plan = createPlan(
-      validation.project!,
+      trustedProject!,
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapters ?? validation.analysisAdapter,
@@ -1519,16 +1798,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioConnection,
       validation.backend,
       validation.h3_compilations,
-      validation.video_prompt_plans
+      validation.video_prompt_plans,
+      validation.runtime_authority
     );
     try {
       const review = await writeCreativeReview({
         configPath: args.config,
-        project: validation.project!,
+        project: trustedProject!,
         manifest: validation.manifest!,
         plan,
         outputDir: args.output,
-        stateDir: args.stateDir
+        stateDir: args.stateDir,
+        runtime_authority: validation.runtime_authority
       });
       if (args.open) {
         try {
@@ -1580,7 +1861,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return output(args, 1, { ok: false, command: "review-preview", issues: [coordinatorIssue] });
     }
     const plan = createPlan(
-      validation.project!,
+      trustedProject!,
       validation.manifest!,
       validation.adapter,
       validation.analysisAdapters ?? validation.analysisAdapter,
@@ -1590,11 +1871,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       validation.audioConnection,
       validation.backend,
       validation.h3_compilations,
-      validation.video_prompt_plans
+      validation.video_prompt_plans,
+      validation.runtime_authority
     );
     const preview = await renderReviewPreview({
       configPath: args.config!,
-      project: validation.project!,
+      project: trustedProject!,
       manifest: validation.manifest!,
       shotId: args.shot,
       outputDir: args.output,
@@ -1606,11 +1888,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     try {
       const review = await writeCreativeReview({
         configPath: args.config!,
-        project: validation.project!,
+        project: trustedProject!,
         manifest: validation.manifest!,
         plan,
         outputDir: args.output,
-        stateDir: args.stateDir
+        stateDir: args.stateDir,
+        runtime_authority: validation.runtime_authority
       });
       return output(args, 0, {
         ok: true,
@@ -1641,7 +1924,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ok: true,
       command: "run",
       dry_run: createDryRun(
-        validation.project!,
+        trustedProject!,
         validation.manifest!,
         validation.adapter,
         validation.analysisAdapters ?? validation.analysisAdapter,
@@ -1651,7 +1934,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.generationConnection,
         validation.audioConnection,
         validation.h3_compilations,
-        validation.video_prompt_plans
+        validation.video_prompt_plans,
+        validation.runtime_authority
       )
     });
   }
@@ -1673,16 +1957,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     ];
     if (issues.length > 0) return output(args, 1, { ok: false, command: "gate", issues });
 
+    // Thread effect_policy for writeState gate_mutation registration on real gate path.
+    const { createEffectObserver } = await import("./productionControl/rc/effectCapability.js");
+    const gateObserver = createEffectObserver();
+    const gateEffectPolicy = { kind: "noop" as const, observer: gateObserver };
     const gateResult = await recordGate(
       args,
-      validation.project!,
+      trustedProject!,
       validation.manifest!,
       gate!,
       decision!,
       validation.adapter,
       validation.audioAdapter,
       // Keep Gate 2 inspect on the same guide set used at Gate 1 / run (custom dirs included).
-      validation.promptGuides
+      validation.promptGuides,
+      validation.runtime_authority,
+      gateEffectPolicy
     );
     return output(args, gateResult.ok ? 0 : 1, {
       ok: gateResult.ok,
@@ -1698,6 +1988,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (args.command === "run") {
     const coordinatorIssue = requireCoordinator(args);
     if (coordinatorIssue) return output(args, 1, { ok: false, command: "run", issues: [coordinatorIssue] });
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "shadow") {
+      return output(args, 1, {
+        ok: false,
+        command: "run",
+        issues: [{
+          code: "run.shadow_denies_effect",
+          message: "shadow mode forbids non-dry-run run effect entry"
+        }]
+      });
+    }
 
     const stateResult = await loadState(args, validation.project!, { allowMissing: true });
     if (!stateResult.ok) return output(args, 1, { ok: false, command: "run", issues: stateResult.issues });
@@ -1714,7 +2017,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       configPath: args.config!,
       project: validation.project!,
       manifest: validation.manifest!,
-      stateDir: stateResult.stateDir
+      stateDir: stateResult.stateDir,
+      runtime_authority: validation.runtime_authority
     });
     if (!review.ok) {
       return output(args, 1, { ok: false, command: "run", issues: review.issues });
@@ -1727,9 +2031,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    // Thread effect_policy before active cascade so gate_mutation writeState is covered.
+    const { createEffectObserver: createRunObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const runObserver = createRunObserver();
+    const runEffectPolicy = { kind: "noop" as const, observer: runObserver };
+
     // Active mode: recompute expected Gate1 from durable GateBundle + HumanDecisionRef.
     // Never pass stored production digests as expected (no tautological self-comparison).
-    if (resolveOrchestrationMode(validation.project!) === "active") {
+    // Uses durable pointer authority when present (same resolver as validate).
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "active") {
       const g1 = stateResult.state.gates.gate_1;
       if (!g1.production_subject_digest || !g1.production_decision_digest) {
         return output(args, 1, {
@@ -1753,7 +2068,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
         if (!phaseCheck.ok) {
           // Persist cascade under the serial state boundary before throwing the phase error.
-          await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+          await writeState(stateResult.stateDir, phaseCheck.cascadedState, {
+            effect_policy: runEffectPolicy,
+            previous: stateResult.state
+          });
           stateResult.state = phaseCheck.cascadedState;
           return output(args, 1, {
             ok: false,
@@ -1782,9 +2100,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    const runResult = await assembleLocalMediaRun(validation.project!, validation.manifest!, {
+    const runResult = await assembleLocalMediaRun(trustedProject!, validation.manifest!, {
       configPath: resolve(args.config!),
-      manifestPath: resolve(dirname(resolve(args.config!)), validation.project!.manifest),
+      manifestPath: resolve(dirname(resolve(args.config!)), trustedProject!.manifest),
       stateDir: stateResult.stateDir,
       state: stateResult.state,
       generationConnection: validation.generationConnection,
@@ -1794,13 +2112,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // Keep Gate 1 / run lineage on the same guide set (including custom promptGuideDirs).
       promptGuides: validation.promptGuides,
       generationUnitSourceResolver,
+      runtime_authority: validation.runtime_authority,
+      effect_policy: runEffectPolicy,
       ...(review.compilation ? { compilation: review.compilation } : {}),
       verifyApprovedInputs: async () => {
         const currentReview = await inspectGate1Review({
           configPath: args.config!,
-          project: validation.project!,
+          project: trustedProject!,
           manifest: validation.manifest!,
-          stateDir: stateResult.stateDir
+          stateDir: stateResult.stateDir,
+          runtime_authority: validation.runtime_authority
         });
         if (!currentReview.ok) return { ok: false as const, issues: currentReview.issues };
         if (stateResult.state!.gates.gate_1.approved_input_digest !== currentReview.approvalDigest) {
@@ -1837,6 +2158,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (args.command === "render") {
     const coordinatorIssue = requireCoordinator(args);
     if (coordinatorIssue) return output(args, 1, { ok: false, command: "render", issues: [coordinatorIssue] });
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "shadow") {
+      return output(args, 1, {
+        ok: false,
+        command: "render",
+        issues: [{
+          code: "render.shadow_denies_effect",
+          message: "shadow mode forbids render effect entry"
+        }]
+      });
+    }
 
     const stateResult = await loadState(args, validation.project!, { allowMissing: true });
     if (!stateResult.ok) return output(args, 1, { ok: false, command: "render", issues: stateResult.issues });
@@ -1849,13 +2183,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    // Thread effect_policy before active cascade so gate_mutation writeState is covered.
+    const { createEffectObserver: createRenderObserver } = await import(
+      "./productionControl/rc/effectCapability.js"
+    );
+    const renderObserver = createRenderObserver();
+    const renderEffectPolicy = { kind: "noop" as const, observer: renderObserver };
+
     let approvedCompilation;
     if (validation.project!.edit.editorial || validation.project!.edit.composition) {
       const review = await inspectGate1Review({
         configPath: args.config!,
         project: validation.project!,
         manifest: validation.manifest!,
-        stateDir: stateResult.stateDir
+        stateDir: stateResult.stateDir,
+        runtime_authority: validation.runtime_authority
       });
       if (!review.ok) return output(args, 1, { ok: false, command: "render", issues: review.issues });
       if (
@@ -1910,7 +2252,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     // Active mode: live recompute Gate 1+2 subject+decision (not presence-only) before render.
-    if (resolveOrchestrationMode(validation.project!) === "active") {
+    // Uses durable pointer authority when present (same resolver as validate).
+    if (effectiveRuntimeMode({
+      runtime_authority: validation.runtime_authority,
+      project: validation.project!
+    }) === "active") {
       const g1 = stateResult.state.gates.gate_1;
       const g2 = stateResult.state.gates.gate_2;
       if (
@@ -1939,7 +2285,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           production_id: productionId
         });
         if (!phaseCheck.ok) {
-          await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+          await writeState(stateResult.stateDir, phaseCheck.cascadedState, {
+            effect_policy: renderEffectPolicy,
+            previous: stateResult.state
+          });
           return output(args, 1, {
             ok: false,
             command: "render",
@@ -1967,10 +2316,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    const renderResult = await renderAssembledMedia(validation.project!, {
+    const renderResult = await renderAssembledMedia(trustedProject!, {
       stateDir: stateResult.stateDir,
       state: stateResult.state,
-      configPath: resolve(args.config!)
+      configPath: resolve(args.config!),
+      effect_policy: renderEffectPolicy
     });
     return output(args, renderResult.ok ? 0 : 1, {
       ok: renderResult.ok,
@@ -2563,6 +2913,31 @@ function requireCoordinator(args: ParsedArgs): Issue | undefined {
   };
 }
 
+/**
+ * Downstream CLI entries consume durable pointer authority when present.
+ * YAML-only resolveOrchestrationMode is used only when pointer is fully absent.
+ */
+function effectiveOrchestrationMode(input: {
+  runtime_authority?: ResolvedRuntimeAuthority;
+  project?: { orchestration?: { mode?: string } };
+}): "disabled" | "shadow" | "active" | undefined {
+  if (input.runtime_authority) {
+    return authorityToOrchestrationMode(input.runtime_authority);
+  }
+  return resolveOrchestrationMode(input.project);
+}
+
+function effectiveRuntimeMode(input: {
+  runtime_authority?: ResolvedRuntimeAuthority;
+  project?: { orchestration?: { mode?: string } };
+}): "legacy" | "shadow" | "active" {
+  if (input.runtime_authority) return input.runtime_authority.runtime_mode;
+  const mode = resolveOrchestrationMode(input.project);
+  if (mode === "active") return "active";
+  if (mode === "shadow") return "shadow";
+  return "legacy";
+}
+
 function shouldAcquireRunLock(args: ParsedArgs): boolean {
   if (args.command === "review" || args.command === "review-preview" || args.command === "compose") return true;
   if (args.command === "finalize" && args.apply) return args.actor === "coordinator";
@@ -2586,7 +2961,9 @@ async function recordGate(
   decision: GateDecision,
   adapter?: AdapterDefinition,
   audioAdapter?: AdapterDefinition,
-  promptGuides?: PromptGuide[]
+  promptGuides?: PromptGuide[],
+  runtime_authority?: ResolvedRuntimeAuthority,
+  effect_policy?: import("./productionControl/rc/effectCapability.js").EffectPolicy
 ): Promise<Result<{ state: RunState; statePath: string; reviewPath?: string; reviewDataPath?: string }>> {
   const stateLocation = getStateLocation(args, project);
   const existing = await loadState(args, project, { allowMissing: gate === "gate_1" });
@@ -2603,7 +2980,8 @@ async function recordGate(
       configPath: args.config!,
       project,
       manifest,
-      stateDir: stateLocation.stateDir
+      stateDir: stateLocation.stateDir,
+      runtime_authority
     });
     if (!review.ok) {
       return {
@@ -2671,7 +3049,8 @@ async function recordGate(
         configPath: args.config!,
         project,
         manifest,
-        stateDir: existing.stateDir
+        stateDir: existing.stateDir,
+        runtime_authority
       });
       if (!review.ok) {
         return { ok: false, issues: review.issues, state, statePath: stateLocation.statePath };
@@ -2759,8 +3138,22 @@ async function recordGate(
   // Active mode: bind exact production subject+decision for Gate1/2/3 human approvals.
   // Gate1: durable GateBundle digest (review must match rebuild). Unknown price / empty evidence refuse.
   // Gate2/3: exact HumanDecisionRef subjects. Legacy approved_input_digest preserved separately.
+  // Pointer authority is preferred when present (same resolver as validate/run/render/finalize).
   let productionBinding: import("./orchestrator/stateTransitions.js").ProductionGateBinding | undefined;
-  const orchestrationMode = resolveOrchestrationMode(project);
+  const orchestrationMode = effectiveOrchestrationMode({ runtime_authority, project });
+  if (orchestrationMode === "shadow") {
+    return {
+      ok: false,
+      issues: [{
+        code: "gate.shadow_denies_mutation",
+        message: "shadow mode forbids Gate mutation"
+      }],
+      state,
+      statePath: stateLocation.statePath,
+      reviewPath,
+      reviewDataPath
+    };
+  }
   if (orchestrationMode === "active" && decision === "approved") {
     try {
       const decidedAt = new Date().toISOString();
@@ -3069,7 +3462,14 @@ async function recordGate(
   }
 
   try {
-    await writeState(stateLocation.stateDir, nextState);
+    await writeState(stateLocation.stateDir, nextState, {
+      ...(effect_policy
+        ? {
+          effect_policy,
+          ...(persistedPrevious ? { previous: persistedPrevious } : {})
+        }
+        : {})
+    });
     // Optional sikumi Outbox (default OFF; fail-soft; never blocks gate write).
     const projectRoot = args.config
       ? dirname(resolve(args.config))

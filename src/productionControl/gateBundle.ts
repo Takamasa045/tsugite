@@ -11,6 +11,9 @@ import { digestSchema, safeIdSchema } from "./schema.js";
 const finiteNumber = z.number().refine(Number.isFinite, "finite number required");
 const nonNegativeInt = finiteNumber.int().nonnegative();
 
+/** Exported schema version for RC revision bindings. */
+export const GATE_BUNDLE_SCHEMA_VERSION = 1 as const;
+
 export const gatePricingSchema = z.object({
   status: z.enum(["known", "unknown", "not-applicable"]),
   version: z.string().min(1).max(128).nullable(),
@@ -130,7 +133,7 @@ export const generationBatchSchema = z.object({
 export type GenerationBatch = z.infer<typeof generationBatchSchema>;
 
 export const gateBundleSchema = z.object({
-  schema_version: z.literal(1),
+  schema_version: z.literal(GATE_BUNDLE_SCHEMA_VERSION),
   production_id: safeIdSchema,
   run_id: safeIdSchema,
   production_contract_digest: digestSchema,
