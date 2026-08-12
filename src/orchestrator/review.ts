@@ -36,6 +36,20 @@ import { createPlan, type ExecutionPlan } from "./plan.js";
 import { ArtifactStore } from "../productionControl/artifactStore.js";
 import type { H3Compilation } from "../h3/compile.js";
 import type { ProductionControlShadowSummary } from "../productionControl/contractCompiler.js";
+import {
+  buildActiveGateBundleForProject,
+  buildGateBundleReviewProjection,
+  buildGenerationBatchesFromEvidence,
+  writeDurableGateBundle,
+  type ActiveGenerationUnitEvidence,
+  type GateBundle
+} from "../productionControl/activePipeline.js";
+import { pricingBindingDigest } from "../productionControl/gateBundle.js";
+import {
+  extractAuthoritativePricingFromProfile,
+  resolveAuthoritativeGatePricing
+} from "../productionControl/pricingEvidence.js";
+import type { RouteIdentity } from "../productionControl/programBinding.js";
 import type { VideoPromptV2Compilation } from "../videoPromptDirector/compileV2.js";
 import { createProjectGenerationUnitSourceResolver, reloadAuthoritativeAssetContract, resolveProjectAssetContract } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { validateProject } from "../project/validateProject.js";
@@ -204,6 +218,20 @@ export type ReviewDocument = {
   video_prompt_subject_digest?: string;
   /** Read-only shadow tree summary; it does not alter Gate or legacy plan state. */
   production_control_shadow?: ProductionControlShadowSummary;
+  /**
+   * Additive PO-5 GateBundle review projection (secret-free).
+   * Stripped from legacy Gate approval subjects; production_subject_digest binds it separately.
+   */
+  gate_bundle_review?: {
+    production_id: string;
+    run_id: string;
+    digest: string;
+    batch_count: number;
+    unit_count: number;
+    has_unknown_price: boolean;
+    composition_intent_bound: boolean;
+    routes: Array<{ batch_id: string; route_digest: string; connection_id: string; adapter_id: string }>;
+  };
   steps: ExecutionPlan["steps"];
   warnings: string[];
   approval_digest?: string;
@@ -311,9 +339,10 @@ export function createVideoPromptReviewProjection(
 }
 
 /** Projection used by legacy Gate approval subjects; shadow data is review-only. */
-export function legacyReviewDocumentProjection(document: ReviewDocument): Omit<ReviewDocument, "production_control_shadow" | "video_prompt_plans" | "video_prompt_subject_digest"> {
+export function legacyReviewDocumentProjection(document: ReviewDocument): Omit<ReviewDocument, "production_control_shadow" | "gate_bundle_review" | "video_prompt_plans" | "video_prompt_subject_digest"> {
   const {
     production_control_shadow: _shadow,
+    gate_bundle_review: _gateBundle,
     video_prompt_plans: _videoPromptPlans,
     video_prompt_subject_digest: _videoPromptSubjectDigest,
     ...legacy
@@ -1091,6 +1120,81 @@ async function fingerprintReviewAssets(
   }
   return fingerprints;
 }
+/**
+ * Build ordered generation unit evidence from plan video_prompt / h3 compilations.
+ * Fixture-safe: uses only digests and route/pricing already bound on the plan.
+ * Never invents USD amount0/max0 from pricing_status=known alone.
+ * Never synthesizes fallback compilation digests — missing compilation fails closed
+ * by omitting the unit (generation projects then refuse empty batches at GateBundle).
+ */
+export function buildActiveGenerationUnitEvidenceFromPlan(
+  plan: ExecutionPlan
+): ActiveGenerationUnitEvidence[] {
+  const units: ActiveGenerationUnitEvidence[] = [];
+  const plans = plan.video_prompt_plans ?? [];
+  for (const [index, vp] of plans.entries()) {
+    const route = (vp.v2_compilation?.route ?? null) as RouteIdentity | null;
+    if (!route) continue;
+    // Real ContractSet / compilation evidence only — no synthetic fallback digest.
+    const compilationDigest = vp.v2_compilation?.bundle?.compilation_digest
+      ?? (vp.compilation as { digest?: string } | undefined)?.digest;
+    if (!compilationDigest || typeof compilationDigest !== "string" || compilationDigest.length !== 64) {
+      // Fail closed for this unit; empty unit list is rejected for generation projects.
+      continue;
+    }
+    const extracted = extractAuthoritativePricingFromProfile(vp.connection_profile);
+    const pricing = resolveAuthoritativeGatePricing(extracted);
+    units.push({
+      generation_unit_digest: sha256Canonical({
+        kind: "active-generation-unit",
+        ordinal: index,
+        compilation_digest: compilationDigest,
+        route_digest: route.route_digest
+      }),
+      base_compilation_digest: compilationDigest,
+      route,
+      pricing,
+      pricing_binding_digest: pricingBindingDigest(pricing, route)
+    });
+  }
+  return units;
+}
+
+/**
+ * Canonical active GateBundle for review + Gate1: same evidence, same digest.
+ */
+export function buildActiveReviewGateBundle(
+  project: Project,
+  plan: ExecutionPlan
+): { bundle: GateBundle; review_artifact_digest: string } {
+  const reviewDigest = digest({
+    kind: "active-review-artifact",
+    project: project.slug,
+    plan_backend: plan.backend,
+    estimated_credits: plan.estimated_credits
+  });
+  const unitEvidence = buildActiveGenerationUnitEvidenceFromPlan(plan);
+  const hasGeneration = Boolean(project.generation?.requests?.length);
+  const batches = unitEvidence.length > 0
+    ? buildGenerationBatchesFromEvidence(unitEvidence)
+    : [];
+  if (hasGeneration && batches.length === 0) {
+    throw new Error("active GateBundle requires real generation batches from plan/review evidence");
+  }
+  const compositionIntent = unitEvidence.length > 0
+    ? (plan.video_prompt_plans?.[0]?.v2_compilation as { composition_intent_digest?: string } | undefined)
+      ?.composition_intent_digest
+    : undefined;
+  const bundle = buildActiveGateBundleForProject({
+    project,
+    run_id: project.run_id ?? project.slug,
+    review_artifact_digest: reviewDigest,
+    generation_batches: batches,
+    ...(compositionIntent ? { composition_intent_digest: compositionIntent } : {})
+  });
+  return { bundle, review_artifact_digest: reviewDigest };
+}
+
 export function createReviewDocument(
   project: Project,
   manifest: Manifest,
@@ -1248,6 +1352,16 @@ export function createReviewDocument(
     ...(plan.production_control_shadow
       ? { production_control_shadow: plan.production_control_shadow }
       : {}),
+    ...(() => {
+      if (project.orchestration?.mode !== "active") return {};
+      try {
+        const built = buildActiveReviewGateBundle(project, plan);
+        return { gate_bundle_review: buildGateBundleReviewProjection(built.bundle) };
+      } catch {
+        // Active bundle construction failures surface at Gate 1 approve; review stays readable.
+        return {};
+      }
+    })(),
     steps: plan.steps,
     warnings,
     ...(project.analysis
@@ -1601,6 +1715,32 @@ export async function writeCreativeReview(
         }
       : undefined
   );
+  // Durable canonical GateBundle for active mode: same digest Gate1 will load.
+  // Incomplete plan/compilation evidence leaves review readable (Gate1 approve fails closed).
+  // Durable write failure after a successful build is always surfaced.
+  if (options.project.orchestration?.mode === "active") {
+    let built: ReturnType<typeof buildActiveReviewGateBundle> | undefined;
+    try {
+      built = buildActiveReviewGateBundle(options.project, options.plan);
+    } catch {
+      built = undefined;
+    }
+    if (built) {
+      const runId = options.project.run_id ?? options.project.slug;
+      const stateDir = options.stateDir
+        ? resolve(options.stateDir)
+        : resolve(dirname(resolve(options.configPath)), options.project.dist_dir);
+      try {
+        await writeDurableGateBundle(join(stateDir, runId), built.bundle);
+      } catch (error) {
+        throw new Error(
+          `active review durable GateBundle write failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+  }
   await attachReviewPreviewVideos(outputDir, document, {
     configPath,
     project: options.project,

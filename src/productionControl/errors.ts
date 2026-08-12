@@ -30,7 +30,20 @@ export type ProductionControlErrorCode =
   | "PC_TREE_INVALID"
   | "PC_ROLE_FORBIDDEN"
   | "PC_PROGRAM_BINDING_INVALID"
-  | "PC_INVALIDATION_INVALID";
+  | "PC_INVALIDATION_INVALID"
+  | "PC_GATE_BUNDLE_INVALID"
+  | "PC_GATE_SUBJECT_STALE"
+  | "PC_AUTHORITY_DENIED"
+  | "PC_LEASE_CONFLICT"
+  | "PC_LEASE_EXPIRED"
+  | "PC_DISPATCH_LIMIT"
+  | "PC_GENERATION_BINDING_INVALID"
+  | "PC_GENERATION_IDENTITY_DRIFT"
+  | "PC_GENERATION_REVISION_ROLLBACK"
+  | "PC_COMPLETION_NOT_PINNED"
+  | "PC_SUBMISSION_UNKNOWN"
+  | "PC_RESUME_INVALID"
+  | "PC_MODE_INACTIVE";
 
 /** Error boundary for the production-control shadow foundation. */
 export class ProductionControlError extends Error {

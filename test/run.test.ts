@@ -1032,7 +1032,7 @@ describe("local media run assembly", () => {
       /personQaApprovalDigest\s*=\s*inspected\.personQaApprovalBinding\.person_qa_approval_digest/
     );
     expect(cli).toMatch(
-      /recordGateDecision\(\s*state,\s*gate,\s*decision,\s*undefined,\s*gateApprovalDigest,\s*"human",\s*personQaApprovalDigest\s*\)/
+      /recordGateDecision\(\s*state,\s*gate,\s*decision,\s*undefined,\s*gateApprovalDigest,\s*"human",\s*personQaApprovalDigest(?:,\s*productionBinding)?\s*\)/
     );
     // Viewer Gate2 evidence inspect must not fall back to default repo guides.
     expect(launcher).toMatch(

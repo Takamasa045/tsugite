@@ -3,7 +3,11 @@ import { createReadStream } from "node:fs";
 import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import { runCliGenerationAdapter, type CliGenerationRequestResult } from "../adapters/cliGeneration.js";
+import {
+  runCliGenerationAdapter,
+  type CliGenerationRequestResult,
+  type CliGenerationResult
+} from "../adapters/cliGeneration.js";
 import { runCliAudioAdapter, type CliAudioResult } from "../adapters/cliAudio.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
 import type { Manifest } from "../manifest/schema.js";
@@ -103,6 +107,24 @@ type AssembleOptions = {
   promptGuides?: H3PromptGuideSource[];
   /** Typed MV source resolver; request ids are never treated as source truth. */
   generationUnitSourceResolver?: GenerationUnitSourceResolver;
+  /**
+   * Active-mode generation injection. Required for orchestration.mode=active generation runs.
+   * Tests use fixture/stub adapters (no process/network). Active never falls back to CLI adapter.
+   */
+  activeGeneration?: {
+    adapter: import("../generationJobs/adapter.js").GenerationJobProviderAdapter;
+    resolveExecutionBundle: (
+      jobId: string,
+      request: import("../project/schema.js").GenerationRequest
+    ) =>
+      | import("../videoPromptDirector/compilationBundle.js").ExecutionCompilationBundle
+      | Promise<import("../videoPromptDirector/compilationBundle.js").ExecutionCompilationBundle>;
+    production_id?: string;
+    project_id: string;
+    revision_id: string;
+    productionControlRoot?: string;
+    dispatcher?: import("../productionControl/dispatcher.js").ProductionDispatcher;
+  };
 };
 
 export type ApprovedCompilation = {
@@ -405,8 +427,88 @@ export async function assembleLocalMediaRun(
   });
 
   const awaitingState = markGateAwaiting(options.state, "gate_2");
+  let gate2ProductionBinding: import("./stateTransitions.js").ProductionGateBinding | undefined;
+  if (autoPass.passed && project.orchestration?.mode === "active") {
+    // Narrow Gate2 auto-pass must still bind exact production subject+decision
+    // from actual completion digests, manifest, and technical QA — not one composite.
+    try {
+      const { buildActiveGate2ProductionBinding, loadDurableGateBundle } = await import(
+        "../productionControl/activePipeline.js"
+      );
+      const { productionDecisionId } = await import("../productionControl/activePipeline.js");
+      const {
+        loadDurableSelectedCompletions,
+        writeDurableGate2Evidence,
+        writeDurableGateDecision
+      } = await import("../productionControl/durableGateEvidence.js");
+      const runDirForGate2 = join(options.stateDir, runId);
+      const durable = await loadDurableGateBundle(runDirForGate2);
+      const g1 = awaitingState.gates.gate_1;
+      if (
+        durable
+        && g1.production_decision_digest
+        && g1.production_subject_digest
+      ) {
+        const decidedAt = new Date().toISOString();
+        const completions = await loadDurableSelectedCompletions(runDirForGate2);
+        const completionDigests = completions.map((ref) => ref.digest);
+        // Distinct evidence: manifest vs technical QA report, not the same composite twice.
+        const manifestDigest = digest(manifestDigestInput(manifest));
+        const technicalQaDigest = digest(qcReport);
+        const decisionId = productionDecisionId("gate_2", "auto_qc", decidedAt);
+        const bound = buildActiveGate2ProductionBinding({
+          gate_1_decision_digest: g1.production_decision_digest,
+          gate_bundle_digest: durable.digest,
+          selected_generation_completion_digests: completionDigests,
+          manifest_digest: manifestDigest,
+          technical_qa_digest: technicalQaDigest,
+          decision: {
+            decision_id: decisionId,
+            decision: "approved",
+            actor: "auto_qc",
+            decided_at: decidedAt
+          },
+          decision_source: "auto_qc",
+          legacy_approved_input_digest: autoPass.approvalDigest
+        });
+        await writeDurableGate2Evidence(runDirForGate2, {
+          gate_bundle_digest: durable.digest,
+          gate_1_decision_digest: g1.production_decision_digest,
+          selected_generation_completion_digests: completionDigests,
+          manifest_digest: manifestDigest,
+          technical_qa_digest: technicalQaDigest
+        });
+        await writeDurableGateDecision(runDirForGate2, {
+          gate: "gate_2",
+          decision: {
+            decision_id: decisionId,
+            decision: "approved",
+            actor: "auto_qc",
+            decided_at: decidedAt,
+            subject_digest: bound.subject_digest
+          },
+          decision_source: "auto_qc",
+          legacy_approved_input_digest: autoPass.approvalDigest
+        });
+        gate2ProductionBinding = bound.productionBinding;
+      }
+    } catch {
+      // Fail closed: without production binding, active auto-pass still records legacy digest only;
+      // subsequent render subject check will block if production digests are missing.
+      gate2ProductionBinding = undefined;
+    }
+  }
   const nextState = autoPass.passed
-    ? recordGateDecision(awaitingState, "gate_2", "approved", undefined, autoPass.approvalDigest, "auto_qc")
+    ? recordGateDecision(
+      awaitingState,
+      "gate_2",
+      "approved",
+      undefined,
+      autoPass.approvalDigest,
+      "auto_qc",
+      undefined,
+      gate2ProductionBinding
+    )
     : awaitingState;
   const writtenStatePath = await writeState(options.stateDir, nextState);
   const projectRoot = options.configPath
@@ -474,22 +576,31 @@ async function evaluateGate2AutoPass(input: {
   compilation?: EditorialCompilation | ApprovedCompilation;
   audioAdapter?: AdapterDefinition;
 }): Promise<Gate2AutoPassEvaluation> {
-  if (input.project.gates?.gate_2?.auto_pass !== GATE_2_AUTO_PASS_POLICY) {
-    return { passed: false, reason: "not_configured" };
-  }
-  // Semantic person-consistency QA requires a human decision; never auto-pass.
-  if (personConsistencyRequiredForStage(input.project, "gate_2")
-    || input.project.quality?.person_consistency?.enabled) {
-    return { passed: false, reason: "semantic_qa_enabled" };
-  }
-  if (input.credits !== 0) {
-    return { passed: false, reason: `credits: ${input.credits}` };
-  }
-  if (input.generatedAssetCount !== 0) {
-    return { passed: false, reason: `generated_assets: ${input.generatedAssetCount}` };
-  }
-  if (!input.qcReport.ok) {
-    return { passed: false, reason: `qc_issues: ${input.qcReport.issues.length}` };
+  // Single implementation: shared production-control policy + live inspection.
+  // Hierarchy alone never widens auto-pass; preserve existing narrow conditions.
+  const { mapRunConditionsToGate2AutoPass } = await import("../productionControl/activePipeline.js");
+  const policy = mapRunConditionsToGate2AutoPass({
+    project_opt_in: input.project.gates?.gate_2?.auto_pass === GATE_2_AUTO_PASS_POLICY,
+    credits: input.credits,
+    generatedAssetCount: input.generatedAssetCount,
+    qcIssueCount: input.qcReport.ok ? 0 : input.qcReport.issues.length,
+    semanticQaEnabled:
+      personConsistencyRequiredForStage(input.project, "gate_2")
+      || Boolean(input.project.quality?.person_consistency?.enabled)
+  });
+  if (!policy.auto_pass) {
+    const reason = policy.blocked_reason === "project did not opt in"
+      ? "not_configured"
+      : policy.blocked_reason === "credits consumed"
+        ? `credits: ${input.credits}`
+        : policy.blocked_reason === "new assets generated"
+          ? `generated_assets: ${input.generatedAssetCount}`
+          : policy.blocked_reason === "technical QA reported issues"
+            ? `qc_issues: ${input.qcReport.issues.length}`
+            : policy.blocked_reason === "semantic QA present"
+              ? "semantic_qa_enabled"
+              : policy.blocked_reason ?? "blocked";
+    return { passed: false, reason };
   }
 
   const inspected = await inspectGate2RunForApproval(
@@ -773,12 +884,14 @@ async function assembleGeneratedMediaRun(
 
   // video_prompt authoring is planning/dry-run only in P0–P4. Re-evaluate with
   // intent=execute so planning-only compilations never reach billing adapters.
+  // Active mode skips this gate: durable GenerationJob + T05 owns paid execute
+  // (VPD intent=execute is always VPD-E022 and would block the active path).
   const hasVideoPrompt = project.generation!.requests.some(
     (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
       || request.h3 !== undefined
       || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
   );
-  if (hasVideoPrompt) {
+  if (hasVideoPrompt && project.orchestration?.mode !== "active") {
     const generationUnitSourceResolver = options.generationUnitSourceResolver
       ?? (options.configPath ? createProjectGenerationUnitSourceResolver(options.configPath) : undefined);
     const videoCompile = await compileProjectVideoPrompts(project, {
@@ -875,8 +988,102 @@ async function assembleGeneratedMediaRun(
     h3Artifacts = toLocalRunH3Artifacts(written.artifacts);
   }
 
-  // Adapter sees the pinned, H3-compiled execution fields (prompt/op/assets).
-  const generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });
+  // Active: durable GenerationJob + T05 + dispatcher only — never runCliGenerationAdapter.
+  // Disabled/shadow/legacy: existing CLI adapter path unchanged.
+  let generation: Result<CliGenerationResult>;
+  if (project.orchestration?.mode === "active") {
+    const {
+      executeActiveGenerationForRun,
+      resolveActiveGenerationInjection,
+      resolveCanonicalProductionControlRoot
+    } = await import("../productionControl/activeRunGeneration.js");
+    const { compileProductionContract } = await import(
+      "../productionControl/contractCompiler.js"
+    );
+    const connectionId =
+      options.generationConnection
+      && typeof options.generationConnection === "object"
+      && "id" in options.generationConnection
+      && typeof (options.generationConnection as { id?: unknown }).id === "string"
+        ? (options.generationConnection as { id: string }).id
+        : project.generation?.connection;
+    const resolved = resolveActiveGenerationInjection({
+      ...(options.activeGeneration
+        ? {
+            explicit: {
+              adapter: options.activeGeneration.adapter,
+              resolveExecutionBundle: options.activeGeneration.resolveExecutionBundle,
+              project_id: options.activeGeneration.project_id,
+              revision_id: options.activeGeneration.revision_id,
+              ...(options.activeGeneration.production_id
+                ? { production_id: options.activeGeneration.production_id }
+                : {}),
+              ...(options.activeGeneration.productionControlRoot
+                ? { productionControlRoot: options.activeGeneration.productionControlRoot }
+                : {}),
+              ...(options.activeGeneration.dispatcher
+                ? { dispatcher: options.activeGeneration.dispatcher }
+                : {})
+            }
+          }
+        : {}),
+      ...(connectionId ? { connection_id: connectionId } : {})
+    });
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        issues: resolved.issues
+      };
+    }
+    // productionControlRoot is mandatory: derive canonically from project root.
+    // Caller/fixture may supply an explicit root, but may never omit the check.
+    const projectRoot = options.configPath
+      ? dirname(resolve(options.configPath))
+      : undefined;
+    let productionControlRoot = resolved.productionControlRoot?.trim() ?? "";
+    if (!productionControlRoot) {
+      if (!projectRoot) {
+        return {
+          ok: false,
+          issues: [{
+            code: "run.active_production_control_root_required",
+            message:
+              "active generation requires project config path to derive production-control root; "
+              + "missing root fails closed before adapter"
+          }]
+        };
+      }
+      try {
+        productionControlRoot = resolveCanonicalProductionControlRoot(projectRoot);
+      } catch (error) {
+        return {
+          ok: false,
+          issues: [{
+            code: "run.active_production_control_root_required",
+            message: error instanceof Error ? error.message : String(error)
+          }]
+        };
+      }
+    }
+    const productionId = resolved.production_id
+      ?? compileProductionContract({ project }).production_id;
+    generation = await executeActiveGenerationForRun({
+      runId,
+      runDir,
+      state: options.state,
+      production_id: productionId,
+      project_id: resolved.project_id,
+      revision_id: resolved.revision_id,
+      pinnedRequests: pinned.requests,
+      adapter: resolved.adapter,
+      resolveExecutionBundle: resolved.resolveExecutionBundle,
+      productionControlRoot,
+      ...(resolved.dispatcher ? { dispatcher: resolved.dispatcher } : {})
+    });
+  } else {
+    // Adapter sees the pinned, H3-compiled execution fields (prompt/op/assets).
+    generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });
+  }
   if (!generation.ok) return generation;
 
   const existingImageIds = new Set(assembled.images.map((image) => image.id));

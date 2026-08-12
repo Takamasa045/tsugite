@@ -4,6 +4,7 @@
  */
 
 import { sha256Canonical } from "../integrity/canonical.js";
+import { parseGenerationJobApprovalBinding } from "../productionControl/generationBridge.js";
 import {
   GJ_APPROVAL_DIGEST_MISMATCH,
   GJ_APPROVAL_MISSING,
@@ -202,6 +203,38 @@ export function assertApprovalAllowsSubmit(job: GenerationJobRecord): void {
     throw new GenerationJobError(
       GJ_APPROVAL_DIGEST_MISMATCH,
       "approval bound fields no longer match job record"
+    );
+  }
+}
+
+/**
+ * Active production mode requires a full GenerationJobApprovalBindingV1.
+ * Disabled/shadow/legacy jobs without the binding remain submit-eligible via
+ * the existing approval digest checks alone.
+ *
+ * Rejects optional-flag / 64-char-length shells: recomputes immutable identity
+ * through the shared productionControl schema.
+ */
+export function assertProductionBindingForMode(
+  job: GenerationJobRecord,
+  mode: "disabled" | "shadow" | "active" | undefined
+): void {
+  if (mode !== "active") return;
+  if (!job.production_binding) {
+    throw new GenerationJobError(
+      GJ_APPROVAL_MISSING,
+      "active production mode requires generation job production_binding"
+    );
+  }
+  try {
+    // Shared schema recompute — length-only checks are insufficient.
+    parseGenerationJobApprovalBinding(job.production_binding);
+  } catch (error) {
+    throw new GenerationJobError(
+      GJ_APPROVAL_DIGEST_MISMATCH,
+      error instanceof Error
+        ? `production_binding invalid: ${error.message}`
+        : "production_binding digests are incomplete or drifted"
     );
   }
 }

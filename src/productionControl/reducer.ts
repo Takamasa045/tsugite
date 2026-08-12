@@ -26,7 +26,9 @@ export function createInitialMissionState(productionId: string): MissionState {
     attempts: {},
     created_artifacts: {},
     accepted_artifacts: {},
-    invalidated_node_ids: []
+    invalidated_node_ids: [],
+    gate_bindings: {},
+    generation_bindings: {}
   };
 }
 
@@ -58,7 +60,9 @@ export function reduceProductionEvent(state: MissionState, rawEvent: ProductionE
     attempts: { ...current.attempts },
     created_artifacts: { ...current.created_artifacts },
     accepted_artifacts: { ...current.accepted_artifacts },
-    invalidated_node_ids: [...current.invalidated_node_ids]
+    invalidated_node_ids: [...current.invalidated_node_ids],
+    gate_bindings: { ...current.gate_bindings },
+    generation_bindings: { ...current.generation_bindings }
   };
 
   switch (event.type) {
@@ -238,7 +242,61 @@ export function reduceProductionEvent(state: MissionState, rawEvent: ProductionE
         if (!current.nodes[id]) throw transition("invalidation preserves an unknown node");
         if (current.nodes[id].stale) throw transition("invalidation cannot preserve a stale node");
       }
+      for (const bindingId of event.payload.stale_gate_binding_ids) {
+        const binding = next.gate_bindings[bindingId];
+        if (binding) next.gate_bindings[bindingId] = { ...binding, stale: true };
+      }
       next.mission_status = "ready";
+      break;
+    }
+
+    case "gate-binding-recorded": {
+      requireMission(current);
+      const payload = event.payload;
+      if (current.gate_bindings[payload.binding_id] && !current.gate_bindings[payload.binding_id]!.stale) {
+        throw transition("gate binding id is already current");
+      }
+      // Gate decision digest + subject correspondence: both required, non-zero, distinct roles.
+      if (!payload.subject_digest || !payload.decision_digest) {
+        throw transition("gate binding requires subject and decision digests");
+      }
+      if (payload.subject_digest === payload.decision_digest) {
+        throw transition("gate decision digest must not equal subject digest");
+      }
+      next.gate_bindings[payload.binding_id] = {
+        binding_id: payload.binding_id,
+        gate: payload.gate,
+        subject_digest: payload.subject_digest,
+        decision_digest: payload.decision_digest,
+        ...(payload.legacy_approved_input_digest
+          ? { legacy_approved_input_digest: payload.legacy_approved_input_digest }
+          : {}),
+        stale: payload.stale
+      };
+      break;
+    }
+
+    case "generation-job-bound": {
+      requireMission(current);
+      const payload = event.payload;
+      // Recompute-friendly: reject empty identity shells; full identity recompute is
+      // enforced at the generation bridge when the full binding is available.
+      if (!payload.immutable_identity_digest || payload.immutable_identity_digest.length !== 64) {
+        throw transition("generation binding requires full immutable identity digest");
+      }
+      if (!payload.gate_bundle_digest || payload.gate_bundle_digest.length !== 64) {
+        throw transition("generation binding requires gate bundle digest");
+      }
+      const existing = current.generation_bindings[payload.binding_id];
+      if (existing) {
+        if (existing.immutable_identity_digest !== payload.immutable_identity_digest) {
+          throw transition("generation binding immutable identity drifted");
+        }
+        if (payload.approval_observed_revision < existing.approval_observed_revision) {
+          throw transition("generation binding revision cannot roll back");
+        }
+      }
+      next.generation_bindings[payload.binding_id] = { ...payload };
       break;
     }
 
