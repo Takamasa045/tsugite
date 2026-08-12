@@ -44,6 +44,7 @@ import {
   partitionMediaByRetention,
   resultBase
 } from "./finalizePlanHelpers.js";
+import { resolveAuthoritativeProductionId } from "../productionControl/authoritativeCoordination.js";
 import {
   assertProductionCompletionDigestMatch,
   buildProductionCompletionDigest,
@@ -449,9 +450,12 @@ export async function finalizeCompletedProject(
   }));
   const coordinationEvidence = coordinationEvidenceOnly(controlPlaneEvidence);
   const hasControlPlane = hasCoordinationControlPlane(coordinationEvidence);
+  // Prefer coordination snapshot production_id; legacy slug only when coordination is absent.
+  // Preview and apply share this resolver so completion digests bind to the same identity.
+  const productionId = await resolveAuthoritativeProductionId(projectRoot, options.project);
   const productionCompletionDigest = hasControlPlane
     ? buildProductionCompletionDigest({
-      production_id: options.project.slug,
+      production_id: productionId,
       plan_digest: planDigest,
       evidence_refs: coordinationEvidence
     })

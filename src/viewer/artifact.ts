@@ -21,7 +21,13 @@ import { spawnCommandSync } from "../platform/process.js";
 import type { ExecutionPlan } from "../orchestrator/plan.js";
 import { createPlannedState, readState, type RunState } from "../orchestrator/state.js";
 import {
+  loadAuthoritativeTaskTree,
+  AUTHORITATIVE_TASK_TREE_ARTIFACT_ID
+} from "../productionControl/authoritativeCoordination.js";
+import { ProductionControlError } from "../productionControl/errors.js";
+import {
   projectMissionTree,
+  sanitizeMissionTreePublicProjection,
   type MissionTreePublicProjectionV1
 } from "../productionControl/publicProjection.js";
 import { SnapshotStore } from "../productionControl/statePersistence.js";
@@ -35,6 +41,8 @@ import {
   type ViewerMediaPreview,
   type ViewerRunLogEvidence
 } from "./workflow.js";
+
+export { AUTHORITATIVE_TASK_TREE_ARTIFACT_ID };
 
 export type WriteWorkflowViewerOptions = {
   configPath: string;
@@ -238,27 +246,73 @@ export async function openWorkflowViewer(viewerPath: string): Promise<void> {
 }
 
 /**
- * Active-mode only: project Mission Tree public DTO from coordination snapshot.
- * Fail-soft when coordination is absent or unreadable (legacy 8-step path remains).
- * Never mixes Gate approval digests into TaskTree visibility.
+ * Active-mode only: Mission Tree public DTO from coordination snapshot + TaskTree artifact.
+ *
+ * - Exact task_tree / production_id / tree_revision from ArtifactStore + SnapshotStore.
+ * - Missing TaskTree → explicit degraded/blocked projection (never invent flat edges).
+ * - Stale/mismatched digest/revision/production_id → fail-closed (throw).
+ * - Absent coordination snapshot → undefined (legacy fixed 8-step path remains).
+ * - Never mixes Gate approval digests into TaskTree visibility.
  */
 export async function loadActiveMissionTreeProjection(
   projectRoot: string,
   project: Project
 ): Promise<MissionTreePublicProjectionV1 | undefined> {
   if (project.orchestration?.mode !== "active") return undefined;
+
+  const coordinationRoot = join(resolve(projectRoot), "coordination");
+  const store = new SnapshotStore(coordinationRoot);
+  let snapshot;
   try {
-    const store = new SnapshotStore(join(resolve(projectRoot), "coordination"));
-    const snapshot = await store.read();
-    if (!snapshot) return undefined;
-    return projectMissionTree({
-      production_id: snapshot.state.production_id,
-      mode: "active",
-      mission_state: snapshot.state,
-      legacy_workflow_preserved: true
+    snapshot = await store.read();
+  } catch (error) {
+    // Unreadable snapshot is fail-closed for active mode (do not invent a tree).
+    if (error instanceof ProductionControlError) throw error;
+    throw error;
+  }
+  if (!snapshot) return undefined;
+
+  const productionId = snapshot.state.production_id;
+  const treeRevision = snapshot.state.tree_revision;
+
+  try {
+    const taskTree = await loadAuthoritativeTaskTree(coordinationRoot, {
+      production_id: productionId,
+      tree_revision: treeRevision
     });
-  } catch {
-    return undefined;
+    return sanitizeMissionTreePublicProjection(
+      projectMissionTree({
+        production_id: productionId,
+        mode: "active",
+        mission_state: snapshot.state,
+        task_tree: taskTree,
+        legacy_workflow_preserved: true
+      })
+    );
+  } catch (error) {
+    if (error instanceof ProductionControlError && error.code === "PC_ARTIFACT_NOT_FOUND") {
+      // Missing TaskTree: explicit degraded/blocked, no state-only edge invention.
+      return sanitizeMissionTreePublicProjection(
+        projectMissionTree({
+          production_id: productionId,
+          mode: "active",
+          mission_state: snapshot.state,
+          degraded: {
+            reason_code: "mission_tree.task_tree_unavailable",
+            summary: "TaskTree 成果物が無いため Mission Tree を構築できません"
+          },
+          recovery: {
+            active: false,
+            attempts: 0,
+            limit: null,
+            last_error_code: "mission_tree.task_tree_unavailable"
+          },
+          legacy_workflow_preserved: true
+        })
+      );
+    }
+    // Mismatched identity/revision/digest or invalid tree: fail closed.
+    throw error;
   }
 }
 

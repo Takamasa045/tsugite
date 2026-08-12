@@ -133,6 +133,14 @@ export type ProjectMissionTreeInput = {
   mode: "legacy" | "shadow" | "active";
   mission_state: MissionState;
   task_tree?: TaskTreeSpec;
+  /**
+   * When TaskTree artifact is unavailable, project an explicit blocked/degraded
+   * public DTO instead of inventing a flat graph from state nodes.
+   */
+  degraded?: {
+    reason_code: string;
+    summary: string;
+  };
   learning?: LearningPublicProjectionV1;
   recovery?: {
     active?: boolean;
@@ -166,19 +174,68 @@ function nodeStatusFromState(
   };
 }
 
+/**
+ * Public Gate summary only: presence / stale status.
+ * subject_digest / decision_digest stay on the authority plane and must never
+ * be mixed into Mission Tree public DTO or viewer payloads.
+ */
 function projectGates(state: MissionState): PublicGateSummaryV1[] {
   const byGate = new Map<string, PublicGateSummaryV1>();
   for (const binding of Object.values(state.gate_bindings)) {
     byGate.set(binding.gate, {
       gate: binding.gate,
-      status: binding.stale ? "stale" : "current",
-      subject_digest: binding.subject_digest,
-      decision_digest: binding.decision_digest
+      status: binding.stale ? "stale" : "current"
     });
   }
   return (["gate_1", "gate_2", "gate_3"] as const).map(
     (gate) => byGate.get(gate) ?? { gate, status: "absent" as const }
   );
+}
+
+/**
+ * Single public-surface sanitizer for MissionTreePublicProjection.
+ * Strips Gate subject/decision digests from gates (and any leaked approval fields)
+ * without changing Gate approval digest algorithms elsewhere.
+ */
+export function sanitizeMissionTreePublicProjection(
+  projection: MissionTreePublicProjectionV1
+): MissionTreePublicProjectionV1 {
+  const parsed = missionTreePublicProjectionSchema.parse(projection);
+  const gates = parsed.gates.map((gate) => ({
+    gate: gate.gate,
+    status: gate.status
+  }));
+  const draft = {
+    schema_version: 1 as const,
+    production_id: parsed.production_id,
+    mode: parsed.mode,
+    mission_status: parsed.mission_status,
+    tree_revision: parsed.tree_revision,
+    source_event_sequence: parsed.source_event_sequence,
+    nodes: parsed.nodes,
+    edges: parsed.edges,
+    gates,
+    current_decision: parsed.current_decision,
+    recovery: parsed.recovery,
+    ...(parsed.learning ? { learning: parsed.learning } : {}),
+    task_tree_read_only: true as const,
+    legacy_workflow_preserved: parsed.legacy_workflow_preserved
+  };
+  const sanitized = missionTreePublicProjectionSchema.parse({
+    ...draft,
+    digest: sha256Canonical(draft)
+  });
+  const serialized = JSON.stringify(sanitized);
+  if (
+    FORBIDDEN_PUBLIC.test(serialized)
+    || /"subject_digest"\s*:|"decision_digest"\s*:|"approved_input_digest"\s*:/i.test(serialized)
+  ) {
+    throw pcError(
+      "PC_SECRET_OR_PATH",
+      "mission tree public projection leaked Gate digests or forbidden content"
+    );
+  }
+  return sanitized;
 }
 
 function deriveCurrentDecision(
@@ -253,8 +310,16 @@ export function projectMissionTree(input: ProjectMissionTreeInput): MissionTreeP
 
   const nodes: PublicMissionNodeV1[] = [];
   const edges: MissionTreePublicProjectionV1["edges"] = [];
+  let currentDecision: PublicCurrentDecisionV1 | undefined;
 
-  if (input.task_tree) {
+  if (input.degraded) {
+    // Explicit degraded/blocked: never invent flat nodes/edges from state alone.
+    currentDecision = {
+      kind: "blocked",
+      reason_code: input.degraded.reason_code,
+      summary: input.degraded.summary
+    };
+  } else if (input.task_tree) {
     if (input.task_tree.production_id !== input.production_id) {
       throw pcError("PC_SCHEMA_INVALID", "task tree production_id mismatch");
     }
@@ -279,6 +344,7 @@ export function projectMissionTree(input: ProjectMissionTreeInput): MissionTreeP
         }
       } else {
         const statusInfo = nodeStatusFromState(state, treeNode.node_id);
+        const taskRevision = state.nodes[treeNode.node_id]?.task_revision;
         nodes.push({
           node_id: treeNode.node_id,
           node_type: "task",
@@ -288,7 +354,7 @@ export function projectMissionTree(input: ProjectMissionTreeInput): MissionTreeP
           status: statusInfo.status,
           stale: statusInfo.stale,
           ...(statusInfo.reason_code ? { reason_code: statusInfo.reason_code } : {}),
-          task_revision: state.nodes[treeNode.node_id]?.task_revision
+          ...(taskRevision !== undefined ? { task_revision: taskRevision } : {})
         });
         for (const dep of treeNode.dependencies) {
           edges.push({
@@ -300,7 +366,8 @@ export function projectMissionTree(input: ProjectMissionTreeInput): MissionTreeP
       }
     }
   } else {
-    // State-only projection when tree artifact is absent (still secret-free).
+    // Legacy state-only projection when callers intentionally omit the tree.
+    // Active ArtifactStore path must pass task_tree or degraded instead.
     for (const [nodeId, node] of Object.entries(state.nodes)) {
       nodes.push({
         node_id: nodeId,
@@ -332,14 +399,16 @@ export function projectMissionTree(input: ProjectMissionTreeInput): MissionTreeP
     nodes,
     edges,
     gates: projectGates(state),
-    current_decision: deriveCurrentDecision(state, nodes, input.learning),
+    current_decision: currentDecision ?? deriveCurrentDecision(state, nodes, input.learning),
     recovery: {
       active: input.recovery?.active ?? false,
       attempts: input.recovery?.attempts ?? 0,
       limit: input.recovery?.limit ?? null,
       ...(input.recovery?.last_error_code
         ? { last_error_code: input.recovery.last_error_code }
-        : {})
+        : input.degraded
+          ? { last_error_code: input.degraded.reason_code }
+          : {})
     },
     ...(input.learning ? { learning: input.learning } : {}),
     task_tree_read_only: true as const,
@@ -351,16 +420,11 @@ export function projectMissionTree(input: ProjectMissionTreeInput): MissionTreeP
     digest: sha256Canonical(draft)
   });
 
-  const serialized = JSON.stringify(projected);
-  if (FORBIDDEN_PUBLIC.test(serialized)) {
-    throw pcError("PC_SECRET_OR_PATH", "mission tree public projection leaked forbidden content");
-  }
-
-  return projected;
+  return sanitizeMissionTreePublicProjection(projected);
 }
 
 export function parseMissionTreePublicProjection(input: unknown): MissionTreePublicProjectionV1 {
-  return missionTreePublicProjectionSchema.parse(input);
+  return sanitizeMissionTreePublicProjection(missionTreePublicProjectionSchema.parse(input));
 }
 
 /**
@@ -396,8 +460,9 @@ export type ViewerMissionTreeOverlay = {
 export function toViewerMissionTreeOverlay(
   projection: MissionTreePublicProjectionV1
 ): ViewerMissionTreeOverlay {
+  // parseMissionTreePublicProjection applies the single public sanitizer.
   const parsed = parseMissionTreePublicProjection(projection);
-  return {
+  const overlay: ViewerMissionTreeOverlay = {
     productionId: parsed.production_id,
     mode: parsed.mode,
     missionStatus: parsed.mission_status,
@@ -425,6 +490,11 @@ export function toViewerMissionTreeOverlay(
     legacyWorkflowPreserved: parsed.legacy_workflow_preserved,
     digest: parsed.digest
   };
+  const serialized = JSON.stringify(overlay);
+  if (/"subject_digest"\s*:|"decision_digest"\s*:|"approved_input_digest"\s*:/i.test(serialized)) {
+    throw pcError("PC_SECRET_OR_PATH", "viewer missionTree overlay leaked Gate digests");
+  }
+  return overlay;
 }
 
 /**

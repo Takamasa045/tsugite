@@ -38,10 +38,13 @@ import {
   projectMissionMetrics,
   projectMissionTree,
   proposalSubjectDigest,
+  resolveAuthoritativeProductionId,
   runLearningExperiment,
   safetySloViolations,
+  sanitizeMissionTreePublicProjection,
   sha256Canonical,
   createInitialMissionState,
+  SnapshotStore,
   type HumanDecisionRef,
   type LearningCandidateV1,
   type MissionState
@@ -951,6 +954,84 @@ describe("PO-7 production path wiring", () => {
     // createViewerWorkflow ignores non-active mission trees (no throw, no rewrite).
     // Use a real plan fixture from viewer-workflow when testing legacy; here only assert active-only helper.
     expect(() => missionTreeToViewerWorkflow(shadow)).toThrow(/active-mode only/);
+  });
+
+  it("sanitizes Gate subject/decision digests from public MissionTree projection only", () => {
+    const state = missionWithStatuses("prod-sanitize", [
+      { id: "task-a", status: "ready" }
+    ]);
+    state.gate_bindings.g1 = {
+      binding_id: "g1",
+      gate: "gate_1",
+      subject_digest: DIGEST_A,
+      decision_digest: DIGEST_B,
+      stale: false
+    };
+    const projection = projectMissionTree({
+      production_id: "prod-sanitize",
+      mode: "active",
+      mission_state: state
+    });
+    expect(projection.gates.find((gate) => gate.gate === "gate_1")?.status).toBe("current");
+    expect(projection.gates.every((gate) =>
+      !("subject_digest" in gate) && !("decision_digest" in gate)
+    )).toBe(true);
+    expect(JSON.stringify(projection)).not.toMatch(/subject_digest|decision_digest/);
+    // Sanitizer is idempotent and never rewrites Gate approval algorithms (digests stay as authority-plane data).
+    const again = sanitizeMissionTreePublicProjection(projection);
+    expect(again.digest).toBe(projection.digest);
+    // Authority-plane digests on state remain untouched.
+    expect(state.gate_bindings.g1.subject_digest).toBe(DIGEST_A);
+    expect(state.gate_bindings.g1.decision_digest).toBe(DIGEST_B);
+
+    const viewer = missionTreeToViewerWorkflow(projection);
+    expect(JSON.stringify(viewer)).not.toMatch(/subject_digest|decision_digest|approved_input_digest/);
+  });
+
+  it("binds finalize production_id to coordination snapshot over project.slug", async () => {
+    const root = await realTempDir("tsugite-po7-prod-id-");
+    try {
+      const state = createInitialMissionState("coord-production-id");
+      state.mission_status = "ready";
+      state.tree_revision = 1;
+      state.applied_event_sequence = 1;
+      state.applied_event_digest = DIGEST_A;
+      await new SnapshotStore(join(root, "coordination")).write(state, null);
+
+      const resolved = await resolveAuthoritativeProductionId(root, { slug: "project-slug-only" });
+      expect(resolved).toBe("coord-production-id");
+      expect(resolved).not.toBe("project-slug-only");
+
+      const planDigest = DIGEST_A;
+      const evidence = [{
+        kind: "events" as const,
+        relative_path: "coordination/events.jsonl",
+        retained: true as const
+      }];
+      const fromCoordination = buildProductionCompletionDigest({
+        production_id: resolved,
+        plan_digest: planDigest,
+        evidence_refs: evidence
+      });
+      const fromSlug = buildProductionCompletionDigest({
+        production_id: "project-slug-only",
+        plan_digest: planDigest,
+        evidence_refs: evidence
+      });
+      // Adversarial: wrong identity produces a different completion digest (fail-closed on apply).
+      expect(fromCoordination).not.toBe(fromSlug);
+
+      // Legacy fallback when coordination is absent.
+      const emptyRoot = await realTempDir("tsugite-po7-prod-id-legacy-");
+      try {
+        const legacy = await resolveAuthoritativeProductionId(emptyRoot, { slug: "legacy-slug" });
+        expect(legacy).toBe("legacy-slug");
+      } finally {
+        await rm(emptyRoot, { recursive: true, force: true });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
