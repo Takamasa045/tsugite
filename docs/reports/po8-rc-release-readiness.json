@@ -223,7 +223,7 @@
     "fixture-only RC integration with unverified Windows/live/desktop/browser"
   ],
   "build_provenance": {
-    "head": "c2182c131bae460ac7a8f9e0a07236fe9eb14865",
+    "head": "6dcc9722c94fb0a2c5fb1c5ba87c8b0e50eb6ae6",
     "branch": "codex/po8-rc-integration",
     "dirty": false,
     "verified_separately": true
