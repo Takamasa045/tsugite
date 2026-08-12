@@ -7,6 +7,7 @@
  * from live durable RunState / GateBundle / HumanDecisionRef resolvers. Free-form
  * structural copies and self-assigned coordinator strings are rejected.
  */
+import { sha256Canonical } from "./canonical.js";
 import { pcError } from "./errors.js";
 import {
   assertGateBundleExecutable,
@@ -146,26 +147,70 @@ export function mintSealedGate2Binding(input: {
 }
 
 /**
- * Mint coordinator authority only when the live actor is the durable coordinator
- * principal for the effect. Free-form string equality alone is not authority.
+ * Verified durable coordinator principal evidence.
+ * Literal "coordinator" strings alone are never authority.
+ */
+export type DurableCoordinatorPrincipalEvidence = {
+  schema_version: 1;
+  kind: "coordinator-principal";
+  actor: "coordinator";
+  /** Digest of the verified Gate1 decision that established coordinator authority. */
+  gate_1_decision_digest: string;
+  digest: string;
+};
+
+/**
+ * Mint coordinator authority only from verified durable coordinator principal evidence
+ * bound to a live Gate1 decision digest. Free-form string equality alone is not authority.
  */
 export function mintSealedCoordinatorAuthority(input: {
   actor: string;
-  /** Live durable principal recorded on the active RunState / job binding path. */
-  live_coordinator_actor: string;
+  /**
+   * Verified durable principal evidence (file / sealed record).
+   * Must recompute digest and match live Gate1 decision.
+   */
+  durable_principal: DurableCoordinatorPrincipalEvidence;
+  /** Live Gate1 decision digest from durable HumanDecisionRef. */
+  live_gate_1_decision_digest: string;
 }): SealedCoordinatorAuthority {
   if (!input.actor || input.actor !== "coordinator") {
     throw pcError("PC_AUTHORITY_DENIED", "sealed coordinator requires actor=coordinator");
   }
-  if (input.live_coordinator_actor !== "coordinator") {
-    throw pcError("PC_AUTHORITY_DENIED", "live coordinator principal is not sealed");
+  const principal = input.durable_principal;
+  if (
+    !principal
+    || principal.kind !== "coordinator-principal"
+    || principal.schema_version !== 1
+    || principal.actor !== "coordinator"
+  ) {
+    throw pcError("PC_AUTHORITY_DENIED", "sealed coordinator requires durable principal evidence");
   }
-  if (input.actor !== input.live_coordinator_actor) {
-    throw pcError("PC_AUTHORITY_DENIED", "coordinator actor does not match live principal");
+  if (
+    !principal.gate_1_decision_digest
+    || principal.gate_1_decision_digest.length !== 64
+    || principal.gate_1_decision_digest !== input.live_gate_1_decision_digest
+  ) {
+    throw pcError(
+      "PC_AUTHORITY_DENIED",
+      "coordinator principal is not bound to the live Gate 1 decision"
+    );
+  }
+  if (!principal.digest || principal.digest.length !== 64) {
+    throw pcError("PC_AUTHORITY_DENIED", "coordinator principal digest is missing");
+  }
+  // Recompute principal digest without trusting caller-supplied digest alone.
+  const expectedDigest = sha256Canonical({
+    schema_version: 1,
+    kind: "coordinator-principal",
+    actor: "coordinator",
+    gate_1_decision_digest: principal.gate_1_decision_digest
+  });
+  if (principal.digest !== expectedDigest) {
+    throw pcError("PC_AUTHORITY_DENIED", "coordinator principal digest mismatch");
   }
   const sealed = Object.freeze({
     kind: "pc-sealed-coordinator" as const,
-    actor: input.actor
+    actor: "coordinator" as const
   });
   sealedCoordinatorAuthorities.add(sealed);
   return sealed;

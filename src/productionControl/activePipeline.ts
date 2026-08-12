@@ -205,22 +205,64 @@ export function buildActiveGateBundle(input: ActiveGateBundleBuildInput & {
 }
 
 /**
- * Durable ContractSet digest from the live ProductionContract — never a placeholder kind.
- * Uses the assets slot bound to the production contract root when no richer set is supplied.
+ * Durable ContractSet digest from the live ProductionContract evidence.
+ * Never stuffs the production root digest into the assets slot as a synthetic stand-in.
+ * When real assets/identity digests are supplied they occupy their slots; the production
+ * contract root is bound as an explicit production_contract_digest field, not as assets.
  */
-export function buildActiveContractSetDigest(contract: ProductionContract): string {
-  const set = createContractSet({
-    production_id: contract.production_id,
-    revision: 0,
-    contracts: [{
+export function buildActiveContractSetDigest(
+  contract: ProductionContract,
+  options?: {
+    /** Optional real asset contract digest when an AssetContract is selected. */
+    assets_digest?: string;
+    /** Optional identity-definition contract digest. */
+    identity_digest?: string;
+  }
+): string {
+  const contracts: Array<{
+    slot: "assets" | "identity-definition" | "music" | "lyrics";
+    contract_id: string;
+    contract_revision: number;
+    artifact_id: string;
+    digest: string;
+  }> = [];
+  if (options?.assets_digest && options.assets_digest.length === 64) {
+    contracts.push({
       slot: "assets",
       contract_id: `${contract.production_id}-assets`,
       contract_revision: 0,
       artifact_id: `${contract.production_id}-assets-art`,
-      digest: contract.root_digest
-    }]
+      digest: options.assets_digest
+    });
+  }
+  if (options?.identity_digest && options.identity_digest.length === 64) {
+    contracts.push({
+      slot: "identity-definition",
+      contract_id: `${contract.production_id}-identity`,
+      contract_revision: 0,
+      artifact_id: `${contract.production_id}-identity-art`,
+      digest: options.identity_digest
+    });
+  }
+  if (contracts.length > 0) {
+    const set = createContractSet({
+      production_id: contract.production_id,
+      revision: 0,
+      contracts
+    });
+    // Bind production contract separately so assets never carries root as a fake.
+    return sha256Canonical({
+      kind: "active-contract-set-with-production",
+      contract_set_digest: set.digest,
+      production_contract_digest: contract.root_digest
+    });
+  }
+  // No richer ContractSet slots yet: digest production contract alone (not as assets).
+  return sha256Canonical({
+    kind: "active-contract-set-production-only",
+    production_id: contract.production_id,
+    production_contract_digest: contract.root_digest
   });
-  return set.digest;
 }
 
 /**

@@ -73,7 +73,6 @@ import { ensureProjectVisibleOnLauncherShelf } from "./project/projectsHome.js";
 import { validateProject } from "./project/validateProject.js";
 import { createProjectGenerationUnitSourceResolver } from "./videoPromptDirector/generationUnitSourceResolver.js";
 import {
-  assertActiveSubjectsBeforePhase,
   buildActiveGate1ProductionBinding,
   buildActiveGate2ProductionBinding,
   buildActiveGate3ProductionBinding,
@@ -83,6 +82,17 @@ import {
   resolveOrchestrationMode,
   writeDurableGateBundle
 } from "./productionControl/activePipeline.js";
+import {
+  assertLiveActiveSubjectsBeforePhase,
+  loadDurableSelectedCompletions,
+  sha256FileContents,
+  writeDurableCoordinatorPrincipal,
+  writeDurableGate2Evidence,
+  writeDurableGate3Evidence,
+  writeDurableGateDecision
+} from "./productionControl/durableGateEvidence.js";
+import { digest as canonicalDigest } from "./orchestrator/editorialProposal.js";
+import { compileProductionContract } from "./productionControl/contractCompiler.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import {
   callRemoteTool,
@@ -1158,7 +1168,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
       }
     }
-    // Active mode: recompute Gate1+2+3 subject+decision before finalize (not presence-only).
+    // Active mode: recompute Gate1+2+3 from durable evidence before finalize.
+    // Never pass stored production digests as expected.
     if (resolveOrchestrationMode(validation.project!) === "active") {
       const stateResult = await loadState(args, validation.project!, { allowMissing: true });
       if (stateResult.ok && stateResult.state) {
@@ -1183,18 +1194,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
         }
         try {
-          assertActiveSubjectsBeforePhase({
+          const productionId = compileProductionContract({ project: validation.project! }).production_id;
+          const runDir = join(stateResult.stateDir, stateResult.state.run_id);
+          await assertLiveActiveSubjectsBeforePhase({
             mode: "active",
             phase: "finalize",
+            runDir,
             state: stateResult.state,
-            expected: {
-              gate_1_subject_digest: g1.production_subject_digest,
-              gate_1_decision_digest: g1.production_decision_digest,
-              gate_2_subject_digest: g2.production_subject_digest,
-              gate_2_decision_digest: g2.production_decision_digest,
-              gate_3_subject_digest: g3.production_subject_digest,
-              gate_3_decision_digest: g3.production_decision_digest
-            }
+            production_id: productionId
           });
         } catch (error) {
           return output(args, 1, {
@@ -1609,7 +1616,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    // Active mode: live recompute Gate 1 subject+decision (not presence-only) before run.
+    // Active mode: recompute expected Gate1 from durable GateBundle + HumanDecisionRef.
+    // Never pass stored production digests as expected (no tautological self-comparison).
     if (resolveOrchestrationMode(validation.project!) === "active") {
       const g1 = stateResult.state.gates.gate_1;
       if (!g1.production_subject_digest || !g1.production_decision_digest) {
@@ -1623,14 +1631,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
       }
       try {
-        assertActiveSubjectsBeforePhase({
+        const productionId = compileProductionContract({ project: validation.project! }).production_id;
+        const runDir = join(stateResult.stateDir, stateResult.state.run_id);
+        await assertLiveActiveSubjectsBeforePhase({
           mode: "active",
           phase: "run",
+          runDir,
           state: stateResult.state,
-          expected: {
-            gate_1_subject_digest: g1.production_subject_digest,
-            gate_1_decision_digest: g1.production_decision_digest
-          }
+          production_id: productionId
         });
       } catch (error) {
         return output(args, 1, {
@@ -1791,16 +1799,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
       }
       try {
-        assertActiveSubjectsBeforePhase({
+        const productionId = compileProductionContract({ project: validation.project! }).production_id;
+        const runDir = join(stateResult.stateDir, stateResult.state.run_id);
+        await assertLiveActiveSubjectsBeforePhase({
           mode: "active",
           phase: "render",
+          runDir,
           state: stateResult.state,
-          expected: {
-            gate_1_subject_digest: g1.production_subject_digest,
-            gate_1_decision_digest: g1.production_decision_digest,
-            gate_2_subject_digest: g2.production_subject_digest,
-            gate_2_decision_digest: g2.production_decision_digest
-          }
+          production_id: productionId
         });
       } catch (error) {
         return output(args, 1, {
@@ -2631,18 +2637,34 @@ async function recordGate(
           });
           await writeDurableGateBundle(runDir, bundle);
         }
+        const decisionId = productionDecisionId("gate_1", "coordinator", decidedAt);
         const bound = buildActiveGate1ProductionBinding({
           production_id: bundle.production_id,
           run_id: state.run_id,
           gate_bundle: bundle,
           legacy_approved_input_digest: gateApprovalDigest,
           decision: {
-            decision_id: productionDecisionId("gate_1", "coordinator", decidedAt),
+            decision_id: decisionId,
             decision: "approved",
             actor: "coordinator",
             decided_at: decidedAt
           },
           allow_empty_local_only: !hasGeneration
+        });
+        await writeDurableGateDecision(runDir, {
+          gate: "gate_1",
+          decision: {
+            decision_id: decisionId,
+            decision: "approved",
+            actor: "coordinator",
+            decided_at: decidedAt,
+            subject_digest: bound.subject_digest
+          },
+          decision_source: "human",
+          legacy_approved_input_digest: gateApprovalDigest
+        });
+        await writeDurableCoordinatorPrincipal(runDir, {
+          gate_1_decision_digest: bound.decision_digest
         });
         productionBinding = bound.productionBinding;
       } else if (gate === "gate_2") {
@@ -2682,17 +2704,58 @@ async function recordGate(
             statePath: stateLocation.statePath
           };
         }
+        // Actual selected pinned completions + distinct manifest / technical QA digests.
+        const completions = await loadDurableSelectedCompletions(runDir);
+        const completionDigests = completions.map((ref) => ref.digest);
+        const manifestPath = join(runDir, "manifest.json");
+        const qcPath = join(runDir, "gate2-qc.json");
+        let manifestDigest: string;
+        let technicalQaDigest: string;
+        try {
+          manifestDigest = await sha256FileContents(manifestPath);
+          technicalQaDigest = await sha256FileContents(qcPath);
+        } catch {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_evidence_missing",
+              message: "active Gate 2 approval requires durable manifest.json and gate2-qc.json evidence"
+            }],
+            state,
+            statePath: stateLocation.statePath
+          };
+        }
+        const decisionId = productionDecisionId("gate_2", "coordinator", decidedAt);
         const bound = buildActiveGate2ProductionBinding({
           gate_1_decision_digest: g1.production_decision_digest,
           gate_bundle_digest: durable.digest,
-          selected_generation_completion_digests: [],
-          manifest_digest: gateApprovalDigest,
-          technical_qa_digest: gateApprovalDigest,
+          selected_generation_completion_digests: completionDigests,
+          manifest_digest: manifestDigest,
+          technical_qa_digest: technicalQaDigest,
           decision: {
-            decision_id: productionDecisionId("gate_2", "coordinator", decidedAt),
+            decision_id: decisionId,
             decision: "approved",
             actor: "coordinator",
             decided_at: decidedAt
+          },
+          decision_source: "human",
+          legacy_approved_input_digest: gateApprovalDigest
+        });
+        await writeDurableGate2Evidence(runDir, {
+          gate_bundle_digest: durable.digest,
+          gate_1_decision_digest: g1.production_decision_digest,
+          selected_generation_completion_digests: completionDigests,
+          manifest_digest: manifestDigest,
+          technical_qa_digest: technicalQaDigest
+        });
+        await writeDurableGateDecision(runDir, {
+          gate: "gate_2",
+          decision: {
+            decision_id: decisionId,
+            decision: "approved",
+            actor: "coordinator",
+            decided_at: decidedAt,
+            subject_digest: bound.subject_digest
           },
           decision_source: "human",
           legacy_approved_input_digest: gateApprovalDigest
@@ -2722,19 +2785,81 @@ async function recordGate(
             statePath: stateLocation.statePath
           };
         }
+        const runDir = join(stateLocation.stateDir, state.run_id);
+        // Distinct final artifact / render report / Gate3 QC / branch evidence — not one composite.
+        const finalPath = join(runDir, "final.mp4");
+        const renderReportPath = join(runDir, "render-report.json");
+        const gate3QcPath = join(runDir, "gate3-qc.json");
+        let finalArtifactSha: string;
+        let renderReportDigest: string;
+        let gate3QcDigest: string;
+        try {
+          finalArtifactSha = await sha256FileContents(finalPath);
+          renderReportDigest = await sha256FileContents(renderReportPath);
+          gate3QcDigest = await sha256FileContents(gate3QcPath);
+        } catch {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_evidence_missing",
+              message:
+                "active Gate 3 approval requires final.mp4, render-report.json, and gate3-qc.json evidence"
+            }],
+            state,
+            statePath: stateLocation.statePath
+          };
+        }
+        if (finalArtifactSha !== gateApprovalDigest) {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_evidence_mismatch",
+              message: "active Gate 3 final artifact digest does not match approval digest"
+            }],
+            state,
+            statePath: stateLocation.statePath
+          };
+        }
+        // Branch evidence: deterministic digest of Gate2 decision + final (no empty array).
+        const selectedBranchDigest = canonicalDigest({
+          kind: "gate-3-selected-branch",
+          gate_2_decision_digest: g2.production_decision_digest,
+          final_artifact_sha256: finalArtifactSha
+        });
+        const decisionId = productionDecisionId("gate_3", "coordinator", decidedAt);
         const bound = buildActiveGate3ProductionBinding({
           gate_2_decision_digest: g2.production_decision_digest,
           gate_2_subject_digest: g2.production_subject_digest,
-          final_artifact_sha256: gateApprovalDigest,
-          render_report_digest: gateApprovalDigest,
-          gate_3_qc_digest: gateApprovalDigest,
-          selected_branch_digest: gateApprovalDigest,
+          final_artifact_sha256: finalArtifactSha,
+          render_report_digest: renderReportDigest,
+          gate_3_qc_digest: gate3QcDigest,
+          selected_branch_digest: selectedBranchDigest,
           decision: {
-            decision_id: productionDecisionId("gate_3", "coordinator", decidedAt),
+            decision_id: decisionId,
             decision: "approved",
             actor: "coordinator",
             decided_at: decidedAt
           },
+          legacy_approved_input_digest: gateApprovalDigest
+        });
+        await writeDurableGate3Evidence(runDir, {
+          gate_2_decision_digest: g2.production_decision_digest,
+          gate_2_subject_digest: g2.production_subject_digest,
+          final_artifact_sha256: finalArtifactSha,
+          render_report_digest: renderReportDigest,
+          gate_3_qc_digest: gate3QcDigest,
+          selected_branch_digest: selectedBranchDigest
+        });
+        await writeDurableGateDecision(runDir, {
+          gate: "gate_3",
+          decision: {
+            decision_id: decisionId,
+            decision: "approved",
+            actor: "coordinator",
+            decided_at: decidedAt,
+            subject_digest: bound.subject_digest
+          },
+          decision_source: "human",
           legacy_approved_input_digest: gateApprovalDigest
         });
         productionBinding = bound.productionBinding;

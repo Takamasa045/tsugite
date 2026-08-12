@@ -41,7 +41,8 @@ import {
 } from "../productionControl/generationBridge.js";
 import {
   mintSealedCoordinatorAuthority,
-  mintSealedGate1Binding
+  mintSealedGate1Binding,
+  type DurableCoordinatorPrincipalEvidence
 } from "../productionControl/authorityGuard.js";
 import { ProductionDispatcher } from "../productionControl/dispatcher.js";
 import { requireActiveModeForEffect } from "../productionControl/activePipeline.js";
@@ -105,13 +106,15 @@ export type MachineOptions = {
     job: GenerationJobRecord
   ) => ExecutionSubmissionBinding | Promise<ExecutionSubmissionBinding>;
   /**
-   * Active mode only: live GateBundle for sealed Gate1 authority + membership checks.
+   * Active mode only (required): live GateBundle for sealed Gate1 authority + membership.
+   * Missing resolver fails closed at active submit — never optional for active.
    */
   resolveGateBundle?: (
     job: GenerationJobRecord
   ) => GateBundle | Promise<GateBundle>;
   /**
-   * Active mode only: live Gate1 subject+decision digests from durable RunState.
+   * Active mode only (required): live Gate1 subject+decision digests from durable evidence.
+   * Missing resolver fails closed at active submit — never optional for active.
    */
   resolveLiveGate1?: (
     job: GenerationJobRecord
@@ -123,13 +126,23 @@ export type MachineOptions = {
     decision_digest: string;
   }>;
   /**
+   * Active mode only (required): verified durable coordinator principal evidence.
+   * Literal "coordinator" strings are not authority.
+   */
+  resolveCoordinatorPrincipal?: (
+    job: GenerationJobRecord
+  ) =>
+    | DurableCoordinatorPrincipalEvidence
+    | Promise<DurableCoordinatorPrincipalEvidence | undefined>
+    | undefined;
+  /**
    * Test/integration hooks around the active T05 submission path only.
    * Never grants authority by itself.
    */
   activeSubmitHooks?: ExecutionSubmitHooks;
   /**
-   * Optional shared ProductionDispatcher (effectful max 1). When omitted, a
-   * private dispatcher is used for the active submit path only.
+   * Shared ProductionDispatcher (effectful max 1). When omitted, a private
+   * dispatcher is created; active submit always routes through a dispatcher.
    */
   dispatcher?: ProductionDispatcher;
 };
@@ -179,6 +192,7 @@ export class GenerationJobMachine {
   private readonly resolveSubmissionBinding?: MachineOptions["resolveSubmissionBinding"];
   private readonly resolveGateBundle?: MachineOptions["resolveGateBundle"];
   private readonly resolveLiveGate1?: MachineOptions["resolveLiveGate1"];
+  private readonly resolveCoordinatorPrincipal?: MachineOptions["resolveCoordinatorPrincipal"];
   private readonly activeSubmitHooks?: ExecutionSubmitHooks;
   private readonly dispatcher: ProductionDispatcher;
   /** Tracks whether the active path invoked adapter.submit via T05 only. */
@@ -205,6 +219,7 @@ export class GenerationJobMachine {
     this.resolveSubmissionBinding = options.resolveSubmissionBinding;
     this.resolveGateBundle = options.resolveGateBundle;
     this.resolveLiveGate1 = options.resolveLiveGate1;
+    this.resolveCoordinatorPrincipal = options.resolveCoordinatorPrincipal;
     this.activeSubmitHooks = options.activeSubmitHooks;
     this.dispatcher = options.dispatcher ?? new ProductionDispatcher();
   }
@@ -508,6 +523,14 @@ export class GenerationJobMachine {
         "active submit requires execution bundle and submission binding resolvers"
       );
     }
+    // Active requires GateBundle + live Gate1 + coordinator principal + dispatcher.
+    // Optional resolvers fail closed (never skip sealed authority).
+    if (!this.resolveGateBundle || !this.resolveLiveGate1 || !this.resolveCoordinatorPrincipal) {
+      throw new GenerationJobError(
+        GJ_SUBMIT_NOT_ALLOWED,
+        "active submit requires resolveGateBundle, resolveLiveGate1, and resolveCoordinatorPrincipal"
+      );
+    }
     const binding = await this.resolveSubmissionBinding(submitting);
     if (
       !binding
@@ -528,56 +551,62 @@ export class GenerationJobMachine {
     }
 
     // Sealed authority from live durable resolvers only — free-form copies rejected.
-    // When resolvers are provided, ProductionDispatcher (effectful max1) gates the submit.
+    // ProductionDispatcher (effectful max1) always gates active submit.
     let slot: ReturnType<ProductionDispatcher["acquire"]> | undefined;
-    if (this.resolveGateBundle && this.resolveLiveGate1) {
-      try {
-        const gateBundle = await this.resolveGateBundle(submitting);
-        const liveGate1 = await this.resolveLiveGate1(submitting);
-        if (
-          !liveGate1
-          || liveGate1.subject_digest.length !== 64
-          || liveGate1.decision_digest.length !== 64
-        ) {
-          throw new GenerationJobError(
-            GJ_SUBMIT_NOT_ALLOWED,
-            "active submit requires live Gate 1 subject and decision digests"
-          );
-        }
-        const coordinator = mintSealedCoordinatorAuthority({
-          actor: "coordinator",
-          live_coordinator_actor: "coordinator"
-        });
-        const sealedGate1 = mintSealedGate1Binding({
-          gate_bundle: gateBundle,
-          subject_digest: liveGate1.subject_digest,
-          decision_digest: liveGate1.decision_digest,
-          live_subject_digest: liveGate1.subject_digest,
-          live_decision_digest: liveGate1.decision_digest
-        });
-        slot = this.dispatcher.acquire({
-          node_id: productionBinding.node_id,
-          attempt_id: productionBinding.attempt_id,
-          task_revision: productionBinding.approval_observed_revision,
-          input_digest: productionBinding.immutable_identity_digest,
-          role: "generator",
-          effect: "external-submit",
-          authority: {
-            mode: "active",
-            actor: "coordinator",
-            coordinator_authority: coordinator,
-            gate_bundle: gateBundle,
-            gate_1: sealedGate1,
-            expected_pricing_binding_digest: productionBinding.pricing_binding_digest
-          }
-        });
-      } catch (error) {
-        if (error instanceof GenerationJobError) throw error;
+    try {
+      const gateBundle = await this.resolveGateBundle(submitting);
+      const liveGate1 = await this.resolveLiveGate1(submitting);
+      if (
+        !liveGate1
+        || liveGate1.subject_digest.length !== 64
+        || liveGate1.decision_digest.length !== 64
+      ) {
         throw new GenerationJobError(
           GJ_SUBMIT_NOT_ALLOWED,
-          `active submit authority/dispatch failed: ${error instanceof Error ? error.message : String(error)}`
+          "active submit requires live Gate 1 subject and decision digests"
         );
       }
+      const durablePrincipal = await this.resolveCoordinatorPrincipal(submitting);
+      if (!durablePrincipal) {
+        throw new GenerationJobError(
+          GJ_SUBMIT_NOT_ALLOWED,
+          "active submit requires verified durable coordinator principal evidence"
+        );
+      }
+      const coordinator = mintSealedCoordinatorAuthority({
+        actor: "coordinator",
+        durable_principal: durablePrincipal,
+        live_gate_1_decision_digest: liveGate1.decision_digest
+      });
+      const sealedGate1 = mintSealedGate1Binding({
+        gate_bundle: gateBundle,
+        subject_digest: liveGate1.subject_digest,
+        decision_digest: liveGate1.decision_digest,
+        live_subject_digest: liveGate1.subject_digest,
+        live_decision_digest: liveGate1.decision_digest
+      });
+      slot = this.dispatcher.acquire({
+        node_id: productionBinding.node_id,
+        attempt_id: productionBinding.attempt_id,
+        task_revision: productionBinding.approval_observed_revision,
+        input_digest: productionBinding.immutable_identity_digest,
+        role: "generator",
+        effect: "external-submit",
+        authority: {
+          mode: "active",
+          actor: "coordinator",
+          coordinator_authority: coordinator,
+          gate_bundle: gateBundle,
+          gate_1: sealedGate1,
+          expected_pricing_binding_digest: productionBinding.pricing_binding_digest
+        }
+      });
+    } catch (error) {
+      if (error instanceof GenerationJobError) throw error;
+      throw new GenerationJobError(
+        GJ_SUBMIT_NOT_ALLOWED,
+        `active submit authority/dispatch failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
 
     const bundle = await this.resolveExecutionBundle(submitting);

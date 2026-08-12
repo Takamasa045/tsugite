@@ -45,6 +45,10 @@ import {
   type GateBundle
 } from "../productionControl/activePipeline.js";
 import { pricingBindingDigest } from "../productionControl/gateBundle.js";
+import {
+  extractAuthoritativePricingFromProfile,
+  resolveAuthoritativeGatePricing
+} from "../productionControl/pricingEvidence.js";
 import type { RouteIdentity } from "../productionControl/programBinding.js";
 import type { VideoPromptV2Compilation } from "../videoPromptDirector/compileV2.js";
 import { createProjectGenerationUnitSourceResolver, reloadAuthoritativeAssetContract, resolveProjectAssetContract } from "../videoPromptDirector/generationUnitSourceResolver.js";
@@ -1119,6 +1123,9 @@ async function fingerprintReviewAssets(
 /**
  * Build ordered generation unit evidence from plan video_prompt / h3 compilations.
  * Fixture-safe: uses only digests and route/pricing already bound on the plan.
+ * Never invents USD amount0/max0 from pricing_status=known alone.
+ * Never synthesizes fallback compilation digests — missing compilation fails closed
+ * by omitting the unit (generation projects then refuse empty batches at GateBundle).
  */
 export function buildActiveGenerationUnitEvidenceFromPlan(
   plan: ExecutionPlan
@@ -1128,38 +1135,15 @@ export function buildActiveGenerationUnitEvidenceFromPlan(
   for (const [index, vp] of plans.entries()) {
     const route = (vp.v2_compilation?.route ?? null) as RouteIdentity | null;
     if (!route) continue;
+    // Real ContractSet / compilation evidence only — no synthetic fallback digest.
     const compilationDigest = vp.v2_compilation?.bundle?.compilation_digest
-      ?? (vp.compilation as { digest?: string } | undefined)?.digest
-      ?? sha256Canonical({
-          kind: "active-plan-compilation-fallback",
-          request_index: index,
-          model: vp.model_profile_digest
-        });
-    const pricingStatus = (vp.connection_profile as { pricing_status?: string } | undefined)
-      ?.pricing_status;
-    const pricing = pricingStatus === "known"
-      ? {
-          status: "known" as const,
-          version: "plan-known",
-          currency: "USD",
-          amount: 0,
-          max_amount: 0
-        }
-      : pricingStatus === "not-applicable"
-        ? {
-            status: "not-applicable" as const,
-            version: null,
-            currency: null,
-            amount: null,
-            max_amount: null
-          }
-        : {
-            status: "unknown" as const,
-            version: null,
-            currency: null,
-            amount: null,
-            max_amount: null
-          };
+      ?? (vp.compilation as { digest?: string } | undefined)?.digest;
+    if (!compilationDigest || typeof compilationDigest !== "string" || compilationDigest.length !== 64) {
+      // Fail closed for this unit; empty unit list is rejected for generation projects.
+      continue;
+    }
+    const extracted = extractAuthoritativePricingFromProfile(vp.connection_profile);
+    const pricing = resolveAuthoritativeGatePricing(extracted);
     units.push({
       generation_unit_digest: sha256Canonical({
         kind: "active-generation-unit",
@@ -1732,16 +1716,29 @@ export async function writeCreativeReview(
       : undefined
   );
   // Durable canonical GateBundle for active mode: same digest Gate1 will load.
+  // Incomplete plan/compilation evidence leaves review readable (Gate1 approve fails closed).
+  // Durable write failure after a successful build is always surfaced.
   if (options.project.orchestration?.mode === "active") {
+    let built: ReturnType<typeof buildActiveReviewGateBundle> | undefined;
     try {
-      const built = buildActiveReviewGateBundle(options.project, options.plan);
+      built = buildActiveReviewGateBundle(options.project, options.plan);
+    } catch {
+      built = undefined;
+    }
+    if (built) {
       const runId = options.project.run_id ?? options.project.slug;
       const stateDir = options.stateDir
         ? resolve(options.stateDir)
         : resolve(dirname(resolve(options.configPath)), options.project.dist_dir);
-      await writeDurableGateBundle(join(stateDir, runId), built.bundle);
-    } catch {
-      // Missing generation evidence is enforced at Gate1 approve; review remains readable.
+      try {
+        await writeDurableGateBundle(join(stateDir, runId), built.bundle);
+      } catch (error) {
+        throw new Error(
+          `active review durable GateBundle write failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
     }
   }
   await attachReviewPreviewVideos(outputDir, document, {
