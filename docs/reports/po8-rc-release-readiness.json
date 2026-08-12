@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-12T12:50:52.674Z",
+  "generated_at": "2026-08-12T12:51:16.856Z",
   "package_version": "0.9.0",
   "recommended_version": "0.9.0",
   "version_decision": {
@@ -210,10 +210,10 @@
     "Windows smoke not proven → not release 1.0.0"
   ],
   "build_provenance": {
-    "head": "06c821de42683cd9511f77a029db3653f24b2bde",
+    "head": "19155689697556570bbc0b6507ed9f02ab4b7610",
     "branch": "codex/po8-rc-integration",
-    "dirty": true,
+    "dirty": false,
     "verified_separately": true
   },
-  "digest": "2a04f8c47287d7fa358823022c4d2f6ba0ee62777088e242eead17c91167a152"
+  "digest": "8f086e73337dfb9fe1750a7449dd81791a36aa9886b329f38f0e8d662a0ff484"
 }
