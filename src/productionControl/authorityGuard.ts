@@ -1,6 +1,6 @@
 /**
  * AuthorityGuard — effect-class checks before dispatcher execution.
- * Never trusts caller booleans alone. Paid is unconditionally denied until PO-6.
+ * Never trusts caller booleans alone. Paid requires opaque PO-6 sealed authorization.
  * Gate 1/3 always require sealed human decision subjects.
  *
  * Sealed objects and coordinator authority are opaque WeakSet tokens minted only
@@ -17,6 +17,10 @@ import {
   type GateBundle
 } from "./gateBundle.js";
 import { isEffectful, type EffectClass } from "./leases.js";
+import {
+  isSealedPaidAuthorization,
+  type SealedPaidAuthorization
+} from "./recovery.js";
 import { roleEffectAllowed, type ProductionControlRole } from "./schema.js";
 import {
   humanDecisionRefSchema,
@@ -352,9 +356,14 @@ export type AuthorityContext = {
    */
   human_decision_ref?: HumanDecisionRef;
   /**
-   * PO-6 grant/authorization. T06 unconditionally denies paid even when true.
+   * @deprecated Boolean never grants paid authority. Use sealed_paid_authorization.
    */
   paid_authorization?: boolean;
+  /**
+   * Opaque durable PO-6 paid authorization (WeakSet-sealed).
+   * Required for effect "paid". Structural copies and booleans are rejected.
+   */
+  sealed_paid_authorization?: SealedPaidAuthorization;
 };
 
 export type AuthorityDecision = {
@@ -484,14 +493,63 @@ export function checkAuthority(context: AuthorityContext): AuthorityDecision {
       return { allowed: true, effect: context.effect };
     }
 
-    case "paid":
-      // PO-6 owns grants/credits. T06 unconditionally denies paid execution,
-      // even when paid_authorization:true is supplied by a caller.
-      return {
-        allowed: false,
-        reason: "paid execution denied until PO-6 typed authorization exists",
-        effect: context.effect
-      };
+    case "paid": {
+      // Boolean / self-assigned strings never authorize paid execution.
+      if (context.paid_authorization === true && !context.sealed_paid_authorization) {
+        return {
+          allowed: false,
+          reason: "paid execution requires sealed regeneration attempt authorization",
+          effect: context.effect
+        };
+      }
+      if (!isSealedCoordinator(context)) {
+        return {
+          allowed: false,
+          reason: "paid execution requires sealed Coordinator binding",
+          effect: context.effect
+        };
+      }
+      const sealedSubmit = assertSealedGate1ForSubmit(context);
+      if (sealedSubmit) {
+        return {
+          allowed: false,
+          reason: sealedSubmit.reason ?? "paid execution requires sealed Gate 1 and known price",
+          effect: context.effect
+        };
+      }
+      const paid = context.sealed_paid_authorization;
+      if (!paid || !isSealedPaidAuthorization(paid)) {
+        return {
+          allowed: false,
+          reason: "paid execution requires sealed regeneration attempt authorization",
+          effect: context.effect
+        };
+      }
+      // Sealed paid token must bind to the live GateBundle pricing subject.
+      if (context.gate_bundle) {
+        const pricingMatch = context.gate_bundle.generation_batches.some(
+          (batch) => batch.pricing_binding_digest === paid.pricing_binding_digest
+        );
+        if (!pricingMatch) {
+          return {
+            allowed: false,
+            reason: "paid authorization pricing does not match live GateBundle",
+            effect: context.effect
+          };
+        }
+      }
+      if (
+        context.expected_pricing_binding_digest
+        && context.expected_pricing_binding_digest !== paid.pricing_binding_digest
+      ) {
+        return {
+          allowed: false,
+          reason: "paid authorization pricing does not match expected subject",
+          effect: context.effect
+        };
+      }
+      return { allowed: true, effect: context.effect };
+    }
 
     case "render":
       if (!isSealedCoordinator(context)) {

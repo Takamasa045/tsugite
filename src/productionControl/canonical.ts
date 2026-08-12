@@ -17,7 +17,15 @@ const OMIT_FROM_DIGEST = new Set([
   "updated_at"
 ]);
 
-const FORBIDDEN_KEY = /(?:^|_)(?:api_key|access_token|refresh_token|authorization|cookie|credential|password|private_key|prompt|provider_body|provider_request|provider_response|raw_prompt|raw_provider|secret|session_token|token)(?:$|_)/;
+/**
+ * Secret / raw provider-or-prompt field names. Match whole path segments only so
+ * design fields like allowed_prompt_block_ids are not false-positive blocked.
+ * `prompt` / `token` / `secret` must be a full segment (start/end or underscore-bounded
+ * without trailing identifier words other than end-of-key).
+ */
+// `authorization` alone (exact segment) is forbidden; compound design fields like
+// regeneration_attempt_authorization_digest are allowed.
+const FORBIDDEN_KEY = /(?:^|_)(?:api_key|access_token|refresh_token|cookie|credential|password|private_key|provider_body|provider_request|provider_response|raw_prompt|raw_provider|session_token)(?:$|_)|(?:^|_)(?:authorization|prompt|secret|token)$/;
 
 /** Deterministic JSON; object key order is ignored and array order is retained. */
 export function canonicalJson(value: unknown): string {

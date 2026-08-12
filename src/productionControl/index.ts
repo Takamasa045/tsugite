@@ -33,3 +33,7 @@ export * from "./activePipeline.js";
 export * from "./pricingEvidence.js";
 export * from "./durableGateEvidence.js";
 export * from "./activeRunGeneration.js";
+export * from "./recoveryContracts.js";
+export * from "./revisionIntent.js";
+export * from "./grantLedger.js";
+export * from "./recovery.js";

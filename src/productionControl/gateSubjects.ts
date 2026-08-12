@@ -187,6 +187,8 @@ export type GateDriftKind =
   | "pre-gate-composition"
   | "prompt"
   | "compilation"
+  /** Policy-exempt derived compilation with live AttemptAuthorization — Gate1 kept. */
+  | "policy-exempt-derived-compilation"
   | "selected-completion"
   | "manifest"
   | "identity-verification"
@@ -205,6 +207,8 @@ export type GateCascade = {
   stale_gate_3: boolean;
   render_forbidden: boolean;
   finalize_forbidden: boolean;
+  /** True only for pure policy-exempt derived compilation (Gate1 kept). */
+  gate_1_preserved_by_policy?: boolean;
 };
 
 const UPSTREAM_GATE1_DRIFT = new Set<GateDriftKind>([
@@ -219,6 +223,8 @@ const UPSTREAM_GATE1_DRIFT = new Set<GateDriftKind>([
 ]);
 
 const GATE2_ONLY_DRIFT = new Set<GateDriftKind>([
+  /** Policy-bound derived compilation: keep Gate1, stale Gate2/3, re-evaluate render. */
+  "policy-exempt-derived-compilation",
   "selected-completion",
   "manifest",
   "identity-verification",
@@ -238,6 +244,7 @@ const GATE3_ONLY_DRIFT = new Set<GateDriftKind>([
 /**
  * Cascade rules (runtime-and-recovery §13):
  * - upstream contract/tree/identity-definition/route/price/pre-Gate composition/prompt/compilation → 1→2→3
+ * - policy-exempt derived compilation (with live AttemptAuthorization) → Gate1 kept, Gate2/3 stale
  * - selected completion/manifest/IdentityVerification/resolved CompositionPlan/technical+semantic QA → 2→3 only
  * - Gate2 decision/subject and final artifact/render report/Gate3 QC/final branch → Gate3 only
  * Never infer Identity confirmed/verified from definition alone (callers must separate kinds).
@@ -246,11 +253,18 @@ export function cascadeFromDrift(kinds: readonly GateDriftKind[]): GateCascade {
   let stale1 = false;
   let stale2 = false;
   let stale3 = false;
+  let policyExemptOnly = false;
   for (const kind of kinds) {
-    if (UPSTREAM_GATE1_DRIFT.has(kind)) {
+    if (kind === "policy-exempt-derived-compilation") {
+      // Gate1 maintained; Gate2/3 stale; render re-evaluated (forbidden until Gate2 current).
+      stale2 = true;
+      stale3 = true;
+      policyExemptOnly = true;
+    } else if (UPSTREAM_GATE1_DRIFT.has(kind)) {
       stale1 = true;
       stale2 = true;
       stale3 = true;
+      policyExemptOnly = false;
     } else if (GATE2_ONLY_DRIFT.has(kind)) {
       stale2 = true;
       stale3 = true;
@@ -265,12 +279,16 @@ export function cascadeFromDrift(kinds: readonly GateDriftKind[]): GateCascade {
     stale2 = true;
     stale3 = true;
   }
+  // Mixed policy-exempt + upstream: upstream wins (Gate1 stale).
+  if (stale1) policyExemptOnly = false;
   return {
     stale_gate_1: stale1,
     stale_gate_2: stale2,
     stale_gate_3: stale3,
+    // policy-exempt derived still forbids render until Gate2 is re-approved.
     render_forbidden: stale1 || stale2,
-    finalize_forbidden: stale1 || stale2 || stale3
+    finalize_forbidden: stale1 || stale2 || stale3,
+    ...(policyExemptOnly && !stale1 ? { gate_1_preserved_by_policy: true as const } : {})
   };
 }
 

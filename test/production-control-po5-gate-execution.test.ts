@@ -503,10 +503,10 @@ describe("PO-5 Gate subjects / cascade / legacy compatibility", () => {
 });
 
 describe("PO-5 authority / dispatcher / leases", () => {
-  it("denies paid until PO-6 and requires sealed Gate1+bundle+Coordinator for submit", () => {
+  it("denies paid without sealed PO-6 authorization and requires sealed Gate1+bundle+Coordinator for submit", () => {
     const bundle = sampleBundle();
     const coordinator = sealedCoordinator();
-    // paid_authorization:true is still unconditionally denied in T06.
+    // paid_authorization:true boolean alone is still denied (PO-6 sealed token required).
     expect(checkAuthority({
       role: "generator",
       effect: "paid",
@@ -522,7 +522,7 @@ describe("PO-5 authority / dispatcher / leases", () => {
       mode: "active",
       coordinator_authority: coordinator,
       paid_authorization: true
-    }).reason).toBe("paid execution denied until PO-6 typed authorization exists");
+    }).reason).toBe("paid execution requires sealed regeneration attempt authorization");
 
     expect(checkAuthority({
       role: "generator",
@@ -1141,7 +1141,7 @@ describe("PO-5 resume / events / snapshot / orphan / interleaving", () => {
 });
 
 describe("PO-5 authority assert helpers", () => {
-  it("assertAuthority throws with exact PC_AUTHORITY_DENIED for paid", () => {
+  it("assertAuthority throws with exact PC_AUTHORITY_DENIED for paid without sealed auth", () => {
     expect(() => assertAuthority({
       role: "generator",
       effect: "paid",
@@ -1151,7 +1151,7 @@ describe("PO-5 authority assert helpers", () => {
       paid_authorization: true
     })).toThrowError(expect.objectContaining({
       code: "PC_AUTHORITY_DENIED",
-      message: "paid execution denied until PO-6 typed authorization exists"
+      message: "paid execution requires sealed regeneration attempt authorization"
     }));
   });
 

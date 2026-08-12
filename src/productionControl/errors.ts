@@ -43,7 +43,18 @@ export type ProductionControlErrorCode =
   | "PC_COMPLETION_NOT_PINNED"
   | "PC_SUBMISSION_UNKNOWN"
   | "PC_RESUME_INVALID"
-  | "PC_MODE_INACTIVE";
+  | "PC_MODE_INACTIVE"
+  | "PC_GRANT_INVALID"
+  | "PC_GRANT_EXHAUSTED"
+  | "PC_GRANT_EXPIRED"
+  | "PC_LEDGER_CONFLICT"
+  | "PC_LEDGER_UNSAFE"
+  | "PC_RESERVATION_INVALID"
+  | "PC_AUTHORIZATION_INVALID"
+  | "PC_PERMIT_INVALID"
+  | "PC_REVISION_INTENT_INVALID"
+  | "PC_RECOVERY_DENIED"
+  | "PC_POLICY_MISMATCH";
 
 /** Error boundary for the production-control shadow foundation. */
 export class ProductionControlError extends Error {

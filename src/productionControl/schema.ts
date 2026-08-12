@@ -521,6 +521,12 @@ const generationJobBoundPayload = z.object({
   gate_bundle_digest: digestSchema,
   approval_observed_revision: nonNegativeInt
 }).strict();
+const revisionIntentSelectedPayload = z.object({
+  revision_intent_id: safeIdSchema,
+  revision_intent_digest: digestSchema,
+  target_node_id: safeIdSchema,
+  change_class: safeIdSchema
+}).strict();
 
 export const productionEventSchema = z.discriminatedUnion("type", [
   event("mission-created", missionCreatedPayload),
@@ -534,6 +540,7 @@ export const productionEventSchema = z.discriminatedUnion("type", [
   event("attempt-failed-known", failedPayload),
   event("attempt-outcome-unknown", failedPayload),
   event("task-awaiting-human", awaitingHumanPayload),
+  event("revision-intent-selected", revisionIntentSelectedPayload),
   event("nodes-invalidated", invalidatedPayload),
   event("gate-binding-recorded", gateBindingRecordedPayload),
   event("generation-job-bound", generationJobBoundPayload),
