@@ -1,5 +1,10 @@
 import type { ExecutionPlan, PlanStep } from "../orchestrator/plan.js";
 import type { GateId, GateStatus, RunState } from "../orchestrator/state.js";
+import {
+  missionTreeToViewerWorkflow,
+  type MissionTreePublicProjectionV1,
+  type ViewerMissionTreeOverlay
+} from "../productionControl/publicProjection.js";
 import type { Project } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import {
@@ -81,6 +86,20 @@ export type ViewerWorkflowData = {
   nodes: ViewerWorkflowNode[];
   edges: ViewerWorkflowEdge[];
   events: ViewerWorkflowEvent[];
+  /**
+   * Active Mission Tree overlay (camelCase exact). Omitted for legacy fixed 8-step workflows
+   * so their JSON bytes/shape stay unchanged.
+   */
+  missionTree?: ViewerMissionTreeOverlay;
+};
+
+export type CreateViewerWorkflowOptions = {
+  /**
+   * Active-only Mission Tree public projection. When mode is active, the viewer
+   * payload is the Mission Tree graph (shared with PO-0A scene/fallback). Legacy
+   * fixed 8-step path is used otherwise and remains byte/behavior stable.
+   */
+  missionTree?: MissionTreePublicProjectionV1;
 };
 
 export type ViewerArtifactSnapshot = {
@@ -177,8 +196,31 @@ export function createViewerWorkflow(
   project: Project,
   plan: ExecutionPlan,
   state?: RunState,
-  artifacts: ViewerArtifactSnapshot = {}
+  artifacts: ViewerArtifactSnapshot = {},
+  options: CreateViewerWorkflowOptions = {}
 ): ViewerWorkflowData {
+  // Prefer the human display name so each work shows a Japanese title in the viewer.
+  const displayName = project.name.trim() || project.slug;
+
+  // Active-only Mission Tree payload. Shadow/legacy never rewrite the fixed 8-step graph.
+  if (options.missionTree?.mode === "active") {
+    const mapped = missionTreeToViewerWorkflow(options.missionTree, {
+      name: displayName,
+      id: plan.run_id
+    });
+    return {
+      id: mapped.id,
+      name: mapped.name,
+      description: mapped.description,
+      status: mapped.status as ViewerWorkflowStatus,
+      duration: mapped.duration,
+      nodes: mapped.nodes as ViewerWorkflowNode[],
+      edges: mapped.edges,
+      events: mapped.events as ViewerWorkflowEvent[],
+      missionTree: mapped.missionTree
+    };
+  }
+
   const steps = [...plan.steps, { name: "completed", status: "pending" as const }];
   const statuses = steps.map((step, index) =>
     resolveNodeStatus(step, index, steps, state, artifacts)
@@ -187,9 +229,6 @@ export function createViewerWorkflow(
     createNode(project, plan, step, index, statuses[index]!, state, artifacts)
   );
   const duration = nodes.length * STEP_SECONDS;
-
-  // Prefer the human display name so each work shows a Japanese title in the viewer.
-  const displayName = project.name.trim() || project.slug;
 
   return {
     id: plan.run_id,

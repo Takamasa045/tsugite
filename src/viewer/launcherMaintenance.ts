@@ -129,6 +129,7 @@ const FinalizeCliSchema = z.object({
   deleted_files: z.number().int().nonnegative().optional().default(0),
   deleted_bytes: z.number().nonnegative().optional().default(0),
   plan_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  production_completion_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   unrestored_paths: z.array(z.string().max(1_024)).max(256).optional(),
   launcher_projects_home: z.string().max(4_096).optional().nullable(),
   launcher_project_root: z.string().max(4_096).optional().nullable(),
@@ -792,6 +793,7 @@ export function createLauncherMaintenanceController(
       runId: project.runId,
       revision: project.revision,
       planDigest: cli.value.plan_digest,
+      productionCompletionDigest: cli.value.production_completion_digest,
       identityKey,
       identityFingerprint,
       alreadyFinalized,
@@ -817,6 +819,12 @@ export function createLauncherMaintenanceController(
       revision: project.revision,
       planDigest: cli.value.plan_digest,
       planDigestShort: shortDigest(cli.value.plan_digest),
+      ...(cli.value.production_completion_digest
+        ? {
+            productionCompletionDigest: cli.value.production_completion_digest,
+            productionCompletionDigestShort: shortDigest(cli.value.production_completion_digest)
+          }
+        : {}),
       canonicalOutput: sanitizeProjectRelative(cli.value.canonical_output ?? undefined),
       completionRecord: completionRecordPath,
       alreadyFinalized,
@@ -896,6 +904,17 @@ export function createLauncherMaintenanceController(
     if (parsed.value.planDigest !== review.planDigest) {
       return { ok: false, issue: MAINTENANCE_ISSUE.planStale };
     }
+    // Additive production_completion_digest: when held on review, client must match exactly.
+    if (review.productionCompletionDigest) {
+      if (
+        !parsed.value.productionCompletionDigest
+        || parsed.value.productionCompletionDigest !== review.productionCompletionDigest
+      ) {
+        return { ok: false, issue: MAINTENANCE_ISSUE.planStale };
+      }
+    } else if (parsed.value.productionCompletionDigest) {
+      return { ok: false, issue: MAINTENANCE_ISSUE.planStale };
+    }
     // Preview-held durable launcher_config_path is required before any mutating apply.
     // Never fall back to apply-report-only paths (prevents borrowing another finalized state).
     const reviewHeldLauncherConfig = typeof review.launcherConfigPath === "string"
@@ -927,6 +946,9 @@ export function createLauncherMaintenanceController(
         || !live.value.plan_digest
         || live.value.plan_digest !== review.planDigest
         || live.value.plan_digest !== parsed.value.planDigest
+        || (review.productionCompletionDigest
+          ? live.value.production_completion_digest !== review.productionCompletionDigest
+          : Boolean(live.value.production_completion_digest))
       ) {
         job.phase = "stale";
         return failJob(job, MAINTENANCE_ISSUE.planStale, "stale");
@@ -963,14 +985,21 @@ export function createLauncherMaintenanceController(
       }
 
       job.phase = "applying";
-      const applyResult = await runPipeline([
+      const applyArgv = [
         "finalize",
         "--config", project.configPath,
         "--apply",
         "--actor", "coordinator",
         "--expected-plan-digest", review.planDigest,
+        ...(review.productionCompletionDigest
+          ? [
+              "--expected-production-completion-digest",
+              review.productionCompletionDigest
+            ]
+          : []),
         "--json"
-      ]);
+      ];
+      const applyResult = await runPipeline(applyArgv);
       const applied = parseApplyCli(applyResult, FinalizeCliSchema, "finalize");
       if (!applied.ok) {
         const code = applied.issue.code ?? "";
@@ -1326,7 +1355,7 @@ function parseFinalizeApplyBody(
   if (hasClientPathFields(body)) {
     return { ok: false, issue: MAINTENANCE_ISSUE.clientPathRejected };
   }
-  const allowed = new Set(["reviewId", "planDigest", "confirmed"]);
+  const allowed = new Set(["reviewId", "planDigest", "confirmed", "productionCompletionDigest"]);
   for (const key of Object.keys(body)) {
     if (!allowed.has(key)) {
       return { ok: false, issue: MAINTENANCE_ISSUE.invalidBody };
@@ -1340,6 +1369,15 @@ function parseFinalizeApplyBody(
   ) {
     return { ok: false, issue: MAINTENANCE_ISSUE.invalidBody };
   }
+  if (
+    body.productionCompletionDigest !== undefined
+    && (
+      typeof body.productionCompletionDigest !== "string"
+      || !/^[a-f0-9]{64}$/.test(body.productionCompletionDigest)
+    )
+  ) {
+    return { ok: false, issue: MAINTENANCE_ISSUE.invalidBody };
+  }
   if (body.confirmed !== true) {
     return { ok: false, issue: MAINTENANCE_ISSUE.confirmedRequired };
   }
@@ -1348,7 +1386,10 @@ function parseFinalizeApplyBody(
     value: {
       reviewId: body.reviewId,
       planDigest: body.planDigest,
-      confirmed: true
+      confirmed: true,
+      ...(typeof body.productionCompletionDigest === "string"
+        ? { productionCompletionDigest: body.productionCompletionDigest }
+        : {})
     }
   };
 }

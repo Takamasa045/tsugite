@@ -507,10 +507,100 @@ export function validateWorkflowData(input: unknown): WorkflowValidationResult {
     warnings.push({ code: 'cycle_detected', message: 'workflow dependencies contain a cycle', path: 'edges' })
   }
 
+  if (input.missionTree !== undefined) {
+    validateMissionTreeOverlay(input.missionTree, 'missionTree', errors)
+  }
+  // Reject snake_case mission_tree payload — launcher/viewer DTO is camelCase exact.
+  if ('mission_tree' in input) {
+    errors.push({
+      code: 'invalid_mission_tree',
+      message: 'mission_tree is not allowed; use camelCase missionTree',
+      path: 'mission_tree',
+    })
+  }
+
   if (errors.length > 0) return { success: false, errors }
   return {
     success: true,
     data: input as unknown as WorkflowData,
     ...(warnings.length > 0 ? { warnings } : {}),
+  }
+}
+
+function validateMissionTreeOverlay(
+  input: unknown,
+  path: string,
+  errors: WorkflowValidationIssue[],
+): void {
+  if (!isRecord(input)) {
+    errors.push({ code: 'invalid_mission_tree', message: 'missionTree must be an object', path })
+    return
+  }
+  const allowed = new Set([
+    'productionId',
+    'mode',
+    'missionStatus',
+    'treeRevision',
+    'sourceEventSequence',
+    'currentDecision',
+    'recovery',
+    'learningStatus',
+    'taskTreeReadOnly',
+    'legacyWorkflowPreserved',
+    'digest',
+  ])
+  for (const key of Object.keys(input)) {
+    if (!allowed.has(key)) {
+      errors.push({
+        code: 'invalid_mission_tree',
+        message: `unknown missionTree key: ${key}`,
+        path: `${path}.${key}`,
+      })
+    }
+  }
+  if (typeof input.productionId !== 'string' || input.productionId.length === 0) {
+    errors.push({ code: 'invalid_mission_tree', message: 'productionId required', path: `${path}.productionId` })
+  }
+  if (input.mode !== 'legacy' && input.mode !== 'shadow' && input.mode !== 'active') {
+    errors.push({ code: 'invalid_mission_tree', message: 'mode must be legacy|shadow|active', path: `${path}.mode` })
+  }
+  if (typeof input.missionStatus !== 'string' || input.missionStatus.length === 0) {
+    errors.push({ code: 'invalid_mission_tree', message: 'missionStatus required', path: `${path}.missionStatus` })
+  }
+  if (typeof input.treeRevision !== 'number' || !Number.isInteger(input.treeRevision) || input.treeRevision < 0) {
+    errors.push({ code: 'invalid_mission_tree', message: 'treeRevision must be a non-negative integer', path: `${path}.treeRevision` })
+  }
+  if (input.taskTreeReadOnly !== true) {
+    errors.push({ code: 'invalid_mission_tree', message: 'taskTreeReadOnly must be true', path: `${path}.taskTreeReadOnly` })
+  }
+  if (typeof input.legacyWorkflowPreserved !== 'boolean') {
+    errors.push({
+      code: 'invalid_mission_tree',
+      message: 'legacyWorkflowPreserved must be boolean',
+      path: `${path}.legacyWorkflowPreserved`,
+    })
+  }
+  if (!isRecord(input.currentDecision) || typeof input.currentDecision.summary !== 'string') {
+    errors.push({
+      code: 'invalid_mission_tree',
+      message: 'currentDecision.summary required',
+      path: `${path}.currentDecision`,
+    })
+  }
+  if (
+    !isRecord(input.recovery)
+    || typeof input.recovery.active !== 'boolean'
+    || typeof input.recovery.attempts !== 'number'
+  ) {
+    errors.push({ code: 'invalid_mission_tree', message: 'recovery required', path: `${path}.recovery` })
+  }
+  // Gate approval digests must never appear on Mission Tree overlay.
+  const serialized = JSON.stringify(input)
+  if (/decision_digest|subject_digest|approved_input_digest/i.test(serialized)) {
+    errors.push({
+      code: 'invalid_mission_tree',
+      message: 'missionTree must not include Gate approval digests',
+      path,
+    })
   }
 }

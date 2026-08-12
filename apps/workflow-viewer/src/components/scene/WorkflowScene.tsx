@@ -197,7 +197,16 @@ export function WorkflowScene(props: WorkflowSceneProps) {
     contextCleanupRef.current = null
     phaseRef.current = 'initializing'
     setWatchdogEnabled(false)
-    if (!isWebglAvailable()) {
+    // 0-node degraded Mission Tree must never render a blank WebGL center.
+    if (props.workflow.nodes.length === 0) {
+      phaseRef.current = 'degraded'
+      setSceneState({
+        status: 'degraded',
+        renderer: 'dom-tree',
+        reason_code: 'viewer.scene.task_tree_empty',
+        retryable: true,
+      })
+    } else if (!isWebglAvailable()) {
       phaseRef.current = 'degraded'
       setSceneState({
         status: 'degraded',
@@ -214,7 +223,7 @@ export function WorkflowScene(props: WorkflowSceneProps) {
       contextCleanupRef.current?.()
       contextCleanupRef.current = null
     }
-  }, [retryNonce])
+  }, [props.workflow.nodes.length, retryNonce])
 
   useEffect(() => {
     if (!watchdogEnabled || sceneState.status !== 'initializing') return

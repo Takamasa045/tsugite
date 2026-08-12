@@ -20,6 +20,17 @@ import { promisify } from "node:util";
 import { spawnCommandSync } from "../platform/process.js";
 import type { ExecutionPlan } from "../orchestrator/plan.js";
 import { createPlannedState, readState, type RunState } from "../orchestrator/state.js";
+import {
+  loadAuthoritativeTaskTree,
+  AUTHORITATIVE_TASK_TREE_ARTIFACT_ID
+} from "../productionControl/authoritativeCoordination.js";
+import { ProductionControlError } from "../productionControl/errors.js";
+import {
+  projectMissionTree,
+  sanitizeMissionTreePublicProjection,
+  type MissionTreePublicProjectionV1
+} from "../productionControl/publicProjection.js";
+import { SnapshotStore } from "../productionControl/statePersistence.js";
 import type { Project } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import {
@@ -30,6 +41,8 @@ import {
   type ViewerMediaPreview,
   type ViewerRunLogEvidence
 } from "./workflow.js";
+
+export { AUTHORITATIVE_TASK_TREE_ARTIFACT_ID };
 
 export type WriteWorkflowViewerOptions = {
   configPath: string;
@@ -165,11 +178,19 @@ export async function writeWorkflowViewer(
       evidence.gate3Qc?.outputPath
     )
   ]);
-  const workflow = createViewerWorkflow(options.project, options.plan, state, {
-    ...evidence,
-    ...(reviewHref ? { reviewHref } : {}),
-    ...(previews.length > 0 ? { previews } : {})
-  });
+  const projectRoot = dirname(resolve(options.configPath));
+  const activeMissionTree = await loadActiveMissionTreeProjection(projectRoot, options.project);
+  const workflow = createViewerWorkflow(
+    options.project,
+    options.plan,
+    state,
+    {
+      ...evidence,
+      ...(reviewHref ? { reviewHref } : {}),
+      ...(previews.length > 0 ? { previews } : {})
+    },
+    activeMissionTree ? { missionTree: activeMissionTree } : {}
+  );
   const workflowJson = `${JSON.stringify(workflow, null, 2)}\n`;
   const indexTemplate = await readFile(join(bundleDir, "index.html"), "utf8");
   const indexHtml = await renderViewerIndex(indexTemplate, bundleDir, workflow);
@@ -222,6 +243,77 @@ export function getWorkflowViewerOpenCommand(
 export async function openWorkflowViewer(viewerPath: string): Promise<void> {
   const target = getWorkflowViewerOpenCommand(viewerPath);
   await promisify(execFile)(target.command, target.args);
+}
+
+/**
+ * Active-mode only: Mission Tree public DTO from coordination snapshot + TaskTree artifact.
+ *
+ * - Exact task_tree / production_id / tree_revision from ArtifactStore + SnapshotStore.
+ * - Missing TaskTree → explicit degraded/blocked projection (never invent flat edges).
+ * - Stale/mismatched digest/revision/production_id → fail-closed (throw).
+ * - Absent coordination snapshot → undefined (legacy fixed 8-step path remains).
+ * - Never mixes Gate approval digests into TaskTree visibility.
+ */
+export async function loadActiveMissionTreeProjection(
+  projectRoot: string,
+  project: Project
+): Promise<MissionTreePublicProjectionV1 | undefined> {
+  if (project.orchestration?.mode !== "active") return undefined;
+
+  const coordinationRoot = join(resolve(projectRoot), "coordination");
+  const store = new SnapshotStore(coordinationRoot);
+  let snapshot;
+  try {
+    snapshot = await store.read();
+  } catch (error) {
+    // Unreadable snapshot is fail-closed for active mode (do not invent a tree).
+    if (error instanceof ProductionControlError) throw error;
+    throw error;
+  }
+  if (!snapshot) return undefined;
+
+  const productionId = snapshot.state.production_id;
+  const treeRevision = snapshot.state.tree_revision;
+
+  try {
+    const taskTree = await loadAuthoritativeTaskTree(coordinationRoot, {
+      production_id: productionId,
+      tree_revision: treeRevision
+    });
+    return sanitizeMissionTreePublicProjection(
+      projectMissionTree({
+        production_id: productionId,
+        mode: "active",
+        mission_state: snapshot.state,
+        task_tree: taskTree,
+        legacy_workflow_preserved: true
+      })
+    );
+  } catch (error) {
+    if (error instanceof ProductionControlError && error.code === "PC_ARTIFACT_NOT_FOUND") {
+      // Missing TaskTree: explicit degraded/blocked, no state-only edge invention.
+      return sanitizeMissionTreePublicProjection(
+        projectMissionTree({
+          production_id: productionId,
+          mode: "active",
+          mission_state: snapshot.state,
+          degraded: {
+            reason_code: "mission_tree.task_tree_unavailable",
+            summary: "TaskTree 成果物が無いため Mission Tree を構築できません"
+          },
+          recovery: {
+            active: false,
+            attempts: 0,
+            limit: null,
+            last_error_code: "mission_tree.task_tree_unavailable"
+          },
+          legacy_workflow_preserved: true
+        })
+      );
+    }
+    // Mismatched identity/revision/digest or invalid tree: fail closed.
+    throw error;
+  }
 }
 
 async function loadRunState(
