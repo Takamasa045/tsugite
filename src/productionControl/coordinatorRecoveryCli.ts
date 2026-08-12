@@ -1,7 +1,10 @@
 /**
  * Coordinator recovery CLI bridge (PO-6).
  * Explicit entry only — never silent paid auto-spend from run/resume.
- * Fixture packages may supply in-process adapters; live network is never implied.
+ *
+ * Fixture packages may supply in-process adapters under an explicit fixture namespace.
+ * Fixture results are not production durable truth and never imply live network spend.
+ * Live provider paid apply is not enabled on this path.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -32,6 +35,22 @@ import { resumeProductionControl } from "./resume.js";
 import type { HumanDecisionRef, MissionState } from "./schema.js";
 import type { DurableCoordinatorPrincipalEvidence } from "./authorityGuard.js";
 import type { ExecutionCompilationBundle } from "../videoPromptDirector/compilationBundle.js";
+import { loadDurableGateBundle } from "./activePipeline.js";
+import {
+  loadDurableCoordinatorPrincipal,
+  loadDurableGateDecision
+} from "./durableGateEvidence.js";
+import { assertContainedUnderProjectRoot } from "./recoveryPathSafety.js";
+
+/** Explicit fixture namespace — never promoted to production durable authority. */
+export type RecoveryFixtureAdapterSpec = {
+  /** Must be "fixture" — rejects accidental production adapter injection. */
+  namespace: "fixture";
+  outcome: "success" | "known-non-submission" | "submission_unknown";
+  provider_job_id?: string;
+  artifact_path?: string;
+  artifact_sha256?: string;
+};
 
 export type RecoveryPackage = {
   production_id: string;
@@ -55,12 +74,11 @@ export type RecoveryPackage = {
   ordinal?: number;
   trigger_failure_ref?: ActivePaidRegenerationInput["trigger_failure_ref"];
   job_request?: GenerationJobRequest;
-  fixture_adapter?: {
-    outcome: "success" | "known-non-submission" | "submission_unknown";
-    provider_job_id?: string;
-    artifact_path?: string;
-    artifact_sha256?: string;
-  };
+  /**
+   * Explicit fixture namespace only. Paid CLI apply requires this; live provider
+   * spend is not enabled here. Fixture evidence cannot promote to production truth.
+   */
+  fixture_adapter?: RecoveryFixtureAdapterSpec;
   local?: {
     action: "resume-known-job-poll" | "retry-verified-download";
     job_id: string;
@@ -73,6 +91,7 @@ export type RecoveryPackage = {
     tree_revision: number;
     task_revision: number;
     input_digest: string;
+    /** Must stay under authoritative project realpath. */
     jobs_root: string;
   };
   coordinator_principal?: DurableCoordinatorPrincipalEvidence;
@@ -81,6 +100,23 @@ export type RecoveryPackage = {
   sibling_node_ids?: string[];
   issued_at?: string;
   now?: string;
+  /**
+   * Optional project-relative run dir for durable evidence re-read.
+   * When present, GateBundle / Gate1 decision / coordinator principal are loaded
+   * from the authoritative store and must exact-match package claims.
+   */
+  durable_run_dir?: string;
+};
+
+export type PaidSpendProvenance = {
+  /** True only when --confirm-paid was explicit. */
+  confirmed: boolean;
+  /** True when spend path could run without human confirm (must always be false on success). */
+  silent: boolean;
+  /** True when fixture adapter namespace was used (no live provider). */
+  fixture_only: boolean;
+  /** Always false on this CLI path — real provider billing is not enabled. */
+  real_provider: boolean;
 };
 
 export type CoordinatorRecoverCliResult =
@@ -92,9 +128,24 @@ export type CoordinatorRecoverCliResult =
         applied_from_sequence: number;
         ledger_recovery?: { status: "ok"; recovered_tx_ids: string[] };
       };
+      paid_spend?: undefined;
+      fixture_only?: boolean;
     }
-  | { ok: true; mode: "apply-local"; result: ActiveLocalRecoveryResult }
-  | { ok: true; mode: "apply-paid"; result: ActivePaidRegenerationResult }
+  | {
+      ok: true;
+      mode: "apply-local";
+      result: ActiveLocalRecoveryResult;
+      paid_spend?: undefined;
+      fixture_only?: boolean;
+    }
+  | {
+      ok: true;
+      mode: "apply-paid";
+      result: ActivePaidRegenerationResult;
+      /** Provenance for silent_paid_spend derivation — never a hardcoded constant alone. */
+      paid_spend: PaidSpendProvenance;
+      fixture_only: true;
+    }
   | { ok: false; issues: Array<{ code: string; message: string }> };
 
 export async function loadRecoveryPackage(packageDir: string): Promise<RecoveryPackage> {
@@ -114,6 +165,8 @@ export async function runCoordinatorRecoverCli(input: {
   confirm_paid: boolean;
   node_id: string;
   error_code: string;
+  /** Authoritative project root (config directory). All recovery paths confined here. */
+  projectRoot: string;
   productionControlRoot: string;
   packageDir?: string;
   production_id?: string;
@@ -140,11 +193,44 @@ async function runCoordinatorRecoverCliInner(input: {
   confirm_paid: boolean;
   node_id: string;
   error_code: string;
+  projectRoot: string;
   productionControlRoot: string;
   packageDir?: string;
   production_id?: string;
 }): Promise<CoordinatorRecoverCliResult> {
-  const pkg = input.packageDir ? await loadRecoveryPackage(input.packageDir) : undefined;
+  const projectContained = await assertContainedUnderProjectRoot({
+    projectRoot: input.projectRoot,
+    candidate: input.projectRoot,
+    label: "projectRoot"
+  });
+  const projectReal = projectContained.project_real_path;
+
+  const pcContained = await assertContainedUnderProjectRoot({
+    projectRoot: projectReal,
+    candidate: input.productionControlRoot,
+    label: "productionControlRoot",
+    allowMissingLeaf: true
+  });
+  const productionControlRoot = pcContained.real_path;
+
+  let packageDir: string | undefined;
+  let pkg: RecoveryPackage | undefined;
+  if (input.packageDir) {
+    const pkgContained = await assertContainedUnderProjectRoot({
+      projectRoot: projectReal,
+      candidate: input.packageDir,
+      label: "packageDir"
+    });
+    packageDir = pkgContained.real_path;
+    // TOCTOU: re-contain after load path is fixed, then read.
+    await assertContainedUnderProjectRoot({
+      projectRoot: projectReal,
+      candidate: packageDir,
+      label: "packageDir"
+    });
+    pkg = await loadRecoveryPackage(packageDir);
+  }
+
   const productionId = pkg?.production_id ?? input.production_id ?? "prod-unknown";
   let missionState: MissionState =
     pkg?.mission_state ?? createFailedKnownMission(productionId, input.node_id);
@@ -153,7 +239,7 @@ async function runCoordinatorRecoverCliInner(input: {
   const resumed = await resumeProductionControl({
     mode: "active",
     production_id: productionId,
-    root: input.productionControlRoot
+    root: productionControlRoot
   });
   if (Object.keys(resumed.state.nodes).length > 0) {
     missionState = resumed.state;
@@ -180,20 +266,33 @@ async function runCoordinatorRecoverCliInner(input: {
   });
 
   if (!input.apply) {
-    return { ok: true, mode: "plan", plan, resume: resumeMeta };
+    return {
+      ok: true,
+      mode: "plan",
+      plan,
+      resume: resumeMeta,
+      fixture_only: Boolean(pkg?.fixture_adapter)
+    };
   }
 
   if (input.recovery === "local") {
-    return applyLocal(pkg, productionId, input.node_id, missionState);
+    return applyLocal(pkg, productionId, input.node_id, missionState, projectReal);
   }
-  return applyPaid(pkg, productionId, input, failureKind, missionState);
+  return applyPaid(pkg, productionId, {
+    confirm_paid: input.confirm_paid,
+    node_id: input.node_id,
+    error_code: input.error_code,
+    productionControlRoot,
+    projectRoot: projectReal
+  }, failureKind, missionState);
 }
 
 async function applyLocal(
   pkg: RecoveryPackage | undefined,
   productionId: string,
   nodeId: string,
-  missionState: MissionState
+  missionState: MissionState,
+  projectRoot: string
 ): Promise<CoordinatorRecoverCliResult> {
   if (!pkg?.local) {
     return {
@@ -204,7 +303,13 @@ async function applyLocal(
       }]
     };
   }
-  const jobStore = new GenerationJobStore({ rootDir: pkg.local.jobs_root });
+  const jobsContained = await assertContainedUnderProjectRoot({
+    projectRoot,
+    candidate: pkg.local.jobs_root,
+    label: "local.jobs_root",
+    allowMissingLeaf: true
+  });
+  const jobStore = new GenerationJobStore({ rootDir: jobsContained.real_path });
   const machine = new GenerationJobMachine({
     store: jobStore,
     adapter: buildFixtureAdapter(pkg),
@@ -226,7 +331,12 @@ async function applyLocal(
     issued_at: pkg.issued_at,
     now: pkg.now ? new Date(pkg.now) : undefined
   });
-  return { ok: true, mode: "apply-local", result };
+  return {
+    ok: true,
+    mode: "apply-local",
+    result,
+    fixture_only: Boolean(pkg.fixture_adapter)
+  };
 }
 
 async function applyPaid(
@@ -237,6 +347,7 @@ async function applyPaid(
     node_id: string;
     error_code: string;
     productionControlRoot: string;
+    projectRoot: string;
   },
   failureKind: ActivePaidRegenerationInput["failure_kind"],
   missionState: MissionState
@@ -250,12 +361,12 @@ async function applyPaid(
       }]
     };
   }
-  if (!pkg?.policy || !pkg.gate_bundle || !pkg.gate_1_decision || !pkg.job_request) {
+  if (!pkg) {
     return {
       ok: false,
       issues: [{
         code: "recover.paid_package_incomplete",
-        message: "paid apply requires policy, gate_bundle, gate_1_decision, and job_request in the package"
+        message: "paid apply requires a recovery package"
       }]
     };
   }
@@ -264,36 +375,25 @@ async function applyPaid(
       ok: false,
       issues: [{
         code: "recover.fixture_only",
-        message: "paid apply via CLI is fixture-package only in this path; live provider spend is not enabled here"
+        message:
+          "paid apply via CLI is fixture-package only in this path; live provider spend is not enabled here"
+      }]
+    };
+  }
+  if (pkg.fixture_adapter.namespace !== "fixture") {
+    return {
+      ok: false,
+      issues: [{
+        code: "recover.fixture_only",
+        message: "fixture_adapter.namespace must be exactly \"fixture\"; production adapters are not accepted"
       }]
     };
   }
 
-  const subjectDigest = pkg.live_gate_1_subject_digest ?? "a".repeat(64);
-  const decisionDigest = pkg.live_gate_1_decision_digest ?? "b".repeat(64);
-  const principalBody = {
-    schema_version: 1 as const,
-    kind: "coordinator-principal" as const,
-    actor: "coordinator" as const,
-    gate_1_decision_digest: decisionDigest
-  };
-  const principal: DurableCoordinatorPrincipalEvidence = pkg.coordinator_principal ?? {
-    ...principalBody,
-    digest: sha256Canonical(principalBody)
-  };
-  const liveGate1: LiveGate1Evidence = pkg.live_gate1 ?? {
-    subject_digest: subjectDigest,
-    decision_digest: decisionDigest,
-    production_id: productionId,
-    run_id: pkg.run_id,
-    legacy_approved_input_digest: "d".repeat(64),
-    decision: {
-      decision_id: pkg.gate_1_decision.decision_id,
-      decision: pkg.gate_1_decision.decision,
-      actor: pkg.gate_1_decision.actor,
-      decided_at: pkg.gate_1_decision.decided_at
-    }
-  };
+  const evidence = await resolvePaidPackageEvidence(pkg, productionId, input.projectRoot);
+  if (!evidence.ok) {
+    return { ok: false, issues: evidence.issues };
+  }
 
   const forceMap = {
     success: "success",
@@ -315,25 +415,21 @@ async function applyPaid(
     node_id: input.node_id,
     observed_error_code: input.error_code,
     failure_kind: failureKind,
-    policy: pkg.policy,
-    gate_bundle: pkg.gate_bundle,
-    gate_1_decision: pkg.gate_1_decision,
-    live_gate_1_subject_digest: subjectDigest,
-    live_gate_1_decision_digest: decisionDigest,
+    policy: evidence.policy,
+    gate_bundle: evidence.gate_bundle,
+    gate_1_decision: evidence.gate_1_decision,
+    live_gate_1_subject_digest: evidence.live_gate_1_subject_digest,
+    live_gate_1_decision_digest: evidence.live_gate_1_decision_digest,
     grant: pkg.grant,
-    base_compilation_digest: pkg.base_compilation_digest ?? "f".repeat(64),
-    derived_compilation_digest: pkg.derived_compilation_digest ?? "e".repeat(64),
-    patch_artifact_digest: pkg.patch_artifact_digest ?? "b".repeat(64),
-    requested_credits: pkg.requested_credits ?? 1,
-    ordinal: pkg.ordinal ?? 0,
-    trigger_failure_ref: pkg.trigger_failure_ref ?? {
-      kind: "failure",
-      id: "f1",
-      digest: "a".repeat(64)
-    },
+    base_compilation_digest: evidence.base_compilation_digest,
+    derived_compilation_digest: evidence.derived_compilation_digest,
+    patch_artifact_digest: evidence.patch_artifact_digest,
+    requested_credits: evidence.requested_credits,
+    ordinal: evidence.ordinal,
+    trigger_failure_ref: evidence.trigger_failure_ref,
     mission_state: missionState,
     sibling_node_ids: pkg.sibling_node_ids,
-    job_request: pkg.job_request,
+    job_request: evidence.job_request,
     adapter: buildFixtureAdapter(pkg),
     resolveExecutionBundle: async () => {
       if (!pkg.execution_bundle) {
@@ -341,15 +437,230 @@ async function applyPaid(
       }
       return pkg.execution_bundle;
     },
-    live_gate1: liveGate1,
-    coordinator_principal: principal,
+    live_gate1: evidence.live_gate1,
+    coordinator_principal: evidence.coordinator_principal,
     ...(forceOutcome ? { force_outcome: forceOutcome } : {}),
     issued_at: pkg.issued_at,
     now: pkg.now ? new Date(pkg.now) : undefined
   };
 
+  // Public paid entry requires Coordinator path + explicit confirm_paid (no silent spend).
   const result = await executeCoordinatorPaidRecovery(paidInput);
-  return { ok: true, mode: "apply-paid", result };
+  const paid_spend: PaidSpendProvenance = {
+    confirmed: input.confirm_paid === true,
+    silent: input.confirm_paid !== true,
+    fixture_only: true,
+    real_provider: false
+  };
+  return {
+    ok: true,
+    mode: "apply-paid",
+    result,
+    paid_spend,
+    fixture_only: true
+  };
+}
+
+type EvidenceOk = {
+  ok: true;
+  policy: RegenerationPolicySpec;
+  gate_bundle: GateBundle;
+  gate_1_decision: HumanDecisionRef;
+  live_gate_1_subject_digest: string;
+  live_gate_1_decision_digest: string;
+  base_compilation_digest: string;
+  derived_compilation_digest: string;
+  patch_artifact_digest: string;
+  requested_credits: number;
+  ordinal: number;
+  trigger_failure_ref: ActivePaidRegenerationInput["trigger_failure_ref"];
+  job_request: GenerationJobRequest;
+  live_gate1: LiveGate1Evidence;
+  coordinator_principal: DurableCoordinatorPrincipalEvidence;
+};
+
+/**
+ * No synthetic hex digests / default principals.
+ * Fixture packages must carry complete explicit evidence.
+ * When durable_run_dir is set, re-read authoritative store and exact-match package claims.
+ */
+async function resolvePaidPackageEvidence(
+  pkg: RecoveryPackage,
+  productionId: string,
+  projectRoot: string
+): Promise<EvidenceOk | { ok: false; issues: Array<{ code: string; message: string }> }> {
+  const missing: string[] = [];
+  if (!pkg.policy) missing.push("policy");
+  if (!pkg.gate_bundle) missing.push("gate_bundle");
+  if (!pkg.gate_1_decision) missing.push("gate_1_decision");
+  if (!pkg.job_request) missing.push("job_request");
+  if (!isHexDigest(pkg.live_gate_1_subject_digest)) missing.push("live_gate_1_subject_digest");
+  if (!isHexDigest(pkg.live_gate_1_decision_digest)) missing.push("live_gate_1_decision_digest");
+  if (!isHexDigest(pkg.base_compilation_digest)) missing.push("base_compilation_digest");
+  if (!isHexDigest(pkg.derived_compilation_digest)) missing.push("derived_compilation_digest");
+  if (!isHexDigest(pkg.patch_artifact_digest)) missing.push("patch_artifact_digest");
+  if (!pkg.coordinator_principal) missing.push("coordinator_principal");
+  if (!pkg.live_gate1) missing.push("live_gate1");
+  if (typeof pkg.requested_credits !== "number") missing.push("requested_credits");
+  if (typeof pkg.ordinal !== "number") missing.push("ordinal");
+  if (!pkg.trigger_failure_ref) missing.push("trigger_failure_ref");
+  if (!pkg.run_id || !pkg.project_id || !pkg.revision_id) {
+    missing.push("run_id/project_id/revision_id");
+  }
+
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      issues: [{
+        code: "recover.live_evidence_required",
+        message:
+          `paid recovery evidence incomplete (no synthetic defaults): missing ${missing.join(", ")}`
+      }]
+    };
+  }
+
+  // Re-read durable store when package points at an authoritative run dir.
+  if (pkg.durable_run_dir) {
+    const runContained = await assertContainedUnderProjectRoot({
+      projectRoot,
+      candidate: pkg.durable_run_dir,
+      label: "durable_run_dir"
+    });
+    const runDir = runContained.real_path;
+    const durableBundle = await loadDurableGateBundle(runDir);
+    const durableDecision = await loadDurableGateDecision(runDir, "gate_1");
+    const durablePrincipal = await loadDurableCoordinatorPrincipal(runDir);
+
+    if (!durableBundle || !durableDecision || !durablePrincipal) {
+      return {
+        ok: false,
+        issues: [{
+          code: "recover.live_evidence_required",
+          message:
+            "durable GateBundle / Gate1 decision / coordinator principal missing under durable_run_dir"
+        }]
+      };
+    }
+    if (durableBundle.digest !== pkg.gate_bundle!.digest) {
+      return {
+        ok: false,
+        issues: [{
+          code: "recover.live_evidence_required",
+          message: "package gate_bundle digest does not exact-match durable GateBundle"
+        }]
+      };
+    }
+    if (durableDecision.decision_digest !== pkg.live_gate_1_decision_digest) {
+      return {
+        ok: false,
+        issues: [{
+          code: "recover.live_evidence_required",
+          message: "package gate_1 decision digest does not exact-match durable decision"
+        }]
+      };
+    }
+    if (
+      durableDecision.decision.decision_id !== pkg.gate_1_decision!.decision_id
+      || durableDecision.decision.decision !== pkg.gate_1_decision!.decision
+      || durableDecision.decision.actor !== pkg.gate_1_decision!.actor
+      || durableDecision.decision.decided_at !== pkg.gate_1_decision!.decided_at
+    ) {
+      return {
+        ok: false,
+        issues: [{
+          code: "recover.live_evidence_required",
+          message: "package HumanDecisionRef does not exact-match durable Gate1 decision"
+        }]
+      };
+    }
+    if (durablePrincipal.digest !== pkg.coordinator_principal!.digest) {
+      return {
+        ok: false,
+        issues: [{
+          code: "recover.live_evidence_required",
+          message: "package coordinator_principal does not exact-match durable principal"
+        }]
+      };
+    }
+    if (durablePrincipal.gate_1_decision_digest !== pkg.live_gate_1_decision_digest) {
+      return {
+        ok: false,
+        issues: [{
+          code: "recover.live_evidence_required",
+          message: "durable principal gate_1_decision_digest mismatch"
+        }]
+      };
+    }
+  }
+
+  // Fixture principal must bind the claimed decision digest (no synthetic stand-in).
+  const principal = pkg.coordinator_principal!;
+  if (
+    principal.actor !== "coordinator"
+    || principal.kind !== "coordinator-principal"
+    || principal.gate_1_decision_digest !== pkg.live_gate_1_decision_digest
+  ) {
+    return {
+      ok: false,
+      issues: [{
+        code: "recover.live_evidence_required",
+        message: "coordinator_principal must bind package live_gate_1_decision_digest"
+      }]
+    };
+  }
+  const principalBody = {
+    schema_version: 1 as const,
+    kind: "coordinator-principal" as const,
+    actor: "coordinator" as const,
+    gate_1_decision_digest: principal.gate_1_decision_digest
+  };
+  if (principal.digest !== sha256Canonical(principalBody)) {
+    return {
+      ok: false,
+      issues: [{
+        code: "recover.live_evidence_required",
+        message: "coordinator_principal digest mismatch"
+      }]
+    };
+  }
+
+  const liveGate1 = pkg.live_gate1!;
+  if (
+    liveGate1.subject_digest !== pkg.live_gate_1_subject_digest
+    || liveGate1.decision_digest !== pkg.live_gate_1_decision_digest
+    || liveGate1.production_id !== productionId
+    || liveGate1.run_id !== pkg.run_id
+  ) {
+    return {
+      ok: false,
+      issues: [{
+        code: "recover.live_evidence_required",
+        message: "live_gate1 digests/ids must exact-match package claims"
+      }]
+    };
+  }
+
+  return {
+    ok: true,
+    policy: pkg.policy!,
+    gate_bundle: pkg.gate_bundle!,
+    gate_1_decision: pkg.gate_1_decision!,
+    live_gate_1_subject_digest: pkg.live_gate_1_subject_digest!,
+    live_gate_1_decision_digest: pkg.live_gate_1_decision_digest!,
+    base_compilation_digest: pkg.base_compilation_digest!,
+    derived_compilation_digest: pkg.derived_compilation_digest!,
+    patch_artifact_digest: pkg.patch_artifact_digest!,
+    requested_credits: pkg.requested_credits!,
+    ordinal: pkg.ordinal!,
+    trigger_failure_ref: pkg.trigger_failure_ref!,
+    job_request: pkg.job_request!,
+    live_gate1: liveGate1,
+    coordinator_principal: principal
+  };
+}
+
+function isHexDigest(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value);
 }
 
 function createFailedKnownMission(productionId: string, nodeId: string): MissionState {
@@ -403,9 +714,10 @@ function buildFixtureAdapter(pkg: RecoveryPackage): GenerationJobProviderAdapter
       return { ok: true as const, status: "succeeded" as const };
     },
     async download() {
+      // Fixture-only download stub — absolute outside paths are not production artifacts.
       return {
         ok: true as const,
-        absolute_path: fixture?.artifact_path ?? join("/private/tmp", "fixture-recovery.bin"),
+        absolute_path: fixture?.artifact_path ?? join(pkg.local?.jobs_root ?? ".", "fixture-recovery.bin"),
         sha256: fixture?.artifact_sha256 ?? "a".repeat(64),
         byte_length: 1
       };

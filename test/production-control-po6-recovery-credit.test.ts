@@ -57,7 +57,6 @@ import {
   gateDriftKindsForSealedRevisionIntent,
   assertRouteUnchanged,
   DurableRegenerationStore,
-  runActivePaidRegeneration,
   resumePaidRegenerationContext,
   planCoordinatorRecovery,
   executeCoordinatorPaidRecovery,
@@ -67,11 +66,12 @@ import {
   type RouteIdentity,
   type SealedPaidAuthorization
 } from "../src/productionControl/index.js";
-// Local permit mint is internal — unit tests may import the module path, not package surface.
+// Local permit mint and unconfirmed paid controller are internal — not package surface.
 import {
   issueLocalRecoveryPermit,
   mintSealedLocalRecoveryPermit
 } from "../src/productionControl/recovery.js";
+import { runActivePaidRegeneration } from "../src/productionControl/activeRecovery.js";
 
 const DIGEST_A = "a".repeat(64);
 const DIGEST_B = "b".repeat(64);
@@ -4221,17 +4221,18 @@ describe("PO-6 owner repair No-Go closures", () => {
     }
   });
 
-  it("public package surface does not export LocalRecoveryPermit mint", async () => {
+  it("public package surface does not export LocalRecoveryPermit mint or unconfirmed paid entry", async () => {
     const surface = await import("../src/productionControl/index.js");
     expect("issueLocalRecoveryPermit" in surface).toBe(false);
     expect("mintSealedLocalRecoveryPermit" in surface).toBe(false);
+    expect("runActivePaidRegeneration" in surface).toBe(false);
     expect(typeof surface.runActiveLocalRecovery).toBe("function");
     expect(typeof surface.planCoordinatorRecovery).toBe("function");
     expect(typeof surface.executeCoordinatorPaidRecovery).toBe("function");
-    expect(typeof surface.runActivePaidRegeneration).toBe("function");
-    // Internal module may still export mint for executor use.
+    // Internal module may still export mint / unconfirmed paid for executor tests.
     expect(typeof issueLocalRecoveryPermit).toBe("function");
     expect(typeof mintSealedLocalRecoveryPermit).toBe("function");
+    expect(typeof runActivePaidRegeneration).toBe("function");
   });
 
   it("terminalizes reservation on generic failed and not-pinned; pre-effect does not quarantine", async () => {
@@ -4636,6 +4637,87 @@ describe("PO-6 owner repair No-Go closures", () => {
   });
 });
 
+function fixturePrincipal(decisionDigest: string) {
+  const body = {
+    schema_version: 1 as const,
+    kind: "coordinator-principal" as const,
+    actor: "coordinator" as const,
+    gate_1_decision_digest: decisionDigest
+  };
+  return { ...body, digest: sha256Canonical(body) };
+}
+
+function completeFixturePaidPackage(input: {
+  policy: RegenerationPolicySpec;
+  bundle: GateBundle;
+  g1: ReturnType<typeof gate1Pair>;
+  jobRequest: Record<string, unknown>;
+  productionId?: string;
+  fixtureOutcome?: "success" | "known-non-submission" | "submission_unknown";
+  omit?: string[];
+}) {
+  const productionId = input.productionId ?? "prod-bridge";
+  const principal = fixturePrincipal(input.g1.decision_digest);
+  const base: Record<string, unknown> = {
+    production_id: productionId,
+    run_id: "run-1",
+    project_id: "proj-1",
+    revision_id: "rev-1",
+    node_id: "node-gen-1",
+    observed_error_code: "GEN_TECHNICAL_FAIL",
+    failure_kind: "known-failure",
+    policy: input.policy,
+    gate_bundle: input.bundle,
+    gate_1_decision: input.g1.decision,
+    live_gate_1_subject_digest: input.g1.subject_digest,
+    live_gate_1_decision_digest: input.g1.decision_digest,
+    mission_state: {
+      ...createInitialMissionState(productionId),
+      nodes: {
+        "node-gen-1": {
+          node_id: "node-gen-1",
+          status: "failed_known",
+          task_revision: 1,
+          input_digest: DIGEST_A,
+          dependency_closure_digest: DIGEST_B,
+          stale: false
+        }
+      }
+    },
+    job_request: input.jobRequest,
+    base_compilation_digest: DIGEST_F,
+    derived_compilation_digest: DIGEST_D,
+    patch_artifact_digest: DIGEST_B,
+    requested_credits: 1,
+    ordinal: 0,
+    trigger_failure_ref: { kind: "failure", id: "f1", digest: DIGEST_A },
+    coordinator_principal: principal,
+    live_gate1: {
+      subject_digest: input.g1.subject_digest,
+      decision_digest: input.g1.decision_digest,
+      production_id: productionId,
+      run_id: "run-1",
+      legacy_approved_input_digest: DIGEST_A,
+      decision: {
+        decision_id: input.g1.decision.decision_id,
+        decision: input.g1.decision.decision,
+        actor: input.g1.decision.actor,
+        decided_at: input.g1.decision.decided_at
+      }
+    },
+    fixture_adapter: {
+      namespace: "fixture",
+      outcome: input.fixtureOutcome ?? "known-non-submission"
+    },
+    issued_at: NOW,
+    now: NOW
+  };
+  for (const key of input.omit ?? []) {
+    delete base[key];
+  }
+  return base;
+}
+
 describe("PO-6 coordinator recovery CLI bridge branches", () => {
   it("covers local package missing, paid incomplete, fixture-only, and plan with package", async () => {
     const root = await realTempDir("tsugite-po6-cli-bridge-");
@@ -4650,6 +4732,7 @@ describe("PO-6 coordinator recovery CLI bridge branches", () => {
         confirm_paid: false,
         node_id: "node-gen-1",
         error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
         productionControlRoot: pcRoot,
         production_id: "prod-bridge"
       });
@@ -4664,6 +4747,7 @@ describe("PO-6 coordinator recovery CLI bridge branches", () => {
         confirm_paid: true,
         node_id: "node-gen-1",
         error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
         productionControlRoot: pcRoot,
         production_id: "prod-bridge"
       });
@@ -4689,34 +4773,12 @@ describe("PO-6 coordinator recovery CLI bridge branches", () => {
       const pkgDir = join(root, "pkg");
       await mkdir(pkgDir, { recursive: true });
       await writeFile(join(pkgDir, "recovery-package.json"), JSON.stringify({
-        production_id: "prod-bridge",
-        run_id: "run-1",
-        project_id: "proj-1",
-        revision_id: "rev-1",
-        node_id: "node-gen-1",
-        observed_error_code: "GEN_TECHNICAL_FAIL",
-        failure_kind: "known-failure",
-        policy,
-        gate_bundle: bundle,
-        gate_1_decision: g1.decision,
-        live_gate_1_subject_digest: g1.subject_digest,
-        live_gate_1_decision_digest: g1.decision_digest,
-        mission_state: {
-          ...createInitialMissionState("prod-bridge"),
-          nodes: {
-            "node-gen-1": {
-              node_id: "node-gen-1",
-              status: "failed_known",
-              task_revision: 1,
-              input_digest: DIGEST_A,
-              dependency_closure_digest: DIGEST_B,
-              stale: false
-            }
-          }
-        },
-        job_request: jobRequest
-        // no fixture_adapter
+        ...completeFixturePaidPackage({ policy, bundle, g1, jobRequest }),
+        fixture_adapter: undefined
       }));
+      // rewrite without fixture_adapter key
+      const noFixtureBody = completeFixturePaidPackage({ policy, bundle, g1, jobRequest, omit: ["fixture_adapter"] });
+      await writeFile(join(pkgDir, "recovery-package.json"), JSON.stringify(noFixtureBody));
 
       const noFixture = await runCoordinatorRecoverCli({
         recovery: "paid",
@@ -4724,6 +4786,7 @@ describe("PO-6 coordinator recovery CLI bridge branches", () => {
         confirm_paid: true,
         node_id: "node-gen-1",
         error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
         productionControlRoot: pcRoot,
         packageDir: pkgDir,
         production_id: "prod-bridge"
@@ -4733,12 +4796,96 @@ describe("PO-6 coordinator recovery CLI bridge branches", () => {
         expect(noFixture.issues[0]?.code).toBe("recover.fixture_only");
       }
 
+      // Missing evidence → live_evidence_required (no synthetic defaults).
+      const incompleteDir = join(root, "pkg-incomplete");
+      await mkdir(incompleteDir, { recursive: true });
+      await writeFile(
+        join(incompleteDir, "recovery-package.json"),
+        JSON.stringify(completeFixturePaidPackage({
+          policy,
+          bundle,
+          g1,
+          jobRequest,
+          omit: ["coordinator_principal", "live_gate1", "base_compilation_digest"]
+        }))
+      );
+      const incomplete = await runCoordinatorRecoverCli({
+        recovery: "paid",
+        apply: true,
+        confirm_paid: true,
+        node_id: "node-gen-1",
+        error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
+        productionControlRoot: pcRoot,
+        packageDir: incompleteDir,
+        production_id: "prod-bridge"
+      });
+      expect(incomplete.ok).toBe(false);
+      if (!incomplete.ok) {
+        expect(incomplete.issues[0]?.code).toBe("recover.live_evidence_required");
+      }
+
+      // Path confinement: package outside project is refused.
+      const outside = await realTempDir("tsugite-po6-outside-pkg-");
+      try {
+        await writeFile(
+          join(outside, "recovery-package.json"),
+          JSON.stringify(completeFixturePaidPackage({ policy, bundle, g1, jobRequest }))
+        );
+        const escaped = await runCoordinatorRecoverCli({
+          recovery: "paid",
+          apply: true,
+          confirm_paid: true,
+          node_id: "node-gen-1",
+          error_code: "GEN_TECHNICAL_FAIL",
+          projectRoot: root,
+          productionControlRoot: pcRoot,
+          packageDir: outside,
+          production_id: "prod-bridge"
+        });
+        expect(escaped.ok).toBe(false);
+        if (!escaped.ok) {
+          expect(escaped.issues[0]?.code).toBe("PC_PATH_UNSAFE");
+        }
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+
+      // Symlink leaf escape refused.
+      const escapeTarget = await realTempDir("tsugite-po6-symlink-tgt-");
+      try {
+        await writeFile(
+          join(escapeTarget, "recovery-package.json"),
+          JSON.stringify(completeFixturePaidPackage({ policy, bundle, g1, jobRequest }))
+        );
+        const linkPath = join(root, "pkg-symlink");
+        await symlink(escapeTarget, linkPath);
+        const viaLink = await runCoordinatorRecoverCli({
+          recovery: "paid",
+          apply: true,
+          confirm_paid: true,
+          node_id: "node-gen-1",
+          error_code: "GEN_TECHNICAL_FAIL",
+          projectRoot: root,
+          productionControlRoot: pcRoot,
+          packageDir: linkPath,
+          production_id: "prod-bridge"
+        });
+        expect(viaLink.ok).toBe(false);
+        if (!viaLink.ok) {
+          expect(viaLink.issues[0]?.code).toBe("PC_PATH_UNSAFE");
+        }
+      } finally {
+        await rm(escapeTarget, { recursive: true, force: true });
+      }
+
       const plan = await runCoordinatorRecoverCli({
         recovery: "paid",
         apply: false,
         confirm_paid: false,
         node_id: "node-gen-1",
         error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
         productionControlRoot: pcRoot,
         packageDir: pkgDir,
         production_id: "prod-bridge"
@@ -4749,56 +4896,39 @@ describe("PO-6 coordinator recovery CLI bridge branches", () => {
         expect(plan.resume?.ledger_recovery?.status).toBe("ok");
       }
 
-      // Paid apply with fixture outcomes — exercise adapter branches (may stop pre-effect without bundle).
+      // Paid apply with fixture outcomes — complete evidence, may stop pre-effect without bundle.
       for (const outcome of ["known-non-submission", "submission_unknown"] as const) {
         const outcomeDir = join(root, `pkg-${outcome}`);
         const outcomePc = join(root, `pc-${outcome}`);
         await mkdir(outcomeDir, { recursive: true });
         await mkdir(outcomePc, { recursive: true });
-        await writeFile(join(outcomeDir, "recovery-package.json"), JSON.stringify({
-          production_id: "prod-bridge",
-          run_id: "run-1",
-          project_id: "proj-1",
-          revision_id: "rev-1",
-          node_id: "node-gen-1",
-          observed_error_code: "GEN_TECHNICAL_FAIL",
-          failure_kind: "known-failure",
-          policy,
-          gate_bundle: bundle,
-          gate_1_decision: g1.decision,
-          live_gate_1_subject_digest: g1.subject_digest,
-          live_gate_1_decision_digest: g1.decision_digest,
-          mission_state: {
-            ...createInitialMissionState("prod-bridge"),
-            nodes: {
-              "node-gen-1": {
-                node_id: "node-gen-1",
-                status: "failed_known",
-                task_revision: 1,
-                input_digest: DIGEST_A,
-                dependency_closure_digest: DIGEST_B,
-                stale: false
-              }
-            }
-          },
-          job_request: jobRequest,
-          fixture_adapter: { outcome },
-          issued_at: NOW,
-          now: NOW
-        }));
+        await writeFile(
+          join(outcomeDir, "recovery-package.json"),
+          JSON.stringify(completeFixturePaidPackage({
+            policy,
+            bundle,
+            g1,
+            jobRequest,
+            fixtureOutcome: outcome
+          }))
+        );
         const applied = await runCoordinatorRecoverCli({
           recovery: "paid",
           apply: true,
           confirm_paid: true,
           node_id: "node-gen-1",
           error_code: "GEN_TECHNICAL_FAIL",
+          projectRoot: root,
           productionControlRoot: outcomePc,
           packageDir: outcomeDir,
           production_id: "prod-bridge"
         });
-        // Fixture package without execution_bundle stops safely; still reaches paid entry.
         expect(applied.ok === true || applied.ok === false).toBe(true);
         if (applied.ok && applied.mode === "apply-paid") {
+          expect(applied.fixture_only).toBe(true);
+          expect(applied.paid_spend.silent).toBe(false);
+          expect(applied.paid_spend.confirmed).toBe(true);
+          expect(applied.paid_spend.real_provider).toBe(false);
           expect(["released", "awaiting_human", "quarantined", "committed"]).toContain(applied.result.status);
         }
       }
@@ -4887,8 +5017,8 @@ describe("PO-6 coordinator recovery CLI bridge branches", () => {
 });
 
 describe("PO-6 CLI/main fixture E2E recover command", () => {
-  it("main recover: dry-run plan, paid without confirm denied, fixture paid apply reaches controller", {
-    timeout: 60_000
+  it("main recover: dry-run, confirm gate, and actual main paid apply-paid success", {
+    timeout: 90_000
   }, async () => {
     const networkHits: string[] = [];
     const originalFetch = globalThis.fetch;
@@ -4978,7 +5108,7 @@ describe("PO-6 CLI/main fixture E2E recover command", () => {
       expect(nonCoord.code).toBe(1);
       expect(JSON.parse(nonCoord.logs).issues?.[0]?.code).toBe("cli.coordinator_required");
 
-      // Fixture package paid apply with known-non-submission → reaches runActivePaidRegeneration.
+      // HIGH-2: actual main([...]) paid apply success — not bridge-only.
       const policy = samplePolicy({ max_attempts: 2, max_submissions: 2, max_credits: 3 });
       const bundle = sampleBundleWithPolicy(policy);
       const g1 = gate1Pair(bundle);
@@ -4995,25 +5125,548 @@ describe("PO-6 CLI/main fixture E2E recover command", () => {
       jobRequest.digest = computeRequestDigest(jobRequest);
       const pkgDir = join(root, "recovery-pkg");
       await mkdir(pkgDir, { recursive: true });
-      const mission = {
-        ...createInitialMissionState("prod-1"),
-        mission_status: "running",
-        nodes: {
-          "node-gen-1": {
-            node_id: "node-gen-1",
-            status: "failed_known",
+      await writeFile(
+        join(pkgDir, "recovery-package.json"),
+        JSON.stringify(completeFixturePaidPackage({
+          policy,
+          bundle,
+          g1,
+          jobRequest,
+          productionId: "prod-1",
+          fixtureOutcome: "known-non-submission"
+        }))
+      );
+
+      const paid = await capture([
+        "recover",
+        "--config", configPath,
+        "--actor", "coordinator",
+        "--node", "node-gen-1",
+        "--error-code", "GEN_TECHNICAL_FAIL",
+        "--recovery", "paid",
+        "--apply",
+        "--confirm-paid",
+        "--path", pkgDir
+      ]);
+      expect(paid.code).toBe(0);
+      const paidJson = JSON.parse(paid.logs);
+      expect(paidJson.ok).toBe(true);
+      expect(paidJson.mode).toBe("apply-paid");
+      expect(paidJson.silent_paid_spend).toBe(false);
+      expect(paidJson.fixture_only).toBe(true);
+      expect(paidJson.paid_spend?.silent).toBe(false);
+      expect(paidJson.paid_spend?.confirmed).toBe(true);
+      expect(paidJson.paid_spend?.real_provider).toBe(false);
+      expect(["released", "awaiting_human", "quarantined", "committed"]).toContain(
+        paidJson.result?.status
+      );
+
+      // Durable ledger under project production-control: no reserved residual.
+      const pcRoot = join(root, "production-control");
+      const ledger = new GrantCreditLedger(pcRoot);
+      const budget = await ledger.readBudget().catch(() => undefined);
+      expect(budget?.reserved_credits ?? 0).toBe(0);
+      if (paidJson.result?.reservation_id) {
+        const rsv = await ledger.readReservation(paidJson.result.reservation_id).catch(() => undefined);
+        if (rsv) {
+          expect(rsv.status).not.toBe("reserved");
+        }
+      }
+      expect(networkHits).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("PO-6 recovery path safety and durable evidence match", () => {
+  it("confines paths, rejects UNC/extended/.. escapes, and exact-matches durable evidence", async () => {
+    const {
+      assertContainedUnderProjectRoot,
+      isWithinPath
+    } = await import("../src/productionControl/recoveryPathSafety.js");
+    const { runCoordinatorRecoverCli } = await import("../src/productionControl/coordinatorRecoveryCli.js");
+    const {
+      writeDurableGateBundle
+    } = await import("../src/productionControl/activePipeline.js");
+    const {
+      writeDurableGateDecision,
+      writeDurableCoordinatorPrincipal
+    } = await import("../src/productionControl/durableGateEvidence.js");
+
+    const root = await realTempDir("tsugite-po6-path-ev-");
+    try {
+      expect(isWithinPath(root, join(root, "a"))).toBe(true);
+      expect(isWithinPath(root, join(root, "..", "escape"))).toBe(false);
+      expect(isWithinPath("/tmp/a", "/var/b")).toBe(false);
+
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: "",
+        candidate: "x",
+        label: "empty-project"
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: "",
+        label: "empty-cand"
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: "\\\\?\\C:\\Windows",
+        label: "extended"
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: "\\\\?\\C:\\Windows",
+        candidate: "x",
+        label: "extended-project"
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: "//server/share/path",
+        label: "unc-cand"
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: join(root, "..", "outside"),
+        label: "dotdot"
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: join(root, "no-such-project-root"),
+        candidate: "x",
+        label: "missing-project"
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      // Project root that is a file.
+      const notDir = join(root, "file-as-project");
+      await writeFile(notDir, "x");
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: notDir,
+        candidate: "x",
+        label: "file-project"
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: join(root, "missing-leaf"),
+        label: "missing",
+        allowMissingLeaf: false
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+      // Relative candidate under project.
+      const relOk = await assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: "rel-child",
+        label: "rel",
+        allowMissingLeaf: true
+      });
+      expect(relOk.resolved.endsWith("rel-child")).toBe(true);
+      const missingOk = await assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: join(root, "future", "child"),
+        label: "missing-ok",
+        allowMissingLeaf: true
+      });
+      expect(missingOk.project_real_path).toBe(root);
+      // Existing leaf revalidation path.
+      const leafDir = join(root, "leaf-dir");
+      await mkdir(leafDir, { recursive: true });
+      const leafOk = await assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: leafDir,
+        label: "leaf-ok"
+      });
+      expect(leafOk.real_path).toBe(await realpath(leafDir));
+
+      // Intermediate non-directory refused.
+      const fileAsDir = join(root, "not-a-dir");
+      await writeFile(fileAsDir, "x");
+      await expect(assertContainedUnderProjectRoot({
+        projectRoot: root,
+        candidate: join(fileAsDir, "child"),
+        label: "file-mid",
+        allowMissingLeaf: true
+      })).rejects.toMatchObject({ code: "PC_PATH_UNSAFE" });
+
+      // productionControlRoot absolute outside project via CLI.
+      const outsidePc = await realTempDir("tsugite-po6-pc-out-");
+      try {
+        const denied = await runCoordinatorRecoverCli({
+          recovery: "paid",
+          apply: false,
+          confirm_paid: false,
+          node_id: "node-gen-1",
+          error_code: "GEN_TECHNICAL_FAIL",
+          projectRoot: root,
+          productionControlRoot: outsidePc,
+          production_id: "prod-path"
+        });
+        expect(denied.ok).toBe(false);
+        if (!denied.ok) expect(denied.issues[0]?.code).toBe("PC_PATH_UNSAFE");
+      } finally {
+        await rm(outsidePc, { recursive: true, force: true });
+      }
+
+      // Durable evidence exact match path.
+      const policy = samplePolicy();
+      const bundle = sampleBundleWithPolicy(policy);
+      const g1 = gate1Pair(bundle);
+      const { computeRequestDigest } = await import("../src/generationJobs/approval.js");
+      const jobRequest = {
+        digest: "",
+        model_id: "m",
+        mode: "text-to-video",
+        connection_id: "c",
+        auth_env_names: [] as string[],
+        asset_paths: [] as string[],
+        params: { text: "durable" }
+      };
+      jobRequest.digest = computeRequestDigest(jobRequest);
+      const runDir = join(root, "dist", "run-1");
+      await mkdir(runDir, { recursive: true });
+      await writeDurableGateBundle(runDir, bundle);
+      await writeDurableGateDecision(runDir, {
+        gate: "gate_1",
+        decision: g1.decision,
+        decision_source: "human",
+        decision_digest: g1.decision_digest
+      });
+      await writeDurableCoordinatorPrincipal(runDir, {
+        gate_1_decision_digest: g1.decision_digest
+      });
+
+      const pkgDir = join(root, "pkg-durable");
+      await mkdir(pkgDir, { recursive: true });
+      const principal = fixturePrincipal(g1.decision_digest);
+      await writeFile(join(pkgDir, "recovery-package.json"), JSON.stringify({
+        ...completeFixturePaidPackage({
+          policy,
+          bundle,
+          g1,
+          jobRequest,
+          productionId: "prod-1",
+          fixtureOutcome: "known-non-submission"
+        }),
+        durable_run_dir: join("dist", "run-1"),
+        coordinator_principal: principal
+      }));
+
+      const pcRoot = join(root, "production-control");
+      await mkdir(pcRoot, { recursive: true });
+      const matched = await runCoordinatorRecoverCli({
+        recovery: "paid",
+        apply: true,
+        confirm_paid: true,
+        node_id: "node-gen-1",
+        error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
+        productionControlRoot: pcRoot,
+        packageDir: pkgDir,
+        production_id: "prod-1"
+      });
+      if (!matched.ok) {
+        throw new Error(`expected paid apply ok, got ${JSON.stringify(matched.issues)}`);
+      }
+      expect(matched.ok).toBe(true);
+      if (matched.ok && matched.mode === "apply-paid") {
+        expect(matched.fixture_only).toBe(true);
+        expect(matched.paid_spend.silent).toBe(false);
+      }
+
+      // Mismatched durable package digest fails closed.
+      const badPkg = join(root, "pkg-bad-durable");
+      await mkdir(badPkg, { recursive: true });
+      const badBundle = sampleBundleWithPolicy(samplePolicy({ max_credits: 9 }));
+      await writeFile(join(badPkg, "recovery-package.json"), JSON.stringify({
+        ...completeFixturePaidPackage({
+          policy,
+          bundle: badBundle,
+          g1: gate1Pair(badBundle),
+          jobRequest,
+          productionId: "prod-1"
+        }),
+        durable_run_dir: join("dist", "run-1")
+      }));
+      const mismatch = await runCoordinatorRecoverCli({
+        recovery: "paid",
+        apply: true,
+        confirm_paid: true,
+        node_id: "node-gen-1",
+        error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
+        productionControlRoot: pcRoot,
+        packageDir: badPkg,
+        production_id: "prod-1"
+      });
+      expect(mismatch.ok).toBe(false);
+      if (!mismatch.ok) {
+        expect(mismatch.issues[0]?.code).toBe("recover.live_evidence_required");
+      }
+
+      // Bad fixture namespace rejected.
+      const badNs = join(root, "pkg-bad-ns");
+      await mkdir(badNs, { recursive: true });
+      const body = completeFixturePaidPackage({ policy, bundle, g1, jobRequest, productionId: "prod-1" });
+      (body as { fixture_adapter: { namespace: string; outcome: string } }).fixture_adapter = {
+        namespace: "production",
+        outcome: "known-non-submission"
+      };
+      await writeFile(join(badNs, "recovery-package.json"), JSON.stringify(body));
+      const nsDenied = await runCoordinatorRecoverCli({
+        recovery: "paid",
+        apply: true,
+        confirm_paid: true,
+        node_id: "node-gen-1",
+        error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
+        productionControlRoot: pcRoot,
+        packageDir: badNs,
+        production_id: "prod-1"
+      });
+      expect(nsDenied.ok).toBe(false);
+      if (!nsDenied.ok) expect(nsDenied.issues[0]?.code).toBe("recover.fixture_only");
+
+      // Principal digest mismatch / live_gate1 id mismatch / missing durable store.
+      for (const [name, mutator] of [
+        ["principal-digest", (p: Record<string, unknown>) => {
+          const cp = { ...(p.coordinator_principal as object) } as Record<string, unknown>;
+          cp.digest = "0".repeat(64);
+          p.coordinator_principal = cp;
+          delete p.durable_run_dir;
+        }],
+        ["live-gate1-id", (p: Record<string, unknown>) => {
+          const lg = { ...(p.live_gate1 as object) } as Record<string, unknown>;
+          lg.production_id = "other-prod";
+          p.live_gate1 = lg;
+          delete p.durable_run_dir;
+        }],
+        ["durable-missing", (p: Record<string, unknown>) => {
+          p.durable_run_dir = join("dist", "run-missing");
+        }]
+      ] as const) {
+        const d = join(root, `pkg-${name}`);
+        await mkdir(d, { recursive: true });
+        const pkgBody = completeFixturePaidPackage({
+          policy, bundle, g1, jobRequest, productionId: "prod-1"
+        }) as Record<string, unknown>;
+        mutator(pkgBody);
+        await writeFile(join(d, "recovery-package.json"), JSON.stringify(pkgBody));
+        const out = await runCoordinatorRecoverCli({
+          recovery: "paid",
+          apply: true,
+          confirm_paid: true,
+          node_id: "node-gen-1",
+          error_code: "GEN_TECHNICAL_FAIL",
+          projectRoot: root,
+          productionControlRoot: pcRoot,
+          packageDir: d,
+          production_id: "prod-1"
+        });
+        expect(out.ok).toBe(false);
+        if (!out.ok) {
+          expect(
+            out.issues[0]?.code === "recover.live_evidence_required"
+            || out.issues[0]?.code === "PC_PATH_UNSAFE"
+          ).toBe(true);
+        }
+      }
+
+      // confirm_paid required branch.
+      const noConfirmPkg = join(root, "pkg-noconfirm");
+      await mkdir(noConfirmPkg, { recursive: true });
+      await writeFile(
+        join(noConfirmPkg, "recovery-package.json"),
+        JSON.stringify(completeFixturePaidPackage({ policy, bundle, g1, jobRequest, productionId: "prod-1" }))
+      );
+      const noConfirm = await runCoordinatorRecoverCli({
+        recovery: "paid",
+        apply: true,
+        confirm_paid: false,
+        node_id: "node-gen-1",
+        error_code: "GEN_TECHNICAL_FAIL",
+        projectRoot: root,
+        productionControlRoot: pcRoot,
+        packageDir: noConfirmPkg,
+        production_id: "prod-1"
+      });
+      expect(noConfirm.ok).toBe(false);
+      if (!noConfirm.ok) expect(noConfirm.issues[0]?.code).toBe("recover.confirm_paid_required");
+
+      // local.jobs_root outside project denied.
+      const jobsOutside = await realTempDir("tsugite-po6-jobs-out-");
+      try {
+        const localPkg = join(root, "pkg-local");
+        await mkdir(localPkg, { recursive: true });
+        await writeFile(join(localPkg, "recovery-package.json"), JSON.stringify({
+          production_id: "prod-1",
+          run_id: "run-1",
+          project_id: "p",
+          revision_id: "r",
+          node_id: "node-gen-1",
+          observed_error_code: "GEN_TECHNICAL_FAIL",
+          failure_kind: "known-failure",
+          local: {
+            action: "resume-known-job-poll",
+            job_id: "j1",
+            known_job: {
+              generation_job_id: "j1",
+              provider_job_id: "p1",
+              connection_id: "c",
+              connection_digest: DIGEST_A
+            },
+            tree_revision: 1,
             task_revision: 1,
             input_digest: DIGEST_A,
-            dependency_closure_digest: DIGEST_B,
-            stale: false
+            jobs_root: jobsOutside
           }
-        }
+        }));
+        const localDenied = await runCoordinatorRecoverCli({
+          recovery: "local",
+          apply: true,
+          confirm_paid: false,
+          node_id: "node-gen-1",
+          error_code: "GEN_TECHNICAL_FAIL",
+          projectRoot: root,
+          productionControlRoot: pcRoot,
+          packageDir: localPkg,
+          production_id: "prod-1"
+        });
+        expect(localDenied.ok).toBe(false);
+        if (!localDenied.ok) expect(localDenied.issues[0]?.code).toBe("PC_PATH_UNSAFE");
+      } finally {
+        await rm(jobsOutside, { recursive: true, force: true });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("PO-6 terminalizeReservation fail-closed adversarial", () => {
+  it("already-terminal release is no-op after durable confirm; lock conflict fails closed; remint closed", {
+    timeout: 60_000
+  }, async () => {
+    const policy = samplePolicy({ max_attempts: 3, max_submissions: 3, max_credits: 5 });
+    const bundle = sampleBundleWithPolicy(policy);
+    const g1 = gate1Pair(bundle);
+    const root = await realTempDir("tsugite-po6-term-adv-");
+    try {
+      const pcRoot = join(root, "pc");
+      const ledgerRoot = join(root, "ledger");
+      await mkdir(pcRoot, { recursive: true, mode: 0o700 });
+      await mkdir(ledgerRoot, { recursive: true, mode: 0o700 });
+      const store = new DurableRegenerationStore(pcRoot);
+      const ledger = new GrantCreditLedger(ledgerRoot);
+      const grant = await issueAndPersistRegenerationGrant({
+        grant_id: "grant-term-adv",
+        policy,
+        gate_bundle: bundle,
+        gate_1_decision: g1.decision,
+        live_gate_1_subject_digest: g1.subject_digest,
+        live_gate_1_decision_digest: g1.decision_digest,
+        issued_at: NOW,
+        production_id: "prod-1",
+        store,
+        ledger,
+        now: new Date(NOW)
+      });
+      await ledger.openBudget({
+        budget_id: "budget-term-adv",
+        grant_digest: grant.digest,
+        production_id: "prod-1",
+        max_incremental_credits: policy.max_incremental_credits,
+        max_attempts: policy.max_attempts_per_task,
+        max_submissions: policy.max_total_new_submissions,
+        per_attempt_credit_cap: Math.min(policy.max_incremental_credits, 3)
+      });
+      const attemptKey = computeRegenerationAttemptKey({
+        node_id: "node-gen-1",
+        ordinal: 0,
+        trigger_failure_digest: DIGEST_A,
+        base_compilation_digest: DIGEST_F,
+        derived_compilation_digest: DIGEST_D,
+        grant_digest: grant.digest
+      });
+      const auth = await authorizePaidRegeneration({
+        policy,
+        grant,
+        gate_bundle: bundle,
+        ledger,
+        store,
+        node_id: "node-gen-1",
+        ordinal: 0,
+        attempt_key: attemptKey,
+        trigger_failure_ref: { kind: "failure", id: "f-lock", digest: DIGEST_A },
+        observed_error_code: "GEN_TECHNICAL_FAIL",
+        base_compilation_digest: DIGEST_F,
+        patch_artifact_digest: DIGEST_B,
+        derived_compilation_digest: DIGEST_D,
+        changed_prompt_block_id: "block-action",
+        requested_credits: 1,
+        run_id: "run-1",
+        production_id: "prod-1",
+        now: new Date(NOW)
+      });
+      expect(auth.reservation.status).toBe("reserved");
+
+      // First release succeeds → durable terminal.
+      await ledger.release({
+        reservation_id: auth.reservation.reservation_id,
+        reason: "known-non-submission"
+      });
+      expect((await ledger.readReservation(auth.reservation.reservation_id))?.status).toBe("released");
+      expect((await ledger.readBudget())?.reserved_credits).toBe(0);
+
+      // Second release → PC_RESERVATION_INVALID (already terminal). terminalize no-op only after durable confirm.
+      await expect(ledger.release({
+        reservation_id: auth.reservation.reservation_id,
+        reason: "known-non-submission"
+      })).rejects.toMatchObject({ code: "PC_RESERVATION_INVALID" });
+      // Durable still terminal — not reserved residual.
+      expect((await ledger.readReservation(auth.reservation.reservation_id))?.status).toBe("released");
+
+      // burn/remint closed after terminal reservation.
+      await expect(rehydrateSealedPaidAuthorization({
+        store,
+        ledger,
+        authorization_digest: auth.authorization.digest
+      })).rejects.toMatchObject({ code: "PC_AUTHORIZATION_INVALID" });
+
+      // Lock conflict while trying another mutation fails closed (does not invent success).
+      const { acquireProductionControlRootLock } = await import("../src/productionControl/errors.js");
+      const held = await acquireProductionControlRootLock(ledgerRoot);
+      try {
+        await expect(ledger.quarantine({
+          reservation_id: auth.reservation.reservation_id
+        })).rejects.toMatchObject({ code: "PC_LOCK_CONFLICT" });
+      } finally {
+        await held.release();
+      }
+      // Status unchanged after failed lock attempt.
+      expect((await ledger.readReservation(auth.reservation.reservation_id))?.status).toBe("released");
+      expect((await ledger.readBudget())?.reserved_credits).toBe(0);
+
+      // Controller force known-non-submission path still leaves reserved_credits=0 and no remint.
+      const { computeRequestDigest } = await import("../src/generationJobs/approval.js");
+      const jobRequest = {
+        digest: "",
+        model_id: "m",
+        mode: "text-to-video",
+        connection_id: "c",
+        auth_env_names: [] as string[],
+        asset_paths: [] as string[],
+        params: { text: "x" }
       };
-      await writeFile(join(pkgDir, "recovery-package.json"), JSON.stringify({
+      jobRequest.digest = computeRequestDigest(jobRequest);
+      const ctrlRoot = join(root, "ctrl");
+      const ctrlPc = join(ctrlRoot, "pc");
+      const ctrlLedger = join(ctrlRoot, "ledger");
+      await mkdir(ctrlPc, { recursive: true, mode: 0o700 });
+      await mkdir(ctrlLedger, { recursive: true, mode: 0o700 });
+      const released = await runActivePaidRegeneration({
         production_id: "prod-1",
         run_id: "run-1",
         project_id: "proj-1",
         revision_id: "rev-1",
+        productionControlRoot: ctrlPc,
+        ledgerRoot: ctrlLedger,
         node_id: "node-gen-1",
         observed_error_code: "GEN_TECHNICAL_FAIL",
         failure_kind: "known-failure",
@@ -5022,46 +5675,80 @@ describe("PO-6 CLI/main fixture E2E recover command", () => {
         gate_1_decision: g1.decision,
         live_gate_1_subject_digest: g1.subject_digest,
         live_gate_1_decision_digest: g1.decision_digest,
-        mission_state: mission,
         base_compilation_digest: DIGEST_F,
         derived_compilation_digest: DIGEST_D,
         patch_artifact_digest: DIGEST_B,
         requested_credits: 1,
         ordinal: 0,
+        trigger_failure_ref: { kind: "failure", id: "f-rel", digest: DIGEST_A },
+        mission_state: {
+          ...createInitialMissionState("prod-1"),
+          nodes: {
+            "node-gen-1": {
+              node_id: "node-gen-1",
+              status: "failed_known",
+              task_revision: 1,
+              input_digest: DIGEST_A,
+              dependency_closure_digest: DIGEST_B,
+              stale: false
+            }
+          }
+        },
         job_request: jobRequest,
-        fixture_adapter: { outcome: "known-non-submission" },
+        adapter: {
+          adapter_id: "stub",
+          connection_id: "c",
+          capabilities: { submit: true, poll: true, download: true, cancel: false },
+          async preflight() { return { ok: true as const, execution_ready: true }; },
+          async submit() {
+            return {
+              ok: false as const,
+              code: "KNOWN_NON_SUBMISSION",
+              message: "no accept",
+              acceptance_possible: false
+            };
+          },
+          async poll() { return { ok: true as const, status: "succeeded" as const }; },
+          async download() {
+            return { ok: true as const, absolute_path: join(ctrlRoot, "x"), sha256: DIGEST_A, byte_length: 1 };
+          }
+        } as never,
+        resolveExecutionBundle: async () => {
+          throw new Error("bundle missing for pre-effect stop is ok");
+        },
+        live_gate1: {
+          subject_digest: g1.subject_digest,
+          decision_digest: g1.decision_digest,
+          production_id: "prod-1",
+          run_id: "run-1",
+          legacy_approved_input_digest: DIGEST_A,
+          decision: {
+            decision_id: g1.decision.decision_id,
+            decision: g1.decision.decision,
+            actor: g1.decision.actor,
+            decided_at: g1.decision.decided_at
+          }
+        },
+        coordinator_principal: fixturePrincipal(g1.decision_digest),
+        force_outcome: "known-non-submission",
         issued_at: NOW,
-        now: NOW
-      }));
-
-      // Direct library CLI bridge (same entry as main) for paid fixture apply.
-      const { runCoordinatorRecoverCli } = await import("../src/productionControl/coordinatorRecoveryCli.js");
-      const pcRoot = join(root, "production-control");
-      await mkdir(pcRoot, { recursive: true });
-      const paid = await runCoordinatorRecoverCli({
-        recovery: "paid",
-        apply: true,
-        confirm_paid: true,
-        node_id: "node-gen-1",
-        error_code: "GEN_TECHNICAL_FAIL",
-        productionControlRoot: pcRoot,
-        packageDir: pkgDir,
-        production_id: "prod-1"
+        now: new Date(NOW)
       });
-      // Without T05 adopted execution_bundle the controller may stop pre-effect; still no reserved credits.
-      expect(paid.ok).toBe(true);
-      if (paid.ok && paid.mode === "apply-paid") {
-        expect(["released", "awaiting_human", "quarantined", "committed"]).toContain(paid.result.status);
-        if (paid.result.status !== "awaiting_human" || "reservation_id" in paid.result) {
-          // terminal outcomes from controller
+      expect(["released", "awaiting_human"]).toContain(released.status);
+      const ctrlLedgerView = new GrantCreditLedger(ctrlLedger);
+      expect((await ctrlLedgerView.readBudget().catch(() => undefined))?.reserved_credits ?? 0).toBe(0);
+      if ("reservation_id" in released && released.reservation_id) {
+        const rsv = await ctrlLedgerView.readReservation(released.reservation_id);
+        expect(rsv?.status).not.toBe("reserved");
+        if ("authorization_digest" in released && released.authorization_digest) {
+          await expect(rehydrateSealedPaidAuthorization({
+            store: new DurableRegenerationStore(ctrlPc),
+            ledger: ctrlLedgerView,
+            authorization_digest: released.authorization_digest
+          })).rejects.toMatchObject({ code: "PC_AUTHORIZATION_INVALID" });
         }
       }
-      const ledger = new GrantCreditLedger(pcRoot);
-      const budget = await ledger.readBudget().catch(() => undefined);
-      expect(budget?.reserved_credits ?? 0).toBe(0);
-      expect(networkHits).toEqual([]);
     } finally {
-      globalThis.fetch = originalFetch;
       await rm(root, { recursive: true, force: true });
     }
   });

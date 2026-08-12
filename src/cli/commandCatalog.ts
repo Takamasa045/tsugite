@@ -435,7 +435,7 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
   defineCommand({
     name: "recover",
     summary:
-      "Coordinator recovery: plan or apply local poll/download or explicit paid regeneration (no silent spend).",
+      "Coordinator recovery: plan or apply local poll/download or explicit paid regeneration (no silent spend). Paid --apply is fixture-package only (fixture_adapter.namespace=fixture); live provider billing is not enabled. packageDir/jobs_root/production-control stay under the project realpath.",
     usage:
       "node bin/pipeline recover --config <project.yaml> --actor coordinator --node <node-id> --error-code <code> --recovery <local|paid> [--dry-run | --apply [--confirm-paid]] [--path <recovery-package>] [--state-dir <directory>] [--json]",
     requiresConfig: true,

@@ -61,4 +61,21 @@ export {
   assertPolicyExemptSealedAuthorization,
   gateDriftKindsForSealedRevisionIntent
 } from "./recovery.js";
-export * from "./activeRecovery.js";
+// runActivePaidRegeneration is internal — public paid entry is executeCoordinatorPaidRecovery
+// (requires confirm_paid=true). Silent programmatic spend via the package surface is forbidden.
+export {
+  type ActivePaidRegenerationInput,
+  type ActivePaidRegenerationResult,
+  type ActiveLocalRecoveryInput,
+  type ActiveLocalRecoveryResult,
+  type CoordinatorRecoveryPlan,
+  resumePaidRegenerationContext,
+  runActiveLocalRecovery,
+  planCoordinatorRecovery,
+  executeCoordinatorPaidRecovery
+} from "./activeRecovery.js";
+export {
+  assertContainedUnderProjectRoot,
+  isWithinPath,
+  type ContainedPathResult
+} from "./recoveryPathSafety.js";

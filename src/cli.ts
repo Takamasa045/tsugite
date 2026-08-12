@@ -1119,11 +1119,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    // Canonical production-control root under the project config directory.
+    // Canonical production-control root under the authoritative project config directory.
     const configPath = args.config!;
     const { dirname, resolve } = await import("node:path");
-    const rootFromConfig = resolve(dirname(configPath));
-    const productionControlRoot = resolveCanonicalProductionControlRoot(rootFromConfig);
+    const projectRoot = resolve(dirname(configPath));
+    const productionControlRoot = resolveCanonicalProductionControlRoot(projectRoot);
     const packageDir = args.paths[0];
     const result = await runCoordinatorRecoverCli({
       recovery: recoveryMode!,
@@ -1131,6 +1131,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       confirm_paid: Boolean(args.confirmPaid),
       node_id: args.node!,
       error_code: args.errorCode!,
+      projectRoot,
       productionControlRoot,
       ...(packageDir ? { packageDir } : {}),
       production_id: validation.project?.slug
@@ -1138,11 +1139,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (!result.ok) {
       return output(args, 1, { ok: false, command: "recover", issues: result.issues });
     }
+    // silent_paid_spend is derived from result provenance, never a hardcoded success constant.
+    const silentPaidSpend = result.mode === "apply-paid"
+      ? result.paid_spend.silent
+      : false;
     return output(args, 0, {
       command: "recover",
       dry_run: !args.apply,
       ...result,
-      silent_paid_spend: false
+      silent_paid_spend: silentPaidSpend,
+      ...(result.mode === "apply-paid"
+        ? {
+          fixture_only: result.fixture_only,
+          paid_spend: result.paid_spend
+        }
+        : {})
     });
   }
 

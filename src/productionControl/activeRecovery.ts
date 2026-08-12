@@ -846,11 +846,19 @@ export async function executeCoordinatorPaidRecovery(
   return runActivePaidRegeneration(input);
 }
 
+/**
+ * Terminalize a reserved entry. Only PC_RESERVATION_INVALID for an already-terminal
+ * reservation is a no-op; lock/IO/missing/still-reserved fail closed.
+ * After the transition (or already-terminal no-op), re-read durable reservation and
+ * refuse success when status is still reserved or unreadable.
+ * Callers must not burn seals or return terminal success until this resolves.
+ */
 async function terminalizeReservation(
   ledger: GrantCreditLedger,
   reservationId: string,
   mode: "release" | "quarantine"
 ): Promise<void> {
+  let transitionError: unknown;
   try {
     if (mode === "release") {
       await ledger.release({
@@ -860,9 +868,50 @@ async function terminalizeReservation(
     } else {
       await ledger.quarantine({ reservation_id: reservationId });
     }
-  } catch {
-    // Best-effort if already terminal; caller still burns the seal.
+  } catch (error) {
+    if (isAlreadyTerminalReservationError(error, mode)) {
+      // Durable verify below still required.
+    } else {
+      transitionError = error;
+    }
   }
+
+  let reservation;
+  try {
+    reservation = await ledger.readReservation(reservationId);
+  } catch (readError) {
+    // lock/IO during durable confirm — never report terminal success.
+    throw readError;
+  }
+
+  if (!reservation || reservation.status === "reserved") {
+    if (transitionError instanceof ProductionControlError) throw transitionError;
+    if (transitionError instanceof Error) throw transitionError;
+    throw pcError(
+      "PC_LEDGER_UNSAFE",
+      `reservation ${reservationId} remained reserved after terminalize (${mode})`
+    );
+  }
+  // Terminal durable status confirmed (released | quarantined | committed).
+}
+
+/** Only already-terminal PC_RESERVATION_INVALID is a no-op candidate. */
+function isAlreadyTerminalReservationError(
+  error: unknown,
+  mode: "release" | "quarantine"
+): boolean {
+  if (!(error instanceof ProductionControlError) || error.code !== "PC_RESERVATION_INVALID") {
+    return false;
+  }
+  const message = error.message;
+  // Missing reservation is not "already terminal".
+  if (/reservation not found/i.test(message)) return false;
+  if (mode === "release") {
+    return /only reserved entries can be released|committed reservation can never be released/i.test(
+      message
+    );
+  }
+  return /only reserved entries can be quarantined/i.test(message);
 }
 
 function isPostEffectOutcomeUnknown(error: unknown, adapterInvokes: number): boolean {
