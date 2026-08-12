@@ -263,6 +263,9 @@ export type ExecutionSubmitHooks = {
  * Create a one-shot ExecutionSubmissionLease with exact attempt_id+job_id,
  * consume immediately before effect, same-FD asset path via T05, finally release.
  * Mismatch / fake / raw JSON → adapter invocation 0.
+ *
+ * The consumed ExecutionSubmissionInput is always passed to submitEffect. Adapters
+ * must consume same-FD assets via readExecutionSubmissionAsset; path reopen is forbidden.
  */
 export async function executeWithSubmissionAuthority(input: {
   bundle: unknown;
@@ -278,11 +281,15 @@ export async function executeWithSubmissionAuthority(input: {
     }
     const adopted = input.bundle as ExecutionCompilationBundle;
     lease = createExecutionSubmissionLease(adopted, input.binding);
-    // Consume only immediately before effect.
+    // Consume only immediately before effect. Burns lease even on later failure.
     submission = consumeExecutionSubmissionLease(lease, input.binding);
     lease = undefined;
+    if (!submission) {
+      return { ok: false, error: "submission lease did not yield same-FD input", adapter_invocations: 0 };
+    }
     adapterInvocations += 1;
     input.hooks?.onAdapterInvoke?.();
+    // Same-FD input must reach the adapter/transport — never voided.
     const result = await input.hooks?.submitEffect?.(submission);
     return { ok: true, result };
   } catch (error) {
@@ -353,6 +360,40 @@ export function assertBindingMatchesGateBundle(
   }
   if (binding.production_id !== bundle.production_id || binding.run_id !== bundle.run_id) {
     throw pcError("PC_GENERATION_BINDING_INVALID", "approval binding production/run mismatch");
+  }
+  // Require route + pricing + Gate1-approved unit membership in the approved GateBundle.
+  assertBindingMembershipInGateBundle(binding, bundle);
+}
+
+/**
+ * Route, pricing binding, and base compilation must appear in an approved batch unit.
+ * Membership is exact (digest equality), not presence-only.
+ */
+export function assertBindingMembershipInGateBundle(
+  binding: GenerationJobApprovalBinding,
+  bundle: GateBundle
+): void {
+  const matchingBatches = bundle.generation_batches.filter((batch) =>
+    batch.route.route_digest === binding.route.route_digest
+    && batch.pricing_binding_digest === binding.pricing_binding_digest
+  );
+  if (matchingBatches.length === 0) {
+    throw pcError(
+      "PC_GENERATION_BINDING_INVALID",
+      "approval binding route/pricing is not a member of the approved GateBundle"
+    );
+  }
+  const unitMatch = matchingBatches.some((batch) =>
+    batch.ordered_units.some((unit) =>
+      unit.base_compilation_digest === binding.compilation_digest
+      && unit.route_digest === binding.route.route_digest
+    )
+  );
+  if (!unitMatch) {
+    throw pcError(
+      "PC_GENERATION_BINDING_INVALID",
+      "approval binding compilation is not a member of the approved GateBundle units"
+    );
   }
 }
 

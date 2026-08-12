@@ -405,8 +405,57 @@ export async function assembleLocalMediaRun(
   });
 
   const awaitingState = markGateAwaiting(options.state, "gate_2");
+  let gate2ProductionBinding: import("./stateTransitions.js").ProductionGateBinding | undefined;
+  if (autoPass.passed && project.orchestration?.mode === "active") {
+    // Narrow Gate2 auto-pass must still bind exact production subject+decision.
+    try {
+      const { buildActiveGate2ProductionBinding, loadDurableGateBundle } = await import(
+        "../productionControl/activePipeline.js"
+      );
+      const { productionDecisionId } = await import("../productionControl/activePipeline.js");
+      const runDir = join(options.stateDir, runId);
+      const durable = await loadDurableGateBundle(runDir);
+      const g1 = awaitingState.gates.gate_1;
+      if (
+        durable
+        && g1.production_decision_digest
+        && g1.production_subject_digest
+      ) {
+        const decidedAt = new Date().toISOString();
+        const bound = buildActiveGate2ProductionBinding({
+          gate_1_decision_digest: g1.production_decision_digest,
+          gate_bundle_digest: durable.digest,
+          selected_generation_completion_digests: [],
+          manifest_digest: autoPass.approvalDigest,
+          technical_qa_digest: autoPass.approvalDigest,
+          decision: {
+            decision_id: productionDecisionId("gate_2", "auto_qc", decidedAt),
+            decision: "approved",
+            actor: "auto_qc",
+            decided_at: decidedAt
+          },
+          decision_source: "auto_qc",
+          legacy_approved_input_digest: autoPass.approvalDigest
+        });
+        gate2ProductionBinding = bound.productionBinding;
+      }
+    } catch {
+      // Fail closed: without production binding, active auto-pass still records legacy digest only;
+      // subsequent render subject check will block if production digests are missing.
+      gate2ProductionBinding = undefined;
+    }
+  }
   const nextState = autoPass.passed
-    ? recordGateDecision(awaitingState, "gate_2", "approved", undefined, autoPass.approvalDigest, "auto_qc")
+    ? recordGateDecision(
+      awaitingState,
+      "gate_2",
+      "approved",
+      undefined,
+      autoPass.approvalDigest,
+      "auto_qc",
+      undefined,
+      gate2ProductionBinding
+    )
     : awaitingState;
   const writtenStatePath = await writeState(options.stateDir, nextState);
   const projectRoot = options.configPath

@@ -42,6 +42,11 @@ import {
   gateDecisionDigest,
   groupUnitsByRoute,
   makeProductionEvent,
+  mintSealedCoordinatorAuthority,
+  mintSealedGate1Binding,
+  mintSealedGate2Binding,
+  mintSealedHumanDecision,
+  isSealedGate1Binding,
   parseGateBundle,
   parseGenerationCompletionRef,
   parseGenerationJobApprovalBinding,
@@ -172,12 +177,20 @@ function sampleBundle(overrides: Partial<{
 }
 
 function sealedGate1(bundle: GateBundle) {
-  return {
+  return mintSealedGate1Binding({
+    gate_bundle: bundle,
     subject_digest: DIGEST_A,
     decision_digest: DIGEST_B,
-    gate_bundle_digest: bundle.digest,
-    stale: false as const
-  };
+    live_subject_digest: DIGEST_A,
+    live_decision_digest: DIGEST_B
+  });
+}
+
+function sealedCoordinator() {
+  return mintSealedCoordinatorAuthority({
+    actor: "coordinator",
+    live_coordinator_actor: "coordinator"
+  });
 }
 
 function computeDriftedIdentity(binding: { production_id: string; run_id: string; node_id: string; attempt_id: string; generation_job_id: string; approval_digest: string; gate_bundle_digest: string; gate_1_decision_digest: string; request_digest: string; compilation_digest: string; route: RouteIdentity; pricing_binding_digest: string }): string {
@@ -467,13 +480,14 @@ describe("PO-5 Gate subjects / cascade / legacy compatibility", () => {
 describe("PO-5 authority / dispatcher / leases", () => {
   it("denies paid until PO-6 and requires sealed Gate1+bundle+Coordinator for submit", () => {
     const bundle = sampleBundle();
+    const coordinator = sealedCoordinator();
     // paid_authorization:true is still unconditionally denied in T06.
     expect(checkAuthority({
       role: "generator",
       effect: "paid",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       paid_authorization: true
     }).allowed).toBe(false);
     expect(checkAuthority({
@@ -481,7 +495,7 @@ describe("PO-5 authority / dispatcher / leases", () => {
       effect: "paid",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       paid_authorization: true
     }).reason).toBe("paid execution denied until PO-6 typed authorization exists");
 
@@ -490,19 +504,28 @@ describe("PO-5 authority / dispatcher / leases", () => {
       effect: "external-submit",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       gate_bundle: bundle,
       gate_1: sealedGate1(bundle)
     }).allowed).toBe(true);
 
-    // known_price alone is forbidden.
+    // Free-form sealed copy / self coordinator string rejected.
+    const freeFormGate1 = {
+      kind: "pc-sealed-gate-1",
+      subject_digest: DIGEST_A,
+      decision_digest: DIGEST_B,
+      gate_bundle_digest: bundle.digest,
+      stale: false as const
+    };
+    expect(isSealedGate1Binding(freeFormGate1)).toBe(false);
     expect(checkAuthority({
       role: "generator",
       effect: "external-submit",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
-      known_price: true
+      coordinator_authority: coordinator,
+      gate_bundle: bundle,
+      gate_1: freeFormGate1 as never
     }).allowed).toBe(false);
     expect(checkAuthority({
       role: "generator",
@@ -510,6 +533,25 @@ describe("PO-5 authority / dispatcher / leases", () => {
       actor: "coordinator",
       mode: "active",
       coordinator_actor: "coordinator",
+      gate_bundle: bundle,
+      gate_1: sealedGate1(bundle)
+    }).allowed).toBe(false);
+
+    // known_price alone is forbidden.
+    expect(checkAuthority({
+      role: "generator",
+      effect: "external-submit",
+      actor: "coordinator",
+      mode: "active",
+      coordinator_authority: coordinator,
+      known_price: true
+    }).allowed).toBe(false);
+    expect(checkAuthority({
+      role: "generator",
+      effect: "external-submit",
+      actor: "coordinator",
+      mode: "active",
+      coordinator_authority: coordinator,
       known_price: true
     }).reason).toBe("known_price alone cannot authorize external-submit");
 
@@ -521,14 +563,20 @@ describe("PO-5 authority / dispatcher / leases", () => {
       known_price: true
     }).allowed).toBe(false);
 
+    const sealedG2 = mintSealedGate2Binding({
+      subject_digest: DIGEST_C,
+      decision_digest: DIGEST_D,
+      live_subject_digest: DIGEST_C,
+      live_decision_digest: DIGEST_D
+    });
     expect(checkAuthority({
       role: "coordinator",
       effect: "render",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       explicit_render_command: true,
-      gate_2: { subject_digest: DIGEST_C, decision_digest: DIGEST_D, stale: false }
+      gate_2: sealedG2
     }).allowed).toBe(true);
 
     expect(checkAuthority({
@@ -536,9 +584,9 @@ describe("PO-5 authority / dispatcher / leases", () => {
       effect: "render",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       explicit_render_command: false,
-      gate_2: { subject_digest: DIGEST_C, decision_digest: DIGEST_D, stale: false }
+      gate_2: sealedG2
     }).allowed).toBe(false);
 
     expect(checkAuthority({
@@ -546,7 +594,7 @@ describe("PO-5 authority / dispatcher / leases", () => {
       effect: "external-submit",
       actor: "coordinator",
       mode: "shadow",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       known_price: true
     }).allowed).toBe(false);
   });
@@ -556,7 +604,7 @@ describe("PO-5 authority / dispatcher / leases", () => {
     const authority = {
       actor: "coordinator",
       mode: "active" as const,
-      coordinator_actor: "coordinator"
+      coordinator_authority: sealedCoordinator()
     };
     const slots = [0, 1, 2].map((i) => dispatcher.acquire({
       node_id: `pure-${i}`,
@@ -1074,7 +1122,7 @@ describe("PO-5 authority assert helpers", () => {
       effect: "paid",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: sealedCoordinator(),
       paid_authorization: true
     })).toThrowError(expect.objectContaining({
       code: "PC_AUTHORITY_DENIED",
@@ -1089,12 +1137,13 @@ describe("PO-5 authority assert helpers", () => {
 
 describe("PO-5 sealed authority integration", () => {
   it("requires sealed coordinator/gate bindings and rejects boolean-only authority", () => {
+    const coordinator = sealedCoordinator();
     expect(checkAuthority({
       role: "editor",
       effect: "local-write",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator"
+      coordinator_authority: coordinator
     }).allowed).toBe(true);
     expect(checkAuthority({
       role: "editor",
@@ -1103,6 +1152,7 @@ describe("PO-5 sealed authority integration", () => {
       mode: "active",
       is_coordinator: true
     }).allowed).toBe(false);
+    // Free-form human_decision_ref is not authority.
     expect(checkAuthority({
       role: "coordinator",
       effect: "gate",
@@ -1115,6 +1165,32 @@ describe("PO-5 sealed authority integration", () => {
         decided_at: "2026-08-12T00:00:00.000Z",
         subject_digest: DIGEST_A
       }
+    }).allowed).toBe(false);
+    const sealedDecision = mintSealedHumanDecision({
+      gate: "gate_1",
+      decision: {
+        decision_id: "d1",
+        decision: "approved",
+        actor: "human",
+        decided_at: "2026-08-12T00:00:00.000Z",
+        subject_digest: DIGEST_A
+      },
+      live_subject_digest: DIGEST_A,
+      live_decision_digest: gateDecisionDigest({
+        decision_id: "d1",
+        decision: "approved",
+        actor: "human",
+        decided_at: "2026-08-12T00:00:00.000Z",
+        subject_digest: DIGEST_A
+      }),
+      decision_source: "human"
+    });
+    expect(checkAuthority({
+      role: "coordinator",
+      effect: "gate",
+      actor: "human",
+      mode: "active",
+      sealed_human_decision: sealedDecision
     }).allowed).toBe(true);
     expect(checkAuthority({
       role: "coordinator",
@@ -1128,7 +1204,7 @@ describe("PO-5 sealed authority integration", () => {
       effect: "paid",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       paid_authorization: true
     }).allowed).toBe(false);
     const unknown = createGateBundle({
@@ -1146,21 +1222,35 @@ describe("PO-5 sealed authority integration", () => {
       }],
       review_artifact_digest: DIGEST_D
     });
+    // Unknown price cannot be sealed; free-form seal is rejected.
+    expect(() => mintSealedGate1Binding({
+      gate_bundle: unknown,
+      subject_digest: DIGEST_A,
+      decision_digest: DIGEST_B,
+      live_subject_digest: DIGEST_A,
+      live_decision_digest: DIGEST_B
+    })).toThrow(/unknown price|PC_AUTHORITY_DENIED/);
     expect(checkAuthority({
       role: "generator",
       effect: "external-submit",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       gate_bundle: unknown,
-      gate_1: sealedGate1(unknown)
+      gate_1: {
+        kind: "pc-sealed-gate-1",
+        subject_digest: DIGEST_A,
+        decision_digest: DIGEST_B,
+        gate_bundle_digest: unknown.digest,
+        stale: false
+      } as never
     }).allowed).toBe(false);
     expect(checkAuthority({
       role: "generator",
       effect: "external-submit",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       known_price: true
     }).allowed).toBe(false);
     expect(checkAuthority({
@@ -1168,7 +1258,7 @@ describe("PO-5 sealed authority integration", () => {
       effect: "render",
       actor: "coordinator",
       mode: "active",
-      coordinator_actor: "coordinator",
+      coordinator_authority: coordinator,
       explicit_render_command: true
     }).allowed).toBe(false);
     expect(checkAuthority({
@@ -1288,6 +1378,7 @@ describe("PO-5 sealed authority integration", () => {
   it("covers generation bridge binding match, active binding, and non-unknown resume errors", () => {
     const bundle = sampleBundle();
     const r = bundle.generation_batches[0]!.route;
+    const unitCompile = bundle.generation_batches[0]!.ordered_units[0]!.base_compilation_digest;
     const binding = createGenerationJobApprovalBinding({
       production_id: "prod-1",
       run_id: "run-1",
@@ -1299,7 +1390,7 @@ describe("PO-5 sealed authority integration", () => {
       gate_bundle_digest: bundle.digest,
       gate_1_decision_digest: DIGEST_B,
       request_digest: DIGEST_C,
-      compilation_digest: DIGEST_D,
+      compilation_digest: unitCompile,
       route: r,
       pricing_binding_digest: bundle.generation_batches[0]!.pricing_binding_digest
     });
@@ -1307,7 +1398,10 @@ describe("PO-5 sealed authority integration", () => {
     expect(() => assertBindingMatchesGateBundle({
       ...binding,
       gate_bundle_digest: DIGEST_A,
-      immutable_identity_digest: computeDriftedIdentity(binding)
+      immutable_identity_digest: computeDriftedIdentity({
+        ...binding,
+        compilation_digest: unitCompile
+      })
     }, bundle)).toThrow();
     expect(() => assertActiveBindingRequired("active", undefined)).toThrow(/production binding/);
     expect(() => assertActiveBindingRequired("shadow", undefined)).not.toThrow();
@@ -1339,7 +1433,7 @@ describe("PO-5 sealed authority integration", () => {
       input_digest: DIGEST_A,
       role: "story",
       effect: "propose",
-      authority: { actor: "c", mode: "active", coordinator_actor: "c" },
+      authority: { actor: "c", mode: "active" },
       now: "2026-08-12T00:00:00.000Z",
       ttl_ms: 1
     });
@@ -1350,7 +1444,7 @@ describe("PO-5 sealed authority integration", () => {
       input_digest: DIGEST_B,
       role: "generator",
       effect: "external-observe",
-      authority: { actor: "c", mode: "active", coordinator_actor: "c" },
+      authority: { actor: "c", mode: "active" },
       now: "2026-08-12T00:00:00.000Z",
       ttl_ms: 1
     });
@@ -1809,6 +1903,12 @@ describe("PO-5 activePipeline public API branches", () => {
     expect(requireResolvedModeForEffect(undefined, "run")).toBe("legacy");
     expect(requireResolvedModeForEffect("active", "render")).toBe("active");
     expect(requireResolvedModeForEffect("disabled", "finalize")).toBe("disabled");
+    expect(() => requireResolvedModeForEffect(undefined, "external-submit")).toThrowError(
+      expect.objectContaining({ code: "PC_MODE_INACTIVE" })
+    );
+    expect(() => requireResolvedModeForEffect(undefined, "gate")).toThrowError(
+      expect.objectContaining({ code: "PC_MODE_INACTIVE" })
+    );
 
     expect(normalizeGateId("gate-1")).toBe("gate_1");
     expect(normalizeGateId("Gate2")).toBe("gate_2");
@@ -1923,18 +2023,162 @@ describe("PO-5 activePipeline public API branches", () => {
 });
 
 describe("PO-5 Exit E2E fixture-only (mission → Gate1 → job binding → T05 stub)", () => {
-  it("proves active compile/plan/review GateBundle, Gate1 subject, full job binding, T05-only submit path, pin ref; provider 0", async () => {
+  it("proves active GateBundle, Gate1, full binding, T05 adopt via execution budget loader, one-shot same-FD stub, pin; second consume 0; provider 0", async () => {
     const networkHits: string[] = [];
     const originalFetch = globalThis.fetch;
-    // Fail-closed network: any fetch is a test failure signal.
     globalThis.fetch = (async (...args: unknown[]) => {
       networkHits.push(String(args[0]));
       throw new Error("network forbidden in fixture E2E");
     }) as typeof fetch;
 
+    const { mkdir, mkdtemp, realpath, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const {
+      compileVideoPromptIrV2,
+      compilationRevisionId,
+      deriveExecutionCompilationBundleFromPlanningArtifact,
+      isAdoptedExecutionCompilationBundle,
+      loadAdapterDialectCapability,
+      loadConnectionCapabilityProfile,
+      loadExecutionAuthoritativePinnedPromptBudgetEvidence,
+      loadModelPromptProfile,
+      loadPlanningArtifactRef,
+      routeFromProfiles
+    } = await import("../src/videoPromptDirector/index.js");
+    const { persistPlanningCompilationArtifact } = await import("../src/videoPromptDirector/compilationBundle.js");
+    const { ArtifactStore } = await import("../src/productionControl/artifactStore.js");
+    const { GenerationJobMachine } = await import("../src/generationJobs/machine.js");
+    const { GenerationJobStore } = await import("../src/generationJobs/store.js");
+    const { computeRequestDigest } = await import("../src/generationJobs/approval.js");
+
     try {
-      const r = route("e2e");
-      const priced = knownPricing(r);
+      // --- 1) Genuine planning artifact + execution-authoritative budget → adopted bundle
+      const [model, connection, adapter] = await Promise.all([
+        loadModelPromptProfile("v6"),
+        loadConnectionCapabilityProfile("pixverse"),
+        loadAdapterDialectCapability("pixverse", ["adapters"], {
+          model_profile_id: "v6",
+          provider_model: "v6",
+          mode: "text-to-video"
+        })
+      ]);
+      expect(model.ok && connection.ok && adapter.ok).toBe(true);
+      if (!model.ok || !connection.ok || !adapter.ok) return;
+      const routeResult = routeFromProfiles({
+        model: "v6",
+        mode: "text-to-video",
+        model_profile: model.profile,
+        connection_profile: connection.profile,
+        model_profile_digest: model.digest,
+        connection_profile_digest: connection.digest
+      });
+      expect(routeResult.ok).toBe(true);
+      if (!routeResult.ok) return;
+      const v6Route = routeResult.route;
+
+      const ir = {
+        version: 2 as const,
+        program_kind: "standalone" as const,
+        target: { model_profile_id: "v6", mode: "text-to-video" as const, duration_ms: 10_000, quality: "720p" as const, aspect: "16:9" as const, audio: false },
+        creative: { must_include: [] as string[], prohibited: [] as string[] },
+        subjects: [] as never[],
+        scenes: [] as never[],
+        assets: [] as never[],
+        shots: [{
+          id: "shot-1",
+          start_ms: 0,
+          end_ms: 10_000,
+          cast: [] as string[],
+          composition: "wide shot",
+          action_beats: [{ description: "A lantern turns toward the camera." }],
+          vocal_events: [] as never[],
+          visible_text_events: [] as never[],
+          constraints: { positive: [] as string[], exact_text_refs: [] as string[] }
+        }],
+        audio: { policy: "silent" as const, reference_asset_ids: [] as string[], final_mix: "discard-generated" as const }
+      };
+      const compiled = compileVideoPromptIrV2(ir, {
+        request_id: "e2e-exit-req",
+        route: v6Route,
+        model_profile: model.profile,
+        model_profile_digest: model.digest,
+        connection_profile: connection.profile,
+        connection_capability_digest: connection.digest,
+        adapter_dialect_capability: adapter.capability
+      });
+      expect(compiled.ok).toBe(true);
+      if (!compiled.ok) return;
+
+      const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po5-exit-e2e-")));
+      const storeRoot = join(root, "production-control");
+      await mkdir(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
+      const planningBundle = compiled.compilation.bundle;
+      const revision = compilationRevisionId(planningBundle);
+      const planning = await persistPlanningCompilationArtifact({
+        store,
+        bundle: planningBundle,
+        production_id: "prod-e2e",
+        project_id: "proj-e2e",
+        revision_id: revision
+      });
+      const reloaded = await loadPlanningArtifactRef({
+        store,
+        artifact_id: planning.artifact_id,
+        artifact_digest: planning.artifact_digest,
+        production_id: "prod-e2e",
+        project_id: "proj-e2e",
+        revision_id: revision,
+        request_id: planningBundle.request_id,
+        expected_store_root: storeRoot
+      });
+
+      const budgetPath = join(root, "budget-execution.json");
+      await writeFile(budgetPath, JSON.stringify({
+        schema_version: 1,
+        source_id: "po5-e2e-budget",
+        hard: {
+          limit: 20_000,
+          unit: "utf8-bytes",
+          source: "official-api",
+          verified_at: "2026-08-11T00:00:00Z",
+          source_digest: "2".repeat(64)
+        },
+        soft: null,
+        unknown: false,
+        model_profile_digest: model.digest,
+        connection_profile_digest: connection.digest,
+        route_digest: v6Route.route_digest,
+        retrieved_at: "2026-08-11T00:00:00Z",
+        expires_at: "2099-12-31T00:00:00Z"
+      }));
+      const executionBudget = loadExecutionAuthoritativePinnedPromptBudgetEvidence({
+        artifactPath: budgetPath,
+        repoRoot: root,
+        route: v6Route,
+        model_profile_digest: model.digest,
+        connection_profile_digest: connection.digest
+      });
+      expect(executionBudget).toBeDefined();
+      if (!executionBudget) return;
+
+      const derived = await deriveExecutionCompilationBundleFromPlanningArtifact({
+        planning_artifact: reloaded,
+        store,
+        production_id: "prod-e2e",
+        project_id: "proj-e2e",
+        revision_id: revision,
+        project_root: root,
+        asset_pin_root: join(root, "pins"),
+        model_profile: model.profile,
+        connection_profile: connection.profile,
+        trusted_pinned_budget_evidence: executionBudget
+      });
+      expect(isAdoptedExecutionCompilationBundle(derived.bundle)).toBe(true);
+      expect(derived.bundle.execution_capable).toBe(true);
+
+      // --- 2) Real nonempty GateBundle with route/pricing/unit membership
+      const priced = knownPricing(v6Route as never);
       const bundle = buildActiveGateBundle({
         production_id: "prod-e2e",
         run_id: "run-e2e",
@@ -1942,25 +2186,24 @@ describe("PO-5 Exit E2E fixture-only (mission → Gate1 → job binding → T05 
         contract_set_digest: DIGEST_B,
         task_tree_digest: DIGEST_C,
         selected_artifact_digests: [DIGEST_D],
-        composition_intent_digest: DIGEST_A,
         generation_batches: [{
           batch_id: "batch-e2e",
-          route: r,
+          route: v6Route as never,
           ordered_units: [{
             ordinal: 0,
             generation_unit_digest: DIGEST_E,
-            base_compilation_digest: DIGEST_F,
-            route_digest: r.route_digest,
-            program_start_ms: 0,
-            program_end_ms: 4_000
+            base_compilation_digest: derived.bundle.compilation_digest,
+            route_digest: v6Route.route_digest
           }],
           ...priced
         }],
         review_artifact_digest: sha256Canonical({ review: "e2e" })
       });
+      expect(bundle.generation_batches.length).toBe(1);
       expect(projectGateBundleForReview(bundle).has_unknown_price).toBe(false);
+      expect(projectGateBundleForReview(bundle).digest).toBe(bundle.digest);
 
-      // Human Gate1 exact subject
+      // --- 3) Exact Gate1 human decision
       const gate1 = buildActiveGate1ProductionBinding({
         production_id: "prod-e2e",
         run_id: "run-e2e",
@@ -1990,7 +2233,18 @@ describe("PO-5 Exit E2E fixture-only (mission → Gate1 → job binding → T05 
       expect(runState.gates.gate_1.production_subject_digest).toBe(gate1.subject_digest);
       expect(runState.gates.gate_1.production_decision_digest).toBe(gate1.decision_digest);
 
-      // Full generation job binding + immutable identity recompute
+      // --- 4) Full job binding with route+pricing+compilation membership
+      const request = {
+        digest: "",
+        model_id: "v6",
+        mode: "text-to-video",
+        connection_id: "pixverse",
+        auth_env_names: [] as string[],
+        asset_paths: [] as string[],
+        params: { text: "fixture only" }
+      };
+      request.digest = computeRequestDigest(request);
+
       const jobBinding = createFullProductionJobBinding({
         production_id: "prod-e2e",
         run_id: "run-e2e",
@@ -2001,41 +2255,123 @@ describe("PO-5 Exit E2E fixture-only (mission → Gate1 → job binding → T05 
         approval_digest: DIGEST_A,
         gate_bundle: bundle,
         gate_1_decision_digest: gate1.decision_digest,
-        request_digest: DIGEST_D,
-        compilation_digest: DIGEST_F,
-        route: r,
+        request_digest: request.digest,
+        compilation_digest: derived.bundle.compilation_digest,
+        route: v6Route as never,
         pricing_binding_digest: priced.pricing_binding_digest
       });
       expect(jobBinding.gate_bundle_digest).toBe(bundle.digest);
-      expect(jobBinding.immutable_identity_digest).toHaveLength(64);
 
-      // Active submit path: only T05 authority; fake bundle → 0 adapter invokes.
+      // --- 5) Live machine: T05 adopt → one-shot same-FD stub exactly once
+      const jobRoot = join(root, "jobs");
+      await mkdir(jobRoot);
+      const jobStore = new GenerationJobStore({ rootDir: jobRoot });
+      await jobStore.create({
+        job_id: "job-e2e",
+        connection_id: "pixverse",
+        model_id: "v6",
+        mode: "text-to-video",
+        request,
+        model_profile_digest: model.digest,
+        connection_capability_digest: connection.digest,
+        pricing: {
+          status: "known",
+          version: "price-v1",
+          currency: "USD",
+          amount: 1.5,
+          max_amount: 3
+        },
+        status: "awaiting_cost_approval",
+        production_binding: jobBinding
+      });
+
       let adapterInvokes = 0;
-      const submit = await executeWithSubmissionAuthority({
-        bundle: { execution_capable: true, compilation_digest: DIGEST_F },
+      let sawSubmissionInput = false;
+      const machine = new GenerationJobMachine({
+        store: jobStore,
+        adapter: {
+          adapter_id: "stub",
+          connection_id: "pixverse",
+          capabilities: { submit: true, poll: true, download: true, cancel: false },
+          async submit(_request, ctx) {
+            adapterInvokes += 1;
+            // Same-FD input must be present; never reopen paths.
+            expect(ctx.submission_input).toBeTruthy();
+            sawSubmissionInput = true;
+            return { ok: true as const, provider_job_id: "prov-e2e-1", accepted: true as const };
+          },
+          async poll() {
+            return { ok: true as const, status: "succeeded" as const };
+          },
+          async download() {
+            return {
+              ok: true as const,
+              absolute_path: join(root, "out.mp4"),
+              sha256: DIGEST_D,
+              byte_length: 7
+            };
+          },
+          async preflight() {
+            return { ok: true as const, execution_ready: true };
+          },
+          async cancel() {
+            return { ok: true as const, cancelled: true };
+          }
+        },
+        orchestrationMode: "active",
+        resolveExecutionBundle: async () => derived.bundle,
+        resolveSubmissionBinding: async (job) => ({
+          production_id: "prod-e2e",
+          project_id: "proj-e2e",
+          revision_id: revision,
+          request_id: derived.bundle.request_id,
+          attempt_id: job.production_binding!.attempt_id,
+          job_id: job.job_id,
+          compilation_digest: derived.bundle.compilation_digest,
+          effective_contract_digest: derived.bundle.effective_contract_digest,
+          asset_lineage_digest: sha256Canonical(derived.bundle.asset_lineage)
+        }),
+        resolveGateBundle: async () => bundle,
+        resolveLiveGate1: async () => ({
+          subject_digest: gate1.subject_digest,
+          decision_digest: gate1.decision_digest
+        })
+      });
+
+      const approved = await machine.approve("job-e2e", "coordinator");
+      expect(approved.status).toBe("approved");
+      const submitted = await machine.submit("job-e2e");
+      expect(submitted.status).toBe("submitted");
+      expect(adapterInvokes).toBe(1);
+      expect(sawSubmissionInput).toBe(true);
+      expect(machine.lastActiveSubmitUsedT05).toBe(true);
+
+      // Second submit / restart resubmit must be 0.
+      await expect(machine.submit("job-e2e")).rejects.toThrow(/resubmit|provider_job_id|submitting|approved/);
+      expect(adapterInvokes).toBe(1);
+
+      // Negative fakes: structural twin → 0 invokes
+      const fakeInvokesBefore = adapterInvokes;
+      const fake = await executeWithSubmissionAuthority({
+        bundle: JSON.parse(JSON.stringify(derived.bundle)),
         binding: {
           production_id: "prod-e2e",
           project_id: "proj-e2e",
-          revision_id: "rev-e2e",
-          request_id: "req-e2e",
+          revision_id: revision,
+          request_id: derived.bundle.request_id,
           attempt_id: "att-e2e",
           job_id: "job-e2e",
-          compilation_digest: DIGEST_F,
-          effective_contract_digest: DIGEST_A,
-          asset_lineage_digest: DIGEST_B
+          compilation_digest: derived.bundle.compilation_digest,
+          effective_contract_digest: derived.bundle.effective_contract_digest,
+          asset_lineage_digest: sha256Canonical(derived.bundle.asset_lineage)
         },
-        hooks: {
-          onAdapterInvoke: () => { adapterInvokes += 1; },
-          submitEffect: () => {
-            throw new Error("stub adapter must not run without adopted lease");
-          }
-        }
+        hooks: { onAdapterInvoke: () => { adapterInvokes += 1; } }
       });
-      expect(submit.ok).toBe(false);
-      expect(submit.adapter_invocations).toBe(0);
-      expect(adapterInvokes).toBe(0);
+      expect(fake.ok).toBe(false);
+      expect(fake.adapter_invocations).toBe(0);
+      expect(adapterInvokes).toBe(fakeInvokesBefore);
 
-      // Pin completion ref from pinned job + full binding
+      // Pin completion ref
       const pinned = pinnedJob({
         job_id: "job-e2e",
         production_binding: jobBinding as never
@@ -2048,11 +2384,12 @@ describe("PO-5 Exit E2E fixture-only (mission → Gate1 → job binding → T05 
       expect(completion.generation_job_id).toBe("job-e2e");
       expect(completion.immutable_identity_digest).toBe(jobBinding.immutable_identity_digest);
 
-      // Legacy/disabled/shadow unchanged: no production binding required.
+      // Legacy/disabled/shadow unchanged
       expect(() => assertProductionBindingForMode(pinnedJob({ status: "approved", artifact: undefined }), "disabled")).not.toThrow();
       expect(() => assertProductionBindingForMode(pinnedJob({ status: "approved", artifact: undefined }), "shadow")).not.toThrow();
-
       expect(networkHits).toEqual([]);
+
+      await rm(root, { recursive: true, force: true });
     } finally {
       globalThis.fetch = originalFetch;
     }

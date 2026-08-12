@@ -73,10 +73,15 @@ import { ensureProjectVisibleOnLauncherShelf } from "./project/projectsHome.js";
 import { validateProject } from "./project/validateProject.js";
 import { createProjectGenerationUnitSourceResolver } from "./videoPromptDirector/generationUnitSourceResolver.js";
 import {
+  assertActiveSubjectsBeforePhase,
   buildActiveGate1ProductionBinding,
+  buildActiveGate2ProductionBinding,
+  buildActiveGate3ProductionBinding,
   buildActiveGateBundleForProject,
+  loadDurableGateBundle,
   productionDecisionId,
-  resolveOrchestrationMode
+  resolveOrchestrationMode,
+  writeDurableGateBundle
 } from "./productionControl/activePipeline.js";
 import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
 import {
@@ -1153,6 +1158,57 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         });
       }
     }
+    // Active mode: recompute Gate1+2+3 subject+decision before finalize (not presence-only).
+    if (resolveOrchestrationMode(validation.project!) === "active") {
+      const stateResult = await loadState(args, validation.project!, { allowMissing: true });
+      if (stateResult.ok && stateResult.state) {
+        const g1 = stateResult.state.gates.gate_1;
+        const g2 = stateResult.state.gates.gate_2;
+        const g3 = stateResult.state.gates.gate_3;
+        if (
+          !g1.production_subject_digest
+          || !g1.production_decision_digest
+          || !g2.production_subject_digest
+          || !g2.production_decision_digest
+          || !g3.production_subject_digest
+          || !g3.production_decision_digest
+        ) {
+          return output(args, 1, {
+            ok: false,
+            command: "finalize",
+            issues: [{
+              code: "gate.production_subject_missing",
+              message: "active finalize requires current Gate 1, Gate 2, and Gate 3 production subjects"
+            }]
+          });
+        }
+        try {
+          assertActiveSubjectsBeforePhase({
+            mode: "active",
+            phase: "finalize",
+            state: stateResult.state,
+            expected: {
+              gate_1_subject_digest: g1.production_subject_digest,
+              gate_1_decision_digest: g1.production_decision_digest,
+              gate_2_subject_digest: g2.production_subject_digest,
+              gate_2_decision_digest: g2.production_decision_digest,
+              gate_3_subject_digest: g3.production_subject_digest,
+              gate_3_decision_digest: g3.production_decision_digest
+            }
+          });
+        } catch (error) {
+          return output(args, 1, {
+            ok: false,
+            command: "finalize",
+            issues: [{
+              code: "gate.production_subject_stale",
+              message: error instanceof Error ? error.message : String(error)
+            }]
+          });
+        }
+      }
+    }
+
     const finalized = await finalizeCompletedProject({
       configPath: args.config,
       project: validation.project!,
@@ -1553,7 +1609,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    // Active mode: live recompute Gate 1 production subjects immediately before run.
+    // Active mode: live recompute Gate 1 subject+decision (not presence-only) before run.
     if (resolveOrchestrationMode(validation.project!) === "active") {
       const g1 = stateResult.state.gates.gate_1;
       if (!g1.production_subject_digest || !g1.production_decision_digest) {
@@ -1563,6 +1619,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           issues: [{
             code: "gate.production_subject_missing",
             message: "active run requires Gate 1 production_subject_digest and production_decision_digest"
+          }]
+        });
+      }
+      try {
+        assertActiveSubjectsBeforePhase({
+          mode: "active",
+          phase: "run",
+          state: stateResult.state,
+          expected: {
+            gate_1_subject_digest: g1.production_subject_digest,
+            gate_1_decision_digest: g1.production_decision_digest
+          }
+        });
+      } catch (error) {
+        return output(args, 1, {
+          ok: false,
+          command: "run",
+          issues: [{
+            code: "gate.production_subject_stale",
+            message: error instanceof Error ? error.message : String(error)
           }]
         });
       }
@@ -1695,7 +1771,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    // Active mode: live recompute Gate 1+2 production subjects immediately before render.
+    // Active mode: live recompute Gate 1+2 subject+decision (not presence-only) before render.
     if (resolveOrchestrationMode(validation.project!) === "active") {
       const g1 = stateResult.state.gates.gate_1;
       const g2 = stateResult.state.gates.gate_2;
@@ -1711,6 +1787,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           issues: [{
             code: "gate.production_subject_missing",
             message: "active render requires current Gate 1 and Gate 2 production subjects"
+          }]
+        });
+      }
+      try {
+        assertActiveSubjectsBeforePhase({
+          mode: "active",
+          phase: "render",
+          state: stateResult.state,
+          expected: {
+            gate_1_subject_digest: g1.production_subject_digest,
+            gate_1_decision_digest: g1.production_decision_digest,
+            gate_2_subject_digest: g2.production_subject_digest,
+            gate_2_decision_digest: g2.production_decision_digest
+          }
+        });
+      } catch (error) {
+        return output(args, 1, {
+          ok: false,
+          command: "render",
+          issues: [{
+            code: "gate.production_subject_stale",
+            message: error instanceof Error ? error.message : String(error)
           }]
         });
       }
@@ -2484,48 +2582,163 @@ async function recordGate(
     };
   }
 
-  // Active mode Gate 1: bind exact GateBundle digest; reject absent bundle / unknown price approve.
+  // Active mode: bind exact production subject+decision for Gate1/2/3 human approvals.
+  // Gate1: durable GateBundle digest (review must match rebuild). Unknown price / empty evidence refuse.
+  // Gate2/3: exact HumanDecisionRef subjects. Legacy approved_input_digest preserved separately.
   let productionBinding: import("./orchestrator/stateTransitions.js").ProductionGateBinding | undefined;
   const orchestrationMode = resolveOrchestrationMode(project);
-  if (
-    orchestrationMode === "active"
-    && gate === "gate_1"
-    && decision === "approved"
-  ) {
+  if (orchestrationMode === "active" && decision === "approved") {
     try {
-      if (!gateApprovalDigest) {
-        return {
-          ok: false,
-          issues: [{
-            code: "gate.production_bundle_missing",
-            message: "active Gate 1 approval requires a current review subject"
-          }],
-          state,
-          statePath: stateLocation.statePath,
-          reviewPath,
-          reviewDataPath
-        };
-      }
-      const reviewDigest = gateApprovalDigest;
-      const bundle = buildActiveGateBundleForProject({
-        project,
-        run_id: state.run_id,
-        review_artifact_digest: reviewDigest
-      });
       const decidedAt = new Date().toISOString();
-      const bound = buildActiveGate1ProductionBinding({
-        production_id: bundle.production_id,
-        run_id: state.run_id,
-        gate_bundle: bundle,
-        legacy_approved_input_digest: gateApprovalDigest,
-        decision: {
-          decision_id: productionDecisionId("gate_1", "coordinator", decidedAt),
-          decision: "approved",
-          actor: "coordinator",
-          decided_at: decidedAt
+      if (gate === "gate_1") {
+        if (!gateApprovalDigest) {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_bundle_missing",
+              message: "active Gate 1 approval requires a current review subject"
+            }],
+            state,
+            statePath: stateLocation.statePath,
+            reviewPath,
+            reviewDataPath
+          };
         }
-      });
-      productionBinding = bound.productionBinding;
+        const runDir = join(stateLocation.stateDir, state.run_id);
+        const hasGeneration = Boolean(project.generation?.requests?.length);
+        // Canonical path: load durable GateBundle written at review (same digest).
+        // parseGateBundle re-verifies digest. Generation projects refuse missing durable evidence.
+        let bundle = await loadDurableGateBundle(runDir);
+        if (!bundle) {
+          if (hasGeneration) {
+            return {
+              ok: false,
+              issues: [{
+                code: "gate.production_bundle_missing",
+                message: "active Gate 1 approval requires durable GateBundle from plan/review evidence"
+              }],
+              state,
+              statePath: stateLocation.statePath,
+              reviewPath,
+              reviewDataPath
+            };
+          }
+          // Local-media only: rebuild empty-batch GateBundle from contract/tree evidence.
+          bundle = buildActiveGateBundleForProject({
+            project,
+            run_id: state.run_id,
+            review_artifact_digest: gateApprovalDigest
+          });
+          await writeDurableGateBundle(runDir, bundle);
+        }
+        const bound = buildActiveGate1ProductionBinding({
+          production_id: bundle.production_id,
+          run_id: state.run_id,
+          gate_bundle: bundle,
+          legacy_approved_input_digest: gateApprovalDigest,
+          decision: {
+            decision_id: productionDecisionId("gate_1", "coordinator", decidedAt),
+            decision: "approved",
+            actor: "coordinator",
+            decided_at: decidedAt
+          },
+          allow_empty_local_only: !hasGeneration
+        });
+        productionBinding = bound.productionBinding;
+      } else if (gate === "gate_2") {
+        const g1 = state.gates.gate_1;
+        if (!g1.production_decision_digest || !g1.production_subject_digest) {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_subject_missing",
+              message: "active Gate 2 approval requires Gate 1 production subject and decision"
+            }],
+            state,
+            statePath: stateLocation.statePath
+          };
+        }
+        const runDir = join(stateLocation.stateDir, state.run_id);
+        const durable = await loadDurableGateBundle(runDir);
+        if (!durable) {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_bundle_missing",
+              message: "active Gate 2 approval requires durable GateBundle from Gate 1"
+            }],
+            state,
+            statePath: stateLocation.statePath
+          };
+        }
+        if (!gateApprovalDigest) {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_subject_missing",
+              message: "active Gate 2 approval requires legacy approval digest"
+            }],
+            state,
+            statePath: stateLocation.statePath
+          };
+        }
+        const bound = buildActiveGate2ProductionBinding({
+          gate_1_decision_digest: g1.production_decision_digest,
+          gate_bundle_digest: durable.digest,
+          selected_generation_completion_digests: [],
+          manifest_digest: gateApprovalDigest,
+          technical_qa_digest: gateApprovalDigest,
+          decision: {
+            decision_id: productionDecisionId("gate_2", "coordinator", decidedAt),
+            decision: "approved",
+            actor: "coordinator",
+            decided_at: decidedAt
+          },
+          decision_source: "human",
+          legacy_approved_input_digest: gateApprovalDigest
+        });
+        productionBinding = bound.productionBinding;
+      } else if (gate === "gate_3") {
+        const g2 = state.gates.gate_2;
+        if (!g2.production_decision_digest || !g2.production_subject_digest) {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_subject_missing",
+              message: "active Gate 3 approval requires Gate 2 production subject and decision"
+            }],
+            state,
+            statePath: stateLocation.statePath
+          };
+        }
+        if (!gateApprovalDigest) {
+          return {
+            ok: false,
+            issues: [{
+              code: "gate.production_subject_missing",
+              message: "active Gate 3 approval requires final artifact digest"
+            }],
+            state,
+            statePath: stateLocation.statePath
+          };
+        }
+        const bound = buildActiveGate3ProductionBinding({
+          gate_2_decision_digest: g2.production_decision_digest,
+          gate_2_subject_digest: g2.production_subject_digest,
+          final_artifact_sha256: gateApprovalDigest,
+          render_report_digest: gateApprovalDigest,
+          gate_3_qc_digest: gateApprovalDigest,
+          selected_branch_digest: gateApprovalDigest,
+          decision: {
+            decision_id: productionDecisionId("gate_3", "coordinator", decidedAt),
+            decision: "approved",
+            actor: "coordinator",
+            decided_at: decidedAt
+          },
+          legacy_approved_input_digest: gateApprovalDigest
+        });
+        productionBinding = bound.productionBinding;
+      }
     } catch (error) {
       return {
         ok: false,

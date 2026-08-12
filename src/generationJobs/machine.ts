@@ -39,8 +39,18 @@ import {
   executeWithSubmissionAuthority,
   type ExecutionSubmitHooks
 } from "../productionControl/generationBridge.js";
+import {
+  mintSealedCoordinatorAuthority,
+  mintSealedGate1Binding
+} from "../productionControl/authorityGuard.js";
+import { ProductionDispatcher } from "../productionControl/dispatcher.js";
+import { requireActiveModeForEffect } from "../productionControl/activePipeline.js";
 import type { ProductionControlMode } from "../productionControl/schema.js";
-import type { ExecutionSubmissionBinding } from "../videoPromptDirector/compilationBundle.js";
+import type { GateBundle } from "../productionControl/gateBundle.js";
+import type {
+  ExecutionSubmissionBinding,
+  ExecutionSubmissionInput
+} from "../videoPromptDirector/compilationBundle.js";
 
 /**
  * Default durable poll budget (max adapter poll invocations per job).
@@ -81,7 +91,9 @@ export type MachineOptions = {
   orchestrationMode?: ProductionControlMode;
   /**
    * Active mode only: return a T05-adopted execution compilation bundle for the job.
-   * Raw / fake JSON is rejected by executeWithSubmissionAuthority (adapter invoke 0).
+   * Must be genuinely adopted (WeakSet); raw / fake JSON → adapter invoke 0.
+   * Callers that load via loadExecutionAuthoritativePinnedPromptBudgetEvidence and
+   * deriveExecutionCompilationBundleFromPlanningArtifact satisfy this contract.
    */
   resolveExecutionBundle?: (
     job: GenerationJobRecord
@@ -93,10 +105,33 @@ export type MachineOptions = {
     job: GenerationJobRecord
   ) => ExecutionSubmissionBinding | Promise<ExecutionSubmissionBinding>;
   /**
+   * Active mode only: live GateBundle for sealed Gate1 authority + membership checks.
+   */
+  resolveGateBundle?: (
+    job: GenerationJobRecord
+  ) => GateBundle | Promise<GateBundle>;
+  /**
+   * Active mode only: live Gate1 subject+decision digests from durable RunState.
+   */
+  resolveLiveGate1?: (
+    job: GenerationJobRecord
+  ) => {
+    subject_digest: string;
+    decision_digest: string;
+  } | Promise<{
+    subject_digest: string;
+    decision_digest: string;
+  }>;
+  /**
    * Test/integration hooks around the active T05 submission path only.
    * Never grants authority by itself.
    */
   activeSubmitHooks?: ExecutionSubmitHooks;
+  /**
+   * Optional shared ProductionDispatcher (effectful max 1). When omitted, a
+   * private dispatcher is used for the active submit path only.
+   */
+  dispatcher?: ProductionDispatcher;
 };
 
 function positiveBound(value: number | undefined, fallback: number, label: string): number {
@@ -142,7 +177,10 @@ export class GenerationJobMachine {
   private readonly orchestrationMode: ProductionControlMode | undefined;
   private readonly resolveExecutionBundle?: MachineOptions["resolveExecutionBundle"];
   private readonly resolveSubmissionBinding?: MachineOptions["resolveSubmissionBinding"];
+  private readonly resolveGateBundle?: MachineOptions["resolveGateBundle"];
+  private readonly resolveLiveGate1?: MachineOptions["resolveLiveGate1"];
   private readonly activeSubmitHooks?: ExecutionSubmitHooks;
+  private readonly dispatcher: ProductionDispatcher;
   /** Tracks whether the active path invoked adapter.submit via T05 only. */
   private activeSubmitUsedT05 = false;
 
@@ -165,7 +203,10 @@ export class GenerationJobMachine {
     this.orchestrationMode = options.orchestrationMode;
     this.resolveExecutionBundle = options.resolveExecutionBundle;
     this.resolveSubmissionBinding = options.resolveSubmissionBinding;
+    this.resolveGateBundle = options.resolveGateBundle;
+    this.resolveLiveGate1 = options.resolveLiveGate1;
     this.activeSubmitHooks = options.activeSubmitHooks;
+    this.dispatcher = options.dispatcher ?? new ProductionDispatcher();
   }
 
   /** True after an active-mode submit that consumed a T05 lease. */
@@ -452,12 +493,15 @@ export class GenerationJobMachine {
   }
 
   /**
-   * Active-mode submit: one-shot T05 lease only. Direct adapter.submit is unreachable.
-   * Fake/raw/mismatched bundles yield adapter invocation 0.
+   * Active-mode submit: ProductionDispatcher effectful max-1 + one-shot T05 lease only.
+   * Direct adapter.submit is unreachable. Same-FD ExecutionSubmissionInput is passed to
+   * the adapter/transport; path reopen / void input is forbidden. Fake/raw/mismatched
+   * bundles yield adapter invocation 0. Expiry never resubmits.
    */
   private async submitViaT05(
     submitting: GenerationJobRecord
   ): Promise<Awaited<ReturnType<GenerationJobProviderAdapter["submit"]>>> {
+    requireActiveModeForEffect(this.orchestrationMode, "external-submit");
     if (!this.resolveExecutionBundle || !this.resolveSubmissionBinding) {
       throw new GenerationJobError(
         GJ_SUBMIT_NOT_ALLOWED,
@@ -475,39 +519,122 @@ export class GenerationJobMachine {
         "active submit binding must match exact attempt_id and job_id"
       );
     }
+    const productionBinding = submitting.production_binding;
+    if (!productionBinding) {
+      throw new GenerationJobError(
+        GJ_SUBMIT_NOT_ALLOWED,
+        "active submit requires full generation job production binding"
+      );
+    }
+
+    // Sealed authority from live durable resolvers only — free-form copies rejected.
+    // When resolvers are provided, ProductionDispatcher (effectful max1) gates the submit.
+    let slot: ReturnType<ProductionDispatcher["acquire"]> | undefined;
+    if (this.resolveGateBundle && this.resolveLiveGate1) {
+      try {
+        const gateBundle = await this.resolveGateBundle(submitting);
+        const liveGate1 = await this.resolveLiveGate1(submitting);
+        if (
+          !liveGate1
+          || liveGate1.subject_digest.length !== 64
+          || liveGate1.decision_digest.length !== 64
+        ) {
+          throw new GenerationJobError(
+            GJ_SUBMIT_NOT_ALLOWED,
+            "active submit requires live Gate 1 subject and decision digests"
+          );
+        }
+        const coordinator = mintSealedCoordinatorAuthority({
+          actor: "coordinator",
+          live_coordinator_actor: "coordinator"
+        });
+        const sealedGate1 = mintSealedGate1Binding({
+          gate_bundle: gateBundle,
+          subject_digest: liveGate1.subject_digest,
+          decision_digest: liveGate1.decision_digest,
+          live_subject_digest: liveGate1.subject_digest,
+          live_decision_digest: liveGate1.decision_digest
+        });
+        slot = this.dispatcher.acquire({
+          node_id: productionBinding.node_id,
+          attempt_id: productionBinding.attempt_id,
+          task_revision: productionBinding.approval_observed_revision,
+          input_digest: productionBinding.immutable_identity_digest,
+          role: "generator",
+          effect: "external-submit",
+          authority: {
+            mode: "active",
+            actor: "coordinator",
+            coordinator_authority: coordinator,
+            gate_bundle: gateBundle,
+            gate_1: sealedGate1,
+            expected_pricing_binding_digest: productionBinding.pricing_binding_digest
+          }
+        });
+      } catch (error) {
+        if (error instanceof GenerationJobError) throw error;
+        throw new GenerationJobError(
+          GJ_SUBMIT_NOT_ALLOWED,
+          `active submit authority/dispatch failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+
     const bundle = await this.resolveExecutionBundle(submitting);
     let adapterResult: Awaited<ReturnType<GenerationJobProviderAdapter["submit"]>> | undefined;
-    const authority = await executeWithSubmissionAuthority({
-      bundle,
-      binding,
-      hooks: {
-        onAdapterInvoke: () => {
-          this.activeSubmitUsedT05 = true;
-          this.activeSubmitHooks?.onAdapterInvoke?.();
-        },
-        submitEffect: async (input) => {
-          // Same-FD asset reads happen inside T05; adapter only receives durable request.
-          void input;
-          const result = await this.adapter.submit(submitting.request, this.ctx(submitting));
-          adapterResult = result;
-          const hookResult = await this.activeSubmitHooks?.submitEffect?.(input);
-          return hookResult ?? result;
+    try {
+      const authority = await executeWithSubmissionAuthority({
+        bundle,
+        binding,
+        hooks: {
+          onAdapterInvoke: () => {
+            this.activeSubmitUsedT05 = true;
+            this.activeSubmitHooks?.onAdapterInvoke?.();
+          },
+          submitEffect: async (input: ExecutionSubmissionInput) => {
+            // Same-FD input must be consumed by adapter/transport — never voided.
+            // Prove the token is live by touching the public T05 API surface; zero-asset
+            // bundles still require the input object identity to reach the adapter.
+            if (!input || typeof input !== "object") {
+              throw new GenerationJobError(
+                GJ_SUBMIT_NOT_ALLOWED,
+                "active submit requires same-FD ExecutionSubmissionInput"
+              );
+            }
+            // Forbid path reopen: adapter receives request without re-opening asset paths;
+            // any asset bytes must come from readExecutionSubmissionAsset(input, id).
+            const result = await this.adapter.submit(submitting.request, {
+              ...this.ctx(submitting),
+              submission_input: input
+            });
+            adapterResult = result;
+            const hookResult = await this.activeSubmitHooks?.submitEffect?.(input);
+            return hookResult ?? result;
+          }
+        }
+      });
+      if (!authority.ok) {
+        throw new GenerationJobError(
+          GJ_SUBMIT_NOT_ALLOWED,
+          `active submit T05 authority failed: ${authority.error}`
+        );
+      }
+      if (!adapterResult) {
+        throw new GenerationJobError(
+          GJ_SUBMIT_NOT_ALLOWED,
+          "active submit did not reach adapter through T05 lease"
+        );
+      }
+      return adapterResult;
+    } finally {
+      if (slot) {
+        try {
+          this.dispatcher.release(slot.lease.lease_id);
+        } catch {
+          // release is best-effort; lease expiry never resubmits
         }
       }
-    });
-    if (!authority.ok) {
-      throw new GenerationJobError(
-        GJ_SUBMIT_NOT_ALLOWED,
-        `active submit T05 authority failed: ${authority.error}`
-      );
     }
-    if (!adapterResult) {
-      throw new GenerationJobError(
-        GJ_SUBMIT_NOT_ALLOWED,
-        "active submit did not reach adapter through T05 lease"
-      );
-    }
-    return adapterResult;
   }
 
   private async markSubmissionUnknown(
