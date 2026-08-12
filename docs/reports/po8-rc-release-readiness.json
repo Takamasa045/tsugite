@@ -222,9 +222,9 @@
     "fixture-only RC integration with unverified Windows/live/desktop/browser"
   ],
   "build_provenance": {
-    "head": "PENDING_COMMIT",
+    "head": "62c29fd93703396c338eedc3657f3a1f9304f206",
     "branch": "codex/po8-rc-integration",
-    "dirty": true,
+    "dirty": false,
     "verified_separately": true
   },
   "digest": "db54fac19c9d73f0a0c8374afd0018df01f41d0290c9166e4c1f2132ca0c34ed"
