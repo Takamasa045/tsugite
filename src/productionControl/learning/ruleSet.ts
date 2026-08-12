@@ -92,11 +92,15 @@ export function assertDoesNotMutatePinnedMission(input: {
   if (input.existing_mission_ids.length === 0) return;
   // Learning apply never rewrites pinned digests on existing missions.
   if (snapshot.digest === input.pinned_rule_set_digest) return;
+  // Omitting production_id must not retroactively bind to existing pinned missions/Gates.
+  if (!snapshot.production_id) {
+    throw pcError(
+      "PC_ROLE_FORBIDDEN",
+      "approved rules must target a new production_id; omitting production_id cannot rebind existing missions"
+    );
+  }
   // If a different digest is compiled, it may only be attached to a NEW production_id.
-  if (
-    snapshot.production_id
-    && input.existing_mission_ids.includes(snapshot.production_id)
-  ) {
+  if (input.existing_mission_ids.includes(snapshot.production_id)) {
     throw pcError(
       "PC_ROLE_FORBIDDEN",
       "approved rules must not retroactively change existing pinned missions"

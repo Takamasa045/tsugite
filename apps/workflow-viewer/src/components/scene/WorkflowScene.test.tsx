@@ -61,13 +61,14 @@ describe('WorkflowScene degraded projection', () => {
     expect(screen.getByTestId('scene-fallback-reason')).toHaveTextContent(
       'viewer.scene.webgl_unavailable',
     )
-    const nodeButtons = screen.getAllByRole('button', { name: /の詳細を表示$/ })
+    const nodeButtons = screen.getAllByRole('treeitem', { name: /の詳細を表示$/ })
     expect(nodeButtons).toHaveLength(videoWorkflow.nodes.length)
-    expect(screen.getByRole('img', { name: /ノードは8件/ })).toBeInTheDocument()
+    expect(screen.getByRole('tree', { name: '2D工程ツリー' })).toBeInTheDocument()
 
     await user.click(nodeButtons[2]!)
 
     expect(onSelect).toHaveBeenCalledWith(videoWorkflow.nodes[2]!.id)
+    expect(nodeButtons[2]).toHaveAttribute('aria-selected', 'true')
     expect(nodeButtons[2]).toHaveAttribute('aria-pressed', 'true')
     expect(document.body.textContent).not.toContain('/Users/')
     expect(document.body.textContent).not.toContain('Error:')
@@ -79,9 +80,10 @@ describe('WorkflowScene degraded projection', () => {
 
     render(<WorkflowScene {...props} />)
 
-    const selected = await screen.findByRole('button', {
+    const selected = await screen.findByRole('treeitem', {
       name: `${videoWorkflow.nodes[4]!.name}の詳細を表示`,
     })
+    expect(selected).toHaveAttribute('aria-selected', 'true')
     expect(selected).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('scene-fallback-node-count')).toHaveTextContent('8')
     expect(props.workflow.nodes).toHaveLength(8)

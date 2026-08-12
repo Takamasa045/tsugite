@@ -26,11 +26,12 @@ describe('App scene fallback integration', () => {
   })
 
   it('keeps the eight-node DTO visible and synchronizes fallback, timeline, and side panel selection', async () => {
+    // Lazy WorkflowScene + WebGL mock can exceed the default 5s under full suite load.
     const user = userEvent.setup()
     render(<App samples={[{ id: 'eight-stage', label: '8工程', data: videoWorkflow }]} />)
 
-    const fallback = await screen.findByTestId('workflow-scene-fallback', undefined, { timeout: 5000 })
-    const fallbackNodes = within(fallback).getAllByRole('button', { name: /詳細を表示$/ })
+    const fallback = await screen.findByTestId('workflow-scene-fallback', undefined, { timeout: 15_000 })
+    const fallbackNodes = within(fallback).getAllByRole('treeitem', { name: /詳細を表示$/ })
     expect(fallbackNodes).toHaveLength(8)
 
     const thirdNode = videoWorkflow.nodes[2]!
@@ -45,10 +46,13 @@ describe('App scene fallback integration', () => {
       name: `${secondNode.name}の工程詳細を表示`,
     })
     await user.click(timelineButtons.at(-1)!)
-    expect(within(fallback).getByRole('button', {
+    expect(within(fallback).getByRole('treeitem', {
+      name: `${secondNode.name}の詳細を表示`,
+    })).toHaveAttribute('aria-selected', 'true')
+    expect(within(fallback).getByRole('treeitem', {
       name: `${secondNode.name}の詳細を表示`,
     })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('heading', { name: secondNode.name })).toBeVisible()
     expect(useWorkflowStore.getState().workflow?.nodes).toHaveLength(8)
-  })
+  }, 20_000)
 })

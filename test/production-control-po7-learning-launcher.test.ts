@@ -9,16 +9,20 @@ import { describe, expect, it } from "vitest";
 import {
   applyApprovedPromotion,
   assertDoesNotMutatePinnedMission,
+  assertProductionCompletionDigestMatch,
   assertProposalNotBindableToMission,
   assertSafetySlosZero,
   assertSingleProvenanceWindow,
   buildProductionCompletionDigest,
   buildProductionCompletionRecord,
   compileRuleSetForNewMission,
+  coordinationEvidenceOnly,
   createLearningCandidate,
   createPromotionProposal,
   decidePromotionProposal,
   excludeControlPlaneFromDeletionCandidates,
+  FEEDBACK_API_BRIDGE_ONLY,
+  hasCoordinationControlPlane,
   isControlPlaneRetainedPath,
   isExactKeyRecurring,
   isExperimentApplyEligible,
@@ -43,6 +47,7 @@ import {
   type MissionState
 } from "../src/productionControl/index.js";
 import { buildPlanDigest } from "../src/orchestrator/finalizePlanHelpers.js";
+import { createViewerWorkflow } from "../src/viewer/workflow.js";
 
 const NOW = "2026-08-12T12:00:00.000Z";
 const DIGEST_A = "a".repeat(64);
@@ -282,7 +287,17 @@ describe("PO-7 learning loop", () => {
       proposal: pending,
       outcome: "approved",
       decision: human("approve-promotion", subject, "learning")
-    })).toThrow(/cannot approve/);
+    })).toThrow(/cannot self-approve|cannot approve/);
+    expect(() => decidePromotionProposal({
+      proposal: pending,
+      outcome: "approved",
+      decision: human("approve-promotion", subject, "coordinator")
+    })).toThrow(/cannot self-approve/);
+    expect(() => decidePromotionProposal({
+      proposal: pending,
+      outcome: "approved",
+      decision: human("approve-promotion", subject, "coordinator-self")
+    })).toThrow(/cannot self-approve/);
 
     const applied = applyApprovedPromotion({
       proposal: approved,
@@ -361,7 +376,7 @@ describe("PO-7 deterministic metrics", () => {
     expect(metrics.recovery.automatic_recovery_success_rate.value).toBeNull();
   });
 
-  it("emits safety SLO zeros only with proof and flags unknown/nonzero", () => {
+  it("emits safety SLO zeros only with digest-backed proof and flags unknown/nonzero", () => {
     const withProof = projectMissionMetrics({
       production_id: "prod-safe",
       tree_revision: 1,
@@ -372,7 +387,13 @@ describe("PO-7 deterministic metrics", () => {
         population: "recovery suite",
         provenance: "fixture"
       },
-      safety_proof: { observed: true }
+      safety_proof: {
+        observed: true,
+        event_store_digest: DIGEST_A,
+        grant_ledger_digest: DIGEST_B,
+        gate_evidence_digest: DIGEST_A,
+        source_event_sequence: 1
+      }
     });
     expect(() => assertSafetySlosZero(withProof)).not.toThrow();
     expect(safetySloViolations(withProof)).toEqual([]);
@@ -380,6 +401,22 @@ describe("PO-7 deterministic metrics", () => {
     expect(withProof.safety.unauthorized_auto_approval.value).toBe(0);
     expect(withProof.safety.unauthorized_submit.value).toBe(0);
     expect(withProof.safety.over_budget_execution.value).toBe(0);
+
+    // observed:true alone is NOT proof of zero.
+    const observedOnly = projectMissionMetrics({
+      production_id: "prod-observed-only",
+      tree_revision: 1,
+      source_event_sequence: 1,
+      computed_at: NOW,
+      evaluation_window: {
+        period: "fixture-run",
+        population: "adversarial",
+        provenance: "fixture"
+      },
+      safety_proof: { observed: true } as never
+    });
+    expect(observedOnly.safety.silent_paid_spend.value).toBeNull();
+    expect(safetySloViolations(observedOnly).some((item) => item.includes("unknown"))).toBe(true);
 
     const unknown = projectMissionMetrics({
       production_id: "prod-unknown-safety",
@@ -413,6 +450,62 @@ describe("PO-7 deterministic metrics", () => {
     expect(safetySloViolations(bad)).toContain("silent_paid_spend:1");
   });
 
+  it("derives human interventions from decision events, not awaiting nodes", () => {
+    const state = missionWithStatuses("prod-int", [
+      { id: "await-1", status: "awaiting_human" },
+      { id: "await-2", status: "awaiting_human" }
+    ]);
+    const fromEvents = projectMissionMetrics({
+      production_id: "prod-int",
+      tree_revision: 1,
+      source_event_sequence: 2,
+      computed_at: NOW,
+      evaluation_window: {
+        period: "fixture-run",
+        population: "decision events",
+        provenance: "fixture"
+      },
+      mission_state: state,
+      intervention_events: [
+        {
+          kind: "gate",
+          decision_id: "g1",
+          subject_digest: DIGEST_A,
+          category: "mandatory_safety"
+        },
+        {
+          kind: "gate",
+          decision_id: "g1",
+          subject_digest: DIGEST_A,
+          category: "mandatory_safety"
+        },
+        {
+          kind: "recovery",
+          decision_id: "r1",
+          subject_digest: DIGEST_B,
+          category: "operational"
+        }
+      ]
+    });
+    expect(fromEvents.intervention.human_interventions_total.value).toBe(2);
+    expect(fromEvents.intervention.mandatory_safety_interventions.value).toBe(1);
+    expect(fromEvents.intervention.operational_interventions.value).toBe(1);
+
+    const awaitingOnly = projectMissionMetrics({
+      production_id: "prod-int-2",
+      tree_revision: 1,
+      source_event_sequence: 1,
+      computed_at: NOW,
+      evaluation_window: {
+        period: "fixture-run",
+        population: "awaiting nodes",
+        provenance: "fixture"
+      },
+      mission_state: state
+    });
+    expect(awaitingOnly.intervention.human_interventions_total.value).toBeNull();
+  });
+
   it("refuses mixing fixture/replay metrics with production provenance", () => {
     const fixture = projectMissionMetrics({
       production_id: "prod-a",
@@ -424,7 +517,11 @@ describe("PO-7 deterministic metrics", () => {
         population: "fixture",
         provenance: "fixture"
       },
-      safety_proof: { observed: true }
+      safety_proof: {
+        observed: true,
+        event_store_digest: DIGEST_A,
+        source_event_sequence: 1
+      }
     });
     const production = projectMissionMetrics({
       production_id: "prod-b",
@@ -436,7 +533,11 @@ describe("PO-7 deterministic metrics", () => {
         population: "production",
         provenance: "production"
       },
-      safety_proof: { observed: true }
+      safety_proof: {
+        observed: true,
+        event_store_digest: DIGEST_B,
+        source_event_sequence: 1
+      }
     });
     expect(() => assertSingleProvenanceWindow([fixture, production])).toThrow(/must not be mixed/);
     expect(assertSingleProvenanceWindow([fixture])).toBe("fixture");
@@ -504,10 +605,14 @@ describe("PO-7 Mission Tree public projection", () => {
     expect(strict.digest).toBe(projection.digest);
 
     const viewer = missionTreeToViewerWorkflow(projection, { name: "Active Mission" });
-    expect(viewer.mission_tree.task_tree_read_only).toBe(true);
+    expect(viewer.missionTree.taskTreeReadOnly).toBe(true);
+    expect(viewer.missionTree.productionId).toBe("prod-tree");
+    expect(viewer.missionTree.currentDecision.kind).toBe("awaiting_human");
     expect(viewer.nodes.some((node) => node.status === "waiting_approval")).toBe(true);
     // Gate subject must not be derived from TaskTree projection.
     expect(viewer.nodes.every((node) => node.details && (node.details as { approval?: unknown }).approval === undefined)).toBe(true);
+    expect(JSON.stringify(viewer)).not.toMatch(/"mission_tree"/);
+    expect(JSON.stringify(viewer)).toMatch(/"missionTree"/);
   });
 
   it("surfaces outcome_unknown and stale gate before generic progress", () => {
@@ -618,45 +723,145 @@ describe("PO-7 finalize retention (preview only)", () => {
 });
 
 describe("PO-7 golden / migration fixtures", () => {
-  it("matches checked-in learning and metrics golden fixtures", async () => {
+  it("matches actual production-path digests and DTO goldens", async () => {
     const fixtureRoot = join(process.cwd(), "test/fixtures/production-control/po7");
+    const candidate = makeCandidate({ candidate_id: "cand-golden", key: "caption-overflow" });
+    const experiment = runLearningExperiment({
+      experiment_id: "exp-golden",
+      candidate,
+      mode: "fixture",
+      baseline_ref: { kind: "fixture", id: "base", digest: DIGEST_A },
+      candidate_ref: { kind: "fixture", id: "cand", digest: DIGEST_B },
+      success_criteria: [{ metric_id: "caption-overflow-count", comparator: "lte", threshold: 0 }],
+      safety_invariants: ["silent_paid_spend=0"],
+      metric_samples: [{
+        metric_id: "caption-overflow-count",
+        value: 0,
+        provenance: "fixture"
+      }]
+    });
+    const proposal = createPromotionProposal({
+      proposal_id: "prop-golden",
+      candidate,
+      experiments: [experiment],
+      proposed_patch_digest: DIGEST_A,
+      rollback_ref: "src/qa/caption-bounds.ts.prev",
+      compatibility_impact: "additive"
+    });
+
     const learningGolden = JSON.parse(
       await readFile(join(fixtureRoot, "learning-loop.golden.json"), "utf8")
     ) as {
-      candidate_lifecycle: string[];
-      validated_is_not_apply: boolean;
-      approved_binds_new_mission_only: boolean;
+      candidate_digest: string;
+      experiment_digest: string;
+      proposal_digest: string;
+      proposal_subject_digest: string;
+      feedback_api_bridge_only: boolean;
     };
-    expect(learningGolden.candidate_lifecycle).toEqual([
-      "observed", "candidate", "awaiting-experiment", "experimenting",
-      "validated", "rejected", "inconclusive", "awaiting-human",
-      "approved", "declined", "applied", "monitored"
-    ]);
-    expect(learningGolden.validated_is_not_apply).toBe(true);
-    expect(learningGolden.approved_binds_new_mission_only).toBe(true);
+    expect(learningGolden.candidate_digest).toBe(candidate.digest);
+    expect(learningGolden.experiment_digest).toBe(experiment.digest);
+    expect(learningGolden.proposal_digest).toBe(proposal.digest);
+    expect(learningGolden.proposal_subject_digest).toBe(proposalSubjectDigest(proposal));
+    expect(learningGolden.feedback_api_bridge_only).toBe(true);
 
+    const state = missionWithStatuses("fixture-mission", [
+      { id: "task-closeout", status: "awaiting_human" }
+    ]);
+    const learning = projectLearningStatus({
+      production_id: "fixture-mission",
+      candidates: [candidate],
+      proposals: [proposal]
+    });
+    const projection = projectMissionTree({
+      production_id: "fixture-mission",
+      mode: "active",
+      mission_state: state,
+      learning,
+      recovery: { active: false, attempts: 0, limit: 2 },
+      legacy_workflow_preserved: true
+    });
+    const viewer = missionTreeToViewerWorkflow(projection, { name: "fixture" });
+    const launcherGolden = JSON.parse(
+      await readFile(join(fixtureRoot, "launcher-mission-tree.dto.json"), "utf8")
+    ) as {
+      missionTree: { productionId: string; mode: string; digest: string; taskTreeReadOnly: true };
+      node_count: number;
+    };
+    expect(launcherGolden.missionTree.productionId).toBe(viewer.missionTree.productionId);
+    expect(launcherGolden.missionTree.mode).toBe("active");
+    expect(launcherGolden.missionTree.digest).toBe(viewer.missionTree.digest);
+    expect(launcherGolden.missionTree.taskTreeReadOnly).toBe(true);
+    expect(launcherGolden.node_count).toBe(viewer.nodes.length);
+    // Payload must use camelCase missionTree key only (snake mission_tree is forbidden).
+    expect(JSON.stringify(viewer)).toMatch(/"missionTree"/);
+    expect(JSON.stringify(viewer)).not.toMatch(/"mission_tree"\s*:/);
+
+    const metrics = projectMissionMetrics({
+      production_id: "fixture-metrics",
+      tree_revision: 1,
+      source_event_sequence: 3,
+      computed_at: NOW,
+      evaluation_window: {
+        period: "2026-08-01/2026-08-12",
+        population: "fixture lyric-mv",
+        provenance: "fixture"
+      },
+      intervention_events: [
+        { kind: "gate", decision_id: "g1", subject_digest: DIGEST_A, category: "mandatory_safety" }
+      ],
+      safety_proof: {
+        observed: true,
+        event_store_digest: DIGEST_A,
+        source_event_sequence: 3
+      }
+    });
     const metricsGolden = JSON.parse(
       await readFile(join(fixtureRoot, "metrics.golden.json"), "utf8")
     ) as {
-      safety_slo_target: number;
+      metrics_digest: string;
+      safety_silent_paid_spend: number;
+      human_interventions_total: number;
       unknown_is_not_zero: boolean;
-      families: string[];
     };
-    expect(metricsGolden.safety_slo_target).toBe(0);
+    expect(metricsGolden.metrics_digest).toBe(metrics.digest);
+    expect(metricsGolden.safety_silent_paid_spend).toBe(0);
+    expect(metricsGolden.human_interventions_total).toBe(1);
     expect(metricsGolden.unknown_is_not_zero).toBe(true);
-    expect(metricsGolden.families).toEqual(expect.arrayContaining([
-      "flow", "intervention", "recovery", "consistency", "cost", "mv", "safety"
-    ]));
 
+    const planDigest = buildPlanDigest({
+      projectRoot: "/tmp/project",
+      configPath: "/tmp/project/project.yaml",
+      manifestPath: "/tmp/project/manifest.json",
+      stateDir: "/tmp/project/dist",
+      projectsHome: "/tmp/projects-home",
+      destinationRoot: "/tmp/projects-home/project",
+      alreadyHome: true,
+      runId: "run-1",
+      finalOutputDigest: DIGEST_A,
+      gate3ApprovedInputDigest: DIGEST_A,
+      retainedMedia: ["dist/run-1/final.mp4"],
+      candidates: []
+    });
+    const completion = buildProductionCompletionDigest({
+      production_id: "prod-final",
+      plan_digest: planDigest,
+      evidence_refs: [{
+        kind: "metrics",
+        relative_path: "coordination/metrics/mission-metrics.json",
+        digest: DIGEST_B,
+        retained: true
+      }]
+    });
     const finalizeGolden = JSON.parse(
       await readFile(join(fixtureRoot, "finalize-retention.golden.json"), "utf8")
     ) as {
-      plan_digest_semantics_unchanged: boolean;
+      plan_digest: string;
       production_completion_digest: string;
       retained_classes: string[];
     };
-    expect(finalizeGolden.plan_digest_semantics_unchanged).toBe(true);
-    expect(finalizeGolden.production_completion_digest).toBe("additive");
+    expect(finalizeGolden.plan_digest).toBe(planDigest);
+    expect(finalizeGolden.production_completion_digest).toBe(completion);
+    expect(finalizeGolden.production_completion_digest).not.toBe(planDigest);
     expect(finalizeGolden.retained_classes).toEqual(expect.arrayContaining([
       "learning", "metrics", "completion-record"
     ]));
@@ -678,6 +883,74 @@ describe("PO-7 golden / migration fixtures", () => {
     expect(fixture.identity_definition_status).toBe("awaiting_human");
     expect(fixture.identity_verification_status).toBe("not-evaluable");
     expect(fixture.identity_locked_true_implies_verified).toBe(false);
+  });
+});
+
+describe("PO-7 production path wiring", () => {
+  it("keeps feedback-only evidence from flipping control-plane finalize gate", () => {
+    expect(FEEDBACK_API_BRIDGE_ONLY).toBe(true);
+    const feedbackOnly = [
+      { kind: "feedback" as const, relative_path: "feedback.jsonl", retained: true as const },
+      { kind: "feedback" as const, relative_path: "LESSONS.md", retained: true as const }
+    ];
+    expect(hasCoordinationControlPlane(feedbackOnly)).toBe(false);
+    expect(coordinationEvidenceOnly(feedbackOnly)).toEqual([]);
+    assertProductionCompletionDigestMatch({ has_control_plane: false });
+    expect(() => assertProductionCompletionDigestMatch({
+      has_control_plane: false,
+      expected: DIGEST_A
+    })).toThrow();
+
+    const withCoordination = [
+      ...feedbackOnly,
+      { kind: "events" as const, relative_path: "coordination/events.jsonl", retained: true as const }
+    ];
+    expect(hasCoordinationControlPlane(withCoordination)).toBe(true);
+    expect(coordinationEvidenceOnly(withCoordination)).toEqual([
+      { kind: "events", relative_path: "coordination/events.jsonl", retained: true }
+    ]);
+  });
+
+  it("wires active Mission Tree through createViewerWorkflow camelCase DTO only", async () => {
+    const state = missionWithStatuses("prod-viewer", [
+      { id: "task-a", status: "awaiting_human" }
+    ]);
+    const projection = projectMissionTree({
+      production_id: "prod-viewer",
+      mode: "active",
+      mission_state: state,
+      legacy_workflow_preserved: true
+    });
+    // Minimal plan: active path only needs run_id; legacy byte-stability covered by viewer-workflow tests.
+    const plan = { run_id: "run-viewer" } as never;
+    const project = {
+      slug: "prod-viewer",
+      name: "Viewer Active",
+      version: 1,
+      dist_dir: "dist",
+      manifest: "manifest.json",
+      run_id: "run-viewer"
+    } as never;
+
+    const active = createViewerWorkflow(project, plan, undefined, {}, { missionTree: projection });
+    expect(active.missionTree?.mode).toBe("active");
+    expect(active.missionTree?.taskTreeReadOnly).toBe(true);
+    expect(active.missionTree?.currentDecision.kind).toBe("awaiting_human");
+    expect(active.nodes.some((node) => node.id === "task-a")).toBe(true);
+    expect(JSON.stringify(active)).toMatch(/"missionTree"/);
+    expect(JSON.stringify(active)).not.toMatch(/"mission_tree"\s*:/);
+    // TaskTree must not inject Gate approval subjects.
+    expect(JSON.stringify(active.nodes)).not.toMatch(/decision_digest|approved_input_digest/);
+
+    // Shadow projection must not rewrite legacy createViewerWorkflow path.
+    const shadow = projectMissionTree({
+      production_id: "prod-viewer",
+      mode: "shadow",
+      mission_state: state
+    });
+    // createViewerWorkflow ignores non-active mission trees (no throw, no rewrite).
+    // Use a real plan fixture from viewer-workflow when testing legacy; here only assert active-only helper.
+    expect(() => missionTreeToViewerWorkflow(shadow)).toThrow(/active-mode only/);
   });
 });
 

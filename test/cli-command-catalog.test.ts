@@ -61,7 +61,14 @@ const expectedOptions = {
   ],
   validate: ["--config"],
   models: ["--config"],
-  finalize: ["--config", "--state-dir", "--actor", "--apply", "--expected-plan-digest"],
+  finalize: [
+    "--config",
+    "--state-dir",
+    "--actor",
+    "--apply",
+    "--expected-plan-digest",
+    "--expected-production-completion-digest"
+  ],
   plan: ["--config"],
   analyze: ["--config", "--actor", "--state-dir", "--allow-external-analysis"],
   compose: ["--config", "--actor", "--state-dir"],

@@ -47,7 +47,9 @@ import {
 import {
   assertProductionCompletionDigestMatch,
   buildProductionCompletionDigest,
+  coordinationEvidenceOnly,
   excludeControlPlaneFromDeletionCandidates,
+  hasCoordinationControlPlane,
   listRetainedControlPlanePaths,
   type ControlPlaneEvidenceRefV1
 } from "../productionControl/finalizeRetention.js";
@@ -427,6 +429,8 @@ export async function finalizeCompletedProject(
   });
 
   // Additive control-plane evidence + production_completion_digest (independent of plan_digest).
+  // Trigger is coordination/* only: feedback.jsonl / LESSONS.md alone must not require
+  // expected production_completion_digest (legacy apply remains unchanged).
   const controlPlaneRelative = await listRetainedControlPlanePaths(projectRoot);
   const controlPlaneEvidence: ControlPlaneEvidenceRefV1[] = controlPlaneRelative.map((relative_path) => ({
     kind: relative_path.startsWith("coordination/") && relative_path.includes("learning/")
@@ -443,12 +447,13 @@ export async function finalizeCompletedProject(
     relative_path,
     retained: true as const
   }));
-  const hasControlPlane = controlPlaneEvidence.length > 0;
+  const coordinationEvidence = coordinationEvidenceOnly(controlPlaneEvidence);
+  const hasControlPlane = hasCoordinationControlPlane(coordinationEvidence);
   const productionCompletionDigest = hasControlPlane
     ? buildProductionCompletionDigest({
       production_id: options.project.slug,
       plan_digest: planDigest,
-      evidence_refs: controlPlaneEvidence
+      evidence_refs: coordinationEvidence
     })
     : undefined;
 
@@ -475,7 +480,8 @@ export async function finalizeCompletedProject(
     ...(productionCompletionDigest
       ? {
         productionCompletionDigest,
-        controlPlaneEvidence
+        // Public evidence for the additive digest is coordination-only.
+        controlPlaneEvidence: coordinationEvidence
       }
       : {}),
     candidateIdentities: identities,

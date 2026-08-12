@@ -384,8 +384,6 @@ src/productionControl/grantLedger.ts
 
 ## PO-7: Learning / Launcher / Metrics / Finalize
 
-**状態:** implemented (T08) — fixture-only; package version unchanged (T09 owns release).
-
 ### 目的
 
 実験済みの学びだけを人間判断へ上げ、利用者が階層状態と効果を確認でき、完成記録がworktree削除後も残るようにする。

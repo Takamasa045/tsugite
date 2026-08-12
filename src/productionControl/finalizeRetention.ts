@@ -281,9 +281,36 @@ export function excludeControlPlaneFromDeletionCandidates(
 }
 
 /**
+ * True only for coordination/ control-plane evidence.
+ * feedback.jsonl / LESSONS.md alone must not flip has_control_plane (legacy apply stays intact).
+ */
+export function isCoordinationControlPlanePath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || normalized.includes("..") || normalized === "") return false;
+  return normalized === "coordination" || normalized.startsWith("coordination/");
+}
+
+/** Active control plane = at least one retained coordination artifact. */
+export function hasCoordinationControlPlane(
+  evidence: readonly { relative_path: string }[]
+): boolean {
+  return evidence.some((item) => isCoordinationControlPlanePath(item.relative_path));
+}
+
+/**
+ * Filter evidence used for production_completion_digest to coordination artifacts only.
+ */
+export function coordinationEvidenceOnly<T extends { relative_path: string }>(
+  evidence: readonly T[]
+): T[] {
+  return evidence.filter((item) => isCoordinationControlPlanePath(item.relative_path));
+}
+
+/**
  * Apply-time check for additive production_completion_digest.
  * When expected is provided it must match; when control plane is active and expected is missing, fail closed.
- * Legacy projects without control plane leave both undefined and pass.
+ * Legacy projects without coordination control plane leave both undefined and pass
+ * (feedback.jsonl / LESSONS.md alone are not a control-plane trigger).
  */
 export function assertProductionCompletionDigestMatch(input: {
   has_control_plane: boolean;

@@ -1,25 +1,10 @@
 {
   "schema_version": 1,
-  "candidate_lifecycle": [
-    "observed",
-    "candidate",
-    "awaiting-experiment",
-    "experimenting",
-    "validated",
-    "rejected",
-    "inconclusive",
-    "awaiting-human",
-    "approved",
-    "declined",
-    "applied",
-    "monitored"
-  ],
+  "candidate_digest": "513a9162a6f7b1f1179a13ef9c045f887c8327c25ca26c3e4e1227d5bb62fe84",
+  "experiment_digest": "8a32006da505faa05badc2f94303f69871a9e25922bf2c152eb3546bd56b87ba",
+  "proposal_digest": "64e478bed09d403a101fd4050f4f6c9fb36a20a83b1ba93edc7f40d7c4e0d3b5",
+  "proposal_subject_digest": "64e478bed09d403a101fd4050f4f6c9fb36a20a83b1ba93edc7f40d7c4e0d3b5",
+  "feedback_api_bridge_only": true,
   "exact_key_recurrence_only": true,
-  "semantic_match_is_advisory": true,
-  "validated_is_not_apply": true,
-  "approved_binds_new_mission_only": true,
-  "default_experiment_modes": ["fixture", "replay", "shadow"],
-  "live_approved_requires_human_authority": true,
-  "append_only": true,
-  "feedback_api_bridge_only": true
+  "validated_is_not_apply": true
 }

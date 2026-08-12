@@ -148,6 +148,8 @@ describe("workflow viewer artifact", () => {
       samplePlan(),
       expect.objectContaining({ run_id: "viewer-run", status: "planned" }),
       expect.not.objectContaining({ reviewPresent: true })
+    ,
+      {}
     );
     await expect(stat(join(root, "dist", "viewer-run", "state.json"))).rejects.toThrow();
     await expect(readFile(join(result.outputDir, "assets", "chunks", "scene.js"), "utf8"))
@@ -250,6 +252,8 @@ describe("workflow viewer artifact", () => {
           content: { longestBlackSeconds: 0, longestSilenceSeconds: 0.25 }
         }
       }
+    ,
+      {}
     );
     await expect(readFile(join(runDir, "state.json"), "utf8")).resolves.toBe(stateBefore);
     await expect(readFile(join(result.outputDir, "review", "index.html"), "utf8"))
@@ -371,6 +375,8 @@ describe("workflow viewer artifact", () => {
           }
         ]
       })
+    ,
+      {}
     );
     await expect(readFile(join(result.outputDir, "previews", "generated-video-01.mp4"), "utf8"))
       .resolves.toBe("clip-preview");
@@ -430,6 +436,8 @@ describe("workflow viewer artifact", () => {
           ]
         }
       })
+    ,
+      {}
     );
   });
 
@@ -484,6 +492,8 @@ describe("workflow viewer artifact", () => {
           requests: []
         }
       })
+    ,
+      {}
     );
   });
 
@@ -544,6 +554,8 @@ describe("workflow viewer artifact", () => {
           ]
         }
       })
+    ,
+      {}
     );
   });
 

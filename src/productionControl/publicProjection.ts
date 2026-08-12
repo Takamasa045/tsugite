@@ -364,12 +364,77 @@ export function parseMissionTreePublicProjection(input: unknown): MissionTreePub
 }
 
 /**
- * Map public mission tree into a viewer-compatible workflow DTO shape
- * without changing legacy fixed 8-step behavior for non-active modes.
+ * CamelCase launcher/viewer overlay for Mission Tree metadata.
+ * Strict public surface: no Gate subject digests, prompts, paths, or secrets.
+ */
+export type ViewerMissionTreeOverlay = {
+  productionId: string;
+  mode: "legacy" | "shadow" | "active";
+  missionStatus: string;
+  treeRevision: number;
+  sourceEventSequence: number;
+  currentDecision: {
+    kind: string;
+    summary: string;
+    reasonCode?: string;
+    nodeId?: string;
+    gate?: string;
+  };
+  recovery: {
+    active: boolean;
+    attempts: number;
+    limit: number | null;
+    lastErrorCode?: string;
+  };
+  learningStatus?: string;
+  taskTreeReadOnly: true;
+  legacyWorkflowPreserved: boolean;
+  digest: string;
+};
+
+/** Convert production-control projection (snake_case wire) to viewer camelCase DTO. */
+export function toViewerMissionTreeOverlay(
+  projection: MissionTreePublicProjectionV1
+): ViewerMissionTreeOverlay {
+  const parsed = parseMissionTreePublicProjection(projection);
+  return {
+    productionId: parsed.production_id,
+    mode: parsed.mode,
+    missionStatus: parsed.mission_status,
+    treeRevision: parsed.tree_revision,
+    sourceEventSequence: parsed.source_event_sequence,
+    currentDecision: {
+      kind: parsed.current_decision.kind,
+      summary: parsed.current_decision.summary,
+      ...(parsed.current_decision.reason_code
+        ? { reasonCode: parsed.current_decision.reason_code }
+        : {}),
+      ...(parsed.current_decision.node_id ? { nodeId: parsed.current_decision.node_id } : {}),
+      ...(parsed.current_decision.gate ? { gate: parsed.current_decision.gate } : {})
+    },
+    recovery: {
+      active: parsed.recovery.active,
+      attempts: parsed.recovery.attempts,
+      limit: parsed.recovery.limit,
+      ...(parsed.recovery.last_error_code
+        ? { lastErrorCode: parsed.recovery.last_error_code }
+        : {})
+    },
+    ...(parsed.learning ? { learningStatus: parsed.learning.status } : {}),
+    taskTreeReadOnly: true,
+    legacyWorkflowPreserved: parsed.legacy_workflow_preserved,
+    digest: parsed.digest
+  };
+}
+
+/**
+ * Map public mission tree into a viewer-compatible workflow DTO shape.
+ * Active-only consumer of this shape; legacy fixed 8-step path stays in createViewerWorkflow.
+ * Uses camelCase `missionTree` (never `mission_tree`) for launcher/viewer payload exactness.
  */
 export function missionTreeToViewerWorkflow(
   projection: MissionTreePublicProjectionV1,
-  options: { name?: string; durationSeconds?: number } = {}
+  options: { name?: string; durationSeconds?: number; id?: string } = {}
 ): {
   id: string;
   name: string;
@@ -379,9 +444,15 @@ export function missionTreeToViewerWorkflow(
   nodes: Array<Record<string, unknown>>;
   edges: Array<{ id: string; source: string; target: string }>;
   events: Array<Record<string, unknown>>;
-  mission_tree: MissionTreePublicProjectionV1;
+  missionTree: ViewerMissionTreeOverlay;
 } {
   const parsed = parseMissionTreePublicProjection(projection);
+  if (parsed.mode !== "active") {
+    throw pcError(
+      "PC_SCHEMA_INVALID",
+      "missionTreeToViewerWorkflow is active-mode only; legacy fixed workflow must stay unchanged"
+    );
+  }
   const duration = options.durationSeconds ?? Math.max(parsed.nodes.length * 10, 10);
   const statusMap: Record<PublicTaskStatus, string> = {
     proposed: "pending",
@@ -414,14 +485,13 @@ export function missionTreeToViewerWorkflow(
       activity: node.status,
       outcome: node.reason_code ?? node.status,
       inputs: [],
-      outputs: [],
-      // Explicitly not a Gate subject.
-      approval: undefined
+      outputs: []
+      // Explicitly omit approval — TaskTree is never a Gate subject.
     }
   }));
 
   return {
-    id: `mission-tree-${parsed.production_id}`,
+    id: options.id ?? `mission-tree-${parsed.production_id}`,
     name: options.name ?? `Mission ${parsed.production_id}`,
     description: `current decision: ${parsed.current_decision.summary}`,
     status:
@@ -439,6 +509,6 @@ export function missionTreeToViewerWorkflow(
       status: node.status,
       progress: node.progress
     })),
-    mission_tree: parsed
+    missionTree: toViewerMissionTreeOverlay(parsed)
   };
 }

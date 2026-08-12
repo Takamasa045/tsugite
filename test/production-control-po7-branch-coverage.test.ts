@@ -264,7 +264,12 @@ describe("PO-7 branch coverage — learning", () => {
       proposal: pending,
       outcome: "approved",
       decision: human(subject, "critic")
-    })).toThrow(/cannot approve/);
+    })).toThrow(/cannot self-approve|cannot approve/);
+    expect(() => decidePromotionProposal({
+      proposal: pending,
+      outcome: "approved",
+      decision: human(subject, "coordinator")
+    })).toThrow(/cannot self-approve/);
 
     const declined = decidePromotionProposal({
       proposal: pending,
@@ -469,11 +474,18 @@ describe("PO-7 branch coverage — metrics and projection", () => {
           coverage: { evaluated_shots: 0, expected_shots: 2 }
         }
       },
-      safety_proof: { observed: true }
+      safety_proof: {
+        observed: true,
+        event_store_digest: A,
+        grant_ledger_digest: B,
+        source_event_sequence: 2
+      }
     });
     expect(metrics.recovery.automatic_recovery_success_rate.value).toBeNull();
     expect(metrics.mv?.lyric_timing_coverage.value).toBe(1);
     expect(metrics.cost.zero_credit_local).toBe(true);
+    // awaiting nodes must not become intervention counts without decision events
+    expect(metrics.intervention.human_interventions_total.value).toBeNull();
     parseMissionMetrics(metrics);
     expect(safetySloViolations(metrics)).toEqual([]);
   });
@@ -572,7 +584,7 @@ describe("PO-7 branch coverage — metrics and projection", () => {
     // force learning pending for decision
     const done = projectMissionTree({
       production_id: "prod-tree-2",
-      mode: "shadow",
+      mode: "active",
       mission_state: state,
       learning
     });
@@ -581,7 +593,16 @@ describe("PO-7 branch coverage — metrics and projection", () => {
 
     const viewer = missionTreeToViewerWorkflow(done);
     expect(viewer.id).toContain("mission-tree");
+    expect(viewer.missionTree.taskTreeReadOnly).toBe(true);
+    expect(JSON.stringify(viewer)).not.toMatch(/"mission_tree"/);
     parseMissionTreePublicProjection(done);
+
+    const shadow = projectMissionTree({
+      production_id: "prod-tree-2",
+      mode: "shadow",
+      mission_state: state
+    });
+    expect(() => missionTreeToViewerWorkflow(shadow)).toThrow(/active-mode only/);
 
     expect(() => projectMissionTree({
       production_id: "other",

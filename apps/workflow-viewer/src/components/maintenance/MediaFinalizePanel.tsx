@@ -248,6 +248,9 @@ export function MediaFinalizePanel({
             reviewId: preview.reviewId,
             planDigest: preview.planDigest,
             confirmed: true,
+            ...(typeof preview.productionCompletionDigest === 'string'
+              ? { productionCompletionDigest: preview.productionCompletionDigest }
+              : {}),
           }),
         },
       )

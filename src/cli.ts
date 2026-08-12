@@ -182,6 +182,7 @@ type ParsedArgs = {
   node?: string;
   paths: string[];
   expectedPlanDigest?: string;
+  expectedProductionCompletionDigest?: string;
   expectedApprovalDigest?: string;
   personQaDecision?: string;
   personQaReason?: string;
@@ -1326,6 +1327,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       stateDir: args.stateDir,
       apply: args.apply,
       expectedPlanDigest: args.expectedPlanDigest,
+      expectedProductionCompletionDigest: args.expectedProductionCompletionDigest,
       // Pin preflight identities through apply so a post-lock stateDir/runDir swap fail-closes.
       ...(args.apply && finalizeBoundaryIdentities
         ? {
@@ -1358,6 +1360,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       deleted_files: finalized.deletedFiles,
       deleted_bytes: finalized.deletedBytes,
       plan_digest: finalized.planDigest,
+      ...(finalized.productionCompletionDigest
+        ? {
+            production_completion_digest: finalized.productionCompletionDigest,
+            control_plane_evidence: finalized.controlPlaneEvidence
+          }
+        : {}),
       unrestored_paths: finalized.unrestoredPaths,
       launcher_projects_home: finalized.launcherProjectsHome,
       launcher_project_root: finalized.launcherProjectRoot,
@@ -2125,7 +2133,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -2174,6 +2182,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--proposal-run-id": "proposalRunId",
       "--proposal-source": "proposalSource",
       "--expected-plan-digest": "expectedPlanDigest",
+      "--expected-production-completion-digest": "expectedProductionCompletionDigest",
       "--service": "service",
       "--tool": "tool",
       "--arguments": "argumentsJson",

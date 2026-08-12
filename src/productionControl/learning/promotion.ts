@@ -84,8 +84,29 @@ export function createPromotionProposal(input: CreatePromotionProposalInput): Pr
   });
 }
 
+const FORBIDDEN_PROMOTION_ACTORS = new Set([
+  "learning",
+  "critic",
+  "coordinator",
+  "coordinator-self",
+  "self",
+  "system",
+  "automation"
+]);
+
+/** Structural refuse list for promotion self-approval (case-insensitive, suffix -self). */
+export function isForbiddenPromotionActor(actor: string): boolean {
+  const normalized = actor.trim().toLowerCase();
+  if (!normalized) return true;
+  if (FORBIDDEN_PROMOTION_ACTORS.has(normalized)) return true;
+  if (normalized.endsWith("-self") || normalized.endsWith("_self")) return true;
+  if (normalized.includes("coordinator") && normalized.includes("self")) return true;
+  return false;
+}
+
 /**
  * Record human approval/decline. Subject digest must match the proposal body without decision.
+ * validated/shadow experiments never approve; only a human decision bound to subject_digest.
  */
 export function decidePromotionProposal(input: DecidePromotionInput): PromotionProposalV1 {
   const proposal = promotionProposalSchema.parse(input.proposal);
@@ -110,8 +131,14 @@ export function decidePromotionProposal(input: DecidePromotionInput): PromotionP
   if (input.decision.subject_digest !== expectedSubject) {
     throw pcError("PC_SCHEMA_INVALID", "promotion decision subject_digest mismatch");
   }
-  if (input.decision.actor === "learning" || input.decision.actor === "critic" || input.decision.actor === "coordinator-self") {
-    throw pcError("PC_ROLE_FORBIDDEN", "learning/critic/self cannot approve their own proposal");
+  // Structural self-approval refuse: learning/critic/coordinator (and *-self aliases)
+  // cannot approve. Only non-system human actors bind to subject digest authority.
+  if (isForbiddenPromotionActor(input.decision.actor)) {
+    throw pcError(
+      "PC_ROLE_FORBIDDEN",
+      "learning/critic/coordinator cannot self-approve promotion proposals",
+      { actor: input.decision.actor }
+    );
   }
 
   const draft = {

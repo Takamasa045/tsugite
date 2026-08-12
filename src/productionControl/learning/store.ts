@@ -193,14 +193,29 @@ export class LearningArtifactStore {
         await handle.close();
         handle = undefined;
 
-        // CAS publish via exclusive rename-into-place after reservation link when available.
+        // Create-only publish: O_EXCL reservation on final path closes TOCTOU with concurrent writers.
+        // Rename replaces the empty reservation atomically; never open final without O_EXCL first.
+        let reservation: FileHandle | undefined;
         try {
+          reservation = await open(
+            finalPath,
+            constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+            0o600
+          );
+          await reservation.close();
+          reservation = undefined;
           await rename(temporaryPath, finalPath);
         } catch (error) {
+          if (reservation) await reservation.close().catch(() => undefined);
           await unlink(temporaryPath).catch(() => undefined);
-          if (error && typeof error === "object" && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST") {
-            throw pcError("PC_ARTIFACT_DUPLICATE", "learning artifact already exists", { id, kind });
+          if (error && typeof error === "object" && "code" in error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code === "EEXIST") {
+              throw pcError("PC_ARTIFACT_DUPLICATE", "learning artifact already exists", { id, kind });
+            }
           }
+          // Best-effort cleanup of a failed reservation that may have been created.
+          await unlink(finalPath).catch(() => undefined);
           throw error;
         }
 

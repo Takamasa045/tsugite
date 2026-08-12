@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
+  "metrics_digest": "9c10964f47194f8ad576e1452cbc5b6cf1a24b1807d7f411b63e9e44b06eb23f",
+  "safety_silent_paid_spend": 0,
+  "human_interventions_total": 1,
+  "unknown_is_not_zero": true,
+  "safety_slo_target": 0,
   "families": [
     "flow",
     "intervention",
@@ -8,25 +13,5 @@
     "cost",
     "mv",
     "safety"
-  ],
-  "unknown_is_not_zero": true,
-  "safety_slo_target": 0,
-  "safety_fields": [
-    "silent_paid_spend",
-    "unauthorized_auto_approval",
-    "unauthorized_submit",
-    "unauthorized_external_submit",
-    "over_budget_execution",
-    "duplicate_paid_submit",
-    "submission_unknown_resubmit",
-    "model_connection_silent_fallback",
-    "unknown_price_execution",
-    "stale_artifact_acceptance",
-    "gate_digest_mismatch_execution",
-    "unverified_media_pinned",
-    "secret_or_prompt_public_leak",
-    "role_direct_coordinator_write"
-  ],
-  "fixture_replay_not_mixed_with_production": true,
-  "denominator_and_period_required_in_window": true
+  ]
 }

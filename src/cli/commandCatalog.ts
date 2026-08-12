@@ -114,6 +114,11 @@ const OPTIONS = {
     "SHA-256 plan_digest from finalize preview JSON; required with --apply.",
     "<sha256>"
   ),
+  expectedProductionCompletionDigest: defineOption(
+    "--expected-production-completion-digest",
+    "SHA-256 production_completion_digest from finalize preview JSON; required with --apply only when coordination control-plane evidence is present.",
+    "<sha256>"
+  ),
   path: defineOption("--path", "Absolute or relative worktree path to inspect or remove.", "<worktree-path>"),
   defer: defineOption("--defer", "Preview or record one clean worktree for deferred integration."),
   reconcile: defineOption("--reconcile", "Preview or process the oldest deferred worktree integration."),
@@ -347,10 +352,17 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
   defineCommand({
     name: "finalize",
     summary: "Preview or apply completion-only cleanup for superseded media.",
-    usage: "node bin/pipeline finalize --config <project.yaml> [--state-dir <project.dist_dir>] [--apply --actor coordinator --expected-plan-digest <plan_digest>] [--json]",
+    usage: "node bin/pipeline finalize --config <project.yaml> [--state-dir <project.dist_dir>] [--apply --actor coordinator --expected-plan-digest <plan_digest> [--expected-production-completion-digest <digest>]] [--json]",
     requiresConfig: true,
     safety: "approval-gated",
-    options: [OPTIONS.config, OPTIONS.finalizeStateDir, OPTIONS.actor, OPTIONS.apply, OPTIONS.expectedPlanDigest]
+    options: [
+      OPTIONS.config,
+      OPTIONS.finalizeStateDir,
+      OPTIONS.actor,
+      OPTIONS.apply,
+      OPTIONS.expectedPlanDigest,
+      OPTIONS.expectedProductionCompletionDigest
+    ]
   }),
   defineCommand({
     name: "plan",

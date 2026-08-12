@@ -99,6 +99,8 @@ export type FinalizeApplyRequest = {
   reviewId: string;
   planDigest: string;
   confirmed: true;
+  /** Required when preview held a production_completion_digest (coordination control plane). */
+  productionCompletionDigest?: string;
 };
 
 export type PublicFinalizeDeletionSummary = {
@@ -120,6 +122,8 @@ export type FinalizePreviewResponse = {
   revision: string;
   planDigest: string;
   planDigestShort: string;
+  productionCompletionDigest?: string;
+  productionCompletionDigestShort?: string;
   canonicalOutput?: string;
   completionRecord?: string | null;
   alreadyFinalized: boolean;
@@ -208,6 +212,8 @@ export type FinalizeReviewSnapshot = {
   runId: string;
   revision: string;
   planDigest: string;
+  /** Held when coordination control plane is present; required on apply fail-closed. */
+  productionCompletionDigest?: string;
   identityKey: string;
   /** Hash of full project/config realpath + device/inode + run/revision at preview time. */
   identityFingerprint: string;

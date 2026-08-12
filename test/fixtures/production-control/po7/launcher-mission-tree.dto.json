@@ -1,31 +1,36 @@
 {
   "schema_version": 1,
-  "production_id": "fixture-mission",
-  "mode": "active",
-  "mission_status": "ready",
-  "tree_revision": 1,
-  "source_event_sequence": 3,
-  "task_tree_read_only": true,
-  "legacy_workflow_preserved": true,
-  "current_decision": {
-    "kind": "awaiting_human",
-    "node_id": "task-closeout",
-    "reason_code": "task.awaiting_human",
-    "summary": "人間の判断待ちです"
+  "missionTree": {
+    "productionId": "fixture-mission",
+    "mode": "active",
+    "missionStatus": "ready",
+    "treeRevision": 1,
+    "sourceEventSequence": 1,
+    "currentDecision": {
+      "kind": "awaiting_human",
+      "summary": "人間の判断待ちです",
+      "reasonCode": "task.awaiting_human",
+      "nodeId": "task-closeout"
+    },
+    "recovery": {
+      "active": false,
+      "attempts": 0,
+      "limit": 2
+    },
+    "learningStatus": "awaiting-human",
+    "taskTreeReadOnly": true,
+    "legacyWorkflowPreserved": true,
+    "digest": "36c24a827c75248b403812329b182acd5f68f158962d44826b1e8c5e63368b74"
   },
-  "recovery": {
-    "active": false,
-    "attempts": 0,
-    "limit": 2
-  },
-  "learning": {
-    "status": "awaiting-human",
-    "pending_proposal_count": 1
-  },
+  "node_count": 1,
+  "node_ids": [
+    "task-closeout"
+  ],
   "forbidden_in_public_dto": [
     "prompt",
     "absolute_path",
     "api_key",
-    "provider_response"
+    "provider_response",
+    "mission_tree"
   ]
 }

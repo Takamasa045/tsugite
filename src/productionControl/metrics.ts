@@ -239,6 +239,35 @@ const SAFETY_FIELDS = [
   "role_direct_coordinator_write"
 ] as const;
 
+/**
+ * Decision events that count toward human interventions.
+ * Awaiting-node counts are NOT interventions — only actual decision records.
+ */
+export type InterventionDecisionEvent = {
+  kind: "gate" | "selection" | "identity" | "recovery" | "completion";
+  decision_id: string;
+  subject_digest: string;
+  category?: "mandatory_safety" | "operational" | "creative";
+};
+
+/**
+ * Safety SLO zeros require exact evidence digests + provenance.
+ * Boolean observed:true alone never proves 0.
+ */
+export type SafetySloProof = {
+  observed: true;
+  /** Digest over EventStore evidence sequence used for the counters. */
+  event_store_digest: string;
+  /** Grant ledger digest when paid recovery is in scope; optional otherwise. */
+  grant_ledger_digest?: string;
+  /** Generation job evidence digest when jobs are in scope. */
+  job_evidence_digest?: string;
+  /** Gate decision evidence digest when gates are in scope. */
+  gate_evidence_digest?: string;
+  source_event_sequence: number;
+  notes?: string[];
+};
+
 export type ProjectMissionMetricsInput = {
   production_id: string;
   tree_revision: number;
@@ -264,12 +293,66 @@ export type ProjectMissionMetricsInput = {
     /** Safety counters — default 0 when provenance can prove it; otherwise null. */
     safety?: Partial<Record<(typeof SAFETY_FIELDS)[number], number | null>>;
   };
-  /** Explicit safety proof for zero-count SLOs (required to emit 0 rather than null). */
-  safety_proof?: {
-    observed: boolean;
-    notes?: string[];
-  };
+  /**
+   * Human decision events (Gate/selection/identity/recovery/completion).
+   * Deduped by decision_id + subject_digest. Never derived from awaiting node counts.
+   */
+  intervention_events?: InterventionDecisionEvent[];
+  /**
+   * Explicit safety proof for zero-count SLOs.
+   * Requires event_store_digest + source_event_sequence; observed:true alone is insufficient.
+   */
+  safety_proof?: SafetySloProof | { observed: false };
 };
+
+/** True only when safety zeros are backed by exact evidence digests. */
+export function isSafetyZeroProven(proof: ProjectMissionMetricsInput["safety_proof"]): proof is SafetySloProof {
+  if (!proof || proof.observed !== true) return false;
+  const full = proof as SafetySloProof;
+  if (typeof full.source_event_sequence !== "number" || full.source_event_sequence < 0) return false;
+  if (!digestSchema.safeParse(full.event_store_digest).success) return false;
+  for (const optional of [
+    full.grant_ledger_digest,
+    full.job_evidence_digest,
+    full.gate_evidence_digest
+  ] as const) {
+    if (optional !== undefined && !digestSchema.safeParse(optional).success) return false;
+  }
+  return true;
+}
+
+/**
+ * Count unique human interventions from decision events (not awaiting node counts).
+ */
+export function countHumanInterventions(
+  events: readonly InterventionDecisionEvent[] | undefined
+): {
+  total: number;
+  mandatory_safety: number;
+  operational: number;
+  creative: number;
+} | null {
+  if (!events) return null;
+  const seen = new Set<string>();
+  let total = 0;
+  let mandatory_safety = 0;
+  let operational = 0;
+  let creative = 0;
+  for (const event of events) {
+    const key = `${event.decision_id}\0${event.subject_digest}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    total += 1;
+    if (event.category === "mandatory_safety" || event.kind === "gate" || event.kind === "completion") {
+      mandatory_safety += 1;
+    } else if (event.category === "creative" || event.kind === "selection" || event.kind === "identity") {
+      creative += 1;
+    } else {
+      operational += 1;
+    }
+  }
+  return { total, mandatory_safety, operational, creative };
+}
 
 function pickMeasured(
   observations: Record<string, number | null> | undefined,
@@ -303,8 +386,10 @@ export function projectMissionMetrics(input: ProjectMissionMetricsInput): Missio
   // Derive some flow facts from mission state when present (deterministic).
   const nodes = input.mission_state ? Object.values(input.mission_state.nodes) : [];
   const staleCount = nodes.filter((node) => node.status === "stale" || node.stale).length;
-  const awaitingHuman = nodes.filter((node) => node.status === "awaiting_human").length;
   const outcomeUnknown = nodes.filter((node) => node.status === "outcome_unknown").length;
+  // Human interventions come from decision events only — never awaiting-node counts.
+  const interventionCounts = countHumanInterventions(input.intervention_events);
+  const safetyProof = isSafetyZeroProven(input.safety_proof) ? input.safety_proof : undefined;
 
   const flowObs = {
     stale_fan_out: obs.flow?.stale_fan_out ?? (input.mission_state ? staleCount : null),
@@ -321,16 +406,28 @@ export function projectMissionMetrics(input: ProjectMissionMetricsInput): Missio
         denominator: 1,
         notes: ["explicit observation"]
       });
-    } else if (input.safety_proof?.observed) {
-      safety[field] = zeroSafety(safetyProvenance, period);
+    } else if (safetyProof) {
+      safety[field] = measured(0, safetyProvenance, {
+        period,
+        denominator: 1,
+        notes: [
+          "safety SLO target 0",
+          `event_store_digest=${safetyProof.event_store_digest.slice(0, 12)}`,
+          `source_event_sequence=${safetyProof.source_event_sequence}`
+        ]
+      });
     } else if (provenance === "legacy_not_recorded") {
       safety[field] = legacyNotRecorded(period);
     } else {
-      // Unknown is not 0.
+      // Unknown is not 0. observed:true without digests stays unknown.
       safety[field] = measured(null, safetyProvenance, {
         period,
         denominator: 1,
-        notes: ["safety counter not proven; left unknown"]
+        notes: [
+          input.safety_proof && "observed" in input.safety_proof && input.safety_proof.observed
+            ? "safety observed:true without event_store_digest/provenance is not proof"
+            : "safety counter not proven; left unknown"
+        ]
       });
     }
   }
@@ -369,26 +466,39 @@ export function projectMissionMetrics(input: ProjectMissionMetricsInput): Missio
         {
           human_interventions_total:
             obs.intervention?.human_interventions_total
-            ?? (input.mission_state ? awaitingHuman : null)
+            ?? (interventionCounts ? interventionCounts.total : null)
         },
         "human_interventions_total",
         provenance,
-        period
+        period,
+        interventionCounts ? interventionCounts.total : null
       ),
       mandatory_safety_interventions: pickMeasured(
-        obs.intervention as Record<string, number | null> | undefined,
+        {
+          mandatory_safety_interventions:
+            obs.intervention?.mandatory_safety_interventions
+            ?? (interventionCounts ? interventionCounts.mandatory_safety : null)
+        },
         "mandatory_safety_interventions",
         provenance,
         period
       ),
       operational_interventions: pickMeasured(
-        obs.intervention as Record<string, number | null> | undefined,
+        {
+          operational_interventions:
+            obs.intervention?.operational_interventions
+            ?? (interventionCounts ? interventionCounts.operational : null)
+        },
         "operational_interventions",
         provenance,
         period
       ),
       creative_interventions: pickMeasured(
-        obs.intervention as Record<string, number | null> | undefined,
+        {
+          creative_interventions:
+            obs.intervention?.creative_interventions
+            ?? (interventionCounts ? interventionCounts.creative : null)
+        },
         "creative_interventions",
         provenance,
         period

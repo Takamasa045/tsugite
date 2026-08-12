@@ -197,8 +197,6 @@ paid regenerationは最後に導入する。先に`submission_unknown`、job mut
 
 ## 9. Phase 5: Learning / Launcher / Metrics / Finalize
 
-**状態:** implemented (PO-7 / T08, fixture-only). Version bump remains T09 / PO-8.
-
 Learning:
 
 - existing feedback APIを再利用し、fileへ直接writeしない

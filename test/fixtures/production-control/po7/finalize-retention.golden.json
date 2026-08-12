@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "plan_digest_semantics_unchanged": true,
-  "production_completion_digest": "additive",
+  "plan_digest": "54b8cd3f7468a8282a3f97708eddf5e1fe5741d29ebeee054df44001199b6aba",
+  "production_completion_digest": "c55c3ce095c6eb3702aa3be107a251a81370633ad5439232aa6f726ce74b6150",
   "retained_classes": [
     "final-run",
     "manifest",
@@ -17,7 +17,5 @@
     "events"
   ],
   "media_cleanup_superseded_only": true,
-  "control_plane_not_deletion_candidate": true,
-  "expected_digest_exact_match": true,
-  "no_real_finalize_apply_in_po7_tests": true
+  "control_plane_trigger_coordination_only": true
 }
