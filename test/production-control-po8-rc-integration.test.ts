@@ -1423,6 +1423,12 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
           output_digest: hashCommandOutput("check"),
           status: "proven"
         },
+        browser_po0a: {
+          command: "npm --prefix apps/workflow-viewer run test:browser",
+          exit_code: 0,
+          output_digest: hashCommandOutput("browser"),
+          status: "proven"
+        },
         desktop: {
           command: "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
           exit_code: 0,
@@ -1448,6 +1454,9 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
     });
     expect(report.go_no_go).toBe("GO-WITH-CAVEATS");
     expect(report.exits.find((exit) => exit.exit_id === "command-evidence")?.status).toBe("partial");
+    expect(report.go_no_go_reasons.join(" ")).not.toMatch(/browser/);
+    expect(report.go_no_go_reasons.join(" ")).toMatch(/Windows|desktop|live/i);
+    expect(report.exits.find((exit) => exit.exit_id === "po8-8-po0a-browser")?.status).toBe("proven");
     expect(report.environment.proven_zero_effects).toBe(true);
 
     // package version override rejected

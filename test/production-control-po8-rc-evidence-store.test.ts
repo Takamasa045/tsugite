@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { symlink } from "node:fs/promises";
 import {
+  assertEvidenceArtifactsConsistent,
+  assertPublicTextSafe,
   assertRepoRelativePath,
   buildReadinessFromStore,
   commandOutputDigest,
@@ -43,6 +45,16 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     expect(cleanedStack).not.toMatch(/\u001b/);
     expect(cleanedStack).toMatch(/redacted-path/);
     expect(sanitizePublicText("at [redacted-path]/Users/takamasa/.codex/foo.js:1")).not.toMatch(/\/Users\//);
+    const leftoverHome = "RUN  v4.1.10 [redacted-path]takamasa/.codex/worktrees/77fe/tsugite";
+    const cleanedHome = sanitizePublicText(leftoverHome);
+    expect(cleanedHome).not.toMatch(/takamasa/);
+    expect(cleanedHome).not.toMatch(/\.codex\/worktrees/);
+    expect(cleanedHome).not.toMatch(/\[redacted-path\][A-Za-z]/);
+    expect(cleanedHome).toMatch(/\[redacted-path\]/);
+    const ansiCsi = "transforming...\u001b[32m✓\u001b[0m 2409\u001b[2K\u001b[?25h";
+    expect(sanitizePublicText(ansiCsi)).not.toMatch(/\u001b/);
+    expect(() => assertPublicTextSafe("[redacted-path]takamasa/.codex/worktrees/x"))
+      .toThrow(/absolute path|PC_SECRET_OR_PATH|residue/);
 
     const recorded = await recordCommandEvidence({
       storeRoot,
@@ -236,6 +248,44 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     expect(report.exits.find((exit) => exit.exit_id === "command-evidence")?.status).toBe("partial");
     expect(report.exits.some((exit) => exit.status === "failed")).toBe(false);
     expect(report.go_no_go).not.toBe("GO");
+  });
+
+  it("last-write artifact refs rebind to the on-disk sha256 and fail closed on mismatch", async () => {
+    const storeRoot = await tempDir("tsugite-po8-lastwrite-");
+    const first = await recordCommandEvidence({
+      storeRoot,
+      id: "browser_po0a",
+      command: "npm --prefix apps/workflow-viewer run test:browser",
+      exit_code: 0,
+      output: "first-browser-log\n"
+    });
+    const second = await recordCommandEvidence({
+      storeRoot,
+      id: "browser_po0a",
+      command: "npm --prefix apps/workflow-viewer run test:browser",
+      exit_code: 0,
+      output: "second-browser-log\n"
+    });
+    expect(second.evidence.output_digest).not.toBe(first.evidence.output_digest);
+    const logRefs = (second.evidence.artifact_refs ?? []).filter((ref) => ref.relative_path === "commands/browser_po0a.log");
+    expect(logRefs).toHaveLength(1);
+    expect(logRefs[0]?.sha256).toBe(second.evidence.output_digest);
+    const onDisk = await readFile(join(storeRoot, "commands/browser_po0a.log"));
+    expect(logRefs[0]?.bytes).toBe(onDisk.byteLength);
+    await assertEvidenceArtifactsConsistent(storeRoot);
+
+    const store = await readEvidenceStore(storeRoot);
+    store.measured.browser_po0a = {
+      ...store.measured.browser_po0a!,
+      artifact_refs: [{
+        kind: "command-log",
+        relative_path: "commands/browser_po0a.log",
+        sha256: "a".repeat(64),
+        bytes: 999
+      }]
+    };
+    await writeEvidenceStore(storeRoot, store);
+    await expect(assertEvidenceArtifactsConsistent(storeRoot)).rejects.toThrow(/mismatch|conflicting|PC_CANONICAL/);
   });
 
   it("records coverage, rejects unsafe relative paths, and covers CLI error/help branches", async () => {

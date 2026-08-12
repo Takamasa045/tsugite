@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import {
   DEFAULT_EVIDENCE_RELATIVE_ROOT,
   DEFAULT_READINESS_RELATIVE_PATH,
+  assertEvidenceArtifactsConsistent,
   buildReadinessFromStore,
   ingestBrowserRuntimeEvidence,
   publicStructuralProjection,
@@ -124,6 +125,7 @@ async function dispatch(argv: string[]): Promise<ReadinessCliResult> {
       await writeEvidenceStore(storeRoot, store);
     }
     const head = flag(argv, "--provenance-head");
+    await assertEvidenceArtifactsConsistent(storeRoot);
     const report = buildReadinessFromStore(store, {
       generated_at: flag(argv, "--generated-at") ?? new Date().toISOString(),
       build_provenance: {

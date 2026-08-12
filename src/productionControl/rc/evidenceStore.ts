@@ -24,7 +24,8 @@ export const EVIDENCE_STORE_FILE = "store.json";
 
 const ABSOLUTE_PATH = /(?:^|[\s"'`=(])(?:\/(?:Users|home|private|tmp|var|etc)\/|[A-Za-z]:[\\/]|\\\\|file:\/\/|~\/)/;
 const HOST_PATH_RESIDUAL = /\/(?:Users|home|private|tmp|var|etc)\/|[A-Za-z]:[\\/]|file:\/\/|~\//;
-const ANSI_ESCAPE = /\u001b\[[0-9;]*m/g;
+const ANSI_ESCAPE = /\u001b\[[0-9;?]*[A-Za-z]|\u001b[@-Z\\-_]/g;
+const PATH_TOKEN_RESIDUE = /\[redacted-path\][A-Za-z0-9._~-]+|\.codex\/worktrees/;
 const SECRETISH = /(?:api[_-]?key|secret|password|token|authorization|raw_prompt|BEGIN (?:RSA |OPENSSH )?PRIVATE KEY)/i;
 const MEASURED_COMMAND_IDS = new Set([
   "browser_po0a",
@@ -66,17 +67,77 @@ export function sanitizePublicText(text: string): string {
     .map((line) => {
       if (SECRETISH.test(line)) return "[redacted-sensitive]";
       let next = line;
-      for (let i = 0; i < 8 && (ABSOLUTE_PATH.test(next) || HOST_PATH_RESIDUAL.test(next)); i++) {
+      for (let i = 0; i < 8; i++) {
+        const before = next;
         next = next
           .replace(/file:\/\/\S*/gi, "[redacted-path]")
           .replace(/\/(?:Users|home|private|tmp|var|etc)\/\S*/g, "[redacted-path]")
           .replace(/[A-Za-z]:[\\/]\S*/g, "[redacted-path]")
           .replace(/\\\\[^\s]+/g, "[redacted-path]")
-          .replace(/~\/\S*/g, "[redacted-path]");
+          .replace(/~\/\S*/g, "[redacted-path]")
+          .replace(/\[redacted-path\][A-Za-z0-9._~-]+(?:\/[^\s"'`\]]*)?/g, "[redacted-path]")
+          .replace(/\.codex\/worktrees\/\S*/g, "[redacted-path]");
+        if (next === before) break;
       }
       return next;
     })
     .join("\n");
+}
+
+export function assertPublicTextSafe(text: string): void {
+  if (
+    HOST_PATH_RESIDUAL.test(text)
+    || PATH_TOKEN_RESIDUE.test(text)
+    || ABSOLUTE_PATH.test(text)
+    || /\u001b/.test(text)
+    || /\/Users\/|C:\\|file:\/\//.test(text)
+  ) {
+    throw pcError("PC_SECRET_OR_PATH", "command evidence still contains an absolute path residue");
+  }
+}
+
+export function lastWriteArtifactRefs(refs: EvidenceArtifactRef[]): EvidenceArtifactRef[] {
+  const byPath = new Map<string, EvidenceArtifactRef>();
+  for (const ref of refs) {
+    byPath.set(ref.relative_path, ref);
+  }
+  return [...byPath.values()];
+}
+
+export async function assertArtifactRefMatchesFile(
+  storeRoot: string,
+  ref: EvidenceArtifactRef
+): Promise<void> {
+  const relativePath = assertRepoRelativePath(ref.relative_path, "artifact");
+  const path = join(storeRoot, ...relativePath.split("/"));
+  const stat = await lstat(path);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw pcError("PC_PATH_UNSAFE", `${relativePath}: artifact must be a regular file`);
+  }
+  const bytes = await readFile(path);
+  const digest = sha256Bytes(bytes);
+  if (digest !== ref.sha256 || bytes.byteLength !== ref.bytes) {
+    throw pcError("PC_CANONICAL_INVALID", `artifact_ref mismatch ${relativePath}`);
+  }
+}
+
+export async function assertEvidenceArtifactsConsistent(storeRoot: string): Promise<void> {
+  const root = await assertSafeStoreRoot(storeRoot);
+  const store = await readEvidenceStore(root);
+  const refs = [
+    ...(store.commands ?? []).flatMap((cmd) => cmd.artifact_refs ?? []),
+    ...Object.values(store.measured).flatMap((cmd) => cmd?.artifact_refs ?? [])
+  ];
+  const claimed = new Map<string, string>();
+  for (const ref of refs) {
+    const signature = `${ref.sha256}:${ref.bytes}`;
+    const previous = claimed.get(ref.relative_path);
+    if (previous && previous !== signature) {
+      throw pcError("PC_CANONICAL_INVALID", `conflicting artifact_ref for ${ref.relative_path}`);
+    }
+    claimed.set(ref.relative_path, signature);
+    await assertArtifactRefMatchesFile(root, ref);
+  }
 }
 
 export function assertRepoRelativePath(path: string, label: string): string {
@@ -113,6 +174,7 @@ export async function assertSafeStoreRoot(storeRoot: string): Promise<string> {
   return real;
 }
 
+/** Existing contract: write a same-dir temp snapshot, then overwrite dest, then delete temp. Not a rename lock. */
 async function writeAtomicJson(path: string, value: unknown): Promise<void> {
   assertSafeJsonValue(value, relative(process.cwd(), path) || "evidence");
   const json = `${JSON.stringify(value, null, 2)}\n`;
@@ -183,9 +245,7 @@ export async function recordCommandEvidence(input: {
 }): Promise<{ evidence: CommandEvidence; log_relative_path: string }> {
   const root = await assertSafeStoreRoot(input.storeRoot);
   const sanitized = sanitizePublicText(input.output);
-  if (HOST_PATH_RESIDUAL.test(sanitized) || /\/Users\/|C:\\|file:\/\//.test(sanitized)) {
-    throw pcError("PC_SECRET_OR_PATH", "command evidence still contains an absolute path");
-  }
+  assertPublicTextSafe(sanitized);
   const digest = hashCommandOutput(sanitized);
   const status = input.status ?? (
     input.exit_code !== 0 ? "failed" : (/^[a-f0-9]{64}$/.test(digest) ? "proven" : "partial")
@@ -195,12 +255,16 @@ export async function recordCommandEvidence(input: {
   const logPath = join(root, ...relativeLog.split("/"));
   await mkdir(dirname(logPath), { recursive: true });
   await writeFile(logPath, sanitized);
-  const bytes = Buffer.byteLength(sanitized, "utf8");
+  const onDisk = await readFile(logPath);
+  const readback = sha256Bytes(onDisk);
+  if (readback !== digest || onDisk.byteLength !== Buffer.byteLength(sanitized, "utf8")) {
+    throw pcError("PC_CANONICAL_INVALID", "command log readback digest mismatch");
+  }
   const logRef: EvidenceArtifactRef = {
     kind: "command-log",
     relative_path: relativeLog,
-    sha256: digest,
-    bytes
+    sha256: readback,
+    bytes: onDisk.byteLength
   };
   let store: DurableEvidenceStore;
   try {
@@ -217,13 +281,14 @@ export async function recordCommandEvidence(input: {
     ? input.id as keyof NonNullable<ReleaseReadinessEvidenceStore["measured"]>
     : undefined;
   const previous = measuredId ? store.measured[measuredId] : undefined;
-  const mergedRefs = [
+  const mergedRefs = lastWriteArtifactRefs([
     ...(previous?.artifact_refs ?? []),
     ...(input.artifact_refs ?? []),
     logRef
-  ].filter((ref, index, all) =>
-    all.findIndex((candidate) => candidate.relative_path === ref.relative_path) === index
-  );
+  ]);
+  for (const ref of mergedRefs) {
+    await assertArtifactRefMatchesFile(root, ref);
+  }
   const evidence: CommandEvidence = {
     command: input.command,
     exit_code: input.exit_code,
@@ -304,20 +369,37 @@ export async function ingestBrowserRuntimeEvidence(input: {
     const digest = sha256Bytes(bytes);
     const relative_path = `browser/${name}`;
     assertRepoRelativePath(relative_path, "browser artifact");
-    await copyFile(source, join(destDir, name));
+    const dest = join(destDir, name);
+    await copyFile(source, dest);
+    const readback = sha256Bytes(await readFile(dest));
+    if (readback !== digest) {
+      throw pcError("PC_CANONICAL_INVALID", `browser artifact readback mismatch ${relative_path}`);
+    }
     artifact_refs.push({
       kind: name.endsWith(".png") ? "screenshot" : "manifest",
       relative_path,
-      sha256: digest,
+      sha256: readback,
       bytes: bytes.byteLength
     });
   }
 
+  const missionArtifact = artifact_refs.find((ref) => ref.relative_path === "browser/mission-tree-canvas.png");
+  const mission_tree = {
+    decision: raw.measured.mission_tree_decision === true,
+    exit: raw.measured.mission_tree_exit === true,
+    ...(missionArtifact ? { artifact_sha256: missionArtifact.sha256 } : {}),
+    digest: sha256Canonical({
+      decision: raw.measured.mission_tree_decision === true,
+      exit: raw.measured.mission_tree_exit === true,
+      artifact_sha256: missionArtifact?.sha256 ?? ""
+    })
+  };
   const publicManifest = {
     schema_version: 1 as const,
     fixture_only: true as const,
     primary_mode: raw.primary_mode,
     measured: raw.measured,
+    mission_tree,
     artifacts: artifact_refs.map((ref) => ({
       relative_path: ref.relative_path,
       sha256: ref.sha256,
@@ -348,17 +430,21 @@ export async function ingestBrowserRuntimeEvidence(input: {
   }
   store.browser_manifest_digest = output_digest;
   const existing = store.measured.browser_po0a;
+  const missionDetail = `mission_tree_digest=${mission_tree.digest}`;
   store.measured.browser_po0a = {
     command: existing?.command ?? "npm --prefix apps/workflow-viewer run test:browser",
     exit_code: existing?.exit_code ?? 0,
     output_digest: existing?.output_digest ?? output_digest,
     status: existing?.status ?? "partial",
-    ...(existing?.detail ? { detail: existing.detail } : {}),
-    artifact_refs: [
+    detail: [existing?.detail, missionDetail].filter(Boolean).join("; "),
+    artifact_refs: lastWriteArtifactRefs([
       ...(existing?.artifact_refs ?? []).filter((ref) => ref.kind === "command-log"),
       ...artifact_refs
-    ]
+    ])
   };
+  for (const ref of store.measured.browser_po0a.artifact_refs ?? []) {
+    await assertArtifactRefMatchesFile(storeRoot, ref);
+  }
   await writeEvidenceStore(storeRoot, store);
   return { manifest: raw, output_digest, artifact_refs };
 }

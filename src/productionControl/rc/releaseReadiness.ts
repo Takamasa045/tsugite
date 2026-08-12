@@ -523,7 +523,18 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
     if (anyFailed) go_no_go_reasons.push("one or more exits failed");
   } else if (unverified.length > 0) {
     go_no_go = "GO-WITH-CAVEATS";
-    go_no_go_reasons.push("fixture-only RC integration with unverified Windows/live/desktop/browser");
+    const caveats: string[] = [];
+    if (exits.some((exit) => exit.exit_id === "windows-smoke" && exit.status !== "proven")) {
+      caveats.push("Windows");
+    }
+    caveats.push("live");
+    if (exits.some((exit) => exit.exit_id === "desktop" && exit.status !== "proven")) {
+      caveats.push("desktop");
+    }
+    if (exits.some((exit) => exit.exit_id === "po8-8-po0a-browser" && exit.status !== "proven")) {
+      caveats.push("browser");
+    }
+    go_no_go_reasons.push(`fixture-only RC integration with unverified ${caveats.join("/")}`);
   } else {
     go_no_go = "GO";
     go_no_go_reasons.push("all recorded exits proven");
