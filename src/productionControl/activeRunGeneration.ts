@@ -3,7 +3,7 @@
  * Durable GenerationJob + full production binding + GateBundle membership
  * + T05 adopt/lease + ProductionDispatcher. Never calls runCliGenerationAdapter.
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GenerationRequest } from "../project/schema.js";
 import type { Result } from "../types.js";
@@ -14,8 +14,9 @@ import { GenerationJobStore } from "../generationJobs/store.js";
 import { computeRequestDigest } from "../generationJobs/approval.js";
 import type { GenerationJobRequest } from "../generationJobs/schema.js";
 import { sha256Canonical } from "./canonical.js";
-import { pcError } from "./errors.js";
+import { pcError, ProductionControlError } from "./errors.js";
 import {
+  buildActiveGate1ProductionBinding,
   createFullProductionJobBinding,
   loadDurableGateBundle,
   requireActiveModeForEffect
@@ -180,15 +181,46 @@ export async function executeActiveGenerationForRun(
   }
 
   if (options.productionControlRoot) {
-    try {
-      await resumeProductionControl({
-        mode: "active",
-        root: options.productionControlRoot,
-        production_id: options.production_id
-      });
-    } catch {
-      // First active run may have no event history; empty roots fail resume and are ignored.
-      // Corrupt non-empty chains surface via subsequent effect failures if state is inconsistent.
+    const rootKind = await inspectProductionControlRoot(options.productionControlRoot);
+    if (rootKind === "empty" || rootKind === "missing") {
+      // Truly empty/new control roots may proceed without event history.
+    } else {
+      // Non-empty roots must resume cleanly. Corrupt/tampered chains fail closed
+      // before any job create or adapter invocation.
+      try {
+        await resumeProductionControl({
+          mode: "active",
+          root: options.productionControlRoot,
+          production_id: options.production_id
+        });
+        // Resume may succeed with 0 committed events while a corrupt uncommitted
+        // log tail remains — treat that as fail-closed (not empty/new).
+        const { EventStore } = await import("./eventStore.js");
+        const recovery = await new EventStore(options.productionControlRoot).recover();
+        if (recovery.uncommitted_line_count > 0) {
+          return {
+            ok: false,
+            issues: [{
+              code: "run.active_production_control_resume_failed",
+              message:
+                "production control root is non-empty with corrupt uncommitted event tail; "
+                + "refusing active generation before job/adapter"
+            }]
+          };
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const code = error instanceof ProductionControlError
+          ? error.code
+          : "PC_RESUME_INVALID";
+        return {
+          ok: false,
+          issues: [{
+            code: "run.active_production_control_resume_failed",
+            message: `production control root is non-empty and failed resume (${code}): ${message}`
+          }]
+        };
+      }
     }
   }
 
@@ -361,9 +393,12 @@ export async function executeActiveGenerationForRun(
         grammar_profile_digest: executionBundle.grammar_profile?.digest
       }),
       resolveGateBundle: async () => bundle,
-      resolveLiveGate1: async () => ({
-        subject_digest: options.state.gates.gate_1.production_subject_digest!,
-        decision_digest: gate1.decision_digest
+      resolveLiveGate1: async () => recomputeLiveGate1Evidence({
+        production_id: options.production_id,
+        run_id: options.runId,
+        gate_bundle: bundle,
+        gate1,
+        state: options.state
       }),
       resolveCoordinatorPrincipal: async () => principal
     });
@@ -495,5 +530,327 @@ export async function executeActiveGenerationForRun(
     credits,
     requests,
     completion_refs: completionRefs
+  };
+}
+
+/**
+ * Classify a production-control root before resume.
+ * - missing: path does not exist (safe first run)
+ * - empty: directory exists but has no event/snapshot/artifact chain
+ * - nonempty: any durable control evidence present (must resume fail-closed)
+ */
+export async function inspectProductionControlRoot(
+  root: string
+): Promise<"missing" | "empty" | "nonempty"> {
+  try {
+    await lstat(root);
+  } catch {
+    return "missing";
+  }
+  let entries: string[] = [];
+  try {
+    entries = await readdir(root);
+  } catch {
+    return "nonempty";
+  }
+  if (entries.length === 0) return "empty";
+  const durableNames = new Set([
+    "events.jsonl",
+    "events.commit.json",
+    "coordination-state.json",
+    "artifacts",
+    "leases"
+  ]);
+  for (const name of entries) {
+    if (durableNames.has(name) || name.startsWith("events") || name.endsWith(".jsonl")) {
+      return "nonempty";
+    }
+  }
+  // Non-control files alone still count as non-empty (fail closed on unknown contents).
+  return "nonempty";
+}
+
+/**
+ * Recompute Gate1 subject/decision from durable GateBundle + HumanDecisionRef body,
+ * verify actor/decision digest and current RunState, then return mint-ready evidence.
+ * Free-form forged digest pairs never pass.
+ */
+export function recomputeLiveGate1Evidence(input: {
+  production_id: string;
+  run_id: string;
+  gate_bundle: GateBundle;
+  gate1: {
+    decision: {
+      decision_id: string;
+      decision: string;
+      actor: string;
+      decided_at: string;
+      reason?: string;
+      subject_digest: string;
+    };
+    decision_digest: string;
+    legacy_approved_input_digest?: string;
+  };
+  state: RunState;
+}): {
+  subject_digest: string;
+  decision_digest: string;
+  production_id: string;
+  run_id: string;
+  legacy_approved_input_digest: string;
+  decision: {
+    decision_id: string;
+    decision: string;
+    actor: string;
+    decided_at: string;
+    reason?: string;
+  };
+} {
+  const legacy =
+    input.gate1.legacy_approved_input_digest
+    ?? input.state.gates.gate_1.approved_input_digest;
+  if (!legacy) {
+    throw pcError("PC_GATE_SUBJECT_STALE", "Gate 1 legacy approved_input_digest is missing");
+  }
+  const recomputed = buildActiveGate1ProductionBinding({
+    production_id: input.production_id,
+    run_id: input.run_id,
+    gate_bundle: input.gate_bundle,
+    legacy_approved_input_digest: legacy,
+    decision: {
+      decision_id: input.gate1.decision.decision_id,
+      decision: input.gate1.decision.decision,
+      actor: input.gate1.decision.actor,
+      decided_at: input.gate1.decision.decided_at,
+      ...(input.gate1.decision.reason ? { reason: input.gate1.decision.reason } : {})
+    }
+  });
+  if (recomputed.decision_digest !== input.gate1.decision_digest) {
+    throw pcError(
+      "PC_GATE_SUBJECT_STALE",
+      "recomputed Gate 1 decision digest does not match durable HumanDecisionRef"
+    );
+  }
+  if (recomputed.subject_digest !== input.gate1.decision.subject_digest) {
+    throw pcError(
+      "PC_GATE_SUBJECT_STALE",
+      "recomputed Gate 1 subject digest does not match durable decision subject"
+    );
+  }
+  const stateSubject = input.state.gates.gate_1.production_subject_digest;
+  const stateDecision = input.state.gates.gate_1.production_decision_digest;
+  if (
+    !stateSubject
+    || !stateDecision
+    || stateSubject !== recomputed.subject_digest
+    || stateDecision !== recomputed.decision_digest
+  ) {
+    throw pcError(
+      "PC_GATE_SUBJECT_STALE",
+      "recomputed Gate 1 subjects do not match current RunState"
+    );
+  }
+  if (input.gate1.decision.decision !== "approved" || !input.gate1.decision.actor) {
+    throw pcError("PC_AUTHORITY_DENIED", "Gate 1 decision must be approved with a durable actor");
+  }
+  return {
+    subject_digest: recomputed.subject_digest,
+    decision_digest: recomputed.decision_digest,
+    production_id: input.production_id,
+    run_id: input.run_id,
+    legacy_approved_input_digest: legacy,
+    decision: {
+      decision_id: input.gate1.decision.decision_id,
+      decision: input.gate1.decision.decision,
+      actor: input.gate1.decision.actor,
+      decided_at: input.gate1.decision.decided_at,
+      ...(input.gate1.decision.reason ? { reason: input.gate1.decision.reason } : {})
+    }
+  };
+}
+
+/**
+ * Offline fixture/local GenerationJob adapter. No process/network/DNS.
+ * Used by active CLI injection when connection evidence declares fixture transport.
+ */
+export function createFixtureGenerationJobAdapter(options: {
+  connection_id: string;
+  adapter_id?: string;
+  artifact_bytes?: Buffer;
+  onSubmit?: (
+    request: GenerationJobRequest,
+    ctx: { submission_input?: unknown; job: { request: GenerationJobRequest } }
+  ) => void | Promise<void>;
+  /** When set, returns this absolute path as the downloaded artifact. */
+  fixture_artifact_path?: string;
+}): GenerationJobProviderAdapter {
+  const bytes = options.artifact_bytes ?? Buffer.from("fixture-active-generation");
+  let providerJobId = "";
+  return {
+    adapter_id: options.adapter_id ?? "local-fixture",
+    connection_id: options.connection_id,
+    capabilities: { submit: true, poll: true, download: true, cancel: false },
+    async preflight() {
+      return { ok: true as const, execution_ready: true };
+    },
+    async submit(request, ctx) {
+      // Active residual: never reopen project asset paths; submission_input is authority.
+      if (Array.isArray(request.asset_paths) && request.asset_paths.length > 0) {
+        return {
+          ok: false as const,
+          code: "fixture.asset_paths_forbidden",
+          message: "active fixture adapter rejects reopenable asset_paths; use submission_input",
+          acceptance_possible: false
+        };
+      }
+      await options.onSubmit?.(request, ctx as never);
+      providerJobId = `fixture-${request.digest.slice(0, 12)}`;
+      return { ok: true as const, provider_job_id: providerJobId, accepted: true as const };
+    },
+    async poll() {
+      return { ok: true as const, status: "succeeded" as const };
+    },
+    async download(_id, destinationDir) {
+      const { createHash } = await import("node:crypto");
+      const { copyFile, writeFile: wf } = await import("node:fs/promises");
+      await mkdir(destinationDir, { recursive: true });
+      const dest = join(destinationDir, "out.mp4");
+      if (options.fixture_artifact_path) {
+        await copyFile(options.fixture_artifact_path, dest);
+        const { readFile } = await import("node:fs/promises");
+        const data = await readFile(dest);
+        return {
+          ok: true as const,
+          absolute_path: dest,
+          sha256: createHash("sha256").update(data).digest("hex"),
+          byte_length: data.byteLength
+        };
+      }
+      await wf(dest, bytes);
+      return {
+        ok: true as const,
+        absolute_path: dest,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        byte_length: bytes.byteLength
+      };
+    },
+    async cancel() {
+      return { ok: true as const, cancelled: true };
+    }
+  };
+}
+
+/** Process-local fixture injection for CLI active path (tests only; cleared after). */
+let installedActiveGenerationFixture:
+  | {
+      adapter: GenerationJobProviderAdapter;
+      resolveExecutionBundle: ActiveRunGenerationOptions["resolveExecutionBundle"];
+      project_id: string;
+      revision_id: string;
+      production_id?: string;
+      productionControlRoot?: string;
+      dispatcher?: ProductionDispatcher;
+    }
+  | undefined;
+
+/**
+ * Install a fixture active-generation injection for the live CLI/assemble path.
+ * Production never calls this; tests must clear after use.
+ */
+export function installActiveGenerationFixtureForTests(fixture: {
+  adapter: GenerationJobProviderAdapter;
+  resolveExecutionBundle: ActiveRunGenerationOptions["resolveExecutionBundle"];
+  project_id: string;
+  revision_id: string;
+  production_id?: string;
+  productionControlRoot?: string;
+  dispatcher?: ProductionDispatcher;
+}): void {
+  installedActiveGenerationFixture = fixture;
+}
+
+export function clearActiveGenerationFixtureForTests(): void {
+  installedActiveGenerationFixture = undefined;
+}
+
+export function peekActiveGenerationFixtureForTests(): typeof installedActiveGenerationFixture {
+  return installedActiveGenerationFixture;
+}
+
+export type ActiveGenerationInjection = {
+  adapter: GenerationJobProviderAdapter;
+  resolveExecutionBundle: ActiveRunGenerationOptions["resolveExecutionBundle"];
+  project_id: string;
+  revision_id: string;
+  production_id?: string;
+  productionControlRoot?: string;
+  dispatcher?: ProductionDispatcher;
+};
+
+/**
+ * Resolve active generation injection for CLI/assembleLocalMediaRun.
+ * Explicit options win; else installed fixture (test/local); else fail closed.
+ * Never invents a live network/provider adapter.
+ */
+export function resolveActiveGenerationInjection(input: {
+  explicit?: ActiveGenerationInjection;
+  /** Connection id evidence from project/run (fail closed when real capability missing). */
+  connection_id?: string;
+}): Result<ActiveGenerationInjection> {
+  if (input.explicit?.adapter && input.explicit.resolveExecutionBundle) {
+    return {
+      ok: true,
+      issues: [],
+      adapter: input.explicit.adapter,
+      resolveExecutionBundle: input.explicit.resolveExecutionBundle,
+      project_id: input.explicit.project_id,
+      revision_id: input.explicit.revision_id,
+      ...(input.explicit.production_id ? { production_id: input.explicit.production_id } : {}),
+      ...(input.explicit.productionControlRoot
+        ? { productionControlRoot: input.explicit.productionControlRoot }
+        : {}),
+      ...(input.explicit.dispatcher ? { dispatcher: input.explicit.dispatcher } : {})
+    };
+  }
+  const fixture = installedActiveGenerationFixture;
+  if (fixture?.adapter && fixture.resolveExecutionBundle) {
+    if (
+      input.connection_id
+      && fixture.adapter.connection_id
+      && fixture.adapter.connection_id !== input.connection_id
+    ) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.active_generation_connection_mismatch",
+          message:
+            `fixture adapter connection '${fixture.adapter.connection_id}' does not match `
+            + `project connection '${input.connection_id}'`
+        }]
+      };
+    }
+    return {
+      ok: true,
+      issues: [],
+      adapter: fixture.adapter,
+      resolveExecutionBundle: fixture.resolveExecutionBundle,
+      project_id: fixture.project_id,
+      revision_id: fixture.revision_id,
+      ...(fixture.production_id ? { production_id: fixture.production_id } : {}),
+      ...(fixture.productionControlRoot
+        ? { productionControlRoot: fixture.productionControlRoot }
+        : {}),
+      ...(fixture.dispatcher ? { dispatcher: fixture.dispatcher } : {})
+    };
+  }
+  return {
+    ok: false,
+    issues: [{
+      code: "run.active_generation_adapter_required",
+      message:
+        "active generation requires GenerationJob adapter + T05 execution bundle resolver "
+        + "from project/run connection evidence; real missing capability fails closed "
+        + "(no legacy CLI adapter fallback)"
+    }]
   };
 }

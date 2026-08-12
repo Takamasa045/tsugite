@@ -990,41 +990,64 @@ async function assembleGeneratedMediaRun(
   // Disabled/shadow/legacy: existing CLI adapter path unchanged.
   let generation: Result<CliGenerationResult>;
   if (project.orchestration?.mode === "active") {
-    if (!options.activeGeneration?.adapter || !options.activeGeneration.resolveExecutionBundle) {
-      return {
-        ok: false,
-        issues: [{
-          code: "run.active_generation_adapter_required",
-          message:
-            "active generation requires GenerationJob adapter + T05 execution bundle resolver; "
-            + "direct CLI adapter path is forbidden"
-        }]
-      };
-    }
-    const { executeActiveGenerationForRun } = await import(
-      "../productionControl/activeRunGeneration.js"
-    );
+    const {
+      executeActiveGenerationForRun,
+      resolveActiveGenerationInjection
+    } = await import("../productionControl/activeRunGeneration.js");
     const { compileProductionContract } = await import(
       "../productionControl/contractCompiler.js"
     );
-    const productionId = options.activeGeneration.production_id
+    const connectionId =
+      options.generationConnection
+      && typeof options.generationConnection === "object"
+      && "id" in options.generationConnection
+      && typeof (options.generationConnection as { id?: unknown }).id === "string"
+        ? (options.generationConnection as { id: string }).id
+        : project.generation?.connection;
+    const resolved = resolveActiveGenerationInjection({
+      ...(options.activeGeneration
+        ? {
+            explicit: {
+              adapter: options.activeGeneration.adapter,
+              resolveExecutionBundle: options.activeGeneration.resolveExecutionBundle,
+              project_id: options.activeGeneration.project_id,
+              revision_id: options.activeGeneration.revision_id,
+              ...(options.activeGeneration.production_id
+                ? { production_id: options.activeGeneration.production_id }
+                : {}),
+              ...(options.activeGeneration.productionControlRoot
+                ? { productionControlRoot: options.activeGeneration.productionControlRoot }
+                : {}),
+              ...(options.activeGeneration.dispatcher
+                ? { dispatcher: options.activeGeneration.dispatcher }
+                : {})
+            }
+          }
+        : {}),
+      ...(connectionId ? { connection_id: connectionId } : {})
+    });
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        issues: resolved.issues
+      };
+    }
+    const productionId = resolved.production_id
       ?? compileProductionContract({ project }).production_id;
     generation = await executeActiveGenerationForRun({
       runId,
       runDir,
       state: options.state,
       production_id: productionId,
-      project_id: options.activeGeneration.project_id,
-      revision_id: options.activeGeneration.revision_id,
+      project_id: resolved.project_id,
+      revision_id: resolved.revision_id,
       pinnedRequests: pinned.requests,
-      adapter: options.activeGeneration.adapter,
-      resolveExecutionBundle: options.activeGeneration.resolveExecutionBundle,
-      ...(options.activeGeneration.productionControlRoot
-        ? { productionControlRoot: options.activeGeneration.productionControlRoot }
+      adapter: resolved.adapter,
+      resolveExecutionBundle: resolved.resolveExecutionBundle,
+      ...(resolved.productionControlRoot
+        ? { productionControlRoot: resolved.productionControlRoot }
         : {}),
-      ...(options.activeGeneration.dispatcher
-        ? { dispatcher: options.activeGeneration.dispatcher }
-        : {})
+      ...(resolved.dispatcher ? { dispatcher: resolved.dispatcher } : {})
     });
   } else {
     // Adapter sees the pinned, H3-compiled execution fields (prompt/op/assets).

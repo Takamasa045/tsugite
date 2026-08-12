@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import type { RunState } from "../orchestrator/stateTypes.js";
 import { sha256Canonical } from "./canonical.js";
-import { pcError } from "./errors.js";
+import { pcError, type ProductionControlError } from "./errors.js";
 import {
   parseGenerationCompletionRef,
   type GenerationCompletionRef
@@ -23,6 +23,7 @@ import {
 } from "./activePipeline.js";
 import {
   gateDecisionDigest,
+  type GateCascade,
   type GateDriftKind,
   type LiveGateSubjects
 } from "./gateSubjects.js";
@@ -34,6 +35,21 @@ import {
 import { parseGateBundle, type GateBundle } from "./gateBundle.js";
 
 export type { LiveGateSubjects };
+
+export type LiveActiveSubjectsPhaseResult =
+  | {
+      ok: true;
+      expected: LiveGateSubjects;
+      cascadeKinds: [];
+    }
+  | {
+      ok: false;
+      expected: LiveGateSubjects;
+      cascadeKinds: GateDriftKind[];
+      cascadedState: RunState;
+      cascade: GateCascade;
+      error: ProductionControlError;
+    };
 
 const PC_DIR = "production-control";
 
@@ -538,7 +554,12 @@ export async function recomputeExpectedSubjectsFromDurableEvidence(input: {
 
 /**
  * Live phase gate: recompute expected from durable evidence, compare to stored state,
- * cascade+block on drift. Never passes stored production digests as expected.
+ * cascade on drift. Never passes stored production digests as expected.
+ *
+ * On drift, returns a structured cascade result (does not discard) so the CLI /
+ * Coordinator can persist cascaded RunState atomically under the serial state
+ * boundary before reporting the error. Callers that want throw-only may use
+ * assertLiveActiveSubjectsBeforePhaseOrThrow.
  */
 export async function assertLiveActiveSubjectsBeforePhase(input: {
   mode: ProductionControlMode | undefined;
@@ -547,9 +568,9 @@ export async function assertLiveActiveSubjectsBeforePhase(input: {
   state: RunState;
   production_id: string;
   gate_bundle?: GateBundle;
-}): Promise<{ expected: LiveGateSubjects; cascadeKinds: GateDriftKind[] }> {
+}): Promise<LiveActiveSubjectsPhaseResult> {
   if (input.mode !== "active") {
-    return { expected: {}, cascadeKinds: [] };
+    return { ok: true, expected: {}, cascadeKinds: [] };
   }
   const expected = await recomputeExpectedSubjectsFromDurableEvidence({
     phase: input.phase,
@@ -598,13 +619,40 @@ export async function assertLiveActiveSubjectsBeforePhase(input: {
   }
 
   if (cascadeKinds.length > 0) {
-    // Apply cascade for callers that want invalidation; always throw to block the phase.
-    cascadeRunStateFromDrift(input.state, cascadeKinds);
-    throw pcError(
+    const { state: cascadedState, cascade } = cascadeRunStateFromDrift(
+      input.state,
+      cascadeKinds
+    );
+    const error = pcError(
       "PC_GATE_SUBJECT_STALE",
       `active ${input.phase} blocked: recomputed Gate subjects do not match stored state`
     );
+    return {
+      ok: false,
+      expected,
+      cascadeKinds,
+      cascadedState,
+      cascade,
+      error
+    };
   }
 
-  return { expected, cascadeKinds };
+  return { ok: true, expected, cascadeKinds: [] };
+}
+
+/**
+ * Throw-only wrapper for callers that cannot persist cascade themselves.
+ * Prefer assertLiveActiveSubjectsBeforePhase + atomic writeState in CLI.
+ */
+export async function assertLiveActiveSubjectsBeforePhaseOrThrow(input: {
+  mode: ProductionControlMode | undefined;
+  phase: "run" | "render" | "finalize";
+  runDir: string;
+  state: RunState;
+  production_id: string;
+  gate_bundle?: GateBundle;
+}): Promise<{ expected: LiveGateSubjects; cascadeKinds: GateDriftKind[] }> {
+  const result = await assertLiveActiveSubjectsBeforePhase(input);
+  if (!result.ok) throw result.error;
+  return { expected: result.expected, cascadeKinds: result.cascadeKinds };
 }

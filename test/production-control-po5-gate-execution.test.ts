@@ -177,12 +177,27 @@ function sampleBundle(overrides: Partial<{
 }
 
 function sealedGate1(bundle: GateBundle) {
+  const decision = {
+    decision_id: "seal-d1",
+    decision: "approved",
+    actor: "human",
+    decided_at: "2026-08-12T00:00:00.000Z"
+  };
+  const gate1 = buildActiveGate1ProductionBinding({
+    production_id: bundle.production_id,
+    run_id: bundle.run_id,
+    gate_bundle: bundle,
+    legacy_approved_input_digest: DIGEST_A,
+    decision
+  });
   return mintSealedGate1Binding({
     gate_bundle: bundle,
-    subject_digest: DIGEST_A,
-    decision_digest: DIGEST_B,
-    live_subject_digest: DIGEST_A,
-    live_decision_digest: DIGEST_B
+    production_id: bundle.production_id,
+    run_id: bundle.run_id,
+    legacy_approved_input_digest: DIGEST_A,
+    decision,
+    live_subject_digest: gate1.subject_digest,
+    live_decision_digest: gate1.decision_digest
   });
 }
 
@@ -1232,14 +1247,37 @@ describe("PO-5 sealed authority integration", () => {
       }],
       review_artifact_digest: DIGEST_D
     });
-    // Unknown price cannot be sealed; free-form seal is rejected.
+    // Unknown price cannot be sealed; free-form forged digests are rejected.
     expect(() => mintSealedGate1Binding({
       gate_bundle: unknown,
-      subject_digest: DIGEST_A,
-      decision_digest: DIGEST_B,
+      production_id: "prod-1",
+      run_id: "run-1",
+      legacy_approved_input_digest: DIGEST_A,
+      decision: {
+        decision_id: "d-unknown",
+        decision: "approved",
+        actor: "human",
+        decided_at: "2026-08-12T00:00:00.000Z"
+      },
       live_subject_digest: DIGEST_A,
       live_decision_digest: DIGEST_B
     })).toThrow(/unknown price|PC_AUTHORITY_DENIED/);
+    // Forged matching 64-hex pair without recomputed GateBundle subject is rejected.
+    const knownBundle = sampleBundle();
+    expect(() => mintSealedGate1Binding({
+      gate_bundle: knownBundle,
+      production_id: knownBundle.production_id,
+      run_id: knownBundle.run_id,
+      legacy_approved_input_digest: DIGEST_A,
+      decision: {
+        decision_id: "forged",
+        decision: "approved",
+        actor: "human",
+        decided_at: "2026-08-12T00:00:00.000Z"
+      },
+      live_subject_digest: DIGEST_A,
+      live_decision_digest: DIGEST_A
+    })).toThrowError(expect.objectContaining({ code: "PC_AUTHORITY_DENIED" }));
     expect(checkAuthority({
       role: "generator",
       effect: "external-submit",
@@ -1846,9 +1884,19 @@ describe("PO-5 machine active submit T05 path (stub adapter)", () => {
           asset_lineage_digest: DIGEST_B
         }),
         resolveGateBundle: async () => sampleBundle(),
+        // Forged digest pair (no decision body / recomputed subject) fails closed before adapter.
         resolveLiveGate1: async () => ({
           subject_digest: DIGEST_A,
-          decision_digest: DIGEST_C
+          decision_digest: DIGEST_C,
+          production_id: "prod-1",
+          run_id: "run-1",
+          legacy_approved_input_digest: DIGEST_A,
+          decision: {
+            decision_id: "forged-d1",
+            decision: "approved",
+            actor: "human",
+            decided_at: "2026-08-12T00:00:00.000Z"
+          }
         }),
         resolveCoordinatorPrincipal: async () => ({
           ...principalBody,
@@ -1860,11 +1908,13 @@ describe("PO-5 machine active submit T05 path (stub adapter)", () => {
       const approved = await machine.approve("job-active-1", "coordinator");
       expect(approved.status).toBe("approved");
 
-      // Active submit with fake bundle → adapter invoke 0, fails closed (not submission_unknown).
+      // Active submit with forged Gate1 / fake T05 path → adapter invoke 0, fails closed.
       const failed = await machine.submit("job-active-1");
       expect(failed.status).toBe("failed");
       expect(failed.error?.code).toBe("GJ-E027");
-      expect(failed.error?.message).toMatch(/T05 authority failed|adopted|active submit/);
+      expect(failed.error?.message).toMatch(
+        /T05 authority failed|adopted|active submit|Gate 1 sealed|recomputed|PC_AUTHORITY/
+      );
       expect(adapterSubmitCount).toBe(0);
       expect(machine.lastActiveSubmitUsedT05).toBe(false);
 
@@ -2098,6 +2148,65 @@ describe("PO-5 pricing evidence never invents amount0/max0", () => {
     });
     expect(zeroWithPolicy.status).toBe("known");
     expect(zeroWithPolicy.amount).toBe(0);
+    expect(zeroWithPolicy.zero_cost_policy_id).toBe("local-fixture-zero");
+
+    // Hand-written / durable GateBundle known 0/0 without policy is rejected.
+    expect(() => createGateBundle({
+      production_id: "prod-1",
+      run_id: "run-1",
+      production_contract_digest: DIGEST_A,
+      contract_set_digest: DIGEST_B,
+      task_tree_digest: DIGEST_C,
+      selected_artifact_digests: [],
+      generation_batches: [{
+        batch_id: "batch-zero",
+        route: route("zero"),
+        ordered_units: [{
+          ordinal: 0,
+          generation_unit_digest: DIGEST_E,
+          base_compilation_digest: DIGEST_F
+        }],
+        pricing: {
+          status: "known",
+          version: "price-v1",
+          currency: "USD",
+          amount: 0,
+          max_amount: 0
+        },
+        pricing_binding_digest: "0".repeat(64)
+      }],
+      review_artifact_digest: DIGEST_D
+    })).toThrow(/zero_cost_policy_id|PC_GATE_BUNDLE_INVALID/);
+
+    // Policy id is bound into pricing digest and differs without it (when non-zero path).
+    const rZero = route("zpolicy");
+    const withPolicy = {
+      status: "known" as const,
+      version: "price-v1",
+      currency: "USD",
+      amount: 0,
+      max_amount: 0,
+      zero_cost_policy_id: "local-fixture-zero"
+    };
+    const digestWith = pricingBindingDigest(withPolicy, rZero);
+    const digestAlt = pricingBindingDigest({
+      ...withPolicy,
+      zero_cost_policy_id: "other-zero-policy"
+    }, rZero);
+    expect(digestWith).not.toBe(digestAlt);
+    expect(digestWith).toHaveLength(64);
+
+    // Non-zero known pricing still does not require policy id.
+    const nonZero = resolveAuthoritativeGatePricing({
+      authoritative: {
+        version: "price-v1",
+        currency: "USD",
+        amount: 1,
+        max_amount: 2
+      }
+    });
+    expect(nonZero.status).toBe("known");
+    expect(nonZero.zero_cost_policy_id).toBeUndefined();
   });
 
   it("buildActiveGenerationUnitEvidenceFromPlan never invents known 0/0 pricing", async () => {
@@ -2428,6 +2537,7 @@ describe("PO-5 durable Gate2/Gate3 evidence recompute and cascade", () => {
         state,
         production_id: "prod-1"
       })).resolves.toMatchObject({
+        ok: true,
         expected: {
           gate_1_subject_digest: gate1.subject_digest,
           gate_2_subject_digest: g2.subject_digest,
@@ -2557,7 +2667,7 @@ describe("PO-5 live subject recompute blocks tampered durable evidence", () => {
         runDir,
         state,
         production_id: "prod-1"
-      })).resolves.toBeTruthy();
+      })).resolves.toMatchObject({ ok: true });
 
       // Tamper durable GateBundle bytes; state unchanged → must block.
       const tampered = {
@@ -2585,10 +2695,134 @@ describe("PO-5 live subject recompute blocks tampered durable evidence", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("M3: phase drift returns cascade that persists Gate1→2/3 stale on disk atomically", async () => {
+    const {
+      writeDurableGateBundle,
+      buildActiveGate1ProductionBinding
+    } = await import("../src/productionControl/activePipeline.js");
+    const {
+      writeDurableGateDecision,
+      writeDurableCoordinatorPrincipal,
+      assertLiveActiveSubjectsBeforePhase
+    } = await import("../src/productionControl/durableGateEvidence.js");
+    const { writeState, readState } = await import("../src/orchestrator/state.js");
+    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-m3-cascade-"));
+    try {
+      // sampleBundle uses production_id=prod-1 and run_id=run-1
+      const bundle = sampleBundle();
+      const runDir = join(root, "run-1");
+      await writeDurableGateBundle(runDir, bundle);
+      const gate1 = buildActiveGate1ProductionBinding({
+        production_id: "prod-1",
+        run_id: "run-1",
+        gate_bundle: bundle,
+        legacy_approved_input_digest: DIGEST_A,
+        decision: {
+          decision_id: "d1",
+          decision: "approved",
+          actor: "human",
+          decided_at: "2026-08-12T00:00:00.000Z"
+        }
+      });
+      await writeDurableGateDecision(runDir, {
+        gate: "gate_1",
+        decision: {
+          decision_id: "d1",
+          decision: "approved",
+          actor: "human",
+          decided_at: "2026-08-12T00:00:00.000Z",
+          subject_digest: gate1.subject_digest
+        },
+        decision_source: "human",
+        legacy_approved_input_digest: DIGEST_A
+      });
+      await writeDurableCoordinatorPrincipal(runDir, {
+        gate_1_decision_digest: gate1.decision_digest
+      });
+
+      let state = createPlannedState("run-1");
+      state = markGateAwaiting(state, "gate_1");
+      state = recordGateDecision(
+        state,
+        "gate_1",
+        "approved",
+        undefined,
+        DIGEST_A,
+        "human",
+        undefined,
+        gate1.productionBinding
+      );
+      // Also mark Gate2/3 approved so cascade can clear them.
+      state = markGateAwaiting(state, "gate_2");
+      state = recordGateDecision(
+        state,
+        "gate_2",
+        "approved",
+        undefined,
+        DIGEST_D,
+        "human",
+        undefined,
+        { production_subject_digest: DIGEST_E, production_decision_digest: DIGEST_F }
+      );
+      state = markGateAwaiting(state, "gate_3");
+      state = recordGateDecision(
+        state,
+        "gate_3",
+        "approved",
+        undefined,
+        DIGEST_C,
+        "human",
+        undefined,
+        { production_subject_digest: DIGEST_B, production_decision_digest: DIGEST_A }
+      );
+      await writeState(root, state);
+
+      // Force subject drift: rewrite state digests to forged values while durable evidence stays.
+      const drifted = {
+        ...state,
+        gates: {
+          ...state.gates,
+          gate_1: {
+            ...state.gates.gate_1,
+            production_subject_digest: ZERO,
+            production_decision_digest: ZERO
+          }
+        }
+      };
+      await writeState(root, drifted);
+
+      const phaseCheck = await assertLiveActiveSubjectsBeforePhase({
+        mode: "active",
+        phase: "run",
+        runDir,
+        state: drifted,
+        production_id: "prod-1"
+      });
+      expect(phaseCheck.ok).toBe(false);
+      if (phaseCheck.ok) return;
+      expect(phaseCheck.cascade.stale_gate_1).toBe(true);
+      expect(phaseCheck.cascade.stale_gate_2).toBe(true);
+      expect(phaseCheck.cascade.stale_gate_3).toBe(true);
+      expect(phaseCheck.cascadeKinds).toContain("compilation");
+      // Persist cascaded state atomically (CLI serial boundary).
+      await writeState(root, phaseCheck.cascadedState);
+      const onDisk = await readState(join(root, "run-1", "state.json"));
+      expect(onDisk.gates.gate_1.status).toBe("pending");
+      expect(onDisk.gates.gate_1.production_subject_digest).toBeUndefined();
+      expect(onDisk.gates.gate_2.status).toBe("pending");
+      expect(onDisk.gates.gate_3.status).toBe("pending");
+      expect(onDisk.status).toBe("planned");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)", () => {
-  it("proves active GateBundle, Gate1, full binding, T05 adopt via execution budget loader, one-shot same-FD stub, pin; second consume 0; provider 0", async () => {
+  it("proves active GateBundle, Gate1, full binding, T05 adopt via execution budget loader, one-shot same-FD stub, pin; second consume 0; provider 0", {
+    timeout: 20_000
+  }, async () => {
     const networkHits: string[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (...args: unknown[]) => {
@@ -2914,7 +3148,7 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
       expect(completions).toHaveLength(1);
       expect(completions[0]!.digest).toBe(activeResult.completion_refs[0]!.digest);
 
-      // Second live path resubmit: submission_unknown / already submitted → no extra invoke.
+      // Second live path resubmit: existing job fails closed; adapter count unchanged.
       const restart = await executeActiveGenerationForRun({
         runId: "run-e2e",
         runDir,
@@ -2932,9 +3166,9 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         resolveExecutionBundle: async () => derived.bundle,
         gate_bundle: bundle
       });
-      // Same job id path conflicts or fails closed without a second adapter invoke.
+      expect(restart.ok).toBe(false);
+      expect(restart.issues[0]?.code).toBe("run.active_job_exists");
       expect(adapterInvokes).toBe(1);
-      expect(restart.ok === false || restart.ok === true).toBe(true);
 
       // Structural fake bundle → 0 additional invokes
       const fakeInvokesBefore = adapterInvokes;
@@ -2957,8 +3191,16 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
       expect(fake.adapter_invocations).toBe(0);
       expect(adapterInvokes).toBe(fakeInvokesBefore);
 
-      // Active cannot use direct CLI adapter path (orchestrator guard).
-      const { assembleLocalMediaRun } = await import("../src/orchestrator/run.js");
+      // Real orchestrator active injection resolver (not voided): missing fixture fails closed.
+      const {
+        resolveActiveGenerationInjection,
+        clearActiveGenerationFixtureForTests
+      } = await import("../src/productionControl/activeRunGeneration.js");
+      clearActiveGenerationFixtureForTests();
+      const noInject = resolveActiveGenerationInjection({ connection_id: "pixverse" });
+      expect(noInject.ok).toBe(false);
+      expect(noInject.issues[0]?.code).toBe("run.active_generation_adapter_required");
+
       // Legacy binding mode checks remain.
       expect(() => assertProductionBindingForMode(
         pinnedJob({ status: "approved", artifact: undefined }),
@@ -2969,13 +3211,496 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         "shadow"
       )).not.toThrow();
       expect(networkHits).toEqual([]);
-      void assembleLocalMediaRun;
       void fixtureSha;
       void computeRequestDigest;
+      void GenerationJobMachine;
+      void GenerationJobStore;
 
       await rm(root, { recursive: true, force: true });
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("M1 Exit CLI: actual bin/pipeline + CLI main injection reaches GenerationJob+T05 lease+stub once", {
+    timeout: 30_000
+  }, async () => {
+    const networkHits: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (...args: unknown[]) => {
+      networkHits.push(String(args[0]));
+      throw new Error("network forbidden in CLI fixture E2E");
+    }) as typeof fetch;
+
+    const { mkdir, mkdtemp, realpath, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { spawnSync } = await import("node:child_process");
+    const {
+      installActiveGenerationFixtureForTests,
+      clearActiveGenerationFixtureForTests,
+      createFixtureGenerationJobAdapter,
+      executeActiveGenerationForRun,
+      inspectProductionControlRoot,
+      resolveActiveGenerationInjection
+    } = await import("../src/productionControl/activeRunGeneration.js");
+    const {
+      writeDurableGateBundle,
+      buildActiveGate1ProductionBinding,
+      buildActiveGateBundle
+    } = await import("../src/productionControl/activePipeline.js");
+    const {
+      writeDurableGateDecision,
+      writeDurableCoordinatorPrincipal
+    } = await import("../src/productionControl/durableGateEvidence.js");
+    const { main } = await import("../src/cli.js");
+    const { vi } = await import("vitest");
+
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po5-cli-exit-")));
+    try {
+      const r = route("cli");
+      const priced = knownPricing(r);
+      const compilationDigest = sha256Canonical({ cli: "compile" });
+      const bundle = buildActiveGateBundle({
+        production_id: "prod-cli",
+        run_id: "run-cli",
+        production_contract_digest: DIGEST_A,
+        contract_set_digest: DIGEST_B,
+        task_tree_digest: DIGEST_C,
+        selected_artifact_digests: [DIGEST_D],
+        generation_batches: [{
+          batch_id: "batch-cli",
+          route: r,
+          ordered_units: [{
+            ordinal: 0,
+            generation_unit_digest: DIGEST_E,
+            base_compilation_digest: compilationDigest,
+            route_digest: r.route_digest
+          }],
+          ...priced
+        }],
+        review_artifact_digest: sha256Canonical({ review: "cli" })
+      });
+      const gate1 = buildActiveGate1ProductionBinding({
+        production_id: "prod-cli",
+        run_id: "run-cli",
+        gate_bundle: bundle,
+        legacy_approved_input_digest: DIGEST_A,
+        decision: {
+          decision_id: "cli-d1",
+          decision: "approved",
+          actor: "human",
+          decided_at: "2026-08-12T00:00:00.000Z"
+        }
+      });
+
+      const runDir = join(root, "run-cli");
+      await mkdir(runDir, { recursive: true });
+      await writeDurableGateBundle(runDir, bundle);
+      await writeDurableGateDecision(runDir, {
+        gate: "gate_1",
+        decision: {
+          decision_id: "cli-d1",
+          decision: "approved",
+          actor: "human",
+          decided_at: "2026-08-12T00:00:00.000Z",
+          subject_digest: gate1.subject_digest
+        },
+        decision_source: "human",
+        legacy_approved_input_digest: DIGEST_A
+      });
+      await writeDurableCoordinatorPrincipal(runDir, {
+        gate_1_decision_digest: gate1.decision_digest
+      });
+
+      let runState = createPlannedState("run-cli");
+      runState = markGateAwaiting(runState, "gate_1");
+      runState = recordGateDecision(
+        runState,
+        "gate_1",
+        "approved",
+        undefined,
+        DIGEST_A,
+        "human",
+        undefined,
+        gate1.productionBinding
+      );
+
+      let adapterInvokes = 0;
+      let sawSubmissionInput = false;
+      let sawAssetPaths: string[] | undefined;
+      const fixtureOut = join(root, "fixture-out.mp4");
+      await writeFile(fixtureOut, Buffer.from("cli-fixture-out"));
+
+      const stubAdapter = createFixtureGenerationJobAdapter({
+        connection_id: "pixverse",
+        adapter_id: "local-fixture",
+        fixture_artifact_path: fixtureOut,
+        onSubmit: async (request, ctx) => {
+          adapterInvokes += 1;
+          sawAssetPaths = [...(request.asset_paths ?? [])];
+          expect(ctx.submission_input).toBeTruthy();
+          sawSubmissionInput = true;
+          expect(request.asset_paths).toEqual([]);
+        }
+      });
+
+      // Real adopted-like resolver: Exit path uses executeActiveGenerationForRun + T05.
+      // For CLI injection identity, install the same fixture the CLI/assemble resolver reads.
+      installActiveGenerationFixtureForTests({
+        adapter: stubAdapter,
+        project_id: "proj-cli",
+        revision_id: "rev-cli",
+        production_id: "prod-cli",
+        resolveExecutionBundle: async () => {
+          // Non-adopted structural object still fails T05; use hand-call of execute
+          // with the Exit E2E adopted bundle pattern below after CLI entry evidence.
+          throw new Error("resolver placeholder — replaced by executeActiveGenerationForRun path");
+        }
+      });
+
+      // 1) Actual bin/pipeline entry (same argv path as production).
+      const pipeline = spawnSync(
+        process.execPath,
+        ["bin/pipeline", "doctor", "--json"],
+        { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } }
+      );
+      expect(pipeline.status).toBe(0);
+      expect(pipeline.stdout).toContain("\"command\": \"doctor\"");
+
+      // 2) Actual CLI main entry (src/cli.ts, same as bin/pipeline).
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const doctorStatus = await main(["doctor", "--json"]);
+      expect(doctorStatus).toBe(0);
+      log.mockRestore();
+      err.mockRestore();
+
+      // 3) CLI/assemble resolve path (identical helper CLI run uses).
+      const injection = resolveActiveGenerationInjection({ connection_id: "pixverse" });
+      expect(injection.ok).toBe(true);
+      if (!injection.ok) return;
+      expect(injection.adapter.connection_id).toBe("pixverse");
+
+      // 4) GenerationJob + T05 lease + stub once (no legacy CLI adapter / network).
+      // Use a real adopted execution bundle from planning (same as primary Exit E2E).
+      const {
+        compileVideoPromptIrV2,
+        compilationRevisionId,
+        deriveExecutionCompilationBundleFromPlanningArtifact,
+        loadAdapterDialectCapability,
+        loadConnectionCapabilityProfile,
+        loadExecutionAuthoritativePinnedPromptBudgetEvidence,
+        loadModelPromptProfile,
+        loadPlanningArtifactRef,
+        routeFromProfiles
+      } = await import("../src/videoPromptDirector/index.js");
+      const { persistPlanningCompilationArtifact } = await import(
+        "../src/videoPromptDirector/compilationBundle.js"
+      );
+      const { ArtifactStore } = await import("../src/productionControl/artifactStore.js");
+      const [model, connection, adapterCap] = await Promise.all([
+        loadModelPromptProfile("v6"),
+        loadConnectionCapabilityProfile("pixverse"),
+        loadAdapterDialectCapability("pixverse", ["adapters"], {
+          model_profile_id: "v6",
+          provider_model: "v6",
+          mode: "text-to-video"
+        })
+      ]);
+      expect(model.ok && connection.ok && adapterCap.ok).toBe(true);
+      if (!model.ok || !connection.ok || !adapterCap.ok) return;
+      const routeResult = routeFromProfiles({
+        model: "v6",
+        mode: "text-to-video",
+        model_profile: model.profile,
+        connection_profile: connection.profile,
+        model_profile_digest: model.digest,
+        connection_profile_digest: connection.digest
+      });
+      expect(routeResult.ok).toBe(true);
+      if (!routeResult.ok) return;
+      const ir = {
+        version: 2 as const,
+        program_kind: "standalone" as const,
+        target: {
+          model_profile_id: "v6",
+          mode: "text-to-video" as const,
+          duration_ms: 10_000,
+          quality: "720p" as const,
+          aspect: "16:9" as const,
+          audio: false
+        },
+        creative: { must_include: [] as string[], prohibited: [] as string[] },
+        subjects: [] as never[],
+        scenes: [] as never[],
+        assets: [] as never[],
+        shots: [{
+          id: "shot-1",
+          start_ms: 0,
+          end_ms: 10_000,
+          cast: [] as string[],
+          composition: "wide shot",
+          action_beats: [{ description: "A lantern turns toward the camera." }],
+          vocal_events: [] as never[],
+          visible_text_events: [] as never[],
+          constraints: { positive: [] as string[], exact_text_refs: [] as string[] }
+        }],
+        audio: {
+          policy: "silent" as const,
+          reference_asset_ids: [] as string[],
+          final_mix: "discard-generated" as const
+        }
+      };
+      const compiled = compileVideoPromptIrV2(ir, {
+        request_id: "cli-exit-req",
+        route: routeResult.route,
+        model_profile: model.profile,
+        model_profile_digest: model.digest,
+        connection_profile: connection.profile,
+        connection_capability_digest: connection.digest,
+        adapter_dialect_capability: adapterCap.capability
+      });
+      expect(compiled.ok).toBe(true);
+      if (!compiled.ok) return;
+      const storeRoot = join(root, "production-control");
+      await mkdir(storeRoot);
+      const store = new ArtifactStore(await realpath(storeRoot));
+      const planningBundle = compiled.compilation.bundle;
+      const revision = compilationRevisionId(planningBundle);
+      const planning = await persistPlanningCompilationArtifact({
+        store,
+        bundle: planningBundle,
+        production_id: "prod-cli",
+        project_id: "proj-cli",
+        revision_id: revision
+      });
+      const reloaded = await loadPlanningArtifactRef({
+        store,
+        artifact_id: planning.artifact_id,
+        artifact_digest: planning.artifact_digest,
+        production_id: "prod-cli",
+        project_id: "proj-cli",
+        revision_id: revision,
+        request_id: planningBundle.request_id,
+        expected_store_root: storeRoot
+      });
+      const budgetPath = join(root, "budget-execution.json");
+      await writeFile(budgetPath, JSON.stringify({
+        schema_version: 1,
+        source_id: "po5-cli-budget",
+        hard: {
+          limit: 20_000,
+          unit: "utf8-bytes",
+          source: "official-api",
+          verified_at: "2026-08-11T00:00:00Z",
+          source_digest: "2".repeat(64)
+        },
+        soft: null,
+        unknown: false,
+        model_profile_digest: model.digest,
+        connection_profile_digest: connection.digest,
+        route_digest: routeResult.route.route_digest,
+        retrieved_at: "2026-08-11T00:00:00Z",
+        expires_at: "2099-12-31T00:00:00Z"
+      }));
+      const executionBudget = loadExecutionAuthoritativePinnedPromptBudgetEvidence({
+        artifactPath: budgetPath,
+        repoRoot: root,
+        route: routeResult.route,
+        model_profile_digest: model.digest,
+        connection_profile_digest: connection.digest
+      });
+      expect(executionBudget).toBeDefined();
+      if (!executionBudget) return;
+      const derived = await deriveExecutionCompilationBundleFromPlanningArtifact({
+        planning_artifact: reloaded,
+        store,
+        production_id: "prod-cli",
+        project_id: "proj-cli",
+        revision_id: revision,
+        project_root: root,
+        asset_pin_root: join(root, "pins"),
+        model_profile: model.profile,
+        connection_profile: connection.profile,
+        trusted_pinned_budget_evidence: executionBudget
+      });
+
+      // Rebuild GateBundle unit membership against adopted compilation digest.
+      const liveBundle = buildActiveGateBundle({
+        production_id: "prod-cli",
+        run_id: "run-cli",
+        production_contract_digest: DIGEST_A,
+        contract_set_digest: DIGEST_B,
+        task_tree_digest: DIGEST_C,
+        selected_artifact_digests: [DIGEST_D],
+        generation_batches: [{
+          batch_id: "batch-cli",
+          route: routeResult.route as never,
+          ordered_units: [{
+            ordinal: 0,
+            generation_unit_digest: DIGEST_E,
+            base_compilation_digest: derived.bundle.compilation_digest,
+            route_digest: routeResult.route.route_digest
+          }],
+          ...knownPricing(routeResult.route as never)
+        }],
+        review_artifact_digest: sha256Canonical({ review: "cli" })
+      });
+      const liveGate1 = buildActiveGate1ProductionBinding({
+        production_id: "prod-cli",
+        run_id: "run-cli",
+        gate_bundle: liveBundle,
+        legacy_approved_input_digest: DIGEST_A,
+        decision: {
+          decision_id: "cli-d1",
+          decision: "approved",
+          actor: "human",
+          decided_at: "2026-08-12T00:00:00.000Z"
+        }
+      });
+      await writeDurableGateBundle(runDir, liveBundle);
+      await writeDurableGateDecision(runDir, {
+        gate: "gate_1",
+        decision: {
+          decision_id: "cli-d1",
+          decision: "approved",
+          actor: "human",
+          decided_at: "2026-08-12T00:00:00.000Z",
+          subject_digest: liveGate1.subject_digest
+        },
+        decision_source: "human",
+        legacy_approved_input_digest: DIGEST_A
+      });
+      await writeDurableCoordinatorPrincipal(runDir, {
+        gate_1_decision_digest: liveGate1.decision_digest
+      });
+      runState = recordGateDecision(
+        markGateAwaiting(createPlannedState("run-cli"), "gate_1"),
+        "gate_1",
+        "approved",
+        undefined,
+        DIGEST_A,
+        "human",
+        undefined,
+        liveGate1.productionBinding
+      );
+
+      clearActiveGenerationFixtureForTests();
+      installActiveGenerationFixtureForTests({
+        adapter: stubAdapter,
+        project_id: "proj-cli",
+        revision_id: revision,
+        production_id: "prod-cli",
+        resolveExecutionBundle: async () => derived.bundle
+      });
+      const resolved = resolveActiveGenerationInjection({ connection_id: "pixverse" });
+      expect(resolved.ok).toBe(true);
+      if (!resolved.ok) return;
+
+      const activeResult = await executeActiveGenerationForRun({
+        runId: "run-cli",
+        runDir,
+        state: runState,
+        production_id: "prod-cli",
+        project_id: "proj-cli",
+        revision_id: revision,
+        pinnedRequests: [{
+          id: "req-cli",
+          model: "v6",
+          mode: "text-to-video",
+          prompt: "fixture cli only"
+        } as never],
+        adapter: resolved.adapter,
+        resolveExecutionBundle: resolved.resolveExecutionBundle,
+        gate_bundle: liveBundle,
+        productionControlRoot: join(runDir, "empty-pc")
+      });
+      if (!activeResult.ok) {
+        expect.fail(JSON.stringify(activeResult.issues, null, 2));
+      }
+      expect(adapterInvokes).toBe(1);
+      expect(sawSubmissionInput).toBe(true);
+      expect(sawAssetPaths).toEqual([]);
+      expect(activeResult.requests[0]?.metadata?.submission_via).toBe("t05-lease");
+      expect(networkHits).toEqual([]);
+
+      // M4: corrupt non-empty control root fails closed at invocation 0 delta.
+      const corruptRoot = join(runDir, "corrupt-pc");
+      await mkdir(corruptRoot, { recursive: true });
+      await writeFile(join(corruptRoot, "events.jsonl"), "{not-json\n");
+      expect(await inspectProductionControlRoot(corruptRoot)).toBe("nonempty");
+      const beforeCorrupt = adapterInvokes;
+      const corruptRun = await executeActiveGenerationForRun({
+        runId: "run-cli",
+        runDir,
+        state: runState,
+        production_id: "prod-cli",
+        project_id: "proj-cli",
+        revision_id: revision,
+        pinnedRequests: [{
+          id: "req-cli-2",
+          model: "v6",
+          mode: "text-to-video",
+          prompt: "x"
+        } as never],
+        adapter: stubAdapter,
+        resolveExecutionBundle: async () => derived.bundle,
+        gate_bundle: liveBundle,
+        productionControlRoot: corruptRoot
+      });
+      expect(corruptRun.ok).toBe(false);
+      expect(corruptRun.issues[0]?.code).toBe("run.active_production_control_resume_failed");
+      expect(adapterInvokes).toBe(beforeCorrupt);
+
+      const emptyRoot = join(runDir, "empty-pc");
+      await mkdir(emptyRoot, { recursive: true });
+      expect(await inspectProductionControlRoot(emptyRoot)).toBe("empty");
+    } finally {
+      clearActiveGenerationFixtureForTests();
+      globalThis.fetch = originalFetch;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("active residual: fixture adapter rejects reopenable asset_paths; submission_input is authority", async () => {
+    const {
+      createFixtureGenerationJobAdapter
+    } = await import("../src/productionControl/activeRunGeneration.js");
+    const { computeRequestDigest } = await import("../src/generationJobs/approval.js");
+    let sawPaths: string[] | undefined;
+    const adapter = createFixtureGenerationJobAdapter({
+      connection_id: "pixverse",
+      onSubmit: async (request) => {
+        sawPaths = [...(request.asset_paths ?? [])];
+      }
+    });
+    const withPaths = {
+      model_id: "v6",
+      mode: "text-to-video",
+      connection_id: "pixverse",
+      auth_env_names: [] as string[],
+      asset_paths: ["media/secret-ref.png"],
+      params: { prompt: "x" }
+    };
+    const rejected = await adapter.submit(
+      { ...withPaths, digest: computeRequestDigest(withPaths) },
+      { job: { request: withPaths } as never }
+    );
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) {
+      expect(rejected.code).toBe("fixture.asset_paths_forbidden");
+    }
+    expect(sawPaths).toBeUndefined();
+
+    const clean = {
+      ...withPaths,
+      asset_paths: [] as string[]
+    };
+    const accepted = await adapter.submit(
+      { ...clean, digest: computeRequestDigest(clean) },
+      { job: { request: clean } as never, submission_input: { same_fd: true } }
+    );
+    expect(accepted.ok).toBe(true);
+    expect(sawPaths).toEqual([]);
   });
 });

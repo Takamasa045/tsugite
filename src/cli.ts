@@ -1196,13 +1196,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         try {
           const productionId = compileProductionContract({ project: validation.project! }).production_id;
           const runDir = join(stateResult.stateDir, stateResult.state.run_id);
-          await assertLiveActiveSubjectsBeforePhase({
+          const phaseCheck = await assertLiveActiveSubjectsBeforePhase({
             mode: "active",
             phase: "finalize",
             runDir,
             state: stateResult.state,
             production_id: productionId
           });
+          if (!phaseCheck.ok) {
+            await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+            return output(args, 1, {
+              ok: false,
+              command: "finalize",
+              issues: [{
+                code: "gate.production_subject_stale",
+                message: phaseCheck.error.message
+              }],
+              cascade: {
+                stale_gate_1: phaseCheck.cascade.stale_gate_1,
+                stale_gate_2: phaseCheck.cascade.stale_gate_2,
+                stale_gate_3: phaseCheck.cascade.stale_gate_3,
+                kinds: phaseCheck.cascadeKinds
+              }
+            });
+          }
         } catch (error) {
           return output(args, 1, {
             ok: false,
@@ -1630,16 +1647,35 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }]
         });
       }
+      const productionId = compileProductionContract({ project: validation.project! }).production_id;
+      const runDir = join(stateResult.stateDir, stateResult.state.run_id);
       try {
-        const productionId = compileProductionContract({ project: validation.project! }).production_id;
-        const runDir = join(stateResult.stateDir, stateResult.state.run_id);
-        await assertLiveActiveSubjectsBeforePhase({
+        const phaseCheck = await assertLiveActiveSubjectsBeforePhase({
           mode: "active",
           phase: "run",
           runDir,
           state: stateResult.state,
           production_id: productionId
         });
+        if (!phaseCheck.ok) {
+          // Persist cascade under the serial state boundary before throwing the phase error.
+          await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+          stateResult.state = phaseCheck.cascadedState;
+          return output(args, 1, {
+            ok: false,
+            command: "run",
+            issues: [{
+              code: "gate.production_subject_stale",
+              message: phaseCheck.error.message
+            }],
+            cascade: {
+              stale_gate_1: phaseCheck.cascade.stale_gate_1,
+              stale_gate_2: phaseCheck.cascade.stale_gate_2,
+              stale_gate_3: phaseCheck.cascade.stale_gate_3,
+              kinds: phaseCheck.cascadeKinds
+            }
+          });
+        }
       } catch (error) {
         return output(args, 1, {
           ok: false,
@@ -1801,13 +1837,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       try {
         const productionId = compileProductionContract({ project: validation.project! }).production_id;
         const runDir = join(stateResult.stateDir, stateResult.state.run_id);
-        await assertLiveActiveSubjectsBeforePhase({
+        const phaseCheck = await assertLiveActiveSubjectsBeforePhase({
           mode: "active",
           phase: "render",
           runDir,
           state: stateResult.state,
           production_id: productionId
         });
+        if (!phaseCheck.ok) {
+          await writeState(stateResult.stateDir, phaseCheck.cascadedState);
+          return output(args, 1, {
+            ok: false,
+            command: "render",
+            issues: [{
+              code: "gate.production_subject_stale",
+              message: phaseCheck.error.message
+            }],
+            cascade: {
+              stale_gate_1: phaseCheck.cascade.stale_gate_1,
+              stale_gate_2: phaseCheck.cascade.stale_gate_2,
+              stale_gate_3: phaseCheck.cascade.stale_gate_3,
+              kinds: phaseCheck.cascadeKinds
+            }
+          });
+        }
       } catch (error) {
         return output(args, 1, {
           ok: false,

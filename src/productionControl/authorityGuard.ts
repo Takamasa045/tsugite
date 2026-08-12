@@ -22,7 +22,11 @@ import {
   humanDecisionRefSchema,
   type HumanDecisionRef
 } from "./schema.js";
-import { gateDecisionDigest } from "./gateSubjects.js";
+import {
+  bindGateDecision,
+  createGate1Subject,
+  gateDecisionDigest
+} from "./gateSubjects.js";
 
 /** Live sealed Gate 1 binding; booleans are not authority. */
 export type SealedGate1Binding = {
@@ -82,35 +86,80 @@ export function isSealedHumanDecision(value: unknown): value is SealedHumanDecis
 }
 
 /**
- * Mint Gate 1 sealed authority from a live durable GateBundle + exact subject/decision.
- * Caller-constructed plain objects never pass isSealedGate1Binding.
+ * Mint Gate 1 sealed authority from durable GateBundle + exact decision body.
+ * Recomputes subject/decision digests; forged 64-hex pairs are rejected even when
+ * subject_digest === live_subject_digest. Caller-constructed plain objects never
+ * pass isSealedGate1Binding.
  */
 export function mintSealedGate1Binding(input: {
   gate_bundle: GateBundle;
-  subject_digest: string;
-  decision_digest: string;
-  /** Live RunState production digests (must match exactly). */
+  production_id: string;
+  run_id: string;
+  legacy_approved_input_digest: string;
+  /** Exact durable HumanDecisionRef body (not digest-only). */
+  decision: {
+    decision_id: string;
+    decision: string;
+    actor: string;
+    decided_at: string;
+    reason?: string;
+  };
+  /** Live RunState production digests (must match recomputed). */
   live_subject_digest: string;
   live_decision_digest: string;
 }): SealedGate1Binding {
   const bundle = parseGateBundle(input.gate_bundle);
-  if (input.subject_digest.length !== 64 || input.decision_digest.length !== 64) {
-    throw pcError("PC_AUTHORITY_DENIED", "Gate 1 sealed binding requires exact 64-char digests");
-  }
-  if (
-    input.subject_digest !== input.live_subject_digest
-    || input.decision_digest !== input.live_decision_digest
-  ) {
-    throw pcError("PC_AUTHORITY_DENIED", "Gate 1 sealed binding does not match live RunState subjects");
-  }
   if (gateBundleHasUnknownPrice(bundle)) {
     throw pcError("PC_AUTHORITY_DENIED", "unknown price cannot be sealed for execution");
   }
   assertGateBundleExecutable(bundle);
+
+  // Recompute Gate1 subject from durable GateBundle + legacy approval evidence.
+  const subject = createGate1Subject({
+    production_id: input.production_id,
+    run_id: input.run_id,
+    gate_bundle: bundle,
+    legacy_approved_input_digest: input.legacy_approved_input_digest
+  });
+  if (subject.digest !== input.live_subject_digest) {
+    throw pcError(
+      "PC_AUTHORITY_DENIED",
+      "Gate 1 sealed binding subject does not match recomputed durable GateBundle subject"
+    );
+  }
+
+  // Decision body must recompute to the live decision digest and bind the subject.
+  const binding = bindGateDecision({
+    gate: "gate_1",
+    subject_digest: subject.digest,
+    decision: {
+      decision_id: input.decision.decision_id,
+      decision: input.decision.decision,
+      actor: input.decision.actor,
+      decided_at: input.decision.decided_at,
+      ...(input.decision.reason ? { reason: input.decision.reason } : {})
+    },
+    legacy_approved_input_digest: input.legacy_approved_input_digest,
+    decision_source: "human"
+  });
+  const decisionDigest = gateDecisionDigest(binding.decision);
+  if (decisionDigest !== input.live_decision_digest) {
+    throw pcError(
+      "PC_AUTHORITY_DENIED",
+      "Gate 1 sealed binding decision does not match recomputed durable HumanDecisionRef"
+    );
+  }
+  if (binding.decision.actor.length === 0 || binding.decision.decision !== "approved") {
+    throw pcError(
+      "PC_AUTHORITY_DENIED",
+      "Gate 1 sealed binding requires an approved durable decision actor"
+    );
+  }
+
   const sealed = Object.freeze({
     kind: "pc-sealed-gate-1" as const,
-    subject_digest: input.subject_digest,
-    decision_digest: input.decision_digest,
+    subject_digest: subject.digest,
+    decision_digest: decisionDigest,
     gate_bundle_digest: bundle.digest,
     stale: false as const
   });

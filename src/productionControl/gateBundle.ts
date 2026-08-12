@@ -16,21 +16,47 @@ export const gatePricingSchema = z.object({
   version: z.string().min(1).max(128).nullable(),
   currency: z.string().regex(/^[A-Z]{3}$/).nullable(),
   amount: finiteNumber.nonnegative().nullable(),
-  max_amount: finiteNumber.nonnegative().nullable()
+  max_amount: finiteNumber.nonnegative().nullable(),
+  /**
+   * Explicit zero-cost policy id. Required when known amount=0 and max_amount=0.
+   * Bound into pricing_binding_digest so silent 0/0 cannot forge membership.
+   */
+  zero_cost_policy_id: z.string().min(1).max(128).optional()
 }).strict().superRefine((pricing, context) => {
   if (pricing.status === "known") {
     if (pricing.version === null || pricing.currency === null || pricing.amount === null || pricing.max_amount === null) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "known pricing requires version, currency, amount, and max_amount" });
+    }
+    if (pricing.amount === 0 && pricing.max_amount === 0 && !pricing.zero_cost_policy_id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["zero_cost_policy_id"],
+        message: "known amount=0 and max_amount=0 requires zero_cost_policy_id"
+      });
     }
   }
   if (pricing.status === "unknown") {
     if (pricing.amount !== null || pricing.max_amount !== null) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "unknown pricing must not claim amount or max_amount" });
     }
+    if (pricing.zero_cost_policy_id !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["zero_cost_policy_id"],
+        message: "unknown pricing must not claim zero_cost_policy_id"
+      });
+    }
   }
   if (pricing.status === "not-applicable") {
     if (pricing.version !== null || pricing.currency !== null || pricing.amount !== null || pricing.max_amount !== null) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "not-applicable pricing must null all money fields" });
+    }
+    if (pricing.zero_cost_policy_id !== undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["zero_cost_policy_id"],
+        message: "not-applicable pricing must not claim zero_cost_policy_id"
+      });
     }
   }
 });
@@ -150,6 +176,7 @@ export function pricingBindingDigest(pricing: GatePricing, route: RouteIdentity)
     currency: pricing.currency,
     amount: pricing.amount,
     max_amount: pricing.max_amount,
+    ...(pricing.zero_cost_policy_id ? { zero_cost_policy_id: pricing.zero_cost_policy_id } : {}),
     route_digest: route.route_digest
   });
 }
@@ -165,6 +192,18 @@ export function createGateBundle(input: GateBundleInput): GateBundle {
       throw pcError("PC_GATE_BUNDLE_INVALID", "known pricing amount must be <= max_amount", {
         batch_id: batch.batch_id
       });
+    }
+    if (
+      pricing.status === "known"
+      && pricing.amount === 0
+      && pricing.max_amount === 0
+      && !pricing.zero_cost_policy_id
+    ) {
+      throw pcError(
+        "PC_GATE_BUNDLE_INVALID",
+        "known amount=0 and max_amount=0 requires zero_cost_policy_id",
+        { batch_id: batch.batch_id }
+      );
     }
     const pricingDigest = batch.pricing_binding_digest ?? pricingBindingDigest(pricing, route);
     // Bind every ordered unit to this batch route digest (reject mixed routes in createGateBundle itself).

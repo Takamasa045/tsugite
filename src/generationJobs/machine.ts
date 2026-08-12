@@ -113,18 +113,12 @@ export type MachineOptions = {
     job: GenerationJobRecord
   ) => GateBundle | Promise<GateBundle>;
   /**
-   * Active mode only (required): live Gate1 subject+decision digests from durable evidence.
-   * Missing resolver fails closed at active submit — never optional for active.
+   * Active mode only (required): live Gate1 evidence recomputed from durable GateBundle
+   * + HumanDecisionRef body (not a free-form 64-hex pair). Missing resolver fails closed.
    */
   resolveLiveGate1?: (
     job: GenerationJobRecord
-  ) => {
-    subject_digest: string;
-    decision_digest: string;
-  } | Promise<{
-    subject_digest: string;
-    decision_digest: string;
-  }>;
+  ) => LiveGate1Evidence | Promise<LiveGate1Evidence>;
   /**
    * Active mode only (required): verified durable coordinator principal evidence.
    * Literal "coordinator" strings are not authority.
@@ -173,6 +167,22 @@ export type PlanJobInput = {
   mode_ok?: boolean;
   adapter_present: boolean;
   catalog_present_without_adapter?: boolean;
+};
+
+/** Live Gate1 evidence for sealed authority mint (recomputed, not forged digests). */
+export type LiveGate1Evidence = {
+  subject_digest: string;
+  decision_digest: string;
+  production_id: string;
+  run_id: string;
+  legacy_approved_input_digest: string;
+  decision: {
+    decision_id: string;
+    decision: string;
+    actor: string;
+    decided_at: string;
+    reason?: string;
+  };
 };
 
 function safeErrorMessage(message: string): string {
@@ -560,10 +570,16 @@ export class GenerationJobMachine {
         !liveGate1
         || liveGate1.subject_digest.length !== 64
         || liveGate1.decision_digest.length !== 64
+        || !liveGate1.production_id
+        || !liveGate1.run_id
+        || !liveGate1.legacy_approved_input_digest
+        || !liveGate1.decision?.decision_id
+        || !liveGate1.decision?.actor
+        || !liveGate1.decision?.decided_at
       ) {
         throw new GenerationJobError(
           GJ_SUBMIT_NOT_ALLOWED,
-          "active submit requires live Gate 1 subject and decision digests"
+          "active submit requires recomputed live Gate 1 evidence (subject, decision body, legacy digest)"
         );
       }
       const durablePrincipal = await this.resolveCoordinatorPrincipal(submitting);
@@ -578,10 +594,20 @@ export class GenerationJobMachine {
         durable_principal: durablePrincipal,
         live_gate_1_decision_digest: liveGate1.decision_digest
       });
+      // Mint re-verifies subject/decision from durable GateBundle + decision body.
+      // Free-form matching 64-hex pairs are rejected inside mintSealedGate1Binding.
       const sealedGate1 = mintSealedGate1Binding({
         gate_bundle: gateBundle,
-        subject_digest: liveGate1.subject_digest,
-        decision_digest: liveGate1.decision_digest,
+        production_id: liveGate1.production_id,
+        run_id: liveGate1.run_id,
+        legacy_approved_input_digest: liveGate1.legacy_approved_input_digest,
+        decision: {
+          decision_id: liveGate1.decision.decision_id,
+          decision: liveGate1.decision.decision,
+          actor: liveGate1.decision.actor,
+          decided_at: liveGate1.decision.decided_at,
+          ...(liveGate1.decision.reason ? { reason: liveGate1.decision.reason } : {})
+        },
         live_subject_digest: liveGate1.subject_digest,
         live_decision_digest: liveGate1.decision_digest
       });
@@ -630,9 +656,13 @@ export class GenerationJobMachine {
                 "active submit requires same-FD ExecutionSubmissionInput"
               );
             }
-            // Forbid path reopen: adapter receives request without re-opening asset paths;
-            // any asset bytes must come from readExecutionSubmissionAsset(input, id).
-            const result = await this.adapter.submit(submitting.request, {
+            // Forbid path reopen: active adapter receives request without project asset paths.
+            // submission_input / same-FD bytes are the only authoritative asset source.
+            const activeRequest = {
+              ...submitting.request,
+              asset_paths: [] as string[]
+            };
+            const result = await this.adapter.submit(activeRequest, {
               ...this.ctx(submitting),
               submission_input: input
             });

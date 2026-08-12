@@ -112,7 +112,10 @@ export function resolveAuthoritativeGatePricing(input: {
         version: parsed.data.version,
         currency: parsed.data.currency,
         amount: parsed.data.amount,
-        max_amount: parsed.data.max_amount
+        max_amount: parsed.data.max_amount,
+        ...(parsed.data.zero_cost_policy_id
+          ? { zero_cost_policy_id: parsed.data.zero_cost_policy_id }
+          : {})
       };
     }
   }
