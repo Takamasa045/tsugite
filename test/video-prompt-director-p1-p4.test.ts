@@ -1430,10 +1430,19 @@ describe("L4 video_prompt-only validate → plan → dry-run E2E", () => {
       validation.adapter
     );
     expect(result.ok).toBe(false);
+    const codes = result.issues.map((item) => item.code);
+    // PO-4 public contract: planning-only video_prompt never authorizes billing.
     expect(
-      result.issues.map((item) => item.code),
+      codes,
       `expected ${VPD_RUNTIME_NOT_READY_CODE}, got ${JSON.stringify(result.issues)}`
     ).toContain(VPD_RUNTIME_NOT_READY_CODE);
+    // PO-5 active stop: missing GenerationJob adapter fails closed (no legacy CLI fallback).
+    // Active success path still skips blanket VPD intent=execute so real T05 jobs can run.
+    expect(
+      codes,
+      `expected run.active_generation_adapter_required alongside ${VPD_RUNTIME_NOT_READY_CODE}, got ${JSON.stringify(result.issues)}`
+    ).toContain("run.active_generation_adapter_required");
+    expect(codes[0]).toBe(VPD_RUNTIME_NOT_READY_CODE);
   });
 
   it("accepts reference video_prompt IR assets without legacy media fields at projectSchema", () => {

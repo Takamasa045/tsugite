@@ -63,6 +63,7 @@ import { loadProjectPromptGuides } from "../adapters/promptKnowledge.js";
 import { loadH3ExecutionRouteProfile } from "../adapters/constraints.js";
 import { compileProjectVideoPrompts, type GenerationUnitSourceResolver } from "../videoPromptDirector/videoPromptCompile.js";
 import { createProjectGenerationUnitSourceResolver } from "../videoPromptDirector/generationUnitSourceResolver.js";
+import { VPD_RUNTIME_NOT_READY_CODE } from "../videoPromptDirector/executionReadiness.js";
 
 export type LocalRunH3Artifacts = {
   request_id: string;
@@ -884,13 +885,17 @@ async function assembleGeneratedMediaRun(
 
   // video_prompt authoring is planning/dry-run only in P0–P4. Re-evaluate with
   // intent=execute so planning-only compilations never reach billing adapters.
-  // Active mode skips this gate: durable GenerationJob + T05 owns paid execute
-  // (VPD intent=execute is always VPD-E022 and would block the active path).
-  const hasVideoPrompt = project.generation!.requests.some(
+  // Active mode skips this *blanket* gate: durable GenerationJob + T05 owns paid
+  // execute (VPD intent=execute is always VPD-E022 and would block the active path).
+  // When active injection later fails closed, planning video authoring still
+  // surfaces VPD-E022 first (PO-4 public contract) alongside the active structural stop.
+  const hasPlanningVideoAuthoring = project.generation!.requests.some(
     (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
       || request.h3 !== undefined
-      || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
   );
+  const hasVideoPrompt = hasPlanningVideoAuthoring
+    || (project.orchestration?.mode === "active"
+      && project.generation!.requests.some((request) => generationRequestOutputKind(request) === "video"));
   if (hasVideoPrompt && project.orchestration?.mode !== "active") {
     const generationUnitSourceResolver = options.generationUnitSourceResolver
       ?? (options.configPath ? createProjectGenerationUnitSourceResolver(options.configPath) : undefined);
@@ -1030,6 +1035,23 @@ async function assembleGeneratedMediaRun(
       ...(connectionId ? { connection_id: connectionId } : {})
     });
     if (!resolved.ok) {
+      // PO-5: keep the structural active stop (no legacy CLI adapter fallback).
+      // PO-4: planning-only video_prompt/h3 still surfaces VPD-E022 first so the
+      // established "no billing submit" public code is not replaced by the new stop.
+      if (hasPlanningVideoAuthoring) {
+        return {
+          ok: false,
+          issues: [
+            {
+              code: VPD_RUNTIME_NOT_READY_CODE,
+              message:
+                "intent=execute is not authorized for planning-only video_prompt on the run path "
+                + "(paid submit requires active GenerationJob + T05; no legacy CLI billing fallback)"
+            },
+            ...resolved.issues
+          ]
+        };
+      }
       return {
         ok: false,
         issues: resolved.issues
