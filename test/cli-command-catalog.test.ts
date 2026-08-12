@@ -78,7 +78,20 @@ const expectedOptions = {
     "--person-qa-reason",
     "--state-dir"
   ],
-  render: ["--config", "--actor", "--state-dir"]
+  render: ["--config", "--actor", "--state-dir"],
+  recover: [
+    "--config",
+    "--actor",
+    "--node",
+    "--error-code",
+    "--recovery",
+    "--dry-run",
+    "--apply",
+    "--confirm-paid",
+    "--path",
+    "--state-dir",
+    "--run-id"
+  ]
 } as const;
 
 const configCommands = new Set([
@@ -97,7 +110,8 @@ const configCommands = new Set([
   "review-preview",
   "run",
   "gate",
-  "render"
+  "render",
+  "recover"
 ]);
 
 describe("CLI command catalog", () => {

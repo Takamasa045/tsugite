@@ -222,6 +222,15 @@ export function reduceProductionEvent(state: MissionState, rawEvent: ProductionE
       break;
     }
 
+    case "revision-intent-selected": {
+      // Single active intent observation; payload is audit evidence only.
+      requireMission(current);
+      if (!current.nodes[event.payload.target_node_id]) {
+        throw transition("revision intent targets an unknown node");
+      }
+      break;
+    }
+
     case "nodes-invalidated": {
       requireMission(current);
       const stale = new Set(event.payload.stale_node_ids);

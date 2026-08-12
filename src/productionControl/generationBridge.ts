@@ -368,6 +368,10 @@ export function assertBindingMatchesGateBundle(
 /**
  * Route, pricing binding, and base compilation must appear in an approved batch unit.
  * Membership is exact (digest equality), not presence-only.
+ *
+ * Derived regeneration compilations are NOT members of GateBundle base units.
+ * They require regeneration_attempt_authorization_digest and a base compilation
+ * that is a GateBundle member (verified via assertDerivedCompilationBinding).
  */
 export function assertBindingMembershipInGateBundle(
   binding: GenerationJobApprovalBinding,
@@ -389,12 +393,83 @@ export function assertBindingMembershipInGateBundle(
       && unit.route_digest === binding.route.route_digest
     )
   );
-  if (!unitMatch) {
+  if (unitMatch) {
+    // Base compilation path (PO-5 normal). Derived auth must not be claimed.
+    if (binding.regeneration_attempt_authorization_digest) {
+      throw pcError(
+        "PC_GENERATION_BINDING_INVALID",
+        "base compilation binding must not claim regeneration_attempt_authorization_digest"
+      );
+    }
+    return;
+  }
+  // Not a base unit — require derived regeneration authorization.
+  if (!binding.regeneration_attempt_authorization_digest) {
     throw pcError(
       "PC_GENERATION_BINDING_INVALID",
       "approval binding compilation is not a member of the approved GateBundle units"
     );
   }
+  // Derived path: at least one unit on the matching route/pricing exists as base scope.
+  // Exact base digest is enforced by assertDerivedCompilationBinding with the auth.
+  if (matchingBatches.every((batch) => batch.ordered_units.length === 0)) {
+    throw pcError(
+      "PC_GENERATION_BINDING_INVALID",
+      "derived compilation has no base unit scope on the approved GateBundle"
+    );
+  }
+}
+
+/**
+ * Derived compilation bindings require regeneration authorization digest equal to
+ * the sealed AttemptAuthorization, and the authorization's base must be a GateBundle member.
+ */
+export function assertDerivedCompilationBinding(input: {
+  binding: GenerationJobApprovalBinding;
+  bundle: GateBundle;
+  authorization_digest: string;
+  base_compilation_digest: string;
+  derived_compilation_digest: string;
+}): void {
+  const { binding, bundle } = input;
+  if (!binding.regeneration_attempt_authorization_digest) {
+    throw pcError(
+      "PC_AUTHORIZATION_INVALID",
+      "derived compilation requires regeneration_attempt_authorization_digest"
+    );
+  }
+  if (binding.regeneration_attempt_authorization_digest !== input.authorization_digest) {
+    throw pcError(
+      "PC_AUTHORIZATION_INVALID",
+      "binding regeneration authorization digest mismatch"
+    );
+  }
+  if (binding.compilation_digest !== input.derived_compilation_digest) {
+    throw pcError(
+      "PC_AUTHORIZATION_INVALID",
+      "binding compilation is not the authorized derived compilation"
+    );
+  }
+  if (input.derived_compilation_digest === input.base_compilation_digest) {
+    throw pcError(
+      "PC_AUTHORIZATION_INVALID",
+      "derived compilation must differ from base compilation"
+    );
+  }
+  const baseMember = bundle.generation_batches.some((batch) =>
+    batch.route.route_digest === binding.route.route_digest
+    && batch.pricing_binding_digest === binding.pricing_binding_digest
+    && batch.ordered_units.some(
+      (unit) => unit.base_compilation_digest === input.base_compilation_digest
+    )
+  );
+  if (!baseMember) {
+    throw pcError(
+      "PC_AUTHORIZATION_INVALID",
+      "authorization base compilation is not a member of the approved GateBundle"
+    );
+  }
+  assertBindingMatchesGateBundle(binding, bundle);
 }
 
 export function parseGenerationJobApprovalBinding(input: unknown): GenerationJobApprovalBinding {

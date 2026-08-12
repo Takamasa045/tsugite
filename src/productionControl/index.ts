@@ -33,3 +33,49 @@ export * from "./activePipeline.js";
 export * from "./pricingEvidence.js";
 export * from "./durableGateEvidence.js";
 export * from "./activeRunGeneration.js";
+export * from "./recoveryContracts.js";
+export * from "./revisionIntent.js";
+export * from "./grantLedger.js";
+export * from "./grantStore.js";
+// LocalRecoveryPermit mint is intentionally not a public package export.
+// Only the local recovery executor (activeRecovery) and authority path mint/consume.
+export {
+  type SealedPaidAuthorization,
+  type SealedLocalRecoveryPermit,
+  isSealedPaidAuthorization,
+  isSealedLocalRecoveryPermit,
+  type RecoveryStopReason,
+  type RecoveryDecision,
+  createPolicySpec,
+  issueRegenerationGrant,
+  issueAndPersistRegenerationGrant,
+  type AuthorizePaidRegenerationInput,
+  authorizePaidRegeneration,
+  burnSealedPaidAuthorization,
+  rehydrateSealedPaidAuthorization,
+  selectRecoveryAction,
+  safeStopAwaitingHuman,
+  computeRegenerationAttemptKey,
+  assertPaidAuthorizationMatchesBinding,
+  assertRouteUnchanged,
+  assertPolicyExemptSealedAuthorization,
+  gateDriftKindsForSealedRevisionIntent
+} from "./recovery.js";
+// runActivePaidRegeneration is internal — public paid entry is executeCoordinatorPaidRecovery
+// (requires confirm_paid=true). Silent programmatic spend via the package surface is forbidden.
+export {
+  type ActivePaidRegenerationInput,
+  type ActivePaidRegenerationResult,
+  type ActiveLocalRecoveryInput,
+  type ActiveLocalRecoveryResult,
+  type CoordinatorRecoveryPlan,
+  resumePaidRegenerationContext,
+  runActiveLocalRecovery,
+  planCoordinatorRecovery,
+  executeCoordinatorPaidRecovery
+} from "./activeRecovery.js";
+export {
+  assertContainedUnderProjectRoot,
+  isWithinPath,
+  type ContainedPathResult
+} from "./recoveryPathSafety.js";

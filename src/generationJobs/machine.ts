@@ -48,6 +48,10 @@ import { ProductionDispatcher } from "../productionControl/dispatcher.js";
 import { requireActiveModeForEffect } from "../productionControl/activePipeline.js";
 import type { ProductionControlMode } from "../productionControl/schema.js";
 import type { GateBundle } from "../productionControl/gateBundle.js";
+import {
+  isSealedPaidAuthorization,
+  type SealedPaidAuthorization
+} from "../productionControl/recovery.js";
 import type {
   ExecutionSubmissionBinding,
   ExecutionSubmissionInput
@@ -139,6 +143,14 @@ export type MachineOptions = {
    * dispatcher is created; active submit always routes through a dispatcher.
    */
   dispatcher?: ProductionDispatcher;
+  /**
+   * Active paid regeneration only: resolve a genuine sealed paid authorization
+   * when production_binding includes regeneration_attempt_authorization_digest.
+   * Required for paid effect; missing/forged seal fails closed.
+   */
+  resolvePaidAuthorization?: (
+    job: GenerationJobRecord
+  ) => SealedPaidAuthorization | Promise<SealedPaidAuthorization | undefined> | undefined;
 };
 
 function positiveBound(value: number | undefined, fallback: number, label: string): number {
@@ -205,6 +217,7 @@ export class GenerationJobMachine {
   private readonly resolveCoordinatorPrincipal?: MachineOptions["resolveCoordinatorPrincipal"];
   private readonly activeSubmitHooks?: ExecutionSubmitHooks;
   private readonly dispatcher: ProductionDispatcher;
+  private readonly resolvePaidAuthorization?: MachineOptions["resolvePaidAuthorization"];
   /** Tracks whether the active path invoked adapter.submit via T05 only. */
   private activeSubmitUsedT05 = false;
 
@@ -232,6 +245,7 @@ export class GenerationJobMachine {
     this.resolveCoordinatorPrincipal = options.resolveCoordinatorPrincipal;
     this.activeSubmitHooks = options.activeSubmitHooks;
     this.dispatcher = options.dispatcher ?? new ProductionDispatcher();
+    this.resolvePaidAuthorization = options.resolvePaidAuthorization;
   }
 
   /** True after an active-mode submit that consumed a T05 lease. */
@@ -611,20 +625,50 @@ export class GenerationJobMachine {
         live_subject_digest: liveGate1.subject_digest,
         live_decision_digest: liveGate1.decision_digest
       });
+      // Paid regeneration: binding carries regeneration_attempt_authorization_digest
+      // and requires a genuine sealed paid authorization (effect=paid). Base PO-5
+      // first submit remains external-submit without that digest.
+      const regenAuthDigest = productionBinding.regeneration_attempt_authorization_digest;
+      let sealedPaid: SealedPaidAuthorization | undefined;
+      if (regenAuthDigest) {
+        const resolved = this.resolvePaidAuthorization
+          ? await this.resolvePaidAuthorization(submitting)
+          : undefined;
+        if (!resolved || !isSealedPaidAuthorization(resolved)) {
+          throw new GenerationJobError(
+            GJ_SUBMIT_NOT_ALLOWED,
+            "paid regeneration requires genuine sealed paid authorization"
+          );
+        }
+        if (resolved.authorization_digest !== regenAuthDigest) {
+          throw new GenerationJobError(
+            GJ_SUBMIT_NOT_ALLOWED,
+            "sealed paid authorization digest does not match production binding"
+          );
+        }
+        if (resolved.derived_compilation_digest !== productionBinding.compilation_digest) {
+          throw new GenerationJobError(
+            GJ_SUBMIT_NOT_ALLOWED,
+            "sealed paid authorization derived compilation does not match binding"
+          );
+        }
+        sealedPaid = resolved;
+      }
       slot = this.dispatcher.acquire({
         node_id: productionBinding.node_id,
         attempt_id: productionBinding.attempt_id,
         task_revision: productionBinding.approval_observed_revision,
         input_digest: productionBinding.immutable_identity_digest,
         role: "generator",
-        effect: "external-submit",
+        effect: sealedPaid ? "paid" : "external-submit",
         authority: {
           mode: "active",
           actor: "coordinator",
           coordinator_authority: coordinator,
           gate_bundle: gateBundle,
           gate_1: sealedGate1,
-          expected_pricing_binding_digest: productionBinding.pricing_binding_digest
+          expected_pricing_binding_digest: productionBinding.pricing_binding_digest,
+          ...(sealedPaid ? { sealed_paid_authorization: sealedPaid } : {})
         }
       });
     } catch (error) {
