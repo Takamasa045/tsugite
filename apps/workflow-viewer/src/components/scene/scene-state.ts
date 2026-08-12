@@ -43,3 +43,26 @@ export function reasonForSceneError(phase: SceneFailurePhase): SceneReasonCode {
 export function isSceneReasonCode(value: unknown): value is SceneReasonCode {
   return typeof value === 'string' && (SCENE_REASON_CODES as readonly string[]).includes(value)
 }
+
+/**
+ * Ignore stale webglcontextlost from disposed canvases (StrictMode remount,
+ * retry, or R3F teardown). Only the active connected canvas may degrade UI.
+ */
+export function shouldSurfaceContextLost(input: {
+  canvasConnected: boolean
+  eventGeneration: number
+  activeGeneration: number
+  phase: SceneFailurePhase | 'degraded'
+}): boolean {
+  if (!input.canvasConnected) return false
+  if (input.eventGeneration !== input.activeGeneration) return false
+  if (input.phase === 'degraded') return false
+  return true
+}
+
+/** Probe-only WebGL contexts must not retain GPU slots. */
+export function releaseWebglContext(gl: { getExtension: (name: string) => unknown } | null | undefined): void {
+  if (!gl) return
+  const extension = gl.getExtension('WEBGL_lose_context') as { loseContext?: () => void } | null
+  extension?.loseContext?.()
+}
