@@ -1496,8 +1496,8 @@ describe("PO-5 sealed authority integration", () => {
       now: "2026-08-12T00:00:00.000Z",
       ttl_ms: 1
     });
-    void pure;
-    void effectful;
+    expect(pure.lease.lease_id).toBeTruthy();
+    expect(effectful.lease.lease_id).toBeTruthy();
     const result = dispatcher.reconcileExpiries(new Date("2026-08-12T00:01:00.000Z"));
     expect(result.expired_pure.length).toBe(1);
     expect(result.expired_effectful.length).toBe(1);
@@ -1817,7 +1817,7 @@ describe("PO-5 machine active submit T05 path (stub adapter)", () => {
         params: { text: "fixture only" }
       };
       // Fix request digest with real function
-      const { computeRequestDigest, createApproval } = await import("../src/generationJobs/approval.js");
+      const { computeRequestDigest } = await import("../src/generationJobs/approval.js");
       request.digest = computeRequestDigest(request);
 
       await store.create({
@@ -1937,7 +1937,6 @@ describe("PO-5 machine active submit T05 path (stub adapter)", () => {
       expect(raw.ok).toBe(false);
       expect(raw.adapter_invocations).toBe(0);
       expect(adapterSubmitCount).toBe(0);
-      void createApproval;
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -3116,6 +3115,30 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         }
       };
 
+      // Missing productionControlRoot fails closed before adapter (mandatory root).
+      const missingRoot = await executeActiveGenerationForRun({
+        runId: "run-e2e",
+        runDir,
+        state: runState,
+        production_id: "prod-e2e",
+        project_id: "proj-e2e",
+        revision_id: revision,
+        pinnedRequests: [{
+          id: "req-e2e",
+          model: "v6",
+          mode: "text-to-video",
+          prompt: "fixture only"
+        } as never],
+        adapter: stubAdapter,
+        resolveExecutionBundle: async () => derived.bundle,
+        gate_bundle: bundle,
+        productionControlRoot: ""
+      });
+      expect(missingRoot.ok).toBe(false);
+      expect(missingRoot.issues[0]?.code).toBe("run.active_production_control_root_required");
+      expect(adapterInvokes).toBe(0);
+
+      const pcRoot = join(root, "production-control-events");
       const activeResult = await executeActiveGenerationForRun({
         runId: "run-e2e",
         runDir,
@@ -3131,7 +3154,8 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         } as never],
         adapter: stubAdapter,
         resolveExecutionBundle: async () => derived.bundle,
-        gate_bundle: bundle
+        gate_bundle: bundle,
+        productionControlRoot: pcRoot
       });
       if (!activeResult.ok) {
         expect.fail(JSON.stringify(activeResult.issues, null, 2));
@@ -3164,7 +3188,8 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         } as never],
         adapter: stubAdapter,
         resolveExecutionBundle: async () => derived.bundle,
-        gate_bundle: bundle
+        gate_bundle: bundle,
+        productionControlRoot: pcRoot
       });
       expect(restart.ok).toBe(false);
       expect(restart.issues[0]?.code).toBe("run.active_job_exists");
@@ -3211,10 +3236,10 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         "shadow"
       )).not.toThrow();
       expect(networkHits).toEqual([]);
-      void fixtureSha;
-      void computeRequestDigest;
-      void GenerationJobMachine;
-      void GenerationJobStore;
+      expect(fixtureSha).toHaveLength(64);
+      expect(typeof computeRequestDigest).toBe("function");
+      expect(GenerationJobMachine).toBeTypeOf("function");
+      expect(GenerationJobStore).toBeTypeOf("function");
 
       await rm(root, { recursive: true, force: true });
     } finally {
@@ -3222,26 +3247,26 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
     }
   });
 
-  it("M1 Exit CLI: actual bin/pipeline + CLI main injection reaches GenerationJob+T05 lease+stub once", {
-    timeout: 30_000
+  it("assemble active run: fixture injection → resolve → GenerationJob/T05/lease → stub once; second run active_job_exists; corrupt mandatory root blocks at 0", {
+    timeout: 60_000
   }, async () => {
     const networkHits: string[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (...args: unknown[]) => {
       networkHits.push(String(args[0]));
-      throw new Error("network forbidden in CLI fixture E2E");
+      throw new Error("network forbidden in assemble active fixture E2E");
     }) as typeof fetch;
 
-    const { mkdir, mkdtemp, realpath, writeFile } = await import("node:fs/promises");
+    const { mkdir, mkdtemp, realpath, writeFile, rm: rmFile } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
-    const { spawnSync } = await import("node:child_process");
+    const { resolve } = await import("node:path");
+    const { vi } = await import("vitest");
     const {
       installActiveGenerationFixtureForTests,
       clearActiveGenerationFixtureForTests,
       createFixtureGenerationJobAdapter,
-      executeActiveGenerationForRun,
       inspectProductionControlRoot,
-      resolveActiveGenerationInjection
+      resolveCanonicalProductionControlRoot
     } = await import("../src/productionControl/activeRunGeneration.js");
     const {
       writeDurableGateBundle,
@@ -3252,141 +3277,21 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
       writeDurableGateDecision,
       writeDurableCoordinatorPrincipal
     } = await import("../src/productionControl/durableGateEvidence.js");
-    const { main } = await import("../src/cli.js");
-    const { vi } = await import("vitest");
+    const { assembleLocalMediaRun } = await import("../src/orchestrator/run.js");
+    const { validateProject } = await import("../src/project/validateProject.js");
+    const cliGeneration = await import("../src/adapters/cliGeneration.js");
+    const legacyCliSpy = vi.spyOn(cliGeneration, "runCliGenerationAdapter").mockImplementation(() => {
+      throw new Error("legacy runCliGenerationAdapter must not be invoked on active path");
+    });
 
-    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po5-cli-exit-")));
+    const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po5-assemble-active-")));
     try {
-      const r = route("cli");
-      const priced = knownPricing(r);
-      const compilationDigest = sha256Canonical({ cli: "compile" });
-      const bundle = buildActiveGateBundle({
-        production_id: "prod-cli",
-        run_id: "run-cli",
-        production_contract_digest: DIGEST_A,
-        contract_set_digest: DIGEST_B,
-        task_tree_digest: DIGEST_C,
-        selected_artifact_digests: [DIGEST_D],
-        generation_batches: [{
-          batch_id: "batch-cli",
-          route: r,
-          ordered_units: [{
-            ordinal: 0,
-            generation_unit_digest: DIGEST_E,
-            base_compilation_digest: compilationDigest,
-            route_digest: r.route_digest
-          }],
-          ...priced
-        }],
-        review_artifact_digest: sha256Canonical({ review: "cli" })
-      });
-      const gate1 = buildActiveGate1ProductionBinding({
-        production_id: "prod-cli",
-        run_id: "run-cli",
-        gate_bundle: bundle,
-        legacy_approved_input_digest: DIGEST_A,
-        decision: {
-          decision_id: "cli-d1",
-          decision: "approved",
-          actor: "human",
-          decided_at: "2026-08-12T00:00:00.000Z"
-        }
-      });
-
-      const runDir = join(root, "run-cli");
-      await mkdir(runDir, { recursive: true });
-      await writeDurableGateBundle(runDir, bundle);
-      await writeDurableGateDecision(runDir, {
-        gate: "gate_1",
-        decision: {
-          decision_id: "cli-d1",
-          decision: "approved",
-          actor: "human",
-          decided_at: "2026-08-12T00:00:00.000Z",
-          subject_digest: gate1.subject_digest
-        },
-        decision_source: "human",
-        legacy_approved_input_digest: DIGEST_A
-      });
-      await writeDurableCoordinatorPrincipal(runDir, {
-        gate_1_decision_digest: gate1.decision_digest
-      });
-
-      let runState = createPlannedState("run-cli");
-      runState = markGateAwaiting(runState, "gate_1");
-      runState = recordGateDecision(
-        runState,
-        "gate_1",
-        "approved",
-        undefined,
-        DIGEST_A,
-        "human",
-        undefined,
-        gate1.productionBinding
-      );
-
-      let adapterInvokes = 0;
-      let sawSubmissionInput = false;
-      let sawAssetPaths: string[] | undefined;
-      const fixtureOut = join(root, "fixture-out.mp4");
-      await writeFile(fixtureOut, Buffer.from("cli-fixture-out"));
-
-      const stubAdapter = createFixtureGenerationJobAdapter({
-        connection_id: "pixverse",
-        adapter_id: "local-fixture",
-        fixture_artifact_path: fixtureOut,
-        onSubmit: async (request, ctx) => {
-          adapterInvokes += 1;
-          sawAssetPaths = [...(request.asset_paths ?? [])];
-          expect(ctx.submission_input).toBeTruthy();
-          sawSubmissionInput = true;
-          expect(request.asset_paths).toEqual([]);
-        }
-      });
-
-      // Real adopted-like resolver: Exit path uses executeActiveGenerationForRun + T05.
-      // For CLI injection identity, install the same fixture the CLI/assemble resolver reads.
-      installActiveGenerationFixtureForTests({
-        adapter: stubAdapter,
-        project_id: "proj-cli",
-        revision_id: "rev-cli",
-        production_id: "prod-cli",
-        resolveExecutionBundle: async () => {
-          // Non-adopted structural object still fails T05; use hand-call of execute
-          // with the Exit E2E adopted bundle pattern below after CLI entry evidence.
-          throw new Error("resolver placeholder — replaced by executeActiveGenerationForRun path");
-        }
-      });
-
-      // 1) Actual bin/pipeline entry (same argv path as production).
-      const pipeline = spawnSync(
-        process.execPath,
-        ["bin/pipeline", "doctor", "--json"],
-        { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, NO_COLOR: "1" } }
-      );
-      expect(pipeline.status).toBe(0);
-      expect(pipeline.stdout).toContain("\"command\": \"doctor\"");
-
-      // 2) Actual CLI main entry (src/cli.ts, same as bin/pipeline).
-      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const doctorStatus = await main(["doctor", "--json"]);
-      expect(doctorStatus).toBe(0);
-      log.mockRestore();
-      err.mockRestore();
-
-      // 3) CLI/assemble resolve path (identical helper CLI run uses).
-      const injection = resolveActiveGenerationInjection({ connection_id: "pixverse" });
-      expect(injection.ok).toBe(true);
-      if (!injection.ok) return;
-      expect(injection.adapter.connection_id).toBe("pixverse");
-
-      // 4) GenerationJob + T05 lease + stub once (no legacy CLI adapter / network).
-      // Use a real adopted execution bundle from planning (same as primary Exit E2E).
+      // --- Adopted T05 execution bundle (planning → derive) ---
       const {
         compileVideoPromptIrV2,
         compilationRevisionId,
         deriveExecutionCompilationBundleFromPlanningArtifact,
+        isAdoptedExecutionCompilationBundle,
         loadAdapterDialectCapability,
         loadConnectionCapabilityProfile,
         loadExecutionAuthoritativePinnedPromptBudgetEvidence,
@@ -3452,7 +3357,7 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         }
       };
       const compiled = compileVideoPromptIrV2(ir, {
-        request_id: "cli-exit-req",
+        request_id: "assemble-exit-req",
         route: routeResult.route,
         model_profile: model.profile,
         model_profile_digest: model.digest,
@@ -3462,32 +3367,35 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
       });
       expect(compiled.ok).toBe(true);
       if (!compiled.ok) return;
-      const storeRoot = join(root, "production-control");
-      await mkdir(storeRoot);
-      const store = new ArtifactStore(await realpath(storeRoot));
+
+      // Artifact planning store is under a non-canonical subdir; the mandatory
+      // event-chain root is projectRoot/production-control (derived by assemble).
+      const planningStoreRoot = join(root, "planning-artifact-store");
+      await mkdir(planningStoreRoot, { recursive: true });
+      const store = new ArtifactStore(await realpath(planningStoreRoot));
       const planningBundle = compiled.compilation.bundle;
       const revision = compilationRevisionId(planningBundle);
       const planning = await persistPlanningCompilationArtifact({
         store,
         bundle: planningBundle,
-        production_id: "prod-cli",
-        project_id: "proj-cli",
+        production_id: "prod-assemble",
+        project_id: "proj-assemble",
         revision_id: revision
       });
       const reloaded = await loadPlanningArtifactRef({
         store,
         artifact_id: planning.artifact_id,
         artifact_digest: planning.artifact_digest,
-        production_id: "prod-cli",
-        project_id: "proj-cli",
+        production_id: "prod-assemble",
+        project_id: "proj-assemble",
         revision_id: revision,
         request_id: planningBundle.request_id,
-        expected_store_root: storeRoot
+        expected_store_root: planningStoreRoot
       });
       const budgetPath = join(root, "budget-execution.json");
       await writeFile(budgetPath, JSON.stringify({
         schema_version: 1,
-        source_id: "po5-cli-budget",
+        source_id: "po5-assemble-budget",
         hard: {
           limit: 20_000,
           unit: "utf8-bytes",
@@ -3515,8 +3423,8 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
       const derived = await deriveExecutionCompilationBundleFromPlanningArtifact({
         planning_artifact: reloaded,
         store,
-        production_id: "prod-cli",
-        project_id: "proj-cli",
+        production_id: "prod-assemble",
+        project_id: "proj-assemble",
         revision_id: revision,
         project_root: root,
         asset_pin_root: join(root, "pins"),
@@ -3524,17 +3432,96 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         connection_profile: connection.profile,
         trusted_pinned_budget_evidence: executionBudget
       });
+      expect(isAdoptedExecutionCompilationBundle(derived.bundle)).toBe(true);
 
-      // Rebuild GateBundle unit membership against adopted compilation digest.
+      // --- Complete active project + config/plan/state/run directory ---
+      // Adapter/manifest from local fixture (validate rejects raw prompt-only active).
+      // Active project is assembled in-process with orchestration.mode=active.
+      const validation = await validateProject(
+        resolve("fixtures/projects/cli-generation.yaml"),
+        { adapterDirs: [resolve("fixtures/adapters"), resolve("adapters")] }
+      );
+      if (!validation.ok || !validation.project || !validation.manifest || !validation.adapter) {
+        expect.fail(JSON.stringify(validation.issues, null, 2));
+        return;
+      }
+
+      const runId = "run-assemble";
+      const manifestPath = join(root, "manifest.json");
+      await writeFile(manifestPath, `${JSON.stringify({
+        meta: { aspect: "16:9", fps: 24, target_duration_seconds: 1, slug: "assemble-active" },
+        clips: [],
+        audio: { bgm: [], narration: [], sfx: [] },
+        captions: [],
+        provenance: []
+      }, null, 2)}\n`);
+      const configPath = join(root, "project.yaml");
+      await writeFile(configPath, [
+        "slug: assemble-active",
+        "name: assemble-active",
+        `run_id: ${runId}`,
+        "manifest: manifest.json",
+        "dist_dir: dist",
+        "orchestration:",
+        "  mode: active",
+        "edit:",
+        "  backend: remotion",
+        "generation:",
+        "  adapter: mock-cli",
+        "  connection: pixverse",
+        "  requests:",
+        "    - id: req-assemble",
+        "      prompt: fixture assemble only",
+        "      model: v6",
+        "      mode: text-to-video",
+        "      duration: 1",
+        "      aspect: \"16:9\"",
+        "      params: {}",
+        ""
+      ].join("\n"));
+
+      const activeProject = {
+        ...validation.project,
+        slug: "assemble-active",
+        name: "assemble-active",
+        run_id: runId,
+        manifest: "manifest.json",
+        dist_dir: "dist",
+        orchestration: { mode: "active" as const },
+        generation: {
+          adapter: "mock-cli",
+          connection: "pixverse",
+          requests: [{
+            id: "req-assemble",
+            prompt: "fixture assemble only",
+            model: "v6",
+            mode: "text-to-video",
+            duration: 1,
+            aspect: "16:9",
+            params: {}
+          }]
+        }
+      };
+      const activeManifest = {
+        ...validation.manifest,
+        meta: {
+          ...validation.manifest.meta,
+          slug: "assemble-active",
+          target_duration_seconds: 1
+        },
+        clips: [],
+        provenance: []
+      };
+
       const liveBundle = buildActiveGateBundle({
-        production_id: "prod-cli",
-        run_id: "run-cli",
+        production_id: "prod-assemble",
+        run_id: runId,
         production_contract_digest: DIGEST_A,
         contract_set_digest: DIGEST_B,
         task_tree_digest: DIGEST_C,
         selected_artifact_digests: [DIGEST_D],
         generation_batches: [{
-          batch_id: "batch-cli",
+          batch_id: "batch-assemble",
           route: routeResult.route as never,
           ordered_units: [{
             ordinal: 0,
@@ -3544,25 +3531,29 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
           }],
           ...knownPricing(routeResult.route as never)
         }],
-        review_artifact_digest: sha256Canonical({ review: "cli" })
+        review_artifact_digest: sha256Canonical({ review: "assemble" })
       });
       const liveGate1 = buildActiveGate1ProductionBinding({
-        production_id: "prod-cli",
-        run_id: "run-cli",
+        production_id: "prod-assemble",
+        run_id: runId,
         gate_bundle: liveBundle,
         legacy_approved_input_digest: DIGEST_A,
         decision: {
-          decision_id: "cli-d1",
+          decision_id: "assemble-d1",
           decision: "approved",
           actor: "human",
           decided_at: "2026-08-12T00:00:00.000Z"
         }
       });
+
+      const stateDir = join(root, "dist");
+      const runDir = join(stateDir, runId);
+      await mkdir(runDir, { recursive: true });
       await writeDurableGateBundle(runDir, liveBundle);
       await writeDurableGateDecision(runDir, {
         gate: "gate_1",
         decision: {
-          decision_id: "cli-d1",
+          decision_id: "assemble-d1",
           decision: "approved",
           actor: "human",
           decided_at: "2026-08-12T00:00:00.000Z",
@@ -3574,8 +3565,9 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
       await writeDurableCoordinatorPrincipal(runDir, {
         gate_1_decision_digest: liveGate1.decision_digest
       });
-      runState = recordGateDecision(
-        markGateAwaiting(createPlannedState("run-cli"), "gate_1"),
+
+      const runState = recordGateDecision(
+        markGateAwaiting(createPlannedState(runId), "gate_1"),
         "gate_1",
         "approved",
         undefined,
@@ -3585,78 +3577,116 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         liveGate1.productionBinding
       );
 
-      clearActiveGenerationFixtureForTests();
+      let adapterInvokes = 0;
+      let sawSubmissionInput = false;
+      const fixtureOut = join(root, "fixture-out.mp4");
+      await writeFile(fixtureOut, Buffer.from("assemble-fixture-out"));
+      const stubAdapter = createFixtureGenerationJobAdapter({
+        connection_id: "pixverse",
+        adapter_id: "local-fixture",
+        fixture_artifact_path: fixtureOut,
+        onSubmit: async (request, ctx) => {
+          adapterInvokes += 1;
+          expect(ctx.submission_input).toBeTruthy();
+          sawSubmissionInput = true;
+          expect(request.asset_paths).toEqual([]);
+        }
+      });
+
+      // Same-process fixture injection (CLI/assemble resolveActiveGenerationInjection reads this).
       installActiveGenerationFixtureForTests({
         adapter: stubAdapter,
-        project_id: "proj-cli",
+        project_id: "proj-assemble",
         revision_id: revision,
-        production_id: "prod-cli",
+        production_id: "prod-assemble",
         resolveExecutionBundle: async () => derived.bundle
       });
-      const resolved = resolveActiveGenerationInjection({ connection_id: "pixverse" });
-      expect(resolved.ok).toBe(true);
-      if (!resolved.ok) return;
 
-      const activeResult = await executeActiveGenerationForRun({
-        runId: "run-cli",
-        runDir,
+      const canonicalRoot = resolveCanonicalProductionControlRoot(root);
+      expect(canonicalRoot).toBe(join(root, "production-control"));
+      expect(await inspectProductionControlRoot(canonicalRoot)).toBe("missing");
+
+      const generationConnection = {
+        id: "pixverse",
+        adapter: "mock-cli",
+        transport: "cli" as const,
+        provider: "fixture",
+        route_note: "fixture: assemble active E2E",
+        setup_status: "ready" as const,
+        execution_mode: "pipeline-adapter" as const
+      };
+
+      const assembleOpts = {
+        configPath,
+        manifestPath,
+        stateDir,
         state: runState,
-        production_id: "prod-cli",
-        project_id: "proj-cli",
-        revision_id: revision,
-        pinnedRequests: [{
-          id: "req-cli",
-          model: "v6",
-          mode: "text-to-video",
-          prompt: "fixture cli only"
-        } as never],
-        adapter: resolved.adapter,
-        resolveExecutionBundle: resolved.resolveExecutionBundle,
-        gate_bundle: liveBundle,
-        productionControlRoot: join(runDir, "empty-pc")
-      });
-      if (!activeResult.ok) {
-        expect.fail(JSON.stringify(activeResult.issues, null, 2));
+        connectionVerificationApproved: true,
+        generationConnection
+      };
+
+      // 1) Actual assembleLocalMediaRun active branch (not direct executeActiveGenerationForRun).
+      // Call graph: assemble → resolveActiveGenerationInjection → executeActiveGenerationForRun
+      // → GenerationJob/T05/lease → stub adapter once.
+      const first = await assembleLocalMediaRun(
+        activeProject as never,
+        activeManifest as never,
+        assembleOpts,
+        validation.adapter
+      );
+      if (!first.ok) {
+        expect.fail(JSON.stringify(first.issues, null, 2));
       }
+      expect(first.ok).toBe(true);
       expect(adapterInvokes).toBe(1);
       expect(sawSubmissionInput).toBe(true);
-      expect(sawAssetPaths).toEqual([]);
-      expect(activeResult.requests[0]?.metadata?.submission_via).toBe("t05-lease");
+      expect(legacyCliSpy).not.toHaveBeenCalled();
       expect(networkHits).toEqual([]);
 
-      // M4: corrupt non-empty control root fails closed at invocation 0 delta.
-      const corruptRoot = join(runDir, "corrupt-pc");
-      await mkdir(corruptRoot, { recursive: true });
-      await writeFile(join(corruptRoot, "events.jsonl"), "{not-json\n");
-      expect(await inspectProductionControlRoot(corruptRoot)).toBe("nonempty");
-      const beforeCorrupt = adapterInvokes;
-      const corruptRun = await executeActiveGenerationForRun({
-        runId: "run-cli",
-        runDir,
-        state: runState,
-        production_id: "prod-cli",
-        project_id: "proj-cli",
-        revision_id: revision,
-        pinnedRequests: [{
-          id: "req-cli-2",
-          model: "v6",
-          mode: "text-to-video",
-          prompt: "x"
-        } as never],
-        adapter: stubAdapter,
-        resolveExecutionBundle: async () => derived.bundle,
-        gate_bundle: liveBundle,
-        productionControlRoot: corruptRoot
-      });
-      expect(corruptRun.ok).toBe(false);
-      expect(corruptRun.issues[0]?.code).toBe("run.active_production_control_resume_failed");
-      expect(adapterInvokes).toBe(beforeCorrupt);
+      // 2) Same assemble path again with persisted run/job state → exact no-resubmit failure.
+      const second = await assembleLocalMediaRun(
+        activeProject as never,
+        activeManifest as never,
+        assembleOpts,
+        validation.adapter
+      );
+      expect(second.ok).toBe(false);
+      expect(second.issues[0]?.code).toBe("run.active_job_exists");
+      expect(adapterInvokes).toBe(1);
+      expect(legacyCliSpy).not.toHaveBeenCalled();
 
-      const emptyRoot = join(runDir, "empty-pc");
-      await mkdir(emptyRoot, { recursive: true });
-      expect(await inspectProductionControlRoot(emptyRoot)).toBe("empty");
+      // 3) Corrupt mandatory canonical root blocks a fresh run at invocation 0.
+      await rmFile(join(runDir, "generation-jobs"), { recursive: true, force: true });
+      await mkdir(canonicalRoot, { recursive: true });
+      await writeFile(join(canonicalRoot, "events.jsonl"), "{not-json\n");
+      expect(await inspectProductionControlRoot(canonicalRoot)).toBe("nonempty");
+      const beforeCorrupt = adapterInvokes;
+      const corrupt = await assembleLocalMediaRun(
+        activeProject as never,
+        activeManifest as never,
+        {
+          ...assembleOpts,
+          state: recordGateDecision(
+            markGateAwaiting(createPlannedState(runId), "gate_1"),
+            "gate_1",
+            "approved",
+            undefined,
+            DIGEST_A,
+            "human",
+            undefined,
+            liveGate1.productionBinding
+          )
+        },
+        validation.adapter
+      );
+      expect(corrupt.ok).toBe(false);
+      expect(corrupt.issues[0]?.code).toBe("run.active_production_control_resume_failed");
+      expect(adapterInvokes).toBe(beforeCorrupt);
+      expect(legacyCliSpy).not.toHaveBeenCalled();
+      expect(networkHits).toEqual([]);
     } finally {
       clearActiveGenerationFixtureForTests();
+      legacyCliSpy.mockRestore();
       globalThis.fetch = originalFetch;
       await rm(root, { recursive: true, force: true });
     }

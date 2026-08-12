@@ -884,12 +884,14 @@ async function assembleGeneratedMediaRun(
 
   // video_prompt authoring is planning/dry-run only in P0–P4. Re-evaluate with
   // intent=execute so planning-only compilations never reach billing adapters.
+  // Active mode skips this gate: durable GenerationJob + T05 owns paid execute
+  // (VPD intent=execute is always VPD-E022 and would block the active path).
   const hasVideoPrompt = project.generation!.requests.some(
     (request) => (request as { video_prompt?: unknown }).video_prompt !== undefined
       || request.h3 !== undefined
       || (project.orchestration?.mode === "active" && generationRequestOutputKind(request) === "video")
   );
-  if (hasVideoPrompt) {
+  if (hasVideoPrompt && project.orchestration?.mode !== "active") {
     const generationUnitSourceResolver = options.generationUnitSourceResolver
       ?? (options.configPath ? createProjectGenerationUnitSourceResolver(options.configPath) : undefined);
     const videoCompile = await compileProjectVideoPrompts(project, {
@@ -992,7 +994,8 @@ async function assembleGeneratedMediaRun(
   if (project.orchestration?.mode === "active") {
     const {
       executeActiveGenerationForRun,
-      resolveActiveGenerationInjection
+      resolveActiveGenerationInjection,
+      resolveCanonicalProductionControlRoot
     } = await import("../productionControl/activeRunGeneration.js");
     const { compileProductionContract } = await import(
       "../productionControl/contractCompiler.js"
@@ -1032,6 +1035,36 @@ async function assembleGeneratedMediaRun(
         issues: resolved.issues
       };
     }
+    // productionControlRoot is mandatory: derive canonically from project root.
+    // Caller/fixture may supply an explicit root, but may never omit the check.
+    const projectRoot = options.configPath
+      ? dirname(resolve(options.configPath))
+      : undefined;
+    let productionControlRoot = resolved.productionControlRoot?.trim() ?? "";
+    if (!productionControlRoot) {
+      if (!projectRoot) {
+        return {
+          ok: false,
+          issues: [{
+            code: "run.active_production_control_root_required",
+            message:
+              "active generation requires project config path to derive production-control root; "
+              + "missing root fails closed before adapter"
+          }]
+        };
+      }
+      try {
+        productionControlRoot = resolveCanonicalProductionControlRoot(projectRoot);
+      } catch (error) {
+        return {
+          ok: false,
+          issues: [{
+            code: "run.active_production_control_root_required",
+            message: error instanceof Error ? error.message : String(error)
+          }]
+        };
+      }
+    }
     const productionId = resolved.production_id
       ?? compileProductionContract({ project }).production_id;
     generation = await executeActiveGenerationForRun({
@@ -1044,9 +1077,7 @@ async function assembleGeneratedMediaRun(
       pinnedRequests: pinned.requests,
       adapter: resolved.adapter,
       resolveExecutionBundle: resolved.resolveExecutionBundle,
-      ...(resolved.productionControlRoot
-        ? { productionControlRoot: resolved.productionControlRoot }
-        : {}),
+      productionControlRoot,
       ...(resolved.dispatcher ? { dispatcher: resolved.dispatcher } : {})
     });
   } else {

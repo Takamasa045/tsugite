@@ -62,10 +62,30 @@ export type ActiveRunGenerationOptions = {
   ) => Promise<ExecutionCompilationBundle> | ExecutionCompilationBundle;
   gate_bundle?: GateBundle;
   dispatcher?: ProductionDispatcher;
-  /** When set, resumeProductionControl is attempted before effectful work. */
-  productionControlRoot?: string;
+  /**
+   * Mandatory production-control root (event/snapshot/artifact chain).
+   * Derived canonically from projectRoot/production-control by assemble/CLI;
+   * never optional-skip. Empty/missing roots may initialize; nonempty corrupt chains fail closed before adapter.
+   */
+  productionControlRoot: string;
   now?: () => string;
 };
+
+/**
+ * Canonical production-control root for active generation.
+ * Project-level `production-control/` holds the event/snapshot/artifact chain.
+ * Run-scoped durable Gate evidence under `runDir/production-control` is separate.
+ */
+export function resolveCanonicalProductionControlRoot(projectRoot: string): string {
+  const root = typeof projectRoot === "string" ? projectRoot.trim() : "";
+  if (!root) {
+    throw pcError(
+      "PC_PATH_UNSAFE",
+      "active generation requires a project root to derive the production-control root"
+    );
+  }
+  return join(root, "production-control");
+}
 
 function toJobRequest(request: GenerationRequest, connectionId: string): GenerationJobRequest {
   const mode = String(
@@ -180,47 +200,58 @@ export async function executeActiveGenerationForRun(
     };
   }
 
-  if (options.productionControlRoot) {
-    const rootKind = await inspectProductionControlRoot(options.productionControlRoot);
-    if (rootKind === "empty" || rootKind === "missing") {
-      // Truly empty/new control roots may proceed without event history.
-    } else {
-      // Non-empty roots must resume cleanly. Corrupt/tampered chains fail closed
-      // before any job create or adapter invocation.
-      try {
-        await resumeProductionControl({
-          mode: "active",
-          root: options.productionControlRoot,
-          production_id: options.production_id
-        });
-        // Resume may succeed with 0 committed events while a corrupt uncommitted
-        // log tail remains — treat that as fail-closed (not empty/new).
-        const { EventStore } = await import("./eventStore.js");
-        const recovery = await new EventStore(options.productionControlRoot).recover();
-        if (recovery.uncommitted_line_count > 0) {
-          return {
-            ok: false,
-            issues: [{
-              code: "run.active_production_control_resume_failed",
-              message:
-                "production control root is non-empty with corrupt uncommitted event tail; "
-                + "refusing active generation before job/adapter"
-            }]
-          };
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const code = error instanceof ProductionControlError
-          ? error.code
-          : "PC_RESUME_INVALID";
+  const controlRoot = typeof options.productionControlRoot === "string"
+    ? options.productionControlRoot.trim()
+    : "";
+  if (!controlRoot) {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.active_production_control_root_required",
+        message:
+          "active generation requires a canonical production-control root; "
+          + "missing root fails closed before job/adapter"
+      }]
+    };
+  }
+
+  // Mandatory resume gate: only truly absent/empty roots may initialize.
+  // Corrupt/nonempty event/snapshot/artifact chains fail closed before adapter.
+  const rootKind = await inspectProductionControlRoot(controlRoot);
+  if (rootKind !== "empty" && rootKind !== "missing") {
+    try {
+      await resumeProductionControl({
+        mode: "active",
+        root: controlRoot,
+        production_id: options.production_id
+      });
+      // Resume may succeed with 0 committed events while a corrupt uncommitted
+      // log tail remains — treat that as fail-closed (not empty/new).
+      const { EventStore } = await import("./eventStore.js");
+      const recovery = await new EventStore(controlRoot).recover();
+      if (recovery.uncommitted_line_count > 0) {
         return {
           ok: false,
           issues: [{
             code: "run.active_production_control_resume_failed",
-            message: `production control root is non-empty and failed resume (${code}): ${message}`
+            message:
+              "production control root is non-empty with corrupt uncommitted event tail; "
+              + "refusing active generation before job/adapter"
           }]
         };
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code = error instanceof ProductionControlError
+        ? error.code
+        : "PC_RESUME_INVALID";
+      return {
+        ok: false,
+        issues: [{
+          code: "run.active_production_control_resume_failed",
+          message: `production control root is non-empty and failed resume (${code}): ${message}`
+        }]
+      };
     }
   }
 
@@ -470,7 +501,8 @@ export async function executeActiveGenerationForRun(
       });
       completionRefs.push(completion);
 
-      const src = current.artifact.relative_path;
+      // Absolute path so assembleLocalMediaRun copyAsset does not resolve against cwd.
+      const src = join(store.artifactsDir(jobId), current.artifact.relative_path);
       const clip = {
         id: `clip-${pinned.id}`,
         src,
