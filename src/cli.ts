@@ -1023,6 +1023,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
+  if (args.command === "production-rollback") {
+    return handleProductionRollback(args);
+  }
+
   const generationUnitSourceResolver = createProjectGenerationUnitSourceResolver(args.config);
   const validation = await validateProject(args.config, { generationUnitSourceResolver });
   // Single trusted projection: durable pointer runtime_mode overrides YAML for pipeline bodies.
@@ -1227,100 +1231,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return output(args, 1, {
         ok: false,
         command: "production-migrate",
-        issues: cliIssuesFromError(error)
-      });
-    }
-  }
-
-  if (args.command === "production-rollback") {
-    const target = args.target === "shadow" || args.target === "legacy" ? args.target : undefined;
-    if (!target) {
-      return output(args, 1, {
-        ok: false,
-        command: "production-rollback",
-        issues: [{
-          code: "production_rollback.target_required",
-          message: "--target must be shadow or legacy",
-          path: "--target"
-        }]
-      });
-    }
-    const { dirname, resolve } = await import("node:path");
-    const projectRoot = resolve(dirname(args.config!));
-    const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
-    const { readCurrentModePointer } = await import("./productionControl/rc/modeIntent.js");
-    const { resolveRuntimeAuthority } = await import("./productionControl/runtimeAuthority.js");
-    const pointer = await readCurrentModePointer(projectRoot).catch(() => undefined);
-    const runtimeAuth = validation.runtime_authority ?? await resolveRuntimeAuthority({
-      projectRoot,
-      project: validation.project!
-    }).catch(() => undefined);
-    const previewProject = pointer
-      ? {
-        ...validation.project!,
-        orchestration: {
-          mode: pointer.runtime_mode === "legacy" ? "disabled" : pointer.runtime_mode
-        }
-      }
-      : validation.project!;
-    const preview = previewRollback({
-      project: previewProject,
-      to_mode: target,
-      coordinator: args.actor === "coordinator"
-    });
-    if (!args.apply) {
-      const flags = deriveCliSafetyFlags({});
-      return output(args, preview.allowed || Boolean(pointer) ? 0 : 1, {
-        ok: preview.allowed || Boolean(pointer),
-        command: "production-rollback",
-        dry_run: true,
-        fixture_only: flags.fixture_only,
-        billing_action: flags.billing_action,
-        generation_submitted: flags.generation_submitted,
-        gate_mutated: flags.gate_mutated,
-        resolved_mode: runtimeAuth?.runtime_mode,
-        mode_source: runtimeAuth?.source,
-        preview
-      });
-    }
-    const coordinatorIssue = requireCoordinator(args);
-    if (coordinatorIssue) {
-      return output(args, 1, { ok: false, command: "production-rollback", issues: [coordinatorIssue] });
-    }
-    try {
-      const observer = createEffectObserver();
-      // Thread observer; no post-hoc registerBoundariesViaProductionWrappers theater.
-      const applied = await applyRollback({
-        project: validation.project!,
-        projectRoot,
-        to_mode: target,
-        actor: "coordinator",
-        observer
-      });
-      observer.sealEventSequence();
-      const flags = deriveCliSafetyFlags({ observer });
-      const after = await resolveRuntimeAuthority({
-        projectRoot,
-        project: validation.project!
-      });
-      return output(args, 0, {
-        ok: true,
-        command: "production-rollback",
-        dry_run: false,
-        fixture_only: flags.fixture_only,
-        billing_action: flags.billing_action,
-        generation_submitted: flags.generation_submitted,
-        gate_mutated: flags.gate_mutated,
-        safety_proven_zero: flags.safety_proven_zero,
-        resolved_mode: after.runtime_mode,
-        mode_source: after.source,
-        preview: applied.preview,
-        record: applied.record
-      });
-    } catch (error) {
-      return output(args, 1, {
-        ok: false,
-        command: "production-rollback",
         issues: cliIssuesFromError(error)
       });
     }
@@ -2911,6 +2821,136 @@ function requireCoordinator(args: ParsedArgs): Issue | undefined {
     code: "cli.coordinator_required",
     message: "this command requires --actor coordinator"
   };
+}
+
+/**
+ * Rollback uses only --config path + durable pointer (and optional loadable YAML).
+ * Full validateProject (manifest/adapter/active compilation) must not gate this
+ * command, or a broken post-active project cannot leave active mode.
+ */
+async function handleProductionRollback(args: ParsedArgs): Promise<number> {
+  const target = args.target === "shadow" || args.target === "legacy" ? args.target : undefined;
+  if (!target) {
+    return output(args, 1, {
+      ok: false,
+      command: "production-rollback",
+      issues: [{
+        code: "production_rollback.target_required",
+        message: "--target must be shadow or legacy",
+        path: "--target"
+      }]
+    });
+  }
+  if (args.apply && args.dryRun) {
+    return output(args, 1, {
+      ok: false,
+      command: "production-rollback",
+      issues: [{
+        code: "production_rollback.apply_dry_run_conflict",
+        message: "use either --apply or --dry-run, not both"
+      }]
+    });
+  }
+
+  const projectRoot = resolve(dirname(args.config!));
+  const { createEffectObserver, deriveCliSafetyFlags } = await import("./productionControl/rc/effectCapability.js");
+  const { readCurrentModePointer } = await import("./productionControl/rc/modeIntent.js");
+  const { loadProject } = await import("./project/loadProject.js");
+
+  let pointer: Awaited<ReturnType<typeof readCurrentModePointer>>;
+  try {
+    pointer = await readCurrentModePointer(projectRoot);
+  } catch (error) {
+    return output(args, 1, {
+      ok: false,
+      command: "production-rollback",
+      issues: cliIssuesFromError(error)
+    });
+  }
+
+  let loadedProject: Record<string, unknown> | undefined;
+  try {
+    loadedProject = await loadProject(args.config!) as unknown as Record<string, unknown>;
+  } catch {
+    loadedProject = undefined;
+  }
+
+  if (!pointer && !loadedProject) {
+    return output(args, 1, {
+      ok: false,
+      command: "production-rollback",
+      issues: [{
+        code: "production_rollback.pointer_or_project_required",
+        message: "rollback requires a durable mode pointer or a loadable project.yaml",
+        path: args.config
+      }]
+    });
+  }
+
+  const previewProject = pointer
+    ? {
+      orchestration: {
+        mode: pointer.runtime_mode === "legacy" ? "disabled" : pointer.runtime_mode
+      }
+    }
+    : loadedProject!;
+  const preview = previewRollback({
+    project: previewProject,
+    to_mode: target,
+    coordinator: args.actor === "coordinator"
+  });
+  if (!args.apply) {
+    const flags = deriveCliSafetyFlags({});
+    return output(args, preview.allowed || Boolean(pointer) ? 0 : 1, {
+      ok: preview.allowed || Boolean(pointer),
+      command: "production-rollback",
+      dry_run: true,
+      fixture_only: flags.fixture_only,
+      billing_action: flags.billing_action,
+      generation_submitted: flags.generation_submitted,
+      gate_mutated: flags.gate_mutated,
+      resolved_mode: pointer?.runtime_mode,
+      mode_source: pointer ? "durable_pointer" : undefined,
+      preview
+    });
+  }
+  const coordinatorIssue = requireCoordinator(args);
+  if (coordinatorIssue) {
+    return output(args, 1, { ok: false, command: "production-rollback", issues: [coordinatorIssue] });
+  }
+  try {
+    const observer = createEffectObserver();
+    const applied = await applyRollback({
+      project: previewProject,
+      projectRoot,
+      to_mode: target,
+      actor: "coordinator",
+      observer
+    });
+    observer.sealEventSequence();
+    const flags = deriveCliSafetyFlags({ observer });
+    const after = await readCurrentModePointer(projectRoot);
+    return output(args, 0, {
+      ok: true,
+      command: "production-rollback",
+      dry_run: false,
+      fixture_only: flags.fixture_only,
+      billing_action: flags.billing_action,
+      generation_submitted: flags.generation_submitted,
+      gate_mutated: flags.gate_mutated,
+      safety_proven_zero: flags.safety_proven_zero,
+      resolved_mode: after?.runtime_mode,
+      mode_source: after ? "durable_pointer" : undefined,
+      preview: applied.preview,
+      record: applied.record
+    });
+  } catch (error) {
+    return output(args, 1, {
+      ok: false,
+      command: "production-rollback",
+      issues: cliIssuesFromError(error)
+    });
+  }
 }
 
 /**

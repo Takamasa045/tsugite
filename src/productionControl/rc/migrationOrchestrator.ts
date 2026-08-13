@@ -6,15 +6,15 @@
 import { constants } from "node:fs";
 import {
   lstat,
+  link,
   mkdir,
   open,
   readFile,
   realpath,
-  rename,
   rm,
   type FileHandle
 } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Project } from "../../project/schema.js";
 import { assertSafeJsonValue, sha256Canonical } from "../canonical.js";
 import {
@@ -373,17 +373,90 @@ async function assertExactJsonArtifact(filePath: string, value: unknown): Promis
   }
 }
 
+export type ArtifactReserveHook = (info: {
+  finalPath: string;
+  tempPath: string;
+  reservePath: string;
+}) => void | Promise<void>;
+
+function isErrnoCode(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code?: string }).code === code);
+}
+
+async function inspectRegularLeaf(filePath: string): Promise<{ kind: "missing" } | { kind: "regular"; size: number }> {
+  try {
+    const stats = await lstat(filePath);
+    if (stats.isSymbolicLink()) {
+      throw pcError("PC_PATH_UNSAFE", `migration artifact must not be a symbolic link: ${filePath}`);
+    }
+    if (!stats.isFile()) {
+      throw pcError("PC_PATH_UNSAFE", `migration artifact must be a regular file: ${filePath}`);
+    }
+    return { kind: "regular", size: stats.size };
+  } catch (error) {
+    if (isErrnoCode(error, "ENOENT")) return { kind: "missing" };
+    throw error;
+  }
+}
+
+async function unlinkRegularResidue(filePath: string): Promise<void> {
+  const leaf = await inspectRegularLeaf(filePath);
+  if (leaf.kind === "regular") {
+    await rm(filePath);
+  }
+}
+
 /**
- * Create-only JSON write. On EEXIST, adopt only when on-disk bytes are identical.
- * Any other conflict or IO failure fails closed (no soft-swallow).
+ * Recover crash leftovers that are not complete artifacts:
+ * sibling reservation files, and empty final paths from the old reserve-on-final protocol.
+ * Never unlinks a symlink or a non-empty final artifact.
  */
-async function atomicCreateJson(filePath: string, value: unknown): Promise<"created" | "adopted"> {
+async function recoverIncompletePublishResidue(filePath: string): Promise<void> {
+  const reservePath = `${filePath}.reserve`;
+  await unlinkRegularResidue(reservePath);
+  const finalLeaf = await inspectRegularLeaf(filePath);
+  if (finalLeaf.kind === "regular" && finalLeaf.size === 0) {
+    await rm(filePath);
+  }
+}
+
+async function adoptExactBytes(filePath: string, bytes: string): Promise<"adopted"> {
+  const leaf = await inspectRegularLeaf(filePath);
+  if (leaf.kind === "regular") {
+    const existing = await readFile(filePath, "utf8");
+    if (existing === bytes) return "adopted";
+  }
+  throw pcError(
+    "PC_ARTIFACT_DUPLICATE",
+    `migration artifact already exists with different bytes: ${filePath}`
+  );
+}
+
+/**
+ * Create-only JSON write via sibling temp + sibling reservation + hard-link publish.
+ * On EEXIST, adopt only when on-disk bytes are identical.
+ * Crash after reservation must not leave a partial final artifact.
+ */
+async function atomicCreateJson(
+  filePath: string,
+  value: unknown,
+  reserveHook?: ArtifactReserveHook
+): Promise<"created" | "adopted"> {
   assertSafeJsonValue(value, filePath);
   const bytes = `${JSON.stringify(value, null, 2)}\n`;
   const dir = dirname(filePath);
   await mkdir(dir, { recursive: true, mode: 0o700 });
-  const temp = join(dir, `.${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`);
+  await recoverIncompletePublishResidue(filePath);
+
+  const existing = await inspectRegularLeaf(filePath);
+  if (existing.kind === "regular") {
+    return adoptExactBytes(filePath, bytes);
+  }
+
+  const temp = join(dir, `.${basename(filePath)}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`);
+  const reservePath = `${filePath}.reserve`;
   let handle: FileHandle | undefined;
+  let reserved = false;
   try {
     handle = await open(
       temp,
@@ -394,31 +467,39 @@ async function atomicCreateJson(filePath: string, value: unknown): Promise<"crea
     await handle.sync();
     await handle.close();
     handle = undefined;
-    // Create-only reservation on final path closes TOCTOU with concurrent writers.
+
     const reserve = await open(
-      filePath,
+      reservePath,
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
       0o600
     );
+    await reserve.sync();
     await reserve.close();
-    await rename(temp, filePath);
+    reserved = true;
+
+    if (reserveHook) {
+      await reserveHook({ finalPath: filePath, tempPath: temp, reservePath });
+    }
+
+    try {
+      await link(temp, filePath);
+    } catch (error) {
+      if (isErrnoCode(error, "EEXIST")) {
+        return adoptExactBytes(filePath, bytes);
+      }
+      throw error;
+    }
     await fsyncDirectory(dir);
     return "created";
   } catch (error) {
     if (handle) await handle.close().catch(() => undefined);
-    await rm(temp, { force: true }).catch(() => undefined);
-    if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "EEXIST") {
-      // Exact EEXIST: adopt only when byte-identical to intended payload.
-      const existing = await readFile(filePath, "utf8");
-      if (existing === bytes) {
-        return "adopted";
-      }
-      throw pcError(
-        "PC_ARTIFACT_DUPLICATE",
-        `migration artifact already exists with different bytes: ${filePath}`
-      );
+    if (isErrnoCode(error, "EEXIST")) {
+      return adoptExactBytes(filePath, bytes);
     }
     throw error;
+  } finally {
+    await rm(temp, { force: true }).catch(() => undefined);
+    if (reserved) await rm(reservePath, { force: true }).catch(() => undefined);
   }
 }
 
@@ -434,6 +515,11 @@ export type MigrationApplyInput = MigrationPreviewInput & {
   /** Test-only crash injection after a journal stage is sealed. */
   crash_after_stage?: MigrationJournalStage;
   crash_hook?: JournalCrashHook;
+  /**
+   * Test-only: fire after a create-only reservation is closed and before publish.
+   * Used to prove crash/interruption recovery; production callers omit this.
+   */
+  artifact_reserve_hook?: ArtifactReserveHook;
 };
 
 /**
@@ -643,9 +729,9 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
 
     // Required artifacts: create-only or byte-identical adoption only (no soft-fail).
     // Journal advance is only after all required artifacts pass exact verification.
-    await atomicCreateJson(previewPath, preview);
-    await atomicCreateJson(contractPath, contract);
-    await atomicCreateJson(treePath, tree);
+    await atomicCreateJson(previewPath, preview, input.artifact_reserve_hook);
+    await atomicCreateJson(contractPath, contract, input.artifact_reserve_hook);
+    await atomicCreateJson(treePath, tree, input.artifact_reserve_hook);
     // Re-read required artifacts and verify exact payload before journal advance.
     await assertExactJsonArtifact(previewPath, preview);
     await assertExactJsonArtifact(contractPath, contract);
@@ -793,7 +879,7 @@ export async function applyMigration(input: MigrationApplyInput): Promise<{
 
   const applyPath = join(migrationDir, `apply-${digest.slice(0, 16)}.json`);
   // Apply record is required durable evidence — fail-closed (or byte-identical adopt).
-  await atomicCreateJson(applyPath, finalRecord);
+  await atomicCreateJson(applyPath, finalRecord, input.artifact_reserve_hook);
   finalRecord.artifact_relative_paths = [
     ...finalRecord.artifact_relative_paths,
     relative(projectRoot, applyPath).split(sep).join("/")
