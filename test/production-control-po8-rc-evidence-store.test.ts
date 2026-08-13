@@ -20,7 +20,10 @@ import {
   writeReadinessReportFile,
   type DurableEvidenceStore
 } from "../src/productionControl/rc/evidenceStore.js";
-import { runReadinessCli } from "../src/productionControl/rc/readinessCli.js";
+import {
+  assertHistoricalDefaultStoreCompatible,
+  runReadinessCli
+} from "../src/productionControl/rc/readinessCli.js";
 import { collectStructuralEvidence } from "../src/productionControl/rc/structuralEvidence.js";
 import { hashCommandOutput } from "../src/productionControl/rc/releaseReadiness.js";
 
@@ -141,7 +144,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     const store: DurableEvidenceStore = {
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.9.0",
+      package_version: "0.10.0",
       generated_at: "2026-08-13T00:00:00.000Z",
       measured: {
         browser_po0a: {
@@ -160,7 +163,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     };
     await writeEvidenceStore(storeRoot, store);
     const report = buildReadinessFromStore(store);
-    expect(report.package_version).toBe("0.9.0");
+    expect(report.package_version).toBe("0.10.0");
     expect(report.version_decision.bump_to_1_0_0).toBe(false);
     const browser = report.exits.find((exit) => exit.exit_id === "po8-8-po0a-browser");
     expect(browser?.status).toBe("proven");
@@ -169,6 +172,63 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     expect(written.digest).toBe(report.digest);
     const validated = await validateReadinessReportFile(output);
     expect(validated.canonical_digest).toBe(report.digest);
+  });
+
+  it("keeps the schema-v1 decision shape while accepting approved pre-1.0 releases", () => {
+    const current = buildReadinessFromStore({
+      schema_version: 1,
+      fixture_only: true,
+      package_version: "0.10.0",
+      measured: {}
+    });
+    expect(Object.keys(current.version_decision).sort()).toEqual([
+      "bump_to_1_0_0",
+      "bump_to_1_0_0_rc",
+      "keep_0_9_0",
+      "rationale"
+    ]);
+    expect(current.version_decision.keep_0_9_0).toBe(false);
+    expect(current.exits.find((exit) => exit.exit_id === "po8-6-version-decision")?.status).toBe("proven");
+
+    const old = buildReadinessFromStore({
+      schema_version: 1,
+      fixture_only: true,
+      package_version: "0.9.0",
+      measured: {}
+    });
+    expect(old.version_decision.keep_0_9_0).toBe(true);
+    expect(old.exits.find((exit) => exit.exit_id === "po8-6-version-decision")?.status).toBe("failed");
+    expect(old.go_no_go).toBe("NO-GO");
+
+    const unsupported = buildReadinessFromStore({
+      schema_version: 1,
+      fixture_only: true,
+      package_version: "0.11.0",
+      measured: {}
+    });
+    expect(unsupported.exits.find((exit) => exit.exit_id === "po8-6-version-decision")?.status).toBe("failed");
+  });
+
+  it("keeps the default 0.9.0 evidence store immutable after the 0.10.0 bump", () => {
+    expect(() => assertHistoricalDefaultStoreCompatible("0.9.0", "0.10.0")).toThrow(
+      /historical default evidence is immutable/
+    );
+    expect(() => assertHistoricalDefaultStoreCompatible("0.10.0", "0.10.0")).not.toThrow();
+  });
+
+  it("requires a separate output whenever write-report uses an explicit store", async () => {
+    const storeRoot = await tempDir("tsugite-po8-explicit-store-");
+    await writeEvidenceStore(storeRoot, {
+      schema_version: 1,
+      fixture_only: true,
+      package_version: "0.10.0",
+      measured: {}
+    });
+    expect(await runReadinessCli([
+      "write-report",
+      "--store", storeRoot,
+      "--json"
+    ])).toBe(1);
   });
 
   it("CLI record-command + validate-report stay fixture-only", async () => {
@@ -207,7 +267,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
       package_version: string;
       version_decision: { bump_to_1_0_0: boolean };
     };
-    expect(report.package_version).toBe("0.9.0");
+    expect(report.package_version).toBe("0.10.0");
     expect(report.version_decision.bump_to_1_0_0).toBe(false);
     expect(report.digest).toMatch(/^[a-f0-9]{64}$/);
   });
@@ -216,7 +276,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     const report = buildReadinessFromStore({
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.9.0",
+      package_version: "0.10.0",
       generated_at: "2026-08-13T00:00:00.000Z",
       measured: {
         desktop: {
@@ -384,7 +444,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     await writeEvidenceStore(storeRoot, {
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.9.0",
+      package_version: "0.10.0",
       measured: {},
       rehearsal: projected.rehearsal,
       fixture_module_evidence: projected.fixture_module_evidence

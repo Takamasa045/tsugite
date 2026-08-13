@@ -211,7 +211,7 @@ export async function recordCoverage(
     store = {
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.9.0",
+      package_version: "0.10.0",
       measured: {}
     };
   }
@@ -273,7 +273,7 @@ export async function recordCommandEvidence(input: {
     store = {
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.9.0",
+      package_version: "0.10.0",
       measured: {}
     };
   }
@@ -424,7 +424,7 @@ export async function ingestBrowserRuntimeEvidence(input: {
     store = {
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.9.0",
+      package_version: "0.10.0",
       measured: {}
     };
   }

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.10.0 - 2026-08-13
+
+- Integrated Production Orchestration v1 (T00–T09): durable contracts and state, hierarchical planning, H3 v3 compilation, gated execution and recovery, learning/metrics, Launcher mission tree, and migration/rollback readiness.
+- Verified the current `main` Windows smoke lane on GitHub Actions. Live provider/billing and packaged Desktop UAT remain explicit pre-1.0 caveats.
+- Released the software and agent-service client version as **0.10.0**.
+
 - PO-8 PR #120 review repair: `production-rollback` dispatches from `--config` + durable pointer without waiting on full `validateProject`, so a broken post-active manifest/adapter/compilation can still leave active mode. Migration artifact publish uses sibling temp/reservation + create-only link, recovers empty leftovers, and resumes the same journal preview. Authority, path, actor, dry-run, and mutation safety are unchanged. Package version stays **0.9.0**.
 - PO-8 / T09 round 8 readiness rebind: regenerate `docs/reports/po8-rc-release-readiness.json` via production `buildReleaseReadinessReport` so `po8-h3` `output_digest` binds to measured EB1 real-entry output and envelope `digest` matches canonical exits (no hand digest substitution). `build_provenance.head` stays code commit `95b566b`; docs-only tip does not replace it. **GO-WITH-CAVEATS** / **0.9.0** / desktop partial retained.
 - PO-8 / T09 round 7 EB1 real-entry: `validateProject` builds trusted `projectWithRuntimeAuthority` before video-prompt compile / generation-unit resolve so migration `pointer=active` + YAML `disabled|omit` no longer split-brain; `compileProjectVideoPrompts` prefers explicit `runtime_authority`. Temporary YAML `mode=active` rewrite removed from the entry test (CLI migrate→validate→plan→review→inspect). EB2 gate_mutation policy thread retained. Readiness **GO-WITH-CAVEATS** at **0.9.0**; coverage branches **74.4** held.
