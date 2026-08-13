@@ -1783,7 +1783,7 @@ export function readCompilationBundleAtomic(
     adapter_prompt_digest: digestSchema,
     file_digests: z.record(safeIdSchema.or(z.string().regex(/^prompt\.[A-Za-z0-9][A-Za-z0-9._-]*\.txt$/u)), digestSchema),
     committed: z.literal(true)
-  }).strict().parse(JSON.parse(readBoundedFile(join(target, "compilation-manifest.json"))));
+  }).strict().parse(parsePersistedCompilationJson(readBoundedFile(join(target, "compilation-manifest.json")), "manifest"));
   if (options.request_id !== undefined && marker.request_id !== options.request_id) {
     throw new Error("VPD-K002: persisted compilation request identity does not match the requested artifact");
   }
@@ -1796,7 +1796,7 @@ export function readCompilationBundleAtomic(
     const requestedIsRoot = requestedPath === lexicalProjectRoot || requestedPath === projectRoot;
     if (!requestedIsRoot && requestedPath !== expectedTarget) throw new Error("VPD-K002: persisted compilation directory placement does not match its identity");
   }
-  const bundle = verifyCompilationBundle(JSON.parse(readBoundedFile(join(target, "bundle.json"))));
+  const bundle = verifyCompilationBundle(parsePersistedCompilationJson(readBoundedFile(join(target, "bundle.json")), "bundle"));
   if (bundle.request_id !== marker.request_id
     || bundle.compilation_digest !== marker.compilation_digest
     || bundle.canonical_prompt_digest !== marker.canonical_prompt_digest
@@ -1840,13 +1840,13 @@ export function readCompilationBundleAtomic(
   }
   if (fileContents["prompt.canonical.txt"] !== `${bundle.canonical_prompt}\n`
     || fileContents[`prompt.${bundle.route.adapter_id}.txt`] !== `${bundle.adapter_prompt}\n`
-    || sha256Canonical(JSON.parse(fileContents["ir.normalized.json"]!)) !== bundle.normalized_ir_digest
-    || sha256Canonical(JSON.parse(fileContents["semantic-blocks.json"]!)) !== sha256Canonical(bundle.semantic_blocks)
-    || sha256Canonical(JSON.parse(fileContents["labels.json"]!)) !== sha256Canonical(bundle.labels)
-    || sha256Canonical(JSON.parse(fileContents["validation.json"]!)) !== sha256Canonical(bundle.validation)
-    || sha256Canonical(JSON.parse(fileContents["route.json"]!)) !== sha256Canonical(bundle.route)
-    || sha256Canonical(JSON.parse(fileContents["effective-contract.json"]!)) !== sha256Canonical(bundle.effective_contract)
-    || sha256Canonical(JSON.parse(fileContents["lineage.json"]!)) !== sha256Canonical(bundle.lineage)) {
+    || sha256Canonical(parsePersistedCompilationJson(fileContents["ir.normalized.json"]!, "ir.normalized")) !== bundle.normalized_ir_digest
+    || sha256Canonical(parsePersistedCompilationJson(fileContents["semantic-blocks.json"]!, "semantic-blocks")) !== sha256Canonical(bundle.semantic_blocks)
+    || sha256Canonical(parsePersistedCompilationJson(fileContents["labels.json"]!, "labels")) !== sha256Canonical(bundle.labels)
+    || sha256Canonical(parsePersistedCompilationJson(fileContents["validation.json"]!, "validation")) !== sha256Canonical(bundle.validation)
+    || sha256Canonical(parsePersistedCompilationJson(fileContents["route.json"]!, "route")) !== sha256Canonical(bundle.route)
+    || sha256Canonical(parsePersistedCompilationJson(fileContents["effective-contract.json"]!, "effective-contract")) !== sha256Canonical(bundle.effective_contract)
+    || sha256Canonical(parsePersistedCompilationJson(fileContents["lineage.json"]!, "lineage")) !== sha256Canonical(bundle.lineage)) {
     throw new Error("VPD-K002: persisted compilation file set does not match the committed bundle");
   }
   assertDirectoryIdentity(projectRoot);
@@ -2105,6 +2105,14 @@ async function writeCreateOnlyText(path: string, value: string): Promise<void> {
     fsyncSync(fd);
   } finally {
     closeSync(fd);
+  }
+}
+
+function parsePersistedCompilationJson(text: string, label: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`VPD-K002: persisted compilation ${label} is not valid JSON`);
   }
 }
 

@@ -4,15 +4,9 @@
  */
 import { fork } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-
-async function realTempDir(prefix: string): Promise<string> {
-  // Prefer /private/tmp so root-lock ancestor checks see no symlink chain (macOS /tmp → /private/tmp).
-  const base = process.platform === "darwin" ? "/private/tmp" : tmpdir();
-  return realpath(await mkdtemp(join(base, prefix)));
-}
 import { describe, expect, it } from "vitest";
+import { durableTempRoot } from "../src/platform/path.js";
 import {
   ProductionDispatcher,
   assertAuthority,
@@ -73,6 +67,10 @@ import {
 } from "../src/productionControl/recovery.js";
 import { runActivePaidRegeneration } from "../src/productionControl/activeRecovery.js";
 
+async function realTempDir(prefix: string): Promise<string> {
+  return realpath(await mkdtemp(join(durableTempRoot(), prefix)));
+}
+
 const DIGEST_A = "a".repeat(64);
 const DIGEST_B = "b".repeat(64);
 const DIGEST_C = "c".repeat(64);
@@ -80,7 +78,7 @@ const DIGEST_D = "d".repeat(64);
 const DIGEST_E = "e".repeat(64);
 const DIGEST_F = "f".repeat(64);
 const NOW = "2026-08-12T00:00:00.000Z";
-const FUTURE = "2026-08-13T00:00:00.000Z";
+const FUTURE = "2099-12-31T00:00:00.000Z";
 const PAST = "2026-08-11T00:00:00.000Z";
 
 function route(seed = "r1"): RouteIdentity {
@@ -412,6 +410,33 @@ describe("PO-6 canonical contracts", () => {
       })).rejects.toThrow(/base compilation/i);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("classifies policy expiry against injected now rather than wall clock", () => {
+    const nearExpiry = "2026-08-12T00:00:01.000Z";
+    const policy = samplePolicy({ expires_at: nearExpiry });
+    const bundle = sampleBundleWithPolicy(policy);
+    const g1 = gate1Pair(bundle);
+    const input = {
+      grant_id: "grant-clock",
+      policy,
+      gate_bundle: bundle,
+      gate_1_decision: g1.decision,
+      live_gate_1_subject_digest: g1.subject_digest,
+      live_gate_1_decision_digest: g1.decision_digest,
+      issued_at: NOW
+    };
+    expect(() => issueRegenerationGrant({ ...input, now: new Date(NOW) })).not.toThrow();
+    try {
+      issueRegenerationGrant({
+        ...input,
+        grant_id: "grant-clock-expired",
+        now: new Date("2026-08-12T00:00:02.000Z")
+      });
+      expect.fail("expected policy expiry to reject");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "PC_POLICY_MISMATCH" });
     }
   });
 });
@@ -3179,7 +3204,8 @@ describe("PO-6 fixture E2E active recovery call graph", () => {
         await expect(rehydrateSealedPaidAuthorization({
           store: qStore,
           ledger: qLedger,
-          authorization_digest: unknown.authorization_digest
+          authorization_digest: unknown.authorization_digest,
+          now: new Date(NOW)
         })).rejects.toMatchObject({ code: "PC_AUTHORIZATION_INVALID" });
       }
       void qPolicy;
@@ -5626,7 +5652,8 @@ describe("PO-6 terminalizeReservation fail-closed adversarial", () => {
       await expect(rehydrateSealedPaidAuthorization({
         store,
         ledger,
-        authorization_digest: auth.authorization.digest
+        authorization_digest: auth.authorization.digest,
+        now: new Date(NOW)
       })).rejects.toMatchObject({ code: "PC_AUTHORIZATION_INVALID" });
 
       // Lock conflict while trying another mutation fails closed (does not invent success).

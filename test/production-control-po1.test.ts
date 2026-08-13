@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { durableTempRoot } from "../src/platform/path.js";
 import {
   ArtifactStore,
   type ArtifactStoreHooks,
@@ -80,7 +81,7 @@ const childStoreScript = `
 `;
 
 async function tempRoot(prefix: string): Promise<string> {
-  return mkdtemp(join("/private/tmp", `tsugite-po1-${prefix}-`));
+  return mkdtemp(join(durableTempRoot(), `tsugite-po1-${prefix}-`));
 }
 
 function expectCode(action: () => unknown | Promise<unknown>, code: string) {

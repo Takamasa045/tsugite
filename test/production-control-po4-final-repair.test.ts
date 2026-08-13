@@ -706,6 +706,35 @@ describe("PO-4 final repair regressions", () => {
     }
   });
 
+  it("classifies tampered bundle.json as VPD-K002 instead of a raw JSON parse error", async () => {
+    const { model, connection, adapter, route } = await v6Route();
+    const compiled = compileVideoPromptIrV2(standalone(), {
+      route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_capability_digest: connection.digest,
+      adapter_dialect_capability: adapter.capability
+    });
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const root = await mkdtemp(join(tmpdir(), "tsugite-po4-bundle-json-tamper-"));
+    try {
+      const options = { project_root: root, revision_id: compilationRevisionId(compiled.compilation.bundle), request_id: compiled.compilation.bundle.request_id };
+      await writeCompilationBundleAtomic(root, compiled.compilation.bundle, options);
+      const target = join(root, options.revision_id, "video-prompt", compiled.compilation.bundle.request_id);
+      await writeFile(join(target, "bundle.json"), "tampered\n");
+      expect(() => readCompilationBundleAtomic(target, { ...options })).toThrow(/VPD-K002/);
+      try {
+        readCompilationBundleAtomic(target, { ...options });
+      } catch (error) {
+        expect(String(error)).not.toMatch(/Unexpected token/);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("uses revision/request placement and rejects an existing same-request artifact from another revision", async () => {
     const { model, connection, adapter, route } = await v6Route();
     const compiled = compileVideoPromptIrV2(standalone(), {

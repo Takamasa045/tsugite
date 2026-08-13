@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toPortablePath } from "../src/platform/path.js";
+import { durableTempRoot, toPortablePath } from "../src/platform/path.js";
 
 describe("portable serialized paths", () => {
   it("uses forward slashes for Windows path fragments stored in manifests and review data", () => {
@@ -12,5 +12,12 @@ describe("portable serialized paths", () => {
     expect(toPortablePath("knowledge/video-models/pixverse/prompt-guide.yaml")).toBe(
       "knowledge/video-models/pixverse/prompt-guide.yaml"
     );
+  });
+
+  it("selects a real temp parent without assuming macOS /private/tmp exists", () => {
+    expect(durableTempRoot("darwin", "/tmp")).toBe("/private/tmp");
+    expect(durableTempRoot("linux", "/tmp")).toBe("/tmp");
+    expect(durableTempRoot("win32", "C:\\Temp")).toBe("C:\\Temp");
+    expect(durableTempRoot("linux", "/tmp")).not.toBe("/private/tmp");
   });
 });

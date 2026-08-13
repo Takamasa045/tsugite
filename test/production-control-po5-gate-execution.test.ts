@@ -5,6 +5,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { durableTempRoot } from "../src/platform/path.js";
 import {
   ProductionDispatcher,
   assertAuthority,
@@ -73,6 +74,10 @@ import { legacyReviewDocumentProjection } from "../src/orchestrator/review.js";
 import { assertProductionBindingForMode } from "../src/generationJobs/approval.js";
 import type { GenerationJobRecord } from "../src/generationJobs/schema.js";
 import { isAdoptedExecutionCompilationBundle } from "../src/videoPromptDirector/compilationBundle.js";
+
+async function tempRoot(prefix: string): Promise<string> {
+  return mkdtemp(join(durableTempRoot(), prefix));
+}
 
 const D = (n: number) => n.toString(16).padStart(64, "0").slice(0, 64);
 const DIGEST_A = "a".repeat(64);
@@ -954,7 +959,7 @@ describe("PO-5 generation bridge / submission_unknown / pin-only / T05 authority
 
 describe("PO-5 resume / events / snapshot / orphan / interleaving", () => {
   it("replays deterministically, rejects gap/duplicate/tamper, and treats snapshot as cache", async () => {
-    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-resume-"));
+    const root = await tempRoot("tsugite-po5-resume-");
     try {
       const store = new EventStore(root);
       const e1 = await store.append({
@@ -1508,7 +1513,7 @@ describe("PO-5 sealed authority integration", () => {
   });
 
   it("covers resume snapshot rebuild and accepted artifact reverify mismatch", async () => {
-    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-resume2-"));
+    const root = await tempRoot("tsugite-po5-resume2-");
     try {
       const store = new EventStore(root);
       await store.append({
@@ -1780,7 +1785,7 @@ describe("PO-5 machine active submit T05 path (stub adapter)", () => {
   it("active submit never reaches adapter without adopted T05 authority; fake/raw/swap stay at 0", async () => {
     const { GenerationJobMachine } = await import("../src/generationJobs/machine.js");
     const { GenerationJobStore } = await import("../src/generationJobs/store.js");
-    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-machine-"));
+    const root = await tempRoot("tsugite-po5-machine-");
     try {
       let adapterSubmitCount = 0;
       const store = new GenerationJobStore({ rootDir: root });
@@ -2235,7 +2240,7 @@ describe("PO-5 active machine resolvers fail closed", () => {
   it("rejects active submit without resolveGateBundle/resolveLiveGate1/resolveCoordinatorPrincipal", async () => {
     const { GenerationJobMachine } = await import("../src/generationJobs/machine.js");
     const { GenerationJobStore } = await import("../src/generationJobs/store.js");
-    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-resolvers-"));
+    const root = await tempRoot("tsugite-po5-resolvers-");
     try {
       const store = new GenerationJobStore({ rootDir: root });
       const r = route("main");
@@ -2385,7 +2390,7 @@ describe("PO-5 durable Gate2/Gate3 evidence recompute and cascade", () => {
       loadDurableGate3Evidence
     } = await import("../src/productionControl/durableGateEvidence.js");
     const { createGenerationCompletionRef } = await import("../src/productionControl/generationBridge.js");
-    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-g23-"));
+    const root = await tempRoot("tsugite-po5-g23-");
     try {
       const bundle = sampleBundle();
       const runDir = join(root, "run-1");
@@ -2613,7 +2618,7 @@ describe("PO-5 live subject recompute blocks tampered durable evidence", () => {
       assertLiveActiveSubjectsBeforePhase
     } = await import("../src/productionControl/durableGateEvidence.js");
     const { writeFile } = await import("node:fs/promises");
-    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-tamper-"));
+    const root = await tempRoot("tsugite-po5-tamper-");
     try {
       const bundle = sampleBundle();
       const runDir = join(root, "run-1");
@@ -2706,7 +2711,7 @@ describe("PO-5 live subject recompute blocks tampered durable evidence", () => {
       assertLiveActiveSubjectsBeforePhase
     } = await import("../src/productionControl/durableGateEvidence.js");
     const { writeState, readState } = await import("../src/orchestrator/state.js");
-    const root = await mkdtemp(join("/private/tmp", "tsugite-po5-m3-cascade-"));
+    const root = await tempRoot("tsugite-po5-m3-cascade-");
     try {
       // sampleBundle uses production_id=prod-1 and run_id=run-1
       const bundle = sampleBundle();
