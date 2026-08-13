@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "request_id": "t2v",
+  "workflow_id": "h3-prompt-director",
+  "workflow_version": "2",
+  "creative_ir_sha256": "c9659d7d3ddd67d2687e9fad20b87cdea9b2f4911d81889ccb069bf1c11e3e49",
+  "canonical_prompt_sha256": "4877ec7b25963c23631b5f9e057ec3a0313f2ccffec264b1e2eb9ad7ca98be53",
+  "adapter_prompt_sha256": "4877ec7b25963c23631b5f9e057ec3a0313f2ccffec264b1e2eb9ad7ca98be53",
+  "validation_ok": true,
+  "error_codes": [],
+  "warning_codes": [
+    "identity.subject_unlocked"
+  ],
+  "compile_ok": true,
+  "input_mode": "text-to-video",
+  "duration_seconds": 10,
+  "aspect": "16:9",
+  "asset_hashes": {},
+  "lineage_block_digests": {
+    "subjects": "8f24b6ab8829838e635f00609cf0fc79e3f724bae430bc69727a8f6af7bde63e",
+    "sound.soundscape": "1b10ff87658e06763c33d3c3252c53c5ddb604c8ac5d91eb998bf9e7f2e39fba",
+    "sound.music": "6012fa2c02f154386edb0d40c5a68910844af576ecd27cd52aa2f33329b66eba",
+    "shot.shot_1.visual": "eaa7ad039eedc13ff68b9038fd94cf55fae2af61da168973227b8a7c6be7543d",
+    "shot.shot_1.camera": "5eb95cbb187d5142edc1241bda66210494fd9e7a01eacb796919726ce0618d57",
+    "shot.shot_2.visual": "37f81f714c1a60f8f4d9de2900c04e9c59c04c16741f8521cdb54096bc6a9df2",
+    "shot.shot_2.camera": "1a5a109e020bbc88e5cd9567d43008ac61f86caf7642546cbc918f13aef421f3",
+    "shot.shot_2.dialogue": "e13f4079e96f9f70c676945ed9cba90086651be75750cd0b4bbe393f7bf9bb05"
+  }
+}

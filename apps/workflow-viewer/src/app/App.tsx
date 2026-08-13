@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { AppHeader } from '../components/layout/AppHeader'
 import { SidePanel } from '../components/layout/SidePanel'
 import { TimelinePanel } from '../components/layout/TimelinePanel'
+import { MissionTreeStatus } from '../components/mission/MissionTreeStatus'
 import { workflowSamples } from '../data'
 import { useTimelinePlayback } from '../hooks/useTimelinePlayback'
 import { useWorkflowStateAtTime } from '../hooks/useWorkflowStateAtTime'
@@ -222,6 +223,7 @@ export function App({
           <p>{focusCopy.note}</p>
           <small>工程を選択してズーム · ホイールでカーソル位置へ寄る</small>
         </section>
+        {workflow.missionTree ? <MissionTreeStatus missionTree={workflow.missionTree} /> : null}
         {layout.warnings.length > 0 && (
           <p className="scene-warning" role="status">{layout.warnings.join(' · ')}</p>
         )}

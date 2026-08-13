@@ -1,0 +1,7 @@
+command=node --test apps/desktop/test/package-boundary.test.mjs apps/desktop/test/package-config.test.mjs apps/desktop/test/package-audit.test.mjs
+---
+tests 24
+pass 24
+fail 0
+---
+exit_code=0

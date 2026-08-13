@@ -10,7 +10,8 @@ import {
   assertUntrackedBuildInputsAllowed,
   cleanGeneratedOutputs
 } from "../scripts/clean-generated.mjs";
-import { stageRuntime } from "../scripts/prepare-runtime.mjs";
+import { parsePrepareRuntimeArguments, stageRuntime } from "../scripts/prepare-runtime.mjs";
+import { createViewerBundleManifest } from "../scripts/viewer-bundle.mjs";
 
 async function put(root, path, contents = path) {
   const target = join(root, path);
@@ -23,7 +24,11 @@ async function fixture() {
   const desktopRoot = join(root, "apps", "desktop");
 
   await put(root, "build/cli.js", "export const built = true;\n");
-  await put(root, "apps/workflow-viewer/dist/index.html", "viewer");
+  await put(
+    root,
+    "apps/workflow-viewer/dist/index.html",
+    '<meta name="tsugite-viewer-source-version" content="fixture-v1">viewer'
+  );
   await put(root, "fake-node", "node-22");
   await put(root, "package.json", '{"name":"fixture","version":"1.0.0","type":"module"}\n');
   await put(root, "package-lock.json", '{"name":"fixture","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"fixture","version":"1.0.0"}}}\n');
@@ -60,7 +65,18 @@ test("stages generated outputs and only safe tracked runtime assets", async () =
   });
 
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "build", "cli.js"), "utf8"), "export const built = true;\n");
-  assert.equal(await readFile(join(result.runtimeRoot, "viewer", "index.html"), "utf8"), "viewer");
+  assert.equal(
+    await readFile(join(result.runtimeRoot, "viewer", "index.html"), "utf8"),
+    '<meta name="tsugite-viewer-source-version" content="fixture-v1">viewer'
+  );
+  const viewerManifest = JSON.parse(
+    await readFile(join(result.runtimeRoot, "viewer", "bundle-manifest.json"), "utf8")
+  );
+  assert.deepEqual(viewerManifest, await createViewerBundleManifest(join(root, "apps/workflow-viewer/dist")));
+  assert.equal(viewerManifest.source_version, "fixture-v1");
+  assert.equal(viewerManifest.workflow_dto_schema_version, 1);
+  assert.equal(viewerManifest.rendering_capability_mode, "runtime-negotiated");
+  assert.match(viewerManifest.bundle_digest, /^[a-f0-9]{64}$/);
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "bin", "node"), "utf8"), "node-22");
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "adapters", "demo", "adapter.yaml"), "utf8"), "id: demo\n");
   assert.equal(await readFile(join(result.runtimeRoot, "tsugite", "connections", "catalog.yaml"), "utf8"), "connections: []\n");
@@ -104,6 +120,44 @@ test("rejects symlinks inside the tracked runtime allowlist", async () => {
     }),
     /symlink/i
   );
+});
+
+test("parses fixture-only offline prepare arguments and rejects implicit install", () => {
+  assert.deepEqual(parsePrepareRuntimeArguments([]), { install: false, offlineFrom: null });
+  assert.deepEqual(
+    parsePrepareRuntimeArguments(["--offline-from", "/tmp/physical-node-modules"]),
+    { install: false, offlineFrom: "/tmp/physical-node-modules" }
+  );
+  assert.throws(
+    () => parsePrepareRuntimeArguments(["--install", "--offline-from", "/tmp/physical-node-modules"]),
+    /cannot combine/
+  );
+});
+
+test("copies offline production dependencies without npm ci", async () => {
+  const { root, desktopRoot, nodeExecutable } = await fixture();
+  const offline = join(root, "physical-node-modules");
+  await put(offline, "left-pad/package.json", '{"name":"left-pad"}\n');
+  await put(offline, "left-pad/index.js", "export default 1;\n");
+  await symlink("index.js", join(offline, "left-pad", "ignored-link.js"));
+
+  const result = await stageRuntime({
+    repoRoot: root,
+    desktopRoot,
+    install: false,
+    offlineFrom: offline,
+    nodeExecutable,
+    nodeVersion: "22.12.0",
+    nodeExecutableName: "node"
+  });
+
+  assert.equal(result.manifest.production_dependencies_installed, true);
+  assert.equal(result.manifest.offline_dependencies_copied, true);
+  assert.equal(
+    await readFile(join(result.runtimeRoot, "tsugite", "node_modules", "left-pad", "package.json"), "utf8"),
+    '{"name":"left-pad"}\n'
+  );
+  await assert.rejects(access(join(result.runtimeRoot, "tsugite", "node_modules", "left-pad", "ignored-link.js")));
 });
 
 test("rejects a non-Node-22 executable", async () => {

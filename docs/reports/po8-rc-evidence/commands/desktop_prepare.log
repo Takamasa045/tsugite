@@ -1,0 +1,51 @@
+command=npm run desktop:prepare
+---
+
+> tsugite@0.9.0 desktop:prepare
+> npm --prefix apps/desktop run build:runtime
+
+
+> @tsugite/desktop@0.6.0 build:runtime
+> node scripts/clean-generated.mjs && npm --prefix ../.. run build && npm --prefix ../workflow-viewer run build && npm run prepare-runtime
+
+(node:94624) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"ok":true,"cleaned":["[redacted-path]
+
+> tsugite@0.9.0 build
+> tsc -p tsconfig.json
+
+
+> @tsugite/workflow-viewer@0.1.0 build
+> npm run typecheck && vite build --configLoader runner
+
+
+> @tsugite/workflow-viewer@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.app.json --pretty false && tsc --noEmit -p tsconfig.node.json --pretty false
+
+(node:94838) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+vite v8.1.4 building client environment for production...
+transforming...✓ 2409 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     0.77 kB │ gzip:   0.48 kB
+dist/assets/xterm-Ri7I-oLU.mjs    344.97 kB
+dist/assets/index-BIfbgdaU.css    235.76 kB │ gzip:  39.10 kB
+dist/assets/index-kYO-yE1I.js   1,482.66 kB │ gzip: 408.13 kB
+
+✓ built in 308ms
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 1400 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: http[redacted-path]
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+> @tsugite/desktop@0.6.0 prepare-runtime
+> node scripts/prepare-runtime.mjs
+
+(node:94882) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"ok":true,"runtime_root":"[redacted-path]
+---
+exit_code=0

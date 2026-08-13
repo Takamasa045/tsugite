@@ -1,0 +1,25 @@
+{
+  "run_id": "legacy-baseline-run",
+  "status": "completed",
+  "updated_at": "2026-07-19T02:00:00.000Z",
+  "gates": {
+    "gate_1": {
+      "status": "approved",
+      "updated_at": "2026-07-19T01:57:00.000Z",
+      "approved_input_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_source": "human"
+    },
+    "gate_2": {
+      "status": "approved",
+      "updated_at": "2026-07-19T01:58:00.000Z",
+      "approved_input_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "decision_source": "auto_qc"
+    },
+    "gate_3": {
+      "status": "approved",
+      "updated_at": "2026-07-19T02:00:00.000Z",
+      "approved_input_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "decision_source": "human"
+    }
+  }
+}

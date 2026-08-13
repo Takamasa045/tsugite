@@ -1,5 +1,21 @@
 name: kling
 kind: cli
+prompt_capabilities:
+  - model_profile_id: video-3.0
+    provider_model: kling-v3
+    modes: [text-to-video, first-frame]
+    renderer: plain-prompt
+    label_dialect: none
+  - model_profile_id: video-3.0-omni
+    provider_model: kling-v3-omni
+    modes: [text-to-video, first-frame]
+    renderer: plain-prompt
+    label_dialect: none
+  - model_profile_id: o1
+    provider_model: o1
+    modes: [text-to-video, first-frame]
+    renderer: plain-prompt
+    label_dialect: none
 dry_run_estimate: true
 batch: true
 credit_estimate:

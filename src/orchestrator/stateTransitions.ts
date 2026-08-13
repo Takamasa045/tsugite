@@ -34,6 +34,13 @@ export function markGateAwaiting(state: RunState, gate: GateId, updatedAt = new 
   };
 }
 
+export type ProductionGateBinding = {
+  /** Additive PO-5 subject digest; does not replace approved_input_digest. */
+  production_subject_digest?: string;
+  /** Additive PO-5 decision digest; does not replace approved_input_digest. */
+  production_decision_digest?: string;
+};
+
 export function recordGateDecision(
   state: RunState,
   gate: GateId,
@@ -41,7 +48,8 @@ export function recordGateDecision(
   updatedAt = new Date().toISOString(),
   approvedInputDigest?: string,
   decisionSource: GateDecisionSource = "human",
-  personQaApprovalDigest?: string
+  personQaApprovalDigest?: string,
+  productionBinding?: ProductionGateBinding
 ): RunState {
   if (decision === "re_render" && gate !== "gate_3") {
     throw new Error("re_render is only valid for gate_3");
@@ -60,6 +68,11 @@ export function recordGateDecision(
     throw new Error(`cannot decide ${gate} before it is awaiting approval`);
   }
 
+  // Gate 1 and Gate 3 are always human. Preserve only the existing narrow Gate 2 auto-pass.
+  if ((gate === "gate_1" || gate === "gate_3") && decisionSource !== "human" && decision === "approved") {
+    throw new Error(`${gate} always requires a human decision`);
+  }
+
   return {
     ...state,
     status: statusAfterDecision(gate, decision, state.status),
@@ -71,7 +84,8 @@ export function recordGateDecision(
       updatedAt,
       approvedInputDigest,
       decisionSource,
-      personQaApprovalDigest
+      personQaApprovalDigest,
+      productionBinding
     )
   };
 }
@@ -219,7 +233,8 @@ function gatesAfterDecision(
   updatedAt: string,
   approvedInputDigest: string | undefined,
   decisionSource: GateDecisionSource,
-  personQaApprovalDigest?: string
+  personQaApprovalDigest?: string,
+  productionBinding?: ProductionGateBinding
 ): Record<GateId, GateState> {
   if (decision === "revise") {
     return defaultGates();
@@ -243,7 +258,14 @@ function gatesAfterDecision(
       ...(decision === "approved" && personQaApprovalDigest
         ? { person_qa_approval_digest: personQaApprovalDigest }
         : {}),
-      ...(decision === "approved" ? { decision_source: decisionSource } : {})
+      ...(decision === "approved" ? { decision_source: decisionSource } : {}),
+      // Additive PO-5 fields only; legacy approved_input_digest / plan_digest semantics unchanged.
+      ...(decision === "approved" && productionBinding?.production_subject_digest
+        ? { production_subject_digest: productionBinding.production_subject_digest }
+        : {}),
+      ...(decision === "approved" && productionBinding?.production_decision_digest
+        ? { production_decision_digest: productionBinding.production_decision_digest }
+        : {})
     }
   };
 }

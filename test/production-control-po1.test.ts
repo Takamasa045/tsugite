@@ -1,0 +1,787 @@
+import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile
+} from "node:fs/promises";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { durableTempRoot } from "../src/platform/path.js";
+import {
+  ArtifactStore,
+  type ArtifactStoreHooks,
+  EventStore,
+  type EventStoreHooks,
+  ProductionControlError,
+  SnapshotStore,
+  type SnapshotHooks,
+  assertEventIntegrity,
+  canonicalJson,
+  makeProductionEvent,
+  missionStateDigest,
+  parseProductionEvent,
+  reduceProductionEvent,
+  replayProductionEvents,
+  sha256Bytes,
+  sha256Canonical,
+  type MissionState,
+  type ProductionEvent
+} from "../src/productionControl/index.js";
+
+const DIGEST_A = "a".repeat(64);
+const DIGEST_B = "b".repeat(64);
+const productionControlModuleUrl = new URL("../src/productionControl/index.ts", import.meta.url).href;
+const childStoreScript = `
+  const { lstat, writeFile } = await import("node:fs/promises");
+  const { EventStore, SnapshotStore } = await import(${JSON.stringify(productionControlModuleUrl)});
+  const [mode, root] = process.argv.slice(1);
+  const readyPath = process.env.PC_TEST_READY_PATH;
+  const releasePath = process.env.PC_TEST_RELEASE_PATH;
+  const barrierTimeoutMs = Number(process.env.PC_TEST_BARRIER_TIMEOUT_MS ?? "5000");
+  const waitForRelease = async () => {
+    if (!readyPath || !releasePath) return;
+    await writeFile(readyPath, "ready\\n", { encoding: "utf8", flag: "wx" });
+    const deadline = Date.now() + barrierTimeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        await lstat(releasePath);
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+    throw new Error("timed out waiting for " + releasePath);
+  };
+  const hooks = { afterRootLockAcquired: async () => {
+    await waitForRelease();
+  }};
+  try {
+    if (mode === "event") {
+      await new EventStore(root, { hooks }).append({
+        type: "mission-created",
+        production_id: "production-1",
+        payload: { mission_digest: "${"a".repeat(64)}", tree_revision: 1 },
+        coordinator_instance_id: "child"
+      });
+    } else {
+      await new SnapshotStore(root, { hooks }).compareAndSwap(JSON.parse(process.env.PC_TEST_STATE), null);
+    }
+    process.stdout.write(JSON.stringify({ ok: true }));
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ ok: false, code: error?.code ?? "UNKNOWN" }));
+    process.exitCode = 2;
+  }
+`;
+
+async function tempRoot(prefix: string): Promise<string> {
+  return mkdtemp(join(durableTempRoot(), `tsugite-po1-${prefix}-`));
+}
+
+function expectCode(action: () => unknown | Promise<unknown>, code: string) {
+  return expect(action()).rejects.toMatchObject({ code });
+}
+
+type ChildBarrier = { readyPath: string; releasePath: string };
+type ChildResult = { exitCode: number | null; output: string };
+
+function runChildStore(
+  mode: "event" | "snapshot",
+  root: string,
+  state?: MissionState,
+  barrier?: ChildBarrier
+): Promise<ChildResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", childStoreScript, mode, root], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PC_TEST_BARRIER_TIMEOUT_MS: "5000",
+        ...(barrier ? { PC_TEST_READY_PATH: barrier.readyPath, PC_TEST_RELEASE_PATH: barrier.releasePath } : {}),
+        ...(state ? { PC_TEST_STATE: JSON.stringify(state) } : {})
+      },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let output = "";
+    let errorOutput = "";
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 500);
+      reject(new Error(`child ${mode} timed out: ${errorOutput}`));
+    }, 10000);
+    child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk: Buffer) => { errorOutput += chunk.toString("utf8"); });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve({ exitCode, output });
+    });
+  });
+}
+
+async function waitForPath(path: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await lstat(path);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
+function eventInput<T extends ProductionEvent["type"]>(input: {
+  type: T;
+  payload: Extract<ProductionEvent, { type: T }>["payload"];
+  production_id?: string;
+}) {
+  return {
+    type: input.type,
+    payload: input.payload,
+    production_id: input.production_id ?? "production-1",
+    coordinator_instance_id: "coordinator-test"
+  } as const;
+}
+
+async function buildPendingAcceptanceStore(root: string): Promise<{ store: EventStore; artifactDigest: string }> {
+  const store = new EventStore(root);
+  await store.append(eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } }));
+  await store.append(eventInput({
+    type: "task-readied",
+    payload: { node_id: "node-1", task_revision: 1, input_digest: DIGEST_A, dependency_closure_digest: DIGEST_B }
+  }));
+  await store.append(eventInput({
+    type: "attempt-leased",
+    payload: {
+      attempt_id: "attempt-1",
+      lease_id: "lease-1",
+      node_id: "node-1",
+      task_revision: 1,
+      attempt_key: DIGEST_A,
+      input_digest: DIGEST_A,
+      lease_digest: DIGEST_B,
+      role: "reviewer",
+      effect: "propose",
+      acquired_at: "2026-08-11T00:00:00.000Z",
+      expires_at: "2026-08-11T01:00:00.000Z"
+    }
+  }));
+  await store.append(eventInput({ type: "attempt-started", payload: { attempt_id: "attempt-1", lease_digest: DIGEST_B } }));
+  const artifactDigest = sha256Bytes(Buffer.from("artifact"));
+  await store.append(eventInput({
+    type: "artifact-created",
+    payload: { artifact_id: "artifact-1", artifact_digest: artifactDigest, node_id: "node-1", attempt_id: "attempt-1" }
+  }));
+  return { store, artifactDigest };
+}
+
+async function buildAcceptedStore(root: string): Promise<{ store: EventStore; artifactDigest: string; state: MissionState }> {
+  const { store, artifactDigest } = await buildPendingAcceptanceStore(root);
+  await store.append(eventInput({
+    type: "artifact-accepted",
+    payload: acceptedPayload(artifactDigest)
+  }));
+  return { store, artifactDigest, state: await store.replay("production-1") };
+}
+
+function acceptedPayload(artifactDigest: string, overrides: Record<string, unknown> = {}) {
+  return {
+    artifact_id: "artifact-1",
+    artifact_digest: artifactDigest,
+    node_id: "node-1",
+    attempt_id: "attempt-1",
+    expected_event_sequence: 5,
+    tree_revision: 1,
+    task_revision: 1,
+    input_digest: DIGEST_A,
+    lease_digest: DIGEST_B,
+    dependency_closure_digest: DIGEST_B,
+    ...overrides
+  } as never;
+}
+
+describe("PO-1 canonical and strict schema", () => {
+  it("sorts object keys, keeps array order, and excludes volatile identity fields", () => {
+    expect(canonicalJson({ b: 2, a: 1 })).toBe(canonicalJson({ a: 1, b: 2 }));
+    expect(sha256Canonical({ values: ["first", "second"] }))
+      .not.toBe(sha256Canonical({ values: ["second", "first"] }));
+    expect(sha256Canonical({ digest: 1, created_at: "2020-01-01T00:00:00.000Z", path: "/private/a" }))
+      .toBe(sha256Canonical({ digest: 1, created_at: "2030-01-01T00:00:00.000Z", path: "/private/b" }));
+  });
+
+  it("fails closed for non-finite numbers, secret/raw fields, and absolute paths", () => {
+    expect(() => sha256Canonical({ value: Number.NaN })).toThrow(ProductionControlError);
+    expect(() => sha256Canonical({ access_token: "secret" })).toThrow(ProductionControlError);
+    expect(() => sha256Canonical({ clientSecret: "secret" })).toThrow(ProductionControlError);
+    expect(() => sha256Canonical({ value: "~/private/file" })).toThrow(ProductionControlError);
+    expect(() => makeProductionEvent(eventInput({
+      type: "mission-created",
+      payload: { mission_digest: DIGEST_A, tree_revision: 1, prompt: "raw" } as never
+    }))).toThrow();
+    expect(() => makeProductionEvent(eventInput({
+      type: "mission-created",
+      payload: { mission_digest: DIGEST_A, tree_revision: 1, path: "/Users/private" } as never
+    }))).toThrow();
+    expect(() => parseProductionEvent({
+      schema_version: 1,
+      event_id: "event-1",
+      production_id: "production-1",
+      sequence: 1,
+      previous_event_digest: DIGEST_A,
+      payload_digest: DIGEST_A,
+      created_at: "2026-08-11T00:00:00.000Z",
+      coordinator_instance_id: "coordinator-test",
+      event_digest: DIGEST_A,
+      type: "unknown-event",
+      payload: {}
+    })).toThrow();
+  });
+});
+
+describe("PO-1 ArtifactStore", () => {
+  it("writes a regular create-only artifact and rejects duplicate/size/digest mismatch", async () => {
+    const root = await tempRoot("artifact");
+    try {
+      const store = new ArtifactStore(root);
+      const bytes = Buffer.from("artifact");
+      const saved = await store.create({ artifact_id: "artifact-1", bytes, expected_size: bytes.byteLength, expected_sha256: sha256Bytes(bytes) });
+      expect(saved.relative_path).toBe("artifacts/artifact-1.json");
+      expect(await store.read("artifact-1")).toEqual(bytes);
+      await expectCode(() => store.create({ artifact_id: "artifact-1", bytes }), "PC_ARTIFACT_DUPLICATE");
+      await expectCode(() => store.create({ artifact_id: "artifact-2", bytes, expected_size: bytes.byteLength + 1 }), "PC_ARTIFACT_MISMATCH");
+      await expectCode(() => store.create({ artifact_id: "artifact-3", bytes, expected_sha256: DIGEST_A }), "PC_ARTIFACT_MISMATCH");
+      await expectCode(() => store.create({ artifact_id: "../escape", bytes }), "PC_PATH_UNSAFE");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects symlinked artifact directory and leaf swap before publication", async () => {
+    const root = await tempRoot("artifact-path");
+    const outside = await tempRoot("artifact-outside");
+    try {
+      await symlink(outside, join(root, "artifacts"));
+      await expectCode(() => new ArtifactStore(root).create({ artifact_id: "artifact-1", bytes: "x" }), "PC_PATH_UNSAFE");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+
+    const root2 = await tempRoot("artifact-leaf");
+    const outside2 = await tempRoot("artifact-leaf-outside");
+    try {
+      const finalPath = join(root2, "artifacts", "artifact-1.json");
+      const store = new ArtifactStore(root2, { hooks: {
+        beforePublish: async () => {
+          await symlink(join(outside2, "target"), finalPath);
+        }
+      } });
+      await expectCode(() => store.create({ artifact_id: "artifact-1", bytes: "x" }), "PC_PATH_UNSAFE");
+      expect((await readdir(join(root2, "artifacts"))).some((name) => name === "artifact-1.json")).toBe(true);
+    } finally {
+      await rm(root2, { recursive: true, force: true });
+      await rm(outside2, { recursive: true, force: true });
+    }
+
+    const root3 = await tempRoot("artifact-after-reserve");
+    const outside3 = await tempRoot("artifact-after-reserve-outside");
+    try {
+      const finalPath = join(root3, "artifacts", "artifact-1.json");
+      const store = new ArtifactStore(root3, { hooks: {
+        afterReserveBeforeRename: async () => {
+          await symlink(join(outside3, "target"), finalPath);
+        }
+      } });
+      await expectCode(() => store.create({ artifact_id: "artifact-1", bytes: "x" }), "PC_PATH_UNSAFE");
+    } finally {
+      await rm(root3, { recursive: true, force: true });
+      await rm(outside3, { recursive: true, force: true });
+    }
+
+    const root4 = await tempRoot("artifact-toctou");
+    try {
+      const finalPath = join(root4, "artifacts", "artifact-1.json");
+      const store = new ArtifactStore(root4, { hooks: {
+        afterFinalCheckBeforePublish: async () => writeFile(finalPath, "foreign")
+      } });
+      await expectCode(() => store.create({ artifact_id: "artifact-1", bytes: "x" }), "PC_ARTIFACT_DUPLICATE");
+      expect(await readFile(finalPath, "utf8")).toBe("foreign");
+    } finally {
+      await rm(root4, { recursive: true, force: true });
+    }
+  });
+
+  it("retains a published artifact as an orphan when directory fsync crashes", async () => {
+    const root = await tempRoot("artifact-boundary");
+    try {
+      const bytes = Buffer.from("orphan-evidence");
+      const store = new ArtifactStore(root, { hooks: {
+        afterPublishBeforeDirectorySync: () => { throw new Error("simulated artifact directory crash"); }
+      } });
+      await expect(store.create({ artifact_id: "artifact-1", bytes })).rejects.toThrow("simulated artifact directory crash");
+      expect(await new ArtifactStore(root).read("artifact-1")).toEqual(bytes);
+      expect(await new ArtifactStore(root).recover()).toEqual({ removed_temp_files: 0 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("covers each artifact write crash boundary without adopting temp state", async () => {
+    const stages: Array<{ name: keyof ArtifactStoreHooks; published: boolean }> = [
+      { name: "afterTempWriteBeforeSync", published: false },
+      { name: "afterTempSync", published: false },
+      { name: "beforePublish", published: false },
+      { name: "afterReserveBeforeRename", published: false },
+      { name: "afterFinalCheckBeforePublish", published: false },
+      { name: "afterPublishBeforeDirectorySync", published: true },
+      { name: "afterDirectorySync", published: true }
+    ];
+    for (const [index, stage] of stages.entries()) {
+      const root = await tempRoot(`artifact-crash-${index}`);
+      try {
+        const hooks: ArtifactStoreHooks = {
+          [stage.name]: () => { throw new Error(`simulated ${stage.name}`); }
+        };
+        const store = new ArtifactStore(root, { hooks });
+        await expect(store.create({ artifact_id: "artifact-1", bytes: "crash-matrix" }))
+          .rejects.toThrow(`simulated ${stage.name}`);
+        if (stage.published) {
+          expect(await new ArtifactStore(root).read("artifact-1")).toEqual(Buffer.from("crash-matrix"));
+        } else {
+          await expectCode(() => new ArtifactStore(root).read("artifact-1"), "PC_ARTIFACT_NOT_FOUND");
+        }
+        expect(await new ArtifactStore(root).recover()).toEqual({ removed_temp_files: 0 });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("does not adopt a partial temp artifact during recovery", async () => {
+    const root = await tempRoot("artifact-recovery");
+    try {
+      const store = new ArtifactStore(root);
+      await mkdir(join(root, "artifacts"), { recursive: true });
+      await writeFile(join(root, "artifacts", ".artifact-1.orphan.tmp"), "partial");
+      expect(await store.recover()).toEqual({ removed_temp_files: 1 });
+      expect(await store.has("artifact-1")).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("PO-1 event chain and pure reducer", () => {
+  it("replays a mission deterministically and binds accepted artifacts to all expected values", async () => {
+    const root = await tempRoot("events");
+    try {
+      const { store, state } = await buildAcceptedStore(root);
+      const events = await store.readAll();
+      expect(state.mission_status).toBe("running");
+      expect(state.nodes["node-1"].accepted_artifact_id).toBe("artifact-1");
+      expect(replayProductionEvents(events, "production-1")).toEqual(state);
+      expect(missionStateDigest(state)).toBe(missionStateDigest(replayProductionEvents(events, "production-1")));
+      expect(events.every((event) => event.event_digest.length === 64)).toBe(true);
+      expect(() => reduceProductionEvent(state, events[0])).toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects gap, duplicate, tampered, and cross-production events", async () => {
+    const root = await tempRoot("event-adversarial");
+    try {
+      const store = new EventStore(root);
+      const first = await store.append(eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } }));
+      await expectCode(() => store.append({
+        ...eventInput({ type: "tree-compiled", payload: { tree_revision: 1, tree_digest: DIGEST_B } }),
+        sequence: 3
+      }), "PC_EVENT_CONFLICT");
+      await expectCode(() => store.append({
+        ...eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } }),
+        event_id: first.event_id
+      }), "PC_EVENT_CONFLICT");
+      await expectCode(() => store.append(eventInput({
+        type: "mission-completed", payload: { completion_digest: DIGEST_A }
+      })), "PC_INVALID_TRANSITION");
+      const eventPath = join(root, "events.jsonl");
+      const tampered = (await readFile(eventPath, "utf8")).replace(DIGEST_A, DIGEST_B);
+      await writeFile(eventPath, tampered);
+      await expectCode(() => store.readAll(), "PC_EVENT_TAMPERED");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects every artifact acceptance expected-value mismatch", async () => {
+    const cases: Array<{ name: string; override: Record<string, unknown>; code: string }> = [
+      { name: "expected sequence", override: { expected_event_sequence: 4 }, code: "PC_EVENT_CONFLICT" },
+      { name: "tree revision", override: { tree_revision: 2 }, code: "PC_INVALID_TRANSITION" },
+      { name: "task revision", override: { task_revision: 2 }, code: "PC_INVALID_TRANSITION" },
+      { name: "input digest", override: { input_digest: DIGEST_B }, code: "PC_INVALID_TRANSITION" },
+      { name: "lease digest", override: { lease_digest: DIGEST_A }, code: "PC_INVALID_TRANSITION" },
+      { name: "dependency closure", override: { dependency_closure_digest: DIGEST_A }, code: "PC_INVALID_TRANSITION" },
+      { name: "artifact digest", override: { artifact_digest: DIGEST_B }, code: "PC_INVALID_TRANSITION" }
+    ];
+    for (const [index, mismatch] of cases.entries()) {
+      const root = await tempRoot(`accept-mismatch-${index}`);
+      try {
+        const { store, artifactDigest } = await buildPendingAcceptanceStore(root);
+        await expectCode(() => store.append(eventInput({
+          type: "artifact-accepted",
+          payload: acceptedPayload(artifactDigest, mismatch.override)
+        })), mismatch.code);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("ignores an unterminated event tail and reports it as uncommitted", async () => {
+    const root = await tempRoot("event-crash");
+    try {
+      const store = new EventStore(root);
+      await store.append(eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } }));
+      const path = join(root, "events.jsonl");
+      await writeFile(path, `${await readFile(path, "utf8")}not-committed`);
+      const recovered = await store.recover();
+      expect(recovered.events).toHaveLength(1);
+      expect(recovered.uncommitted_line_count).toBe(1);
+      expect(await store.readAll()).toHaveLength(1);
+      await store.append(eventInput({ type: "tree-compiled", payload: { tree_revision: 1, tree_digest: DIGEST_B } }));
+      expect(await store.readAll()).toHaveLength(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not adopt an event after log fsync when commit publication crashes", async () => {
+    const root = await tempRoot("event-boundary");
+    let failBeforeCommit = true;
+    try {
+      const store = new EventStore(root, { hooks: {
+        afterEventFsyncBeforeCommit: () => {
+          if (failBeforeCommit) {
+            failBeforeCommit = false;
+            throw new Error("simulated commit boundary crash");
+          }
+        }
+      } });
+      const mission = eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } });
+      await expect(store.append(mission)).rejects.toThrow("simulated commit boundary crash");
+      expect(await store.readAll()).toEqual([]);
+      expect((await store.recover()).uncommitted_line_count).toBe(1);
+      await store.append(mission);
+      expect(await store.readAll()).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("covers event write/commit crash boundaries with an explicit commit marker", async () => {
+    const stages: Array<{ name: keyof EventStoreHooks; committed: boolean; code?: string }> = [
+      { name: "afterEventWriteBeforeFsync", committed: false, code: "PC_EVENT_CHAIN" },
+      { name: "afterEventFsyncBeforeCommit", committed: false },
+      { name: "beforeCommit", committed: false },
+      { name: "afterCommitRenameBeforeDirectorySync", committed: true, code: "PC_EVENT_CHAIN" },
+      { name: "afterCommitDirectorySync", committed: true, code: "PC_EVENT_CHAIN" },
+      { name: "afterCommit", committed: true }
+    ];
+    for (const [index, stage] of stages.entries()) {
+      const root = await tempRoot(`event-crash-${index}`);
+      try {
+        const hooks: EventStoreHooks = {
+          [stage.name]: () => { throw new Error(`simulated ${stage.name}`); }
+        };
+        const store = new EventStore(root, { hooks });
+        const mission = eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } });
+        if (stage.code) {
+          await expectCode(() => store.append(mission), stage.code);
+        } else {
+          await expect(store.append(mission)).rejects.toThrow(`simulated ${stage.name}`);
+        }
+        expect(await store.readAll()).toHaveLength(stage.committed ? 1 : 0);
+        expect((await store.recover()).uncommitted_line_count).toBe(stage.committed ? 0 : 1);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("serializes separate processes and preserves a single event chain", async () => {
+    const root = await tempRoot("event-cross-process");
+    const barrier = {
+      readyPath: join(root, ".event-child-ready"),
+      releasePath: join(root, ".event-child-release")
+    };
+    let first: Promise<ChildResult> | undefined;
+    let second: Promise<ChildResult> | undefined;
+    try {
+      first = runChildStore("event", root, undefined, barrier);
+      await waitForPath(barrier.readyPath);
+      second = runChildStore("event", root);
+      const secondResult = await second;
+      expect(secondResult.exitCode).toBe(2);
+      expect(JSON.parse(secondResult.output)).toMatchObject({ ok: false, code: "PC_LOCK_CONFLICT" });
+      await writeFile(barrier.releasePath, "release\n", "utf8");
+      const firstResult = await first;
+      expect(firstResult.exitCode).toBe(0);
+      expect(JSON.parse(firstResult.output)).toEqual({ ok: true });
+      const events = await new EventStore(root).readAll();
+      expect(events).toHaveLength(1);
+      expect(events[0].sequence).toBe(1);
+      assertEventIntegrity(events[0]);
+    } finally {
+      await writeFile(barrier.releasePath, "release\n", "utf8").catch(() => undefined);
+      await first?.catch(() => undefined);
+      await second?.catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects symlinked, stale, and replaced root locks without unlinking foreign leaves", async () => {
+    const root = await tempRoot("root-lock-adversarial");
+    const external = await tempRoot("root-lock-external");
+    const lockPath = join(root, ".production-control.lock");
+    const mission = eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } });
+    try {
+      await writeFile(join(external, "sentinel"), "external\n", "utf8");
+      await symlink(join(external, "sentinel"), lockPath);
+      await expectCode(() => new EventStore(root).append(mission), "PC_LOCK_UNSAFE");
+      expect(await readFile(join(external, "sentinel"), "utf8")).toBe("external\n");
+      await rm(lockPath, { force: true });
+
+      await writeFile(lockPath, `${JSON.stringify({
+        schema_version: 1,
+        pid: 2_147_483_646,
+        token: "00000000-0000-4000-8000-000000000000",
+        acquired_at: "2020-01-01T00:00:00.000Z"
+      })}\n`, "utf8");
+      await expectCode(() => new EventStore(root).append(mission), "PC_LOCK_CONFLICT");
+      expect((await readFile(lockPath, "utf8"))).toContain("00000000-0000-4000-8000-000000000000");
+      await rm(lockPath, { force: true });
+
+      const replaced = new EventStore(root, { hooks: {
+        afterLockCreatedBeforeValidate: async () => {
+          await rm(lockPath, { force: true });
+          await symlink(join(external, "sentinel"), lockPath);
+        }
+      } });
+      await expectCode(() => replaced.append(mission), "PC_LOCK_UNSAFE");
+      expect(await readFile(join(external, "sentinel"), "utf8")).toBe("external\n");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(external, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects every stale acceptance path while preserving accepted-then-invalidated evidence", async () => {
+    const acceptedRoot = await tempRoot("invalidate-after");
+    try {
+      const { store } = await buildAcceptedStore(acceptedRoot);
+      await store.append(eventInput({ type: "nodes-invalidated", payload: {
+        cause_artifact_ids: ["artifact-1"], stale_node_ids: ["node-1"], preserved_node_ids: [], stale_gate_binding_ids: []
+      } }));
+      const state = await store.replay("production-1");
+      expect(state.nodes["node-1"].status).toBe("stale");
+      expect(state.accepted_artifacts["artifact-1"].invalidated).toBe(true);
+    } finally {
+      await rm(acceptedRoot, { recursive: true, force: true });
+    }
+
+    const beforeRoot = await tempRoot("invalidate-before");
+    try {
+      const store = new EventStore(beforeRoot);
+      await store.append(eventInput({ type: "mission-created", payload: { mission_digest: DIGEST_A, tree_revision: 1 } }));
+      await store.append(eventInput({ type: "task-readied", payload: { node_id: "node-1", task_revision: 1, input_digest: DIGEST_A, dependency_closure_digest: DIGEST_B } }));
+      await store.append(eventInput({ type: "attempt-leased", payload: {
+        attempt_id: "attempt-1", lease_id: "lease-1", node_id: "node-1", task_revision: 1, attempt_key: DIGEST_A,
+        input_digest: DIGEST_A, lease_digest: DIGEST_B, role: "reviewer", effect: "propose",
+        acquired_at: "2026-08-11T00:00:00.000Z", expires_at: "2026-08-11T01:00:00.000Z"
+      } }));
+      await store.append(eventInput({ type: "attempt-started", payload: { attempt_id: "attempt-1", lease_digest: DIGEST_B } }));
+      const artifactDigest = sha256Bytes(Buffer.from("artifact"));
+      await store.append(eventInput({ type: "artifact-created", payload: { artifact_id: "artifact-1", artifact_digest: artifactDigest, node_id: "node-1", attempt_id: "attempt-1" } }));
+      await store.append(eventInput({ type: "nodes-invalidated", payload: {
+        cause_artifact_ids: ["artifact-1"], stale_node_ids: ["node-1"], preserved_node_ids: [], stale_gate_binding_ids: []
+      } }));
+      await expectCode(() => store.append(eventInput({ type: "artifact-accepted", payload: {
+        artifact_id: "artifact-1", artifact_digest: artifactDigest, node_id: "node-1", attempt_id: "attempt-1", expected_event_sequence: 6,
+        tree_revision: 1, task_revision: 1, input_digest: DIGEST_A, lease_digest: DIGEST_B, dependency_closure_digest: DIGEST_B
+      } })), "PC_INVALID_TRANSITION");
+    } finally {
+      await rm(beforeRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("PO-1 snapshot CAS and recovery", () => {
+  it("rejects stale CAS writers and reconstructs a missing/stale snapshot from events", async () => {
+    const root = await tempRoot("snapshot");
+    try {
+      const { store, state } = await buildAcceptedStore(root);
+      const snapshots = new SnapshotStore(root);
+      const first = await snapshots.compareAndSwap(state, null);
+      await expectCode(() => snapshots.compareAndSwap({ ...state, revision: state.revision + 1 }, {
+        applied_event_sequence: 0,
+        state_digest: sha256Canonical({ stale: true })
+      }), "PC_SNAPSHOT_CONFLICT");
+      await rm(join(root, "coordination-state.json"));
+      const recovered = await snapshots.recoverFromEvents(store, "production-1");
+      expect(recovered.snapshot_rebuilt).toBe(true);
+      expect(recovered.state).toEqual(state);
+      expect((await snapshots.read())?.state_digest).toBe(first.state_digest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not adopt a partial or tampered snapshot and refuses a leaf swap", async () => {
+    const root = await tempRoot("snapshot-crash");
+    try {
+      const { store, state } = await buildAcceptedStore(root);
+      const snapshots = new SnapshotStore(root);
+      await snapshots.compareAndSwap(state, null);
+      await writeFile(join(root, "coordination-state.json"), "partial");
+      const repaired = await snapshots.recoverFromEvents(store, "production-1");
+      expect(repaired.state).toEqual(state);
+      const root2 = await tempRoot("snapshot-leaf");
+      try {
+        const outside = await tempRoot("snapshot-outside");
+        const snapshotPath = join(root2, "coordination-state.json");
+        const swapping = new SnapshotStore(root2, { hooks: {
+          beforeRename: async () => symlink(join(outside, "target"), snapshotPath)
+        } });
+        await expectCode(() => swapping.compareAndSwap(state, null), "PC_PATH_UNSAFE");
+        await rm(outside, { recursive: true, force: true });
+      } finally {
+        await rm(root2, { recursive: true, force: true });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the prior snapshot when temp fsync fails", async () => {
+    const root = await tempRoot("snapshot-boundary");
+    let failAfterTempSync = true;
+    try {
+      const { state } = await buildAcceptedStore(root);
+      const stable = new SnapshotStore(root);
+      const first = await stable.compareAndSwap(state, null);
+      const crashing = new SnapshotStore(root, { hooks: {
+        afterTempSync: () => {
+          if (failAfterTempSync) {
+            failAfterTempSync = false;
+            throw new Error("simulated snapshot fsync crash");
+          }
+        }
+      } });
+      await expectCode(() => crashing.compareAndSwap({ ...state, revision: state.revision + 1 }, {
+        applied_event_sequence: state.applied_event_sequence,
+        state_digest: first.state_digest
+      }), "PC_RECOVERY_INVALID");
+      expect((await stable.read())?.state_digest).toBe(first.state_digest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("covers snapshot temp/rename/directory-sync crash boundaries", async () => {
+    const stages: Array<{ name: keyof SnapshotHooks; published: boolean }> = [
+      { name: "afterTempWriteBeforeSync", published: false },
+      { name: "afterTempSync", published: false },
+      { name: "beforeRename", published: false },
+      { name: "afterRenameBeforeDirectorySync", published: true },
+      { name: "afterDirectorySync", published: true }
+    ];
+    for (const [index, stage] of stages.entries()) {
+      const root = await tempRoot(`snapshot-crash-${index}`);
+      try {
+        const { state } = await buildAcceptedStore(root);
+        const stable = new SnapshotStore(root);
+        const first = await stable.compareAndSwap(state, null);
+        const nextState = { ...state, revision: state.revision + 1 };
+        const hooks: SnapshotHooks = {
+          [stage.name]: () => { throw new Error(`simulated ${stage.name}`); }
+        };
+        await expectCode(() => new SnapshotStore(root, { hooks }).compareAndSwap(nextState, {
+          applied_event_sequence: state.applied_event_sequence,
+          state_digest: first.state_digest
+        }), "PC_RECOVERY_INVALID");
+        expect((await stable.read())?.state_digest)
+          .toBe(stage.published ? missionStateDigest(nextState) : first.state_digest);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("serializes separate snapshot CAS writers so exactly one null-expected writer wins", async () => {
+    const root = await tempRoot("snapshot-cross-process");
+    const barrier = {
+      readyPath: join(root, ".snapshot-child-ready"),
+      releasePath: join(root, ".snapshot-child-release")
+    };
+    let first: Promise<ChildResult> | undefined;
+    let second: Promise<ChildResult> | undefined;
+    try {
+      const { state } = await buildAcceptedStore(root);
+      first = runChildStore("snapshot", root, state, barrier);
+      await waitForPath(barrier.readyPath);
+      second = runChildStore("snapshot", root, state);
+      const secondResult = await second;
+      expect(secondResult.exitCode).toBe(2);
+      expect(JSON.parse(secondResult.output)).toMatchObject({ ok: false, code: "PC_LOCK_CONFLICT" });
+      await writeFile(barrier.releasePath, "release\n", "utf8");
+      const firstResult = await first;
+      expect(firstResult.exitCode).toBe(0);
+      expect(JSON.parse(firstResult.output)).toEqual({ ok: true });
+      const snapshot = await new SnapshotStore(root).read();
+      expect(snapshot?.state_digest).toBe(missionStateDigest(state));
+      await expectCode(
+        () => new SnapshotStore(root).compareAndSwap(state, null),
+        "PC_SNAPSHOT_CONFLICT"
+      );
+    } finally {
+      await writeFile(barrier.releasePath, "release\n", "utf8").catch(() => undefined);
+      await first?.catch(() => undefined);
+      await second?.catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes concurrent CAS writers so exactly one stale writer wins", async () => {
+    const root = await tempRoot("snapshot-race");
+    try {
+      const { state } = await buildAcceptedStore(root);
+      const snapshots = new SnapshotStore(root);
+      const [first, second] = await Promise.allSettled([
+        snapshots.compareAndSwap(state, null),
+        snapshots.compareAndSwap({ ...state, revision: state.revision + 1 }, null)
+      ]);
+      expect([first.status, second.status].filter((status) => status === "fulfilled")).toHaveLength(1);
+      expect([first.status, second.status].filter((status) => status === "rejected")).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "mode": "preview",
+  "retention_roots": [
+    "media",
+    "qa",
+    "references"
+  ],
+  "relative_media": {
+    "retained": [
+      "dist/legacy-baseline-run/final.mp4",
+      "dist/legacy-baseline-run/manifest.json",
+      "media/source.mp4",
+      "qa/final-report.json",
+      "references/character.png"
+    ],
+    "candidates": [
+      "dist/legacy-baseline-run/old.mp4",
+      "media/unused-draft.wav",
+      "qa/old-contact-sheet.jpg",
+      "references/old-reference.png"
+    ]
+  },
+  "result_shape": [
+    "ok",
+    "issues",
+    "applied",
+    "canonicalOutput",
+    "recordPath",
+    "alreadyFinalized",
+    "mediaFiles",
+    "retainedMedia",
+    "plannedBytes",
+    "deletedFiles",
+    "deletedBytes",
+    "planDigest",
+    "candidateIdentities",
+    "unrestoredPaths",
+    "launcherProjectsHome",
+    "launcherProjectRoot",
+    "launcherAlreadyHome",
+    "promotedToLauncherHome",
+    "launcherConfigPath"
+  ],
+  "apply_requirements": {
+    "expected_plan_digest": "required",
+    "completion_record": "retained",
+    "superseded_media_only": true,
+    "control_plane_records": "legacy_not_recorded"
+  }
+}

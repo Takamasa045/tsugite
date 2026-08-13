@@ -1,0 +1,544 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-12T23:30:34.563Z",
+  "package_version": "0.9.0",
+  "recommended_version": "0.9.0",
+  "version_decision": {
+    "keep_0_9_0": true,
+    "bump_to_1_0_0": false,
+    "bump_to_1_0_0_rc": false,
+    "rationale": [
+      "migration-and-release.md forbids 1.0.0 before all exit criteria",
+      "Windows real-machine and live provider evidence are unverified",
+      "RC package version bump is not required for fixture-only integration",
+      "current package version remains 0.9.0"
+    ]
+  },
+  "revision_bindings": {
+    "schema_version": 1,
+    "package_version": "0.9.0",
+    "package_json_digest": "cfe84322c4a1fce2ff3fadb3da1b3804f5358e3e92446da1994ec1bde6a5b26d",
+    "production_contract_schema": 1,
+    "task_tree_schema": 1,
+    "video_prompt_ir": 2,
+    "h3_compiler_workflow": 3,
+    "legacy_h3_workflow_reader": 2,
+    "contract_compiler": "po2-contract-compiler-v1",
+    "gate_bundle_schema": 1,
+    "generation_job_approval_binding": 1,
+    "recovery_policy_schema": 1,
+    "learning_candidate_schema": 1,
+    "mission_metrics_schema": 1,
+    "finalize_retention_schema": 1,
+    "launcher_mission_tree_dto": 1,
+    "migration_artifact_schema": 1,
+    "rollback_artifact_schema": 1,
+    "release_readiness_schema": 1,
+    "sources": {
+      "package_json": "package.json#version+sha256",
+      "production_contract_schema": "schema.PRODUCTION_CONTRACT_SCHEMA_VERSION",
+      "production_contract_compiler": "contractCompiler.PRODUCTION_CONTRACT_COMPILER_VERSION",
+      "h3_workflow": "videoPromptDirector.compile.H3_WORKFLOW_VERSION",
+      "h3_grammar_v3": "videoPromptDirector.render.h3GrammarV3.H3_GRAMMAR_V3_VERSION",
+      "video_prompt_ir": "videoPromptDirector.schemaV2.VIDEO_PROMPT_IR_VERSION"
+    }
+  },
+  "revision_bindings_digest": "0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
+  "environment": {
+    "fixture_only": true,
+    "provider_submit_count": 0,
+    "gate_mutation_count": 0,
+    "billing_spend_count": 0,
+    "network_fetch_count": 0,
+    "render_count": 0,
+    "finalize_apply_count": 0,
+    "safety_ledger_digest": "48345b5f76d3948292ab64d44d8de78934361f17172cd9a24e4c046b97cf4595",
+    "effect_observer_digest": "4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286",
+    "proven_zero_effects": true,
+    "platform": "darwin",
+    "node": "v22.23.1"
+  },
+  "exits": [
+    {
+      "exit_id": "po8-1-mode-orchestrator",
+      "title": "RC integration orchestrator/diagnostics (legacy/shadow/active)",
+      "status": "proven",
+      "evidence": [
+        "command=rehearsal mode sequence",
+        "exit_code=0",
+        "output_digest=2ba1a2450dd2cdbe9b53dcca4f9fcac36dac249f536d99ecd7d4670597a7c15f"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-h1-fixture-modules",
+      "title": "H1: 8 fixtures wired to actual production module APIs",
+      "status": "proven",
+      "evidence": [
+        "fixture_module_evidence.digest=fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34",
+        "fixture_count=8"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-2-migration-rehearsal",
+      "title": "Migration rehearsal across 8 frozen fixtures",
+      "status": "proven",
+      "evidence": [
+        "rehearsal.digest=2ba1a2450dd2cdbe9b53dcca4f9fcac36dac249f536d99ecd7d4670597a7c15f",
+        "fixture_count=8"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-h3-durable-cli",
+      "title": "H3: durable temp project + production-migrate/rollback --apply CLI",
+      "status": "proven",
+      "evidence": [
+        "command=production applyMigration shadow journal (in-process fixture)",
+        "exit_code=0",
+        "output_digest=3691e626d9d93c29b6af9a2f1e0ab6b57751c83274c32a4424cf45b52e7dfd64"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-3-rollback-rehearsal",
+      "title": "Rollback rehearsal preserves append-only artifacts",
+      "status": "proven",
+      "evidence": [
+        "rehearsal.digest=2ba1a2450dd2cdbe9b53dcca4f9fcac36dac249f536d99ecd7d4670597a7c15f",
+        "rollback sequence in rehearsal"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-4-adversarial-golden",
+      "title": "Adversarial/golden fixture coverage",
+      "status": "proven",
+      "evidence": [
+        "fixture_module_evidence.digest=fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34",
+        "golden exact compare + field mutation digests"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-5-full-regression",
+      "title": "Full regression and production surfaces",
+      "status": "proven",
+      "evidence": [
+        "command=npm run check",
+        "exit_code=0",
+        "output_digest=57a907d445a7eb2566096ba71a1e07d2d97c24cf67826be14f9dec907c3dc947",
+        "branches=74.54",
+        "statements=82.84"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-6-version-decision",
+      "title": "Version/release decision per migration-and-release.md",
+      "status": "proven",
+      "evidence": [
+        "package_version=0.9.0",
+        "revision_bindings_digest=0df304841b81718b327b4a6c80b8bf38751d3cead3454e60e60aeebc74dc58ba",
+        "Windows/live provider incomplete → not 1.0.0"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-7-readiness-artifact",
+      "title": "Release readiness machine-readable digest-bound report",
+      "status": "proven",
+      "evidence": [
+        "src/productionControl/rc/releaseReadiness.ts",
+        "status recomputed from evidence store (not caller forged exits)",
+        "migration_journal.digest=3691e626d9d93c29b6af9a2f1e0ab6b57751c83274c32a4424cf45b52e7dfd64",
+        "effect_observer_digest=4a7a294f93a0605ab579b24be6e2d60290abc5e2f56565eb0d41daa3d7204286",
+        "reader_commands.output_digest=db07334a7fbc21be06d8cb34874a9262dd2c7bd1ddfb3b81f3a5c4b2560a767c"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "po8-8-po0a-browser",
+      "title": "PO-0A central 3D blank not regressed (Canvas or operable fallback)",
+      "status": "proven",
+      "evidence": [
+        "command=npm --prefix apps/workflow-viewer run test:browser",
+        "exit_code=0",
+        "output_digest=202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+        "artifact=commands/browser_po0a.log:202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+        "artifact=browser/actual-canvas-node-hit.png:458d1fbdebbb0c77908b9c8d0129467b23dc1b95d4e3863a1609c1c85b6a3fbd",
+        "artifact=browser/actual-canvas.png:f5857a2a4079781de7f528700254a70d2b0f7a4fcf468ee9951efdad0c0d8a26",
+        "artifact=browser/fallback-context-lost-canvas-event.png:15dc135cc312928e8f069c02e1189ee7928d4c16033fa557b34c2b9c578c04d9",
+        "artifact=browser/fallback-context-lost.png:a648198ad2aea1417f0637c3bd31adb65203bafefc1c1ee7109a6a224bd9c4b9",
+        "artifact=browser/fallback-first-frame-timeout.png:447687d02a19509d422cc1f9a5f5b4987cdc55343da7a5bda5b63dddbc83f5e5",
+        "artifact=browser/fallback-initialization-failed.png:f774be80386ebdb46864a6e844ba3458021fd987ed262fa91ab005f6bbbea1bf",
+        "artifact=browser/fallback-keyboard-responsive.png:27bf0e5b7b1ff8826d69c9a998eacce4da3834ffde1347acf46713c1d505a3b1",
+        "artifact=browser/fallback-webgl-unavailable.png:67b1c5c27afafc059a0259a3871a9d8f58eaf8fc73d16b38789ffe7842eff1a6",
+        "artifact=browser/mission-tree-canvas.png:8fdd58bc2a95573d02b50d663364a1f3350f5b3812736042853dd61f39607bf9",
+        "artifact=browser/manifest.json:0df48ed4682098b6c6f63f436341dc1a202ed4f33618b9f74cdfddc11899c73f"
+      ],
+      "gaps": []
+    },
+    {
+      "exit_id": "windows-smoke",
+      "title": "Windows real-machine / CI smoke",
+      "status": "unverified",
+      "evidence": [
+        "command=windows real-machine/CI",
+        "exit_code=0",
+        "output_digest=52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9"
+      ],
+      "gaps": [
+        "Windows smoke incomplete"
+      ]
+    },
+    {
+      "exit_id": "desktop",
+      "title": "Desktop test/prepare/audit",
+      "status": "partial",
+      "evidence": [
+        "command=npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
+        "exit_code=0",
+        "output_digest=bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+        "detail=prepare fixture-only no npm ci; official local Forge package blocked missing physical node-pty@1.1.0; desktop:audit blocked no apps/desktop/out; desktop:prepare is not audit proof"
+      ],
+      "gaps": [
+        "desktop exit evidence marks partial/unverified",
+        "Windows/live/browser/packaged desktop remain caveats"
+      ]
+    },
+    {
+      "exit_id": "command-evidence",
+      "title": "Recorded command exit evidence",
+      "status": "partial",
+      "evidence": [
+        "npm test -- test/windows-path-lex.test.ts test/windows-support-contract.test.ts test/platform-process.test.ts --reporter=dot exit=0 proven digest=b56b7615af8d3dc08efea1c59ec198098d87bd85fd5a6beb58745ec0d76942d5",
+        "node --test apps/desktop/test/package-boundary.test.mjs apps/desktop/test/package-config.test.mjs apps/desktop/test/package-audit.test.mjs exit=0 proven digest=c920003db699c952bc15d0181f473e3df559a5042b670683dbf6e5bdc063eba4",
+        "npm --prefix apps/workflow-viewer run test -- src/components/scene/scene-state.test.ts --reporter=dot exit=0 proven digest=89cdc0bc0670f18d59fd6cd8997d9f7a1f36d7f6ab75a987c7b8fda42f6bf3d5",
+        "npm run desktop:package exit=1 partial digest=e2e4dfc4d60624ee06414dc8af9a7e1499560a285aef551466d0d304d180dc9a",
+        "npm run desktop:audit exit=1 partial digest=0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
+        "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit exit=0 partial digest=bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+        "windows real-machine/CI exit=0 unverified digest=52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+        "npm --prefix apps/workflow-viewer run test:browser exit=0 proven digest=202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+        "npm --prefix apps/workflow-viewer run test:browser (port 4188 occupied) exit=1 partial digest=9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
+        "npm test -- test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot exit=0 proven digest=db07334a7fbc21be06d8cb34874a9262dd2c7bd1ddfb3b81f3a5c4b2560a767c",
+        "npm run build exit=0 proven digest=d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
+        "npm run test:coverage exit=0 proven digest=c415022547f963e3a2a426a5704a436866cbbbdcdef22f748e98196c6e4b74a1",
+        "npm run viewer:check exit=0 proven digest=bc77a7ef4c9e4532c4d2a0ffe6151d232a79422495864d146f954e141c4f57b4",
+        "npm run viewer:build exit=0 proven digest=3f522d595dc0bb2d56fddde65064a495d41afab8f9d645e94d3fb92838679cea",
+        "npm run vendor:check exit=0 proven digest=d0072019ccae979504661d57a73327e5d03eed73cd43379251a678aaca0d427d",
+        "npm run check exit=0 proven digest=57a907d445a7eb2566096ba71a1e07d2d97c24cf67826be14f9dec907c3dc947",
+        "npm run desktop:test exit=0 proven digest=ef3d09db31393e982c20bdd9cd2eb07a2f26c76c6f17cd2576f38e68e63e1cef",
+        "npm run desktop:prepare exit=0 proven digest=ff1438f355bfe6da3878321b266111dcf755f5531555f97961705ba4413c8533"
+      ],
+      "gaps": [
+        "npm run desktop:package partial",
+        "npm run desktop:audit partial",
+        "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit partial",
+        "windows real-machine/CI unverified",
+        "npm --prefix apps/workflow-viewer run test:browser (port 4188 occupied) partial"
+      ]
+    }
+  ],
+  "rehearsal": {
+    "all_ok": true,
+    "fixture_count": 8,
+    "digest": "2ba1a2450dd2cdbe9b53dcca4f9fcac36dac249f536d99ecd7d4670597a7c15f"
+  },
+  "fixture_module_evidence": {
+    "all_ok": true,
+    "fixture_count": 8,
+    "digest": "fb85e4df5721900099efe08a83f207e70fca82e7b3e0cd66a948db73e5b4fc34"
+  },
+  "commands": [
+    {
+      "command": "npm test -- test/windows-path-lex.test.ts test/windows-support-contract.test.ts test/platform-process.test.ts --reporter=dot",
+      "exit_code": 0,
+      "output_digest": "b56b7615af8d3dc08efea1c59ec198098d87bd85fd5a6beb58745ec0d76942d5",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/focused_windows_evidence.log",
+          "sha256": "b56b7615af8d3dc08efea1c59ec198098d87bd85fd5a6beb58745ec0d76942d5",
+          "bytes": 1206
+        }
+      ]
+    },
+    {
+      "command": "node --test apps/desktop/test/package-boundary.test.mjs apps/desktop/test/package-config.test.mjs apps/desktop/test/package-audit.test.mjs",
+      "exit_code": 0,
+      "output_digest": "c920003db699c952bc15d0181f473e3df559a5042b670683dbf6e5bdc063eba4",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/focused_desktop_package.log",
+          "sha256": "c920003db699c952bc15d0181f473e3df559a5042b670683dbf6e5bdc063eba4",
+          "bytes": 191
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/workflow-viewer run test -- src/components/scene/scene-state.test.ts --reporter=dot",
+      "exit_code": 0,
+      "output_digest": "89cdc0bc0670f18d59fd6cd8997d9f7a1f36d7f6ab75a987c7b8fda42f6bf3d5",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/focused_viewer_scene.log",
+          "sha256": "89cdc0bc0670f18d59fd6cd8997d9f7a1f36d7f6ab75a987c7b8fda42f6bf3d5",
+          "bytes": 797
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:package",
+      "exit_code": 1,
+      "output_digest": "e2e4dfc4d60624ee06414dc8af9a7e1499560a285aef551466d0d304d180dc9a",
+      "status": "partial",
+      "detail": "blocked: official local Forge package; physical node-pty@1.1.0 missing; no install/npx/npm exec attempted",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_package.log",
+          "sha256": "e2e4dfc4d60624ee06414dc8af9a7e1499560a285aef551466d0d304d180dc9a",
+          "bytes": 4994
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:audit",
+      "exit_code": 1,
+      "output_digest": "0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
+      "status": "partial",
+      "detail": "blocked: no packaged app under apps/desktop/out; desktop:prepare is not audit proof",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_audit.log",
+          "sha256": "0b1613e904e1d18bb97141b97c896568ba8c563d48e135f4e638cdaf419c66cf",
+          "bytes": 645
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:test + desktop:prepare + desktop:package + desktop:audit",
+      "exit_code": 0,
+      "output_digest": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+      "status": "partial",
+      "detail": "prepare fixture-only no npm ci; official local Forge package blocked missing physical node-pty@1.1.0; desktop:audit blocked no apps/desktop/out; desktop:prepare is not audit proof",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop.log",
+          "sha256": "bc9b5aaa940961054dcbd7a5b31999343cff09364becef9cb8ee2d4eb71cacfa",
+          "bytes": 399
+        }
+      ]
+    },
+    {
+      "command": "windows real-machine/CI",
+      "exit_code": 0,
+      "output_digest": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+      "status": "unverified",
+      "detail": "Windows real machine and CI not executed in this owner session",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/windows_smoke.log",
+          "sha256": "52c19823ef8c9097aed6ee366c0ebef64d574c2ae442205e852fc7f7560290a9",
+          "bytes": 115
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/workflow-viewer run test:browser",
+      "exit_code": 0,
+      "output_digest": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+      "status": "proven",
+      "detail": "primary_mode=canvas first_frame=true all_injected_paths_measured; retry after port 4188 conflict",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/browser_po0a.log",
+          "sha256": "202de816379c4dc10a0ed370e1e965e1f637d8e8cf19474467b83ca3d9d4c588",
+          "bytes": 905
+        }
+      ]
+    },
+    {
+      "command": "npm --prefix apps/workflow-viewer run test:browser (port 4188 occupied)",
+      "exit_code": 1,
+      "output_digest": "9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
+      "status": "partial",
+      "detail": "blocked: port 4188 already in use; retried on 43188",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/browser_po0a_port4188.log",
+          "sha256": "9ca0a840736b23350da66e8815d05984273ac4e2f5e79a3305961d94d790167e",
+          "bytes": 2051
+        }
+      ]
+    },
+    {
+      "command": "npm test -- test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot",
+      "exit_code": 0,
+      "output_digest": "db07334a7fbc21be06d8cb34874a9262dd2c7bd1ddfb3b81f3a5c4b2560a767c",
+      "status": "proven",
+      "detail": "includes CLI migrate/rollback/validate/plan/review/run-dry",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/reader_commands.log",
+          "sha256": "db07334a7fbc21be06d8cb34874a9262dd2c7bd1ddfb3b81f3a5c4b2560a767c",
+          "bytes": 3008
+        }
+      ]
+    },
+    {
+      "command": "npm run build",
+      "exit_code": 0,
+      "output_digest": "d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/build.log",
+          "sha256": "d12a4a50bbab6df7456fb3001821e0d87e17a2c5ef8e21bc4069232df352f1b7",
+          "bytes": 89
+        }
+      ]
+    },
+    {
+      "command": "npm run test:coverage",
+      "exit_code": 0,
+      "output_digest": "c415022547f963e3a2a426a5704a436866cbbbdcdef22f748e98196c6e4b74a1",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/test_coverage.log",
+          "sha256": "c415022547f963e3a2a426a5704a436866cbbbdcdef22f748e98196c6e4b74a1",
+          "bytes": 44764
+        }
+      ]
+    },
+    {
+      "command": "npm run viewer:check",
+      "exit_code": 0,
+      "output_digest": "bc77a7ef4c9e4532c4d2a0ffe6151d232a79422495864d146f954e141c4f57b4",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/viewer_check.log",
+          "sha256": "bc77a7ef4c9e4532c4d2a0ffe6151d232a79422495864d146f954e141c4f57b4",
+          "bytes": 16185
+        }
+      ]
+    },
+    {
+      "command": "npm run viewer:build",
+      "exit_code": 0,
+      "output_digest": "3f522d595dc0bb2d56fddde65064a495d41afab8f9d645e94d3fb92838679cea",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/viewer_build.log",
+          "sha256": "3f522d595dc0bb2d56fddde65064a495d41afab8f9d645e94d3fb92838679cea",
+          "bytes": 1262
+        }
+      ]
+    },
+    {
+      "command": "npm run vendor:check",
+      "exit_code": 0,
+      "output_digest": "d0072019ccae979504661d57a73327e5d03eed73cd43379251a678aaca0d427d",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/vendor_check.log",
+          "sha256": "d0072019ccae979504661d57a73327e5d03eed73cd43379251a678aaca0d427d",
+          "bytes": 140
+        }
+      ]
+    },
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "output_digest": "57a907d445a7eb2566096ba71a1e07d2d97c24cf67826be14f9dec907c3dc947",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/full_regression.log",
+          "sha256": "57a907d445a7eb2566096ba71a1e07d2d97c24cf67826be14f9dec907c3dc947",
+          "bytes": 44983
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:test",
+      "exit_code": 0,
+      "output_digest": "ef3d09db31393e982c20bdd9cd2eb07a2f26c76c6f17cd2576f38e68e63e1cef",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_test.log",
+          "sha256": "ef3d09db31393e982c20bdd9cd2eb07a2f26c76c6f17cd2576f38e68e63e1cef",
+          "bytes": 19963
+        }
+      ]
+    },
+    {
+      "command": "npm run desktop:prepare",
+      "exit_code": 0,
+      "output_digest": "ff1438f355bfe6da3878321b266111dcf755f5531555f97961705ba4413c8533",
+      "status": "proven",
+      "artifact_refs": [
+        {
+          "kind": "command-log",
+          "relative_path": "commands/desktop_prepare.log",
+          "sha256": "ff1438f355bfe6da3878321b266111dcf755f5531555f97961705ba4413c8533",
+          "bytes": 1983
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "statements": 82.84,
+    "branches": 74.54,
+    "functions": 89.72,
+    "lines": 85.53,
+    "branch_threshold": 74.4,
+    "thresholds_lowered": false
+  },
+  "unverified": [
+    "windows-smoke: Windows smoke incomplete",
+    "desktop: desktop exit evidence marks partial/unverified",
+    "desktop: Windows/live/browser/packaged desktop remain caveats",
+    "command-evidence: npm run desktop:package partial",
+    "command-evidence: npm run desktop:audit partial",
+    "command-evidence: npm run desktop:test + desktop:prepare + desktop:package + desktop:audit partial",
+    "command-evidence: windows real-machine/CI unverified",
+    "command-evidence: npm --prefix apps/workflow-viewer run test:browser (port 4188 occupied) partial"
+  ],
+  "go_no_go": "GO-WITH-CAVEATS",
+  "go_no_go_reasons": [
+    "fixture-only RC integration with unverified Windows/live/desktop"
+  ],
+  "build_provenance": {
+    "head": "aec345c1ce85cd47ee441ae4869cc47567600cab",
+    "branch": "grok/po8-rc-remaining",
+    "dirty": false,
+    "verified_separately": true
+  },
+  "digest": "d790ecb8952e4cd59c811672f6d5ee7183f0872bddf25c7c485006dc1e0c412f"
+}

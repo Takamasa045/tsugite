@@ -1,0 +1,70 @@
+{
+  "id": "<opaque-project-id>",
+  "name": "ローカル検証フィクスチャ",
+  "slug": "local-fixture",
+  "runId": "local-fixture-run",
+  "revision": "<sha256-project-revision>",
+  "status": "planned",
+  "updatedAt": null,
+  "hasViewer": false,
+  "valid": true,
+  "refreshable": true,
+  "readOnly": false,
+  "workflowNodes": [
+    {
+      "id": "validate",
+      "label": "検証",
+      "status": "completed",
+      "action": "validate"
+    },
+    {
+      "id": "plan",
+      "label": "構成",
+      "status": "pending",
+      "action": "plan"
+    },
+    {
+      "id": "review",
+      "label": "レビュー",
+      "status": "pending",
+      "action": "review"
+    },
+    {
+      "id": "gate-1",
+      "label": "Gate 1",
+      "status": "pending",
+      "action": "gate-1-approve"
+    },
+    {
+      "id": "run",
+      "label": "素材生成",
+      "status": "pending",
+      "action": "run"
+    },
+    {
+      "id": "gate-2",
+      "label": "Gate 2",
+      "status": "pending",
+      "action": "gate-2-approve-all"
+    },
+    {
+      "id": "render",
+      "label": "編集・書き出し",
+      "status": "pending",
+      "action": "render"
+    },
+    {
+      "id": "gate-3",
+      "label": "Gate 3",
+      "status": "pending",
+      "action": "gate-3-approve"
+    }
+  ],
+  "availableActions": [
+    "validate",
+    "plan",
+    "review",
+    "dry-run"
+  ],
+  "issues": []
+}

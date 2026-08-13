@@ -1,0 +1,28 @@
+command=npm --prefix apps/workflow-viewer run test:browser
+---
+
+> @tsugite/workflow-viewer@0.1.0 test:browser
+> node --test tests/production-orchestration-browser.test.mjs
+
+(node:62839) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TAP version 13
+# (node:62841) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded paths, Mission Tree
+ok 1 - PO-0A/PO-7 capability-aware browser: Canvas or non-blank DOM-SVG, degraded paths, Mission Tree
+  ---
+  duration_ms: 37243.112167
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 37568.616791
+---
+exit_code=0

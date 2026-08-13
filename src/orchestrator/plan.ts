@@ -16,6 +16,14 @@ import {
 import { compileProjectH3, type H3Compilation } from "../h3/compile.js";
 import { rejectUncompiledVideoPrompt } from "../videoPromptDirector/dualAuthoring.js";
 import type { VideoPromptPlan } from "../videoPromptDirector/videoPromptCompile.js";
+import {
+  buildProductionControlShadowSummary,
+  type ProductionControlShadowSummary
+} from "../productionControl/contractCompiler.js";
+import {
+  orchestrationModeFromAuthority,
+  type ResolvedRuntimeAuthority
+} from "../productionControl/runtimeAuthority.js";
 import { PipelineError } from "../types.js";
 
 export type PlanStep = {
@@ -84,6 +92,8 @@ export type ExecutionPlan = {
   h3_compilations?: H3Compilation[];
   /** Planning-only video_prompt compilations (no provider execution). */
   video_prompt_plans?: VideoPromptPlan[];
+  /** Non-enumerable read-only shadow projection; never part of legacy plan digest. */
+  production_control_shadow?: ProductionControlShadowSummary;
   steps: PlanStep[];
 };
 
@@ -100,7 +110,9 @@ export function createPlan(
   audioConnection?: GenerationConnectionResolution,
   backend?: BackendCapabilities,
   h3Compilations?: H3Compilation[],
-  videoPromptPlans?: VideoPromptPlan[]
+  videoPromptPlans?: VideoPromptPlan[],
+  /** Explicit resolved authority — preferred over project.orchestration.mode (no YAML re-resolve). */
+  runtime_authority?: ResolvedRuntimeAuthority
 ): ExecutionPlan {
   // Fail-closed: uncompiled video_prompt with empty prompt must never plan silently.
   for (const [index, request] of (project.generation?.requests ?? []).entries()) {
@@ -113,6 +125,7 @@ export function createPlan(
     }
   }
 
+  const orchestrationMode = orchestrationModeFromAuthority(runtime_authority, project);
   const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
   const agentHandoffs = createAgentHandoffs(
@@ -125,9 +138,10 @@ export function createPlan(
   );
   const analysis = createAnalysisPlan(project, manifest, analysisAdapter);
   const promptGuidance = resolveProjectPromptGuidance(project, promptGuides);
-  const compilations = h3Compilations ?? compileProjectH3(project).compilations ?? [];
+  const compilations = h3Compilations
+    ?? (orchestrationMode === "active" ? [] : compileProjectH3(project).compilations ?? []);
 
-  return {
+  const plan: ExecutionPlan = {
     run_id: project.run_id ?? project.slug,
     slug: project.slug,
     backend: project.edit.backend,
@@ -181,6 +195,15 @@ export function createPlan(
       { name: "gate-3", status: "gate" }
     ]
   };
+  if (orchestrationMode === "shadow") {
+    Object.defineProperty(plan, "production_control_shadow", {
+      value: buildProductionControlShadowSummary(project),
+      enumerable: false,
+      writable: false,
+      configurable: false
+    });
+  }
+  return plan;
 }
 
 function createAnalysisPlan(
@@ -224,7 +247,8 @@ export function createDryRun(
   generationConnection?: GenerationConnectionResolution,
   audioConnection?: GenerationConnectionResolution,
   h3Compilations?: H3Compilation[],
-  videoPromptPlans?: VideoPromptPlan[]
+  videoPromptPlans?: VideoPromptPlan[],
+  runtime_authority?: ResolvedRuntimeAuthority
 ): {
   executed: false;
   plan: ExecutionPlan;
@@ -243,7 +267,8 @@ export function createDryRun(
     audioConnection,
     backend,
     h3Compilations,
-    videoPromptPlans
+    videoPromptPlans,
+    runtime_authority
   );
   return {
     executed: false,

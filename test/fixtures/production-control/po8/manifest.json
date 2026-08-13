@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "fixture_set": "po8-rc-integration",
+  "count": 8,
+  "fixtures": [
+    "legacy-h3",
+    "standalone-v2",
+    "lyric-mv",
+    "identity-phase-a-e",
+    "gate2-auto-pass-cascade",
+    "job-revision-submission-unknown",
+    "recovery-unknown-price",
+    "mission-tree-finalize-learning"
+  ],
+  "mode": "fixture-only",
+  "sequence": [
+    "legacy",
+    "shadow",
+    "active",
+    "rollback",
+    "legacy"
+  ]
+}

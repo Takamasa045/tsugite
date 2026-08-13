@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { win32 } from "node:path";
 import { h3CreativeIrSchema, videoCreativeIrSchema } from "../h3/schema.js";
+import { videoPromptIrV2Schema } from "../videoPromptDirector/schemaV2.js";
+import { digestRefSchema, productionControlModeSchema } from "../productionControl/schema.js";
 
 const safeIdSchema = z
   .string()
@@ -156,10 +158,10 @@ const generationRequestSchema = z
     /** Optional H3 Creative IR (v1). When present, empty prompt is allowed. */
     h3: h3CreativeIrSchema.optional(),
     /**
-     * Optional provider-neutral video_prompt IR (v1).
+     * Optional provider-neutral video_prompt IR (strict V1|V2 union).
      * Mutually exclusive with h3; existing projects are not auto-rewritten.
      */
-    video_prompt: videoCreativeIrSchema.optional(),
+    video_prompt: z.union([videoCreativeIrSchema, videoPromptIrV2Schema]).optional(),
     params: z.record(z.string(), z.unknown()).default({})
   })
   .passthrough()
@@ -173,6 +175,25 @@ const generationRequestSchema = z
     }
     if (request.operation === "voice" && !request.prompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "voice requires text in prompt", path: ["prompt"] });
+    }
+    // An omitted operation is an explicit legacy video default.  A caller
+    // cannot turn that default into an image/audio capability by supplying a
+    // conflicting output_kind; the active video authority must remain V2.
+    const expectedOutputKind = request.operation === undefined
+      ? "video"
+      : request.operation === "image"
+      ? "image"
+      : request.operation === "voice" || request.operation === "music"
+        ? "audio"
+        : ["video", "transition", "extend", "modify", "upscale", "reference", "motion-control"].includes(request.operation ?? "")
+          ? "video"
+          : undefined;
+    if (expectedOutputKind && request.output_kind && request.output_kind !== expectedOutputKind) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `operation '${request.operation}' requires output_kind '${expectedOutputKind}'`,
+        path: ["output_kind"]
+      });
     }
     const hasH3 = request.h3 !== undefined;
     const hasVideoPrompt = request.video_prompt !== undefined;
@@ -346,6 +367,14 @@ const sikumiConfigSchema = z
 /** ランチャー表示用の案件名。日本語可。必須。後から変更できる。 */
 const projectDisplayNameSchema = z.string().trim().min(1).max(120);
 
+const mvAuthoringRefsSchema = z.object({
+  assets: digestRefSchema.optional(),
+  identity: digestRefSchema.optional(),
+  music: digestRefSchema.optional(),
+  lyrics: digestRefSchema.optional(),
+  generation_units: z.array(digestRefSchema).max(10_000).optional()
+}).strict();
+
 export const projectSchema = z
   .object({
     slug: safeIdSchema,
@@ -384,7 +413,16 @@ export const projectSchema = z
     composition: compositionSchema.optional(),
     gates: gatePolicySchema.optional(),
     /** Optional quality / semantic QA policies. Absent keeps legacy behavior. */
-    quality: qualityPolicySchema
+    quality: qualityPolicySchema,
+    /** Optional production-control rollout mode. Unspecified preserves legacy behavior. */
+    orchestration: z
+      .object({
+        mode: productionControlModeSchema,
+        /** Project-local contract references are authoring hints only. */
+        authoring: mvAuthoringRefsSchema.optional()
+      })
+      .strict()
+      .optional()
   })
   .passthrough()
   .superRefine((project, context) => {
@@ -523,6 +561,7 @@ export function generationRequestMode(
 }
 
 export function generationRequestOutputKind(request: GenerationRequest): "video" | "image" | "audio" {
+  if (request.operation === undefined) return "video";
   if (request.output_kind) return request.output_kind;
   if (request.operation === "image") return "image";
   if (request.operation === "voice" || request.operation === "music") return "audio";

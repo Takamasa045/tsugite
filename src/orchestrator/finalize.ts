@@ -44,6 +44,16 @@ import {
   partitionMediaByRetention,
   resultBase
 } from "./finalizePlanHelpers.js";
+import { resolveAuthoritativeProductionId } from "../productionControl/authoritativeCoordination.js";
+import {
+  assertProductionCompletionDigestMatch,
+  buildProductionCompletionDigest,
+  coordinationEvidenceOnly,
+  excludeControlPlaneFromDeletionCandidates,
+  hasCoordinationControlPlane,
+  listRetainedControlPlanePaths,
+  type ControlPlaneEvidenceRefV1
+} from "../productionControl/finalizeRetention.js";
 import {
   inspectIncompleteFinalizeTransaction,
   recoverIncompleteFinalizeTransaction,
@@ -159,6 +169,15 @@ export async function preflightFinalizeApplyBoundary(input: {
 export async function finalizeCompletedProject(
   options: FinalizeCompletedProjectOptions
 ): Promise<FinalizeCompletedProjectResult> {
+  const effectPolicy = (options as {
+    effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy;
+  }).effect_policy;
+  // Production finalize wrapper self-registers at entry (before early returns).
+  if (effectPolicy) {
+    const { registerEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+    registerEffectBoundary(effectPolicy, "finalize_apply");
+  }
+
   const projectRoot = dirname(resolve(options.configPath));
   const allowedStateDir = resolve(projectRoot, options.project.dist_dir);
   const requestedStateDir = options.stateDir
@@ -264,6 +283,11 @@ export async function finalizeCompletedProject(
   // Apply path recovers incomplete journals / orphan quarantine before planning.
   // Re-verify pinned dirs immediately before recovery mutates under stateDir/runDir.
   if (options.apply) {
+    // Note only immediately before the real apply effect.
+    if (effectPolicy) {
+      const { noteEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+      noteEffectBoundary(effectPolicy, "finalize_apply", "orchestrator.finalizeCompletedProject.apply");
+    }
     const preRecoveryIssue = await revalidatePinnedDirs();
     if (preRecoveryIssue) return failure(empty, preRecoveryIssue);
     const recovered = await recoverIncompleteFinalizeTransaction({
@@ -374,8 +398,18 @@ export async function finalizeCompletedProject(
     referencedSourceMedia,
     projectRoot
   );
-  const candidates = partitioned.candidates;
+  // Safety net only: control-plane paths are not media and are not under cleanup
+  // roots, but never allow them into deletion candidates if they appear.
+  const relativePartitionedCandidates = partitioned.candidates.map((path) =>
+    toProjectRelative(projectRoot, path)
+  );
+  const controlPlaneFilter = excludeControlPlaneFromDeletionCandidates(relativePartitionedCandidates);
+  const candidates = partitioned.candidates.filter((path) => {
+    const relative = toProjectRelative(projectRoot, path);
+    return !controlPlaneFilter.retained_extra.includes(relative);
+  });
   const mediaFiles = candidates.map((path) => toProjectRelative(projectRoot, path));
+  // plan_digest retained set stays the legacy media-retention partition only.
   const retainedMedia = partitioned.retained
     .map((path) => toProjectRelative(projectRoot, path))
     .sort(comparePath);
@@ -393,6 +427,7 @@ export async function finalizeCompletedProject(
   const launcherPlan = await planLauncherHome(options.configPath, options.project.slug);
   const canonicalConfigPath = resolve(options.configPath);
   const canonicalManifestPath = resolve(projectRoot, options.project.manifest);
+  // Legacy plan_digest algorithm and payload are intentionally unchanged.
   const planDigest = buildPlanDigest({
     projectRoot,
     configPath: canonicalConfigPath,
@@ -407,6 +442,48 @@ export async function finalizeCompletedProject(
     retainedMedia,
     candidates: identities
   });
+
+  // Additive control-plane evidence + production_completion_digest (independent of plan_digest).
+  // Trigger is coordination/* only: feedback.jsonl / LESSONS.md alone must not require
+  // expected production_completion_digest (legacy apply remains unchanged).
+  const controlPlaneRelative = await listRetainedControlPlanePaths(projectRoot);
+  const controlPlaneEvidence: ControlPlaneEvidenceRefV1[] = controlPlaneRelative.map((relative_path) => ({
+    kind: relative_path.startsWith("coordination/") && relative_path.includes("learning/")
+      ? "learning"
+      : relative_path.startsWith("coordination/") && relative_path.includes("metrics")
+        ? "metrics"
+        : relative_path.startsWith("coordination/") && relative_path.includes("events")
+          ? "events"
+          : relative_path === "feedback.jsonl"
+            ? "feedback"
+            : relative_path.startsWith("coordination/")
+              ? "production-contract"
+              : "state",
+    relative_path,
+    retained: true as const
+  }));
+  const coordinationEvidence = coordinationEvidenceOnly(controlPlaneEvidence);
+  const hasControlPlane = hasCoordinationControlPlane(coordinationEvidence);
+  // Prefer coordination snapshot production_id; legacy slug only when control plane is absent.
+  // Preview and apply share this resolver. Control-plane present + bad snapshot → fail closed.
+  let productionId: string;
+  try {
+    productionId = await resolveAuthoritativeProductionId(projectRoot, options.project);
+  } catch (error) {
+    return failure(empty, {
+      code: "finalize.authoritative_production_id",
+      message: error instanceof Error
+        ? error.message
+        : "authoritative production_id could not be resolved from coordination control plane"
+    });
+  }
+  const productionCompletionDigest = hasControlPlane
+    ? buildProductionCompletionDigest({
+      production_id: productionId,
+      plan_digest: planDigest,
+      evidence_refs: coordinationEvidence
+    })
+    : undefined;
 
   // Path is always reported; existence is checked separately so callers do not
   // treat a planned record path as proof that finalize already completed.
@@ -428,6 +505,13 @@ export async function finalizeCompletedProject(
     deletedFiles: 0,
     deletedBytes: 0,
     planDigest,
+    ...(productionCompletionDigest
+      ? {
+        productionCompletionDigest,
+        // Public evidence for the additive digest is coordination-only.
+        controlPlaneEvidence: coordinationEvidence
+      }
+      : {}),
     candidateIdentities: identities,
     launcherProjectsHome: launcherPlan.projectsHome,
     launcherProjectRoot: launcherPlan.destinationRoot,
@@ -449,6 +533,20 @@ export async function finalizeCompletedProject(
       return failure(base, {
         code: "finalize.plan_stale",
         message: "finalize plan changed after preview; re-run preview before applying cleanup"
+      });
+    }
+    try {
+      assertProductionCompletionDigestMatch({
+        has_control_plane: hasControlPlane,
+        actual: productionCompletionDigest,
+        expected: options.expectedProductionCompletionDigest
+      });
+    } catch (error) {
+      return failure(base, {
+        code: "finalize.production_completion_digest_mismatch",
+        message: error instanceof Error
+          ? error.message
+          : "production_completion_digest mismatch"
       });
     }
   }

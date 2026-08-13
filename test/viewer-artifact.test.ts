@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionPlan } from "../src/orchestrator/plan.js";
 import type { Project } from "../src/project/schema.js";
@@ -17,7 +18,11 @@ vi.mock("../src/viewer/workflow.js", () => ({
 import {
   createWorkflowViewerSnapshotManifest,
   getWorkflowViewerOpenCommand,
+  inspectWorkflowViewerBundle,
   WORKFLOW_VIEWER_EVIDENCE_FILE,
+  WORKFLOW_VIEWER_RENDERING_CAPABILITY_MODE,
+  WORKFLOW_VIEWER_SOURCE_VERSION,
+  WORKFLOW_VIEWER_WORKFLOW_DTO_SCHEMA_VERSION,
   writeWorkflowViewer
 } from "../src/viewer/artifact.js";
 
@@ -55,7 +60,7 @@ async function createBundle(root: string): Promise<string> {
   await mkdir(join(bundleDir, "assets", "chunks"), { recursive: true });
   await writeFile(
     join(bundleDir, "index.html"),
-    '<!doctype html><link rel="stylesheet" href="./assets/app.css"><div id="root"></div><script type="module" src="./assets/app.js"></script>\n'
+    '<!doctype html><meta name="tsugite-viewer-source-version" content="test-bundle-v1"><link rel="stylesheet" href="./assets/app.css"><div id="root"></div><script type="module" src="./assets/app.js"></script>\n'
   );
   await writeFile(join(bundleDir, "assets", "app.css"), "body { color: #fff; }\n");
   await writeFile(
@@ -79,6 +84,42 @@ describe("workflow viewer artifact", () => {
       edges: [],
       events: []
     });
+  });
+
+  it("fingerprints the source version and exact bundle contents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-viewer-bundle-"));
+    const bundleDir = await createBundle(root);
+
+    const first = await inspectWorkflowViewerBundle(bundleDir);
+    expect(first).toMatchObject({
+      schema_version: 1,
+      source_version: "test-bundle-v1",
+      workflow_dto_schema_version: 1,
+      rendering_capability_mode: "runtime-negotiated",
+      bundle_digest: expect.stringMatching(/^[a-f0-9]{64}$/)
+    });
+    expect(first.files.map((file) => file.path)).toEqual([
+      "assets/app.css",
+      "assets/app.js",
+      "assets/chunks/scene.js",
+      "index.html"
+    ]);
+
+    await writeFile(join(bundleDir, "assets", "app.js"), "export const changed = true;\n");
+    const second = await inspectWorkflowViewerBundle(bundleDir);
+    expect(second.source_version).toBe(first.source_version);
+    expect(second.bundle_digest).not.toBe(first.bundle_digest);
+  });
+
+  it("keeps the HTML source literal aligned with the artifact contract", async () => {
+    const indexHtml = await readFile(
+      fileURLToPath(new URL("../apps/workflow-viewer/index.html", import.meta.url)),
+      "utf8"
+    );
+    expect(indexHtml.match(/name="tsugite-viewer-source-version" content="([^"]+)"/)?.[1])
+      .toBe(WORKFLOW_VIEWER_SOURCE_VERSION);
+    expect(WORKFLOW_VIEWER_WORKFLOW_DTO_SCHEMA_VERSION).toBe(1);
+    expect(WORKFLOW_VIEWER_RENDERING_CAPABILITY_MODE).toBe("runtime-negotiated");
   });
 
   it("writes a self-contained snapshot without creating pipeline state", async () => {
@@ -107,6 +148,8 @@ describe("workflow viewer artifact", () => {
       samplePlan(),
       expect.objectContaining({ run_id: "viewer-run", status: "planned" }),
       expect.not.objectContaining({ reviewPresent: true })
+    ,
+      {}
     );
     await expect(stat(join(root, "dist", "viewer-run", "state.json"))).rejects.toThrow();
     await expect(readFile(join(result.outputDir, "assets", "chunks", "scene.js"), "utf8"))
@@ -126,6 +169,10 @@ describe("workflow viewer artifact", () => {
     expect(html).toContain("<script type=\"module\">console.log('<\\/script>");
     expect(html).not.toContain('src="./assets/app.js"');
     expect(html).not.toContain('href="./assets/app.css"');
+    const bundleManifest = JSON.parse(
+      await readFile(join(result.outputDir, "assets", "viewer-bundle-manifest.json"), "utf8")
+    );
+    expect(bundleManifest).toEqual(await inspectWorkflowViewerBundle(bundleDir));
   });
 
   it("reads existing state and complete Gate evidence without modifying them", async () => {
@@ -205,6 +252,8 @@ describe("workflow viewer artifact", () => {
           content: { longestBlackSeconds: 0, longestSilenceSeconds: 0.25 }
         }
       }
+    ,
+      {}
     );
     await expect(readFile(join(runDir, "state.json"), "utf8")).resolves.toBe(stateBefore);
     await expect(readFile(join(result.outputDir, "review", "index.html"), "utf8"))
@@ -216,6 +265,8 @@ describe("workflow viewer artifact", () => {
     );
     expect(snapshotEvidence).toEqual({
       schema_version: 1,
+      workflow_dto_schema_version: 1,
+      rendering_capability_mode: "runtime-negotiated",
       review_digest: expect.stringMatching(/^[a-f0-9]{64}$/),
       gate2_qc_digest: createHash("sha256").update(gate2Qc).digest("hex"),
       viewer_index_digest: createHash("sha256")
@@ -227,6 +278,7 @@ describe("workflow viewer artifact", () => {
       files: expect.arrayContaining([
         expect.objectContaining({ path: "index.html", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
         expect.objectContaining({ path: "workflow.json", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+        expect.objectContaining({ path: "assets/viewer-bundle-manifest.json", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
         expect.objectContaining({ path: "review/index.html", size: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
         expect.objectContaining({ path: "review/assets/storyboard.png", size: 18, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
       ])
@@ -323,6 +375,8 @@ describe("workflow viewer artifact", () => {
           }
         ]
       })
+    ,
+      {}
     );
     await expect(readFile(join(result.outputDir, "previews", "generated-video-01.mp4"), "utf8"))
       .resolves.toBe("clip-preview");
@@ -382,6 +436,8 @@ describe("workflow viewer artifact", () => {
           ]
         }
       })
+    ,
+      {}
     );
   });
 
@@ -436,6 +492,8 @@ describe("workflow viewer artifact", () => {
           requests: []
         }
       })
+    ,
+      {}
     );
   });
 
@@ -496,6 +554,8 @@ describe("workflow viewer artifact", () => {
           ]
         }
       })
+    ,
+      {}
     );
   });
 
@@ -649,7 +709,7 @@ describe("workflow viewer artifact", () => {
     await writeFile(join(bundleDir, "app.js"), "export {};\n");
     await writeFile(
       join(bundleDir, "index.html"),
-      '<div id="root"></div><script type="module" src="./app.js"></script>'
+      '<meta name="tsugite-viewer-source-version" content="test-bundle-v1"><div id="root"></div><script type="module" src="./app.js"></script>'
     );
     await expect(writeWorkflowViewer({
       configPath: join(root, "project.yaml"),

@@ -40,6 +40,8 @@ type RenderOptions = {
   state: RunState;
   /** Absolute project.yaml path; preferred over stateDir for Outbox root. */
   configPath?: string;
+  /** Optional RC effect policy threaded from CLI to gate_mutation writeState. */
+  effect_policy?: import("../productionControl/rc/effectCapability.js").EffectPolicy;
 };
 
 const backendRenderReportSchema = z
@@ -58,6 +60,13 @@ export async function renderAssembledMedia(
   project: Project,
   options: RenderOptions
 ): Promise<Result<RenderResult>> {
+  const effectPolicy = options.effect_policy;
+  // Production wrapper self-registers at entry (before early returns).
+  if (effectPolicy) {
+    const { registerEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+    registerEffectBoundary(effectPolicy, "render");
+  }
+
   const runId = project.run_id ?? project.slug;
   const runDir = join(options.stateDir, runId);
   const manifestPath = join(runDir, "manifest.json");
@@ -87,6 +96,12 @@ export async function renderAssembledMedia(
       ok: false,
       issues: [{ code: "render.invalid_state", message: "render requires a Gate 2 approved rendering state" }]
     };
+  }
+
+  // Note only immediately before the real backend effect.
+  if (effectPolicy) {
+    const { noteEffectBoundary } = await import("../productionControl/rc/effectCapability.js");
+    noteEffectBoundary(effectPolicy, "render", "orchestrator.renderAssembledMedia");
   }
 
   const manifestResult = await loadAssembledManifest(manifestPath, runDir);
@@ -127,7 +142,9 @@ export async function renderAssembledMedia(
   }
 
   const nextState = markGateAwaiting(options.state, "gate_3");
-  const writtenStatePath = await writeState(options.stateDir, nextState);
+  const writtenStatePath = await writeState(options.stateDir, nextState, {
+    ...(effectPolicy ? { effect_policy: effectPolicy, previous: options.state } : {})
+  });
   const projectRoot = options.configPath
     ? dirname(resolve(options.configPath))
     : projectRootFromStateDir(options.stateDir, project.dist_dir);

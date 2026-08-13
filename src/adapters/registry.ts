@@ -51,9 +51,21 @@ const inputModeContractSchema = z.object({
   required_any: z.array(z.array(z.string().min(1)).min(2)).default([])
 });
 
+/** Provider-neutral prompt serializer capability. Adapter-specific details stay in adapter.yaml. */
+const promptCapabilityEntrySchema = z.object({
+  renderer: z.enum(["h3-grammar", "plain-prompt"]),
+  label_dialect: z.enum(["picture", "none"]),
+  /** Exact model-profile/route selector. Adapter profiles remain provider-neutral. */
+  model_profile_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  provider_model: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  modes: z.array(z.string().min(1)).min(1)
+}).strict();
+
 const adapterSchema = z.object({
   name: z.string().min(1),
-  kind: z.union([z.literal("cli"), z.literal("mcp-agent"), z.literal("mcp-client")]),
+  // `api` is a declarative/preflight adapter kind. It is loadable as a
+  // profile, but executable CLI paths continue to require `kind: cli`.
+  kind: z.union([z.literal("cli"), z.literal("api"), z.literal("mcp-agent"), z.literal("mcp-client")]),
   class: z.union([z.literal("generation"), z.literal("analysis"), z.literal("audio")]).default("generation"),
   connection_requirement: z.enum(["required", "local-only"]).default("required"),
   offline: z.boolean().optional(),
@@ -97,6 +109,8 @@ const adapterSchema = z.object({
       "first-last-frame-to-video": inputModeContractSchema.optional()
     })
     .optional(),
+  /** Exact capability map; a singleton adapter-wide capability is forbidden. */
+  prompt_capabilities: z.array(promptCapabilityEntrySchema).min(1).optional(),
   audio_capabilities: z
     .object({
       bgm_modes: z.array(z.enum(["generate", "retrieve"])).min(1).default(["generate"]),
@@ -176,6 +190,20 @@ const adapterSchema = z.object({
       message: "offline adapters cannot declare a network contract",
       path: ["network"]
     });
+  }
+  const selectors = new Set<string>();
+  for (const [index, capability] of (adapter.prompt_capabilities ?? []).entries()) {
+    for (const mode of capability.modes) {
+      const selector = `${capability.model_profile_id}\u0000${capability.provider_model}\u0000${mode}`;
+      if (selectors.has(selector)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "prompt capability selectors must be unique for each model/provider/mode",
+          path: ["prompt_capabilities", index, "modes"]
+        });
+      }
+      selectors.add(selector);
+    }
   }
 });
 

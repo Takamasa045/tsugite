@@ -1,0 +1,12 @@
+{
+  "fixture_id": "lyrics-mv-72s",
+  "kind": "lyric-mv",
+  "duration_ms": 72000,
+  "master_audio_asset_id": "master-audio",
+  "master_audio_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sections": ["intro", "verse", "chorus", "outro"],
+  "tempo_change_ms": 36000,
+  "lyrics_cue_count": 24,
+  "audio_policy": "reuse-master",
+  "generation": "fixture-only"
+}

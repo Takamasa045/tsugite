@@ -26,7 +26,11 @@ export type CommandName =
   | "review-preview"
   | "run"
   | "gate"
-  | "render";
+  | "render"
+  | "recover"
+  | "production-status"
+  | "production-migrate"
+  | "production-rollback";
 
 export type CommandOptionSpec = Readonly<{
   name: string;
@@ -113,6 +117,11 @@ const OPTIONS = {
     "SHA-256 plan_digest from finalize preview JSON; required with --apply.",
     "<sha256>"
   ),
+  expectedProductionCompletionDigest: defineOption(
+    "--expected-production-completion-digest",
+    "SHA-256 production_completion_digest from finalize preview JSON; required with --apply only when coordination control-plane evidence is present.",
+    "<sha256>"
+  ),
   path: defineOption("--path", "Absolute or relative worktree path to inspect or remove.", "<worktree-path>"),
   defer: defineOption("--defer", "Preview or record one clean worktree for deferred integration."),
   reconcile: defineOption("--reconcile", "Preview or process the oldest deferred worktree integration."),
@@ -144,6 +153,30 @@ const OPTIONS = {
     "--arguments",
     "JSON object of tool arguments.",
     "<json-object>"
+  ),
+  recovery: defineOption(
+    "--recovery",
+    "Recovery mode: local (poll/download only) or paid (explicit opt-in regeneration).",
+    "<local|paid>"
+  ),
+  confirmPaid: defineOption(
+    "--confirm-paid",
+    "Required with paid apply; never enables silent credit spend."
+  ),
+  errorCode: defineOption(
+    "--error-code",
+    "Observed failure error code used for recovery selection.",
+    "<code>"
+  ),
+  node: defineOption(
+    "--node",
+    "Failed mission node id eligible for recovery (failed_known only).",
+    "<node-id>"
+  ),
+  productionTarget: defineOption(
+    "--target",
+    "Production mode target: shadow|active for migrate, shadow|legacy for rollback.",
+    "<shadow|active|legacy>"
   )
 } as const satisfies Record<string, CommandOptionSpec>;
 
@@ -327,10 +360,17 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
   defineCommand({
     name: "finalize",
     summary: "Preview or apply completion-only cleanup for superseded media.",
-    usage: "node bin/pipeline finalize --config <project.yaml> [--state-dir <project.dist_dir>] [--apply --actor coordinator --expected-plan-digest <plan_digest>] [--json]",
+    usage: "node bin/pipeline finalize --config <project.yaml> [--state-dir <project.dist_dir>] [--apply --actor coordinator --expected-plan-digest <plan_digest> [--expected-production-completion-digest <digest>]] [--json]",
     requiresConfig: true,
     safety: "approval-gated",
-    options: [OPTIONS.config, OPTIONS.finalizeStateDir, OPTIONS.actor, OPTIONS.apply, OPTIONS.expectedPlanDigest]
+    options: [
+      OPTIONS.config,
+      OPTIONS.finalizeStateDir,
+      OPTIONS.actor,
+      OPTIONS.apply,
+      OPTIONS.expectedPlanDigest,
+      OPTIONS.expectedProductionCompletionDigest
+    ]
   }),
   defineCommand({
     name: "plan",
@@ -411,6 +451,68 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "approval-gated",
     options: [OPTIONS.config, OPTIONS.actor, OPTIONS.stateDir]
+  }),
+  defineCommand({
+    name: "recover",
+    summary:
+      "Coordinator recovery: plan or apply local poll/download or explicit paid regeneration (no silent spend). Paid --apply is fixture-package only (fixture_adapter.namespace=fixture); live provider billing is not enabled. packageDir/jobs_root/production-control stay under the project realpath.",
+    usage:
+      "node bin/pipeline recover --config <project.yaml> --actor coordinator --node <node-id> --error-code <code> --recovery <local|paid> [--dry-run | --apply [--confirm-paid]] [--path <recovery-package>] [--state-dir <directory>] [--json]",
+    requiresConfig: true,
+    safety: "approval-gated",
+    options: [
+      OPTIONS.config,
+      OPTIONS.actor,
+      OPTIONS.node,
+      OPTIONS.errorCode,
+      OPTIONS.recovery,
+      OPTIONS.dryRun,
+      OPTIONS.apply,
+      OPTIONS.confirmPaid,
+      OPTIONS.path,
+      OPTIONS.stateDir,
+      OPTIONS.runId
+    ]
+  }),
+  defineCommand({
+    name: "production-status",
+    summary:
+      "Read-only production-control mode diagnostics (legacy/shadow/active) with exact revision bindings. No Gate, provider, or billing side effects.",
+    usage: "node bin/pipeline production-status --config <project.yaml> [--json]",
+    requiresConfig: true,
+    safety: "read-only",
+    options: [OPTIONS.config]
+  }),
+  defineCommand({
+    name: "production-migrate",
+    summary:
+      "Preview or apply create-only migration into shadow/active production-control artifacts. Never rewrites project.yaml in place, mutates Gates, submits providers, renders, or finalize-applies.",
+    usage:
+      "node bin/pipeline production-migrate --config <project.yaml> --target <shadow|active> [--apply --actor coordinator --expected-plan-digest <preview-digest>] [--json]",
+    requiresConfig: true,
+    safety: "local-write",
+    options: [
+      OPTIONS.config,
+      OPTIONS.productionTarget,
+      OPTIONS.apply,
+      OPTIONS.actor,
+      OPTIONS.expectedPlanDigest
+    ]
+  }),
+  defineCommand({
+    name: "production-rollback",
+    summary:
+      "Preview or apply mode rollback to shadow/legacy while retaining append-only control-plane artifacts. Never auto-runs provider, Gate, billing, or submit.",
+    usage:
+      "node bin/pipeline production-rollback --config <project.yaml> --target <shadow|legacy> [--apply --actor coordinator] [--json]",
+    requiresConfig: true,
+    safety: "local-write",
+    options: [
+      OPTIONS.config,
+      OPTIONS.productionTarget,
+      OPTIONS.apply,
+      OPTIONS.actor
+    ]
   })
 ]);
 

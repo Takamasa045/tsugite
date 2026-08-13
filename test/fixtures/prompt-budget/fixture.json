@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "source_id": "fixture-budget-artifact",
+  "hard": {
+    "limit": 20000,
+    "unit": "utf8-bytes",
+    "source": "advisory-catalog",
+    "verified_at": "2026-08-11T00:00:00Z",
+    "source_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "soft": null,
+  "unknown": false,
+  "model_profile_digest": "17a05909888e0a5e8576b37834a997fd575355dd0e0698fb7e76104c530da4b5",
+  "connection_profile_digest": "188eac67e1fb2b7e72ac6091aee081d0c4f1ead41985e54d538af2627b9054fb",
+  "route_digest": "e8bad607d95511e2f14f8889293e6c130d3bfba9927b6b9c733c86d2a0866b52",
+  "retrieved_at": "2026-08-11T00:00:00Z",
+  "expires_at": "2026-12-31T00:00:00Z"
+}

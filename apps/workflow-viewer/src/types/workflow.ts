@@ -143,6 +143,35 @@ export interface WorkflowEvent {
   message?: string
 }
 
+/**
+ * Optional read-only Mission Tree overlay (PO-7). CamelCase exact DTO.
+ * Never a Gate subject. TaskTree is visibility only.
+ */
+export interface MissionTreeOverlay {
+  productionId: string
+  mode: 'legacy' | 'shadow' | 'active'
+  missionStatus: string
+  treeRevision: number
+  sourceEventSequence?: number
+  currentDecision: {
+    kind: string
+    summary: string
+    reasonCode?: string
+    nodeId?: string
+    gate?: string
+  }
+  recovery: {
+    active: boolean
+    attempts: number
+    limit: number | null
+    lastErrorCode?: string
+  }
+  learningStatus?: string
+  taskTreeReadOnly: true
+  legacyWorkflowPreserved: boolean
+  digest?: string
+}
+
 export interface WorkflowData {
   id: string
   name: string
@@ -153,6 +182,8 @@ export interface WorkflowData {
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   events: WorkflowEvent[]
+  /** Active Mission Tree projection; ignored for Gate authority. */
+  missionTree?: MissionTreeOverlay
 }
 
 export interface WorkflowValidationIssue {

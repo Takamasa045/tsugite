@@ -1,0 +1,7 @@
+command=npm run desktop:test + desktop:prepare + desktop:package + desktop:audit
+---
+desktop:test/prepare recorded separately; official local Forge package blocked on missing physical node-pty@1.1.0; desktop:audit blocked because apps/desktop/out is absent.
+desktop:prepare is fixture-only and is not audit proof.
+no npm install / npm ci / npx / npm exec / network install attempted
+---
+exit_code=0

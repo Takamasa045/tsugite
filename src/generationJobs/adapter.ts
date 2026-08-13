@@ -77,6 +77,12 @@ export type GenerationJobAdapterContext = {
    * Core never interprets this.
    */
   transport?: unknown;
+  /**
+   * Active-mode T05 same-FD submission input. When present, adapters must read
+   * assets via readExecutionSubmissionAsset and must not reopen request asset paths.
+   * Legacy/disabled/shadow submits leave this undefined.
+   */
+  submission_input?: unknown;
 };
 
 /**

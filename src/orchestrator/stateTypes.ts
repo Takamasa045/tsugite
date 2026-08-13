@@ -22,6 +22,13 @@ export type GateDecisionSource = "human" | "auto_qc";
 export type GateState = {
   status: GateStatus;
   updated_at?: string;
+  /**
+   * Legacy Gate approval subject. Semantics unchanged:
+   * - Gate 1: review approved_input_digest
+   * - Gate 2: gate2 QC / manifest subject
+   * - Gate 3: sha256(final.mp4)
+   * Production-control subjects are additive fields below and never replace this.
+   */
   approved_input_digest?: string;
   /**
    * Optional person-QA approval digest bound at Gate 2/3 approve time.
@@ -30,6 +37,16 @@ export type GateState = {
    */
   person_qa_approval_digest?: string;
   decision_source?: GateDecisionSource;
+  /**
+   * Additive PO-5 production-control subject digest (GateBundle / Gate2Subject / Gate3Subject).
+   * Optional for legacy runs; never overwrites approved_input_digest or plan_digest.
+   */
+  production_subject_digest?: string;
+  /**
+   * Additive PO-5 production-control decision digest (HumanDecisionRef).
+   * Optional for legacy runs.
+   */
+  production_decision_digest?: string;
 };
 
 export type RunState = {

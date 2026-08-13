@@ -1,0 +1,10 @@
+{
+  "duration_ms": 72000,
+  "template_digest": "c70bd7ea8e9903a78481fc1477a83b2c61a3ba399af80032c3756706eb0547cd",
+  "generation_unit_count": 4,
+  "intent_digest": "83a00e22cfa4de698f1dd88708b82808c7f0c01c9b63cb31068e482936f86b6e",
+  "plan_digest": "d0809715e0a228f4b5c456ce92188ce3018dbb6c2ac28e64cab09abc886dd667",
+  "clip_count": 4,
+  "caption_count": 24,
+  "chapter_ids": ["intro", "verse", "chorus", "outro"]
+}

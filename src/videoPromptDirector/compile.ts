@@ -17,7 +17,7 @@ import {
   rejectDualAuthoring,
   VIDEO_PROMPT_DUAL_AUTHORING_CODE
 } from "./dualAuthoring.js";
-import { renderH3Prompt } from "./render/h3Grammar.js";
+import { compileLegacyH3V1 } from "./compileV2.js";
 import type { H3Asset, H3CreativeIr, H3Mode } from "./schema.js";
 import {
   H3_ASSET_BINDING_MISMATCH_CODE,
@@ -145,10 +145,15 @@ export function compileH3Request(
   issues.push(...validateAuthorConflicts(request, ir));
   issues.push(...validateModeAssets(ir));
 
-  const rendered = renderH3Prompt(ir);
-  const canonicalPrompt = rendered.text;
+  let legacyCompatibility: ReturnType<typeof compileLegacyH3V1>;
+  try {
+    legacyCompatibility = compileLegacyH3V1(ir);
+  } catch (error) {
+    return { ok: false, issues: [issue("H3-C000", error instanceof Error ? error.message : "legacy H3 upgrade failed", "error")] };
+  }
+  const canonicalPrompt = legacyCompatibility.canonical_prompt;
   // Separate field for a future label-dialect renderer; identical for contract v1.
-  const adapterPrompt = rendered.text;
+  const adapterPrompt = legacyCompatibility.adapter_prompt;
 
   // Empty author prompt, or exact deterministic compiler output, is allowed so
   // compileProjectH3(compileProjectH3(project).project) stays idempotent.
@@ -980,14 +985,22 @@ function applyCompilationToRequest(
   };
 }
 
-export function h3IssueToProjectIssue(h3Issue: H3Issue, requestIndex: number): Issue {
-  const nested = h3Issue.path && h3Issue.path.length > 0
-    ? `.${h3Issue.path.map(String).join(".")}`
+export function h3IssueToProjectIssue(
+  h3Issue: H3Issue,
+  requestIndex: number,
+  authoringSurface: "h3" | "video_prompt" = "h3"
+): Issue {
+  const rawPath = h3Issue.path?.map(String) ?? [];
+  const surfacePath = authoringSurface.split(".");
+  const isAlreadySurfaceRelative = rawPath.slice(0, surfacePath.length).join(".") === authoringSurface;
+  const relativePath = isAlreadySurfaceRelative ? rawPath.slice(surfacePath.length) : rawPath;
+  const nested = relativePath.length > 0
+    ? `.${relativePath.join(".")}`
     : "";
   return {
     code: h3Issue.code,
     message: h3Issue.message,
-    path: `generation.requests.${requestIndex}.h3${nested}`
+    path: `generation.requests.${requestIndex}.${authoringSurface}${nested}`
   };
 }
 

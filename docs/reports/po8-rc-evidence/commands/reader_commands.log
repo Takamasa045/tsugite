@@ -1,0 +1,36 @@
+command=npm test -- test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot
+---
+
+> tsugite@0.9.0 test
+> vitest run --exclude="apps/**" test/production-control-po8-rc-evidence-store.test.ts test/production-control-po8-rc-integration.test.ts test/viewer-launcher-maintenance.test.ts --reporter=dot
+
+(node:60314) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ RUN  v4.1.10 [redacted-path]
+
+(node:60316) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:60317) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:60318) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"ok":true,"action":"record-command","detail":{"output_digest":"8d737d9f46261ca5128d951ef7be84b51caedbd5760cd1392fa506f3f9857420"}}
+{"ok":true,"action":"write-report","detail":{"digest":"494537860d3c2a00f1f0c61ec6c10d9dc90a88f57e71a8bc05279f45fd17b284","canonical_digest":"494537860d3c2a00f1f0c61ec6c10d9dc90a88f57e71a8bc05279f45fd17b284","go_no_go":"NO-GO"}}
+{"ok":true,"action":"validate-report","detail":{"ok":true,"digest":"494537860d3c2a00f1f0c61ec6c10d9dc90a88f57e71a8bc05279f45fd17b284","canonical_digest":"494537860d3c2a00f1f0c61ec6c10d9dc90a88f57e71a8bc05279f45fd17b284"}}
+{"ok":false,"action":"record-command","error":"record-command requires --id --command --exit-code --output-file"}
+{"ok":false,"action":"not-a-command","error":"usage: record-command | ingest-browser | record-coverage | write-report | validate-report"}
+{"ok":true,"action":"record-coverage","detail":{"statements":82.7,"branches":74.45,"functions":89.7,"lines":85.4}}
+{"ok":false,"action":"record-coverage","error":"record-coverage requires --statements --branches --functions --lines"}
+{"ok":false,"action":"ingest-browser","error":"ingest-browser requires --from <runtime-dir>"}
+{"ok":true,"action":"ingest-browser","detail":{"output_digest":"0af33728ebc371985a56667ad74b71521cc7fcbcd1d05464b54ea59172fc4ccf","artifact_count":2}}
+{"ok":true,"action":"write-report","detail":{"digest":"369a8bad9a9a5e14d2d3cbb1d545155bed1ab26cf07455d37204905b9fc0ac5e","canonical_digest":"369a8bad9a9a5e14d2d3cbb1d545155bed1ab26cf07455d37204905b9fc0ac5e","go_no_go":"NO-GO"}}
+······························································································
+
+ Test Files  3 passed (3)
+      Tests  94 passed (94)
+   Start at  07:51:24
+   Duration  38.91s (transform 3.86s, setup 0ms, import 5.37s, tests 78.91s, environment 0ms)
+
+---
+exit_code=0

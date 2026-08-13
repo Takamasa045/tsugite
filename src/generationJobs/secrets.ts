@@ -13,12 +13,24 @@ import {
 const SECRET_KEY_PATTERN =
   /^(?:.*(?:api[_-]?key|access[_-]?token|secret|password|authorization|bearer|cookie|session).*)$/i;
 
+/**
+ * Structural digest / id field names that contain "authorization" but are never
+ * secret material. Redacting these breaks PO-6 paid regeneration bindings.
+ */
+const SAFE_NON_SECRET_KEYS = new Set([
+  "regeneration_attempt_authorization_digest",
+  "authorization_digest",
+  "credit_ledger_reservation_id",
+  "credit_ledger_reservation_digest"
+]);
+
 const SECRET_VALUE_PATTERN =
   /(?:Bearer\s+[A-Za-z0-9\-._~+/]+=*|sk-[A-Za-z0-9]{16,}|[A-Za-z0-9_\-]{32,}\.[A-Za-z0-9_\-]{16,})/g;
 
 const REDACTED = "[REDACTED]";
 
 export function looksLikeSecretKey(key: string): boolean {
+  if (SAFE_NON_SECRET_KEYS.has(key)) return false;
   return SECRET_KEY_PATTERN.test(key);
 }
 
@@ -83,7 +95,13 @@ export function assertNoSecretMaterial(
     );
   }
   // Raw secret under a secret-shaped key that escaped redaction.
-  if (/"[^"]*(?:api[_-]?key|access[_-]?token|password|authorization|cookie)[^"]*"\s*:\s*"(?!\[REDACTED\])[^"]{8,}"/i.test(text)) {
+  // Strip known digest field names that contain "authorization" but are not secrets.
+  const cleaned = text
+    .replace(/"regeneration_attempt_authorization_digest"\s*:\s*"[a-f0-9]{64}"/gi, '"":""')
+    .replace(/"authorization_digest"\s*:\s*"[a-f0-9]{64}"/gi, '"":""')
+    .replace(/"credit_ledger_reservation_digest"\s*:\s*"[a-f0-9]{64}"/gi, '"":""')
+    .replace(/"credit_ledger_reservation_id"\s*:\s*"[^"]+"/gi, '"":""');
+  if (/"[^"]*(?:api[_-]?key|access[_-]?token|password|authorization|cookie)[^"]*"\s*:\s*"(?!\[REDACTED\])[^"]{8,}"/i.test(cleaned)) {
     throw new GenerationJobError(
       GJ_SECRET_LEAK,
       `secret-shaped key with non-redacted value detected in ${context}`

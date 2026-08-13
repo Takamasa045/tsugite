@@ -395,6 +395,8 @@ const launcherActionSchema = z.union([
 ]);
 const viewerEvidenceSchema = z.object({
   schema_version: z.literal(1),
+  workflow_dto_schema_version: z.literal(1).optional(),
+  rendering_capability_mode: z.literal("runtime-negotiated").optional(),
   review_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   gate2_qc_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   viewer_index_digest: z.string().regex(/^[a-f0-9]{64}$/),
@@ -3331,7 +3333,8 @@ async function inspectProject(
       ? await inspectGate1Review({
           configPath,
           project: validation.project,
-          manifest: validation.manifest
+          manifest: validation.manifest,
+          runtime_authority: validation.runtime_authority
         })
       : undefined;
     let hasReview = reviewInspection?.ok === true;

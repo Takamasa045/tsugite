@@ -1,0 +1,9 @@
+command=npm run vendor:check
+---
+
+> tsugite@0.9.0 vendor:check
+> node scripts/check-vendor-boundary.mjs
+
+vendor boundary ok
+---
+exit_code=0

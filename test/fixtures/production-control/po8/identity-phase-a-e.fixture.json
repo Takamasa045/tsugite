@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "fixture_id": "identity-phase-a-e",
+  "kind": "identity-lock",
+  "description": "Identity lock Phase A-E exact text; locked:true does not imply verified",
+  "project": {
+    "slug": "po8-identity",
+    "name": "PO8 fixture",
+    "run_id": "po8-identity",
+    "manifest": "manifest.json",
+    "dist_dir": "dist",
+    "edit": {
+      "backend": "remotion"
+    },
+    "generation": {
+      "adapter": "fixture",
+      "requests": [
+        {
+          "id": "id-1",
+          "h3": {
+            "version": 1,
+            "target": {
+              "model": "fixture-h3",
+              "mode": "text-to-video",
+              "duration": 6,
+              "quality": "1080p",
+              "aspect": "16:9",
+              "audio": true
+            },
+            "subjects": [
+              {
+                "id": "hero",
+                "locked": true,
+                "locked_blocks": {
+                  "voice": {
+                    "text": "calm low register",
+                    "sha256": "88ff0a7acb796096de11432671420b414f11d9f2942a8a70feb26e4ed80056fb"
+                  },
+                  "appearance": {
+                    "text": "black coat silver hair",
+                    "sha256": "37e083522d5247c9dc7dc960e75cbc8b1fbba7245ef9a971d50394a5c275f72d"
+                  },
+                  "manner": {
+                    "text": "slow deliberate gaze",
+                    "sha256": "249df47cd31ee03fc13204568da0aa24cc4fd1bf3bedf8ca3b92a1b8b8a2c721"
+                  }
+                }
+              }
+            ],
+            "scenes": [
+              {
+                "id": "dock",
+                "location_map": "night ferry dock anchored by red buoy",
+                "palette": "cool blue sodium"
+              }
+            ],
+            "assets": [],
+            "shots": [
+              {
+                "id": "s1",
+                "start_ms": 0,
+                "end_ms": 6000,
+                "scene": "dock",
+                "cast": [
+                  "hero"
+                ],
+                "visual": "Live-action cinematic shot: looks at water from the dock",
+                "camera": {
+                  "type": "static"
+                }
+              }
+            ],
+            "sound": {
+              "soundscape": "night harbor water",
+              "music": {
+                "enabled": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "quality": {
+      "person_consistency": {
+        "enabled": true
+      }
+    }
+  },
+  "authoring": {
+    "identity": {
+      "production_id": "po8-identity",
+      "forged_output_seed": "po8-forged-output-v1",
+      "forged_evidence_seed": "po8-forged-evidence-v1",
+      "forged_subject_seed": "po8-forged-subject-v1"
+    }
+  },
+  "expected": {
+    "golden_digests": {
+      "subject_authoring": "242b3e247d0b4ea491fa3d473bf7ed8d147ea311680d26bcba7962926b090bf1",
+      "migration_status": "awaiting_human",
+      "locked_flag_seen": "locked_flag_present",
+      "verification_present": "verification_absent"
+    }
+  },
+  "adversarial": [
+    {
+      "name": "verification-requires-explicit-input",
+      "expect": "blocked"
+    },
+    {
+      "name": "mutate-locked-text-changes-digest",
+      "expect": "digest_change"
+    }
+  ],
+  "identity": {
+    "locked_true_implies_verified": false,
+    "definition_confirmation_inferred_from_gate1": false
+  },
+  "safety_expectations": [
+    "no invented confirmation",
+    "no invented verification"
+  ]
+}

@@ -61,7 +61,14 @@ const expectedOptions = {
   ],
   validate: ["--config"],
   models: ["--config"],
-  finalize: ["--config", "--state-dir", "--actor", "--apply", "--expected-plan-digest"],
+  finalize: [
+    "--config",
+    "--state-dir",
+    "--actor",
+    "--apply",
+    "--expected-plan-digest",
+    "--expected-production-completion-digest"
+  ],
   plan: ["--config"],
   analyze: ["--config", "--actor", "--state-dir", "--allow-external-analysis"],
   compose: ["--config", "--actor", "--state-dir"],
@@ -78,7 +85,34 @@ const expectedOptions = {
     "--person-qa-reason",
     "--state-dir"
   ],
-  render: ["--config", "--actor", "--state-dir"]
+  render: ["--config", "--actor", "--state-dir"],
+  recover: [
+    "--config",
+    "--actor",
+    "--node",
+    "--error-code",
+    "--recovery",
+    "--dry-run",
+    "--apply",
+    "--confirm-paid",
+    "--path",
+    "--state-dir",
+    "--run-id"
+  ],
+  "production-status": ["--config"],
+  "production-migrate": [
+    "--config",
+    "--target",
+    "--apply",
+    "--actor",
+    "--expected-plan-digest"
+  ],
+  "production-rollback": [
+    "--config",
+    "--target",
+    "--apply",
+    "--actor"
+  ]
 } as const;
 
 const configCommands = new Set([
@@ -97,7 +131,11 @@ const configCommands = new Set([
   "review-preview",
   "run",
   "gate",
-  "render"
+  "render",
+  "recover",
+  "production-status",
+  "production-migrate",
+  "production-rollback"
 ]);
 
 describe("CLI command catalog", () => {

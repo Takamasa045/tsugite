@@ -89,6 +89,8 @@ export type FinalizePreviewResponse = {
   revision: string
   planDigest: string
   planDigestShort: string
+  productionCompletionDigest?: string
+  productionCompletionDigestShort?: string
   canonicalOutput?: string
   completionRecord?: string | null
   alreadyFinalized: boolean

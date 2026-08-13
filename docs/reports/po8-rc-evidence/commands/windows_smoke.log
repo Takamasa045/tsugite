@@ -1,0 +1,5 @@
+command=windows real-machine/CI
+---
+Windows real machine and CI not executed in this owner session
+---
+exit_code=0

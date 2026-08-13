@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, type Stats } from "node:fs";
-import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Manifest } from "../manifest/schema.js";
@@ -32,8 +32,45 @@ import {
   type CompositionProposalsArtifact,
   type RawAnalysisForComposition
 } from "./compositionProposal.js";
-import type { ExecutionPlan } from "./plan.js";
+import { createPlan, type ExecutionPlan } from "./plan.js";
+import { ArtifactStore } from "../productionControl/artifactStore.js";
 import type { H3Compilation } from "../h3/compile.js";
+import type { ProductionControlShadowSummary } from "../productionControl/contractCompiler.js";
+import {
+  orchestrationModeFromAuthority,
+  projectWithRuntimeAuthority,
+  type ResolvedRuntimeAuthority
+} from "../productionControl/runtimeAuthority.js";
+import {
+  buildActiveGateBundleForProject,
+  buildGateBundleReviewProjection,
+  buildGenerationBatchesFromEvidence,
+  writeDurableGateBundle,
+  type ActiveGenerationUnitEvidence,
+  type GateBundle
+} from "../productionControl/activePipeline.js";
+import { pricingBindingDigest } from "../productionControl/gateBundle.js";
+import {
+  extractAuthoritativePricingFromProfile,
+  resolveAuthoritativeGatePricing
+} from "../productionControl/pricingEvidence.js";
+import type { RouteIdentity } from "../productionControl/programBinding.js";
+import type { VideoPromptV2Compilation } from "../videoPromptDirector/compileV2.js";
+import { createProjectGenerationUnitSourceResolver, reloadAuthoritativeAssetContract, resolveProjectAssetContract } from "../videoPromptDirector/generationUnitSourceResolver.js";
+import { validateProject } from "../project/validateProject.js";
+import { loadProject } from "../project/loadProject.js";
+import { sha256Canonical } from "../integrity/canonical.js";
+import {
+  compilationRevisionId,
+  loadPlanningArtifactRef,
+  readCompilationBundleAtomic,
+  verifyCompilationBundle
+} from "../videoPromptDirector/compilationBundle.js";
+import { safeParseVideoPromptIrV2 } from "../videoPromptDirector/schemaV2.js";
+import { upgradeH3V1ToVideoPromptV2, upgradeVideoPromptV1ToV2 } from "../videoPromptDirector/upgradeV1.js";
+import { loadConnectionCapabilityProfile, routeFromProfiles } from "../videoPromptDirector/index.js";
+import { loadModelPromptProfile } from "../videoPromptDirector/modelProfile.js";
+import { loadPinnedH3GrammarProfile } from "../videoPromptDirector/render/h3GrammarV3.js";
 import { computeReviewPreviewDigest } from "./reviewPreview.js";
 import {
   lintShotlistMonotony,
@@ -181,6 +218,25 @@ export type ReviewDocument = {
   prompt_guidance: NonNullable<ExecutionPlan["prompt_guidance"]>;
   /** Deterministic H3 compilations from the plan for Gate 1 human inspection. */
   h3_compilations?: H3Compilation[];
+  /** Strict, read-only V2 projection used by the Gate 1 subject. */
+  video_prompt_plans?: VideoPromptReviewProjection[];
+  video_prompt_subject_digest?: string;
+  /** Read-only shadow tree summary; it does not alter Gate or legacy plan state. */
+  production_control_shadow?: ProductionControlShadowSummary;
+  /**
+   * Additive PO-5 GateBundle review projection (secret-free).
+   * Stripped from legacy Gate approval subjects; production_subject_digest binds it separately.
+   */
+  gate_bundle_review?: {
+    production_id: string;
+    run_id: string;
+    digest: string;
+    batch_count: number;
+    unit_count: number;
+    has_unknown_price: boolean;
+    composition_intent_bound: boolean;
+    routes: Array<{ batch_id: string; route_digest: string; connection_id: string; adapter_id: string }>;
+  };
   steps: ExecutionPlan["steps"];
   warnings: string[];
   approval_digest?: string;
@@ -215,6 +271,96 @@ export type ReviewDocument = {
   };
 };
 
+export type VideoPromptReviewProjection = {
+  request_id: string;
+  request_identity: {
+    request_id: string;
+    revision_id: string;
+    artifact_ref: string;
+    authoring_surface: "h3" | "video_prompt";
+    authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1";
+    upgrader_version: string;
+    source_digest: string;
+    compiler_workflow: "video-prompt-v3";
+  };
+  compilation: {
+    canonical_prompt: string;
+    adapter_prompt: string;
+    validation: VideoPromptV2Compilation["validation"];
+    route: VideoPromptV2Compilation["route"];
+    effective_contract: VideoPromptV2Compilation["effective_contract"];
+    compilation_digest: string;
+    model_profile_digest: string;
+    connection_capability_digest: string;
+    adapter_capability_digest: string;
+    grammar_profile_digest?: string;
+    generation_unit_source_digest?: string;
+    revision_id: string;
+    artifact_ref: string;
+  };
+};
+
+export function createVideoPromptReviewProjection(
+  plans: ExecutionPlan["video_prompt_plans"] = []
+): VideoPromptReviewProjection[] {
+  return plans.flatMap((plan) => {
+    const compilation = plan.v2_compilation;
+    if (!compilation) return [];
+    const authoringSchema = compilation.bundle.lineage.authoring_schema;
+    if (authoringSchema !== "VideoPromptIrV2" && authoringSchema !== "V1" && authoringSchema !== "H3-V1") return [];
+    const authoringSurface = compilation.bundle.lineage.authoring_surface;
+    if (authoringSurface !== "h3" && authoringSurface !== "video_prompt") return [];
+    return [{
+      request_id: compilation.request_id,
+      request_identity: {
+        request_id: compilation.request_id,
+        revision_id: compilationRevisionId(compilation.bundle),
+        artifact_ref: `${compilationRevisionId(compilation.bundle)}/video-prompt/${compilation.request_id}`,
+        authoring_surface: authoringSurface,
+        authoring_schema: authoringSchema,
+        upgrader_version: compilation.bundle.lineage.upgrader_version,
+        source_digest: compilation.bundle.lineage.source_digest ?? compilation.bundle.normalized_ir_digest,
+        compiler_workflow: "video-prompt-v3" as const
+      },
+      compilation: {
+        canonical_prompt: compilation.canonical_prompt,
+        adapter_prompt: compilation.adapter_prompt,
+        validation: compilation.validation,
+        route: compilation.route,
+        effective_contract: compilation.effective_contract,
+        compilation_digest: compilation.bundle.compilation_digest,
+        model_profile_digest: compilation.bundle.model_profile_digest,
+        connection_capability_digest: compilation.bundle.connection_capability_digest,
+        adapter_capability_digest: compilation.bundle.adapter_capability_digest,
+        ...(compilation.bundle.grammar_profile ? { grammar_profile_digest: compilation.bundle.grammar_profile.digest } : {}),
+        ...(compilation.bundle.lineage.generation_unit_source_digest
+          ? { generation_unit_source_digest: compilation.bundle.lineage.generation_unit_source_digest }
+          : {}),
+        revision_id: compilationRevisionId(compilation.bundle),
+        artifact_ref: `${compilationRevisionId(compilation.bundle)}/video-prompt/${compilation.request_id}`
+      }
+    } satisfies VideoPromptReviewProjection];
+  });
+}
+
+/** Projection used by legacy Gate approval subjects; shadow data is review-only. */
+export function legacyReviewDocumentProjection(document: ReviewDocument): Omit<ReviewDocument, "production_control_shadow" | "gate_bundle_review" | "video_prompt_plans" | "video_prompt_subject_digest"> {
+  const {
+    production_control_shadow: _shadow,
+    gate_bundle_review: _gateBundle,
+    video_prompt_plans: _videoPromptPlans,
+    video_prompt_subject_digest: _videoPromptSubjectDigest,
+    ...legacy
+  } = document;
+  return legacy;
+}
+
+/** Rollout metadata is shadow-only and must not change a legacy Gate subject. */
+export function legacyProjectProjection(project: Project): Omit<Project, "orchestration"> {
+  const { orchestration: _orchestration, ...legacy } = project;
+  return legacy;
+}
+
 type CompositionReview = {
   artifact: CompositionProposalArtifactInput;
   approvalDigest: string;
@@ -228,6 +374,8 @@ type WriteCreativeReviewOptions = {
   plan: ExecutionPlan;
   outputDir?: string;
   stateDir?: string;
+  /** Explicit resolved authority preferred over project.orchestration.mode. */
+  runtime_authority?: ResolvedRuntimeAuthority;
 };
 
 type ManifestMotionPlan = NonNullable<Manifest["clips"][number]["motion"]>;
@@ -256,6 +404,11 @@ export async function inspectGate1Review(options: {
   project: Project;
   manifest: Manifest;
   stateDir?: string;
+  /**
+   * Trusted runtime authority from CLI validate only.
+   * Never re-resolve durable pointer from disk YAML inside Gate 1 inspect.
+   */
+  runtime_authority?: ResolvedRuntimeAuthority;
 }): Promise<Result<{
   reviewPath: string;
   dataPath: string;
@@ -402,11 +555,36 @@ export async function inspectGate1Review(options: {
         dataPath
       };
     }
+    const currentVideoPrompt = await resolveCurrentVideoPromptReview(
+      options.configPath,
+      options.runtime_authority
+    );
+    if (!currentVideoPrompt.ok) {
+      return { ok: false, issues: currentVideoPrompt.issues, reviewPath, dataPath };
+    }
+    const reviewedVideoPromptPlans = document.video_prompt_plans ?? [];
+    const currentVideoPromptDigest = digest(currentVideoPrompt.projection);
+    if (
+      digest(reviewedVideoPromptPlans) !== currentVideoPromptDigest
+      || (currentVideoPrompt.projection.length > 0 && document.video_prompt_subject_digest !== currentVideoPromptDigest)
+      || (currentVideoPrompt.projection.length === 0 && document.video_prompt_subject_digest !== undefined)
+    ) {
+      return {
+        ok: false,
+        issues: [{
+          code: "gate.video_prompt_changed",
+          message: "V2 video prompt request order, compilation digest, route, or effective claims changed after the Gate 1 review",
+          path: dataPath
+        }],
+        reviewPath,
+        dataPath
+      };
+    }
     const approvalDigest = digest({
       schema_version: 1,
-      project: options.project,
+      project: legacyProjectProjection(options.project),
       manifest: options.manifest,
-      review: document,
+      review: legacyReviewDocumentProjection(document),
       preview_assets: await fingerprintReviewAssets(outputDir, document),
       source_assets: await fingerprintGate1SourceAssets(
         options.configPath,
@@ -414,6 +592,9 @@ export async function inspectGate1Review(options: {
         options.manifest
       ),
       connections: currentConnections.snapshots,
+      ...(currentVideoPrompt.projection.length > 0
+        ? { video_prompt_subject_digest: currentVideoPromptDigest }
+        : {}),
       editorial_approval_digest: editorialApprovalDigest,
       composition_approval_digest: currentComposition?.approvalDigest
     });
@@ -446,6 +627,318 @@ export async function inspectGate1Review(options: {
   }
 
   return { ok: true, issues: [], reviewPath, dataPath };
+}
+
+async function resolveCurrentVideoPromptReview(
+  configPath: string,
+  runtime_authority?: ResolvedRuntimeAuthority
+): Promise<
+  | { ok: true; projection: VideoPromptReviewProjection[] }
+  | { ok: false; issues: Array<{ code: string; message: string; path?: string }> }
+> {
+  try {
+    const diskProject = await loadProject(configPath);
+    // Migration active writes durable pointer only (no YAML rewrite). Re-resolving
+    // mode from disk YAML alone yields empty V2 projection and false gate.video_prompt_changed.
+    // Prefer trusted validate-derived authority; projectWithRuntimeAuthority projects mode.
+    const project = projectWithRuntimeAuthority(diskProject, runtime_authority);
+    if (orchestrationModeFromAuthority(runtime_authority, project) !== "active") {
+      return { ok: true, projection: [] };
+    }
+    const requests = project.generation?.requests ?? [];
+    const videoRequests = requests.filter((request) =>
+      generationRequestOutputKind(request) === "video"
+      || (request as { video_prompt?: unknown }).video_prompt !== undefined
+      || request.h3 !== undefined
+    );
+    if (videoRequests.length === 0) return { ok: true, projection: [] };
+    const artifactRoot = resolve(dirname(resolve(configPath)), project.dist_dir);
+    let revisions: string[] = [];
+    try {
+      revisions = (await readdir(artifactRoot, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && isSafeReviewId(entry.name))
+        .map((entry) => entry.name);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const projection: VideoPromptReviewProjection[] = [];
+    for (const request of videoRequests) {
+      const authoring = (request as { video_prompt?: unknown }).video_prompt ?? request.h3;
+      const normalized = normalizeCommittedVideoPromptAuthoring(authoring);
+      if (!normalized) throw new Error(`request '${request.id}' is not strict V2/V1 authoring`);
+      const expectedNormalizedDigest = sha256Canonical(normalized.ir);
+      const candidates = [] as Array<{ bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1; revision: string }>;
+      const requestIndex = requests.indexOf(request);
+      for (const revision of revisions) {
+        try {
+          const persisted = readCompilationBundleAtomic(artifactRoot, {
+            project_root: artifactRoot,
+            revision_id: revision,
+            request_id: request.id
+          });
+          if (persisted.bundle.normalized_ir_digest === expectedNormalizedDigest) {
+            if (persisted.bundle.lineage.authoring_schema !== normalized.authoring_schema
+              || persisted.bundle.lineage.upgrader_version !== normalized.upgrader_version
+              || persisted.bundle.lineage.source_digest !== normalized.source_digest) {
+              throw new Error("committed authoring source tuple is stale");
+            }
+            await assertCommittedRouteStillMatches(project, persisted.bundle);
+            await assertCommittedAssetContractStillMatches(configPath, project, persisted.bundle);
+            await assertCommittedT04StillMatches(configPath, project, request, normalized.ir, requestIndex, persisted.bundle);
+            candidates.push({ bundle: persisted.bundle, revision });
+          }
+        } catch {
+          // Unrelated revisions and shadow namespaces are ignored; a matching
+          // request must still have one complete committed manifest below.
+        }
+      }
+      for (const planningCandidate of await readPlanningVideoPromptBundles(configPath, project.slug, request.id)) {
+        if (planningCandidate.bundle.normalized_ir_digest === expectedNormalizedDigest) {
+          if (planningCandidate.bundle.lineage.authoring_schema !== normalized.authoring_schema
+            || planningCandidate.bundle.lineage.upgrader_version !== normalized.upgrader_version
+            || planningCandidate.bundle.lineage.source_digest !== normalized.source_digest) {
+            throw new Error("committed authoring source tuple is stale");
+          }
+          await assertCommittedRouteStillMatches(project, planningCandidate.bundle);
+          await assertCommittedAssetContractStillMatches(configPath, project, planningCandidate.bundle);
+          await assertCommittedT04StillMatches(configPath, project, request, normalized.ir, requestIndex, planningCandidate.bundle);
+          candidates.push(planningCandidate);
+        }
+      }
+      const unique = new Map(candidates.map((candidate) => [candidate.bundle.compilation_digest, candidate]));
+      if (unique.size === 0) throw new Error(`request '${request.id}' has no committed compilation manifest for the current authoring digest`);
+      if (unique.size > 1) throw new Error(`request '${request.id}' has ambiguous committed compilation revisions`);
+      const committed = [...unique.values()][0]!.bundle;
+      projection.push(videoPromptReviewProjectionFromCommittedBundle(committed, [...unique.values()][0]!.revision));
+    }
+    return { ok: true, projection };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const stableCode = /^VPD-[A-Z]\d{3}/u.exec(message)?.[0];
+    return {
+      ok: false,
+      issues: [{
+        code: stableCode ?? "gate.video_prompt_changed",
+        message: stableCode
+          ? message
+          : "committed V2 video prompt manifest is missing, stale, ambiguous, or tampered; regenerate the Gate 1 review",
+        path: "generation.requests"
+      }]
+    };
+  }
+}
+
+/**
+ * Active PO-4 planning is committed to the project-local ArtifactStore before
+ * review. Review must consume that exact create-only object when the durable
+ * filesystem publication backend is unavailable; it must never reconstruct a
+ * bundle from the in-memory validation result or from an arbitrary JSON copy.
+ */
+async function readPlanningVideoPromptBundles(
+  configPath: string,
+  projectId: string,
+  requestId: string
+): Promise<Array<{ bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1; revision: string }>> {
+  if (!isSafeReviewId(projectId) || !isSafeReviewId(requestId)) throw new Error("VPD-K003: planning review identity is unsafe");
+  const projectRoot = await realpath(resolve(dirname(resolve(configPath))));
+  const lexicalRoot = join(projectRoot, "production-control", "video-prompt-planning");
+  let planningRoot: string;
+  try {
+    planningRoot = await realpath(lexicalRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  if (planningRoot !== resolve(lexicalRoot)) throw new Error("VPD-K003: planning ArtifactStore root is not project-local");
+  const artifactDirectory = join(planningRoot, "artifacts");
+  let entries;
+  try {
+    entries = await readdir(artifactDirectory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const store = new ArtifactStore(planningRoot);
+  const bundles: Array<{ bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1; revision: string }> = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) continue;
+    const artifactId = entry.name.slice(0, -".json".length);
+    if (!isSafeReviewId(artifactId)) continue;
+    const looksLikeCurrentRequest = artifactId.startsWith(`planning-production-${projectId}-`)
+      && artifactId.endsWith(`-${requestId}`);
+    try {
+      const bytes = await store.readBounded(artifactId, 32 * 1024 * 1024);
+      const bundle = verifyCompilationBundle(JSON.parse(bytes.toString("utf8")));
+      if (bundle.execution_capable || bundle.request_id !== requestId) continue;
+      if (Buffer.from(JSON.stringify(bundle), "utf8").compare(bytes) !== 0) {
+        throw new Error("VPD-K003: planning ArtifactStore bytes are not canonical");
+      }
+      const revision = compilationRevisionId(bundle);
+      const expectedArtifactId = `planning-production-${projectId}-${revision}-${requestId}`;
+      if (artifactId !== expectedArtifactId) throw new Error("VPD-K003: planning artifact namespace is stale");
+      const ref = await loadPlanningArtifactRef({
+        store,
+        artifact_id: artifactId,
+        artifact_digest: createHash("sha256").update(bytes).digest("hex"),
+        production_id: "production",
+        project_id: projectId,
+        revision_id: revision,
+        request_id: requestId,
+        expected_store_root: planningRoot
+      });
+      void ref;
+      bundles.push({ bundle, revision });
+    } catch (error) {
+      if (looksLikeCurrentRequest) throw error;
+      if (error instanceof Error && error.message.includes("planning artifact namespace is stale")) throw error;
+      // Unrelated artifacts are ignored; a matching current artifact is only
+      // accepted after the strict loader above succeeds.
+    }
+  }
+  return bundles;
+}
+
+function normalizeCommittedVideoPromptAuthoring(value: unknown): { ir: import("../videoPromptDirector/schemaV2.js").VideoPromptIrV2; authoring_schema: "VideoPromptIrV2" | "V1" | "H3-V1"; upgrader_version: string; source_digest: string } | undefined {
+  const parsed = safeParseVideoPromptIrV2(value);
+  if (parsed.success) return { ir: parsed.data, authoring_schema: "VideoPromptIrV2", upgrader_version: "native-v2", source_digest: sha256Canonical(parsed.data) };
+  if (!value || typeof value !== "object") return undefined;
+  try {
+    const upgraded = upgradeH3V1ToVideoPromptV2(value as never);
+    return { ir: upgraded.ir, authoring_schema: "H3-V1", upgrader_version: "h3-v1-to-v2@1", source_digest: upgraded.source_sha256 };
+  } catch {
+    try {
+      const upgraded = upgradeVideoPromptV1ToV2(value as never);
+      return { ir: upgraded.ir, authoring_schema: "V1", upgrader_version: "video-prompt-v1-to-v2@1", source_digest: upgraded.source_sha256 };
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+function videoPromptReviewProjectionFromCommittedBundle(bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1, revision: string): VideoPromptReviewProjection {
+  const authoringSchema = bundle.lineage.authoring_schema;
+  if (authoringSchema !== "VideoPromptIrV2" && authoringSchema !== "V1" && authoringSchema !== "H3-V1") {
+    throw new Error("committed bundle authoring schema is unsupported");
+  }
+  const authoringSurface = bundle.lineage.authoring_surface;
+  if (authoringSurface !== "h3" && authoringSurface !== "video_prompt") {
+    throw new Error("committed bundle authoring surface is unsupported");
+  }
+  return {
+    request_id: bundle.request_id,
+    request_identity: {
+      request_id: bundle.request_id,
+      revision_id: revision,
+      artifact_ref: `${revision}/video-prompt/${bundle.request_id}`,
+      authoring_surface: authoringSurface,
+      authoring_schema: authoringSchema,
+      upgrader_version: bundle.lineage.upgrader_version,
+      source_digest: bundle.lineage.source_digest ?? bundle.normalized_ir_digest,
+      compiler_workflow: "video-prompt-v3"
+    },
+    compilation: {
+      canonical_prompt: bundle.canonical_prompt,
+      adapter_prompt: bundle.adapter_prompt,
+      validation: bundle.validation,
+      route: bundle.route,
+      effective_contract: bundle.effective_contract,
+      compilation_digest: bundle.compilation_digest,
+      model_profile_digest: bundle.model_profile_digest,
+      connection_capability_digest: bundle.connection_capability_digest,
+      adapter_capability_digest: bundle.adapter_capability_digest,
+      ...(bundle.grammar_profile ? { grammar_profile_digest: bundle.grammar_profile.digest } : {}),
+      ...(bundle.lineage.generation_unit_source_digest ? { generation_unit_source_digest: bundle.lineage.generation_unit_source_digest } : {}),
+      revision_id: revision,
+      artifact_ref: `${revision}/video-prompt/${bundle.request_id}`
+    }
+  };
+}
+
+async function assertCommittedRouteStillMatches(project: Project, bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1): Promise<void> {
+  const connectionId = project.generation?.connection;
+  if (!connectionId || connectionId !== bundle.route.connection_id) throw new Error("committed route no longer matches the project connection");
+  const [model, connection] = await Promise.all([
+    loadModelPromptProfile(bundle.route.ir_model),
+    loadConnectionCapabilityProfile(connectionId)
+  ]);
+  if (!model.ok || !connection.ok || model.digest !== bundle.model_profile_digest || connection.digest !== bundle.connection_capability_digest) {
+    throw new Error("committed route/profile digest is stale");
+  }
+  const reviewAfter = model.profile.source.review_after;
+  if (!reviewAfter || reviewAfter <= new Date().toISOString()) {
+    throw new Error("committed effective contract review_after is stale or unknown");
+  }
+  const route = routeFromProfiles({
+    model: bundle.route.ir_model,
+    mode: bundle.route.mode_binding as never,
+    model_profile: model.profile,
+    connection_profile: connection.profile,
+    model_profile_digest: model.digest,
+    connection_profile_digest: connection.digest
+  });
+  if (!route.ok || sha256Canonical(route.route) !== sha256Canonical(bundle.route)) throw new Error("committed route no longer matches the selected capability");
+  const adapter = await import("../videoPromptDirector/adapterDialect.js").then(({ loadAdapterDialectCapability }) => loadAdapterDialectCapability(
+    bundle.route.adapter_id,
+    ["adapters"],
+    { model_profile_id: bundle.route.ir_model, provider_model: bundle.route.provider_model, mode: bundle.route.mode_binding }
+  ));
+  if (!adapter.ok || adapter.capability.source_digest !== bundle.adapter_capability_digest) throw new Error("committed adapter capability is stale");
+  if (bundle.grammar_profile) {
+    const grammar = await loadPinnedH3GrammarProfile();
+    if (grammar.digest !== bundle.grammar_profile.digest) throw new Error("committed grammar provenance is stale");
+  } else if (model.profile.renderer === "h3-grammar") {
+    throw new Error("H3 committed bundle is missing its pinned grammar profile");
+  }
+}
+
+async function assertCommittedAssetContractStillMatches(
+  configPath: string,
+  project: Project,
+  bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1
+): Promise<void> {
+  if (bundle.asset_lineage.length === 0) return;
+  const resolution = await resolveProjectAssetContract(configPath, project);
+  if (!resolution) throw new Error("VPD-J002: current authoritative AssetContract is unavailable");
+  const contract = await reloadAuthoritativeAssetContract(resolution);
+  for (const asset of bundle.asset_lineage) {
+    const committed = asset.asset_contract;
+    const current = contract.assets.find((entry) => entry.asset_id === asset.asset_id);
+    if (!committed || !current
+      || committed.contract_id !== contract.contract_id
+      || committed.revision !== contract.revision
+      || committed.digest !== contract.digest
+      || committed.entry_id !== current.asset_id
+      || committed.path !== current.project_relative_path
+      || committed.sha256 !== current.sha256
+      || committed.byte_size !== current.byte_size
+      || committed.external_send !== current.external_send
+      || asset.path !== current.project_relative_path
+      || asset.declared_sha256 !== current.sha256
+      || asset.pin_evidence?.sha256 !== current.sha256
+      || asset.pin_evidence?.byte_size !== current.byte_size) {
+      throw new Error("VPD-J002: committed AssetContract lineage is stale or mismatched");
+    }
+  }
+}
+
+async function assertCommittedT04StillMatches(
+  configPath: string,
+  project: Project,
+  request: GenerationRequest,
+  ir: import("../videoPromptDirector/schemaV2.js").VideoPromptIrV2,
+  requestIndex: number,
+  bundle: import("../videoPromptDirector/compilationBundle.js").CompilationBundleV1
+): Promise<void> {
+  if (ir.program_kind !== "mv") return;
+  const source = await createProjectGenerationUnitSourceResolver(configPath)({ project, request, ir, requestIndex });
+  if (!source || !bundle.lineage.generation_unit_source_canonical_digest
+    || sha256Canonical(source) !== bundle.lineage.generation_unit_source_canonical_digest
+    || source.unit_id !== request.id
+    || source.ordinal !== requestIndex) throw new Error("committed T04 generation-unit source is stale");
+}
+
+function isSafeReviewId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value);
 }
 
 type ReviewConnectionSnapshot = {
@@ -651,13 +1144,90 @@ async function fingerprintReviewAssets(
   }
   return fingerprints;
 }
+/**
+ * Build ordered generation unit evidence from plan video_prompt / h3 compilations.
+ * Fixture-safe: uses only digests and route/pricing already bound on the plan.
+ * Never invents USD amount0/max0 from pricing_status=known alone.
+ * Never synthesizes fallback compilation digests — missing compilation fails closed
+ * by omitting the unit (generation projects then refuse empty batches at GateBundle).
+ */
+export function buildActiveGenerationUnitEvidenceFromPlan(
+  plan: ExecutionPlan
+): ActiveGenerationUnitEvidence[] {
+  const units: ActiveGenerationUnitEvidence[] = [];
+  const plans = plan.video_prompt_plans ?? [];
+  for (const [index, vp] of plans.entries()) {
+    const route = (vp.v2_compilation?.route ?? null) as RouteIdentity | null;
+    if (!route) continue;
+    // Real ContractSet / compilation evidence only — no synthetic fallback digest.
+    const compilationDigest = vp.v2_compilation?.bundle?.compilation_digest
+      ?? (vp.compilation as { digest?: string } | undefined)?.digest;
+    if (!compilationDigest || typeof compilationDigest !== "string" || compilationDigest.length !== 64) {
+      // Fail closed for this unit; empty unit list is rejected for generation projects.
+      continue;
+    }
+    const extracted = extractAuthoritativePricingFromProfile(vp.connection_profile);
+    const pricing = resolveAuthoritativeGatePricing(extracted);
+    units.push({
+      generation_unit_digest: sha256Canonical({
+        kind: "active-generation-unit",
+        ordinal: index,
+        compilation_digest: compilationDigest,
+        route_digest: route.route_digest
+      }),
+      base_compilation_digest: compilationDigest,
+      route,
+      pricing,
+      pricing_binding_digest: pricingBindingDigest(pricing, route)
+    });
+  }
+  return units;
+}
+
+/**
+ * Canonical active GateBundle for review + Gate1: same evidence, same digest.
+ */
+export function buildActiveReviewGateBundle(
+  project: Project,
+  plan: ExecutionPlan
+): { bundle: GateBundle; review_artifact_digest: string } {
+  const reviewDigest = digest({
+    kind: "active-review-artifact",
+    project: project.slug,
+    plan_backend: plan.backend,
+    estimated_credits: plan.estimated_credits
+  });
+  const unitEvidence = buildActiveGenerationUnitEvidenceFromPlan(plan);
+  const hasGeneration = Boolean(project.generation?.requests?.length);
+  const batches = unitEvidence.length > 0
+    ? buildGenerationBatchesFromEvidence(unitEvidence)
+    : [];
+  if (hasGeneration && batches.length === 0) {
+    throw new Error("active GateBundle requires real generation batches from plan/review evidence");
+  }
+  const compositionIntent = unitEvidence.length > 0
+    ? (plan.video_prompt_plans?.[0]?.v2_compilation as { composition_intent_digest?: string } | undefined)
+      ?.composition_intent_digest
+    : undefined;
+  const bundle = buildActiveGateBundleForProject({
+    project,
+    run_id: project.run_id ?? project.slug,
+    review_artifact_digest: reviewDigest,
+    generation_batches: batches,
+    ...(compositionIntent ? { composition_intent_digest: compositionIntent } : {})
+  });
+  return { bundle, review_artifact_digest: reviewDigest };
+}
+
 export function createReviewDocument(
   project: Project,
   manifest: Manifest,
   plan: ExecutionPlan,
   editorial?: EditorialReview,
-  composition?: CompositionReview
+  composition?: CompositionReview,
+  runtime_authority?: ResolvedRuntimeAuthority
 ): ReviewDocument {
+  const orchestrationMode = orchestrationModeFromAuthority(runtime_authority, project);
   const images = new Map(manifest.images.map((image) => [image.id, image]));
   const speakers = new Map(manifest.speakers.map((speaker) => [speaker.id, speaker]));
   const clips = new Map(manifest.clips.map((clip) => [clip.id, clip]));
@@ -799,6 +1369,25 @@ export function createReviewDocument(
     ...(plan.h3_compilations && plan.h3_compilations.length > 0
       ? { h3_compilations: plan.h3_compilations }
       : {}),
+    ...(plan.video_prompt_plans && plan.video_prompt_plans.length > 0
+      ? {
+          video_prompt_plans: createVideoPromptReviewProjection(plan.video_prompt_plans),
+          video_prompt_subject_digest: digest(createVideoPromptReviewProjection(plan.video_prompt_plans))
+        }
+      : {}),
+    ...(plan.production_control_shadow
+      ? { production_control_shadow: plan.production_control_shadow }
+      : {}),
+    ...(() => {
+      if (orchestrationMode !== "active") return {};
+      try {
+        const built = buildActiveReviewGateBundle(project, plan);
+        return { gate_bundle_review: buildGateBundleReviewProjection(built.bundle) };
+      } catch {
+        // Active bundle construction failures surface at Gate 1 approve; review stays readable.
+        return {};
+      }
+    })(),
     steps: plan.steps,
     warnings,
     ...(project.analysis
@@ -1150,8 +1739,35 @@ export async function writeCreativeReview(
           approvalDigest: loadedComposition.approvalDigest,
           ...(loadedComposition.compilation ? { compilation: loadedComposition.compilation } : {})
         }
-      : undefined
+      : undefined,
+    options.runtime_authority
   );
+  // Durable canonical GateBundle for active mode: same digest Gate1 will load.
+  // Incomplete plan/compilation evidence leaves review readable (Gate1 approve fails closed).
+  // Durable write failure after a successful build is always surfaced.
+  if (orchestrationModeFromAuthority(options.runtime_authority, options.project) === "active") {
+    let built: ReturnType<typeof buildActiveReviewGateBundle> | undefined;
+    try {
+      built = buildActiveReviewGateBundle(options.project, options.plan);
+    } catch {
+      built = undefined;
+    }
+    if (built) {
+      const runId = options.project.run_id ?? options.project.slug;
+      const stateDir = options.stateDir
+        ? resolve(options.stateDir)
+        : resolve(dirname(resolve(options.configPath)), options.project.dist_dir);
+      try {
+        await writeDurableGateBundle(join(stateDir, runId), built.bundle);
+      } catch (error) {
+        throw new Error(
+          `active review durable GateBundle write failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+  }
   await attachReviewPreviewVideos(outputDir, document, {
     configPath,
     project: options.project,
@@ -1247,7 +1863,7 @@ async function loadEditorialReview(
       issues: [],
       proposal,
       approvalDigest: digest({
-        project,
+        project: legacyProjectProjection(project),
         manifest,
         raw_analysis_digest: proposal.raw_analysis_digest,
         proposal_digest: proposal.proposal_digest,
@@ -1595,6 +2211,17 @@ function renderMotionReview(document: ReviewDocument): string {
   </section>`;
 }
 
+function renderProductionControlShadow(summary: ProductionControlShadowSummary | undefined): string {
+  if (!summary) return "";
+  const reasons = summary.awaiting_human_reasons.length > 0
+    ? `<ul>${summary.awaiting_human_reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>`
+    : "<p class=\"muted\">追加の人間判断理由はありません。</p>";
+  const issues = summary.issue_codes.length > 0
+    ? `<p class=\"shadow-issues\"><b>ISSUES</b> ${summary.issue_codes.map((issue) => escapeHtml(issue)).join(" / ")}</p>`
+    : "";
+  return `<section class=\"production-control-shadow\" aria-labelledby=\"production-control-shadow-title\" data-testid=\"production-control-shadow\"><div class=\"section-heading\"><div><p class=\"eyebrow\">READ-ONLY SHADOW</p><h2 id=\"production-control-shadow-title\">Task Tree / Production Control</h2></div><p>従来の計画・Gate・render状態を変更しない読み取り専用の構造確認です。</p></div><dl><div><dt>STATUS</dt><dd>${escapeHtml(summary.status)}</dd></div><div><dt>PRODUCTION</dt><dd>${escapeHtml(summary.production_id)}</dd></div><div><dt>CONTRACT DIGEST</dt><dd>${escapeHtml(summary.contract_digest ?? "未生成")}</dd></div><div><dt>TREE DIGEST</dt><dd>${escapeHtml(summary.tree_digest ?? "未生成")}</dd></div><div><dt>NODES</dt><dd>${summary.node_count === undefined ? "未生成" : String(summary.node_count)}</dd></div></dl>${reasons}${issues}</section>`;
+}
+
 function renderMotionCue(cue: ReviewMotionCue): string {
   const timing = [
     cue.duration_seconds !== undefined ? `${formatNumber(cue.duration_seconds)}秒` : undefined,
@@ -1675,7 +2302,9 @@ export function renderReviewHtml(document: ReviewDocument): string {
   const analysis = renderAnalysisReview(document.analysis);
   const compositionReview = renderCompositionReview(document.composition);
   const motionReview = renderMotionReview(document);
+  const productionControlShadow = renderProductionControlShadow(document.production_control_shadow);
   const h3Review = renderH3Review(document.h3_compilations);
+  const videoPromptReview = renderVideoPromptReview(document.video_prompt_plans);
   const audioReview = document.audio
     ? `<section class="audio-section" aria-labelledby="audio-title" data-testid="audio-review">
       <div class="section-heading"><div><p class="eyebrow">SOUND / TIMING</p><h2 id="audio-title">音響設計</h2></div><p>最終承認前にBGMと効果音の内容・タイミングを確認します。未解決時は停止し、別providerへの自動切り替えは行いません。</p></div>
@@ -1710,7 +2339,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     <header class="hero">
       <nav class="review-nav" aria-label="レビュー内ナビゲーション">
         <a class="wordmark" href="#main"><span class="joinery-mark" aria-hidden="true"><i></i><i></i></span><span class="wordmark-copy">TSUGITE<small>CREATIVE REVIEW</small></span></a>
-        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">H3プロンプト</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
+        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">H3プロンプト</a>` : ""}${document.video_prompt_plans?.length ? `<a href="#video-prompt-plans-title">V2プロンプト</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
       </nav>
       <div class="hero-content">
         <div class="hero-joinery" aria-hidden="true"><span></span><i></i></div>
@@ -1731,6 +2360,8 @@ export function renderReviewHtml(document: ReviewDocument): string {
     ${backgroundReview}
     ${audioReview}
     ${h3Review}
+    ${videoPromptReview}
+    ${productionControlShadow}
     <section class="storyboard-section" aria-labelledby="storyboard-title">
       <div class="section-heading"><div><p class="eyebrow">SEQUENCE / TIMING</p><h2 id="storyboard-title">映像の流れ</h2></div><p>一枚ずつの材を組むように、左から時間順で構成とテンポを確認します。</p></div>
       <div class="screening-room">
@@ -1807,6 +2438,24 @@ function renderH3Review(compilations: H3Compilation[] | undefined): string {
     <div class="section-heading"><div><p class="eyebrow">H3 PROMPT DIRECTOR</p><h2 id="h3-title">H3プロンプト</h2></div><p>Gate 1 前に、Creative IR から確定した canonical / adapter プロンプトと検証結果・lineage を確認します。</p></div>
     <div class="h3-cards">${cards}</div>
   </section>`;
+}
+
+function renderVideoPromptReview(plans: VideoPromptReviewProjection[] | undefined): string {
+  if (!plans || plans.length === 0) return "";
+  const cards = plans.map((plan, index) => {
+    const compilation = plan.compilation;
+    const validationIssues = [...compilation.validation.errors, ...compilation.validation.warnings]
+      .map((item) => `<li><code>${escapeHtml(item.code)}</code> ${escapeHtml(item.message)}</li>`)
+      .join("");
+    return `<article class="video-prompt-card" data-request-order="${index}" data-request-id="${escapeAttribute(plan.request_id)}">
+      <header><p class="eyebrow">REQUEST ${String(index + 1).padStart(2, "0")}</p><h3>${escapeHtml(plan.request_id)}</h3><p class="h3-status" data-ok="${compilation.validation.ok ? "true" : "false"}">validation: ${compilation.validation.ok ? "ok" : "error"}</p></header>
+      <dl class="h3-lineage"><div><dt>COMPILATION DIGEST</dt><dd><code>${escapeHtml(compilation.compilation_digest)}</code></dd></div><div><dt>REQUEST IDENTITY</dt><dd>${escapeHtml(plan.request_identity.authoring_surface)} / ${escapeHtml(plan.request_identity.authoring_schema)} / ${escapeHtml(plan.request_identity.compiler_workflow)}</dd></div><div><dt>ROUTE</dt><dd>${escapeHtml(compilation.route.ir_model)} via ${escapeHtml(compilation.route.adapter_id)} / ${escapeHtml(compilation.route.mode_binding)}</dd></div><div><dt>MODEL PROFILE</dt><dd><code>${escapeHtml(compilation.model_profile_digest)}</code></dd></div><div><dt>CONNECTION CAPABILITY</dt><dd><code>${escapeHtml(compilation.connection_capability_digest)}</code></dd></div><div><dt>ADAPTER CAPABILITY</dt><dd><code>${escapeHtml(compilation.adapter_capability_digest)}</code></dd></div><div><dt>GRAMMAR PROFILE</dt><dd>${compilation.grammar_profile_digest ? `<code>${escapeHtml(compilation.grammar_profile_digest)}</code>` : "not applicable"}</dd></div>${compilation.generation_unit_source_digest ? `<div><dt>GENERATION UNIT SOURCE</dt><dd><code>${escapeHtml(compilation.generation_unit_source_digest)}</code></dd></div>` : ""}</dl>
+      ${validationIssues ? `<div class="h3-issues"><h4>validation</h4><ul>${validationIssues}</ul></div>` : ""}
+      <div class="h3-prompts"><div><h4>canonical prompt</h4><pre>${escapeHtml(compilation.canonical_prompt)}</pre></div><div><h4>adapter prompt</h4><pre>${escapeHtml(compilation.adapter_prompt)}</pre></div></div>
+      <details class="video-prompt-contract"><summary>effective contract（再検証対象）</summary><pre>${escapeHtml(JSON.stringify(compilation.effective_contract, null, 2))}</pre></details>
+    </article>`;
+  }).join("");
+  return `<section class="video-prompt-section" aria-labelledby="video-prompt-plans-title" data-testid="video-prompt-plans"><div class="section-heading"><div><p class="eyebrow">VIDEO PROMPT / V2 SINGLE COMPILER</p><h2 id="video-prompt-plans-title">V2プロンプト・実効契約</h2></div><p>canonical / adapter、route、profile、grammar、effective contract、compilation digestを読み取り専用で固定します。secret、raw provider response、absolute pathは表示しません。</p></div><div class="h3-cards">${cards}</div><p class="utility">Gate 1 subject digest: <code>${escapeHtml(digest(plans))}</code></p></section>`;
 }
 
 function reviewStyles(): string {
