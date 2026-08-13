@@ -179,6 +179,10 @@ function commandStatus(cmd: CommandEvidence | undefined): ExitEvidence["status"]
  * each exit is recomputed from store digests / command exit codes + hashes.
  */
 export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore): ReleaseReadinessReport {
+  const supportedPre1Version = input.package_version === "0.9.0" || input.package_version === "0.10.0";
+  const revisionBindings = projectRevisionBindings();
+  const revisionBindingsDigest = rcRevisionBindingsDigest();
+  const versionBindingMatches = input.package_version === revisionBindings.package_version;
   if (input.self_approve) {
     throw new Error("self-approval of release readiness is forbidden");
   }
@@ -322,13 +326,16 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
     {
       exit_id: "po8-6-version-decision",
       title: "Version/release decision per migration-and-release.md",
-      status: input.package_version === "0.9.0" ? "proven" : "failed",
+      status: supportedPre1Version && versionBindingMatches ? "proven" : "failed",
       evidence: [
         `package_version=${input.package_version}`,
-        `revision_bindings_digest=${rcRevisionBindingsDigest()}`,
-        "Windows/live provider incomplete → not 1.0.0"
+        `revision_bindings_digest=${revisionBindingsDigest}`,
+        "live provider and packaged Desktop evidence incomplete → not 1.0.0"
       ],
-      gaps: input.package_version === "0.9.0" ? [] : ["package version is not 0.9.0"]
+      gaps: [
+        ...(!supportedPre1Version ? ["package version is not an approved pre-1.0 release"] : []),
+        ...(!versionBindingMatches ? ["evidence store package version does not match live revision bindings"] : [])
+      ]
     },
     {
       exit_id: "po8-7-readiness-artifact",
@@ -499,13 +506,13 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
   const structuralComplete = moduleOk && rehearsalOk && provenZero && journalComplete && readerOk && !safetyUnknown;
 
   const versionDecision = {
-    keep_0_9_0: true as const,
+    keep_0_9_0: input.package_version === "0.9.0",
     bump_to_1_0_0: false as const,
     bump_to_1_0_0_rc: false as const,
     rationale: [
       "migration-and-release.md forbids 1.0.0 before all exit criteria",
-      "Windows real-machine and live provider evidence are unverified",
-      "RC package version bump is not required for fixture-only integration",
+      "live provider and packaged Desktop evidence remain incomplete",
+      "minor release remains below 1.0.0 until all exit criteria are proven",
       `current package version remains ${input.package_version}`
     ]
   };
@@ -574,8 +581,8 @@ export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore
     package_version: input.package_version,
     recommended_version: input.package_version,
     version_decision: versionDecision,
-    revision_bindings: projectRevisionBindings(),
-    revision_bindings_digest: rcRevisionBindingsDigest(),
+    revision_bindings: revisionBindings,
+    revision_bindings_digest: revisionBindingsDigest,
     environment,
     exits,
     ...(input.rehearsal

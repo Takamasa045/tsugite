@@ -141,7 +141,7 @@ describe("PO-8 RC mode diagnostics (M3)", () => {
     expect(legacy.default_mode).toBe("legacy");
     expect(legacy.capabilities.may_execute_generation).toBe(false);
     expect(legacy.safety.legacy_byte_semantic_invariant).toBe(true);
-    expect(legacy.revision_bindings.package_version).toBe("0.9.0");
+    expect(legacy.revision_bindings.package_version).toBe("0.10.0");
     expect(legacy.revision_bindings_digest).toBe(rcRevisionBindingsDigest());
 
     const shadow = diagnoseMode({ orchestration: { mode: "shadow" } });
@@ -176,7 +176,7 @@ describe("PO-8 RC mode diagnostics (M3)", () => {
 
   it("pins exact revision bindings from package.json + exported production constants (M5/F)", () => {
     const bindings = projectRevisionBindings();
-    expect(bindings.package_version).toBe("0.9.0");
+    expect(bindings.package_version).toBe("0.10.0");
     expect(bindings.package_json_digest).toMatch(/^[a-f0-9]{64}$/);
     expect(bindings.package_json_digest).toBe(packageJsonContentDigest());
     expect(bindings.production_contract_schema).toBe(1);
@@ -716,9 +716,9 @@ describe("PO-8 adversarial path / Windows fail-closed / O_EXCL", () => {
 });
 
 describe("PO-8 release readiness authenticity (E)", () => {
-  it("keeps 0.9.0, refuses forged proven exits, derives safety from ledger/observer", async () => {
+  it("keeps 0.10.0, refuses forged proven exits, derives safety from ledger/observer", async () => {
     const version = await readPackageVersion(REPO_ROOT);
-    expect(version).toBe("0.9.0");
+    expect(version).toBe("0.10.0");
 
     const noH1 = buildReleaseReadinessReport({
       package_version: version,
@@ -785,7 +785,7 @@ describe("PO-8 release readiness authenticity (E)", () => {
       }
     });
 
-    expect(report.version_decision.keep_0_9_0).toBe(true);
+    expect(report.version_decision.keep_0_9_0).toBe(false);
     expect(report.version_decision.bump_to_1_0_0).toBe(false);
     expect(report.environment.provider_submit_count).toBe(0);
     expect(report.environment.gate_mutation_count).toBe(0);
@@ -1379,7 +1379,7 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
     observer.sealEventSequence();
     const journalDigest = hashCommandOutput("journal-complete");
     const report = buildReleaseReadinessReport({
-      package_version: "0.9.0",
+      package_version: "0.10.0",
       generated_at: NOW,
       fixture_module_evidence: moduleEvidence,
       ledger: moduleEvidence.ledger,

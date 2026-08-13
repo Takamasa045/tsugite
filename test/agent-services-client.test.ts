@@ -63,7 +63,7 @@ function mockClient(overrides: Partial<RemoteMcpClientLike> = {}): RemoteMcpClie
 const publicDns = async () => ["1.1.1.1"] as const;
 
 describe("agent service remote MCP client", () => {
-  it("passes client metadata name=tsugite-agent-service and version=0.9.0 to clientFactory", async () => {
+  it("passes client metadata name=tsugite-agent-service and version=0.10.0 to clientFactory", async () => {
     const client = mockClient();
     let received: { name: string; version: string } | undefined;
     await withRemoteMcpSession(
@@ -80,7 +80,7 @@ describe("agent service remote MCP client", () => {
     );
     expect(received).toEqual({
       name: "tsugite-agent-service",
-      version: "0.9.0"
+      version: "0.10.0"
     });
   });
 

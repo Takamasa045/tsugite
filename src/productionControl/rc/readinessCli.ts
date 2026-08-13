@@ -38,6 +38,28 @@ function has(argv: string[], name: string): boolean {
   return argv.includes(name);
 }
 
+export function assertHistoricalDefaultStoreCompatible(
+  storePackageVersion: string,
+  currentPackageVersion: string
+): void {
+  if (storePackageVersion !== currentPackageVersion) {
+    throw new Error(
+      `historical default evidence is immutable at ${storePackageVersion}; use a separate --store for ${currentPackageVersion}`
+    );
+  }
+}
+
+async function guardHistoricalDefaultStore(storeRoot: string): Promise<void> {
+  if (storeRoot !== resolve(DEFAULT_EVIDENCE_RELATIVE_ROOT)) return;
+  try {
+    const store = await readEvidenceStore(storeRoot);
+    assertHistoricalDefaultStoreCompatible(store.package_version, await readPackageVersion());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`default historical evidence is read-only or invalid: ${message}`);
+  }
+}
+
 export async function runReadinessCli(argv: string[]): Promise<number> {
   const action = argv[0];
   const json = has(argv, "--json");
@@ -68,6 +90,7 @@ async function dispatch(argv: string[]): Promise<ReadinessCliResult> {
     if (!id || !command || exit === undefined || !outputFile) {
       throw new Error("record-command requires --id --command --exit-code --output-file");
     }
+    await guardHistoricalDefaultStore(storeRoot);
     const status = flag(argv, "--status") as CommandEvidence["status"] | undefined;
     const detail = flag(argv, "--detail");
     const output = await readFile(resolve(outputFile), "utf8");
@@ -85,6 +108,7 @@ async function dispatch(argv: string[]): Promise<ReadinessCliResult> {
   if (action === "ingest-browser") {
     const from = flag(argv, "--from");
     if (!from) throw new Error("ingest-browser requires --from <runtime-dir>");
+    await guardHistoricalDefaultStore(storeRoot);
     const ingested = await ingestBrowserRuntimeEvidence({
       runtimeDir: resolve(from),
       storeRoot
@@ -99,7 +123,13 @@ async function dispatch(argv: string[]): Promise<ReadinessCliResult> {
     };
   }
   if (action === "write-report") {
+    const explicitStore = flag(argv, "--store");
+    const explicitOutput = flag(argv, "--output");
+    if (explicitStore && !explicitOutput) {
+      throw new Error("write-report with --store requires a separate --output");
+    }
     const output = resolve(flag(argv, "--output") ?? DEFAULT_READINESS_RELATIVE_PATH);
+    await guardHistoricalDefaultStore(storeRoot);
     const store = await loadOrInitStore(storeRoot);
     if (has(argv, "--recompute-structural")) {
       const { collectStructuralEvidence } = await import("./structuralEvidence.js");
@@ -154,6 +184,7 @@ async function dispatch(argv: string[]): Promise<ReadinessCliResult> {
     if (![statements, branches, functions, lines].every(Number.isFinite)) {
       throw new Error("record-coverage requires --statements --branches --functions --lines");
     }
+    await guardHistoricalDefaultStore(storeRoot);
     await recordCoverage(storeRoot, { statements, branches, functions, lines });
     return { ok: true, action, detail: { statements, branches, functions, lines } };
   }
