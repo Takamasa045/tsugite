@@ -1,9 +1,9 @@
 import React from "react";
+import { Audio, Video } from "@remotion/media";
 import {
   AbsoluteFill,
-  Audio,
   Composition,
-  OffthreadVideo,
+  Interactive,
   Sequence,
   registerRoot,
   staticFile,
@@ -67,6 +67,20 @@ function Root() {
   });
 }
 
+function clipVideoProps(clip, timing, fps, captionLayout) {
+  const layout = mediaLayout(captionLayout);
+  const { objectFit, objectPosition, ...style } = layout;
+  return {
+    ...OFFTHREAD_VIDEO_FETCH_GUARD,
+    src: staticFile(clip.src),
+    trimBefore: timing.trimBefore,
+    muted: !clip.audio,
+    volume: createClipVolume(clip, timing.durationInFrames, fps),
+    objectFit,
+    style: objectPosition ? { ...style, objectPosition } : style
+  };
+}
+
 function Timeline({ manifest }) {
   const fps = manifest.meta.fps;
   const children = [];
@@ -81,14 +95,7 @@ function Timeline({ manifest }) {
       React.createElement(
         Sequence,
         { from: timing.from, durationInFrames: timing.durationInFrames, key: clip.id, name: clip.id },
-        React.createElement(OffthreadVideo, {
-          ...OFFTHREAD_VIDEO_FETCH_GUARD,
-          src: staticFile(clip.src),
-          startFrom: timing.trimBefore,
-          muted: !clip.audio,
-          volume: createClipVolume(clip, timing.durationInFrames, fps),
-          style: mediaLayout(captionLayout)
-        })
+        React.createElement(Video, clipVideoProps(clip, timing, fps, captionLayout))
       )
     );
   }
@@ -153,8 +160,9 @@ function Captions({ captions, fps, layout }) {
       }
     },
     React.createElement(
-      "div",
+      Interactive.Div,
       {
+        name: "Caption",
         style: captionTextLayout(layout)
       },
       active.speaker ? `${active.speaker}: ${active.text}` : active.text

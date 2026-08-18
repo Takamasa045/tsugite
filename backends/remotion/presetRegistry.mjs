@@ -8,6 +8,7 @@ import { SKATE_CAM_PRESET } from "./skateCamPresentation.mjs";
 import { StreetDialogue } from "./streetDialogue.js";
 import { STREET_DIALOGUE_9X16_PRESET, STREET_DIALOGUE_PRESET } from "./streetPresentation.mjs";
 import { SUMMER_CAMP_GENERATED_LANDSCAPE_PRESET, SummerCampGeneratedLandscape } from "./summerCampGeneratedLandscape.js";
+import { KUSAKARI_TITLE_CARD_PRESET, KusakariTitleCard } from "./kusakariTitleCard.js";
 
 export const PRESET_REGISTRY = Object.freeze([
   Object.freeze({ id: ARTICLE_DIALOGUE_PRESET, handler: ArticleDialogue }),
@@ -16,7 +17,8 @@ export const PRESET_REGISTRY = Object.freeze([
   Object.freeze({ id: SUMMER_CAMP_GENERATED_LANDSCAPE_PRESET, handler: SummerCampGeneratedLandscape }),
   Object.freeze({ id: "miraichi-lastcall-9x16", handler: MiraichiLastCall }),
   Object.freeze({ id: ORBITAL_SHOWREEL_PRESET, handler: OrbitalShowreel }),
-  Object.freeze({ id: SKATE_CAM_PRESET, handler: SkateCam })
+  Object.freeze({ id: SKATE_CAM_PRESET, handler: SkateCam }),
+  Object.freeze({ id: KUSAKARI_TITLE_CARD_PRESET, handler: KusakariTitleCard })
 ]);
 
 export const REMOTION_PRESET_REGISTRY = PRESET_REGISTRY;

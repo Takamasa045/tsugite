@@ -1,8 +1,9 @@
 import React from "react";
+import { Video } from "@remotion/media";
 import {
   AbsoluteFill,
   Easing,
-  OffthreadVideo,
+  Interactive,
   Sequence,
   interpolate,
   staticFile,
@@ -120,8 +121,9 @@ export function SkateCam({ manifest }) {
       `${formatTimecode(timelineFrame, fps)}  SP`
     ),
     h(
-      "div",
+      Interactive.Div,
       {
+        name: "Title",
         style: {
           position: "absolute",
           left: "50%",
@@ -338,7 +340,7 @@ function AfterimageEffects({ fps, timelineOffsetSeconds, effects, images }) {
           },
           h(AfterimageLayer, {
             src,
-            startFrom: sourceStart,
+            trimBefore: sourceStart,
             durationInFrames,
             opacity: opacities[index] ?? Math.max(0.08, 0.34 - index * 0.1),
             tint: index % 2 === 0 ? "warm" : "cool"
@@ -351,7 +353,7 @@ function AfterimageEffects({ fps, timelineOffsetSeconds, effects, images }) {
   return children.length > 0 ? h(React.Fragment, null, ...children) : null;
 }
 
-function AfterimageLayer({ src, startFrom, durationInFrames, opacity, tint }) {
+function AfterimageLayer({ src, trimBefore, durationInFrames, opacity, tint }) {
   const frame = useCurrentFrame();
   const fadeFrames = Math.min(5, Math.max(1, Math.floor(durationInFrames / 3)));
   const layerOpacity = interpolate(
@@ -364,17 +366,17 @@ function AfterimageLayer({ src, startFrom, durationInFrames, opacity, tint }) {
     ? "saturate(1.45) brightness(1.12) sepia(.12) drop-shadow(0 0 10px rgba(255,72,48,.7))"
     : "saturate(1.25) brightness(1.18) hue-rotate(168deg) drop-shadow(0 0 10px rgba(95,211,255,.55))";
 
-  return h(OffthreadVideo, {
+  return h(Video, {
     ...OFFTHREAD_VIDEO_FETCH_GUARD,
     src: staticFile(src),
-    startFrom,
+    trimBefore,
     muted: true,
+    objectFit: "cover",
     style: {
       position: "absolute",
       inset: 0,
       width: "100%",
       height: "100%",
-      objectFit: "cover",
       opacity: layerOpacity,
       filter,
       mixBlendMode: "screen"
@@ -419,7 +421,7 @@ function RotoscopeEffects({ fps, timelineOffsetSeconds, effects, images }) {
           h(RotoscopeLayer, {
             creamSrc,
             redSrc,
-            startFrom: sourceStart,
+            trimBefore: sourceStart,
             durationInFrames,
             fps,
             role: role.id
@@ -456,7 +458,7 @@ function RotoscopeEffects({ fps, timelineOffsetSeconds, effects, images }) {
   return children.length > 0 ? h(React.Fragment, null, ...children) : null;
 }
 
-function RotoscopeLayer({ creamSrc, redSrc, startFrom, durationInFrames, fps, role }) {
+function RotoscopeLayer({ creamSrc, redSrc, trimBefore, durationInFrames, fps, role }) {
   const frame = useCurrentFrame();
   const fadeFrames = Math.min(4, Math.max(1, Math.floor(durationInFrames / 3)));
   const envelope = interpolate(
@@ -487,11 +489,12 @@ function RotoscopeLayer({ creamSrc, redSrc, startFrom, durationInFrames, fps, ro
   };
 
   if (role === "trail-cream") {
-    return h(OffthreadVideo, {
+    return h(Video, {
       ...OFFTHREAD_VIDEO_FETCH_GUARD,
       src: staticFile(creamSrc),
-      startFrom,
+      trimBefore,
       muted: true,
+      objectFit: "cover",
       style: {
         ...commonStyle,
         opacity: envelope * 0.31,
@@ -502,11 +505,12 @@ function RotoscopeLayer({ creamSrc, redSrc, startFrom, durationInFrames, fps, ro
   }
 
   if (role === "trail-red") {
-    return h(OffthreadVideo, {
+    return h(Video, {
       ...OFFTHREAD_VIDEO_FETCH_GUARD,
       src: staticFile(redSrc),
-      startFrom,
+      trimBefore,
       muted: true,
+      objectFit: "cover",
       style: {
         ...commonStyle,
         opacity: envelope * 0.2,
@@ -519,11 +523,12 @@ function RotoscopeLayer({ creamSrc, redSrc, startFrom, durationInFrames, fps, ro
   return h(
     React.Fragment,
     null,
-    h(OffthreadVideo, {
+    h(Video, {
       ...OFFTHREAD_VIDEO_FETCH_GUARD,
       src: staticFile(redSrc),
-      startFrom,
+      trimBefore,
       muted: true,
+      objectFit: "cover",
       style: {
         ...commonStyle,
         opacity: envelope * 0.62,
@@ -531,11 +536,12 @@ function RotoscopeLayer({ creamSrc, redSrc, startFrom, durationInFrames, fps, ro
         filter: "drop-shadow(0 0 3px rgba(239,35,60,.62))"
       }
     }),
-    h(OffthreadVideo, {
+    h(Video, {
       ...OFFTHREAD_VIDEO_FETCH_GUARD,
       src: staticFile(creamSrc),
-      startFrom,
+      trimBefore,
       muted: true,
+      objectFit: "cover",
       style: {
         ...commonStyle,
         opacity: envelope * 0.9,

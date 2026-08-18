@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, CanvasImage, Interactive, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { activeCaptionAt, emphasizedTextParts, resolveSpeakerImage } from "./presentation.mjs";
 import {
   STREET_THEME,
@@ -35,7 +35,13 @@ function resolveStreetLayout(manifest) {
       topicRight: 40,
       topicWidth: 700,
       watermarkFontSize: 120,
-      watermarkTop: 820
+      watermarkTop: 820,
+      stillTop: 96,
+      stillLeft: 40,
+      stillRight: 40,
+      stillHeight: 1010,
+      stillCharacterWidth: 590,
+      stillCharacterBottom: 245
     };
   }
   return {
@@ -55,8 +61,27 @@ function resolveStreetLayout(manifest) {
     topicRight: 56,
     topicWidth: 620,
     watermarkFontSize: 226,
-    watermarkTop: 330
+    watermarkTop: 330,
+    stillTop: 72,
+    stillLeft: 72,
+    stillRight: 72,
+    stillHeight: 700,
+    stillCharacterWidth: 620,
+    stillCharacterBottom: 40
   };
+}
+
+function resolveStillHero(manifest, visual) {
+  return Boolean(visual?.image_id) || manifest?.presentation?.visual_mode === "still-hero";
+}
+
+function resolveStillGeom(layout) {
+  const left = layout.stillLeft ?? (layout.portrait ? 40 : 72);
+  const right = layout.stillRight ?? left;
+  const top = layout.stillTop ?? (layout.portrait ? 96 : 72);
+  const height = layout.stillHeight ?? (layout.portrait ? 1010 : 700);
+  const width = layout.designW - left - right;
+  return { left, right, top, height, width, bottom: top + height };
 }
 
 export function StreetDialogue({ manifest }) {
@@ -73,6 +98,126 @@ export function StreetDialogue({ manifest }) {
   const activeSpeaker = speakers.find((speaker) => speaker.id === caption?.speaker);
   const captionLocalFrame = caption ? Math.max(0, frame - Math.round(caption.start * fps)) : 0;
   const progress = Math.min(1, second / manifest.meta.target_duration_seconds);
+  const stillHero = resolveStillHero(manifest, visual);
+  const stillGeom = resolveStillGeom(layout);
+
+  const stageChildren = stillHero
+    ? [
+        h(PaperWash, { key: "wash" }),
+        h(SceneStill, {
+          key: "still",
+          visual,
+          images: manifest.images ?? [],
+          frame,
+          fps,
+          presentation: manifest.presentation,
+          layout,
+          stillHero: true,
+          stillGeom
+        }),
+        h(HeaderBar, {
+          key: "header",
+          presentation: manifest.presentation,
+          chapter,
+          layout
+        }),
+        h(StillHeadline, {
+          key: "headline",
+          visual,
+          captions,
+          second,
+          fps,
+          frame,
+          layout,
+          stillGeom
+        }),
+        ...speakers.map((speaker) =>
+          h(Character, {
+            key: speaker.id,
+            speaker,
+            images: manifest.images,
+            caption,
+            frame,
+            fps,
+            captionLocalFrame,
+            isActive: speaker.id === activeSpeaker?.id,
+            mouthFps: resolveMouthFps(manifest),
+            motionScale: resolveMotionScale(manifest),
+            layout,
+            stillHero: true
+          })
+        ),
+        h(CaptionBar, {
+          key: "caption",
+          caption,
+          speaker: activeSpeaker,
+          localFrame: captionLocalFrame,
+          fps,
+          layout,
+          stillHero: true,
+          presentation: manifest.presentation
+        }),
+        h(ProgressBar, { key: "progress", progress, layout }),
+        manifest.presentation?.draft ? h(DraftChip, { key: "draft" }) : null
+      ]
+    : [
+        h(PaperWash, { key: "wash" }),
+        h(SceneStill, {
+          key: "still",
+          visual,
+          images: manifest.images ?? [],
+          frame,
+          fps,
+          presentation: manifest.presentation,
+          layout,
+          stillHero: false,
+          stillGeom
+        }),
+        h(Watermark, { key: "wm", presentation: manifest.presentation, layout }),
+        h(Doodles, { key: "doodles", frame, fps, layout, muted: Boolean(visual?.image_id) }),
+        h(TitleTag, { key: "title", presentation: manifest.presentation, layout, frame, fps }),
+        h(ChapterChip, { key: "chapter", chapter, layout }),
+        h(TopicCard, {
+          key: "topic",
+          visual,
+          second,
+          captions,
+          fps,
+          frame,
+          layout,
+          stillHero: false
+        }),
+        h(CenterStage, { key: "center", caption, frame, fps }),
+        ...speakers.map((speaker) =>
+          h(Character, {
+            key: speaker.id,
+            speaker,
+            images: manifest.images,
+            caption,
+            frame,
+            fps,
+            captionLocalFrame,
+            isActive: speaker.id === activeSpeaker?.id,
+            mouthFps: resolveMouthFps(manifest),
+            motionScale: resolveMotionScale(manifest),
+            layout,
+            stillHero: false
+          })
+        ),
+        h(CaptionBar, {
+          key: "caption",
+          caption,
+          speaker: activeSpeaker,
+          localFrame: captionLocalFrame,
+          fps,
+          layout,
+          stillHero: false,
+          presentation: manifest.presentation
+        }),
+        h(SourceLine, { key: "source", presentation: manifest.presentation, layout }),
+        h(ProgressBar, { key: "progress", progress, layout }),
+        manifest.presentation?.draft ? h(DraftChip, { key: "draft" }) : null
+      ];
 
   return h(
     AbsoluteFill,
@@ -86,39 +231,285 @@ export function StreetDialogue({ manifest }) {
           height: layout.designH,
           left: (width - layout.designW * scale) / 2,
           top: (height - layout.designH * scale) / 2,
-          transform: `scale(${scale})`,
+          scale,
           transformOrigin: "top left",
           fontFamily: FONT,
           color: STREET_THEME.ink
         }
       },
-      h(PaperWash),
-      h(Watermark, { presentation: manifest.presentation, layout }),
-      h(Doodles, { frame, fps, layout }),
-      h(TitleTag, { presentation: manifest.presentation, layout, frame, fps }),
-      h(ChapterChip, { chapter, layout }),
-      h(TopicCard, { visual, second, captions, fps, frame, layout }),
-      h(CenterStage, { caption, frame, fps }),
-      speakers.map((speaker) =>
-        h(Character, {
-          key: speaker.id,
-          speaker,
-          images: manifest.images,
-          caption,
-          frame,
-          fps,
-          captionLocalFrame,
-          isActive: speaker.id === activeSpeaker?.id,
-          mouthFps: resolveMouthFps(manifest),
-          layout
-        })
-      ),
-      h(CaptionBar, { caption, speaker: activeSpeaker, localFrame: captionLocalFrame, fps, layout }),
-      h(SourceLine, { presentation: manifest.presentation, layout }),
-      h(ProgressBar, { progress, layout }),
-      manifest.presentation?.draft ? h(DraftChip) : null
+      stageChildren
     )
   );
+}
+
+function SceneStill({ visual, images, frame, fps, presentation, layout, stillHero, stillGeom }) {
+  const imageId = visual?.image_id || presentation?.background_image_id;
+  if (!imageId) return null;
+  const image = (images ?? []).find((item) => item.id === imageId);
+  if (!image?.src) return null;
+  const local = frame / Math.max(1, fps);
+  const zoom = 1.04 + 0.03 * Math.sin(local * Math.PI * 0.12);
+  const portrait = layout?.portrait;
+
+  if (stillHero) {
+    const geom = stillGeom ?? resolveStillGeom(layout);
+    return h(
+      "div",
+      {
+        style: {
+          position: "absolute",
+          left: geom.left,
+          top: geom.top,
+          width: geom.width,
+          height: geom.height,
+          zIndex: 2,
+          overflow: "hidden",
+          border: `6px solid ${STREET_THEME.ink}`,
+          borderRadius: 28,
+          boxShadow: `10px 10px 0 ${STREET_THEME.ink}`,
+          backgroundColor: "#1a1820"
+        }
+      },
+      h(CanvasImage, {
+        src: staticFile(image.src),
+        alt: image.alt ?? imageId,
+        style: {
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          scale: zoom,
+          transformOrigin: "center center",
+          filter: "saturate(1.05) contrast(1.04)"
+        }
+      }),
+      h("div", {
+        style: {
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(180deg, rgba(20,18,24,0.18) 0%, rgba(20,18,24,0.02) 42%, rgba(20,18,24,0.55) 100%)",
+          pointerEvents: "none"
+        }
+      })
+    );
+  }
+
+  return h(
+    AbsoluteFill,
+    { style: { zIndex: 1 } },
+    h(CanvasImage, {
+      src: staticFile(image.src),
+      alt: image.alt ?? imageId,
+      style: {
+        position: "absolute",
+        left: portrait ? 36 : 80,
+        right: portrait ? 36 : 80,
+        top: portrait ? 120 : 90,
+        bottom: portrait ? 280 : 160,
+        width: portrait ? 1008 : 1760,
+        height: portrait ? 1520 : 830,
+        objectFit: "cover",
+        border: `6px solid ${STREET_THEME.ink}`,
+        borderRadius: 28,
+        boxShadow: `14px 14px 0 ${STREET_THEME.ink}`,
+        scale: zoom,
+        transformOrigin: "center center",
+        filter: "saturate(1.05) contrast(1.04)"
+      }
+    }),
+    h("div", {
+      style: {
+        position: "absolute",
+        inset: 0,
+        background:
+          "linear-gradient(180deg, rgba(246,239,227,0.18) 0%, rgba(246,239,227,0.05) 40%, rgba(38,34,43,0.28) 100%)",
+        pointerEvents: "none"
+      }
+    })
+  );
+}
+
+function HeaderBar({ presentation, chapter, layout }) {
+  const leftLabel = presentation?.label || "AI AGENT LAB";
+  const rightLabel = presentation?.title_popup || presentation?.header_badge || "";
+  const chapterTitle = chapter?.title;
+  return h(
+    Interactive.Div,
+    {
+      name: "Header",
+      style: {
+        position: "absolute",
+        top: layout.portrait ? 28 : 24,
+        left: layout.portrait ? 40 : 56,
+        right: layout.portrait ? 40 : 56,
+        zIndex: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6
+      }
+    },
+    h(
+      "div",
+      {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          height: 42,
+          padding: "0 4px",
+          borderBottom: "2px solid rgba(38,34,43,0.55)"
+        }
+      },
+      h(
+        "div",
+        {
+          style: {
+            fontSize: layout.portrait ? 18 : 20,
+            fontWeight: 800,
+            letterSpacing: 4,
+            color: STREET_THEME.ink
+          }
+        },
+        leftLabel
+      ),
+      rightLabel
+        ? h(
+            "div",
+            {
+              style: {
+                fontSize: layout.portrait ? 18 : 20,
+                fontWeight: 800,
+                letterSpacing: 1.5,
+                color: STREET_THEME.ink
+              }
+            },
+            rightLabel
+          )
+        : null
+    ),
+    chapterTitle
+      ? h(
+          "div",
+          {
+            style: {
+              fontSize: layout.portrait ? 16 : 18,
+              fontWeight: 700,
+              letterSpacing: 1,
+              color: "rgba(38,34,43,0.62)",
+              paddingLeft: 2
+            }
+          },
+          chapterTitle
+        )
+      : null
+  );
+}
+
+function wipeReveal(localFrame, fps, durationSeconds = 0.45) {
+  const t = Math.max(0, Math.min(1, localFrame / Math.max(1, fps) / durationSeconds));
+  const eased = 1 - Math.pow(1 - t, 3);
+  return {
+    progress: eased,
+    clipPath: `inset(0 ${(1 - eased) * 100}% 0 0)`,
+    translateX: (1 - eased) * 36,
+    opacity: Math.min(1, eased * 1.15)
+  };
+}
+
+function StillHeadline({ visual, captions, second, fps, frame, layout, stillGeom }) {
+  if (!visual?.headline) return null;
+  const carrier = (captions ?? []).find((caption) => caption.visual === visual);
+  const localFrame = carrier ? Math.max(0, frame - Math.round(carrier.start * fps)) : fps;
+  const reveal = wipeReveal(localFrame, fps, 0.5);
+  const geom = stillGeom ?? resolveStillGeom(layout);
+  const bandHeight = layout.portrait ? 168 : 140;
+  const overlayWidth = layout.portrait ? Math.round(geom.width * 0.72) : Math.round(geom.width * 0.62);
+
+  return h(
+    Interactive.Div,
+    {
+      name: "Title",
+      style: {
+        position: "absolute",
+        left: geom.left,
+        top: geom.bottom - bandHeight,
+        width: overlayWidth,
+        height: bandHeight,
+        zIndex: 5,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-end",
+        padding: layout.portrait ? "18px 22px 22px" : "16px 24px 20px",
+        background:
+          "linear-gradient(180deg, rgba(18,16,22,0) 0%, rgba(18,16,22,0.55) 38%, rgba(18,16,22,0.78) 100%)",
+        clipPath: reveal.clipPath,
+        translate: `${reveal.translateX}px 0px`,
+        opacity: reveal.opacity,
+        overflow: "hidden",
+        pointerEvents: "none"
+      }
+    },
+    visual.kicker
+      ? h(
+          "div",
+          {
+            style: {
+              fontSize: layout.portrait ? 16 : 18,
+              fontWeight: 800,
+              letterSpacing: 3.5,
+              textTransform: "uppercase",
+              color: "rgba(255,250,241,0.82)",
+              textShadow: "0 2px 10px rgba(0,0,0,0.55)",
+              marginBottom: 6
+            }
+          },
+          visual.kicker
+        )
+      : null,
+    h(
+      "div",
+      {
+        style: {
+          fontSize: layout.portrait ? 40 : 44,
+          fontWeight: 900,
+          lineHeight: 1.2,
+          color: STREET_THEME.cream,
+          textShadow: "0 3px 14px rgba(0,0,0,0.65)",
+          wordBreak: "keep-all"
+        }
+      },
+      visual.headline
+    ),
+    visual.detail
+      ? h(
+          "div",
+          {
+            style: {
+              marginTop: 6,
+              fontSize: layout.portrait ? 20 : 22,
+              fontWeight: 650,
+              lineHeight: 1.35,
+              color: "rgba(255,250,241,0.88)",
+              textShadow: "0 2px 8px rgba(0,0,0,0.55)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis"
+            }
+          },
+          visual.detail
+        )
+      : null
+  );
+}
+
+function resolveMotionScale(manifest) {
+  const raw = manifest?.presentation?.motion_scale ?? manifest?.presentation?.motionScale;
+  const value = Number(raw);
+  if (Number.isFinite(value) && value > 0) return Math.min(1.2, Math.max(0.15, value));
+  if (manifest?.presentation?.character_motion === "slow") return 0.35;
+  return 1;
 }
 
 function PaperWash() {
@@ -148,14 +539,15 @@ function TitleTag({ presentation, layout, frame, fps }) {
   const bob = idleBob(frame, fps, 1.2);
 
   return h(
-    "div",
+    Interactive.Div,
     {
+      name: "Title",
       style: {
         position: "absolute",
         top: layout.titleTop,
         left: layout.titleLeft,
         maxWidth: layout.titleMaxWidth,
-        transform: "rotate(-3deg)",
+        rotate: "-3deg",
         backgroundColor: STREET_THEME.lemon,
         border: `5px solid ${STREET_THEME.ink}`,
         borderRadius: 22,
@@ -237,7 +629,7 @@ function Watermark({ presentation, layout }) {
         fontWeight: 900,
         letterSpacing: 12,
         color: "rgba(38, 34, 43, 0.045)",
-        transform: "rotate(-3deg)",
+        rotate: "-3deg",
         whiteSpace: "nowrap"
       }
     },
@@ -245,7 +637,7 @@ function Watermark({ presentation, layout }) {
   );
 }
 
-function Doodles({ frame, fps, layout }) {
+function Doodles({ frame, fps, layout, muted = false }) {
   const doodles = layout.portrait
     ? [
         { key: "sparkle", x: 120, y: 560, phase: 0.8, child: sparklePath(STREET_THEME.accentLeft, 48) },
@@ -266,8 +658,8 @@ function Doodles({ frame, fps, layout }) {
           position: "absolute",
           left: doodle.x,
           top: doodle.y,
-          transform: `translateY(${idleBob(frame, fps, doodle.phase)}px)`,
-          opacity: 0.55
+          translate: `0px ${idleBob(frame, fps, doodle.phase) * (muted ? 0.25 : 1)}px`,
+          opacity: muted ? 0.18 : 0.55
         }
       },
       doodle.child
@@ -297,8 +689,9 @@ function centerAccent(center) {
 function Telop({ center, localFrame, fps, frame }) {
   const pop = popIn(localFrame, fps, 0.4);
   return h(
-    "div",
+    Interactive.Div,
     {
+      name: "Telop",
       style: {
         position: "absolute",
         top: 452,
@@ -517,7 +910,7 @@ function ChapterChip({ chapter, layout }) {
         position: "absolute",
         top: layout.chapterTop,
         left: layout.chapterLeft,
-        transform: "rotate(-2deg)",
+        rotate: "-2deg",
         backgroundColor: STREET_THEME.ink,
         color: STREET_THEME.cream,
         borderRadius: 999,
@@ -530,7 +923,7 @@ function ChapterChip({ chapter, layout }) {
   );
 }
 
-function TopicCard({ visual, second, captions, fps, frame, layout }) {
+function TopicCard({ visual, second, captions, fps, frame, layout, stillHero = false }) {
   if (!visual) return null;
   const carrier = captions.find((caption) => caption.visual === visual);
   const localFrame = carrier ? Math.max(0, frame - Math.round(carrier.start * fps)) : fps;
@@ -540,16 +933,19 @@ function TopicCard({ visual, second, captions, fps, frame, layout }) {
     {
       style: {
         position: "absolute",
-        top: layout.topicTop,
-        right: layout.topicRight,
-        width: layout.topicWidth,
-        transform: `rotate(2deg) scale(${scale})`,
-        transformOrigin: "top right",
-        backgroundColor: STREET_THEME.cream,
+        top: stillHero ? (layout.portrait ? 150 : 110) : layout.topicTop,
+        left: stillHero ? 48 : undefined,
+        right: stillHero ? 48 : layout.topicRight,
+        width: stillHero ? undefined : layout.topicWidth,
+        scale,
+        rotate: stillHero ? "0deg" : "2deg",
+        transformOrigin: stillHero ? "top center" : "top right",
+        backgroundColor: stillHero ? "rgba(255,250,241,0.92)" : STREET_THEME.cream,
         border: `5px solid ${STREET_THEME.ink}`,
-        borderRadius: 18,
-        boxShadow: `10px 10px 0 rgba(38, 34, 43, 0.85)`,
-        padding: layout.portrait ? "18px 22px" : "22px 28px"
+        borderRadius: stillHero ? 16 : 18,
+        boxShadow: stillHero ? `0 10px 0 rgba(38, 34, 43, 0.85)` : `10px 10px 0 rgba(38, 34, 43, 0.85)`,
+        padding: layout.portrait ? "14px 18px" : "22px 28px",
+        zIndex: 6
       }
     },
     h(Tape, { left: -18, rotate: -32 }),
@@ -573,7 +969,7 @@ function TopicCard({ visual, second, captions, fps, frame, layout }) {
           visual.kicker
         )
       : null,
-    h("div", { style: { fontSize: 44, fontWeight: 900, lineHeight: 1.3 } }, visual.headline),
+    h("div", { style: { fontSize: stillHero ? 34 : 44, fontWeight: 900, lineHeight: 1.25, textAlign: stillHero ? "center" : "left" } }, visual.headline),
     visual.detail
       ? h(
           "div",
@@ -616,7 +1012,7 @@ function Tape({ left, right, rotate }) {
       right,
       width: 96,
       height: 30,
-      transform: `rotate(${rotate}deg)`,
+      rotate: `${rotate}deg`,
       backgroundColor: "rgba(201, 184, 244, 0.85)",
       border: "2px solid rgba(38, 34, 43, 0.25)"
     }
@@ -631,7 +1027,7 @@ function resolveMouthFps(manifest) {
   return Math.min(12, Math.max(1, value));
 }
 
-function Character({ speaker, images, caption, frame, fps, captionLocalFrame, isActive, mouthFps = 8, layout }) {
+function Character({ speaker, images, caption, frame, fps, captionLocalFrame, isActive, mouthFps = 8, motionScale = 1, layout, stillHero = false }) {
   const image =
     envelopeSpeakerImage(speaker, caption, images, frame, fps, isActive) ??
     resolveSpeakerImage(speaker, caption, images, frame, fps, mouthFps);
@@ -641,23 +1037,30 @@ function Character({ speaker, images, caption, frame, fps, captionLocalFrame, is
   const pad = layout?.characterSidePad ?? 30;
   const sideStyle = speaker.side === "left" ? { left: pad } : { right: pad };
   const phase = speaker.side === "left" ? 0 : Math.PI;
-  const lift = isActive ? activeBounce(captionLocalFrame, fps) : idleBob(frame, fps, phase);
-  const pop = isActive ? popIn(captionLocalFrame, fps) : 0;
+  const lift = (isActive ? activeBounce(captionLocalFrame, fps) : idleBob(frame, fps, phase)) * motionScale;
+  const pop = isActive ? popIn(captionLocalFrame, fps, 0.35 / Math.max(0.25, motionScale)) : 0;
   const characterScale = isActive ? 0.97 + 0.05 * pop : 0.95;
   const tilt = speaker.side === "left" ? -1.5 : 1.5;
+  const width = stillHero
+    ? (layout?.stillCharacterWidth ?? (layout?.portrait ? 590 : 620))
+    : (layout?.characterWidth ?? 620);
+  const bottom = stillHero
+    ? (layout?.stillCharacterBottom ?? (layout?.portrait ? 245 : 40))
+    : (layout?.characterBottom ?? -26);
 
   return h(
     "div",
     {
       style: {
         position: "absolute",
-        bottom: layout?.characterBottom ?? -26,
-        width: layout?.characterWidth ?? 620,
+        bottom,
+        width,
+        zIndex: stillHero ? 20 : undefined,
         ...sideStyle
       }
     },
-    isActive ? h(SprayBlob, { color: speaker.accent, pop }) : null,
-    h(Img, {
+    isActive && !stillHero ? h(SprayBlob, { color: speaker.accent, pop }) : null,
+    h(CanvasImage, {
       src: staticFile(image.src),
       style: {
         position: "relative",
@@ -682,7 +1085,7 @@ function SprayBlob({ color, pop }) {
         left: -105,
         bottom: -55,
         opacity: 0.4 * pop,
-        transform: `scale(${0.7 + 0.3 * pop})`,
+        scale: 0.7 + 0.3 * pop,
         transformOrigin: "center bottom"
       }
     },
@@ -696,14 +1099,131 @@ function SprayBlob({ color, pop }) {
   );
 }
 
-function CaptionBar({ caption, speaker, localFrame, fps, layout }) {
+function captionSlide(localFrame, fps, durationSeconds = 0.38) {
+  const t = Math.max(0, Math.min(1, localFrame / Math.max(1, fps) / durationSeconds));
+  const eased = 1 - Math.pow(1 - t, 3);
+  return {
+    opacity: eased,
+    translateX: (1 - eased) * 40,
+    clipPath: `inset(0 0 0 ${(1 - eased) * 12}%)`
+  };
+}
+
+function CaptionBar({ caption, speaker, localFrame, fps, layout, stillHero = false, presentation }) {
   if (!caption || !speaker) return null;
-  const pop = popIn(localFrame, fps);
   const parts = emphasizedTextParts(caption.text, caption.emphasis ?? []);
   const portrait = layout?.portrait;
+
+  if (stillHero) {
+    const slide = captionSlide(localFrame, fps, 0.4);
+    const stripHeight = portrait ? 188 : 160;
+    const source = presentation?.source_title;
+    return h(
+      Interactive.Div,
+      {
+        name: "Caption",
+        style: {
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: stripHeight,
+          zIndex: 30,
+          backgroundColor: "#1c1a21",
+          color: STREET_THEME.cream,
+          display: "flex",
+          flexDirection: "row",
+          overflow: "hidden",
+          boxShadow: "0 -8px 24px rgba(0,0,0,0.28)"
+        }
+      },
+      h("div", {
+        style: {
+          width: 10,
+          flexShrink: 0,
+          backgroundColor: speaker.accent || STREET_THEME.accentRight
+        }
+      }),
+      h(
+        "div",
+        {
+          style: {
+            flex: 1,
+            padding: portrait ? "22px 28px 16px 22px" : "18px 32px 14px 24px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            translate: `${slide.translateX}px 0px`,
+            opacity: slide.opacity,
+            clipPath: slide.clipPath
+          }
+        },
+        h(
+          "div",
+          {
+            style: {
+              fontSize: portrait ? 15 : 16,
+              fontWeight: 800,
+              letterSpacing: 3.2,
+              textTransform: "uppercase",
+              color: "rgba(255,250,241,0.72)",
+              marginBottom: 8
+            }
+          },
+          speaker.display_name
+        ),
+        h(
+          "div",
+          {
+            style: {
+              fontSize: portrait ? 34 : 36,
+              fontWeight: 700,
+              lineHeight: 1.4,
+              color: STREET_THEME.cream
+            }
+          },
+          parts.map((part, index) =>
+            part.emphasized
+              ? h(
+                  "span",
+                  {
+                    key: `${part.text}-${index}`,
+                    style: {
+                      fontWeight: 900,
+                      color: speaker.accent || STREET_THEME.accentRight,
+                      borderBottom: `2px solid ${speaker.accent || STREET_THEME.accentRight}`,
+                      paddingBottom: 1
+                    }
+                  },
+                  part.text
+                )
+              : h("span", { key: `${part.text}-${index}` }, part.text)
+          )
+        ),
+        source
+          ? h(
+              "div",
+              {
+                style: {
+                  marginTop: 8,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  letterSpacing: 0.5,
+                  color: "rgba(255,250,241,0.45)"
+                }
+              },
+              source
+            )
+          : null
+      )
+    );
+  }
+
+  const pop = popIn(localFrame, fps);
   return h(
-    "div",
+    Interactive.Div,
     {
+      name: "Caption",
       style: {
         position: "absolute",
         bottom: portrait ? 48 : 56,
@@ -790,6 +1310,7 @@ function ProgressBar({ progress }) {
         left: 0,
         width: `${progress * 100}%`,
         height: 12,
+        zIndex: 40,
         background: `linear-gradient(90deg, ${STREET_THEME.accentLeft}, ${STREET_THEME.accentRight})`
       }
     }
@@ -811,7 +1332,8 @@ function DraftChip() {
         padding: "6px 20px",
         fontSize: 21,
         fontWeight: 800,
-        letterSpacing: 2
+        letterSpacing: 2,
+        zIndex: 50
       }
     },
     "DRAFT — 無音プレビュー"

@@ -34,12 +34,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@remotion/bundler": "^4.0.500",
-    "@remotion/renderer": "^4.0.502",
+    "@remotion/bundler": "^4.0.512",
+    "@remotion/media": "^4.0.512",
+    "@remotion/renderer": "^4.0.512",
     "cross-spawn": "^7.0.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "remotion": "^4.0.486",
+    "remotion": "^4.0.512",
     "yaml": "^2.8.0",
     "zod": "^4.4.3"
   },

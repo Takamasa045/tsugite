@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, CanvasImage, Easing, Interactive, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import {
   activeCaptionAt,
   designScale,
@@ -75,8 +75,9 @@ export function ArticleDialogue({ manifest }) {
 
 function Header({ presentation, theme }) {
   return React.createElement(
-    "div",
+    Interactive.Div,
     {
+      name: "Header",
       style: {
         position: "absolute",
         top: 36,
@@ -160,7 +161,8 @@ function CenterVisual({ active, visual, images, frame, fps, second, theme }) {
         background: theme.cardBackground,
         boxShadow: theme.cardShadow,
         opacity: enter.opacity,
-        transform: `translateY(${enter.y}px) scale(${enter.scale})`,
+        translate: `0px ${enter.y}px`,
+        scale: enter.scale,
         overflow: "hidden"
       }
     },
@@ -176,18 +178,19 @@ function CenterVisual({ active, visual, images, frame, fps, second, theme }) {
               minHeight: 0
             }
           },
-          React.createElement(Img, {
+          React.createElement(CanvasImage, {
             src: staticFile(image.src),
             alt: image.alt ?? visual.headline ?? "visual",
             style: {
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              transform: `scale(${interpolate(localFrame, [0, fps * 8], [1.04, 1], {
+              scale: interpolate(localFrame, [0, fps * 8], [1.04, 1], {
                 extrapolateLeft: "clamp",
                 extrapolateRight: "clamp",
-                easing: Easing.out(Easing.cubic)
-              })})`
+                easing: Easing.out(Easing.cubic),
+                output: "perceptual-scale"
+              })
             }
           }),
           visual.kicker
@@ -288,7 +291,7 @@ function CenterVisual({ active, visual, images, frame, fps, second, theme }) {
                     alignItems: "center",
                     gap: 12,
                     opacity: progress,
-                    transform: `translateX(${(1 - progress) * 18}px)`
+                    translate: `${(1 - progress) * 18}px 0px`
                   }
                 },
                 React.createElement(
@@ -359,7 +362,7 @@ function CenterVisual({ active, visual, images, frame, fps, second, theme }) {
                     fontWeight: 800,
                     padding: "10px 16px",
                     opacity: progress,
-                    transform: `translateY(${(1 - progress) * 10}px)`
+                    translate: `0px ${(1 - progress) * 10}px`
                   }
                 },
                 badge
@@ -418,7 +421,8 @@ function Character({ speaker, image, active, frame, fps, theme }) {
         alignItems: "center",
         gap: 10,
         opacity: active ? 1 : 0.72,
-        transform: `translateY(${Math.round(bob + (active ? 0 : 8))}px) scale(${activeScale})`,
+        translate: `0px ${Math.round(bob + (active ? 0 : 8))}px`,
+        scale: activeScale,
         transformOrigin: "bottom center",
         zIndex: active ? 4 : 3
       }
@@ -442,7 +446,7 @@ function Character({ speaker, image, active, frame, fps, theme }) {
         }
       },
       image
-        ? React.createElement(Img, {
+        ? React.createElement(CanvasImage, {
             src: staticFile(image.src),
             alt: image.alt ?? speaker.display_name,
             style: {
@@ -451,7 +455,7 @@ function Character({ speaker, image, active, frame, fps, theme }) {
               // Cutouts must stay whole; face closeups fill the circle.
               objectFit: cutout ? "contain" : "cover",
               objectPosition: cutout ? "center bottom" : speaker.id === "itopan" ? "center 30%" : "center 20%",
-              transform: !cutout && speaker.id === "itopan" ? "scale(1.06)" : "none",
+              scale: !cutout && speaker.id === "itopan" ? 1.06 : 1,
               transformOrigin: "center 32%"
             }
           })
@@ -485,8 +489,9 @@ function DialogueCaption({ active, speakers, frame, fps, theme }) {
   const enter = softEnter(localFrame, fps, 0.28);
 
   return React.createElement(
-    "div",
+    Interactive.Div,
     {
+      name: "Caption",
       style: {
         position: "absolute",
         left: 360,
@@ -505,7 +510,7 @@ function DialogueCaption({ active, speakers, frame, fps, theme }) {
         padding: "18px 28px",
         textAlign: "center",
         opacity: enter.opacity,
-        transform: `translateY(${enter.y * 0.6}px)`,
+        translate: `0px ${enter.y * 0.6}px`,
         zIndex: 6
       }
     },

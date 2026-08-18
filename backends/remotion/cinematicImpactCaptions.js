@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Easing, Interactive, interpolate, useCurrentFrame } from "remotion";
 import { captionMotionState, captionSegments } from "./captionMotion.mjs";
 
 const GOLD = "#ffcc57";
@@ -64,8 +64,9 @@ export function CinematicImpactCaptions({ captions, fps }) {
     }),
     ...impactFragments(state.localFrame, enter, exit, accent),
     React.createElement(
-      "div",
+      Interactive.Div,
       {
+        name: "Caption",
         style: {
           position: "absolute",
           left: 74,

@@ -19,7 +19,7 @@ describe("remotion preset contract", () => {
 
     expect(backend?.capabilities.presets).toEqual(registryIds);
     expect(source).toContain(
-      "presets: [article-dialogue-16x9, street-dialogue-16x9, street-dialogue-9x16, tsugite-summer-camp-generated-16x9, miraichi-lastcall-9x16, orbital-showreel-16x9, skate-cam-16x9]"
+      "presets: [article-dialogue-16x9, street-dialogue-16x9, street-dialogue-9x16, tsugite-summer-camp-generated-16x9, miraichi-lastcall-9x16, orbital-showreel-16x9, skate-cam-16x9, kusakari-title-card]"
     );
   });
 

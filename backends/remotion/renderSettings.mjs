@@ -1,5 +1,6 @@
 const JPEG_RENDER_PIXEL_THRESHOLD = 1920 * 1080 * 300;
 
+// delayRender retries also apply to @remotion/media Video (same prop names).
 export const OFFTHREAD_VIDEO_FETCH_GUARD = Object.freeze({
   delayRenderRetries: 10,
   delayRenderTimeoutInMilliseconds: 180_000
