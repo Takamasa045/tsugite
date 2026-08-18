@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, CanvasImage, Easing, Interactive, interpolate, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 
 const h = React.createElement;
 const FONT = '"Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif';
@@ -19,9 +19,15 @@ export function MiraichiLastCall({ manifest }) {
   const second = frame / fps;
   const captions = manifest.captions ?? [];
   const active = captions.find((caption) => second >= caption.start && second < caption.end) ?? captions.at(-1);
-  const background = (manifest.images ?? []).find((image) => image.id === "workflow-background");
-  const shiba = (manifest.images ?? []).find((image) => image.id === "shiba");
-  const neru = (manifest.images ?? []).find((image) => image.id === "neru");
+  const images = manifest.images ?? [];
+  const bgId = manifest.presentation?.background_image_id || "workflow-background";
+  const background =
+    images.find((image) => image.id === bgId) ||
+    images.find((image) => image.id === "workflow-background");
+  const sceneImageId = active?.visual?.image_id;
+  const sceneStill = sceneImageId ? images.find((image) => image.id === sceneImageId) : null;
+  const shiba = images.find((image) => image.id === "shiba");
+  const neru = images.find((image) => image.id === "neru");
   const total = manifest.meta.target_duration_seconds;
   const localFrame = Math.max(0, frame - Math.round((active?.start ?? 0) * fps));
   const localDuration = Math.max(1, Math.round(((active?.end ?? total) - (active?.start ?? 0)) * fps));
@@ -49,7 +55,7 @@ export function MiraichiLastCall({ manifest }) {
       }
     },
     background
-      ? h(Img, {
+      ? h(CanvasImage, {
           src: staticFile(background.src),
           alt: background.alt ?? "MIRAICHI background",
           style: {
@@ -59,11 +65,33 @@ export function MiraichiLastCall({ manifest }) {
             height: 2080,
             objectFit: "cover",
             filter: "saturate(0.72) contrast(1.08)",
-            opacity: 0.42,
+            opacity: sceneStill ? 0.28 : 0.42,
             scale: interpolate(frame, [0, total * fps], [1.04, 1.12], {
               extrapolateLeft: "clamp",
               extrapolateRight: "clamp",
-              easing: Easing.inOut(Easing.cubic)
+              easing: Easing.inOut(Easing.cubic),
+              output: "perceptual-scale"
+            })
+          }
+        })
+      : null,
+    sceneStill
+      ? h(CanvasImage, {
+          src: staticFile(sceneStill.src),
+          alt: sceneStill.alt ?? "Scene still",
+          style: {
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            filter: "saturate(0.85) contrast(1.05)",
+            opacity: 0.55,
+            scale: interpolate(localFrame, [0, localDuration], [1.02, 1.08], {
+              extrapolateLeft: "clamp",
+              extrapolateRight: "clamp",
+              easing: Easing.inOut(Easing.cubic),
+              output: "perceptual-scale"
             })
           }
         })
@@ -90,8 +118,9 @@ export function MiraichiLastCall({ manifest }) {
     h(JoineryMark, { frame, fps }),
     h(CharacterPair, { shiba, neru, active, frame, fps }),
     h(
-      "div",
+      Interactive.Div,
       {
+        name: "Title",
         style: {
           position: "absolute",
           inset: "220px 72px 210px",
@@ -103,7 +132,7 @@ export function MiraichiLastCall({ manifest }) {
           scale: interpolate(entrance, [0, 1], [0.96, 1])
         }
       },
-      h(Scene, { caption: active, localFrame, fps })
+      h(Scene, { caption: active, localFrame, fps, presentation: manifest.presentation })
     ),
     h(Footer, { presentation: manifest.presentation, frame, fps, total })
   );
@@ -111,8 +140,9 @@ export function MiraichiLastCall({ manifest }) {
 
 function Header({ presentation }) {
   return h(
-    "div",
+    Interactive.Div,
     {
+      name: "Header",
       style: {
         position: "absolute",
         top: 76,
@@ -135,22 +165,24 @@ function Header({ presentation }) {
         presentation?.event_label ?? "AI VIDEO PRODUCTION SEMINAR"
       )
     ),
-    h(
-      "div",
-      {
-        style: {
-          border: `2px solid ${COLORS.brass}`,
-          borderRadius: 999,
-          color: COLORS.brass,
-          fontSize: 22,
-          fontWeight: 900,
-          padding: "10px 18px",
-          letterSpacing: "0.08em",
-          whiteSpace: "nowrap"
-        }
-      },
-      "本日開催"
-    )
+    presentation?.header_badge === ""
+      ? null
+      : h(
+          "div",
+          {
+            style: {
+              border: `2px solid ${COLORS.brass}`,
+              borderRadius: 999,
+              color: COLORS.brass,
+              fontSize: 22,
+              fontWeight: 900,
+              padding: "10px 18px",
+              letterSpacing: "0.08em",
+              whiteSpace: "nowrap"
+            }
+          },
+          presentation?.header_badge ?? "本日開催"
+        )
   );
 }
 
@@ -201,8 +233,11 @@ function JoineryMark({ frame, fps }) {
   );
 }
 
-function Scene({ caption, localFrame, fps }) {
-  const visual = caption?.visual ?? {};
+function Scene({ caption, localFrame, fps, presentation }) {
+  const visual = { ...(caption?.visual ?? {}) };
+  if (!visual.time_label && presentation?.event_time_label) {
+    visual.time_label = presentation.event_time_label;
+  }
   switch (visual.kind) {
     case "proof":
       return h(ProofScene, { visual, localFrame, fps });
@@ -219,6 +254,9 @@ function Scene({ caption, localFrame, fps }) {
 
 function HookScene({ visual, localFrame, fps }) {
   const pulse = 1 + Math.sin((localFrame / fps) * Math.PI * 2.1) * 0.018;
+  const headline = visual.headline ?? "まもなく開催";
+  const len = [...headline.replace(/\n/g, "")].length;
+  const fontSize = len > 18 ? 72 : len > 12 ? 92 : len > 8 ? 110 : 126;
   return h(
     Stack,
     null,
@@ -228,16 +266,21 @@ function HookScene({ visual, localFrame, fps }) {
       {
         style: {
           color: COLORS.cream,
-          fontSize: 126,
+          fontSize,
           fontWeight: 950,
-          lineHeight: 1.04,
-          letterSpacing: "-0.055em",
+          lineHeight: 1.12,
+          letterSpacing: "-0.04em",
           textAlign: "center",
           scale: pulse,
-          textShadow: "0 18px 50px rgba(0,0,0,0.42)"
+          textShadow: "0 18px 50px rgba(0,0,0,0.42)",
+          maxWidth: "100%",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
+          whiteSpace: "pre-line",
+          padding: "0 8px"
         }
       },
-      visual.headline ?? "まもなく開催"
+      headline
     ),
     h("div", { style: { width: 108, height: 8, backgroundColor: COLORS.vermilion } }),
     h(Supporting, null, visual.detail ?? "本日23:30スタート")
@@ -338,7 +381,7 @@ function TimeScene({ visual, localFrame, fps }) {
           boxShadow: `0 0 80px rgba(215,173,93,${glow})`
         }
       },
-      h("div", { style: { color: COLORS.brass, fontSize: 194, fontWeight: 950, lineHeight: 0.95, letterSpacing: "-0.055em" } }, "23:30"),
+      h("div", { style: { color: COLORS.brass, fontSize: 194, fontWeight: 950, lineHeight: 0.95, letterSpacing: "-0.055em" } }, visual.time_label ?? "23:30"),
       h("div", { style: { marginTop: 18, fontSize: 48, fontWeight: 900, letterSpacing: "0.24em" } }, "START")
     ),
     h(Supporting, null, visual.detail ?? "まもなく始まります")
@@ -397,7 +440,7 @@ function CharacterPair({ shiba, neru, active, frame, fps }) {
   return h(
     React.Fragment,
     null,
-    h(Img, {
+    h(CanvasImage, {
       src: staticFile(shiba.src),
       alt: shiba.alt ?? "シバ",
       style: {
@@ -412,7 +455,7 @@ function CharacterPair({ shiba, neru, active, frame, fps }) {
         filter: "drop-shadow(0 18px 25px rgba(0,0,0,0.35))"
       }
     }),
-    h(Img, {
+    h(CanvasImage, {
       src: staticFile(neru.src),
       alt: neru.alt ?? "ネル",
       style: {
@@ -450,7 +493,7 @@ function Footer({ presentation, frame, fps, total }) {
       "div",
       { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 22 } },
       h("div", { style: { color: "rgba(244,234,215,0.72)", fontSize: 25, fontWeight: 800 } }, presentation?.source_url_label ?? "miraichi0717.peatix.com"),
-      h("div", { style: { color: COLORS.brass, fontSize: 23, fontWeight: 900, letterSpacing: "0.10em" } }, "07.17 / 23:30")
+      h("div", { style: { color: COLORS.brass, fontSize: 23, fontWeight: 900, letterSpacing: "0.10em" } }, presentation?.event_datetime_label ?? "07.17 / 23:30")
     ),
     h(
       "div",
@@ -496,9 +539,24 @@ function Label({ children }) {
 }
 
 function Supporting({ children }) {
+  const text = typeof children === "string" ? children : "";
+  const len = [...text.replace(/\n/g, "")].length;
+  const fontSize = len > 28 ? 36 : len > 18 ? 42 : 48;
   return h(
     "div",
-    { style: { color: "rgba(244,234,215,0.86)", fontSize: 48, fontWeight: 850, lineHeight: 1.35 } },
+    {
+      style: {
+        color: "rgba(244,234,215,0.86)",
+        fontSize,
+        fontWeight: 850,
+        lineHeight: 1.4,
+        maxWidth: "100%",
+        overflowWrap: "anywhere",
+        wordBreak: "break-word",
+        whiteSpace: "pre-line",
+        padding: "0 8px"
+      }
+    },
     children
   );
 }

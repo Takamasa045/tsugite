@@ -1,8 +1,9 @@
 import React from "react";
+import { Video } from "@remotion/media";
 import {
   AbsoluteFill,
   Easing,
-  OffthreadVideo,
+  Interactive,
   Sequence,
   interpolate,
   staticFile,
@@ -183,11 +184,12 @@ function FeatureScene({ clip, label, counter, accent, index }) {
     extrapolateRight: "clamp"
   });
   const focus = enter - exit;
-  const video = h(OffthreadVideo, {
+  const video = h(Video, {
     src: staticFile(clip.src),
-    startFrom: Math.round(clip.in * fps),
+    trimBefore: Math.round(clip.in * fps),
     muted: true,
-    style: { width: "100%", height: "100%", objectFit: "cover" }
+    objectFit: "cover",
+    style: { width: "100%", height: "100%" }
   });
 
   return h(
@@ -201,11 +203,11 @@ function FeatureScene({ clip, label, counter, accent, index }) {
         filter: "blur(26px) saturate(.8)",
         scale: 1.13
       }
-    }, h(OffthreadVideo, {
+    }, h(Video, {
       src: staticFile(clip.src),
-      startFrom: Math.round(clip.in * fps),
+      trimBefore: Math.round(clip.in * fps),
       muted: true,
-      style: { width: "100%", height: "100%", objectFit: "cover" }
+      objectFit: "cover", style: { width: "100%", height: "100%" }
     })),
     h("div", {
       style: {
@@ -262,17 +264,18 @@ function TileFrame({ clip, style }) {
         ...style
       }
     },
-    h(OffthreadVideo, {
+    h(Video, {
       src: staticFile(clip.src),
-      startFrom: Math.round(clip.in * fps),
+      trimBefore: Math.round(clip.in * fps),
       muted: true,
-      style: { width: "100%", height: "100%", objectFit: "cover" }
+      objectFit: "cover", style: { width: "100%", height: "100%" }
     })
   );
 }
 
 function HeadlinePlate({ text, eyebrow, bottom = 100 }) {
-  return h("div", {
+  return h(Interactive.Div, {
+    name: "Title",
     style: {
       position: "absolute",
       left: 80,
@@ -301,7 +304,7 @@ function EndCard() {
   return h(
     AbsoluteFill,
     { style: { alignItems: "center", justifyContent: "center", textAlign: "center" } },
-    h("div", { style: { opacity: enter, translate: `0px ${interpolate(enter, [0, 1], [44, 0])}px` } },
+    h(Interactive.Div, { name: "Title", style: { opacity: enter, translate: `0px ${interpolate(enter, [0, 1], [44, 0])}px` } },
       h("div", {
         style: {
           display: "inline-grid",
