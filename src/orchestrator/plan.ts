@@ -1,5 +1,5 @@
 import type { Manifest } from "../manifest/schema.js";
-import type { AudioRequest, Project } from "../project/schema.js";
+import { generationRequestDurationSeconds, type AudioRequest, type Project } from "../project/schema.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
 import type { GenerationConnectionResolution } from "../connections/registry.js";
 import {
@@ -289,7 +289,7 @@ function estimateCredits(
   const generation = !project.generation || !adapter
     ? 0
     : project.generation.requests.reduce((sum, request) => {
-        return sum + adapter.credit_estimate.per_request + (request.duration ?? 0) * adapter.credit_estimate.per_second;
+        return sum + adapter.credit_estimate.per_request + generationRequestDurationSeconds(request) * adapter.credit_estimate.per_second;
       }, 0);
   const audio = !project.audio || !audioAdapter
     ? 0

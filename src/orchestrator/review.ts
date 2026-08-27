@@ -9,7 +9,7 @@ import {
   resolveGenerationConnection,
   type GenerationConnectionResolution
 } from "../connections/registry.js";
-import { generationRequestCapability, generationRequestMode, generationRequestOutputKind, type GenerationRequest, type Project } from "../project/schema.js";
+import { generationRequestCapability, generationRequestDurationSeconds, generationRequestMode, generationRequestOutputKind, type GenerationRequest, type Project } from "../project/schema.js";
 import type { Result } from "../types.js";
 import {
   digest,
@@ -1483,13 +1483,14 @@ function createFallbackStoryboard(
     let cursor = 0;
     return project.generation!.requests.filter((request) => generationRequestOutputKind(request) === "video").map((request, index) => {
       const start = cursor;
-      cursor += request.duration ?? 0;
+      const duration = generationRequestDurationSeconds(request);
+      cursor += duration;
       return {
         id: request.id,
         order: index + 1,
         start,
         end: cursor,
-        duration: request.duration ?? 0,
+        duration,
         title: request.id,
         description: request.prompt,
         emphasis: [],
@@ -1601,7 +1602,7 @@ function monotonyShotsFromVisualCuts(
   if (videoRequests.length > 0) {
     let cursor = 0;
     return videoRequests.map((request) => {
-      const duration = request.duration ?? 0;
+      const duration = generationRequestDurationSeconds(request);
       const start = cursor;
       cursor += duration;
       return {

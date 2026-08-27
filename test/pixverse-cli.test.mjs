@@ -13,8 +13,9 @@ import {
   compileH3Request,
   parseH3CreativeIr
 } from "../src/h3/index.js";
-import { loadH3ExecutionRouteProfile } from "../src/adapters/constraints.js";
+import { loadH3ExecutionRouteProfile, validateGenerationConstraints } from "../src/adapters/constraints.js";
 import { loadAdapterDefinition } from "../src/adapters/registry.js";
+import { loadProject } from "../src/project/loadProject.js";
 import { projectSchema } from "../src/project/schema.js";
 
 async function loadH3Fixture(name) {
@@ -222,6 +223,53 @@ describe("PixVerse CLI request mapping", () => {
       "--task-type", "extend",
       "--videos", "/run/source.mp4"
     ]));
+  });
+
+  it("validates a Seedance 2.5 auto-duration reference project through the pipeline", async () => {
+    const project = await loadProject("fixtures/projects/pixverse-seedance-reference-auto.yaml");
+    const constraints = await validateGenerationConstraints(project, ["adapters"]);
+    expect(constraints.ok).toBe(true);
+    expect(project.generation?.requests[0]).toMatchObject({
+      operation: "reference",
+      duration: "auto",
+      aspect: "auto",
+      params: { task_type: "extend" }
+    });
+    const request = project.generation?.requests[0];
+    expect(request).toBeDefined();
+    expect(buildPixverseCreateArgs(request, "demo-run")).toEqual(expect.arrayContaining([
+      "create", "reference",
+      "--duration", "auto",
+      "--aspect-ratio", "auto",
+      "--task-type", "extend"
+    ]));
+  });
+
+  it("rejects duration auto on non-reference operations", () => {
+    const parsed = projectSchema.safeParse({
+      slug: "auto-video",
+      name: "auto-video",
+      run_id: "auto-video-run",
+      manifest: "fixtures/manifests/minimal.valid.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "pixverse",
+        connection: "pixverse",
+        requests: [{
+          id: "video-001",
+          operation: "video",
+          prompt: "a lantern over water",
+          model: "v6",
+          duration: "auto",
+          aspect: "16:9"
+        }]
+      }
+    });
+    expect(parsed.success).toBe(false);
+    expect(parsed.success ? [] : parsed.error.issues.map((issue) => issue.path.join("."))).toContain(
+      "generation.requests.0.duration"
+    );
   });
 
   it("omits aspect-ratio for image-to-video because framing comes from the image", () => {
