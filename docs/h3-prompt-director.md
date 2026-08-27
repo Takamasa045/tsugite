@@ -493,9 +493,9 @@ guidance の性質:
 - core は matched guidance でも prompt を自動書換えしない
 - H3 request は選択 adapter が `h3_execution_route` を宣言している場合のみ実行可能
 
-## 公式 PixVerse CLI 1.3.0 の確認事実
+## 公式 PixVerse CLI 1.3.5 の確認事実
 
-出典: local `pixverse@1.3.0` help（`pixverse create <op> --help`）および [PixVerseAI/cli](https://github.com/PixVerseAI/cli)
+出典: `pixverse@1.3.5` help（`pixverse create <op> --help`）および [PixVerseAI/cli](https://github.com/PixVerseAI/cli)
 
 確認している事実（CLI help 文言ベース）:
 

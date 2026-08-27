@@ -74,7 +74,7 @@ describe("PixVerse CLI request mapping", () => {
     }, {
       runCommand(executable, args) {
         commands.push([executable, ...args]);
-        return { status: 0, stdout: "1.3.0\n", stderr: "" };
+        return { status: 0, stdout: "1.3.5\n", stderr: "" };
       }
     });
 
@@ -85,12 +85,12 @@ describe("PixVerse CLI request mapping", () => {
       source: "pixverse-cli-runtime",
       model: "minimax-h3",
       operation: "video",
-      runtime_version: "1.3.0",
+      runtime_version: "1.3.5",
       checked_parameters: ["aspect-ratio", "audio", "count", "duration", "idempotency-key", "model", "no-wait", "prompt", "quality"]
     });
   });
 
-  it("covers every create operation exposed by PixVerse CLI 1.3.0", () => {
+  it("covers every create operation exposed by PixVerse CLI 1.3.5", () => {
     expect(Object.keys(pixverseOperationContract)).toEqual([
       "video",
       "image",
@@ -186,6 +186,42 @@ describe("PixVerse CLI request mapping", () => {
     ]));
     expect(args).not.toContain("--duration-seconds");
     expect(args).not.toContain("--duration");
+  });
+
+  it("forwards explicit music duration_seconds without using project duration", () => {
+    const args = buildPixverseCreateArgs({
+      id: "music-bed",
+      operation: "music",
+      prompt: "instrumental wooden electronic promo bed",
+      model: "music-3.0",
+      duration: 30,
+      params: { instrumental: true, duration_seconds: 45 }
+    }, "run");
+
+    expect(args).toEqual(expect.arrayContaining(["--duration-seconds", "45"]));
+    expect(args.filter((value) => value === "30")).toHaveLength(0);
+  });
+
+  it("maps Seedance 2.5 reference task type and auto duration", () => {
+    const args = buildPixverseCreateArgs({
+      id: "seedance-ref",
+      operation: "reference",
+      prompt: "continue the scene",
+      model: "seedance-2.5",
+      duration: "auto",
+      aspect: "auto",
+      input_videos: ["/run/source.mp4"],
+      params: { task_type: "extend" }
+    }, "run");
+
+    expect(args).toEqual(expect.arrayContaining([
+      "create", "reference",
+      "--model", "seedance-2.5",
+      "--duration", "auto",
+      "--aspect-ratio", "auto",
+      "--task-type", "extend",
+      "--videos", "/run/source.mp4"
+    ]));
   });
 
   it("omits aspect-ratio for image-to-video because framing comes from the image", () => {

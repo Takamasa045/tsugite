@@ -114,7 +114,7 @@ export function buildPixverseCreateArgs(request, runId) {
   if (operation === "voice") pushValue(args, "--text", request.prompt || params.text);
   else if (has("prompt")) pushValue(args, "--prompt", request.prompt);
   if (has("model")) pushValue(args, "--model", normalizePixverseCliModel(request.model));
-  if (has("duration")) pushValue(args, "--duration", request.duration);
+  if (has("duration")) pushValue(args, "--duration", durationFlag(request, params));
   if (has("aspect") && !(operation === "video" && request.input_mode === "image-to-video")) {
     pushValue(args, "--aspect-ratio", request.aspect);
   }
@@ -134,7 +134,10 @@ export function buildPixverseCreateArgs(request, runId) {
     pushValue(args, "--lyrics", params.lyrics);
     pushBoolean(args, "--instrumental", params.instrumental, false);
     pushBoolean(args, "--auto-lyrics", params.auto_lyrics, false);
+    // Project duration stays editorial; only an explicit music param is forwarded.
+    pushValue(args, "--duration-seconds", params.duration_seconds);
   }
+  if (has("task-type")) pushValue(args, "--task-type", params.task_type);
   if (has("keyframe")) pushValue(args, "--keyframe-time", params.keyframe_time);
   if (has("template")) pushValue(args, "--template-id", params.template_id);
   if (has("video-input")) pushValue(args, "--video", request.input_video || params.video);
@@ -190,7 +193,7 @@ const PIXVERSE_ALLOWED_OPTIONS = Object.freeze({
   extend: new Set(["prompt", "model", "duration", "seed", "quality", "count", "video-input", "audio", "off-peak"]),
   modify: new Set(["prompt", "model", "seed", "quality", "count", "video-input", "images", "keyframe", "off-peak"]),
   upscale: new Set(["quality", "video-input"]),
-  reference: new Set(["prompt", "model", "duration", "aspect", "seed", "quality", "count", "images", "videos", "audios", "audio", "off-peak"]),
+  reference: new Set(["prompt", "model", "duration", "aspect", "seed", "quality", "count", "images", "videos", "audios", "audio", "off-peak", "task-type"]),
   "motion-control": new Set(["model", "quality", "count", "image", "video-input", "off-peak"]),
   template: new Set(["prompt", "duration", "aspect", "seed", "quality", "count", "images", "video-input", "template", "off-peak"])
 });
@@ -447,9 +450,17 @@ function parseFrameRate(value) {
   return num / den;
 }
 
+function durationFlag(request, params) {
+  const candidate = params.duration ?? request.duration;
+  if (candidate === "auto") return "auto";
+  return request.duration;
+}
+
 function classifyExit(result) {
+  // PixVerse CLI 1.2.10+: 7 = CONCURRENCY_LIMIT (retry separately from credit errors).
+  if (result.status === 7) return RATE_LIMITED;
   const text = commandOutput(result).toLowerCase();
-  if (text.includes("rate") || text.includes("429")) return RATE_LIMITED;
+  if (text.includes("rate") || text.includes("429") || text.includes("concurrency")) return RATE_LIMITED;
   if (text.includes("invalid") || text.includes("bad request") || text.includes("400")) return INVALID_REQUEST;
   return TRANSIENT;
 }
