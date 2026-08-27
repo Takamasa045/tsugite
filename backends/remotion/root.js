@@ -10,6 +10,7 @@ import {
   useCurrentFrame
 } from "remotion";
 import { CinematicImpactCaptions } from "./cinematicImpactCaptions.js";
+import { beatVideoScale, LyricKineticCaptions } from "./lyricKineticCaptions.js";
 import {
   captionContainerLayout,
   captionTextLayout,
@@ -87,6 +88,7 @@ function Timeline({ manifest }) {
   const clipTimings = clipSequenceTimings(manifest.clips, fps);
   const captionLayout = resolveCaptionLayout(manifest);
   const registeredPreset = resolveRemotionPreset(manifest.presentation?.preset);
+  const captionStyle = resolveCaptionStyle(manifest);
 
   for (const [index, clip] of manifest.clips.entries()) {
     const timing = clipTimings[index];
@@ -95,7 +97,14 @@ function Timeline({ manifest }) {
       React.createElement(
         Sequence,
         { from: timing.from, durationInFrames: timing.durationInFrames, key: clip.id, name: clip.id },
-        React.createElement(Video, clipVideoProps(clip, timing, fps, captionLayout))
+        captionStyle === "lyric-kinetic"
+          ? React.createElement(BeatVideo, {
+              clip,
+              timing,
+              fps,
+              captionLayout
+            })
+          : React.createElement(Video, clipVideoProps(clip, timing, fps, captionLayout))
       )
     );
   }
@@ -123,11 +132,16 @@ function Timeline({ manifest }) {
   if (registeredPreset) {
     children.push(React.createElement(registeredPreset.handler, { key: registeredPreset.id, manifest }));
   } else {
-    const captionStyle = resolveCaptionStyle(manifest);
     children.push(
       captionStyle === "cinematic-impact"
         ? React.createElement(CinematicImpactCaptions, {
             key: "captions-cinematic-impact",
+            captions: manifest.captions ?? [],
+            fps
+          })
+        : captionStyle === "lyric-kinetic"
+        ? React.createElement(LyricKineticCaptions, {
+            key: "captions-lyric-kinetic",
             captions: manifest.captions ?? [],
             fps
           })
@@ -168,6 +182,21 @@ function Captions({ captions, fps, layout }) {
       active.speaker ? `${active.speaker}: ${active.text}` : active.text
     )
   );
+}
+
+function BeatVideo({ clip, timing, fps, captionLayout }) {
+  const frame = useCurrentFrame();
+  const second = timing.from / fps + frame / fps;
+  const scale = beatVideoScale(second);
+  const props = clipVideoProps(clip, timing, fps, captionLayout);
+  return React.createElement(Video, {
+    ...props,
+    style: {
+      ...props.style,
+      transform: `scale(${scale})`,
+      transformOrigin: "center center"
+    }
+  });
 }
 
 function audioTracks(manifest) {

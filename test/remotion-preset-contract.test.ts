@@ -19,7 +19,7 @@ describe("remotion preset contract", () => {
 
     expect(backend?.capabilities.presets).toEqual(registryIds);
     expect(source).toContain(
-      "presets: [article-dialogue-16x9, street-dialogue-16x9, street-dialogue-9x16, tsugite-summer-camp-generated-16x9, miraichi-lastcall-9x16, orbital-showreel-16x9, skate-cam-16x9, kusakari-title-card]"
+      "presets: [article-dialogue-16x9, street-dialogue-16x9, street-dialogue-9x16, tsugite-summer-camp-generated-16x9, miraichi-lastcall-9x16, orbital-showreel-16x9, skate-cam-16x9, kusakari-title-card, passthrough-16x9]"
     );
   });
 
@@ -174,6 +174,34 @@ describe("remotion preset contract", () => {
           });
           expect(renderedFrames.get(24)!.equals(await readFile(baselineOutput))).toBe(false);
         }
+        if (entry.id === "passthrough-16x9") {
+          const baselineProps = {
+            manifest: {
+              ...manifest,
+              presentation: { ...manifest.presentation, preset: "unregistered-preset" }
+            }
+          };
+          const baselineComposition = await selectComposition({
+            serveUrl,
+            id: "tsugite-render",
+            inputProps: baselineProps,
+            logLevel: "error",
+            timeoutInMilliseconds: 120_000
+          });
+          const baselineOutput = join(root, `${entry.id}-baseline.png`);
+          await renderStill({
+            serveUrl,
+            composition: baselineComposition,
+            frame: 0,
+            imageFormat: "png",
+            inputProps: baselineProps,
+            output: baselineOutput,
+            overwrite: true,
+            logLevel: "error",
+            timeoutInMilliseconds: 120_000
+          });
+          expect(renderedFrames.get(0)!.equals(await readFile(baselineOutput))).toBe(true);
+        }
       }
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -196,6 +224,7 @@ function minimalManifest(preset: string, aspect: "16:9" | "9:16") {
   const orbital = preset === "orbital-showreel-16x9";
   const skateCam = preset === "skate-cam-16x9";
   const generatedSummerCamp = preset === "tsugite-summer-camp-generated-16x9";
+  const passthrough = preset === "passthrough-16x9";
   const generatedClip = {
     ...orbitalClips[0],
     out: 2,
@@ -206,10 +235,10 @@ function minimalManifest(preset: string, aspect: "16:9" | "9:16") {
     meta: {
       aspect,
       fps: 30,
-      target_duration_seconds: orbital ? 30 : generatedSummerCamp || skateCam ? 2 : 1,
+      target_duration_seconds: orbital ? 30 : generatedSummerCamp || skateCam || passthrough ? 2 : 1,
       slug: `preset-smoke-${preset}`
     },
-    clips: orbital ? orbitalClips : generatedSummerCamp ? [generatedClip] : [],
+    clips: orbital ? orbitalClips : generatedSummerCamp || passthrough ? [generatedClip] : [],
     audio: { bgm: [], narration: [], sfx: [] },
     captions: generatedSummerCamp ? [
       { id: "summer-story", text: "第3回、追加決定。", start: 0, end: 1, emphasis: [], visual: { kind: "hook", sale_label: "全3回｜申込受付開始", headline: "第3回、追加決定。", detail: "一本を完成させる。", points: ["8月11日"] } },

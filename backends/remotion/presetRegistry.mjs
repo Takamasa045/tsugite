@@ -2,6 +2,7 @@ import { ArticleDialogue } from "./dialogue.js";
 import { MiraichiLastCall } from "./miraichiLastCall.js";
 import { ORBITAL_SHOWREEL_PRESET } from "./orbitalPresentation.mjs";
 import { OrbitalShowreel } from "./orbitalShowreel.js";
+import { PASSTHROUGH_PRESET, Passthrough } from "./passthrough.js";
 import { ARTICLE_DIALOGUE_PRESET } from "./presentation.mjs";
 import { SkateCam } from "./skateCam.js";
 import { SKATE_CAM_PRESET } from "./skateCamPresentation.mjs";
@@ -18,7 +19,8 @@ export const PRESET_REGISTRY = Object.freeze([
   Object.freeze({ id: "miraichi-lastcall-9x16", handler: MiraichiLastCall }),
   Object.freeze({ id: ORBITAL_SHOWREEL_PRESET, handler: OrbitalShowreel }),
   Object.freeze({ id: SKATE_CAM_PRESET, handler: SkateCam }),
-  Object.freeze({ id: KUSAKARI_TITLE_CARD_PRESET, handler: KusakariTitleCard })
+  Object.freeze({ id: KUSAKARI_TITLE_CARD_PRESET, handler: KusakariTitleCard }),
+  Object.freeze({ id: PASSTHROUGH_PRESET, handler: Passthrough })
 ]);
 
 export const REMOTION_PRESET_REGISTRY = PRESET_REGISTRY;
