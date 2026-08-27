@@ -4,6 +4,7 @@ import {
   captionMotionState,
   captionSegments,
   lyricChunkReveal,
+  lyricChunkStep,
   lyricChunks
 } from "./captionMotion.mjs";
 import { beatEnergy, beatVideoScale, LYRIC_IMPACTS } from "./lyricBeatGrid.mjs";
@@ -108,7 +109,7 @@ function renderLyric(active, second, fps, impact) {
         },
         chunks.map((chunk, index) => {
           if (!revealed[index]) return null;
-          const appearFrame = state.localFrame - index * Math.max(3, Math.min(5, state.durationInFrames / Math.max(1, chunks.length)));
+          const appearFrame = state.localFrame - index * lyricChunkStep(chunks.length, state.durationInFrames);
           const pop = index === 0
             ? 1
             : interpolate(appearFrame, [0, 4], [1.22, 1], {

@@ -25,12 +25,20 @@ export function lyricChunks(text) {
   return tokens && tokens.length > 0 ? tokens : [source];
 }
 
+export function lyricChunkStep(chunkCount, durationInFrames) {
+  const count = Math.max(0, Math.floor(chunkCount));
+  if (count <= 1) return 0;
+  const frames = Math.max(1, durationInFrames);
+  const holdFrames = Math.min(8, Math.max(1, Math.round(frames * 0.12)));
+  const lastStart = Math.max(0, frames - holdFrames);
+  const preferred = Math.min(5, Math.max(1, lastStart / count));
+  return Math.min(preferred, lastStart / (count - 1));
+}
+
 export function lyricChunkReveal(chunkCount, localFrame, durationInFrames) {
   const count = Math.max(0, Math.floor(chunkCount));
   if (count === 0) return [];
-  const holdFrames = Math.min(8, Math.max(2, Math.round(durationInFrames * 0.12)));
-  const available = Math.max(1, durationInFrames - holdFrames);
-  const step = Math.max(3, Math.min(5, available / count));
+  const step = lyricChunkStep(count, durationInFrames);
   return Array.from({ length: count }, (_, index) => (localFrame + 0.001 >= index * step ? 1 : 0));
 }
 

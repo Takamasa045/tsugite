@@ -91,6 +91,11 @@ describe("remotion backend helpers", () => {
     expect(lyricChunkReveal(3, 18, 24)).toEqual([1, 1, 1]);
   });
 
+  it("fits every chunk into a short caption window", () => {
+    expect(lyricChunkReveal(3, 5, 6)).toEqual([1, 1, 1]);
+    expect(lyricChunkReveal(3, 0, 6)).toEqual([1, 0, 0]);
+  });
+
   it("calculates bounded entrance and exit progress for impact captions", () => {
     const caption = { start: 1, end: 4 };
 
