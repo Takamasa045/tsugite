@@ -1,5 +1,7 @@
 export function resolveCaptionStyle(manifest) {
-  return manifest?.meta?.caption_style === "cinematic-impact" ? "cinematic-impact" : "standard";
+  const style = manifest?.meta?.caption_style;
+  if (style === "cinematic-impact" || style === "lyric-kinetic") return style;
+  return "standard";
 }
 
 export function captionMotionState(caption, second, fps) {
@@ -14,6 +16,22 @@ export function captionMotionState(caption, second, fps) {
   const exit = clamp((localFrame - exitStart) / Math.max(1, durationInFrames - exitStart));
 
   return { active: true, enter, exit, localFrame, durationInFrames };
+}
+
+export function lyricChunks(text) {
+  const source = String(text ?? "").trim();
+  if (!source) return [];
+  const tokens = source.match(/「[^」]*」|[^\s　]+/g);
+  return tokens && tokens.length > 0 ? tokens : [source];
+}
+
+export function lyricChunkReveal(chunkCount, localFrame, durationInFrames) {
+  const count = Math.max(0, Math.floor(chunkCount));
+  if (count === 0) return [];
+  const holdFrames = Math.min(8, Math.max(2, Math.round(durationInFrames * 0.12)));
+  const available = Math.max(1, durationInFrames - holdFrames);
+  const step = Math.max(3, Math.min(5, available / count));
+  return Array.from({ length: count }, (_, index) => (localFrame + 0.001 >= index * step ? 1 : 0));
 }
 
 export function captionSegments(text, emphasis = []) {

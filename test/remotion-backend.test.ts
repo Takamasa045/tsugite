@@ -18,8 +18,11 @@ import {
 import {
   captionMotionState,
   captionSegments,
+  lyricChunks,
+  lyricChunkReveal,
   resolveCaptionStyle
 } from "../backends/remotion/captionMotion.mjs";
+import { beatEnergy, beatVideoScale, LYRIC_IMPACTS } from "../backends/remotion/lyricBeatGrid.mjs";
 import {
   OFFTHREAD_VIDEO_FETCH_GUARD,
   resolveRenderMediaSettings
@@ -64,6 +67,28 @@ describe("remotion backend helpers", () => {
   it("opts into cinematic impact captions without changing the default style", () => {
     expect(resolveCaptionStyle({ meta: {} })).toBe("standard");
     expect(resolveCaptionStyle({ meta: { caption_style: "cinematic-impact" } })).toBe("cinematic-impact");
+    expect(resolveCaptionStyle({ meta: { caption_style: "lyric-kinetic" } })).toBe("lyric-kinetic");
+  });
+
+  it("splits lyric lines into pop-in chunks", () => {
+    expect(lyricChunks("構造　想像　そこから創造")).toEqual(["構造", "想像", "そこから創造"]);
+    expect(lyricChunks("ChatGPT Voice")).toEqual(["ChatGPT", "Voice"]);
+    expect(lyricChunks("「なんか作って」じゃ届かぬ頂上")).toEqual(["「なんか作って」", "じゃ届かぬ頂上"]);
+    expect(lyricChunks("手はいらない")).toEqual(["手はいらない"]);
+  });
+
+  it("peaks beat energy on kick times and impact hits", () => {
+    expect(beatEnergy(7.2, LYRIC_IMPACTS, 0.12)).toBeGreaterThan(0.9);
+    expect(beatEnergy(7.26, LYRIC_IMPACTS, 0.12)).toBeGreaterThan(0.4);
+    expect(beatEnergy(9, LYRIC_IMPACTS, 0.12)).toBe(0);
+    expect(beatVideoScale(9)).toBe(1);
+    expect(beatVideoScale(7.2)).toBeGreaterThan(1.05);
+  });
+
+  it("reveals lyric chunks in sequence inside a caption window", () => {
+    expect(lyricChunkReveal(3, 0, 24)).toEqual([1, 0, 0]);
+    expect(lyricChunkReveal(3, 6, 24)).toEqual([1, 1, 0]);
+    expect(lyricChunkReveal(3, 18, 24)).toEqual([1, 1, 1]);
   });
 
   it("calculates bounded entrance and exit progress for impact captions", () => {
