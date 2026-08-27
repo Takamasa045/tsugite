@@ -1,0 +1,22 @@
+slug: pixverse-seedance-reference-auto
+name: pixverse-seedance-reference-auto
+run_id: pixverse-seedance-reference-auto-run
+manifest: ../manifests/minimal.valid.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: pixverse
+  connection: pixverse
+  requests:
+    - id: seedance-ref-001
+      operation: reference
+      prompt: continue the scene
+      model: seedance-2.5
+      duration: auto
+      aspect: auto
+      input_mode: reference
+      input_videos:
+        - ../media/clip-001.mp4
+      params:
+        task_type: extend

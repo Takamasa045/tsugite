@@ -33,7 +33,7 @@ sources:
     title: PixVerse CLI repository
     publisher: PixVerseAI
     url: https://github.com/PixVerseAI/cli
-    accessed_at: 2026-08-05
+    accessed_at: 2026-08-24
 models:
   - id: v6
     aliases: [pixverse-v6]
@@ -85,7 +85,7 @@ models:
       image_to_video_uses_input_aspect: true
       unsupported_parameters: [last-frame-only]
       notes:
-        - "Model limits from official PixVerse CLI 1.3.0 (https://github.com/PixVerseAI/cli): MiniMax H3 quality 768p/1440p, duration 5..15, aspects auto/21:9/16:9/4:3/1:1/3:4/9:16; I2V forces auto."
+        - "Model limits from official PixVerse CLI 1.3.5 (https://github.com/PixVerseAI/cli): MiniMax H3 quality 768p/1440p, duration 5..15, aspects auto/21:9/16:9/4:3/1:1/3:4/9:16; I2V forces auto. Seedance 2.5 adds 1080p, 4–30s, `--duration auto`, `--aspect-ratio auto`, and `--task-type`."
         - "Current repository PixVerse adapter route is narrower: duration 3/5/10 seconds and aspect 16:9 or 9:16 only. Prefer constraints.yaml and route validation (PV-E*) at execution time."
         - "H3 structured prompt syntax is a Tsugite design/IR compiler contract; the CLI README does not specify H3 section syntax."
         - "Reference route caps observed for planning advice: up to 9 images, 3 videos, and 3 audios; audio-only reference is not feasible."

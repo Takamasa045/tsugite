@@ -13,8 +13,9 @@ import {
   compileH3Request,
   parseH3CreativeIr
 } from "../src/h3/index.js";
-import { loadH3ExecutionRouteProfile } from "../src/adapters/constraints.js";
+import { loadH3ExecutionRouteProfile, validateGenerationConstraints } from "../src/adapters/constraints.js";
 import { loadAdapterDefinition } from "../src/adapters/registry.js";
+import { loadProject } from "../src/project/loadProject.js";
 import { projectSchema } from "../src/project/schema.js";
 
 async function loadH3Fixture(name) {
@@ -74,7 +75,7 @@ describe("PixVerse CLI request mapping", () => {
     }, {
       runCommand(executable, args) {
         commands.push([executable, ...args]);
-        return { status: 0, stdout: "1.3.0\n", stderr: "" };
+        return { status: 0, stdout: "1.3.5\n", stderr: "" };
       }
     });
 
@@ -85,12 +86,12 @@ describe("PixVerse CLI request mapping", () => {
       source: "pixverse-cli-runtime",
       model: "minimax-h3",
       operation: "video",
-      runtime_version: "1.3.0",
+      runtime_version: "1.3.5",
       checked_parameters: ["aspect-ratio", "audio", "count", "duration", "idempotency-key", "model", "no-wait", "prompt", "quality"]
     });
   });
 
-  it("covers every create operation exposed by PixVerse CLI 1.3.0", () => {
+  it("covers every create operation exposed by PixVerse CLI 1.3.5", () => {
     expect(Object.keys(pixverseOperationContract)).toEqual([
       "video",
       "image",
@@ -186,6 +187,89 @@ describe("PixVerse CLI request mapping", () => {
     ]));
     expect(args).not.toContain("--duration-seconds");
     expect(args).not.toContain("--duration");
+  });
+
+  it("forwards explicit music duration_seconds without using project duration", () => {
+    const args = buildPixverseCreateArgs({
+      id: "music-bed",
+      operation: "music",
+      prompt: "instrumental wooden electronic promo bed",
+      model: "music-3.0",
+      duration: 30,
+      params: { instrumental: true, duration_seconds: 45 }
+    }, "run");
+
+    expect(args).toEqual(expect.arrayContaining(["--duration-seconds", "45"]));
+    expect(args.filter((value) => value === "30")).toHaveLength(0);
+  });
+
+  it("maps Seedance 2.5 reference task type and auto duration", () => {
+    const args = buildPixverseCreateArgs({
+      id: "seedance-ref",
+      operation: "reference",
+      prompt: "continue the scene",
+      model: "seedance-2.5",
+      duration: "auto",
+      aspect: "auto",
+      input_videos: ["/run/source.mp4"],
+      params: { task_type: "extend" }
+    }, "run");
+
+    expect(args).toEqual(expect.arrayContaining([
+      "create", "reference",
+      "--model", "seedance-2.5",
+      "--duration", "auto",
+      "--aspect-ratio", "auto",
+      "--task-type", "extend",
+      "--videos", "/run/source.mp4"
+    ]));
+  });
+
+  it("validates a Seedance 2.5 auto-duration reference project through the pipeline", async () => {
+    const project = await loadProject("fixtures/projects/pixverse-seedance-reference-auto.yaml");
+    const constraints = await validateGenerationConstraints(project, ["adapters"]);
+    expect(constraints.ok).toBe(true);
+    expect(project.generation?.requests[0]).toMatchObject({
+      operation: "reference",
+      duration: "auto",
+      aspect: "auto",
+      params: { task_type: "extend" }
+    });
+    const request = project.generation?.requests[0];
+    expect(request).toBeDefined();
+    expect(buildPixverseCreateArgs(request, "demo-run")).toEqual(expect.arrayContaining([
+      "create", "reference",
+      "--duration", "auto",
+      "--aspect-ratio", "auto",
+      "--task-type", "extend"
+    ]));
+  });
+
+  it("rejects duration auto on non-reference operations", () => {
+    const parsed = projectSchema.safeParse({
+      slug: "auto-video",
+      name: "auto-video",
+      run_id: "auto-video-run",
+      manifest: "fixtures/manifests/minimal.valid.json",
+      dist_dir: "dist",
+      edit: { backend: "remotion" },
+      generation: {
+        adapter: "pixverse",
+        connection: "pixverse",
+        requests: [{
+          id: "video-001",
+          operation: "video",
+          prompt: "a lantern over water",
+          model: "v6",
+          duration: "auto",
+          aspect: "16:9"
+        }]
+      }
+    });
+    expect(parsed.success).toBe(false);
+    expect(parsed.success ? [] : parsed.error.issues.map((issue) => issue.path.join("."))).toContain(
+      "generation.requests.0.duration"
+    );
   });
 
   it("omits aspect-ratio for image-to-video because framing comes from the image", () => {

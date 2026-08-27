@@ -137,7 +137,7 @@ const generationRequestSchema = z
     audio_role: z.enum(["music", "narration", "sfx"]).optional(),
     prompt: z.string().default(""),
     model: z.string().min(1).optional(),
-    duration: z.number().positive().optional(),
+    duration: z.union([z.number().positive(), z.literal("auto")]).optional(),
     aspect: z.string().min(1).optional(),
     seed: z.number().int().optional(),
     mode: generationModeSchema.optional(),
@@ -175,6 +175,13 @@ const generationRequestSchema = z
     }
     if (request.operation === "voice" && !request.prompt) {
       context.addIssue({ code: z.ZodIssueCode.custom, message: "voice requires text in prompt", path: ["prompt"] });
+    }
+    if (request.duration === "auto" && request.operation !== "reference") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "duration auto is only supported for operation reference",
+        path: ["duration"]
+      });
     }
     // An omitted operation is an explicit legacy video default.  A caller
     // cannot turn that default into an image/audio capability by supplying a
@@ -546,6 +553,10 @@ export type Project = z.infer<typeof projectSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];
 export type AudioRequest = NonNullable<Project["audio"]>;
 export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][number];
+
+export function generationRequestDurationSeconds(request: Pick<GenerationRequest, "duration">): number {
+  return typeof request.duration === "number" ? request.duration : 0;
+}
 
 export function generationRequestMode(
   request: GenerationRequest
