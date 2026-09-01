@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "command": "validate",
+  "issues": [],
+  "resolved_mode": "legacy",
+  "mode_source": "default_legacy",
+  "launcher_visible": true,
+  "launcher_already_home": true,
+  "launcher_linked": false,
+  "launcher_projects_home": "/workspace/.cursor/skills/verify-tsugite/tmp/projects-home",
+  "launcher_project_root": "/workspace/.cursor/skills/verify-tsugite/tmp/projects-home/verify-local-fixture",
+  "launcher_config_path": "/workspace/.cursor/skills/verify-tsugite/tmp/projects-home/verify-local-fixture/project.yaml"
+}

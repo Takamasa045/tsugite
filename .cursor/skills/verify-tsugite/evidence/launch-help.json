@@ -1,0 +1,1113 @@
+{
+  "ok": true,
+  "command": "help",
+  "usage": "node bin/pipeline <command> [options]",
+  "global_options": [
+    {
+      "name": "--json",
+      "summary": "Emit stable machine-readable JSON."
+    },
+    {
+      "name": "--help",
+      "summary": "Show help for the selected command."
+    }
+  ],
+  "commands": [
+    {
+      "name": "doctor",
+      "summary": "Inspect local runtime and optional project readiness.",
+      "usage": "node bin/pipeline doctor [--config <project.yaml>] [--json]",
+      "requires_config": false,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "guides",
+      "summary": "List or resolve advisory generation prompt guidance.",
+      "usage": "node bin/pipeline guides [--catalog <catalog-id>] [--model <model-id> --input-mode <mode>] [--json]",
+      "requires_config": false,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--catalog",
+          "value": "<catalog-id>",
+          "summary": "Prompt guide catalog identifier."
+        },
+        {
+          "name": "--model",
+          "value": "<model-id>",
+          "summary": "Model identifier used to filter guidance or connections."
+        },
+        {
+          "name": "--input-mode",
+          "value": "<mode>",
+          "summary": "Generation input mode used to resolve guidance."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "story-guides",
+      "summary": "List story frameworks or recommend them for a creative brief.",
+      "usage": "node bin/pipeline story-guides [--request <brief>] [--duration <seconds>] [--json]",
+      "requires_config": false,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--request",
+          "value": "<brief>",
+          "summary": "Creative request used for story recommendations."
+        },
+        {
+          "name": "--duration",
+          "value": "<seconds>",
+          "summary": "Target duration in seconds."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "connections",
+      "summary": "Inspect compatible generation connection profiles.",
+      "usage": "node bin/pipeline connections [--model <model-id>] [--capability <capability>] [--json]",
+      "requires_config": false,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--model",
+          "value": "<model-id>",
+          "summary": "Model identifier used to filter guidance or connections."
+        },
+        {
+          "name": "--capability",
+          "value": "<capability>",
+          "summary": "Media capability used to filter connections."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "services",
+      "summary": "List public read-only Remote MCP agent services from the local registry (no network).",
+      "usage": "node bin/pipeline services [--json]",
+      "requires_config": false,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "service-tools",
+      "summary": "List remote tools observed on a registry agent service (network).",
+      "usage": "node bin/pipeline service-tools --service <service-id> [--json]",
+      "requires_config": false,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--service",
+          "value": "<service-id>",
+          "summary": "Agent service id from the public Remote MCP registry."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "service-call",
+      "summary": "Call one registry-allowlisted read-only Remote MCP tool (side effects always blocked).",
+      "usage": "node bin/pipeline service-call --service <service-id> --tool <tool-name> [--arguments <json-object>] [--json]",
+      "requires_config": false,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--service",
+          "value": "<service-id>",
+          "summary": "Agent service id from the public Remote MCP registry."
+        },
+        {
+          "name": "--tool",
+          "value": "<tool-name>",
+          "summary": "Registry-allowlisted remote MCP tool name."
+        },
+        {
+          "name": "--arguments",
+          "value": "<json-object>",
+          "summary": "JSON object of tool arguments."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "presets",
+      "summary": "List presentation presets declared by a backend.",
+      "usage": "node bin/pipeline presets --backend <backend-id> [--json]",
+      "requires_config": false,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--backend",
+          "value": "<backend-id>",
+          "summary": "Backend whose presentation presets are listed."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "viewer-launcher",
+      "summary": "Start the local multi-project workflow launcher.",
+      "usage": "node bin/pipeline viewer-launcher [--projects-dir <directory>] [--port <port>] [--open] [--json]",
+      "requires_config": false,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--projects-dir",
+          "value": "<directory>",
+          "summary": "Directory scanned for Tsugite projects."
+        },
+        {
+          "name": "--port",
+          "value": "<port>",
+          "summary": "Local launcher port; use 0 to choose an available port."
+        },
+        {
+          "name": "--open",
+          "summary": "Open the generated local page in a browser."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "worktrees",
+      "summary": "Audit, defer, reconcile, and safely remove git worktrees.",
+      "usage": "node bin/pipeline worktrees [--path <worktree-path>]... [--defer --path <worktree-path>] [--reconcile] [--apply --actor coordinator] [--json]",
+      "requires_config": false,
+      "safety": "approval-gated",
+      "options": [
+        {
+          "name": "--path",
+          "value": "<worktree-path>",
+          "summary": "Absolute or relative worktree path to inspect or remove."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--apply",
+          "summary": "Apply the inspected approval-gated worktree action after preview."
+        },
+        {
+          "name": "--defer",
+          "summary": "Preview or record one clean worktree for deferred integration."
+        },
+        {
+          "name": "--reconcile",
+          "summary": "Preview or process the oldest deferred worktree integration."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "feedback",
+      "summary": "Append project-scoped preference or promotion feedback.",
+      "usage": "node bin/pipeline feedback --config <project.yaml> --key <key> --category <category> --signal <signal> --stage <stage> --summary <text> [options] [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--key",
+          "value": "<key>",
+          "summary": "Stable feedback preference key."
+        },
+        {
+          "name": "--category",
+          "value": "<category>",
+          "summary": "Feedback category."
+        },
+        {
+          "name": "--signal",
+          "value": "<signal>",
+          "summary": "Preference signal: prefer, avoid, or keep."
+        },
+        {
+          "name": "--stage",
+          "value": "<stage>",
+          "summary": "Feedback lifecycle stage."
+        },
+        {
+          "name": "--summary",
+          "value": "<text>",
+          "summary": "Short feedback summary."
+        },
+        {
+          "name": "--run-id",
+          "value": "<run-id>",
+          "summary": "Run identifier."
+        },
+        {
+          "name": "--gate",
+          "value": "<gate-id>",
+          "summary": "Gate identifier."
+        },
+        {
+          "name": "--evidence",
+          "value": "<text>",
+          "summary": "Evidence supporting the feedback entry."
+        },
+        {
+          "name": "--promotion-kind",
+          "value": "<kind>",
+          "summary": "Reusable-rule promotion kind."
+        },
+        {
+          "name": "--target",
+          "value": "<target>",
+          "summary": "Promotion target path or identifier."
+        },
+        {
+          "name": "--proposal-summary",
+          "value": "<text>",
+          "summary": "Proposed reusable change."
+        },
+        {
+          "name": "--verification",
+          "value": "<text>",
+          "summary": "How the proposed change will be verified."
+        },
+        {
+          "name": "--proposal-workflow",
+          "value": "<workflow-id>",
+          "summary": "Automation workflow identifier."
+        },
+        {
+          "name": "--proposal-run-id",
+          "value": "<run-id>",
+          "summary": "Automation run identifier."
+        },
+        {
+          "name": "--proposal-source",
+          "value": "<source>",
+          "summary": "Host that produced the proposal."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "shitate-import",
+      "summary": "Copy an approved Shitate character snapshot into a project.",
+      "usage": "node bin/pipeline shitate-import --config <project.yaml> --shitate-root <directory> --character <character-id> --run-id <run-id> [options] [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--shitate-root",
+          "value": "<directory>",
+          "summary": "Root of the Shitate repository."
+        },
+        {
+          "name": "--character",
+          "value": "<character-id>",
+          "summary": "Shitate character identifier."
+        },
+        {
+          "name": "--run-id",
+          "value": "<run-id>",
+          "summary": "Run identifier."
+        },
+        {
+          "name": "--anchor",
+          "value": "<anchor>",
+          "summary": "Selected Shitate image anchor."
+        },
+        {
+          "name": "--request-id",
+          "value": "<request-id>",
+          "summary": "Generation request identifier to update."
+        },
+        {
+          "name": "--speaker-id",
+          "value": "<speaker-id>",
+          "summary": "Speaker identifier for the imported character."
+        },
+        {
+          "name": "--display-name",
+          "value": "<name>",
+          "summary": "Display name for the imported character."
+        },
+        {
+          "name": "--side",
+          "value": "<side>",
+          "summary": "Character layout side: left or right."
+        },
+        {
+          "name": "--accent",
+          "value": "<color>",
+          "summary": "Character accent color."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "character-add",
+      "summary": "Copy a speaker and its images from a source manifest into a project.",
+      "usage": "node bin/pipeline character-add --config <project.yaml> --from-manifest <manifest.json> --speaker <speaker-id> [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--from-manifest",
+          "value": "<manifest.json>",
+          "summary": "Source manifest whose speaker images are copied into the target project."
+        },
+        {
+          "name": "--speaker",
+          "value": "<speaker-id>",
+          "summary": "Speaker identifier to copy from the source manifest."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "lock-block",
+      "summary": "Write a subject locked_blocks field with recomputed sha256 (verbatim identity text).",
+      "usage": "node bin/pipeline lock-block --config <project.yaml> --subject <subject-id> --field <voice|appearance|manner> (--text <text> | --text-file <path>) [--request-id <request-id>] [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--subject",
+          "value": "<subject-id>",
+          "summary": "Creative IR subject id for locked_blocks."
+        },
+        {
+          "name": "--field",
+          "value": "<voice|appearance|manner>",
+          "summary": "Locked block field: voice, appearance, or manner."
+        },
+        {
+          "name": "--text",
+          "value": "<text>",
+          "summary": "Verbatim locked block text to store and hash."
+        },
+        {
+          "name": "--text-file",
+          "value": "<path>",
+          "summary": "Read verbatim locked block text from a UTF-8 file."
+        },
+        {
+          "name": "--request-id",
+          "value": "<request-id>",
+          "summary": "Generation request identifier to update."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "validate",
+      "summary": "Validate a project, manifest, adapters, and safety constraints.",
+      "usage": "node bin/pipeline validate --config <project.yaml> [--json]",
+      "requires_config": true,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "models",
+      "summary": "Preflight configured generation models without submitting generation tasks.",
+      "usage": "node bin/pipeline models --config <project.yaml> [--json]",
+      "requires_config": true,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "finalize",
+      "summary": "Preview or apply completion-only cleanup for superseded media.",
+      "usage": "node bin/pipeline finalize --config <project.yaml> [--state-dir <project.dist_dir>] [--apply --actor coordinator --expected-plan-digest <plan_digest> [--expected-production-completion-digest <digest>]] [--json]",
+      "requires_config": true,
+      "safety": "approval-gated",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Finalize only: must equal project.dist_dir (project-local state root). Other values are rejected."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--apply",
+          "summary": "Apply the inspected approval-gated worktree action after preview."
+        },
+        {
+          "name": "--expected-plan-digest",
+          "value": "<sha256>",
+          "summary": "SHA-256 plan_digest from finalize preview JSON; required with --apply."
+        },
+        {
+          "name": "--expected-production-completion-digest",
+          "value": "<sha256>",
+          "summary": "SHA-256 production_completion_digest from finalize preview JSON; required with --apply only when coordination control-plane evidence is present."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "plan",
+      "summary": "Create a deterministic execution plan without running adapters.",
+      "usage": "node bin/pipeline plan --config <project.yaml> [--json]",
+      "requires_config": true,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "analyze",
+      "summary": "Run coordinator-controlled media analysis and write its artifacts.",
+      "usage": "node bin/pipeline analyze --config <project.yaml> --actor coordinator [--state-dir <directory>] [--allow-external-analysis] [--json]",
+      "requires_config": true,
+      "safety": "approval-gated",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--allow-external-analysis",
+          "summary": "Allow configured external analysis adapters to run."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "compose",
+      "summary": "Create coordinator-controlled local multi-source composition proposals from analysis artifacts.",
+      "usage": "node bin/pipeline compose --config <project.yaml> --actor coordinator [--state-dir <directory>] [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "viewer",
+      "summary": "Write a local workflow snapshot from the current project state.",
+      "usage": "node bin/pipeline viewer --config <project.yaml> [--output <directory>] [--state-dir <directory>] [--open] [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--output",
+          "value": "<directory>",
+          "summary": "Alternate output directory."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--open",
+          "summary": "Open the generated local page in a browser."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "review",
+      "summary": "Write the local Gate 1 creative review artifacts.",
+      "usage": "node bin/pipeline review --config <project.yaml> [--output <directory>] [--state-dir <directory>] [--open] [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--output",
+          "value": "<directory>",
+          "summary": "Alternate output directory."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--open",
+          "summary": "Open the generated local page in a browser."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "review-preview",
+      "summary": "Render one local, low-resolution preview for a storyboard shot.",
+      "usage": "node bin/pipeline review-preview --config <project.yaml> --actor coordinator --shot <shot-id> [--output <directory>] [--state-dir <directory>] [--json]",
+      "requires_config": true,
+      "safety": "approval-gated",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--shot",
+          "value": "<shot-id>",
+          "summary": "Storyboard shot identifier to preview locally."
+        },
+        {
+          "name": "--output",
+          "value": "<directory>",
+          "summary": "Alternate output directory."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "run",
+      "summary": "Dry-run a plan or execute an approved Gate 1 run as coordinator.",
+      "usage": "node bin/pipeline run --config <project.yaml> [--dry-run | --actor coordinator] [--state-dir <directory>] [--json]",
+      "requires_config": true,
+      "safety": "approval-gated",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--dry-run",
+          "summary": "Plan the run without executing adapters or writing state."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "gate",
+      "summary": "Record a human approval, revision, or abort decision.",
+      "usage": "node bin/pipeline gate --config <project.yaml> --actor coordinator --gate <gate-id> --decision <decision> [--person-qa-decision <decision> --person-qa-reason <text>] [--state-dir <directory>] [--json]",
+      "requires_config": true,
+      "safety": "approval-gated",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--gate",
+          "value": "<gate-id>",
+          "summary": "Gate identifier."
+        },
+        {
+          "name": "--decision",
+          "value": "<decision>",
+          "summary": "Decision allowed by the selected gate."
+        },
+        {
+          "name": "--person-qa-decision",
+          "value": "<decision>",
+          "summary": "Person-consistency QA decision: accept, revise, or accept-not-evaluable (required when quality.person_consistency is enabled)."
+        },
+        {
+          "name": "--person-qa-reason",
+          "value": "<text>",
+          "summary": "Non-empty human reason for the person-consistency QA decision."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "render",
+      "summary": "Render an assembled run after Gate 2 approval.",
+      "usage": "node bin/pipeline render --config <project.yaml> --actor coordinator [--state-dir <directory>] [--json]",
+      "requires_config": true,
+      "safety": "approval-gated",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "recover",
+      "summary": "Coordinator recovery: plan or apply local poll/download or explicit paid regeneration (no silent spend). Paid --apply is fixture-package only (fixture_adapter.namespace=fixture); live provider billing is not enabled. packageDir/jobs_root/production-control stay under the project realpath.",
+      "usage": "node bin/pipeline recover --config <project.yaml> --actor coordinator --node <node-id> --error-code <code> --recovery <local|paid> [--dry-run | --apply [--confirm-paid]] [--path <recovery-package>] [--state-dir <directory>] [--json]",
+      "requires_config": true,
+      "safety": "approval-gated",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--node",
+          "value": "<node-id>",
+          "summary": "Failed mission node id eligible for recovery (failed_known only)."
+        },
+        {
+          "name": "--error-code",
+          "value": "<code>",
+          "summary": "Observed failure error code used for recovery selection."
+        },
+        {
+          "name": "--recovery",
+          "value": "<local|paid>",
+          "summary": "Recovery mode: local (poll/download only) or paid (explicit opt-in regeneration)."
+        },
+        {
+          "name": "--dry-run",
+          "summary": "Plan the run without executing adapters or writing state."
+        },
+        {
+          "name": "--apply",
+          "summary": "Apply the inspected approval-gated worktree action after preview."
+        },
+        {
+          "name": "--confirm-paid",
+          "summary": "Required with paid apply; never enables silent credit spend."
+        },
+        {
+          "name": "--path",
+          "value": "<worktree-path>",
+          "summary": "Absolute or relative worktree path to inspect or remove."
+        },
+        {
+          "name": "--state-dir",
+          "value": "<directory>",
+          "summary": "Alternate pipeline state directory."
+        },
+        {
+          "name": "--run-id",
+          "value": "<run-id>",
+          "summary": "Run identifier."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "production-status",
+      "summary": "Read-only production-control mode diagnostics (legacy/shadow/active) with exact revision bindings. No Gate, provider, or billing side effects.",
+      "usage": "node bin/pipeline production-status --config <project.yaml> [--json]",
+      "requires_config": true,
+      "safety": "read-only",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "production-migrate",
+      "summary": "Preview or apply create-only migration into shadow/active production-control artifacts. Never rewrites project.yaml in place, mutates Gates, submits providers, renders, or finalize-applies.",
+      "usage": "node bin/pipeline production-migrate --config <project.yaml> --target <shadow|active> [--apply --actor coordinator --expected-plan-digest <preview-digest>] [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--target",
+          "value": "<shadow|active|legacy>",
+          "summary": "Production mode target: shadow|active for migrate, shadow|legacy for rollback."
+        },
+        {
+          "name": "--apply",
+          "summary": "Apply the inspected approval-gated worktree action after preview."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--expected-plan-digest",
+          "value": "<sha256>",
+          "summary": "SHA-256 plan_digest from finalize preview JSON; required with --apply."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    },
+    {
+      "name": "production-rollback",
+      "summary": "Preview or apply mode rollback to shadow/legacy while retaining append-only control-plane artifacts. Never auto-runs provider, Gate, billing, or submit.",
+      "usage": "node bin/pipeline production-rollback --config <project.yaml> --target <shadow|legacy> [--apply --actor coordinator] [--json]",
+      "requires_config": true,
+      "safety": "local-write",
+      "options": [
+        {
+          "name": "--config",
+          "value": "<project.yaml>",
+          "summary": "Path to the project configuration."
+        },
+        {
+          "name": "--target",
+          "value": "<shadow|active|legacy>",
+          "summary": "Production mode target: shadow|active for migrate, shadow|legacy for rollback."
+        },
+        {
+          "name": "--apply",
+          "summary": "Apply the inspected approval-gated worktree action after preview."
+        },
+        {
+          "name": "--actor",
+          "value": "<role>",
+          "summary": "Pipeline actor; gated actions require coordinator."
+        },
+        {
+          "name": "--json",
+          "summary": "Emit stable machine-readable JSON."
+        },
+        {
+          "name": "--help",
+          "summary": "Show help for the selected command."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "command": "doctor",
+  "checks": [
+    {
+      "name": "node",
+      "ok": true,
+      "status": "ready",
+      "blocking": true,
+      "version": "v22.14.0"
+    },
+    {
+      "name": "npm",
+      "ok": true,
+      "status": "ready",
+      "blocking": true,
+      "detail": "npm --version",
+      "version": "10.9.7"
+    },
+    {
+      "name": "ffprobe",
+      "ok": true,
+      "status": "ready",
+      "blocking": true,
+      "detail": "ffprobe -version",
+      "version": "ffprobe version 6.1.1-3ubuntu5 Copyright (c) 2007-2023 the FFmpeg developers"
+    },
+    {
+      "name": "ffmpeg",
+      "ok": true,
+      "status": "ready",
+      "blocking": true,
+      "detail": "ffmpeg -version",
+      "version": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers"
+    }
+  ]
+}
