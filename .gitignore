@@ -4,6 +4,7 @@ build/
 !apps/download-site/build/sites-vite-plugin.ts
 dist/
 coverage/
+verification/evidence/verify-tsugite/*
 .tsugite/
 .DS_Store
 .env
