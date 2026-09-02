@@ -39,7 +39,7 @@ Run the read-only Doctor after Launch:
 node .agents/skills/verify-tsugite/scripts/verify.mjs doctor --manifest "$VERIFY_TSUGITE_MANIFEST"
 ```
 
-Doctor fails closed unless all of the following still match Launch: repository root and product name, Git revision and dirty-source digest, helper hash, `package-lock.json` hash, `node_modules` real path, scratch ownership record, copied fixture hash, and macOS network-deny sandbox. It then runs the public `node bin/pipeline doctor --config` command against the config and `TSUGITE_PROJECTS_HOME` recorded in the manifest. The helper invocation above is the exact runnable recipe; `doctor.exit.json` records its fully expanded inner argv.
+Doctor fails closed unless all of the following still match Launch: repository root and product name, Git revision and dirty-source digest (working-tree and staged diffs), helper hash, `package-lock.json` hash, `node_modules` real path, scratch ownership record, copied fixture hash, and macOS network-deny sandbox. It then runs the public `node bin/pipeline doctor --config` command against the config and `TSUGITE_PROJECTS_HOME` recorded in the manifest. The helper invocation above is the exact runnable recipe; `doctor.exit.json` records its fully expanded inner argv.
 
 The exact expanded argv is preserved in `doctor.exit.json`. Doctor is healthy only when the command exits 0, returns `ok: true`, and every observed Node, npm, ffprobe, ffmpeg, project, Remotion backend, and Remotion tool check is `ready`. It must leave the copied project byte-for-byte unchanged. Unknown ownership, a stale process, changed source, shared state, a missing dependency, or unavailable network isolation blocks Drive; Doctor never repairs or seeds anything.
 

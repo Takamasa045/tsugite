@@ -672,11 +672,15 @@ async function currentSourceIdentity() {
   const revisionResult = spawnSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" });
   const statusResult = spawnSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: REPO_ROOT });
   const diffResult = spawnSync("git", ["diff", "--binary", "--no-ext-diff", "--", "."], { cwd: REPO_ROOT });
-  if (revisionResult.status !== 0 || statusResult.status !== 0 || diffResult.status !== 0) throw new Error("could not establish Git source identity");
+  const cachedDiffResult = spawnSync("git", ["diff", "--cached", "--binary", "--no-ext-diff", "--", "."], { cwd: REPO_ROOT });
+  if (revisionResult.status !== 0 || statusResult.status !== 0 || diffResult.status !== 0 || cachedDiffResult.status !== 0) {
+    throw new Error("could not establish Git source identity");
+  }
   const hash = createHash("sha256");
   hash.update(revisionResult.stdout.trim());
   hash.update(statusResult.stdout);
   hash.update(diffResult.stdout);
+  hash.update(cachedDiffResult.stdout);
   const entries = statusResult.stdout.toString("utf8").split("\0").filter(Boolean);
   for (const entry of entries) {
     if (!entry.startsWith("?? ")) continue;
