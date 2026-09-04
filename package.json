@@ -28,7 +28,7 @@
     "desktop:package": "npm --prefix apps/desktop run package",
     "desktop:make": "npm --prefix apps/desktop run make",
     "desktop:audit": "npm --prefix apps/desktop run package:audit",
-    "security:audit": "node scripts/security-audit.mjs",
+    "security:audit": "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
     "vendor:check": "node scripts/check-vendor-boundary.mjs",
     "check": "npm run vendor:check && npm run build && npm run test:coverage"
   },
