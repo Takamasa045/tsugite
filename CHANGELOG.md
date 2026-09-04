@@ -10,6 +10,7 @@
 - Aligned README coverage text with the enforced **74.4%** branch threshold, README.zh/ko with the source-first entry, and template catalog with `bundled-templates/`.
 - Expanded Dependabot to `apps/desktop`, `apps/download-site`, and `apps/workflow-viewer`.
 - Pinned `fast-uri` 3.1.7 and `qs` 6.16.0 so required CI `security:audit` passes.
+- Retried download-site `npm audit` on registry 503 and pinned that app's `fast-uri` to 3.1.7.
 - Clarified that Desktop remains developer-smoke only; nested package version stays 0.6.0 until its lockfile can be regenerated.
 
 The 0.10.0 section below keeps the PO-8 RC diary for provenance. Those bullets describe 0.9.0-era evidence and do not change the shipped **0.10.0** package version.
