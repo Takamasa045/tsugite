@@ -131,9 +131,12 @@ function Timeline({ manifest }) {
     );
   }
 
-  if (registeredPreset && registeredPreset.id !== PASSTHROUGH_PRESET) {
+  const useThemedPreset = Boolean(registeredPreset && registeredPreset.id !== PASSTHROUGH_PRESET);
+  const passthroughKeepsDefaultCaptionsOff =
+    registeredPreset?.id === PASSTHROUGH_PRESET && captionStyle === "standard";
+  if (useThemedPreset) {
     children.push(React.createElement(registeredPreset.handler, { key: registeredPreset.id, manifest }));
-  } else {
+  } else if (!passthroughKeepsDefaultCaptionsOff) {
     children.push(
       captionStyle === "cinematic-impact"
         ? React.createElement(CinematicImpactCaptions, {
