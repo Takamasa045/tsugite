@@ -53,7 +53,7 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 | 項目 | 契約 |
 |---|---|
-| 状態 | 実生成は **未統合**（`available-to-add` / preflight-only）。`ready` にしない |
+| 状態 | 実生成は **未統合**（`available-to-add` / preflight-only）。`ready` にしない。**1.0 でも live submit しない** |
 | CLI 不在 | `needs-setup`（存在を偽装しない） |
 | 認証 | 環境変数名 `MINIMAX_API_KEY` のみ宣言。値はログ・成果物・チャットに出さない。command 存在だけでは ready にしない |
 | dry-run | `mmx video generate --model MiniMax-H3 --last-frame <pinned-path> ... --dry-run` を argv 配列で構築。`--image` / first-frame を付けない。`billing_action: false` / `generation_submitted: false` |
@@ -69,7 +69,7 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 | 項目 | 契約 |
 |---|---|
-| 状態 | 価格正本未設定の間は **preflight-only / blocked**（未知価格 block）。実送信準備完了とは表示しない。`submit: false` + `runtime_readiness: preflight-only` |
+| 状態 | 価格正本未設定の間は **preflight-only / blocked**（未知価格 block）。実送信準備完了とは表示しない。`submit: false` + `runtime_readiness: preflight-only`。**1.0 でも live HTTP/DNS/submit しない** |
 | 初期 scope | MiniMax-H3 **last-frame-only** のみ（exactly one last-frame asset）。first-frame 付与・同画像複製・T2V 降格・他 mode 推測は禁止 |
 | 認証 | 環境変数名 `MINIMAX_API_KEY` のみ宣言。値は schema / artifact / log / audit / error に保存しない |
 | API 契約 | create: `POST /v2/video_generation`；query: `GET /v2/query/video_generation/{task_id}`；remote cancel の **DELETE は非対応**（契約記述のみ。live 送信は未実装） |

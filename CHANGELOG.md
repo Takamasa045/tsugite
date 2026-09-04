@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Aligned the Kling doctor auth check name to `provider-auth:kling`.
+- Pointed the product site latest tag to **v0.10.0** and described Production Orchestration as the current source release.
+- Recorded post-0.10.0 main work: Remotion 4.0.512 and skill 2.0 markup, lyric-kinetic captions plus passthrough preset, PixVerse CLI 1.3.5 flags, portable `verify-tsugite` skill, and browserslist audit pins.
+- Added Remotion `promo-punch` caption style (opt-in `meta.caption_style`; default captions unchanged).
+- Documented Production Orchestration as shipped in 0.10.0 (living status outside the frozen T00 design pack) with remaining 1.0 caveats. MiniMax stays preflight-only. Gate 2 `retry_specific` stays out of 1.0; use `revise`.
+- Aligned README coverage text with the enforced **74.4%** branch threshold, README.zh/ko with the source-first entry, and template catalog with `bundled-templates/`.
+- Expanded Dependabot to `apps/desktop`, `apps/download-site`, and `apps/workflow-viewer`.
+- Clarified that Desktop remains developer-smoke only; nested package version stays 0.6.0 until its lockfile can be regenerated.
+
+The 0.10.0 section below keeps the PO-8 RC diary for provenance. Those bullets describe 0.9.0-era evidence and do not change the shipped **0.10.0** package version.
+
 ## 0.10.0 - 2026-08-13
 
 - Integrated Production Orchestration v1 (T00–T09): durable contracts and state, hierarchical planning, H3 v3 compilation, gated execution and recovery, learning/metrics, Launcher mission tree, and migration/rollback readiness.

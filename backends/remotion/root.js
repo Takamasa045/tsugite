@@ -11,6 +11,7 @@ import {
 } from "remotion";
 import { CinematicImpactCaptions } from "./cinematicImpactCaptions.js";
 import { beatVideoScale, LyricKineticCaptions } from "./lyricKineticCaptions.js";
+import { PromoPunchCaptions } from "./promoPunchCaptions.js";
 import {
   captionContainerLayout,
   captionTextLayout,
@@ -20,6 +21,7 @@ import {
 import { resolveCaptionStyle } from "./captionMotion.mjs";
 import { createClipVolume } from "./clipAudio.mjs";
 import { resolveRenderDimensions } from "./dimensions.mjs";
+import { PASSTHROUGH_PRESET } from "./passthrough.js";
 import { resolveRemotionPreset } from "./presetRegistry.mjs";
 import { OFFTHREAD_VIDEO_FETCH_GUARD } from "./renderSettings.mjs";
 import { audioTrackTiming, clipSequenceTimings, secondsToFrames, totalDuration } from "./timing.mjs";
@@ -129,7 +131,7 @@ function Timeline({ manifest }) {
     );
   }
 
-  if (registeredPreset) {
+  if (registeredPreset && registeredPreset.id !== PASSTHROUGH_PRESET) {
     children.push(React.createElement(registeredPreset.handler, { key: registeredPreset.id, manifest }));
   } else {
     children.push(
@@ -142,6 +144,12 @@ function Timeline({ manifest }) {
         : captionStyle === "lyric-kinetic"
         ? React.createElement(LyricKineticCaptions, {
             key: "captions-lyric-kinetic",
+            captions: manifest.captions ?? [],
+            fps
+          })
+        : captionStyle === "promo-punch"
+        ? React.createElement(PromoPunchCaptions, {
+            key: "captions-promo-punch",
             captions: manifest.captions ?? [],
             fps
           })

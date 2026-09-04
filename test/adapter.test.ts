@@ -215,6 +215,9 @@ describe("adapter contract", () => {
       args: ["adapters/kling/generate.mjs"],
       input: "stdin-json"
     });
+    const klingAuth = kling.checks.setup.find((check) => check.type === "manual");
+    expect(klingAuth).toMatchObject({ name: "provider-auth:kling" });
+    expect(klingAuth?.name).not.toBe("provider-auth:pixverse");
   });
 
   it("loads the executable TopView MCP bridge adapter", async () => {

@@ -4,7 +4,7 @@ Use `/tsugite` or `.claude/skills/tsugite/SKILL.md` to load the canonical workfl
 
 ## Claude Code workflow
 
-- Start with a one-sentence goal and completion condition, then follow the loaded Tsugite skill.
+- Start with a one-sentence goal and completion condition, then follow the loaded Tsugite skill. Identity Lock Protocol, story-guides-before-shots, and worktree create/cleanup/defer rules live in that skill and in `AGENTS.md`; do not skip them from this file alone.
 - Use `/tsugite-plan <project.yaml> | <creative brief> | <duration>` for the safe planning loop.
 - Use `/tsugite-verify [path or test]` after code or documentation changes.
 - Use `/tsugite-learning-review [optional run id]` to prepare only the dedicated local learning-promotion approval queue; `/loop 24h /tsugite-learning-review` is short-lived and session-scoped.

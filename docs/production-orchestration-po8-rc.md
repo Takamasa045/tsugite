@@ -1,8 +1,8 @@
 # Production Orchestration PO-8 RC integration
 
-**Status:** fixture-only RC remaining (PO-0A actual browser + Desktop/Windows honesty). Package version remains `0.9.0`. Readiness is **GO-WITH-CAVEATS**: PO-0A Canvas first-frame is measured; packaged Desktop is partial because local `node-pty` is absent and must not be installed in this session; Windows real-machine/CI and live provider/billing stay unverified. Exit blockers EB1 and EB2 remain closed.
+**Status:** historical PO-8 RC evidence. Software **0.10.0** shipped T00–T09; this file does not override `package.json`. The stored readiness envelope still records the RC-era `0.9.0` / **GO-WITH-CAVEATS** measurement (PO-0A Canvas first-frame measured; packaged Desktop partial without `node-pty`; live provider/billing unverified). Windows smoke later landed on GitHub Actions in 0.10.0. Exit blockers EB1 and EB2 remain closed. Treat `docs/reports/po8-rc-*` as provenance, not current product copy.
 
-This document is **outside** the frozen T00 design pack under `docs/design/production-orchestration-v1/`. Design pack hashes must not change.
+This document is **outside** the frozen T00 design pack under `docs/design/production-orchestration-v1/`. Design pack hashes must not change. Current shipped status lives in [production-orchestration-status.md](./production-orchestration-status.md).
 
 ## Readiness provenance (round 9 remaining)
 
@@ -52,7 +52,7 @@ This document is **outside** the frozen T00 design pack under `docs/design/produ
 - **Readiness desktop:** without `desktop:audit` evidence → `partial`/`unverified` with exit-evidence reasons; Windows/live/browser/packaged caveats retained.
 - **Gate fingerprint:** Gate2 selected completion, Gate3 final SHA, GateBundle/decision/approval binding in canonical fingerprint; `writeState` effect_policy threaded from gate CLI. Legacy `approved_input_digest` semantics unchanged.
 - **Migration preview:** `from_mode` / `previewMigrationWithPointer` uses pointer reader chain; resume reuses sealed journal `source_mode`.
-- **Version:** package remains `0.9.0`; design pack frozen.
+- **Version:** at RC time the package was `0.9.0` and the design pack stayed frozen. Shipped software is **0.10.0**; see [production-orchestration-status.md](./production-orchestration-status.md).
 
 ## CLI (no non-dry-run run/render/finalize apply)
 
@@ -77,8 +77,8 @@ Migration apply creates control-plane artifacts only. It does **not** rewrite `p
 
 Per `docs/design/production-orchestration-v1/migration-and-release.md`:
 
-- Do **not** ship `1.0.0` until all exit criteria (including Windows smoke and required live evidence) are proven.
-- This RC integration keeps **`0.9.0`**. It does not invent a package RC version bump without full release-gate proof.
+- Do **not** ship `1.0.0` until remaining exit criteria (live provider/billing evidence and packaged Desktop UAT) are proven. Windows smoke later landed on GitHub Actions in 0.10.0.
+- This RC diary recorded **`0.9.0`**. It is historical and does not override `package.json` **0.10.0**.
 
 ## Unverified in this owner session unless separately recorded
 

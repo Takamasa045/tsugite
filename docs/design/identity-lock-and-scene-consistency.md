@@ -97,7 +97,7 @@ shots:
 
 ## 提案3: シーン層と共有ブロック注入
 
-ショットの上に **scene** を導入し、シーン不変の要素を全ショットへ compile 時に自動注入する。
+ショットの上に **scene** を導入し、シーン不変の要素を全ショットへ compile 時に自動注入する。実在ロケでは still 生成前に距離感・季節・禁止物を LOCATION 正本へ固定する（LESSONS の LOCATION-LOCK。共有 skill への昇格は人間承認後）。
 
 ```yaml
 scenes:

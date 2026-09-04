@@ -107,6 +107,15 @@ Desktopアプリの一般配布は終了しました。今後はGitHubのソー�
 
 開発用Electron版で制作案件が0件の場合は、空の制作棚からworkspaceを選び直せます。この挙動は回帰テストを維持しますが、一般配布の利用導線にはしません。
 
+非エンジニア向けの入口は、Viewer依存を一度入れたあと、プロジェクトランチャーを開きます。
+
+```sh
+npm --prefix apps/workflow-viewer ci  # 初回のみ
+npm run viewer:open
+```
+
+開発時の Viewer 単体確認:
+
 ```sh
 cd apps/workflow-viewer
 npm install
@@ -218,7 +227,7 @@ node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coord
 ```
 
 明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
-Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装です。全体を計画からやり直す場合は `revise` を使います。
+Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装で、1.0 でも入れません。全体を計画からやり直す場合は `revise` を使います。MiniMax direct / MiniMax HTTP は preflight-only のまま、送信可能としては表示しません。
 
 ユーザーが対象動画を明示的に「完成」と確定した後は、まず正本path・QA証跡と、失敗・改善点・次回への学びを終了記録に残します。失敗は案件の `feedback.jsonl`、再利用できるルールは `LESSONS.md` に追記し、同じfailure keyまたは症状・原因が一致する過去の記録を照合して、再発なら `recurring` と昇格候補の可否を記録します。失敗がなかった場合も明記します。これらを完了報告で示した後だけ、`finalize` で旧メディアを整理できます。引数なしのpreviewは削除予定と保持対象に加え `plan_digest` を表示するだけです。内容を確認後、Coordinatorが `--apply` とその preview の `plan_digest` を `--expected-plan-digest` に渡すと、最終run、最終manifestが参照する元素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材の動画・音声・画像だけを削除します。実行結果は最終run内の `completion-record.json` に記録されます。`--state-dir` を付ける場合は `project.dist_dir` と同一のプロジェクト内 state ルートだけが許可され、それ以外は run lock 取得前に拒否されます。
 
@@ -261,6 +270,18 @@ node bin/pipeline worktrees --reconcile --apply --actor coordinator --json
 
 単発実行と定期hostの契約は [統合待ちworktreeのreconcile](docs/automations/worktree-reconcile.md) を参照してください。
 
+## 公開 Agent Services（Remote MCP）
+
+公開 read-only Remote MCP（Cloudflare Search MCP と Azumi Experience）は同梱の [`agent-services/registry.yaml`](agent-services/registry.yaml) に登録します。生成 connections ではなく、任意 URL は受け付けず、この CLI から副作用も解きません。購入・決済操作ではありません（`billing_action=false`）が、provider の usage は消費し得ます（`provider_usage_possible=true`）。
+
+```sh
+node bin/pipeline services --json
+node bin/pipeline service-tools --service itopan-search --json
+node bin/pipeline service-call --service itopan-search --tool search --arguments '{"query":"AIエージェント"}' --json
+```
+
+Human Gate、endpoint 固定、現行の read-only 範囲は [Agent Services](docs/agent-services.md) を参照してください。
+
 ## Shitate連携（任意）
 
 別リポジトリのShitateを使う場合だけ、選定済みrunとanchorをSHA-256 lock付きの不変snapshotとしてprojectへ取り込めます。通常のTsugite利用にはShitateの導入・設定は不要です。
@@ -285,8 +306,8 @@ node bin/pipeline shitate-import \
 ```sh
 node bin/pipeline character-add \
   --config projects/my-project/project.yaml \
-  --from-manifest templates/blog-dialogue/dist/example/manifest.json \
-  --speaker hero \
+  --from-manifest fixtures/manifests/dialogue.valid.json \
+  --speaker left \
   --json
 ```
 
@@ -399,6 +420,6 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 - `examples/local-fixture/project.yaml` は fixture style のローカル検証 config です。編集前に `projects/` へコピーしてください。
 - `projects/*` は git ignore されるため、ローカル prompt、media、manifest、`dist/`、run state は配布用 commit に混ざりません。
 - npm 11 では、platform-specific parent が skip されても optional wasm child package が lockfile に残るため、`npm ci` 後に `npm ls` が `@emnapi/runtime` を extraneous と表示する場合があります。`npm ci`、`npm audit`、build、tests、`validate`、`plan`、`run --dry-run` がすべて通っている場合のみ non-blocking と扱います。
-- `npm run check` はvendor boundary、TypeScript build、全テストに加え、`src/`のstatements / functions / linesが80%以上、branchesが75%以上であることを強制します。高core環境やCI runnerでもprocess-heavyなfixtureを安定させるため、coverageはVitestを最大4 workerで実行します。
+- `npm run check` はvendor boundary、TypeScript build、全テストに加え、`src/`のstatements / functions / linesが80%以上、branchesが74.4%以上であることを強制します（Production Orchestration 導入後の保持値。75%復帰は残債）。高core環境やCI runnerでもprocess-heavyなfixtureを安定させるため、coverageはVitestを最大4 workerで実行します。
 - `npm run security:audit` はproduction依存と開発依存を含む全体の両方を検査し、moderate以上のadvisoryで失敗します。
 - この workspace path には `*` が含まれるため、Vite が警告する場合があります。現在この path でも tests は通りますが、運用上ノイズになる場合は `*` を含まない path に repo を移してください。

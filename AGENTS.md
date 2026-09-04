@@ -15,6 +15,7 @@
 - 構成やカットを提案する前に `story-guides` を実行し、第一候補、補助候補、不採用理由、尺配分、映像文法を確認する。
 - キャラ付き・複数ショット物語・一貫性を求める自然言語依頼では、正本スキルの **Identity Lock Protocol** を適用する。声・外見・仕草・場所の固定を平易な文で一度確認し、エージェントが `locked_blocks` / `scenes` / `lock-block` を書く。ユーザーに YAML や sha256 を書かせない。Gate / 課金は従来どおり人間承認後のみ。
 - Gate 1を承認する前に `review` を実行し、`dist/<run-id>/review/index.html` と `review-data.json` を確認する。成果物がない、または対象projectと一致しない場合は承認しない。
+- Gate 2 は原則として人の `approve_all` / `revise` / `abort`。例外は `gates.gate_2.auto_pass: qc_ok_no_new_assets` を選んだ案件だけで、credits 0・新規 asset 0・QC issue 0 のときだけ auto-pass する。条件を満たさなければ通常どおり Gate 2 を聞く。`retry_specific` は未実装で 1.0 対象外。revise で全再計画する。
 - generationを計画するときは `guides` と `plan.prompt_guidance` を確認し、catalogの存在を実行能力とみなさない。
 - Output QA は manifest と成果物検査のみ。編集や実行はしない。
 - ユーザーが対象動画を明示的に「完成」と確定したら、正本path・QA・振り返りに加え、今回の失敗・改善点・次回への学びを終了記録として残す。失敗は案件の `feedback.jsonl` と、再利用できるルールなら追記専用の `LESSONS.md` に記録し、過去の同じ `feedback key` または `LESSONS.md` の症状・原因と照合して再発なら `recurring` として昇格候補かを確認する。昇格候補は反映先・変更内容・検証方法が揃う場合だけ pending proposal にし、人間承認なしに共有ルールを変更しない。記録結果（失敗なしを含む）を完了報告に示した後に `finalize` をpreviewする。completed / Gate 3 approved / 最終成果物を確認し、preview JSON の `plan_digest` と対象が一致する場合だけ `finalize --apply --actor coordinator --expected-plan-digest <plan_digest>` を実行する。

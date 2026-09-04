@@ -1,11 +1,17 @@
 # テンプレートカタログ
 
-ランチャーの「テンプレート」タブは、`templates/` 直下にある `template.yaml` を読み取り専用で表示します。メタデータは用途を比較するための説明であり、実行能力、利用権、Git公開可否を証明するものではありません。
+ランチャーの「テンプレート」タブは、公開同梱の `bundled-templates/` と、workspace の `templates/` 直下にある `template.yaml` を読み取り専用で表示します。同じ `id` がある場合は workspace 側を優先します。メタデータは用途を比較するための説明であり、実行能力、利用権、Git公開可否を証明するものではありません。
+
+公開同梱は `commerce-showcase` / `creative-short` / `explainer-talk` / `footage-editorial` の4件です。手元の `templates/` に同 ID がある場合、bundled の `direction` は見えなくなります。演出指針を残すなら workspace 側にも `direction` を書いてください。
 
 ## 配置
 
 ```text
-templates/
+bundled-templates/          # git 管理。Desktop / クローン直後の棚
+└── commerce-showcase/
+    └── template.yaml
+
+templates/                  # workspace private。gitignore。同 ID はこちらが優先
 └── my-template/
     ├── template.yaml
     ├── README.md
