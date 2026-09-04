@@ -40,9 +40,7 @@ describe("dependency security contracts", () => {
     expect(lockfile.packages["node_modules/ip-address"].version).toBe("10.4.0");
     expect(lockfile.packages["node_modules/postcss"].version).toBe("8.5.25");
     expect(lockfile.packages["node_modules/sharp"].version).toBe("0.35.3");
-    expect(manifest.scripts["security:audit"]).toBe(
-      "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate"
-    );
+    expect(manifest.scripts["security:audit"]).toBe("node scripts/security-audit.mjs");
     const ci = YAML.parse(ciWorkflow) as Workflow;
     const desktop = YAML.parse(desktopWorkflow) as Workflow;
     expect(ci.jobs.check.steps).toContainEqual(
