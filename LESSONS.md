@@ -76,3 +76,5 @@ Append-only format:
 
 2026-08-17 / 告知の締め写真に前作の見出しが二重に乗った / 完成済みMP4からタイトル焼き込み済みフレームを切り出して背景にした / 前作映像から背景を取るときは文字のない区間だけを正本にし、焼き込み済みフレームを使わない / observed
 2026-08-17 / 案件内Remotion差し替え後にrunがgate.review_changedで止まった / placeholder clipとcaptions空化を同時に行い、承認済みreview digestとずれた / 差し替え後はreviewを取り直し、Gate 1をrevise→再承認してからrunする / observed
+2026-09-04 / 手組 Gate3 scaffold の非 hex digest は既存機械検査で止まる / `approved_input_digest` は `src/orchestrator/statePersistence.ts` で sha256 hex 64 桁に拘束済み / 手組 state は使わず `inspectGate3Output` 経由で揃える。LESSONS 2026-08-05 の機械側は validate済 / validate済
+2026-09-04 / 実在ロケの LOCATION-LOCK は scene 正本の運用確認に留める / still 前の距離感・季節・禁止物は identity-lock 設計の scene 層で書く / 共有 SKILL への条文昇格は人間承認後。設計メモへ参照を追加 / documented

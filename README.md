@@ -83,6 +83,7 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 - A story-guide catalog covering 34 narrative, persuasion, documentary, genre, and music-video structures plus 35 contextual film-grammar and AI-video principles.
 - TopView skill CLI generation adapter for T2V and single-frame I2V.
 - Optional Hermes analysis handoff adapter.
+- API-free `pipeline analyze` with the local-media-analysis adapter, plus optional local-whisper analysis for transcripts, filler candidates, chapters, extractive summaries, and English captions.
 - Local-media and generated-media assembly into `dist/<run-id>/`.
 - Gate-bound editorial EDL compilation that retimes selected cuts, captions, and chapters for both Remotion and HyperFrames without modifying source media.
 - Gate 2 QC report generation using manifest and media probes.
@@ -206,7 +207,7 @@ node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coord
 ```
 
 Do not run non-dry-run `run` or `render` without explicit human approval.
-Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and returns the run to rendering. Gate 2 `retry_specific` is not implemented yet; use `revise` for a full re-plan.
+Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and returns the run to rendering. Gate 2 `retry_specific` is not implemented and is not planned for 1.0; use `revise` for a full re-plan. MiniMax direct and MiniMax HTTP stay preflight-only and must not be shown as ready to send.
 
 Only after the user explicitly declares the selected video complete, first record the canonical output, QA evidence, and a closeout retrospective: failures, improvements, and next-run lessons (including an explicit no-failure result). Append failures to project `feedback.jsonl` and reusable rules to `LESSONS.md`. Repeated feedback keys or lessons with matching symptoms and causes are recorded as `recurring` and assessed as promotion candidates; a pending proposal requires a concrete target, change summary, and verification plan, and remains human-approval-gated. Then use `finalize` to clean up superseded media. The default preview is read-only and prints a `plan_digest`. After reviewing its scope, a Coordinator may apply with that exact digest via `--expected-plan-digest`; this keeps the final run, source media referenced by the final manifest, and text records, while deleting video, audio, and image files from older runs, older QA, and unused project media. The result is recorded in `completion-record.json` inside the final run. Optional `--state-dir` is accepted only when it equals `project.dist_dir` (the project-local state root); other values are rejected before any run lock is taken.
 
@@ -308,8 +309,8 @@ Copy a speaker (poses, mouth frames, and images) from any source manifest into a
 ```sh
 node bin/pipeline character-add \
   --config projects/my-project/project.yaml \
-  --from-manifest templates/blog-dialogue/dist/example/manifest.json \
-  --speaker hero \
+  --from-manifest fixtures/manifests/dialogue.valid.json \
+  --speaker left \
   --json
 ```
 
@@ -408,6 +409,6 @@ This is how the repo can grow toward your taste while still staying safe for dis
 - `examples/local-fixture/project.yaml` is a fixture-style local validation config. Copy it into `projects/` before editing.
 - `projects/*` is ignored by git so local prompts, media, manifests, `dist/`, and run state stay out of distributable commits.
 - `npm ls` may report `@emnapi/runtime` as extraneous after `npm ci` on npm 11 because optional wasm child packages remain in the lockfile while their platform-specific parents are skipped. Treat this as non-blocking only when `npm ci`, `npm audit`, build, tests, `validate`, `plan`, and `run --dry-run` all pass.
-- `npm run check` enforces the vendor boundary, TypeScript build, the full test suite, and minimum coverage of 80% statements, functions, and lines, plus 75% branches for `src/`. Coverage uses at most four Vitest workers so process-heavy fixtures remain stable on high-core machines and CI runners.
+- `npm run check` enforces the vendor boundary, TypeScript build, the full test suite, and minimum coverage of 80% statements, functions, and lines, plus 74.4% branches for `src/` (held after Production Orchestration; restoring 75% remains debt). Coverage uses at most four Vitest workers so process-heavy fixtures remain stable on high-core machines and CI runners.
 - `npm run security:audit` checks both the production dependency tree and the full development tree, failing on moderate-or-higher advisories.
 - Vite may warn because this workspace path contains `*`. Tests currently pass in this path; move the repo to a path without `*` if that warning becomes operationally noisy.

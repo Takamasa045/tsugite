@@ -68,6 +68,7 @@ describe("remotion backend helpers", () => {
     expect(resolveCaptionStyle({ meta: {} })).toBe("standard");
     expect(resolveCaptionStyle({ meta: { caption_style: "cinematic-impact" } })).toBe("cinematic-impact");
     expect(resolveCaptionStyle({ meta: { caption_style: "lyric-kinetic" } })).toBe("lyric-kinetic");
+    expect(resolveCaptionStyle({ meta: { caption_style: "promo-punch" } })).toBe("promo-punch");
   });
 
   it("splits lyric lines into pop-in chunks", () => {

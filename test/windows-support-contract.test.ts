@@ -42,10 +42,10 @@ describe("Windows support contract", () => {
 
     expect(english).toContain("docs/windows.md");
     expect(japanese).toContain("docs/windows.md");
-    expect(english).toContain("80% statements, functions, and lines, plus 75% branches");
-    expect(japanese).toContain("statements / functions / linesが80%以上、branchesが75%以上");
-    expect(chinese).toContain("statements、functions和lines至少达到80%，branches至少达到75%");
-    expect(korean).toContain("statements, functions, lines는 80% 이상, branches는 75% 이상");
+    expect(english).toContain("80% statements, functions, and lines, plus 74.4% branches");
+    expect(japanese).toContain("statements / functions / linesが80%以上、branchesが74.4%以上");
+    expect(chinese).toContain("branches ≥ **74.4%**");
+    expect(korean).toContain("branches ≥ **74.4%**");
     for (const readme of [english, japanese, chinese, korean]) {
       expect(readme).toContain("npm run security:audit");
     }

@@ -1,6 +1,6 @@
 # Tsugite Desktop
 
-> 状態: 一般配布終了。macOS / Windows向けインストーラーの新規公開・更新・利用者サポートは行いません。通常利用はGitHubのリポジトリをCodex / Claude Codeで開き、ブラウザ版のローカルランチャー／Viewerを使ってください。
+> 状態: 一般配布終了。リポジトリのソフトウェア version は **0.10.0**。この Electron パッケージの `package.json` version は lockfile 都合で 0.6.0 のまま。macOS / Windows向けインストーラーの新規公開・更新・利用者サポートは行いません。通常利用はGitHubのリポジトリをCodex / Claude Codeで開き、ブラウザ版のローカルランチャー／Viewerを使ってください。
 
 Tsugite Desktop は、ローカルの Tsugite workspace を開く Electron 版ランチャーの開発用ソースです。機能検証のためコードとテストは残しますが、配布アプリとしては扱いません。
 

@@ -44,7 +44,7 @@ checks:
       remediation:
         default: "Install Kling CLI, then rerun doctor."
     - type: manual
-      name: provider-auth:pixverse
+      name: provider-auth:kling
       blocking: false
       detail: "Kling direct requests use Kling CLI; authentication and provider connectivity are not contacted by doctor."
       remediation:

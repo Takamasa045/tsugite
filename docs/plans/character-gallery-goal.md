@@ -1,5 +1,7 @@
 # Character Gallery — Goal & Agent Plan
 
+**状態:** 完了（0.7.1 以降）。`src/characters/`、`character-add` CLI、ランチャー `characters` 棚は main に入っている。この文書は当時の worktree 計画であり、新しい実装の正本ではない。
+
 ## Goal（一文）
 
 ランチャーに **仕立て非依存のキャラクターギャラリー** を追加し、プロジェクト／テンプレートの `speakers[]` を視覚一覧し、ユーザーが選んだ **具体 source（sourceKey + speakerId）** のキャラを既存プロジェクトへ **画像コピー + manifest 追記** できるようにする。

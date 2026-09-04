@@ -1,5 +1,5 @@
 const REPOSITORY_URL = "https://github.com/Takamasa045/tsugite";
-const LATEST_VERSION_TAG = "v0.6.0";
+const LATEST_VERSION_TAG = "v0.10.0";
 const LATEST_VERSION_URL = `${REPOSITORY_URL}/releases/tag/${LATEST_VERSION_TAG}`;
 const FEEDBACK_URL = `${REPOSITORY_URL}/issues/new`;
 const SUMMER_CAMP_URL = "https://brain-market.com/u/itopan/a/b1kjM3UjMgoTZsNWa0JXY";
@@ -75,7 +75,7 @@ export default function Home() {
           <div className="hero-copy">
             <div className="release-line">
               <span>SOURCE WORKFLOW</span>
-              <b>v0.6.0</b>
+              <b>v0.10.0</b>
               <em>CODEX / CLAUDE CODE</em>
             </div>
             <h1>
@@ -136,35 +136,35 @@ export default function Home() {
         <div className="pickup-topline">
           <span>UPDATE LOG / TSUGITE RELEASES</span>
           <i />
-          <time dateTime="2026-07-23">2026.07.23 UPDATE</time>
+          <time dateTime="2026-08-13">2026.08.13 UPDATE</time>
         </div>
 
         <article className="pickup-current">
           <div className="pickup-number" aria-hidden="true">
-            <span>06</span>
-            <small>LATEST TAG / v0.6.0</small>
+            <span>10</span>
+            <small>LATEST TAG / v0.10.0</small>
           </div>
           <div className="pickup-copy">
-            <p className="pickup-status"><span aria-hidden="true" /> v0.6.0 タグを公開しました</p>
-            <h2 id="pickup-title">Tsugite<br />v0.6.0</h2>
+            <p className="pickup-status"><span aria-hidden="true" /> v0.10.0 タグを公開しました</p>
+            <h2 id="pickup-title">Tsugite<br />v0.10.0</h2>
             <p className="pickup-date">
-              <time dateTime="2026-07-23">2026年7月23日 タグ作成</time>
+              <time dateTime="2026-08-13">2026年8月13日 タグ作成</time>
               <span>LATEST TAG</span>
             </p>
             <p className="pickup-description">
-              AI映像制作をより安全に進めやすくする更新を含む、現在のソースタグです。生成・確認・セットアップまわりを中心に更新しました。
+              Production Orchestration を同梱した現在のソースタグです。GitHubのソースとCodex／Claude Codeが正式な入口で、Desktopインストーラーの一般配布は行いません。
             </p>
             <ul className="pickup-features">
-              <li>複数の手持ち動画から構成案を最大3案提示</li>
-              <li>Codex／Claude Codeで使うCLIとレビューを改善</li>
-              <li>素材・解析・Gateの整合性検査を強化</li>
+              <li>階層的な制作契約と再開可能な control plane を opt-in で追加</li>
+              <li>Windows smoke を GitHub Actions で確認。live 課金と packaged Desktop UAT は 1.0 前の caveat</li>
+              <li>安全な整理棚、H3 v3、学びループをソースワークフローへ統合</li>
             </ul>
             <aside className="pickup-beta-note">
               <strong>Desktopアプリの配布について</strong>
               <p>Mac／Windows向けインストーラーの一般配布は終了しました。今後はGitHubのソースを取得し、CodexまたはClaude Codeから利用する方法を案内します。</p>
             </aside>
             <a className="pickup-link" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
-              GitHubで v0.6.0 タグを見る <span aria-hidden="true">↗</span>
+              GitHubで v0.10.0 タグを見る <span aria-hidden="true">↗</span>
             </a>
           </div>
         </article>
@@ -311,7 +311,7 @@ export default function Home() {
               <span className="platform-arrow" aria-hidden="true">↗</span>
             </a>
             <a className="platform-card platform-github" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
-              <div><span className="platform-icon">06</span><p><strong>Latest Release</strong><small>v0.6.0 · Source code</small></p></div>
+              <div><span className="platform-icon">10</span><p><strong>Latest Release</strong><small>v0.10.0 · Source code</small></p></div>
               <span className="platform-arrow" aria-hidden="true">↗</span>
             </a>
             <a className="platform-card platform-github" href={FEEDBACK_URL} target="_blank" rel="noreferrer">

@@ -1,134 +1,76 @@
-# tsugite
+# Tsugite
 
 [English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-Tsugite 是一个厂商中立的视频流水线。它通过单一的 manifest 契约，把生成适配器和编辑后端连接起来。
+Tsugite 是本地影像工房：它把素材、制作日志、判断和偏好接到下一次制作，而不是把每次 AI 视频当成一次性结果。
 
-每个视频任务都有自己的 `project.yaml`。作为可分发的 repo，复制用示例放在 `examples/`，用户自己的工作放在被 git 忽略的 `projects/`。安全流程如下：
+完整入口、安全边界和命令以 [English README](README.md) 与 [日本語 README](README.ja.md) 为正本。本页只保留当前产品位置的摘要。
+
+## 最简单的开始方式
+
+1. 在 Codex 打开空文件夹，或在该文件夹启动 Claude Code。
+2. 把[官方 setup 请求](docs/onboarding/codex-setup-prompt.ja.md)贴给代理。
+3. 先做只读环境检查，系统安装前等待你的批准。
+4. 只批准实际需要的系统变更。
+
+你不必自己输入 `git clone` 或 npm 命令。官方 Bootstrap 只做仓库内依赖、零额度示例、`doctor`、`validate`、`plan`。它不会安装系统软件、改 PATH、登录外部服务、配置密钥、消耗额度、执行 `run` / `render`、改 Gate、commit、push 或发布。
+
+已克隆仓库时：
+
+```sh
+npm run setup:check
+npm run setup
+npm run setup:open  # 同时打开本地 launcher 时
+```
+
+## 安全流程
+
+每个视频任务有自己的 `project.yaml`。复制用示例在 `examples/`，用户工作在 git 忽略的 `projects/`。
 
 1. 验证 project 和 manifest。
-2. 创建执行计划。
+2. 创建计划。
 3. 在 Gate 1 等待人工审批。
-4. 只有 Coordinator 审批后，才执行生成或组装。
+4. 只有 Coordinator 审批后才生成或组装。
 5. 在 Gate 2 做输出 QA。
-6. 只有 Gate 2 审批后，才执行 render。
+6. 只有 Gate 2 审批后才 render。
 7. 在 Gate 3 做最终视频 QA。
+
+没有明确的人工审批时，不要执行非 dry-run 的 `run` 或 `render`。Gate 3 支持 `re-render`，并保留 Gate 1 / 2 审批。Gate 2 的 `retry_specific` **未实现，也不纳入 1.0**；完整重规划请用 `revise`。MiniMax direct / MiniMax HTTP 保持 preflight-only，不得显示为可发送。
 
 ## 当前范围
 
 - manifest 验证和本地素材检查。
-- 支持 `cli`、`mcp-agent`、`mcp-client` 风格的适配器 registry。
-- PixVerse / Kling 的 CLI generation adapter wrapper。
-- 带官方来源和更新日期的 PixVerse / Kling / Seedance T2V / I2V prompt knowledge catalog。
-- 使用TopView skill CLI的T2V和单图I2V generation adapter。
-- 将 local-media / generated-media 组装到 `dist/<run-id>/`。
-- 基于 manifest 和 media probe 生成 Gate 2 QC report。
-- 生成检查最终时长、分辨率、fps 和音视频流的 Gate 3 QC report。
-- manifest 支持一等图片素材、说话人/姿势 metadata 和受保护的 presentation preset。
-- 提供把文章转换为60秒、16:9双人对话的Remotion模板。
-- Remotion / HyperFrames 后端契约。
-- 需要 Coordinator role 和 Gate 审批的 guarded `run` / `render`。
+- 与生成 `connections` 分离的公开 read-only Remote MCP **Agent Service Registry**。
+- PixVerse / Kling CLI、TopView skill CLI、可选 Hermes 分析交接。
+- PixVerse / Kling / Seedance 的带出处 prompt catalog（存在 ≠ 可执行）。
+- 34 种故事框架与 35 条影像文法的 story guides。
+- API-free 的 `analyze`、可选本地 Whisper、多源 `compose`。
+- Gate 约束的 EDL、Gate 2 / Gate 3 QC（含黑场与长静音）。
+- Remotion / HyperFrames、Gate 约束的音频 adapter。
+- 需要 Coordinator 与 Gate 审批的 `run` / `render`。
+- 仅绑定 `127.0.0.1` 的浏览器 launcher 与只读 3D Viewer。
+
+Desktop 应用的一般分发已结束。日常入口是 GitHub 源码 + Codex / Claude Code + 本地浏览器 launcher。Electron 源码仅用于开发与回归测试。仓库软件版本是 **0.10.0**。
+
+```sh
+npm --prefix apps/workflow-viewer ci
+npm run viewer:open
+```
 
 ## 安装
 
-需要 Git、Node.js 22.12以上的22.x LTS、npm 10以上，以及包含`ffprobe`的FFmpeg。macOS可运行`brew install ffmpeg`，Debian/Ubuntu可运行`sudo apt-get update && sudo apt-get install -y ffmpeg`，Windows可运行`winget install --id Gyan.FFmpeg -e`并重新打开终端。Windows PowerShell入口请参阅[`docs/windows.md`](docs/windows.md)。
-
-`npm ci`会在repo内安装Remotion和HyperFrames，无需global安装。HyperFrames属于devDependency，请勿使用`npm ci --omit=dev`。PixVerse/Kling等provider CLI、TopView/Hermes外部runtime、凭据和计费配置不会自动安装。TopView的`doctor`只执行不计费的`list-models`检查，不提交生成任务；认证和余额仍需人工确认。未解决的blocking check会使整体`ok`为`false`。
-
-## 命令
+需要 Git、Node.js 22.12 以上的 22.x LTS、npm 10 以上，以及包含 `ffprobe` 的 FFmpeg。Windows PowerShell 入口见 [`docs/windows.md`](docs/windows.md)。`npm ci` 会在仓库内安装 Remotion 和 HyperFrames；不要使用 `npm ci --omit=dev`。
 
 ```sh
 npm ci
 npm run check
-node bin/pipeline guides --json
-cp -R examples/local-fixture projects/my-first-run
-node bin/pipeline doctor --config projects/my-first-run/project.yaml --json
-node bin/pipeline validate --config projects/my-first-run/project.yaml --json
-node bin/pipeline plan --config projects/my-first-run/project.yaml --json
-node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
+node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 ```
 
-`run` 和 `render` 会被 Gate 保护：
+`npm run check` 强制 `src/` 的 statements / functions / lines ≥ 80%，branches ≥ **74.4%**（Production Orchestration 后的保持值；恢复 75% 仍是债务）。`npm run security:audit` 会分别检查 production 依赖树和完整开发依赖树，发现 moderate 或更高 advisory 即失败。
 
-```sh
-node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
-node bin/pipeline run --config projects/my-first-run/project.yaml --actor coordinator --json
-node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-2 --decision approve_all --json
-node bin/pipeline render --config projects/my-first-run/project.yaml --actor coordinator --json
-node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
-```
+## 成长循环与仓库规则
 
-没有明确的人工审批时，不要执行非 dry-run 的 `run` 或 `render`。
-Gate 3 也支持 `re-render`，并保留 Gate 1 / 2 的审批。Gate 2 的 `retry_specific` 尚未实现；需要完整重新规划时使用 `revise`。
+一次性偏好留在 `projects/<job>/notes.md`。可复用风格进入 `examples/` 或 `templates/`。可机器检查的问题进入 constraints / validate / doctor。判断型规则先写入 `LESSONS.md`，经人批准后再升到 skill / AGENTS.md / CLAUDE.md。core 必须保持厂商中立。
 
-## Project 文件
-
-`examples/local-fixture/project.yaml` 使用的最小 local-media project：
-
-```yaml
-slug: local-fixture
-run_id: local-fixture-run
-manifest: manifest.json
-dist_dir: dist
-edit:
-  backend: remotion
-```
-
-包含生成任务的 project 会增加 `generation` section：
-
-```yaml
-generation:
-  adapter: pixverse
-  requests:
-    - id: shot-001
-      prompt: short prompt
-      model: v6
-      duration: 5
-      aspect: "16:9"
-      input_mode: text-to-video
-      params: {}
-```
-
-## 如何让流水线成长
-
-Tsugite 不会因为你生成很多视频就自动变得更符合你的偏好。它会在你把 review note、重试原因和反复出现的偏好反馈回 repo 时成长。
-
-推荐循环：
-
-1. 在 `projects/` 下创建 project。
-2. 只在 Gate 审批后执行生成或组装。
-3. 查看输出，记录哪里好、哪里失败、为什么重试。
-4. 一次性的笔记保留在该 project 内。
-5. 反复出现的经验再提升为 reusable examples、templates、adapter/backend constraints、validation/doctor checks、tests/fixtures、运行规则或公开契约。
-
-提升规则：
-
-```text
-一次性偏好             -> projects/<job>/notes.md
-可复用的风格选择       -> examples/ or templates/
-可机器检查的问题       -> constraints.yaml / validate / doctor + tests/fixtures
-需要判断的运行规则     -> LESSONS.md -> .agents/skills/tsugite/SKILL.md / CLAUDE.md / AGENTS.md
-QA 判断规则            -> Gate 2 / Gate 3 checks + report schema/tests
-公开契约变更           -> README / manifest/schema.md / docs/requirements.md
-```
-
-每次提升都应留下可复现的 fixture 和测试，或留下人能阅读的运行规则。新增 Gate 2 / Gate 3 判断时，也要同步更新 report 结构和测试。
-
-这样可以在保持 repo 可分发、安全的同时，让制作流程逐步接近你的偏好。本地项目留在被忽略的 `projects/` 下，只有可复用的改进才提交回源码。
-
-## Repo 规则
-
-- core code 必须保持厂商中立。厂商相关行为应放在 `adapters/` 或 `backends/`。
-- adapter directory 必须包含 `constraints.md`。
-- `mcp-agent` adapter 必须包含 `SKILL.md`。
-- 用户工作应放在 `projects/`；`examples/` 应保持可复制、可重置。
-- 产生可复用规则的失败应记录到 `LESSONS.md`。
-
-## 生产使用备注
-
-- `examples/local-fixture/project.yaml` 是 fixture style 的本地验证 config。编辑前请先复制到 `projects/`。
-- `projects/*` 会被 git 忽略，因此本地 prompt、media、manifest、`dist/` 和 run state 不会混入可分发 commit。
-- npm 11 中，platform-specific parent 被跳过时，optional wasm child package 仍可能留在 lockfile，导致 `npm ci` 后 `npm ls` 报告 `@emnapi/runtime` 为 extraneous。只有当 `npm ci`、`npm audit`、build、tests、`validate`、`plan`、`run --dry-run` 全部通过时，才把它当作 non-blocking。
-- `npm run check` 会执行vendor boundary、TypeScript build和完整测试，并强制`src/`的statements、functions和lines至少达到80%，branches至少达到75%。为了让process-heavy fixture在高core环境和CI runner中保持稳定，coverage最多使用4个Vitest worker。
-- `npm run security:audit` 会分别检查production依赖树和完整开发依赖树；发现moderate或更高等级的advisory时即失败。
-- 当前 workspace path 包含 `*`，Vite 可能会提示 warning。测试目前可以通过；如果该 warning 影响运行，请把 repo 移到不含 `*` 的路径。
+公开契约变更写入 README、`manifest/schema.md`、`docs/requirements.md`。当前软件版本是 **0.10.0**。1.0 仍要求 live provider/billing 证据与 packaged Desktop UAT；Windows smoke 已在 GitHub Actions 上验证。

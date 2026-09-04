@@ -12,7 +12,7 @@ const EXPECTED_OVERRIDES = {
   "@babel/core": "7.29.7",
   "brace-expansion": "5.0.9",
   "minimatch": "10.2.5",
-  "fast-uri": "3.1.5",
+  "fast-uri": "3.1.7",
   "js-yaml": "4.3.1",
   nanoid: "3.3.18",
   "postcss": "8.5.25",
@@ -37,7 +37,7 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   assert.deepEqual(manifest.overrides, EXPECTED_OVERRIDES);
   assert.equal(
     manifest.scripts["security:audit"],
-    "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
+    "node scripts/security-audit.mjs",
   );
   assert.equal(lockfile.packages["node_modules/next"].version, "16.2.11");
   assert.equal(lockfile.packages["node_modules/@babel/core"].version, "7.29.7");
@@ -46,7 +46,7 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   assert.equal(lockfile.packages["node_modules/react"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
-  assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.5");
+  assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.7");
   assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.1");
   assert.equal(lockfile.packages["node_modules/nanoid"].version, "3.3.18");
   assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.25");

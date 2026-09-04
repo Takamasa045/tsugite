@@ -1,15 +1,14 @@
-# tsugite（仮称）要件定義書
+# Tsugite 要件定義書
 
 エンジン非依存の動画編集パイプライン。
 生成アダプタ（CLI / MCP）と編集バックエンド（Remotion / HyperFrames）を、
 manifest（EDL）という単一の契約で接続する「砂時計型」アーキテクチャ。
 
-- 版: v0.2（2026-07-09）
-- 状態: ドラフト（Phase 0 骨格は Codex により実装着手済み）
-- リポ名「tsugite（継手）」は仮称。確定後にディレクトリごとリネームする
-- v0.2 変更点: 解析アダプタ（class: analysis）追加、非クリエイティブ用途を
-  スコープに明記、manifest に chapters[] / 話者ラベルを予約、
-  MCP 試験導入ベンダーとして Topview を選定
+- リポ名: Tsugite（継手）。ソフトウェア version **0.10.0**
+- 状態: 現行契約の要約。詳細な制作フロー正本は `.agents/skills/tsugite/SKILL.md`
+- 1.0 未達: live provider/billing 証拠、packaged Desktop UAT。Windows smoke は GitHub Actions で確認済み
+- MiniMax live submit と Gate 2 `retry_specific` は 1.0 対象外（明示エラー / preflight-only）
+- 初期メモ（2026-07-09）: 解析アダプタ（class: analysis）、非クリエイティブ用途、chapters[] / 話者ラベル、TopView MCP
 
 ### 現在の実装メモ
 
@@ -18,7 +17,7 @@ manifest（EDL）という単一の契約で接続する「砂時計型」アー
 - `doctor --config` はNode 22、npm 10以上、ffprobe、project validation、選択backend runner、backend/adapterが宣言したsetup check、preflight executableを副作用なしで確認する。不足時はplatform別の`remediation`を返し、機械検査できないhandoff/認証は`status: manual`としてready扱いしない。
 - Gate 2 は `approve_all` を実装済み。`retry_specific` は対象clipの差し替え契約が未実装のため、曖昧に成功させず明示エラーにする。
 - Gate 3 は `approve` / `re-render` / `abort` を実装済み。`re-render` はGate 1 / 2承認を維持する。
-- Gate 3 QCは最終MP4のprobe、映像/音声stream、尺、解像度、fpsを検査する。カット順・黒画面・無音区間の検査は今後の拡張対象。
+- Gate 3 QCは最終MP4のprobe、映像/音声stream、尺、解像度、fpsに加え、1秒以上の黒区間と3秒以上の無音区間を機械検査する。内容解析ができない場合は fail closed。意味的なカット順と「元素材から継承した無音」の区別は今後の拡張対象。
 - `analyze` はCoordinatorの明示実行で、元素材を変更せず `dist/<run-id>/analysis/` にraw analysis、editorial proposal、agent handoffを生成する。既定の`local`はAPI-freeで、request単位の複数offline adapter、FFmpeg無音検出、明示済みローカル`.pt`による文字起こし・フィラー候補・章・抽出的要約・英訳字幕を扱う。任意の`hybrid`は低信頼transcript segmentだけ、`cloud`は選択source mediaだけを宣言済みonline adapterへ渡せるが、Coordinatorに加えて実行ごとの外部送信許可が必須。削除やmanifest反映は行わない。
 
 ---
@@ -144,7 +143,7 @@ tsugite/
 │   └── hyperframes/       # capabilities.yaml + constraints.md
 ├── knowledge/
 │   └── video-models/      # 出典・鮮度付きのT2V/I2V prompt knowledge（実行能力とは分離）
-├── skills/                # 役割別 skill（editor / qc / assembler）
+├── .agents/skills/tsugite/ # 制作フロー正本（役割別 editor/qc/assembler skill ディレクトリは使わない）
 ├── references/
 │   ├── exit-codes.md      # 終了コード・リトライ契約
 │   └── lessons-graduation.md  # LESSONS → validate 昇格手順

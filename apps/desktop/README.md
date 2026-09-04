@@ -2,7 +2,7 @@
 
 Electron で Tsugite のローカルランチャーを開く Desktop shell です。利用者向けの workspace、Gate、診断、署名と配布の説明は [`docs/desktop.md`](../../docs/desktop.md) を参照してください。
 
-> Status: public distribution discontinued. The source remains for local development and verification, but macOS / Windows installers are no longer published or supported. Use the repository with Codex / Claude Code and the browser-based local launcher for normal workflows.
+> Status: public distribution discontinued. The repository software version is **0.10.0**. This nested package.json still reports 0.6.0 until its lockfile can be regenerated. The source remains for local development and verification, but macOS / Windows installers are no longer published or supported. Use the repository with Codex / Claude Code and the browser-based local launcher for normal workflows.
 
 ## Development
 

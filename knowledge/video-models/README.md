@@ -4,6 +4,8 @@ These catalogs are read-only planning data. Their presence does not mean that a 
 
 Each `prompt-guide.yaml` records model aliases, mode recipes (including T2V/I2V and, where applicable, last-frame / first-last-frame), structured model limits, model-specific notes, official sources, verification dates, and a review deadline. Agents should use `bin/pipeline guides --json` for discovery and `bin/pipeline plan --config <project.yaml> --json` for request-specific guidance.
 
+When `review_after` is within 7 days or in the past, re-read the official sources before treating the catalog as fresh. Do not extend `review_after` without recording a new `accessed_at`. MiniMax-H3 `review_after` is 2026-09-07; Kling / Seedance sources last accessed 2026-07-10. Stale guidance must be disclosed, not silently replaced with another model's recipe.
+
 `minimax-h3/` is the official MiniMax source catalog (link-only Skill/CLI pins; no vendored Skill body). Do not mix it with PixVerse transport limits. Tsugite Creative IR / compiler / Gates remain separate contracts — see `docs/h3-prompt-director.md`.
 
 To use a catalog through a different execution route, declare it explicitly on the request:
