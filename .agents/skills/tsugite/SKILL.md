@@ -1,6 +1,6 @@
 ---
 name: tsugite
-description: Plan, produce, review, QA, or finalize a Tsugite video project from project.yaml under human approval gates, including character consistency and optional Shitate handoff. Use for video-production work, not repository code maintenance, documentation-only edits, or a mere mention of Tsugite.
+description: Validate, plan, produce, review, QA, or finalize a Tsugite video project from project.yaml under human approval gates, including character consistency and optional Shitate handoff. Use for video-production work, not repository code maintenance, documentation-only edits, or a mere mention of Tsugite.
 ---
 
 # Tsugite

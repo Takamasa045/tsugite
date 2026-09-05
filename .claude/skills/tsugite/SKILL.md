@@ -1,6 +1,6 @@
 ---
 name: tsugite
-description: Tsugiteの動画projectを構成・制作・Gateレビュー・QA・完成整理するときに使う。project.yamlと人間承認に基づき、キャラ一貫性や任意のShitate連携も扱う。コード保守、文書だけの修正、Tsugiteへの単なる言及は対象外。
+description: Tsugiteの動画projectを検証・構成・制作・Gateレビュー・QA・完成整理するときに使う。project.yamlと人間承認に基づき、キャラ一貫性や任意のShitate連携も扱う。コード保守、文書だけの修正、Tsugiteへの単なる言及は対象外。
 ---
 
 # Tsugite for Claude Code
