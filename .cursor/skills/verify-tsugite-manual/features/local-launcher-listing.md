@@ -27,7 +27,7 @@ Preconditions:
 - **Action.** User starts the launcher against the isolated shelf. Exact commands:
 
 ```sh
-eval "$(.cursor/skills/verify-tsugite/helpers/isolate-local-fixture.sh)"
+test -n "${VERIFY_CONFIG:-}" && test -f "$VERIFY_CONFIG" || exit 1 # Reuse the Isolate run.
 TSUGITE_PROJECTS_HOME="$TSUGITE_PROJECTS_HOME" node bin/pipeline viewer-launcher \
   --projects-dir "$TSUGITE_PROJECTS_HOME" \
   --port 0 \

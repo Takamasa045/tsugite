@@ -1,54 +1,29 @@
 # AGENTS.md
 
-日本語で簡潔に進める。
+日本語で簡潔に進める。最初にゴールと完了条件を一文で置く。
 
-## Goal
+## 適用範囲と入口
 
-`project.yaml` を入口に、validate / plan / gated execution / QA を安全に進める。
+Tsugite は `project.yaml` を入口とする、承認付き動画制作パイプライン。対象ディレクトリの追加指示も確認する。
 
-## Rules
+- **コード・文書の変更**：編集前と完了時は [開発・検証と作業場所](docs/development-workflow.md) を読む。`git status --short --branch` / `git worktree list` で作業場所を選ぶ。既存の未コミット変更を保持する。
+- **動画の計画・制作・レビュー・QA・完成整理**：[制作 Skill](.agents/skills/tsugite/SKILL.md) を完全に読み、その作業に該当する参照先へ進む。コード修正や誤字修正だけを理由に制作フローを始めない。
+- **CLI の実動作検証**：[verify-tsugite](.agents/skills/verify-tsugite/SKILL.md)。[Cursor 版](.cursor/skills/verify-tsugite-manual/SKILL.md) は別の手動 feature 手順で、対象範囲・隔離・証拠形式が異なる。自動検証は `verify-tsugite`、手動検証は `verify-tsugite-manual` として選ぶ。
+- **初回セットアップと doctor 成功後**：次の実質的な提案の前に [学び自動化の初回確認](docs/automations/learning-promotion-review.md#初回セットアップ後の確認) を一度行う。登録は明示的な選択後のみ、常設 schedule は一つ、通知は選んだ host 標準のみ。辞退後は同じ初回設定中に再質問しない。
+- **Claude Code**：固有の入口・permission・hook は [CLAUDE.md](CLAUDE.md)。root の [SKILL.md](SKILL.md) は旧ツール向け参照として残す。
 
-- 制作ワークフローの正本は `.agents/skills/tsugite/SKILL.md`。該当作業では完全に読んでから進める。
-- 最初にゴールと完了条件を一文で置く。
-- `run` / `render` は Coordinator だけが、明示承認後に実行できる。
-- Planner / Reviewer は `validate`、`plan`、`review`、`run --dry-run` まで。
-- 構成やカットを提案する前に `story-guides` を実行し、第一候補、補助候補、不採用理由、尺配分、映像文法を確認する。
-- キャラ付き・複数ショット物語・一貫性を求める自然言語依頼では、正本スキルの **Identity Lock Protocol** を適用する。声・外見・仕草・場所の固定を平易な文で一度確認し、エージェントが `locked_blocks` / `scenes` / `lock-block` を書く。ユーザーに YAML や sha256 を書かせない。Gate / 課金は従来どおり人間承認後のみ。
-- Gate 1を承認する前に `review` を実行し、`dist/<run-id>/review/index.html` と `review-data.json` を確認する。成果物がない、または対象projectと一致しない場合は承認しない。
-- Gate 2 は原則として人の `approve_all` / `revise` / `abort`。例外は `gates.gate_2.auto_pass: qc_ok_no_new_assets` を選んだ案件だけで、credits 0・新規 asset 0・QC issue 0 のときだけ auto-pass する。条件を満たさなければ通常どおり Gate 2 を聞く。`retry_specific` は未実装で 1.0 対象外。revise で全再計画する。
-- generationを計画するときは `guides` と `plan.prompt_guidance` を確認し、catalogの存在を実行能力とみなさない。
-- Output QA は manifest と成果物検査のみ。編集や実行はしない。
-- ユーザーが対象動画を明示的に「完成」と確定したら、正本path・QA・振り返りに加え、今回の失敗・改善点・次回への学びを終了記録として残す。失敗は案件の `feedback.jsonl` と、再利用できるルールなら追記専用の `LESSONS.md` に記録し、過去の同じ `feedback key` または `LESSONS.md` の症状・原因と照合して再発なら `recurring` として昇格候補かを確認する。昇格候補は反映先・変更内容・検証方法が揃う場合だけ pending proposal にし、人間承認なしに共有ルールを変更しない。記録結果（失敗なしを含む）を完了報告に示した後に `finalize` をpreviewする。completed / Gate 3 approved / 最終成果物を確認し、preview JSON の `plan_digest` と対象が一致する場合だけ `finalize --apply --actor coordinator --expected-plan-digest <plan_digest>` を実行する。
-- `finalize` は最終runと最終manifest参照素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材のメディアファイルだけを削除する。Gate 3承認だけを完成宣言の代わりにしない。`--state-dir` は `project.dist_dir` と同一値のみ許可し、project外や別ルートは lock 取得前に拒否する。
-- 制作案件の正本置き場は durable projects home（通常は main worktree の `projects/`。`TSUGITE_PROJECTS_HOME` または git common dir で解決）。**制作前から**ここに置く。feature worktree だけで完結させない。
-- `validate` / 以降の pipeline は、案件が durable home の外にあれば shelf へディレクトリリンクしてランチャーに即表示する。`finalize --apply` は完成コピーを durable home へ昇格し、worktree 削除後も残す。
-- ランチャーは durable home・指定 projectsDir・他 worktree の `projects/` をまとめて読む（テスト隔離時のみ link を切る）。
-- `git worktree remove` 前に、完成品・QA・completion-record が durable `projects/` にあることを確認する。worktree 内だけに正本がある状態で remove しない。
-- 任意の `shitate-import` はShitateの選定済みrunをproject内へコピーするだけで、生成・Gate更新・外部送信を行わない。
-- Shitateの外部pathやsymlinkをmanifestから直接参照せず、`character-lock.json` 付きsnapshotを使う。
-- core にはエンジン固有名や固有コードを入れない。
-- 失敗から再利用できるルールが生まれたら `LESSONS.md` に追記する。
+## 安全境界とプロジェクト制約
 
-## 作業場所の自動選択
+- `run` / `render` は Coordinator だけが明示承認後に実行できる。Planner / Reviewer は `validate`、`plan`、`review`、`run --dry-run` まで。Output QA は manifest と成果物検査のみで、編集・実行しない。
+- Gate 1 / Gate 3 は人間判断。Gate 1 前に対象 project と一致する `dist/<run-id>/review/index.html` と `review-data.json` が必要。Gate 2 は人の `approve_all` / `revise` / `abort` が原則で、唯一の例外は案件が `gates.gate_2.auto_pass: qc_ok_no_new_assets` を選び、credits 0・新規 asset 0・QC issue 0 の場合。`retry_specific` は未実装、revise で全再計画する。
+- 構成・カット案の前に `story-guides`、キャラ・複数ショット物語・一貫性が必要な自然言語依頼では制作 Skill の **Identity Lock Protocol** を適用する。声・外見・仕草・場所を平易な文で確認し、YAML や sha256 はエージェントが扱う。生成計画では `guides` と `plan.prompt_guidance` を確認し、catalog を実行能力とみなさない。
+- 秘密情報・認証情報をチャットや project・repo・履歴へ書き出さない。接続先・課金先を勝手に選択しない。push・PR・公開・外部送信・課金・破壊的変更には明示依頼または既存承認が必要。検証や Skill の選択は承認を拡張しない。[CONTRIBUTING.md](CONTRIBUTING.md) のデータ保全と [SECURITY.md](SECURITY.md) の非公開報告を守る。
+- core はエンジン中立。固有コードは adapter / backend に置く。Shitate は任意の承認済み snapshot コピーだけで、生成・Gate 更新・外部送信を行わない。manifest から外部 path / symlink を直接参照せず、`character-lock.json` 付き project 内 snapshot を使う。
+- 制作案件は **制作前から** durable projects home（main worktree の `projects/`、または `TSUGITE_PROJECTS_HOME`）へ置く。最初の `validate` 後に launcher 可視性を確認する。pipeline の shelf link と launcher の複数 worktree 集約を考慮し、検証時だけ隔離する。
 
-- 新しい依頼では、編集前に `git status --short --branch` と `git worktree list` を確認し、現在の変更・使用ブランチ・並行作業の有無を把握する。
-- `main` がクリーンで、ほかの作業と競合しない単独の小規模作業は、原則として現在の `main` で進める。タスクごとに機械的にworktreeを増やさない。
-- 次のいずれかに当てはまる場合は、編集前に `origin/main` を基点とする専用worktreeへ分離する。
-  - 現在の作業ツリーに未コミット変更がある。
-  - 別タスクと並行して実装・検証する。
-  - 大規模変更、実験、長時間作業、または独立PRとして扱う。
-  - 同じファイルや機能領域へ別作業が触れる可能性がある。
-- worktreeは1タスクにつき1つを基本とし、`codex/<短いタスク名>` のように目的が分かるブランチ名を使う。作成時にpath・branch・基点を短く報告する。
-- Codexアプリでローカル環境として開始されたタスクでも、上記条件に該当する場合は編集前にworktreeへ分離する。既存タスクをアプリ上で自動移動できるとは扱わない。
-- 完了時は、統合状態・未コミット変更・使用中プロセスを確認する。mainへ統合済みでクリーンなworktreeだけを削除し、未統合コミットはブランチに残す。dirtyな変更は破棄せず、削除対象から外す。
-- ユーザーが対象タスクを明示的に「完成」「完了」と確定した発言は、当該タスクの worktree cleanup 実行承認として扱う。Coordinatorは差分確認と `node bin/pipeline worktrees --json` のpreviewで対象path一致を確認したうえで、追加の二重承認なしに安全条件を満たす対象だけ `node bin/pipeline worktrees --apply --actor coordinator --path <worktree>` で非force削除する。primary/current・main未統合・dirty・locked・missing・保護対象（ignore済みの `projects/` / `media/` / `output/` / `tmp/` / `templates/` / env 類）は拒否する。branch削除、stash、rebase、reset、`git clean`、force remove、projects/media/output の削除、repo外やsymlink先の削除はしない。
-- 完成承認済みworktreeがmainのdirty状態だけで統合待ちになった場合は、Coordinatorがpreview後に `node bin/pipeline worktrees --defer --apply --actor coordinator --path <worktree> --json` でexact path・branch・HEADをgit common dirのbounded queueへ固定できる。定期hostはprimary local mainから `--reconcile --apply --actor coordinator` を呼び、mainがcleanな時だけ隔離マージ、固定build/test、mainとtargetの再監査、unchanged mainへのfast-forward、非force削除を行う。競合、検証失敗、identity変化、保護対象、mainの再dirty化は無変更で停止する。キューは完成承認を拡張せず、fetch、push、branch削除、stash、rebase、reset、`git clean`、force操作を許可しない。
-- `node bin/pipeline worktrees --json` の `worktree_warning.active` がtrueなら、clean・main統合済み・非lock・保護対象なしの削除可能候補が3件以上あることを報告する。件数警告は削除承認ではなく、active/dirty/unmerged/protectedなworktreeを数に入れたり自動削除したりしない。定期監査はfalse時に `DONT_NOTIFY` としてよいが、true時も対象確認と明示的な完成承認なしにcleanupへ進めない。
-- push・PR・公開・課金・Gate実行の既存承認境界は維持する。worktreeの作成・削除はGit上の作業場所だけを対象とし、durable `projects/` や生成メディアの正本整理へ広げない。
+## 完了条件
 
-## 初回セットアップ後の学び自動化
-
-- ローカル初回セットアップと `doctor` が完了したら、次の実質的な提案に入る前に一度だけ、次を確認する。`初回設定が完了しました。任意で、ローカルの「好み・学び」を定期レビューし、Codex または Claude の標準通知で承認待ちを知らせる自動化も設定しますか？（設定する／今回はしない）`
-- 「設定する」の場合だけ、Codex / Claude Desktop・Cowork / Claude Code のどれを主系にするかと実行頻度を確認し、`docs/automations/learning-promotion-review.md` の登録手順に従う。常設scheduleは1つだけにする。
-- 通知は選んだhostの標準通知だけを使う。Browser・OS通知の権限要求、独自Desktop通知、Slack、メールなどは設定しない。
-- 「今回はしない」の場合は同じ初回セットアップ中に再度たずねない。自動化の登録・通知設定は、明示承認なしに実行しない。
+- コード・文書変更は [対象別の検証と差分確認](docs/development-workflow.md#検証) を満たし、未検証と既存失敗を明示する。失敗から再利用できるルールが生まれたら `LESSONS.md` に追記する。
+- **動画の完成宣言を受けたときだけ**、制作 Skill の終了記録・再発照合・昇格候補判断・QA 確認を行い、報告後に `finalize` を preview する。completed / Gate 3 approved / 最終成果物と対象を照合し、同じ `plan_digest` を `--expected-plan-digest` に渡して Coordinator が apply する。`--state-dir` は `project.dist_dir` と同じ値のみ。Gate 3 承認だけを完成宣言にしない。
+- `finalize` は最終 run・最終 manifest 参照素材・設定・manifest・state・run log を残し、旧 run・旧 QA・未使用素材のメディアだけを整理する。正本・QA・completion-record を durable home に残す。共有ルールへの昇格は人間承認後のみ。
+- **タスクの完成・完了承認後の worktree 整理**は [作業場所の自動選択](docs/development-workflow.md#作業場所の自動選択) の preview・対象一致・保護条件に従う。dirty / 未統合や、制作案件の唯一のコピーを持つ worktree を削除しない。件数警告を削除承認と扱わない。

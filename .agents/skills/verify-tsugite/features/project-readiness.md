@@ -11,8 +11,10 @@ Project readiness tells a user whether the local Tsugite runtime, Remotion backe
 ## How to get to it (user POV)
 
 - Run the public CLI `doctor` command with no project for machine-only readiness.
-- Run `doctor --config` against a project for runtime plus project/backend readiness.
+- Run `node bin/pipeline doctor --config <project.yaml>` against a project for runtime plus project/backend readiness.
 - The loopback launcher's setup display is a separate browser entry and is uncovered by this CLI slice.
+
+The command synopsis above uses placeholders; the isolated runnable recipe follows.
 
 ## Driving it with Node CLI
 

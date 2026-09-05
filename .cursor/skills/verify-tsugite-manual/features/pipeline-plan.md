@@ -26,7 +26,7 @@ Preconditions:
 - **Action.** User requests a plan for the isolated local sample. Exact commands:
 
 ```sh
-eval "$(.cursor/skills/verify-tsugite/helpers/isolate-local-fixture.sh)"
+test -n "${VERIFY_CONFIG:-}" && test -f "$VERIFY_CONFIG" || exit 1 # Reuse the Isolate run.
 TSUGITE_PROJECTS_HOME="$TSUGITE_PROJECTS_HOME" node bin/pipeline plan --config "$VERIFY_CONFIG" --json
 ```
 

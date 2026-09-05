@@ -10,9 +10,11 @@ Planning turns a validated project into a deterministic execution plan, while `r
 
 ## How to get to it (user POV)
 
-- Run `node bin/pipeline plan --config` after validation.
-- Run `node bin/pipeline run --config --dry-run` for the no-execution preview.
+- Run `node bin/pipeline plan --config <project.yaml>` after validation.
+- Run `node bin/pipeline run --config <project.yaml> --dry-run` for the no-execution preview.
 - The loopback launcher's Plan and dry-run actions are separate browser/API entry points and are uncovered here.
+
+The command synopsis above uses placeholders; the isolated runnable recipe follows.
 
 ## Driving it with Node CLI
 

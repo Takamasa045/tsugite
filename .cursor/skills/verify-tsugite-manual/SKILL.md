@@ -1,13 +1,19 @@
 ---
-name: verify-tsugite
-description: Verify Tsugite (local AI video production workshop) on its primary CLI surface `node bin/pipeline` from a project.yaml. Use when a later agent must prove user-facing validate, plan, review/storyboard, doctor, or local launcher listing without paid generation, render, or Gate changes.
+name: verify-tsugite-manual
+description: Manually verify Tsugite CLI doctor, validate, plan, review/storyboard, or loopback launcher listing with isolated local media. Use the matching feature recipe; this is distinct from the network-denied Doctor/validate helper in .agents/skills/verify-tsugite. No paid generation, render, or Gate changes.
 ---
 
-# Verify Tsugite
+# Verify Tsugite Manually
 
 Tsugite is a vendor-neutral local video-production workshop. The user-facing production path is the CLI: `node bin/pipeline <command>` from a `project.yaml`. A loopback-only browser launcher and read-only 3D viewer exist beside it. Public Desktop distribution has ended; the Electron shell is development/regression only.
 
 This skill proves **local, zero-credit** behavior. It does not run `run` (except the documented `--dry-run` note below), `render`, `gate`, paid generation, push, or publish.
+
+## Related verification entry
+
+The [network-denied macOS helper](../../../.agents/skills/verify-tsugite/SKILL.md) is named `verify-tsugite` and automates only Doctor and validate with run-owned scratch and durable evidence. These manual recipes cover different surfaces and do not inherit that helper's network or ownership guarantees. Select by path, not name alone.
+
+The previous `.cursor/skills/verify-tsugite/` entry has been renamed to avoid collision with the automatic helper. Historical files in `evidence/` retain their original paths and results; they are not evidence of this revision.
 
 ## Surfaces
 
@@ -29,14 +35,16 @@ Do **not** point `--config` at production jobs (miraichi, matsumoto v3/v4, empat
 Every Drive action in this skill:
 
 1. Runs from the **repository root**.
-2. Sets `TSUGITE_PROJECTS_HOME` to `.cursor/skills/verify-tsugite/tmp/projects-home`.
+2. Sets `TSUGITE_PROJECTS_HOME` to `.cursor/skills/verify-tsugite-manual/tmp/run-<unique>/projects-home`.
 3. Uses a **copy** of `examples/local-fixture` (bundled 2-clip local media, `credits: 0` in provenance). Do not edit `examples/`.
 
 ```sh
-chmod +x .cursor/skills/verify-tsugite/helpers/isolate-local-fixture.sh
-eval "$(.cursor/skills/verify-tsugite/helpers/isolate-local-fixture.sh)"
-# prints and relies on: TSUGITE_PROJECTS_HOME=…  VERIFY_CONFIG=…
+VERIFY_SETUP="$(bash .cursor/skills/verify-tsugite-manual/helpers/isolate-local-fixture.sh)" || exit 1
+eval "$VERIFY_SETUP"
+# Retain VERIFY_RUN_DIR, VERIFY_RUN_ID, TSUGITE_PROJECTS_HOME, and VERIFY_CONFIG until Cleanup.
 ```
+
+Run Isolate once per verification session, then reuse its variables across features in the same shell. If an execution tool starts a fresh shell per call, restore the exact recorded run variables rather than launching a replacement run. Each launch creates a new owned directory; it never replaces another run. The helper rejects symlinks and quotes shell values, including paths containing whitespace, apostrophes, or shell metacharacters. On failure, stop; do not evaluate failed output or use production projects.
 
 `examples/local-fixture` is the source of truth for the copy (`slug: local-fixture`, `name: ローカル検証フィクスチャ`, `run_id: local-fixture-run`, `edit.backend: remotion`, clips `media/clip-001.mp4` and `media/clip-002.mp4`).
 
@@ -77,7 +85,7 @@ npm --prefix apps/workflow-viewer ci
 Start without `--open` (opening a browser is not required for proof):
 
 ```sh
-eval "$(.cursor/skills/verify-tsugite/helpers/isolate-local-fixture.sh)"
+test -n "${VERIFY_CONFIG:-}" && test -f "$VERIFY_CONFIG" || exit 1 # Reuse the Isolate run.
 TSUGITE_PROJECTS_HOME="$TSUGITE_PROJECTS_HOME" node bin/pipeline viewer-launcher \
   --projects-dir "$TSUGITE_PROJECTS_HOME" \
   --port 0 \
@@ -105,7 +113,7 @@ Each check has `name`, `ok`, `status` (`ready` | `missing` | `manual`), `blockin
 Project-scoped doctor (still no shelf link). Use the isolated copy:
 
 ```sh
-eval "$(.cursor/skills/verify-tsugite/helpers/isolate-local-fixture.sh)"
+test -n "${VERIFY_CONFIG:-}" && test -f "$VERIFY_CONFIG" || exit 1 # Reuse the Isolate run.
 TSUGITE_PROJECTS_HOME="$TSUGITE_PROJECTS_HOME" node bin/pipeline doctor --config "$VERIFY_CONFIG" --json
 ```
 
@@ -131,7 +139,7 @@ Forbidden while using this skill:
 
 ## Evidence
 
-Write proof under `.cursor/skills/verify-tsugite/evidence/` (this directory is committed as the example location). Suggested names:
+Write proof under `.cursor/skills/verify-tsugite-manual/evidence/` (this directory is committed as the example location). Suggested names:
 
 | File | Source |
 | --- | --- |
@@ -149,20 +157,22 @@ Do not delete `evidence/` during Cleanup.
 Cleanup removes **session scratch only**. Never delete `evidence/`, this skill’s markdown, or production `projects/`.
 
 1. If a launcher (or any other process) was started for this run, send `SIGINT` or `SIGTERM` to **that PID only**. The CLI already closes the HTTP servers on those signals. Do not `pkill -f pipeline`, do not kill by process name, do not kill unrelated Node processes.
-2. Remove the isolated shelf:
+2. After stopping this run's processes and preserving evidence, remove only its owned scratch:
 
 ```sh
-rm -rf .cursor/skills/verify-tsugite/tmp
+bash .cursor/skills/verify-tsugite-manual/helpers/isolate-local-fixture.sh --cleanup "$VERIFY_RUN_DIR" "$VERIFY_RUN_ID"
 ```
 
-3. Confirm evidence still exists, e.g. `test -f .cursor/skills/verify-tsugite/evidence/PROOF.md`.
+The cleanup command requires matching repository, exact run directory, and run ID in the ownership marker. It rejects foreign targets, missing markers, symlinks, and special files; on refusal leave the target untouched and report it. It never signals a process or deletes evidence or another run. Do not remove the entire `tmp/` parent.
+
+3. Confirm evidence still exists, e.g. `test -f .cursor/skills/verify-tsugite-manual/evidence/PROOF.md`.
 4. Do not `git clean`, do not remove `examples/`, `fixtures/`, or durable `projects/`.
 
 ## Helpers
 
 | Path | Purpose |
 | --- | --- |
-| `helpers/isolate-local-fixture.sh` | Copies `examples/local-fixture` → `tmp/projects-home/verify-local-fixture` and prints `TSUGITE_PROJECTS_HOME` / `VERIFY_CONFIG` |
+| `helpers/isolate-local-fixture.sh` | Creates an owned `tmp/run-<unique>/projects-home/verify-local-fixture`, prints quoted run variables, and supports ownership-checked `--cleanup` |
 | `features/README.md` | Feature map, preconditions, proof/skip reporting |
 | `features/*.md` | One user-facing feature each |
 

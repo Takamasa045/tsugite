@@ -20,24 +20,24 @@ A user can generate a Gate 1 creative review without approving a Gate or startin
 Preconditions:
 
 - Isolated fixture via `helpers/isolate-local-fixture.sh`.
-- `--output` under `.cursor/skills/verify-tsugite/evidence/review-out` so cleanup of `tmp/` does not delete the storyboard proof.
+- `--output` under `.cursor/skills/verify-tsugite-manual/evidence/review-out` so cleanup of `tmp/` does not delete the storyboard proof.
 - Do not pass `--open` unless a display is required; `--open` failure is `review.open_failed` and does not imply the files are missing.
 - Do not run `gate` afterward.
 
 - **Action.** User generates the Gate 1 storyboard for the isolated sample. Exact commands:
 
 ```sh
-eval "$(.cursor/skills/verify-tsugite/helpers/isolate-local-fixture.sh)"
-mkdir -p .cursor/skills/verify-tsugite/evidence/review-out
+test -n "${VERIFY_CONFIG:-}" && test -f "$VERIFY_CONFIG" || exit 1 # Reuse the Isolate run.
+mkdir -p .cursor/skills/verify-tsugite-manual/evidence/review-out
 TSUGITE_PROJECTS_HOME="$TSUGITE_PROJECTS_HOME" node bin/pipeline review \
   --config "$VERIFY_CONFIG" \
-  --output .cursor/skills/verify-tsugite/evidence/review-out \
+  --output .cursor/skills/verify-tsugite-manual/evidence/review-out \
   --json
 ```
 
-Observable result: exit 0, `"ok": true`, `"command": "review"`, `"gate": "gate-1"`, `"gate_state": "unchanged"`, `"opened": false`. `review_path` ends with `index.html`, `review_data_path` ends with `review-data.json`. HTML contains `Gate 1`. `review-data.json` `storyboard` length is 2. `test ! -f .cursor/skills/verify-tsugite/evidence/review-out/state.json`. Save CLI stdout as `evidence/pipeline-review.json`.
+Observable result: exit 0, `"ok": true`, `"command": "review"`, `"gate": "gate-1"`, `"gate_state": "unchanged"`, `"opened": false`. `review_path` ends with `index.html`, `review_data_path` ends with `review-data.json`. HTML contains `Gate 1`. `review-data.json` `storyboard` length is 2. `test ! -f .cursor/skills/verify-tsugite-manual/evidence/review-out/state.json`. Save CLI stdout as `evidence/pipeline-review.json`.
 
-- **Action.** User inspects the storyboard data. Exact command: `node -e "const d=require('./.cursor/skills/verify-tsugite/evidence/review-out/review-data.json'); console.log(d.storyboard.length)"`. Observable result: `2`.
+- **Action.** User inspects the storyboard data. Exact command: `node -e "const d=require('./.cursor/skills/verify-tsugite-manual/evidence/review-out/review-data.json'); console.log(d.storyboard.length)"`. Observable result: `2`.
 
 ## Gotchas
 

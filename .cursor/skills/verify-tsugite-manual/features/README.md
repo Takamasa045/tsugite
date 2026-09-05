@@ -7,7 +7,7 @@ Agent-facing map of user-visible, zero-credit surfaces. Product facts come from 
 - Repository root as cwd. `package.json` `name` is `tsugite`. Entry: `node bin/pipeline`.
 - Node.js 22.12+ in the 22.x line, npm 10+, `ffmpeg` and `ffprobe` on PATH (same as `README.md` Detailed setup).
 - `npm ci` completed so `tsx` and Remotion packages exist.
-- Isolation: `TSUGITE_PROJECTS_HOME` = `.cursor/skills/verify-tsugite/tmp/projects-home` and a copy of `examples/local-fixture` created by `helpers/isolate-local-fixture.sh`. Never `--config` a production job under durable `projects/`.
+- Isolation: `TSUGITE_PROJECTS_HOME` = `.cursor/skills/verify-tsugite-manual/tmp/run-<unique>/projects-home` and a copy of `examples/local-fixture` created by `helpers/isolate-local-fixture.sh`. Never `--config` a production job under durable `projects/`.
 - No provider login, no secrets in chat or YAML, no `run` without `--dry-run`, no `render`, no `gate`.
 
 ## Driving conventions
