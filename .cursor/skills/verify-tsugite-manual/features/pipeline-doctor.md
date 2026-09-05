@@ -28,7 +28,7 @@ Preconditions:
 - **Action.** User points doctor at the bundled local sample (via the isolated copy). Exact commands:
 
 ```sh
-eval "$(.cursor/skills/verify-tsugite/helpers/isolate-local-fixture.sh)"
+test -n "${VERIFY_CONFIG:-}" && test -f "$VERIFY_CONFIG" || exit 1 # Reuse the Isolate run.
 TSUGITE_PROJECTS_HOME="$TSUGITE_PROJECTS_HOME" node bin/pipeline doctor --config "$VERIFY_CONFIG" --json
 ```
 

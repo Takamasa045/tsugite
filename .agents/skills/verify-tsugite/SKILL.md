@@ -1,13 +1,18 @@
 ---
 name: verify-tsugite
-description: Verify Tsugite's primary project.yaml CLI surface with a run-owned local fixture, network-denied Doctor, real project validation, durable evidence, and ownership-checked cleanup. Use after Tsugite CLI or project-contract changes and before claiming the local validation path works.
-app: Tsugite
-surface: CLI
+description: Verify Tsugite CLI Doctor and project validation after CLI or project-contract changes using a run-owned fixture and network-denied macOS helper. Does not verify plan, review, browser, generation, render, or Gate decisions.
+metadata:
+  app: Tsugite
+  surface: CLI
 ---
 
 # Verify Tsugite
 
 This skill verifies exactly one primary surface: the public `node bin/pipeline` CLI. The loopback browser launcher, generated 3D Viewer, and development-only Electron shell are secondary surfaces and remain uncovered by this first slice.
+
+## Related verification entry
+
+The [Cursor skill](../../../.cursor/skills/verify-tsugite-manual/SKILL.md) is named `verify-tsugite-manual` and contains separate manual feature recipes. Select by path and supported surface; do not infer that this helper drives every feature in either feature map.
 
 ## Launch
 

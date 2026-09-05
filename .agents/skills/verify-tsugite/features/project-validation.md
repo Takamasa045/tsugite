@@ -10,8 +10,10 @@ Project validation checks the real `project.yaml`, manifest, media, backend capa
 
 ## How to get to it (user POV)
 
-- Run `node bin/pipeline validate --config` from the repository root.
+- Run `node bin/pipeline validate --config <project.yaml>` from the repository root.
 - A loopback launcher can request validation for a selected project, but that browser/API route is a separate uncovered entry point.
+
+The command synopsis above uses placeholders; the isolated runnable recipe follows.
 
 ## Driving it with Node CLI
 
