@@ -80,3 +80,5 @@ Append-only format:
 2026-09-04 / 実在ロケの LOCATION-LOCK は scene 正本の運用確認に留める / still 前の距離感・季節・禁止物は identity-lock 設計の scene 層で書く / 共有 SKILL への条文昇格は人間承認後。設計メモへ参照を追加 / documented
 
 2026-09-06 / Premiere 26.2のMCP trimでsource outのみ変わりtimeline endが不変、Undoは素材配置を戻した / CEPの構造編集・Undo粒度を実機結果と取り違えた / source範囲とtimeline尺を両方読み戻す。不一致は再送せずコピーから復旧し、承認済み編集をGUIで実施して映像・音声・保存再読込を照合する / Premiere 26.2.0・MCP 1.14.9で実機確認済、premiere-editing Skillへ反映
+
+2026-09-06 / 最新config選択テストがUbuntu CIで同時刻となりcanonicalを選択 / 作成順だけでmtimeの大小を仮定していた / 新旧判定のfixtureはutimesで順序を明示し、実時間やファイルシステムの時刻分解能に依存させない / viewer-launcher回帰テストへ反映

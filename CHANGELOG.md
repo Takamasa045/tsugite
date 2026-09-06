@@ -6,6 +6,7 @@
 
 - Added an optional Premiere Pro editing skill, editorial guidance for cuts/transitions/audio/captions/color, and fixed-version MCP setup documentation. Premiere remains an agent-operated external editor, not a pipeline render backend.
 - Verified local Premiere 26.2.0 import, placement, UI-assisted trim, save/reopen, and playback; documented MCP trim limitations and required read-back checks.
+- Made the latest-project selection test deterministic across filesystem timestamp resolutions.
 - Released the source package and agent-service client as **0.11.0**. Desktop installers remain outside public distribution.
 
 - Aligned the Kling doctor auth check name to `provider-auth:kling`.
