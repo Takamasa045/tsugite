@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tsugite Premiere Editing"
+  short_description: "Premiereでカット・演出・音声を編集し、承認と実機QAを保つ"
+  default_prompt: "$premiere-editing を使って、この動画をPremiere Proで編集し、保存と再生確認まで進めてください。"

@@ -78,3 +78,5 @@ Append-only format:
 2026-08-17 / 案件内Remotion差し替え後にrunがgate.review_changedで止まった / placeholder clipとcaptions空化を同時に行い、承認済みreview digestとずれた / 差し替え後はreviewを取り直し、Gate 1をrevise→再承認してからrunする / observed
 2026-09-04 / 手組 Gate3 scaffold の非 hex digest は既存機械検査で止まる / `approved_input_digest` は `src/orchestrator/statePersistence.ts` で sha256 hex 64 桁に拘束済み / 手組 state は使わず `inspectGate3Output` 経由で揃える。LESSONS 2026-08-05 の機械側は validate済 / validate済
 2026-09-04 / 実在ロケの LOCATION-LOCK は scene 正本の運用確認に留める / still 前の距離感・季節・禁止物は identity-lock 設計の scene 層で書く / 共有 SKILL への条文昇格は人間承認後。設計メモへ参照を追加 / documented
+
+2026-09-06 / Premiere 26.2のMCP trimでsource outのみ変わりtimeline endが不変、Undoは素材配置を戻した / CEPの構造編集・Undo粒度を実機結果と取り違えた / source範囲とtimeline尺を両方読み戻す。不一致は再送せずコピーから復旧し、承認済み編集をGUIで実施して映像・音声・保存再読込を照合する / Premiere 26.2.0・MCP 1.14.9で実機確認済、premiere-editing Skillへ反映

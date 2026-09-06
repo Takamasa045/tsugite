@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.11.0 - 2026-09-06
+
+- Added an optional Premiere Pro editing skill, editorial guidance for cuts/transitions/audio/captions/color, and fixed-version MCP setup documentation. Premiere remains an agent-operated external editor, not a pipeline render backend.
+- Verified local Premiere 26.2.0 import, placement, UI-assisted trim, save/reopen, and playback; documented MCP trim limitations and required read-back checks.
+- Released the source package and agent-service client as **0.11.0**. Desktop installers remain outside public distribution.
+
 - Aligned the Kling doctor auth check name to `provider-auth:kling`.
 - Pointed the product site latest tag to **v0.10.0** and described Production Orchestration as the current source release.
 - Recorded post-0.10.0 main work: Remotion 4.0.512 and skill 2.0 markup, lyric-kinetic captions plus passthrough preset, PixVerse CLI 1.3.5 flags, portable `verify-tsugite` skill, and browserslist audit pins.
