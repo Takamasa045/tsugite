@@ -52,7 +52,7 @@ This document is **outside** the frozen T00 design pack under `docs/design/produ
 - **Readiness desktop:** without `desktop:audit` evidence → `partial`/`unverified` with exit-evidence reasons; Windows/live/browser/packaged caveats retained.
 - **Gate fingerprint:** Gate2 selected completion, Gate3 final SHA, GateBundle/decision/approval binding in canonical fingerprint; `writeState` effect_policy threaded from gate CLI. Legacy `approved_input_digest` semantics unchanged.
 - **Migration preview:** `from_mode` / `previewMigrationWithPointer` uses pointer reader chain; resume reuses sealed journal `source_mode`.
-- **Version:** at RC time the package was `0.9.0` and the design pack stayed frozen. Shipped software is **0.10.0**; see [production-orchestration-status.md](./production-orchestration-status.md).
+- **Version:** at RC time the package was `0.9.0` and the design pack stayed frozen. Production Orchestration shipped in **0.10.0**; see [production-orchestration-status.md](./production-orchestration-status.md).
 
 ## CLI (no non-dry-run run/render/finalize apply)
 
@@ -78,7 +78,7 @@ Migration apply creates control-plane artifacts only. It does **not** rewrite `p
 Per `docs/design/production-orchestration-v1/migration-and-release.md`:
 
 - Do **not** ship `1.0.0` until remaining exit criteria (live provider/billing evidence and packaged Desktop UAT) are proven. Windows smoke later landed on GitHub Actions in 0.10.0.
-- This RC diary recorded **`0.9.0`**. It is historical and does not override `package.json` **0.10.0**.
+- This RC diary recorded **`0.9.0`**. It is historical and does not override `package.json` **0.11.0**.
 
 ## Unverified in this owner session unless separately recorded
 
