@@ -75,6 +75,8 @@ Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同�
 
 ## 現在のスコープ
 
+Premiere Proを指定した編集は、任意の `$premiere-editing`（Claude Code: `/premiere-editing`）で演出選択・ローカルMCP操作・画面確認まで進められます。[接続方法と実測の対応範囲](docs/premiere-pro.md)を参照してください。エージェントが操作する外部エディタであり、`pipeline render` のbackendではありません。既存のGateを維持します。
+
 - manifest 検証とローカル素材チェック。
 - 生成 `connections` とは分離した、公開 read-only Remote MCP 用 **Agent Service Registry**（`services` / `service-tools` / `service-call`）。購入・決済操作ではないが provider の usage を消費し得る。詳細は [Agent Services](docs/agent-services.md)。
 - `cli`、`mcp-agent`、`mcp-client` 形式のアダプタ registry。

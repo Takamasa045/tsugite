@@ -7,6 +7,7 @@ import { copyFile, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } fr
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { assertSafeJsonValue, sha256Bytes, sha256Canonical } from "../canonical.js";
 import { pcError } from "../errors.js";
+import { projectRevisionBindings } from "./revisionBindings.js";
 import {
   buildReleaseReadinessReport,
   hashCommandOutput,
@@ -211,7 +212,7 @@ export async function recordCoverage(
     store = {
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.10.0",
+      package_version: projectRevisionBindings().package_version,
       measured: {}
     };
   }
@@ -273,7 +274,7 @@ export async function recordCommandEvidence(input: {
     store = {
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.10.0",
+      package_version: projectRevisionBindings().package_version,
       measured: {}
     };
   }
@@ -424,7 +425,7 @@ export async function ingestBrowserRuntimeEvidence(input: {
     store = {
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.10.0",
+      package_version: projectRevisionBindings().package_version,
       measured: {}
     };
   }

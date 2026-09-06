@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { get } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1956,6 +1956,11 @@ distribution: local-only
       join(fixture.projectDir, "dist"),
       createPlannedState(latestRunId, "2026-07-17T00:00:00.000Z")
     );
+    // Explicit ordering avoids filesystem timestamp ties on fast CI runners.
+    const older = new Date("2026-07-16T00:00:00.000Z");
+    const newer = new Date("2026-07-17T00:00:00.000Z");
+    await utimes(join(fixture.projectDir, "project.yaml"), older, older);
+    await utimes(latestConfig, newer, newer);
 
     const launcher = await launch({
       projectsDir: fixture.projectsDir,

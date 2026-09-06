@@ -118,6 +118,11 @@ Only after that confirmation (or explicit “そのまま進めて”), write IR
 - After import, fold the snapshot into identity lock: `source_asset` / `variants[].source_asset` under project-local paths only, then run Identity Lock Protocol steps for voice/appearance text if still missing.
 - After import, run `validate`, `plan`, `review`, and `run --dry-run` before considering Gate 1.
 
+## Optional External Editing
+
+- When the user explicitly selects Premiere Pro, read [Premiere Editing](../premiere-editing/SKILL.md) for the optional MCP/Computer Use editing workflow and editorial guidance. Keep this skill's roles, current project/run identity, human Gates, and durable project storage requirements.
+- This is an agent-operated external editor, not an additional `edit.backend` or `pipeline render` implementation. Do not route ordinary production there without the user's choice, install it during base setup, bypass a Gate through GUI/MCP, or mark an external edit as an approved pipeline output.
+
 ## Non-Negotiable Rules
 
 - Keep the core neutral; place engine-specific execution details inside adapter or backend directories, and source-backed advisory data inside prompt knowledge catalogs.
