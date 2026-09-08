@@ -75,7 +75,7 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 
 ## Current Scope
 
-Optional [Premiere Pro editing](docs/premiere-pro.md) is available through `$premiere-editing` (Claude Code: `/premiere-editing`), with editorial guidance, local MCP operations, and visual verification. It is an agent-operated external editor, not a `pipeline render` backend; existing Gates remain required.
+Optional [Premiere Pro editing](docs/premiere-pro.md) is available through `$premiere-editing` (Claude Code: `/premiere-editing`), with editorial guidance, local MCP operations, and visual verification. Optional [After Effects editing](docs/after-effects.md) is available through `$after-effects-editing` (Claude Code: `/after-effects-editing`), using the official local `DoScriptFile` helper for inspect, fixture, title layers, and save-as. On-screen preview and playback are a separate check. Both are agent-operated external editors, not a `pipeline render` backend; existing Gates remain required.
 
 - Manifest validation and local asset checks.
 - A separate, versioned **Agent Service Registry** for public read-only Remote MCP services (`services` / `service-tools` / `service-call`), isolated from generation `connections`. See [Agent Services](docs/agent-services.md).

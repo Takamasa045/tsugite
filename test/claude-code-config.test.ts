@@ -121,6 +121,8 @@ describe("Claude Code project configuration", () => {
 
     expect(claude).toContain("/tsugite");
     expect(claude).toContain(".claude/skills/tsugite/SKILL.md");
+    expect(claude).toContain("/after-effects-editing");
+    expect(claude).toContain(".claude/skills/after-effects-editing/SKILL.md");
     expect(claude).toContain("/tsugite-plan");
     expect(claude).toContain("Shitate");
     expect(skill).toContain("shitate-import");
