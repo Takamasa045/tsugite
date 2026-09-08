@@ -30,7 +30,9 @@
     "desktop:audit": "npm --prefix apps/desktop run package:audit",
     "security:audit": "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
     "vendor:check": "node scripts/check-vendor-boundary.mjs",
-    "check": "npm run vendor:check && npm run build && npm run test:coverage"
+    "check": "npm run vendor:check && npm run build && npm run test:coverage",
+    "pixverse:install": "npm ci --prefix adapters/pixverse/runtime",
+    "pixverse": "node adapters/pixverse/cli.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

@@ -180,3 +180,7 @@ subscription/API keyを使うintegrated connectionは、environmentまたはmanu
 - `generation.requests[].params.workspace_id` を指定すると create / task wait / asset download 全体へ引き継ぐ。`0` は個人workspace。省略時はCLIの選択済みworkspaceを使い、Tsugiteが課金先を選ばない。
 - `params.trace_id` は任意のUUIDv4。全呼び出しへ引き継ぐ。動画・画像等は既存のidempotency keyを維持する。voice / music は実CLIが同フラグを公開していないため、冪等な再送を保証しない。
 - モデル受理・契約・残高・実生成はローカルテストでは確認できない。生成には従来のGate承認が必要。管理用CLIコマンドや設定変更をパイプラインから自動実行しない。
+
+### PixVerse Canvas
+
+公式CLI 1.4.0をリポジトリ内へ固定導入して、Canvasのproject / graph / node / patch / dispatchを操作できる。[導入・操作・承認境界](pixverse-canvas.md)を参照。入口は `npm run --silent pixverse -- canvas ...`。従来の生成adapterと独立した外部操作入口である。
