@@ -2,6 +2,33 @@ import { mkdir, mkdtemp, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// catalog.mjs binds spawn at import. A passthrough mock records the real OS
+// child PID at spawn time so afterEach can reap fixtures even if stop/kill
+// callbacks never run. Do not add a test-only catalog API; do not fake ChildProcess.
+const spawnTrack = vi.hoisted(() => ({
+  enabled: false,
+  pids: null as Set<number> | null,
+  lastPid: null as number | null,
+  register(pid: number | undefined | null) {
+    if (!this.enabled) return;
+    if (typeof pid === "number" && Number.isInteger(pid) && pid > 0) {
+      this.lastPid = pid;
+      this.pids?.add(pid);
+    }
+  }
+}));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("node:child_process")>();
+  const spawn = ((...args: Parameters<typeof orig.spawn>) => {
+    const child = orig.spawn(...args);
+    spawnTrack.register(child?.pid);
+    return child;
+  }) as typeof orig.spawn;
+  return { ...orig, spawn };
+});
+
 import {
   CATALOG_ARGS,
   CATALOG_MAX_ITEMS,
@@ -358,12 +385,21 @@ describe("runCatalogCommand process safety", () => {
   }
 
   afterEach(async () => {
+    spawnTrack.enabled = false;
+    spawnTrack.pids = null;
+    spawnTrack.lastPid = null;
     for (const pid of trackedPids) {
       await forceCleanupPid(pid);
     }
     trackedPids.clear();
     tempDirs.length = 0;
   });
+
+  function trackSpawnedCatalogChildren(): void {
+    spawnTrack.lastPid = null;
+    spawnTrack.pids = trackedPids;
+    spawnTrack.enabled = true;
+  }
 
   async function writeFixtureScript(source: string): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), "tsugite-catalog-cli-"));
@@ -648,15 +684,20 @@ describe("runCatalogCommand process safety", () => {
     const dir = await mkdtemp(join(tmpdir(), "tsugite-catalog-win-stop-"));
     tempDirs.push(dir);
     const pidFile = join(dir, "pid.json");
+    // Delay pidFile past timeoutMs so cleanup cannot depend on fixture boot/write.
     const scriptPath = await writeFixtureScript(`
       import { writeFileSync } from "node:fs";
-      writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify({ pid: process.pid }), "utf8");
+      setTimeout(() => {
+        writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify({ pid: process.pid }), "utf8");
+      }, 400);
       setInterval(() => {}, 1000);
     `);
 
     let parentPid: number | null = null;
     const started = Date.now();
+    trackSpawnedCatalogChildren();
     try {
+      const killWindowsTree = vi.fn(async () => await new Promise(() => {}));
       const resultPromise = runCatalogCommand({
         entryPath: scriptPath,
         timeoutMs: 200,
@@ -665,25 +706,17 @@ describe("runCatalogCommand process safety", () => {
         stopGraceMs: 50,
         stopHardMs: 50,
         // Hung taskkill must not hang the HTTP/catalog request.
-        killWindowsTree: async () => await new Promise(() => {}),
+        killWindowsTree,
         isProcessAlive: () => true
       });
 
-      await vi.waitFor(async () => {
-        try {
-          const { readFile } = await import("node:fs/promises");
-          const raw = await readFile(pidFile, "utf8");
-          const parsed = JSON.parse(raw) as { pid?: unknown };
-          if (typeof parsed.pid === "number" && parsed.pid > 0) {
-            parentPid = parsed.pid;
-            trackedPids.add(parentPid);
-            return;
-          }
-        } catch {
-          // wait for fixture
-        }
-        throw new Error("pid file not ready");
-      }, { timeout: 2_000 });
+      await vi.waitFor(() => {
+        expect(spawnTrack.lastPid).toEqual(expect.any(Number));
+      }, { timeout: 500, interval: 10 });
+      parentPid = spawnTrack.lastPid;
+      expect(parentPid).toEqual(expect.any(Number));
+      expect(trackedPids.has(parentPid as number)).toBe(true);
+      expect(killWindowsTree).not.toHaveBeenCalled();
 
       const result = await resultPromise;
       const elapsed = Date.now() - started;
@@ -703,14 +736,18 @@ describe("runCatalogCommand process safety", () => {
     const dir = await mkdtemp(join(tmpdir(), "tsugite-catalog-win-kill-"));
     tempDirs.push(dir);
     const pidFile = join(dir, "pid.json");
+    // Delay pidFile past timeoutMs: assert stop via captured spawn PID, not file I/O.
     const scriptPath = await writeFixtureScript(`
       import { writeFileSync } from "node:fs";
-      writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify({ pid: process.pid }), "utf8");
+      setTimeout(() => {
+        writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify({ pid: process.pid }), "utf8");
+      }, 400);
       setInterval(() => {}, 1000);
     `);
 
     let parentPid: number | null = null;
     const started = Date.now();
+    trackSpawnedCatalogChildren();
     try {
       const killWindowsTree = vi.fn(async () => ({ ok: false, timedOut: false, code: "EACCES" }));
       const resultPromise = runCatalogCommand({
@@ -723,26 +760,19 @@ describe("runCatalogCommand process safety", () => {
         killWindowsTree
       });
 
-      await vi.waitFor(async () => {
-        try {
-          const { readFile } = await import("node:fs/promises");
-          const raw = await readFile(pidFile, "utf8");
-          const parsed = JSON.parse(raw) as { pid?: unknown };
-          if (typeof parsed.pid === "number" && parsed.pid > 0) {
-            parentPid = parsed.pid;
-            trackedPids.add(parentPid);
-            return;
-          }
-        } catch {
-          // wait
-        }
-        throw new Error("pid file not ready");
-      }, { timeout: 2_000 });
+      await vi.waitFor(() => {
+        expect(spawnTrack.lastPid).toEqual(expect.any(Number));
+      }, { timeout: 500, interval: 10 });
+      parentPid = spawnTrack.lastPid;
+      expect(parentPid).toEqual(expect.any(Number));
+      expect(trackedPids.has(parentPid as number)).toBe(true);
+      expect(killWindowsTree).not.toHaveBeenCalled();
 
       const result = await resultPromise;
       const elapsed = Date.now() - started;
       expect(result.timedOut).toBe(true);
       expect(killWindowsTree).toHaveBeenCalled();
+      expect(parentPid).toEqual(expect.any(Number));
       // Direct child.kill after taskkill failure may reap the parent, but
       // descendants are unconfirmed without taskkill /T success.
       await vi.waitFor(() => {
