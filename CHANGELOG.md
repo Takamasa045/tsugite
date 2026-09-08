@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.12.0 - 2026-09-08
+
+- Added repository-pinned official PixVerse CLI 1.4.0 with explicit installation and a Canvas command entrypoint (`npm run pixverse:install`, `npm run --silent pixverse -- canvas ...`).
+- Documented Canvas project, graph, node, patch and dispatch workflows, approval boundaries and manual asset import. This remains an external CLI entrypoint, not a pipeline backend.
+- Fixed PixVerse image/audio task IDs, retrieval of multiple results, workspace/trace propagation and per-task credit aggregation.
+- Added optional After Effects editing guidance and the official local DoScriptFile helper workflow.
+- Improved fixture process tracking and deterministic test timing.
+- Released the source package and agent-service client as **0.12.0**. Desktop installers and npm publication remain outside this release. Live Canvas mutation/generation is not claimed by local CLI discovery checks.
+
 ## 0.11.0 - 2026-09-06
 
 - Added an optional Premiere Pro editing skill, editorial guidance for cuts/transitions/audio/captions/color, and fixed-version MCP setup documentation. Premiere remains an agent-operated external editor, not a pipeline render backend.

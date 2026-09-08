@@ -41,7 +41,7 @@ test("server-renders the source-first Tsugite landing page", async () => {
   assert.match(html, /今後は最新版のソースと、Codex／Claude Codeを使うローカルワークフローを提供します/);
   assert.match(html, /TSUGITE \/ KEY VISUAL/);
   assert.match(html, /生成と判断を、ひとつの工程に継ぐ。/);
-  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/tag\/v0\.11\.0/);
+  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/tag\/v0\.12\.0/);
   assert.match(html, /GitHubのSource codeを取得してください/);
   assert.doesNotMatch(html, /releases\/download|\.dmg|\.exe|Mac版をダウンロード|Windows版をダウンロード/);
   assert.match(html, /https:\/\/tsugite\.example\/og\.png/);
@@ -61,13 +61,13 @@ test("highlights the latest release and keeps the third summer camp update", asy
   const html = await response.text();
 
   assert.match(html, /id="pickup"/);
-  assert.match(html, /Tsugite<br\s*\/>v0\.11\.0/);
+  assert.match(html, /Tsugite<br\s*\/>v0\.12\.0/);
   assert.doesNotMatch(html, /Tsugite<br\s*\/>v0\.6\.0/);
-  assert.match(html, /v0\.11\.0 タグを公開しました/);
-  assert.match(html, /2026年9月6日 タグ作成/);
+  assert.match(html, /v0\.12\.0 タグを公開しました/);
+  assert.match(html, /2026年9月8日 タグ作成/);
   assert.match(html, /LATEST TAG/);
-  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/tag\/v0\.11\.0/);
-  assert.match(html, /Premiere Proをエージェントが操作する任意の外部編集ツールとして追加/);
+  assert.match(html, /https:\/\/github\.com\/Takamasa045\/tsugite\/releases\/tag\/v0\.12\.0/);
+  assert.match(html, /PixVerse Canvasを固定版CLIから操作。導入と操作手順を同梱/);
   assert.match(html, /Mac／Windows向けインストーラーの一般配布は終了しました/);
   assert.match(html, /CodexまたはClaude Codeから利用する方法を案内します/);
   assert.match(html, /第3回目、全部で3回やります。/);

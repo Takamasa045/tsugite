@@ -1,5 +1,5 @@
 const REPOSITORY_URL = "https://github.com/Takamasa045/tsugite";
-const LATEST_VERSION_TAG = "v0.11.0";
+const LATEST_VERSION_TAG = "v0.12.0";
 const LATEST_VERSION_URL = `${REPOSITORY_URL}/releases/tag/${LATEST_VERSION_TAG}`;
 const FEEDBACK_URL = `${REPOSITORY_URL}/issues/new`;
 const SUMMER_CAMP_URL = "https://brain-market.com/u/itopan/a/b1kjM3UjMgoTZsNWa0JXY";
@@ -75,7 +75,7 @@ export default function Home() {
           <div className="hero-copy">
             <div className="release-line">
               <span>SOURCE WORKFLOW</span>
-              <b>v0.11.0</b>
+              <b>v0.12.0</b>
               <em>CODEX / CLAUDE CODE</em>
             </div>
             <h1>
@@ -136,35 +136,35 @@ export default function Home() {
         <div className="pickup-topline">
           <span>UPDATE LOG / TSUGITE RELEASES</span>
           <i />
-          <time dateTime="2026-09-06">2026.09.06 UPDATE</time>
+          <time dateTime="2026-09-08">2026.09.08 UPDATE</time>
         </div>
 
         <article className="pickup-current">
           <div className="pickup-number" aria-hidden="true">
-            <span>11</span>
-            <small>LATEST TAG / v0.11.0</small>
+            <span>12</span>
+            <small>LATEST TAG / v0.12.0</small>
           </div>
           <div className="pickup-copy">
-            <p className="pickup-status"><span aria-hidden="true" /> v0.11.0 タグを公開しました</p>
-            <h2 id="pickup-title">Tsugite<br />v0.11.0</h2>
+            <p className="pickup-status"><span aria-hidden="true" /> v0.12.0 タグを公開しました</p>
+            <h2 id="pickup-title">Tsugite<br />v0.12.0</h2>
             <p className="pickup-date">
-              <time dateTime="2026-09-06">2026年9月6日 タグ作成</time>
+              <time dateTime="2026-09-08">2026年9月8日 タグ作成</time>
               <span>LATEST TAG</span>
             </p>
             <p className="pickup-description">
-              Premiere Pro編集スキルと、カット・トランジション・音声・字幕・色調整のガイドを追加したソースタグです。GitHubのソースとCodex／Claude Codeが正式な入口で、Desktopインストーラーの一般配布は行いません。
+              PixVerse CLI 1.4.0とCanvas操作入口、After Effects編集ガイドを追加したソースタグです。GitHubのソースとCodex／Claude Codeが正式な入口で、Desktopインストーラーの一般配布は行いません。
             </p>
             <ul className="pickup-features">
-              <li>Premiere Proをエージェントが操作する任意の外部編集ツールとして追加</li>
+              <li>PixVerse Canvasを固定版CLIから操作。導入と操作手順を同梱</li>
               <li>Windows smoke を GitHub Actions で確認。live 課金と packaged Desktop UAT は 1.0 前の caveat</li>
-              <li>Remotion字幕プリセット、PixVerse CLI、検証スキルも更新</li>
+              <li>After Effectsの外部編集ガイドとPixVerseの複数結果取得を追加</li>
             </ul>
             <aside className="pickup-beta-note">
               <strong>Desktopアプリの配布について</strong>
               <p>Mac／Windows向けインストーラーの一般配布は終了しました。今後はGitHubのソースを取得し、CodexまたはClaude Codeから利用する方法を案内します。</p>
             </aside>
             <a className="pickup-link" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
-              GitHubで v0.11.0 タグを見る <span aria-hidden="true">↗</span>
+              GitHubで v0.12.0 タグを見る <span aria-hidden="true">↗</span>
             </a>
           </div>
         </article>
@@ -311,7 +311,7 @@ export default function Home() {
               <span className="platform-arrow" aria-hidden="true">↗</span>
             </a>
             <a className="platform-card platform-github" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
-              <div><span className="platform-icon">11</span><p><strong>Latest Release</strong><small>v0.11.0 · Source code</small></p></div>
+              <div><span className="platform-icon">12</span><p><strong>Latest Release</strong><small>v0.12.0 · Source code</small></p></div>
               <span className="platform-arrow" aria-hidden="true">↗</span>
             </a>
             <a className="platform-card platform-github" href={FEEDBACK_URL} target="_blank" rel="noreferrer">
