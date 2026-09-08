@@ -171,3 +171,12 @@ subscription/API keyを使うintegrated connectionは、environmentまたはmanu
 - 送信するプロンプト・参照素材・音声の範囲
 
 必要契約を満たせないベンダーは `manual import`として案内し、実行可能と表示しない。モデルカタログへの追加はprompt guidanceの追加であり、接続や利用権限の追加ではない。
+
+### PixVerse CLI 公式記事との整合（2026-09-08）
+
+[公式CLI記事](https://pixverse.ai/en/blog/pixverse-cli-generate-ai-videos-images-from-terminal) とローカル CLI 1.3.10 の `dist/capabilities.json`・`--help` を照合した。記事より実行CLIの契約を優先する（例: 1.3.10 は Node.js >=22.12、`create upscale` の quality は 2160p）。
+
+- 既存の11種類の `create` 操作を利用できる。画像・音声もそれぞれの `image_id` / `audio_id` で待機・取得する。複数結果は全タスクを順に待機し、別ディレクトリへ保存する。
+- `generation.requests[].params.workspace_id` を指定すると create / task wait / asset download 全体へ引き継ぐ。`0` は個人workspace。省略時はCLIの選択済みworkspaceを使い、Tsugiteが課金先を選ばない。
+- `params.trace_id` は任意のUUIDv4。全呼び出しへ引き継ぐ。動画・画像等は既存のidempotency keyを維持する。voice / music は実CLIが同フラグを公開していないため、冪等な再送を保証しない。
+- モデル受理・契約・残高・実生成はローカルテストでは確認できない。生成には従来のGate承認が必要。管理用CLIコマンドや設定変更をパイプラインから自動実行しない。

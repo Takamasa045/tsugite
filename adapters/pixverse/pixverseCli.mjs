@@ -39,20 +39,30 @@ export function runPixverseMedia(input, options = {}) {
   const createArgs = buildPixverseCreateArgs(request, payload.run_id);
 
   const create = runJsonCommand(pixverse, createArgs);
-  const taskId = findTaskId(create);
+  const taskIds = findTaskIds(create);
+  const taskId = taskIds[0];
   if (!taskId) {
     throw new AdapterError("PixVerse CLI did not return a task id", TRANSIENT);
   }
 
-  const wait = runJsonCommand(pixverse, ["task", "wait", taskId, "--type", assetType, "--timeout", waitTimeout(request), "--json"]);
-  const download = runJsonCommand(pixverse, ["asset", "download", taskId, "--type", assetType, "--dest", outputDir, "--json"]);
-  const downloadedPaths = findDownloadPaths(download, outputDir, assetType);
+  const globalArgs = buildPixverseGlobalArgs(request);
+  const waits = [];
+  const downloadedPaths = [];
+  for (const [index, id] of taskIds.entries()) {
+    const destination = taskIds.length === 1 ? outputDir : resolve(outputDir, String(index + 1));
+    waits.push(runJsonCommand(pixverse, ["task", "wait", id, "--type", assetType, "--timeout", waitTimeout(request), "--json", ...globalArgs]));
+    const download = runJsonCommand(pixverse, ["asset", "download", id, "--type", assetType, "--dest", destination, "--json", ...globalArgs]);
+    downloadedPaths.push(...findDownloadPaths(download, destination, assetType));
+  }
+  const wait = waits.length === 1 ? waits[0] : waits;
+  const creditKeys = ["credits", "credit", "cost", "cost_credits", "costCredits"];
+  const taskCredits = waits.map((result) => findNumberByKeys(result, creditKeys));
 
   return {
     request_id: request.id,
-    credits: findNumberByKeys(wait, ["credits", "credit", "cost", "cost_credits", "costCredits"])
-      ?? findNumberByKeys(create, ["credits", "credit", "cost", "cost_credits", "costCredits"])
-      ?? 0,
+    credits: taskCredits.every((credit) => credit !== undefined)
+      ? taskCredits.reduce((sum, credit) => sum + credit, 0)
+      : findNumberByKeys(create, creditKeys) ?? 0,
     clips: assetType === "video" ? downloadedPaths.map((src, index) => {
       const media = probeMedia(src, request);
       return {
@@ -79,6 +89,7 @@ export function runPixverseMedia(input, options = {}) {
     metadata: {
       adapter: options.adapterName ?? "pixverse",
       task_id: taskId,
+      task_ids: taskIds,
       route: options.route,
       create,
       wait
@@ -151,7 +162,7 @@ export function buildPixverseCreateArgs(request, runId) {
   if (!["voice", "music"].includes(operation)) {
     args.push("--idempotency-key", safeIdempotencyKey(runId, request.id));
   }
-  args.push("--no-wait", "--json");
+  args.push("--no-wait", "--json", ...buildPixverseGlobalArgs(request));
   return args;
 }
 
@@ -224,8 +235,50 @@ export function normalizeError(error) {
 }
 
 export function findTaskId(value) {
-  const found = findTaskIdValue(value);
-  return found === undefined ? undefined : String(found);
+  return findTaskIds(value)[0];
+}
+
+export function findTaskIds(value) {
+  const ids = new Set();
+  const add = (candidate) => {
+    if (typeof candidate === "string" && candidate.length > 0) ids.add(candidate);
+    else if (Number.isSafeInteger(candidate) && candidate > 0) ids.add(String(candidate));
+  };
+  const visit = (item) => {
+    if (Array.isArray(item)) { item.forEach(visit); return; }
+    if (!item || typeof item !== "object") return;
+    // A typed ID takes precedence over generic metadata IDs on the same record.
+    for (const key of ["video_id", "image_id", "audio_id", "videoId", "imageId", "audioId", "task_id", "taskId", "id"]) {
+      if (typeof item[key] === "string" && item[key].length > 0 || Number.isSafeInteger(item[key]) && item[key] > 0) {
+        add(item[key]);
+        return;
+      }
+    }
+    for (const [key, child] of Object.entries(item)) {
+      if (["video_ids", "image_ids", "audio_ids", "task_ids"].includes(key) && Array.isArray(child)) child.forEach(add);
+      else if (["data", "result", "results", "tasks", "videos", "images", "audios"].includes(key)) visit(child);
+    }
+  };
+  visit(value);
+  return [...ids];
+}
+
+export function buildPixverseGlobalArgs(request) {
+  const args = [];
+  const params = request.params || {};
+  if (params.workspace_id !== undefined) {
+    if (!/^\d+$/.test(String(params.workspace_id)) || !Number.isSafeInteger(Number(params.workspace_id))) {
+      throw new AdapterError("PixVerse workspace_id must be a non-negative safe integer", INVALID_REQUEST);
+    }
+    pushValue(args, "--workspace-id", params.workspace_id);
+  }
+  if (params.trace_id !== undefined) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(params.trace_id)) {
+      throw new AdapterError("PixVerse trace_id must be UUIDv4", INVALID_REQUEST);
+    }
+    pushValue(args, "--trace-id", params.trace_id);
+  }
+  return args;
 }
 
 export function findNumberByKeys(value, keys) {
@@ -358,30 +411,6 @@ function findDownloadedAssets(outputDir, assetType) {
 function findFirstString(value, keys) {
   const found = findFirst(value, keys, (candidate) => typeof candidate === "string" && candidate.length > 0);
   return typeof found === "string" ? found : undefined;
-}
-
-function findTaskIdValue(value) {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findTaskIdValue(item);
-      if (found !== undefined) return found;
-    }
-    return undefined;
-  }
-
-  if (!value || typeof value !== "object") return undefined;
-
-  for (const key of ["video_id", "videoId", "task_id", "taskId", "id"]) {
-    const candidate = value[key];
-    if (typeof candidate === "string" && candidate.length > 0) return candidate;
-    if (typeof candidate === "number" && Number.isSafeInteger(candidate) && candidate > 0) return candidate;
-  }
-
-  for (const item of Object.values(value)) {
-    const found = findTaskIdValue(item);
-    if (found !== undefined) return found;
-  }
-  return undefined;
 }
 
 function findKeyedValue(value, keys, predicate) {
