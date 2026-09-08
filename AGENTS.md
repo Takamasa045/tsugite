@@ -14,6 +14,8 @@ Tsugite は `project.yaml` を入口とする、承認付き動画制作パイ�
 - **Premiere Proでの編集指定**：[Premiere編集Skill](.agents/skills/premiere-editing/SKILL.md)。任意の外部編集入口として演出・MCP操作・画面確認を扱う。導入・対応範囲は [接続手順](docs/premiere-pro.md)。pipeline backendやGate承認の代替ではない。
 - **After Effectsでの編集指定**：[After Effects編集Skill](.agents/skills/after-effects-editing/SKILL.md)。任意の外部編集入口として演出・公式DoScriptFile helper・画面確認を扱う。導入・対応範囲は [接続手順](docs/after-effects.md)。pipeline backendやGate承認の代替ではない。
 
+- **PixVerse Canvasの操作指定**：[Canvas接続手順](docs/pixverse-canvas.md) を読む。`npm run pixverse:install` で固定版を任意導入し、`npm run --silent pixverse -- canvas ...` を使う。外部操作入口であり、生成承認・Gate・成果物取り込みを代替しない。
+
 ## 安全境界とプロジェクト制約
 
 - `run` / `render` は Coordinator だけが明示承認後に実行できる。Planner / Reviewer は `validate`、`plan`、`review`、`run --dry-run` まで。Output QA は manifest と成果物検査のみで、編集・実行しない。

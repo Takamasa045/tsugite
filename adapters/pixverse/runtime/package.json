@@ -1,0 +1,8 @@
+{
+  "name": "tsugite-pixverse-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Opt-in official PixVerse CLI runtime for Tsugite, including Canvas",
+  "engines": { "node": ">=22.12.0" },
+  "dependencies": { "pixverse": "1.4.0" }
+}
