@@ -78,7 +78,7 @@ Migration apply creates control-plane artifacts only. It does **not** rewrite `p
 Per `docs/design/production-orchestration-v1/migration-and-release.md`:
 
 - Do **not** ship `1.0.0` until remaining exit criteria (live provider/billing evidence and packaged Desktop UAT) are proven. Windows smoke later landed on GitHub Actions in 0.10.0.
-- This RC diary recorded **`0.9.0`**. It is historical and does not override `package.json` **0.11.0**.
+- This RC diary recorded **`0.9.0`**. It is historical and does not override `package.json` **0.12.0**.
 
 ## Unverified in this owner session unless separately recorded
 

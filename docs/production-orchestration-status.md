@@ -18,4 +18,4 @@ The T00 design pack under `docs/design/production-orchestration-v1/` is **byte-f
 | MiniMax live HTTP / DNS / submit | Out of 1.0; preflight-only |
 | Gate 2 `retry_specific` | Out of 1.0; use `revise` |
 
-RC-era 0.9.0 evidence stays in [production-orchestration-po8-rc.md](./production-orchestration-po8-rc.md) and [reports/](./reports/). Those files do not override `package.json` **0.11.0**.
+RC-era 0.9.0 evidence stays in [production-orchestration-po8-rc.md](./production-orchestration-po8-rc.md) and [reports/](./reports/). Those files do not override `package.json` **0.12.0**.

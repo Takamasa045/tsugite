@@ -50,7 +50,7 @@ npm run setup:open  # launcher도 열 때
 - Coordinator와 Gate 승인이 필요한 `run` / `render`.
 - `127.0.0.1`만 바인드하는 브라우저 launcher와 읽기 전용 3D Viewer.
 
-Desktop 앱의 일반 배포는 종료되었습니다. 일상 진입점은 GitHub 소스 + Codex / Claude Code + 로컬 브라우저 launcher입니다. Electron 소스는 개발·회귀 검증용으로만 남습니다. 저장소 소프트웨어 버전은 **0.11.0**입니다.
+Desktop 앱의 일반 배포는 종료되었습니다. 일상 진입점은 GitHub 소스 + Codex / Claude Code + 로컬 브라우저 launcher입니다. Electron 소스는 개발·회귀 검증용으로만 남습니다. 저장소 소프트웨어 버전은 **0.12.0**입니다.
 
 ```sh
 npm --prefix apps/workflow-viewer ci
@@ -73,4 +73,4 @@ node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 
 일회성 취향은 `projects/<job>/notes.md`에 둡니다. 재사용 스타일은 `examples/` 또는 `templates/`로, 기계 검사 가능한 문제는 constraints / validate / doctor로 올립니다. 판단형 규칙은 `LESSONS.md`에 먼저 쓰고, 사람 승인 후에 skill / AGENTS.md / CLAUDE.md로 승격합니다. core는 벤더 중립을 유지합니다.
 
-공개 계약 변경은 README, `manifest/schema.md`, `docs/requirements.md`에 남깁니다. 현재 소프트웨어 버전은 **0.11.0**입니다. 1.0은 여전히 live provider/billing 증거와 packaged Desktop UAT가 필요하고, Windows smoke는 GitHub Actions에서 확인했습니다.
+공개 계약 변경은 README, `manifest/schema.md`, `docs/requirements.md`에 남깁니다. 현재 소프트웨어 버전은 **0.12.0**입니다. 1.0은 여전히 live provider/billing 증거와 packaged Desktop UAT가 필요하고, Windows smoke는 GitHub Actions에서 확인했습니다.

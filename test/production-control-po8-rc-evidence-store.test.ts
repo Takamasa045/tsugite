@@ -178,7 +178,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     const current = buildReadinessFromStore({
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.11.0",
+      package_version: "0.12.0",
       measured: {}
     });
     expect(Object.keys(current.version_decision).sort()).toEqual([
@@ -203,7 +203,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     const unsupported = buildReadinessFromStore({
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.12.0",
+      package_version: "0.13.0",
       measured: {}
     });
     expect(unsupported.exits.find((exit) => exit.exit_id === "po8-6-version-decision")?.status).toBe("failed");
@@ -267,7 +267,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
       package_version: string;
       version_decision: { bump_to_1_0_0: boolean };
     };
-    expect(report.package_version).toBe("0.11.0");
+    expect(report.package_version).toBe("0.12.0");
     expect(report.version_decision.bump_to_1_0_0).toBe(false);
     expect(report.digest).toMatch(/^[a-f0-9]{64}$/);
   });
@@ -276,7 +276,7 @@ describe("PO-8 RC evidence store + readiness CLI", () => {
     const report = buildReadinessFromStore({
       schema_version: 1,
       fixture_only: true,
-      package_version: "0.11.0",
+      package_version: "0.12.0",
       generated_at: "2026-08-13T00:00:00.000Z",
       measured: {
         desktop: {
