@@ -121,7 +121,8 @@ Only after that confirmation (or explicit “そのまま進めて”), write IR
 ## Optional External Editing
 
 - When the user explicitly selects Premiere Pro, read [Premiere Editing](../premiere-editing/SKILL.md) for the optional MCP/Computer Use editing workflow and editorial guidance. Keep this skill's roles, current project/run identity, human Gates, and durable project storage requirements.
-- This is an agent-operated external editor, not an additional `edit.backend` or `pipeline render` implementation. Do not route ordinary production there without the user's choice, install it during base setup, bypass a Gate through GUI/MCP, or mark an external edit as an approved pipeline output.
+- When the user explicitly selects After Effects, read [After Effects Editing](../after-effects-editing/SKILL.md) for the optional official DoScriptFile helper workflow and editorial guidance. Keep this skill's roles, current project/run identity, human Gates, and durable project storage requirements.
+- These are agent-operated external editors, not an additional `edit.backend` or `pipeline render` implementation. Do not route ordinary production there without the user's choice, install them during base setup, bypass a Gate through GUI/scripts, or mark an external edit as an approved pipeline output.
 
 ## Non-Negotiable Rules
 

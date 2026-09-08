@@ -44,4 +44,26 @@ describe("Tsugite agent skill configuration", () => {
     expect(legacy).toContain(CODEX_SKILL);
     expect(legacy).not.toContain("## Required Flow");
   });
+
+  it("provides an After Effects external-editing skill with Claude entry and helper", async () => {
+    const [skill, claude, metadata, helper] = await Promise.all([
+      readFile(resolve(ROOT, ".agents/skills/after-effects-editing/SKILL.md"), "utf8"),
+      readFile(resolve(ROOT, ".claude/skills/after-effects-editing/SKILL.md"), "utf8"),
+      readFile(resolve(ROOT, ".agents/skills/after-effects-editing/agents/openai.yaml"), "utf8"),
+      readFile(
+        resolve(ROOT, ".agents/skills/after-effects-editing/scripts/ae-local-helper.mjs"),
+        "utf8"
+      )
+    ]);
+
+    expect(skill).toMatch(/^---\nname: after-effects-editing\ndescription: .+\n---\n/);
+    expect(skill).toContain("DoScriptFile");
+    expect(skill).toContain("edit.backend: after-effects");
+    expect(skill).toContain("pipeline render");
+    expect(claude).toContain("../../../.agents/skills/after-effects-editing/SKILL.md");
+    expect(metadata).toContain("$after-effects-editing");
+    expect(helper).toContain("DoScriptFile");
+    expect(helper).toContain("flag_forbidden");
+    expect(helper).toContain("add-title");
+  });
 });

@@ -82,3 +82,5 @@ Append-only format:
 2026-09-06 / Premiere 26.2のMCP trimでsource outのみ変わりtimeline endが不変、Undoは素材配置を戻した / CEPの構造編集・Undo粒度を実機結果と取り違えた / source範囲とtimeline尺を両方読み戻す。不一致は再送せずコピーから復旧し、承認済み編集をGUIで実施して映像・音声・保存再読込を照合する / Premiere 26.2.0・MCP 1.14.9で実機確認済、premiere-editing Skillへ反映
 
 2026-09-06 / 最新config選択テストがUbuntu CIで同時刻となりcanonicalを選択 / 作成順だけでmtimeの大小を仮定していた / 新旧判定のfixtureはutimesで順序を明示し、実時間やファイルシステムの時刻分解能に依存させない / viewer-launcher回帰テストへ反映
+2026-09-08 / AE 2026が名称未設定の編集画面でもエージェントosascriptのDoScriptはtimeoutしresult.jsonが無い / get name成功やCUAの空プロジェクト表示を接続とみなした / AppleScript get nameとDoScriptFileは別。inspectがresult.jsonを返すまで空と確定せずfixtureしない。timeout後は同じDoScriptを再送しない / After Effects 2026 26.2.1、helper inspect 90s timeout、sampleはNSApplication run。設定は未変更
+2026-09-08 / スクリプトのファイル書き込み許可をONにしたあとDoScriptFileがresult.jsonを返しinspect/fixture/日本語add-titleが成立した / 画面到達と書き込み許可を接続と切り分けずtimeoutを設定オフと断定できなかった / result.jsonが書けてから接続とする。許可は説明して承認したあとだけ有効化する。sourceは別名outputへ保存しhashで不変を見る / AE 2026 26.2.1、許可ON後に実機確認。exportは未対応

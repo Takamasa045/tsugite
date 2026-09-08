@@ -5,6 +5,7 @@ Read [AGENTS.md](AGENTS.md) for repository-wide constraints and conditional entr
 ## Claude Code entry points
 
 - For video-production work, use `/tsugite` or `.claude/skills/tsugite/SKILL.md` to load the canonical `.agents/skills/tsugite/SKILL.md` completely. Its Identity Lock Protocol, story-guides-before-shots, Gate decisions, and completion requirements apply.
+- For After Effects as an optional external editor, use `/after-effects-editing` or `.claude/skills/after-effects-editing/SKILL.md` to load `.agents/skills/after-effects-editing/SKILL.md`. It is not a pipeline render backend.
 - Use `/tsugite-plan <project.yaml> | <creative brief> | <duration>` for safe planning through Gate 1 review, without approving the Gate.
 - Use `/tsugite-verify [path or test]` after code or documentation changes. Follow the change conditions in development and verification: typo/explanation/link-only edits use document checks; code, execution instructions, approval rules, or Skill behavior changes require focused tests and `npm run check`. Viewer changes also require Viewer checks.
 - Use `/tsugite-finalize <project.yaml>` only after the user explicitly declares that selected video complete.

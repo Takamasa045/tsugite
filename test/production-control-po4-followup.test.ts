@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
+import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import {
   assertCompilationBundleAssets,
   compileVideoPromptIrV2,
@@ -211,6 +212,7 @@ async function writeMvProject(withSource: boolean, withLyrics = false): Promise<
 }
 
 describe("PO-4 follow-up security and profile regressions", () => {
+  useCatalogReviewClock();
   it("selects one exact model+mode route independent of profile array order", async () => {
     const { model, connection } = await realProfiles("v6", "pixverse");
     const split = {

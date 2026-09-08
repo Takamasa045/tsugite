@@ -2,6 +2,7 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import { projectSchema } from "../src/project/schema.js";
 import {
   assertEffectiveGenerationContract,
@@ -34,6 +35,7 @@ function standalone(model = "minimax-h3"): VideoPromptIrV2 {
 }
 
 describe("PO-4 final No-Go repairs", () => {
+  useCatalogReviewClock();
   it("uses one exact provider-neutral capability map entry per model/route across the adapter matrix", async () => {
     const matrix = [
       ["pixverse", "v6", "v6", "text-to-video", "plain-prompt"],

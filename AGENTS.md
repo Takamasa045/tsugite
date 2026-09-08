@@ -12,6 +12,7 @@ Tsugite は `project.yaml` を入口とする、承認付き動画制作パイ�
 - **初回セットアップと doctor 成功後**：次の実質的な提案の前に [学び自動化の初回確認](docs/automations/learning-promotion-review.md#初回セットアップ後の確認) を一度行う。登録は明示的な選択後のみ、常設 schedule は一つ、通知は選んだ host 標準のみ。辞退後は同じ初回設定中に再質問しない。
 - **Claude Code**：固有の入口・permission・hook は [CLAUDE.md](CLAUDE.md)。root の [SKILL.md](SKILL.md) は旧ツール向け参照として残す。
 - **Premiere Proでの編集指定**：[Premiere編集Skill](.agents/skills/premiere-editing/SKILL.md)。任意の外部編集入口として演出・MCP操作・画面確認を扱う。導入・対応範囲は [接続手順](docs/premiere-pro.md)。pipeline backendやGate承認の代替ではない。
+- **After Effectsでの編集指定**：[After Effects編集Skill](.agents/skills/after-effects-editing/SKILL.md)。任意の外部編集入口として演出・公式DoScriptFile helper・画面確認を扱う。導入・対応範囲は [接続手順](docs/after-effects.md)。pipeline backendやGate承認の代替ではない。
 
 ## 安全境界とプロジェクト制約
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tsugite After Effects Editing"
+  short_description: "After Effectsで文字・キーフレームを編集し、承認と実機QAを保つ"
+  default_prompt: "$after-effects-editing を使って、この案件をAfter Effectsで編集し、保存と読み戻しまで進めてください。"

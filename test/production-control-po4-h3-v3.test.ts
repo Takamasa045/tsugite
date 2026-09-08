@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { CATALOG_REVIEW_CLOCK, useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import {
   H3_WORKFLOW_VERSION,
   compileH3Request,
@@ -101,6 +102,7 @@ function request(id: string, ir: ReturnType<typeof parseH3CreativeIr>): Generati
 }
 
 describe("PO-4 V1/H3 compatibility and V2 strict contract", () => {
+  useCatalogReviewClock();
   it.each(MODES)("purely upgrades legacy %s without changing source or legacy golden output", async (fixture) => {
     const source = await readFile(`test/fixtures/h3/${fixture}`, "utf8");
     const legacy = parseH3CreativeIr(JSON.parse(source));
@@ -159,6 +161,7 @@ describe("PO-4 V1/H3 compatibility and V2 strict contract", () => {
 });
 
 describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
+  useCatalogReviewClock();
   it("rejects non-contiguous, unordered, and wrong-final shot timelines", () => {
     const cases = [
       { shots: [{ ...baseV2().shots[0]!, start_ms: 100 }], code: "VPD-T001" },
@@ -360,6 +363,7 @@ describe("PO-4 semantic blocks, text separation, and grammar v3", () => {
 });
 
 describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
+  useCatalogReviewClock();
   it("keeps hard/soft/unknown budget states separate and rejects contradictions", () => {
     const contradiction: PromptBudget = {
       hard: { limit: 100, unit: "unicode-code-points", source: "adapter", verified_at: "2026-08-11T00:00:00Z" },
@@ -386,6 +390,44 @@ describe("PO-4 effective contract, budget, route, and immutable bundle", () => {
     const mismatch = compileVideoPromptIrV2(baseV2(), { route: { ...route(), mode_binding: "reference" } });
     expect(mismatch.ok).toBe(false);
     if (!mismatch.ok) expect(mismatch.issues.map((item) => item.code)).toContain("VPD-R001");
+  });
+
+  it("still treats catalog review_after as stale when now is injected after the deadline", async () => {
+    const model = await loadModelPromptProfile("minimax-h3");
+    const connection = await loadConnectionCapabilityProfile("minimax-direct");
+    expect(model.ok && connection.ok).toBe(true);
+    if (!model.ok || !connection.ok) return;
+    const selected = routeFromProfiles({
+      model: "minimax-h3",
+      mode: "text-to-video",
+      model_profile: model.profile,
+      connection_profile: connection.profile,
+      model_profile_digest: model.digest,
+      connection_profile_digest: connection.digest
+    });
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    const beforeDeadline = createEffectiveGenerationContract({
+      mode: "text-to-video",
+      route: selected.route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_profile_digest: connection.digest,
+      now: CATALOG_REVIEW_CLOCK
+    });
+    expect(beforeDeadline.ok).toBe(true);
+    const afterDeadline = createEffectiveGenerationContract({
+      mode: "text-to-video",
+      route: selected.route,
+      model_profile: model.profile,
+      model_profile_digest: model.digest,
+      connection_profile: connection.profile,
+      connection_profile_digest: connection.digest,
+      now: "2026-09-08T00:00:00.000Z"
+    });
+    expect(afterDeadline.ok).toBe(false);
+    if (!afterDeadline.ok) expect(afterDeadline.issues.map((item) => item.code)).toContain("VPD-K001");
   });
 
   it("rejects injected effective contracts unless strict digest and route bindings match", () => {

@@ -3,6 +3,7 @@ import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, sy
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
+import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import { ArtifactStore } from "../src/productionControl/artifactStore.js";
 import {
   compileProjectVideoPrompts,
@@ -85,6 +86,7 @@ async function v6Route() {
 }
 
 describe("PO-4 final repair regressions", () => {
+  useCatalogReviewClock();
   it("rejects an active video operation whose declared output kind is image before adapter resolution", async () => {
     const project = {
       slug: "active-output-kind-mismatch",
