@@ -2,6 +2,7 @@ import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import { loadProject } from "../src/project/loadProject.js";
 import { validateProject } from "../src/project/validateProject.js";
 import { createDryRun, createPlan } from "../src/orchestrator/plan.js";
@@ -177,6 +178,7 @@ function sourceFor(route: ReturnType<typeof createRouteIdentity>): GenerationUni
 }
 
 describe("PO-4 independent audit reproductions", () => {
+  useCatalogReviewClock();
   it("accepts native V2 project YAML through load, validate, plan, review, and dry-run", async () => {
     const fixture = await writeFixtureProject(baseV2(), "native-v2");
     try {
