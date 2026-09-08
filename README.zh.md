@@ -50,7 +50,7 @@ npm run setup:open  # 同时打开本地 launcher 时
 - 需要 Coordinator 与 Gate 审批的 `run` / `render`。
 - 仅绑定 `127.0.0.1` 的浏览器 launcher 与只读 3D Viewer。
 
-Desktop 应用的一般分发已结束。日常入口是 GitHub 源码 + Codex / Claude Code + 本地浏览器 launcher。Electron 源码仅用于开发与回归测试。仓库软件版本是 **0.11.0**。
+Desktop 应用的一般分发已结束。日常入口是 GitHub 源码 + Codex / Claude Code + 本地浏览器 launcher。Electron 源码仅用于开发与回归测试。仓库软件版本是 **0.12.0**。
 
 ```sh
 npm --prefix apps/workflow-viewer ci
@@ -73,4 +73,4 @@ node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 
 一次性偏好留在 `projects/<job>/notes.md`。可复用风格进入 `examples/` 或 `templates/`。可机器检查的问题进入 constraints / validate / doctor。判断型规则先写入 `LESSONS.md`，经人批准后再升到 skill / AGENTS.md / CLAUDE.md。core 必须保持厂商中立。
 
-公开契约变更写入 README、`manifest/schema.md`、`docs/requirements.md`。当前软件版本是 **0.11.0**。1.0 仍要求 live provider/billing 证据与 packaged Desktop UAT；Windows smoke 已在 GitHub Actions 上验证。
+公开契约变更写入 README、`manifest/schema.md`、`docs/requirements.md`。当前软件版本是 **0.12.0**。1.0 仍要求 live provider/billing 证据与 packaged Desktop UAT；Windows smoke 已在 GitHub Actions 上验证。

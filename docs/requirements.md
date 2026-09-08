@@ -4,7 +4,7 @@
 生成アダプタ（CLI / MCP）と編集バックエンド（Remotion / HyperFrames）を、
 manifest（EDL）という単一の契約で接続する「砂時計型」アーキテクチャ。
 
-- リポ名: Tsugite（継手）。ソフトウェア version **0.11.0**
+- リポ名: Tsugite（継手）。ソフトウェア version **0.12.0**
 - 状態: 現行契約の要約。詳細な制作フロー正本は `.agents/skills/tsugite/SKILL.md`
 - 1.0 未達: live provider/billing 証拠、packaged Desktop UAT。Windows smoke は GitHub Actions で確認済み
 - MiniMax live submit と Gate 2 `retry_specific` は 1.0 対象外（明示エラー / preflight-only）
