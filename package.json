@@ -35,7 +35,10 @@
     "hyperframes:studio": "node node_modules/hyperframes/bin/hyperframes.mjs preview",
     "hyperframes:studio:verify": "node backends/hyperframes/verify-studio.mjs",
     "pixverse:install": "npm ci --prefix adapters/pixverse/runtime",
-    "pixverse": "node adapters/pixverse/cli.mjs"
+    "pixverse": "node adapters/pixverse/cli.mjs",
+    "editframe:install": "npm ci --prefix backends/editframe/runtime",
+    "editframe": "node backends/editframe/cli.mjs",
+    "editframe:preview": "node backends/editframe/preview.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

@@ -95,6 +95,7 @@ Optional [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md) edits a 
 - Gate 3 QC report generation for final duration, resolution, fps, and audio/video streams.
 - First-class image assets, speaker/pose metadata, and guarded presentation presets.
 - Remotion and HyperFrames backend contracts.
+- Optional local [Editframe backend](docs/editframe.md): `npm run editframe:install`, then `edit.backend: editframe`. Preview uses an authoring copy. WebMCP and disk-save APIs are unverified.
 - A Gate-bound audio adapter contract and an official HyperFrames `media-use` integration for BGM/SFX.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
 - A loopback-only project launcher and an optional, read-only 3D detail viewer under `apps/workflow-viewer/`.

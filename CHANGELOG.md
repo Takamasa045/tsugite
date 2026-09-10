@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added an optional local Editframe render backend and preview entry, installed with `npm run editframe:install`. It uses a pinned runtime (`@editframe/cli@0.59.47`, Vite 8.2.2) and static `/media` copies. Native JIT/WebRTC, 9:16, 24fps, transitions, and concurrent audio mix remain undeclared.
+
 ## 0.12.0 - 2026-09-08
 
 - Added repository-pinned official PixVerse CLI 1.4.0 with explicit installation and a Canvas command entrypoint (`npm run pixverse:install`, `npm run --silent pixverse -- canvas ...`).
