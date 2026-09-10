@@ -30,7 +30,7 @@ ChromeのローカルWebMCPは [公式手順](https://developer.chrome.com/docs/
 
 Studioのトップページコンテキストで`document.modelContext`を使う。登録は非同期なので、`toolchange`後または有期限の待機で12ツールの登録を確認する。登録後も`studio_look`の要素が返るまでcompositionの読み込みを待つ。
 
-初回はStudioが`data-hf-id`をHTMLへ保存するため、開くだけでもauthoring copyに変更が生じうる。`look`に要素があっても`inspect`がhandle不一致になる場合は保存されたIDを確認し、一度再読み込みして`look`からhandleを取り直す。これでも不一致なら書き込まず原因を調べる。
+初回はStudioが`data-hf-id`をHTMLへ保存するため、開くだけでもauthoring copyに変更が生じうる。プレビューが表示され、実DOMにIDが反映されてから`look`と`inspect`を別々に呼ぶ。登録確認のポーリング中にinspectを繰り返さない。`hyperframes-player`のプレビューiframeはShadow DOM内にあり、通常の`document.querySelector("iframe")`では取得できない。handle不一致が残る場合は保存されたIDを確認し、一度再読み込みして`look`から取り直す。それでも不一致なら書き込まず原因を調べる。IDの事前加工は本手順の必須条件にしない。
 
 ```javascript
 const mc = document.modelContext;
@@ -83,7 +83,7 @@ macOSの例（既存Chromeを使い、ブラウザをダウンロードしない
 PUPPETEER_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" npm run hyperframes:studio:verify
 ```
 
-`backends/hyperframes/verify-studio.mjs`は`dist/verification/hyperframes-webmcp/<timestamp>/webmcp-<id>`に、既存backendのHTML生成関数から5秒の字幕fixtureを作る。自分のStudio・新規Chromeプロファイルを起動し、初回のID保存後に再読み込みする。その後native WebMCPの発見 → inspect → select → text/style編集 → 実ファイルhash/内容 → seek → PNG取得 → reload後のreadbackを検査する。PNGは固定fixtureの寸法と編集後の水色画素100以上を確認し、1000/3000/5000msの待機で最大3回の画像取得までに更新されなければ失敗する。試行画像と画素数も残し、古い画像の成功判定を防ぐ。実ツールを差し替えず、API mockや直接の編集handler呼び出しを使わない。自分で起動したprocessを終了し、report.json、server.log、frame.png、studio.pngを残す。成功はexit 0、失敗はexit 1と理由。外部通信を遮断する検証ではなく、Studio自身のフォント解決等は発生しうる。
+`backends/hyperframes/verify-studio.mjs`は`dist/verification/hyperframes-webmcp/<timestamp>/webmcp-<id>`に、既存backendのHTML生成関数から5秒の字幕fixtureを作る。fixture専用のID加工はしない。自分のStudio・新規Chromeプロファイルを起動し、ツール登録とShadow DOM内の実プレビューの準備完了を待つ。その後native WebMCPの発見 → inspect → select → text/style編集 → 実ファイルhash/内容 → seek → PNG取得 → reload後のreadbackを検査する。PNGは固定fixtureの寸法と編集後の水色画素100以上を確認し、1000/3000/5000msの待機で最大3回の画像取得までに更新されなければ失敗する。試行画像と画素数も残し、古い画像の成功判定を防ぐ。実ツールを差し替えず、API mockや直接の編集handler呼び出しを使わない。自分で起動したprocessを終了し、report.json、server.log、frame.png、studio.pngを残す。成功はexit 0、失敗はexit 1と理由。外部通信を遮断する検証ではなく、Studio自身のフォント解決等は発生しうる。
 
 これはStudio接続の独立smokeで、`verify-tsugite`のDoctor/validate fixtureとは別。動画render・生成・Gate変更・既存制作データの編集は行わない。motion authoring、複数composition、ホストの許可UI、動画完成品質はこの検証で成功扱いにしない。依存更新時はこのsmokeと関連テスト、`npm run check`を再実行する。
 

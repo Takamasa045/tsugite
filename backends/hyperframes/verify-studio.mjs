@@ -63,21 +63,19 @@ async function call(page, name, input = {}) {
   return result;
 }
 
-async function ready(page, inspectReady = true) {
-  await page.waitForFunction(async (inspectReady) => {
+async function ready(page) {
+  await page.waitForFunction(async () => {
     const mc = document.modelContext;
     if (!mc?.getTools) return false;
-    const tools = await mc.getTools();
-    if (tools.length !== 12) return false;
-    const look = tools.find((tool) => tool.name === "studio_look");
-    const inspect = tools.find((tool) => tool.name === "studio_inspect");
-    if (!look || !inspect) return false;
-    const scene = JSON.parse(await mc.executeTool(look, "{}"));
-    if (scene.elementCount !== 1) return false;
-    if (!inspectReady) return true;
-    // Source discovery can finish before the preview DOM accepts its handle.
-    return JSON.parse(await mc.executeTool(inspect, JSON.stringify({ handle: scene.elements[0].handle }))).ok === true;
-  }, { timeout: 45_000, polling: 250 }, inspectReady);
+    return (await mc.getTools()).length === 12;
+  }, { timeout: 45_000, polling: 250 });
+  // Wait for the real fixture preview, without firing editing/inspection actors
+  // repeatedly during React initialization. Tool calls follow separately below.
+  await page.waitForFunction(() => {
+    const frame = document.querySelector("hyperframes-player")?.shadowRoot?.querySelector("iframe");
+    const doc = frame?.contentDocument;
+    return doc?.readyState === "complete" && doc.querySelector("#caption-1")?.getAttribute("data-hf-id");
+  }, { timeout: 45_000, polling: 250 });
 }
 
 try {
@@ -93,7 +91,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   browser = await puppeteer.launch({
-    executablePath: chrome, headless: true, protocolTimeout: 30_000,
+    executablePath: chrome, headless: true, protocolTimeout: 60_000,
     args: ["--enable-features=WebMCP"]
   });
   report.browser = await browser.version();
@@ -102,9 +100,6 @@ try {
   // Observe the native API before Studio boot; never inject a registry or tool callback.
   await page.evaluateOnNewDocument(() => { window.__nativeWebMCP = typeof document.modelContext?.getTools === "function"; });
   await page.goto(`${origin}/#project/${projectId}`);
-  await ready(page, false);
-  // Studio assigns source IDs on first load; load that persisted source into the preview.
-  await page.reload();
   await ready(page);
   report.nativeWebMCP = await page.evaluate(() => window.__nativeWebMCP);
   assert.equal(report.nativeWebMCP, true, "Native WebMCP unavailable; enable a supported Chrome build");
