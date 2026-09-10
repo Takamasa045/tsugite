@@ -4,7 +4,7 @@
 
 パッチ済み HyperFrames **0.8.24**、macOS native Chrome **152** で、通常の `renderIndexHtml` authoring copy に対する初回 inspect → 文字/色編集 → 保存 → reload → 再 inspect/select → 別色の再編集 → 更新 PNG 2枚が、tracked smoke 3回連続で成功した。lifecycle（iframe 差し替えが `instanceof` 失敗を起こす過程）は未証明。motion、他ホスト、他OS、複数 composition は未検証で、入口は実験的扱いを続ける。制作正本の直接編集はしない。
 
-ローカル `npm run check` は 135 files / **2069 tests passed**。root `security:audit` は production 0 / 全依存 0。download-site 必須 `--omit=dev` と全依存 `--audit-level=moderate` はいずれも 0（js-yaml 4.3.2、fflate 0.7.5）。本文はローカル検証を記録する。GitHub CI の現状は [PR #160 Checks](https://github.com/Takamasa045/tsugite/pull/160/checks) を参照。
+ローカル `npm run check` は 135 files / **2070 tests passed**。root `security:audit` は production 0 / 全依存 0。download-site 必須 `--omit=dev` と全依存 `--audit-level=moderate` はいずれも 0（js-yaml 4.3.2、fflate 0.7.5）。本文はローカル検証を記録する。GitHub CI の現状は [PR #160 Checks](https://github.com/Takamasa045/tsugite/pull/160/checks) を参照。
 
 証拠: `dist/verification/hyperframes-webmcp-fixes/2026-09-10T02-30-52-088Z/`、`2026-09-10T02-31-04-760Z/`、`2026-09-10T02-31-15-913Z/`。
 

@@ -153,6 +153,23 @@ describe("hyperframes in-memory zip", () => {
     expect(() => listZipEntries(valid.subarray(0, valid.length - 10))).toThrow(/central directory|end-of-central-directory/);
   });
 
+  it("sets EFS on local and central headers so Japanese UTF-8 paths survive independent unzip", () => {
+    const FLAG_EFS = 0x0800;
+    const archive = new InMemoryZip();
+    archive.addFile("素材/字幕.txt", "日本語キャプション");
+    const buffer = archive.toBuffer();
+    const nameBytes = Buffer.from("素材/字幕.txt", "utf8");
+    const localName = buffer.indexOf(nameBytes);
+    const centralName = buffer.indexOf(nameBytes, localName + 1);
+    expect(localName).toBeGreaterThanOrEqual(0);
+    expect(centralName).toBeGreaterThan(localName);
+    expect(buffer.readUInt16LE(localName - 24) & FLAG_EFS).toBe(FLAG_EFS);
+    expect(buffer.readUInt16LE(centralName - 38) & FLAG_EFS).toBe(FLAG_EFS);
+    const independent = unzipSync(new Uint8Array(buffer));
+    expect(Object.keys(independent)).toContain("素材/字幕.txt");
+    expect(Buffer.from(independent["素材/字幕.txt"]).toString("utf8")).toBe("日本語キャプション");
+  });
+
   it("does not expose filesystem extraction APIs", () => {
     const archive = new InMemoryZip();
     expect(archive.extractAllTo).toBeUndefined();

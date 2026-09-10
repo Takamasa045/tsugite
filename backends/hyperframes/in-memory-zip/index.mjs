@@ -16,6 +16,7 @@ const LOCAL_SIG = 0x04034b50;
 const ZIP64_EXTRA = 0x0001;
 const FLAG_ENCRYPTED = 0x0001;
 const FLAG_DATA_DESCRIPTOR = 0x0008;
+const FLAG_UTF8 = 0x0800;
 
 function toUint8(content) {
   if (content instanceof Uint8Array) return content;
@@ -231,7 +232,7 @@ function encodeZip(entries) {
     const local = [];
     writeU32(local, LOCAL_SIG);
     writeU16(local, 20);
-    writeU16(local, 0);
+    writeU16(local, FLAG_UTF8);
     writeU16(local, method);
     writeU16(local, dosTime);
     writeU16(local, dosDate);
@@ -247,7 +248,7 @@ function encodeZip(entries) {
     writeU32(cd, CD_SIG);
     writeU16(cd, 20);
     writeU16(cd, 20);
-    writeU16(cd, 0);
+    writeU16(cd, FLAG_UTF8);
     writeU16(cd, method);
     writeU16(cd, dosTime);
     writeU16(cd, dosDate);
