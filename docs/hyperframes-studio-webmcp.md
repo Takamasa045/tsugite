@@ -2,7 +2,7 @@
 
 TsugiteのローカルHyperFrames Studioを、ブラウザ内のWebMCPツールで操作する任意の編集入口。依存は **0.8.24固定**。既存のmanifest・backend・Gateは維持する。
 
-**現時点では実験的な入口。** 2026-09-10のmain側再検証で、ツール登録とプレビュー表示後にも`studio_inspect`が`no element matches handle`を返す初期化不安定を確認した。編集・保存・更新画像までの成功例もあるが、既存HTMLを常に編集できる準備条件は確立できていない。下記smokeが実環境で通るまで、制作正本の操作や実編集の安定動作を保証しない。失敗を無視した書き込みや、ツール実装の差し替えで回避しない。
+**現時点では実験的な入口。** 2026-09-10のmain側再検証で、ツール登録とプレビュー表示後にも`studio_inspect`が`no element matches handle`を返す不安定さを確認した。追加調査では編集・保存・画像更新後のreloadでも再現した。編集・保存・更新画像までの成功例もあるが、既存HTMLを常に編集できる準備条件は確立できていない。下記smokeが実環境で通るまで、制作正本の操作や実編集の安定動作を保証しない。失敗を無視した書き込みや、ツール実装の差し替えで回避しない。
 
 ## 対応版と境界
 
@@ -85,7 +85,7 @@ macOSの例（既存Chromeを使い、ブラウザをダウンロードしない
 PUPPETEER_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" npm run hyperframes:studio:verify
 ```
 
-`backends/hyperframes/verify-studio.mjs`は`dist/verification/hyperframes-webmcp/<timestamp>/webmcp-<id>`に、既存backendのHTML生成関数から5秒の字幕fixtureを作る。fixture専用のID加工はしない。自分のStudio・新規Chromeプロファイルを起動し、ツール登録とShadow DOM内の実プレビューの準備完了を待つ。その後native WebMCPの発見 → inspect → select → text/style編集 → 実ファイルhash/内容 → seek → PNG取得 → reload後のreadbackを検査する。PNGは固定fixtureの寸法と編集後の水色画素100以上を確認し、1000/3000/5000msの待機で最大3回の画像取得までに更新されなければ失敗する。試行画像と画素数も残し、古い画像の成功判定を防ぐ。実ツールを差し替えず、API mockや直接の編集handler呼び出しを使わない。自分で起動したprocessを終了し、report.json、server.log、frame.png、studio.pngを残す。成功はexit 0、失敗はexit 1と理由。外部通信を遮断する検証ではなく、Studio自身のフォント解決等は発生しうる。
+`backends/hyperframes/verify-studio.mjs`は`dist/verification/hyperframes-webmcp/<timestamp>/webmcp-<id>`に、既存backendのHTML生成関数から5秒の字幕fixtureを作る。fixture専用のID加工はしない。自分のStudio・新規Chromeプロファイルを起動し、ツール登録とShadow DOM内の実プレビューの準備完了を待つ。その後native WebMCPの発見 → inspect → select → text/style編集 → 実ファイルhash/内容 → seek → PNG取得 → reload後のreadbackを検査する。PNGは固定fixtureの寸法と編集後の水色画素100以上を確認し、1000/3000/5000msの待機で最大3回の画像取得までに更新されなければ失敗する。試行画像と画素数も残し、古い画像の成功判定を防ぐ。実ツールを差し替えず、API mockや直接の編集handler呼び出しを使わない。既存の有期限process-tree停止処理で自分のStudio子孫processの終了を確認し、report.json、server.log、成功時はframe.pngとstudio.pngを残す。失敗時はphase・直前のツール応答・プレビューDOMのID/文字/色・failure.pngを記録する。停止確認に失敗した場合もexit 1にする。成功はexit 0、失敗はexit 1と理由。外部通信を遮断する検証ではなく、Studio自身のフォント解決等は発生しうる。
 
 これはStudio接続の独立smokeで、`verify-tsugite`のDoctor/validate fixtureとは別。動画render・生成・Gate変更・既存制作データの編集は行わない。motion authoring、複数composition、ホストの許可UI、動画完成品質はこの検証で成功扱いにしない。依存更新時はこのsmokeと関連テスト、`npm run check`を再実行する。
 

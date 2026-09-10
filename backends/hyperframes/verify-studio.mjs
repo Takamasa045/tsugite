@@ -9,6 +9,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderIndexHtml, renderRuntimeSource } from "./document.mjs";
+import { stopCatalogProcess } from "./catalog.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -17,6 +18,7 @@ const hfRequire = createRequire(packagePath);
 const { default: puppeteer } = await import(hfRequire.resolve("puppeteer-core"));
 const sharp = hfRequire("sharp");
 const version = JSON.parse(await readFile(packagePath, "utf8")).version;
+assert.equal(version, "0.8.24", "Revalidate the Studio contract before changing the pinned version");
 const chrome = process.env.PUPPETEER_EXECUTABLE_PATH;
 assert(chrome, "Set PUPPETEER_EXECUTABLE_PATH to an installed Chrome 152+ executable; no browser is downloaded.");
 const out = join(root, "dist/verification/hyperframes-webmcp", new Date().toISOString().replace(/[:.]/g, "-"));
@@ -37,8 +39,9 @@ await once(probe, "listening");
 const port = probe.address().port;
 await new Promise((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
 const origin = `http://localhost:${port}`;
-const report = { version, fixtureOnly: true, calls: [], startedAt: new Date().toISOString() };
+const report = { version, fixtureOnly: true, phase: "startup", calls: [], startedAt: new Date().toISOString() };
 let browser;
+let page;
 let logs = "";
 let spawnError;
 const child = spawn(process.execPath, [
@@ -58,9 +61,26 @@ async function call(page, name, input = {}) {
     // RegisteredTool and JSON string are the consumer API, not (name, object).
     return JSON.parse(await mc.executeTool(tool, JSON.stringify(input)));
   }, { name, input });
-  report.calls.push({ name, input, result });
+  report.calls.push({ phase: report.phase, name, input, result });
   assert.equal(result.ok, true, `${name}: ${JSON.stringify(result)}`);
   return result;
+}
+
+// Read-only evidence: distinguish missing source IDs from a tool/preview mismatch.
+// Never repair the registry, mutate preview IDs, or retry failed writes here.
+async function previewEvidence(page) {
+  return page.evaluate(() => [...document.querySelectorAll("hyperframes-player")].map((player) => {
+    const frame = player.shadowRoot?.querySelector("iframe");
+    const doc = frame?.contentDocument;
+    return {
+      src: frame?.src, readyState: doc?.readyState,
+      elements: [...(doc?.querySelectorAll("[data-hf-id]") ?? [])].map((element) => ({
+        id: element.id, hfId: element.getAttribute("data-hf-id"),
+        text: element.textContent, color: doc.defaultView?.getComputedStyle(element).color,
+        ownerRealmMatches: Boolean(doc.defaultView && element instanceof doc.defaultView.HTMLElement)
+      }))
+    };
+  }));
 }
 
 async function ready(page) {
@@ -95,11 +115,12 @@ try {
     args: ["--enable-features=WebMCP"]
   });
   report.browser = await browser.version();
-  const page = await browser.newPage();
+  page = await browser.newPage();
   await page.setViewport({ width: 1440, height: 1000 });
   // Observe the native API before Studio boot; never inject a registry or tool callback.
   await page.evaluateOnNewDocument(() => { window.__nativeWebMCP = typeof document.modelContext?.getTools === "function"; });
   await page.goto(`${origin}/#project/${projectId}`);
+  report.phase = "initial-read";
   await ready(page);
   report.nativeWebMCP = await page.evaluate(() => window.__nativeWebMCP);
   assert.equal(report.nativeWebMCP, true, "Native WebMCP unavailable; enable a supported Chrome build");
@@ -110,13 +131,19 @@ try {
   const handle = scene.elements[0].handle;
   const before = await call(page, "studio_inspect", { handle });
   assert.equal(before.text, "WebMCP before");
+  assert.equal(before.can.editText, true);
+  assert.equal(before.can.editStyles, true);
+  report.phase = "edit";
   report.sourceBeforeSha256 = hash(await readFile(htmlPath));
   await call(page, "studio_select", { handle });
   // 0.8.24 writes ambient selection. Wait for React's selection readback separately.
   const selected = await call(page, "studio_inspect", { handle });
   assert.equal(selected.isCurrentSelection, true);
   await call(page, "studio_set_text", { text: "WebMCP verified" });
-  assert.equal((await call(page, "studio_inspect", { handle })).isCurrentSelection, true);
+  const textReadback = await call(page, "studio_inspect", { handle });
+  assert.equal(textReadback.isCurrentSelection, true);
+  assert.equal(textReadback.text, "WebMCP verified");
+  assert.equal(textReadback.can.editStyles, true);
   const style = await call(page, "studio_set_style", { styles: { color: "#67e8f9" } });
   assert.deepEqual(style.rejected, {});
   const after = await call(page, "studio_inspect", { handle });
@@ -129,6 +156,7 @@ try {
   assert.equal((await call(page, "studio_seek", { time: 2 })).playhead, 2);
   // A valid PNG can still be the pre-edit render cache. Verify fixture pixels,
   // retrying only frame reads (never writes) within the official settleMs bound.
+  report.phase = "frame";
   report.frameAttempts = [];
   for (const settleMs of [1000, 3000, 5000]) {
     const frame = await call(page, "studio_frame", { time: 2, settleMs });
@@ -152,6 +180,7 @@ try {
     }
   }
   assert(report.frameAttempts.at(-1).cyanPixels >= 100, "Frame remained stale: edited cyan text is absent");
+  report.phase = "reload-read";
   await page.reload();
   await ready(page);
   const reloaded = await call(page, "studio_look");
@@ -159,26 +188,33 @@ try {
   assert.equal(persisted.text, "WebMCP verified");
   assert.equal(persisted.styles.color, "rgb(103, 232, 249)");
   await page.screenshot({ path: join(out, "studio.png") });
+  report.phase = "complete";
   report.ok = true;
   report.notVerified = ["motion authoring", "host agent permission UI", "pipeline render", "Gate transitions"];
 } catch (error) {
   report.ok = false;
   report.error = error instanceof Error ? error.message : String(error);
+  if (page && !page.isClosed()) {
+    report.previewAtFailure = await previewEvidence(page).catch((error) => ({ error: error.message }));
+    await page.screenshot({ path: join(out, "failure.png") }).catch(() => {});
+  }
   process.exitCode = 1;
 } finally {
   if (browser) await browser.close().catch(() => {});
-  if (child.exitCode === null && child.signalCode === null && child.pid) {
-    const closed = once(child, "close");
-    child.kill("SIGTERM");
-    const timer = setTimeout(() => {
-      try {
-        if (process.platform === "win32") child.kill("SIGKILL");
-        else process.kill(-child.pid, "SIGKILL");
-      } catch { /* Already exited. */ }
-    }, 10_000);
-    timer.unref();
-    await closed;
-    clearTimeout(timer);
+  // Parent close does not prove descendant exit. Reuse the tested bounded
+  // process-tree stopper, including Windows taskkill and POSIX group liveness.
+  // The shared stopper unrefs its timers. This standalone CLI must stay alive
+  // after the last child closes until cleanup evidence has been written.
+  const cleanupKeepAlive = setInterval(() => {}, 1000);
+  try {
+    report.cleanup = await stopCatalogProcess(child);
+  } finally {
+    clearInterval(cleanupKeepAlive);
+  }
+  if (!report.cleanup.stopped) {
+    report.ok = false;
+    report.cleanupError = "Studio process tree did not stop cleanly";
+    process.exitCode = 1;
   }
   report.finishedAt = new Date().toISOString();
   await writeFile(join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);

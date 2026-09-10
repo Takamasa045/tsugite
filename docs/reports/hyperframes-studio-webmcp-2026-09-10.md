@@ -1,6 +1,10 @@
 # Studio WebMCP接続検証（2026-09-10）
 
-## 結果
+## 現在の判定
+
+**実編集の安定動作は未達。** 初回inspectとreload後inspectの両方に失敗例がある。以下の成功記録は個別runの証拠であり、入口全体の動作保証ではない。READMEと接続手順も実験的扱いに統一する。
+
+## 個別runの成功記録
 
 HyperFrames **0.8.24**、macOS、Chrome **152.0.7977.83**、Node **22.23.2**、npm **12.0.2**で成功。新規ブラウザプロファイルに`--enable-features=WebMCP`を渡し、Studio読み込み前からnative `document.modelContext`が存在することを観測した。ツール登録・実行callbackの差し替えなし。
 
@@ -39,7 +43,7 @@ after  0fee20304383583205929f35d7e6430e6ad8ecc054632c80f63d72402dec8f30
 
 0.8.33は発見・read/select/seek/frameが成立したが、set_textはnative APIで`UnknownError`、公式polyfillで`Cannot destructure property 'signal' of 'undefined'`を返した。`executeTool`へAbortSignalを明示してもnativeでは失敗。上流登録コードの`execute: (input, { signal })`は0.8.25〜0.8.33に存在する。0.8.24にはこの必須引数がなく、実編集が成立したので互換版として固定した。
 
-初回のsmokeではsource側の要素発見後にpreview側のhandleがまだ解決できなかった。StudioがsourceへIDを割り当てる初回処理を考慮し、ユニークなfixture名・専用server・初回reload・inspect準備完了の確認を追加した。変更後のfresh fixtureで成功。
+初回のsmokeではsource側の要素発見後にpreview側のhandleが解決できなかった。専用server・初回reload等を試して成功例を得たが、後続検証では再発した。現在のsmokeはツール登録とShadow DOM内の実プレビューを待つ方式であり、初回reloadやinspectのポーリングを解決策として採用していない。
 
 0.8.24の書き込みは共有選択を使う。単独セッションでselectとinspectを別呼び出しにし、選択一致を確認する。[接続手順](../hyperframes-studio-webmcp.md)に現行APIとの違い、コピー使用、manifestへの自動反映なしを記載した。
 
@@ -60,3 +64,18 @@ main側の初回smoke（`2026-09-10T00-24-40-798Z`）は保存/reloadが成功�
 上記の成功をmain側で再実行した`2026-09-10T00-44-34-413Z`は、プレビューDOMとツール登録の確認後、最初の`studio_inspect`で`no element matches handle hf:hf-ddr2`となり失敗した。公式`settleMs`による初回待機を足した別の検証も同じ拒否を返したため、その追加待機を解決策として採用していない。既存生成HTMLに対する安定した初期化条件は未確立。成功例だけから実用上の安定性を主張しない。
 
 main側の検証記録は`dist/verification/hyperframes-webmcp/integration/verified-smoke.log`と当該runの`report.json`に残す。root checkの2058 tests成功はこのブラウザ失敗を代替しない。現在の入口は実験的扱いで、正式な実編集運用の完了判断は保留する。動画生成・render・Gate変更は未実施。
+
+## GitHub反映前の精査
+
+- READMEと本記録の冒頭に残っていた包括的な「編集可能・成功」という表現を修正し、個別成功と全体の未達を区別した。
+- `2026-09-10T00-58-52-328Z`は編集・保存・更新PNG取得まで成功したが、reload後のinspectが失敗した。失敗時にもプレビューDOMには同じ`data-hf-id=hf-ddr2`と更新後の文字・色があった。問題は初回ID生成だけでは説明できない。上流の`studio_inspect`はプレビュー参照からDOMを解決するため、参照先/登録寿命の不一致が調査候補だが、原因確定や上流修正は未実施。
+- smokeに失敗phase・プレビューDOMの証拠・失敗スクリーンショットを追加した。書き込み前の編集可否と文字readbackも確認する。ツール/IDの差し替えや失敗した編集の再送はしない。
+- 旧cleanupは親processのcloseだけで終了とみなし、子孫を残す可能性があった。既存のテスト済みprocess-tree停止処理を再利用し、子孫の生存と停止結果も記録する。
+- GitHubと同じ依存監査で、既存Hono・Sharp・Vitest依存の脆弱性が見つかった。Hono 4.13.7、Sharp 0.35.4、Vitest/coverage 4.1.11へ互換範囲内で更新。HyperFramesは0.8.24固定を維持した。
+- production依存監査は0件。全依存監査にはHyperFrames配下の`adm-zip`が残る（[公開アドバイザリ GHSA-vwc7-r8mq-g2x9](https://github.com/advisories/GHSA-vwc7-r8mq-g2x9)、moderate、調査時点で修正版なし）。監査を無効化・例外化してCIを通さない。CI結果とGitHub main反映はPR上で確認する。
+
+追加検証ログは`dist/verification/hyperframes-webmcp/review/`の`focused.log`、`check.log`、`smoke-final.log`、`security-audit-final.log`。ignored evidenceはGitHub配布物に含めない。
+
+最新smoke `2026-09-10T01-02-57-318Z`は`phase: initial-read`で失敗したが、failure DOMには対象IDがあり、`element instanceof doc.defaultView.HTMLElement`はfalseだった。上流0.8.24の`handles.ts`の`asHtmlElement`はこの判定を必須とするため、IDがあるだけではinspect成功にならない。どの処理がrealm不一致を作るかは未確定。終了記録は`cleanup: { stopped: true, alive: false }`で、今回追加した診断と子孫終了確認は動作した。
+
+最終の依存固定後の検証は、対象6ファイル **72 tests passed**、`npm run check`は133ファイル **2058 tests passed**、vendor/build成功。coverageはstatements 82.85%、branches 74.62%、functions 89.74%、lines 85.53%。ログは`review/focused-locked.log`と`review/check-locked.log`。最終smoke `2026-09-10T01-08-23-135Z`は編集・保存・更新画像取得後のreload-readで失敗、process-treeの停止は確認できた。`review/security-audit-locked.log`にはproduction 0件と全依存のadm-zip指摘を記録。これらはローカル検証でありGitHub CIの成功とは区別する。
