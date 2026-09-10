@@ -2,7 +2,7 @@
 
 TsugiteのローカルHyperFrames Studioを、ブラウザ内のWebMCPツールで操作する任意の編集入口。依存は **0.8.24固定**。既存のmanifest・backend・Gateは維持する。
 
-**現時点の対象範囲。** パッチ済み HyperFrames **0.8.24** を native Chrome **152** で開き、通常の `renderIndexHtml` authoring copy に対する初回 inspect → 文字/色編集 → 保存 → reload → 再 inspect/select → 別色の再編集 → 更新 PNG 2枚は、tracked smoke 3回で成功した。iframe 差し替えが失敗を起こす過程は未証明。motion、他ホスト、他OS、入れ子 composition は未検証のため実験的入口のまま。制作正本は直接編集しない。失敗を無視した書き込みやツール実装の差し替えはしない。パッチ前の inspect 失敗は[検証記録](reports/hyperframes-studio-webmcp-2026-09-10.md)の履歴を参照。ローカル検証と GitHub CI は別であり、GitHub 必須チェックは未実行。
+**現時点の対象範囲。** パッチ済み HyperFrames **0.8.24** を native Chrome **152** で開き、通常の `renderIndexHtml` authoring copy に対する初回 inspect → 文字/色編集 → 保存 → reload → 再 inspect/select → 別色の再編集 → 更新 PNG 2枚は、tracked smoke 3回で成功した。iframe 差し替えが失敗を起こす過程は未証明。motion、他ホスト、他OS、入れ子 composition は未検証のため実験的入口のまま。制作正本は直接編集しない。失敗を無視した書き込みやツール実装の差し替えはしない。パッチ前の inspect 失敗は[検証記録](reports/hyperframes-studio-webmcp-2026-09-10.md)の履歴を参照。本文はローカル検証を記録する。GitHub CI の現状は [PR #160 Checks](https://github.com/Takamasa045/tsugite/pull/160/checks) を参照。
 
 ## 対応版と境界
 

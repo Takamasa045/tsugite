@@ -4,7 +4,7 @@
 
 パッチ済み HyperFrames **0.8.24**、macOS native Chrome **152** で、通常の `renderIndexHtml` authoring copy に対する初回 inspect → 文字/色編集 → 保存 → reload → 再 inspect/select → 別色の再編集 → 更新 PNG 2枚が、tracked smoke 3回連続で成功した。lifecycle（iframe 差し替えが `instanceof` 失敗を起こす過程）は未証明。motion、他ホスト、他OS、複数 composition は未検証で、入口は実験的扱いを続ける。制作正本の直接編集はしない。
 
-ローカル `npm run check` は 135 files / **2069 tests passed**。root `security:audit` は production 0 / 全依存 0。download-site 必須 `--omit=dev` は 0。download-site 任意の全依存 audit には fflate 0.7.x moderate と js-yaml 4.3.1 high が残る。GitHub CI は未実行（Coordinator 反映待ち）。
+ローカル `npm run check` は 135 files / **2069 tests passed**。root `security:audit` は production 0 / 全依存 0。download-site 必須 `--omit=dev` は 0。download-site 任意の全依存 audit には fflate 0.7.x moderate と js-yaml 4.3.1 high が残る。本文はローカル検証を記録する。GitHub CI の現状は [PR #160 Checks](https://github.com/Takamasa045/tsugite/pull/160/checks) を参照。
 
 証拠: `dist/verification/hyperframes-webmcp-fixes/2026-09-10T02-30-52-088Z/`、`2026-09-10T02-31-04-760Z/`、`2026-09-10T02-31-15-913Z/`。
 
@@ -84,8 +84,8 @@ main側の検証記録は`dist/verification/hyperframes-webmcp/integration/verif
 
 最新smoke `2026-09-10T01-02-57-318Z`は`phase: initial-read`で失敗したが、failure DOMには対象IDがあり、`element instanceof doc.defaultView.HTMLElement`はfalseだった。上流0.8.24の`asHtmlElement`（配信バンドルでは `ZD`）はこの判定を必須とするため、IDがあるだけではinspect成功にならない。これは観測された症状である。iframe の default execution context が複数回作られた記録はあるが、それだけで失敗原因と断定しない。後続のベースライン1回は initial inspect に成功しており、間欠の失敗そのものはその1回では再現していない。採用した修正は、配信 `/assets/index-Bq3M0sjr.js` の `ZD` を HTML 名前空間・同一 document・接続中ノードの受け入れへ置き換えること。単体テストは合成オブジェクトでガード契約（constructor mismatch / SVG / 切り離し）を見るものであり、実 DOM realm の失敗再現ではない。実失敗の根拠は過去の initial/reload smoke である。終了記録は`cleanup: { stopped: true, alive: false }`で、今回追加した診断と子孫終了確認は動作した。
 
-最終の依存固定後の検証は、対象6ファイル **72 tests passed**、`npm run check`は133ファイル **2058 tests passed**、vendor/build成功。coverageはstatements 82.85%、branches 74.62%、functions 89.74%、lines 85.53%。ログは`review/focused-locked.log`と`review/check-locked.log`。最終smoke `2026-09-10T01-08-23-135Z`は編集・保存・更新画像取得後のreload-readで失敗、process-treeの停止は確認できた。`review/security-audit-locked.log`にはproduction 0件と全依存のadm-zip指摘を記録。これらはローカル検証でありGitHub CIの成功とは区別する。
+最終の依存固定後の検証は、対象6ファイル **72 tests passed**、`npm run check`は133ファイル **2058 tests passed**、vendor/build成功。coverageはstatements 82.85%、branches 74.62%、functions 89.74%、lines 85.53%。ログは`review/focused-locked.log`と`review/check-locked.log`。最終smoke `2026-09-10T01-08-23-135Z`は編集・保存・更新画像取得後のreload-readで失敗、process-treeの停止は確認できた。`review/security-audit-locked.log`にはproduction 0件と全依存のadm-zip指摘を記録。これらは当時のローカル検証であり、当時の GitHub CI 成功とは区別する。履歴の GitHub 失敗は [run 34424347067](https://github.com/Takamasa045/tsugite/actions/runs/34424347067)（head `b1d12f1`、root 全依存 adm-zip と download-site prod audit）。
 
 ## 配信パッチ後のローカル再検証
 
-Chrome が読む `/assets/index-Bq3M0sjr.js` の `ZD` を HTML 名前空間・同一 document・`isConnected` に差し替え、tracked `npm run hyperframes:studio:verify` を3回新規実行した。いずれも `ok: true`、cleanup `{stopped:true, alive:false}`。1巡目は `WebMCP verified` / `#67e8f9`（水色 1566画素、橙 0）、reload 後の2巡目は `WebMCP cycle two` / `#f97316`（橙 1652画素、水色 0）。配信 JS の sha256 はパッチ後 `1a3f3682468569d16b856852e3985b1abf7c18b3f0d7c61e3eb4df22595be0ef`。この3回はパッチ後の成功であり、パッチ前の間欠失敗の再現試行ではない。GitHub CI は未確認。
+Chrome が読む `/assets/index-Bq3M0sjr.js` の `ZD` を HTML 名前空間・同一 document・`isConnected` に差し替え、tracked `npm run hyperframes:studio:verify` を3回新規実行した。いずれも `ok: true`、cleanup `{stopped:true, alive:false}`。1巡目は `WebMCP verified` / `#67e8f9`（水色 1566画素、橙 0）、reload 後の2巡目は `WebMCP cycle two` / `#f97316`（橙 1652画素、水色 0）。配信 JS の sha256 はパッチ後 `1a3f3682468569d16b856852e3985b1abf7c18b3f0d7c61e3eb4df22595be0ef`。この3回はパッチ後の成功であり、パッチ前の間欠失敗の再現試行ではない。本文はローカル検証を記録する。GitHub CI の現状は [PR #160 Checks](https://github.com/Takamasa045/tsugite/pull/160/checks) を参照。
