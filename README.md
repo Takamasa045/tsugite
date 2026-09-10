@@ -77,6 +77,8 @@ Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads th
 
 Optional [Premiere Pro editing](docs/premiere-pro.md) is available through `$premiere-editing` (Claude Code: `/premiere-editing`), with editorial guidance, local MCP operations, and visual verification. Optional [After Effects editing](docs/after-effects.md) is available through `$after-effects-editing` (Claude Code: `/after-effects-editing`), using the official local `DoScriptFile` helper for inspect, fixture, title layers, and save-as. On-screen preview and playback are a separate check. Both are agent-operated external editors, not a `pipeline render` backend; existing Gates remain required.
 
+Optional [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md) edits a local authoring copy through the pinned Studio CLI: `npm run hyperframes:studio -- <composition-dir>`. On patched 0.8.24 with native Chrome 152, first inspect, text/style edit, save, reload, and a second edit with two updated frames succeeded in three fresh runs. Motion authoring and other hosts remain unverified. Studio edits do not update the pipeline manifest; a later pipeline render regenerates HTML. Existing Gates remain required.
+
 - Manifest validation and local asset checks.
 - A separate, versioned **Agent Service Registry** for public read-only Remote MCP services (`services` / `service-tools` / `service-call`), isolated from generation `connections`. See [Agent Services](docs/agent-services.md).
 - Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.

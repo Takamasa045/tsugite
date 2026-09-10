@@ -13,11 +13,12 @@ const EXPECTED_OVERRIDES = {
   "brace-expansion": "5.0.9",
   "minimatch": "10.2.5",
   "fast-uri": "3.1.7",
-  "js-yaml": "4.3.1",
+  "js-yaml": "4.3.2",
+  "fflate@0.7.4": "0.7.5",
   nanoid: "3.3.18",
   "postcss": "8.5.25",
   "react-server-dom-webpack": "19.2.8",
-  "sharp": "0.35.3",
+  "sharp": "0.35.4",
   "undici": "7.29.0",
 };
 
@@ -31,15 +32,15 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
     readJson("package-lock.json"),
   ]);
 
-  assert.equal(manifest.dependencies.next, "^16.2.11");
-  assert.equal(manifest.devDependencies["eslint-config-next"], "^16.2.11");
+  assert.equal(manifest.dependencies.next, "^16.3.4");
+  assert.equal(manifest.devDependencies["eslint-config-next"], "^16.3.4");
   assert.equal(manifest.devDependencies.vinext, "0.0.45");
   assert.deepEqual(manifest.overrides, EXPECTED_OVERRIDES);
   assert.equal(
     manifest.scripts["security:audit"],
     "node scripts/security-audit.mjs",
   );
-  assert.equal(lockfile.packages["node_modules/next"].version, "16.2.11");
+  assert.equal(lockfile.packages["node_modules/next"].version, "16.3.4");
   assert.equal(lockfile.packages["node_modules/@babel/core"].version, "7.29.7");
   assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "5.0.9");
   assert.equal(lockfile.packages["node_modules/minimatch"].version, "10.2.5");
@@ -47,11 +48,11 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.7");
-  assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.1");
+  assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.2");
   assert.equal(lockfile.packages["node_modules/nanoid"].version, "3.3.18");
   assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.25");
   assert.equal(lockfile.packages["node_modules/next/node_modules/postcss"], undefined);
-  assert.equal(lockfile.packages["node_modules/sharp"].version, "0.35.3");
+  assert.equal(lockfile.packages["node_modules/sharp"].version, "0.35.4");
   assert.equal(lockfile.packages["node_modules/undici"].version, "7.29.0");
   assert.equal(lockfile.packages["node_modules/vinext"].version, "0.0.45");
   assert.equal(lockfile.packages["node_modules/image-size"], undefined);
@@ -63,6 +64,23 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
     if (path.endsWith("node_modules/nanoid")) {
       assert.equal(entry.version, "3.3.18", path);
     }
+    if (path.endsWith("node_modules/js-yaml")) {
+      assert.equal(entry.version, "4.3.2", path);
+    }
+    if (path.endsWith("node_modules/fflate")) {
+      const [major, minor, patch] = entry.version.split(".").map(Number);
+      if (major === 0 && minor === 7) {
+        assert.ok(
+          patch >= 5,
+          `vulnerable fflate ${entry.version} at ${path}; expected >= 0.7.5 in 0.7.x`,
+        );
+      } else {
+        assert.ok(
+          major > 0 || minor > 7 || (minor === 8 && patch >= 3),
+          `unexpected fflate ${entry.version} at ${path}`,
+        );
+      }
+    }
     if (path.endsWith("node_modules/image-size")) {
       assert.fail(`unexpected image-size lock entry: ${path}`);
     }
@@ -70,7 +88,7 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
 
   const sharpPlatformPackages = Object.entries(lockfile.packages).filter(
     ([path]) =>
-      path.startsWith("node_modules/@img/sharp-") &&
+      /^node_modules\/@img\/sharp-[^/]+$/.test(path) &&
       !path.startsWith("node_modules/@img/sharp-libvips-"),
   );
   const libvipsPackages = Object.entries(lockfile.packages).filter(([path]) =>
@@ -78,8 +96,8 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   );
   assert.ok(sharpPlatformPackages.length >= 10);
   assert.ok(libvipsPackages.length >= 8);
-  assert.ok(sharpPlatformPackages.every(([, entry]) => entry.version === "0.35.3"));
-  assert.ok(libvipsPackages.every(([, entry]) => entry.version === "1.3.2"));
+  assert.ok(sharpPlatformPackages.every(([, entry]) => entry.version === "0.35.4"));
+  assert.ok(libvipsPackages.every(([, entry]) => entry.version === "1.3.3"));
 });
 
 test("keeps the patched PostCSS, URI, YAML, glob, and image paths operational", async () => {
