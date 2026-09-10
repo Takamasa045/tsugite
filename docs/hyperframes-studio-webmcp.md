@@ -2,6 +2,8 @@
 
 TsugiteのローカルHyperFrames Studioを、ブラウザ内のWebMCPツールで操作する任意の編集入口。依存は **0.8.24固定**。既存のmanifest・backend・Gateは維持する。
 
+**現時点では実験的な入口。** 2026-09-10のmain側再検証で、ツール登録とプレビュー表示後にも`studio_inspect`が`no element matches handle`を返す初期化不安定を確認した。編集・保存・更新画像までの成功例もあるが、既存HTMLを常に編集できる準備条件は確立できていない。下記smokeが実環境で通るまで、制作正本の操作や実編集の安定動作を保証しない。失敗を無視した書き込みや、ツール実装の差し替えで回避しない。
+
 ## 対応版と境界
 
 - WebMCP導入は公式 [v0.8.21](https://github.com/heygen-com/hyperframes/releases/tag/v0.8.21)。[公式ガイド](https://github.com/heygen-com/hyperframes/blob/main/docs/guides/webmcp.mdx) の現行APIには、0.8.24以降の変更も含まれる。操作時はページが返すschemaを正本にする。
