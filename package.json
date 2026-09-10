@@ -30,6 +30,7 @@
     "desktop:audit": "npm --prefix apps/desktop run package:audit",
     "security:audit": "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
     "vendor:check": "node scripts/check-vendor-boundary.mjs",
+    "postinstall": "node backends/hyperframes/apply-pinned-patches.mjs",
     "check": "npm run vendor:check && npm run build && npm run test:coverage",
     "hyperframes:studio": "node node_modules/hyperframes/bin/hyperframes.mjs preview",
     "hyperframes:studio:verify": "node backends/hyperframes/verify-studio.mjs",
@@ -49,6 +50,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@tsugite/hyperframes-in-memory-zip": "file:backends/hyperframes/in-memory-zip",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -61,13 +63,13 @@
   },
   "overrides": {
     "@hono/node-server": "2.0.11",
-    "adm-zip": "^0.6.0",
     "fast-uri": "3.1.7",
     "hono": "4.13.7",
     "ip-address": "10.4.0",
     "postcss": "8.5.25",
     "qs": "6.16.0",
     "sharp": "0.35.4",
-    "nanoid": "3.3.18"
+    "nanoid": "3.3.18",
+    "adm-zip": "npm:fflate@0.8.3"
   }
 }

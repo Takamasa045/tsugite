@@ -2,12 +2,13 @@
 
 TsugiteのローカルHyperFrames Studioを、ブラウザ内のWebMCPツールで操作する任意の編集入口。依存は **0.8.24固定**。既存のmanifest・backend・Gateは維持する。
 
-**現時点では実験的な入口。** 2026-09-10のmain側再検証で、ツール登録とプレビュー表示後にも`studio_inspect`が`no element matches handle`を返す不安定さを確認した。追加調査では編集・保存・画像更新後のreloadでも再現した。編集・保存・更新画像までの成功例もあるが、既存HTMLを常に編集できる準備条件は確立できていない。下記smokeが実環境で通るまで、制作正本の操作や実編集の安定動作を保証しない。失敗を無視した書き込みや、ツール実装の差し替えで回避しない。
+**現時点の対象範囲。** パッチ済み HyperFrames **0.8.24** を native Chrome **152** で開き、通常の `renderIndexHtml` authoring copy に対する初回 inspect → 文字/色編集 → 保存 → reload → 再 inspect/select → 別色の再編集 → 更新 PNG 2枚は、tracked smoke 3回で成功した。iframe 差し替えが失敗を起こす過程は未証明。motion、他ホスト、他OS、入れ子 composition は未検証のため実験的入口のまま。制作正本は直接編集しない。失敗を無視した書き込みやツール実装の差し替えはしない。パッチ前の inspect 失敗は[検証記録](reports/hyperframes-studio-webmcp-2026-09-10.md)の履歴を参照。ローカル検証と GitHub CI は別であり、GitHub 必須チェックは未実行。
 
 ## 対応版と境界
 
 - WebMCP導入は公式 [v0.8.21](https://github.com/heygen-com/hyperframes/releases/tag/v0.8.21)。[公式ガイド](https://github.com/heygen-com/hyperframes/blob/main/docs/guides/webmcp.mdx) の現行APIには、0.8.24以降の変更も含まれる。操作時はページが返すschemaを正本にする。
-- 2026-09-10に0.8.33を実Chrome 152で調査したところ、読み取りは成功したが、書き込みcallbackが未提供の第2引数から`signal`を取り出して例外になった。native WebMCPと公式polyfillの両方で再現。公式ソースでは0.8.25〜0.8.33に同じ必須引数があり、直前の0.8.24を互換版として採用した（[0.8.33の登録コード](https://github.com/heygen-com/hyperframes/blob/v0.8.33/packages/studio/src/webmcp/useStudioAgentTools.ts)、[0.8.24](https://github.com/heygen-com/hyperframes/blob/v0.8.24/packages/studio/src/webmcp/useStudioAgentTools.ts)）。上流forkや登録APIの差し替えは行わない。
+- 2026-09-10に0.8.33を実Chrome 152で調査したところ、読み取りは成功したが、書き込みcallbackが未提供の第2引数から`signal`を取り出して例外になった。native WebMCPと公式polyfillの両方で再現。公式ソースでは0.8.25〜0.8.33に同じ必須引数があり、0.8.33の配信バンドルにも `execute:(e,{signal:n})` が残る。書き込み契約を壊さないため **0.8.24を固定**し、配信JSだけを `backends/hyperframes/apply-pinned-patches.mjs` でハッシュ拘束パッチする（[0.8.33の登録コード](https://github.com/heygen-com/hyperframes/blob/v0.8.33/packages/studio/src/webmcp/useStudioAgentTools.ts)、[0.8.24](https://github.com/heygen-com/hyperframes/blob/v0.8.24/packages/studio/src/webmcp/useStudioAgentTools.ts)）。上流forkや登録APIの差し替えは行わない。
+- Chromeが実際に読むのは `dist/studio/index.html` の `/assets/index-Bq3M0sjr.js` であり、`dist/studio/index.js` だけを直しても配信面は変わらない。パッチは配信バンドルの `ZD`（`asHtmlElement`）を、`instanceof defaultView.HTMLElement` から HTML 名前空間・同一 document・`isConnected` の受け入れへ置き換える。SVG・切り離し・別documentは拒否する。
 - **0.8.24の書き込み対象は現在の選択**。`studio_select`の後、別呼び出しの`studio_inspect`で`isCurrentSelection`を確認してから書く。書き込みに`handle`は渡さない。選択と書き込みの間に人や別エージェントが操作しない単独編集セッションで使う。複数ファイルに同じIDがある入れ子compositionは今回の検証対象外。
 - 現行ガイドの`refused / dispatched / saved / verified` receiptと明示handle書き込みは、この固定版の契約ではない。`ok: true`だけで保存完了とせず、実ファイル・inspect・再読み込み・画像を照合する。
 - HeyGen hosted cloud MCP（チャットから生成・renderするサービス）への接続設定は不要。ページ内ツールはStudioを開いたブラウザの機能。stdio/HTTP MCP serverのURLとして登録するものではない。
@@ -85,7 +86,7 @@ macOSの例（既存Chromeを使い、ブラウザをダウンロードしない
 PUPPETEER_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" npm run hyperframes:studio:verify
 ```
 
-`backends/hyperframes/verify-studio.mjs`は`dist/verification/hyperframes-webmcp/<timestamp>/webmcp-<id>`に、既存backendのHTML生成関数から5秒の字幕fixtureを作る。fixture専用のID加工はしない。自分のStudio・新規Chromeプロファイルを起動し、ツール登録とShadow DOM内の実プレビューの準備完了を待つ。その後native WebMCPの発見 → inspect → select → text/style編集 → 実ファイルhash/内容 → seek → PNG取得 → reload後のreadbackを検査する。PNGは固定fixtureの寸法と編集後の水色画素100以上を確認し、1000/3000/5000msの待機で最大3回の画像取得までに更新されなければ失敗する。試行画像と画素数も残し、古い画像の成功判定を防ぐ。実ツールを差し替えず、API mockや直接の編集handler呼び出しを使わない。既存の有期限process-tree停止処理で自分のStudio子孫processの終了を確認し、report.json、server.log、成功時はframe.pngとstudio.pngを残す。失敗時はphase・直前のツール応答・プレビューDOMのID/文字/色・failure.pngを記録する。停止確認に失敗した場合もexit 1にする。成功はexit 0、失敗はexit 1と理由。外部通信を遮断する検証ではなく、Studio自身のフォント解決等は発生しうる。
+`backends/hyperframes/verify-studio.mjs`は`dist/verification/hyperframes-webmcp-fixes/<timestamp>/webmcp-<id>`に、既存backendのHTML生成関数から5秒の字幕fixtureを作る。fixture専用のID加工はしない。自分のStudio・新規Chromeプロファイルを起動し、ツール登録とShadow DOM内の実プレビューの準備完了を待つ。その後native WebMCPの発見 → inspect → select → text/style編集 → 実ファイルhash/内容 → seek → PNG取得 → reload後のinspect/selectと別色の再編集 → 2枚目の更新画像を検査する。1巡目は水色 `#67e8f9`、2巡目は橙 `#f97316`。PNGは固定fixtureの寸法と各色100画素以上を確認し、1000/3000/5000msの待機で最大3回の画像取得までに更新されなければ失敗する。試行画像と画素数も残し、古い画像の成功判定を防ぐ。実ツールを差し替えず、API mockや直接の編集handler呼び出しを使わない。既存の有期限process-tree停止処理で自分のStudio子孫processの終了を確認し、report.json、server.log、成功時はframeとstudio.pngを残す。失敗時はphase・直前のツール応答・プレビューDOMのID/文字/色・failure.pngを記録する。停止確認に失敗した場合もexit 1にする。成功はexit 0、失敗はexit 1と理由。外部通信を遮断する検証ではなく、Studio自身のフォント解決等は発生しうる。
 
 これはStudio接続の独立smokeで、`verify-tsugite`のDoctor/validate fixtureとは別。動画render・生成・Gate変更・既存制作データの編集は行わない。motion authoring、複数composition、ホストの許可UI、動画完成品質はこの検証で成功扱いにしない。依存更新時はこのsmokeと関連テスト、`npm run check`を再実行する。
 

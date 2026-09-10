@@ -26,6 +26,7 @@ describe("dependency security contracts", () => {
 
     expect(manifest.overrides).toMatchObject({
       "@hono/node-server": "2.0.11",
+      "adm-zip": "npm:fflate@0.8.3",
       "fast-uri": "3.1.7",
       hono: "4.13.7",
       "ip-address": "10.4.0",
@@ -33,6 +34,21 @@ describe("dependency security contracts", () => {
       qs: "6.16.0",
       sharp: "0.35.4"
     });
+    expect(manifest.scripts.postinstall).toBe("node backends/hyperframes/apply-pinned-patches.mjs");
+    expect(manifest.devDependencies["@tsugite/hyperframes-in-memory-zip"]).toBe(
+      "file:backends/hyperframes/in-memory-zip"
+    );
+    expect(manifest.devDependencies.hyperframes).toBe("0.8.24");
+    expect(lockfile.packages["node_modules/hyperframes"]?.version).toBe("0.8.24");
+    expect(lockfile.packages["node_modules/hyperframes"]?.dependencies?.["adm-zip"]).toBe("^0.6.0");
+    expect(lockfile.packages["node_modules/fflate"]?.version).toBe("0.8.3");
+    const aliased = Object.entries(lockfile.packages).filter(([path]) => path.endsWith("node_modules/adm-zip"));
+    expect(aliased.length).toBeGreaterThan(0);
+    for (const [, entry] of aliased) {
+      expect(entry.name ?? "fflate").not.toBe("adm-zip");
+      expect(entry.version).toBe("0.8.3");
+      expect(String(entry.resolved ?? "")).toMatch(/fflate/);
+    }
     expect(lockfile.packages["node_modules/@hono/node-server"].version).toBe("2.0.11");
     expect(lockfile.packages["node_modules/fast-uri"].version).toBe("3.1.7");
     expect(lockfile.packages["node_modules/qs"].version).toBe("6.16.0");
@@ -114,5 +130,17 @@ describe("dependency security contracts", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("hyperframes v");
     expect(result.stdout).toContain("render");
+  });
+
+  it("aliases adm-zip to fflate instead of the vulnerable implementation", async () => {
+    const installed = JSON.parse(
+      await readFile(resolve(ROOT, "node_modules/adm-zip/package.json"), "utf8")
+    );
+    expect(installed.name).toBe("fflate");
+    expect(installed.version).toBe("0.8.3");
+    const published = JSON.parse(
+      await readFile(resolve(ROOT, "node_modules/hyperframes/package.json"), "utf8")
+    );
+    expect(published.dependencies["adm-zip"]).toBe("^0.6.0");
   });
 });
