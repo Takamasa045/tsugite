@@ -15,6 +15,7 @@ Tsugite は `project.yaml` を入口とする、承認付き動画制作パイ�
 - **After Effectsでの編集指定**：[After Effects編集Skill](.agents/skills/after-effects-editing/SKILL.md)。任意の外部編集入口として演出・公式DoScriptFile helper・画面確認を扱う。導入・対応範囲は [接続手順](docs/after-effects.md)。pipeline backendやGate承認の代替ではない。
 
 - **PixVerse Canvasの操作指定**：[Canvas接続手順](docs/pixverse-canvas.md) を読む。`npm run pixverse:install` で固定版を任意導入し、`npm run --silent pixverse -- canvas ...` を使う。外部操作入口であり、生成承認・Gate・成果物取り込みを代替しない。
+- **HyperFrames Studio / WebMCPの操作指定**：[Studio接続手順](docs/hyperframes-studio-webmcp.md) を読む。固定版の `npm run hyperframes:studio -- <composition-dir>` から開き、ページ内の実ツールを発見して操作する。固定版の選択・書き込み契約を守り、返答・実ファイル・画面を照合する。Studio編集はmanifestへ自動反映されず、pipeline renderでHTMLが再生成されるため、制作run正本を直接編集しない。
 
 ## 安全境界とプロジェクト制約
 

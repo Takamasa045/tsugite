@@ -31,6 +31,8 @@
     "security:audit": "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
     "vendor:check": "node scripts/check-vendor-boundary.mjs",
     "check": "npm run vendor:check && npm run build && npm run test:coverage",
+    "hyperframes:studio": "node node_modules/hyperframes/bin/hyperframes.mjs preview",
+    "hyperframes:studio:verify": "node backends/hyperframes/verify-studio.mjs",
     "pixverse:install": "npm ci --prefix adapters/pixverse/runtime",
     "pixverse": "node adapters/pixverse/cli.mjs"
   },
@@ -52,7 +54,7 @@
     "@types/react-dom": "^19.2.3",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitest/coverage-v8": "^4.1.10",
-    "hyperframes": "^0.7.85",
+    "hyperframes": "0.8.24",
     "tsx": "^4.23.1",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^4.1.10"
