@@ -13,7 +13,8 @@ const EXPECTED_OVERRIDES = {
   "brace-expansion": "5.0.9",
   "minimatch": "10.2.5",
   "fast-uri": "3.1.7",
-  "js-yaml": "4.3.1",
+  "js-yaml": "4.3.2",
+  "fflate@0.7.4": "0.7.5",
   nanoid: "3.3.18",
   "postcss": "8.5.25",
   "react-server-dom-webpack": "19.2.8",
@@ -47,7 +48,7 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.7");
-  assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.1");
+  assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.2");
   assert.equal(lockfile.packages["node_modules/nanoid"].version, "3.3.18");
   assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.25");
   assert.equal(lockfile.packages["node_modules/next/node_modules/postcss"], undefined);
@@ -62,6 +63,23 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
     }
     if (path.endsWith("node_modules/nanoid")) {
       assert.equal(entry.version, "3.3.18", path);
+    }
+    if (path.endsWith("node_modules/js-yaml")) {
+      assert.equal(entry.version, "4.3.2", path);
+    }
+    if (path.endsWith("node_modules/fflate")) {
+      const [major, minor, patch] = entry.version.split(".").map(Number);
+      if (major === 0 && minor === 7) {
+        assert.ok(
+          patch >= 5,
+          `vulnerable fflate ${entry.version} at ${path}; expected >= 0.7.5 in 0.7.x`,
+        );
+      } else {
+        assert.ok(
+          major > 0 || minor > 7 || (minor === 8 && patch >= 3),
+          `unexpected fflate ${entry.version} at ${path}`,
+        );
+      }
     }
     if (path.endsWith("node_modules/image-size")) {
       assert.fail(`unexpected image-size lock entry: ${path}`);
