@@ -58,7 +58,7 @@ await call("studio_set_text", { text: "変更後の文字" });
 await call("studio_inspect", { handle });
 // 別のstyle編集前にも選択・can.editStylesを確認する。
 await call("studio_set_style", { styles: { color: "#67e8f9" } });
-const frame = await call("studio_frame", { time: 2 });
+const frame = await call("studio_frame", { time: 2, settleMs: 1000 });
 // frame.urlのPNGを実際に開く。返されたURLだけでは画像確認にならない。
 ```
 
@@ -73,6 +73,8 @@ const frame = await call("studio_frame", { time: 2 });
 
 styleの`rejected`やツールの拒否理由を確認し、保存停止・外部変更競合のbannerを解消するまで再送しない。motionは`studio_inspect`の`animationEditingBlocked`と実compositionのGSAP対応を確認する。TsugiteのローカルGSAP互換runtimeを公式GSAPの全編集対応とみなさない。
 
+0.8.24の画像は保存直後に古いrender cacheから返る場合がある。`settleMs`を1000〜5000msに増やして**画像取得だけ**を再試行し、実際の文字・色を確認してからreloadする。編集を再送しない。ファイル保存・PNG形式が正常でも、画像の内容が古ければ検証失敗とする。
+
 ## 再現検証
 
 macOSの例（既存Chromeを使い、ブラウザをダウンロードしない）:
@@ -81,7 +83,7 @@ macOSの例（既存Chromeを使い、ブラウザをダウンロードしない
 PUPPETEER_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" npm run hyperframes:studio:verify
 ```
 
-`backends/hyperframes/verify-studio.mjs`は`dist/verification/hyperframes-webmcp/<timestamp>/webmcp-<id>`に、既存backendのHTML生成関数から5秒の字幕fixtureを作る。自分のStudio・新規Chromeプロファイルを起動し、初回のID保存後に再読み込みする。その後native WebMCPの発見 → inspect → select → text/style編集 → 実ファイルhash/内容 → seek → PNG取得 → reload後のreadbackを検査する。実ツールを差し替えず、API mockや直接の編集handler呼び出しを使わない。自分で起動したprocessを終了し、report.json、server.log、frame.png、studio.pngを残す。成功はexit 0、失敗はexit 1と理由。外部通信を遮断する検証ではなく、Studio自身のフォント解決等は発生しうる。
+`backends/hyperframes/verify-studio.mjs`は`dist/verification/hyperframes-webmcp/<timestamp>/webmcp-<id>`に、既存backendのHTML生成関数から5秒の字幕fixtureを作る。自分のStudio・新規Chromeプロファイルを起動し、初回のID保存後に再読み込みする。その後native WebMCPの発見 → inspect → select → text/style編集 → 実ファイルhash/内容 → seek → PNG取得 → reload後のreadbackを検査する。PNGは固定fixtureの寸法と編集後の水色画素100以上を確認し、1000/3000/5000msの待機で最大3回の画像取得までに更新されなければ失敗する。試行画像と画素数も残し、古い画像の成功判定を防ぐ。実ツールを差し替えず、API mockや直接の編集handler呼び出しを使わない。自分で起動したprocessを終了し、report.json、server.log、frame.png、studio.pngを残す。成功はexit 0、失敗はexit 1と理由。外部通信を遮断する検証ではなく、Studio自身のフォント解決等は発生しうる。
 
 これはStudio接続の独立smokeで、`verify-tsugite`のDoctor/validate fixtureとは別。動画render・生成・Gate変更・既存制作データの編集は行わない。motion authoring、複数composition、ホストの許可UI、動画完成品質はこの検証で成功扱いにしない。依存更新時はこのsmokeと関連テスト、`npm run check`を再実行する。
 

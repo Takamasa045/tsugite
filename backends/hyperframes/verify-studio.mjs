@@ -15,6 +15,7 @@ const require = createRequire(import.meta.url);
 const packagePath = require.resolve("hyperframes/package.json");
 const hfRequire = createRequire(packagePath);
 const { default: puppeteer } = await import(hfRequire.resolve("puppeteer-core"));
+const sharp = hfRequire("sharp");
 const version = JSON.parse(await readFile(packagePath, "utf8")).version;
 const chrome = process.env.PUPPETEER_EXECUTABLE_PATH;
 assert(chrome, "Set PUPPETEER_EXECUTABLE_PATH to an installed Chrome 152+ executable; no browser is downloaded.");
@@ -131,13 +132,31 @@ try {
   report.sourceAfterSha256 = hash(source);
   assert.notEqual(report.sourceBeforeSha256, report.sourceAfterSha256);
   assert.equal((await call(page, "studio_seek", { time: 2 })).playhead, 2);
-  const frame = await call(page, "studio_frame", { time: 2 });
-  assert.equal(new URL(frame.url).origin, origin);
-  const response = await fetch(frame.url, { signal: AbortSignal.timeout(30_000) });
-  assert(response.ok && response.headers.get("content-type")?.includes("image/png"));
-  const png = Buffer.from(await response.arrayBuffer());
-  assert(png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])));
-  await writeFile(join(out, "frame.png"), png);
+  // A valid PNG can still be the pre-edit render cache. Verify fixture pixels,
+  // retrying only frame reads (never writes) within the official settleMs bound.
+  report.frameAttempts = [];
+  for (const settleMs of [1000, 3000, 5000]) {
+    const frame = await call(page, "studio_frame", { time: 2, settleMs });
+    assert.equal(new URL(frame.url).origin, origin);
+    const response = await fetch(frame.url, { signal: AbortSignal.timeout(30_000) });
+    assert(response.ok && response.headers.get("content-type")?.includes("image/png"));
+    const png = Buffer.from(await response.arrayBuffer());
+    const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    assert.equal(info.width, 1920);
+    assert.equal(info.height, 1080);
+    assert.equal(info.channels, 3);
+    let cyanPixels = 0;
+    for (let i = 0; i < data.length; i += 3) {
+      if (Math.abs(data[i] - 103) <= 3 && Math.abs(data[i + 1] - 232) <= 3 && Math.abs(data[i + 2] - 249) <= 3) cyanPixels++;
+    }
+    report.frameAttempts.push({ settleMs, cyanPixels, sha256: hash(png) });
+    await writeFile(join(out, `frame-${settleMs}.png`), png);
+    if (cyanPixels >= 100) {
+      await writeFile(join(out, "frame.png"), png);
+      break;
+    }
+  }
+  assert(report.frameAttempts.at(-1).cyanPixels >= 100, "Frame remained stale: edited cyan text is absent");
   await page.reload();
   await ready(page);
   const reloaded = await call(page, "studio_look");
