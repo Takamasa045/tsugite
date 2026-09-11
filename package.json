@@ -38,7 +38,9 @@
     "pixverse": "node adapters/pixverse/cli.mjs",
     "editframe:install": "npm ci --prefix backends/editframe/runtime",
     "editframe": "node backends/editframe/cli.mjs",
-    "editframe:preview": "node backends/editframe/preview.mjs"
+    "editframe:preview": "node backends/editframe/preview.mjs",
+    "editframe:examples:install": "node scripts/editframe-examples.mjs install",
+    "editframe:examples": "node scripts/editframe-examples.mjs start"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

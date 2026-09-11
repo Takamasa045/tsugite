@@ -84,6 +84,7 @@ Optional [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md) edits a 
 - Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.
 - CLI generation adapter wrappers for PixVerse/Kling.
 - [PixVerse Canvas](docs/pixverse-canvas.md) via the opt-in, repository-pinned official CLI 1.4.0: `npm run pixverse:install`, then `npm run --silent pixverse -- canvas --help`.
+- [Editframe official examples](docs/editframe-examples.md): opt-in, revision-pinned gallery of 27 video samples. Run `npm run editframe:examples:install`, then `npm run editframe:examples`.
 - Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
 - A story-guide catalog covering 34 narrative, persuasion, documentary, genre, and music-video structures plus 35 contextual film-grammar and AI-video principles.
 - TopView skill CLI generation adapter for T2V and single-frame I2V.
