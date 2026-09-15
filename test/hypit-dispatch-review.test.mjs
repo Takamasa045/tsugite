@@ -8,13 +8,15 @@ import {
   collectExecutionBinding,
   runProductionHypit
 } from "../adapters/hypit/productionRuntime.mjs";
-import { claimIntentDispatch } from "../adapters/hypit/dispatchClaim.mjs";
+import { claimIntentDispatch, dispatchClaimPath } from "../adapters/hypit/dispatchClaim.mjs";
 import { writeProductionReview } from "../adapters/hypit/productionReview.mjs";
 import {
   approveAuthoringPlan,
   bindAuthoringPlan,
   createAuthoringEngineRun,
-  persistAuthoringSubmissionIntent
+  persistAuthoringSubmissionIntent,
+  recordAuthoringBuildOutcome,
+  reviseAuthoringRun
 } from "../src/productionControl/authoringEngine.js";
 import { writePinnedRuntimeFixture } from "./helpers/hypitPinnedRuntimeFixture.mjs";
 
@@ -54,10 +56,10 @@ function pinnedAdapter() {
   return adapterRoot;
 }
 
-function persistReady(productionRoot, workspace, adapterRoot, argv = ["build", "build.svrun"]) {
+function persistReady(productionRoot, workspace, adapterRoot, argv = ["build", "build.svrun"], baseRun) {
   writeSources(workspace);
   const probe = collectExecutionBinding(workspace, "0".repeat(64), argv, adapterRoot);
-  const created = createAuthoringEngineRun({
+  const created = baseRun ?? createAuthoringEngineRun({
     production_id: "lab1",
     adapter_id: "authoring-adapter",
     brief_digest: digest,
@@ -111,6 +113,46 @@ describe("dispatch claim", () => {
     expect(spawns).toBe(1);
     expect(() => runProductionHypit(argv, opts)).toThrow(/already claimed/);
     expect(spawns).toBe(1);
+  });
+
+  it("retry after failed same-plan reapprove gets a new digest and one claim each", () => {
+    const root = mkdtempSync(join(tmpdir(), "tsugite-claim-retry-"));
+    roots.push(root);
+    const adapterRoot = pinnedAdapter();
+    const argv = ["build", "build.svrun"];
+    const first = persistReady(root, root, adapterRoot, argv);
+    const firstDigest = first.submission_intent.digest;
+    expect(first.submission_intent.attempt_identity).toBe("rev-0");
+    let spawns = 0;
+    const spawnCli = () => {
+      spawns += 1;
+      return { status: 0, stdout: JSON.stringify({ format: "hypit.cli-build@1", build: { id: `bld_${spawns}` } }), stderr: "" };
+    };
+    const opts = { productionRoot: root, workspace: root, confirmLocalRender: true, spawnCli, adapterRoot };
+    expect(runProductionHypit(argv, opts).status).toBe(0);
+    expect(spawns).toBe(1);
+    expect(() => runProductionHypit(argv, opts)).toThrow(/already claimed/);
+    expect(spawns).toBe(1);
+    const firstClaim = dispatchClaimPath(root, firstDigest);
+    expect(existsSync(firstClaim)).toBe(true);
+
+    const failed = recordAuthoringBuildOutcome(first, { build_id: "bld_1", outcome: "failed" });
+    const revised = reviseAuthoringRun(failed);
+    const second = persistReady(root, root, adapterRoot, argv, revised);
+    expect(second.plan_digest).toBe(first.plan_digest);
+    expect(second.revision_count).toBe(1);
+    expect(second.submission_intent.attempt_identity).toBe("rev-1");
+    expect(second.submission_intent.digest).not.toBe(firstDigest);
+    expect(second.submission_intent.status).toBe("pending");
+
+    spawns = 0;
+    expect(runProductionHypit(argv, opts).status).toBe(0);
+    expect(spawns).toBe(1);
+    expect(() => runProductionHypit(argv, opts)).toThrow(/already claimed/);
+    expect(spawns).toBe(1);
+    expect(existsSync(firstClaim)).toBe(true);
+    expect(existsSync(dispatchClaimPath(root, second.submission_intent.digest))).toBe(true);
+    expect(firstClaim).not.toBe(dispatchClaimPath(root, second.submission_intent.digest));
   });
 
   it("gives one concurrent claim winner", async () => {

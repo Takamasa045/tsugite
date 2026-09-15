@@ -88,9 +88,11 @@ export const authoringSubmissionIntentSchema = z.object({
   status: z.enum(AUTHORING_INTENT_STATUSES),
   created_at: isoDateSchema,
   auto_resubmit: z.literal(false),
+  // Optional and unset by default so legacy signed intents keep their original digest.
+  attempt_identity: safeIdSchema.optional(),
   digest: digestSchema
 }).strict().superRefine((value, context) => {
-  if (sha256Canonical(withoutField(value, "digest")) !== value.digest) {
+  if (sha256Canonical(intentCanonicalBody(value)) !== value.digest) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["digest"],
@@ -165,6 +167,16 @@ export function unknownAuthoringCost(requestCount = 0, notes: string[] = ["cost 
 
 function omitUndefined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, child]) => child !== undefined)) as T;
+}
+
+function intentCanonicalBody(
+  value: AuthoringSubmissionIntent | Omit<AuthoringSubmissionIntent, "digest">
+): Record<string, unknown> {
+  return omitUndefined(withoutField(value, "digest") as Record<string, unknown>);
+}
+
+function bindAttemptIdentity(run: AuthoringEngineRun): string {
+  return `rev-${run.revision_count}`;
 }
 
 export function digestAuthoringRun(value: Omit<AuthoringEngineRun, "digest">): AuthoringEngineRun {
@@ -315,7 +327,7 @@ export function persistAuthoringSubmissionIntent(
     throw pcError("PC_AUTHORITY_DENIED", "execution binding does not match current plan");
   }
   assertLiveMatchesPlanBinding(run, binding);
-  const unsigned = {
+  const unsigned = intentCanonicalBody({
     schema_version: 1 as const,
     production_id: run.production_id,
     plan_digest: run.plan_digest,
@@ -324,8 +336,9 @@ export function persistAuthoringSubmissionIntent(
     execution_binding: binding,
     status: "pending" as const,
     created_at: input.created_at,
-    auto_resubmit: false as const
-  };
+    auto_resubmit: false as const,
+    attempt_identity: bindAttemptIdentity(run)
+  });
   const intent = authoringSubmissionIntentSchema.parse({
     ...unsigned,
     digest: sha256Canonical(unsigned)
@@ -504,7 +517,7 @@ export function assertSpawnableIntent(run: AuthoringEngineRun): void {
 }
 
 function signIntent(intent: AuthoringSubmissionIntent): AuthoringSubmissionIntent {
-  const { digest: _digest, ...unsigned } = intent;
+  const unsigned = intentCanonicalBody(intent);
   return authoringSubmissionIntentSchema.parse({
     ...unsigned,
     digest: sha256Canonical(unsigned)
