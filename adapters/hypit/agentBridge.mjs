@@ -7,12 +7,11 @@ import { cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFi
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  CODEX_BIN,
   authorChildEnv,
   authorSandboxDir,
-  assertCodexBinAvailable,
   defaultCodexExecArgv,
-  parentAuthorCommand
+  parentAuthorCommand,
+  resolveCodexExecutable
 } from "./authorProfile.mjs";
 import { fileDigestSync, sha256Bytes } from "./digest.mjs";
 import { hypitEntry } from "./runtimeAdapter.mjs";
@@ -117,28 +116,34 @@ function authoredEvidence(before, after) {
  * HTTP/UI must not pass argv. This session does not spawn nested agents;
  * the parent runs the production CLI author command.
  */
+function resolveAuthorExecutable(input) {
+  return input.resolved ?? resolveCodexExecutable(input.env ?? process.env, input.resolve ?? {});
+}
+
 export function invokeAuthorAgent(input) {
   const staged = stageAuthorWorkspace(input.workspace, input);
   const lastMessagePath = join(staged.sandbox, "last-message.txt");
+  let resolved;
+  try {
+    resolved = resolveAuthorExecutable(input);
+  } catch (error) {
+    if (input.runCommand) throw error;
+    return {
+      status: "blocked",
+      reason: error.message,
+      code: error.code,
+      promptPath: staged.promptPath,
+      skillDest: staged.skillDest,
+      argv: [],
+      parentCommand: parentAuthorCommand(input.productionRoot ?? input.workspace)
+    };
+  }
   const argv = defaultCodexExecArgv({
     workspace: input.workspace,
     schemaPath: staged.schemaDest,
-    lastMessagePath
+    lastMessagePath,
+    resolved
   });
-  if (!input.runCommand) {
-    try {
-      assertCodexBinAvailable(CODEX_BIN);
-    } catch (error) {
-      return {
-        status: "blocked",
-        reason: error.message,
-        promptPath: staged.promptPath,
-        skillDest: staged.skillDest,
-        argv,
-        parentCommand: parentAuthorCommand(input.productionRoot ?? input.workspace)
-      };
-    }
-  }
   const before = snapshotSources(input.workspace);
   const home = join(staged.sandbox, "home");
   const tmpdir = join(staged.sandbox, "tmp");
@@ -148,7 +153,8 @@ export function invokeAuthorAgent(input) {
     encoding: "utf8",
     env: options.env,
     timeout: options.timeoutMs ?? 300_000,
-    input: options.input
+    input: options.input,
+    shell: false
   }));
   const result = runCommand(argv, {
     cwd: input.workspace,
@@ -180,12 +186,13 @@ export function invokeAuthorAgent(input) {
 export function startAuthorAgentProcess(input) {
   const staged = stageAuthorWorkspace(input.workspace, input);
   const lastMessagePath = join(staged.sandbox, "last-message.txt");
+  const resolved = resolveAuthorExecutable(input);
   const argv = defaultCodexExecArgv({
     workspace: input.workspace,
     schemaPath: staged.schemaDest,
-    lastMessagePath
+    lastMessagePath,
+    resolved
   });
-  assertCodexBinAvailable(CODEX_BIN);
   const before = snapshotSources(input.workspace);
   const home = join(staged.sandbox, "home");
   const tmpdir = join(staged.sandbox, "tmp");
@@ -195,7 +202,8 @@ export function startAuthorAgentProcess(input) {
   const child = spawn(argv[0], argv.slice(1), {
     cwd: input.workspace,
     env: childEnv,
-    stdio: ["pipe", "pipe", "pipe"]
+    stdio: ["pipe", "pipe", "pipe"],
+    shell: false
   });
   child.stdin.end(readFileSync(staged.promptPath));
   child.stdout.pipe(log);

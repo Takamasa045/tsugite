@@ -1,4 +1,5 @@
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   acceptProduction,
   authorSources,
@@ -15,9 +16,25 @@ import {
   setInstruction
 } from "./orchestrator.mjs";
 
+export function argvHas(argv, name) {
+  return argv.includes(name);
+}
+
+export function argvValue(argv, name, fallback) {
+  const index = argv.indexOf(name);
+  return index === -1 ? fallback : argv[index + 1];
+}
+
+export function buildIntakeCliOptions(argv) {
+  const options = {};
+  if (argvHas(argv, "--production-id")) options.production_id = argvValue(argv, "--production-id");
+  if (argvHas(argv, "--brief")) options.brief = argvValue(argv, "--brief") ?? "";
+  if (argvHas(argv, "--instruction")) options.instruction = argvValue(argv, "--instruction") ?? "";
+  return options;
+}
+
 function arg(name, fallback) {
-  const index = process.argv.indexOf(name);
-  return index === -1 ? fallback : process.argv[index + 1];
+  return argvValue(process.argv, name, fallback);
 }
 
 function flag(name) {
@@ -31,11 +48,7 @@ async function main() {
   if (action === "intake") {
     const source = arg("--from");
     if (!source) throw new Error("usage: intake --from <file.mp4> --production <dir>");
-    const state = await intakeReference(productionRoot, resolve(source), {
-      production_id: arg("--production-id", "lab"),
-      brief: arg("--brief"),
-      instruction: arg("--instruction")
-    });
+    const state = await intakeReference(productionRoot, resolve(source), buildIntakeCliOptions(process.argv));
     process.stdout.write(`${JSON.stringify({ ok: true, action, progress: state.ui, run: state.run }, null, 2)}\n`);
     return;
   }
@@ -138,9 +151,21 @@ async function main() {
   throw new Error("usage: intake|instruction|author|plan|approve|build|status|inspect|accept|export|preview|feedback|review|revise|show|ui");
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error.message}\n`);
-  process.exitCode = 1;
-});
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (typeof entry !== "string" || entry.length === 0) return false;
+  try {
+    return resolve(entry) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
 
-void dirname;
+if (isDirectRun()) {
+  main().catch((error) => {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  });
+}
+
+export { main as runProductionCliMain };

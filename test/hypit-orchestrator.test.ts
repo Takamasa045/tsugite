@@ -322,9 +322,11 @@ describe("production orchestrator", () => {
     const after = await intakeReference(productionRoot, mp4);
     expect(after.brief).toBe("連携のブラウザ検証");
     expect(after.instruction).toBe("keep this instruction");
+    expect(after.run.production_id).toBe("draft-named");
     expect(after.brief).not.toMatch(/AIエージェント創作開発ラボ/);
     expect(after.intake).toBeTruthy();
     expect(loadProductionState(productionRoot)?.instruction).toBe("keep this instruction");
+    expect(loadProductionState(productionRoot)?.run.production_id).toBe("draft-named");
   });
 
   it("uses a generic brief for first intake and allows explicit override", async () => {
@@ -346,6 +348,7 @@ describe("production orchestrator", () => {
     const generic = await intakeReference(productionRoot, mp4);
     expect(generic.brief).not.toMatch(/AIエージェント創作開発ラボ/);
     expect(generic.instruction).toBe("");
+    expect(generic.run.production_id).toBe("fresh");
     const overridden = await intakeReference(productionRoot, mp4, {
       brief: "explicit override",
       instruction: "new instruction"
@@ -881,5 +884,85 @@ describe("production orchestrator", () => {
     const built = requestBuild(productionRoot, { confirmLocalRender: true });
     expect(built.run.build?.outcome).toBe("blocked");
     expect(built.run.submission_intent).toBeUndefined();
+  });
+
+  it("refuses intake when an explicit production_id mismatches the existing id", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "tsugite-prod-"));
+    roots.push(tmp);
+    const productionRoot = join(tmp, "draft-named");
+    mkdirSync(productionRoot, { recursive: true });
+    saveProductionState(productionRoot, {
+      productionRoot,
+      workspace: join(productionRoot, "hypit-workspace"),
+      brief: "keep brief",
+      instruction: "keep instruction",
+      run: { production_id: "draft-named", adapter_id: "authoring-adapter" },
+      ui: { progress: "draft", fake: false }
+    });
+    await expect(intakeReference(productionRoot, join(tmp, "missing.mp4"), { production_id: "lab" }))
+      .rejects.toMatchObject({ code: "PC_IDENTITY_MISMATCH" });
+    const after = loadProductionState(productionRoot);
+    expect(after.run.production_id).toBe("draft-named");
+    expect(after.brief).toBe("keep brief");
+    expect(after.instruction).toBe("keep instruction");
+  });
+
+  it("rejects inspect of a non-current or absent build_id before runtime or state changes", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "tsugite-prod-"));
+    roots.push(tmp);
+    const productionRoot = join(tmp, "prod");
+    mkdirSync(join(productionRoot, "hypit-workspace"), { recursive: true });
+    const { approved, live } = localApprovedRun();
+    const pending = persistAuthoringSubmissionIntent(approved, {
+      argv_digest: "a".repeat(64),
+      created_at: "2026-09-15T00:00:02.000Z",
+      execution_binding: live
+    });
+    const current = recordAuthoringBuildOutcome(pending, { build_id: "bld_current", outcome: "pending" });
+    saveProductionState(productionRoot, {
+      productionRoot,
+      workspace: join(productionRoot, "hypit-workspace"),
+      brief: "brief",
+      run: current,
+      ui: { progress: "build-pending", fake: false }
+    });
+    const before = JSON.stringify(loadProductionState(productionRoot).run.build);
+    let runtimeCalls = 0;
+    const runCli = () => {
+      runtimeCalls += 1;
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          format: "hypit.cli-status@1",
+          build: { id: "bld_other", work: { state: "done", outcome: "complete" }, result: { state: "complete" } }
+        }),
+        stderr: ""
+      };
+    };
+    try {
+      inspectProduction(productionRoot, { buildId: "bld_other", runCli });
+      throw new Error("expected non-current inspect to refuse");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "PC_BUILD_IDENTITY" });
+    }
+    expect(runtimeCalls).toBe(0);
+    expect(JSON.stringify(loadProductionState(productionRoot).run.build)).toBe(before);
+
+    saveProductionState(productionRoot, {
+      productionRoot,
+      workspace: join(productionRoot, "hypit-workspace"),
+      brief: "brief",
+      run: { ...current, build: undefined },
+      ui: { progress: "approved", fake: false }
+    });
+    runtimeCalls = 0;
+    try {
+      inspectProduction(productionRoot, { buildId: "bld_failed", runCli });
+      throw new Error("expected absent current inspect to refuse");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "PC_BUILD_IDENTITY" });
+    }
+    expect(runtimeCalls).toBe(0);
+    expect(loadProductionState(productionRoot).run.build).toBeUndefined();
   });
 });

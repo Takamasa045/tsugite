@@ -2,10 +2,12 @@
  * Production orchestrator: intake → author → check/plan → approve → gated build
  * → inspect/get → artifact → revision. Adapter-side; uses neutral authoringEngine records.
  */
+import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -70,26 +72,221 @@ export function productionLockPath(productionRoot) {
   return join(productionRoot, ".tsugite", "authoring", "state.lock");
 }
 
-export function withProductionLock(productionRoot, fn) {
+export const AUTHORING_LOCK_SCHEMA = "tsugite.authoring.lock@1";
+export const AUTHORING_LOCK_RECOVER_SCHEMA = "tsugite.authoring.lock-recover@1";
+
+function codedError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+export function probePid(pid, kill = process.kill.bind(process)) {
+  if (!Number.isInteger(pid) || pid <= 0) return "invalid";
+  try {
+    kill(pid, 0);
+    return "alive";
+  } catch (error) {
+    if (error && error.code === "ESRCH") return "dead";
+    if (error && error.code === "EPERM") return "alive";
+    return "unknown";
+  }
+}
+
+function parseLockOwner(raw, schema) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(raw ?? "").trim());
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const keys = Object.keys(parsed).sort();
+  if (keys.join(",") !== "acquired_at,pid,schema,token") return null;
+  if (parsed.schema !== schema) return null;
+  if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0) return null;
+  if (typeof parsed.token !== "string" || !/^[0-9a-f-]{36}$/i.test(parsed.token)) return null;
+  if (typeof parsed.acquired_at !== "string" || !Number.isFinite(Date.parse(parsed.acquired_at))) return null;
+  return parsed;
+}
+
+function parseAuthoringLockOwner(raw) {
+  const text = String(raw ?? "").trim();
+  if (/^[1-9][0-9]{0,15}$/.test(text)) {
+    return { schema: "legacy-pid", pid: Number(text), token: null, acquired_at: null };
+  }
+  return parseLockOwner(text, AUTHORING_LOCK_SCHEMA);
+}
+
+function makeLockOwner(schema) {
+  return {
+    schema,
+    pid: process.pid,
+    token: randomUUID(),
+    acquired_at: new Date().toISOString()
+  };
+}
+
+function writeLockOwner(fd, owner) {
+  writeSync(fd, `${JSON.stringify(owner)}\n`);
+  fsyncSync(fd);
+}
+
+function readLockRaw(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (error) {
+    if (error && (error.code === "EACCES" || error.code === "EPERM")) {
+      throw codedError("PC_LOCK_UNSAFE", "authoring lock permission denied");
+    }
+    if (error && error.code === "ENOENT") return null;
+    throw codedError("PC_LOCK_UNSAFE", "authoring lock is unreadable");
+  }
+}
+
+function lstatLock(path) {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    if (error && error.code === "ENOENT") return null;
+    if (error && (error.code === "EACCES" || error.code === "EPERM")) {
+      throw codedError("PC_LOCK_UNSAFE", "authoring lock permission denied");
+    }
+    throw codedError("PC_LOCK_UNSAFE", "authoring lock is unreadable");
+  }
+}
+
+function openOwnedLock(path, owner) {
+  const fd = openSync(path, "wx");
+  try {
+    writeLockOwner(fd, owner);
+    return fd;
+  } catch (error) {
+    try { closeSync(fd); } catch { /* ignore */ }
+    try { unlinkSync(path); } catch { /* ignore */ }
+    throw error;
+  }
+}
+
+function releaseOwnedPath(path, fd, token, parseOwner) {
+  try { closeSync(fd); } catch { /* ignore */ }
+  try {
+    const owner = parseOwner(readFileSync(path, "utf8"));
+    if (owner && owner.token === token) unlinkSync(path);
+  } catch {
+    // Never unlink a lock whose identity is uncertain.
+  }
+}
+
+function acquireRecoverMutex(recoverPath, probe) {
+  const owner = makeLockOwner(AUTHORING_LOCK_RECOVER_SCHEMA);
+  try {
+    const fd = openOwnedLock(recoverPath, owner);
+    return { fd, token: owner.token };
+  } catch (error) {
+    if (!error || error.code !== "EEXIST") {
+      if (error && (error.code === "EACCES" || error.code === "EPERM")) {
+        throw codedError("PC_LOCK_UNSAFE", "authoring recover mutex permission denied");
+      }
+      throw error;
+    }
+  }
+  // Fail-closed: never rename/unlink an existing recover mutex. Two recoverers
+  // reading a dead mutex would otherwise steal a live successor.
+  const raw = readLockRaw(recoverPath);
+  if (raw == null) {
+    throw codedError("PC_LOCK_CONFLICT", `authoring recover mutex exists but could not be read: ${recoverPath}`);
+  }
+  const existing = parseLockOwner(raw, AUTHORING_LOCK_RECOVER_SCHEMA);
+  if (!existing) {
+    throw codedError(
+      "PC_LOCK_UNSAFE",
+      `authoring recover mutex is foreign and was left unchanged: ${recoverPath}. Remove it only after confirming no recovery process is running.`
+    );
+  }
+  const liveness = probe(existing.pid);
+  if (liveness === "alive") {
+    throw codedError("PC_LOCK_CONFLICT", `authoring recover mutex is held by pid ${existing.pid}: ${recoverPath}`);
+  }
+  if (liveness === "dead") {
+    throw codedError(
+      "PC_LOCK_UNSAFE",
+      `authoring recover mutex is leftover from interrupted recovery (pid ${existing.pid} is dead) and was left unchanged: ${recoverPath}. Remove this file only after confirming no recovery process is running, then retry. Stale state.lock without a leftover recover mutex can still be recovered.`
+    );
+  }
+  throw codedError(
+    "PC_LOCK_UNSAFE",
+    `authoring recover mutex liveness is unknown and was left unchanged: ${recoverPath}`
+  );
+}
+
+function reclaimDeadAuthoringLock(lockPath, probe, hooks) {
+  const st = lstatLock(lockPath);
+  if (!st) return;
+  if (st.isSymbolicLink() || !st.isFile()) {
+    throw codedError("PC_LOCK_UNSAFE", "authoring lock identity is foreign");
+  }
+  const raw = readLockRaw(lockPath);
+  if (raw == null) return;
+  const owner = parseAuthoringLockOwner(raw);
+  if (!owner) throw codedError("PC_LOCK_UNSAFE", "authoring lock identity is foreign");
+  const liveness = probe(owner.pid);
+  if (liveness === "alive") throw codedError("PC_LOCK_CONFLICT", "authoring lock is held");
+  if (liveness !== "dead") throw codedError("PC_LOCK_UNSAFE", "authoring lock owner liveness is unknown");
+  hooks?.beforeReclaimUnlink?.({ owner, identity: { dev: st.dev, ino: st.ino } });
+  const st2 = lstatLock(lockPath);
+  if (!st2) return;
+  if (st2.dev !== st.dev || st2.ino !== st.ino) {
+    throw codedError("PC_LOCK_CONFLICT", "authoring lock identity changed");
+  }
+  const again = parseAuthoringLockOwner(readLockRaw(lockPath) ?? "");
+  if (!again || again.pid !== owner.pid || again.token !== owner.token || again.schema !== owner.schema) {
+    throw codedError("PC_LOCK_CONFLICT", "authoring lock identity changed");
+  }
+  unlinkSync(lockPath);
+}
+
+export function recoverStaleAuthoringLock(lockPath, options = {}) {
+  const probe = options.probePid ?? ((pid) => probePid(pid));
+  const recoverPath = `${lockPath}.recover`;
+  const mutex = acquireRecoverMutex(recoverPath, probe);
+  try {
+    reclaimDeadAuthoringLock(lockPath, probe, options.hooks);
+  } finally {
+    releaseOwnedPath(recoverPath, mutex.fd, mutex.token, (raw) => parseLockOwner(raw, AUTHORING_LOCK_RECOVER_SCHEMA));
+  }
+}
+
+export function withProductionLock(productionRoot, fn, options = {}) {
   const dir = join(productionRoot, ".tsugite", "authoring");
   mkdirSync(dir, { recursive: true });
   const lockPath = productionLockPath(productionRoot);
+  const probe = options.probePid ?? ((pid) => probePid(pid));
+  const owner = makeLockOwner(AUTHORING_LOCK_SCHEMA);
+  const acquire = () => openOwnedLock(lockPath, owner);
   let fd;
   try {
-    fd = openSync(lockPath, "wx");
+    fd = acquire();
   } catch (error) {
     if (error && error.code === "EEXIST") {
-      throw Object.assign(new Error("authoring lock is held"), { code: "PC_LOCK_CONFLICT" });
+      recoverStaleAuthoringLock(lockPath, { probePid: probe, hooks: options.hooks });
+      try {
+        fd = acquire();
+      } catch (retryError) {
+        if (retryError && retryError.code === "EEXIST") {
+          throw codedError("PC_LOCK_CONFLICT", "authoring lock is held");
+        }
+        if (retryError && (retryError.code === "EACCES" || retryError.code === "EPERM")) {
+          throw codedError("PC_LOCK_UNSAFE", "authoring lock permission denied");
+        }
+        throw retryError;
+      }
+    } else if (error && (error.code === "EACCES" || error.code === "EPERM")) {
+      throw codedError("PC_LOCK_UNSAFE", "authoring lock permission denied");
+    } else {
+      throw error;
     }
-    throw error;
   }
-  const release = () => {
-    try { closeSync(fd); } catch { /* ignore */ }
-    try { unlinkSync(lockPath); } catch { /* ignore */ }
-  };
+  const release = () => releaseOwnedPath(lockPath, fd, owner.token, parseAuthoringLockOwner);
   try {
-    writeSync(fd, `${process.pid}\n`);
-    fsyncSync(fd);
     const result = fn();
     if (result && typeof result.then === "function") {
       return Promise.resolve(result).finally(release);
@@ -148,13 +345,8 @@ export function collectLiveBinding(state, argv, adapterRoot = ADAPTER_ROOT) {
 }
 
 function isPidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
+  const result = probePid(pid);
+  return result === "alive" || result === "unknown";
 }
 
 const GENERIC_INTAKE_BRIEF = "ローカルの参照映像から制作する。";
@@ -181,6 +373,18 @@ export async function intakeReference(productionRoot, sourceMp4, options = {}) {
   return withProductionLock(productionRoot, async () => {
     const existing = loadProductionState(productionRoot);
     assertNoActiveAuthoringMutation(existing, "intake");
+    const requestedId = hasOwn(options, "production_id")
+      ? String(options.production_id ?? "")
+      : undefined;
+    if (requestedId !== undefined && requestedId.length === 0) {
+      throw codedError("PC_IDENTITY_MISMATCH", "intake refuses an empty production_id");
+    }
+    if (requestedId !== undefined && existing?.run?.production_id && requestedId !== existing.run.production_id) {
+      throw codedError(
+        "PC_IDENTITY_MISMATCH",
+        `intake refuses production_id mismatch: existing ${existing.run.production_id}`
+      );
+    }
     const brief = hasOwn(options, "brief")
       ? String(options.brief ?? "")
       : (typeof existing?.brief === "string" && existing.brief.length > 0
@@ -206,7 +410,7 @@ export async function intakeReference(productionRoot, sourceMp4, options = {}) {
         reference_digest: referenceDigest
       })
       : createAuthoringEngineRun({
-        production_id: options.production_id ?? existing?.run?.production_id ?? productionIdFromRoot(productionRoot),
+        production_id: requestedId ?? existing?.run?.production_id ?? productionIdFromRoot(productionRoot),
         adapter_id: options.adapter_id ?? existing?.run?.adapter_id ?? "authoring-adapter",
         brief_digest: briefDigest,
         reference_digest: referenceDigest,
@@ -831,7 +1035,21 @@ export function inspectProduction(productionRoot, options = {}) {
   return withProductionLock(productionRoot, () => {
     const state = loadProductionState(productionRoot);
     if (!state) throw new Error("intake first");
-    const buildId = options.buildId ?? state.run.build?.build_id;
+    const currentBuildId = state.run?.build?.build_id;
+    const requested = hasOwn(options, "buildId") ? options.buildId : undefined;
+    const specified = requested != null && String(requested).length > 0;
+    if (specified) {
+      if (!currentBuildId) {
+        throw codedError("PC_BUILD_IDENTITY", "inspect refuses a build_id when the current run has no build");
+      }
+      if (String(requested) !== currentBuildId) {
+        throw codedError(
+          "PC_BUILD_IDENTITY",
+          `inspect refuses non-current build_id ${requested}; current is ${currentBuildId}`
+        );
+      }
+    }
+    const buildId = currentBuildId;
     if (!buildId) throw new Error("no real build_id to inspect");
     const runCli = options.runCli ?? runProductionHypit;
     const status = runCli(["status", buildId, "--workspace", state.workspace, "--json"], {

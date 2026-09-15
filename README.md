@@ -135,7 +135,7 @@ See [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) for the J
 
 ## Detailed setup and OS notes
 
-Prerequisites are Git, Node.js 22.12 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`.
+Prerequisites are Git, Node.js 22.12 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`. Optional Hypit production (`npm run hypit:install`, runtime init/up) additionally requires Node.js 22.15 or newer in the 22.x line; core remains 22.12.
 
 ```sh
 # macOS

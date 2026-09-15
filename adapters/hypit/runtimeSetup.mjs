@@ -84,6 +84,31 @@ export const PRODUCTION_WORKSPACE_NAME = "hypit-workspace";
 const DEFAULT_PROFILE_NAME = "hypit.runtime.json";
 const POOL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
+/** Additional Hypit runtime requirement. Tsugite core remains Node.js >=22.12 <23. */
+export const HYPIT_MIN_NODE_VERSION = "22.15.0";
+
+export function parseNodeVersion(version) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version ?? ""));
+  if (!match) return null;
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+}
+
+export function isHypitSupportedNodeVersion(version) {
+  const parsed = parseNodeVersion(version);
+  if (!parsed) return false;
+  if (parsed.major !== 22) return false;
+  return parsed.minor > 15 || (parsed.minor === 15 && parsed.patch >= 0);
+}
+
+export function assertHypitNodeVersion(version = process.version) {
+  if (!isHypitSupportedNodeVersion(version)) {
+    throw coded(
+      `Hypit runtime requires Node.js >=${HYPIT_MIN_NODE_VERSION} on the 22.x line. Tsugite core remains Node.js >=22.12 <23. Current: ${version}`,
+      "HYPIT_NODE_UNSUPPORTED"
+    );
+  }
+}
+
 function coded(message, code) {
   return Object.assign(new Error(message), { code });
 }
@@ -486,6 +511,7 @@ export function prepareLocalRuntime(options = {}) {
     throw coded("prepareLocalRuntime requires an options object", "HYPIT_PATH_UNSAFE");
   }
   assertNoForbiddenOptions(options);
+  assertHypitNodeVersion(options.nodeVersion ?? process.version);
   const adapterRoot = options.adapterRoot ?? ADAPTER_ROOT;
   const pinned = assertPinnedRuntime(adapterRoot);
   const workspaceReal = assertSafeWorkspace(options.workspace);

@@ -130,7 +130,7 @@ JSON仕様、操作、サンプル、現在の制限は [`apps/workflow-viewer/R
 
 ## セットアップ詳細とOS別の注意
 
-必要環境は Git、Node.js 22.12以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。
+必要環境は Git、Node.js 22.12以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。任意の Hypit 制作（`npm run hypit:install`、runtime init/up）は追加で Node.js 22.15以上（22.x）が必要です。本体の最低版は 22.12 のままです。
 
 ```sh
 # macOS
