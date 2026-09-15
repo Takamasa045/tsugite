@@ -1,0 +1,6 @@
+{
+  "format": "tsugite.hypit-package-allowlist@1",
+  "distributionScope": "@hypit/",
+  "projectPackages": [],
+  "allowRelativeWorkspaceFiles": true
+}

@@ -382,16 +382,39 @@ const mvAuthoringRefsSchema = z.object({
   generation_units: z.array(digestRefSchema).max(10_000).optional()
 }).strict();
 
+/** Opaque adapter-backed authoring production. Legacy clip/manifest rules do not apply. */
+export const authoringProductionSchema = z
+  .object({
+    kind: z.literal("authoring"),
+    adapter: safeIdSchema,
+    state: safeRelativePathSchema,
+    workspace: safeRelativePathSchema
+  })
+  .strict();
+
+const pipelineProductionSchema = z
+  .object({
+    kind: z.literal("pipeline")
+  })
+  .strict();
+
+export const projectProductionSchema = z.discriminatedUnion("kind", [
+  authoringProductionSchema,
+  pipelineProductionSchema
+]);
+
 export const projectSchema = z
   .object({
     slug: safeIdSchema,
     /** 人向け表示名（日本語）。必須。slug / フォルダ名とは別に持つ。 */
     name: projectDisplayNameSchema,
     run_id: safeIdSchema.optional(),
+    /** Unused historical pointer is allowed for authoring productions. */
     manifest: manifestPathSchema,
     dist_dir: safeRelativePathSchema.default("dist"),
     /** Optional Live Outbox for sikumi village observation. Default disabled. */
     sikumi: sikumiConfigSchema.optional(),
+    production: projectProductionSchema.optional(),
     edit: z.object({
       backend: safeIdSchema,
       editorial: editorialPolicySchema.optional(),
@@ -433,6 +456,37 @@ export const projectSchema = z
   })
   .passthrough()
   .superRefine((project, context) => {
+    const authoring = project.production?.kind === "authoring";
+    if (authoring) {
+      if (project.generation?.requests.length) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "authoring production cannot declare generation requests",
+          path: ["generation"]
+        });
+      }
+      if (project.audio) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "authoring production cannot declare audio requests",
+          path: ["audio"]
+        });
+      }
+      if (project.analysis) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "authoring production cannot declare analysis requests",
+          path: ["analysis"]
+        });
+      }
+      if (project.composition) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "authoring production cannot declare composition settings",
+          path: ["composition"]
+        });
+      }
+    }
     for (const [index, request] of project.generation?.requests.entries() ?? []) {
       const secretPath = findSecretKeyPath(request);
       if (secretPath) {
@@ -550,7 +604,14 @@ export const projectSchema = z
   });
 
 export type Project = z.infer<typeof projectSchema>;
+export type AuthoringProduction = z.infer<typeof authoringProductionSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];
+
+export function isAuthoringProduction(
+  project: Project
+): project is Project & { production: AuthoringProduction } {
+  return project.production?.kind === "authoring";
+}
 export type AudioRequest = NonNullable<Project["audio"]>;
 export type AnalysisRequest = NonNullable<Project["analysis"]>["requests"][number];
 

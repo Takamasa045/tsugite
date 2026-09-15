@@ -1,0 +1,83 @@
+# plan
+status: 0
+signal:
+argv: ["plan","/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/chat.svrun","--workspace","/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace","--json"]
+cwd: /Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace
+entry: /Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit/bin/hypit.mjs
+
+## stdout
+{
+  "format": "hypit.cli-plan@1",
+  "ok": true,
+  "run": "chat.svrun",
+  "targetCount": 1,
+  "targets": [
+    "final.video"
+  ],
+  "requestCount": 3,
+  "requestIssueCount": 0,
+  "choiceCount": 0,
+  "needs": [
+    {
+      "request": "need:author%3A%2FUsers%2Ftakamasa%2F.codex%2Fworktrees%2Ftsugite-hypit%2F.tsugite%2Ftools%2Fhypit-phase1-workspace%2Fchat.svml%3A%3Acomponent%3A%3Afinal:request-audio-render",
+      "step": "operation:author%3A%2FUsers%2Ftakamasa%2F.codex%2Fworktrees%2Ftsugite-hypit%2F.tsugite%2Ftools%2Fhypit-phase1-workspace%2Fchat.svml%3A%3Acomponent%3A%3Afinal:request-audio-render",
+      "port": "audio",
+      "capability": "@hypit/media-pipeline@1#render-timeline-audio",
+      "summary": {
+        "fields": {
+          "startFrame": 0,
+          "endFrameExclusive": 240,
+          "frameRate": "30/1",
+          "sampleRate": 48000
+        },
+        "references": {}
+      },
+      "pending": []
+    },
+    {
+      "request": "need:author%3A%2FUsers%2Ftakamasa%2F.codex%2Fworktrees%2Ftsugite-hypit%2F.tsugite%2Ftools%2Fhypit-phase1-workspace%2Fchat.svml%3A%3Acomponent%3A%3Afinal:request-mux",
+      "step": "operation:author%3A%2FUsers%2Ftakamasa%2F.codex%2Fworktrees%2Ftsugite-hypit%2F.tsugite%2Ftools%2Fhypit-phase1-workspace%2Fchat.svml%3A%3Acomponent%3A%3Afinal:request-mux",
+      "port": "media",
+      "capability": "@hypit/media-pipeline@1#mux-program-media",
+      "summary": {
+        "fields": {},
+        "references": {
+          "audio": 1,
+          "video": 1
+        }
+      },
+      "pending": [
+        {
+          "input": "audio",
+          "record": "record:author%3A%2FUsers%2Ftakamasa%2F.codex%2Fworktrees%2Ftsugite-hypit%2F.tsugite%2Ftools%2Fhypit-phase1-workspace%2Fchat.svml%3A%3Acomponent%3A%3Afinal:request-audio-render",
+          "kind": "audio"
+        },
+        {
+          "input": "visual",
+          "record": "record:author%3A%2FUsers%2Ftakamasa%2F.codex%2Fworktrees%2Ftsugite-hypit%2F.tsugite%2Ftools%2Fhypit-phase1-workspace%2Fchat.svml%3A%3Acomponent%3A%3Afinal:request-visual-render",
+          "kind": "video"
+        }
+      ]
+    },
+    {
+      "request": "need:author%3A%2FUsers%2Ftakamasa%2F.codex%2Fworktrees%2Ftsugite-hypit%2F.tsugite%2Ftools%2Fhypit-phase1-workspace%2Fchat.svml%3A%3Acomponent%3A%3Afinal:request-visual-render",
+      "step": "operation:author%3A%2FUsers%2Ftakamasa%2F.codex%2Fworktrees%2Ftsugite-hypit%2F.tsugite%2Ftools%2Fhypit-phase1-workspace%2Fchat.svml%3A%3Acomponent%3A%3Afinal:request-visual-render",
+      "port": "visual",
+      "capability": "@hypit/render-hyperframes@1#render-visual",
+      "summary": {
+        "fields": {
+          "width": 540,
+          "height": 960,
+          "startFrame": 0,
+          "endFrameExclusive": 240,
+          "frameRate": "30/1"
+        },
+        "references": {}
+      },
+      "pending": []
+    }
+  ]
+}
+
+
+## stderr

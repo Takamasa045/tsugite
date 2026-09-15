@@ -68,6 +68,10 @@ export interface LauncherProject {
   gate1ReviewUrl?: string
   gate2ReviewUrl?: string
   thumbnailUrl?: string
+  authoringUrl?: string
+  authoringUi?: boolean
+  authoringProgress?: string
+  productionReviewUrl?: string
   valid: boolean
   refreshable: boolean
   readOnly?: boolean
@@ -491,6 +495,10 @@ function isLauncherProject(input: unknown): input is LauncherProject {
     && (!('gate1ReviewUrl' in input) || input.gate1ReviewUrl === undefined || typeof input.gate1ReviewUrl === 'string')
     && (!('gate2ReviewUrl' in input) || input.gate2ReviewUrl === undefined || typeof input.gate2ReviewUrl === 'string')
     && (!('thumbnailUrl' in input) || input.thumbnailUrl === undefined || typeof input.thumbnailUrl === 'string')
+    && (!('authoringUrl' in input) || input.authoringUrl === undefined || typeof input.authoringUrl === 'string')
+    && (!('authoringUi' in input) || input.authoringUi === undefined || typeof input.authoringUi === 'boolean')
+    && (!('authoringProgress' in input) || input.authoringProgress === undefined || typeof input.authoringProgress === 'string')
+    && (!('productionReviewUrl' in input) || input.productionReviewUrl === undefined || typeof input.productionReviewUrl === 'string')
     && 'valid' in input && typeof input.valid === 'boolean'
     && 'refreshable' in input && typeof input.refreshable === 'boolean'
     && (!('readOnly' in input) || typeof input.readOnly === 'boolean')
@@ -605,6 +613,39 @@ function isRenameResponse(input: unknown): input is RenameResponse {
     && 'name' in input && typeof input.name === 'string'
 }
 
+interface AuthoringUiResponse {
+  ok: true
+  authoringUrl: string
+  reused?: boolean
+}
+
+function isAuthoringUiResponse(input: unknown): input is AuthoringUiResponse {
+  return typeof input === 'object' && input !== null
+    && 'ok' in input && input.ok === true
+    && 'authoringUrl' in input && typeof input.authoringUrl === 'string'
+}
+
+function canOpenAuthoringUi(project: LauncherProject): boolean {
+  return project.valid && project.authoringUi === true && !project.readOnly
+}
+
+function authoringProgressLabel(progress?: string): string {
+  switch (progress) {
+    case 'draft':
+      return '下書き（参照待ち）'
+    case 'intake-complete':
+      return '参照を取り込み済み'
+    case 'plan-ready':
+      return 'プランの確認待ち'
+    case 'revision-open':
+      return '改稿中'
+    case 'feedback-recorded':
+      return 'フィードバックを記録済み'
+    default:
+      return progress ? '制作を進めています' : '制作UIを開けます'
+  }
+}
+
 function isRenameErrorResponse(input: unknown): input is RenameErrorResponse {
   if (typeof input !== 'object' || input === null || !('ok' in input) || input.ok !== false) return false
   if (!('issue' in input) || typeof input.issue !== 'object' || input.issue === null) return false
@@ -669,6 +710,10 @@ export function LauncherApp({
   const feedbackListModeRef = useRef(feedbackListMode)
   selectedFeedbackKeyRef.current = selectedFeedbackKey
   feedbackListModeRef.current = feedbackListMode
+  const [creatingAuthoring, setCreatingAuthoring] = useState(false)
+  const [createAuthoringName, setCreateAuthoringName] = useState('')
+  const [createAuthoringSaving, setCreateAuthoringSaving] = useState(false)
+  const [createAuthoringError, setCreateAuthoringError] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [renameDraft, setRenameDraft] = useState('')
   const [renameSaving, setRenameSaving] = useState(false)
@@ -1053,9 +1098,80 @@ export function LauncherApp({
       ?.focus()
   }
 
+  const createAuthoringProduction = async () => {
+    if (createAuthoringSaving || refreshing || projectListRefreshing) return
+    setCreateAuthoringSaving(true)
+    setCreateAuthoringError(null)
+    let failureDetail = '新しい制作を作れませんでした。もう一度お試しください。'
+    try {
+      const name = createAuthoringName.trim()
+      const response = await fetcher('/api/authoring-productions', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'x-tsugite-token': token,
+        },
+        body: JSON.stringify(name ? { name } : {}),
+      })
+      const payload: unknown = await response.json()
+      if (!response.ok || !isAuthoringUiResponse(payload)) {
+        if (isRefreshErrorResponse(payload)) failureDetail = payload.issue.message
+        throw new Error('authoring draft failed')
+      }
+      await loadProjects({ background: true })
+      if ('project' in payload && payload.project && typeof payload.project === 'object' && 'id' in payload.project) {
+        const created = payload.project as LauncherProject
+        setSelectedId(created.id)
+      }
+      setCreatingAuthoring(false)
+      setCreateAuthoringName('')
+      navigate(payload.authoringUrl)
+    } catch {
+      setCreateAuthoringError(failureDetail)
+    } finally {
+      setCreateAuthoringSaving(false)
+    }
+  }
+
+  const openAuthoringUi = async (project: LauncherProject) => {
+    setSelectedId(project.id)
+    setRefreshError(null)
+    if (!canOpenAuthoringUi(project) || refreshing || projectListRefreshing) return
+    setRefreshing(true)
+    setOpeningProjectId(project.id)
+    let failureDetail = '制作UIを起動できませんでした。もう一度お試しください。'
+    try {
+      const response = await fetcher(`/api/projects/${encodeURIComponent(project.id)}/authoring-ui`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          'x-tsugite-token': token,
+        },
+        body: '{}',
+      })
+      const payload: unknown = await response.json()
+      if (!response.ok || !isAuthoringUiResponse(payload)) {
+        if (isRefreshErrorResponse(payload)) failureDetail = payload.issue.message
+        throw new Error('authoring ui start failed')
+      }
+      navigate(payload.authoringUrl)
+    } catch {
+      setRefreshError(failureDetail)
+    } finally {
+      setRefreshing(false)
+      setOpeningProjectId(null)
+    }
+  }
+
   const openProject = async (project: LauncherProject) => {
     setSelectedId(project.id)
     setRefreshError(null)
+    if (canOpenAuthoringUi(project)) {
+      await openAuthoringUi(project)
+      return
+    }
     if (!project.valid || !project.refreshable || refreshing || projectListRefreshing) return
     setRefreshing(true)
     setOpeningProjectId(project.id)
@@ -1164,6 +1280,10 @@ export function LauncherApp({
 
   const openProjectFromThumbnail = async (project: LauncherProject) => {
     selectProject(project)
+    if (canOpenAuthoringUi(project)) {
+      await openAuthoringUi(project)
+      return
+    }
     if (project.valid && project.refreshable) {
       await openProject(project)
       return
@@ -1505,6 +1625,58 @@ export function LauncherApp({
                   {' / '}
                   表示{visibleProjects.length + filteredDirectArtifacts.length}件
                 </span>
+                {creatingAuthoring ? (
+                  <form
+                    className="launcher-rename-form"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      void createAuthoringProduction()
+                    }}
+                  >
+                    <label className="launcher-rename-label" htmlFor="launcher-authoring-name">
+                      新しい制作の名前（任意）
+                    </label>
+                    <input
+                      className="launcher-rename-input"
+                      disabled={createAuthoringSaving}
+                      id="launcher-authoring-name"
+                      maxLength={120}
+                      onChange={(event) => setCreateAuthoringName(event.target.value)}
+                      placeholder="参考動画から作る制作"
+                      type="text"
+                      value={createAuthoringName}
+                    />
+                    <div className="launcher-rename-actions">
+                      <button className="launcher-primary" disabled={createAuthoringSaving || refreshing} type="submit">
+                        {createAuthoringSaving ? '作っています…' : '作って制作UIを開く'}
+                      </button>
+                      <button
+                        className="launcher-secondary"
+                        disabled={createAuthoringSaving}
+                        onClick={() => {
+                          setCreatingAuthoring(false)
+                          setCreateAuthoringError(null)
+                        }}
+                        type="button"
+                      >
+                        やめる
+                      </button>
+                    </div>
+                    {createAuthoringError && <p className="launcher-refresh-error" role="alert">{createAuthoringError}</p>}
+                  </form>
+                ) : (
+                  <button
+                    className="launcher-secondary"
+                    disabled={refreshing || projectListRefreshing || createAuthoringSaving}
+                    onClick={() => {
+                      setCreatingAuthoring(true)
+                      setCreateAuthoringError(null)
+                    }}
+                    type="button"
+                  >
+                    参考動画から新しく作る
+                  </button>
+                )}
                 <button
                   aria-busy={projectListRefreshing}
                   className="launcher-secondary launcher-project-list-refresh"
@@ -1601,23 +1773,27 @@ export function LauncherApp({
                         data-busy={openingProjectId === project.id}
                         data-invalid={!project.valid}
                         data-selected={project.id === selectedId}
-                        data-unrefreshable={project.valid && !project.refreshable}
+                        data-unrefreshable={project.valid && !project.refreshable && !canOpenAuthoringUi(project)}
                         data-warning={project.valid && project.refreshable && Boolean(project.issue)}
                         key={project.id}
                       >
                         <span aria-hidden="true" className="launcher-project-notch" />
                         <button
                           aria-busy={openingProjectId === project.id}
-                          aria-label={project.valid && project.refreshable
-                            ? `${project.name}の制作工程を最新にして開く`
-                            : project.hasViewer && project.viewerUrl
-                              ? `${project.name}の前回の制作工程を開く`
-                              : `${project.name}の制作工程はまだ開けません`}
+                          aria-label={canOpenAuthoringUi(project)
+                            ? `${project.name}の制作UIを開く`
+                            : project.valid && project.refreshable
+                              ? `${project.name}の制作工程を最新にして開く`
+                              : project.hasViewer && project.viewerUrl
+                                ? `${project.name}の前回の制作工程を開く`
+                                : `${project.name}の制作工程はまだ開けません`}
                           className="launcher-project-thumbnail-button"
                           disabled={
                             refreshing
                             || projectListRefreshing
-                            || (!project.valid || !project.refreshable) && (!project.hasViewer || !project.viewerUrl)
+                            || (!canOpenAuthoringUi(project)
+                              && (!project.valid || !project.refreshable)
+                              && (!project.hasViewer || !project.viewerUrl))
                           }
                           onClick={() => void openProjectFromThumbnail(project)}
                           type="button"
@@ -1632,30 +1808,34 @@ export function LauncherApp({
                               </span>
                             )}
                             <span className="launcher-project-open-cue">
-                              制作工程を開く
+                              {canOpenAuthoringUi(project) ? '制作UIを開く' : '制作工程を開く'}
                             </span>
                             <span className="launcher-project-status">
                               {openingProjectId === project.id
                                 ? '開いています…'
-                                : !project.valid
-                                  ? '設定の確認が必要'
-                                  : !project.refreshable
-                                    ? '最新状態に更新できません'
-                                    : project.issue
-                                      ? '実行条件の確認が必要'
-                                      : statusLabel(project.status)}
+                                : canOpenAuthoringUi(project)
+                                  ? authoringProgressLabel(project.authoringProgress)
+                                  : !project.valid
+                                    ? '設定の確認が必要'
+                                    : !project.refreshable
+                                      ? '最新状態に更新できません'
+                                      : project.issue
+                                        ? '実行条件の確認が必要'
+                                        : statusLabel(project.status)}
                             </span>
                           </span>
                         </button>
                         <button
-                          aria-describedby={project.issue || !project.valid || !project.refreshable ? `launcher-project-issue-${project.id}` : undefined}
+                          aria-describedby={project.issue || !project.valid || (!project.refreshable && !canOpenAuthoringUi(project)) ? `launcher-project-issue-${project.id}` : undefined}
                           aria-label={!project.valid
                             ? `${project.name}の設定を確認`
-                            : !project.refreshable
-                              ? `${project.name}の更新できない理由を確認`
-                              : project.issue
-                                ? `${project.name}の注意事項を確認`
-                                : `${project.name}の制作工程を選ぶ`}
+                            : canOpenAuthoringUi(project)
+                              ? `${project.name}の制作工程を選ぶ`
+                              : !project.refreshable
+                                ? `${project.name}の更新できない理由を確認`
+                                : project.issue
+                                  ? `${project.name}の注意事項を確認`
+                                  : `${project.name}の制作工程を選ぶ`}
                           aria-pressed={project.id === selectedId}
                           className="launcher-project-select"
                           disabled={refreshing || projectListRefreshing}
@@ -1668,13 +1848,15 @@ export function LauncherApp({
                             <span className="sr-only">
                               {!project.valid
                                 ? '設定の確認が必要'
-                                : !project.refreshable
-                                  ? '最新状態に更新できません'
-                                  : project.issue
-                                    ? '実行条件の確認が必要'
-                                    : statusLabel(project.status)}
+                                : canOpenAuthoringUi(project)
+                                  ? authoringProgressLabel(project.authoringProgress)
+                                  : !project.refreshable
+                                    ? '最新状態に更新できません'
+                                    : project.issue
+                                      ? '実行条件の確認が必要'
+                                      : statusLabel(project.status)}
                             </span>
-                            {(project.issue || !project.valid || !project.refreshable) && (
+                            {(project.issue || !project.valid || (!project.refreshable && !canOpenAuthoringUi(project))) && (
                               <span className="launcher-project-card-issue" id={`launcher-project-issue-${project.id}`}>
                                 {project.issue ?? (project.valid
                                   ? '現在のバックエンドでは更新できません。'
@@ -1763,13 +1945,17 @@ export function LauncherApp({
                   </div>
                 )}
                 <dl className="launcher-project-meta">
-                  <div><dt>現在の状況</dt><dd>{selected.valid ? statusLabel(selected.status) : '設定の確認が必要'}</dd></div>
+                  <div><dt>現在の状況</dt><dd>{!selected.valid
+                    ? '設定の確認が必要'
+                    : canOpenAuthoringUi(selected)
+                      ? authoringProgressLabel(selected.authoringProgress)
+                      : statusLabel(selected.status)}</dd></div>
                   <div><dt>制作記録</dt><dd>{selected.runId}</dd></div>
                   <div><dt>最終更新</dt><dd><Clock3 aria-hidden="true" size={15} />{formatUpdatedAt(selected.updatedAt)}</dd></div>
                   {selected.readOnly && <div><dt>操作範囲</dt><dd>別worktree（閲覧のみ）</dd></div>}
                 </dl>
 
-                {(selected.issue || !selected.valid || !selected.refreshable) && (
+                {(selected.issue || !selected.valid || (!selected.refreshable && !canOpenAuthoringUi(selected))) && (
                   <div className="launcher-project-issue" role="status">
                     <strong>{!selected.valid
                       ? 'この案件はまだ更新できません'
@@ -1791,18 +1977,42 @@ export function LauncherApp({
                 {refreshError && <p className="launcher-refresh-error" role="alert">{refreshError}</p>}
 
                 <div className="launcher-actions">
-                  <button
-                    className="launcher-primary"
-                    disabled={!selected.valid || !selected.refreshable || refreshing || projectListRefreshing}
-                    onClick={() => void refreshSelected()}
-                    type="button"
-                  >
-                    <RefreshCw aria-hidden="true" className={refreshing ? 'is-spinning' : undefined} size={17} />
-                    {refreshing ? '制作の記録を更新しています…' : '最新状態に更新して開く'}
-                  </button>
+                  {canOpenAuthoringUi(selected) ? (
+                    <button
+                      className="launcher-primary"
+                      disabled={refreshing || projectListRefreshing}
+                      onClick={() => void openAuthoringUi(selected)}
+                      type="button"
+                    >
+                      {refreshing && openingProjectId === selected.id ? '制作UIを起動しています…' : '制作UIを開く'}
+                      <ArrowRight aria-hidden="true" size={16} />
+                    </button>
+                  ) : (
+                    <button
+                      className="launcher-primary"
+                      disabled={!selected.valid || !selected.refreshable || refreshing || projectListRefreshing}
+                      onClick={() => void refreshSelected()}
+                      type="button"
+                    >
+                      <RefreshCw aria-hidden="true" className={refreshing ? 'is-spinning' : undefined} size={17} />
+                      {refreshing ? '制作の記録を更新しています…' : '最新状態に更新して開く'}
+                    </button>
+                  )}
                   {selected.hasViewer && selected.viewerUrl && (
                     <button className="launcher-secondary" disabled={refreshing || projectListRefreshing} onClick={() => navigate(selected.viewerUrl!)} type="button">
                       前回の表示を開く
+                      <ArrowRight aria-hidden="true" size={16} />
+                    </button>
+                  )}
+                  {selected.authoringUrl && !canOpenAuthoringUi(selected) && (
+                    <button className="launcher-secondary" disabled={refreshing || projectListRefreshing} onClick={() => navigate(selected.authoringUrl!)} type="button">
+                      制作UIを開く
+                      <ArrowRight aria-hidden="true" size={16} />
+                    </button>
+                  )}
+                  {selected.productionReviewUrl && (
+                    <button className="launcher-secondary" disabled={refreshing || projectListRefreshing} onClick={() => navigate(selected.productionReviewUrl!)} type="button">
+                      制作レビューを開く
                       <ArrowRight aria-hidden="true" size={16} />
                     </button>
                   )}

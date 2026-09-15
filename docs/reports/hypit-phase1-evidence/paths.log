@@ -1,0 +1,21 @@
+# paths
+status: 0
+signal:
+argv: ["paths","--workspace","/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace","--json"]
+cwd: /Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace
+entry: /Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit/bin/hypit.mjs
+
+## stdout
+{
+  "format": "hypit.cli-paths@1",
+  "project": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace",
+  "profileSource": "none",
+  "selectionFile": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/.hypit/runtime",
+  "projectState": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/.hypit",
+  "hostState": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-host-state",
+  "machinePackages": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-host-state/packages",
+  "distribution": "/Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit"
+}
+
+
+## stderr

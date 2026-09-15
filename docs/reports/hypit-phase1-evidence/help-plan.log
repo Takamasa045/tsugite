@@ -1,0 +1,28 @@
+# help-plan
+status: 0
+signal:
+argv: ["help","plan"]
+cwd: /Users/takamasa/.codex/worktrees/tsugite-hypit
+entry: /Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit/bin/hypit.mjs
+
+## stdout
+hypit plan
+Show targets, demanded requests and their readiness without executing them.
+
+  hypit plan <run-source> [--runtime <profile>] [--workspace <workspace>] [--asset-root <directory>]
+
+With --runtime, plan also preflights only the demanded deployment slice and names the Provider
+and price page behind each external request.
+--verbose expands Run choices and unreached declarations. --limit bounds that detail,
+while all demanded requests and diagnostics remain visible in both text and JSON.
+Planning never starts external work.
+
+Output
+  --json                     stable machine view
+  --verbose                  add bounded operational detail
+  --color auto|always|never  control ANSI color
+  --debug                    include internal trace frames on failure
+
+
+
+## stderr
