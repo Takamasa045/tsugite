@@ -4,6 +4,7 @@ Append-only format:
 
 `YYYY-MM-DD / symptom / cause / rule / status`
 
+2026-09-16 / 同一plan再承認のretryが dispatch already claimed になる / sha256Canonical が created_at を省略し submission intent digest が衝突する / 新規 intent だけ optional の attempt_identity を canonical digest に含め、legacy には default しない。pending/unknown は従来どおり spawn を止め、既存 claim は消さない / 進行中
 2026-09-15 / Hypit Phase 1 の check/plan が fixture 配下の改ざん SVML と --package-root を通した / 信頼判定が path 包含だけだった / check/plan は固定ファイル名・固定 workspace・固定 argv に限り、spawn 直前に公式 bytes と activation bytes を照合する。任意 Source 隔離とは呼ばない / 進行中
 2026-09-15 / Hypit Phase 1 で grant 環境変数や配列が build を開け、UTF-8 デコード後のハッシュが不正バイトを潰し、check/plan が任意 Source の activation JS を読み込んだ / プロンプト禁止と argv 許可リストを承認や OS 隔離とみなした / Phase 1 の build は無条件拒否。ハッシュは raw bytes。check/plan はピン済み公式 example だけ。子環境から NODE_OPTIONS と資格情報を除く。observation fingerprint を承認に使わない / 進行中
 
