@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TsugiteAuthorAgentResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["files_written", "decisions", "unknowns", "stopped_before_build", "reference_inspected"],
+  "properties": {
+    "files_written": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "decisions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "stopped_before_build": { "type": "boolean" },
+    "reference_inspected": { "type": "boolean" }
+  }
+}

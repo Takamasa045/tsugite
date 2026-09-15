@@ -41,6 +41,7 @@ import {
   type RunLock,
   type RunState
 } from "../orchestrator/state.js";
+import { createAuthoringDraft } from "../project/createAuthoringDraft.js";
 import { loadProject } from "../project/loadProject.js";
 import { resolveDurableProjectsHome } from "../project/projectsHome.js";
 import { validateProject, type ValidateProjectOptions } from "../project/validateProject.js";
@@ -48,8 +49,14 @@ import {
   generationRequestCapability,
   generationRequestMode,
   generationRequestOutputKind,
+  isAuthoringProduction,
   type Project
 } from "../project/schema.js";
+import {
+  ensureRegisteredAuthoringUi,
+  readLiveRegisteredAuthoringUiUrl,
+  type AuthoringUiLaunchResult
+} from "./authoringUi.js";
 import { loadBackendCapabilities } from "../backends/capabilities.js";
 import type { Issue } from "../types.js";
 import { PipelineError } from "../types.js";
@@ -113,6 +120,10 @@ export type LauncherProject = {
   gate1ReviewUrl?: string;
   gate2ReviewUrl?: string;
   thumbnailUrl?: string;
+  authoringUrl?: string;
+  authoringUi?: boolean;
+  authoringProgress?: string;
+  productionReviewUrl?: string;
   valid: boolean;
   refreshable: boolean;
   readOnly: boolean;
@@ -820,6 +831,10 @@ export type StartWorkflowViewerLauncherOptions = {
   /** Test seam for the read-only generic reference catalog endpoint. */
   loadReferenceCatalog?: (catalogId: string) => Promise<ReferenceCatalogResult>;
   validationOptions?: ValidateProjectOptions;
+  ensureAuthoringUi?: (input: {
+    adapterId: string;
+    productionRoot: string;
+  }) => Promise<AuthoringUiLaunchResult>;
 };
 
 export type WorkflowViewerLauncher = {
@@ -1061,6 +1076,8 @@ export async function startWorkflowViewerLauncher(
       || (allowProjectActions && /^\/api\/projects\/[^/]+\/action$/.test(requestUrl.pathname))
       || /^\/api\/feedback\/[^/]+\/promotion-decision$/.test(requestUrl.pathname)
       || /^\/api\/projects\/[^/]+\/refresh$/.test(requestUrl.pathname)
+      || /^\/api\/projects\/[^/]+\/authoring-ui$/.test(requestUrl.pathname)
+      || requestUrl.pathname === "/api/authoring-productions"
       || requestUrl.pathname === "/api/characters/use"
       || requestUrl.pathname === "/api/maintenance/worktrees/apply"
       || /^\/api\/projects\/[^/]+\/finalize\/apply$/.test(requestUrl.pathname)
@@ -1154,6 +1171,49 @@ export async function startWorkflowViewerLauncher(
         return serveFile(request, response, thumbnailFile);
       } finally {
         if (!handedToFileServer) await thumbnailFile.handle.close();
+      }
+    }
+
+    const authoringPageMatch = /^\/authoring\/([^/]+)\/index\.html$/.exec(requestUrl.pathname);
+    if ((method === "GET" || method === "HEAD") && authoringPageMatch) {
+      const record = projects.get(authoringPageMatch[1]!);
+      if (!record?.configPath) return sendNotFound(response);
+      const authoringFile = await openContainedStaticFile(
+        dirname(record.configPath),
+        ".tsugite/authoring/index.html"
+      );
+      if (!authoringFile) return sendNotFound(response);
+      let handedToFileServer = false;
+      try {
+        await beforeServeArtifact(authoringFile);
+        handedToFileServer = true;
+        return serveFile(request, response, authoringFile);
+      } finally {
+        if (!handedToFileServer) await authoringFile.handle.close();
+      }
+    }
+
+    const productionReviewMatch = /^\/production-review\/([^/]+)\/(index\.html|review-data\.json)$/.exec(requestUrl.pathname);
+    if ((method === "GET" || method === "HEAD") && productionReviewMatch) {
+      const record = projects.get(productionReviewMatch[1]!);
+      if (!record?.configPath) return sendNotFound(response);
+      const projectDir = dirname(record.configPath);
+      const loaded = await loadProject(record.configPath).catch(() => undefined);
+      const runId = loaded?.run_id ?? loaded?.slug;
+      const distDir = loaded?.dist_dir ?? "dist";
+      if (!runId) return sendNotFound(response);
+      const reviewFile = await openContainedStaticFile(
+        projectDir,
+        `${distDir}/${runId}/review/${productionReviewMatch[2]}`
+      );
+      if (!reviewFile) return sendNotFound(response);
+      let handedToFileServer = false;
+      try {
+        await beforeServeArtifact(reviewFile);
+        handedToFileServer = true;
+        return serveFile(request, response, reviewFile);
+      } finally {
+        if (!handedToFileServer) await reviewFile.handle.close();
       }
     }
 
@@ -2168,6 +2228,187 @@ export async function startWorkflowViewerLauncher(
           issue: {
             code: issue?.code ?? "feedback.decision_failed",
             message: issue?.message ?? "Promotion decision could not be recorded"
+          }
+        });
+      }
+      return;
+    }
+
+    if (method === "POST" && requestUrl.pathname === "/api/authoring-productions") {
+      if (
+        request.headers.origin !== launcherOrigin
+        || request.headers["x-tsugite-token"] !== token
+      ) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      let draftInput: { name?: string; brief?: string; adapter?: string };
+      try {
+        const parsed = z.object({
+          name: z.string().trim().min(1).max(120).optional(),
+          brief: z.string().trim().max(4_000).optional(),
+          adapter: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).optional()
+        }).strict().safeParse(await readJsonRequest(request, LAUNCHER_DECISION_BODY_MAX_BYTES));
+        if (!parsed.success) throw new Error("invalid draft request");
+        draftInput = parsed.data;
+      } catch {
+        sendJson(response, 400, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.action_invalid",
+            message: "Authoring draft request was invalid"
+          }
+        });
+        return;
+      }
+      let draftRoot: string | undefined;
+      try {
+        const draft = await createAuthoringDraft({
+          projectsHome: maintenanceProjectsHome,
+          ...(draftInput.name ? { name: draftInput.name } : {}),
+          ...(draftInput.brief ? { brief: draftInput.brief } : {}),
+          ...(draftInput.adapter ? { adapterId: draftInput.adapter } : {})
+        });
+        draftRoot = draft.projectRoot;
+        const validation = await validateProject(draft.configPath, options.validationOptions);
+        if (!validation.ok || !validation.project) {
+          await rm(draft.projectRoot, { recursive: true, force: true });
+          sendJson(response, 422, {
+            ok: false,
+            issue: {
+              code: validation.issues[0]?.code ?? "authoring.draft_invalid",
+              message: validation.issues[0]?.message ?? "Authoring draft was not valid"
+            }
+          });
+          return;
+        }
+        let started;
+        try {
+          started = await (options.ensureAuthoringUi ?? ensureRegisteredAuthoringUi)({
+            adapterId: draft.adapterId,
+            productionRoot: draft.projectRoot
+          });
+        } catch (error) {
+          draftRoot = undefined;
+          sendJson(response, 422, {
+            ok: false,
+            issue: {
+              code: (error as { code?: string }).code ?? "authoring.ui_start_failed",
+              message: error instanceof Error ? error.message : String(error)
+            }
+          });
+          return;
+        }
+        await reloadProjects();
+        const record = [...projects.values()].find((candidate) => candidate.configPath === draft.configPath);
+        sendJson(response, 200, {
+          ok: true,
+          authoringUrl: started.url,
+          reused: started.reused === true,
+          project: record?.public ?? {
+            id: draft.slug,
+            name: draft.name,
+            slug: draft.slug,
+            runId: draft.slug,
+            authoringUi: true,
+            authoringUrl: started.url,
+            valid: true,
+            refreshable: false
+          }
+        });
+      } catch (error) {
+        if (draftRoot) {
+          try { await rm(draftRoot, { recursive: true, force: true }); } catch { /* keep failure */ }
+        }
+        sendJson(response, error instanceof PipelineError ? 422 : 500, {
+          ok: false,
+          issue: {
+            code: (error as { issues?: Array<{ code?: string }> }).issues?.[0]?.code
+              ?? (error as { code?: string }).code
+              ?? "authoring.draft_failed",
+            message: error instanceof Error ? error.message : String(error)
+          }
+        });
+      }
+      return;
+    }
+
+    const authoringUiMatch = /^\/api\/projects\/([^/]+)\/authoring-ui$/.exec(requestUrl.pathname);
+    if (method === "POST" && authoringUiMatch) {
+      if (
+        request.headers.origin !== launcherOrigin
+        || request.headers["x-tsugite-token"] !== token
+      ) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: { code: "viewer_launcher.forbidden", message: "Launcher request was not authorized" }
+        });
+        return;
+      }
+      await reloadProjects();
+      const record = projects.get(authoringUiMatch[1]!);
+      if (!record) return sendNotFound(response);
+      if (!record.identity || !record.project || !record.public.valid) {
+        sendJson(response, 422, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.project_invalid",
+            message: record.public.issue ?? "Project cannot open authoring UI"
+          }
+        });
+        return;
+      }
+      if (record.readOnly) {
+        sendJson(response, 403, {
+          ok: false,
+          issue: {
+            code: "viewer_launcher.worktree_read_only",
+            message: "別worktreeの案件はこのランチャーから変更できません"
+          }
+        });
+        return;
+      }
+      if (!isAuthoringProduction(record.project)) {
+        sendJson(response, 422, {
+          ok: false,
+          issue: {
+            code: "authoring.kind_required",
+            message: "This project is not an authoring production"
+          }
+        });
+        return;
+      }
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+        sendProjectChanged(response);
+        return;
+      }
+      const productionRoot = dirname(record.configPath);
+      try {
+        const started = await (options.ensureAuthoringUi ?? ensureRegisteredAuthoringUi)({
+          adapterId: record.project.production.adapter,
+          productionRoot
+        });
+        if (!await matchesProjectIdentity(record.configPath, record.identity)) {
+          sendProjectChanged(response);
+          return;
+        }
+        record.public.authoringUrl = started.url;
+        record.public.authoringUi = true;
+        sendJson(response, 200, {
+          ok: true,
+          authoringUrl: started.url,
+          reused: started.reused === true,
+          project: record.public
+        });
+      } catch (error) {
+        sendJson(response, 422, {
+          ok: false,
+          issue: {
+            code: (error as { code?: string }).code ?? "authoring.ui_start_failed",
+            message: error instanceof Error ? error.message : String(error)
           }
         });
       }
@@ -3328,8 +3569,16 @@ async function inspectProject(
       : false;
     const viewerUrl = hasViewer ? createViewerUrl(artifactOrigin, launcherOrigin, id) : undefined;
     const thumbnailUrl = thumbnailPath ? `${launcherOrigin}/thumbnail/${id}` : undefined;
+    const authoringProduction = isAuthoringProduction(project);
+    const authoringProgress = authoringProduction
+      ? await readAuthoringProgress(projectDir, project.production.state)
+      : undefined;
+    const authoringUrl = authoringProduction
+      ? await readLiveRegisteredAuthoringUiUrl(projectDir, project.production.adapter)
+      : undefined;
+    const productionReviewUrl = await readProductionReviewUrl(projectDir, project, launcherOrigin, id);
     const validation = await validateProject(configPath, validationOptions);
-    const reviewInspection = validation.project && validation.manifest
+    const reviewInspection = !authoringProduction && validation.project && validation.manifest
       ? await inspectGate1Review({
           configPath,
           project: validation.project,
@@ -3476,11 +3725,19 @@ async function inspectProject(
           ? { gate2ReviewUrl: createGate2ReviewUrl(artifactOrigin, launcherOrigin, id) }
           : {}),
         ...(thumbnailUrl ? { thumbnailUrl } : {}),
+        ...(authoringUrl ? { authoringUrl } : {}),
+        ...(authoringProduction && safetyIssues.length === 0 && validation.ok
+          ? { authoringUi: true }
+          : {}),
+        ...(authoringProgress ? { authoringProgress } : {}),
+        ...(productionReviewUrl ? { productionReviewUrl } : {}),
         valid: safetyIssues.length === 0,
-        refreshable: validation.project !== undefined
-          && validation.manifest !== undefined
-          && validation.issues.every(isExecutionCapabilityIssue)
-          && stateIssue === undefined,
+        refreshable: authoringProduction
+          ? false
+          : validation.project !== undefined
+            && validation.manifest !== undefined
+            && validation.issues.every(isExecutionCapabilityIssue)
+            && stateIssue === undefined,
         readOnly,
         workflowNodes: createLauncherWorkflowNodes({
           valid: safetyIssues.length === 0,
@@ -3490,7 +3747,8 @@ async function inspectProject(
           gate1ApprovalCurrent,
           hasGate2Evidence,
           hasGate3Evidence,
-          stateIssue
+          stateIssue,
+          authoringProduction
         }),
         availableActions: readOnly ? [] : createAvailableLauncherActions({
           valid: safetyIssues.length === 0,
@@ -3499,7 +3757,8 @@ async function inspectProject(
           hasReview,
           gate1ApprovalCurrent,
           hasGate2Evidence,
-          hasGate3Evidence
+          hasGate3Evidence,
+          authoringProduction
         }),
         issues,
         ...(issues[0] ? { issue: issues[0].message } : {})
@@ -3546,6 +3805,7 @@ type LauncherWorkflowContext = {
   hasGate2Evidence?: boolean;
   hasGate3Evidence?: boolean;
   stateIssue?: Issue;
+  authoringProduction?: boolean;
 };
 
 function createLauncherProjectRevision(input: {
@@ -3629,6 +3889,7 @@ function createLauncherWorkflowNodes(context: LauncherWorkflowContext): Launcher
 
 function createAvailableLauncherActions(context: LauncherWorkflowContext): LauncherAction[] {
   if (!context.valid || context.stateIssue) return [];
+  if (context.authoringProduction) return context.validationOk ? ["validate"] : [];
   if (!context.validationOk) return ["validate"];
   const actions: LauncherAction[] = ["validate", "plan", "review", "dry-run"];
   const state = context.state;
@@ -3692,6 +3953,7 @@ function isProjectSafetyIssue(issue: Issue): boolean {
   return issue.code === "project.schema"
     || issue.code === "manifest.clip.src.local"
     || issue.code === "manifest.image.src.local"
+    || issue.code.startsWith("authoring.")
     || issue.code.endsWith(".safe")
     || issue.code.endsWith(".symlink");
 }
@@ -3708,6 +3970,61 @@ function createViewerUrl(
   const viewerUrl = new URL(`/viewer/${projectId}/`, artifactOrigin);
   viewerUrl.searchParams.set("launcher", launcherOrigin);
   return viewerUrl.toString();
+}
+
+async function readAuthoringProgress(
+  projectDir: string,
+  stateRelative: string
+): Promise<string | undefined> {
+  if (
+    !stateRelative
+    || stateRelative.startsWith("/")
+    || stateRelative.includes("\\")
+    || stateRelative.includes("\0")
+    || stateRelative.split("/").some((part) => !part || part === "." || part === "..")
+  ) return undefined;
+  const statePath = join(projectDir, stateRelative);
+  if (!await isRegularFile(statePath)) return undefined;
+  try {
+    const parsed = JSON.parse(await readFile(statePath, "utf8")) as { ui?: { progress?: unknown } };
+    const progress = parsed.ui?.progress;
+    if (typeof progress !== "string") return undefined;
+    const trimmed = progress.trim();
+    if (!trimmed || trimmed.length > 80) return undefined;
+    return trimmed;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readProductionReviewUrl(
+  projectDir: string,
+  project: { run_id?: string; slug: string; dist_dir?: string },
+  artifactOrigin: string,
+  projectId: string
+): Promise<string | undefined> {
+  const runId = project.run_id ?? project.slug;
+  const distDir = project.dist_dir ?? "dist";
+  const htmlPath = join(projectDir, distDir, runId, "review", "index.html");
+  const dataPath = join(projectDir, distDir, runId, "review", "review-data.json");
+  if (!await isRegularFile(htmlPath) || !await isRegularFile(dataPath)) return undefined;
+  try {
+    const raw = JSON.parse(await readFile(dataPath, "utf8")) as {
+      format?: unknown;
+      identity?: { slug?: unknown; run_id?: unknown };
+    };
+    if (raw.format !== "tsugite.production-review@1") return undefined;
+    const identitySlug = raw.identity?.slug;
+    const identityRun = raw.identity?.run_id;
+    if (
+      identitySlug !== undefined
+      && identitySlug !== project.slug
+      && identityRun !== runId
+    ) return undefined;
+  } catch {
+    return undefined;
+  }
+  return new URL(`/production-review/${projectId}/index.html`, artifactOrigin).toString();
 }
 
 function createGate1ReviewUrl(

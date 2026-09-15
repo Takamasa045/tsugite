@@ -1,0 +1,59 @@
+# help
+status: 0
+signal:
+argv: ["--help"]
+cwd: /Users/takamasa/.codex/worktrees/tsugite-hypit
+entry: /Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit/bin/hypit.mjs
+
+## stdout
+Hypit
+
+Authoring
+  check <source>                verify one self-described Author or Run source
+  plan <run-source>             show selected work without executing
+  pricing <run-source>          read selected Providers' current pricing material
+  build <run-source>            submit a Build; --follow observes it
+
+Results
+  builds                        list Results newest first
+  history <output>              find one named Output across Builds
+  logs <build-id> [--lines <count>]  read saved Build execution phases and diagnostics
+  status <build-id> [--watch]   show current work and Result facts
+  inspect <build-id>            inspect one Result
+  get <build-id> --output <name> --to <path>  export one Build Output
+  result edit <build-id>        title, annotate or highlight a Result
+
+Runtime
+  doctor [profile]              diagnose selected external setup
+  runtime init|use|unset        create or select this project's Runtime Profile
+  runtime up|status|logs|down   prepare and manage the local Build Runtime
+  programs up|status|down       manage declared external programs only
+  packages install|status       manage pinned upstream packages in the machine home
+  activity [--watch]            show active Builds and their current phases
+  cancel <build-id>             withdraw one active Build
+  paths                         show physical state locations
+  auth status|login|logout      manage Endpoint credentials
+
+Output
+  --json                        stable machine view
+  --verbose                     add bounded operational detail
+  --color auto|always|never     control ANSI color
+  --debug                       include internal trace frames on failure
+
+Creation tools (one request through the selected Runtime Profile, no Build)
+  transcribe
+  measure
+  hypit help <tool> for each
+
+Studio
+  studio --run <build.svrun>
+  hypit studio --help for session options
+
+Preparation (local tools and project files)
+  media probe | cut | frames | tile | tiles | boundaries | fetch
+  capture screenshot | run | install-browser
+  vocabulary
+  hypit help media, hypit help capture, hypit help vocabulary
+
+
+## stderr

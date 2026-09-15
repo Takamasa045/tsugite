@@ -2548,6 +2548,110 @@ describe('LauncherApp', () => {
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/viewers/project-alpha/?updated=1'))
   })
 
+  it('制作エンジン案件はCLIなしで制作UI起動をPOSTする', async () => {
+    const user = userEvent.setup()
+    const navigate = vi.fn()
+    const authoringProject = {
+      id: 'authoring-lab',
+      name: '制作エンジン案件',
+      slug: 'authoring-lab',
+      runId: 'authoring-lab',
+      revision: 'revision-authoring',
+      status: 'planned',
+      hasViewer: false,
+      authoringUi: true,
+      authoringProgress: 'plan-ready',
+      productionReviewUrl: '/production-review/authoring-lab/index.html',
+      valid: true,
+      refreshable: false,
+    }
+    const fetcher = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/projects') {
+        return Promise.resolve(jsonResponse({ ok: true, projects: [authoringProject] }))
+      }
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/projects/authoring-lab/authoring-ui') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          authoringUrl: 'http://127.0.0.1:8799/',
+          reused: false,
+        }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
+    expect(await screen.findByText((_, element) => element?.classList.contains('launcher-project-status') === true
+      && element.textContent === 'プランの確認待ち')).toBeVisible()
+    expect(screen.queryByText('最新状態に更新できません')).toBeNull()
+    expect(screen.queryByText('現在のバックエンドでは更新できません。')).toBeNull()
+    await user.click(await screen.findByRole('button', { name: '制作エンジン案件の制作工程を選ぶ' }))
+    expect(within(screen.getByRole('complementary', { name: '選択した制作案件' }))
+      .getByText('プランの確認待ち')).toBeVisible()
+    await user.click(within(screen.getByRole('complementary', { name: '選択した制作案件' }))
+      .getByRole('button', { name: '制作UIを開く' }))
+
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/projects/authoring-lab/authoring-ui',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'content-type': 'application/json',
+          'x-tsugite-token': 'session-token',
+        }),
+      }),
+    ))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('http://127.0.0.1:8799/'))
+  })
+
+  it('参考動画から新しく作るで制作UIをPOSTして開く', async () => {
+    const user = userEvent.setup()
+    const navigate = vi.fn()
+    const fetcher = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === '/api/projects') {
+        return Promise.resolve(jsonResponse({ ok: true, projects: [] }))
+      }
+      if (url === '/api/feedback') return Promise.resolve(jsonResponse({ ok: true, feedback }))
+      if (url === '/api/authoring-productions' && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse({
+          ok: true,
+          authoringUrl: 'http://127.0.0.1:8801/',
+          project: {
+            id: 'draft-1',
+            name: '新規下書き',
+            slug: 'draft-1',
+            runId: 'draft-1',
+            revision: 'r',
+            status: 'planned',
+            hasViewer: false,
+            authoringUi: true,
+            valid: true,
+            refreshable: false,
+          },
+        }))
+      }
+      return Promise.resolve(jsonResponse({ ok: false }, false))
+    })
+
+    render(<LauncherApp fetcher={fetcher} navigate={navigate} token="session-token" />)
+    await user.click(await screen.findByRole('button', { name: '参考動画から新しく作る' }))
+    await user.type(screen.getByLabelText('新しい制作の名前（任意）'), '新規下書き')
+    await user.click(screen.getByRole('button', { name: '作って制作UIを開く' }))
+
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      '/api/authoring-productions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'content-type': 'application/json',
+          'x-tsugite-token': 'session-token',
+        }),
+        body: JSON.stringify({ name: '新規下書き' }),
+      }),
+    ))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('http://127.0.0.1:8801/'))
+  })
+
   it('選択した案件に存在するGate確認画面だけを閲覧専用導線から開く', async () => {
     const user = userEvent.setup()
     const navigate = vi.fn()

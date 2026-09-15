@@ -1,0 +1,12 @@
+# version
+status: 0
+signal:
+argv: ["--version"]
+cwd: /Users/takamasa/.codex/worktrees/tsugite-hypit
+entry: /Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit/bin/hypit.mjs
+
+## stdout
+0.1.8
+
+
+## stderr

@@ -1,0 +1,22 @@
+# check
+status: 0
+signal:
+argv: ["check","/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/chat.svml","--workspace","/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace","--json"]
+cwd: /Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace
+entry: /Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit/bin/hypit.mjs
+
+## stdout
+{
+  "format": "hypit.cli-check@1",
+  "sourceKind": "author",
+  "ok": true,
+  "source": "chat.svml",
+  "frontend": "@hypit/markup@1",
+  "units": 2,
+  "assets": 1,
+  "modules": 18,
+  "outputCount": 4
+}
+
+
+## stderr

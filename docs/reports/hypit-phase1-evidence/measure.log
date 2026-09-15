@@ -1,0 +1,25 @@
+# measure
+status: 0
+signal:
+argv: ["measure","--text","Are we ready to launch?","--json"]
+cwd: /Users/takamasa/.codex/worktrees/tsugite-hypit
+entry: /Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit/bin/hypit.mjs
+
+## stdout
+{
+  "format": "hypit.video-cli-measure@1",
+  "text": true,
+  "characters": 23,
+  "units": 6,
+  "language": "en",
+  "policy": {
+    "language": "auto",
+    "rounding": "none",
+    "pace": "normal"
+  },
+  "rate": 4.6,
+  "seconds": 1.3043478260869565
+}
+
+
+## stderr
