@@ -59,6 +59,31 @@ function writeSources(cwd: string) {
   writeFileSync(join(cwd, "build.svrun"), `<?svml using="@hypit/run-markup@1"?><svrun version="1"><author source="./main.svml"/><target output="final.video"/></svrun>`);
 }
 
+/** Same shape as test/hypit-production.test.mjs. env PATH carries an absolute dummy `codex` so resolve does not use process PATH. */
+const TEST_CODEX = Object.freeze({
+  command: "/usr/bin/codex",
+  argsPrefix: [] as string[],
+  executable: "/usr/bin/codex",
+  kind: "direct" as const
+});
+
+function fixtureCodexEnv(): NodeJS.ProcessEnv {
+  const dir = mkdtempSync(join(tmpdir(), "tsugite-codex-"));
+  roots.push(dir);
+  writeFileSync(join(dir, "codex"), "#!/bin/sh\n");
+  return { PATH: dir };
+}
+
+function mockAuthorRun(
+  runCommand: (argv: string[], options: { cwd: string }) => { status: number; stdout: string; stderr: string }
+) {
+  return {
+    resolved: TEST_CODEX,
+    env: fixtureCodexEnv(),
+    runCommand
+  };
+}
+
 function localApprovedRun() {
   const digest = "a".repeat(64);
   const planned = bindAuthoringPlan(createAuthoringEngineRun({
@@ -116,12 +141,10 @@ describe("production orchestrator", () => {
     mkdirSync(productionRoot, { recursive: true });
     const adapterRoot = pinnedAdapter();
     await intakeReference(productionRoot, mp4, { production_id: "lab1", adapter_id: "authoring-adapter" });
-    const authored = authorSources(productionRoot, {
-      runCommand: (_argv: string[], options: { cwd: string }) => {
-        writeSources(options.cwd);
-        return { status: 0, stdout: "", stderr: "" };
-      }
-    });
+    const authored = authorSources(productionRoot, mockAuthorRun((_argv, options) => {
+      writeSources(options.cwd);
+      return { status: 0, stdout: "", stderr: "" };
+    }));
     expect(authored.author.status).toBe("authored");
     const planned = await planProduction(productionRoot, {
       adapterRoot,
@@ -167,12 +190,10 @@ describe("production orchestrator", () => {
     mkdirSync(productionRoot, { recursive: true });
     const adapterRoot = pinnedAdapter();
     await intakeReference(productionRoot, mp4, { production_id: "lab1" });
-    authorSources(productionRoot, {
-      runCommand: (_argv: string[], options: { cwd: string }) => {
-        writeSources(options.cwd);
-        return { status: 0, stdout: "", stderr: "" };
-      }
-    });
+    authorSources(productionRoot, mockAuthorRun((_argv, options) => {
+      writeSources(options.cwd);
+      return { status: 0, stdout: "", stderr: "" };
+    }));
     await planProduction(productionRoot, {
       adapterRoot,
       prepareRuntime: readyRuntime(),
@@ -237,12 +258,10 @@ describe("production orchestrator", () => {
     mkdirSync(productionRoot, { recursive: true });
     const adapterRoot = pinnedAdapter();
     await intakeReference(productionRoot, mp4, { production_id: "lab1" });
-    authorSources(productionRoot, {
-      runCommand: (_argv: string[], options: { cwd: string }) => {
-        writeSources(options.cwd);
-        return { status: 0, stdout: "", stderr: "" };
-      }
-    });
+    authorSources(productionRoot, mockAuthorRun((_argv, options) => {
+      writeSources(options.cwd);
+      return { status: 0, stdout: "", stderr: "" };
+    }));
     await planProduction(productionRoot, {
       adapterRoot,
       prepareRuntime: readyRuntime(),
@@ -613,24 +632,20 @@ describe("production orchestrator", () => {
     await expect(planProduction(productionRoot, {
       runCli: () => ({ status: 0, stdout: "{}", stderr: "" })
     })).rejects.toMatchObject({ code: "PC_AUTHORITY_DENIED" });
-    const unchanged = authorSources(productionRoot, {
-      runCommand: (_argv: string[], options: { cwd: string }) => {
-        writeSources(options.cwd);
-        return { status: 0, stdout: "", stderr: "" };
-      }
-    });
+    const unchanged = authorSources(productionRoot, mockAuthorRun((_argv, options) => {
+      writeSources(options.cwd);
+      return { status: 0, stdout: "", stderr: "" };
+    }));
     expect(unchanged.author.status).toBe("noop");
     expect(unchanged.needs_reauthor).toBe(true);
     await expect(planProduction(productionRoot, {
       runCli: () => ({ status: 0, stdout: "{}", stderr: "" })
     })).rejects.toMatchObject({ code: "PC_AUTHORITY_DENIED" });
-    const authored = authorSources(productionRoot, {
-      runCommand: (_argv: string[], options: { cwd: string }) => {
-        writeFileSync(join(options.cwd, "main.svml"), `<?svml using="@hypit/markup@1"?><svml><!-- revised --></svml>`);
-        writeFileSync(join(options.cwd, "build.svrun"), `<?svml using="@hypit/run-markup@1"?><svrun version="1"><author source="./main.svml"/><target output="final.video"/></svrun>`);
-        return { status: 0, stdout: "", stderr: "" };
-      }
-    });
+    const authored = authorSources(productionRoot, mockAuthorRun((_argv, options) => {
+      writeFileSync(join(options.cwd, "main.svml"), `<?svml using="@hypit/markup@1"?><svml><!-- revised --></svml>`);
+      writeFileSync(join(options.cwd, "build.svrun"), `<?svml using="@hypit/run-markup@1"?><svrun version="1"><author source="./main.svml"/><target output="final.video"/></svrun>`);
+      return { status: 0, stdout: "", stderr: "" };
+    }));
     expect(authored.author.status).toBe("authored");
     expect(authored.needs_reauthor).toBe(false);
     const adapterRoot = pinnedAdapter();
