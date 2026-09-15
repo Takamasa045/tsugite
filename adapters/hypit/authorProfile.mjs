@@ -3,12 +3,12 @@
  * Flags come from `codex-cli 0.153.2` `codex exec --help` and `codex features list`.
  * Users do not set TSUGITE_AUTHORING_AGENT_ARGV. Browser cannot choose argv.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const CODEX_BIN = "/opt/homebrew/bin/codex";
+export const CODEX_BIN_NAME = "codex";
 export const CODEX_CLI_VERSION = "0.153.2";
 
 /** `codex features list` names disabled so user MCP/hooks/plugins are not loaded. */
@@ -28,13 +28,86 @@ export function authorSandboxDir(workspace) {
   return join(workspace, ".author-sandbox");
 }
 
+export function pathDelimiter(platform = process.platform) {
+  return platform === "win32" ? ";" : ":";
+}
+
+function parentAbsolutePathDirs(pathValue, platform) {
+  if (typeof pathValue !== "string" || pathValue.length === 0) return [];
+  const dirs = [];
+  for (const part of pathValue.split(pathDelimiter(platform))) {
+    if (part.length === 0) continue;
+    if (part.includes("\0")) continue;
+    if (!isAbsolute(part)) continue;
+    dirs.push(part);
+  }
+  return dirs;
+}
+
+function isLaunchableFile(path) {
+  const st = lstatSync(path, { throwIfNoEntry: false });
+  if (!st) return false;
+  if (st.isFile()) return true;
+  if (st.isSymbolicLink()) return existsSync(path);
+  return false;
+}
+
+function coded(message, code) {
+  return Object.assign(new Error(message), { code });
+}
+
+/**
+ * Resolve Codex from parent PATH absolute entries only.
+ * Empty and project-relative PATH entries are ignored (never resolved against cwd).
+ * Windows `.cmd` / `.bat` wrappers need a shell and are unsupported.
+ */
+export function resolveCodexExecutable(source = process.env, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const envPath = typeof source?.PATH === "string"
+    ? source.PATH
+    : (platform === "win32" && typeof source?.Path === "string" ? source.Path : "");
+  const dirs = parentAbsolutePathDirs(envPath, platform);
+  let sawCmdWrapper = false;
+  const name = platform === "win32" ? "codex.exe" : CODEX_BIN_NAME;
+
+  for (const dir of dirs) {
+    if (platform === "win32") {
+      if (existsSync(join(dir, "codex.cmd")) || existsSync(join(dir, "codex.bat"))) {
+        sawCmdWrapper = true;
+      }
+    }
+    const candidate = join(dir, name);
+    if (!isAbsolute(candidate) || !isLaunchableFile(candidate)) continue;
+    return {
+      command: candidate,
+      argsPrefix: [],
+      executable: candidate,
+      kind: "direct",
+      platform
+    };
+  }
+
+  if (platform === "win32" && sawCmdWrapper) {
+    throw coded(
+      "Codex .cmd/.bat wrappers are unsupported: they require a shell. Author launch uses shell:false only.",
+      "AUTHOR_AGENT_UNSUPPORTED"
+    );
+  }
+  throw coded(
+    "Codex CLI was not found as an absolute executable on PATH. Relative and empty PATH entries are ignored.",
+    "AUTHOR_AGENT_MISSING"
+  );
+}
+
 export function defaultCodexExecArgv(input) {
+  const resolved = input.resolved ?? resolveCodexExecutable(input.env ?? process.env, input.resolve ?? {});
   const workspace = input.workspace;
   const schemaPath = input.schemaPath ?? DEFAULT_SCHEMA_PATH;
   const lastMessagePath = input.lastMessagePath ?? join(authorSandboxDir(workspace), "last-message.txt");
   const disable = AUTHOR_DISABLE_FEATURES.flatMap((name) => ["--disable", name]);
   return [
-    CODEX_BIN,
+    resolved.command,
+    ...(resolved.argsPrefix ?? []),
     "exec",
     "--ignore-user-config",
     "--ignore-rules",
@@ -86,10 +159,8 @@ export function authorChildEnv(source = process.env, input) {
   return env;
 }
 
-export function assertCodexBinAvailable(bin = CODEX_BIN) {
-  if (!existsSync(bin)) {
-    throw Object.assign(new Error(`Codex CLI is not installed at ${bin}`), { code: "AUTHOR_AGENT_MISSING" });
-  }
+export function assertCodexBinAvailable(source = process.env, options = {}) {
+  return resolveCodexExecutable(source, options);
 }
 
 export function parentAuthorCommand(productionRoot) {

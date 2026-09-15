@@ -6,6 +6,8 @@ core（`src/`）には Hypit 固有コードを置かない。実装は `adapter
 
 ソース版は **0.13.0**。git タグ、CI、完成メディア、人間承認、MP4 受け入れはここでは主張しない。
 
+Tsugite 本体は Node.js **22.12 以上 23 未満**。Hypit runtime（`npm run hypit:install` と `runtime init` / `runtime up`）は追加で **Node.js 22.15 以上**（22.x）が必要。22.12〜22.14 では engine 警告、または準備前検査 `HYPIT_NODE_UNSUPPORTED` で停止する。本体の最低版は上げない。
+
 ## 公式ソース（2026-09-15 確認）
 
 | 対象 | URL |
@@ -36,7 +38,7 @@ npm run hypit:production -- ui --production <durable-project>
 
 流れ: 参照取り込み → ソース作成 → ローカル Runtime 準備（`prepareLocalRuntime`、`media.local` / `hyperframes.local` のみ）→ `check`/`plan` → 費用と接続の表示 → 人間の承認 → 永続 intent → `build` → status/inspect → 受け取り → 必要なら書き出し。準備は `productionRoot/.tsugite/hypit-host-state` を使う。準備が失敗したときは plan-ready にせず、残っていた承認も無効化する。revision は approval を無効化する。running の pending と unknown は残し、自動では再 submit しない。complete/failed/accepted だけ履歴へ退避して次の承認済み計画を許す。
 
-`author` の既定は固定 Codex CLI（`/opt/homebrew/bin/codex exec`、workspace-write、network_access=false、hooks/plugins/MCP 無効）。ブラウザから argv は渡せない。HTTP の author は非同期。CLI の author は完了まで待つ。
+`author` の既定は親プロセス PATH の**絶対エントリ**にある `codex`（macOS / Linux）または `codex.exe`（Windows）。相対パスと空エントリは使わない。workspace-write、network_access=false、`--ignore-user-config` / `--ignore-rules`、hooks/plugins/MCP 無効。sync / async は同じ絶対実行ファイルを `shell:false` で起動する。Windows の `codex.cmd` / `codex.bat` は shell が必要なため未対応（`AUTHOR_AGENT_UNSUPPORTED`）。ブラウザから argv は渡せない。HTTP の author は非同期。CLI の author は完了まで待つ。
 
 有料 build は known cost + `approve-plan` + `confirm_paid` + 永続 pending intent + 計画時閉包との一致。local-only は検証済み plan と `approve-local-render` + `confirm_local_render` だけ。unknown は 0 円にしない。submitted は complete ではない。complete は accepted ではない。
 

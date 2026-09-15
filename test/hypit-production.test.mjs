@@ -3,7 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { invokeAuthorAgent } from "../adapters/hypit/agentBridge.mjs";
-import { defaultCodexExecArgv, CODEX_BIN, AUTHOR_DISABLE_FEATURES } from "../adapters/hypit/authorProfile.mjs";
+import { defaultCodexExecArgv, AUTHOR_DISABLE_FEATURES } from "../adapters/hypit/authorProfile.mjs";
+
+const TEST_CODEX = Object.freeze({
+  command: "/usr/bin/codex",
+  argsPrefix: [],
+  executable: "/usr/bin/codex",
+  kind: "direct"
+});
 import {
   classifyImport,
   extractImportSpecs,
@@ -91,9 +98,10 @@ describe("agent bridge invocation", () => {
     const argv = defaultCodexExecArgv({
       workspace: "/tmp/ws",
       schemaPath: "/tmp/schema.json",
-      lastMessagePath: "/tmp/last.txt"
+      lastMessagePath: "/tmp/last.txt",
+      resolved: TEST_CODEX
     });
-    expect(argv[0]).toBe(CODEX_BIN);
+    expect(argv[0]).toBe(TEST_CODEX.command);
     expect(argv).toContain("exec");
     expect(argv).toContain("--ignore-user-config");
     expect(argv).toContain("--ignore-rules");
@@ -116,10 +124,11 @@ describe("agent bridge invocation", () => {
     const result = invokeAuthorAgent({
       workspace,
       brief: "synthetic",
+      resolved: TEST_CODEX,
       runCommand: () => ({ status: 0, stdout: "ok", stderr: "" })
     });
     expect(result.status).toBe("noop");
-    expect(result.argv[0]).toBe(CODEX_BIN);
+    expect(result.argv[0]).toBe(TEST_CODEX.command);
     expect(existsSync(join(workspace, ".agents/skills/hypit/SKILL.md"))).toBe(true);
   });
 
@@ -129,6 +138,7 @@ describe("agent bridge invocation", () => {
     const result = invokeAuthorAgent({
       workspace,
       brief: "synthetic",
+      resolved: TEST_CODEX,
       runCommand: (_argv, options) => {
         writeFileSync(join(options.cwd, "main.svml"), `<import from="@hypit/markup@1"/>`);
         writeFileSync(join(options.cwd, "build.svrun"), `<svrun/>`);

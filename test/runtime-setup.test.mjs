@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { hypitMissingMessage } from "../adapters/hypit/runtimeAdapter.mjs";
 import {
+  HYPIT_MIN_NODE_VERSION,
   LOCAL_RUNTIME_TIMEOUT_MS,
   LOCAL_STARTER_ENDPOINT_NAMES,
   PRODUCTION_WORKSPACE_NAME,
   inspectTrustedLocalStarterEndpoints,
+  isHypitSupportedNodeVersion,
   localRuntimeInitArgv,
   localRuntimeUpArgv,
   prepareLocalRuntime
@@ -560,5 +562,58 @@ describe("inspectTrustedLocalStarterEndpoints", () => {
     }, workspace);
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/hyperframes\.local/);
+  });
+});
+
+describe("Hypit Node >=22.15 diagnostic", () => {
+  it("keeps the additional 22.15 floor without lowering core 22.12", () => {
+    expect(HYPIT_MIN_NODE_VERSION).toBe("22.15.0");
+    expect(isHypitSupportedNodeVersion("v22.14.0")).toBe(false);
+    expect(isHypitSupportedNodeVersion("v22.14.9")).toBe(false);
+    expect(isHypitSupportedNodeVersion("v22.15.0")).toBe(true);
+    expect(isHypitSupportedNodeVersion("v22.15.1")).toBe(true);
+    expect(isHypitSupportedNodeVersion("v23.0.0")).toBe(false);
+  });
+
+  it("rejects Node 22.14 before spawn and does not mutate an existing profile", () => {
+    const workspace = tempWorkspace("node-22-14");
+    writePointer(workspace);
+    const before = readFileSync(join(workspace, "hypit.runtime.json"));
+    let spawns = 0;
+    try {
+      prepare({
+        workspace,
+        nodeVersion: "v22.14.0",
+        spawnCli: () => {
+          spawns += 1;
+          return { status: 0, stdout: upJson(), stderr: "" };
+        }
+      });
+      throw new Error("expected HYPIT_NODE_UNSUPPORTED");
+    } catch (error) {
+      expect(error.code).toBe("HYPIT_NODE_UNSUPPORTED");
+      expect(error.message).toMatch(/22\.15/);
+      expect(error.message).toMatch(/22\.12/);
+    }
+    expect(spawns).toBe(0);
+    expect(readFileSync(join(workspace, "hypit.runtime.json")).equals(before)).toBe(true);
+  });
+
+  it("allows Node 22.15, spawns up, and does not rewrite the trusted profile", () => {
+    const workspace = tempWorkspace("node-22-15");
+    writePointer(workspace);
+    const before = readFileSync(join(workspace, "hypit.runtime.json"));
+    const calls = [];
+    const result = prepare({
+      workspace,
+      nodeVersion: "v22.15.0",
+      spawnCli: (argv) => {
+        calls.push(argv);
+        return { status: 0, stdout: upJson(), stderr: "" };
+      }
+    });
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([localRuntimeUpArgv(realpathSync(workspace))]);
+    expect(readFileSync(join(workspace, "hypit.runtime.json")).equals(before)).toBe(true);
   });
 });
