@@ -16,6 +16,7 @@ import {
   createAuthoringEngineRun,
   persistAuthoringSubmissionIntent
 } from "../src/productionControl/authoringEngine.js";
+import { writePinnedRuntimeFixture } from "./helpers/hypitPinnedRuntimeFixture.mjs";
 
 const roots = [];
 afterEach(() => {
@@ -46,9 +47,16 @@ function writeProfile(workspace, extra = {}) {
   }, null, 2)}\n`);
 }
 
-function persistReady(productionRoot, workspace, argv = ["build", "build.svrun"]) {
+function pinnedAdapter() {
+  const adapterRoot = mkdtempSync(join(tmpdir(), "tsugite-hypit-pin-"));
+  roots.push(adapterRoot);
+  writePinnedRuntimeFixture(adapterRoot);
+  return adapterRoot;
+}
+
+function persistReady(productionRoot, workspace, adapterRoot, argv = ["build", "build.svrun"]) {
   writeSources(workspace);
-  const probe = collectExecutionBinding(workspace, "0".repeat(64), argv);
+  const probe = collectExecutionBinding(workspace, "0".repeat(64), argv, adapterRoot);
   const created = createAuthoringEngineRun({
     production_id: "lab1",
     adapter_id: "authoring-adapter",
@@ -67,7 +75,7 @@ function persistReady(productionRoot, workspace, argv = ["build", "build.svrun"]
     package_manifest_digest: probe.package_manifest_digest,
     cost: { status: "local-only", amount: null, currency: null, request_count: 1, notes: ["local"] }
   });
-  const live = collectExecutionBinding(workspace, planned.plan_digest, argv);
+  const live = collectExecutionBinding(workspace, planned.plan_digest, argv, adapterRoot);
   const approved = approveAuthoringPlan(planned, {
     decision_id: "d1",
     decision: "approve-local-render",
@@ -89,14 +97,15 @@ describe("dispatch claim", () => {
   it("lets only the first matching build spawn", () => {
     const root = mkdtempSync(join(tmpdir(), "tsugite-claim-"));
     roots.push(root);
-    persistReady(root, root);
+    const adapterRoot = pinnedAdapter();
+    persistReady(root, root, adapterRoot);
     const argv = ["build", "build.svrun"];
     let spawns = 0;
     const spawnCli = () => {
       spawns += 1;
       return { status: 0, stdout: JSON.stringify({ format: "hypit.cli-build@1", build: { id: "bld_one" } }), stderr: "" };
     };
-    const opts = { productionRoot: root, workspace: root, confirmLocalRender: true, spawnCli };
+    const opts = { productionRoot: root, workspace: root, confirmLocalRender: true, spawnCli, adapterRoot };
     const first = runProductionHypit(argv, opts);
     expect(first.status).toBe(0);
     expect(spawns).toBe(1);
@@ -140,14 +149,15 @@ describe("runtime profile binding", () => {
   it("rejects a changed profile or pointer before spawn", () => {
     const root = mkdtempSync(join(tmpdir(), "tsugite-profile-"));
     roots.push(root);
+    const adapterRoot = pinnedAdapter();
     writeProfile(root);
-    persistReady(root, root);
+    persistReady(root, root, adapterRoot);
     let spawns = 0;
     const spawnCli = () => {
       spawns += 1;
       return { status: 0, stdout: "{}", stderr: "" };
     };
-    const opts = { productionRoot: root, workspace: root, confirmLocalRender: true, spawnCli };
+    const opts = { productionRoot: root, workspace: root, confirmLocalRender: true, spawnCli, adapterRoot };
     writeFileSync(join(root, "hypit.runtime.json"), `${JSON.stringify({
       format: "hypit.runtime-local@1",
       dataRoot: ".hypit/runtimes/local",
@@ -170,11 +180,12 @@ describe("production review pair", () => {
   it("writes identity-bound review files from the current plan", () => {
     const root = mkdtempSync(join(tmpdir(), "tsugite-review-"));
     roots.push(root);
+    const adapterRoot = pinnedAdapter();
     writeSources(root);
     writeFileSync(join(root, "project.yaml"), "slug: lab-review\nname: レビュー案件\nrun_id: lab-review-run\nmanifest: manifest.json\ndist_dir: dist\nedit:\n  backend: remotion\n");
     writeFileSync(join(root, "TREATMENT.md"), "無音の文字。");
     writeFileSync(join(root, "TIMELINE.md"), "0-30秒");
-    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"]);
+    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"], adapterRoot);
     const created = createAuthoringEngineRun({
       production_id: "lab-review",
       adapter_id: "authoring-adapter",
@@ -240,6 +251,7 @@ describe("production review pair", () => {
   it("parses quoted YAML identity and keeps hashes out of the lead", () => {
     const root = mkdtempSync(join(tmpdir(), "tsugite-review-q-"));
     roots.push(root);
+    const adapterRoot = pinnedAdapter();
     writeSources(root);
     writeFileSync(join(root, "project.yaml"), [
       "slug: \"lab-quoted\"",
@@ -252,7 +264,7 @@ describe("production review pair", () => {
       ""
     ].join("\n"));
     writeFileSync(join(root, "TREATMENT.md"), "色とリズム。");
-    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"]);
+    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"], adapterRoot);
     const created = createAuthoringEngineRun({
       production_id: "lab-quoted",
       adapter_id: "authoring-adapter",
@@ -285,10 +297,11 @@ describe("production review pair", () => {
   it("rejects ../ dist_dir before write and keeps existing review", () => {
     const root = mkdtempSync(join(tmpdir(), "tsugite-review-esc-"));
     roots.push(root);
+    const adapterRoot = pinnedAdapter();
     writeSources(root);
     writeFileSync(join(root, "project.yaml"), "slug: lab-safe\nname: 既存レビュー\nrun_id: lab-safe-run\nmanifest: manifest.json\ndist_dir: dist\nedit:\n  backend: remotion\n");
     writeFileSync(join(root, "TREATMENT.md"), "無音の文字。");
-    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"]);
+    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"], adapterRoot);
     const created = createAuthoringEngineRun({
       production_id: "lab-safe",
       adapter_id: "authoring-adapter",
@@ -318,12 +331,13 @@ describe("production review pair", () => {
     const root = mkdtempSync(join(tmpdir(), "tsugite-review-sym-"));
     const outside = mkdtempSync(join(tmpdir(), "tsugite-review-out-"));
     roots.push(root, outside);
+    const adapterRoot = pinnedAdapter();
     writeSources(root);
     writeFileSync(join(root, "project.yaml"), "slug: lab-sym\nname: リンク拒否\nrun_id: lab-sym-run\nmanifest: manifest.json\ndist_dir: dist\nedit:\n  backend: remotion\n");
     writeFileSync(join(root, "TREATMENT.md"), "無音の文字。");
     symlinkSync(outside, join(root, "dist"));
     writeFileSync(join(outside, "keep.txt"), "outside");
-    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"]);
+    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"], adapterRoot);
     const created = createAuthoringEngineRun({
       production_id: "lab-sym",
       adapter_id: "authoring-adapter",
@@ -352,10 +366,11 @@ describe("production review pair", () => {
   it("refuses a changed TREATMENT.md instead of serving a stale plan", () => {
     const root = mkdtempSync(join(tmpdir(), "tsugite-review-stale-"));
     roots.push(root);
+    const adapterRoot = pinnedAdapter();
     writeSources(root);
     writeFileSync(join(root, "project.yaml"), "slug: lab-stale\nname: 束縛\nrun_id: lab-stale-run\nmanifest: manifest.json\ndist_dir: dist\nedit:\n  backend: remotion\n");
     writeFileSync(join(root, "TREATMENT.md"), "無音の文字。");
-    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"]);
+    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"], adapterRoot);
     const created = createAuthoringEngineRun({
       production_id: "lab-stale",
       adapter_id: "authoring-adapter",
@@ -385,10 +400,11 @@ describe("production review pair", () => {
     const root = mkdtempSync(join(tmpdir(), "tsugite-review-tmp-"));
     const outside = mkdtempSync(join(tmpdir(), "tsugite-review-tmp-out-"));
     roots.push(root, outside);
+    const adapterRoot = pinnedAdapter();
     writeSources(root);
     writeFileSync(join(root, "project.yaml"), "slug: lab-tmp\nname: 一時ファイル\nrun_id: lab-tmp-run\nmanifest: manifest.json\ndist_dir: dist\nedit:\n  backend: remotion\n");
     writeFileSync(join(root, "TREATMENT.md"), "無音の文字。");
-    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"]);
+    const probe = collectExecutionBinding(root, "0".repeat(64), ["plan"], adapterRoot);
     const created = createAuthoringEngineRun({
       production_id: "lab-tmp",
       adapter_id: "authoring-adapter",

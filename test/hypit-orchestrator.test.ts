@@ -27,11 +27,19 @@ import {
   persistAuthoringSubmissionIntent,
   recordAuthoringBuildOutcome
 } from "../src/productionControl/authoringEngine.js";
+import { writePinnedRuntimeFixture } from "./helpers/hypitPinnedRuntimeFixture.mjs";
 
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+
+function pinnedAdapter() {
+  const adapterRoot = mkdtempSync(join(tmpdir(), "tsugite-hypit-pin-"));
+  roots.push(adapterRoot);
+  writePinnedRuntimeFixture(adapterRoot);
+  return adapterRoot;
+}
 
 function readyRuntime() {
   return (input: { workspace: string; productionRoot: string }) => ({
@@ -106,6 +114,7 @@ describe("production orchestrator", () => {
     }
     const productionRoot = join(tmp, "prod");
     mkdirSync(productionRoot, { recursive: true });
+    const adapterRoot = pinnedAdapter();
     await intakeReference(productionRoot, mp4, { production_id: "lab1", adapter_id: "authoring-adapter" });
     const authored = authorSources(productionRoot, {
       runCommand: (_argv: string[], options: { cwd: string }) => {
@@ -115,6 +124,7 @@ describe("production orchestrator", () => {
     });
     expect(authored.author.status).toBe("authored");
     const planned = await planProduction(productionRoot, {
+      adapterRoot,
       prepareRuntime: readyRuntime(),
       runCli: () => ({
         status: 0,
@@ -131,7 +141,7 @@ describe("production orchestrator", () => {
       decided_at: new Date().toISOString()
     });
     expect(approved.run.approval?.decision).toBe("approve-plan");
-    const built = requestBuild(productionRoot, { confirmPaid: true });
+    const built = requestBuild(productionRoot, { confirmPaid: true, adapterRoot });
     expect(built.run.build?.outcome).toBe("blocked");
     expect(built.run.submission_intent).toBeUndefined();
     const revised = reviseProduction(productionRoot);
@@ -155,6 +165,7 @@ describe("production orchestrator", () => {
     }
     const productionRoot = join(tmp, "prod");
     mkdirSync(productionRoot, { recursive: true });
+    const adapterRoot = pinnedAdapter();
     await intakeReference(productionRoot, mp4, { production_id: "lab1" });
     authorSources(productionRoot, {
       runCommand: (_argv: string[], options: { cwd: string }) => {
@@ -163,6 +174,7 @@ describe("production orchestrator", () => {
       }
     });
     await planProduction(productionRoot, {
+      adapterRoot,
       prepareRuntime: readyRuntime(),
       runCli: () => ({
         status: 0,
@@ -182,6 +194,7 @@ describe("production orchestrator", () => {
     });
     let sawIntent = false;
     const first = requestBuild(productionRoot, {
+      adapterRoot,
       confirmLocalRender: true,
       runCli: () => {
         const current = loadProductionState(productionRoot);
@@ -195,6 +208,7 @@ describe("production orchestrator", () => {
     expect(first.run.submission_intent?.status).toBe("unknown");
     let spawned = 0;
     const second = requestBuild(productionRoot, {
+      adapterRoot,
       confirmLocalRender: true,
       runCli: () => {
         spawned += 1;
@@ -221,6 +235,7 @@ describe("production orchestrator", () => {
     }
     const productionRoot = join(tmp, "prod");
     mkdirSync(productionRoot, { recursive: true });
+    const adapterRoot = pinnedAdapter();
     await intakeReference(productionRoot, mp4, { production_id: "lab1" });
     authorSources(productionRoot, {
       runCommand: (_argv: string[], options: { cwd: string }) => {
@@ -229,6 +244,7 @@ describe("production orchestrator", () => {
       }
     });
     await planProduction(productionRoot, {
+      adapterRoot,
       prepareRuntime: readyRuntime(),
       runCli: () => ({
         status: 0,
@@ -247,6 +263,7 @@ describe("production orchestrator", () => {
       decided_at: new Date().toISOString()
     });
     const submitted = requestBuild(productionRoot, {
+      adapterRoot,
       confirmLocalRender: true,
       runCli: () => ({
         status: 0,
@@ -613,7 +630,9 @@ describe("production orchestrator", () => {
     });
     expect(authored.author.status).toBe("authored");
     expect(authored.needs_reauthor).toBe(false);
+    const adapterRoot = pinnedAdapter();
     const planned = await planProduction(productionRoot, {
+      adapterRoot,
       prepareRuntime: readyRuntime(),
       runCli: () => ({
         status: 0,
@@ -659,6 +678,7 @@ describe("production orchestrator", () => {
     const workspace = join(productionRoot, "hypit-workspace");
     mkdirSync(workspace, { recursive: true });
     writeSources(workspace);
+    const adapterRoot = pinnedAdapter();
     saveProductionState(productionRoot, {
       productionRoot,
       workspace,
@@ -675,6 +695,7 @@ describe("production orchestrator", () => {
     });
     const order: string[] = [];
     const planned = await planProduction(productionRoot, {
+      adapterRoot,
       prepareRuntime: (input: { workspace: string; productionRoot: string; env?: NodeJS.ProcessEnv }) => {
         order.push("prepare");
         expect(input.productionRoot).toBe(productionRoot);

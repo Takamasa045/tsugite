@@ -143,8 +143,8 @@ function authorEnvFor(workspace, env) {
   return authorChildEnv(env ?? process.env, { home: join(sandbox, "home"), tmpdir: join(sandbox, "tmp") });
 }
 
-export function collectLiveBinding(state, argv) {
-  return collectExecutionBinding(state.workspace, state.run.plan_digest, argv, ADAPTER_ROOT);
+export function collectLiveBinding(state, argv, adapterRoot = ADAPTER_ROOT) {
+  return collectExecutionBinding(state.workspace, state.run.plan_digest, argv, adapterRoot);
 }
 
 function isPidAlive(pid) {
@@ -683,14 +683,15 @@ export async function planProduction(productionRoot, options = {}) {
         });
       }
       const cost = assertCostNotInvented(readHypitCost(planJson));
-      const live = collectBinding(state.workspace, "0".repeat(64), ["plan"], ADAPTER_ROOT);
+      const adapterRoot = options.adapterRoot ?? ADAPTER_ROOT;
+      const live = collectBinding(state.workspace, "0".repeat(64), ["plan"], adapterRoot);
       state.run = bindAuthoringPlan(state.run, {
         source_files: live.source_files,
         asset_files: live.asset_files,
         plan_output_digest: sha256Bytes(Buffer.from(plan.stdout)),
         import_allowlist_digest: live.import_allowlist_digest,
         runtime_digest: live.runtime_digest,
-        distribution_digest: live.distribution_digest ?? distributionDigest(ADAPTER_ROOT),
+        distribution_digest: live.distribution_digest ?? distributionDigest(adapterRoot),
         runtime_pointer_digest: live.runtime_pointer_digest,
         runtime_profile_digest: live.runtime_profile_digest,
         package_manifest_digest: live.package_manifest_digest,
@@ -787,7 +788,8 @@ export function requestBuild(productionRoot, options = {}) {
     }
 
     const argv = ["build", "build.svrun", "--workspace", state.workspace, "--json"];
-    const live = collectLiveBinding(state, argv);
+    const adapterRoot = options.adapterRoot ?? ADAPTER_ROOT;
+    const live = collectLiveBinding(state, argv, adapterRoot);
     state.run = persistAuthoringSubmissionIntent(state.run, {
       argv_digest: live.argv_digest,
       created_at: new Date().toISOString(),
@@ -796,7 +798,7 @@ export function requestBuild(productionRoot, options = {}) {
     saveProductionState(productionRoot, state);
 
     try {
-      const liveAtSpawn = collectLiveBinding(state, argv);
+      const liveAtSpawn = collectLiveBinding(state, argv, adapterRoot);
       if (options.confirmPaid === true) assertPaidBuildAllowed(state.run, true, liveAtSpawn);
       else assertLocalRenderAllowed(state.run, true, liveAtSpawn);
       const result = runCli(argv, {
