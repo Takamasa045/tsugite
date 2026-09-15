@@ -12,6 +12,7 @@ import {
   localRuntimeUpArgv,
   prepareLocalRuntime
 } from "../adapters/hypit/runtimeSetup.mjs";
+import { writePinnedRuntimeFixture } from "./helpers/hypitPinnedRuntimeFixture.mjs";
 
 const roots = [];
 afterEach(() => {
@@ -56,6 +57,19 @@ function tempProduction() {
   return { productionRoot, workspace };
 }
 
+function fixtureAdapter() {
+  const adapterRoot = tempWorkspace("adapter-pin");
+  writePinnedRuntimeFixture(adapterRoot);
+  return adapterRoot;
+}
+
+function prepare(options) {
+  const adapterRoot = Object.hasOwn(options, "adapterRoot")
+    ? options.adapterRoot
+    : fixtureAdapter();
+  return prepareLocalRuntime({ ...options, adapterRoot });
+}
+
 function upJson(overrides = {}) {
   return JSON.stringify({
     format: "hypit.cli-runtime-up@1",
@@ -90,7 +104,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
   it("discovers no-profile via native runtime init then local-only up (standalone host state)", () => {
     const workspace = tempWorkspace("fresh");
     const calls = [];
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: (argv, options) => {
         calls.push({ argv, options });
@@ -137,7 +151,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     writePointer(workspace);
     const before = readFileSync(join(workspace, "hypit.runtime.json"));
     const calls = [];
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: (argv) => {
         calls.push(argv);
@@ -158,8 +172,8 @@ describe("prepareLocalRuntime trust and isolation", () => {
       if (argv[1] === "init") throw new Error("init must not run when a pointer exists");
       return { status: 0, stdout: upJson(), stderr: "" };
     };
-    const first = prepareLocalRuntime({ workspace, spawnCli: spawn });
-    const second = prepareLocalRuntime({ workspace, spawnCli: spawn });
+    const first = prepare({ workspace, spawnCli: spawn });
+    const second = prepare({ workspace, spawnCli: spawn });
     expect(first.init_ran).toBe(false);
     expect(second.init_ran).toBe(false);
     expect(second.up_ran).toBe(true);
@@ -181,7 +195,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     writePointer(workspace, profile);
     const before = readFileSync(join(workspace, "hypit.runtime.json"));
     let spawns = 0;
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: () => {
         spawns += 1;
@@ -212,7 +226,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     writePointer(workspace, profile);
     const before = readFileSync(join(workspace, "hypit.runtime.json"));
     let spawns = 0;
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: () => {
         spawns += 1;
@@ -238,7 +252,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
         }
       }
     });
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: (argv) => {
         expect(argv[1]).toBe("up");
@@ -254,7 +268,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
   it("does not invent readiness when up exits 0 without ready=true", () => {
     const workspace = tempWorkspace("no-ready");
     writePointer(workspace);
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: () => ({
         status: 0,
@@ -273,7 +287,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     const workspace = tempWorkspace("init-exists");
     writeFileSync(join(workspace, "hypit.runtime.json"), `${JSON.stringify(OFFICIAL_STARTER, null, 2)}\n`);
     const before = readFileSync(join(workspace, "hypit.runtime.json"));
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: (argv) => {
         expect(argv[1]).toBe("init");
@@ -296,7 +310,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
   it("returns CLI failure facts when up exits non-zero", () => {
     const workspace = tempWorkspace("up-fail");
     writePointer(workspace);
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: () => ({ status: 1, stdout: "", stderr: "programs need attention\n" })
     });
@@ -309,7 +323,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
   it("returns timeout as not-ready without claiming prepared", () => {
     const workspace = tempWorkspace("timeout");
     writePointer(workspace);
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       spawnCli: () => ({
         status: null,
@@ -330,22 +344,22 @@ describe("prepareLocalRuntime trust and isolation", () => {
       spawns += 1;
       return { status: 0, stdout: upJson(), stderr: "" };
     };
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       endpoints: ["hypihub.default"],
       spawnCli
     })).toThrow(/endpoints/);
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       argv: ["runtime", "up"],
       spawnCli
     })).toThrow(/argv/);
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       command: "runtime up --endpoint whisperx.local",
       spawnCli
     })).toThrow(/command/);
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       stateHome: "/tmp/evil-state",
       spawnCli
@@ -358,11 +372,11 @@ describe("prepareLocalRuntime trust and isolation", () => {
     const parent = tempWorkspace("link-parent");
     const linked = join(parent, "linked-ws");
     symlinkSync(real, linked);
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace: linked,
       spawnCli: () => ({ status: 0, stdout: upJson(), stderr: "" })
     })).toThrow(/symlink/);
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace: "/",
       spawnCli: () => ({ status: 0, stdout: upJson(), stderr: "" })
     })).toThrow(/unsafe filesystem root|symlink/);
@@ -375,7 +389,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
       distribution: { package: "@hypit/hypit", version: "0.1.8" }
     }));
     let spawns = 0;
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       adapterRoot,
       spawnCli: () => {
@@ -393,7 +407,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     writeFileSync(sentinel, "untouched");
     symlinkSync(outside, join(workspace, ".hypit"));
     let spawns = 0;
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       spawnCli: () => {
         spawns += 1;
@@ -412,7 +426,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     writeFileSync(sentinel, "keep");
     symlinkSync(join(outside, "missing-hypit"), join(workspace, ".hypit"));
     let spawns = 0;
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       spawnCli: () => {
         spawns += 1;
@@ -424,7 +438,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
 
     const workspace2 = tempWorkspace("dangling-profile");
     symlinkSync(join(outside, "missing-profile.json"), join(workspace2, "hypit.runtime.json"));
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace: workspace2,
       spawnCli: () => {
         spawns += 1;
@@ -443,7 +457,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     writeFileSync(sentinel, "external-profile");
     symlinkSync(sentinel, join(workspace, "hypit.runtime.json"));
     let spawns = 0;
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       spawnCli: () => {
         spawns += 1;
@@ -463,7 +477,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     mkdirSync(join(stateHome, "home"), { recursive: true });
     writeFileSync(join(stateHome, "reuse-marker"), "keep-installed-runtime");
     const calls = [];
-    const result = prepareLocalRuntime({
+    const result = prepare({
       workspace,
       productionRoot,
       spawnCli: (argv, options) => {
@@ -487,7 +501,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     const other = tempWorkspace("other-ws");
     writePointer(other);
     let spawns = 0;
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace: other,
       productionRoot,
       spawnCli: () => {
@@ -504,7 +518,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     mkdirSync(nested);
     writePointer(nested);
     let spawns = 0;
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace: nested,
       productionRoot,
       spawnCli: () => {
@@ -522,7 +536,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     mkdirSync(join(workspace, ".hypit"), { recursive: true });
     symlinkSync(join(outside, "hypit.runtime.json"), join(workspace, "hypit.runtime.json"));
     writeFileSync(join(workspace, ".hypit", "runtime"), "hypit.runtime.json\n");
-    expect(() => prepareLocalRuntime({
+    expect(() => prepare({
       workspace,
       spawnCli: () => ({ status: 0, stdout: upJson(), stderr: "" })
     })).toThrow(/symlink/);
