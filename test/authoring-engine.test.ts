@@ -4,6 +4,7 @@ import {
   approveAuthoringPlan,
   assertLocalRenderAllowed,
   assertPaidBuildAllowed,
+  authoringSubmissionIntentSchema,
   bindAuthoringPlan,
   createAuthoringEngineRun,
   markAuthoringIntentUnknown,
@@ -14,6 +15,7 @@ import {
   assertAuthoringRunIdle,
   invalidateAuthoringPlan
 } from "../src/productionControl/authoringEngine.js";
+import { sha256Canonical } from "../src/productionControl/canonical.js";
 import { ProductionControlError } from "../src/productionControl/errors.js";
 
 const digest = "a".repeat(64);
@@ -218,5 +220,70 @@ describe("authoring engine run records", () => {
     const revised = reviseAuthoringRun(failed);
     expect(revised.submission_intent).toBeUndefined();
     expect(revised.intent_history).toHaveLength(1);
+  });
+
+  it("gives a new pending digest after failed revise same-plan reapprove", () => {
+    const planned = plan(run(), {
+      cost: { status: "local-only", amount: null, currency: null, request_count: 1, notes: ["local"] }
+    });
+    const approved = approveAuthoringPlan(planned, decision(planned, "approve-local-render"));
+    const first = persistAuthoringSubmissionIntent(approved, {
+      argv_digest: digest,
+      created_at: "2026-09-15T00:00:01.000Z",
+      execution_binding: bindingFor(planned)
+    });
+    expect(first.submission_intent?.attempt_identity).toBe("rev-0");
+    expect(first.submission_intent?.status).toBe("pending");
+    const firstDigest = first.submission_intent!.digest;
+    const failed = recordAuthoringBuildOutcome(first, { build_id: "bld_fail", outcome: "failed" });
+    expect(failed.submission_intent?.attempt_identity).toBe("rev-0");
+    expect(failed.submission_intent?.digest).not.toBe(firstDigest);
+    const revised = reviseAuthoringRun(failed);
+    expect(revised.revision_count).toBe(1);
+    const replanned = plan(revised, {
+      cost: { status: "local-only", amount: null, currency: null, request_count: 1, notes: ["local"] }
+    });
+    expect(replanned.plan_digest).toBe(planned.plan_digest);
+    const reapproved = approveAuthoringPlan(replanned, decision(replanned, "approve-local-render"));
+    const second = persistAuthoringSubmissionIntent(reapproved, {
+      argv_digest: digest,
+      created_at: "2026-09-15T00:00:01.000Z",
+      execution_binding: bindingFor(replanned)
+    });
+    expect(second.submission_intent?.status).toBe("pending");
+    expect(second.submission_intent?.attempt_identity).toBe("rev-1");
+    expect(second.submission_intent?.digest).not.toBe(firstDigest);
+    expect(second.intent_history).toHaveLength(1);
+    expect(() => persistAuthoringSubmissionIntent(second, {
+      argv_digest: digest,
+      created_at: "2026-09-15T00:00:02.000Z",
+      execution_binding: bindingFor(replanned)
+    })).toThrow(/cannot spawn again/);
+  });
+
+  it("validates a legacy signed intent without attempt_identity", () => {
+    const planned = plan(run(), {
+      cost: { status: "local-only", amount: null, currency: null, request_count: 1, notes: ["local"] }
+    });
+    const approved = approveAuthoringPlan(planned, decision(planned, "approve-local-render"));
+    const modern = persistAuthoringSubmissionIntent(approved, {
+      argv_digest: digest,
+      created_at: "2026-09-15T00:00:01.000Z",
+      execution_binding: bindingFor(planned)
+    });
+    const { digest: _digest, attempt_identity: _attempt, ...legacyUnsigned } = modern.submission_intent!;
+    expect(_attempt).toBe("rev-0");
+    expect("attempt_identity" in legacyUnsigned).toBe(false);
+    const legacy = authoringSubmissionIntentSchema.parse({
+      ...legacyUnsigned,
+      digest: sha256Canonical(legacyUnsigned)
+    });
+    expect(legacy.attempt_identity).toBeUndefined();
+    expect(legacy.digest).not.toBe(modern.submission_intent?.digest);
+    expect(legacy.digest).toBe(sha256Canonical(legacyUnsigned));
+    const createdAtOnly = { ...legacyUnsigned, created_at: "2026-09-16T00:00:00.000Z" };
+    expect(sha256Canonical(createdAtOnly)).toBe(sha256Canonical(legacyUnsigned));
+    const withAttempt = { ...legacyUnsigned, attempt_identity: "rev-0" };
+    expect(sha256Canonical(withAttempt)).not.toBe(sha256Canonical(legacyUnsigned));
   });
 });
