@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>制作</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: "Hiragino Sans", sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; }
+  section { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+  label, button, textarea, input { display: block; margin: .5rem 0; }
+  textarea, input[type=text] { width: 100%; box-sizing: border-box; }
+  button { padding: .5rem .9rem; }
+  button:disabled { opacity: .45; }
+  .note, .reason { color: #555; font-size: .9rem; }
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; }
+  .row > * { width: auto; }
+  details { margin-top: 1rem; color: #666; }
+  pre { background: #111; color: #eee; padding: 1rem; overflow: auto; max-height: 16rem; font-size: .75rem; }
+</style>
+<h1 id="title">制作</h1>
+<p class="note">参照を取り込み、指示を出し、計画と費用を確認してから承認します。実行は承認のあとです。</p>
+
+<section>
+  <h2>参照</h2>
+  <p id="reference">まだ取り込んでいません</p>
+  <label>動画ファイル <input id="file" type="file" accept="video/mp4"></label>
+  <label>またはパス <input id="from" type="text" placeholder="reference.mp4 の場所"></label>
+  <button id="intake">参照を取り込む</button>
+</section>
+
+<section>
+  <h2>指示</h2>
+  <textarea id="instruction" rows="3" placeholder="追加の指示（任意）"></textarea>
+  <div class="row">
+    <button id="saveInstruction">指示を保存</button>
+    <button id="author">制作案を作る</button>
+  </div>
+  <p class="reason" id="authorReason"></p>
+</section>
+
+<section>
+  <h2>計画と費用</h2>
+  <p id="creative"></p>
+  <p id="plan"></p>
+  <button id="planBtn">制作プランを作る</button>
+  <p class="reason" id="planReason"></p>
+  <p id="reviewStatus"></p>
+  <button id="review">制作レビューを用意する</button>
+</section>
+
+<section>
+  <h2>承認</h2>
+  <p id="approval"></p>
+  <div class="row">
+    <button id="approveLocal">ローカル実行を承認</button>
+    <button id="approvePaid">有料計画を承認</button>
+  </div>
+  <p class="reason" id="approveReason"></p>
+</section>
+
+<section>
+  <h2>進捗</h2>
+  <p id="progress"></p>
+  <div class="row">
+    <button id="buildLocal">ローカル実行を依頼</button>
+    <button id="buildPaid">有料実行を依頼</button>
+    <button id="preview">プレビュー</button>
+    <button id="export">書き出す</button>
+    <button id="accept">完成として受け取る</button>
+  </div>
+  <p class="reason" id="buildReason"></p>
+</section>
+
+<section>
+  <h2>フィードバックとやり直し</h2>
+  <textarea id="feedback" rows="2" placeholder="見たうえで直したい点"></textarea>
+  <div class="row">
+    <button id="sendFeedback">フィードバックを残す</button>
+    <button id="revise">やり直す</button>
+  </div>
+</section>
+
+<details>
+  <summary>診断（開発者向け）</summary>
+  <pre id="out">…</pre>
+</details>
+
+<script>
+const csrf = "%%CSRF%%";
+let poll = null;
+let instructionLoaded = false;
+async function call(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: body === undefined ? { "x-tsugite-csrf": csrf } : {
+      "content-type": "application/json",
+      "x-tsugite-csrf": csrf
+    },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  return res.json();
+}
+function text(id, value) { document.getElementById(id).textContent = value; }
+function applyActions(actions) {
+  const map = [
+    ["author", "author"],
+    ["planBtn", "plan"],
+    ["approveLocal", "approve_local"],
+    ["approvePaid", "approve_paid"],
+    ["buildLocal", "build_local"],
+    ["buildPaid", "build_paid"],
+    ["preview", "preview"],
+    ["export", "export"],
+    ["accept", "accept"]
+  ];
+  for (const [id, key] of map) {
+    const spec = actions[key] || {};
+    document.getElementById(id).disabled = spec.enabled === false;
+  }
+  text("authorReason", (actions.author && actions.author.reason) || "");
+  text("planReason", (actions.plan && actions.plan.reason) || "");
+  text("approveReason", (actions.approve_local && actions.approve_local.reason) || (actions.approve_paid && actions.approve_paid.reason) || "");
+  const buildBits = [actions.build_local, actions.build_paid, actions.preview, actions.export, actions.accept]
+    .filter((item) => item && item.reason)
+    .map((item) => item.reason);
+  text("buildReason", buildBits[0] || "");
+}
+function render(json, options) {
+  const initial = Boolean(options && options.initial);
+  document.getElementById("out").textContent = JSON.stringify(json, null, 2);
+  const view = json.view;
+  if (!view) return;
+  if (view.title) {
+    text("title", view.title);
+    document.title = view.title;
+  }
+  if (initial && !instructionLoaded) {
+    document.getElementById("instruction").value = view.instruction || "";
+    instructionLoaded = true;
+  }
+  text("progress", view.progress_label || "いまの進みを確認してください");
+  if (view.progress === "runtime-preparing") {
+    text("plan", "制作環境を準備しています");
+  } else if (view.progress === "runtime-not-ready") {
+    text("plan", (view.runtime && view.runtime.reason) || "制作環境の準備ができませんでした");
+  }
+  if (view.reference) {
+    text("reference", view.reference.width + "×" + view.reference.height + " / " + view.reference.duration_s + "秒（取り込みのみ）");
+  }
+  const creative = view.creative || {};
+  const duration = creative.duration_s != null ? creative.duration_s + "秒" : "尺は未確定";
+  const aspect = creative.aspect || "画面サイズは未確定";
+  text("creative", (creative.summary ? creative.summary + " " : "") + duration + " / " + aspect + silentSentence(view));
+  const plan = view.plan || {};
+  if (view.progress !== "runtime-preparing" && view.progress !== "runtime-not-ready") {
+    text("plan", costSummary(plan));
+  }
+  text("reviewStatus", view.review ? ("レビュー: " + view.review.plan_digest) : "制作レビューはまだありません");
+  text("approval", view.approval ? "承認済みです" : "まだ承認していません");
+  applyActions(view.actions || {});
+  if (view.progress === "author-running" || view.progress === "runtime-preparing") startPoll();
+  else stopPoll();
+}
+function costSummary(plan) {
+  if (plan.cost_status === "local-only") return "ローカル処理のみ（外部生成費用なし）";
+  if (plan.cost_status === "known" && plan.amount != null) return plan.cost_label || ("見積もり " + plan.amount);
+  if (!plan.ready) return "制作プランを作成すると費用を確認できます";
+  return "費用を確認できないため実行できません";
+}
+function silentSentence(view) {
+  const plan = view.plan || {};
+  if (!plan.ready) return " / 計画はまだありません";
+  if (plan.silent_typography === true) return " / 無音の文字映像という提案（まだ承認していません）";
+  if (plan.silent_typography === false) return " / 音声ありの提案";
+  return " / 音声は未確定";
+}
+function startPoll() {
+  if (poll) return;
+  poll = setInterval(() => { call("/state").then((json) => render(json, { initial: false })); }, 2000);
+}
+function stopPoll() { if (poll) { clearInterval(poll); poll = null; } }
+async function post(path, body) { render(await call(path, body || {}), { initial: false }); }
+document.getElementById("intake").onclick = async () => {
+  const file = document.getElementById("file").files[0];
+  if (file) {
+    const data = new FormData();
+    data.append("file", file, file.name);
+    const res = await fetch("/intake", { method: "POST", headers: { "x-tsugite-csrf": csrf }, body: data });
+    render(await res.json(), { initial: false });
+    return;
+  }
+  post("/intake", { from: document.getElementById("from").value });
+};
+document.getElementById("saveInstruction").onclick = () => post("/instruction", { text: document.getElementById("instruction").value });
+document.getElementById("author").onclick = () => post("/author", {});
+document.getElementById("planBtn").onclick = () => post("/plan", {});
+document.getElementById("review").onclick = () => post("/review", {});
+document.getElementById("approveLocal").onclick = () => post("/approve", { decision: "approve-local-render", actor: "human", decision_id: "ui-" + Date.now() });
+document.getElementById("approvePaid").onclick = () => post("/approve", { decision: "approve-plan", actor: "human", decision_id: "ui-" + Date.now() });
+document.getElementById("buildLocal").onclick = () => post("/build", { confirm_local_render: true });
+document.getElementById("buildPaid").onclick = () => post("/build", { confirm_paid: true });
+document.getElementById("preview").onclick = () => post("/preview", {});
+document.getElementById("export").onclick = () => post("/export", {});
+document.getElementById("accept").onclick = () => post("/accept", {});
+document.getElementById("sendFeedback").onclick = () => post("/feedback", { actor: "human", text: document.getElementById("feedback").value });
+document.getElementById("revise").onclick = () => post("/revise", { text: document.getElementById("instruction").value });
+call("/state").then((json) => render(json, { initial: true }));
+</script>

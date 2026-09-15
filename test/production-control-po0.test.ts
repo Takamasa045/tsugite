@@ -67,7 +67,7 @@ function normalizeLauncherProject(project: LauncherProject): JsonRecord {
   const normalized: JsonRecord = JSON.parse(JSON.stringify(project)) as JsonRecord;
   normalized.id = "<opaque-project-id>";
   normalized.revision = "<sha256-project-revision>";
-  for (const key of ["viewerUrl", "gate1ReviewUrl", "gate2ReviewUrl", "thumbnailUrl"]) {
+  for (const key of ["viewerUrl", "gate1ReviewUrl", "gate2ReviewUrl", "thumbnailUrl", "authoringUrl", "productionReviewUrl"]) {
     if (key in normalized) normalized[key] = "<loopback-url>";
   }
   return normalized;

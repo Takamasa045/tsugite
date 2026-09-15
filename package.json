@@ -1,6 +1,6 @@
 {
   "name": "tsugite",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "type": "module",
   "packageManager": "npm@10.9.8",
@@ -39,6 +39,10 @@
     "editframe:install": "npm ci --prefix backends/editframe/runtime",
     "editframe": "node backends/editframe/cli.mjs",
     "editframe:preview": "node backends/editframe/preview.mjs",
+    "hypit:install": "npm ci --prefix adapters/hypit/runtime",
+    "hypit": "node adapters/hypit/cli.mjs",
+    "hypit:spike": "node adapters/hypit/spike.mjs",
+    "hypit:production": "node adapters/hypit/productionCli.mjs",
     "editframe:examples:install": "node scripts/editframe-examples.mjs install",
     "editframe:examples": "node scripts/editframe-examples.mjs start"
   },

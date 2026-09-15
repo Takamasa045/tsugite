@@ -1,0 +1,26 @@
+# help-build
+status: 0
+signal:
+argv: ["help","build"]
+cwd: /Users/takamasa/.codex/worktrees/tsugite-hypit
+entry: /Users/takamasa/.codex/worktrees/tsugite-hypit/adapters/hypit/runtime/node_modules/@hypit/hypit/bin/hypit.mjs
+
+## stdout
+hypit build
+Submit one durable Build and ensure its selected Runtime Worker is available.
+
+  hypit build <run-source> [--title <text>] [--runtime <profile>] [--workspace <workspace>] [--asset-root <directory>] [--follow]
+
+  --title <text>            give this Result a human-facing title
+  --follow                   observe the Build; the Worker still owns execution
+  --max-wait-ms <ms>         bound startup or follow waiting
+
+Output
+  --json                     stable machine view
+  --verbose                  add bounded operational detail
+  --color auto|always|never  control ANSI color
+  --debug                    include internal trace frames on failure
+
+
+
+## stderr

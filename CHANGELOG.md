@@ -4,6 +4,15 @@
 
 - Added an optional local Editframe render backend and preview entry, installed with `npm run editframe:install`. It uses a pinned runtime (`@editframe/cli@0.59.47`, Vite 8.2.2) and static `/media` copies. Native JIT/WebRTC, 9:16, 24fps, transitions, and concurrent audio mix remain undeclared.
 
+## 0.13.0 - 2026-09-15
+
+- Added Hypit production authoring as an adapter-owned Production Control path (`npm run hypit:install`, `npm run hypit:production -- ...`). It is not a pipeline render backend and does not replace Gate 1/3.
+- Observed real Codex + official Hypit Skill source authoring from actual reference video frames; real Hypit `check`/`plan` pass; all 3 needs resolved on `media.local` / `hyperframes.local`; preflight succeeds; provider requests 0. Human approval, live `hypit build`, MP4, and acceptance are not part of this source bump.
+- Kept the Phase 1 Hypit spike as a separate observation command that still refuses `build`.
+- Added a verified experimental HyperFrames Studio WebMCP entry (`npm run hyperframes:studio -- <composition-dir>`). Studio edits do not write the pipeline manifest.
+- Added a pinned official Editframe examples installer and preview (`npm run editframe:examples:install`, `npm run editframe:examples`).
+- Set the source package and agent-service client version to **0.13.0**. Desktop installers and npm publication remain outside this source-prep. Git tag, CI, live media production, and human acceptance are not claimed here.
+
 ## 0.12.0 - 2026-09-08
 
 - Added repository-pinned official PixVerse CLI 1.4.0 with explicit installation and a Canvas command entrypoint (`npm run pixverse:install`, `npm run --silent pixverse -- canvas ...`).

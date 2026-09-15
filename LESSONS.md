@@ -4,9 +4,12 @@ Append-only format:
 
 `YYYY-MM-DD / symptom / cause / rule / status`
 
+2026-09-15 / Hypit Phase 1 の check/plan が fixture 配下の改ざん SVML と --package-root を通した / 信頼判定が path 包含だけだった / check/plan は固定ファイル名・固定 workspace・固定 argv に限り、spawn 直前に公式 bytes と activation bytes を照合する。任意 Source 隔離とは呼ばない / 進行中
+2026-09-15 / Hypit Phase 1 で grant 環境変数や配列が build を開け、UTF-8 デコード後のハッシュが不正バイトを潰し、check/plan が任意 Source の activation JS を読み込んだ / プロンプト禁止と argv 許可リストを承認や OS 隔離とみなした / Phase 1 の build は無条件拒否。ハッシュは raw bytes。check/plan はピン済み公式 example だけ。子環境から NODE_OPTIONS と資格情報を除く。observation fingerprint を承認に使わない / 進行中
 2026-09-10 / Editframe preview was a white page with unstyled caption text at the bottom / `ef-timegroup` does not autoplay; Playwright screenshotted after 1500ms without `customElements.whenDefined` or `seekForRender` / Preview and caption proof must wait for element registration, seek the actual composition time, screenshot the stage, and assert visible caption/video bounds / documented
 2026-09-10 / Official Editframe mp4 had video but no Japanese captions / `ef-text` was not inside the active `mode="fixed"` clip timegroup, or its duration was snapped to the whole clip / Nest captions inside each clip's fixed group with local `offset`/`duration` for the overlap window / documented
 2026-09-10 / Editframe local mp4 preview/render painted black and seekForRender failed / HTML `src="assets/..."` resolved to missing `/assets/*`, which Vite served as fallback HTML 200; `/src/assets` and `public/media` returned Range 206 `video/mp4` / Map local media to a real static URL and verify Content-Type plus bytes, never HTTP 200 alone / documented
+
 2026-07-25 / 完成済み r13 正本がランチャーに出ず worktree 削除で消失した / 制作を feature worktree の projects/ だけで完結させ、finalize も durable home へ載せず、後から git worktree remove した / 制作案件は制作前から main の durable projects home に置き、validate で shelf 登録、finalize で完成コピー昇格、ランチャーは durable+worktree を横断表示し、worktree remove 前に正本が durable home にあることを確認する / validate済
 
 2026-07-09 / mcp-agent adapter could not be handed off safely / adapter had no SKILL.md instructions / mcp-agent adapters must include SKILL.md / validate済

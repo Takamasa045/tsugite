@@ -39,7 +39,8 @@ import {
 } from "../videoPromptDirector/videoPromptCompile.js";
 import { createProjectGenerationUnitSourceResolver, resolveProjectAssetContract } from "../videoPromptDirector/generationUnitSourceResolver.js";
 import { loadProject } from "./loadProject.js";
-import { generationRequestCapability, generationRequestOutputKind, type AnalysisRequest, type Project } from "./schema.js";
+import { generationRequestCapability, generationRequestOutputKind, isAuthoringProduction, type AnalysisRequest, type Project } from "./schema.js";
+import { validateAuthoringProject } from "./validateAuthoringProject.js";
 import { projectAssetRoot, validateGenerationAssets } from "./generationAssets.js";
 import { ArtifactStore } from "../productionControl/artifactStore.js";
 import {
@@ -58,11 +59,13 @@ export type ValidateProjectOptions = {
   grammarProfileRoot?: string;
   /** Skip durable mode resolution (unit tests only). */
   skip_runtime_authority?: boolean;
+  isAuthoringAdapterRegistered?: (adapterId: string) => boolean | Promise<boolean>;
 };
 
 export type ValidateProjectResultData = {
   project: Project;
-  manifest: Manifest;
+  /** Absent for authoring productions; required for legacy pipeline projects. */
+  manifest?: Manifest;
   adapter?: AdapterDefinition;
   audioAdapter?: AdapterDefinition;
   analysisAdapter?: AdapterDefinition;
@@ -96,6 +99,30 @@ export async function validateProject(
     project = await loadProject(configPath);
   } catch (error) {
     return { ok: false, issues: issuesFromError(error) };
+  }
+
+  if (isAuthoringProduction(project)) {
+    const authoring = await validateAuthoringProject(configPath, project, {
+      ...(options.isAuthoringAdapterRegistered
+        ? { isAdapterRegistered: options.isAuthoringAdapterRegistered }
+        : {})
+    });
+    if (authoring.issues.length > 0) {
+      return {
+        ok: false,
+        issues: authoring.issues,
+        project,
+        promptGuides: [],
+        h3_compilations: []
+      };
+    }
+    return {
+      ok: true,
+      issues: [],
+      project,
+      promptGuides: [],
+      h3_compilations: []
+    };
   }
 
   // Resolve durable runtime authority once (pointer preferred; YAML only when absent).

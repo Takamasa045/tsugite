@@ -1,0 +1,72 @@
+{
+  "observation": {
+    "format": "tsugite.hypit-plan-observation@1",
+    "role": "observation-only",
+    "authorization": false,
+    "distribution": {
+      "package": "@hypit/hypit",
+      "version": "0.1.8",
+      "entrySha256": "7d67ac141e9ea0a3184f861cf1327e1bc036ddd6562def83397cff2972e3c334"
+    },
+    "workspace": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace",
+    "files": [
+      {
+        "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/chat.svml",
+        "sha256": "b540bc713395d5cb994945a5679821c65217f0492fd10287d207c911fecf6335",
+        "bytes": 1443
+      },
+      {
+        "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/chat.svrun",
+        "sha256": "2192954df6e80b899cbc5bb6ccee317de8801c5a1f6a095663f42cdcc2071be9",
+        "bytes": 133
+      },
+      {
+        "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/chat.svs",
+        "sha256": "c697b213f81cb2aed85cc79425c8e8a5605939ff231d7e66939e861b4d333cff",
+        "bytes": 96
+      },
+      {
+        "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/hypit.runtime.json",
+        "sha256": "e856a9af48ef9f7e2068b1ee2a90773ab0bffe26ac66a206a18af526ec5c9fb4",
+        "bytes": 326
+      },
+      {
+        "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/packages/chat-scene/dist/activation.js",
+        "sha256": "8d41b704f92647248b9bc0400ac0e4ea9733db3c9677569bb30da8769a596b47",
+        "bytes": 9720
+      },
+      {
+        "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/packages/chat-scene/dist/render.js",
+        "sha256": "0a47239824c8fe92df685127d35f9d293385eefd8b43359391498ad77af5f10c",
+        "bytes": 4863
+      },
+      {
+        "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/packages/chat-scene/src/activation.ts",
+        "sha256": "6dfd29bd10bd4b384ad5c45fe50a445a5f3bc71fc28168a43b268c7107a62c9e",
+        "bytes": 10291
+      },
+      {
+        "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/packages/chat-scene/src/render.ts",
+        "sha256": "9546689dab472e776dca1a5d564bc3e33857b3d566bb7c46c694aaad43d60d9b",
+        "bytes": 5357
+      }
+    ],
+    "runtime": {
+      "path": "/Users/takamasa/.codex/worktrees/tsugite-hypit/.tsugite/tools/hypit-phase1-workspace/hypit.runtime.json",
+      "sha256": "e856a9af48ef9f7e2068b1ee2a90773ab0bffe26ac66a206a18af526ec5c9fb4",
+      "bytes": 326
+    },
+    "plan": {
+      "sha256": "a174d430b4bff7deedb41680c6a797bb41850f6883c13d7f3811b075bf0b5457",
+      "costStatus": "unknown",
+      "requestCount": 3
+    },
+    "omittedClosure": [
+      "full import graph",
+      "generated activation beyond hashed files",
+      "Runtime Profile bindings after init",
+      "model/provider versions"
+    ]
+  },
+  "observationDigest": "b012729ba0231e09f61743574847dbc9375878d9f1e3e4348e4cf5a73ff1156a"
+}

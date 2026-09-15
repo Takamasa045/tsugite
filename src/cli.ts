@@ -116,7 +116,7 @@ import {
   resolveAgentService
 } from "./agentServices/index.js";
 import { readJsonFile } from "./io.js";
-import type { Project } from "./project/schema.js";
+import { isAuthoringProduction, type Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
 import { appendProjectFeedback } from "./feedback/index.js";
 import { openWorkflowViewer, writeWorkflowViewer } from "./viewer/artifact.js";
@@ -516,7 +516,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     try {
       const launcher = await startWorkflowViewerLauncher({
-        ...(args.projectsDir ? { projectsDir: args.projectsDir } : {}),
+        ...(args.projectsDir
+          ? { projectsDir: args.projectsDir, linkProjectShelves: false }
+          : {}),
         port
       });
       const closeOnSignal = () => {
@@ -1076,6 +1078,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ok: false,
       command: args.command,
       issues: validation.issues
+    });
+  }
+
+  if (validation.project && isAuthoringProduction(validation.project)) {
+    return output(args, 1, {
+      ok: false,
+      command: args.command,
+      issues: [{
+        code: "authoring.legacy_pipeline_unsupported",
+        message: `authoring production uses adapter '${validation.project.production.adapter}'; ${args.command} cannot run the legacy edit pipeline. Open the authoring UI from the launcher.`
+      }]
     });
   }
 

@@ -5,3 +5,5 @@
 They are not current product copy. Software **0.10.0** shipped Production Orchestration T00–T09. Do not treat `package_version: "0.9.0"` in these files as the live `package.json` version.
 
 Keep the digest-bound JSON and browser PNG evidence. Command logs under `po8-rc-evidence/commands/` are session artifacts; regenerate via `scripts/po8-rc-readiness.mjs` rather than editing by hand.
+
+Hypit Phase 1 spike evidence is `hypit-phase1-spike.md` plus `hypit-phase1-evidence/`. It is not an MVP completion record.
