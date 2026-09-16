@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Pinned the optional official PixVerse CLI runtime from 1.4.0 to 1.4.4. Canvas commands and the 11 `create` operations are unchanged. New CLI models include `minimax-h3-max` and GPT Image 2.5 (`gpt-image-2.5-flare` is the image default). H3 Prompt Director stays on `minimax-h3`. Live generation is not claimed.
 - Added an optional local Editframe render backend and preview entry, installed with `npm run editframe:install`. It uses a pinned runtime (`@editframe/cli@0.59.47`, Vite 8.2.2) and static `/media` copies. Native JIT/WebRTC, 9:16, 24fps, transitions, and concurrent audio mix remain undeclared.
 
 ## 0.13.0 - 2026-09-15

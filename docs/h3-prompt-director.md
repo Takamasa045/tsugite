@@ -513,6 +513,15 @@ Tsugite 側の注意:
 - 実装の capability 判定は常に local constraints / 実 adapter を優先
 - 現行 `adapters/pixverse/pixverseCli.mjs` は CLI の file/stdin 機構を使わず、**prompt 文字列を argv の値として渡す**
 
+## 公式 PixVerse CLI 1.4.4 の確認事実
+
+出典: リポジトリ固定 `pixverse@1.4.4` の `capabilities --json` および [PixVerseAI/cli CHANGELOG](https://github.com/PixVerseAI/cli/blob/main/CHANGELOG.md)
+
+- `minimax-h3-max` は `create video` / `create reference` / 2-frame `create transition` の別 model。H3 Prompt Director の canonical model は `minimax-h3` のまま（silent fallback なし）
+- H3 Max quality は `480p` / `768p` / `1080p`（default `768p`）。H3 は `768p` / `1440p`
+- duration は 5–15 秒。reference 上限は image 9 / video 3 / audio 3（合計 12）
+- `create image` の default は `gpt-image-2.5-flare`。quality は 1080p / 1440p / 2160p、detail は `low` / `medium` / `high` / `xhigh` / `max`、参照画像は最大 16
+
 ## safety
 
 - asset path は safe relative path のみ

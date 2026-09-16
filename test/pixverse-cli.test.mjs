@@ -91,7 +91,7 @@ describe("PixVerse CLI request mapping", () => {
     });
   });
 
-  it("covers every create operation exposed by PixVerse CLI 1.3.5", () => {
+  it("covers every create operation exposed by PixVerse CLI 1.4.4", () => {
     expect(Object.keys(pixverseOperationContract)).toEqual([
       "video",
       "image",
@@ -105,6 +105,39 @@ describe("PixVerse CLI request mapping", () => {
       "motion-control",
       "template"
     ]);
+  });
+
+  it("pins official PixVerse CLI 1.4.4 in the opt-in runtime", async () => {
+    const pkg = JSON.parse(await readFile("adapters/pixverse/runtime/package.json", "utf8"));
+    const lock = JSON.parse(await readFile("adapters/pixverse/runtime/package-lock.json", "utf8"));
+    expect(pkg.dependencies.pixverse).toBe("1.4.4");
+    expect(lock.packages["node_modules/pixverse"].version).toBe("1.4.4");
+    expect(lock.packages["node_modules/pixverse"].resolved).toContain("pixverse-1.4.4.tgz");
+  });
+
+  it("forwards MiniMax H3 Max and GPT Image 2.5 model ids unchanged", () => {
+    expect(buildPixverseCreateArgs({
+      id: "h3-max-shot",
+      operation: "video",
+      prompt: "a fast workshop cut",
+      model: "minimax-h3-max",
+      duration: 5,
+      aspect: "16:9",
+      params: { quality: "768p" }
+    }, "demo-run")).toEqual(expect.arrayContaining([
+      "create", "video", "--model", "minimax-h3-max", "--quality", "768p"
+    ]));
+
+    expect(buildPixverseCreateArgs({
+      id: "still",
+      operation: "image",
+      prompt: "a calm workshop",
+      model: "gpt-image-2.5-flare",
+      aspect: "16:9",
+      params: { detail_level: "high", quality: "1080p" }
+    }, "run")).toEqual(expect.arrayContaining([
+      "create", "image", "--model", "gpt-image-2.5-flare", "--detail-level", "high", "--quality", "1080p"
+    ]));
   });
 
   it("passes gateway model names through without a provider allowlist", () => {
