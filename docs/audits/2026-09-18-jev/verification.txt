@@ -1,0 +1,16 @@
+Focused before
+ Test Files  3 passed (3)
+      Tests  138 passed (138)
+   Duration  3.32s (transform 2.35s, setup 0ms, import 3.01s, tests 2.60s, environment 0ms)
+
+Focused after
+ Test Files  3 passed (3)
+      Tests  138 passed (138)
+   Duration  3.02s (transform 3.28s, setup 0ms, import 4.09s, tests 1.94s, environment 0ms)
+
+Full check (exit 0)
+vendor boundary ok
+ Test Files  151 passed (151)
+      Tests  2210 passed (2210)
+   Duration  126.30s (transform 8.53s, setup 0ms, import 66.94s, tests 398.80s, environment 9ms)
+All files          |   82.76 |    74.58 |   89.83 |   85.47 |
