@@ -1,0 +1,36 @@
+{
+  "answers": {
+    "binding": {
+      "type": "noul",
+      "noul": 0.78
+    },
+    "dead": {
+      "type": "noul",
+      "noul": 0.9
+    },
+    "complex": {
+      "type": "choice",
+      "choice": "defer",
+      "confidence": 1,
+      "probabilities": {
+        "none": 0,
+        "defer": 1,
+        "rewrite": 0
+      },
+      "action": "act"
+    },
+    "unused": {
+      "type": "noul",
+      "noul": 0.19
+    }
+  },
+  "none_options": {
+    "complex": "none"
+  },
+  "model": "jev-1.13.0",
+  "usage": {
+    "input_tokens": 25804,
+    "output_tokens": 89
+  },
+  "latency_ms": 902
+}

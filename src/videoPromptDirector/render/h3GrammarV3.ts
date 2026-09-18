@@ -215,19 +215,6 @@ export function renderProviderNeutralPrompt(ast: SemanticPromptAst): H3GrammarV3
   };
 }
 
-function replaceOutsideExactText(value: string, replacement: (segment: string) => string): string {
-  const exact = /<d>[\s\S]*?<\/d>/g;
-  let output = "";
-  let cursor = 0;
-  for (const match of value.matchAll(exact)) {
-    const start = match.index ?? 0;
-    output += replacement(value.slice(cursor, start));
-    output += match[0];
-    cursor = start + match[0].length;
-  }
-  return output + replacement(value.slice(cursor));
-}
-
 function renderSemanticPromptAst(
   ast: SemanticPromptAst,
   options: H3GrammarV3Options

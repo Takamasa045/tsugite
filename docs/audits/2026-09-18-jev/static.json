@@ -1,0 +1,770 @@
+{
+  "fileCount": 551,
+  "complexity": [
+    {
+      "file": "src/cli.ts",
+      "name": "main",
+      "line": 208,
+      "lines": 2062,
+      "branches": 245
+    },
+    {
+      "file": "src/viewer/launcher.ts",
+      "name": "handleLauncherRoute",
+      "line": 1131,
+      "lines": 1445,
+      "branches": 193
+    },
+    {
+      "file": "src/productionControl/rc/releaseReadiness.ts",
+      "name": "buildReleaseReadinessReport",
+      "line": 181,
+      "lines": 455,
+      "branches": 92
+    },
+    {
+      "file": "src/project/validateProject.ts",
+      "name": "validateProject",
+      "line": 87,
+      "lines": 588,
+      "branches": 88
+    },
+    {
+      "file": "src/videoPromptDirector/compileV2.ts",
+      "name": "compileVideoPromptIrV2",
+      "line": 164,
+      "lines": 331,
+      "branches": 88
+    },
+    {
+      "file": "src/orchestrator/run.ts",
+      "name": "assembleGeneratedMediaRun",
+      "line": 745,
+      "lines": 526,
+      "branches": 74
+    },
+    {
+      "file": "src/productionControl/reducer.ts",
+      "name": "reduceProductionEvent",
+      "line": 36,
+      "lines": 290,
+      "branches": 65
+    },
+    {
+      "file": "apps/workflow-viewer/src/app/LauncherApp.tsx",
+      "name": "LauncherApp",
+      "line": 656,
+      "lines": 2016,
+      "branches": 61
+    },
+    {
+      "file": "backends/hyperframes/document.mjs",
+      "name": "themedStyles",
+      "line": 126,
+      "lines": 524,
+      "branches": 61
+    },
+    {
+      "file": "src/videoPromptDirector/compilationBundle.ts",
+      "name": "deriveExecutionCompilationBundleFromPlanningArtifact",
+      "line": 834,
+      "lines": 341,
+      "branches": 54
+    },
+    {
+      "file": "src/videoPromptDirector/videoPromptCompile.ts",
+      "name": "compileProjectVideoPrompts",
+      "line": 606,
+      "lines": 300,
+      "branches": 51
+    },
+    {
+      "file": "src/cli.ts",
+      "name": "recordGate",
+      "line": 3009,
+      "lines": 544,
+      "branches": 47
+    },
+    {
+      "file": "src/viewer/launcher.ts",
+      "name": "inspectProject",
+      "line": 3509,
+      "lines": 289,
+      "branches": 47
+    },
+    {
+      "file": "src/videoPromptDirector/schemaV2.ts",
+      "name": "<anonymous>",
+      "line": 257,
+      "lines": 96,
+      "branches": 46
+    },
+    {
+      "file": "src/orchestrator/run.ts",
+      "name": "assembleLocalMediaRun",
+      "line": 200,
+      "lines": 373,
+      "branches": 45
+    }
+  ],
+  "duplicates": [
+    [
+      {
+        "file": "apps/workflow-viewer/src/app/App.scene.integration.test.tsx",
+        "name": "<anonymous>",
+        "line": 113,
+        "lines": 13,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/app/App.writeWorkflowViewer.e2e.test.tsx",
+        "name": "<anonymous>",
+        "line": 55,
+        "lines": 13,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/app/App.scene.integration.test.tsx",
+        "name": "<anonymous>",
+        "line": 115,
+        "lines": 9,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/app/App.writeWorkflowViewer.e2e.test.tsx",
+        "name": "<anonymous>",
+        "line": 57,
+        "lines": 9,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/app/LauncherApp.tsx",
+        "name": "isRefreshErrorResponse",
+        "line": 592,
+        "lines": 6,
+        "branches": 3
+      },
+      {
+        "file": "apps/workflow-viewer/src/app/LauncherApp.tsx",
+        "name": "isRenameErrorResponse",
+        "line": 649,
+        "lines": 6,
+        "branches": 3
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExecutableExpressionGroup.test.tsx",
+        "name": "readComponentSource",
+        "line": 241,
+        "lines": 13,
+        "branches": 2
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionCard.softDisable.test.tsx",
+        "name": "readComponentSource",
+        "line": 144,
+        "lines": 13,
+        "branches": 2
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/template/TemplateWizardSteps.test.tsx",
+        "name": "readComponentSource",
+        "line": 118,
+        "lines": 13,
+        "branches": 2
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionFreeformExport.test.tsx",
+        "name": "installExecCommand",
+        "line": 9,
+        "lines": 22,
+        "branches": 2
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/expression/localClipboardCopy.test.ts",
+        "name": "installExecCommand",
+        "line": 8,
+        "lines": 22,
+        "branches": 2
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionPreview.test.tsx",
+        "name": "<anonymous>",
+        "line": 374,
+        "lines": 10,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionPreview.test.tsx",
+        "name": "<anonymous>",
+        "line": 394,
+        "lines": 10,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionShelf.a11y-focus.test.tsx",
+        "name": "<anonymous>",
+        "line": 133,
+        "lines": 8,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionShelf.staleRecommendation.test.tsx",
+        "name": "<anonymous>",
+        "line": 269,
+        "lines": 8,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionShelf.a11y-focus.test.tsx",
+        "name": "<anonymous>",
+        "line": 304,
+        "lines": 16,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionShelf.selection.test.tsx",
+        "name": "<anonymous>",
+        "line": 352,
+        "lines": 16,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionShelf.selection.test.tsx",
+        "name": "<anonymous>",
+        "line": 392,
+        "lines": 16,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionShelf.a11y-focus.test.tsx",
+        "name": "<anonymous>",
+        "line": 446,
+        "lines": 16,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionShelf.handleSelect.test.tsx",
+        "name": "<anonymous>",
+        "line": 55,
+        "lines": 16,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/expression/ExpressionShelf.selection.test.tsx",
+        "name": "<anonymous>",
+        "line": 295,
+        "lines": 16,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/maintenance/MediaFinalizePanel.tsx",
+        "name": "<anonymous>",
+        "line": 66,
+        "lines": 52,
+        "branches": 2
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/maintenance/WorktreeCleanupPanel.tsx",
+        "name": "<anonymous>",
+        "line": 53,
+        "lines": 52,
+        "branches": 2
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/maintenance/MediaFinalizePanel.tsx",
+        "name": "onKey",
+        "line": 76,
+        "lines": 22,
+        "branches": 6
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/maintenance/WorktreeCleanupPanel.tsx",
+        "name": "onKey",
+        "line": 63,
+        "lines": 22,
+        "branches": 6
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/maintenance/MediaFinalizePanel.tsx",
+        "name": "onFocusIn",
+        "line": 99,
+        "lines": 8,
+        "branches": 4
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/maintenance/WorktreeCleanupPanel.tsx",
+        "name": "onFocusIn",
+        "line": 86,
+        "lines": 8,
+        "branches": 4
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/maintenance/MediaFinalizePanel.tsx",
+        "name": "<anonymous>",
+        "line": 109,
+        "lines": 8,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/maintenance/WorktreeCleanupPanel.tsx",
+        "name": "<anonymous>",
+        "line": 96,
+        "lines": 8,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/template/HyperframesCatalogPanel.tsx",
+        "name": "writeClipboardText",
+        "line": 32,
+        "lines": 18,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/template/TemplateChecklist.tsx",
+        "name": "writeClipboardText",
+        "line": 86,
+        "lines": 18,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/src/components/template/HyperframesCatalogPanel.tsx",
+        "name": "<anonymous>",
+        "line": 33,
+        "lines": 16,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/src/components/template/TemplateChecklist.tsx",
+        "name": "<anonymous>",
+        "line": 87,
+        "lines": 16,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "apps/workflow-viewer/tests/production-orchestration-browser.test.mjs",
+        "name": "<anonymous>",
+        "line": 602,
+        "lines": 7,
+        "branches": 1
+      },
+      {
+        "file": "apps/workflow-viewer/tests/production-orchestration-browser.test.mjs",
+        "name": "<anonymous>",
+        "line": 652,
+        "lines": 7,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "scripts/check-vendor-boundary.mjs",
+        "name": "childDirectoryNames",
+        "line": 58,
+        "lines": 8,
+        "branches": 2
+      },
+      {
+        "file": "src/vendorBoundary.ts",
+        "name": "childDirectoryNames",
+        "line": 54,
+        "lines": 8,
+        "branches": 2
+      }
+    ],
+    [
+      {
+        "file": "src/adapters/cliAudio.ts",
+        "name": "<anonymous>",
+        "line": 20,
+        "lines": 5,
+        "branches": 2
+      },
+      {
+        "file": "src/project/schema.ts",
+        "name": "<anonymous>",
+        "line": 72,
+        "lines": 9,
+        "branches": 2
+      }
+    ],
+    [
+      {
+        "file": "src/generationJobs/machine.ts",
+        "name": "<anonymous>",
+        "line": 552,
+        "lines": 8,
+        "branches": 1
+      },
+      {
+        "file": "src/generationJobs/machine.ts",
+        "name": "<anonymous>",
+        "line": 874,
+        "lines": 8,
+        "branches": 1
+      },
+      {
+        "file": "src/generationJobs/machine.ts",
+        "name": "<anonymous>",
+        "line": 991,
+        "lines": 8,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "src/orchestrator/compose.ts",
+        "name": "<anonymous>",
+        "line": 306,
+        "lines": 7,
+        "branches": 1
+      },
+      {
+        "file": "src/orchestrator/render.ts",
+        "name": "<anonymous>",
+        "line": 257,
+        "lines": 7,
+        "branches": 1
+      },
+      {
+        "file": "src/orchestrator/review.ts",
+        "name": "<anonymous>",
+        "line": 1086,
+        "lines": 7,
+        "branches": 1
+      },
+      {
+        "file": "src/orchestrator/run.ts",
+        "name": "<anonymous>",
+        "line": 1515,
+        "lines": 7,
+        "branches": 1
+      },
+      {
+        "file": "src/productionControl/durableGateEvidence.ts",
+        "name": "<anonymous>",
+        "line": 376,
+        "lines": 7,
+        "branches": 1
+      },
+      {
+        "file": "src/project/generationAssets.ts",
+        "name": "<anonymous>",
+        "line": 245,
+        "lines": 7,
+        "branches": 1
+      },
+      {
+        "file": "src/videoPromptDirector/artifacts.ts",
+        "name": "<anonymous>",
+        "line": 864,
+        "lines": 7,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "src/orchestrator/compositionCompile.ts",
+        "name": "annotationOverlaps",
+        "line": 466,
+        "lines": 24,
+        "branches": 1
+      },
+      {
+        "file": "src/orchestrator/editorialCompile.ts",
+        "name": "sourceOverlaps",
+        "line": 446,
+        "lines": 19,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "src/orchestrator/compositionCompile.ts",
+        "name": "<anonymous>",
+        "line": 477,
+        "lines": 12,
+        "branches": 3
+      },
+      {
+        "file": "src/orchestrator/editorialCompile.ts",
+        "name": "<anonymous>",
+        "line": 452,
+        "lines": 12,
+        "branches": 3
+      }
+    ],
+    [
+      {
+        "file": "src/orchestrator/finalizePersistence.ts",
+        "name": "isWithinPath",
+        "line": 628,
+        "lines": 5,
+        "branches": 1
+      },
+      {
+        "file": "src/project/projectsHomeShared.ts",
+        "name": "isWithinDirectory",
+        "line": 98,
+        "lines": 5,
+        "branches": 1
+      },
+      {
+        "file": "src/project/promotionJournalPathSafety.ts",
+        "name": "isWithinDirectory",
+        "line": 198,
+        "lines": 5,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "src/orchestrator/finalizePersistence.ts",
+        "name": "fsyncDirectory",
+        "line": 760,
+        "lines": 9,
+        "branches": 2
+      },
+      {
+        "file": "src/project/promotionJournalPersistence.ts",
+        "name": "fsyncDirectory",
+        "line": 259,
+        "lines": 9,
+        "branches": 2
+      }
+    ],
+    [
+      {
+        "file": "src/orchestrator/gate2Qc.ts",
+        "name": "frameRate",
+        "line": 358,
+        "lines": 6,
+        "branches": 3
+      },
+      {
+        "file": "src/orchestrator/gate3Qc.ts",
+        "name": "frameRate",
+        "line": 388,
+        "lines": 6,
+        "branches": 3
+      }
+    ],
+    [
+      {
+        "file": "src/orchestrator/render.ts",
+        "name": "sha256File",
+        "line": 256,
+        "lines": 9,
+        "branches": 1
+      },
+      {
+        "file": "src/orchestrator/run.ts",
+        "name": "sha256File",
+        "line": 1514,
+        "lines": 9,
+        "branches": 1
+      },
+      {
+        "file": "src/productionControl/durableGateEvidence.ts",
+        "name": "sha256FileContents",
+        "line": 375,
+        "lines": 9,
+        "branches": 1
+      },
+      {
+        "file": "src/project/generationAssets.ts",
+        "name": "sha256File",
+        "line": 244,
+        "lines": 9,
+        "branches": 1
+      },
+      {
+        "file": "src/videoPromptDirector/artifacts.ts",
+        "name": "sha256FileStream",
+        "line": 863,
+        "lines": 9,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "src/productionControl/rc/fixtureEvidence.ts",
+        "name": "extractPrimaryIr",
+        "line": 106,
+        "lines": 13,
+        "branches": 7
+      },
+      {
+        "file": "src/productionControl/rc/migrationOrchestrator.ts",
+        "name": "extractPrimaryIr",
+        "line": 139,
+        "lines": 13,
+        "branches": 7
+      }
+    ],
+    [
+      {
+        "file": "src/qa/mediaEvidence/schema.ts",
+        "name": "findForbiddenBiometricKeys",
+        "line": 165,
+        "lines": 16,
+        "branches": 9
+      },
+      {
+        "file": "src/qa/personConsistency/schema.ts",
+        "name": "findForbiddenBiometricKeys",
+        "line": 329,
+        "lines": 16,
+        "branches": 9
+      }
+    ],
+    [
+      {
+        "file": "src/videoPromptDirector/adapterDialect.ts",
+        "name": "deepFreeze",
+        "line": 257,
+        "lines": 5,
+        "branches": 3
+      },
+      {
+        "file": "src/videoPromptDirector/generationUnitSourceResolver.ts",
+        "name": "deepFreeze",
+        "line": 510,
+        "lines": 5,
+        "branches": 3
+      },
+      {
+        "file": "src/videoPromptDirector/promptBudgetEvidence.ts",
+        "name": "deepFreeze",
+        "line": 235,
+        "lines": 5,
+        "branches": 3
+      }
+    ],
+    [
+      {
+        "file": "src/videoPromptDirector/assetBinding.ts",
+        "name": "applyAssetBinding",
+        "line": 53,
+        "lines": 94,
+        "branches": 13
+      },
+      {
+        "file": "src/videoPromptDirector/compile.ts",
+        "name": "applyAssetBinding",
+        "line": 462,
+        "lines": 94,
+        "branches": 13
+      }
+    ],
+    [
+      {
+        "file": "src/videoPromptDirector/compilationBundle.ts",
+        "name": "isProjectAssetIdentityContained",
+        "line": 1526,
+        "lines": 7,
+        "branches": 1
+      },
+      {
+        "file": "src/videoPromptDirector/generationUnitSourceResolver.ts",
+        "name": "isGenerationUnitPathContained",
+        "line": 80,
+        "lines": 13,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "src/videoPromptDirector/connectionCapability.ts",
+        "name": "isPathWithinRoot",
+        "line": 117,
+        "lines": 5,
+        "branches": 1
+      },
+      {
+        "file": "src/videoPromptDirector/knowledgeBounds.ts",
+        "name": "isPathWithinRoot",
+        "line": 68,
+        "lines": 5,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "src/videoPromptDirector/render/h3GrammarV3.ts",
+        "name": "formatTimestamp",
+        "line": 457,
+        "lines": 6,
+        "branches": 1
+      },
+      {
+        "file": "src/videoPromptDirector/semanticBlocks.ts",
+        "name": "formatTimestamp",
+        "line": 414,
+        "lines": 6,
+        "branches": 1
+      }
+    ],
+    [
+      {
+        "file": "src/viewer/launcher.ts",
+        "name": "<anonymous>",
+        "line": 1026,
+        "lines": 13,
+        "branches": 3
+      },
+      {
+        "file": "src/viewer/launcher.ts",
+        "name": "<anonymous>",
+        "line": 1041,
+        "lines": 13,
+        "branches": 3
+      }
+    ],
+    [
+      {
+        "file": "src/viewer/launcher.ts",
+        "name": "<anonymous>",
+        "line": 2916,
+        "lines": 8,
+        "branches": 1
+      },
+      {
+        "file": "src/viewer/launcherMaintenance.ts",
+        "name": "<anonymous>",
+        "line": 197,
+        "lines": 8,
+        "branches": 1
+      }
+    ]
+  ]
+}
