@@ -43,4 +43,4 @@
 - `npm run check`: 終了コード0。vendor boundary / TypeScript build / 151ファイル・2,210テスト成功。Statements 82.76%、Branches 74.58%、Functions 89.83%、Lines 85.47%で全必須閾値を達成。[検証要約](2026-09-18-jev/verification.txt)。
 - `git diff --check`: 成功。
 - Node v22.23.2。root package-lockはローカルmainと同一。依存は既存mainのnode_modulesをsymlinkで参照。独立したクリーンインストールの検証ではない。
-- Viewer UIの変更なし。CI・実ブラウザ・動画生成は実行していない。commit/push/main統合は未実施。
+- Viewer UIの変更なし。CI・実ブラウザ・動画生成は実行していない。調査完了時点ではcommit/push/main統合は未実施（後続の統合状態はGit履歴を参照）。
