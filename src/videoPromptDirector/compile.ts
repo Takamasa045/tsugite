@@ -10,6 +10,7 @@
 import type { GenerationRequest, Project } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import { sha256Canonical, sha256Text } from "../integrity/canonical.js";
+import { applyAssetBinding } from "./assetBinding.js";
 import { collectPromptBlockDigests } from "./blockDigests.js";
 import { collectLockedBlockHashes } from "./lockedBlocks.js";
 import {
@@ -20,7 +21,6 @@ import {
 import { compileLegacyH3V1 } from "./compileV2.js";
 import type { H3Asset, H3CreativeIr, H3Mode } from "./schema.js";
 import {
-  H3_ASSET_BINDING_MISMATCH_CODE,
   H3_PROVIDER_MODEL_MAPPING_MISSING_CODE,
   validateH3AdapterRoute,
   validateH3CreativeIr,
@@ -456,101 +456,6 @@ function resolveModeBinding(
       return { operation: "reference", input_mode: "reference", asset_binding: "reference_lists" };
     case "last-frame":
       return undefined;
-  }
-}
-
-function applyAssetBinding(
-  request: GenerationRequest,
-  binding: H3RouteModeBinding
-): { request: GenerationRequest; issues: H3Issue[] } {
-  const issues: H3Issue[] = [];
-  const base = { ...request };
-
-  switch (binding.asset_binding) {
-    case "none":
-      return { request: base, issues };
-    case "first_frame": {
-      if (!base.first_frame) {
-        issues.push(issue(
-          H3_ASSET_BINDING_MISMATCH_CODE,
-          "route asset binding requires first_frame",
-          "error",
-          ["first_frame"]
-        ));
-      }
-      return { request: base, issues };
-    }
-    case "last_frame": {
-      if (!base.last_frame) {
-        issues.push(issue(
-          H3_ASSET_BINDING_MISMATCH_CODE,
-          "route asset binding requires last_frame",
-          "error",
-          ["last_frame"]
-        ));
-      }
-      if (base.first_frame) {
-        issues.push(issue(
-          H3_ASSET_BINDING_MISMATCH_CODE,
-          "last_frame binding must not include first_frame",
-          "error",
-          ["first_frame"]
-        ));
-      }
-      return { request: base, issues };
-    }
-    case "first_and_last_frame": {
-      if (!base.first_frame || !base.last_frame) {
-        issues.push(issue(
-          H3_ASSET_BINDING_MISMATCH_CODE,
-          "route asset binding requires first_frame and last_frame",
-          "error",
-          ["first_frame"]
-        ));
-      }
-      return { request: base, issues };
-    }
-    case "first_last_as_input_images": {
-      const first = base.first_frame;
-      const last = base.last_frame;
-      if (!first || !last) {
-        issues.push(issue(
-          H3_ASSET_BINDING_MISMATCH_CODE,
-          "route asset binding requires first_frame and last_frame to pack input_images",
-          "error",
-          ["first_frame"]
-        ));
-        return { request: base, issues };
-      }
-      const {
-        first_frame: _first,
-        last_frame: _last,
-        ...rest
-      } = base;
-      return {
-        request: {
-          ...rest,
-          input_images: [first, last]
-        },
-        issues
-      };
-    }
-    case "reference_lists": {
-      const hasMedia = Boolean(
-        (base.input_images?.length ?? 0)
-        + (base.input_videos?.length ?? 0)
-        + (base.input_audios?.length ?? 0)
-      );
-      if (!hasMedia) {
-        issues.push(issue(
-          H3_ASSET_BINDING_MISMATCH_CODE,
-          "route asset binding requires at least one reference media list",
-          "error",
-          ["input_images"]
-        ));
-      }
-      return { request: base, issues };
-    }
   }
 }
 
