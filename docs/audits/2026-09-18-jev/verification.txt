@@ -13,4 +13,4 @@ vendor boundary ok
  Test Files  151 passed (151)
       Tests  2210 passed (2210)
    Duration  126.30s (transform 8.53s, setup 0ms, import 66.94s, tests 398.80s, environment 9ms)
-All files          |   82.76 |    74.58 |   89.83 |   85.47 |                   
+All files          |   82.76 |    74.58 |   89.83 |   85.47 |
