@@ -18,7 +18,7 @@ You do not need to understand Git or the terminal first. Codex, Claude Code, or 
 
 Use this map to find the right entry. Optional tools never replace Gates, `run`, or `render`.
 
-### Produce a video (core)
+### Safe production flow
 
 Every job has a `project.yaml`. Copyable examples live under `examples/`. Your work stays gitignored under `projects/`.
 
