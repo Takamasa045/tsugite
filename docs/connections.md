@@ -172,9 +172,9 @@ subscription/API keyを使うintegrated connectionは、environmentまたはmanu
 
 必要契約を満たせないベンダーは `manual import`として案内し、実行可能と表示しない。モデルカタログへの追加はprompt guidanceの追加であり、接続や利用権限の追加ではない。
 
-### PixVerse CLI 公式記事との整合（2026-09-08）
+### PixVerse CLI 公式記事との整合（2026-09-16）
 
-[公式CLI記事](https://pixverse.ai/en/blog/pixverse-cli-generate-ai-videos-images-from-terminal) とローカル CLI 1.3.10 の `dist/capabilities.json`・`--help` を照合した。記事より実行CLIの契約を優先する（例: 1.3.10 は Node.js >=22.12、`create upscale` の quality は 2160p）。
+[公式CLI記事](https://pixverse.ai/en/blog/pixverse-cli-generate-ai-videos-images-from-terminal) とリポジトリ固定 CLI 1.4.4 の `capabilities --json`・`--help` を照合した。記事より実行CLIの契約を優先する（例: Node.js >=22.12、`create upscale` の quality は 2160p）。1.4.1–1.4.4 で追加された `minimax-h3-max` と GPT Image 2.5 は gateway model id として argv へそのまま渡せる。H3 Prompt Director の canonical model は `minimax-h3` のまま。
 
 - 既存の11種類の `create` 操作を利用できる。画像・音声もそれぞれの `image_id` / `audio_id` で待機・取得する。複数結果は全タスクを順に待機し、別ディレクトリへ保存する。
 - `generation.requests[].params.workspace_id` を指定すると create / task wait / asset download 全体へ引き継ぐ。`0` は個人workspace。省略時はCLIの選択済みworkspaceを使い、Tsugiteが課金先を選ばない。
@@ -183,4 +183,4 @@ subscription/API keyを使うintegrated connectionは、environmentまたはmanu
 
 ### PixVerse Canvas
 
-公式CLI 1.4.0をリポジトリ内へ固定導入して、Canvasのproject / graph / node / patch / dispatchを操作できる。[導入・操作・承認境界](pixverse-canvas.md)を参照。入口は `npm run --silent pixverse -- canvas ...`。従来の生成adapterと独立した外部操作入口である。
+公式CLI 1.4.4をリポジトリ内へ固定導入して、Canvasのproject / graph / node / patch / dispatchを操作できる。[導入・操作・承認境界](pixverse-canvas.md)を参照。入口は `npm run --silent pixverse -- canvas ...`。従来の生成adapterと独立した外部操作入口である。

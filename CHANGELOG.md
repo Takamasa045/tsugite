@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.14.0 - 2026-09-20
+
+- Added Jev Fast Edit v1 as an existing pipeline edit mode, selected only with `edit.backend`. Remotion, Hyperframes and Editframe interpret the same strict backend-neutral intent in Manifest/EDL; no renderer registry or backend-generated Jev code was added.
+- Reused local Whisper word timestamps, deterministic beat splitting, Artifact Store, Production Control, review Viewer and existing Gates/QA. Sixteen beats produce one 117-question Jev batch. Missing, invalid or review/abstain answers stop automatic application.
+- Implemented the complete Fast Edit capability set across all three native backends: 18 cards, captions and word emphasis, text effects, transitions, zoom, SFX, progress, style/color/pacing, source audio, and horizontal/vertical MP4.
+- Verified the same source and decision fixtures in six actual native renders (3 backends × 16:9/9:16): ffprobe, audio, duration, captions and capabilities pass. Added repeatable pixel, OCR and decoded-audio comparison scripts. Live Jev returned all 117 answers in one request; uncertain answers were retained without applying them.
+- Set the source package and agent-service client version to **0.14.0**. Desktop installers and npm publication are outside this source release.
+
+- Pinned the optional official PixVerse CLI runtime from 1.4.0 to 1.4.4. Canvas commands and the 11 `create` operations are unchanged. New CLI models include `minimax-h3-max` and GPT Image 2.5 (`gpt-image-2.5-flare` is the image default). H3 Prompt Director stays on `minimax-h3`. Live generation is not claimed.
+- Added an optional local Editframe render backend and preview entry, installed with `npm run editframe:install`. It uses a pinned runtime (`@editframe/cli@0.59.47`, Vite 8.2.2) and static `/media` copies. Native JIT/WebRTC and 24fps remain undeclared. The legacy mode retains its limits; Fast Edit adds 9:16, transitions and audio mixing through its explicit capabilities.
+
 ## 0.13.0 - 2026-09-15
 
 - Added Hypit production authoring as an adapter-owned Production Control path (`npm run hypit:install`, `npm run hypit:production -- ...`). It is not a pipeline render backend and does not replace Gate 1/3.

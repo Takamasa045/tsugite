@@ -83,7 +83,7 @@ Optional [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md) edits a 
 - A separate, versioned **Agent Service Registry** for public read-only Remote MCP services (`services` / `service-tools` / `service-call`), isolated from generation `connections`. See [Agent Services](docs/agent-services.md).
 - Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.
 - CLI generation adapter wrappers for PixVerse/Kling.
-- [PixVerse Canvas](docs/pixverse-canvas.md) via the opt-in, repository-pinned official CLI 1.4.0: `npm run pixverse:install`, then `npm run --silent pixverse -- canvas --help`.
+- [PixVerse Canvas](docs/pixverse-canvas.md) via the opt-in, repository-pinned official CLI 1.4.4: `npm run pixverse:install`, then `npm run --silent pixverse -- canvas --help`.
 - [Editframe official examples](docs/editframe-examples.md): opt-in, revision-pinned gallery of 27 video samples. Run `npm run editframe:examples:install`, then `npm run editframe:examples`.
 - Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
 - A story-guide catalog covering 34 narrative, persuasion, documentary, genre, and music-video structures plus 35 contextual film-grammar and AI-video principles.
@@ -96,6 +96,7 @@ Optional [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md) edits a 
 - Gate 3 QC report generation for final duration, resolution, fps, and audio/video streams.
 - First-class image assets, speaker/pose metadata, and guarded presentation presets.
 - Remotion and HyperFrames backend contracts.
+- Optional local [Editframe backend](docs/editframe.md): `npm run editframe:install`, then `edit.backend: editframe`. Preview uses an authoring copy. WebMCP and disk-save APIs are unverified.
 - A Gate-bound audio adapter contract and an official HyperFrames `media-use` integration for BGM/SFX.
 - Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
 - A loopback-only project launcher and an optional, read-only 3D detail viewer under `apps/workflow-viewer/`.

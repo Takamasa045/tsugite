@@ -1,3 +1,5 @@
+import { prepareFastEditMedia } from "../fastEditMedia.mjs";
+import { mixFastEditAudio } from "../fastEditAudio.mjs";
 import { bundle } from "@remotion/bundler";
 import { getVideoMetadata, renderMedia, selectComposition } from "@remotion/renderer";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -13,6 +15,7 @@ try {
   const bundleDir = await mkdtemp(join(tmpdir(), "tsugite-remotion-"));
 
   try {
+    const renderManifest = await prepareFastEditMedia(manifest, input.runDir);
     const serveUrl = await bundle({
       entryPoint,
       publicDir: input.runDir,
@@ -20,7 +23,7 @@ try {
       outDir: bundleDir,
       onProgress: () => undefined
     });
-    const inputProps = { manifest };
+    const inputProps = { manifest: renderManifest };
     const composition = await selectComposition({
       serveUrl,
       id: "tsugite-render",
@@ -41,6 +44,7 @@ try {
       timeoutInMilliseconds: 120000
     });
 
+    await mixFastEditAudio(manifest, input.runDir, input.outputPath);
     const metadata = await getVideoMetadata(input.outputPath, { logLevel: "error" });
     const report = {
       backend: "remotion",

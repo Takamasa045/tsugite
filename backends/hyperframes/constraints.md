@@ -9,3 +9,5 @@
 - When HyperFrames is unavailable, return a structured `hyperframes.dependency_missing` result and exit with code 30.
 - Optional Studio WebMCP editing uses the pinned local CLI through `npm run hyperframes:studio -- <composition-dir>`; see [connection and verification](../../docs/hyperframes-studio-webmcp.md). It is a page-scoped editing surface, not hosted cloud MCP or a Gate approval mechanism.
 - Studio source edits do not update the Tsugite manifest. `render.mjs` regenerates `index.html` and the local timeline from that manifest; use a separate authoring copy and reconcile approved changes into the pipeline source before rendering again.
+
+- Fast Edit v1 interprets the common Manifest intent schema. All mandatory capabilities are required before execution. Frame-time math, local color derivatives, and deterministic source/audio/SFX mixing are shared for parity; rendering stays in this backend. See `docs/fast-edit.md`.

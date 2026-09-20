@@ -168,6 +168,7 @@ type ParsedArgs = {
   field?: string;
   text?: string;
   textFile?: string;
+  decisionsFile?: string;
   projectsDir?: string;
   port?: string;
   backend?: string;
@@ -1030,7 +1031,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   const generationUnitSourceResolver = createProjectGenerationUnitSourceResolver(args.config);
-  const validation = await validateProject(args.config, { generationUnitSourceResolver });
+  const validation = await validateProject(args.config, { generationUnitSourceResolver, prepareFastEdit: args.command === "analyze" || args.command === "fast-edit" });
   // Single trusted projection: durable pointer runtime_mode overrides YAML for pipeline bodies.
   // Bodies also accept explicit runtime_authority; never re-resolve YAML against pointer silently.
   const trustedProject = validation.project
@@ -1596,6 +1597,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.runtime_authority
       )
     });
+  }
+
+  if (args.command === "fast-edit") {
+    const issue = requireCoordinator(args);
+    if (issue) return output(args, 1, {ok:false, command:args.command, issues:[issue]});
+    try {
+      if (args.decisionsFile && args.allowExternalAnalysis) throw new Error("Choose fixture decisions or live Jev, not both");
+      const {prepareFastEdit} = await import("./fastEdit/artifacts.js");
+      const {askJev} = await import("./fastEdit/jev.js");
+      const prepared = await prepareFastEdit(args.config, validation.project!, validation.manifest!, {
+        ...(args.decisionsFile ? {answers:await readJsonFile(args.decisionsFile)} : {}),
+        ...(args.allowExternalAnalysis ? {ask:askJev} : {})
+      });
+      return output(args, 0, {...prepared, command:args.command, gate_state:"unchanged"});
+    } catch(error) {return output(args, 1, {ok:false,command:args.command,issues:[{code:"fast_edit.failed",message:error instanceof Error ? error.message : String(error)}]});}
   }
 
   if (args.command === "analyze") {
@@ -2406,7 +2422,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "decisionsFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
     > = {
       "--config": "config",
       "--actor": "actor",
@@ -2438,6 +2454,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       "--field": "field",
       "--text": "text",
       "--text-file": "textFile",
+      "--decisions": "decisionsFile",
       "--projects-dir": "projectsDir",
       "--port": "port",
       "--backend": "backend",

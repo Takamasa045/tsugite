@@ -20,6 +20,7 @@ export type CommandName =
   | "finalize"
   | "plan"
   | "analyze"
+  | "fast-edit"
   | "compose"
   | "viewer"
   | "review"
@@ -387,6 +388,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "approval-gated",
     options: [OPTIONS.config, OPTIONS.actor, OPTIONS.stateDir, OPTIONS.allowExternalAnalysis]
+  }),
+  defineCommand({
+    name: "fast-edit",
+    summary: "Batch Jev edit decisions from local Whisper analysis; compile without changing Gates.",
+    usage: "node bin/pipeline fast-edit --config <project.yaml> --actor coordinator [--decisions <answers.json> | --allow-external-analysis] [--json]",
+    requiresConfig: true,
+    safety: "approval-gated",
+    options: [OPTIONS.config, OPTIONS.actor, OPTIONS.allowExternalAnalysis, defineOption("--decisions", "Read a Jev decision fixture JSON without external inference.", "<answers.json>")]
   }),
   defineCommand({
     name: "compose",

@@ -1,0 +1,19 @@
+{
+  "name": "tsugite-editframe-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Opt-in official Editframe CLI runtime for Tsugite local preview and render",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@editframe/cli": "0.59.47",
+    "@editframe/elements": "0.59.47",
+    "@editframe/vite-plugin": "0.59.47",
+    "vite": "8.2.2"
+  },
+  "overrides": {
+    "werift": "0.24.4"
+  }
+}

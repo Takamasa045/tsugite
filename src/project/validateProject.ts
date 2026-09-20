@@ -1,3 +1,4 @@
+import { loadFastEdit } from "../fastEdit/artifacts.js";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { loadAdapterDefinition, type AdapterDefinition } from "../adapters/registry.js";
@@ -51,6 +52,8 @@ import {
 } from "../productionControl/runtimeAuthority.js";
 
 export type ValidateProjectOptions = {
+  /** Analysis/decision preparation reads the original source before compilation. */
+  prepareFastEdit?: boolean;
   adapterDirs?: string[];
   backendDirs?: string[];
   connectionCatalogPath?: string;
@@ -302,6 +305,13 @@ export async function validateProject(
     );
   }
 
+  if (manifestResult.manifest && issues.length === 0 && project.edit.fast_edit?.enabled && !options.prepareFastEdit) {
+    try { manifestResult.manifest = (await loadFastEdit(configPath, project, manifestResult.manifest)).manifest; }
+    catch (error) { issues.push({code: "fast_edit.not_ready", message: error instanceof Error ? error.message : String(error)}); }
+  }
+  if (manifestResult.manifest?.fast_edit && !project.edit.fast_edit?.enabled) {
+    issues.push({code: "fast_edit.mode_required", message: "Fast Edit manifest requires edit.fast_edit.enabled"});
+  }
   let backend;
   let backendLoadFailed = false;
   try {
@@ -316,7 +326,7 @@ export async function validateProject(
       message: `backend '${project.edit.backend}' was not found`
     });
   } else if (backend && manifestResult.manifest) {
-    issues.push(...validateBackendCapabilities(manifestResult.manifest, backend).issues);
+    issues.push(...validateBackendCapabilities(manifestResult.manifest, backend, project.edit.fast_edit?.enabled === true).issues);
     if (project.edit.editorial?.captions && !backend.capabilities.captions) {
       issues.push({
         code: "backend.capability.captions",

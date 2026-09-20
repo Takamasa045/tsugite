@@ -1,6 +1,6 @@
 {
   "name": "tsugite",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "private": true,
   "type": "module",
   "packageManager": "npm@10.9.8",
@@ -36,6 +36,9 @@
     "hyperframes:studio:verify": "node backends/hyperframes/verify-studio.mjs",
     "pixverse:install": "npm ci --prefix adapters/pixverse/runtime",
     "pixverse": "node adapters/pixverse/cli.mjs",
+    "editframe:install": "npm ci --prefix backends/editframe/runtime",
+    "editframe": "node backends/editframe/cli.mjs",
+    "editframe:preview": "node backends/editframe/preview.mjs",
     "hypit:install": "npm ci --prefix adapters/hypit/runtime",
     "hypit": "node adapters/hypit/cli.mjs",
     "hypit:spike": "node adapters/hypit/spike.mjs",

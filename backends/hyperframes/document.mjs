@@ -1,3 +1,4 @@
+import { fastEditHtml, fastEditRuntime } from "./fastEdit.mjs";
 /**
  * HTML document generation for the HyperFrames backend.
  *
@@ -23,6 +24,7 @@ export const LOCAL_TIMELINE_RUNTIME = "tsugite-gsap-runtime.js";
  * runtime it has always had, so nothing moves that did not move before.
  */
 export function renderRuntimeSource(manifest) {
+  if (manifest.fast_edit) return fastEditRuntime(manifest);
   return renderTimelineRuntime(isThemed(manifest) ? buildTimelineProgram(manifest) : []);
 }
 
@@ -30,6 +32,7 @@ const VISUAL_TRACK_BASE = 40;
 const CAST_TRACK_BASE = 100;
 
 export function renderIndexHtml(manifest) {
+  if (manifest.fast_edit) return fastEditHtml(manifest);
   const size = compositionSize(manifest);
   const duration = manifest.meta.target_duration_seconds;
   const themed = isThemed(manifest);

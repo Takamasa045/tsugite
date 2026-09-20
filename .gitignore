@@ -29,3 +29,6 @@ templates/creative-short/
 templates/explainer-talk/
 templates/footage-editorial/
 templates/local-video-two-cut/
+
+# Local Fast Edit native-render and pixel/OCR evidence (generated media).
+/verification/evidence/fast-edit-*/

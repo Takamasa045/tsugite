@@ -7,6 +7,9 @@ Append-only format:
 2026-09-16 / 同一plan再承認のretryが dispatch already claimed になる / sha256Canonical が created_at を省略し submission intent digest が衝突する / 新規 intent だけ optional の attempt_identity を canonical digest に含め、legacy には default しない。pending/unknown は従来どおり spawn を止め、既存 claim は消さない / 進行中
 2026-09-15 / Hypit Phase 1 の check/plan が fixture 配下の改ざん SVML と --package-root を通した / 信頼判定が path 包含だけだった / check/plan は固定ファイル名・固定 workspace・固定 argv に限り、spawn 直前に公式 bytes と activation bytes を照合する。任意 Source 隔離とは呼ばない / 進行中
 2026-09-15 / Hypit Phase 1 で grant 環境変数や配列が build を開け、UTF-8 デコード後のハッシュが不正バイトを潰し、check/plan が任意 Source の activation JS を読み込んだ / プロンプト禁止と argv 許可リストを承認や OS 隔離とみなした / Phase 1 の build は無条件拒否。ハッシュは raw bytes。check/plan はピン済み公式 example だけ。子環境から NODE_OPTIONS と資格情報を除く。observation fingerprint を承認に使わない / 進行中
+2026-09-10 / Editframe preview was a white page with unstyled caption text at the bottom / `ef-timegroup` does not autoplay; Playwright screenshotted after 1500ms without `customElements.whenDefined` or `seekForRender` / Preview and caption proof must wait for element registration, seek the actual composition time, screenshot the stage, and assert visible caption/video bounds / documented
+2026-09-10 / Official Editframe mp4 had video but no Japanese captions / `ef-text` was not inside the active `mode="fixed"` clip timegroup, or its duration was snapped to the whole clip / Nest captions inside each clip's fixed group with local `offset`/`duration` for the overlap window / documented
+2026-09-10 / Editframe local mp4 preview/render painted black and seekForRender failed / HTML `src="assets/..."` resolved to missing `/assets/*`, which Vite served as fallback HTML 200; `/src/assets` and `public/media` returned Range 206 `video/mp4` / Map local media to a real static URL and verify Content-Type plus bytes, never HTTP 200 alone / documented
 
 2026-07-25 / 完成済み r13 正本がランチャーに出ず worktree 削除で消失した / 制作を feature worktree の projects/ だけで完結させ、finalize も durable home へ載せず、後から git worktree remove した / 制作案件は制作前から main の durable projects home に置き、validate で shelf 登録、finalize で完成コピー昇格、ランチャーは durable+worktree を横断表示し、worktree remove 前に正本が durable home にあることを確認する / validate済
 
@@ -94,3 +97,9 @@ Append-only format:
 2026-09-10 / Studio inspect がプレビューに data-hf-id があるのに no element matches handle を返した / 配信 HTML は /assets/index-*.js を読み、asHtmlElement が instanceof defaultView.HTMLElement を必須にする。dist/studio/index.js だけの修正は配信面に届かない / 配信バンドルをバージョン+sha256+出現回数で fail-closed パッチし、受け入れは HTML 名前空間・同一 document・isConnected に限る。ツール差し替えと ID 事前付与は使わない / documented
 2026-09-10 / HyperFrames の adm-zip に修正版がなく root 全依存 audit が落ちた / 公開 package.json や lock から依存宣言を消すと npm install で戻る / `overrides.adm-zip` を `npm:fflate@0.8.3` にし、installed package.json の name/version と lock の resolved を検査する。ZIP API は in-memory adapter へ CLI import をパッチし、展開は選んだ entry だけにする / documented
 2026-09-10 / central-directory の uncompressedSize を小さく偽ると inflate 後の長さ検査の前に大域確保が起きる / 宣言値は攻撃者が書ける / Node zlib inflateRawSync の maxOutputLength で出力上限を課し、CRC と宣言長は成功後に照合する。偽サイズの DEFLATE 回帰を必須にする / documented
+
+## Fast Edit native parity (2026-09-20)
+
+- MP4/ffprobe/audio/duration success does not prove timed overlays. Editframe 0.59.47 exports a cloned timegroup; `addFrameTask` and instance method overrides are not copied. Use the SDK's copied `onFrame` property and resolve descendants through its `element` argument. Verify late beats and transition frames, not only time zero.
+- HyperFrames extracted video composition does not preserve every CSS video filter. Bake the common color treatment into local, run-owned source derivatives before native compositing; retain the original Manifest and source audio.
+- Editframe native HTML-in-Canvas capture can retain stale pixels during transparent transitions and produce unstable vertical frames. Use an opaque root and the official foreign-object capture path; compare transition-boundary frames and OCR every caption before claiming parity.

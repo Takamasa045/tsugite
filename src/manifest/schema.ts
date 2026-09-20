@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fastEditSchema } from "../fastEdit/schema.js";
 import { digestRefSchema, digestSchema, safeIdSchema } from "../productionControl/schema.js";
 
 const aspectSchema = z.union([z.literal("16:9"), z.literal("9:16")]);
@@ -142,6 +143,7 @@ export const chapterBindingSchema = z.object({
 
 export const manifestSchema = z
   .object({
+    fast_edit: fastEditSchema.optional(),
     meta: z
       .object({
         aspect: aspectSchema,

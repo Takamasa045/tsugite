@@ -1,0 +1,44 @@
+name: editframe
+motion_review:
+  surface: HTML / CSS / Editframe
+  method: 公式ローカル CLI が Vite と headless Chrome で HTML composition を時間送りする
+  preview: html-css-approximation
+capabilities:
+  fast_edit:
+    supported: true
+    source_video: true
+    cards: true
+    captions: true
+    word_emphasis: true
+    text_effects: true
+    transitions: true
+    zoom: true
+    sfx: true
+    progress: true
+    global_style: true
+    color_treatment: true
+    energy_pacing: true
+    vertical: true
+    horizontal: true
+    audio: true
+    final_mp4: true
+  captions: true
+  transitions: false
+  audio_mix: false
+  vertical: false
+  fps: [30]
+  presets: []
+checks:
+  setup:
+    - type: command
+      name: tool:editframe
+      command: ["node", "backends/editframe/cli.mjs", "--version"]
+      capture_version: true
+      remediation:
+        default: "Run `npm run editframe:install` from the Tsugite repository root, then rerun doctor."
+    - type: manual
+      name: tool:chrome
+      blocking: false
+      detail: "Local Editframe render uses system Google Chrome through Playwright channel chrome. Native node-av / JIT transcode / WebRTC are unused on the static /media path."
+      remediation:
+        default: "Install Google Chrome locally if Editframe render reports a missing Chrome executable."
