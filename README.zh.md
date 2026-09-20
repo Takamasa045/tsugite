@@ -4,7 +4,7 @@
 
 Tsugite 是本地影像工房：它把素材、制作日志、判断和偏好接到下一次制作，而不是把每次 AI 视频当成一次性结果。
 
-完整入口、安全边界和命令以 [English README](README.md) 与 [日本語 README](README.ja.md) 为正本。本页只保留当前产品位置的摘要。
+完整入口、安全边界和命令以 [English README](README.md) 与 [日本語 README](README.ja.md) 为正本。本页只保留当前产品位置的摘要。仓库软件版本是 **0.14.0**。
 
 ## 最简单的开始方式
 
@@ -39,18 +39,35 @@ npm run setup:open  # 同时打开本地 launcher 时
 
 ## 当前范围
 
-- manifest 验证和本地素材检查。
-- 与生成 `connections` 分离的公开 read-only Remote MCP **Agent Service Registry**。
-- PixVerse / Kling CLI、TopView skill CLI、可选 Hermes 分析交接。
-- PixVerse / Kling / Seedance 的带出处 prompt catalog（存在 ≠ 可执行）。
+**流水线内编辑（`edit.backend`）**
+
+- Remotion / HyperFrames。
+- 可选的 macOS [Editframe](docs/editframe.md) backend：`npm run editframe:install`。
+- [Jev Fast Edit v1](docs/fast-edit.md)：同一套 backend 中立意图，覆盖 Remotion / HyperFrames / Editframe（卡片、字幕、转场、缩放、SFX、16:9 与 9:16）。不是新的 renderer。
+
+**流水线外编辑（不是 `pipeline render` backend）**
+
+- [Premiere Pro](docs/premiere-pro.md)：macOS。`$premiere-editing` / `/premiere-editing`（剪辑、转场、音频、字幕、调色；本地 MCP）。
+- [After Effects](docs/after-effects.md)：macOS。`$after-effects-editing` / `/after-effects-editing`（官方 `DoScriptFile` helper：inspect / fixture / 标题 / 另存）。
+- [PixVerse Canvas](docs/pixverse-canvas.md)：固定官方 CLI 1.4.4，`npm run pixverse:install`。
+- [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md)：固定 0.8.24。Studio 编辑不写 pipeline manifest。
+
+**生成与解析**
+
+- PixVerse / Kling CLI、TopView skill CLI、可选 Hermes。
+- 带出处的 PixVerse / Kling / Seedance prompt catalog（存在 ≠ 可执行）。
 - 34 种故事框架与 35 条影像文法的 story guides。
 - API-free 的 `analyze`、可选本地 Whisper、多源 `compose`。
-- Gate 约束的 EDL、Gate 2 / Gate 3 QC（含黑场与长静音）。
-- Remotion / HyperFrames、Gate 约束的音频 adapter。
+- 与生成 `connections` 分离的公开 read-only Remote MCP **Agent Service Registry**。
+
+**其他**
+
+- Gate 约束的 EDL、Gate 2 / Gate 3 QC。
 - 需要 Coordinator 与 Gate 审批的 `run` / `render`。
 - 仅绑定 `127.0.0.1` 的浏览器 launcher 与只读 3D Viewer。
+- 可选 [Hypit](docs/hypit.md) 制作（不是 render backend，也不是 Gate 替代）。
 
-Desktop 应用的一般分发已结束。日常入口是 GitHub 源码 + Codex / Claude Code + 本地浏览器 launcher。Electron 源码仅用于开发与回归测试。仓库软件版本是 **0.12.0**。
+Desktop 应用的一般分发已结束。日常入口是 GitHub 源码 + Codex / Claude Code + 本地浏览器 launcher。Electron 源码仅用于开发与回归测试。
 
 ```sh
 npm --prefix apps/workflow-viewer ci
@@ -59,7 +76,7 @@ npm run viewer:open
 
 ## 安装
 
-需要 Git、Node.js 22.12 以上的 22.x LTS、npm 10 以上，以及包含 `ffprobe` 的 FFmpeg。Windows PowerShell 入口见 [`docs/windows.md`](docs/windows.md)。`npm ci` 会在仓库内安装 Remotion 和 HyperFrames；不要使用 `npm ci --omit=dev`。
+需要 Git、Node.js 22.12 以上的 22.x LTS、npm 10 以上，以及包含 `ffprobe` 的 FFmpeg。可选 Hypit runtime 额外需要 Node.js 22.15+（22.x）。Windows PowerShell 入口见 [`docs/windows.md`](docs/windows.md)。`npm ci` 会在仓库内安装 Remotion 和 HyperFrames；不要使用 `npm ci --omit=dev`。
 
 ```sh
 npm ci
@@ -73,4 +90,4 @@ node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 
 一次性偏好留在 `projects/<job>/notes.md`。可复用风格进入 `examples/` 或 `templates/`。可机器检查的问题进入 constraints / validate / doctor。判断型规则先写入 `LESSONS.md`，经人批准后再升到 skill / AGENTS.md / CLAUDE.md。core 必须保持厂商中立。
 
-公开契约变更写入 README、`manifest/schema.md`、`docs/requirements.md`。当前软件版本是 **0.12.0**。1.0 仍要求 live provider/billing 证据与 packaged Desktop UAT；Windows smoke 已在 GitHub Actions 上验证。
+公开契约变更写入 README、`manifest/schema.md`、`docs/requirements.md`。当前软件版本是 **0.14.0**。1.0 仍要求 live provider/billing 证据与 packaged Desktop UAT；Windows smoke 已在 GitHub Actions 上验证。
