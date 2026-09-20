@@ -1,3 +1,5 @@
+import { prepareFastEditMedia } from "../fastEditMedia.mjs";
+import { mixFastEditAudio } from "../fastEditAudio.mjs";
 import crossSpawn from "cross-spawn";
 import { readFile, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -42,7 +44,7 @@ try {
     });
   }
 
-  await writeHyperFramesProject(input.runDir, manifest);
+  await writeHyperFramesProject(input.runDir, await prepareFastEditMedia(manifest, input.runDir));
 
   const preflight = runHyperFramesLint(input.runDir);
   if (!preflight.ok) {
@@ -76,6 +78,7 @@ try {
     });
   }
 
+  await mixFastEditAudio(manifest, input.runDir, input.outputPath);
   await writeSuccessResult(input, manifest, render);
 } catch (error) {
   if (error instanceof RunnerError) {

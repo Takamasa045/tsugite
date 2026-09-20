@@ -1,5 +1,5 @@
 const REPOSITORY_URL = "https://github.com/Takamasa045/tsugite";
-const LATEST_VERSION_TAG = "v0.13.0";
+const LATEST_VERSION_TAG = "v0.14.0";
 const LATEST_VERSION_URL = `${REPOSITORY_URL}/releases/tag/${LATEST_VERSION_TAG}`;
 const FEEDBACK_URL = `${REPOSITORY_URL}/issues/new`;
 const SUMMER_CAMP_URL = "https://brain-market.com/u/itopan/a/b1kjM3UjMgoTZsNWa0JXY";
@@ -75,7 +75,7 @@ export default function Home() {
           <div className="hero-copy">
             <div className="release-line">
               <span>SOURCE WORKFLOW</span>
-              <b>v0.13.0</b>
+              <b>v0.14.0</b>
               <em>CODEX / CLAUDE CODE</em>
             </div>
             <h1>
@@ -136,35 +136,35 @@ export default function Home() {
         <div className="pickup-topline">
           <span>UPDATE LOG / TSUGITE RELEASES</span>
           <i />
-          <time dateTime="2026-09-15">2026.09.15 UPDATE</time>
+          <time dateTime="2026-09-20">2026.09.20 UPDATE</time>
         </div>
 
         <article className="pickup-current">
           <div className="pickup-number" aria-hidden="true">
-            <span>13</span>
-            <small>SOURCE / v0.13.0</small>
+            <span>14</span>
+            <small>SOURCE / v0.14.0</small>
           </div>
           <div className="pickup-copy">
-            <p className="pickup-status"><span aria-hidden="true" /> v0.13.0 ソース版を準備しました</p>
-            <h2 id="pickup-title">Tsugite<br />v0.13.0</h2>
+            <p className="pickup-status"><span aria-hidden="true" /> v0.14.0 ソース版を公開しました</p>
+            <h2 id="pickup-title">Tsugite<br />v0.14.0</h2>
             <p className="pickup-date">
-              <time dateTime="2026-09-15">2026年9月15日 ソース版準備</time>
-              <span>SOURCE PREP</span>
+              <time dateTime="2026-09-20">2026年9月20日 ソース版リリース</time>
+              <span>SOURCE RELEASE</span>
             </p>
             <p className="pickup-description">
-              Hypit本番制作入口、HyperFrames Studio、Editframe公式examplesを追加したソース版です。GitHubのソースとCodex／Claude Codeが正式な入口で、Desktopインストーラーの一般配布は行いません。完成動画・人間承認・CI成功は含みません。
+              Jev Fast Editを追加しました。同じ編集判断をRemotion・Hyperframes・Editframeでレンダリングできます。GitHubのソースを取得し、Codex／Claude Codeから利用できます。
             </p>
             <ul className="pickup-features">
-              <li>Hypit本番CLIと制作UI。check/planとlocal-only preflightまで。build/完成は含まない</li>
-              <li>HyperFrames Studio WebMCP（実験的、固定版）とEditframe公式examples</li>
-              <li>live 課金と packaged Desktop UAT は 1.0 前の caveat。この版のCI成功は主張しない</li>
+              <li>18種類のカード、単語強調字幕、演出・効果音を3つのbackendで共通化</li>
+              <li>同一fixtureで縦横6本を実レンダーし、映像・音声・尺・字幕を検証</li>
+              <li>既存の承認Gateを維持。Jevの要レビュー・棄権回答は自動適用しません</li>
             </ul>
             <aside className="pickup-beta-note">
               <strong>Desktopアプリの配布について</strong>
               <p>Mac／Windows向けインストーラーの一般配布は終了しました。今後はGitHubのソースを取得し、CodexまたはClaude Codeから利用する方法を案内します。</p>
             </aside>
             <a className="pickup-link" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
-              GitHubで v0.13.0 を見る <span aria-hidden="true">↗</span>
+              GitHubで v0.14.0 を見る <span aria-hidden="true">↗</span>
             </a>
           </div>
         </article>
@@ -311,7 +311,7 @@ export default function Home() {
               <span className="platform-arrow" aria-hidden="true">↗</span>
             </a>
             <a className="platform-card platform-github" href={LATEST_VERSION_URL} target="_blank" rel="noreferrer">
-              <div><span className="platform-icon">13</span><p><strong>Latest Release</strong><small>v0.13.0 · Source code</small></p></div>
+              <div><span className="platform-icon">14</span><p><strong>Latest Release</strong><small>v0.14.0 · Source code</small></p></div>
               <span className="platform-arrow" aria-hidden="true">↗</span>
             </a>
             <a className="platform-card platform-github" href={FEEDBACK_URL} target="_blank" rel="noreferrer">

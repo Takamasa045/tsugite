@@ -194,6 +194,7 @@ export type ReviewCompositionProposal = {
 };
 
 export type ReviewDocument = {
+  fast_edit?: Manifest["fast_edit"];
   schema_version: 1 | 2 | 3;
   run_id: string;
   slug: string;
@@ -1359,6 +1360,7 @@ export function createReviewDocument(
       draft: manifest.presentation?.draft ?? false,
       gate: "gate-1"
     },
+    ...(manifest.fast_edit ? {fast_edit: manifest.fast_edit} : {}),
     ...(background ? { background } : {}),
     motion_design: motionDesign,
     characters,
@@ -2371,6 +2373,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
         <div class="playback-rail" aria-hidden="true"><span>IN&nbsp; ${formatTime(0)}</span><i></i><span>OUT&nbsp; ${formatTime(document.summary.storyboard_duration_seconds)}</span></div>
       </div>
     </section>
+    ${document.fast_edit ? `<section data-testid="fast-edit-review"><h2>Fast Edit v1</h2><p>${escapeHtml(JSON.stringify(document.fast_edit.global))}</p><table><thead><tr><th>Beat</th><th>時刻</th><th>編集判断</th></tr></thead><tbody>${document.fast_edit.beats.map(beat => `<tr><td>${escapeHtml(beat.id)}</td><td>${formatSeconds(beat.start)}–${formatSeconds(beat.end)}</td><td>${escapeHtml(JSON.stringify(beat.edit))}</td></tr>`).join("")}</tbody></table></section>` : ""}
     ${motionReview}
     <section aria-labelledby="characters-title">
       <div class="section-heading"><div><p class="eyebrow">CONTINUITY</p><h2 id="characters-title">キャラクターシート</h2></div><p>表情と役割を生成前に固定します。</p></div>

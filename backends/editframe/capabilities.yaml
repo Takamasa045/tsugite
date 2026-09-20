@@ -4,6 +4,24 @@ motion_review:
   method: 公式ローカル CLI が Vite と headless Chrome で HTML composition を時間送りする
   preview: html-css-approximation
 capabilities:
+  fast_edit:
+    supported: true
+    source_video: true
+    cards: true
+    captions: true
+    word_emphasis: true
+    text_effects: true
+    transitions: true
+    zoom: true
+    sfx: true
+    progress: true
+    global_style: true
+    color_treatment: true
+    energy_pacing: true
+    vertical: true
+    horizontal: true
+    audio: true
+    final_mp4: true
   captions: true
   transitions: false
   audio_mix: false

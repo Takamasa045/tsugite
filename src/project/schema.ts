@@ -1,3 +1,4 @@
+import { fastEditConfigSchema } from "../fastEdit/schema.js";
 import { z } from "zod";
 import { win32 } from "node:path";
 import { h3CreativeIrSchema, videoCreativeIrSchema } from "../h3/schema.js";
@@ -417,6 +418,7 @@ export const projectSchema = z
     production: projectProductionSchema.optional(),
     edit: z.object({
       backend: safeIdSchema,
+      fast_edit: fastEditConfigSchema.optional(),
       editorial: editorialPolicySchema.optional(),
       composition: z
         .object({

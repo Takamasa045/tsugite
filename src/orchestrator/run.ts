@@ -278,7 +278,7 @@ export async function assembleLocalMediaRun(
     : undefined;
   const edlPath = approvedCompilation
     ? join(runDir, `${compilationKind}-edl.json`)
-    : undefined;
+    : manifest.fast_edit ? join(runDir, "fast-edit-edl.json") : undefined;
   const statePath = join(runDir, "state.json");
   const inputDigest = runInputDigest(project, manifest, undefined, audioAdapter);
 
@@ -401,6 +401,11 @@ export async function assembleLocalMediaRun(
   assetCount += generatedAudio.assetCount;
 
   await writeFile(manifestOutputPath, `${JSON.stringify(assembled, null, 2)}\n`);
+  if (assembled.fast_edit) {
+    const payload = {schema_version:1, mode:"fast_edit", fast_edit:assembled.fast_edit, duration_seconds:assembled.meta.target_duration_seconds, output_manifest_digest:digest(assembled)};
+    await writeFile(join(runDir,"fast-edit-edl.json"), `${JSON.stringify({...payload,digest:digest(payload)},null,2)}\n`);
+  }
+
   if (edlPath && approvedCompilation) {
     await writeFile(edlPath, `${JSON.stringify(approvedCompilation.edl, null, 2)}\n`);
   }

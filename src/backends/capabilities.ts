@@ -1,3 +1,4 @@
+import { FAST_EDIT_CAPABILITIES, fastEditCapabilitiesSchema } from "../fastEdit/schema.js";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -17,6 +18,7 @@ const capabilitiesSchema = z.object({
     })
     .optional(),
   capabilities: z.object({
+    fast_edit: fastEditCapabilitiesSchema.optional(),
     captions: z.boolean(),
     transitions: z.boolean(),
     audio_mix: z.boolean(),
@@ -72,10 +74,20 @@ export async function loadBackendCapabilities(
 
 export function validateBackendCapabilities(
   manifest: Manifest,
-  backend: BackendCapabilities
+  backend: BackendCapabilities,
+  fastEditEnabled = Boolean(manifest.fast_edit)
 ): Result<{ backend: BackendCapabilities }> {
   const issues: Issue[] = [];
-  const capabilities = backend.capabilities;
+  const capabilities = fastEditEnabled ? {...backend.capabilities,
+    vertical: backend.capabilities.fast_edit?.vertical === true,
+    audio_mix: backend.capabilities.fast_edit?.audio === true,
+    transitions: backend.capabilities.fast_edit?.transitions === true
+  } : backend.capabilities;
+  if (fastEditEnabled) {
+    for (const key of FAST_EDIT_CAPABILITIES) if (capabilities.fast_edit?.[key] !== true) {
+      issues.push({code: "backend.capability.fast_edit", message: `Fast Edit v1 requires ${key} on ${backend.name}`});
+    }
+  }
 
   if (manifest.captions.length > 0 && !capabilities.captions) {
     issues.push({

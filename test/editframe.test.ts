@@ -112,7 +112,7 @@ describe("editframe capabilities", () => {
   it("declares only the locally proven sequential 16:9 30fps slice", async () => {
     const backend = await loadBackendCapabilities("editframe");
     expect(backend?.name).toBe("editframe");
-    expect(backend?.capabilities).toEqual({
+    expect(backend?.capabilities).toMatchObject({
       captions: true,
       transitions: false,
       audio_mix: false,

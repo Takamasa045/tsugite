@@ -1,3 +1,4 @@
+import { FastEditTimeline } from "./fastEdit.js";
 import React from "react";
 import { Audio, Video } from "@remotion/media";
 import {
@@ -85,6 +86,7 @@ function clipVideoProps(clip, timing, fps, captionLayout) {
 }
 
 function Timeline({ manifest }) {
+  if (manifest.fast_edit) return React.createElement(FastEditTimeline, {manifest});
   const fps = manifest.meta.fps;
   const children = [];
   const clipTimings = clipSequenceTimings(manifest.clips, fps);

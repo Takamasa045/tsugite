@@ -1,3 +1,4 @@
+import { fastEditClient } from "./fastEdit.mjs";
 import { existsSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { resolveOutputDimensions } from "../outputDimensions.mjs";
@@ -18,7 +19,7 @@ export function publicMediaUrl(fileName) {
 export function assertSupportedManifest(manifest) {
   const aspect = manifest?.meta?.aspect;
   const fps = manifest?.meta?.fps;
-  if (aspect !== "16:9") {
+  if (aspect !== "16:9" && !(manifest.fast_edit && aspect === "9:16")) {
     throw new Error("Editframe backend currently supports 16:9 only");
   }
   if (fps !== 30) {
@@ -33,7 +34,7 @@ export function assertSupportedManifest(manifest) {
   const audio = manifest?.audio ?? {};
   const extra =
     (audio.bgm?.length ?? 0) + (audio.narration?.length ?? 0) + (audio.sfx?.length ?? 0);
-  if (extra > 0) {
+  if (extra > 0 && !manifest.fast_edit) {
     throw new Error("Editframe backend does not support concurrent audio_mix tracks");
   }
   if (!Array.isArray(manifest?.clips) || manifest.clips.length < 1) {
@@ -72,7 +73,7 @@ export function renderIndexHtml(manifest, options = {}) {
   const size = resolveOutputDimensions(manifest);
   const mediaByClipId = options.mediaByClipId ?? Object.create(null);
   const clips = manifest.clips
-    .map((clip, index) => renderClip(clip, mediaByClipId[clip.id], index, captionsForClip(manifest, index)))
+    .map((clip, index) => renderClip(clip, mediaByClipId[clip.id], index, manifest.fast_edit ? [] : captionsForClip(manifest, index)))
     .join("\n");
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -84,20 +85,22 @@ export function renderIndexHtml(manifest, options = {}) {
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
-    <ef-timegroup id="root" mode="contain" fps="${escapeAttr(String(manifest.meta.fps))}" class="stage">
+    <ef-timegroup id="root" ${manifest.fast_edit ? 'style="background:#000"' : ""} mode="contain" fps="${escapeAttr(String(manifest.meta.fps))}" class="stage">
       <ef-timegroup mode="sequence" class="fill">
 ${clips}
       </ef-timegroup>
+      ${manifest.fast_edit ? '<div id="fe-overlay" style="position:absolute;inset:0;pointer-events:none"></div>' : ""}
     </ef-timegroup>
   </body>
 </html>
 `;
 }
 
-export function renderClientScript(elementsCss) {
+export function renderClientScript(elementsCss, manifest) {
   const cssImport = elementsCss ? `import ${JSON.stringify(elementsCss)};\n` : "";
   return `import "@editframe/elements";
 ${cssImport}import "./styles.css";
+${manifest?.fast_edit ? fastEditClient(manifest) : ""}
 `;
 }
 

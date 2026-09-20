@@ -16,7 +16,7 @@ Doctor and render do not install packages, download Playwright browsers, or fetc
 
 ## Project
 
-Set `edit.backend: editframe` in `project.yaml`. Capabilities are sequential **16:9 / 30fps** local clips, embedded clip audio, and manifest captions as timed `ef-text`. Unsupported: `9:16`, fps other than 30, transitions, presentation presets, extra BGM/narration/SFX tracks, `images`, `clip.motion`, `caption.visual`, `caption.pose`.
+Set `edit.backend: editframe` in `project.yaml`. **Fast Edit v1** additionally supports both aspects, 18 cards, timed word emphasis, text effects, transitions, zoom, progress, global style/color/pacing and source + extra audio + synthesized SFX. See [Fast Edit](fast-edit.md) for the common contract and verification. The historical mode remains sequential **16:9 / 30fps** local clips, embedded clip audio, and manifest captions as timed `ef-text`. Unsupported: `9:16`, fps other than 30, transitions, presentation presets, extra BGM/narration/SFX tracks, `images`, `clip.motion`, `caption.visual`, `caption.pose`.
 
 ## Preview
 

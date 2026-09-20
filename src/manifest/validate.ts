@@ -23,6 +23,10 @@ export function validateManifest(input: unknown): Result<{ manifest: Manifest }>
   }
 
   const issues = validateManifestContract(parsed.data);
+  if (parsed.data.fast_edit) {
+    const duration = parsed.data.clips.reduce((n,c)=>n+c.duration,0);
+    if (Math.abs(parsed.data.fast_edit.beats.at(-1)!.end-duration)>0.001 || Math.abs(parsed.data.meta.target_duration_seconds-duration)>0.001) issues.push({code:"fast_edit.duration",message:"Fast Edit must span the complete source timeline"});
+  }
   if (issues.length > 0) {
     return { ok: false, issues, manifest: parsed.data };
   }

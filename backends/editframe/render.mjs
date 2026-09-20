@@ -1,3 +1,5 @@
+import { prepareFastEditMedia } from "../fastEditMedia.mjs";
+import { mixFastEditAudio } from "../fastEditAudio.mjs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -77,9 +79,10 @@ async function main() {
   } catch (error) {
     throw new RunnerError(error instanceof Error ? error.message : String(error), EXIT_VALIDATION_FAILED);
   }
+  const renderManifest = await prepareFastEditMedia(manifest, input.runDir);
   let plan;
   try {
-    plan = await planPublicMedia(manifest, input.runDir);
+    plan = await planPublicMedia(renderManifest, input.runDir);
   } catch (error) {
     throw new RunnerError(error instanceof Error ? error.message : String(error), error?.exitCode ?? EXIT_VALIDATION_FAILED);
   }
@@ -104,7 +107,7 @@ async function main() {
   }
   await copyPublicMedia(plan, compositionDir);
   const lookup = mediaLookupFromPlan(plan);
-  const html = renderIndexHtml(manifest, { mediaByClipId: lookup });
+  const html = renderIndexHtml(renderManifest, { mediaByClipId: lookup });
   for (const item of plan) {
     if (!html.includes(`src="${item.publicUrl}"`)) {
       throw new RunnerError(`composition is missing public URL ${item.publicUrl}`, EXIT_VALIDATION_FAILED);
@@ -120,7 +123,7 @@ async function main() {
   await writeSafeFile(join(compositionDir, "index.html"), html, compositionDir);
   await mkdirOwned(join(compositionDir, "src"), compositionDir, "src dir");
   await mkdirOwned(join(compositionDir, "cache"), compositionDir, "cache dir");
-  await writeSafeFile(join(compositionDir, "src", "index.js"), renderClientScript(runtime.elementsCss), compositionDir);
+  await writeSafeFile(join(compositionDir, "src", "index.js"), renderClientScript(runtime.elementsCss, renderManifest), compositionDir);
   await writeSafeFile(join(compositionDir, "src", "styles.css"), renderStyles(size), compositionDir);
   await writeSafeFile(
     join(compositionDir, "vite.config.js"),
@@ -173,7 +176,8 @@ async function main() {
       "-o",
       input.outputPath,
       "--fps",
-      String(manifest.meta.fps)
+      String(manifest.meta.fps),
+      ...(manifest.fast_edit ? ["--capture", "foreign-object"] : [])
     ],
     { cwd: compositionDir, env: childEnv() }
   );
@@ -202,6 +206,7 @@ async function main() {
     });
   }
 
+  await mixFastEditAudio(manifest, input.runDir, input.outputPath);
   const metadata = probeRenderedMedia(input.outputPath);
   if (!metadata.ok) {
     await writeFailureResult(input, manifest, {
