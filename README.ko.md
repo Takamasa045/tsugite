@@ -4,7 +4,7 @@
 
 Tsugite는 로컬 영상 공방입니다. 각 AI 영상을 일회성 결과로 두지 않고, 소재·제작 로그·판단·취향을 다음 제작으로 이어갑니다.
 
-전체 진입점, 안전 경계, 명령은 [English README](README.md)와 [日本語 README](README.ja.md)가 정본입니다. 이 페이지는 현재 제품 위치의 요약만 둡니다.
+전체 진입점, 안전 경계, 명령은 [English README](README.md)와 [日本語 README](README.ja.md)가 정본입니다. 이 페이지는 현재 제품 위치의 요약만 둡니다. 저장소 소프트웨어 버전은 **0.14.0**입니다.
 
 ## 가장 쉬운 시작
 
@@ -39,18 +39,35 @@ npm run setup:open  # launcher도 열 때
 
 ## 현재 범위
 
-- manifest 검증과 로컬 소재 검사.
-- 생성 `connections`와 분리된 공개 read-only Remote MCP **Agent Service Registry**.
-- PixVerse / Kling CLI, TopView skill CLI, 선택적 Hermes 분석 핸드오프.
+**파이프라인 안 편집 (`edit.backend`)**
+
+- Remotion / HyperFrames.
+- 선택적 macOS [Editframe](docs/editframe.md) backend: `npm run editframe:install`.
+- [Jev Fast Edit v1](docs/fast-edit.md): Remotion / HyperFrames / Editframe에서 같은 backend 중립 의도(카드, 자막, 전환, 줌, SFX, 16:9와 9:16). 새 renderer가 아닙니다.
+
+**파이프라인 밖 편집 (`pipeline render` backend가 아님)**
+
+- [Premiere Pro](docs/premiere-pro.md): macOS. `$premiere-editing` / `/premiere-editing` (컷, 전환, 오디오, 자막, 색; 로컬 MCP).
+- [After Effects](docs/after-effects.md): macOS. `$after-effects-editing` / `/after-effects-editing` (공식 `DoScriptFile` helper: inspect / fixture / 타이틀 / 다른 이름으로 저장).
+- [PixVerse Canvas](docs/pixverse-canvas.md): 공식 CLI 1.4.4 고정, `npm run pixverse:install`.
+- [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md): 0.8.24 고정. Studio 편집은 pipeline manifest를 쓰지 않습니다.
+
+**생성과 분석**
+
+- PixVerse / Kling CLI, TopView skill CLI, 선택적 Hermes.
 - 출처가 있는 PixVerse / Kling / Seedance prompt catalog (존재 ≠ 실행 가능).
 - 34개 이야기 틀과 35개 영상 문법 story guides.
 - API-free `analyze`, 선택적 로컬 Whisper, 다중 소스 `compose`.
-- Gate에 묶인 EDL, Gate 2 / Gate 3 QC (검은 화면·긴 무음 포함).
-- Remotion / HyperFrames, Gate에 묶인 오디오 adapter.
+- 생성 `connections`와 분리된 공개 read-only Remote MCP **Agent Service Registry**.
+
+**그 외**
+
+- Gate에 묶인 EDL, Gate 2 / Gate 3 QC.
 - Coordinator와 Gate 승인이 필요한 `run` / `render`.
 - `127.0.0.1`만 바인드하는 브라우저 launcher와 읽기 전용 3D Viewer.
+- 선택적 [Hypit](docs/hypit.md) 제작(render backend가 아니며 Gate 대체도 아님).
 
-Desktop 앱의 일반 배포는 종료되었습니다. 일상 진입점은 GitHub 소스 + Codex / Claude Code + 로컬 브라우저 launcher입니다. Electron 소스는 개발·회귀 검증용으로만 남습니다. 저장소 소프트웨어 버전은 **0.12.0**입니다.
+Desktop 앱의 일반 배포는 종료되었습니다. 일상 진입점은 GitHub 소스 + Codex / Claude Code + 로컬 브라우저 launcher입니다. Electron 소스는 개발·회귀 검증용으로만 남습니다.
 
 ```sh
 npm --prefix apps/workflow-viewer ci
@@ -59,7 +76,7 @@ npm run viewer:open
 
 ## 설치
 
-Git, Node.js 22.12 이상의 22.x LTS, npm 10 이상, `ffprobe`를 포함한 FFmpeg가 필요합니다. Windows PowerShell 진입점은 [`docs/windows.md`](docs/windows.md)를 보세요. `npm ci`는 Remotion과 HyperFrames를 저장소 안에 설치합니다. `npm ci --omit=dev`는 쓰지 마세요.
+Git, Node.js 22.12 이상의 22.x LTS, npm 10 이상, `ffprobe`를 포함한 FFmpeg가 필요합니다. 선택적 Hypit runtime은 추가로 Node.js 22.15+(22.x)가 필요합니다. Windows PowerShell 진입점은 [`docs/windows.md`](docs/windows.md)를 보세요. `npm ci`는 Remotion과 HyperFrames를 저장소 안에 설치합니다. `npm ci --omit=dev`는 쓰지 마세요.
 
 ```sh
 npm ci
@@ -73,4 +90,4 @@ node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 
 일회성 취향은 `projects/<job>/notes.md`에 둡니다. 재사용 스타일은 `examples/` 또는 `templates/`로, 기계 검사 가능한 문제는 constraints / validate / doctor로 올립니다. 판단형 규칙은 `LESSONS.md`에 먼저 쓰고, 사람 승인 후에 skill / AGENTS.md / CLAUDE.md로 승격합니다. core는 벤더 중립을 유지합니다.
 
-공개 계약 변경은 README, `manifest/schema.md`, `docs/requirements.md`에 남깁니다. 현재 소프트웨어 버전은 **0.12.0**입니다. 1.0은 여전히 live provider/billing 증거와 packaged Desktop UAT가 필요하고, Windows smoke는 GitHub Actions에서 확인했습니다.
+공개 계약 변경은 README, `manifest/schema.md`, `docs/requirements.md`에 남깁니다. 현재 소프트웨어 버전은 **0.14.0**입니다. 1.0은 여전히 live provider/billing 증거와 packaged Desktop UAT가 필요하고, Windows smoke는 GitHub Actions에서 확인했습니다.

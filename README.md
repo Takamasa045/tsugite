@@ -2,11 +2,96 @@
 
 [English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-Tsugite is a local video-production workshop that carries assets, production logs, decisions, and preferences forward instead of treating each AI video as a disposable result.
+Tsugite is a local video-production workshop. It carries assets, production logs, decisions, and preferences forward instead of treating each AI video as a disposable result.
 
-## What it solves
+Source version **0.14.0**. Public Desktop installers have ended; everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher for inspection. See the [changelog](CHANGELOG.md).
 
-Tsugite connects generation services, local media, and editing backends through one manifest contract while preserving planning, approvals, QA, and logs per project. Codex, Claude Code, or another compatible coding agent can prepare the first local workspace without requiring the user to understand Git or terminal commands first.
+**Start here:** [Easy start](#easiest-way-to-start) · [What you can do](#what-you-can-do) · [Production flow](#safe-production-flow) · [Commands](#commands)
+
+## What it is
+
+Tsugite connects generation services, local media, and editing backends through one **manifest** contract. Each job keeps its own plan, human Gates, QA, and logs.
+
+You do not need to understand Git or the terminal first. Codex, Claude Code, or another compatible coding agent can prepare the first local workspace after a paste-in setup request.
+
+## What you can do
+
+Use this map to find the right entry. Optional tools never replace Gates, `run`, or `render`.
+
+### Produce a video (core)
+
+Every job has a `project.yaml`. Copyable examples live under `examples/`. Your work stays gitignored under `projects/`.
+
+1. Validate the project and manifest.
+2. Create a plan.
+3. Stop at **Gate 1** for human approval.
+4. Generate or assemble only after Coordinator approval.
+5. Stop at **Gate 2** for output QA.
+6. Render only after Gate 2 approval.
+7. Stop at **Gate 3** for final video QA.
+
+`run` and `render` require the Coordinator role and a prior Gate. Do not run them without explicit human approval.
+
+### Generate clips
+
+| Tool | Role | Docs |
+| --- | --- | --- |
+| PixVerse / Kling CLI adapters | Text-to-video and image-to-video through the pipeline | [Optional adapters](docs/optional-adapters.md) |
+| Prompt catalogs | Source-backed T2V / I2V advice for PixVerse, Kling, and Seedance. A catalog is not an execution capability and does not rewrite prompts | [Prompt guides](docs/prompt-guides.md) |
+| Story guides | 34 narrative structures plus 35 film-grammar / AI-video principles, chosen with reasons | [Story guides](docs/story-guides.md) |
+| TopView skill CLI | T2V and single-frame I2V | [TopView CLI](docs/topview-cli.md) |
+| H3 Prompt Director | Typed Creative IR → deterministic English prompt for MiniMax H3 (`minimax-h3`) | [H3 Prompt Director](docs/h3-prompt-director.md) |
+
+MiniMax direct and MiniMax HTTP stay **preflight-only**. Do not present them as ready to send. Provider CLIs, credentials, and billing are never installed automatically; prepare only the adapter you select, then rerun `doctor`.
+
+### Edit inside the pipeline
+
+These are `edit.backend` renderers. The same manifest / EDL contract feeds them.
+
+| Backend | Role | Docs |
+| --- | --- | --- |
+| Remotion | Default local renderer, captions, presentation presets | `edit.backend: remotion` |
+| HyperFrames | Local renderer plus official `media-use` BGM / SFX | [HyperFrames audio](docs/hyperframes-audio.md) |
+| Editframe | Optional **macOS** local renderer and preview. Install with `npm run editframe:install`, then `edit.backend: editframe`. Preview uses an authoring copy. WebMCP and disk-save APIs are unverified | [Editframe](docs/editframe.md) |
+| **Jev Fast Edit v1** | Same strict, backend-neutral edit intent on Remotion, HyperFrames, and Editframe (cards, captions, transitions, zoom, SFX, 16:9 and 9:16). Needs local-whisper word timestamps first. Select only with `edit.backend` plus `edit.fast_edit`. Not a new renderer | [Fast Edit](docs/fast-edit.md) |
+
+Also in this path: Gate-bound editorial EDL (retimes selected cuts, captions, and chapters without changing source files), first-class image assets and speaker / pose metadata, and guarded presentation presets. Query installed presets with `node bin/pipeline presets --backend remotion --json` instead of typing an unverified ID.
+
+### Edit outside the pipeline (Adobe and other local tools)
+
+These are **agent-operated external editors**. They are not a `pipeline render` backend. Existing Gates still apply to the Tsugite project.
+
+| Tool | Skill | What is in scope | Docs |
+| --- | --- | --- | --- |
+| **Premiere Pro** | `$premiere-editing` (Claude Code: `/premiere-editing`) | macOS. Cuts, transitions, audio, captions, color; local MCP; on-screen verification | [Premiere Pro](docs/premiere-pro.md) |
+| **After Effects** | `$after-effects-editing` (Claude Code: `/after-effects-editing`) | macOS. Official local `DoScriptFile` helper: inspect, fixture, title layers, save-as. On-screen preview is a separate check | [After Effects](docs/after-effects.md) |
+| PixVerse Canvas | Official CLI 1.4.4, opt-in | `npm run pixverse:install`, then `npm run --silent pixverse -- canvas ...`. External Canvas entry, not a pipeline backend. Live Canvas mutation is not claimed by install checks | [PixVerse Canvas](docs/pixverse-canvas.md) |
+| HyperFrames Studio | Pinned 0.8.24 WebMCP | `npm run hyperframes:studio -- <composition-dir>` on an authoring copy. Inspect / text / style edit is verified on patched 0.8.24 + native Chrome 152. Motion authoring and other hosts are unverified. Studio edits do not update the pipeline manifest; a later `render` regenerates HTML | [Studio WebMCP](docs/hyperframes-studio-webmcp.md) |
+
+### Analyze local footage
+
+- API-free `pipeline analyze` with the local-media-analysis adapter (FFmpeg / `ffprobe` only).
+- Optional local-whisper analysis for transcripts, filler candidates, chapters, extractive summaries, and English captions. Models are never auto-downloaded.
+- For a project with `composition`, run `analyze` then `compose` before `review`. `compose` writes at most three backend-neutral proposals; you pick exactly one `edit.composition.proposal_id`. Only `run` after Gate 1 materializes the reordered manifest.
+
+See [local analysis](docs/local-analysis.md) and `examples/local-analysis/`.
+
+### Inspect work
+
+The loopback launcher lists `projects/*/project.yaml`, templates, Gates, Preferences & Learnings, and Safe Maintenance. It does not install an AI CLI, spend credits, send assets, start generation, render, or change a Gate.
+
+The 3D Viewer is a read-only snapshot of the current run. Details: [Local launcher](#local-launcher-and-3d-viewer).
+
+### Optional extras
+
+| Extra | Role | Docs |
+| --- | --- | --- |
+| Hypit production | Adapter-owned authoring path (`npm run hypit:install`). Not a pipeline render backend and not a substitute for Gate 1 / 3. Live `hypit build` / MP4 acceptance are not claimed by the source bump. Needs Node.js 22.15+ in the 22.x line for the Hypit runtime; core stays 22.12 | [Hypit](docs/hypit.md) |
+| Editframe examples | Opt-in pinned gallery of 27 official samples: `npm run editframe:examples:install` then `npm run editframe:examples` | [Editframe examples](docs/editframe-examples.md) |
+| Agent Services | Separate registry for public read-only Remote MCP (`services` / `service-tools` / `service-call`). Isolated from generation `connections` | [Agent Services](docs/agent-services.md) |
+| Shitate import | Copy a SHA-256-locked character snapshot from a separate Shitate repo. Not required for normal use | [Shitate](docs/shitate.md) |
+| Character add | Copy a speaker (poses, mouth frames, images) from any source manifest | [Commands](#character-add) |
+| Hermes | Optional analysis handoff adapter | [Optional adapters](docs/optional-adapters.md) |
 
 ## Easiest way to start
 
@@ -41,6 +126,8 @@ The canonical copy-ready Japanese request is in [Codex・Claude Codeなどで使
 
 The official Bootstrap automates only repository-local dependencies, the zero-credit sample, `doctor`, `validate`, and `plan`. It does not install system packages, change `PATH`, log in to external services, configure secrets, spend credits, invoke `run` or `render`, change a Gate, commit, push, or publish. See the [Japanese setup contract](docs/onboarding/setup-contract.ja.md).
 
+Gate 2 `retry_specific` is not implemented and is not planned for 1.0; use `revise` for a full re-plan. Gate 3 accepts `re-render`, which keeps Gate 1 and Gate 2 approval.
+
 ## Developer and manual setup
 
 From an already cloned repository root, the dependency-free Bootstrap can start before `node_modules` exists:
@@ -51,92 +138,48 @@ npm run setup
 npm run setup:open  # only when you also want the launcher
 ```
 
-Append `-- --json` for a machine-readable report. `setup:check` is read-only. See [detailed setup](#detailed-setup-and-os-notes) for OS-specific prerequisites.
+Append `-- --json` for a machine-readable report. `setup:check` is read-only. OS-specific prerequisites are in [Detailed setup](#detailed-setup-and-os-notes).
 
-## Safe production flow
+## Agent skills
 
-Tsugite is a vendor-neutral video pipeline that connects generation adapters and editing backends through a single manifest contract.
+Codex discovers `.agents/skills/tsugite/SKILL.md`. Invoke it with `$tsugite`, or let Codex select it for matching video work.
 
-Each video job has its own `project.yaml`. For distribution, the repository keeps copyable examples under `examples/` and ignores user projects under `projects/`. The safe flow is:
+Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads the same canonical workflow. Focused shortcuts:
 
-1. Validate the project and manifest.
-2. Create a plan.
-3. Stop at Gate 1 for human approval.
-4. Run generation or assembly only after Coordinator approval.
-5. Stop at Gate 2 for output QA.
-6. Render only after Gate 2 approval.
-7. Stop at Gate 3 for final video QA.
+- `/tsugite-plan` — validate → plan → Gate 1 review (does not approve the Gate)
+- `/tsugite-verify` — document or test checks after code/docs changes
+- `/tsugite-finalize` — only after you explicitly declare the selected video complete
+- `/tsugite-learning-review` — prepare local learning-promotion candidates
+- `/shitate-import` — optional locked snapshot copy
+- `/premiere-editing` / `/after-effects-editing` — Adobe as external editors
 
-## Agent Skills
+The root `SKILL.md` is a legacy compatibility entry.
 
-Codex discovers the repository skill at `.agents/skills/tsugite/SKILL.md`. Invoke it with `$tsugite`, or let Codex select it for matching Tsugite video work.
+## Local launcher and 3D viewer
 
-Claude Code exposes `.claude/skills/tsugite/SKILL.md` as `/tsugite` and loads the same canonical workflow. The existing `/tsugite-plan`, `/tsugite-verify`, `/tsugite-finalize`, `/tsugite-learning-review`, and `/shitate-import` commands remain focused shortcuts. The root `SKILL.md` is a legacy compatibility entry.
-
-## Current Scope
-
-Optional [Premiere Pro editing](docs/premiere-pro.md) is available through `$premiere-editing` (Claude Code: `/premiere-editing`), with editorial guidance, local MCP operations, and visual verification. Optional [After Effects editing](docs/after-effects.md) is available through `$after-effects-editing` (Claude Code: `/after-effects-editing`), using the official local `DoScriptFile` helper for inspect, fixture, title layers, and save-as. On-screen preview and playback are a separate check. Both are agent-operated external editors, not a `pipeline render` backend; existing Gates remain required.
-
-Optional [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md) edits a local authoring copy through the pinned Studio CLI: `npm run hyperframes:studio -- <composition-dir>`. On patched 0.8.24 with native Chrome 152, first inspect, text/style edit, save, reload, and a second edit with two updated frames succeeded in three fresh runs. Motion authoring and other hosts remain unverified. Studio edits do not update the pipeline manifest; a later pipeline render regenerates HTML. Existing Gates remain required.
-
-- Manifest validation and local asset checks.
-- A separate, versioned **Agent Service Registry** for public read-only Remote MCP services (`services` / `service-tools` / `service-call`), isolated from generation `connections`. See [Agent Services](docs/agent-services.md).
-- Adapter registry for `cli`, `mcp-agent`, and `mcp-client` styles.
-- CLI generation adapter wrappers for PixVerse/Kling.
-- [PixVerse Canvas](docs/pixverse-canvas.md) via the opt-in, repository-pinned official CLI 1.4.4: `npm run pixverse:install`, then `npm run --silent pixverse -- canvas --help`.
-- [Editframe official examples](docs/editframe-examples.md): opt-in, revision-pinned gallery of 27 video samples. Run `npm run editframe:examples:install`, then `npm run editframe:examples`.
-- Source- and freshness-backed T2V/I2V prompt knowledge catalogs for PixVerse, Kling, and Seedance.
-- A story-guide catalog covering 34 narrative, persuasion, documentary, genre, and music-video structures plus 35 contextual film-grammar and AI-video principles.
-- TopView skill CLI generation adapter for T2V and single-frame I2V.
-- Optional Hermes analysis handoff adapter.
-- API-free `pipeline analyze` with the local-media-analysis adapter, plus optional local-whisper analysis for transcripts, filler candidates, chapters, extractive summaries, and English captions.
-- Local-media and generated-media assembly into `dist/<run-id>/`.
-- Gate-bound editorial EDL compilation that retimes selected cuts, captions, and chapters for both Remotion and HyperFrames without modifying source media.
-- Gate 2 QC report generation using manifest and media probes.
-- Gate 3 QC report generation for final duration, resolution, fps, and audio/video streams.
-- First-class image assets, speaker/pose metadata, and guarded presentation presets.
-- Remotion and HyperFrames backend contracts.
-- Optional local [Editframe backend](docs/editframe.md): `npm run editframe:install`, then `edit.backend: editframe`. Preview uses an authoring copy. WebMCP and disk-save APIs are unverified.
-- A Gate-bound audio adapter contract and an official HyperFrames `media-use` integration for BGM/SFX.
-- Guarded `run` / `render` commands that require Coordinator role and prior Gate approval.
-- A loopback-only project launcher and an optional, read-only 3D detail viewer under `apps/workflow-viewer/`.
-
-## Local Workflow Launcher and 3D Viewer
-
-Public distribution of the Desktop app has ended. Tsugite is now distributed as source through GitHub and used from Codex or Claude Code; use the browser-based local launcher and 3D Viewer for inspection. The Electron source remains for development and regression testing only.
-
-The supported flow is to open the Tsugite repository in your usual Codex or Claude environment, then use the loopback-only browser launcher beside it for project, template, Gate, and Viewer inspection. The launcher does not install an AI CLI, consume provider credits, send assets, start generation, render media, or change a Gate.
-
-The development-only Electron shell still contains an embedded terminal for installed Codex CLI or Claude Code. Those CLIs retain their normal permissions and may read or write workspace files, run commands, or use the network; the shell is not a separate Tsugite sandbox. AI subscriptions are also separate from generation-provider billing. Gates do not sandbox general file operations, and `run`, `render`, and Gate decisions still require explicit human approval and the Coordinator role.
-
-In the development-only Desktop shell, an empty project shelf can reopen the native workspace chooser. This behavior remains covered by regression tests but is not a supported distribution path.
-
-The existing 3D Viewer remains available for detailed, seekable inspection. It turns bundled samples or a refreshed Tsugite snapshot into a navigable production floor with status-aware nodes, dependency lines, node details, and event playback. The 3D artifact itself stays static and read-only.
-
-For a non-technical local entry point, install the nested Viewer dependencies once and then open the project launcher:
+Open the Tsugite repository in Codex or Claude Code, then use the loopback browser launcher beside it. Electron remains for development and regression tests only; see [Desktop](docs/desktop.md).
 
 ```sh
 npm --prefix apps/workflow-viewer ci  # first time only
 npm run viewer:open
 ```
 
-Use the CLI for `validate`, `plan`, `analyze`, `compose`, `review`, `run --dry-run`, `run`, `render`, and Gate decisions. The existing Gate prerequisites, explicit approvals, and Coordinator actor checks still apply. Opening the launcher itself does not consume provider credits, send prompts or assets, start generation, render media, or change a Gate.
+The launcher and artifact server bind only to dynamically selected `127.0.0.1` ports. Stop with `Ctrl+C` in the launching terminal. It never requests browser notification permission, sends desktop notifications, runs as a resident service, or uses an external notification destination.
 
-The launcher and its artifact server bind only to dynamically selected `127.0.0.1` ports. It lists direct `projects/*/project.yaml` entries and can refresh or open their read-only 3D snapshots. Refreshed snapshots are written only to a private `0700` temporary directory for the current launcher session, never back through a project output path, and are removed when the launcher closes. At startup, its **Preferences & Learnings** shelf reads local `feedback.jsonl` records across those projects and summarizes their `observed` / `recurring` / `promoted` / `verified` status. It reads at most 128 projects and fairly selects up to 1,000 of their latest records and diagnostics, reporting when either limit is reached. Pending proposals created by the dedicated learning-promotion automation are surfaced in an unread-style tab badge and a local pickup; manual proposals and other workflow results remain in the normal shelf and do not enter the pickup. The badge is a current approval-waiting count, not a separate read-state tracker. A human can review the target, change summary, evidence, and verification plan, then approve or reject the proposal. Either decision clears that pending item by appending a local decision to `feedback.jsonl`. Approval only permits a separate implementation task: it never rewrites prompts, templates, rules, Gates, or state. The launcher does not request browser notification permission, send desktop notifications, run as a resident service, or use an external notification destination. Stop it with `Ctrl+C` in the launching terminal.
+What it does:
 
-```sh
-cd apps/workflow-viewer
-npm install
-npm run dev
-npm run test:coverage
-npm run build
-```
+- Lists direct `projects/*/project.yaml` entries by the required `name` field (Japanese is fine).
+- Refreshes a read-only 3D snapshot into a private `0700` temp directory for the current session, never back through a project output path.
+- Summarizes local `feedback.jsonl` on the **Preferences & Learnings** shelf (`observed` / `recurring` / `promoted` / `verified`). At most 128 projects and 1,000 latest records; pending learning-promotion proposals get an unread-style badge. Approval only permits a separate implementation task — it never rewrites prompts, templates, rules, Gates, or state.
+- **Safe Maintenance** keeps Git worktree cleanup and completed-project media finalize as **separate** preview → confirm → apply flows. No bulk delete. The browser never sends a filesystem path; the server holds a short-lived review id and re-checks live state before calling the canonical CLI.
 
-See [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) for the JSON contract, controls, samples, and current limitations.
+The 3D Viewer turns the current snapshot into a navigable production floor (status-aware nodes, dependency lines, node details, event playback). When Gate 2 QC references real media, the snapshot copies a bounded preview set (2 generated videos, 4 images, 2 audio files). The Gate 3 final video is copied onto the render / final-approval / completion steps. It does not run adapters, change Gates, or write state.
+
+JSON contract, controls, and limits: [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md).
 
 ## Detailed setup and OS notes
 
-Prerequisites are Git, Node.js 22.12 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`. Optional Hypit production (`npm run hypit:install`, runtime init/up) additionally requires Node.js 22.15 or newer in the 22.x line; core remains 22.12.
+Prerequisites: Git, Node.js 22.12 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`. Optional Hypit production additionally requires Node.js 22.15 or newer in the 22.x line.
 
 ```sh
 # macOS
@@ -149,9 +192,9 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 winget install --id Gyan.FFmpeg -e
 ```
 
-On Windows, reopen the terminal after installation. `npm ci` installs Remotion, HyperFrames, and the other repository dependencies locally; no global Remotion or HyperFrames install is needed. HyperFrames is a development dependency, so do not use `npm ci --omit=dev`. See the [native Windows and PowerShell guide](docs/windows.md) for the canonical launcher and CLI entrypoints.
+On Windows, reopen the terminal after installation. Canonical launcher and CLI entrypoints: [native Windows and PowerShell guide](docs/windows.md). Use `node bin/pipeline ...` in PowerShell; do not invoke the extensionless `bin/pipeline` file. Reopen PowerShell after installing or updating Node.js, FFmpeg, or a provider CLI.
 
-From the repository root, the native PowerShell quick start is:
+`npm ci` installs Remotion, HyperFrames, and the other repository dependencies locally. HyperFrames is a development dependency, so do not use `npm ci --omit=dev`.
 
 ```powershell
 npm ci
@@ -160,24 +203,20 @@ node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 npm run viewer:open
 ```
 
-Use `node bin/pipeline ...` in PowerShell instead of invoking the extensionless `bin/pipeline` file directly. Reopen PowerShell after installing or updating Node.js, FFmpeg, or a provider CLI so the updated `PATH` and `PATHEXT` are visible. Provider authentication, entitlements, and billing remain separate manual setup.
+After a successful local first-time setup, Codex and Claude Code ask once whether to add the optional learning-promotion automation. Registration needs an explicit host choice; a decline suppresses the repeat question for that setup. See [Learning Promotion Review](docs/automations/learning-promotion-review.md).
 
-Provider CLIs such as PixVerse/Kling, external TopView/Hermes runtimes, credentials, and billing configuration are not installed or configured automatically. Prepare only the adapter you select, then rerun `doctor`. For TopView, doctor probes the skill's `video_gen.py` with the non-charging `list-models` command. It does not submit generation tasks; authentication and credits remain manual checks. Any unresolved blocking check makes the overall `ok` value `false`.
-
-After a successful local first-time setup, Codex and Claude Code ask once, before the next substantive proposal, whether to add the optional learning-promotion automation and its host-standard completion notification. Choosing it requires selecting one primary host (Codex, Claude Desktop/Cowork, or Claude Code) and a cadence; choosing not to set it up suppresses the repeat question for that setup flow. The automation stays local, creates only human-approval candidates, and never enables browser/OS notifications or external destinations. See [Learning Promotion Review Automation](docs/automations/learning-promotion-review.md).
-
-See [`docs/hyperframes-audio.md`](docs/hyperframes-audio.md) for HyperFrames-first BGM generation and SFX resolution. This path never falls back to ElevenLabs automatically.
+HyperFrames BGM / SFX never fall back to ElevenLabs automatically. See [HyperFrames audio](docs/hyperframes-audio.md).
 
 ## Commands
 
-Start with the built-in command catalog. General help lists every command and its safety level; command-specific help shows the accepted options without reading a project or contacting a provider.
+General help lists every command and its safety level without reading a project or contacting a provider:
 
 ```sh
 node bin/pipeline --help
 node bin/pipeline help validate
 ```
 
-Add `--json` to help or operational commands when a script needs stable machine-readable output.
+Add `--json` when a script needs stable machine-readable output.
 
 ```sh
 npm ci
@@ -195,15 +234,32 @@ node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --js
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
 
-`presets` is a project-independent, read-only query of the presentation presets declared by an installed backend. Use its returned `presets` list when creating or changing a manifest instead of typing an unverified preset ID.
+`review` writes `dist/<run-id>/review/index.html` and `review-data.json` (caption-first storyboard, character sheets, shot details, cost, motion direction). The Gate 1 decision appears once at the end and does not change `state.json`. Gate 1 approval requires both artifacts at the canonical location for the current project. `--open` only opens the local HTML.
 
-`review` derives `dist/<run-id>/review/index.html` and `review-data.json` from the validated project, manifest, and plan. It presents a caption-first storyboard, character sheets, shot details, cost, plus overall and shot-level motion direction with a safe HTML/CSS approximation. The Gate 1 decision appears once, after every review section and the production conditions, without changing `state.json` or executing generation. Gate 1 approval and run start verify that both artifacts exist and belong to the current project. Use `--output <directory>` to override the destination, `--state-dir <directory>` for an alternate state root, and `--open` only when you want to open the local HTML. Use the canonical output location when the artifact must satisfy Gate 1.
+`viewer` writes `dist/<run-id>/viewer/index.html` and `workflow.json` from the validated project, plan, `state.json`, `run-log.md`, review, and Gate 2 / Gate 3 QC. The timeline is reconstructed from plan order and current artifacts because Tsugite does not yet persist a complete event history.
 
-For a project with `composition`, run `analyze` and then `compose` before `review`. `compose` reads the fixed local analysis and creates at most three backend-neutral proposals in `analysis/composition-proposals.json`; it does not change source media, the manifest, or Gate state. Compare the proposals in the review, set exactly one `edit.composition.proposal_id`, and regenerate the review. Only the selected proposal enters the Gate 1 digest. `composition-edl.json` and the reordered manifest are materialized by `run` after Gate 1 approval.
+Long-form local analysis (no external API):
 
-`viewer` converts the validated project and plan plus the current `state.json`, `run-log.md`, review, and Gate 2 / Gate 3 QC artifacts into `dist/<run-id>/viewer/index.html` and `workflow.json`. Run summaries and generation request records from `run-log.md` appear in the material-generation details. When Gate 2 QC references real media, the snapshot copies a bounded preview set (2 generated videos, 4 images, and 2 audio files) into `viewer/previews/`; the Gate 2 panel can display or play them directly. The Gate 3 final video is also copied and appears on the render, final-approval, and completion steps. References outside the run directory, links, missing files, and unsupported extensions are not copied. It is a read-only snapshot: it does not run adapters, change gates, or write state. Install the Viewer dependencies once with `npm --prefix apps/workflow-viewer ci`; rerun the command after the pipeline state changes. The timeline is deterministically reconstructed from the plan order and current artifacts because Tsugite does not yet persist a complete event history. `--output`, `--state-dir`, and `--open` follow the same local-artifact conventions as `review`.
+```sh
+cp -R examples/local-analysis projects/my-seminar
+node bin/pipeline doctor --config projects/my-seminar/project.yaml --json
+node bin/pipeline validate --config projects/my-seminar/project.yaml --json
+node bin/pipeline plan --config projects/my-seminar/project.yaml --json
+node bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinator --json
+```
 
-`run` and `render` are intentionally gated:
+For local Whisper, copy `examples/local-analysis/project-editorial.yaml` and point `model_path` plus required `model_sha256` at a trusted existing `.pt`.
+
+Fast Edit preparation (does not approve a Gate or render). Configure `local-whisper-analysis` first so each source clip has word timestamps:
+
+```sh
+node bin/pipeline analyze --config projects/my-first-run/project.yaml --actor coordinator
+node bin/pipeline fast-edit --config projects/my-first-run/project.yaml --actor coordinator
+```
+
+See [Fast Edit](docs/fast-edit.md) before `--allow-external-analysis` or `--decisions`.
+
+Gated execution:
 
 ```sh
 node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
@@ -213,10 +269,7 @@ node bin/pipeline render --config projects/my-first-run/project.yaml --actor coo
 node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
 ```
 
-Do not run non-dry-run `run` or `render` without explicit human approval.
-Gate 3 also accepts `re-render`, which preserves Gate 1 and Gate 2 approval and returns the run to rendering. Gate 2 `retry_specific` is not implemented and is not planned for 1.0; use `revise` for a full re-plan. MiniMax direct and MiniMax HTTP stay preflight-only and must not be shown as ready to send.
-
-Only after the user explicitly declares the selected video complete, first record the canonical output, QA evidence, and a closeout retrospective: failures, improvements, and next-run lessons (including an explicit no-failure result). Append failures to project `feedback.jsonl` and reusable rules to `LESSONS.md`. Repeated feedback keys or lessons with matching symptoms and causes are recorded as `recurring` and assessed as promotion candidates; a pending proposal requires a concrete target, change summary, and verification plan, and remains human-approval-gated. Then use `finalize` to clean up superseded media. The default preview is read-only and prints a `plan_digest`. After reviewing its scope, a Coordinator may apply with that exact digest via `--expected-plan-digest`; this keeps the final run, source media referenced by the final manifest, and text records, while deleting video, audio, and image files from older runs, older QA, and unused project media. The result is recorded in `completion-record.json` inside the final run. Optional `--state-dir` is accepted only when it equals `project.dist_dir` (the project-local state root); other values are rejected before any run lock is taken.
+Only after you explicitly declare the selected video complete, record the canonical output, QA evidence, and a closeout retrospective, then preview `finalize`. The default preview is read-only and prints a `plan_digest`. A Coordinator may apply with that exact digest. This keeps the final run, source media referenced by the final manifest, and text records, while deleting video / audio / image files from older runs, older QA, and unused project media. `--state-dir` is accepted only when it equals `project.dist_dir`.
 
 ```sh
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
@@ -224,65 +277,18 @@ node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --apply --actor coordinator --expected-plan-digest <plan_digest> --json
 ```
 
-After a coding task is explicitly marked complete, audit leftover Git worktrees before removing any of them. The default `worktrees` command is read-only JSON preview. Apply requires the Coordinator actor and one or more explicit `--path` values; it never uses `git worktree remove --force`, never deletes branches, and refuses primary/current, dirty, unmerged, locked, missing, or protected ignored content such as `projects/` and `.env`.
+After a coding task is explicitly marked complete, audit leftover Git worktrees before removing any of them. Default `worktrees` is a read-only JSON preview. Apply requires Coordinator and one or more explicit `--path` values; it never uses `git worktree remove --force`, never deletes branches, and refuses primary / current, dirty, unmerged, locked, missing, or protected ignored content such as `projects/` and `.env`.
 
 ```sh
 node bin/pipeline worktrees --json
 node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
 ```
 
-### Launcher Safe Maintenance shelf
-
-The Viewer launcher includes a **Safe Maintenance** shelf. Git worktree cleanup and completed-project media finalize stay **separate panels, previews, confirm dialogs, and apply calls**. There is no bulk delete.
-
-Shared flow:
-
-`Preview → Review → Explicit Apply → Revalidate → Record`
-
-- **Git worktrees**: After a read-only preview, pick **one** removable candidate and confirm “delete this worktree only.” The browser never sends a path; it uses short-lived server-held `reviewId` / `candidateId` values. Before apply, the server re-checks live path / HEAD / branch / common-dir / removable, then runs canonical `worktrees --apply --actor coordinator --path <server-held-path>` as an argv array. No `--force`, branch deletion, stash / rebase / reset, or `git clean`.
-- **Completed media**: Choose a writable project and explicitly declare completion (“confirm this project as complete and review the cleanup plan”). Gate 3 approval alone does not run finalize. Review the preview `plan_digest` and keep/delete samples, then confirm apply. Canonical CLI is `finalize --json` followed by `--apply --actor coordinator --expected-plan-digest <digest>`. Clients never send config paths or `--state-dir`.
-- Only one maintenance apply runs at a time across the launcher; it also counts as blocking work for workspace switch and shutdown.
-- Projects with a completion record and zero deletion candidates show as already finalized; re-apply is not offered.
-
-CLI remains available as before. The launcher does not own safety decisions; it is a thin boundary over existing `lifecycle` / `finalize`.
-
-The preview also returns a non-mutating `worktree_warning`. It becomes active
-when three or more worktrees are already classified as `removable: true` (clean,
-merged, unlocked, and free of protected ignored content). The warning counts
-cleanup-ready leftovers, not every active parallel task, and never authorizes or
-performs deletion. `warnings` contains
-`worktrees.cleanup_candidates_accumulated` only while the threshold is met.
-
-```json
-{
-  "worktree_warning": {
-    "active": true,
-    "threshold": 3,
-    "removable_count": 3,
-    "removable_paths": ["/absolute/path/to/worktree"]
-  }
-}
-```
-
-An optional host automation may inspect this field periodically and return
-`DONT_NOTIFY` while `active` is false, so normal checks stay silent. It must
-remain read-only and must not infer cleanup approval from the warning. See
-[Worktree Cleanup Alert](docs/automations/worktree-cleanup-alert.md).
-
-If completion is approved while local `main` is busy, record that exact clean worktree identity in the repository-local deferred queue. A single scheduled host task may then call `--reconcile`: it waits while `main` is dirty, builds an isolated merge, runs TypeScript and Vitest checks, revalidates both worktrees, fast-forwards unchanged local `main`, and removes the now-merged worktree without force. Conflicts, failed checks, changed identities, protected content, and a non-primary invocation stop without changing `main`. It never fetches, pushes, rebases, stashes, resets, cleans, deletes branches, or broadens the original completion authorization.
-
-```sh
-node bin/pipeline worktrees --defer --path ../tsugite-feature-task --json
-node bin/pipeline worktrees --defer --apply --actor coordinator --path ../tsugite-feature-task --json
-node bin/pipeline worktrees --reconcile --json
-node bin/pipeline worktrees --reconcile --apply --actor coordinator --json
-```
-
-See [Deferred Worktree Reconcile](docs/automations/worktree-reconcile.md) for the one-run and scheduled-host contract.
+If completion is approved while local `main` is busy, you can defer that exact clean worktree and later `--reconcile` from primary clean main. See [Deferred Worktree Reconcile](docs/automations/worktree-reconcile.md) and [Worktree Cleanup Alert](docs/automations/worktree-cleanup-alert.md). A `worktree_warning` is a count of already-removable leftovers (threshold 3). It never authorizes deletion.
 
 ## Public Agent Services (Remote MCP)
 
-Public read-only Remote MCP endpoints (Cloudflare Search MCP and Azumi Experience) are registered in the bundled [`agent-services/registry.yaml`](agent-services/registry.yaml). They are not generation connections, do not accept arbitrary caller URLs, and never unlock side effects from this CLI. Queries are not purchase/payment actions (`billing_action=false`) but may still consume provider quota/usage (`provider_usage_possible=true`).
+Public read-only Remote MCP endpoints (Cloudflare Search MCP and Azumi Experience) live in [`agent-services/registry.yaml`](agent-services/registry.yaml). They are not generation connections, do not accept arbitrary caller URLs, and never unlock side effects from this CLI. Queries are not purchase actions (`billing_action=false`) but may still consume provider quota (`provider_usage_possible=true`).
 
 ```sh
 node bin/pipeline services --json
@@ -290,7 +296,7 @@ node bin/pipeline service-tools --service itopan-search --json
 node bin/pipeline service-call --service itopan-search --tool search --arguments '{"query":"AIエージェント"}' --json
 ```
 
-See [Agent Services](docs/agent-services.md) for the fail-closed Human Gate, exact-endpoint bind, and current read-only scope.
+See [Agent Services](docs/agent-services.md) for the fail-closed Human Gate and current read-only scope.
 
 ## Optional Shitate Import
 
@@ -307,11 +313,11 @@ node bin/pipeline shitate-import \
   --json
 ```
 
-The command copies local files, adds the anchor and speaker to the manifest, and optionally changes one request to I2V. It never runs generation or changes a Gate. `negative.txt` is preserved but not silently applied because the current PixVerse video CLI has no negative-prompt option. See [Shitate Integration](docs/shitate.md).
+The command copies local files, adds the anchor and speaker to the manifest, and optionally changes one request to I2V. It never runs generation or changes a Gate. See [Shitate Integration](docs/shitate.md).
 
 ## Character Add
 
-Copy a speaker (poses, mouth frames, and images) from any source manifest into a target project. Useful for reusing characters from templates or other projects without Shitate.
+Copy a speaker (poses, mouth frames, and images) from any source manifest into a target project, without Shitate.
 
 ```sh
 node bin/pipeline character-add \
@@ -323,7 +329,7 @@ node bin/pipeline character-add \
 
 Image paths in the source manifest are resolved relative to the manifest directory. The command is idempotent on exact match, refuses conflicting speakers, and never runs generation or changes a Gate.
 
-## Project File
+## Project file
 
 Minimal local-media project, as used by `examples/local-fixture/project.yaml`:
 
@@ -354,32 +360,36 @@ generation:
       params: {}
 ```
 
-`plan` returns request-specific `prompt_guidance` when the model and input mode match. Set `prompt_guide.catalog` when the knowledge catalog differs from the execution adapter. A catalog never implies execution capability and never rewrites the prompt. See [Model Prompt Knowledge](docs/prompt-guides.md).
+`plan` returns request-specific `prompt_guidance` when the model and input mode match. Set `prompt_guide.catalog` when the knowledge catalog differs from the execution adapter.
 
-For MiniMax H3 (`minimax-h3`), use the optional Creative IR + deterministic compiler instead of freehand section prose. See [H3 Prompt Director](docs/h3-prompt-director.md) and the parseable example in [`examples/h3-prompt-director/`](examples/h3-prompt-director/).
+Fast Edit example:
 
-The optional Hermes adapter is a distribution-time opt-in. The base
-install does not require them; set them up only when a `project.yaml` selects
-one of those adapters. See [Optional Adapters](docs/optional-adapters.md).
+```yaml
+edit:
+  backend: remotion # or hyperframes / editframe
+  fast_edit:
+    enabled: true
+    beat_seconds: 2.5 # optional
+```
 
-## Growing the Pipeline
+For MiniMax H3 (`minimax-h3`), use the optional Creative IR + deterministic compiler instead of freehand section prose. See [H3 Prompt Director](docs/h3-prompt-director.md) and [`examples/h3-prompt-director/`](examples/h3-prompt-director/).
+
+The optional Hermes adapter is distribution-time opt-in. The base install does not require it. See [Optional Adapters](docs/optional-adapters.md).
+
+## Growing the pipeline
 
 Tsugite does not become more personalized just because you generate many videos. It improves when you feed review notes, retry reasons, and repeated preferences back into the repository.
 
-Structured feedback stays local in each `projects/<job>/feedback.jsonl`. Record a stable `key` for the same preference across projects so repetitions can be identified without treating generation count as learning. The lifecycle is `observed` (recorded once), `recurring` (repeated evidence), `promoted` (the approved change was implemented in a shared target), then `verified` (later output confirms the improvement). Approval is always a human decision and only grants implementation permission; neither `pipeline feedback` nor the launcher changes prompts, templates, checks, or operating rules automatically.
-
-Use this loop:
+Structured feedback stays local in each `projects/<job>/feedback.jsonl`. Record a stable `key` for the same preference across projects. The lifecycle is `observed` → `recurring` → `promoted` → `verified`. Approval is always a human decision and only grants implementation permission; neither `pipeline feedback` nor the launcher changes prompts, templates, checks, or operating rules automatically.
 
 1. Create a project under `projects/`.
 2. Generate or assemble only after the Gate approvals.
 3. Review the output and record what worked, what failed, and why you retried with `pipeline feedback`.
-4. Keep one-off notes and the local `feedback.jsonl` inside that project.
+4. Keep one-off notes inside that project.
 5. Use repeated records with the same `key` as evidence, then promote a reusable change only after human approval.
 6. Verify the promoted change against a later output before marking the feedback `verified`.
 
-An optional Codex Automation, Claude Desktop/Cowork scheduled task, or Claude Code session may prepare this approval queue independently of whether the launcher is running. It is dedicated to preference/learning promotion review, not to reporting other automations. Each run stays local, records its supported source, adds at most three complete and non-duplicate pending proposals through the existing `pipeline feedback` CLI, and never edits shared source. See [Learning Promotion Review Automation](docs/automations/learning-promotion-review.md) for registration and native host-notification behavior. Keep only one durable schedule active to avoid duplicate runs.
-
-For example, record feedback against a copied local project and inspect the resulting JSON without exposing an absolute local path:
+An optional Codex Automation, Claude Desktop/Cowork scheduled task, or Claude Code session may prepare this approval queue (at most three complete, non-duplicate pending proposals per run). Keep only one durable schedule. See [Learning Promotion Review](docs/automations/learning-promotion-review.md).
 
 ```sh
 node bin/pipeline feedback --config projects/my-first-run/project.yaml \
@@ -399,11 +409,9 @@ QA rule                  -> Gate 2 / Gate 3 checks + report schema/tests
 Public contract change   -> README / manifest/schema.md / docs/requirements.md
 ```
 
-Every promotion requires human approval and should leave either a reproducing fixture and test, or a human-readable operating rule. Gate 2 / Gate 3 check changes should update the report shape and tests together. After promotion, use later project evidence to decide whether the preference is `verified`.
+Every promotion requires human approval and should leave either a reproducing fixture and test, or a human-readable operating rule.
 
-This is how the repo can grow toward your taste while still staying safe for distribution. Local projects stay ignored under `projects/`, and only reusable improvements are committed back to the source.
-
-## Repository Rules
+## Repository rules
 
 - Keep core code vendor-neutral. Vendor-specific execution behavior belongs under `adapters/` or `backends/`; source-backed advisory data belongs under `knowledge/video-models/`.
 - Adapter directories must include `constraints.md`.
@@ -411,7 +419,7 @@ This is how the repo can grow toward your taste while still staying safe for dis
 - Put user work under `projects/`; keep `examples/` copyable and resettable.
 - Failures that produce reusable rules should be recorded in `LESSONS.md`.
 
-## Production Notes
+## Production notes
 
 - `examples/local-fixture/project.yaml` is a fixture-style local validation config. Copy it into `projects/` before editing.
 - `projects/*` is ignored by git so local prompts, media, manifests, `dist/`, and run state stay out of distributable commits.
@@ -419,3 +427,4 @@ This is how the repo can grow toward your taste while still staying safe for dis
 - `npm run check` enforces the vendor boundary, TypeScript build, the full test suite, and minimum coverage of 80% statements, functions, and lines, plus 74.4% branches for `src/` (held after Production Orchestration; restoring 75% remains debt). Coverage uses at most four Vitest workers so process-heavy fixtures remain stable on high-core machines and CI runners.
 - `npm run security:audit` checks both the production dependency tree and the full development tree, failing on moderate-or-higher advisories.
 - Vite may warn because this workspace path contains `*`. Tests currently pass in this path; move the repo to a path without `*` if that warning becomes operationally noisy.
+- 1.0 still requires live provider/billing evidence and packaged Desktop UAT. Windows smoke is verified on GitHub Actions. Desktop installers stay outside this source release.

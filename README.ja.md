@@ -4,9 +4,92 @@
 
 AI動画を作って終わりにせず、素材、制作ログ、判断、好みを次の制作へ継いでいくローカル動画制作工房です。
 
+ソース版 **0.14.0**。Desktopアプリの一般配布は終了しています。日常の入口は GitHub のソースを Codex / Claude Code などで開き、確認には `127.0.0.1` のブラウザランチャーを使います。変更履歴は [CHANGELOG](CHANGELOG.md) です。
+
+**まず見るところ:** [一番簡単な始め方](#一番簡単な始め方) · [できること](#できること) · [安全な制作フロー](#安全な制作フロー) · [コマンド](#コマンド)
+
 ## どんな問題を解決するか
 
-生成サービス、ローカル素材、編集バックエンドを単一のmanifest契約で接続し、制作計画、承認、QA、ログを案件ごとに残します。Gitやターミナルに詳しくなくても、安全境界を確認しながらCodex、Claude Codeなどの対応コーディングエージェントへ初回準備を任せられます。
+生成サービス、ローカル素材、編集バックエンドを単一の **manifest** 契約で接続し、制作計画、承認、QA、ログを案件ごとに残します。Gitやターミナルに詳しくなくても、安全境界を確認しながらCodex、Claude Codeなどの対応コーディングエージェントへ初回準備を任せられます。
+
+## できること
+
+用途から入口を選んでください。任意ツールは Gate や `run` / `render` の代わりにはなりません。
+
+### 動画を通す（本体）
+
+動画 job ごとに `project.yaml` を持ちます。コピー可能なサンプルは `examples/`、ユーザー作業用の `projects/` は git 管理外です。
+
+1. project と manifest を検証する。
+2. 実行計画を作成する。
+3. **Gate 1** で人間の承認を待つ。
+4. Coordinator 承認後にだけ生成または組み立てを実行する。
+5. **Gate 2** で出力 QA を行う。
+6. Gate 2 承認後にだけ render する。
+7. **Gate 3** で最終動画 QA を行う。
+
+`run` と `render` は Coordinator と事前の Gate 承認が必要です。明示的な人間承認なしに非 dry-run を実行しないでください。
+
+### クリップを生成する
+
+| 手段 | 役割 | 詳細 |
+| --- | --- | --- |
+| PixVerse / Kling CLI adapter | パイプライン経由の T2V / I2V | [Optional Adapters](docs/optional-adapters.md) |
+| Prompt catalog | PixVerse / Kling / Seedance の出典付き助言。カタログの存在は実行能力ではなく、prompt も自動変更しない | [モデル別プロンプト知識](docs/prompt-guides.md) |
+| Story guides | 34種の物語構成と、35種の映像文法・AI動画原則を理由付きで選ぶ | [王道の物語構成・映像文法](docs/story-guides.md) |
+| TopView skill CLI | T2V と単一画像 I2V | [TopView CLI](docs/topview-cli.md) |
+| H3 Prompt Director | MiniMax H3（`minimax-h3`）向け Creative IR → 決定的な英語プロンプト | [H3 Prompt Director](docs/h3-prompt-director.md) |
+
+MiniMax direct / MiniMax HTTP は **preflight-only** のまま、送信可能としては表示しません。PixVerse / Kling などの provider CLI、認証、課金は自動導入しません。選んだ adapter だけを準備し、`doctor` を再実行してください。
+
+### パイプライン内で編集する
+
+`edit.backend` のレンダラーです。同じ manifest / EDL 契約を受け取ります。
+
+| Backend | 役割 | 詳細 |
+| --- | --- | --- |
+| Remotion | 既定のローカル renderer。字幕、presentation preset | `edit.backend: remotion` |
+| HyperFrames | ローカル renderer と公式 `media-use` の BGM / SFX | [HyperFrames音声](docs/hyperframes-audio.md) |
+| Editframe | 任意の **macOS** ローカル renderer と preview。`npm run editframe:install` のあと `edit.backend: editframe`。preview は authoring copy。WebMCP と disk-save API は未検証 | [Editframe](docs/editframe.md) |
+| **Jev Fast Edit v1** | Remotion / HyperFrames / Editframe で同じ backend 中立の編集意図（カード、字幕、トランジション、ズーム、SFX、16:9 と 9:16）。先に local-whisper の単語タイムスタンプが必要。選ぶのは `edit.backend` と `edit.fast_edit` だけ。新しい renderer ではない | [Fast Edit](docs/fast-edit.md) |
+
+この経路には、Gate 拘束の editorial EDL（元素材を変えずにカット・字幕・章を再タイミングする）、画像素材と話者 / pose、presentation preset も含まれます。preset ID は手入力せず `node bin/pipeline presets --backend remotion --json` の一覧から選びます。
+
+### パイプラインの外で編集する（Adobe など）
+
+**エージェントが操作する外部エディタ**です。`pipeline render` の backend ではありません。Tsugite 案件としての Gate は維持します。
+
+| ツール | Skill | いまできること | 詳細 |
+| --- | --- | --- | --- |
+| **Premiere Pro** | `$premiere-editing`（Claude Code: `/premiere-editing`） | macOS。カット、トランジション、音声、字幕、色。ローカル MCP と画面確認 | [Premiere Pro](docs/premiere-pro.md) |
+| **After Effects** | `$after-effects-editing`（Claude Code: `/after-effects-editing`） | macOS。公式ローカル `DoScriptFile` helper で inspect / fixture / タイトル追加 / 別名保存。画面上の文字と再生は別確認 | [After Effects](docs/after-effects.md) |
+| PixVerse Canvas | 公式 CLI 1.4.4（任意導入） | `npm run pixverse:install` のあと `npm run --silent pixverse -- canvas ...`。外部 Canvas 入口であり pipeline backend ではない。導入確認だけでは live な Canvas 変更を主張しない | [PixVerse Canvas](docs/pixverse-canvas.md) |
+| HyperFrames Studio | 固定 0.8.24 の WebMCP | `npm run hyperframes:studio -- <composition-dir>` で authoring copy を開く。パッチ済み 0.8.24 + native Chrome 152 で inspect / 文字・色編集まで実測。motion や他ホストは未検証。Studio 編集は pipeline manifest を更新せず、後続の `render` が HTML を再生成する | [Studio WebMCP](docs/hyperframes-studio-webmcp.md) |
+
+### 手元の映像を解析する
+
+- APIキー不要の `pipeline analyze`（local-media-analysis。FFmpeg / `ffprobe` のみ）。
+- 任意の local-whisper で文字起こし、フィラー候補、章、抽出的要約、英訳字幕。モデルの自動 download は行いません。
+- `composition` がある案件では、`review` の前に `analyze` → `compose`。`compose` は最大3件の backend 中立提案を書き、選ぶ `edit.composition.proposal_id` は1つだけ。並べ替えた manifest は Gate 1 承認後の `run` だけが実体化します。
+
+詳細は [APIを使わないローカル長尺解析](docs/local-analysis.md) と `examples/local-analysis/` です。
+
+### 案件を確認する
+
+ループバック専用ランチャーは `projects/*/project.yaml`、テンプレート、Gate、「好み・学び」、「安全な整理」を一覧します。開くだけでは AI CLI の導入、credits 消費、外部送信、生成、render、Gate 変更は行いません。
+
+3D Viewer は現在の run の読み取り専用スナップショットです。詳細は [ローカルランチャー](#ローカルランチャーと3d-viewer) です。
+
+### 任意の追加機能
+
+| 追加 | 役割 | 詳細 |
+| --- | --- | --- |
+| Hypit 制作 | adapter 所有の authoring 経路（`npm run hypit:install`）。pipeline render backend ではなく、Gate 1 / 3 の代替でもない。live な `hypit build` / MP4 受け入れはソース bump では主張しない。Hypit runtime は Node.js 22.15以上（22.x）。本体の最低版は 22.12 | [Hypit](docs/hypit.md) |
+| Editframe examples | 公式サンプル 27件の固定ギャラリー。`npm run editframe:examples:install` のあと `npm run editframe:examples` | [Editframe examples](docs/editframe-examples.md) |
+| Agent Services | 公開 read-only Remote MCP 用の別 registry（`services` / `service-tools` / `service-call`）。生成 `connections` とは分離 | [Agent Services](docs/agent-services.md) |
+| Shitate import | 別リポの SHA-256 lock 付きキャラ snapshot を取り込む。通常利用には不要 | [Shitate連携](docs/shitate.md) |
+| キャラクター追加 | 任意の source manifest から speaker（pose / mouth / 画像）をコピー | [キャラクター追加](#キャラクター追加) |
+| Hermes | 任意の analysis handoff adapter | [Optional Adapters](docs/optional-adapters.md) |
 
 ## 一番簡単な始め方
 
@@ -41,6 +124,8 @@ https://github.com/Takamasa045/tsugite
 
 公式Bootstrapはリポジトリ内の依存導入、課金不要サンプル、`doctor`、`validate`、`plan`だけを自動実行します。システムソフトの導入、PATH変更、外部ログイン、secret設定、課金、`run`、`render`、Gate判断、commit、push、公開は行いません。詳しい境界は[初回セットアップ契約](docs/onboarding/setup-contract.ja.md)を参照してください。
 
+Gate 2 の `retry_specific` は未実装で、1.0 でも入れません。全体を計画からやり直す場合は `revise` を使います。Gate 3 は `re-render` を受け付け、Gate 1 / 2 の承認を保ったまま rendering へ戻します。
+
 ## 開発者向け・手動セットアップ
 
 クローン済みのrepo rootで、依存導入前からNode.js標準モジュールだけで公式Bootstrapを起動できます。
@@ -51,86 +136,48 @@ npm run setup
 npm run setup:open  # セットアップ後にランチャーも開く場合だけ
 ```
 
-機械可読な結果が必要な場合は各コマンドに`-- --json`を追加します。`setup:check`は読み取り専用です。OS別の導入コマンドを含む詳細は[セットアップ詳細](#セットアップ詳細とos別の注意)へ進んでください。
-
-## 安全な制作フロー
-
-生成アダプタと編集バックエンドを、単一のmanifest契約で接続するベンダー中立の動画パイプラインです。
-
-動画 job ごとに `project.yaml` を持ちます。配布用 repo として、コピー可能なサンプルは `examples/` に置き、ユーザー作業用の `projects/` は git 管理から外します。安全な基本フローは次の通りです。
-
-1. project と manifest を検証する。
-2. 実行計画を作成する。
-3. Gate 1 で人間の承認を待つ。
-4. Coordinator 承認後にだけ生成または組み立てを実行する。
-5. Gate 2 で出力 QA を行う。
-6. Gate 2 承認後にだけ render する。
-7. Gate 3 で最終動画 QA を行う。
+機械可読な結果が必要な場合は各コマンドに`-- --json`を追加します。`setup:check`は読み取り専用です。OS別の導入は[セットアップ詳細](#セットアップ詳細とos別の注意)へ進んでください。
 
 ## エージェントスキル
 
-Codexはrepo skillの `.agents/skills/tsugite/SKILL.md` を検出し、`$tsugite` または内容に一致する依頼から安全な制作フローを読み込みます。
+Codexは `.agents/skills/tsugite/SKILL.md` を検出し、`$tsugite` または内容に一致する依頼から安全な制作フローを読み込みます。
 
-Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同じ正本を読み込みます。目的別の短縮入口として `/tsugite-plan`、`/tsugite-verify`、`/tsugite-finalize`、`/tsugite-learning-review`、`/shitate-import` も利用できます。ルートの `SKILL.md` は旧ツール向けの互換入口です。
+Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同じ正本を読み込みます。目的別の短縮入口:
 
-## 現在のスコープ
+- `/tsugite-plan` — validate → plan → Gate 1 レビュー（Gate は承認しない）
+- `/tsugite-verify` — コード / 文書変更後の確認
+- `/tsugite-finalize` — 対象動画を明示的に「完成」としたあとだけ
+- `/tsugite-learning-review` — 学び昇格候補の準備
+- `/shitate-import` — 任意の lock 付き snapshot 取り込み
+- `/premiere-editing` / `/after-effects-editing` — Adobe を外部エディタとして使う
 
-Premiere Proを指定した編集は、任意の `$premiere-editing`（Claude Code: `/premiere-editing`）で演出選択・ローカルMCP操作・画面確認まで進められます。[接続方法と実測の対応範囲](docs/premiere-pro.md)を参照してください。After Effectsを指定した編集は、任意の `$after-effects-editing`（Claude Code: `/after-effects-editing`）で公式 `DoScriptFile` helperによる inspect / fixture / タイトル追加と別名保存まで実測しています。画面上の文字と再生は別確認です。[接続方法と実測の対応範囲](docs/after-effects.md)を参照してください。どちらもエージェントが操作する外部エディタであり、`pipeline render` のbackendではありません。既存のGateを維持します。
+ルートの `SKILL.md` は旧ツール向けの互換入口です。
 
-- manifest 検証とローカル素材チェック。
-- 生成 `connections` とは分離した、公開 read-only Remote MCP 用 **Agent Service Registry**（`services` / `service-tools` / `service-call`）。購入・決済操作ではないが provider の usage を消費し得る。詳細は [Agent Services](docs/agent-services.md)。
-- `cli`、`mcp-agent`、`mcp-client` 形式のアダプタ registry。
-- PixVerse / Kling 向け CLI generation adapter wrapper。
-- PixVerse / Kling / Seedance の出典・鮮度付き T2V / I2V prompt knowledge catalog。
-- 34種の物語・広告・解説・ドキュメンタリー・ジャンル・MV構成と、35種の尺配分・映像文法・AI動画原則を理由付きで選ぶ story guide catalog。
-- TopView skill CLIを使うT2V / 単一画像I2V generation adapter。
-- Hermes 向け optional analysis handoff adapter。
-- APIキー不要でFFmpegだけを使う `pipeline analyze` と local-media-analysis adapter。
-- 既存のローカルWhisperモデルで、文字起こし・フィラー候補・章・抽出的要約・英訳字幕を作るlocal-whisper-analysis adapter。
-- Gate 1で承認した明示的な候補だけをsource-to-output EDLへ変換し、Remotion / HyperFramesへ同じ編集済みmanifestを渡す長尺編集フロー。
-- local-media / generated-media を `dist/<run-id>/` に組み立てる処理。
-- manifest と media probe による Gate 2 QC report 生成。
-- 最終尺・解像度・fps・映像/音声streamを検査する Gate 3 QC report 生成。
-- 画像素材、話者/pose、presentation presetを含むmanifest契約。
-- Remotion / HyperFrames backend 契約。
-- Gate 1後・Gate 2前にBGM/SFXを固定する音声adapter契約と、HyperFrames公式`media-use`接続。
-- Coordinator role と Gate 承認を要求する guarded `run` / `render`。
-- `apps/workflow-viewer/` 配下の独立した読み取り専用3Dワークフロービューア。
+## ローカルランチャーと3D Viewer
 
-## 3D Workflow Viewer
-
-Desktopアプリの一般配布は終了しました。今後はGitHubのソースをCodexまたはClaude Codeで利用し、確認にはブラウザで開くローカルランチャー／3D Viewerを使います。Electron版のソースは開発・回帰検証用としてのみ残します。
-
-正式な利用導線は、TsugiteリポジトリをいつものCodex / Claude環境で開き、案件・テンプレート・Gate・Viewerの確認には`127.0.0.1`で動くブラウザ版ランチャーを並べて使う形です。ランチャーを開くだけでは、AI CLIの導入、provider creditsの消費、外部送信、動画生成、render、Gate変更は行いません。
-
-開発用として残すElectron版には、PCに導入済みのCodex CLI / Claude Codeを開く内蔵端末があります。起動後のAI CLIは各CLIの通常の権限・承認設定に従い、workspaceのファイル読書き、command実行、network接続を行うことがあります。Tsugite独自のsandboxではないため、各CLIの承認画面を確認してください。AI CLIの認証・契約と、PixVerseなど生成providerのAPI課金・creditsは別です。Gateは一般的なファイル操作を制限する仕組みではなく、`run`、`render`、Gate判定には従来どおり人の明示承認とCoordinator権限が必要です。
-
-同梱サンプルまたはCLIが生成したTsugiteスナップショットを、状態付きノード、依存線、詳細パネル、シーク可能なイベント再生を備えた3D制作フロアとして表示します。工程名と説明は非エンジニア向けの日本語を優先し、内部名、技術参照、時刻、ログは「詳しい情報」にまとめます。CLIから現在状態を出力できますが、Viewer自体はバックエンド、プロバイダー呼び出し、project変更、実行権限を持ちません。
-
-開発用Electron版で制作案件が0件の場合は、空の制作棚からworkspaceを選び直せます。この挙動は回帰テストを維持しますが、一般配布の利用導線にはしません。
-
-非エンジニア向けの入口は、Viewer依存を一度入れたあと、プロジェクトランチャーを開きます。
+Tsugiteリポジトリをいつもの Codex / Claude 環境で開き、案件確認にはブラウザ版ランチャーを並べます。Electron 版は開発・回帰検証用です。配布状態は [Desktop](docs/desktop.md) を参照してください。
 
 ```sh
 npm --prefix apps/workflow-viewer ci  # 初回のみ
 npm run viewer:open
 ```
 
-開発時の Viewer 単体確認:
+ランチャーと成果物サーバーは、動的に選ばれた `127.0.0.1` のポートだけで待ち受けます。終了は起動したターミナルの `Ctrl+C` です。ブラウザ通知権限、デスクトップ通知、常駐サービス、外部通知先は使いません。
 
-```sh
-cd apps/workflow-viewer
-npm install
-npm run dev
-npm run test:coverage
-npm run build
-```
+できること:
 
-JSON仕様、操作、サンプル、現在の制限は [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) を参照してください。
+- `projects/*/project.yaml` を必須フィールド `name`（日本語可）で一覧する。
+- 読み取り専用の 3D スナップショットを、実行中だけ使う権限 `0700` の一時ディレクトリへ再生成する。案件の出力 path には書き戻さない。
+- 起動時に各案件の `feedback.jsonl` を読み、「好み・学び」棚で `observed` / `recurring` / `promoted` / `verified` を要約する。最大 128 案件、最新記録は合計 1000 項目。学び昇格の `pending` だけが未読風バッジになる。承認は別作業で実装を始める許可にすぎず、prompt / template / rule / Gate / state は変更しない。
+- **安全な整理** は Git worktree 整理と完成案件の media finalize を **別パネル・別 preview・別確認・別 apply** にする。一括削除はない。ブラウザは path を送らず、サーバーが短命な review id を保持し、live 状態を再照合してから canonical CLI を呼ぶ。
+
+3D Viewer は状態付きノード、依存線、詳細、シーク可能なイベント再生を持つ制作フロアです。Gate 2 QC が参照する実ファイルがある場合は、生成映像 2本・画像 4枚・音声 2本を `viewer/previews/` にコピーします。Gate 3 の完成動画も同じ場所へコピーします。adapter 実行、Gate 更新、state 書き込みは行いません。
+
+JSON仕様、操作、制限は [`apps/workflow-viewer/README.md`](apps/workflow-viewer/README.md) です。
 
 ## セットアップ詳細とOS別の注意
 
-必要環境は Git、Node.js 22.12以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。任意の Hypit 制作（`npm run hypit:install`、runtime init/up）は追加で Node.js 22.15以上（22.x）が必要です。本体の最低版は 22.12 のままです。
+必要環境は Git、Node.js 22.12以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。任意の Hypit 制作は追加で Node.js 22.15以上（22.x）が必要です。本体の最低版は 22.12 のままです。
 
 ```sh
 # macOS
@@ -143,9 +190,9 @@ sudo apt-get update && sudo apt-get install -y ffmpeg
 winget install --id Gyan.FFmpeg -e
 ```
 
-Windowsではインストール後にterminalを開き直してください。`npm ci`はRemotionとHyperFramesを含む依存をこのrepo内へ導入するため、global installは不要です。HyperFramesはdevDependencyなので`npm ci --omit=dev`は使用しないでください。正式な入口とPowerShell手順は[Windowsネイティブ利用ガイド](docs/windows.md)を参照してください。
+Windowsではインストール後にterminalを開き直してください。正式な入口とPowerShell手順は[Windowsネイティブ利用ガイド](docs/windows.md)を参照してください。PowerShellでは拡張子のない`bin/pipeline`を直接実行せず、`node bin/pipeline ...`を使用してください。Node.js、FFmpeg、provider CLIを導入・更新した後は PowerShell を開き直します。
 
-repo rootからのPowerShell最短手順です。
+`npm ci`はRemotionとHyperFramesを含む依存をこのrepo内へ導入します。HyperFramesはdevDependencyなので`npm ci --omit=dev`は使用しないでください。
 
 ```powershell
 npm ci
@@ -154,24 +201,20 @@ node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 npm run viewer:open
 ```
 
-PowerShellでは拡張子のない`bin/pipeline`を直接実行せず、`node bin/pipeline ...`を使用してください。Node.js、FFmpeg、provider CLIを導入・更新した後は、更新された`PATH`と`PATHEXT`を反映するためPowerShellを開き直します。providerの認証、利用権限、課金設定は別途手動で準備してください。
+初回セットアップ成功後、Codex と Claude Code は学び昇格自動化を一度だけ尋ねます。登録には host の明示選択が必要で、辞退するとそのセットアップ中は再質問しません。詳細は [学び昇格レビュー自動化](docs/automations/learning-promotion-review.md) です。
 
-PixVerse / Klingなどのprovider CLI、TopView / Hermesの外部runtime、認証情報、課金設定は自動導入・設定しません。選択したadapterだけを別途準備し、`doctor`を再実行してください。TopViewでは同梱skillの`video_gen.py`を非課金の`list-models`で確認します。`doctor`は生成や課金を行わず、認証や残クレジットは手動確認として表示します。blocking checkが不足または未確認なら全体の`ok`は`false`になります。
-
-TopViewの`mode: image-to-video`設定、安全な`first_frame`、Gate付き実行は[`docs/topview-cli.md`](docs/topview-cli.md)を参照してください。
-
-HyperFramesでBGM生成とSFX解決を行う場合は[`docs/hyperframes-audio.md`](docs/hyperframes-audio.md)を参照してください。この経路はElevenLabsへ自動切替しません。
+HyperFrames の BGM / SFX は ElevenLabs へ自動切替しません。[HyperFrames音声](docs/hyperframes-audio.md) を参照してください。
 
 ## コマンド
 
-最初に組み込みのコマンド一覧を確認できます。全体ヘルプには各コマンドの安全区分、個別ヘルプには利用可能なオプションが表示され、projectの読み込みやproviderへの接続は行いません。
+全体ヘルプには各コマンドの安全区分、個別ヘルプには利用可能なオプションが表示され、projectの読み込みやproviderへの接続は行いません。
 
 ```sh
 node bin/pipeline --help
 node bin/pipeline help validate
 ```
 
-スクリプトから安定した機械可読出力を使う場合は、ヘルプや各コマンドに`--json`を付けます。
+スクリプトから安定した機械可読出力を使う場合は `--json` を付けます。
 
 ```sh
 npm ci
@@ -189,18 +232,11 @@ node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --js
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
 
-`presets` は、install済みbackendが宣言するpresentation presetをprojectに依存せず読み取る、副作用のないコマンドです。manifestの作成・変更時は、未確認のpreset IDを手入力せず、返却された `presets` 一覧から選びます。
+`review` は `dist/<run-id>/review/index.html` と `review-data.json` を生成します（字幕優先のコンテ、キャラクターシート、カット詳細、コスト、モーション）。Gate 1 の判断欄は最後に1回だけで、`state.json` は変更しません。Gate 1 の approve には canonical な出力先の2ファイルが必要です。`--open` はローカル HTML を開く場合だけ使います。
 
-非エンジニアが複数の制作案件から選んで確認する場合は、初回だけViewer依存を導入し、その後はランチャーを1コマンドで開けます。
+`viewer` は検証済み project / plan に `state.json`、`run-log.md`、review、Gate 2 / Gate 3 QC を重ね、`dist/<run-id>/viewer/index.html` と `workflow.json` を生成します。完全なイベント履歴はまだ保存しないため、タイムラインは plan 順と現在の成果物から再構成します。
 
-```sh
-npm --prefix apps/workflow-viewer ci  # 初回だけ
-npm run viewer:open
-```
-
-ランチャーは `127.0.0.1` の空きポートだけで起動し、`projects/*/project.yaml` を一覧表示します。表示名は `project.yaml` の必須フィールド `name`（日本語可）です。例: `name: 北アルプス シネマ20秒`。未設定の案件は読み込みエラーになります。ランチャーの選択パネルから後から変更できます（`slug` / フォルダ名は変わりません）。`slug` / `run_id` は英数字のままにしてください。起動時に各ローカル案件の `feedback.jsonl` を読み、「好み・学び」棚で `observed` / `recurring` / `promoted` / `verified` の状態を要約します。対象は最大128案件で、各案件の最新記録・診断を公平に合計1000項目まで選び、上限到達時は画面に明示します。「最新状態に更新して開く」は現在のstate・review・QC・run logから読み取り専用Viewerを再生成します。再生成先はランチャーの実行中だけ使う権限 `0700` の一時ディレクトリで、案件の出力pathには書き戻さず、ランチャー終了時に削除します。専用の学び昇格自動化が作った `pending` 案だけを、未読風バッジとピックアップで表示します。手動案や別workflowの結果は通常の棚に残り、ピックアップには入りません。これは別の既読状態ではなく、現在の承認待ち件数です。人は反映先・変更内容・根拠・検証方法を確認し、承認または見送りを記録します。どちらの判断でも対象は承認待ちから解消されます。承認は別作業で実装を始める許可にすぎず、承認操作そのものはprompt、template、rule、check、Gate、stateを変更しません。ランチャーはブラウザ通知権限を要求せず、デスクトップ通知、常駐サービス、外部通知先を使いません。終了するときは、起動したターミナルで `Ctrl+C` を押します。
-
-長尺の手持ち動画を外部APIなしで解析する場合は、`examples/local-analysis` を使います。
+長尺の手持ち動画を外部APIなしで解析する場合:
 
 ```sh
 cp -R examples/local-analysis projects/my-seminar
@@ -210,15 +246,18 @@ node bin/pipeline plan --config projects/my-seminar/project.yaml --json
 node bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coordinator --json
 ```
 
-ローカルWhisperまで使う場合は `examples/local-analysis/project-editorial.yaml` を参照し、`model_path` と必須の `model_sha256` を信頼できる既存`.pt`へ変更します。モデルの自動downloadは行いません。詳しくは [APIを使わないローカル長尺解析](docs/local-analysis.md) を参照してください。
+ローカルWhisperまで使う場合は `examples/local-analysis/project-editorial.yaml` を参照し、`model_path` と必須の `model_sha256` を信頼できる既存 `.pt` へ変更します。
 
-解析は元動画・manifest・Gate stateを変更せず、source timestamp付き候補とローカルhandoffを生成します。候補は `edit.editorial` で明示選択し、Gate 1承認後の `run` だけが `editorial-edl.json` と編集済みmanifestへ反映します。詳しくは [APIを使わないローカル長尺解析](docs/local-analysis.md) を参照してください。
+Fast Edit の準備（Gate 承認も render もしない）。先に `local-whisper-analysis` を設定し、各ソースクリップの単語タイムスタンプを用意します。
 
-`review` は検証済みのproject・manifest・planから `dist/<run-id>/review/index.html` と `review-data.json` を生成します。字幕を優先した一枚絵コンテ、キャラクターシート、カット詳細、コストに加え、全体・カット別のモーション仕様と安全なHTML/CSS近似プレビューを表示します。Gate 1の判断欄は全レビュー項目と制作条件の後に1回だけ表示し、`state.json` は変更せず生成処理も実行しません。Gate 1のapproveと実行開始時には、この2ファイルが存在し、対象projectのレビューであることを検査します。出力先を変える場合は `--output <directory>`、別のstateルートを使う場合は `--state-dir <directory>`、ローカルHTMLを開く場合だけ `--open` を使います。Gate 1検査に使う場合はcanonicalな出力先を使ってください。
+```sh
+node bin/pipeline analyze --config projects/my-first-run/project.yaml --actor coordinator
+node bin/pipeline fast-edit --config projects/my-first-run/project.yaml --actor coordinator
+```
 
-`viewer` は検証済みproject / planに、現在の `state.json`、`run-log.md`、review、Gate 2 / Gate 3のQC成果物を重ね、`dist/<run-id>/viewer/index.html` と `workflow.json` を生成します。`run-log.md` の実行サマリーと生成リクエスト記録は、素材生成工程の詳しい情報に表示されます。Gate 2 QCが参照する実ファイルがある場合は、代表的な生成映像2本・画像4枚・音声2本を `viewer/previews/` にコピーし、Gate 2の右パネルで直接プレビューできます。Gate 3 QCの完成動画も同じ場所へコピーし、完成動画の作成・確認・完了工程で再生できます。パス外参照、リンク、未対応形式、欠損ファイルは同梱しません。adapter実行、Gate更新、state書き込みを行わない読み取り専用スナップショットです。初回だけ `npm --prefix apps/workflow-viewer ci` でViewer依存を導入し、pipeline状態が変わったらコマンドを再実行してください。Tsugiteは完全なイベント履歴をまだ保存していないため、タイムラインはplanの工程順と現在の成果物から決定的に再構成します。`--output`、`--state-dir`、`--open` は `review` と同じローカル成果物規約です。
+`--allow-external-analysis` や `--decisions` の前に [Fast Edit](docs/fast-edit.md) を読んでください。
 
-`run` と `render` は意図的に Gate で保護されています。
+Gate で保護された実行:
 
 ```sh
 node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-1 --decision approve --json
@@ -228,10 +267,7 @@ node bin/pipeline render --config projects/my-first-run/project.yaml --actor coo
 node bin/pipeline gate --config projects/my-first-run/project.yaml --actor coordinator --gate gate-3 --decision approve --json
 ```
 
-明示的な人間承認なしに、非 dry-run の `run` や `render` を実行しないでください。
-Gate 3 は `re-render` も受け付け、Gate 1 / 2 の承認を保ったままrenderingへ戻します。Gate 2 の `retry_specific` は未実装で、1.0 でも入れません。全体を計画からやり直す場合は `revise` を使います。MiniMax direct / MiniMax HTTP は preflight-only のまま、送信可能としては表示しません。
-
-ユーザーが対象動画を明示的に「完成」と確定した後は、まず正本path・QA証跡と、失敗・改善点・次回への学びを終了記録に残します。失敗は案件の `feedback.jsonl`、再利用できるルールは `LESSONS.md` に追記し、同じfailure keyまたは症状・原因が一致する過去の記録を照合して、再発なら `recurring` と昇格候補の可否を記録します。失敗がなかった場合も明記します。これらを完了報告で示した後だけ、`finalize` で旧メディアを整理できます。引数なしのpreviewは削除予定と保持対象に加え `plan_digest` を表示するだけです。内容を確認後、Coordinatorが `--apply` とその preview の `plan_digest` を `--expected-plan-digest` に渡すと、最終run、最終manifestが参照する元素材、設定・manifest・state・run logを残し、旧run・旧QA・未使用素材の動画・音声・画像だけを削除します。実行結果は最終run内の `completion-record.json` に記録されます。`--state-dir` を付ける場合は `project.dist_dir` と同一のプロジェクト内 state ルートだけが許可され、それ以外は run lock 取得前に拒否されます。
+ユーザーが対象動画を明示的に「完成」と確定した後は、正本 path・QA 証跡と終了記録を残してから `finalize` を preview します。引数なしは読み取り専用で `plan_digest` を表示するだけです。Coordinator が同じ digest を `--expected-plan-digest` に渡すと、最終 run、最終 manifest が参照する元素材、設定・manifest・state・run log を残し、旧 run・旧 QA・未使用素材の動画・音声・画像だけを削除します。`--state-dir` は `project.dist_dir` と同一のときだけ許可されます。
 
 ```sh
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
@@ -246,31 +282,7 @@ node bin/pipeline worktrees --json
 node bin/pipeline worktrees --apply --actor coordinator --path ../tsugite-feature-task --json
 ```
 
-### ランチャーの「安全な整理」棚
-
-Viewer ランチャーには **安全な整理** 棚があります。Git worktree 整理と完成案件の media finalize は **別パネル・別 preview・別確認ダイアログ・別 apply** です。一括削除は提供しません。
-
-共通フローは次です。
-
-`Preview → Review → Explicit Apply → Revalidate → Record`
-
-- **Git 作業場所**: 読み取り専用 preview のあと、削除可能候補を 1 件だけ選び、確認ダイアログで「この作業場所だけを削除」します。ブラウザは path を送らず、サーバーが保持する短命な `reviewId` / `candidateId` だけを使います。apply 前に live preview で path / HEAD / branch / common-dir / removable を再照合し、canonical CLI `worktrees --apply --actor coordinator --path <server-held-path>` を argv 配列で呼びます。`--force`・branch 削除・stash / rebase / reset / `git clean` は使いません。
-- **完成作品のメディア**: 変更可能な案件だけを選び、「この案件を完成版として確定し、整理計画を確認する」が明示的な完成宣言です。Gate 3 承認だけでは実行しません。preview の `plan_digest` と正本・保持/削除候補を確認したあと、確認ダイアログで apply します。canonical CLI は `finalize --json` のあと `--apply --actor coordinator --expected-plan-digest <digest>` です。client から config path や `--state-dir` は受けません。
-- apply はランチャー全体で 1 件だけです。実行中は workspace 切替・shutdown の blocking work にも含まれます。
-- 候補 0 件で完成記録がある案件は「整理済み」と表示し、不要な再 apply は出しません。
-
-CLI からの直接操作は従来どおり使えます。ランチャーは安全判定の正本を持たず、既存の `lifecycle` / `finalize` を薄い境界で呼びます。
-
-完成承認時にローカル `main` が別作業中なら、対象worktreeのpath・branch・HEADをrepo-localの統合待ちキューへ固定できます。1つのhost定期タスクから `--reconcile` を呼ぶと、mainがdirtyな間は何も変更せず待機し、クリーンになった時だけ隔離マージ、TypeScript・Vitest検証、双方の再監査、変更されていないlocal mainへのfast-forward、統合済みworktreeの非force削除を順に行います。競合、検証失敗、identity変更、保護対象、primary main以外からの実行はmainを変えず停止します。fetch、push、rebase、stash、reset、`git clean`、branch削除は行いません。
-
-```sh
-node bin/pipeline worktrees --defer --path ../tsugite-feature-task --json
-node bin/pipeline worktrees --defer --apply --actor coordinator --path ../tsugite-feature-task --json
-node bin/pipeline worktrees --reconcile --json
-node bin/pipeline worktrees --reconcile --apply --actor coordinator --json
-```
-
-単発実行と定期hostの契約は [統合待ちworktreeのreconcile](docs/automations/worktree-reconcile.md) を参照してください。
+完成承認時にローカル `main` が別作業中なら、対象 worktree を統合待ちへ固定し、あとから primary のクリーンな main で `--reconcile` できます。詳細は [統合待ちworktreeのreconcile](docs/automations/worktree-reconcile.md) と [残存件数の通知](docs/automations/worktree-cleanup-alert.md) です。`worktree_warning` は削除可能候補が 3 件以上あることの件数警告であり、削除承認ではありません。
 
 ## 公開 Agent Services（Remote MCP）
 
@@ -286,7 +298,7 @@ Human Gate、endpoint 固定、現行の read-only 範囲は [Agent Services](do
 
 ## Shitate連携（任意）
 
-別リポジトリのShitateを使う場合だけ、選定済みrunとanchorをSHA-256 lock付きの不変snapshotとしてprojectへ取り込めます。通常のTsugite利用にはShitateの導入・設定は不要です。
+別リポジトリのShitateを使う場合だけ、選定済みrunとanchorをSHA-256 lock付きの不変snapshotとしてprojectへ取り込めます。通常のTsugite利用には不要です。
 
 ```sh
 node bin/pipeline shitate-import \
@@ -299,7 +311,7 @@ node bin/pipeline shitate-import \
   --json
 ```
 
-ローカルファイルのコピー、manifestへのanchor/speaker追加、任意requestのI2V化だけを行い、生成やGate更新は行いません。`negative.txt` は保存しますが、現行PixVerse video CLIに対応引数がないため黙って適用しません。詳しくは [Shitate連携](docs/shitate.md) を参照してください。
+ローカルファイルのコピー、manifestへのanchor/speaker追加、任意requestのI2V化だけを行い、生成やGate更新は行いません。詳しくは [Shitate連携](docs/shitate.md) を参照してください。
 
 ## キャラクター追加
 
@@ -346,51 +358,41 @@ generation:
       params: {}
 ```
 
-`plan` はモデルと入力モードが一致した `prompt_guidance` を返します。別adapter経由でモデル知識を使う場合はrequestに `prompt_guide.catalog` を指定します。カタログは実行能力を意味せず、promptを自動変更しません。詳しくは [モデル別プロンプト知識](docs/prompt-guides.md) を参照してください。
+`plan` はモデルと入力モードが一致した `prompt_guidance` を返します。別adapter経由でモデル知識を使う場合はrequestに `prompt_guide.catalog` を指定します。カタログは実行能力を意味せず、promptを自動変更しません。
 
-構成やカットを提案する前に `story-guides` を使うと、目的と尺に応じた第一候補、補助候補、不採用理由、カット配分、映像文法をJSONで確認できます。Save the Catを含む有名メソッドは固有展開をコピーせず、構造上の役割へ抽象化します。詳しくは [王道の物語構成・映像文法](docs/story-guides.md) を参照してください。
+Fast Edit の例:
 
-Hermes の optional adapter は、配布時に必要な人だけが追加する
-opt-in 機能です。base install では不要で、`project.yaml` が該当 adapter を
-選んだ場合だけ adapter 固有の setup を行います。詳しくは
-[Optional Adapters](docs/optional-adapters.md) を参照してください。
+```yaml
+edit:
+  backend: remotion # or hyperframes / editframe
+  fast_edit:
+    enabled: true
+    beat_seconds: 2.5 # 任意
+```
+
+MiniMax H3（`minimax-h3`）では、自由記述ではなく任意の Creative IR + 決定的 compiler を使います。[H3 Prompt Director](docs/h3-prompt-director.md) と [`examples/h3-prompt-director/`](examples/h3-prompt-director/) を参照してください。
+
+Hermes の optional adapter は、配布時に必要な人だけが追加する opt-in です。base install では不要です。詳しくは [Optional Adapters](docs/optional-adapters.md) を参照してください。
 
 ## パイプラインの育て方
 
 Tsugite は、動画をたくさん生成するだけで自動的に自分好みになるわけではありません。出力を見て、やり直し理由や好みを言語化し、それを repo のルール、テンプレ、チェックに戻していくことで育ちます。
 
-構造化feedbackは各 `projects/<job>/feedback.jsonl` にローカル保存します。案件をまたいで同じ好みには同じ `key` を付け、生成回数ではなく反復した記録を識別します。状態は `observed`（初回記録）→ `recurring`（反復を確認）→ `promoted`（共有先へ反映済み）→ `verified`（後続出力で改善確認）の順です。`recurring` で反映先・変更内容・検証方法が揃うと昇格案を作成でき、`pending`（承認待ち）→ `approved`（承認済み・反映待ち）または `rejected`（見送り）を別軸で記録します。昇格は必ず人間が判断し、承認記録だけではprompt、template、check、運用ruleを自動変更しません。
-
-基本ループは次の通りです。
+構造化feedbackは各 `projects/<job>/feedback.jsonl` にローカル保存します。案件をまたいで同じ好みには同じ `key` を付けます。状態は `observed` → `recurring` → `promoted` → `verified` です。昇格は必ず人間が判断し、承認記録だけでは prompt、template、check、運用 rule を自動変更しません。
 
 1. `projects/` に project を作る。
 2. Gate 承認後にだけ生成または組み立てを実行する。
 3. 出力を見て、良かった点、失敗した点、やり直した理由を `pipeline feedback` で記録する。
-4. 一回限りのメモと `feedback.jsonl` はそのローカルproject内に残す。
-5. 同じ `key` の反復記録を根拠に、反映先・変更内容・検証方法を持つ昇格案を作る。
-6. ランチャーで人が昇格案を承認または見送り、承認済みの案だけを再利用先へ実装して `promoted` にする。
-7. 後続の出力で改善を確認してから `verified` にする。
+4. 一回限りのメモはそのローカル project 内に残す。
+5. 同じ `key` の反復記録を根拠に、人間承認後だけ再利用先へ反映する。
+6. 後続の出力で改善を確認してから `verified` にする。
 
-任意のCodex Automation、Claude Desktop/Cowork Scheduled task、Claude Codeから、この承認待ちキューだけをランチャーの起動と独立して準備できます。これは他の自動化の状態確認ではなく、「好み・学び」の昇格候補を人の承認待ちにする専用自動化です。1回に最大3件、反映先・変更内容・検証方法・根拠が揃う重複のない候補だけを、既存の `pipeline feedback` CLIで `pending` 追記します。共有sourceは自動変更しません。登録方法、実行元の記録、host標準通知の条件は [学び昇格レビュー自動化](docs/automations/learning-promotion-review.md) を参照してください。重複実行を避けるため常設scheduleは1つを主系にします。
-
-コピー済みのローカルprojectへ記録し、絶対pathを公開せずJSON結果を確認する例:
+任意の Codex Automation、Claude Desktop/Cowork Scheduled task、Claude Code から、この承認待ちキューだけを準備できます（1回最大3件、重複なし）。常設 schedule は1つを主系にします。詳細は [学び昇格レビュー自動化](docs/automations/learning-promotion-review.md) です。
 
 ```sh
 node bin/pipeline feedback --config projects/my-first-run/project.yaml \
   --key opening-audio --category audio --signal prefer --stage observed \
   --summary "冒頭0.5秒以内にBGMを開始する" --json
-```
-
-反復した学びに昇格案を作り、ランチャーへ「昇格承認待ち」として表示する例:
-
-```sh
-node bin/pipeline feedback --config projects/my-first-run/project.yaml \
-  --key opening-audio --category audio --signal prefer --stage recurring \
-  --summary "冒頭0.5秒以内にBGMを開始する" \
-  --evidence "dist/my-first-run/gate3-qc.json" \
-  --promotion-kind qa --target src/orchestrator/gate3Qc.ts \
-  --proposal-summary "冒頭音声の判定をGate 3へ追加する" \
-  --verification "後続案件のgate3-qc.jsonと冒頭波形で確認する" --json
 ```
 
 昇格の目安:
@@ -405,9 +407,7 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 公開契約の変更        -> README / manifest/schema.md / docs/requirements.md
 ```
 
-昇格には人間の承認が必要です。失敗の再現fixtureとテスト、または人間が読む運用ルールのどちらかを必ず残します。Gate 2 / Gate 3 の判定を増やす場合は、reportの形とテストも一緒に更新します。昇格後は、後続projectの記録を根拠に `verified` を判断します。
-
-このループによって、配布用 repo としての安全性を保ったまま、自分好みの制作パイプラインに育てていけます。ローカル案件は `projects/` 配下で git 管理外にし、再利用できる改善だけを本体へ commit します。
+昇格には人間の承認が必要です。失敗の再現fixtureとテスト、または人間が読む運用ルールのどちらかを必ず残します。
 
 ## リポジトリルール
 
@@ -425,3 +425,4 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 - `npm run check` はvendor boundary、TypeScript build、全テストに加え、`src/`のstatements / functions / linesが80%以上、branchesが74.4%以上であることを強制します（Production Orchestration 導入後の保持値。75%復帰は残債）。高core環境やCI runnerでもprocess-heavyなfixtureを安定させるため、coverageはVitestを最大4 workerで実行します。
 - `npm run security:audit` はproduction依存と開発依存を含む全体の両方を検査し、moderate以上のadvisoryで失敗します。
 - この workspace path には `*` が含まれるため、Vite が警告する場合があります。現在この path でも tests は通りますが、運用上ノイズになる場合は `*` を含まない path に repo を移してください。
+- 1.0 は live provider/billing 証拠と packaged Desktop UAT がまだ必要です。Windows smoke は GitHub Actions で確認済みです。Desktop インストーラーはこのソースリリースの対象外です。
