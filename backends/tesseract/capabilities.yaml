@@ -1,0 +1,22 @@
+name: tesseract
+capabilities:
+  captions: true
+  transitions: false
+  audio_mix: true
+  vertical: true
+  fps: [30]
+  presets: [tesseract-basic]
+checks:
+  setup:
+    - type: command
+      name: tool:tesseract
+      command: ["node", "backends/tesseract/cli.mjs", "--version"]
+      capture_version: false
+      remediation:
+        default: "Install the official Tesseract CLI 0.1.0 only after reviewing its terms, then rerun doctor."
+        darwin: "Use the official Tesseract macOS installer for the stable 0.1.0 pin, then rerun doctor."
+        win32: "Use the official Tesseract Windows installer for the stable 0.1.0 pin, then rerun doctor."
+        linux: "Tesseract CLI 0.1.0 does not support Linux; use a supported macOS or Windows host."
+  render_preflight:
+    - name: tool:tesseract
+      command: ["node", "backends/tesseract/cli.mjs", "--version"]

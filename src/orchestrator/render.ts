@@ -111,7 +111,11 @@ export async function renderAssembledMedia(
     manifestPath,
     runDir,
     outputPath,
-    reportPath
+    reportPath,
+    projectRoot: options.configPath
+      ? dirname(resolve(options.configPath))
+      : projectRootFromStateDir(options.stateDir, project.dist_dir),
+    backendOptions: project.edit.backend_options?.[project.edit.backend] ?? {}
   });
   if (!backendResult.ok) return backendResult;
   if (!(await isFile(outputPath)) || !(await isFile(reportPath))) {
@@ -357,7 +361,14 @@ async function inspectAwaitingGate3Artifacts(
 
 async function runBackend(
   backend: string,
-  payload: { manifestPath: string; runDir: string; outputPath: string; reportPath: string }
+  payload: {
+    manifestPath: string;
+    runDir: string;
+    outputPath: string;
+    reportPath: string;
+    projectRoot: string;
+    backendOptions: Record<string, unknown>;
+  }
 ): Promise<Result<{}>> {
   const scriptPath = resolve("backends", backend, "render.mjs");
   if (!(await isFile(scriptPath))) {
