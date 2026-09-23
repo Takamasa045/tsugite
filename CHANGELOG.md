@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-09-23
+
+- Extend the Tesseract 0.1.0 adapter with reviewed clip/text motion, duration-preserving fade/slide/zoom transitions, and deterministic local-PCM pulse/shake/flicker keyframes. Fast Edit, top-level transitions, and unverified effects remain unsupported. This is a source-only release; Desktop distribution and npm publication are not included.
+- Verify isolated Tsugite backend motion renders with native `.tsrct` inspection, ffprobe, full decode, and frame/audio QA, including a trimmed moving source held through a transition and Japanese text with Noto Sans JP.
+
+## 0.15.0 - 2026-09-23
+
+- Add an optional Tesseract 0.1.0 local render backend with an explicit checksum-verified installer and fail-closed scope. This is a source-only release; Desktop distribution and npm publication are not included.
+- Verify isolated Tsugite backend renders for video-only, English title/caption plus BGM, and Japanese title/caption plus BGM fixtures with ffprobe, full decode, native-layer, and visual/audio QA. Japanese glyphs render with imported Noto Sans JP Thin/Regular; Inter was verified with English text but lacks Japanese glyphs. Added audio is AAC 48 kHz stereo, and a 0.5 gain measured approximately 6 dB reduction. Tesseract rejects imported Monaco/Regular outside its font catalog. Export in a sandbox without macOS GPU/Metal access fails during adapter discovery.
+
 ## 0.14.0 - 2026-09-20
 
 - Added Jev Fast Edit v1 as an existing pipeline edit mode, selected only with `edit.backend`. Remotion, Hyperframes and Editframe interpret the same strict backend-neutral intent in Manifest/EDL; no renderer registry or backend-generated Jev code was added.

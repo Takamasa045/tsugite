@@ -30,12 +30,22 @@ const motionCueSchema = z
   })
   .passthrough();
 
+const audioReactiveMotionSchema = z
+  .object({
+    source_track_id: z.string().min(1),
+    mode: z.enum(["pulse", "shake", "flicker"]),
+    strength: z.number().min(0).max(1),
+    measurement_window_ms: z.number().int().min(20).max(2_000)
+  })
+  .strict();
+
 const shotMotionSchema = z
   .object({
     entrance: motionCueSchema.optional(),
     emphasis: motionCueSchema.optional(),
     exit: motionCueSchema.optional(),
     transition_to_next: motionCueSchema.optional(),
+    audio_reactive: audioReactiveMotionSchema.optional(),
     implementation_notes: z.array(z.string().min(1)).max(12).default([])
   })
   .passthrough();
@@ -208,6 +218,79 @@ export const manifestSchema = z
       )
       .default([])
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((manifest, context) => {
+    const uses: Array<{ sourceTrackId: string; start: number; end: number; path: Array<string | number> }> = [];
+    let clipCursor = 0;
+    manifest.clips.forEach((clip, index) => {
+      const cue = clip.motion?.audio_reactive;
+      if (cue) uses.push({
+        sourceTrackId: cue.source_track_id,
+        start: clipCursor,
+        end: clipCursor + clip.duration,
+        path: ["clips", index, "motion", "audio_reactive", "source_track_id"]
+      });
+      clipCursor += clip.duration;
+    });
+    manifest.captions.forEach((caption, index) => {
+      const cue = caption.visual?.motion?.audio_reactive;
+      if (!cue) return;
+      uses.push({
+        sourceTrackId: cue.source_track_id,
+        start: caption.start,
+        end: caption.end,
+        path: ["captions", index, "visual", "motion", "audio_reactive", "source_track_id"]
+      });
+    });
+    if (uses.length === 0) return;
+
+    // Audio is passthrough for forward compatibility. Only known groups can
+    // participate in a cue; unknown non-array values must never make parsing
+    // throw before the caller can report schema issues.
+    const tracks = (["bgm", "narration", "sfx"] as const).flatMap((group) => {
+      const entries: unknown = manifest.audio[group];
+      if (!Array.isArray(entries)) return [];
+      return entries.flatMap((track: unknown, index: number) => track && typeof track === "object" && !Array.isArray(track)
+        ? [{ track: track as { id?: string; src?: string; start?: number; end?: number }, path: ["audio", group, index] as Array<string | number> }]
+        : []);
+    });
+    const idCounts = new Map<string, number>();
+    for (const { track } of tracks) {
+      if (track.id) idCounts.set(track.id, (idCounts.get(track.id) ?? 0) + 1);
+    }
+    for (const [trackId, count] of idCounts) {
+      if (count > 1) context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["audio"],
+        message: `audio track id '${trackId}' must be unique when used by audio-reactive motion`
+      });
+    }
+
+    for (const use of uses) {
+      const matches = tracks.filter(({ track }) => track.id === use.sourceTrackId);
+      if (matches.length !== 1) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: use.path,
+          message: `source_track_id '${use.sourceTrackId}' must identify exactly one audio track`
+        });
+        continue;
+      }
+      const { track, path } = matches[0]!;
+      const trackStart = track.start ?? 0;
+      if (!track.src) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: [...path, "src"], message: "audio-reactive source track requires a local audio src" });
+      }
+      if (trackStart > use.start + 0.001) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: use.path, message: "source audio must be active by the start of its audio-reactive target" });
+      }
+      if (track.end !== undefined && track.end < use.end - 0.001) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: use.path, message: "source audio timeline range does not cover its audio-reactive target" });
+      }
+      if (track.end !== undefined && track.end <= trackStart) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: [...path, "end"], message: "audio track end must be later than its timeline start" });
+      }
+    }
+  });
 
 export type Manifest = z.infer<typeof manifestSchema>;

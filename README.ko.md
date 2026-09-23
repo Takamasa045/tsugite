@@ -4,7 +4,7 @@
 
 Tsugite는 로컬 영상 공방입니다. 각 AI 영상을 일회성 결과로 두지 않고, 소재·제작 로그·판단·취향을 다음 제작으로 이어갑니다.
 
-전체 진입점, 안전 경계, 명령은 [English README](README.md)와 [日本語 README](README.ja.md)가 정본입니다. 이 페이지는 현재 제품 위치의 요약만 둡니다. 저장소 소프트웨어 버전은 **0.14.0**입니다.
+전체 진입점, 안전 경계, 명령은 [English README](README.md)와 [日本語 README](README.ja.md)가 정본입니다. 이 페이지는 현재 제품 위치의 요약만 둡니다. 저장소 소프트웨어 버전은 **0.16.0**입니다.
 
 ## 가장 쉬운 시작
 
@@ -90,4 +90,4 @@ node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 
 일회성 취향은 `projects/<job>/notes.md`에 둡니다. 재사용 스타일은 `examples/` 또는 `templates/`로, 기계 검사 가능한 문제는 constraints / validate / doctor로 올립니다. 판단형 규칙은 `LESSONS.md`에 먼저 쓰고, 사람 승인 후에 skill / AGENTS.md / CLAUDE.md로 승격합니다. core는 벤더 중립을 유지합니다.
 
-공개 계약 변경은 README, `manifest/schema.md`, `docs/requirements.md`에 남깁니다. 현재 소프트웨어 버전은 **0.14.0**입니다. 1.0은 여전히 live provider/billing 증거와 packaged Desktop UAT가 필요하고, Windows smoke는 GitHub Actions에서 확인했습니다.
+공개 계약 변경은 README, `manifest/schema.md`, `docs/requirements.md`에 남깁니다. 현재 소프트웨어 버전은 **0.16.0**입니다. 1.0은 여전히 live provider/billing 증거와 packaged Desktop UAT가 필요하고, Windows smoke는 GitHub Actions에서 확인했습니다.

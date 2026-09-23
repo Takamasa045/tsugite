@@ -22,7 +22,9 @@ const capabilitiesSchema = z.object({
     captions: z.boolean(),
     transitions: z.boolean(),
     audio_mix: z.boolean(),
+    audio_reactive: z.boolean().default(false),
     vertical: z.boolean(),
+    transition_inputs: z.array(z.enum(["top_level", "clip_motion"])).min(1).optional(),
     fps: z.array(z.number().positive()).min(1),
     presets: z.array(z.string().min(1)).default([])
   }),
@@ -124,6 +126,29 @@ export function validateBackendCapabilities(
     });
   }
 
+  const transitionInputs = backend.capabilities.transition_inputs ?? ["top_level", "clip_motion"];
+  if ((manifest as Manifest & { transitions?: unknown }).transitions !== undefined
+    && !transitionInputs.includes("top_level")) {
+    issues.push({
+      code: "backend.capability.transitions",
+      message: "backend does not accept top-level manifest.transitions"
+    });
+  }
+  if (manifest.clips.some((clip) => Boolean(clip.motion?.transition_to_next))
+    && !transitionInputs.includes("clip_motion")) {
+    issues.push({
+      code: "backend.capability.transitions",
+      message: "backend does not accept per-clip motion.transition_to_next cues"
+    });
+  }
+
+  if (requiresAudioReactive(manifest) && !capabilities.audio_reactive) {
+    issues.push({
+      code: "backend.capability.audio_reactive",
+      message: "manifest requires audio-reactive motion, but backend does not support it"
+    });
+  }
+
   if (manifest.presentation && !capabilities.presets.includes(manifest.presentation.preset)) {
     issues.push({
       code: "backend.capability.preset",
@@ -153,7 +178,13 @@ function requiresAudioMix(manifest: Manifest): boolean {
 
 function requiresTransitions(manifest: Manifest): boolean {
   const value = (manifest as { transitions?: unknown }).transitions;
-  return Array.isArray(value) && value.length > 0;
+  return (Array.isArray(value) && value.length > 0)
+    || manifest.clips.some((clip) => Boolean(clip.motion?.transition_to_next));
+}
+
+function requiresAudioReactive(manifest: Manifest): boolean {
+  return manifest.clips.some((clip) => Boolean(clip.motion?.audio_reactive))
+    || manifest.captions.some((caption) => Boolean(caption.visual?.motion?.audio_reactive));
 }
 
 async function exists(path: string): Promise<boolean> {

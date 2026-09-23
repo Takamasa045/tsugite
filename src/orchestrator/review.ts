@@ -134,8 +134,16 @@ export type ReviewMotionCue = {
 };
 
 export type ReviewMotionPlan = {
+  target?: { type: "clip" | "caption"; id: string };
   cues: ReviewMotionCue[];
   implementation_notes: string[];
+  audio_reactive?: {
+    source_track_id: string;
+    target: { type: "clip" | "caption"; id: string };
+    mode: "pulse" | "shake" | "flicker";
+    strength: number;
+    measurement_window_ms: number;
+  };
 };
 
 export type ReviewMotionDesign = {
@@ -171,6 +179,7 @@ export type ReviewShot = {
   model?: string;
   input_mode?: string;
   motion?: ReviewMotionPlan;
+  motion_targets?: ReviewMotionPlan[];
   preview_video_src?: string;
 };
 
@@ -1260,6 +1269,22 @@ export function createReviewDocument(
         const chapter = manifest.chapters.find(
           (candidate) => caption.start >= candidate.start && caption.start < candidate.end
         );
+        const clipById = clips.get(id);
+        const timedClip = clipById ? undefined : clipForTimeRange(clipTimeline, caption.start, caption.end);
+        const clipMotionSource = clipById?.motion ?? timedClip?.clip.motion;
+        const clipMotionTarget = clipById
+          ? { type: "clip" as const, id: clipById.id }
+          : timedClip
+            ? { type: "clip" as const, id: timedClip.clip.id }
+            : undefined;
+        const clipMotion = clipMotionSource && clipMotionTarget
+          ? toReviewMotion(clipMotionSource, clipMotionTarget)
+          : undefined;
+        const captionMotion = caption.visual?.motion
+          ? toReviewMotion(caption.visual.motion, { type: "caption", id })
+          : undefined;
+        const motionTargets = [clipMotion, captionMotion].filter((motion): motion is ReviewMotionPlan => Boolean(motion));
+        const motion = captionMotion ?? clipMotion;
         return {
           id,
           order: index + 1,
@@ -1279,11 +1304,8 @@ export function createReviewDocument(
           prompt: request?.prompt,
           model: request?.model,
           input_mode: request ? generationRequestMode(request) : undefined,
-          motion: toReviewMotion(
-            caption.visual?.motion
-              ?? clips.get(id)?.motion
-              ?? clipMotionForTimeRange(clipTimeline, caption.start, caption.end)
-          )
+          motion,
+          ...(motionTargets.length > 1 ? { motion_targets: motionTargets } : {})
         } satisfies ReviewShot;
       })
     : createFallbackStoryboard(project, manifest, images);
@@ -1522,7 +1544,7 @@ function createFallbackStoryboard(
       emphasis: [],
       badges: [],
       image: toReviewAsset(matchingImage),
-      motion: toReviewMotion(clip.motion)
+      motion: toReviewMotion(clip.motion, { type: "clip", id: clip.id })
     };
   });
 }
@@ -1536,12 +1558,12 @@ function createClipTimeline(clips: Manifest["clips"]): TimedManifestClip[] {
   });
 }
 
-function clipMotionForTimeRange(
+function clipForTimeRange(
   timeline: TimedManifestClip[],
   captionStart: number,
   captionEnd: number
-): ManifestMotionPlan | undefined {
-  if (timeline.length === 1) return timeline[0]!.clip.motion;
+): TimedManifestClip | undefined {
+  if (timeline.length === 1) return timeline[0];
 
   let bestMatch: { clip: TimedManifestClip; overlap: number } | undefined;
   for (const timedClip of timeline) {
@@ -1551,7 +1573,7 @@ function clipMotionForTimeRange(
     );
     if (overlap > (bestMatch?.overlap ?? 0)) bestMatch = { clip: timedClip, overlap };
   }
-  return bestMatch?.clip.clip.motion;
+  return bestMatch?.clip;
 }
 
 function primaryMotionPreset(motion: ReviewMotionPlan | undefined): string | undefined {
@@ -1628,21 +1650,31 @@ function monotonyShotsFromVisualCuts(
       start,
       end: cursor,
       duration: clip.duration,
-      camera: primaryMotionPreset(toReviewMotion(clip.motion)),
+      camera: primaryMotionPreset(toReviewMotion(clip.motion, { type: "clip", id: clip.id })),
       title: clip.id
     };
   });
 }
 
-function toReviewMotion(motion: ManifestMotionPlan | undefined): ReviewMotionPlan | undefined {
+function toReviewMotion(
+  motion: ManifestMotionPlan | undefined,
+  target: { type: "clip" | "caption"; id: string }
+): ReviewMotionPlan | undefined {
   if (!motion) return undefined;
   const phases = ["entrance", "emphasis", "exit", "transition_to_next"] as const;
   const cues = phases.flatMap((phase) => {
     const cue = motion[phase];
     return cue ? [{ phase, ...cue } satisfies ReviewMotionCue] : [];
   });
-  if (cues.length === 0 && motion.implementation_notes.length === 0) return undefined;
-  return { cues, implementation_notes: [...motion.implementation_notes] };
+  const implementationNotes = motion.implementation_notes ?? [];
+  const audioReactive = motion.audio_reactive ? { ...motion.audio_reactive, target } : undefined;
+  if (cues.length === 0 && implementationNotes.length === 0 && !audioReactive) return undefined;
+  return {
+    target,
+    cues,
+    implementation_notes: [...implementationNotes],
+    ...(audioReactive ? { audio_reactive: audioReactive } : {})
+  };
 }
 
 function createReviewMotionDesign(
@@ -2187,7 +2219,7 @@ export async function openCreativeReview(reviewPath: string): Promise<void> {
 }
 
 function renderMotionReview(document: ReviewDocument): string {
-  const motionShots = document.storyboard.filter((shot) => shot.motion);
+  const motionShots = document.storyboard.filter((shot) => reviewMotionPlans(shot).length > 0);
   const implementation = document.motion_design.implementation;
   const previewDescription = implementation.preview === "HTML / CSS approximation"
     ? "HTML / CSSによる近似プレビュー"
@@ -2198,8 +2230,7 @@ function renderMotionReview(document: ReviewDocument): string {
   const shotRows = motionShots.length > 0
     ? motionShots.map((shot) => `<article class="motion-shot">
         <header><span>SHOT ${String(shot.order).padStart(2, "0")}</span><h3>${escapeHtml(shot.title)}</h3><time>${formatTime(shot.start)}–${formatTime(shot.end)}</time></header>
-        <div class="motion-cues">${shot.motion!.cues.map(renderMotionCue).join("") || `<p class="muted">実装メモのみが指定されています。</p>`}</div>
-        ${shot.motion!.implementation_notes.length > 0 ? `<ul class="motion-notes">${shot.motion!.implementation_notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : ""}
+        ${reviewMotionPlans(shot).map(renderMotionTargetPlan).join("")}
       </article>`).join("")
     : `<div class="motion-empty"><strong>個別モーションは未指定です</strong><p>各カットの <code>visual.motion</code> または <code>clip.motion</code> に、入場・強調・退場・次カットへの遷移を記述すると、ここに動きとタイミングが表示されます。</p></div>`;
 
@@ -2211,6 +2242,22 @@ function renderMotionReview(document: ReviewDocument): string {
     </div>
     <div class="motion-score">${shotRows}</div>
     <p class="motion-disclaimer">この動きはレビュー用の近似表示です。最終映像は選択したbackendのフレーム計算・タイムライン実装で再現し、render後にGate 3で確認します。</p>
+  </section>`;
+}
+
+function reviewMotionPlans(shot: ReviewShot): ReviewMotionPlan[] {
+  if (shot.motion_targets?.length) return shot.motion_targets;
+  return shot.motion ? [shot.motion] : [];
+}
+
+function renderMotionTargetPlan(motion: ReviewMotionPlan): string {
+  const targetLabel = motion.target ? `${motion.target.type} ${motion.target.id}` : "対象未指定";
+  const hasContent = motion.cues.length > 0 || motion.audio_reactive;
+  return `<section class="motion-target-plan">
+    <p class="motion-target-label"><b>対象:</b> ${escapeHtml(targetLabel)}</p>
+    <div class="motion-cues">${motion.cues.map(renderMotionCue).join("") || (hasContent ? "" : `<p class="muted">実装メモのみが指定されています。</p>`)}</div>
+    ${renderAudioReactiveMotion(motion)}
+    ${motion.implementation_notes.length > 0 ? `<ul class="motion-notes">${motion.implementation_notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : ""}
   </section>`;
 }
 
@@ -2237,10 +2284,17 @@ function renderMotionCue(cue: ReviewMotionCue): string {
 }
 
 function renderShotMotionDetails(shot: ReviewShot): string {
-  if (!shot.motion) {
+  const motions = reviewMotionPlans(shot);
+  if (motions.length === 0) {
     return `<div class="shot-motion-detail"><h3>動き・アニメーション</h3><p class="muted">このカットのモーションは未指定です。</p></div>`;
   }
-  return `<div class="shot-motion-detail"><h3>動き・アニメーション</h3><ol>${shot.motion.cues.map((cue) => `<li><b>${motionPhaseLabel(cue.phase)}:</b> ${escapeHtml(cue.label ?? cue.description)} <span>${escapeHtml(cue.preset)}${cue.duration_seconds !== undefined ? ` / ${formatNumber(cue.duration_seconds)}秒` : ""}${cue.easing ? ` / ${escapeHtml(cue.easing)}` : ""}</span></li>`).join("")}</ol>${shot.motion.implementation_notes.length > 0 ? `<p><b>実装メモ:</b> ${shot.motion.implementation_notes.map(escapeHtml).join(" / ")}</p>` : ""}</div>`;
+  return `<div class="shot-motion-detail"><h3>動き・アニメーション</h3>${motions.map((motion) => `<section class="shot-motion-target"><b>対象:</b> ${escapeHtml(motion.target ? `${motion.target.type} ${motion.target.id}` : "対象未指定")}<ol>${motion.cues.map((cue) => `<li><b>${motionPhaseLabel(cue.phase)}:</b> ${escapeHtml(cue.label ?? cue.description)} <span>${escapeHtml(cue.preset)}${cue.duration_seconds !== undefined ? ` / ${formatNumber(cue.duration_seconds)}秒` : ""}${cue.easing ? ` / ${escapeHtml(cue.easing)}` : ""}</span></li>`).join("")}</ol>${renderAudioReactiveMotion(motion)}${motion.implementation_notes.length > 0 ? `<p><b>実装メモ:</b> ${motion.implementation_notes.map(escapeHtml).join(" / ")}</p>` : ""}</section>`).join("")}</div>`;
+}
+
+function renderAudioReactiveMotion(motion: ReviewMotionPlan): string {
+  const cue = motion.audio_reactive;
+  if (!cue) return "";
+  return `<p class="motion-audio-reactive" data-testid="motion-audio-reactive"><b>音連動:</b> ${escapeHtml(cue.mode)} · 音源 ${escapeHtml(cue.source_track_id)} → 対象 ${escapeHtml(`${cue.target.type} ${cue.target.id}`)} · 強度 ${formatNumber(cue.strength)} · 窓 ${cue.measurement_window_ms} ms</p>`;
 }
 
 function motionStatusLabel(status: ReviewMotionDesign["status"]): string {
@@ -2268,7 +2322,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
       ? `<img src="${escapeAttribute(shot.image.preview_src)}" alt="${escapeAttribute(shot.image.alt ?? `${shot.title}の絵コンテ`)}">`
       : `<div class="wireframe" role="img" aria-label="${escapeAttribute(`${shot.title}の構成ワイヤー`)}"><span>${escapeHtml(shot.speaker ?? "VISUAL")}</span><strong>${escapeHtml(shot.title)}</strong></div>`;
     const barWidth = Math.max(12, (shot.duration / maxShotDuration) * 100);
-    const motionCount = shot.motion?.cues.length ?? 0;
+    const motionCount = reviewMotionPlans(shot).reduce((count, motion) => count + motion.cues.length + Number(Boolean(motion.audio_reactive)), 0);
     return `<figure class="shot" id="shot-${escapeAttribute(shot.id)}">
       <a class="shot-index" href="#detail-${escapeAttribute(shot.id)}" aria-label="SHOT ${String(shot.order).padStart(2, "0")} の詳細へ"><b>${String(shot.order).padStart(2, "0")}</b><small>SHOT</small></a>
       <div class="shot-meta"><span>${escapeHtml(shot.speaker ?? shot.chapter ?? "VISUAL")}</span><time>${formatTime(shot.start)}–${formatTime(shot.end)}</time></div>

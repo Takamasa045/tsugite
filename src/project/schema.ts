@@ -418,6 +418,8 @@ export const projectSchema = z
     production: projectProductionSchema.optional(),
     edit: z.object({
       backend: safeIdSchema,
+      /** Opaque, backend-scoped local renderer settings. Only the selected backend receives its own entry. */
+      backend_options: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
       fast_edit: fastEditConfigSchema.optional(),
       editorial: editorialPolicySchema.optional(),
       composition: z
@@ -496,6 +498,16 @@ export const projectSchema = z
           code: z.ZodIssueCode.custom,
           message: "generation credentials must use adapter-declared environment variables",
           path: ["generation", "requests", index, ...secretPath]
+        });
+      }
+    }
+    if (project.edit.backend_options) {
+      const secretPath = findSecretKeyPath(project.edit.backend_options);
+      if (secretPath) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "backend renderer settings must not contain credentials",
+          path: ["edit", "backend_options", ...secretPath]
         });
       }
     }

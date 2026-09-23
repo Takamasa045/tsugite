@@ -4,7 +4,7 @@
 
 Tsugite is a local video-production workshop. It carries assets, production logs, decisions, and preferences forward instead of treating each AI video as a disposable result.
 
-Source version **0.14.0**. Public Desktop installers have ended; everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher for inspection. See the [changelog](CHANGELOG.md).
+Source version **0.16.0**. Public Desktop installers have ended; everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher for inspection. See the [changelog](CHANGELOG.md).
 
 **Start here:** [Easy start](#easiest-way-to-start) · [What you can do](#what-you-can-do) · [Production flow](#safe-production-flow) · [Commands](#commands)
 
@@ -53,6 +53,7 @@ These are `edit.backend` renderers. The same manifest / EDL contract feeds them.
 | Remotion | Default local renderer, captions, presentation presets | `edit.backend: remotion` |
 | HyperFrames | Local renderer plus official `media-use` BGM / SFX | [HyperFrames audio](docs/hyperframes-audio.md) |
 | Editframe | Optional **macOS** local renderer and preview. Install with `npm run editframe:install`, then `edit.backend: editframe`. Preview uses an authoring copy. WebMCP and disk-save APIs are unverified | [Editframe](docs/editframe.md) |
+| Tesseract | Optional local project/export backend. Requires official CLI 0.1.0; review its terms before installing. Supports reviewed clip/text motion, cut transitions, and offline audio-reactive keyframes; Fast Edit remains unsupported | [Tesseract](docs/tesseract.md) |
 | **Jev Fast Edit v1** | Same strict, backend-neutral edit intent on Remotion, HyperFrames, and Editframe (cards, captions, transitions, zoom, SFX, 16:9 and 9:16). Needs local-whisper word timestamps first. Select only with `edit.backend` plus `edit.fast_edit`. Not a new renderer | [Fast Edit](docs/fast-edit.md) |
 
 Also in this path: Gate-bound editorial EDL (retimes selected cuts, captions, and chapters without changing source files), first-class image assets and speaker / pose metadata, and guarded presentation presets. Query installed presets with `node bin/pipeline presets --backend remotion --json` instead of typing an unverified ID.

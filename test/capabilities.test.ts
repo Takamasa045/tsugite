@@ -3,7 +3,8 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadBackendCapabilities } from "../src/backends/capabilities.js";
+import { loadBackendCapabilities, validateBackendCapabilities } from "../src/backends/capabilities.js";
+import { manifestSchema } from "../src/manifest/schema.js";
 import { validateProject } from "../src/project/validateProject.js";
 
 describe("backend capabilities", () => {
@@ -30,6 +31,34 @@ describe("backend capabilities", () => {
       method: "DOMレイヤーをCSSとタイムラインで制御",
       preview: "html-css-approximation"
     });
+  });
+
+  it("preserves legacy transition inputs for backends without a transition_inputs declaration", async () => {
+    const backend = await loadBackendCapabilities("hyperframes");
+    expect(backend).toBeDefined();
+    if (!backend) return;
+    expect(backend.capabilities.transition_inputs).toBeUndefined();
+
+    const manifest = manifestSchema.parse({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "legacy-transition-inputs" },
+      clips: [{
+        id: "clip-1",
+        src: "media/clip.mp4",
+        in: 0,
+        out: 1,
+        duration: 1,
+        fps: 30,
+        resolution: { width: 1920, height: 1080 },
+        audio: false,
+        motion: { transition_to_next: { preset: "fade", description: "Fade", duration_seconds: 0.25 } }
+      }],
+      audio: { bgm: [], narration: [], sfx: [] },
+      captions: [],
+      provenance: [],
+      transitions: []
+    });
+
+    expect(validateBackendCapabilities(manifest, backend).ok).toBe(true);
   });
 
   it("rejects captions, vertical, and fps demands unsupported by a backend", async () => {

@@ -1,0 +1,33 @@
+name: tesseract
+motion_review:
+  surface: Tesseract native `.tsrct` Video layer keyframes
+  method: >-
+    Supported clip transitions hold the outgoing trimmed frame and animate the
+    incoming Video layer with fade, slide, or center zoom keyframes. Per-layer
+    clip and text cues map only to documented transform/opacity properties.
+    Audio-reactive pulse, shake, and flicker are deterministic offline PCM RMS
+    analysis emitted as editable native keyframes, not live audio bindings.
+  preview: specification-only
+capabilities:
+  captions: true
+  transitions: true
+  transition_inputs: [clip_motion]
+  audio_reactive: true
+  audio_mix: true
+  vertical: true
+  fps: [30]
+  presets: [tesseract-basic]
+checks:
+  setup:
+    - type: command
+      name: tool:tesseract
+      command: ["node", "backends/tesseract/cli.mjs", "--version"]
+      capture_version: false
+      remediation:
+        default: "Install the official Tesseract CLI 0.1.0 only after reviewing its terms, then rerun doctor."
+        darwin: "Use the official Tesseract macOS installer for the stable 0.1.0 pin, then rerun doctor."
+        win32: "Use the official Tesseract Windows installer for the stable 0.1.0 pin, then rerun doctor."
+        linux: "Tesseract CLI 0.1.0 does not support Linux; use a supported macOS or Windows host."
+  render_preflight:
+    - name: tool:tesseract
+      command: ["node", "backends/tesseract/cli.mjs", "--version"]

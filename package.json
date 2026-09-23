@@ -1,6 +1,6 @@
 {
   "name": "tsugite",
-  "version": "0.14.0",
+  "version": "0.16.0",
   "private": true,
   "type": "module",
   "packageManager": "npm@10.9.8",
@@ -39,6 +39,7 @@
     "editframe:install": "npm ci --prefix backends/editframe/runtime",
     "editframe": "node backends/editframe/cli.mjs",
     "editframe:preview": "node backends/editframe/preview.mjs",
+    "tesseract:install": "node scripts/tesseract-install.mjs install",
     "hypit:install": "npm ci --prefix adapters/hypit/runtime",
     "hypit": "node adapters/hypit/cli.mjs",
     "hypit:spike": "node adapters/hypit/spike.mjs",
