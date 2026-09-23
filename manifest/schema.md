@@ -37,6 +37,8 @@ Motion direction stays backend-neutral in the manifest. `presentation.motion_des
 
 Supported review preview presets are `none`, `fade`, `slide-left`, `slide-right`, `rise`, `zoom-in`, `zoom-out`, `pan-left`, `pan-right`, `parallax`, `pulse`, and `wipe`. The review HTML treats these as safe visual approximations. The selected editing backend remains responsible for implementing the approved motion in its own frame or timeline model.
 
+`shot.motion.audio_reactive` is a strict, deterministic cue that may be attached to `clips[].motion` or `captions[].visual.motion`. Its modes are `pulse`, `shake`, and `flicker`; it names one `source_track_id`, `strength` from `0` to `1`, and `measurement_window_ms` from `20` to `2000`. Audio track IDs used here must be unique; the source track must cover the target's timeline interval. No expression, script, or formula can be supplied. A backend that does not declare `capabilities.audio_reactive: true` rejects the cue during capability validation. Backends may support only a subset of target types or modes and must reject the rest.
+
 `images[]` are copied into the guarded run directory and included in Gate 2 decode, dimension, alpha (when requested), and SHA-256 integrity checks. A selected `presentation.preset` must be declared by the editing backend capabilities before execution. Silent `article-dialogue-16x9` presentations must remain marked as drafts.
 
 When `mouth_frames` is present, every referenced image id must exist in `images[]`. A dialogue presentation backend may cycle `closed → half-open → open → half-open` for the active speaker while leaving the listener on the closed frame.

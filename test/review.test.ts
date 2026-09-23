@@ -276,6 +276,63 @@ describe("creative review", () => {
     );
   });
 
+  it("shows the audio-reactive source, target, mode, and strength in Gate 1 review", () => {
+    const project = sampleProject();
+    const manifest = sampleManifest();
+    manifest.audio.bgm = [{ id: "pulse-bgm", src: "media/music.wav", start: 0, end: 10 }];
+    manifest.clips[0]!.motion = {
+      transition_to_next: {
+        preset: "slide-left",
+        description: "次の映像を左から入れる",
+        target: "frame",
+        duration_seconds: 0.5
+      },
+      audio_reactive: {
+        source_track_id: "pulse-bgm",
+        mode: "shake",
+        strength: 0.4,
+        measurement_window_ms: 100
+      }
+    };
+    manifest.captions[0]!.visual!.motion = {
+      audio_reactive: {
+        source_track_id: "pulse-bgm",
+        mode: "pulse",
+        strength: 0.65,
+        measurement_window_ms: 120
+      }
+    };
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+    const html = renderReviewHtml(review);
+
+    expect(review.storyboard[0]?.motion?.audio_reactive).toEqual({
+      source_track_id: "pulse-bgm",
+      target: { type: "caption", id: "s01" },
+      mode: "pulse",
+      strength: 0.65,
+      measurement_window_ms: 120
+    });
+    expect(review.storyboard[0]?.motion_targets).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        target: { type: "clip", id: "background" },
+        cues: [expect.objectContaining({ phase: "transition_to_next", preset: "slide-left" })],
+        audio_reactive: expect.objectContaining({ mode: "shake", target: { type: "clip", id: "background" } })
+      }),
+      expect.objectContaining({
+        target: { type: "caption", id: "s01" },
+        audio_reactive: expect.objectContaining({ mode: "pulse", target: { type: "caption", id: "s01" } })
+      })
+    ]));
+    expect(html).toContain("pulse-bgm");
+    expect(html).toContain("対象:</b> clip background");
+    expect(html).toContain("caption s01");
+    expect(html).toContain("slide-left");
+    expect(html).toContain("shake");
+    expect(html).toContain("0.65");
+    expect(html).toContain("120 ms");
+  });
+
   it("uses the single clip motion plan when caption and clip ids differ", () => {
     const project = sampleProject();
     const manifest = sampleManifest();

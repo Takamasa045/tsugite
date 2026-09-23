@@ -4,7 +4,7 @@
 
 Tsugite 是本地影像工房：它把素材、制作日志、判断和偏好接到下一次制作，而不是把每次 AI 视频当成一次性结果。
 
-完整入口、安全边界和命令以 [English README](README.md) 与 [日本語 README](README.ja.md) 为正本。本页只保留当前产品位置的摘要。仓库软件版本是 **0.15.0**。
+完整入口、安全边界和命令以 [English README](README.md) 与 [日本語 README](README.ja.md) 为正本。本页只保留当前产品位置的摘要。仓库软件版本是 **0.16.0**。
 
 ## 最简单的开始方式
 
@@ -90,4 +90,4 @@ node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
 
 一次性偏好留在 `projects/<job>/notes.md`。可复用风格进入 `examples/` 或 `templates/`。可机器检查的问题进入 constraints / validate / doctor。判断型规则先写入 `LESSONS.md`，经人批准后再升到 skill / AGENTS.md / CLAUDE.md。core 必须保持厂商中立。
 
-公开契约变更写入 README、`manifest/schema.md`、`docs/requirements.md`。当前软件版本是 **0.15.0**。1.0 仍要求 live provider/billing 证据与 packaged Desktop UAT；Windows smoke 已在 GitHub Actions 上验证。
+公开契约变更写入 README、`manifest/schema.md`、`docs/requirements.md`。当前软件版本是 **0.16.0**。1.0 仍要求 live provider/billing 证据与 packaged Desktop UAT；Windows smoke 已在 GitHub Actions 上验证。

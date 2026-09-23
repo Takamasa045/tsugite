@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadBackendCapabilities } from "../src/backends/capabilities.js";
 import { projectSchema } from "../src/project/schema.js";
 import { applyTesseractDocument } from "../backends/tesseract/document.mjs";
-import { assertSupportedManifest, buildTesseractDocumentLayers, buildTesseractTextActions } from "../backends/tesseract/manifest.mjs";
+import { assertNoConflictingKeyframeActions, assertSupportedManifest, assertTesseractInputDimensions, buildTesseractCaptionLayerTargets, buildTesseractDocumentLayers, buildTesseractMotionActions, buildTesseractTextActions, describeTesseractMotion } from "../backends/tesseract/manifest.mjs";
+import { buildTesseractCaptionMotionActions } from "../backends/tesseract/textMotion.mjs";
 import { parsePayload, renderTesseract, validateRenderedOutput } from "../backends/tesseract/render.mjs";
 
 const temporaryDirectories = [];
@@ -19,7 +20,8 @@ describe("Tesseract backend capabilities and project configuration", () => {
     const backend = await loadBackendCapabilities("tesseract");
     expect(backend?.capabilities).toMatchObject({
       captions: true,
-      transitions: false,
+      transitions: true,
+      audio_reactive: true,
       audio_mix: true,
       vertical: true,
       fps: [30],
@@ -48,6 +50,99 @@ describe("Tesseract backend capabilities and project configuration", () => {
 });
 
 describe("Tesseract manifest conversion", () => {
+  it("maps caption ids to the exact text layer id, timeline interval, and generated baseline position", () => {
+    const manifest = basicManifest({
+      captions: [{ id: "caption-a", text: "日本語字幕", start: 0.5, end: 1.5, visual: {
+        headline: "日本語字幕",
+        motion: { audio_reactive: { source_track_id: "music", mode: "shake", strength: 0.5, measurement_window_ms: 100 } }
+      } }]
+    });
+    const textActions = buildTesseractTextActions(manifest, {
+      compositionId: "main", firstLayerId: 3, fontFamily: "Noto Sans JP Thin", fontStyle: "Regular",
+      width: 1920, height: 1080, durationSeconds: 2
+    });
+    const targets = buildTesseractCaptionLayerTargets(manifest, textActions);
+    expect(targets).toEqual([{ captionId: "caption-a", layerId: 3, timelineStartMs: 500, durationMs: 1000, baselinePosition: [960.5, 929] }]);
+  });
+
+  it("rejects a caption headline that differs from the actual rendered caption text", () => {
+    const manifest = basicManifest({ captions: [{ id: "caption-a", text: "Actual", start: 0, end: 1, visual: { headline: "Different" } }] });
+    expect(() => assertSupportedManifest(manifest)).toThrow("headline must exactly match");
+  });
+
+  it("creates editable text position, scale, and opacity tracks from reviewed caption phase cues", () => {
+    const manifest = basicManifest({
+      captions: [{ id: "caption-a", text: "日本語字幕", start: 0.5, end: 1.5, visual: {
+        headline: "日本語字幕",
+        motion: {
+          entrance: { preset: "slide-left", target: "text", duration_seconds: 0.5 },
+          emphasis: { preset: "pulse", target: "text", duration_seconds: 0.4 },
+          exit: { preset: "fade", target: "text", duration_seconds: 0.4 }
+        }
+      } }]
+    });
+    assertSupportedManifest(manifest);
+    const textActions = buildTesseractTextActions(manifest, {
+      compositionId: "main", firstLayerId: 3, fontFamily: "Noto Sans JP Thin", fontStyle: "Regular",
+      width: 1920, height: 1080, durationSeconds: 2
+    });
+    const actions = buildTesseractCaptionMotionActions(manifest, {
+      compositionId: "main", textActions, width: 1920, height: 1080, fps: 30
+    });
+    expect(actions.map((action) => action.type)).toEqual(["setFxPositionKeyframes", "setFxPropertyKeyframes", "setFxPropertyKeyframes", "setFxPropertyKeyframes"]);
+    expect(actions[0].positionX.keyframes).toHaveLength(10);
+    expect(actions[0].positionY.keyframes).toHaveLength(10);
+    expect(actions[0].positionX.keyframes[0]).toMatchObject({ layerTime: 0, value: { value: 2726.5 } });
+    expect(actions[0].positionX.keyframes.at(-1)).toMatchObject({ layerTime: 500, value: { value: 960.5 } });
+    expect(actions.filter((action) => action.property?.propertyType.startsWith("scale")).map((action) => action.property.propertyType)).toEqual(["scaleX", "scaleY"]);
+    expect(actions.find((action) => action.property?.propertyType === "opacity").keyframes.at(-1)).toMatchObject({ layerTime: 1_000, value: { value: 0 } });
+  });
+
+  it("rejects text motion cues whose target is not the approved caption text layer", () => {
+    const manifest = basicManifest({ captions: [{ id: "caption-a", text: "Text", start: 0, end: 1, visual: {
+      headline: "Text", motion: { entrance: { preset: "slide-left", target: "frame", duration_seconds: 0.4 } }
+    } }] });
+    expect(() => assertSupportedManifest(manifest)).toThrow("target must be 'text'");
+  });
+
+  it("generates the documented 2-clip Tesseract transition tracks and preserves the approved duration", () => {
+    const presets = ["fade", "slide-left", "slide-right", "zoom-in", "zoom-out"];
+    for (const preset of presets) {
+      const manifest = basicManifest({ clips: [
+        { ...basicManifest().clips[0], id: "clip-a", duration: 1, out: 1, motion: { transition_to_next: { preset, duration_seconds: 0.5, target: "frame" } } },
+        { ...basicManifest().clips[0], id: "clip-b", duration: 1, out: 1 }
+      ] });
+      const layers = [
+        { clipId: "clip-a", layerId: 1, timelineStartMs: 0, durationMs: 1_000, sourceStartMs: 0 },
+        { clipId: "clip-b", layerId: 2, timelineStartMs: 1_000, durationMs: 1_000, sourceStartMs: 0 }
+      ];
+      const actions = buildTesseractMotionActions(manifest, { compositionId: "main", clipLayers: layers });
+      expect(actions[0]).toMatchObject({ type: "setFxLayerTimeRemap", layerId: 1, timeRemap: { after: "hold" } });
+      expect(actions[0].timeRemap.keyframes.at(-1)).toMatchObject({ time: 1_500, value: 999 });
+      if (preset === "fade") expect(actions.some((action) => action.property?.layerId === 2 && action.property.propertyType === "opacity")).toBe(true);
+      if (preset.startsWith("slide")) {
+        const position = actions.find((action) => action.type === "setFxPositionKeyframes");
+        expect(position.layerId).toBe(2);
+        expect(position.positionX.keyframes).toHaveLength(10);
+        expect(position.positionX.keyframes[0].value.value).toBe(preset === "slide-left" ? 2880 : -960);
+        expect(position.positionX.keyframes.at(-1).value.value).toBe(960);
+        expect(position.positionY.keyframes[0].value.value).toBe(540);
+      }
+      if (preset.startsWith("zoom")) {
+        const scale = actions.find((action) => action.property?.layerId === 2 && action.property.propertyType === "scaleX");
+        expect(scale.keyframes[0].value.value).toBe(preset === "zoom-in" ? 80 : 120);
+        expect(scale.keyframes.at(-1).value.value).toBe(100);
+      }
+    }
+  });
+
+  it("fails closed when ordinary motion and audio reaction would replace the same native property track", () => {
+    const motionAction = { type: "setFxPropertyKeyframes", property: { layerId: 7, propertyType: "scaleX" } };
+    const pulseAction = { type: "setFxPropertyKeyframes", property: { layerId: 7, propertyType: "scaleX" } };
+    expect(() => assertNoConflictingKeyframeActions([motionAction], [pulseAction])).toThrow("same keyframe property");
+    expect(() => assertNoConflictingKeyframeActions([motionAction], [{ type: "setFxPropertyKeyframes", property: { layerId: 7, propertyType: "opacity" } }])).not.toThrow();
+  });
+
   it("maps seconds to millisecond ranges and keeps audio source and placement clocks separate", () => {
     const manifest = basicManifest({
       meta: { aspect: "16:9", fps: 30, target_duration_seconds: 4, slug: "tesseract-fixture" },
@@ -60,24 +155,24 @@ describe("Tesseract manifest conversion", () => {
     const result = buildTesseractDocumentLayers(manifest, {
       assetIds: new Map([["assets/clips/source.mp4", "video-source"], ["assets/audio/music.wav", "audio-source"]]),
       sourceInfo: new Map([
-        ["assets/clips/source.mp4", { hasVideo: true, hasAudio: true, durationSeconds: 5 }],
+        ["assets/clips/source.mp4", { hasVideo: true, hasAudio: true, durationSeconds: 5, width: 1920, height: 1080 }],
         ["assets/audio/music.wav", { hasVideo: false, hasAudio: true, durationSeconds: 8 }]
       ]),
       durationSeconds: 4
     });
 
-    expect(result.layers[0]).toMatchObject({
+    expect(result.layers[1]).toMatchObject({
       type: "Video",
       activeRange: { start: 0, duration: 2000 },
       sourceRange: { start: 1000, duration: 2000 },
       volume: 1
     });
-    expect(result.layers[1]).toMatchObject({
+    expect(result.layers[0]).toMatchObject({
       type: "Video",
       activeRange: { start: 2000, duration: 1000 },
       sourceRange: { start: 3000, duration: 1000 }
     });
-    expect(result.layers[1]).not.toHaveProperty("volume");
+    expect(result.layers[0]).not.toHaveProperty("volume");
     expect(result.layers[2]).toMatchObject({
       type: "Audio",
       activeRange: { start: 500, duration: 2000 },
@@ -88,6 +183,151 @@ describe("Tesseract manifest conversion", () => {
     });
   });
 
+  it("builds a duration-preserving hold-and-fade transition and video zoom keyframes", () => {
+    const manifest = basicManifest({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 2, slug: "motion-fixture" },
+      clips: [
+        { id: "clip-red", src: "assets/clips/red.mp4", in: 0, out: 1, duration: 1, fps: 30, resolution: { width: 1920, height: 1080 }, audio: false,
+          motion: { transition_to_next: { preset: "fade", description: "Fade through black at the cut", target: "frame", duration_seconds: 0.4, easing: "linear" } } },
+        { id: "clip-blue", src: "assets/clips/blue.mp4", in: 0, out: 1, duration: 1, fps: 30, resolution: { width: 1920, height: 1080 }, audio: false,
+          motion: { entrance: { preset: "zoom-in", description: "Slowly zoom into the frame", target: "frame", duration_seconds: 0.6, easing: "linear" } } }
+      ]
+    });
+    const layers = buildTesseractDocumentLayers(manifest, {
+      assetIds: new Map([["assets/clips/red.mp4", "red"], ["assets/clips/blue.mp4", "blue"]]),
+      sourceInfo: new Map([
+        ["assets/clips/red.mp4", { hasVideo: true, hasAudio: false, durationSeconds: 1, width: 1920, height: 1080 }],
+        ["assets/clips/blue.mp4", { hasVideo: true, hasAudio: false, durationSeconds: 1, width: 1920, height: 1080 }]
+      ]),
+      durationSeconds: 2
+    });
+    const actions = buildTesseractMotionActions(manifest, { compositionId: "main", clipLayers: layers.clipLayers });
+
+    expect(layers.durationSeconds).toBe(2);
+    expect(layers.layers[0]).toMatchObject({ type: "Video", id: 2, activeRange: { start: 1000, duration: 1000 } });
+    expect(layers.layers[1]).toMatchObject({ type: "Video", id: 1, activeRange: { start: 0, duration: 1400 }, sourceRange: { start: 0, duration: 1000 } });
+    expect(layers.layers[1].transform).toEqual({
+      anchorPoint: [960, 540], position: [960, 540], scale: [100, 100], rotation: 0, opacity: 100
+    });
+    expect(layers.clipLayers).toEqual([
+      { clipId: "clip-red", layerId: 1, timelineStartMs: 0, durationMs: 1000, sourceStartMs: 0, transitionOutMs: 400, baselinePosition: [960, 540] },
+      { clipId: "clip-blue", layerId: 2, timelineStartMs: 1000, durationMs: 1000, sourceStartMs: 0, transitionOutMs: 0, baselinePosition: [960, 540] }
+    ]);
+    expect(actions).toHaveLength(4);
+    expect(actions[0]).toMatchObject({
+      type: "setFxLayerTimeRemap",
+      compositionId: "main",
+      layerId: 1,
+      timeRemap: {
+        keyframes: [
+          { time: 0, value: 0 },
+          { time: 1000, value: 999 },
+          { time: 1400, value: 999 }
+        ],
+        before: "inactive",
+        after: "hold"
+      }
+    });
+    expect(actions[1]).toMatchObject({
+      type: "setFxPropertyKeyframes",
+      property: { layerId: 2, propertyType: "opacity" },
+      keyframes: [
+        { layerTime: 0, value: { type: "float", value: 0 } },
+        { layerTime: 400, value: { type: "float", value: 100 } }
+      ]
+    });
+    expect(actions.slice(2)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        property: { layerId: 2, propertyType: "scaleX" },
+        keyframes: [
+          expect.objectContaining({ layerTime: 0, value: { type: "float", value: 100 } }),
+          expect.objectContaining({ layerTime: 600, value: { type: "float", value: 110 } })
+        ]
+      }),
+      expect.objectContaining({
+        property: { layerId: 2, propertyType: "scaleY" },
+        keyframes: [
+          expect.objectContaining({ layerTime: 0, value: { type: "float", value: 100 } }),
+          expect.objectContaining({ layerTime: 600, value: { type: "float", value: 110 } })
+        ]
+      })
+    ]));
+    expect(describeTesseractMotion(manifest)).toMatchObject({
+      applied_cues: [
+        { target_type: "clip", target_id: "clip-red", phase: "transition_to_next", preset: "fade", duration_seconds: 0.4 },
+        { target_type: "clip", target_id: "clip-blue", phase: "entrance", preset: "zoom-in", duration_seconds: 0.6 }
+      ]
+    });
+  });
+
+  it("uses the trimmed source start in a motion time-remap action", () => {
+    const manifest = basicManifest({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 2, slug: "trimmed-motion-fixture" },
+      clips: [
+        { id: "clip-red", src: "assets/clips/red.mp4", in: 1, out: 2, duration: 1, fps: 30, resolution: { width: 1920, height: 1080 }, audio: true,
+          motion: { transition_to_next: { preset: "fade", description: "Fade into the next clip", target: "frame", duration_seconds: 0.4 } } },
+        { id: "clip-blue", src: "assets/clips/blue.mp4", in: 0, out: 1, duration: 1, fps: 30, resolution: { width: 1920, height: 1080 }, audio: false }
+      ]
+    });
+    const layers = buildTesseractDocumentLayers(manifest, {
+      assetIds: new Map([["assets/clips/red.mp4", "red"], ["assets/clips/blue.mp4", "blue"]]),
+      sourceInfo: new Map([
+        ["assets/clips/red.mp4", { hasVideo: true, hasAudio: true, durationSeconds: 2, width: 1920, height: 1080 }],
+        ["assets/clips/blue.mp4", { hasVideo: true, hasAudio: false, durationSeconds: 1, width: 1920, height: 1080 }]
+      ]),
+      durationSeconds: 2
+    });
+    const actions = buildTesseractMotionActions(manifest, { compositionId: "main", clipLayers: layers.clipLayers });
+    expect(layers.layers.find((layer) => layer.id === 1)).toMatchObject({ volume: 1, sourceRange: { start: 1000, duration: 1000 } });
+    expect(actions[0].timeRemap.keyframes).toMatchObject([
+      { time: 0, value: 1000 },
+      { time: 1000, value: 1999 },
+      { time: 1400, value: 1999 }
+    ]);
+  });
+
+  it("holds shared-property motion neutral across cue gaps and rejects drifting gaps", () => {
+    const manifest = basicManifest({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 3, slug: "motion-gap-fixture" },
+      clips: [{
+        ...basicManifest().clips[0], out: 3, duration: 3,
+        motion: {
+          entrance: { preset: "fade", description: "Fade in", duration_seconds: 0.5 },
+          exit: { preset: "fade", description: "Fade out", duration_seconds: 0.5 }
+        }
+      }]
+    });
+    const layer = { clipId: "clip-1", layerId: 1, timelineStartMs: 0, durationMs: 3000, sourceStartMs: 0 };
+    const actions = buildTesseractMotionActions(manifest, { compositionId: "main", clipLayers: [layer] });
+    expect(actions).toHaveLength(1);
+    expect(actions[0].keyframes.map(({ layerTime, value }) => [layerTime, value.value])).toEqual([
+      [0, 0], [500, 100], [2433, 100], [2467, 100], [2967, 0]
+    ]);
+
+    const drifting = basicManifest({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 3, slug: "motion-drift-fixture" },
+      clips: [{
+        ...basicManifest().clips[0], out: 3, duration: 3,
+        motion: {
+          emphasis: { preset: "pulse", description: "Pulse once", duration_seconds: 0.5 },
+          exit: { preset: "zoom-out", description: "Pull away", duration_seconds: 0.5 }
+        }
+      }]
+    });
+    expect(() => assertSupportedManifest(drifting)).toThrow(/boundary values differ|linear interpolation/);
+  });
+
+  it("rejects duplicate clip ids before motion actions can target the wrong layer", () => {
+    const duplicateIds = basicManifest({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 2, slug: "duplicate-motion-fixture" },
+      clips: [
+        { ...basicManifest().clips[0], id: "same-clip", out: 1, duration: 1 },
+        { ...basicManifest().clips[0], id: "same-clip", src: "assets/clips/other.mp4", in: 0, out: 1, duration: 1 }
+      ]
+    });
+    expect(() => assertSupportedManifest(duplicateIds)).toThrow(/unique clip ids; duplicate 'same-clip'/);
+  });
+
   it("rejects unsupported display-affecting caption fields and Fast Edit", () => {
     expect(() => assertSupportedManifest(basicManifest({ captions: [{ text: "x", start: 0, end: 1, visual: { headline: "Styled" } }] })))
       .toThrow(/visual styling/);
@@ -95,6 +335,22 @@ describe("Tesseract manifest conversion", () => {
       .toThrow(/does not support Fast Edit/);
     expect(() => assertSupportedManifest(basicManifest({ extra_layer: true })))
       .toThrow(/manifest.extra_layer is not supported/);
+  });
+
+  it("rejects unsupported transition and motion instructions instead of approximating them", () => {
+    expect(() => assertSupportedManifest(basicManifest({ transitions: [{ type: "fade" }] }))).toThrow(/top-level manifest.transitions/);
+    expect(() => assertSupportedManifest(basicManifest({
+      clips: [{ ...basicManifest().clips[0], motion: { entrance: { preset: "wipe", description: "Wipe the image" } } }]
+    }))).toThrow(/not supported by Tesseract/);
+    expect(() => assertSupportedManifest(basicManifest({
+      clips: [{ ...basicManifest().clips[0], motion: { entrance: { preset: "zoom-in", description: "Zoom in", target: "face" } } }]
+    }))).toThrow(/target 'face'/);
+    expect(() => assertSupportedManifest(basicManifest({
+      presentation: { preset: "tesseract-basic", motion_design: { summary: "Keep the scene dynamic" } }
+    }))).toThrow(/summary alone|descriptive only/);
+    expect(() => assertSupportedManifest(basicManifest({
+      clips: [{ ...basicManifest().clips[0], id: "clip-1", motion: { transition_to_next: { preset: "fade", description: "Fade to next" } } }]
+    }))).toThrow(/no following clip/);
   });
 
   it("creates text actions only from imported font metadata", () => {
@@ -115,6 +371,9 @@ describe("Tesseract manifest conversion", () => {
       activeRange: { start: 500, duration: 1000 },
       sourceText: { text: "English caption", fontFamily: "Inter", fontStyle: "Regular" }
     });
+    expect(actions[1].transform).toMatchObject({ anchorPoint: [806.5, 65], position: [960.5, 929] });
+    expect(actions[1].transform.position.map((coordinate, index) => coordinate - actions[1].transform.anchorPoint[index]))
+      .toEqual([154, 864]);
   });
 
   it("uses only fields identified by the installed document schema", () => {
@@ -193,6 +452,32 @@ describe("Tesseract render validation", () => {
     expect(() => validateRenderedOutput({
       hasVideo: true, hasAudio: false, durationSeconds: 2, width: 1280, height: 720, fps: 30, sizeBytes: 100
     }, basicManifest(), { width: 1920, height: 1080 }, 2)).toThrow(/do not match the requested 1920x1080/);
+  });
+
+  it("rejects source dimensions that the pinned exporter will preserve before starting the CLI", async () => {
+    const runDir = await tempDirectory("tsugite-tesseract-source-dimensions-");
+    const projectRoot = await tempDirectory("tsugite-tesseract-project-");
+    await mkdir(join(runDir, "assets", "clips"), { recursive: true });
+    await writeFile(join(runDir, "assets", "clips", "source.mp4"), "video fixture");
+    const manifestPath = join(runDir, "manifest.json");
+    await writeFile(manifestPath, JSON.stringify(basicManifest()));
+    const resolveCli = vi.fn();
+
+    await expect(renderTesseract({
+      runDir,
+      manifestPath,
+      outputPath: join(runDir, "final.mp4"),
+      reportPath: join(runDir, "render-report.json"),
+      projectRoot,
+      backendOptions: {}
+    }, {
+      resolveCli,
+      probeMedia: async () => ({
+        hasVideo: true, hasAudio: false, durationSeconds: 2, videoDurationSeconds: 2,
+        width: 640, height: 360, fps: 30, sizeBytes: 10
+      })
+    })).rejects.toThrow(/640x360; Tesseract 0.1.0 export preserves source dimensions and requires 1920x1080/);
+    expect(resolveCli).not.toHaveBeenCalled();
   });
 
   it("renders an isolated fixture through the adapter contract without starting a real CLI", async () => {

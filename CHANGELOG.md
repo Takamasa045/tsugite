@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.16.0 - 2026-09-23
+
+- Extend the Tesseract 0.1.0 adapter with reviewed clip/text motion, duration-preserving fade/slide/zoom transitions, and deterministic local-PCM pulse/shake/flicker keyframes. Fast Edit, top-level transitions, and unverified effects remain unsupported. This is a source-only release; Desktop distribution and npm publication are not included.
+- Verify isolated Tsugite backend motion renders with native `.tsrct` inspection, ffprobe, full decode, and frame/audio QA, including a trimmed moving source held through a transition and Japanese text with Noto Sans JP.
+
 ## 0.15.0 - 2026-09-23
 
 - Add an optional Tesseract 0.1.0 local render backend with an explicit checksum-verified installer and fail-closed scope. This is a source-only release; Desktop distribution and npm publication are not included.

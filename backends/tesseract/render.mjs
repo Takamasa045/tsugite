@@ -4,8 +4,19 @@ import { link, lstat, mkdtemp, readFile, realpath, rm, unlink, writeFile } from 
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveTesseractCli, runTesseractCli } from "./cli.mjs";
+import { buildTesseractAudioReactiveActions } from "./audioEnvelope.mjs";
+import { buildTesseractCaptionMotionActions } from "./textMotion.mjs";
 import { applyTesseractDocument } from "./document.mjs";
-import { assertSupportedManifest, buildTesseractDocumentLayers, buildTesseractTextActions } from "./manifest.mjs";
+import {
+  assertNoConflictingKeyframeActions,
+  assertSupportedManifest,
+  assertTesseractInputDimensions,
+  buildTesseractCaptionLayerTargets,
+  buildTesseractDocumentLayers,
+  buildTesseractMotionActions,
+  buildTesseractTextActions,
+  describeTesseractMotion
+} from "./manifest.mjs";
 
 const MAX_PROBE_OUTPUT = 1024 * 1024;
 const MAX_CLI_OUTPUT = 4 * 1024 * 1024;
@@ -60,6 +71,7 @@ export async function renderTesseract(input, dependencies = {}) {
   }
   assertNoCrossRoleMediaReferences(sourceRoleByPath, fileIdentityBySource);
   assertNoDuplicateAudioSources(manifest, fileIdentityBySource, durationSeconds);
+  assertTesseractInputDimensions(manifest, sourceInfo, dimensions);
 
   const runtime = await (dependencies.resolveCli ?? resolveTesseractCli)();
   if (!runtime?.ok || typeof runtime.cliPath !== "string") {
@@ -122,6 +134,10 @@ export async function renderTesseract(input, dependencies = {}) {
     await writeFile(editablePath, `${JSON.stringify(configured.document, null, 2)}\n`, { flag: "w" });
     await invoke(["project", "commit", "--project", stagedProjectPath, "--file", editablePath], "project commit");
 
+    const motionActions = buildTesseractMotionActions(manifest, {
+      compositionId: configured.compositionId,
+      clipLayers: built.clipLayers
+    });
     const textActions = buildTesseractTextActions(manifest, {
       compositionId: configured.compositionId,
       firstLayerId: built.nextLayerId,
@@ -131,10 +147,28 @@ export async function renderTesseract(input, dependencies = {}) {
       height: dimensions.height,
       durationSeconds
     });
-    if (textActions.length > 0) {
-      const actionsPath = join(workDir, "text-actions.json");
-      await writeFile(actionsPath, `${JSON.stringify(textActions, null, 2)}\n`, { flag: "wx" });
-      await invoke(["project", "apply", "--project", stagedProjectPath, "--actions", actionsPath], "text-layer authoring");
+    const captionLayers = buildTesseractCaptionLayerTargets(manifest, textActions);
+    const captionMotionActions = buildTesseractCaptionMotionActions(manifest, {
+      compositionId: configured.compositionId,
+      textActions,
+      width: dimensions.width,
+      height: dimensions.height,
+      fps: manifest.meta.fps
+    });
+    const audioReactiveActions = await buildTesseractAudioReactiveActions(manifest, {
+      compositionId: configured.compositionId,
+      clipLayers: built.clipLayers,
+      captionLayers,
+      canonicalBySource,
+      sourceInfo,
+      readPcm: dependencies.readAudioPcm
+    });
+    assertNoConflictingKeyframeActions(motionActions, captionMotionActions, audioReactiveActions);
+    const authoringActions = [...motionActions, ...textActions, ...captionMotionActions, ...audioReactiveActions];
+    if (authoringActions.length > 0) {
+      const actionsPath = join(workDir, "authoring-actions.json");
+      await writeFile(actionsPath, `${JSON.stringify(authoringActions, null, 2)}\n`, { flag: "wx" });
+      await invoke(["project", "apply", "--project", stagedProjectPath, "--actions", actionsPath], "motion/text authoring");
     }
 
     await invoke(["export", "--project", stagedProjectPath, "--output", stagedOutputPath], "export", 600_000);
@@ -156,6 +190,8 @@ export async function renderTesseract(input, dependencies = {}) {
       fps: metadata.fps,
       clip_count: manifest.clips.length,
       audio_track_count: (manifest.audio?.bgm?.length ?? 0) + (manifest.audio?.narration?.length ?? 0) + (manifest.audio?.sfx?.length ?? 0),
+      ...(describeTesseractMotion(manifest) ? { motion: describeTesseractMotion(manifest) } : {}),
+      audio_reactive_action_count: audioReactiveActions.length,
       rendered_at: new Date().toISOString()
     };
     await writeReport(stagedReportPath, report, workDir);

@@ -1,7 +1,18 @@
 name: tesseract
+motion_review:
+  surface: Tesseract native `.tsrct` Video layer keyframes
+  method: >-
+    Supported clip transitions hold the outgoing trimmed frame and animate the
+    incoming Video layer with fade, slide, or center zoom keyframes. Per-layer
+    clip and text cues map only to documented transform/opacity properties.
+    Audio-reactive pulse, shake, and flicker are deterministic offline PCM RMS
+    analysis emitted as editable native keyframes, not live audio bindings.
+  preview: specification-only
 capabilities:
   captions: true
-  transitions: false
+  transitions: true
+  transition_inputs: [clip_motion]
+  audio_reactive: true
   audio_mix: true
   vertical: true
   fps: [30]

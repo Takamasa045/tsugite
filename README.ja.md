@@ -4,7 +4,7 @@
 
 AI動画を作って終わりにせず、素材、制作ログ、判断、好みを次の制作へ継いでいくローカル動画制作工房です。
 
-ソース版 **0.15.0**。Desktopアプリの一般配布は終了しています。日常の入口は GitHub のソースを Codex / Claude Code などで開き、確認には `127.0.0.1` のブラウザランチャーを使います。変更履歴は [CHANGELOG](CHANGELOG.md) です。
+ソース版 **0.16.0**。Desktopアプリの一般配布は終了しています。日常の入口は GitHub のソースを Codex / Claude Code などで開き、確認には `127.0.0.1` のブラウザランチャーを使います。変更履歴は [CHANGELOG](CHANGELOG.md) です。
 
 **まず見るところ:** [一番簡単な始め方](#一番簡単な始め方) · [できること](#できること) · [安全な制作フロー](#安全な制作フロー) · [コマンド](#コマンド)
 
@@ -51,6 +51,7 @@ MiniMax direct / MiniMax HTTP は **preflight-only** のまま、送信可能と
 | Remotion | 既定のローカル renderer。字幕、presentation preset | `edit.backend: remotion` |
 | HyperFrames | ローカル renderer と公式 `media-use` の BGM / SFX | [HyperFrames音声](docs/hyperframes-audio.md) |
 | Editframe | 任意の **macOS** ローカル renderer と preview。`npm run editframe:install` のあと `edit.backend: editframe`。preview は authoring copy。WebMCP と disk-save API は未検証 | [Editframe](docs/editframe.md) |
+| Tesseract | 公式 CLI 0.1.0 を使う任意のローカル renderer。確認済みの映像/字幕 motion、カット遷移、音声RMSから作る編集可能な keyframe に対応。Fast Edit は未対応。導入前に利用規約を確認 | [Tesseract](docs/tesseract.md) |
 | **Jev Fast Edit v1** | Remotion / HyperFrames / Editframe で同じ backend 中立の編集意図（カード、字幕、トランジション、ズーム、SFX、16:9 と 9:16）。先に local-whisper の単語タイムスタンプが必要。選ぶのは `edit.backend` と `edit.fast_edit` だけ。新しい renderer ではない | [Fast Edit](docs/fast-edit.md) |
 
 この経路には、Gate 拘束の editorial EDL（元素材を変えずにカット・字幕・章を再タイミングする）、画像素材と話者 / pose、presentation preset も含まれます。preset ID は手入力せず `node bin/pipeline presets --backend remotion --json` の一覧から選びます。
