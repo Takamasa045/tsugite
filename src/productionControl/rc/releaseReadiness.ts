@@ -179,7 +179,7 @@ function commandStatus(cmd: CommandEvidence | undefined): ExitEvidence["status"]
  * each exit is recomputed from store digests / command exit codes + hashes.
  */
 export function buildReleaseReadinessReport(input: ReleaseReadinessEvidenceStore): ReleaseReadinessReport {
-  const supportedPre1Version = input.package_version === "0.9.0" || input.package_version === "0.10.0" || input.package_version === "0.11.0" || input.package_version === "0.12.0" || input.package_version === "0.13.0" || input.package_version === "0.14.0" || input.package_version === "0.15.0" || input.package_version === "0.16.0";
+  const supportedPre1Version = input.package_version === "0.9.0" || input.package_version === "0.10.0" || input.package_version === "0.11.0" || input.package_version === "0.12.0" || input.package_version === "0.13.0" || input.package_version === "0.14.0" || input.package_version === "0.15.0" || input.package_version === "0.16.0" || input.package_version === "0.17.0";
   const revisionBindings = projectRevisionBindings();
   const revisionBindingsDigest = rcRevisionBindingsDigest();
   const versionBindingMatches = input.package_version === revisionBindings.package_version;

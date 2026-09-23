@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.17.0 - 2026-09-24
+
+- Upgrade the optional Tesseract backend to CLI 0.2.0. Add runtime-schema-shaped native document and supported action authoring, Gate 1-bound assets/fonts, six native canvases, 24/30/60 fps, 720p/1080p/4K MP4 controls, and preview/filmstrip artifacts before export.
+- Add optional macOS ProRes and alpha-solo MOV sidecars with Gate 1 output declarations, Gate 3 file/probe approval, and finalize revalidation. `final.mp4` remains the canonical deliverable.
+- The 0.2.0 native CLI schema, real render, ProRes, and alpha-solo outputs have not been verified on an installed 0.2.0 runtime; those paths are mock-tested. Previous real Tesseract render evidence used CLI 0.1.0.
+- This is a source-only release. Desktop distribution and npm publication are not included.
+
 ## 0.16.0 - 2026-09-23
 
 - Extend the Tesseract 0.1.0 adapter with reviewed clip/text motion, duration-preserving fade/slide/zoom transitions, and deterministic local-PCM pulse/shake/flicker keyframes. Fast Edit, top-level transitions, and unverified effects remain unsupported. This is a source-only release; Desktop distribution and npm publication are not included.
