@@ -1,13 +1,18 @@
 name: tesseract
 motion_review:
-  surface: Tesseract native `.tsrct` Video layer keyframes
+  surface: Tesseract `.tsrct` Video layer keyframes and optional native document/actions
   method: >-
     Supported clip transitions hold the outgoing trimmed frame and animate the
     incoming Video layer with fade, slide, or center zoom keyframes. Per-layer
     clip and text cues map only to documented transform/opacity properties.
     Audio-reactive pulse, shake, and flicker are deterministic offline PCM RMS
     analysis emitted as editable native keyframes, not live audio bindings.
-  preview: specification-only
+    Optional native action types are checked against the action discriminators
+    exposed by the pinned CLI schema. Tsugite checks native document required
+    fields, composition, canvas, and duration; the CLI receives the complete
+    document/actions for apply and commit. The Gate 1 motion review is a written
+    specification; CLI preview and filmstrip images are separate render outputs.
+  preview: native-cli
 capabilities:
   captions: true
   transitions: true
@@ -15,6 +20,10 @@ capabilities:
   audio_reactive: true
   audio_mix: true
   vertical: true
+  native_authoring:
+    aspects: ["16:9", "9:16", "1:1", "4:5", "3:4", "5:4"]
+    fps: [24, 30, 60]
+    asset_id_pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
   fps: [30]
   presets: [tesseract-basic]
 checks:
@@ -24,10 +33,10 @@ checks:
       command: ["node", "backends/tesseract/cli.mjs", "--version"]
       capture_version: false
       remediation:
-        default: "Install the official Tesseract CLI 0.1.0 only after reviewing its terms, then rerun doctor."
-        darwin: "Use the official Tesseract macOS installer for the stable 0.1.0 pin, then rerun doctor."
-        win32: "Use the official Tesseract Windows installer for the stable 0.1.0 pin, then rerun doctor."
-        linux: "Tesseract CLI 0.1.0 does not support Linux; use a supported macOS or Windows host."
+        default: "Review the official Tesseract v0.2.0 terms, run npm run tesseract:install, then rerun doctor."
+        darwin: "Review the official Tesseract v0.2.0 terms, run npm run tesseract:install, then rerun doctor."
+        win32: "Review the official Tesseract v0.2.0 terms, run npm run tesseract:install, then rerun doctor."
+        linux: "Use Linux x86_64 with glibc 2.35 or later and Vulkan runtime support; review the v0.2.0 terms, run npm run tesseract:install, then rerun doctor."
   render_preflight:
     - name: tool:tesseract
       command: ["node", "backends/tesseract/cli.mjs", "--version"]

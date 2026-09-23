@@ -3072,7 +3072,9 @@ async function recordGate(
   }
 
   let gateApprovalDigest = reviewApprovalDigest;
+  let gateApprovalSubjectDigest = reviewApprovalDigest;
   let personQaApprovalDigest: string | undefined;
+  let sidecarApprovalDigest: string | undefined;
 
   const personQaStage = gate === "gate_2" ? "gate_2" as const : gate === "gate_3" ? "gate_3" as const : undefined;
   let personQaDecision: PersonQaHumanDecisionRecord | undefined;
@@ -3172,6 +3174,8 @@ async function recordGate(
       return { ok: false, issues: inspected.issues, state, statePath: stateLocation.statePath };
     }
     gateApprovalDigest = inspected.approvalDigest;
+    gateApprovalSubjectDigest = inspected.approvalSubjectDigest;
+    sidecarApprovalDigest = inspected.sidecarApprovalDigest;
     // Persist person-QA binding (report + decision + reason digest) for finalize revalidation.
     // Gate 3 state.approved_input_digest remains sha256(final.mp4) for launcher compatibility.
     if (inspected.personQaApprovalBinding) {
@@ -3190,7 +3194,7 @@ async function recordGate(
   if (
     decision === "approved"
     && args.expectedApprovalDigest
-    && gateApprovalDigest !== args.expectedApprovalDigest
+    && (gate === "gate_3" ? gateApprovalSubjectDigest : gateApprovalDigest) !== args.expectedApprovalDigest
   ) {
     return {
       ok: false,
@@ -3520,7 +3524,8 @@ async function recordGate(
       gateApprovalDigest,
       "human",
       personQaApprovalDigest,
-      productionBinding
+      productionBinding,
+      sidecarApprovalDigest
     );
   } catch (error) {
     return {

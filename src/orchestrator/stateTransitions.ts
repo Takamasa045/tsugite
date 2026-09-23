@@ -49,7 +49,8 @@ export function recordGateDecision(
   approvedInputDigest?: string,
   decisionSource: GateDecisionSource = "human",
   personQaApprovalDigest?: string,
-  productionBinding?: ProductionGateBinding
+  productionBinding?: ProductionGateBinding,
+  sidecarApprovalDigest?: string
 ): RunState {
   if (decision === "re_render" && gate !== "gate_3") {
     throw new Error("re_render is only valid for gate_3");
@@ -85,7 +86,8 @@ export function recordGateDecision(
       approvedInputDigest,
       decisionSource,
       personQaApprovalDigest,
-      productionBinding
+      productionBinding,
+      sidecarApprovalDigest
     )
   };
 }
@@ -234,7 +236,8 @@ function gatesAfterDecision(
   approvedInputDigest: string | undefined,
   decisionSource: GateDecisionSource,
   personQaApprovalDigest?: string,
-  productionBinding?: ProductionGateBinding
+  productionBinding?: ProductionGateBinding,
+  sidecarApprovalDigest?: string
 ): Record<GateId, GateState> {
   if (decision === "revise") {
     return defaultGates();
@@ -257,6 +260,9 @@ function gatesAfterDecision(
         : {}),
       ...(decision === "approved" && personQaApprovalDigest
         ? { person_qa_approval_digest: personQaApprovalDigest }
+        : {}),
+      ...(decision === "approved" && gate === "gate_3" && sidecarApprovalDigest
+        ? { sidecar_approval_digest: sidecarApprovalDigest }
         : {}),
       ...(decision === "approved" ? { decision_source: decisionSource } : {}),
       // Additive PO-5 fields only; legacy approved_input_digest / plan_digest semantics unchanged.

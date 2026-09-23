@@ -14,11 +14,20 @@ const capabilitiesSchema = z.object({
     .object({
       surface: z.string().min(1),
       method: z.string().min(1),
-      preview: z.enum(["html-css-approximation", "specification-only"])
+      preview: z.enum(["html-css-approximation", "specification-only", "native-cli"])
     })
     .optional(),
   capabilities: z.object({
     fast_edit: fastEditCapabilitiesSchema.optional(),
+    native_authoring: z.object({
+      aspects: z.array(z.string().min(1)).min(1),
+      fps: z.array(z.number().positive()).min(1),
+      asset_id_pattern: z.string().min(1).optional()
+    }).strict().superRefine((value, context) => {
+      if (!value.asset_id_pattern) return;
+      try { new RegExp(value.asset_id_pattern); }
+      catch { context.addIssue({ code: z.ZodIssueCode.custom, path: ["asset_id_pattern"], message: "native_authoring.asset_id_pattern must be a valid regular expression" }); }
+    }).optional(),
     captions: z.boolean(),
     transitions: z.boolean(),
     audio_mix: z.boolean(),
@@ -85,6 +94,14 @@ export function validateBackendCapabilities(
     audio_mix: backend.capabilities.fast_edit?.audio === true,
     transitions: backend.capabilities.fast_edit?.transitions === true
   } : backend.capabilities;
+  const nativeAuthoring = backend.capabilities.native_authoring;
+  if (manifest.native_edit && !nativeAuthoring) {
+    issues.push({
+      code: "backend.capability.native_edit",
+      message: `manifest contains native authoring data, but backend '${backend.name}' does not declare native authoring support`,
+      path: "native_edit"
+    });
+  }
   if (fastEditEnabled) {
     for (const key of FAST_EDIT_CAPABILITIES) if (capabilities.fast_edit?.[key] !== true) {
       issues.push({code: "backend.capability.fast_edit", message: `Fast Edit v1 requires ${key} on ${backend.name}`});
@@ -105,7 +122,36 @@ export function validateBackendCapabilities(
     });
   }
 
-  if (!capabilities.fps.includes(manifest.meta.fps)) {
+  const nativeAuthoringMode = Boolean(manifest.native_edit?.mode === "replace" && nativeAuthoring);
+  if (nativeAuthoringMode && nativeAuthoring?.asset_id_pattern) {
+    const assetIdPattern = new RegExp(nativeAuthoring.asset_id_pattern);
+    const declaredIds = [
+      ...manifest.clips.map((clip, index) => ({ id: clip.id, path: `clips.${index}.id` })),
+      ...manifest.images.map((image, index) => ({ id: image.id, path: `images.${index}.id` })),
+      ...(manifest.native_edit?.assets ?? []).map((asset, index) => ({ id: asset.asset_id, path: `native_edit.assets.${index}.asset_id` }))
+    ];
+    for (const declaration of declaredIds) {
+      assetIdPattern.lastIndex = 0;
+      if (!assetIdPattern.test(declaration.id)) {
+        issues.push({
+          code: "backend.capability.native_asset_id",
+          message: `native resource id '${declaration.id}' does not match backend '${backend.name}' requirements`,
+          path: declaration.path
+        });
+      }
+    }
+  }
+  if (!(["16:9", "9:16"] as string[]).includes(manifest.meta.aspect)
+    && !(nativeAuthoringMode && nativeAuthoring?.aspects.includes(manifest.meta.aspect))) {
+    issues.push({
+      code: "backend.capability.aspect",
+      message: `manifest aspect ${manifest.meta.aspect} is not supported by backend '${backend.name}'`,
+      path: "meta.aspect"
+    });
+  }
+
+  if (!capabilities.fps.includes(manifest.meta.fps)
+    && !(nativeAuthoringMode && nativeAuthoring?.fps.includes(manifest.meta.fps))) {
     issues.push({
       code: "backend.capability.fps",
       message: `manifest fps ${manifest.meta.fps} is not supported by backend`

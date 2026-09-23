@@ -33,6 +33,7 @@ import { connectionExecutionMode, listConnectionOptions } from "../connections/r
 import { createPlan } from "../orchestrator/plan.js";
 import { inspectGate1Review } from "../orchestrator/review.js";
 import { inspectGate2RunForApproval } from "../orchestrator/run.js";
+import { inspectGate3RunForApproval } from "../orchestrator/render.js";
 import {
   acquireRunLock,
   LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV,
@@ -3644,9 +3645,22 @@ async function inspectProject(
       if (inspected.ok) gate2ApprovalDigest = inspected.approvalDigest;
       else hasGate2Evidence = false;
     }
-    const gate3ApprovalDigest = hasGate3Evidence
+    let gate3ApprovalDigest = hasGate3Evidence
       ? await digestRegularFile(join(runDir, "final.mp4"))
       : undefined;
+    if (
+      hasGate3Evidence
+      && state?.gates.gate_3.status === "awaiting_approval"
+      && validation.project
+    ) {
+      const inspectedGate3 = await inspectGate3RunForApproval(
+        validation.project,
+        resolve(projectDir, validation.project.dist_dir)
+      );
+      gate3ApprovalDigest = inspectedGate3.ok
+        ? inspectedGate3.approvalSubjectDigest
+        : undefined;
+    }
     const currentGate2Qc = gate2Digest !== undefined
       ? await inspectGate2QcSource(
         configPath,

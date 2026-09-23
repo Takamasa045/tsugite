@@ -14,6 +14,8 @@ export type Gate3QcProbe = {
   has_video?: boolean;
   has_audio?: boolean;
   codec?: string;
+  pixel_format?: string;
+  has_alpha?: boolean;
   error?: string;
 };
 
@@ -38,6 +40,22 @@ export type Gate3QcReport = {
   expected: Gate3QcExpected;
   actual: Gate3QcProbe;
   content: Gate3ContentProbe;
+  sidecars?: Array<{
+    kind: string;
+    path: string;
+    sha256: string;
+    expected: {
+      duration_seconds: number;
+      width: number;
+      height: number;
+      fps: number;
+      video_codec: string;
+      alpha_required: boolean;
+      audio_required: boolean;
+    };
+    actual: Gate3QcProbe;
+  }>;
+  sidecar_approval_digest?: string;
   issues: Issue[];
 };
 
@@ -48,6 +66,8 @@ export type Gate3QcOptions = {
   fpsTolerance?: number;
   maxBlackSeconds?: number;
   maxSilenceSeconds?: number;
+  sidecars?: Gate3QcReport["sidecars"];
+  sidecar_approval_digest?: string;
 };
 
 export type Gate3QcCommandResult = {
@@ -69,6 +89,8 @@ const gate3QcProbeSchema = z
     has_video: z.boolean().optional(),
     has_audio: z.boolean().optional(),
     codec: z.string().optional(),
+    pixel_format: z.string().optional(),
+    has_alpha: z.boolean().optional(),
     error: z.string().optional()
   })
   .passthrough();
@@ -95,6 +117,22 @@ const gate3QcReportSchema = z
     }),
     actual: gate3QcProbeSchema,
     content: gate3ContentProbeSchema,
+    sidecars: z.array(z.object({
+      kind: z.string().min(1),
+      path: z.string().min(1),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      expected: z.object({
+        duration_seconds: z.number().positive(),
+        width: z.number().int().positive(),
+        height: z.number().int().positive(),
+        fps: z.number().positive(),
+        video_codec: z.string().min(1),
+        alpha_required: z.boolean(),
+        audio_required: z.boolean()
+      }),
+      actual: gate3QcProbeSchema
+    })).optional(),
+    sidecar_approval_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     issues: z.array(
       z.object({
         code: z.string().min(1),
@@ -142,19 +180,12 @@ export function inspectGate3Output(
   outputPath: string,
   options: Gate3QcOptions = {}
 ): Gate3QcReport {
-  const dimensions = resolveOutputDimensions(manifest);
-  const expected: Gate3QcExpected = {
-    duration_seconds: manifest.meta.target_duration_seconds,
-    width: dimensions.width,
-    height: dimensions.height,
-    fps: manifest.meta.fps,
-    audio_required: hasRequiredAudio(manifest)
-  };
+  const expected = resolveGate3ExpectedOutput(manifest);
   const actual = runProbe(options.probe ?? probeGate3Output, outputPath);
   const contentProbe = options.contentProbe ?? (options.probe ? (() => ({ ok: true })) : probeGate3Content);
   const content = runContentProbe(contentProbe, outputPath, expected.audio_required);
   const issues = [
-    ...inspectProbe(actual, expected, outputPath, options),
+    ...inspectProbe(actual, expected, outputPath, options, hasNativePrimaryOutput(manifest)),
     ...inspectContent(content, outputPath, options)
   ];
 
@@ -164,8 +195,53 @@ export function inspectGate3Output(
     expected,
     actual,
     content,
+    ...(options.sidecars?.length ? { sidecars: options.sidecars } : {}),
+    ...(options.sidecar_approval_digest
+      ? { sidecar_approval_digest: options.sidecar_approval_digest }
+      : {}),
     issues
   };
+}
+
+export function resolveGate3ExpectedOutput(manifest: Manifest): Gate3QcExpected {
+  const nativePrimary = (manifest as Manifest & {
+    native_edit?: { primary_output?: unknown };
+  }).native_edit?.primary_output;
+  if (
+    nativePrimary
+    && typeof nativePrimary === "object"
+    && !Array.isArray(nativePrimary)
+  ) {
+    const value = nativePrimary as Record<string, unknown>;
+    if (
+      Number.isInteger(value.width) && Number(value.width) > 0
+      && Number.isInteger(value.height) && Number(value.height) > 0
+      && typeof value.fps === "number" && Number.isFinite(value.fps) && value.fps > 0
+      && typeof value.audio_required === "boolean"
+    ) {
+      return {
+        duration_seconds: manifest.meta.target_duration_seconds,
+        width: Number(value.width),
+        height: Number(value.height),
+        fps: value.fps,
+        audio_required: value.audio_required
+      };
+    }
+  }
+  const dimensions = resolveOutputDimensions(manifest);
+  return {
+    duration_seconds: manifest.meta.target_duration_seconds,
+    width: dimensions.width,
+    height: dimensions.height,
+    fps: manifest.meta.fps,
+    audio_required: hasRequiredAudio(manifest)
+  };
+}
+
+function hasNativePrimaryOutput(manifest: Manifest): boolean {
+  const primary = (manifest as Manifest & { native_edit?: { primary_output?: unknown } })
+    .native_edit?.primary_output;
+  return Boolean(primary && typeof primary === "object" && !Array.isArray(primary));
 }
 
 function inspectContent(content: Gate3ContentProbe, outputPath: string, options: Gate3QcOptions): Issue[] {
@@ -201,7 +277,8 @@ function inspectProbe(
   actual: Gate3QcProbe,
   expected: Gate3QcExpected,
   outputPath: string,
-  options: Gate3QcOptions
+  options: Gate3QcOptions,
+  exactAudioExpectation: boolean
 ): Issue[] {
   if (!actual.ok) {
     return [
@@ -252,7 +329,13 @@ function inspectProbe(
     });
   }
 
-  if (expected.audio_required && !actual.has_audio) {
+  if (exactAudioExpectation && actual.has_audio !== expected.audio_required) {
+    issues.push({
+      code: "gate3.output.audio_mismatch",
+      message: `native primary output requires audio presence to be ${expected.audio_required}`,
+      path: outputPath
+    });
+  } else if (!exactAudioExpectation && expected.audio_required && !actual.has_audio) {
     issues.push({
       code: "gate3.output.audio_missing",
       message: "manifest requires audio but final output has no audio stream",
@@ -352,13 +435,15 @@ function parseProbeOutput(stdout: string): Gate3QcProbe {
         duration?: string;
         width?: number;
         height?: number;
-        avg_frame_rate?: string;
-        r_frame_rate?: string;
-      }>;
+      avg_frame_rate?: string;
+      r_frame_rate?: string;
+      pix_fmt?: string;
+    }>;
     };
     const streams = parsed.streams ?? [];
     const video = streams.find((stream) => stream.codec_type === "video");
     const audio = streams.find((stream) => stream.codec_type === "audio");
+    const pixelFormat = video?.pix_fmt;
 
     return {
       ok: true,
@@ -368,7 +453,8 @@ function parseProbeOutput(stdout: string): Gate3QcProbe {
       fps: frameRate(video?.avg_frame_rate ?? video?.r_frame_rate),
       has_video: Boolean(video),
       has_audio: Boolean(audio),
-      codec: video?.codec_name ?? audio?.codec_name
+      codec: video?.codec_name ?? audio?.codec_name,
+      ...(pixelFormat ? { pixel_format: pixelFormat, has_alpha: pixelFormatHasAlpha(pixelFormat) } : {})
     };
   } catch (error) {
     return {
@@ -376,6 +462,10 @@ function parseProbeOutput(stdout: string): Gate3QcProbe {
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+function pixelFormatHasAlpha(pixelFormat: string): boolean {
+  return /^(?:yuva|rgba|argb|bgra|abgr|gbrap|ayuv|ya\d)/i.test(pixelFormat);
 }
 
 function hasRequiredAudio(manifest: Manifest): boolean {

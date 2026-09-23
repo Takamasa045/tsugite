@@ -27,6 +27,41 @@ export function applyTesseractDocument(document, documentSchema, input) {
   return { document, compositionId: composition.value.id };
 }
 
+/** Use a complete inline native document after checking the runtime's essential contract. */
+export function applyTesseractNativeDocument(documentSchema, authoredDocument, input) {
+  if (!authoredDocument || typeof authoredDocument !== "object" || Array.isArray(authoredDocument)) {
+    throw new Error("native_edit.document must be a full Tesseract document object");
+  }
+  const rootSchema = resolveSchemaNode(documentSchema, documentSchema);
+  if (rootSchema.type !== "object" || !Array.isArray(rootSchema.required) || !rootSchema.properties) {
+    throw new Error("installed Tesseract document schema has an unsupported shape; refusing native document authoring");
+  }
+  for (const key of rootSchema.required) {
+    if (typeof key !== "string" || !Object.hasOwn(authoredDocument, key)) {
+      throw new Error(`native_edit.document is missing required Tesseract document field '${key}'`);
+    }
+  }
+  if (typeof authoredDocument.duration !== "number" || !Number.isFinite(authoredDocument.duration) ||
+      Math.abs(authoredDocument.duration - input.durationSeconds) > 0.001) {
+    throw new Error("native_edit.document.duration must match the reviewed manifest duration");
+  }
+
+  const document = JSON.parse(JSON.stringify(authoredDocument));
+  const candidates = findCompositionCandidates(document, documentSchema);
+  if (candidates.length !== 1) {
+    throw new Error(`native_edit.document must contain exactly one composition with an id and layer list; found ${candidates.length}`);
+  }
+  const composition = candidates[0];
+  if (typeof composition.value.id !== "string" || composition.value.id.length === 0) {
+    throw new Error("native_edit.document composition has no stable string id");
+  }
+  const dimensions = findDimensionTarget(document, documentSchema, composition);
+  if (dimensions.width !== input.width || dimensions.height !== input.height) {
+    throw new Error(`native_edit.document canvas ${dimensions.width}x${dimensions.height} must match the reviewed ${input.width}x${input.height} canvas`);
+  }
+  return { document, compositionId: composition.value.id };
+}
+
 function findCompositionCandidates(document, documentSchema) {
   const candidates = [];
   const visited = new Set();

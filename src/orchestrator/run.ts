@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import { loadBackendCapabilities } from "../backends/capabilities.js";
 import {
   runCliGenerationAdapter,
   type CliGenerationRequestResult,
@@ -373,6 +374,8 @@ export async function assembleLocalMediaRun(
       assetCount += 1;
     }
   }
+
+  assetCount += await copyNativeEditAssets(assembled, manifestDir, runDir);
 
   if (options.verifyApprovedInputs) {
     const verified = await options.verifyApprovedInputs();
@@ -980,6 +983,8 @@ async function assembleGeneratedMediaRun(
     }
   }
 
+  assetCount += await copyNativeEditAssets(assembled, manifestDir, runDir);
+
   if (options.verifyApprovedInputs) {
     const verified = await options.verifyApprovedInputs();
     if (!verified.ok) return verified;
@@ -1132,6 +1137,30 @@ async function assembleGeneratedMediaRun(
     generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });
   }
   if (!generation.ok) return generation;
+
+  if (assembled.native_edit?.payload !== undefined) {
+    let assetIdPattern: string | undefined;
+    try {
+      assetIdPattern = (await loadBackendCapabilities(project.edit.backend))
+        ?.capabilities.native_authoring?.asset_id_pattern;
+    } catch (error) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.native_edit_backend_capabilities",
+          message: error instanceof Error ? error.message : String(error),
+          path: "native_edit.payload"
+        }]
+      };
+    }
+    const resolvedNativePayload = resolveGeneratedNativeAssetBindings(
+      assembled.native_edit.payload,
+      generation.requests,
+      assetIdPattern
+    );
+    if (!resolvedNativePayload.ok) return resolvedNativePayload;
+    assembled.native_edit.payload = resolvedNativePayload.payload;
+  }
 
   const existingImageIds = new Set(assembled.images.map((image) => image.id));
   const duplicateImage = generation.images.find((image) => existingImageIds.has(image.id));
@@ -1516,6 +1545,71 @@ async function copyAsset(
   return { relativePath };
 }
 
+async function copyNativeEditAssets(
+  manifest: Manifest,
+  manifestDir: string,
+  runDir: string
+): Promise<number> {
+  const assets = manifest.native_edit?.assets ?? [];
+  for (const [index, asset] of assets.entries()) {
+    const copied = await copyAsset(asset.src, manifestDir, runDir, "assets/native-edit", index, asset.asset_id);
+    asset.src = copied.relativePath;
+  }
+  const fonts = manifest.native_edit?.fonts ?? [];
+  for (const [index, font] of fonts.entries()) {
+    const copied = await copyAsset(font.src, manifestDir, runDir, "assets/native-edit/fonts", index, `font-${index + 1}`);
+    font.src = copied.relativePath;
+  }
+  return assets.length;
+}
+
+export function resolveGeneratedNativeAssetBindings(
+  payload: unknown,
+  requests: CliGenerationRequestResult[],
+  assetIdPattern?: string
+): Result<{ payload: unknown }> {
+  const outputs = new Map(requests.map((request) => [request.request_id, request]));
+  const unresolved = new Set<string>();
+  const binding = /^tsugite:request:([A-Za-z0-9][A-Za-z0-9._-]*):(video|image|audio):([1-9][0-9]*)$/;
+  const walk = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      const match = binding.exec(value);
+      if (!match) return value;
+      const [, requestId, kind, ordinalText] = match;
+      const request = outputs.get(requestId!);
+      const ordinal = Number(ordinalText) - 1;
+      const assets = kind === "video" ? request?.clips : kind === "image" ? request?.images : request?.audio;
+      const asset = assets?.[ordinal];
+      if (!asset) {
+        unresolved.add(value);
+        return value;
+      }
+      if (assetIdPattern && !new RegExp(assetIdPattern).test(asset.id)) {
+        unresolved.add(`${value} (generated asset id '${asset.id}' does not match the selected backend's native asset ID constraints)`);
+        return value;
+      }
+      return asset.id;
+    }
+    if (Array.isArray(value)) return value.map(walk);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, walk(child)]));
+    }
+    return value;
+  };
+  const resolved = walk(payload);
+  if (unresolved.size > 0) {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.native_edit_asset_binding_missing",
+        message: `native payload request-asset bindings could not be resolved: ${[...unresolved].join(", ")}`,
+        path: "native_edit.payload"
+      }]
+    };
+  }
+  return { ok: true, issues: [], payload: resolved };
+}
+
 async function sha256File(path: string): Promise<string> {
   return await new Promise<string>((resolveDigest, reject) => {
     const hash = createHash("sha256");
@@ -1663,7 +1757,9 @@ async function inspectAwaitingGate2Artifacts(input: {
   const qcPathsMatch = qcReport.report.assets.every((asset) => {
     return asset.path === assetPathsByReference.get(referenceKey(asset));
   });
-  const totalClipDuration = assembledManifest.manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
+  const totalClipDuration = assembledManifest.manifest.native_edit?.mode === "replace"
+    ? assembledManifest.manifest.meta.target_duration_seconds
+    : assembledManifest.manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const targetDuration = assembledManifest.manifest.meta.target_duration_seconds;
   const durationDelta = Math.round((totalClipDuration - targetDuration) * 1000) / 1000;
   const qcSummaryMatches =
@@ -1975,7 +2071,12 @@ function manifestAssetReferences(manifest: Manifest): ManifestAssetReference[] {
     ),
     ...manifest.audio.sfx.flatMap((entry, index) =>
       entry.src ? [{ id: entry.id ?? `sfx-${index + 1}`, kind: "audio" as const, src: entry.src }] : []
-    )
+    ),
+    ...(manifest.native_edit?.assets ?? []).map((asset) => ({
+      id: asset.asset_id,
+      kind: asset.kind === "video" ? "clip" as const : asset.kind,
+      src: asset.src
+    }))
   ];
 }
 

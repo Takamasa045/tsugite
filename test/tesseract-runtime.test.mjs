@@ -33,7 +33,17 @@ function testHost(root) {
       platform: "win32",
       arch: process.arch,
       env: { LOCALAPPDATA: root, PATH: "", PROCESSOR_ARCHITECTURE: "AMD64" },
-      pathApi: path.win32
+      pathApi: path.win32,
+      windowsRelease: "10.0.22631"
+    };
+  }
+  if (process.platform === "linux") {
+    return {
+      platform: "linux",
+      arch: process.arch,
+      env: { HOME: root, XDG_DATA_HOME: path.join(root, ".local", "share"), PATH: "" },
+      pathApi: path.posix,
+      glibcVersion: "2.35"
     };
   }
   return null;
@@ -43,9 +53,11 @@ function fakeInstalledCli(root, host, version = TESSERACT_CLI_VERSION) {
   const api = host.pathApi;
   const cliPath = host.platform === "darwin"
     ? api.join(root, "Library", "Application Support", "Tesseract", "bin", "tsrct")
-    : api.join(root, "Tesseract", "bin", "tsrct.cmd");
+    : host.platform === "linux"
+      ? api.join(host.env.XDG_DATA_HOME, "Tesseract", "bin", "tsrct")
+      : api.join(root, "Tesseract", "bin", "tsrct.cmd");
   mkdirSync(api.dirname(cliPath), { recursive: true });
-  if (host.platform === "darwin") {
+  if (host.platform === "darwin" || host.platform === "linux") {
     writeFileSync(cliPath, `#!/usr/bin/env node\nif (process.argv[2] === "--version") console.log("tsrct ${version}");\nelse process.exit(2);\n`);
     chmodSync(cliPath, 0o755);
   } else {
@@ -61,7 +73,7 @@ describe("Tesseract CLI runtime", () => {
     if (!host) return skip();
     const cliPath = fakeInstalledCli(root, host);
     const resolved = resolveTesseractCli(host);
-    expect(resolved).toEqual({ ok: true, cliPath, version: "0.1.0" });
+    expect(resolved).toEqual({ ok: true, cliPath, version: TESSERACT_CLI_VERSION });
   });
 
   it("reports a clear missing-CLI result without downloading or installing", ({ skip }) => {
@@ -86,7 +98,7 @@ describe("Tesseract CLI runtime", () => {
     };
     const result = runTesseractCli(process.execPath, [CLI_ENTRY, "--version"], { env, timeout: 15_000 });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Tesseract CLI 0.1.0 is not installed or not on PATH");
+    expect(result.stderr).toContain(`Tesseract CLI ${TESSERACT_CLI_VERSION} is not installed or not on PATH`);
     expect(result.stderr).toContain("npm run tesseract:install");
   });
 
@@ -98,26 +110,31 @@ describe("Tesseract CLI runtime", () => {
     const env = { ...process.env, HOME: root, LOCALAPPDATA: root };
     const result = runTesseractCli(process.execPath, [CLI_ENTRY, "--version"], { env, timeout: 15_000 });
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("0.1.0");
+    expect(result.stdout.trim()).toBe(TESSERACT_CLI_VERSION);
     expect(result.stderr).toBe("");
   });
 
   it("rejects unsupported hosts and architectures before attempting a version check", () => {
     const neverRun = () => { throw new Error("should not execute"); };
-    expect(resolveTesseractCli({ platform: "linux", arch: "x64", env: {}, runCommand: neverRun }))
-      .toMatchObject({ ok: false, code: "unsupported_host" });
     expect(resolveTesseractCli({ platform: "darwin", arch: "ia32", env: {}, runCommand: neverRun }))
       .toMatchObject({ ok: false, code: "unsupported_arch" });
     expect(resolveTesseractCli({
-      platform: "win32", arch: "x64", env: { PROCESSOR_ARCHITECTURE: "x86" }, runCommand: neverRun
+      platform: "win32", arch: "x64", env: { PROCESSOR_ARCHITECTURE: "x86" },
+      windowsRelease: "10.0.22631", runCommand: neverRun
     })).toMatchObject({ ok: false, code: "unsupported_arch" });
+    expect(resolveTesseractCli({
+      platform: "linux", arch: "arm64", env: {}, glibcVersion: "2.39", runCommand: neverRun
+    })).toMatchObject({ ok: false, code: "unsupported_arch" });
+    expect(resolveTesseractCli({
+      platform: "linux", arch: "x64", env: {}, glibcVersion: "2.34", runCommand: neverRun
+    })).toMatchObject({ ok: false, code: "unsupported_libc" });
   });
 
   it("rejects an installed CLI with a mismatched pin", ({ skip }) => {
     const root = tempRoot();
     const host = testHost(root);
     if (!host) return skip();
-    fakeInstalledCli(root, host, "0.2.0");
+    fakeInstalledCli(root, host, "0.1.0");
     expect(resolveTesseractCli(host)).toMatchObject({ ok: false, code: "version_mismatch" });
   });
 
@@ -207,6 +224,55 @@ describe("Tesseract CLI runtime", () => {
     });
     expect(childEnv).not.toHaveProperty("TESSERACT_API_KEY");
     expect(childEnv).not.toHaveProperty("LC_API_KEY");
+    expect(childEnv).not.toHaveProperty("OPENAI_API_KEY");
+    expect(childEnv).not.toHaveProperty("DATABASE_URL");
+  });
+
+  it("finds the pinned Linux CLI under XDG_DATA_HOME and checks its glibc floor", ({ skip }) => {
+    if (process.platform === "win32") return skip();
+    const root = tempRoot();
+    const host = {
+      platform: "linux",
+      arch: "x64",
+      env: { HOME: root, XDG_DATA_HOME: path.join(root, "xdg data"), PATH: "" },
+      pathApi: path.posix,
+      glibcVersion: "2.35"
+    };
+    const cliPath = fakeInstalledCli(root, host);
+    expect(resolveTesseractCli(host)).toEqual({ ok: true, cliPath, version: TESSERACT_CLI_VERSION });
+    expect(resolveTesseractCli({ ...host, glibcVersion: "2.34", runCommand: () => { throw new Error("must not run"); } }))
+      .toMatchObject({ ok: false, code: "unsupported_libc" });
+  });
+
+  it("keeps Linux display and Vulkan selection values while excluding credentials", () => {
+    const env = {
+      PATH: process.env.PATH ?? "",
+      HOME: "/tmp/tesseract-home",
+      XDG_DATA_HOME: "/tmp/tesseract-data",
+      XDG_CONFIG_HOME: "/tmp/tesseract-config",
+      XDG_RUNTIME_DIR: "/run/user/1000",
+      DISPLAY: ":0",
+      WAYLAND_DISPLAY: "wayland-0",
+      VK_DRIVER_FILES: "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json",
+      TESSERACT_API_KEY: "must-not-be-forwarded",
+      OPENAI_API_KEY: "must-not-be-forwarded-either",
+      DATABASE_URL: "postgres://secret"
+    };
+    const script = "process.stdout.write(JSON.stringify(process.env))";
+    const result = runTesseractCli(process.execPath, ["-e", script], { env, platform: "linux", timeout: 5_000 });
+    expect(result.status).toBe(0);
+    const childEnv = JSON.parse(result.stdout);
+    expect(childEnv).toMatchObject({
+      PATH: env.PATH,
+      HOME: env.HOME,
+      XDG_DATA_HOME: env.XDG_DATA_HOME,
+      XDG_CONFIG_HOME: env.XDG_CONFIG_HOME,
+      XDG_RUNTIME_DIR: env.XDG_RUNTIME_DIR,
+      DISPLAY: env.DISPLAY,
+      WAYLAND_DISPLAY: env.WAYLAND_DISPLAY,
+      VK_DRIVER_FILES: env.VK_DRIVER_FILES
+    });
+    expect(childEnv).not.toHaveProperty("TESSERACT_API_KEY");
     expect(childEnv).not.toHaveProperty("OPENAI_API_KEY");
     expect(childEnv).not.toHaveProperty("DATABASE_URL");
   });

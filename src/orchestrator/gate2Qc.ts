@@ -99,7 +99,9 @@ export function inspectGate2Manifest(
   const tolerance = options.durationToleranceSeconds ?? 0.5;
   const issues: Issue[] = [];
   const assets: Gate2QcAsset[] = [];
-  const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
+  const totalClipDuration = manifest.native_edit?.mode === "replace"
+    ? manifest.meta.target_duration_seconds
+    : manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const targetDelta = roundSeconds(totalClipDuration - manifest.meta.target_duration_seconds);
 
   if (Math.abs(targetDelta) > tolerance) {
@@ -241,6 +243,38 @@ export function inspectGate2Manifest(
         message: `audio asset '${entry.id}' has no audio stream`,
         path
       });
+    }
+  }
+
+  for (const asset of manifest.native_edit?.assets ?? []) {
+    const path = resolveAssetPath(manifestDir, asset.src);
+    const assetProbe = probe(path);
+    const kind: Gate2QcAsset["kind"] = asset.kind === "video" ? "clip" : asset.kind;
+    const sha256 = asset.kind === "image" ? fileSha256(path) : undefined;
+    assets.push({
+      id: asset.asset_id,
+      kind,
+      src: asset.src,
+      path,
+      probe: assetProbe,
+      ...(sha256 ? { sha256 } : {})
+    });
+    if (!assetProbe.ok) {
+      issues.push({
+        code: `gate2.native_edit.${asset.kind}.probe_failed`,
+        message: assetProbe.error ?? "native asset probe failed",
+        path
+      });
+      continue;
+    }
+    if (asset.kind === "video" && !assetProbe.has_video) {
+      issues.push({ code: "gate2.native_edit.video_missing", message: `native video asset '${asset.asset_id}' has no video stream`, path });
+    } else if (asset.kind === "audio" && assetProbe.has_audio === false) {
+      issues.push({ code: "gate2.native_edit.audio_missing", message: `native audio asset '${asset.asset_id}' has no audio stream`, path });
+    } else if (asset.kind === "image" && (!assetProbe.has_video || assetProbe.width === undefined || assetProbe.height === undefined)) {
+      issues.push({ code: "gate2.native_edit.image_missing", message: `native image asset '${asset.asset_id}' could not be decoded as a visual asset`, path });
+    } else if (asset.kind === "image" && !sha256) {
+      issues.push({ code: "gate2.native_edit.image_hash_failed", message: `native image asset '${asset.asset_id}' could not be fingerprinted`, path });
     }
   }
 

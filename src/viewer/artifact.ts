@@ -540,7 +540,8 @@ async function readOptionalGate3Qc(path: string): Promise<ViewerGate3QcEvidence 
       : { outputPath: requiredString(input.output_path, "Gate 3 QC output_path") }),
     ...(input.expected === undefined ? {} : { expected: parseGate3Expected(input.expected) }),
     ...(input.actual === undefined ? {} : { actual: parseGate3Actual(input.actual) }),
-    ...(input.content === undefined ? {} : { content: parseGate3Content(input.content) })
+    ...(input.content === undefined ? {} : { content: parseGate3Content(input.content) }),
+    ...(input.sidecars === undefined ? {} : { sidecars: parseGate3Sidecars(input.sidecars) })
   };
 }
 
@@ -1013,6 +1014,42 @@ function parseGate3Content(input: unknown): NonNullable<ViewerGate3QcEvidence["c
     ...optionalNumberProperty(input, "longest_black_seconds", "longestBlackSeconds", "Gate 3 QC content"),
     ...optionalNumberProperty(input, "longest_silence_seconds", "longestSilenceSeconds", "Gate 3 QC content")
   };
+}
+
+function parseGate3Sidecars(input: unknown): NonNullable<ViewerGate3QcEvidence["sidecars"]> {
+  if (!Array.isArray(input)) throw new Error("Gate 3 QC 'sidecars' must be an array");
+  return input.map((value, index) => {
+    if (!isRecord(value)) throw new Error(`Gate 3 QC sidecar ${index + 1} must be an object`);
+    if (!isRecord(value.expected)) throw new Error(`Gate 3 QC sidecar ${index + 1} expected must be an object`);
+    if (!isRecord(value.actual)) throw new Error(`Gate 3 QC sidecar ${index + 1} actual must be an object`);
+    if (typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.sha256)) {
+      throw new Error(`Gate 3 QC sidecar ${index + 1} sha256 must be a SHA-256 digest`);
+    }
+    return {
+      kind: requiredString(value.kind, `Gate 3 QC sidecar ${index + 1} kind`),
+      path: requiredString(value.path, `Gate 3 QC sidecar ${index + 1} path`),
+      sha256: value.sha256,
+      expected: {
+        durationSeconds: requiredFiniteNumber(value.expected.duration_seconds, "Gate 3 QC sidecar expected.duration_seconds"),
+        width: requiredPositiveInteger(value.expected.width, "Gate 3 QC sidecar expected.width"),
+        height: requiredPositiveInteger(value.expected.height, "Gate 3 QC sidecar expected.height"),
+        fps: requiredFiniteNumber(value.expected.fps, "Gate 3 QC sidecar expected.fps"),
+        videoCodec: requiredString(value.expected.video_codec, "Gate 3 QC sidecar expected.video_codec"),
+        alphaRequired: requiredBoolean(value.expected.alpha_required, "Gate 3 QC sidecar expected.alpha_required"),
+        audioRequired: requiredBoolean(value.expected.audio_required, "Gate 3 QC sidecar expected.audio_required")
+      },
+      actual: {
+        ...optionalNumberProperty(value.actual, "duration_seconds", "durationSeconds", "Gate 3 QC sidecar actual"),
+        ...optionalIntegerProperty(value.actual, "width", "width", "Gate 3 QC sidecar actual"),
+        ...optionalIntegerProperty(value.actual, "height", "height", "Gate 3 QC sidecar actual"),
+        ...optionalNumberProperty(value.actual, "fps", "fps", "Gate 3 QC sidecar actual"),
+        ...(typeof value.actual.codec === "string" ? { codec: value.actual.codec } : {}),
+        ...(typeof value.actual.pixel_format === "string" ? { pixelFormat: value.actual.pixel_format } : {}),
+        ...(typeof value.actual.has_alpha === "boolean" ? { hasAlpha: value.actual.has_alpha } : {}),
+        ...(typeof value.actual.has_audio === "boolean" ? { hasAudio: value.actual.has_audio } : {})
+      }
+    };
+  });
 }
 
 function optionalNumberProperty<OutputKey extends string>(

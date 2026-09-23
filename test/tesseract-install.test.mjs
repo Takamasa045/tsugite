@@ -61,15 +61,30 @@ describe("Tesseract explicit installer", () => {
       .toMatchObject({ ok: false, code: "unsupported_arch" });
     expect(resolveTesseractTarget({ platform: "win32", env: { PROCESSOR_ARCHITECTURE: "AMD64" }, windowsRelease: "6.3.9600" }))
       .toMatchObject({ ok: false, code: "unsupported_os_version" });
-    expect(resolveTesseractTarget({ platform: "linux", arch: "x64" })).toMatchObject({ ok: false, code: "unsupported_host" });
+    expect(resolveTesseractTarget({ platform: "linux", arch: "x64", glibcVersion: "2.35" }))
+      .toEqual({ ok: true, asset: "linux-x86_64" });
+    expect(resolveTesseractTarget({ platform: "linux", arch: "arm64", glibcVersion: "2.39" }))
+      .toMatchObject({ ok: false, code: "unsupported_arch" });
+    expect(resolveTesseractTarget({ platform: "linux", arch: "x64", glibcVersion: "2.34" }))
+      .toMatchObject({ ok: false, code: "unsupported_libc" });
+    expect(resolveTesseractTarget({ platform: "linux", arch: "x64", glibcVersion: "musl 1.2.5" }))
+      .toMatchObject({ ok: false, code: "unsupported_libc" });
+    expect(resolveTesseractTarget({ platform: "linux", arch: "x64", glibcVersion: "musl 2.40" }))
+      .toMatchObject({ ok: false, code: "unsupported_libc" });
   });
 
-  it("builds exact URLs from the official 0.1.0 pin", () => {
+  it("builds exact URLs from the official 0.2.0 pin and release asset names", () => {
     expect(tesseractReleaseUrls("darwin-arm64")).toEqual({
-      archiveName: "tesseract-0.1.0-darwin-arm64.zip",
-      archiveUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.1.0/tesseract-0.1.0-darwin-arm64.zip",
-      checksumUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.1.0/tesseract-0.1.0-darwin-arm64.zip.sha256"
+      archiveName: "tesseract-0.2.0-darwin-arm64.zip",
+      archiveUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.2.0/tesseract-0.2.0-darwin-arm64.zip",
+      checksumUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.2.0/tesseract-0.2.0-darwin-arm64.zip.sha256"
     });
+    expect(tesseractReleaseUrls("linux-x86_64")).toEqual({
+      archiveName: "tesseract-0.2.0-linux-x86_64.zip",
+      archiveUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.2.0/tesseract-0.2.0-linux-x86_64.zip",
+      checksumUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.2.0/tesseract-0.2.0-linux-x86_64.zip.sha256"
+    });
+    expect(() => tesseractReleaseUrls("linux-arm64")).toThrow(/Unsupported Tesseract release asset/);
     expect(() => tesseractReleaseUrls("darwin-arm64", "latest")).toThrow(/official skill pin/);
   });
 
@@ -141,7 +156,7 @@ describe("Tesseract explicit installer", () => {
       logger
     });
 
-    expect(result).toMatchObject({ ok: true, version: "0.1.0", asset: "darwin-arm64" });
+    expect(result).toMatchObject({ ok: true, version: "0.2.0", asset: "darwin-arm64" });
     expect(requested.map((entry) => entry.url)).toEqual([urls.archiveUrl, urls.checksumUrl]);
     expect(requested.every(({ options }) => options.headers.Authorization === undefined)).toBe(true);
     expect(commandCalls.map(({ command }) => command)).toEqual(["ditto", "bash", result.cliPath]);
@@ -231,7 +246,7 @@ describe("Tesseract explicit installer", () => {
       if (command === "powershell.exe" && args.includes("-Command")) {
         const extractDir = options.env.TSUGITE_TESSERACT_EXTRACT_PATH;
         const installer = path.join(extractDir, "fixture-release", "install.ps1");
-        expect(options.env.TSUGITE_TESSERACT_ARCHIVE_PATH).toContain("tesseract-0.1.0-windows-x86_64.zip");
+        expect(options.env.TSUGITE_TESSERACT_ARCHIVE_PATH).toContain("tesseract-0.2.0-windows-x86_64.zip");
         mkdirSync(path.dirname(installer), { recursive: true });
         writeFileSync(installer, "# fake official Windows installer; intentionally not executed");
         return { status: 0, stdout: "", stderr: "" };
@@ -275,5 +290,76 @@ describe("Tesseract explicit installer", () => {
       ["powershell.exe", "-ExecutionPolicy"],
       [cliPath, "--version"]
     ]);
+  });
+
+  it("exercises the Linux checksum, unzip, official install and verification flow", async () => {
+    const root = tempRoot();
+    const archiveBytes = Buffer.from("fake Linux release archive");
+    const digest = createHash("sha256").update(archiveBytes).digest("hex");
+    const urls = tesseractReleaseUrls("linux-x86_64");
+    const calls = [];
+    const env = {
+      PATH: process.env.PATH ?? "",
+      HOME: path.join(root, "home"),
+      XDG_DATA_HOME: path.join(root, "xdg data"),
+      TESSERACT_API_KEY: "must-not-be-forwarded"
+    };
+    const fetchImpl = async (url, options) => {
+      expect(options.signal).toBeInstanceOf(AbortSignal);
+      return url === urls.archiveUrl
+        ? new Response(archiveBytes, { status: 200 })
+        : new Response(`${digest}  ${urls.archiveName}${String.fromCharCode(10)}`, { status: 200 });
+    };
+    const cliPath = path.join(env.XDG_DATA_HOME, "Tesseract", "bin", "tsrct");
+    const runCommand = (command, args, options) => {
+      calls.push({ command, args, options });
+      expect(options.shell).toBe(false);
+      expect(options.env).not.toHaveProperty("TESSERACT_API_KEY");
+      if (command === "unzip") {
+        expect(args[0]).toBe("-q");
+        expect(args[1]).toContain("tesseract-0.2.0-linux-x86_64.zip");
+        const extractDir = args[3];
+        const installer = path.join(extractDir, "fixture-release", "install.sh");
+        mkdirSync(path.dirname(installer), { recursive: true });
+        writeFileSync(installer, "#!/bin/sh\n# fake official Linux installer; intentionally not executed\n");
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (command === "bash") {
+        expect(args[0].endsWith("install.sh")).toBe(true);
+        expect(options.env.HOME).toBe(env.HOME);
+        expect(options.env.XDG_DATA_HOME).toBe(env.XDG_DATA_HOME);
+        return { status: 0, stdout: "fake installer completed", stderr: "" };
+      }
+      if (command === cliPath) {
+        expect(args).toEqual(["--version"]);
+        expect(options.env.XDG_DATA_HOME).toBe(env.XDG_DATA_HOME);
+        return { status: 0, stdout: `tsrct ${TESSERACT_CLI_VERSION}`, stderr: "" };
+      }
+      throw new Error(`Unexpected command ${command}`);
+    };
+    const resolveCli = ({ platform, arch, env: verifyEnv, glibcVersion, runCommand: verify }) => {
+      expect(platform).toBe("linux");
+      expect(arch).toBe("x64");
+      expect(glibcVersion).toBe("2.35");
+      expect(verifyEnv).not.toHaveProperty("TESSERACT_API_KEY");
+      const result = verify(cliPath, ["--version"], { timeout: 1_000, maxBuffer: 1_024 });
+      expect(result.status).toBe(0);
+      return { ok: true, cliPath, version: TESSERACT_CLI_VERSION };
+    };
+
+    const result = await installTesseract({
+      platform: "linux",
+      arch: "x64",
+      env,
+      glibcVersion: "2.35",
+      fetchImpl,
+      runCommand,
+      resolveCli,
+      tempParent: root,
+      logger: { log() {}, error() {} }
+    });
+
+    expect(result).toMatchObject({ ok: true, cliPath, version: TESSERACT_CLI_VERSION, asset: "linux-x86_64" });
+    expect(calls.map(({ command }) => command)).toEqual(["unzip", "bash", cliPath]);
   });
 });

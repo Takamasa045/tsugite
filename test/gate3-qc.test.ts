@@ -67,6 +67,46 @@ describe("gate 3 qc", () => {
     expect(report.expected).toMatchObject({ width: 1920, height: 1080 });
   });
 
+  it("uses the Gate 1 native primary output contract for 4K/60 QC and rejects unexpected audio", () => {
+    const input = manifest() as Manifest & {
+      native_edit?: { primary_output?: unknown; mode?: "replace"; payload?: unknown };
+    };
+    input.native_edit = {
+      mode: "replace",
+      payload: {},
+      primary_output: { width: 3840, height: 2160, fps: 60, audio_required: false }
+    };
+    const matching = inspectGate3Output(input, "/runs/demo/final.mp4", {
+      probe: (): Gate3QcProbe => ({
+        ok: true,
+        duration_seconds: 6,
+        width: 3840,
+        height: 2160,
+        fps: 60,
+        has_video: true,
+        has_audio: false
+      }),
+      contentProbe: () => ({ ok: true })
+    });
+    expect(matching.ok).toBe(true);
+    expect(matching.expected).toMatchObject({ width: 3840, height: 2160, fps: 60, audio_required: false });
+
+    const unexpectedAudio = inspectGate3Output(input, "/runs/demo/final.mp4", {
+      probe: (): Gate3QcProbe => ({
+        ok: true,
+        duration_seconds: 6,
+        width: 3840,
+        height: 2160,
+        fps: 60,
+        has_video: true,
+        has_audio: true
+      }),
+      contentProbe: () => ({ ok: true })
+    });
+    expect(unexpectedAudio.ok).toBe(false);
+    expect(unexpectedAudio.issues).toContainEqual(expect.objectContaining({ code: "gate3.output.audio_mismatch" }));
+  });
+
   it("reports probe failure without throwing", () => {
     const report = inspectGate3Output(manifest(), "/runs/demo/final.mp4", {
       probe: (): Gate3QcProbe => ({ ok: false, error: "ffprobe unavailable" })

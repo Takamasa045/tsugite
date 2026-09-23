@@ -283,12 +283,20 @@ function gate3Details(context: DetailContext): ViewerWorkflowNodeDetails {
       reference: `${outputName} / gate3-qc.json`,
       facts: [...finalOutputFacts(qc, plan), ...personFacts]
     }],
-    outputs: [{
-      label: "最終成果物の採用判断",
-      description: "この動画を完成品として納品・公開に使用してよいかという最終判断です。",
-      reference: "gate-3.result",
-      facts: [decision.decision, ...personFacts]
-    }],
+    outputs: [
+      {
+        label: "最終成果物の採用判断",
+        description: "この動画を完成品として納品・公開に使用してよいかという最終判断です。",
+        reference: "gate-3.result",
+        facts: [decision.decision, ...personFacts]
+      },
+      ...(qc?.sidecars ?? []).map((sidecar) => ({
+        label: sidecarLabel(sidecar.kind),
+        description: "Gate 1で承認した仕様と実ファイルの検査結果です。",
+        reference: sidecar.path,
+        facts: sidecarDetailFacts(sidecar)
+      }))
+    ],
     approval: {
       subject: `${outputName}を納品可能な最終成果物として採用すること`,
       checkpoints: [
@@ -391,7 +399,28 @@ function gate3Checkpoints(
     `音声: ${actual?.hasAudio === false ? "なし（要確認）" : "あり"}`,
     `黒画面の最長: ${seconds(qc?.content?.longestBlackSeconds ?? 0)}`,
     `無音の最長: ${seconds(qc?.content?.longestSilenceSeconds ?? 0)}`,
+    ...(qc?.sidecars ?? []).map((sidecar) =>
+      `${sidecarLabel(sidecar.kind)}: ${sidecar.path} / ${sidecar.expected.videoCodec} ${sidecar.expected.width}×${sidecar.expected.height} ${formatNumber(sidecar.expected.fps)}fps / 実測${sidecar.actual.codec ?? "不明"} ${sidecar.actual.width ?? "?"}×${sidecar.actual.height ?? "?"} ${formatNumber(sidecar.actual.fps ?? 0)}fps`
+    ),
     qc?.ok === false ? `最終検査で${qc.issues?.length ?? 0}件の問題あり` : "最終検査の問題: 0件"
+  ];
+}
+
+function sidecarLabel(kind: string): string {
+  if (kind === "prores_mov") return "ProRes MOVマスター";
+  if (kind === "alpha_solo_prores_mov") return "アルファ付きProRes MOV";
+  return `追加動画 ${kind}`;
+}
+
+function sidecarDetailFacts(
+  sidecar: NonNullable<NonNullable<ViewerArtifactSnapshot["gate3Qc"]>["sidecars"]>[number]
+): string[] {
+  const expected = sidecar.expected;
+  const actual = sidecar.actual;
+  return [
+    `承認仕様: ${expected.videoCodec} / ${expected.width}×${expected.height} / ${formatNumber(expected.fps)}fps / ${seconds(expected.durationSeconds)} / alpha ${expected.alphaRequired ? "必須" : "任意"} / 音声${expected.audioRequired ? "あり" : "なし"}`,
+    `実測: ${actual.codec ?? "不明"} / ${actual.width ?? "?"}×${actual.height ?? "?"} / ${formatNumber(actual.fps ?? 0)}fps / ${actual.durationSeconds === undefined ? "尺不明" : seconds(actual.durationSeconds)} / alpha ${actual.hasAlpha === undefined ? "不明" : actual.hasAlpha ? "あり" : "なし"} / 音声${actual.hasAudio === undefined ? "不明" : actual.hasAudio ? "あり" : "なし"}`,
+    `SHA-256: ${sidecar.sha256}`
   ];
 }
 

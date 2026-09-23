@@ -72,6 +72,7 @@ export function buildPlanDigest(input: {
   runId: string;
   finalOutputDigest: string;
   gate3ApprovedInputDigest: string;
+  gate3SidecarApprovalDigest?: string;
   retainedMedia: readonly string[];
   candidates: readonly FinalizeFileIdentity[];
 }): string {
@@ -88,6 +89,9 @@ export function buildPlanDigest(input: {
     run_id: input.runId,
     final_output_digest: input.finalOutputDigest,
     gate3_approved_input_digest: input.gate3ApprovedInputDigest,
+    ...(input.gate3SidecarApprovalDigest
+      ? { gate3_sidecar_approval_digest: input.gate3SidecarApprovalDigest }
+      : {}),
     retained_media: [...input.retainedMedia].sort(comparePath),
     candidates: [...input.candidates]
       .map((candidate) => ({

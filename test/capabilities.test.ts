@@ -98,6 +98,67 @@ describe("backend capabilities", () => {
     expect(result.ok).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain("backend.capability.preset");
   });
+
+  it("keeps manifest images available to existing backends without native Tesseract authoring", async () => {
+    const validation = await validateProject("fixtures/projects/dialogue-remotion.yaml");
+    expect(validation.ok).toBe(true);
+    expect(validation.manifest?.images.length).toBeGreaterThan(0);
+    const backend = await loadBackendCapabilities("remotion");
+    expect(backend).toBeDefined();
+    expect(validateBackendCapabilities(validation.manifest!, backend!).ok).toBe(true);
+  });
+
+  it("rejects opaque native editing data when a backend does not declare support", async () => {
+    const source = await readFile("fixtures/manifests/minimal.valid.json", "utf8");
+    const manifest = manifestSchema.parse({
+      ...JSON.parse(source),
+      native_edit: {
+        mode: "replace",
+        payload: { document: { dimensions: { width: 1920, height: 1080 }, duration: 6, composition: { id: "main", layers: [] } } }
+      }
+    });
+    const backend = await loadBackendCapabilities("remotion");
+    expect(backend).toBeDefined();
+
+    const result = validateBackendCapabilities(manifest, backend!);
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: "backend.capability.native_edit",
+      path: "native_edit"
+    }));
+  });
+
+  it("reads extended aspect and fps support from backend capabilities", async () => {
+    const source = await readFile("fixtures/manifests/minimal.valid.json", "utf8");
+    const backend = await loadBackendCapabilities("tesseract");
+    expect(backend).toBeDefined();
+    const fullDocumentManifest = manifestSchema.parse({
+      ...JSON.parse(source),
+      meta: { ...JSON.parse(source).meta, aspect: "4:5", fps: 60 },
+      native_edit: {
+        mode: "replace",
+        payload: {
+          document: { dimensions: { width: 1080, height: 1350 }, duration: 6, composition: { id: "main", layers: [] } },
+          export: { resolution: "4k", fps: 60 }
+        }
+      }
+    });
+    expect(validateBackendCapabilities(fullDocumentManifest, backend!).ok).toBe(true);
+
+    const generatedLayerManifest = manifestSchema.parse({
+      ...JSON.parse(source),
+      meta: { ...JSON.parse(source).meta, fps: 60 }
+    });
+    const result = validateBackendCapabilities(generatedLayerManifest, backend!);
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "backend.capability.fps" }));
+  });
+
+  it("advertises the renderer's CLI preview and filmstrip outputs", async () => {
+    const backend = await loadBackendCapabilities("tesseract");
+    expect(backend?.motion_review?.preview).toBe("native-cli");
+  });
 });
 
 describe("hyperframes render runner", () => {

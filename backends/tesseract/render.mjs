@@ -1,16 +1,20 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { link, lstat, mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { access, link, lstat, mkdtemp, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateSync } from "node:zlib";
 import { resolveTesseractCli, runTesseractCli } from "./cli.mjs";
 import { buildTesseractAudioReactiveActions } from "./audioEnvelope.mjs";
 import { buildTesseractCaptionMotionActions } from "./textMotion.mjs";
-import { applyTesseractDocument } from "./document.mjs";
+import { applyTesseractDocument, applyTesseractNativeDocument } from "./document.mjs";
 import {
   assertNoConflictingKeyframeActions,
   assertSupportedManifest,
   assertTesseractInputDimensions,
+  assertTesseractNativeActions,
+  resolveTesseractNativeOutputs,
   buildTesseractCaptionLayerTargets,
   buildTesseractDocumentLayers,
   buildTesseractMotionActions,
@@ -20,7 +24,16 @@ import {
 
 const MAX_PROBE_OUTPUT = 1024 * 1024;
 const MAX_CLI_OUTPUT = 4 * 1024 * 1024;
+const MAX_PNG_PIXELS = 64 * 1024 * 1024;
+const MAX_PNG_DECODED_BYTES = 256 * 1024 * 1024;
 const PROJECT_FILE_NAME = "final.tsrct";
+const FONT_SUFFIXES = new Set([".ttf", ".otf", ".ttc"]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const PNG_CRC_TABLE = Uint32Array.from({ length: 256 }, (_, value) => {
+  let crc = value;
+  for (let bit = 0; bit < 8; bit += 1) crc = (crc & 1) ? (0xedb88320 ^ (crc >>> 1)) : (crc >>> 1);
+  return crc >>> 0;
+});
 
 export async function renderTesseract(input, dependencies = {}) {
   const paths = parsePayload(input);
@@ -28,16 +41,31 @@ export async function renderTesseract(input, dependencies = {}) {
   await assertPathTree(paths.manifestPath, paths.runDir, "manifestPath");
   await assertPathTree(paths.outputPath, paths.runDir, "outputPath");
   await assertPathTree(paths.reportPath, paths.runDir, "reportPath");
+  await assertPathTree(paths.previewPath, paths.runDir, "Tesseract preview path");
+  await assertPathTree(paths.filmstripPath, paths.runDir, "Tesseract filmstrip path");
   await assertPathTree(paths.projectPath, paths.runDir, "editable project path");
   await assertDirectory(paths.projectRoot, "projectRoot");
   await assertNotExists(paths.projectPath, "editable Tesseract project");
   await assertNotExists(paths.outputPath, "final video");
   await assertNotExists(paths.reportPath, "render report");
-
   const manifest = await readManifest(paths.manifestPath);
-  const dimensions = assertSupportedManifest(manifest);
+  const dimensions = assertSupportedManifest(manifest, dependencies.platform ?? process.platform);
+  const hasNativeAuthoring = Boolean(manifest.native_edit);
+  const nativeOutputs = resolveTesseractNativeOutputs(manifest.native_edit, dependencies.platform ?? process.platform, manifest.meta.target_duration_seconds);
+  for (const output of nativeOutputs) {
+    const destination = resolve(paths.runDir, output.path);
+    await assertPathTree(destination, paths.runDir, `native output '${output.path}'`);
+    await assertNotExists(destination, `native output '${output.path}'`);
+  }
+  assertNativeDeclaredAssetsReferenced(manifest);
+  if (hasNativeAuthoring) {
+    await assertNotExists(paths.previewPath, "Tesseract preview image");
+    await assertNotExists(paths.filmstripPath, "Tesseract filmstrip image");
+  }
   const clipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
-  const durationSeconds = Math.max(manifest.meta.target_duration_seconds, clipDuration);
+  const durationSeconds = manifest.native_edit?.payload?.document
+    ? manifest.meta.target_duration_seconds
+    : Math.max(manifest.meta.target_duration_seconds, clipDuration);
   const textRequired = Boolean(manifest.presentation?.title) || (manifest.captions?.length ?? 0) > 0;
   const font = await resolveFont(paths.projectRoot, paths.backendOptions, textRequired);
 
@@ -45,6 +73,20 @@ export async function renderTesseract(input, dependencies = {}) {
   for (const clip of manifest.clips) mediaPaths.set(clip.src, await resolveRunAsset(paths.runDir, clip.src));
   for (const group of ["bgm", "narration", "sfx"]) {
     for (const track of manifest.audio?.[group] ?? []) mediaPaths.set(track.src, await resolveRunAsset(paths.runDir, track.src));
+  }
+  const requestedAssetIdBySource = new Map();
+  if (manifest.native_edit?.payload?.document) {
+    for (const clip of manifest.clips) requestedAssetIdBySource.set(clip.src, clip.id);
+  }
+  for (const image of manifest.images ?? []) {
+    mediaPaths.set(image.src, await resolveRunAsset(paths.runDir, image.src));
+    requestedAssetIdBySource.set(image.src, image.id);
+  }
+  for (const asset of manifest.native_edit?.assets ?? []) {
+    mediaPaths.set(asset.src, await resolveRunAsset(paths.runDir, asset.src));
+    const previous = requestedAssetIdBySource.get(asset.src);
+    if (previous && previous !== asset.asset_id) throw new Error(`native asset '${asset.src}' has conflicting asset IDs '${previous}' and '${asset.asset_id}'`);
+    requestedAssetIdBySource.set(asset.src, asset.asset_id);
   }
   const sourceInfo = new Map();
   const assetIds = new Map();
@@ -56,6 +98,8 @@ export async function renderTesseract(input, dependencies = {}) {
   for (const group of ["bgm", "narration", "sfx"]) {
     for (const track of manifest.audio?.[group] ?? []) registerSourceRole(sourceRoleByPath, track.src, "audio");
   }
+  for (const image of manifest.images ?? []) registerSourceRole(sourceRoleByPath, image.src, "image");
+  for (const asset of manifest.native_edit?.assets ?? []) registerSourceRole(sourceRoleByPath, asset.src, asset.kind);
   for (const [src, path] of mediaPaths) {
     let canonical = await realpath(path);
     if (!isWithinRoot(canonical, await realpath(paths.runDir))) throw new Error(`media source '${src}' resolves outside the owned run directory`);
@@ -63,19 +107,20 @@ export async function renderTesseract(input, dependencies = {}) {
     fileIdentityBySource.set(src, `${fileInfo.dev}:${fileInfo.ino}`);
     let media = importsByPath.get(canonical);
     if (!media) {
-      media = await (dependencies.probeMedia ?? probeMedia)(canonical);
+      const role = sourceRoleByPath.get(src);
+      media = role === "image" ? undefined : await (dependencies.probeMedia ?? probeMedia)(canonical);
       importsByPath.set(canonical, { media, assetId: undefined });
     }
     canonicalBySource.set(src, canonical);
-    sourceInfo.set(src, media);
+    sourceInfo.set(src, importsByPath.get(canonical).media);
   }
   assertNoCrossRoleMediaReferences(sourceRoleByPath, fileIdentityBySource);
   assertNoDuplicateAudioSources(manifest, fileIdentityBySource, durationSeconds);
-  assertTesseractInputDimensions(manifest, sourceInfo, dimensions);
+  if (!manifest.native_edit?.payload?.document) assertTesseractInputDimensions(manifest, sourceInfo, dimensions);
 
   const runtime = await (dependencies.resolveCli ?? resolveTesseractCli)();
   if (!runtime?.ok || typeof runtime.cliPath !== "string") {
-    throw new Error(runtime?.message ?? "pinned Tesseract CLI 0.1.0 is unavailable; install it explicitly before rendering");
+    throw new Error(runtime?.message ?? "the pinned Tesseract CLI is unavailable; install it explicitly before rendering");
   }
   const cliPath = runtime.cliPath;
   const invoke = async (args, stage, timeout = 120_000) => {
@@ -91,6 +136,9 @@ export async function renderTesseract(input, dependencies = {}) {
   const stagedProjectPath = join(workDir, PROJECT_FILE_NAME);
   const stagedOutputPath = join(workDir, "final.mp4");
   const stagedReportPath = join(workDir, "render-report.json");
+  const stagedPreviewPath = join(workDir, "preview.png");
+  const stagedFilmstripPath = join(workDir, "filmstrip.png");
+  const stagedNativeOutputs = nativeOutputs.map((output) => ({ ...output, stagedPath: join(workDir, output.path) }));
   const publishedArtifacts = [];
   let completed = false;
   let renderFailure;
@@ -101,17 +149,38 @@ export async function renderTesseract(input, dependencies = {}) {
     await invoke(["project", "create", "--project", stagedProjectPath], "project creation");
     await assertRegularFile(stagedProjectPath, "editable Tesseract project", workDir);
 
+    const requestedAssetIdByCanonical = new Map();
+    for (const [src, requestedAssetId] of requestedAssetIdBySource) {
+      const canonical = canonicalBySource.get(src);
+      if (!canonical) throw new Error(`declared Tesseract asset '${src}' was not resolved`);
+      const previous = requestedAssetIdByCanonical.get(canonical);
+      if (previous && previous !== requestedAssetId) throw new Error(`asset aliases for '${src}' declare conflicting Tesseract asset IDs`);
+      requestedAssetIdByCanonical.set(canonical, requestedAssetId);
+    }
+    const importedIds = new Set();
     for (const [canonical, entry] of importsByPath) {
       const representativeSrc = [...canonicalBySource.entries()].find(([, path]) => path === canonical)?.[0];
       if (!representativeSrc) throw new Error("internal media import path mismatch");
-      const videoSuffixes = new Set([".mp4", ".mov", ".m4v"]);
-      const requestedAssetId = makeAssetId(representativeSrc);
-      const importResult = videoSuffixes.has(extname(canonical).toLowerCase())
+      const role = sourceRoleByPath.get(representativeSrc);
+      if (!role || !["video", "audio", "image"].includes(role)) throw new Error(`unsupported native asset kind for '${representativeSrc}'`);
+      const requestedAssetId = requestedAssetIdByCanonical.get(canonical) ?? makeAssetId(representativeSrc);
+      if (importedIds.has(requestedAssetId)) throw new Error(`Tesseract assets must use unique IDs; duplicate '${requestedAssetId}'`);
+      importedIds.add(requestedAssetId);
+      const importResult = role === "video"
         ? await invoke(["project", "import-video", "--project", stagedProjectPath, "--file", canonical, "--asset-id", requestedAssetId], `video import for '${representativeSrc}'`)
-        : await invoke(["project", "import-asset", "--project", stagedProjectPath, "--file", canonical, "--asset-id", requestedAssetId, "--kind", "audio"], `audio import for '${representativeSrc}'`);
+        : await invoke(["project", "import-asset", "--project", stagedProjectPath, "--file", canonical, "--asset-id", requestedAssetId, "--kind", role], `${role} import for '${representativeSrc}'`);
       entry.assetId = parseImportedAssetId(importResult.stdout, `asset import for '${representativeSrc}'`);
       if (entry.assetId !== requestedAssetId) throw new Error(`Tesseract import for '${representativeSrc}' returned an unexpected assetId`);
       for (const [src, path] of canonicalBySource) if (path === canonical) assetIds.set(src, entry.assetId);
+    }
+
+    const nativeFontImports = [];
+    for (const [index, nativeFont] of (manifest.native_edit?.fonts ?? []).entries()) {
+      const fontPath = await resolveRunAsset(paths.runDir, nativeFont.src);
+      if (!FONT_SUFFIXES.has(extname(fontPath).toLowerCase())) throw new Error(`native_edit.fonts.${index}.src must use TTF, OTF, or TTC`);
+      const importResult = await invoke(["project", "import-font", "--project", stagedProjectPath, "--file", fontPath], `native font import ${index + 1}`);
+      const faces = parseImportedFontFaces(importResult.stdout, nativeFont.family, nativeFont.style);
+      nativeFontImports.push({ src: nativeFont.src, faces });
     }
 
     let fontFace;
@@ -124,21 +193,29 @@ export async function renderTesseract(input, dependencies = {}) {
     await invoke(["project", "checkout", "--project", stagedProjectPath, "--output", editablePath], "project checkout");
     await assertRegularFile(editablePath, "checked out Tesseract document", workDir);
     const document = await readJsonFile(editablePath, "checked out Tesseract document");
-    const built = buildTesseractDocumentLayers(manifest, { assetIds, sourceInfo, durationSeconds });
-    const configured = applyTesseractDocument(document, documentSchema, {
-      width: dimensions.width,
-      height: dimensions.height,
-      durationSeconds,
-      layers: built.layers
-    });
+    const built = manifest.native_edit?.payload?.document
+      ? { layers: [], clipLayers: [], nextLayerId: 1 }
+      : buildTesseractDocumentLayers(manifest, { assetIds, sourceInfo, durationSeconds });
+    const configured = manifest.native_edit?.payload?.document
+      ? applyTesseractNativeDocument(documentSchema, manifest.native_edit.payload.document, {
+          width: dimensions.width,
+          height: dimensions.height,
+          durationSeconds
+        })
+      : applyTesseractDocument(document, documentSchema, {
+          width: dimensions.width,
+          height: dimensions.height,
+          durationSeconds,
+          layers: built.layers
+        });
     await writeFile(editablePath, `${JSON.stringify(configured.document, null, 2)}\n`, { flag: "w" });
     await invoke(["project", "commit", "--project", stagedProjectPath, "--file", editablePath], "project commit");
 
-    const motionActions = buildTesseractMotionActions(manifest, {
+    const motionActions = manifest.native_edit?.payload?.document ? [] : buildTesseractMotionActions(manifest, {
       compositionId: configured.compositionId,
       clipLayers: built.clipLayers
     });
-    const textActions = buildTesseractTextActions(manifest, {
+    const textActions = manifest.native_edit?.payload?.document ? [] : buildTesseractTextActions(manifest, {
       compositionId: configured.compositionId,
       firstLayerId: built.nextLayerId,
       fontFamily: fontFace?.fontFamily,
@@ -148,14 +225,14 @@ export async function renderTesseract(input, dependencies = {}) {
       durationSeconds
     });
     const captionLayers = buildTesseractCaptionLayerTargets(manifest, textActions);
-    const captionMotionActions = buildTesseractCaptionMotionActions(manifest, {
+    const captionMotionActions = manifest.native_edit?.payload?.document ? [] : buildTesseractCaptionMotionActions(manifest, {
       compositionId: configured.compositionId,
       textActions,
       width: dimensions.width,
       height: dimensions.height,
       fps: manifest.meta.fps
     });
-    const audioReactiveActions = await buildTesseractAudioReactiveActions(manifest, {
+    const audioReactiveActions = manifest.native_edit?.payload?.document ? [] : await buildTesseractAudioReactiveActions(manifest, {
       compositionId: configured.compositionId,
       clipLayers: built.clipLayers,
       captionLayers,
@@ -164,19 +241,63 @@ export async function renderTesseract(input, dependencies = {}) {
       readPcm: dependencies.readAudioPcm
     });
     assertNoConflictingKeyframeActions(motionActions, captionMotionActions, audioReactiveActions);
-    const authoringActions = [...motionActions, ...textActions, ...captionMotionActions, ...audioReactiveActions];
+    const nativeActions = manifest.native_edit?.payload?.actions ?? [];
+    if (nativeActions.length > 0) {
+      const actionSchemaResult = await invoke(["project", "schema"], "action schema");
+      const actionSchema = parseJsonOutput(actionSchemaResult.stdout, "project schema");
+      assertTesseractNativeActions(nativeActions, actionSchema);
+    }
+    const authoringActions = [...motionActions, ...textActions, ...captionMotionActions, ...audioReactiveActions, ...nativeActions];
     if (authoringActions.length > 0) {
       const actionsPath = join(workDir, "authoring-actions.json");
       await writeFile(actionsPath, `${JSON.stringify(authoringActions, null, 2)}\n`, { flag: "wx" });
       await invoke(["project", "apply", "--project", stagedProjectPath, "--actions", actionsPath], "motion/text authoring");
     }
 
-    await invoke(["export", "--project", stagedProjectPath, "--output", stagedOutputPath], "export", 600_000);
+    let finalNativeDocument = manifest.native_edit?.payload?.document;
+    if (manifest.native_edit?.payload?.document) {
+      const finalDocumentPath = join(workDir, "final-document.json");
+      await invoke(["project", "checkout", "--project", stagedProjectPath, "--output", finalDocumentPath], "final document checkout");
+      await assertRegularFile(finalDocumentPath, "final Tesseract document", workDir);
+      finalNativeDocument = await readJsonFile(finalDocumentPath, "final Tesseract document");
+    }
+
+    if (hasNativeAuthoring) {
+      const previewTime = Math.min(durationSeconds / 2, Math.max(0, durationSeconds - 0.001));
+      const durationMs = Math.max(1, Math.floor(durationSeconds * 1000));
+      const filmstripIntervalMs = Math.max(250, Math.ceil(durationMs / 24 / 50) * 50);
+      await invoke(["preview", "--project", stagedProjectPath, "--time", String(previewTime), "--output", stagedPreviewPath], "native preview");
+      await assertPng(stagedPreviewPath, "Tesseract native preview", workDir);
+      await invoke(["filmstrip", "--project", stagedProjectPath, "--start-ms", "0", "--duration-ms", String(durationMs), "--interval-ms", String(filmstripIntervalMs), "--output", stagedFilmstripPath], "native filmstrip");
+      await assertPng(stagedFilmstripPath, "Tesseract native filmstrip", workDir);
+    }
+
+    const exportSettings = resolveNativeExportSettings(manifest);
+    const exportArgs = ["export", "--project", stagedProjectPath, "--output", stagedOutputPath];
+    if (manifest.native_edit?.payload?.document) exportArgs.push("--resolution", exportSettings.resolution, "--fps", String(exportSettings.fps));
+    const ffmpegPath = await resolveExportFfmpeg(paths.backendOptions);
+    if (ffmpegPath) exportArgs.push("--encoder-backend", "external-ffmpeg-command", "--ffmpeg-path", ffmpegPath);
+    await invoke(exportArgs, "export", 600_000);
     await assertRegularFile(stagedProjectPath, "editable Tesseract project", workDir);
     await assertRegularFile(stagedOutputPath, "rendered video", workDir);
     const metadata = await (dependencies.probeMedia ?? probeMedia)(stagedOutputPath);
-    validateRenderedOutput(metadata, manifest, dimensions, durationSeconds);
-    await (dependencies.decodeVideo ?? decodeVideo)(stagedOutputPath);
+    validateRenderedOutput(metadata, manifest, dimensions, durationSeconds, exportSettings, finalNativeDocument);
+    await (dependencies.decodeVideo ?? decodeVideo)(stagedOutputPath, ffmpegPath);
+    for (const output of stagedNativeOutputs) {
+      const sidecarArgs = ["export", "--project", stagedProjectPath, "--format", "prores", "--output", output.stagedPath,
+        "--resolution", exportSettings.resolution, "--fps", String(exportSettings.fps)];
+      if (output.kind === "alpha_solo_prores_mov") {
+        sidecarArgs.push("--fx-solo", manifest.native_edit.payload.export.prores_alpha_solo);
+      }
+      await invoke(sidecarArgs, output.kind === "alpha_solo_prores_mov" ? "ProRes alpha sidecar export" : "ProRes sidecar export", 600_000);
+      await assertRegularFile(output.stagedPath, output.kind, workDir);
+      const sidecarMetadata = await (dependencies.probeMedia ?? probeMedia)(output.stagedPath);
+      validateProresSidecar(sidecarMetadata, output);
+      await (dependencies.decodeVideo ?? decodeVideo)(output.stagedPath, ffmpegPath);
+    }
+    const nativeLayerInfo = manifest.native_edit?.payload?.document
+      ? summarizeNativeDocument(finalNativeDocument, requestedAssetIdBySource, sourceRoleByPath)
+      : undefined;
     const report = {
       backend: "tesseract",
       status: "rendered",
@@ -188,8 +309,13 @@ export async function renderTesseract(input, dependencies = {}) {
       width: metadata.width,
       height: metadata.height,
       fps: metadata.fps,
-      clip_count: manifest.clips.length,
-      audio_track_count: (manifest.audio?.bgm?.length ?? 0) + (manifest.audio?.narration?.length ?? 0) + (manifest.audio?.sfx?.length ?? 0),
+      ...(nativeLayerInfo ? nativeLayerInfo : {
+        clip_count: manifest.clips.length,
+        audio_track_count: (manifest.audio?.bgm?.length ?? 0) + (manifest.audio?.narration?.length ?? 0) + (manifest.audio?.sfx?.length ?? 0)
+      }),
+      ...(nativeFontImports.length ? { native_font_imports: nativeFontImports } : {}),
+      ...(nativeOutputs.length ? { sidecars: nativeOutputs.map(({ kind, path }) => ({ kind, path })) } : {}),
+      ...(hasNativeAuthoring ? { preview_path: paths.previewPath, filmstrip_path: paths.filmstripPath } : {}),
       ...(describeTesseractMotion(manifest) ? { motion: describeTesseractMotion(manifest) } : {}),
       audio_reactive_action_count: audioReactiveActions.length,
       rendered_at: new Date().toISOString()
@@ -197,6 +323,13 @@ export async function renderTesseract(input, dependencies = {}) {
     await writeReport(stagedReportPath, report, workDir);
     await publishArtifact(stagedProjectPath, paths.projectPath, paths.runDir, "editable Tesseract project", publishedArtifacts);
     await publishArtifact(stagedOutputPath, paths.outputPath, paths.runDir, "final video", publishedArtifacts);
+    for (const output of stagedNativeOutputs) {
+      await publishArtifact(output.stagedPath, resolve(paths.runDir, output.path), paths.runDir, output.kind, publishedArtifacts);
+    }
+    if (hasNativeAuthoring) {
+      await publishArtifact(stagedPreviewPath, paths.previewPath, paths.runDir, "Tesseract native preview", publishedArtifacts);
+      await publishArtifact(stagedFilmstripPath, paths.filmstripPath, paths.runDir, "Tesseract native filmstrip", publishedArtifacts);
+    }
     await publishArtifact(stagedReportPath, paths.reportPath, paths.runDir, "render report", publishedArtifacts);
     completed = true;
     return report;
@@ -227,36 +360,51 @@ export function parsePayload(input) {
   if (outputPath !== resolve(join(runDir, "final.mp4"))) throw new Error("outputPath must be <runDir>/final.mp4");
   if (reportPath !== resolve(join(runDir, "render-report.json"))) throw new Error("reportPath must be <runDir>/render-report.json");
   const projectPath = resolve(join(runDir, PROJECT_FILE_NAME));
+  const previewPath = resolve(join(runDir, "preview.png"));
+  const filmstripPath = resolve(join(runDir, "filmstrip.png"));
   const backendOptions = input.backendOptions ?? {};
   if (!backendOptions || typeof backendOptions !== "object" || Array.isArray(backendOptions)) throw new Error("backendOptions must be an object");
   for (const key of Object.keys(backendOptions)) {
-    if (!["font_path", "font_family", "font_style"].includes(key)) throw new Error(`unsupported Tesseract backend option '${key}'`);
+    if (!["font_path", "font_family", "font_style", "ffmpeg_path"].includes(key)) throw new Error(`unsupported Tesseract backend option '${key}'`);
+  }
+  if (backendOptions.ffmpeg_path !== undefined && (typeof backendOptions.ffmpeg_path !== "string" || !isAbsolute(backendOptions.ffmpeg_path))) {
+    throw new Error("ffmpeg_path must be an absolute path to an executable ffmpeg binary");
   }
   if ((backendOptions.font_family === undefined) !== (backendOptions.font_style === undefined)) {
     throw new Error("font_family and font_style must be set together when selecting a face from a font collection");
   }
-  return { runDir, manifestPath, outputPath, reportPath, projectRoot, projectPath, backendOptions };
+  return { runDir, manifestPath, outputPath, reportPath, previewPath, filmstripPath, projectRoot, projectPath, backendOptions };
 }
 
-export function validateRenderedOutput(metadata, manifest, dimensions, expectedDuration) {
+export function validateRenderedOutput(metadata, manifest, dimensions, expectedDuration, exportSettings = resolveNativeExportSettings(manifest), nativeDocument = manifest.native_edit?.payload?.document) {
   if (!metadata || metadata.ok === false || !metadata.hasVideo || !Number.isFinite(metadata.durationSeconds) || metadata.durationSeconds <= 0) {
     throw new Error("ffprobe could not validate the Tesseract MP4 output");
   }
   if (!metadata.width || !metadata.height || !metadata.fps || !Number.isFinite(metadata.fps) || !(metadata.sizeBytes > 0)) {
     throw new Error("Tesseract MP4 has incomplete video metadata or is empty");
   }
-  if (Math.abs(metadata.fps - manifest.meta.fps) > 0.000001) {
-    throw new Error(`Tesseract export produced ${metadata.fps} fps, but the manifest declares ${manifest.meta.fps} fps; refusing a mismatched render`);
+  if (Math.abs(metadata.fps - exportSettings.fps) > 0.000001) {
+    throw new Error(`Tesseract export produced ${metadata.fps} fps, but the reviewed export requests ${exportSettings.fps} fps; refusing a mismatched render`);
   }
-  if (metadata.width !== dimensions.width || metadata.height !== dimensions.height) {
-    throw new Error(`Tesseract MP4 dimensions ${metadata.width}x${metadata.height} do not match the requested ${dimensions.width}x${dimensions.height}`);
+  const expectedDimensions = expectedExportDimensions(dimensions, manifest.native_edit?.payload?.document, exportSettings.resolution);
+  if (metadata.width !== expectedDimensions.width || metadata.height !== expectedDimensions.height) {
+    throw new Error(`Tesseract MP4 dimensions ${metadata.width}x${metadata.height} do not match the reviewed ${exportSettings.resolution} export ${expectedDimensions.width}x${expectedDimensions.height}`);
   }
   if (Math.abs(metadata.durationSeconds - expectedDuration) > (1 / manifest.meta.fps) + 0.03) {
     throw new Error(`Tesseract export duration ${metadata.durationSeconds.toFixed(3)}s does not match the manifest duration ${expectedDuration.toFixed(3)}s`);
   }
-  const expectedAudio = manifest.clips.some((clip) => clip.audio) ||
-    ["bgm", "narration", "sfx"].some((group) => (manifest.audio?.[group] ?? []).some((track) => (track.volume ?? 1) > 0));
-  if (expectedAudio && !metadata.hasAudio) throw new Error("Tesseract MP4 is missing audio requested by the manifest");
+  const expectedAudio = manifest.native_edit?.payload?.document
+    ? nativeDocumentReferencesAudio(nativeDocument, manifest)
+    : manifest.clips.some((clip) => clip.audio) ||
+      ["bgm", "narration", "sfx"].some((group) => (manifest.audio?.[group] ?? []).some((track) => (track.volume ?? 1) > 0));
+  if (manifest.native_edit?.payload?.document) {
+    const expectedNativeAudio = manifest.native_edit.primary_output.audio_required;
+    if (Boolean(metadata.hasAudio) !== expectedNativeAudio) {
+      throw new Error("Tesseract native MP4 audio presence does not match the Gate 1 declaration");
+    }
+  } else if (expectedAudio && !metadata.hasAudio) {
+    throw new Error("Tesseract MP4 is missing audio referenced by the native document or manifest");
+  }
 }
 
 export async function probeMedia(path) {
@@ -283,17 +431,279 @@ export async function probeMedia(path) {
   const fps = parseFrameRate(video?.avg_frame_rate || video?.r_frame_rate);
   const sizeBytes = Number(parsed.format?.size) || 0;
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error(`ffprobe could not read a positive duration for '${path}'`);
-  return { hasVideo: Boolean(video), hasAudio: audio, durationSeconds, videoDurationSeconds, audioDurationSeconds, width, height, fps, sizeBytes };
+  return {
+    hasVideo: Boolean(video), hasAudio: audio, durationSeconds, videoDurationSeconds, audioDurationSeconds,
+    width, height, fps, videoCodec: video?.codec_name, pixelFormat: video?.pix_fmt, sizeBytes
+  };
 }
 
-export async function decodeVideo(path) {
-  const result = spawnSync("ffmpeg", ["-v", "error", "-i", path, "-f", "null", "-"], {
+const ALPHA_PIXEL_FORMATS = new Set(["argb", "rgba", "abgr", "bgra"]);
+
+export function validateProresSidecar(metadata, output) {
+  if (!metadata || metadata.ok === false || !metadata.hasVideo || !(metadata.sizeBytes > 0) ||
+      !Number.isFinite(metadata.durationSeconds) || metadata.durationSeconds <= 0) {
+    throw new Error(`ffprobe could not validate the ${output.kind} sidecar`);
+  }
+  const expected = output;
+  if (metadata.width !== expected.width || metadata.height !== expected.height) {
+    throw new Error(`${output.kind} dimensions ${metadata.width}x${metadata.height} do not match the Gate 1 declaration ${expected.width}x${expected.height}`);
+  }
+  if (!Number.isFinite(metadata.fps) || Math.abs(metadata.fps - expected.fps) > 0.000001) {
+    throw new Error(`${output.kind} fps does not match the Gate 1 declaration of ${expected.fps}`);
+  }
+  if (metadata.videoCodec !== expected.video_codec) {
+    throw new Error(`${output.kind} video codec '${metadata.videoCodec ?? "unknown"}' does not match the Gate 1 declaration '${expected.video_codec}'`);
+  }
+  const actualDuration = Number.isFinite(metadata.videoDurationSeconds) ? metadata.videoDurationSeconds : metadata.durationSeconds;
+  if (Math.abs(actualDuration - expected.duration_seconds) > (1 / expected.fps) + 0.03) {
+    throw new Error(`${output.kind} duration ${actualDuration.toFixed(3)}s does not match the Gate 1 declaration ${expected.duration_seconds.toFixed(3)}s`);
+  }
+  if (Boolean(metadata.hasAudio) !== expected.audio_required) {
+    throw new Error(`${output.kind} audio presence does not match the Gate 1 declaration`);
+  }
+  if (expected.alpha_required) {
+    const pixelFormat = metadata.pixelFormat;
+    if (typeof pixelFormat !== "string" || !(ALPHA_PIXEL_FORMATS.has(pixelFormat) || /^yuva\d{3,4}p(?:\d{2})?(?:le|be)?$/.test(pixelFormat))) {
+      throw new Error(`${output.kind} pixel format '${pixelFormat ?? "unknown"}' does not preserve alpha`);
+    }
+  }
+}
+
+export async function decodeVideo(path, ffmpegPath = "ffmpeg") {
+  const result = spawnSync(ffmpegPath, ["-v", "error", "-i", path, "-f", "null", "-"], {
     encoding: "utf8",
     timeout: 600_000,
     maxBuffer: MAX_PROBE_OUTPUT,
     windowsHide: true
   });
   if (result.error || result.status !== 0) throw new Error(`ffmpeg could not decode the Tesseract output: ${result.error?.message ?? truncate(result.stderr)}`);
+}
+
+export async function assertPng(path, label, stopRoot) {
+  await assertRegularFile(path, label, stopRoot);
+  const file = await lstat(path);
+  if (file.size < 8 || file.size > 64 * 1024 * 1024) throw new Error(`${label} is empty or exceeds the 64 MiB artifact limit`);
+  const bytes = await readFile(path);
+  if (!bytes.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error(`${label} is not a valid PNG file`);
+
+  let offset = PNG_SIGNATURE.length;
+  let header;
+  let seenPalette = false;
+  let seenImageData = false;
+  let imageDataEnded = false;
+  let ended = false;
+  const imageData = [];
+  let imageDataBytes = 0;
+  let chunkCount = 0;
+  while (offset < bytes.length) {
+    if (offset + 12 > bytes.length || ++chunkCount > 4096) throw new Error(`${label} has a truncated or excessive PNG chunk list`);
+    const dataLength = bytes.readUInt32BE(offset);
+    const dataStart = offset + 8;
+    const crcOffset = dataStart + dataLength;
+    const nextOffset = crcOffset + 4;
+    if (nextOffset > bytes.length) throw new Error(`${label} has a truncated PNG chunk`);
+    const typeBytes = bytes.subarray(offset + 4, offset + 8);
+    const type = typeBytes.toString("ascii");
+    const data = bytes.subarray(dataStart, crcOffset);
+    if (!/^[A-Za-z]{4}$/.test(type) || type[2] !== type[2].toUpperCase()) throw new Error(`${label} contains an invalid PNG chunk type`);
+    const expectedCrc = bytes.readUInt32BE(crcOffset);
+    if (pngCrc32(bytes.subarray(offset + 4, crcOffset)) !== expectedCrc) throw new Error(`${label} contains a PNG chunk with an invalid CRC`);
+
+    if (!header && type !== "IHDR") throw new Error(`${label} is missing its PNG header chunk`);
+    if (type === "IHDR") {
+      if (header || offset !== PNG_SIGNATURE.length || dataLength !== 13) throw new Error(`${label} has an invalid PNG header chunk`);
+      const width = data.readUInt32BE(0);
+      const height = data.readUInt32BE(4);
+      const bitDepth = data[8];
+      const colorType = data[9];
+      const interlace = data[12];
+      const channelsByColor = new Map([[0, 1], [2, 3], [3, 1], [4, 2], [6, 4]]);
+      const depthsByColor = new Map([[0, [1, 2, 4, 8, 16]], [2, [8, 16]], [3, [1, 2, 4, 8]], [4, [8, 16]], [6, [8, 16]]]);
+      if (!width || !height || width > 16_384 || height > 16_384 || width * height > MAX_PNG_PIXELS ||
+          !depthsByColor.get(colorType)?.includes(bitDepth) || data[10] !== 0 || data[11] !== 0 || interlace > 1) {
+        throw new Error(`${label} has unsupported or unsafe PNG image dimensions or format`);
+      }
+      header = { width, height, bitDepth, colorType, bitsPerPixel: channelsByColor.get(colorType) * bitDepth, interlace };
+    } else if (type === "PLTE") {
+      if (seenPalette || seenImageData || !dataLength || dataLength > 768 || dataLength % 3 !== 0) throw new Error(`${label} has an invalid PNG palette`);
+      if (header.colorType === 0 || header.colorType === 4) throw new Error(`${label} has a palette for a grayscale PNG`);
+      if (header.colorType === 3 && dataLength / 3 > 2 ** header.bitDepth) throw new Error(`${label} has too many entries in its indexed PNG palette`);
+      seenPalette = true;
+    } else if (type === "IDAT") {
+      if (imageDataEnded || (header.colorType === 3 && !seenPalette)) throw new Error(`${label} has an invalid PNG image-data sequence`);
+      seenImageData = true;
+      imageDataBytes += dataLength;
+      if (imageDataBytes > 64 * 1024 * 1024) throw new Error(`${label} PNG compressed image data exceeds the artifact limit`);
+      imageData.push(data);
+    } else if (type === "IEND") {
+      if (!seenImageData || dataLength !== 0) throw new Error(`${label} has an invalid PNG end chunk`);
+      if (nextOffset !== bytes.length) throw new Error(`${label} contains bytes after its PNG end chunk`);
+      ended = true;
+      offset = nextOffset;
+      break;
+    } else {
+      if (seenImageData) imageDataEnded = true;
+      if (type[0] === type[0].toUpperCase()) throw new Error(`${label} contains an unsupported critical PNG chunk`);
+    }
+    if (seenImageData && type !== "IDAT") imageDataEnded = true;
+    offset = nextOffset;
+  }
+  if (!header || !seenImageData || !ended) throw new Error(`${label} is missing required PNG image data or its end chunk`);
+
+  const passes = header.interlace === 0
+    ? [[0, 0, 1, 1]]
+    : [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]];
+  let decodedLength = 0;
+  const rowCounts = [];
+  for (const [xStart, yStart, xStep, yStep] of passes) {
+    const passWidth = header.width <= xStart ? 0 : Math.ceil((header.width - xStart) / xStep);
+    const passHeight = header.height <= yStart ? 0 : Math.ceil((header.height - yStart) / yStep);
+    if (!passWidth || !passHeight) continue;
+    const rowBytes = Math.ceil(passWidth * header.bitsPerPixel / 8);
+    decodedLength += passHeight * (rowBytes + 1);
+    rowCounts.push({ passHeight, rowBytes });
+  }
+  if (decodedLength > MAX_PNG_DECODED_BYTES) throw new Error(`${label} decoded PNG image exceeds the 256 MiB safety limit`);
+  let decoded;
+  try {
+    decoded = inflateSync(Buffer.concat(imageData, imageDataBytes), { maxOutputLength: decodedLength });
+  } catch {
+    throw new Error(`${label} contains invalid or oversized compressed PNG image data`);
+  }
+  if (decoded.length !== decodedLength) throw new Error(`${label} has an incomplete decoded PNG image`);
+  let decodedOffset = 0;
+  for (const { passHeight, rowBytes } of rowCounts) {
+    for (let row = 0; row < passHeight; row += 1) {
+      if (decoded[decodedOffset] > 4) throw new Error(`${label} contains an invalid PNG row filter`);
+      decodedOffset += rowBytes + 1;
+    }
+  }
+}
+
+function pngCrc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = PNG_CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+export function resolveNativeExportSettings(manifest) {
+  return {
+    resolution: manifest.native_edit?.payload?.export?.resolution ?? "1080p",
+    fps: manifest.native_edit?.payload?.export?.fps ?? manifest.meta.fps
+  };
+}
+
+export function expectedExportDimensions(canvas, nativeDocument, resolution) {
+  if (!nativeDocument) return { width: canvas.width, height: canvas.height };
+  const scale = resolution === "720p" ? 2 / 3 : resolution === "4k" ? 2 : 1;
+  return { width: Math.round(canvas.width * scale), height: Math.round(canvas.height * scale) };
+}
+
+export function summarizeNativeDocument(document, requestedAssetIdBySource, sourceRoleByPath) {
+  const roleByAssetId = new Map();
+  for (const [src, assetId] of requestedAssetIdBySource) roleByAssetId.set(assetId, sourceRoleByPath.get(src));
+  const layers = collectNativeLayers(document);
+  let video = 0;
+  let audio = 0;
+  let embeddedAudio = 0;
+  for (const layer of layers) {
+    const assetId = nativeLayerAssetId(layer);
+    const role = roleByAssetId.get(assetId) ?? nativeLayerKind(layer);
+    if (role === "video") video += 1;
+    if (role === "audio") audio += 1;
+    if (role === "video" && Number.isFinite(layer.volume) && layer.volume > 0) embeddedAudio += 1;
+  }
+  return {
+    native_document_layer_count: layers.length,
+    native_video_layer_count: video,
+    native_audio_layer_count: audio,
+    native_embedded_audio_layer_count: embeddedAudio
+  };
+}
+
+export function nativeDocumentReferencesAudio(document, manifest) {
+  const audioAssetIds = new Set((manifest.native_edit?.assets ?? [])
+    .filter((asset) => asset.kind === "audio")
+    .map((asset) => asset.asset_id));
+  const videoAssetIds = new Set(manifest.clips.map((clip) => clip.id));
+  for (const asset of manifest.native_edit?.assets ?? []) if (asset.kind === "video") videoAssetIds.add(asset.asset_id);
+  for (const layer of collectNativeLayers(document)) {
+    const assetId = nativeLayerAssetId(layer);
+    if (nativeLayerKind(layer) === "audio" || audioAssetIds.has(assetId)) return true;
+    if (videoAssetIds.has(assetId) && Number.isFinite(layer.volume) && layer.volume > 0) return true;
+    if (layer.audio === true || layer.useAudio === true || layer.audioEnabled === true) return true;
+  }
+  return false;
+}
+
+function assertNativeDeclaredAssetsReferenced(manifest) {
+  const declared = [
+    ...(manifest.images ?? []).map((image) => ({ id: image.id, label: `images asset '${image.id}'` })),
+    ...(manifest.native_edit?.assets ?? []).map((asset) => ({ id: asset.asset_id, label: `native asset '${asset.asset_id}'` }))
+  ];
+  if (declared.length === 0) return;
+  const unused = declared.find((asset) => !containsNativeValue(manifest.native_edit?.payload?.document, asset.id)
+    && !containsNativeValue(manifest.native_edit?.payload?.actions ?? [], asset.id));
+  if (unused) throw new Error(`${unused.label} is imported but not referenced by native_edit.document or actions`);
+}
+
+function containsNativeValue(value, expected) {
+  if (value === expected) return true;
+  if (Array.isArray(value)) return value.some((child) => containsNativeValue(child, expected));
+  if (value && typeof value === "object") return Object.values(value).some((child) => containsNativeValue(child, expected));
+  return false;
+}
+
+function collectNativeLayers(document) {
+  const result = [];
+  const visit = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "layers" && Array.isArray(child)) result.push(...child.filter((layer) => layer && typeof layer === "object"));
+      visit(child);
+    }
+  };
+  visit(document);
+  return result;
+}
+
+function nativeLayerAssetId(layer) {
+  for (const key of ["assetId", "asset_id", "sourceAssetId", "mediaAssetId"]) {
+    if (typeof layer?.[key] === "string") return layer[key];
+  }
+  if (typeof layer?.source?.assetId === "string") return layer.source.assetId;
+  if (typeof layer?.source?.asset_id === "string") return layer.source.asset_id;
+  return undefined;
+}
+
+function nativeLayerKind(layer) {
+  const kind = [layer?.type, layer?.kind, layer?.layerType, layer?.layer_type]
+    .filter((value) => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  if (kind.includes("audio")) return "audio";
+  if (kind.includes("video")) return "video";
+  return undefined;
+}
+
+async function resolveExportFfmpeg(backendOptions) {
+  if (process.platform !== "linux") {
+    if (backendOptions.ffmpeg_path !== undefined) throw new Error("edit.backend_options.tesseract.ffmpeg_path is only supported on Linux");
+    return undefined;
+  }
+  const path = backendOptions.ffmpeg_path;
+  if (typeof path !== "string" || !isAbsolute(path)) {
+    throw new Error("Linux Tesseract MP4 export requires edit.backend_options.tesseract.ffmpeg_path to name an absolute executable ffmpeg path");
+  }
+  const info = await lstat(path).catch(() => undefined);
+  if (!info?.isFile() || info.isSymbolicLink()) throw new Error("ffmpeg_path must be a regular file, not a symlink");
+  try { await access(path, fsConstants.X_OK); }
+  catch { throw new Error("ffmpeg_path must be executable"); }
+  return path;
 }
 
 async function main() {
@@ -413,10 +823,7 @@ function parseImportedAssetId(stdout, label) {
 }
 
 function selectImportedFontFace(stdout, requestedFamily, requestedStyle) {
-  const data = parseJsonOutput(stdout, "project import-font");
-  const faceList = Array.isArray(data.faces) ? data.faces : undefined;
-  const faces = faceList ?? (typeof data.fontFamily === "string" && typeof data.fontStyle === "string" ? [data] : []);
-  if (faces.length === 0) throw new Error("project import-font did not return fontFamily/fontStyle metadata");
+  const faces = parseImportedFontFaces(stdout);
   let selected;
   if (requestedFamily !== undefined || requestedStyle !== undefined) {
     selected = faces.find((face) => face.fontFamily === requestedFamily && face.fontStyle === requestedStyle);
@@ -430,6 +837,20 @@ function selectImportedFontFace(stdout, requestedFamily, requestedStyle) {
     throw new Error("project import-font returned incomplete font family/style metadata");
   }
   return { fontFamily: selected.fontFamily, fontStyle: selected.fontStyle };
+}
+
+function parseImportedFontFaces(stdout, requestedFamily, requestedStyle) {
+  const data = parseJsonOutput(stdout, "project import-font");
+  const faces = Array.isArray(data.faces) ? data.faces : (typeof data.fontFamily === "string" && typeof data.fontStyle === "string" ? [data] : []);
+  if (faces.length === 0 || faces.some((face) => typeof face.fontFamily !== "string" || !face.fontFamily || typeof face.fontStyle !== "string" || !face.fontStyle)) {
+    throw new Error("project import-font did not return complete fontFamily/fontStyle metadata");
+  }
+  if (requestedFamily !== undefined || requestedStyle !== undefined) {
+    const selected = faces.find((face) => face.fontFamily === requestedFamily && face.fontStyle === requestedStyle);
+    if (!selected) throw new Error("native_edit.fonts family/style do not match a face returned by project import-font");
+    return [{ fontFamily: selected.fontFamily, fontStyle: selected.fontStyle }];
+  }
+  return faces.map((face) => ({ fontFamily: face.fontFamily, fontStyle: face.fontStyle }));
 }
 
 function parseJsonOutput(stdout, label) {

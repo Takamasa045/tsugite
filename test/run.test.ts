@@ -1,7 +1,8 @@
 import { access, appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { manifestSchema } from "../src/manifest/schema.js";
 import {
   assembleLocalMediaRun,
   inspectGate2RunForApproval,
@@ -225,6 +226,63 @@ describe("local media run assembly", () => {
       "assets/images/002-right-neutral.svg"
     ]);
     expect(qc.assets.filter((asset: { kind: string }) => asset.kind === "image")).toHaveLength(2);
+  });
+
+  it("copies multiple native fonts into the run and rewrites their manifest paths", async () => {
+    const validation = await validateProject("fixtures/projects/local-media-only.yaml");
+    const root = await mkdtemp(join(tmpdir(), "tsugite-native-font-copy-"));
+    const fontsDir = join(root, "fonts");
+    await mkdir(fontsDir, { recursive: true });
+    await writeFile(join(fontsDir, "Inter-Regular.ttf"), "regular-font-fixture");
+    await writeFile(join(fontsDir, "Inter-Bold.otf"), "bold-font-fixture");
+    const manifestPath = join(root, "manifest.json");
+    const manifest = manifestSchema.parse({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "native-font-copy" },
+      clips: [],
+      images: [],
+      audio: { bgm: [], narration: [], sfx: [] },
+      captions: [],
+      provenance: [],
+      native_edit: {
+        mode: "replace",
+        payload: { document: {
+          dimensions: { width: 1920, height: 1080 },
+          duration: 1,
+          composition: { id: "main", layers: [
+            { type: "text", id: 1, source: { text: "Title", fontFamily: "Inter", fontStyle: "Regular" } },
+            { type: "text", id: 2, source: { text: "Subhead", fontFamily: "Inter", fontStyle: "Bold" } }
+          ] }
+        } },
+        fonts: [
+          { src: "fonts/Inter-Regular.ttf", family: "Inter", style: "Regular" },
+          { src: "fonts/Inter-Bold.otf", family: "Inter", style: "Bold" }
+        ]
+      }
+    });
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const project = structuredClone(validation.project!);
+    project.slug = "native-font-copy";
+    project.run_id = "native-font-copy-run";
+    project.manifest = "manifest.json";
+    project.edit.backend = "tesseract";
+    const stateDir = join(root, "dist");
+    const gate1 = markGateAwaiting(createPlannedState(project.run_id), "gate_1");
+    const running = recordGateDecision(gate1, "gate_1", "approved");
+
+    const result = await assembleLocalMediaRun(project, manifest, { manifestPath, stateDir, state: running });
+
+    expect(result.ok).toBe(true);
+    expect(result.assetCount).toBe(0);
+    const assembled = JSON.parse(await readFile(result.manifestPath!, "utf8"));
+    expect(assembled.native_edit.fonts).toEqual([
+      { src: "assets/native-edit/fonts/001-font-1.ttf", family: "Inter", style: "Regular" },
+      { src: "assets/native-edit/fonts/002-font-2.otf", family: "Inter", style: "Bold" }
+    ]);
+    expect(await readFile(join(dirname(result.manifestPath!), assembled.native_edit.fonts[0].src), "utf8")).toBe("regular-font-fixture");
+    expect(await readFile(join(dirname(result.manifestPath!), assembled.native_edit.fonts[1].src), "utf8")).toBe("bold-font-fixture");
+    const qc = JSON.parse(await readFile(result.qcReportPath!, "utf8"));
+    expect(qc).toMatchObject({ ok: true, asset_count: 0, assets: [] });
   });
 
   it("runs an approved audio adapter before Gate 2 and pins its BGM and SFX", async () => {
@@ -1032,7 +1090,7 @@ describe("local media run assembly", () => {
       /personQaApprovalDigest\s*=\s*inspected\.personQaApprovalBinding\.person_qa_approval_digest/
     );
     expect(cli).toMatch(
-      /recordGateDecision\(\s*state,\s*gate,\s*decision,\s*undefined,\s*gateApprovalDigest,\s*"human",\s*personQaApprovalDigest(?:,\s*productionBinding)?\s*\)/
+      /recordGateDecision\(\s*state,\s*gate,\s*decision,\s*undefined,\s*gateApprovalDigest,\s*"human",\s*personQaApprovalDigest(?:,\s*productionBinding)?(?:,\s*sidecarApprovalDigest)?\s*\)/
     );
     // Viewer Gate2 evidence inspect must not fall back to default repo guides.
     expect(launcher).toMatch(

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, type Stats } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Manifest } from "../manifest/schema.js";
@@ -210,7 +210,7 @@ export type ReviewDocument = {
   summary: {
     title: string;
     source_title?: string;
-    aspect: "16:9" | "9:16";
+    aspect: Manifest["meta"]["aspect"];
     target_duration_seconds: number;
     storyboard_duration_seconds: number;
     total_clip_duration_seconds: number;
@@ -231,6 +231,33 @@ export type ReviewDocument = {
   /** Strict, read-only V2 projection used by the Gate 1 subject. */
   video_prompt_plans?: VideoPromptReviewProjection[];
   video_prompt_subject_digest?: string;
+  /** Digest-bound, backend-neutral summary of opt-in native editing data. */
+  native_edit_review?: {
+    mode: "replace" | "extend";
+    spec_sha256: string;
+    payload_bytes: number;
+    payload_keys: string[];
+    payload_preview: string;
+    payload_preview_truncated: boolean;
+    payload_sha256: string;
+    payload_artifact_path: "native-edit-payload.json";
+    payload_artifact_sha256: string;
+    code_inputs: Array<{ path: string; sha256: string; preview: string }>;
+    assets: Array<{ asset_id: string; kind: "video" | "image" | "audio" | "font"; src: string; family?: string; style?: string }>;
+    outputs: Array<{
+      kind: string;
+      path: string;
+      duration_seconds?: number;
+      width?: number;
+      height?: number;
+      fps?: number;
+      video_codec?: string;
+      alpha_required?: boolean;
+      audio_required?: boolean;
+    }>;
+    primary_output?: { width: number; height: number; fps: number; audio_required: boolean };
+    generated_bindings: string[];
+  };
   /** Read-only shadow tree summary; it does not alter Gate or legacy plan state. */
   production_control_shadow?: ProductionControlShadowSummary;
   /**
@@ -450,7 +477,7 @@ export async function inspectGate1Review(options: {
   try {
     const [html, dataText] = await Promise.all([readFile(reviewPath, "utf8"), readFile(dataPath, "utf8")]);
     const data = JSON.parse(dataText) as unknown;
-    if (!isReviewDocumentForProject(data, options.project)) {
+    if (!isReviewDocumentForProject(data, options.project, options.manifest)) {
       return {
         ok: false,
         issues: [
@@ -463,6 +490,25 @@ export async function inspectGate1Review(options: {
         reviewPath,
         dataPath
       };
+    }
+    if (options.manifest.native_edit) {
+      const review = (data as ReviewDocument).native_edit_review;
+      const payloadArtifactPath = resolve(outputDir, "native-edit-payload.json");
+      const artifactContents = await readFile(payloadArtifactPath, "utf8");
+      const canonicalPayloadContents = `${JSON.stringify(options.manifest.native_edit.payload ?? null, null, 2)}\n`;
+      if (
+        review?.payload_artifact_path !== "native-edit-payload.json" ||
+        artifactContents !== canonicalPayloadContents ||
+        createHash("sha256").update(artifactContents).digest("hex") !== review.payload_artifact_sha256 ||
+        createHash("sha256").update(JSON.stringify(options.manifest.native_edit.payload ?? null)).digest("hex") !== review.payload_sha256
+      ) {
+        return {
+          ok: false,
+          issues: [{ code: "gate.review_invalid", message: "Gate 1 native payload artifact does not match the approved manifest.", path: payloadArtifactPath }],
+          reviewPath,
+          dataPath
+        };
+      }
     }
     if (
       !html.includes('data-testid="storyboard-sheet"') ||
@@ -1059,6 +1105,8 @@ async function fingerprintGate1SourceAssets(
   const candidates: Array<{ scope: "manifest" | "project"; src: string }> = [
     ...manifest.clips.map((clip) => ({ scope: "manifest" as const, src: clip.src })),
     ...manifest.images.map((image) => ({ scope: "manifest" as const, src: image.src })),
+    ...(manifest.native_edit?.assets ?? []).map((asset) => ({ scope: "manifest" as const, src: asset.src })),
+    ...(manifest.native_edit?.fonts ?? []).map((font) => ({ scope: "manifest" as const, src: font.src })),
     ...(["bgm", "narration", "sfx"] as const).flatMap((track) =>
       manifest.audio[track]
         .filter((entry): entry is typeof entry & { src: string } => Boolean(entry.src))
@@ -1324,10 +1372,13 @@ export function createReviewDocument(
     warnings.push("絵コンテに使用できる静止画がないため、構成ワイヤーを表示しています。");
   }
   if (manifest.presentation?.draft) warnings.push("この提案はドラフトとしてマークされています。");
+  if (manifest.native_edit?.mode === "replace") {
+    warnings.push("ネイティブ仕様が書き出し内容全体を定義します。絵コンテは素材・生成リクエストの確認用で、ネイティブ編集内容のタイムラインを表しません。");
+  }
   if (motionDesign.status === "unspecified") {
     warnings.push("動き・アニメーション設計が未指定です。最終確認前に、全体方針またはカット別モーションを確認してください。");
   }
-  if (Math.abs(storyboardDuration - manifest.meta.target_duration_seconds) > 0.01) {
+  if (manifest.native_edit?.mode !== "replace" && Math.abs(storyboardDuration - manifest.meta.target_duration_seconds) > 0.01) {
     warnings.push(
       `絵コンテ尺 ${formatSeconds(storyboardDuration)} と目標尺 ${formatSeconds(manifest.meta.target_duration_seconds)} が一致していません。`
     );
@@ -1402,6 +1453,7 @@ export function createReviewDocument(
     ...(plan.production_control_shadow
       ? { production_control_shadow: plan.production_control_shadow }
       : {}),
+    ...(manifest.native_edit ? { native_edit_review: createNativeEditReview(manifest) } : {}),
     ...(() => {
       if (orchestrationMode !== "active") return {};
       try {
@@ -1496,6 +1548,81 @@ function createReviewComposition(
       warnings: proposal.warnings ?? []
     }))
   };
+}
+
+function createNativeEditReview(manifest: Manifest): NonNullable<ReviewDocument["native_edit_review"]> {
+  const native = manifest.native_edit!;
+  const payload = native.payload;
+  const payloadJson = JSON.stringify(payload ?? null);
+  const prettyPayload = JSON.stringify(payload ?? null, null, 2);
+  const payloadArtifactContents = `${prettyPayload}\n`;
+  const payloadPreview = prettyPayload.slice(0, 2_400);
+  const codeInputs: Array<{ path: string; sha256: string; preview: string }> = [];
+  const generatedBindings = new Set<string>();
+  collectNativeCodeAndBindings(payload, "payload", codeInputs, generatedBindings);
+  const assets = [
+    ...manifest.clips.map((clip) => ({ asset_id: clip.id, kind: "video" as const, src: clip.src })),
+    ...manifest.images.map((image) => ({ asset_id: image.id, kind: "image" as const, src: image.src })),
+    ...(["bgm", "narration", "sfx"] as const).flatMap((group) => manifest.audio[group].flatMap((track, index) =>
+      track.src ? [{ asset_id: track.id ?? `${group}-${index + 1}`, kind: "audio" as const, src: track.src }] : []
+    )),
+    ...(native.assets ?? []).map((asset) => ({ asset_id: asset.asset_id, kind: asset.kind, src: asset.src })),
+    ...(native.fonts ?? []).map((font, index) => ({
+      asset_id: `font-${index + 1}`,
+      kind: "font" as const,
+      src: font.src,
+      ...(font.family ? { family: font.family } : {}),
+      ...(font.style ? { style: font.style } : {})
+    }))
+  ];
+  const payloadKeys = isRecord(payload) ? Object.keys(payload).sort().slice(0, 64) : [];
+  return {
+    mode: native.mode,
+    spec_sha256: createHash("sha256").update(JSON.stringify(native)).digest("hex"),
+    payload_bytes: Buffer.byteLength(payloadJson, "utf8"),
+    payload_keys: payloadKeys,
+    payload_preview: payloadPreview,
+    payload_preview_truncated: prettyPayload.length > payloadPreview.length,
+    payload_sha256: createHash("sha256").update(payloadJson).digest("hex"),
+    payload_artifact_path: "native-edit-payload.json",
+    payload_artifact_sha256: createHash("sha256").update(payloadArtifactContents).digest("hex"),
+    code_inputs: codeInputs,
+    assets,
+    outputs: native.outputs ?? [],
+    ...(native.primary_output ? { primary_output: native.primary_output } : {}),
+    generated_bindings: [...generatedBindings].sort()
+  };
+}
+
+function collectNativeCodeAndBindings(
+  value: unknown,
+  path: string,
+  codeInputs: Array<{ path: string; sha256: string; preview: string }>,
+  generatedBindings: Set<string>,
+  depth = 0
+): void {
+  if (depth > 32 || codeInputs.length >= 128 || !value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((child, index) => collectNativeCodeAndBindings(child, `${path}[${index}]`, codeInputs, generatedBindings, depth + 1));
+    return;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (typeof child === "string") {
+      if (/^tsugite:request:[A-Za-z0-9][A-Za-z0-9._-]*:(?:video|image|audio):[1-9][0-9]*$/.test(child)) generatedBindings.add(child);
+      if (/(?:wgsl|script|javascript|source.?code|customshader|animator|expression|code)/i.test(key)) {
+        codeInputs.push({
+          path: childPath,
+          sha256: createHash("sha256").update(child).digest("hex"),
+          preview: child.slice(0, 180)
+        });
+      }
+    } else collectNativeCodeAndBindings(child, childPath, codeInputs, generatedBindings, depth + 1);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function createFallbackStoryboard(
@@ -1844,6 +1971,13 @@ export async function writeCreativeReview(
 
   const reviewPath = resolve(outputDir, "index.html");
   const dataPath = resolve(outputDir, "review-data.json");
+  if (document.native_edit_review) {
+    const payloadContents = `${JSON.stringify(options.manifest.native_edit?.payload ?? null, null, 2)}\n`;
+    await writeReviewPayloadAtomically(
+      resolve(outputDir, document.native_edit_review.payload_artifact_path),
+      payloadContents
+    );
+  }
   await writeFile(dataPath, `${JSON.stringify(document, null, 2)}\n`);
   await writeFile(reviewPath, renderReviewHtml(document));
 
@@ -1853,6 +1987,16 @@ export async function writeCreativeReview(
     outputDir,
     assetCount: stagedBySource.size
   };
+}
+
+async function writeReviewPayloadAtomically(destination: string, contents: string): Promise<void> {
+  const temporary = `${destination}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, contents, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await rename(temporary, destination);
+  } finally {
+    await unlink(temporary).catch(() => undefined);
+  }
 }
 
 async function loadEditorialReview(
@@ -2166,7 +2310,7 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
-function isReviewDocumentForProject(value: unknown, project: Project): boolean {
+function isReviewDocumentForProject(value: unknown, project: Project, manifest?: Manifest): boolean {
   if (!value || typeof value !== "object") return false;
   const document = value as {
     schema_version?: unknown;
@@ -2182,7 +2326,7 @@ function isReviewDocumentForProject(value: unknown, project: Project): boolean {
     document.slug === project.slug &&
     document.summary?.gate === "gate-1" &&
     Array.isArray(document.storyboard) &&
-    document.storyboard.length > 0
+    (document.storyboard.length > 0 || manifest?.native_edit?.mode === "replace")
   );
 }
 
@@ -2310,11 +2454,46 @@ function motionPhaseLabel(phase: ReviewMotionCue["phase"]): string {
   return "次カットへの遷移";
 }
 
+function renderNativeEditReview(
+  review: ReviewDocument["native_edit_review"]
+): string {
+  if (!review) return "";
+  const codeInputs = review.code_inputs.length
+    ? `<ul>${review.code_inputs.map((input) => `<li><code>${escapeHtml(input.path)}</code> · SHA-256 <code>${escapeHtml(input.sha256)}</code><pre>${escapeHtml(input.preview)}${input.preview.length >= 180 ? "…" : ""}</pre></li>`).join("")}</ul>`
+    : "<p class=\"muted\">コードらしい入力は検出されませんでした。仕様全体のダイジェストをGate 1承認に結び付けます。</p>";
+  const assets = review.assets.length
+    ? `<ul>${review.assets.map((asset) => `<li><b>${escapeHtml(asset.asset_id)}</b> · ${escapeHtml(asset.kind)}${asset.family ? ` · ${escapeHtml(asset.family)}${asset.style ? ` / ${escapeHtml(asset.style)}` : ""}` : ""} · ${escapeHtml(asset.src)}</li>`).join("")}</ul>`
+    : "<p class=\"muted\">追加のローカルメディアはありません。</p>";
+  const outputs = review.outputs.length
+    ? `<ul>${review.outputs.map((output) => {
+      const details = [
+        output.duration_seconds === undefined ? undefined : `尺 ${output.duration_seconds}s`,
+        output.width === undefined || output.height === undefined ? undefined : `${output.width}×${output.height}`,
+        output.fps === undefined ? undefined : `${output.fps} fps`,
+        output.video_codec === undefined ? undefined : `codec ${output.video_codec}`,
+        output.alpha_required === undefined ? undefined : `alpha ${output.alpha_required ? "必須" : "不要"}`,
+        output.audio_required === undefined ? undefined : `audio ${output.audio_required ? "必須" : "不要"}`
+      ].filter((detail): detail is string => detail !== undefined).join(" · ");
+      return `<li><code>${escapeHtml(output.kind)}</code> · <code>${escapeHtml(output.path)}</code>${details ? ` · ${escapeHtml(details)}` : ""}</li>`;
+    }).join("")}</ul>`
+    : "<p class=\"muted\">追加の出力はありません。</p>";
+  const primaryOutput = review.primary_output
+    ? `<p><b>canonical output:</b> ${review.primary_output.width}×${review.primary_output.height} · ${review.primary_output.fps} fps · audio ${review.primary_output.audio_required ? "必須" : "不要"}</p>`
+    : "";
+  const bindings = review.generated_bindings.length
+    ? `<div><h3>生成素材の実行時binding</h3><ul>${review.generated_bindings.map((binding) => `<li><code>${escapeHtml(binding)}</code> → Gate2で対応する生成結果のasset IDに解決します。</li>`).join("")}</ul></div>`
+    : "";
+  const modeLabel = review.mode === "replace" ? "書き出し全体を置換" : "通常の編集に追加";
+  const keys = review.payload_keys.length ? review.payload_keys.map(escapeHtml).join(", ") : "構造化キーを検出できません";
+  return `<section aria-labelledby=\"native-edit-title\" data-testid=\"native-edit-review\"><div class=\"section-heading\"><div><p class=\"eyebrow\">NATIVE AUTHORING</p><h2 id=\"native-edit-title\">ネイティブ編集仕様</h2></div><p>${review.mode === "replace" ? "ネイティブ仕様が書き出し全体を定義します。絵コンテは素材・生成リクエストの確認用で、タイムラインの代用ではありません。" : "通常の編集に承認済みネイティブ仕様とリソースを追加します。"}</p></div><dl><div><dt>適用範囲</dt><dd>${modeLabel}</dd></div><div><dt>仕様 SHA-256</dt><dd><code>${escapeHtml(review.spec_sha256)}</code></dd></div><div><dt>payload</dt><dd>${review.payload_bytes} bytes · ${keys}</dd></div></dl><p><a href=\"${escapeAttribute(review.payload_artifact_path)}\" download>承認対象のpayload全体をJSONで確認</a> · SHA-256 <code>${escapeHtml(review.payload_sha256)}</code></p><h3>payloadの一部</h3><pre>${escapeHtml(review.payload_preview)}${review.payload_preview_truncated ? "\n…" : ""}</pre><h3>確認可能なコード入力 (${review.code_inputs.length})</h3>${codeInputs}<h3>素材・リソース (${review.assets.length})</h3>${assets}<h3>正本出力</h3>${primaryOutput}<h3>追加出力 (${review.outputs.length})</h3>${outputs}${bindings}</section>`;
+}
+
 export function renderReviewHtml(document: ReviewDocument): string {
   const maxShotDuration = Math.max(...document.storyboard.map((shot) => shot.duration), 1);
   const warnings = document.warnings.length > 0
     ? `<section class="warnings" aria-labelledby="warnings-title"><h2 id="warnings-title">確認ポイント</h2><ul>${document.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></section>`
     : "";
+  const nativeEditReview = renderNativeEditReview(document.native_edit_review);
   const storyboard = document.storyboard.map((shot) => {
     const image = shot.preview_video_src
       ? `<video controls muted playsinline preload="metadata" src="${escapeAttribute(shot.preview_video_src)}" aria-label="${escapeAttribute(`${shot.title}のローカル動画プレビュー`)}"></video>`
@@ -2412,6 +2591,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
       </dl>
     </header>
     ${warnings}
+    ${nativeEditReview}
     ${analysis}
     ${compositionReview}
     ${backgroundReview}

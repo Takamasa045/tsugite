@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fastEditSchema } from "../fastEdit/schema.js";
 import { digestRefSchema, digestSchema, safeIdSchema } from "../productionControl/schema.js";
 
-const aspectSchema = z.union([z.literal("16:9"), z.literal("9:16")]);
+const aspectSchema = z.enum(["16:9", "9:16", "1:1", "4:5", "3:4", "5:4"]);
 
 const motionPreviewPresetSchema = z.enum([
   "none",
@@ -66,6 +66,92 @@ const imageSchema = z
     alpha_required: z.boolean().optional()
   })
   .passthrough();
+
+const nativeAssetSchema = z.object({
+  asset_id: z.string().min(1).max(256),
+  src: z.string().min(1),
+  kind: z.enum(["audio", "image", "video"])
+}).strict();
+
+const nativeFontSchema = z.object({
+  src: z.string().min(1),
+  family: z.string().min(1).optional(),
+  style: z.string().min(1).optional()
+}).strict().superRefine((font, context) => {
+  if ((font.family === undefined) !== (font.style === undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "native font family and style must be supplied together" });
+  }
+});
+
+const nativeOutputSchema = z.object({
+  kind: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/),
+  path: z.string().min(1).max(256).refine((value) =>
+    !value.startsWith("/") && !/^[A-Za-z]:/.test(value) && !value.includes("\\") && !/[\u0000-\u001f]/.test(value) &&
+    value.split("/").every((part) => part !== "" && part !== "." && part !== ".."),
+    "native output path must be a safe run-relative path"
+  ),
+  duration_seconds: z.number().positive().max(3_600).optional(),
+  width: z.number().int().positive().max(32_768).optional(),
+  height: z.number().int().positive().max(32_768).optional(),
+  fps: z.number().positive().max(240).optional(),
+  video_codec: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/).optional(),
+  alpha_required: z.boolean().optional(),
+  audio_required: z.boolean().optional()
+}).strict();
+
+const nativePrimaryOutputSchema = z.object({
+  width: z.number().int().positive().max(32_768),
+  height: z.number().int().positive().max(32_768),
+  fps: z.number().positive().max(240),
+  audio_required: z.boolean()
+}).strict();
+
+const nativeEditSchema = z
+  .object({
+    /** Opaque backend-owned editing data. Its internal schema is validated by the selected backend. */
+    payload: z.unknown().optional(),
+    /** Local files required by the payload, copied into and fingerprinted within the run. */
+    assets: z.array(nativeAssetSchema).max(256).optional(),
+    /** Local font resources required by the payload. */
+    fonts: z.array(nativeFontSchema).max(64).optional(),
+    /** Additional backend-produced files; exact kinds and paths are validated by the selected backend. */
+    outputs: z.array(nativeOutputSchema).max(16).optional(),
+    /** Gate 1 declaration of the canonical media file produced from a native document. */
+    primary_output: nativePrimaryOutputSchema.optional(),
+    /** Whether the native payload replaces the ordinary timeline or extends it. */
+    mode: z.enum(["replace", "extend"]).default("extend")
+  })
+  .strict()
+  .superRefine((native, context) => {
+    if (native.payload === undefined && !native.assets?.length && !native.fonts?.length) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "native_edit must contain a payload or declared resources" });
+    }
+    const ids = new Set<string>();
+    const paths = new Set<string>();
+    native.assets?.forEach((asset, index) => {
+      if (ids.has(asset.asset_id)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets", index, "asset_id"], message: `duplicate native asset id '${asset.asset_id}'` });
+      if (paths.has(asset.src)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["assets", index, "src"], message: `duplicate native asset source '${asset.src}'` });
+      ids.add(asset.asset_id);
+      paths.add(asset.src);
+    });
+    const fontPaths = new Set<string>();
+    native.fonts?.forEach((font, index) => {
+      if (fontPaths.has(font.src)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["fonts", index, "src"], message: `duplicate native font source '${font.src}'` });
+      fontPaths.add(font.src);
+    });
+    const outputPaths = new Set<string>();
+    native.outputs?.forEach((output, index) => {
+      if (outputPaths.has(output.path)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["outputs", index, "path"], message: `duplicate native output path '${output.path}'` });
+      outputPaths.add(output.path);
+    });
+    try {
+      if (Buffer.byteLength(JSON.stringify(native), "utf8") > 4 * 1024 * 1024) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["payload"], message: "native_edit exceeds the 4 MiB inline data limit" });
+      }
+    } catch {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["payload"], message: "native_edit must contain JSON-serializable data" });
+    }
+  });
 
 const speakerSchema = z
   .object({
@@ -154,6 +240,7 @@ export const chapterBindingSchema = z.object({
 export const manifestSchema = z
   .object({
     fast_edit: fastEditSchema.optional(),
+    native_edit: nativeEditSchema.optional(),
     meta: z
       .object({
         aspect: aspectSchema,
@@ -162,7 +249,7 @@ export const manifestSchema = z
         slug: z.string().min(1)
       })
       .passthrough(),
-    clips: z.array(clipSchema).min(1),
+    clips: z.array(clipSchema).default([]),
     images: z.array(imageSchema).default([]),
     speakers: z.array(speakerSchema).default([]),
     presentation: presentationSchema.optional(),
@@ -220,6 +307,20 @@ export const manifestSchema = z
   })
   .passthrough()
   .superRefine((manifest, context) => {
+    let nativeWalkExceededDepth = false;
+    let nativeWalkVisitedNodes = 0;
+    if (manifest.native_edit) {
+      const budget = { visitedNodes: 0, exceededDepth: false, seen: new WeakSet<object>() };
+      inspectNativeValueTree(manifest.native_edit.payload, 0, budget);
+      nativeWalkVisitedNodes = budget.visitedNodes;
+      nativeWalkExceededDepth = budget.exceededDepth;
+      if (nativeWalkExceededDepth || nativeWalkVisitedNodes > 200_000) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["native_edit", "payload"], message: "native payload must stay within 64 levels and 200,000 values" });
+      }
+    }
+    if (manifest.clips.length === 0 && manifest.native_edit?.mode !== "replace") {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["clips"], message: "at least one video clip is required unless native_edit.mode is 'replace'" });
+    }
     const uses: Array<{ sourceTrackId: string; start: number; end: number; path: Array<string | number> }> = [];
     let clipCursor = 0;
     manifest.clips.forEach((clip, index) => {
@@ -292,5 +393,38 @@ export const manifestSchema = z
       }
     }
   });
+
+function inspectNativeValueTree(
+  value: unknown,
+  depth = 0,
+  budget: { visitedNodes: number; exceededDepth: boolean; seen: WeakSet<object> } = {
+    visitedNodes: 0,
+    exceededDepth: false,
+    seen: new WeakSet<object>()
+  }
+): { visitedNodes: number; exceededDepth: boolean; seen: WeakSet<object> } {
+  if (value === undefined || value === null) return budget;
+  budget.visitedNodes += 1;
+  if (depth > 64) {
+    budget.exceededDepth = true;
+    return budget;
+  }
+  if (Array.isArray(value)) {
+    if (budget.seen.has(value)) return budget;
+    budget.seen.add(value);
+    for (const child of value) {
+      inspectNativeValueTree(child, depth + 1, budget);
+      if (budget.exceededDepth || budget.visitedNodes > 200_000) break;
+    }
+  } else if (typeof value === "object") {
+    if (budget.seen.has(value)) return budget;
+    budget.seen.add(value);
+    for (const child of Object.values(value)) {
+      inspectNativeValueTree(child, depth + 1, budget);
+      if (budget.exceededDepth || budget.visitedNodes > 200_000) break;
+    }
+  }
+  return budget;
+}
 
 export type Manifest = z.infer<typeof manifestSchema>;

@@ -55,6 +55,7 @@ export type FinalizeApplyContext = {
   priorCleanup: PriorCleanupProgress;
   state: Awaited<ReturnType<typeof readState>>;
   finalOutputDigest: string;
+  sidecarApprovalDigest?: string;
   launcherPlan: Awaited<ReturnType<typeof planLauncherHome>>;
   pinnedDirs: FinalizePinnedDirs;
   revalidatePinnedDirs: () => Promise<Issue | undefined>;
@@ -97,12 +98,29 @@ export async function executeFinalizeApply(
     priorCleanup,
     state,
     finalOutputDigest,
+    sidecarApprovalDigest,
     launcherPlan,
     revalidatePinnedDirs,
     base
   } = ctx;
 
   const project = completionRecordProject(options);
+  const plannedManifestReferencedRelative = collectReferencedMedia(options.manifest, manifestDir)
+    .map((path) => toProjectRelative(projectRoot, path))
+    .sort(comparePath);
+  const revalidateLiveGate3 = (quarantinedOriginalPaths: readonly string[] = []) => revalidateLiveFinalizeConditions({
+    runDir,
+    runId,
+    canonicalOutputPath,
+    expectedFinalDigest: finalOutputDigest,
+    expectedGate3Digest: state.gates.gate_3.approved_input_digest!,
+    expectedSidecarApprovalDigest: sidecarApprovalDigest,
+    projectRoot,
+    project: options.project,
+    plannedManifestReferencedRelative,
+    plannedRetainedMedia: retainedMedia,
+    quarantinedOriginalPaths
+  });
   const emptyShared = {
     projectRoot,
     stateDir,
@@ -121,7 +139,8 @@ export async function executeFinalizeApply(
     projectSlug: options.project.slug,
     now: options.now,
     promotionHooks: options._testHooks?.promotion,
-    revalidatePinnedDirs
+    revalidatePinnedDirs,
+    revalidateLiveGate3: () => revalidateLiveGate3()
   };
 
   // Empty candidates + already-home + existing record: idempotent success / merge prior progress.
@@ -141,10 +160,6 @@ export async function executeFinalizeApply(
   if (existingRecord.status === "unsafe") return failure(base, existingRecord.issue);
   const existingRecordText = existingRecord.status === "ok" ? existingRecord.text : undefined;
   // Full manifest reference set (including missing files) for mid-apply retention drift checks.
-  const plannedManifestReferencedRelative = collectReferencedMedia(options.manifest, manifestDir)
-    .map((path) => toProjectRelative(projectRoot, path))
-    .sort(comparePath);
-
   try {
     // Immediately before the first mutation, rebuild the plan identity and re-check candidates.
     // This closes TOCTOU gaps on projects home / slug / config / candidate drift after preview.
@@ -160,6 +175,7 @@ export async function executeFinalizeApply(
       runId,
       finalOutputDigest,
       gate3ApprovedInputDigest: state.gates.gate_3.approved_input_digest!,
+      gate3SidecarApprovalDigest: sidecarApprovalDigest,
       retainedMedia,
       candidates,
       identities,
@@ -218,18 +234,7 @@ export async function executeFinalizeApply(
       base,
       testHooks: options._testHooks,
       revalidatePinnedDirs,
-      revalidateLiveFinalizeConditions: ({ quarantinedOriginalPaths }) => revalidateLiveFinalizeConditions({
-        runDir,
-        runId,
-        canonicalOutputPath,
-        expectedFinalDigest: finalOutputDigest,
-        expectedGate3Digest: state.gates.gate_3.approved_input_digest!,
-        projectRoot,
-        project: options.project,
-        plannedManifestReferencedRelative,
-        plannedRetainedMedia: retainedMedia,
-        quarantinedOriginalPaths
-      }),
+      revalidateLiveFinalizeConditions: ({ quarantinedOriginalPaths }) => revalidateLiveGate3(quarantinedOriginalPaths),
       inspectDeletionCandidate: (absolutePath, expected) => inspectFinalizeDeletionCandidate(
         absolutePath,
         expected,
