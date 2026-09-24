@@ -577,7 +577,7 @@ describe("Tesseract render validation", () => {
     const emptyDocument = { duration: 1, composition: { id: "main", width: 1920, height: 1080, layers: [] } };
     const cliCalls = [];
     let appliedActions;
-    const result = await withProcessPlatform("darwin", () => renderTesseract({
+    const result = await renderTesseract({
       runDir, manifestPath, outputPath, reportPath, projectRoot,
       backendOptions: { font_path: "assets/fonts/Inter.ttf" }
     }, {
@@ -618,7 +618,7 @@ describe("Tesseract render validation", () => {
           ? { hasVideo: false, hasAudio: true, durationSeconds: 8, width: undefined, height: undefined, fps: undefined, sizeBytes: 10 }
           : { hasVideo: true, hasAudio: true, durationSeconds: 5, width: 1920, height: 1080, fps: 30, sizeBytes: 10 },
       decodeVideo: async () => undefined
-    }));
+    });
 
     expect(result).toMatchObject({ backend: "tesseract", output_path: outputPath, manifest_path: manifestPath, editable_project_path: projectPath, fps: 30 });
     expect(cliCalls.map((args) => args.slice(0, 2))).toEqual([
@@ -707,7 +707,7 @@ describe("Tesseract render validation", () => {
     const cliCalls = [];
     let committedDocument;
     let appliedActions;
-    const result = await withProcessPlatform("darwin", () => renderTesseract({
+    const result = await renderTesseract({
       runDir, manifestPath, outputPath, reportPath, projectRoot, backendOptions: {}
     }, {
       platform: "darwin",
@@ -769,7 +769,7 @@ describe("Tesseract render validation", () => {
             ? { hasVideo: true, hasAudio: true, durationSeconds: 2, width: 3840, height: 2160, fps: 60, sizeBytes: 100 }
         : { hasVideo: true, hasAudio: false, durationSeconds: 2, width: 1920, height: 1080, fps: 30, sizeBytes: 10 },
       decodeVideo: async () => undefined
-    }));
+    });
 
     const exportCall = cliCalls.find((args) => args[0] === "export");
     expect(exportCall).toEqual(expect.arrayContaining(["--resolution", "4k", "--fps", "60"]));
@@ -901,7 +901,8 @@ describe("Tesseract render validation", () => {
       } } }
     };
     const emptyDocument = { duration: 1, composition: { id: "main", width: 1920, height: 1080, layers: [] } };
-    await expect(withProcessPlatform("darwin", () => renderTesseract({ runDir, manifestPath, outputPath, reportPath, projectRoot, backendOptions: {} }, {
+    await expect(renderTesseract({ runDir, manifestPath, outputPath, reportPath, projectRoot, backendOptions: {} }, {
+      platform: "darwin",
       resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.2.0" }),
       runCli: async (_cliPath, args) => {
         const command = args.slice(0, 2).join(" ");
@@ -928,7 +929,7 @@ describe("Tesseract render validation", () => {
       },
       probeMedia: async () => ({ hasVideo: true, hasAudio: false, durationSeconds: 2, videoDurationSeconds: 2, fps: 30, width: 1920, height: 1080, sizeBytes: 10 }),
       decodeVideo: async () => undefined
-    }))).rejects.toThrow(/fixture export failure/);
+    })).rejects.toThrow(/fixture export failure/);
     const entries = await readdir(runDir);
     expect(entries).not.toContain("final.tsrct");
     expect(entries).not.toContain("final.mp4");
@@ -944,17 +945,6 @@ function basicManifest(overrides = {}) {
     images: [], speakers: [], audio: { bgm: [], narration: [], sfx: [] },
     captions: [], chapters: [], provenance: [], ...overrides
   };
-}
-
-async function withProcessPlatform(platform, callback) {
-  const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
-  if (!descriptor?.configurable) throw new Error("process.platform must be configurable for platform-specific fixtures");
-  Object.defineProperty(process, "platform", { ...descriptor, value: platform });
-  try {
-    return await callback();
-  } finally {
-    Object.defineProperty(process, "platform", descriptor);
-  }
 }
 
 async function tempDirectory(prefix) {

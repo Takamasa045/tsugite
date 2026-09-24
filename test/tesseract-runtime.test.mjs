@@ -10,6 +10,7 @@ import {
   TESSERACT_CLI_DEFAULT_TIMEOUT_MS,
   TESSERACT_CLI_VERSION
 } from "../backends/tesseract/cli.mjs";
+import { assertSupportedManifest } from "../backends/tesseract/manifest.mjs";
 
 const CLI_ENTRY = fileURLToPath(new URL("../backends/tesseract/cli.mjs", import.meta.url));
 
@@ -275,5 +276,40 @@ describe("Tesseract CLI runtime", () => {
     expect(childEnv).not.toHaveProperty("TESSERACT_API_KEY");
     expect(childEnv).not.toHaveProperty("OPENAI_API_KEY");
     expect(childEnv).not.toHaveProperty("DATABASE_URL");
+  });
+});
+
+describe("Tesseract native audio manifest contract", () => {
+  it("accepts an ID-preserving native audio asset and rejects a duplicate timeline track", () => {
+    const manifest = {
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "native-audio" },
+      clips: [],
+      images: [],
+      audio: { bgm: [], narration: [], sfx: [] },
+      captions: [],
+      provenance: [],
+      native_edit: {
+        mode: "replace",
+        payload: { document: {
+          dimensions: { width: 1920, height: 1080 },
+          duration: 1,
+          composition: { id: "main", layers: [
+            { type: "audio", id: 1, activeRange: { start: 0, duration: 1 }, source: { assetId: "voice-track" } }
+          ] }
+        } },
+        assets: [{
+          asset_id: "voice-track",
+          src: "assets/native-edit/generated-audio/001-voice-track.wav",
+          kind: "audio"
+        }],
+        primary_output: { width: 1920, height: 1080, fps: 30, audio_required: true }
+      }
+    };
+
+    expect(assertSupportedManifest(manifest)).toEqual({ width: 1920, height: 1080 });
+    expect(() => assertSupportedManifest({
+      ...manifest,
+      audio: { bgm: [], narration: [{ id: "voice-track", src: "assets/audio/narration/001-voice-track.wav", start: 0 }], sfx: [] }
+    })).toThrow(/native_edit\.document replaces generated clip, title, caption, and audio layers/);
   });
 });

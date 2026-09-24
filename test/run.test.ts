@@ -514,6 +514,251 @@ describe("local media run assembly", () => {
     expect(result.actualCredits).toBe(1);
   });
 
+  it("binds generated audio to native asset IDs without a duplicate timeline track and rejects unbound output", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const projectDir = await mkdtemp(join(tmpdir(), "tsugite-native-generated-audio-project-"));
+    const requestId = "generated-voice";
+    const audioId = "voice-track";
+    const token = `tsugite:request:${requestId}:audio:1`;
+    const createProject = (runId: string, audioSrc: string) => ({
+      ...validation.project!,
+      slug: "native-generated-audio",
+      run_id: runId,
+      manifest: "manifest.json",
+      edit: { ...validation.project!.edit, backend: "tesseract" },
+      generation: {
+        ...validation.project!.generation!,
+        requests: [{
+          id: requestId,
+          operation: "voice" as const,
+          output_kind: "audio" as const,
+          audio_role: "narration" as const,
+          prompt: "fixture voice",
+          model: "fixture-model",
+          params: {
+            output: { request_id: requestId, credits: 0.6, clips: [], images: [], audio: [{ id: audioId, src: audioSrc, role: "narration", start: 0 }], metadata: {} }
+          }
+        }]
+      }
+    });
+    const createGeneratedAudio = async (stateDir: string, runId: string) => {
+      const runDir = join(stateDir, runId);
+      await mkdir(runDir, { recursive: true });
+      const audioSrc = join(runDir, "provider-voice.wav");
+      await writeFile(audioSrc, silentWav());
+      return audioSrc;
+    };
+    const adapter = {
+      ...validation.adapter!,
+      command: { ...validation.adapter!.command!, args: ["fixtures/adapters/mock-cli/output-from-params.mjs"] }
+    };
+    const nativeManifest = (
+      assetId?: string,
+      assets: Array<{ asset_id: string; src: string; kind: "audio" | "image" | "video" }> = []
+    ) => manifestSchema.parse({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "native-generated-audio" },
+      clips: [],
+      images: [],
+      audio: { bgm: [], narration: [], sfx: [] },
+      captions: [],
+      provenance: [],
+      native_edit: {
+        mode: "replace",
+        payload: { document: {
+          dimensions: { width: 1920, height: 1080 },
+          duration: 1,
+          composition: { id: "main", layers: assetId ? [
+            { type: "audio", id: 1, activeRange: { start: 0, duration: 1 }, source: { assetId } }
+          ] : [] }
+        } },
+        assets,
+        primary_output: { width: 1920, height: 1080, fps: 30, audio_required: Boolean(assetId) }
+      }
+    });
+    const approvedState = (runId: string) => recordGateDecision(
+      markGateAwaiting(createPlannedState(runId), "gate_1"), "gate_1", "approved"
+    );
+
+    const manifestPath = join(projectDir, "manifest.json");
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-native-generated-audio-run-"));
+    const runId = "native-generated-audio-run";
+    const audioSrc = await createGeneratedAudio(stateDir, runId);
+    const project = createProject(runId, audioSrc);
+    const result = await assembleLocalMediaRun(project, nativeManifest(token), {
+      manifestPath,
+      stateDir,
+      state: approvedState(runId)
+    }, adapter);
+
+    expect(result).toMatchObject({ ok: true, issues: [] });
+    if (!result.ok) return;
+    const assembled = JSON.parse(await readFile(result.manifestPath, "utf8"));
+    expect(assembled.native_edit.payload.document.composition.layers[0].source.assetId).toBe(audioId);
+    expect(assembled.native_edit.assets).toEqual([{
+      asset_id: audioId,
+      src: "assets/native-edit/generated-audio/001-voice-track.wav",
+      kind: "audio"
+    }]);
+    expect(assembled.audio).toEqual({ bgm: [], narration: [], sfx: [] });
+    expect(result.assetCount).toBe(1);
+    const qc = JSON.parse(await readFile(result.qcReportPath, "utf8"));
+    expect(qc.assets).toContainEqual(expect.objectContaining({ id: audioId, kind: "audio" }));
+
+    const unboundRunId = "native-generated-audio-unbound-run";
+    const unboundStateDir = await mkdtemp(join(tmpdir(), "tsugite-native-generated-audio-unbound-"));
+    const unboundAudioSrc = await createGeneratedAudio(unboundStateDir, unboundRunId);
+    const unboundProject = createProject(unboundRunId, unboundAudioSrc);
+    const unbound = await assembleLocalMediaRun(unboundProject, nativeManifest(), {
+      manifestPath,
+      stateDir: unboundStateDir,
+      state: approvedState(unboundRunId)
+    }, adapter);
+
+    expect(unbound.ok).toBe(false);
+    expect(unbound.issues[0]?.code).toBe("run.native_edit_generated_audio_unbound");
+    await expect(access(join(unboundStateDir, unboundRunId, "manifest.json"))).rejects.toThrow();
+
+    const overflowProjectDir = await mkdtemp(join(tmpdir(), "tsugite-native-generated-audio-overflow-project-"));
+    const overflowStateDir = await mkdtemp(join(tmpdir(), "tsugite-native-generated-audio-overflow-run-"));
+    const overflowRunId = "native-generated-audio-overflow-run";
+    const nativeAssets: Array<{ asset_id: string; src: string; kind: "audio" }> = [];
+    for (let index = 0; index < 256; index += 1) {
+      const filename = `existing-native-${String(index + 1).padStart(3, "0")}.wav`;
+      await writeFile(join(overflowProjectDir, filename), "fixture");
+      nativeAssets.push({ asset_id: `native-audio-${index + 1}`, src: filename, kind: "audio" });
+    }
+    const overflowAudioSrc = join(overflowProjectDir, "provider-voice.wav");
+    await writeFile(overflowAudioSrc, silentWav());
+    const unavailableAdapter = {
+      ...validation.adapter!,
+      command: { ...validation.adapter!.command!, executable: "/missing/native-audio-test-adapter", args: [] }
+    };
+    const overflow = await assembleLocalMediaRun(createProject(overflowRunId, overflowAudioSrc), nativeManifest(token, nativeAssets), {
+      manifestPath: join(overflowProjectDir, "manifest.json"),
+      stateDir: overflowStateDir,
+      state: approvedState(overflowRunId)
+    }, unavailableAdapter);
+
+    expect(overflow.ok).toBe(false);
+    expect(overflow.issues[0]?.code).toBe("run.native_edit_assets_limit");
+    expect(overflow.issues[0]?.path).toBe("native_edit.assets");
+    await expect(access(join(overflowStateDir, overflowRunId))).rejects.toThrow();
+    await expect(access(join(overflowStateDir, overflowRunId, "manifest.json"))).rejects.toThrow();
+  });
+
+  it("rejects project.audio for native replacement before generation or audio adapters run", async () => {
+    const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
+      adapterDirs: ["fixtures/adapters", "adapters"]
+    });
+    const audioValidation = await validateProject("fixtures/projects/audio-connection.yaml");
+    const projectDir = await mkdtemp(join(tmpdir(), "tsugite-native-project-audio-project-"));
+    const stateDir = await mkdtemp(join(tmpdir(), "tsugite-native-project-audio-run-"));
+    const runId = "native-project-audio-run";
+    const requestId = "generated-voice";
+    const audioId = "voice-track";
+    const token = `tsugite:request:${requestId}:audio:1`;
+    const generationMarker = join(projectDir, "generation-adapter-called");
+    const audioMarker = join(projectDir, "audio-adapter-called");
+    const generationScript = join(projectDir, "generation-adapter.mjs");
+    const audioScript = join(projectDir, "audio-adapter.mjs");
+    await writeFile(generationScript, `
+import { readFileSync, writeFileSync } from "node:fs";
+const input = JSON.parse(readFileSync(0, "utf8"));
+writeFileSync(${JSON.stringify(generationMarker)}, "called");
+process.stdout.write(JSON.stringify(input.request.params.output));
+`);
+    await writeFile(audioScript, `
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(audioMarker)}, "called");
+process.stdout.write("{}\\n");
+`);
+    const generatedAudioPath = join(projectDir, "provider-voice.wav");
+    await writeFile(generatedAudioPath, silentWav());
+
+    const project = {
+      ...validation.project!,
+      slug: "native-project-audio",
+      run_id: runId,
+      manifest: "manifest.json",
+      edit: { ...validation.project!.edit, backend: "tesseract" },
+      generation: {
+        ...validation.project!.generation!,
+        requests: [{
+          id: requestId,
+          operation: "voice" as const,
+          output_kind: "audio" as const,
+          audio_role: "narration" as const,
+          prompt: "fixture voice",
+          model: "fixture-model",
+          params: {
+            output: {
+              request_id: requestId,
+              credits: 0.6,
+              clips: [],
+              images: [],
+              audio: [{ id: audioId, src: generatedAudioPath, role: "narration", start: 0 }],
+              metadata: {}
+            }
+          }
+        }]
+      },
+      audio: {
+        adapter: "hyperframes-media",
+        fallback: "fail" as const,
+        bgm: { id: "native-bgm", mode: "generate" as const, prompt: "fixture music", start: 0 },
+        sfx: [],
+        params: {}
+      }
+    };
+    const manifest = manifestSchema.parse({
+      meta: { aspect: "16:9", fps: 30, target_duration_seconds: 1, slug: "native-project-audio" },
+      clips: [],
+      images: [],
+      audio: { bgm: [], narration: [], sfx: [] },
+      captions: [],
+      provenance: [],
+      native_edit: {
+        mode: "replace",
+        payload: { document: {
+          dimensions: { width: 1920, height: 1080 },
+          duration: 1,
+          composition: { id: "main", layers: [
+            { type: "audio", id: 1, activeRange: { start: 0, duration: 1 }, source: { assetId: token } }
+          ] }
+        } },
+        assets: [],
+        primary_output: { width: 1920, height: 1080, fps: 30, audio_required: true }
+      }
+    });
+    const adapter = {
+      ...validation.adapter!,
+      command: { ...validation.adapter!.command!, args: [generationScript] }
+    };
+    const audioAdapter = {
+      ...audioValidation.audioAdapter!,
+      command: { ...audioValidation.audioAdapter!.command!, args: [audioScript] }
+    };
+
+    const result = await assembleLocalMediaRun(project, manifest, {
+      manifestPath: join(projectDir, "manifest.json"),
+      stateDir,
+      state: recordGateDecision(markGateAwaiting(createPlannedState(runId), "gate_1"), "gate_1", "approved")
+    }, adapter, audioAdapter);
+
+    expect(result).toMatchObject({
+      ok: false,
+      issues: [{
+        code: "run.native_edit_audio_adapter_unsupported",
+        path: "audio"
+      }]
+    });
+    await expect(access(generationMarker)).rejects.toThrow();
+    await expect(access(audioMarker)).rejects.toThrow();
+    await expect(access(join(stateDir, runId))).rejects.toThrow();
+  });
+
   it("pins audio assets for generated runs so Gate 2 can validate and resume them", async () => {
     const validation = await validateProject("fixtures/projects/cli-generation.yaml", {
       adapterDirs: ["fixtures/adapters", "adapters"]

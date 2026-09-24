@@ -48,10 +48,11 @@ export async function renderTesseract(input, dependencies = {}) {
   await assertNotExists(paths.projectPath, "editable Tesseract project");
   await assertNotExists(paths.outputPath, "final video");
   await assertNotExists(paths.reportPath, "render report");
-  const manifest = await readManifest(paths.manifestPath);
-  const dimensions = assertSupportedManifest(manifest, dependencies.platform ?? process.platform);
+  const platform = dependencies.platform ?? process.platform;
+  const manifest = await readManifest(paths.manifestPath, platform);
+  const dimensions = assertSupportedManifest(manifest, platform);
   const hasNativeAuthoring = Boolean(manifest.native_edit);
-  const nativeOutputs = resolveTesseractNativeOutputs(manifest.native_edit, dependencies.platform ?? process.platform, manifest.meta.target_duration_seconds);
+  const nativeOutputs = resolveTesseractNativeOutputs(manifest.native_edit, platform, manifest.meta.target_duration_seconds);
   for (const output of nativeOutputs) {
     const destination = resolve(paths.runDir, output.path);
     await assertPathTree(destination, paths.runDir, `native output '${output.path}'`);
@@ -275,7 +276,7 @@ export async function renderTesseract(input, dependencies = {}) {
     const exportSettings = resolveNativeExportSettings(manifest);
     const exportArgs = ["export", "--project", stagedProjectPath, "--output", stagedOutputPath];
     if (manifest.native_edit?.payload?.document) exportArgs.push("--resolution", exportSettings.resolution, "--fps", String(exportSettings.fps));
-    const ffmpegPath = await resolveExportFfmpeg(paths.backendOptions);
+    const ffmpegPath = await resolveExportFfmpeg(paths.backendOptions, platform);
     if (ffmpegPath) exportArgs.push("--encoder-backend", "external-ffmpeg-command", "--ffmpeg-path", ffmpegPath);
     await invoke(exportArgs, "export", 600_000);
     await assertRegularFile(stagedProjectPath, "editable Tesseract project", workDir);
@@ -690,8 +691,8 @@ function nativeLayerKind(layer) {
   return undefined;
 }
 
-async function resolveExportFfmpeg(backendOptions) {
-  if (process.platform !== "linux") {
+async function resolveExportFfmpeg(backendOptions, platform = process.platform) {
+  if (platform !== "linux") {
     if (backendOptions.ffmpeg_path !== undefined) throw new Error("edit.backend_options.tesseract.ffmpeg_path is only supported on Linux");
     return undefined;
   }
@@ -723,12 +724,12 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function readManifest(path) {
+async function readManifest(path, platform = process.platform) {
   await assertRegularFile(path, "manifest");
   let manifest;
   try { manifest = JSON.parse(await readFile(path, "utf8")); }
   catch (error) { throw new Error(`manifest must be readable JSON: ${error instanceof Error ? error.message : String(error)}`); }
-  assertSupportedManifest(manifest);
+  assertSupportedManifest(manifest, platform);
   return manifest;
 }
 
