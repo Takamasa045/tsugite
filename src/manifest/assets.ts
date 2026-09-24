@@ -75,6 +75,38 @@ export async function validateManifestAssets(
     }
   }
 
+  for (const [index, asset] of (manifest.native_edit?.assets ?? []).entries()) {
+    const path = `native_edit.assets.${index}.src`;
+    const sourcePath = await safeLocalAssetPath(asset.src, baseDir, assetRoot, path, "manifest.native_edit.asset.src.safe");
+    if (!sourcePath.ok) {
+      issues.push(...sourcePath.issues);
+      continue;
+    }
+    if (!(await exists(sourcePath.path))) {
+      issues.push({
+        code: "manifest.native_edit.asset.src.exists",
+        message: "native asset src must point to an existing local file",
+        path
+      });
+    }
+  }
+
+  for (const [index, font] of (manifest.native_edit?.fonts ?? []).entries()) {
+    const path = `native_edit.fonts.${index}.src`;
+    const sourcePath = await safeLocalAssetPath(font.src, baseDir, assetRoot, path, "manifest.native_edit.font.src.safe");
+    if (!sourcePath.ok) {
+      issues.push(...sourcePath.issues);
+      continue;
+    }
+    if (!(await exists(sourcePath.path))) {
+      issues.push({
+        code: "manifest.native_edit.font.src.exists",
+        message: "native font src must point to an existing local file",
+        path
+      });
+    }
+  }
+
   return issues.length > 0 ? { ok: false, issues } : { ok: true, issues: [] };
 }
 

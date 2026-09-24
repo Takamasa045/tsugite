@@ -78,6 +78,26 @@ function validateManifestContract(manifest: Manifest): Issue[] {
     imageIds.add(image.id);
   }
 
+  const nativeAssetIssues: Issue[] = [];
+  for (const [index, asset] of (manifest.native_edit?.assets ?? []).entries()) {
+    if (urlLike.test(asset.src)) {
+      nativeAssetIssues.push({
+        code: "manifest.native_edit.asset.src.local",
+        message: "native asset src must be a local path, not a URL",
+        path: `native_edit.assets.${index}.src`
+      });
+    }
+  }
+  for (const [index, font] of (manifest.native_edit?.fonts ?? []).entries()) {
+    if (urlLike.test(font.src)) {
+      nativeAssetIssues.push({
+        code: "manifest.native_edit.font.src.local",
+        message: "native font src must be a local path, not a URL",
+        path: `native_edit.fonts.${index}.src`
+      });
+    }
+  }
+
   const speakerIssues: Issue[] = [];
   const speakerIds = new Set<string>();
   const isDialoguePresentation = dialoguePresets.has(manifest.presentation?.preset ?? "");
@@ -206,7 +226,7 @@ function validateManifestContract(manifest: Manifest): Issue[] {
       : []
   );
 
-  return [...clipIssues, ...imageIssues, ...speakerIssues, ...captionIssues, ...chapterIssues];
+  return [...clipIssues, ...imageIssues, ...nativeAssetIssues, ...speakerIssues, ...captionIssues, ...chapterIssues];
 }
 
 function isCloseEnough(left: number, right: number): boolean {

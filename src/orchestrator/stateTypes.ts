@@ -36,6 +36,8 @@ export type GateState = {
    * person_qa_approval_digest for finalize revalidation. Omitted for older state.
    */
   person_qa_approval_digest?: string;
+  /** Canonical Gate 3 sidecar SHA-256 binding; optional for runs without sidecars. */
+  sidecar_approval_digest?: string;
   decision_source?: GateDecisionSource;
   /**
    * Additive PO-5 production-control subject digest (GateBundle / Gate2Subject / Gate3Subject).

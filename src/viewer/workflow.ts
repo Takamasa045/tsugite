@@ -146,6 +146,30 @@ export type ViewerGate3QcEvidence = {
     longestBlackSeconds?: number;
     longestSilenceSeconds?: number;
   };
+  sidecars?: Array<{
+    kind: string;
+    path: string;
+    sha256: string;
+    expected: {
+      durationSeconds: number;
+      width: number;
+      height: number;
+      fps: number;
+      videoCodec: string;
+      alphaRequired: boolean;
+      audioRequired: boolean;
+    };
+    actual: {
+      durationSeconds?: number;
+      width?: number;
+      height?: number;
+      fps?: number;
+      codec?: string;
+      pixelFormat?: string;
+      hasAlpha?: boolean;
+      hasAudio?: boolean;
+    };
+  }>;
 };
 
 export type ViewerRunLogEvidence = {

@@ -78,6 +78,7 @@ function buildEmptyCtx(input: {
   priorDeletedBytes?: number;
   priorDeletedPaths?: string[];
   revalidatePinnedDirs?: () => Promise<EmptyApplySharedContext["revalidatePinnedDirs"] extends () => Promise<infer R> ? R : never>;
+  revalidateLiveGate3?: EmptyApplySharedContext["revalidateLiveGate3"];
   promotionHooks?: EmptyApplySharedContext["promotionHooks"];
 }): EmptyApplySharedContext {
   const projectSlug = input.projectSlug ?? "demo";
@@ -113,7 +114,8 @@ function buildEmptyCtx(input: {
     now: "2026-08-01T00:00:00.000Z",
     promotionHooks: input.promotionHooks,
     revalidatePinnedDirs: input.revalidatePinnedDirs
-      ?? (async () => undefined)
+      ?? (async () => undefined),
+    revalidateLiveGate3: input.revalidateLiveGate3 ?? (async () => undefined)
   };
 }
 

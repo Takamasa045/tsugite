@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import { loadBackendCapabilities } from "../backends/capabilities.js";
 import {
   runCliGenerationAdapter,
   type CliGenerationRequestResult,
@@ -206,6 +207,16 @@ export async function assembleLocalMediaRun(
 ): Promise<Result<LocalRunResult>> {
   const isAwaitingGate2Resume = options.state.status === "awaiting_gate_2"
     && options.state.gates.gate_2.status === "awaiting_approval";
+  if (project.audio && hasNativeReplacementDocument(manifest)) {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.native_edit_audio_adapter_unsupported",
+        message: "project.audio adapter output cannot be placed in a native replacement document; use a generation request and bind its audio output in native_edit.payload",
+        path: "audio"
+      }]
+    };
+  }
   const audioConnection = options.audioConnection
     ?? (project.audio?.connection
       ? await resolveGenerationConnection(project.audio.connection)
@@ -373,6 +384,8 @@ export async function assembleLocalMediaRun(
       assetCount += 1;
     }
   }
+
+  assetCount += await copyNativeEditAssets(assembled, manifestDir, runDir);
 
   if (options.verifyApprovedInputs) {
     const verified = await options.verifyApprovedInputs();
@@ -809,6 +822,21 @@ async function assembleGeneratedMediaRun(
     };
   }
 
+  if (hasNativeReplacementDocument(manifest)) {
+    const existingNativeAssetCount = manifest.native_edit?.assets?.length ?? 0;
+    const generatedAudioBindingCount = countGeneratedNativeAudioAssetBindings(manifest.native_edit?.payload);
+    if (existingNativeAssetCount + generatedAudioBindingCount > 256) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.native_edit_assets_limit",
+          message: `native_edit.assets allows at most 256 assets; ${existingNativeAssetCount} existing assets plus ${generatedAudioBindingCount} generated audio bindings exceed the limit`,
+          path: "native_edit.assets"
+        }]
+      };
+    }
+  }
+
   // Recompile H3 before any run-dir mutation or adapter invocation. Fail closed
   // on H3-C / H3-E / PV-E so invalid Creative IR never reaches billing paths.
   // Stage 1 is format-only; stage 2 injects the selected adapter route profile.
@@ -952,6 +980,8 @@ async function assembleGeneratedMediaRun(
   if (!pinned.ok) return pinned;
 
   const assembled = cloneManifest(manifest);
+  const hasNativeReplacement = hasNativeReplacementDocument(assembled);
+  let nativeAudioAssetIds = new Set<string>();
   if (project.generation!.requests.some((request) => generationRequestOutputKind(request) === "video")) {
     assembled.clips = [];
   }
@@ -979,6 +1009,8 @@ async function assembleGeneratedMediaRun(
       assetCount += 1;
     }
   }
+
+  assetCount += await copyNativeEditAssets(assembled, manifestDir, runDir);
 
   if (options.verifyApprovedInputs) {
     const verified = await options.verifyApprovedInputs();
@@ -1133,12 +1165,68 @@ async function assembleGeneratedMediaRun(
   }
   if (!generation.ok) return generation;
 
+  if (assembled.native_edit?.payload !== undefined) {
+    let assetIdPattern: string | undefined;
+    try {
+      assetIdPattern = (await loadBackendCapabilities(project.edit.backend))
+        ?.capabilities.native_authoring?.asset_id_pattern;
+    } catch (error) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.native_edit_backend_capabilities",
+          message: error instanceof Error ? error.message : String(error),
+          path: "native_edit.payload"
+        }]
+      };
+    }
+    const resolvedNativePayload = resolveGeneratedNativeAssetBindings(
+      assembled.native_edit.payload,
+      generation.requests,
+      assetIdPattern
+    );
+    if (!resolvedNativePayload.ok) return resolvedNativePayload;
+    assembled.native_edit.payload = resolvedNativePayload.payload;
+    nativeAudioAssetIds = new Set(resolvedNativePayload.audioAssetIds);
+  }
+
   const existingImageIds = new Set(assembled.images.map((image) => image.id));
   const duplicateImage = generation.images.find((image) => existingImageIds.has(image.id));
   const existingAudioIds = new Set(
     [...assembled.audio.bgm, ...assembled.audio.narration, ...assembled.audio.sfx]
       .flatMap((track) => track.id ? [track.id] : [])
   );
+  if (hasNativeReplacement) {
+    for (const clip of assembled.clips) existingAudioIds.add(clip.id);
+    for (const image of assembled.images) existingAudioIds.add(image.id);
+    for (const clip of generation.clips) existingAudioIds.add(clip.id);
+    for (const image of generation.images) existingAudioIds.add(image.id);
+    for (const asset of assembled.native_edit?.assets ?? []) existingAudioIds.add(asset.asset_id);
+    const missingNativeAudio = [...nativeAudioAssetIds].filter(
+      (assetId) => !generation.audio.some((track) => track.id === assetId)
+    );
+    if (missingNativeAudio.length > 0) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.native_edit_generated_audio_missing",
+          message: `native audio bindings did not resolve to generated audio outputs: ${missingNativeAudio.join(", ")}`,
+          path: "native_edit.payload"
+        }]
+      };
+    }
+    const unboundAudio = generation.audio.filter((track) => !nativeAudioAssetIds.has(track.id));
+    if (unboundAudio.length > 0) {
+      return {
+        ok: false,
+        issues: [{
+          code: "run.native_edit_generated_audio_unbound",
+          message: `native_edit.payload must bind every generated audio output before a replacement document can use it: ${unboundAudio.map((track) => track.id).join(", ")}`,
+          path: "native_edit.payload"
+        }]
+      };
+    }
+  }
   const duplicateAudio = generation.audio.find((track) => existingAudioIds.has(track.id));
   if (duplicateImage || duplicateAudio) {
     const duplicate = duplicateImage ?? duplicateAudio!;
@@ -1168,14 +1256,27 @@ async function assembleGeneratedMediaRun(
   }
 
   for (const [index, track] of generation.audio.entries()) {
-    const copied = await copyAsset(track.src, process.cwd(), runDir, `assets/audio/${track.role}`, index, track.id);
-    assembled.audio[track.role === "music" ? "bgm" : track.role].push({
-      id: track.id,
-      src: copied.relativePath,
-      start: track.start,
-      ...(track.end !== undefined ? { end: track.end } : {}),
-      ...(track.volume !== undefined ? { volume: track.volume } : {})
-    });
+    const isNativeAudioAsset = hasNativeReplacement && nativeAudioAssetIds.has(track.id);
+    const copied = await copyAsset(
+      track.src,
+      process.cwd(),
+      runDir,
+      isNativeAudioAsset ? "assets/native-edit/generated-audio" : `assets/audio/${track.role}`,
+      index,
+      track.id
+    );
+    if (isNativeAudioAsset) {
+      assembled.native_edit!.assets ??= [];
+      assembled.native_edit!.assets.push({ asset_id: track.id, src: copied.relativePath, kind: "audio" });
+    } else {
+      assembled.audio[track.role === "music" ? "bgm" : track.role].push({
+        id: track.id,
+        src: copied.relativePath,
+        start: track.start,
+        ...(track.end !== undefined ? { end: track.end } : {}),
+        ...(track.volume !== undefined ? { volume: track.volume } : {})
+      });
+    }
     assetCount += 1;
   }
 
@@ -1494,6 +1595,37 @@ function cloneManifest(manifest: Manifest): Manifest {
   return JSON.parse(JSON.stringify(manifest)) as Manifest;
 }
 
+function hasNativeReplacementDocument(manifest: Manifest): boolean {
+  const nativeEdit = manifest.native_edit;
+  const payload = nativeEdit?.payload;
+  return nativeEdit?.mode === "replace"
+    && typeof payload === "object"
+    && payload !== null
+    && !Array.isArray(payload)
+    && "document" in payload
+    && payload.document !== undefined;
+}
+
+function countGeneratedNativeAudioAssetBindings(payload: unknown): number {
+  const binding = /^tsugite:request:[A-Za-z0-9][A-Za-z0-9._-]*:audio:[1-9][0-9]*$/;
+  const tokens = new Set<string>();
+  const walk = (value: unknown, parentKey?: string): void => {
+    if (typeof value === "string") {
+      if ((parentKey === "assetId" || parentKey === "asset_id") && binding.test(value)) tokens.add(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const child of value) walk(child, parentKey);
+      return;
+    }
+    if (value && typeof value === "object") {
+      for (const [key, child] of Object.entries(value)) walk(child, key);
+    }
+  };
+  walk(payload);
+  return tokens.size;
+}
+
 async function copyAsset(
   src: string,
   sourceBaseDir: string,
@@ -1514,6 +1646,73 @@ async function copyAsset(
   }
 
   return { relativePath };
+}
+
+async function copyNativeEditAssets(
+  manifest: Manifest,
+  manifestDir: string,
+  runDir: string
+): Promise<number> {
+  const assets = manifest.native_edit?.assets ?? [];
+  for (const [index, asset] of assets.entries()) {
+    const copied = await copyAsset(asset.src, manifestDir, runDir, "assets/native-edit", index, asset.asset_id);
+    asset.src = copied.relativePath;
+  }
+  const fonts = manifest.native_edit?.fonts ?? [];
+  for (const [index, font] of fonts.entries()) {
+    const copied = await copyAsset(font.src, manifestDir, runDir, "assets/native-edit/fonts", index, `font-${index + 1}`);
+    font.src = copied.relativePath;
+  }
+  return assets.length;
+}
+
+export function resolveGeneratedNativeAssetBindings(
+  payload: unknown,
+  requests: CliGenerationRequestResult[],
+  assetIdPattern?: string
+): Result<{ payload: unknown; audioAssetIds: string[] }> {
+  const outputs = new Map(requests.map((request) => [request.request_id, request]));
+  const unresolved = new Set<string>();
+  const audioAssetIds = new Set<string>();
+  const binding = /^tsugite:request:([A-Za-z0-9][A-Za-z0-9._-]*):(video|image|audio):([1-9][0-9]*)$/;
+  const walk = (value: unknown, parentKey?: string): unknown => {
+    if (typeof value === "string") {
+      const match = binding.exec(value);
+      if (!match) return value;
+      const [, requestId, kind, ordinalText] = match;
+      const request = outputs.get(requestId!);
+      const ordinal = Number(ordinalText) - 1;
+      const assets = kind === "video" ? request?.clips : kind === "image" ? request?.images : request?.audio;
+      const asset = assets?.[ordinal];
+      if (!asset) {
+        unresolved.add(value);
+        return value;
+      }
+      if (assetIdPattern && !new RegExp(assetIdPattern).test(asset.id)) {
+        unresolved.add(`${value} (generated asset id '${asset.id}' does not match the selected backend's native asset ID constraints)`);
+        return value;
+      }
+      if (kind === "audio" && (parentKey === "assetId" || parentKey === "asset_id")) audioAssetIds.add(asset.id);
+      return asset.id;
+    }
+    if (Array.isArray(value)) return value.map((child) => walk(child, parentKey));
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, walk(child, key)]));
+    }
+    return value;
+  };
+  const resolved = walk(payload);
+  if (unresolved.size > 0) {
+    return {
+      ok: false,
+      issues: [{
+        code: "run.native_edit_asset_binding_missing",
+        message: `native payload request-asset bindings could not be resolved: ${[...unresolved].join(", ")}`,
+        path: "native_edit.payload"
+      }]
+    };
+  }
+  return { ok: true, issues: [], payload: resolved, audioAssetIds: [...audioAssetIds] };
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -1663,7 +1862,9 @@ async function inspectAwaitingGate2Artifacts(input: {
   const qcPathsMatch = qcReport.report.assets.every((asset) => {
     return asset.path === assetPathsByReference.get(referenceKey(asset));
   });
-  const totalClipDuration = assembledManifest.manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
+  const totalClipDuration = assembledManifest.manifest.native_edit?.mode === "replace"
+    ? assembledManifest.manifest.meta.target_duration_seconds
+    : assembledManifest.manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const targetDuration = assembledManifest.manifest.meta.target_duration_seconds;
   const durationDelta = Math.round((totalClipDuration - targetDuration) * 1000) / 1000;
   const qcSummaryMatches =
@@ -1975,7 +2176,12 @@ function manifestAssetReferences(manifest: Manifest): ManifestAssetReference[] {
     ),
     ...manifest.audio.sfx.flatMap((entry, index) =>
       entry.src ? [{ id: entry.id ?? `sfx-${index + 1}`, kind: "audio" as const, src: entry.src }] : []
-    )
+    ),
+    ...(manifest.native_edit?.assets ?? []).map((asset) => ({
+      id: asset.asset_id,
+      kind: asset.kind === "video" ? "clip" as const : asset.kind,
+      src: asset.src
+    }))
   ];
 }
 

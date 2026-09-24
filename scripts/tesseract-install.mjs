@@ -6,7 +6,13 @@ import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import crossSpawn from "cross-spawn";
-import { resolveTesseractCli, TESSERACT_CLI_VERSION } from "../backends/tesseract/cli.mjs";
+import {
+  detectTesseractGlibcVersion,
+  isTesseractLinuxGlibcSupported,
+  resolveTesseractCli,
+  TESSERACT_CLI_MIN_LINUX_GLIBC_VERSION,
+  TESSERACT_CLI_VERSION
+} from "../backends/tesseract/cli.mjs";
 
 const spawnSync = crossSpawn.sync;
 const TESSERACT_RELEASE_BASE = "https://github.com/mirage-hq/tesseract/releases/download";
@@ -34,6 +40,7 @@ export function resolveTesseractTarget({
   arch = process.arch,
   env = process.env,
   windowsRelease = osRelease(),
+  glibcVersion,
   translated
 } = {}) {
   if (platform === "darwin") {
@@ -66,15 +73,33 @@ export function resolveTesseractTarget({
     }
     return { ok: true, asset: "windows-x86_64" };
   }
+  if (platform === "linux") {
+    if (arch !== "x64") {
+      return {
+        ok: false,
+        code: "unsupported_arch",
+        message: `Tesseract CLI ${TESSERACT_CLI_VERSION} supports Linux x86_64 only; detected ${arch}.`
+      };
+    }
+    const detectedGlibc = glibcVersion ?? detectTesseractGlibcVersion();
+    if (!isTesseractLinuxGlibcSupported(detectedGlibc)) {
+      return {
+        ok: false,
+        code: "unsupported_libc",
+        message: `Tesseract CLI ${TESSERACT_CLI_VERSION} requires Linux x86_64 with glibc ${TESSERACT_CLI_MIN_LINUX_GLIBC_VERSION} or later; detected ${detectedGlibc ? `glibc ${detectedGlibc}` : "an unknown or unsupported libc"}.`
+      };
+    }
+    return { ok: true, asset: "linux-x86_64" };
+  }
   return {
     ok: false,
     code: "unsupported_host",
-    message: `Tesseract CLI ${TESSERACT_CLI_VERSION} supports macOS and 64-bit Windows only; detected ${platform}.`
+    message: `Tesseract CLI ${TESSERACT_CLI_VERSION} supports macOS, 64-bit Windows, and Linux x86_64 with glibc ${TESSERACT_CLI_MIN_LINUX_GLIBC_VERSION}+; detected ${platform}.`
   };
 }
 
 export function tesseractReleaseUrls(asset, version = TESSERACT_CLI_VERSION) {
-  if (!["darwin-arm64", "darwin-x86_64", "windows-x86_64"].includes(asset)) {
+  if (!["darwin-arm64", "darwin-x86_64", "windows-x86_64", "linux-x86_64"].includes(asset)) {
     throw new TypeError(`Unsupported Tesseract release asset: ${asset}`);
   }
   if (version !== TESSERACT_CLI_VERSION) {
@@ -105,13 +130,13 @@ export async function sha256File(filePath) {
 function sanitizedInstallerEnv(platform, source) {
   const allow = platform === "win32"
     ? ["PATH", "LOCALAPPDATA", "USERPROFILE", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "COMSPEC", "PATHEXT", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "NUMBER_OF_PROCESSORS"]
-    : ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "SHELL"];
+    : ["PATH", "HOME", "XDG_DATA_HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "SHELL"];
   const env = {};
   for (const name of allow) {
     const value = envValue(source, name);
     if (typeof value === "string") env[name] = value;
   }
-  if (platform === "darwin" && !env.HOME) env.HOME = homedir();
+  if ((platform === "darwin" || platform === "linux") && !env.HOME) env.HOME = homedir();
   return env;
 }
 
@@ -250,6 +275,9 @@ function archiveExtractor(platform, archivePath, extractDir, installerEnv) {
   if (platform === "darwin") {
     return { command: "ditto", args: ["-x", "-k", archivePath, extractDir], env: installerEnv };
   }
+  if (platform === "linux") {
+    return { command: "unzip", args: ["-q", archivePath, "-d", extractDir], env: installerEnv };
+  }
   const env = {
     ...installerEnv,
     TSUGITE_TESSERACT_ARCHIVE_PATH: archivePath,
@@ -274,6 +302,7 @@ export async function installTesseract(options = {}) {
     arch: options.arch ?? process.arch,
     env,
     windowsRelease: options.windowsRelease ?? osRelease(),
+    glibcVersion: options.glibcVersion,
     translated: options.translated
   });
   if (!host.ok) throw new Error(host.message);
@@ -311,9 +340,9 @@ export async function installTesseract(options = {}) {
       maxBuffer: COMMAND_MAX_BUFFER
     }, logger);
 
-    const installerName = platform === "darwin" ? "install.sh" : "install.ps1";
+    const installerName = platform === "win32" ? "install.ps1" : "install.sh";
     const installerPath = findInstaller(extractDir, installerName);
-    if (platform === "darwin") {
+    if (platform === "darwin" || platform === "linux") {
       await runChecked(runCommand, "bash", [installerPath], "Official Tesseract installer", {
         cwd: path.dirname(installerPath),
         env: installerEnv,
@@ -341,6 +370,8 @@ export async function installTesseract(options = {}) {
       platform,
       arch: options.arch ?? process.arch,
       env: installerEnv,
+      glibcVersion: options.glibcVersion,
+      windowsRelease: options.windowsRelease,
       runCommand: verifyRunCommand
     });
     if (!resolved.ok) throw new Error(`Tesseract installer finished but verification failed: ${resolved.message}`);

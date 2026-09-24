@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -679,6 +680,117 @@ describe("creative review", () => {
     await expect(stat(join(outputDir, "assets/001-musuhi.png"))).resolves.toBeDefined();
     await expect(stat(join(outputDir, "assets/002-unreferenced.png"))).rejects.toThrow();
     await expect(stat(join(root, "dist/creative-review-run/state.json"))).rejects.toThrow();
+  });
+
+  it("shows both native font faces in Gate 1 and binds their source bytes to approval", async () => {
+    const root = await mkdtemp(join(tmpdir(), "tsugite-review-tesseract-fonts-"));
+    await mkdir(join(root, "media"), { recursive: true });
+    await writeFile(join(root, "project.yaml"), [
+      "slug: creative-review",
+      "name: creative-review",
+      "run_id: creative-review-run",
+      "manifest: manifest.json",
+      "dist_dir: dist",
+      "edit:",
+      "  backend: tesseract",
+      ""
+    ].join("\n"));
+    await writeFile(join(root, "manifest.json"), "{}\n");
+    await writeFile(join(root, "media/background.mp4"), "video-fixture");
+    await writeFile(join(root, "media/musuhi.png"), Buffer.from([137, 80, 78, 71]));
+    await writeFile(join(root, "media/Inter-Regular.ttf"), "inter-regular-font-bytes");
+    await writeFile(join(root, "media/Inter-Bold.otf"), "inter-bold-font-bytes");
+    const project = sampleProject();
+    project.edit.backend = "tesseract";
+    delete project.generation;
+    const manifest = sampleManifest();
+    manifest.native_edit = {
+      mode: "replace",
+      payload: { document: {
+        dimensions: { width: 1920, height: 1080 },
+        duration: 10,
+        composition: { id: "main", layers: [
+          { type: "text", id: 1, source: { text: "Title", fontFamily: "Inter", fontStyle: "Regular" } },
+          { type: "text", id: 2, source: { text: "Subhead", fontFamily: "Inter", fontStyle: "Bold" } }
+        ] }
+      }, export: { prores_sidecar: true } },
+      primary_output: { width: 1920, height: 1080, fps: 30, audio_required: false },
+      outputs: [{
+        kind: "prores_mov",
+        path: "final-prores.mov",
+        duration_seconds: 10,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        video_codec: "prores",
+        alpha_required: false,
+        audio_required: false
+      }],
+      fonts: [
+        { src: "media/Inter-Regular.ttf", family: "Inter", style: "Regular" },
+        { src: "media/Inter-Bold.otf", family: "Inter", style: "Bold" }
+      ]
+    };
+    const stateDir = join(root, "dist");
+    const written = await writeCreativeReview({
+      configPath: join(root, "project.yaml"),
+      project,
+      manifest,
+      plan: createPlan(project, manifest),
+      stateDir
+    });
+    const reviewData = JSON.parse(await readFile(written.dataPath, "utf8"));
+    expect(reviewData.native_edit_review.assets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "font", src: "media/Inter-Regular.ttf", family: "Inter", style: "Regular" }),
+      expect.objectContaining({ kind: "font", src: "media/Inter-Bold.otf", family: "Inter", style: "Bold" })
+    ]));
+    expect(reviewData.native_edit_review.primary_output).toEqual({ width: 1920, height: 1080, fps: 30, audio_required: false });
+    expect(reviewData.native_edit_review.outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "prores_mov", path: "final-prores.mov", duration_seconds: 10, width: 1920, height: 1080, fps: 30, video_codec: "prores", alpha_required: false, audio_required: false })
+    ]));
+    const html = await readFile(written.reviewPath, "utf8");
+    expect(html).toContain('data-testid="native-edit-review"');
+    expect(html).toContain('href="native-edit-payload.json" download');
+    expect(html).toContain("Inter / Regular");
+    expect(html).toContain("Inter / Bold");
+    expect(html).toContain("final-prores.mov");
+    expect(html).toContain("尺 10s");
+    expect(html).toContain("1920×1080");
+    expect(html).toContain("30 fps");
+    expect(html).toContain("codec prores");
+    expect(html).toContain("alpha 不要");
+    expect(html).toContain("audio 不要");
+
+    const nativePayloadPath = join(written.outputDir, "native-edit-payload.json");
+    const nativePayloadText = await readFile(nativePayloadPath, "utf8");
+    expect(nativePayloadText).toContain('"fontFamily": "Inter"');
+    const reviewDataText = await readFile(written.dataPath, "utf8");
+
+    const before = await inspectGate1Review({ configPath: join(root, "project.yaml"), project, manifest, stateDir });
+    expect(before.ok, JSON.stringify(before.issues)).toBe(true);
+    await writeFile(nativePayloadPath, `${nativePayloadText}\n`);
+    const tampered = await inspectGate1Review({ configPath: join(root, "project.yaml"), project, manifest, stateDir });
+    expect(tampered.ok).toBe(false);
+    expect(tampered.issues.map((issue) => issue.code)).toContain("gate.review_invalid");
+    await writeFile(nativePayloadPath, nativePayloadText);
+
+    const forgedPayloadText = `${JSON.stringify({ layers: [{ id: "unapproved-layer", type: "customShader" }] }, null, 2)}\n`;
+    await writeFile(nativePayloadPath, forgedPayloadText);
+    const forgedReviewData = JSON.parse(reviewDataText);
+    forgedReviewData.native_edit_review.payload_artifact_sha256 = createHash("sha256").update(forgedPayloadText).digest("hex");
+    await writeFile(written.dataPath, `${JSON.stringify(forgedReviewData, null, 2)}\n`);
+    await writeFile(written.reviewPath, renderReviewHtml(forgedReviewData));
+    const pairedTamper = await inspectGate1Review({ configPath: join(root, "project.yaml"), project, manifest, stateDir });
+    expect(pairedTamper.ok).toBe(false);
+    expect(pairedTamper.issues.map((issue) => issue.code)).toContain("gate.review_invalid");
+
+    await writeFile(nativePayloadPath, nativePayloadText);
+    await writeFile(written.dataPath, reviewDataText);
+    await writeFile(written.reviewPath, html);
+    await writeFile(join(root, "media/Inter-Regular.ttf"), "inter-regular-font-bytes-changed-after-review");
+    const after = await inspectGate1Review({ configPath: join(root, "project.yaml"), project, manifest, stateDir });
+    expect(after.ok).toBe(true);
+    expect(after.approvalDigest).not.toBe(before.approvalDigest);
   });
 
   it("stages a generation first_frame from the project directory for Gate 1 review", async () => {

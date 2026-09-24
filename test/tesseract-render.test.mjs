@@ -5,11 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadBackendCapabilities } from "../src/backends/capabilities.js";
 import { projectSchema } from "../src/project/schema.js";
 import { applyTesseractDocument } from "../backends/tesseract/document.mjs";
-import { assertNoConflictingKeyframeActions, assertSupportedManifest, assertTesseractInputDimensions, buildTesseractCaptionLayerTargets, buildTesseractDocumentLayers, buildTesseractMotionActions, buildTesseractTextActions, describeTesseractMotion } from "../backends/tesseract/manifest.mjs";
+import { assertNoConflictingKeyframeActions, assertSupportedManifest, assertTesseractInputDimensions, buildTesseractCaptionLayerTargets, buildTesseractDocumentLayers, buildTesseractMotionActions, buildTesseractTextActions, describeTesseractMotion, resolveTesseractNativeOutputs } from "../backends/tesseract/manifest.mjs";
 import { buildTesseractCaptionMotionActions } from "../backends/tesseract/textMotion.mjs";
-import { parsePayload, renderTesseract, validateRenderedOutput } from "../backends/tesseract/render.mjs";
+import { assertPng, expectedExportDimensions, parsePayload, renderTesseract, validateProresSidecar, validateRenderedOutput } from "../backends/tesseract/render.mjs";
 
 const temporaryDirectories = [];
+const validTinyPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=", "base64");
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
@@ -50,6 +51,38 @@ describe("Tesseract backend capabilities and project configuration", () => {
 });
 
 describe("Tesseract manifest conversion", () => {
+  it("preflights both declared ProRes sidecars and validates their independent output metadata", () => {
+    const nativeEdit = {
+      mode: "replace",
+      payload: {
+        document: {
+          dimensions: { width: 1920, height: 1080 }, duration: 2,
+          composition: { id: "main", layers: [{ type: "image", id: 3, source: { assetId: "logo" }, activeRange: { start: 0, duration: 1250 } }] }
+        },
+        export: { resolution: "4k", fps: 60, prores_sidecar: true, prores_alpha_solo: "main:3" }
+      },
+      primary_output: { width: 3840, height: 2160, fps: 60, audio_required: true },
+      outputs: [
+        { kind: "prores_mov", path: "final-prores.mov", duration_seconds: 2, width: 3840, height: 2160, fps: 60, video_codec: "prores", alpha_required: false, audio_required: true },
+        { kind: "alpha_solo_prores_mov", path: "final-prores-alpha.mov", duration_seconds: 1.25, width: 3840, height: 2160, fps: 60, video_codec: "prores", alpha_required: true, audio_required: false }
+      ]
+    };
+    const outputs = resolveTesseractNativeOutputs(nativeEdit, "darwin", 2);
+    expect(outputs).toEqual([
+      { kind: "prores_mov", path: "final-prores.mov", duration_seconds: 2, width: 3840, height: 2160, fps: 60, video_codec: "prores", alpha_required: false, audio_required: true },
+      { kind: "alpha_solo_prores_mov", path: "final-prores-alpha.mov", duration_seconds: 1.25, width: 3840, height: 2160, fps: 60, video_codec: "prores", alpha_required: true, audio_required: false }
+    ]);
+    expect(() => resolveTesseractNativeOutputs(nativeEdit, "linux", 2)).toThrow(/only on macOS/);
+
+    validateProresSidecar({ hasVideo: true, hasAudio: true, durationSeconds: 2, videoDurationSeconds: 2, width: 3840, height: 2160, fps: 60, videoCodec: "prores", pixelFormat: "yuv422p10le", sizeBytes: 100 }, outputs[0]);
+    validateProresSidecar({ hasVideo: true, hasAudio: false, durationSeconds: 1.25, videoDurationSeconds: 1.25, width: 3840, height: 2160, fps: 60, videoCodec: "prores", pixelFormat: "yuva444p10le", sizeBytes: 100 }, outputs[1]);
+
+    expect(() => validateProresSidecar({ hasVideo: true, hasAudio: false, durationSeconds: 1.75, videoDurationSeconds: 1.75, width: 3840, height: 2160, fps: 60, videoCodec: "prores", pixelFormat: "yuva444p10le", sizeBytes: 100 }, outputs[1])).toThrow(/duration/);
+    expect(() => validateProresSidecar({ hasVideo: true, hasAudio: false, durationSeconds: 1.25, videoDurationSeconds: 1.25, width: 3840, height: 2160, fps: 60, videoCodec: "h264", pixelFormat: "yuva444p10le", sizeBytes: 100 }, outputs[1])).toThrow(/video codec/);
+    expect(() => validateProresSidecar({ hasVideo: true, hasAudio: false, durationSeconds: 1.25, videoDurationSeconds: 1.25, width: 3840, height: 2160, fps: 60, videoCodec: "prores", pixelFormat: "yuv422p10le", sizeBytes: 100 }, outputs[1])).toThrow(/preserve alpha/);
+    expect(() => validateProresSidecar({ hasVideo: true, hasAudio: true, durationSeconds: 1.25, videoDurationSeconds: 1.25, width: 3840, height: 2160, fps: 60, videoCodec: "prores", pixelFormat: "yuva444p10le", sizeBytes: 100 }, outputs[1])).toThrow(/audio presence/);
+  });
+
   it("maps caption ids to the exact text layer id, timeline interval, and generated baseline position", () => {
     const manifest = basicManifest({
       captions: [{ id: "caption-a", text: "日本語字幕", start: 0.5, end: 1.5, visual: {
@@ -445,13 +478,41 @@ describe("Tesseract manifest conversion", () => {
 });
 
 describe("Tesseract render validation", () => {
+  it("requires a complete, CRC-valid, decodable PNG artifact", async () => {
+    const directory = await tempDirectory("tsugite-png-validation-");
+    const path = join(directory, "preview.png");
+    await writeFile(path, validTinyPng);
+    await expect(assertPng(path, "preview", directory)).resolves.toBeUndefined();
+
+    await writeFile(path, validTinyPng.subarray(0, 8));
+    await expect(assertPng(path, "preview", directory)).rejects.toThrow(/PNG/);
+
+    const badCrcPng = Buffer.from(validTinyPng);
+    badCrcPng[badCrcPng.length - 5] ^= 0x01;
+    await writeFile(path, badCrcPng);
+    await expect(assertPng(path, "preview", directory)).rejects.toThrow(/CRC/);
+  });
+
   it("fails closed when export fps differs from the manifest", () => {
     expect(() => validateRenderedOutput({
       hasVideo: true, hasAudio: false, durationSeconds: 2, width: 1920, height: 1080, fps: 29.97, sizeBytes: 100
     }, basicManifest(), { width: 1920, height: 1080 }, 2)).toThrow(/refusing a mismatched render/);
     expect(() => validateRenderedOutput({
       hasVideo: true, hasAudio: false, durationSeconds: 2, width: 1280, height: 720, fps: 30, sizeBytes: 100
-    }, basicManifest(), { width: 1920, height: 1080 }, 2)).toThrow(/do not match the requested 1920x1080/);
+    }, basicManifest(), { width: 1920, height: 1080 }, 2)).toThrow(/do not match the reviewed 1080p export 1920x1080/);
+  });
+
+  it("treats native primary audio_required as an exact Gate 1 expectation", () => {
+    const manifest = basicManifest({
+      native_edit: {
+        mode: "replace",
+        payload: { document: { dimensions: { width: 1920, height: 1080 }, duration: 2, composition: { id: "main", layers: [] } } },
+        primary_output: { width: 1920, height: 1080, fps: 30, audio_required: false }
+      }
+    });
+    expect(() => validateRenderedOutput({
+      hasVideo: true, hasAudio: true, durationSeconds: 2, width: 1920, height: 1080, fps: 30, sizeBytes: 100
+    }, manifest, { width: 1920, height: 1080 }, 2)).toThrow(/audio presence does not match/);
   });
 
   it("rejects source dimensions that the pinned exporter will preserve before starting the CLI", async () => {
@@ -476,7 +537,7 @@ describe("Tesseract render validation", () => {
         hasVideo: true, hasAudio: false, durationSeconds: 2, videoDurationSeconds: 2,
         width: 640, height: 360, fps: 30, sizeBytes: 10
       })
-    })).rejects.toThrow(/640x360; Tesseract 0.1.0 export preserves source dimensions and requires 1920x1080/);
+    })).rejects.toThrow(/640x360; Tesseract export preserves source dimensions and requires 1920x1080/);
     expect(resolveCli).not.toHaveBeenCalled();
   });
 
@@ -520,7 +581,8 @@ describe("Tesseract render validation", () => {
       runDir, manifestPath, outputPath, reportPath, projectRoot,
       backendOptions: { font_path: "assets/fonts/Inter.ttf" }
     }, {
-      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.1.0" }),
+      platform: "darwin",
+      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.2.0" }),
       runCli: async (_cliPath, args) => {
         cliCalls.push([...args]);
         const command = args.slice(0, 2).join(" ");
@@ -569,6 +631,168 @@ describe("Tesseract render validation", () => {
     expect(JSON.parse(await readFile(reportPath, "utf8"))).toMatchObject({ backend: "tesseract", output_path: outputPath, manifest_path: manifestPath, duration_seconds: 2, width: 1920, height: 1080, fps: 30 });
     expect(await readdir(runDir)).toEqual(expect.arrayContaining(["final.tsrct", "final.mp4", "render-report.json"]));
     expect((await readdir(runDir)).some((entry) => entry.startsWith(".tesseract-work-"))).toBe(false);
+  });
+
+  it("imports native assets and fonts, applies a schema-listed FX effect, reviews 4K/60, and validates preview artifacts", async () => {
+    const runDir = await tempDirectory("tsugite-tesseract-native-");
+    const projectRoot = await tempDirectory("tsugite-tesseract-project-");
+    await mkdir(join(runDir, "assets", "clips"), { recursive: true });
+    await mkdir(join(runDir, "assets", "images"), { recursive: true });
+    await mkdir(join(runDir, "assets", "fonts"), { recursive: true });
+    await writeFile(join(runDir, "assets", "clips", "source.mp4"), "video fixture");
+    await writeFile(join(runDir, "assets", "images", "logo.png"), "image fixture");
+    await writeFile(join(runDir, "assets", "fonts", "Inter.ttf"), "font fixture");
+
+    const manifestPath = join(runDir, "manifest.json");
+    const outputPath = join(runDir, "final.mp4");
+    const reportPath = join(runDir, "render-report.json");
+    const projectPath = join(runDir, "final.tsrct");
+    const nativeDocument = {
+      $schema: "https://jerboa.dev/schemas/fx-composition/editable/v1/document.schema.json",
+      formatVersion: 1,
+      dimensions: { width: 1920, height: 1080 },
+      duration: 2,
+      backgroundColor: null,
+      composition: {
+        id: "main",
+        name: "Native fixture",
+        layers: [
+          { type: "video", id: 1, name: "source", source: { assetId: "clip-native-1" }, volume: 1 },
+          { type: "image", id: 2, name: "logo", source: { assetId: "logo" } },
+          { type: "image", id: 3, name: "alpha overlay", source: { assetId: "logo" }, activeRange: { start: 0, duration: 1250 } }
+        ]
+      }
+    };
+    const manifest = basicManifest({
+      meta: { aspect: "16:9", fps: 60, target_duration_seconds: 2, slug: "native-fixture" },
+      clips: [{ id: "clip-native-1", src: "assets/clips/source.mp4", in: 0, out: 2, duration: 2, fps: 30, resolution: { width: 1920, height: 1080 }, audio: false }],
+      native_edit: {
+        mode: "replace",
+        payload: {
+          document: nativeDocument,
+          actions: [{ type: "addFxLayerEffect", compositionId: "main", layerId: 1, effectId: 4, effect: { type: "brightnessContrast", brightness: 5, contrast: 12 } }],
+          export: { resolution: "4k", fps: 60, prores_sidecar: true, prores_alpha_solo: "main:3" }
+        },
+        primary_output: { width: 3840, height: 2160, fps: 60, audio_required: true },
+        outputs: [
+          { kind: "prores_mov", path: "final-prores.mov", duration_seconds: 2, width: 3840, height: 2160, fps: 60, video_codec: "prores", alpha_required: false, audio_required: true },
+          { kind: "alpha_solo_prores_mov", path: "final-prores-alpha.mov", duration_seconds: 1.25, width: 3840, height: 2160, fps: 60, video_codec: "prores", alpha_required: true, audio_required: false }
+        ],
+        assets: [{ asset_id: "logo", src: "assets/images/logo.png", kind: "image" }],
+        fonts: [{ src: "assets/fonts/Inter.ttf" }]
+      }
+    });
+    await writeFile(manifestPath, JSON.stringify(manifest));
+
+    const documentSchema = {
+      type: "object",
+      required: ["$schema", "formatVersion", "dimensions", "duration", "composition"],
+      properties: {
+        $schema: { type: "string" }, formatVersion: { type: "integer" },
+        dimensions: { type: "object", properties: { width: { type: "integer" }, height: { type: "integer" } } },
+        duration: { type: "number" }, composition: { $ref: "#/$defs/Composition" }
+      },
+      $defs: { Composition: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, layers: { type: "array", items: { type: "object" } } } } }
+    };
+    const effectAction = {
+      type: "addFxLayerEffect", compositionId: "main", layerId: 1, effectId: 4,
+      effect: { type: "brightnessContrast", brightness: 5, contrast: 12 }
+    };
+    const effectActionSchema = {
+      discriminator: { propertyName: "type", mapping: { addFxLayerEffect: "#/$defs/AddEffect" } },
+      oneOf: [{ $ref: "#/$defs/AddEffect" }],
+      $defs: { AddEffect: { type: "object", properties: { type: { const: "addFxLayerEffect" }, compositionId: { type: "string" }, layerId: { type: "integer" }, effectId: { type: "integer" }, effect: { type: "object" } }, required: ["type", "compositionId", "layerId", "effectId", "effect"] } }
+    };
+    const emptyDocument = { ...nativeDocument, composition: { ...nativeDocument.composition, layers: [] } };
+    const cliCalls = [];
+    let committedDocument;
+    let appliedActions;
+    const result = await renderTesseract({
+      runDir, manifestPath, outputPath, reportPath, projectRoot, backendOptions: {}
+    }, {
+      platform: "darwin",
+      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.2.0" }),
+      runCli: async (_cliPath, args) => {
+        cliCalls.push([...args]);
+        const command = args.slice(0, 2).join(" ");
+        if (command === "project schema") {
+          return { status: 0, stdout: JSON.stringify(args.includes("--document") ? documentSchema : effectActionSchema), stderr: "" };
+        }
+        if (command === "project create") {
+          await writeFile(args[args.indexOf("--project") + 1], "editable-tsrct");
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (command === "project import-video" || command === "project import-asset") {
+          const id = args[args.indexOf("--asset-id") + 1];
+          return { status: 0, stdout: JSON.stringify({ assetId: id }), stderr: "" };
+        }
+        if (command === "project import-font") {
+          return { status: 0, stdout: JSON.stringify({ faces: [{ fontFamily: "Inter", fontStyle: "Regular" }, { fontFamily: "Inter", fontStyle: "Bold" }] }), stderr: "" };
+        }
+        if (command === "project checkout") {
+          await writeFile(args[args.indexOf("--output") + 1], JSON.stringify(committedDocument ?? emptyDocument));
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (command === "project commit") {
+          committedDocument = JSON.parse(await readFile(args[args.indexOf("--file") + 1], "utf8"));
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (command === "project apply") {
+          appliedActions = JSON.parse(await readFile(args[args.indexOf("--actions") + 1], "utf8"));
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "preview" || args[0] === "filmstrip") {
+          await writeFile(args[args.indexOf("--output") + 1], validTinyPng);
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "export") {
+          const output = args[args.indexOf("--output") + 1];
+          const alphaSolo = args.includes("--fx-solo");
+          if (alphaSolo) {
+            const [compositionId, layerId] = args[args.indexOf("--fx-solo") + 1].split(":");
+            const composition = committedDocument?.composition;
+            const selectedLayerExists = composition?.id === compositionId
+              && composition.layers?.some((layer) => String(layer.id) === layerId);
+            if (!selectedLayerExists) return { status: 1, stdout: "", stderr: "fx-solo target does not exist" };
+          }
+          const prores = args.includes("--format") && args[args.indexOf("--format") + 1] === "prores";
+          await writeFile(output, alphaSolo ? "fixture alpha prores" : prores ? "fixture prores" : "fixture mp4");
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        throw new Error(`unexpected fake CLI invocation: ${args.join(" ")}`);
+      },
+      probeMedia: async (path) => path.endsWith("final-prores-alpha.mov")
+        ? { hasVideo: true, hasAudio: false, durationSeconds: 1.25, videoDurationSeconds: 1.25, width: 3840, height: 2160, fps: 60, videoCodec: "prores", pixelFormat: "yuva444p10le", sizeBytes: 100 }
+        : path.endsWith("final-prores.mov")
+          ? { hasVideo: true, hasAudio: true, durationSeconds: 2, videoDurationSeconds: 2, width: 3840, height: 2160, fps: 60, videoCodec: "prores", pixelFormat: "yuv422p10le", sizeBytes: 100 }
+          : path.endsWith("/final.mp4")
+            ? { hasVideo: true, hasAudio: true, durationSeconds: 2, width: 3840, height: 2160, fps: 60, sizeBytes: 100 }
+        : { hasVideo: true, hasAudio: false, durationSeconds: 2, width: 1920, height: 1080, fps: 30, sizeBytes: 10 },
+      decodeVideo: async () => undefined
+    });
+
+    const exportCall = cliCalls.find((args) => args[0] === "export");
+    expect(exportCall).toEqual(expect.arrayContaining(["--resolution", "4k", "--fps", "60"]));
+    expect(cliCalls.findIndex((args) => args[0] === "preview")).toBeLessThan(cliCalls.findIndex((args) => args[0] === "export"));
+    expect(cliCalls.findIndex((args) => args[0] === "filmstrip")).toBeLessThan(cliCalls.findIndex((args) => args[0] === "export"));
+    expect(cliCalls.find((args) => args[0] === "project" && args[1] === "import-video")).toEqual(expect.arrayContaining(["--asset-id", "clip-native-1"]));
+    expect(cliCalls.find((args) => args[0] === "project" && args[1] === "import-asset")).toEqual(expect.arrayContaining(["--asset-id", "logo", "--kind", "image"]));
+    const proresCalls = cliCalls.filter((args) => args[0] === "export" && args.includes("--format"));
+    expect(proresCalls).toHaveLength(2);
+    expect(proresCalls[0]).toEqual(expect.arrayContaining(["--format", "prores", "--resolution", "4k", "--fps", "60"]));
+    expect(proresCalls[1]).toEqual(expect.arrayContaining(["--format", "prores", "--fx-solo", "main:3"]));
+    expect(appliedActions).toEqual([effectAction]);
+    expect(result).toMatchObject({ width: 3840, height: 2160, fps: 60, native_document_layer_count: 3, native_video_layer_count: 1, native_embedded_audio_layer_count: 1, native_font_imports: [{ src: "assets/fonts/Inter.ttf", faces: [{ fontFamily: "Inter", fontStyle: "Regular" }, { fontFamily: "Inter", fontStyle: "Bold" }] }] });
+    expect(result.preview_path).toBe(join(runDir, "preview.png"));
+    expect(result.filmstrip_path).toBe(join(runDir, "filmstrip.png"));
+    expect(result.sidecars).toEqual([
+      { kind: "prores_mov", path: "final-prores.mov" },
+      { kind: "alpha_solo_prores_mov", path: "final-prores-alpha.mov" }
+    ]);
+    expect(JSON.parse(await readFile(reportPath, "utf8")).sidecars).toEqual(result.sidecars);
+    expect(await readdir(runDir)).toEqual(expect.arrayContaining(["final.tsrct", "final.mp4", "final-prores.mov", "final-prores-alpha.mov", "render-report.json", "preview.png", "filmstrip.png"]));
+    expect(expectedExportDimensions({ width: 1080, height: 1080 }, nativeDocument, "4k")).toEqual({ width: 2160, height: 2160 });
+    expect(expectedExportDimensions({ width: 1080, height: 1350 }, nativeDocument, "720p")).toEqual({ width: 720, height: 900 });
   });
 
   it("rejects an existing report, escaping paths, and symlinked media before invoking the CLI", async () => {
@@ -678,7 +902,8 @@ describe("Tesseract render validation", () => {
     };
     const emptyDocument = { duration: 1, composition: { id: "main", width: 1920, height: 1080, layers: [] } };
     await expect(renderTesseract({ runDir, manifestPath, outputPath, reportPath, projectRoot, backendOptions: {} }, {
-      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.1.0" }),
+      platform: "darwin",
+      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.2.0" }),
       runCli: async (_cliPath, args) => {
         const command = args.slice(0, 2).join(" ");
         if (command === "project schema") return { status: 0, stdout: JSON.stringify(documentSchema), stderr: "" };

@@ -126,7 +126,9 @@ export function createPlan(
   }
 
   const orchestrationMode = orchestrationModeFromAuthority(runtime_authority, project);
-  const totalClipDuration = manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
+  const totalClipDuration = manifest.native_edit?.mode === "replace"
+    ? manifest.meta.target_duration_seconds
+    : manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
   const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
   const agentHandoffs = createAgentHandoffs(
     project,

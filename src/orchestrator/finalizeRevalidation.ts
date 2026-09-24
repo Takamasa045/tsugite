@@ -10,6 +10,7 @@ import type { Project } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import { readState } from "./state.js";
 import { sha256File } from "./render.js";
+import { verifyGate3SidecarApproval } from "./gate3Sidecars.js";
 import type { FinalizeFileIdentity } from "./finalizeJournal.js";
 import {
   hasSymlinkAlongPath,
@@ -113,6 +114,7 @@ export async function recheckPlanIdentityBeforeMutation(input: {
   runId: string;
   finalOutputDigest: string;
   gate3ApprovedInputDigest: string;
+  gate3SidecarApprovalDigest?: string;
   retainedMedia: readonly string[];
   candidates: readonly string[];
   identities: readonly FinalizeFileIdentity[];
@@ -157,6 +159,7 @@ export async function recheckPlanIdentityBeforeMutation(input: {
     runId: input.runId,
     finalOutputDigest: input.finalOutputDigest,
     gate3ApprovedInputDigest: input.gate3ApprovedInputDigest,
+    gate3SidecarApprovalDigest: input.gate3SidecarApprovalDigest,
     retainedMedia: input.retainedMedia,
     candidates: liveIdentities as FinalizeFileIdentity[]
   });
@@ -179,6 +182,7 @@ export async function revalidateLiveFinalizeConditions(input: {
   canonicalOutputPath: string;
   expectedFinalDigest: string;
   expectedGate3Digest: string;
+  expectedSidecarApprovalDigest?: string;
   projectRoot: string;
   project: Project;
   plannedManifestReferencedRelative: readonly string[];
@@ -216,6 +220,13 @@ export async function revalidateLiveFinalizeConditions(input: {
       path: join(input.runDir, "state.json")
     };
   }
+  if (liveState.gates.gate_3.sidecar_approval_digest !== input.expectedSidecarApprovalDigest) {
+    return {
+      code: "finalize.sidecar_approval_changed",
+      message: "Gate 3 sidecar approval binding changed after quarantine; cleanup blocked",
+      path: join(input.runDir, "state.json")
+    };
+  }
 
   let liveFinalDigest: string;
   try {
@@ -237,6 +248,12 @@ export async function revalidateLiveFinalizeConditions(input: {
       path: input.canonicalOutputPath
     };
   }
+
+  const liveSidecarApproval = await verifyGate3SidecarApproval({
+    runDir: input.runDir,
+    expectedSidecarApprovalDigest: input.expectedSidecarApprovalDigest
+  });
+  if (!liveSidecarApproval.ok) return liveSidecarApproval.issues[0];
 
   // Re-load on-disk manifest so mid-apply retention drift is fail-closed.
   const manifestPath = resolve(input.projectRoot, input.project.manifest);

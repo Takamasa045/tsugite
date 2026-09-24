@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { readJsonFile } from "../io.js";
@@ -9,7 +9,17 @@ import { validateManifestAssets } from "../manifest/assets.js";
 import { validateManifest } from "../manifest/validate.js";
 import type { Project } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
-import { inspectGate3Output, validateGate3QcReport, writeGate3QcReport } from "./gate3Qc.js";
+import {
+  inspectGate3Output,
+  validateGate3QcReport,
+  writeGate3QcReport
+} from "./gate3Qc.js";
+import {
+  inspectGate3Sidecars,
+  normalizedSidecarReportEntries,
+  sidecarApprovalSubjectDigest,
+  type Gate3SidecarInspection
+} from "./gate3Sidecars.js";
 import { markGateAwaiting, writeState, type RunState } from "./state.js";
 import {
   notifySikumiArtifact,
@@ -52,7 +62,12 @@ const backendRenderReportSchema = z
     duration_seconds: z.number().positive(),
     width: z.number().int().positive(),
     height: z.number().int().positive(),
-    fps: z.number().positive()
+    fps: z.number().positive(),
+    sidecars: z.array(z.object({
+      kind: z.string().min(1),
+      path: z.string().min(1),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/).optional()
+    }).strict()).optional()
   })
   .passthrough();
 
@@ -131,7 +146,23 @@ export async function renderAssembledMedia(
     manifestPath
   });
   if (!renderReport.ok) return renderReport;
-  const gate3QcReport = await writeGate3QcReport(manifestResult.manifest, outputPath, gate3QcReportPath);
+  const sidecarInspection = await inspectSidecarsForRun(
+    manifestResult.manifest,
+    renderReport.report.sidecars,
+    runDir,
+    false
+  );
+  if (!sidecarInspection.ok) return sidecarInspection;
+  const normalizedRenderReport = sidecarInspection.sidecars.length > 0
+    ? { ...renderReport.report, sidecars: normalizedSidecarReportEntries(sidecarInspection.sidecars) }
+    : renderReport.report.sidecars?.length === 0
+      ? { ...renderReport.report, sidecars: [] }
+      : renderReport.report;
+  await writeFile(reportPath, `${JSON.stringify(normalizedRenderReport, null, 2)}\n`, "utf8");
+  const gate3QcReport = await writeGate3QcReport(manifestResult.manifest, outputPath, gate3QcReportPath, {
+    sidecars: sidecarInspection.sidecars,
+    sidecar_approval_digest: sidecarInspection.sidecarApprovalDigest
+  });
   if (gate3QcReport.actual.ok && !renderReportMatchesProbe(renderReport.report, gate3QcReport.actual)) {
     return {
       ok: false,
@@ -182,9 +213,18 @@ export async function renderAssembledMedia(
 export async function inspectGate3RunForApproval(
   project: Project,
   stateDir: string,
-  personQaDecision?: PersonQaHumanDecisionRecord
-): Promise<Result<{ approvalDigest: string; personQaApprovalBinding?: PersonQaApprovalBindingV1 }>> {
-  const inspected = await inspectAwaitingGate3Artifacts(project, stateDir, true);
+  personQaDecision?: PersonQaHumanDecisionRecord,
+  qcHooks: {
+    probe?: (path: string) => import("./gate3Qc.js").Gate3QcProbe;
+    contentProbe?: (path: string, audioRequired: boolean) => import("./gate3Qc.js").Gate3ContentProbe;
+  } = {}
+): Promise<Result<{
+  approvalDigest: string;
+  approvalSubjectDigest: string;
+  sidecarApprovalDigest?: string;
+  personQaApprovalBinding?: PersonQaApprovalBindingV1;
+}>> {
+  const inspected = await inspectAwaitingGate3Artifacts(project, stateDir, true, qcHooks);
   if (!inspected.ok) return { ok: false, issues: inspected.issues };
   const runId = project.run_id ?? project.slug;
   const runDir = join(stateDir, runId);
@@ -199,14 +239,25 @@ export async function inspectGate3RunForApproval(
         code: "render.output_hash_failed",
         message: error instanceof Error ? error.message : String(error),
         path: finalPath
-      }]
+    }]
     };
   }
+
+  const gate3Qc = await readGate3QcSidecarBinding(join(runDir, "gate3-qc.json"));
+  if (!gate3Qc.ok) return gate3Qc;
+  const sidecarApprovalDigest = gate3Qc.sidecarApprovalDigest;
+  const approvalSubjectDigest = sidecarApprovalSubjectDigest(outputDigest, sidecarApprovalDigest);
 
   // Gate 3 state/launcher/finalize identity is always sha256(final.mp4).
   // Person QA (when enabled) is a fail-closed prerequisite + secondary binding artifact.
   if (!personConsistencyRequiredForStage(project, "gate_3")) {
-    return { ok: true, issues: [], approvalDigest: outputDigest };
+    return {
+      ok: true,
+      issues: [],
+      approvalDigest: outputDigest,
+      approvalSubjectDigest,
+      ...(sidecarApprovalDigest ? { sidecarApprovalDigest } : {})
+    };
   }
 
   const reportRelativePath = personConsistencyReportRelativePath("gate_3");
@@ -242,19 +293,34 @@ export async function inspectGate3RunForApproval(
       contactSheetRelativePath: personQa.binding?.contact_sheet_relative_path,
       contactSheetSha256: personQa.binding?.contact_sheet_sha256,
       humanDecision: personQaDecision,
-      technicalQc: { output_path: finalPath, final_output_sha256: outputDigest },
-      baseApprovalPayload: { final_output_sha256: outputDigest }
+      technicalQc: {
+        output_path: finalPath,
+        final_output_sha256: outputDigest,
+        sidecar_approval_digest: sidecarApprovalDigest ?? null
+      },
+      baseApprovalPayload: {
+        final_output_sha256: outputDigest,
+        sidecar_approval_digest: sidecarApprovalDigest ?? null
+      }
     });
     return {
       ok: true,
       issues: [],
       approvalDigest: outputDigest,
+      approvalSubjectDigest,
+      ...(sidecarApprovalDigest ? { sidecarApprovalDigest } : {}),
       personQaApprovalBinding
     };
   }
 
   // Preview path (no human decision yet): still bind report presence, keep output identity.
-  return { ok: true, issues: [], approvalDigest: outputDigest };
+  return {
+    ok: true,
+    issues: [],
+    approvalDigest: outputDigest,
+    approvalSubjectDigest,
+    ...(sidecarApprovalDigest ? { sidecarApprovalDigest } : {})
+  };
 }
 
 export async function sha256File(path: string): Promise<string> {
@@ -270,7 +336,11 @@ export async function sha256File(path: string): Promise<string> {
 async function inspectAwaitingGate3Artifacts(
   project: Project,
   stateDir: string,
-  requireQcPass: boolean
+  requireQcPass: boolean,
+  qcHooks: {
+    probe?: (path: string) => import("./gate3Qc.js").Gate3QcProbe;
+    contentProbe?: (path: string, audioRequired: boolean) => import("./gate3Qc.js").Gate3ContentProbe;
+  } = {}
 ): Promise<Result<{}>> {
   const runId = project.run_id ?? project.slug;
   const runDir = join(stateDir, runId);
@@ -305,9 +375,21 @@ async function inspectAwaitingGate3Artifacts(
   });
   if (!renderReport.ok) return renderReport;
   try {
+    const sidecarInspection = await inspectSidecarsForRun(
+      manifestResult.manifest,
+      renderReport.report.sidecars,
+      runDir,
+      true,
+      qcHooks.probe
+    );
+    if (!sidecarInspection.ok) return sidecarInspection;
     const gate3Qc = validateGate3QcReport(await readJsonFile(gate3QcReportPath), outputPath);
     if (!gate3Qc.ok) return gate3Qc;
-    const freshGate3Qc = inspectGate3Output(manifestResult.manifest, outputPath);
+    const freshGate3Qc = inspectGate3Output(manifestResult.manifest, outputPath, {
+      ...qcHooks,
+      sidecars: sidecarInspection.sidecars,
+      sidecar_approval_digest: sidecarInspection.sidecarApprovalDigest
+    });
     if (JSON.stringify(gate3Qc.report) !== JSON.stringify(freshGate3Qc)) {
       return {
         ok: false,
@@ -471,6 +553,54 @@ async function readBackendRenderReport(
           path: reportPath
         }
       ]
+    };
+  }
+}
+
+async function inspectSidecarsForRun(
+  manifest: NonNullable<ReturnType<typeof validateManifest>["manifest"]>,
+  reportedSidecars: unknown,
+  runDir: string,
+  requireReportedSha256: boolean,
+  probe?: (path: string) => import("./gate3Qc.js").Gate3QcProbe
+): Promise<Result<Gate3SidecarInspection>> {
+  return inspectGate3Sidecars({
+    manifest,
+    reportedSidecars,
+    runDir,
+    ...(probe ? { probe } : {}),
+    requireReportedSha256,
+    probeFiles: true
+  });
+}
+
+async function readGate3QcSidecarBinding(
+  reportPath: string
+): Promise<Result<{ sidecarApprovalDigest?: string }>> {
+  try {
+    const parsed = validateGate3QcReport(await readJsonFile(reportPath), join(dirname(reportPath), "final.mp4"));
+    if (!parsed.ok) return parsed;
+    const sidecars = parsed.report.sidecars ?? [];
+    const digest = parsed.report.sidecar_approval_digest;
+    if ((sidecars.length > 0) !== Boolean(digest)) {
+      return {
+        ok: false,
+        issues: [{
+          code: "render.sidecar_qc_invalid",
+          message: "Gate 3 QC sidecar list and approval digest are inconsistent",
+          path: reportPath
+        }]
+      };
+    }
+    return { ok: true, issues: [], ...(digest ? { sidecarApprovalDigest: digest } : {}) };
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [{
+        code: "render.sidecar_qc_invalid",
+        message: error instanceof Error ? error.message : String(error),
+        path: reportPath
+      }]
     };
   }
 }

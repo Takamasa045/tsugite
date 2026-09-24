@@ -1,6 +1,17 @@
 const VIDEO_SUFFIXES = new Set([".mp4", ".mov", ".m4v"]);
 const AUDIO_SUFFIXES = new Set([".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg"]);
+const IMAGE_SUFFIXES = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const FONT_SUFFIXES = new Set([".ttf", ".otf", ".ttc"]);
+const TESSERACT_CANVASES = Object.freeze({
+  "16:9": { width: 1920, height: 1080 },
+  "9:16": { width: 1080, height: 1920 },
+  "1:1": { width: 1080, height: 1080 },
+  "4:5": { width: 1080, height: 1350 },
+  "3:4": { width: 810, height: 1080 },
+  "5:4": { width: 1350, height: 1080 }
+});
 const CLIP_KEYS = new Set(["id", "src", "in", "out", "duration", "fps", "resolution", "audio", "motion"]);
+const IMAGE_KEYS = new Set(["id", "src", "alt", "alpha_required"]);
 const TRACK_KEYS = new Set(["id", "src", "start", "end", "volume"]);
 const CAPTION_KEYS = new Set(["id", "text", "speaker", "start", "end", "pose", "emphasis", "visual"]);
 const CAPTION_VISUAL_KEYS = new Set(["headline", "badges", "motion"]);
@@ -11,22 +22,33 @@ const MOTION_CUE_KEYS = new Set(["preset", "label", "description", "target", "du
 const MOTION_PHASES = ["entrance", "emphasis", "exit", "transition_to_next"];
 const DEFAULT_MOTION_DURATION_SECONDS = 0.5;
 const MANIFEST_KEYS = new Set([
-  "fast_edit", "meta", "clips", "images", "speakers", "presentation", "audio",
+  "fast_edit", "native_edit", "meta", "clips", "images", "speakers", "presentation", "audio",
   "master_audio_binding", "caption_binding", "chapter_binding", "captions", "chapters", "provenance"
 ]);
 const META_KEYS = new Set(["aspect", "fps", "target_duration_seconds", "slug"]);
 
-export function assertSupportedManifest(manifest) {
+export function assertSupportedManifest(manifest, platform = process.platform) {
   if (!manifest || typeof manifest !== "object") throw new Error("manifest must be an object");
   if (manifest.transitions !== undefined) throw new Error("Tesseract does not support top-level manifest.transitions; use a supported clips[].motion.transition_to_next cue");
   rejectUnknownKeys(manifest, MANIFEST_KEYS, "manifest");
+  assertTesseractNativeSpec(manifest.native_edit);
   rejectUnknownKeys(manifest.meta, META_KEYS, "meta");
   if (!Number.isFinite(manifest.meta?.target_duration_seconds) || manifest.meta.target_duration_seconds <= 0) {
     throw new Error("meta.target_duration_seconds must be a positive finite duration in seconds");
   }
-  if (!Array.isArray(manifest.clips) || manifest.clips.length === 0) throw new Error("Tesseract requires at least one video clip");
+  const nativePayload = manifest.native_edit?.payload;
+  const hasNativeDocument = Boolean(nativePayload?.document);
+  const replacesTimeline = manifest.native_edit?.mode === "replace";
+  if (!Array.isArray(manifest.clips) || (manifest.clips.length === 0 && !hasNativeDocument)) throw new Error("Tesseract requires at least one video clip unless native_edit.document authors a complete native composition");
+  if (replacesTimeline && !hasNativeDocument) throw new Error("native_edit.mode 'replace' requires a full native document payload");
+  if (hasNativeDocument && !replacesTimeline) throw new Error("a full native document payload requires native_edit.mode 'replace'");
+  if (nativePayload?.export && !hasNativeDocument) throw new Error("native_edit.payload.export requires a full native document payload");
+  if (nativePayload?.export?.fps !== undefined && nativePayload.export.fps !== manifest.meta.fps) {
+    throw new Error("native_edit.export.fps must match meta.fps; use meta.fps as the single reviewed frame-rate value");
+  }
   if (manifest.fast_edit) throw new Error("Tesseract does not support Fast Edit");
-  if ((manifest.images?.length ?? 0) > 0) throw new Error("Tesseract backend does not yet support manifest images");
+  if ((manifest.images?.length ?? 0) > 0 && !hasNativeDocument) throw new Error("Tesseract manifest images require a full native_edit.document that references them");
+  if ((manifest.native_edit?.assets?.length ?? 0) > 0 && !hasNativeDocument) throw new Error("native_edit.assets require a full native_edit.document that references them");
   if ((manifest.speakers?.length ?? 0) > 0) throw new Error("Tesseract backend does not yet support speaker artwork");
   if ((manifest.chapters?.length ?? 0) > 0) throw new Error("Tesseract backend does not yet support chapter cards");
   if (manifest.presentation && manifest.presentation.preset !== "tesseract-basic") {
@@ -41,9 +63,24 @@ export function assertSupportedManifest(manifest) {
       rejectUnknownKeys(manifest.presentation.motion_design, new Set(["summary", "pacing", "principles"]), "presentation.motion_design");
     }
   }
-  if (!["16:9", "9:16"].includes(manifest.meta?.aspect)) throw new Error("Tesseract requires a supported 16:9 or 9:16 aspect ratio");
-  if (!Number.isFinite(manifest.meta?.fps) || manifest.meta.fps !== 30) {
-    throw new Error("Tesseract export uses an automatic frame rate; this adapter currently accepts only 30 fps and will verify the encoded rate");
+  if (!TESSERACT_CANVASES[manifest.meta?.aspect]) throw new Error("Tesseract requires a supported 16:9, 9:16, 1:1, 4:5, 3:4, or 5:4 aspect ratio");
+  if (!Number.isFinite(manifest.meta?.fps) || (hasNativeDocument ? ![24, 30, 60].includes(manifest.meta.fps) : manifest.meta.fps !== 30)) {
+    throw new Error(hasNativeDocument
+      ? "Tesseract native documents support export fps 24, 30, or 60"
+      : "Tesseract generated-layer editing currently accepts only 30 fps");
+  }
+  if (hasNativeDocument && (manifest.clips.some((clip) => clip.motion) || manifest.captions?.length || manifest.presentation?.title ||
+      ["bgm", "narration", "sfx"].some((group) => (manifest.audio?.[group]?.length ?? 0) > 0))) {
+    throw new Error("native_edit.document replaces generated clip, title, caption, and audio layers; put all exported layers in the native document instead");
+  }
+
+  const imageIds = new Set();
+  for (const [index, image] of (manifest.images ?? []).entries()) {
+    rejectUnknownKeys(image, IMAGE_KEYS, `images.${index}`);
+    if (typeof image.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(image.id)) throw new Error(`images.${index}.id must be a safe Tesseract asset identifier`);
+    if (imageIds.has(image.id)) throw new Error(`manifest image IDs must be unique; duplicate '${image.id}'`);
+    imageIds.add(image.id);
+    if (typeof image.src !== "string" || !IMAGE_SUFFIXES.has(extension(image.src))) throw new Error(`images.${index}.src must be a local PNG, JPG, JPEG, or WebP file`);
   }
 
   const clipIds = new Set();
@@ -51,6 +88,9 @@ export function assertSupportedManifest(manifest) {
     rejectUnknownKeys(clip, CLIP_KEYS, `clips.${index}`);
     if (typeof clip.id !== "string" || !clip.id) throw new Error(`clips.${index}.id must be a non-empty string`);
     if (clipIds.has(clip.id)) throw new Error(`Tesseract motion requires unique clip ids; duplicate '${clip.id}'`);
+    if (hasNativeDocument && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(clip.id)) {
+      throw new Error(`clips.${index}.id must be a safe Tesseract asset ID when referenced by native_edit.document`);
+    }
     clipIds.add(clip.id);
     validateClipMotion(
       clip.motion,
@@ -152,7 +192,259 @@ export function assertSupportedManifest(manifest) {
   }
   assertNoAudioReactiveMotionConflicts(manifest);
 
-  return { width: manifest.meta.aspect === "16:9" ? 1920 : 1080, height: manifest.meta.aspect === "16:9" ? 1080 : 1920 };
+  const dimensions = tesseractDimensions(manifest.meta.aspect, manifest.native_edit?.payload?.document);
+  assertTesseractPrimaryOutput(manifest, dimensions);
+  resolveTesseractNativeOutputs(manifest.native_edit, platform, manifest.meta.target_duration_seconds);
+  return dimensions;
+}
+
+/** Validate the bounded, inline native authoring surface before any CLI work. */
+export function assertTesseractNativeSpec(native) {
+  if (native === undefined) return;
+  if (!native || typeof native !== "object" || Array.isArray(native)) throw new Error("native_edit must be an object");
+  rejectUnknownKeys(native, new Set(["payload", "assets", "fonts", "outputs", "primary_output", "mode"]), "native_edit");
+  if (native.mode !== undefined && !["replace", "extend"].includes(native.mode)) throw new Error("native_edit.mode must be 'replace' or 'extend'");
+  const payload = native.payload;
+  if (payload !== undefined && (!payload || typeof payload !== "object" || Array.isArray(payload))) {
+    throw new Error("native_edit.payload must be an object validated against the installed runtime schema");
+  }
+  if (payload) rejectUnknownKeys(payload, new Set(["document", "actions", "export"]), "native_edit.payload");
+  const document = payload?.document;
+  const actions = payload?.actions;
+  const exportSettings = payload?.export;
+  if (exportSettings !== undefined) {
+    if (!exportSettings || typeof exportSettings !== "object" || Array.isArray(exportSettings)) throw new Error("native_edit.payload.export must be an object");
+    rejectUnknownKeys(exportSettings, new Set(["resolution", "fps", "prores_sidecar", "prores_alpha_solo"]), "native_edit.payload.export");
+    if (exportSettings.resolution !== undefined && !["720p", "1080p", "4k"].includes(exportSettings.resolution)) throw new Error("native_edit.payload.export.resolution must be 720p, 1080p, or 4k");
+    if (exportSettings.fps !== undefined && ![24, 30, 60].includes(exportSettings.fps)) throw new Error("native_edit.payload.export.fps must be 24, 30, or 60");
+    if (exportSettings.prores_sidecar !== undefined && typeof exportSettings.prores_sidecar !== "boolean") throw new Error("native_edit.payload.export.prores_sidecar must be a boolean");
+    if (exportSettings.prores_alpha_solo !== undefined &&
+        (typeof exportSettings.prores_alpha_solo !== "string" || !/^[A-Za-z0-9._-]{1,64}:[A-Za-z0-9._-]{1,64}$/.test(exportSettings.prores_alpha_solo))) {
+      throw new Error("native_edit.payload.export.prores_alpha_solo must be a safe composition:layer selector such as 'main:3'");
+    }
+  }
+  if (document !== undefined && (!document || typeof document !== "object" || Array.isArray(document))) {
+    throw new Error("native_edit.document must be a full Tesseract document object");
+  }
+  if (actions !== undefined && (!Array.isArray(actions) || actions.length > 512)) {
+    throw new Error("native_edit.actions must be an array containing at most 512 actions");
+  }
+  if (native.assets !== undefined && (!Array.isArray(native.assets) || native.assets.length > 256)) {
+    throw new Error("native_edit.assets must be an array containing at most 256 assets");
+  }
+  if (native.fonts !== undefined && (!Array.isArray(native.fonts) || native.fonts.length > 64)) {
+    throw new Error("native_edit.fonts must be an array containing at most 64 font files");
+  }
+  if (native.outputs !== undefined && (!Array.isArray(native.outputs) || native.outputs.length > 16)) {
+    throw new Error("native_edit.outputs must be an array containing at most 16 output declarations");
+  }
+  if (payload === undefined && !native.assets?.length && !native.fonts?.length) {
+    throw new Error("native_edit must contain a payload or declared resources");
+  }
+  if (document && native.mode === "extend") throw new Error("a full native document payload requires native_edit.mode 'replace'");
+  if (!document && native.mode === "replace") throw new Error("native_edit.mode 'replace' requires a full native document payload");
+  if (document && native.primary_output === undefined) throw new Error("native_edit.primary_output must declare canonical output width, height, fps, and audio_required for Gate 3");
+  if (!document && native.primary_output !== undefined) throw new Error("native_edit.primary_output is only supported with a full native document");
+  if (native.primary_output !== undefined) {
+    const primary = native.primary_output;
+    if (!primary || typeof primary !== "object" || Array.isArray(primary)) throw new Error("native_edit.primary_output must be an object");
+    rejectUnknownKeys(primary, new Set(["width", "height", "fps", "audio_required"]), "native_edit.primary_output");
+    if (!Number.isSafeInteger(primary.width) || primary.width <= 0 || !Number.isSafeInteger(primary.height) || primary.height <= 0 ||
+        !Number.isFinite(primary.fps) || primary.fps <= 0 || typeof primary.audio_required !== "boolean") {
+      throw new Error("native_edit.primary_output requires positive integer dimensions, positive fps, and boolean audio_required");
+    }
+  }
+
+  let bytes;
+  try { bytes = Buffer.byteLength(JSON.stringify(native)); }
+  catch { throw new Error("native_edit must contain JSON-serializable values"); }
+  if (bytes > 4 * 1024 * 1024) throw new Error("native_edit exceeds the 4 MiB inline authoring limit");
+
+  const assetIds = new Set();
+  const assetPaths = new Set();
+  for (const [index, asset] of (native.assets ?? []).entries()) {
+    if (!asset || typeof asset !== "object" || Array.isArray(asset)) throw new Error(`native_edit.assets.${index} must be an object`);
+    rejectUnknownKeys(asset, new Set(["asset_id", "src", "kind"]), `native_edit.assets.${index}`);
+    if (typeof asset.asset_id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(asset.asset_id)) {
+      throw new Error(`native_edit.assets.${index}.asset_id must be a safe Tesseract identifier`);
+    }
+    if (assetIds.has(asset.asset_id)) throw new Error(`native_edit.assets contains duplicate asset_id '${asset.asset_id}'`);
+    assetIds.add(asset.asset_id);
+    if (typeof asset.src !== "string" || !asset.src || isAbsolutePath(asset.src) || asset.src.includes("\\") || /^[a-z]+:/i.test(asset.src) || asset.src.split("/").includes("..")) {
+      throw new Error(`native_edit.assets.${index}.src must be a run-relative path without parent references`);
+    }
+    if (assetPaths.has(asset.src)) throw new Error(`native_edit.assets contains duplicate source '${asset.src}'`);
+    assetPaths.add(asset.src);
+    if (!["audio", "image", "video"].includes(asset.kind)) throw new Error(`native_edit.assets.${index}.kind must be audio, image, or video`);
+    const allowed = asset.kind === "video" ? VIDEO_SUFFIXES : asset.kind === "image" ? IMAGE_SUFFIXES : AUDIO_SUFFIXES;
+    if (!allowed.has(extension(asset.src))) throw new Error(`native_edit.assets.${index}.src has an unsupported ${asset.kind} file extension`);
+  }
+  const fontPaths = new Set();
+  for (const [index, font] of (native.fonts ?? []).entries()) {
+    if (!font || typeof font !== "object" || Array.isArray(font)) throw new Error(`native_edit.fonts.${index} must be an object`);
+    rejectUnknownKeys(font, new Set(["src", "family", "style"]), `native_edit.fonts.${index}`);
+    if (typeof font.src !== "string" || !font.src || isAbsolutePath(font.src) || font.src.includes("\\") || font.src.split("/").includes("..")) {
+      throw new Error(`native_edit.fonts.${index}.src must be a run-relative path without parent references`);
+    }
+    if (!FONT_SUFFIXES.has(extension(font.src))) throw new Error(`native_edit.fonts.${index}.src must use TTF, OTF, or TTC`);
+    if (fontPaths.has(font.src)) throw new Error(`native_edit.fonts contains duplicate source '${font.src}'`);
+    if ((font.family === undefined) !== (font.style === undefined) ||
+        (font.family !== undefined && (typeof font.family !== "string" || !font.family || typeof font.style !== "string" || !font.style))) {
+      throw new Error(`native_edit.fonts.${index} family and style must both be non-empty strings or both be omitted`);
+    }
+    fontPaths.add(font.src);
+  }
+  if ((native.fonts?.length ?? 0) > 0 && !document && !(actions?.length > 0)) {
+    throw new Error("native_edit.fonts require a document or actions that use text layers");
+  }
+  for (const [index, action] of (actions ?? []).entries()) {
+    if (!action || typeof action !== "object" || Array.isArray(action) || typeof action.type !== "string" || !action.type) {
+      throw new Error(`native_edit.actions.${index} must be a native Tesseract action object with a string type`);
+    }
+  }
+  if (document) {
+    if (typeof document !== "object") throw new Error("native_edit.payload.document must be a full Tesseract document object");
+  }
+}
+
+/** Resolve optional native sidecars and require a matching, reviewable manifest declaration. */
+export function resolveTesseractNativeOutputs(native, platform = process.platform, primaryDurationSeconds) {
+  if (!native) return [];
+  const exportSettings = native.payload?.export ?? {};
+  const requested = [];
+  if (exportSettings.prores_sidecar === true) requested.push({ kind: "prores_mov", path: "final-prores.mov" });
+  if (exportSettings.prores_alpha_solo !== undefined) requested.push({ kind: "alpha_solo_prores_mov", path: "final-prores-alpha.mov" });
+  const declared = native.outputs ?? [];
+  if (requested.length === 0 && declared.length === 0) return [];
+  if (requested.length !== declared.length) throw new Error("native_edit.outputs must exactly match the optional native export products requested by payload.export");
+  if (requested.length > 0 && !Number.isFinite(primaryDurationSeconds)) throw new Error("Tesseract output validation requires the declared primary output duration");
+  if (requested.length > 0 && !native.primary_output) throw new Error("ProRes outputs require native_edit.primary_output to declare canonical media properties");
+  const primary = native.primary_output;
+  const resolutionScale = { "720p": 2 / 3, "1080p": 1, "4k": 2 }[exportSettings.resolution ?? "1080p"];
+  const baseDimensions = native.payload?.document?.dimensions;
+  if (requested.length > 0 && (!baseDimensions || !Number.isFinite(baseDimensions.width) || !Number.isFinite(baseDimensions.height))) {
+    throw new Error("ProRes outputs require valid dimensions in the native document");
+  }
+  const nativeFps = exportSettings.fps ?? primary?.fps;
+  const outputWidth = requested.length ? Math.round(baseDimensions.width * resolutionScale) : undefined;
+  const outputHeight = requested.length ? Math.round(baseDimensions.height * resolutionScale) : undefined;
+  const expected = requested.map((output) => {
+    const declaration = declared.find((entry) => entry?.kind === output.kind && entry?.path === output.path);
+    if (!declaration) throw new Error(`native_edit.outputs must declare ${output.kind} at '${output.path}'`);
+    rejectUnknownKeys(declaration, new Set(["kind", "path", "duration_seconds", "width", "height", "fps", "video_codec", "alpha_required", "audio_required"]), `native_edit.outputs.${output.kind}`);
+    const alpha = output.kind === "alpha_solo_prores_mov";
+    const required = ["duration_seconds", "width", "height", "fps", "video_codec", "alpha_required", "audio_required"];
+    if (required.some((key) => declaration[key] === undefined)) throw new Error(`native_edit.outputs.${output.kind} must declare duration, dimensions, fps, codec, alpha, and audio expectations`);
+    if (!Number.isFinite(declaration.duration_seconds) || declaration.duration_seconds <= 0 ||
+        !Number.isSafeInteger(declaration.width) || !Number.isSafeInteger(declaration.height) ||
+        !Number.isFinite(declaration.fps) || typeof declaration.video_codec !== "string" ||
+        typeof declaration.alpha_required !== "boolean" || typeof declaration.audio_required !== "boolean") {
+      throw new Error(`native_edit.outputs.${output.kind} has invalid media expectations`);
+    }
+    if (declaration.width !== outputWidth || declaration.height !== outputHeight || declaration.fps !== nativeFps ||
+        declaration.video_codec !== "prores" || declaration.alpha_required !== alpha ||
+        (alpha ? declaration.audio_required !== false : declaration.audio_required !== primary.audio_required)) {
+      throw new Error(`native_edit.outputs.${output.kind} media expectations do not match the selected native export`);
+    }
+    if (alpha) {
+      if (declaration.duration_seconds > primaryDurationSeconds) throw new Error("alpha-solo output duration cannot exceed the canonical output duration");
+    } else if (Math.abs(declaration.duration_seconds - primaryDurationSeconds) > 0.001) {
+      throw new Error("ProRes sidecar duration_seconds must match the canonical output duration");
+    }
+    return { ...output, duration_seconds: declaration.duration_seconds, width: outputWidth, height: outputHeight, fps: nativeFps,
+      video_codec: "prores", alpha_required: alpha, audio_required: alpha ? false : primary.audio_required };
+  });
+  if (expected.length > 0) {
+    if (!native.payload?.document) throw new Error("ProRes outputs require a full native document payload");
+    if (platform !== "darwin") throw new Error("Tesseract ProRes and alpha-solo exports are supported only on macOS");
+  }
+  for (const [index, output] of declared.entries()) {
+    if (!output || typeof output !== "object" || Array.isArray(output) || typeof output.kind !== "string" || typeof output.path !== "string") {
+      throw new Error(`native_edit.outputs.${index} must contain string kind and path fields`);
+    }
+    rejectUnknownKeys(output, new Set(["kind", "path", "duration_seconds", "width", "height", "fps", "video_codec", "alpha_required", "audio_required"]), `native_edit.outputs.${index}`);
+  }
+  const sortOutputs = (outputs) => [...outputs].sort((a, b) => a.kind.localeCompare(b.kind) || a.path.localeCompare(b.path));
+  if (JSON.stringify(sortOutputs(declared.map(({ kind, path }) => ({ kind, path })))) !== JSON.stringify(sortOutputs(requested))) {
+    throw new Error("native_edit.outputs must exactly match the optional native export products requested by payload.export");
+  }
+  return expected;
+}
+
+function assertTesseractPrimaryOutput(manifest, canvas) {
+  const native = manifest.native_edit;
+  if (!native?.payload?.document) return;
+  const primary = native.primary_output;
+  if (!primary) throw new Error("native_edit.primary_output is required for a full native document");
+  const exportSettings = native.payload.export ?? {};
+  const scale = { "720p": 2 / 3, "1080p": 1, "4k": 2 }[exportSettings.resolution ?? "1080p"];
+  const expected = {
+    width: Math.round(canvas.width * scale),
+    height: Math.round(canvas.height * scale),
+    fps: exportSettings.fps ?? manifest.meta.fps,
+    audio_required: nativeDocumentReferencesAudio(native.payload.document, manifest)
+  };
+  if (primary.width !== expected.width || primary.height !== expected.height || primary.fps !== expected.fps || primary.audio_required !== expected.audio_required) {
+    throw new Error(`native_edit.primary_output must match the native export (${expected.width}x${expected.height}, ${expected.fps} fps, audio_required=${expected.audio_required})`);
+  }
+}
+
+function nativeDocumentReferencesAudio(document, manifest) {
+  const audioAssetIds = new Set((manifest.native_edit?.assets ?? []).filter((asset) => asset.kind === "audio").map((asset) => asset.asset_id));
+  const videoAssetIds = new Set(manifest.clips.map((clip) => clip.id));
+  for (const asset of manifest.native_edit?.assets ?? []) if (asset.kind === "video") videoAssetIds.add(asset.asset_id);
+  const pending = [document];
+  const seen = new Set();
+  let visited = 0;
+  while (pending.length > 0 && visited < 200_000) {
+    const value = pending.pop();
+    if (!value || typeof value !== "object" || seen.has(value)) continue;
+    seen.add(value);
+    visited += 1;
+    if (Array.isArray(value)) {
+      pending.push(...value);
+      continue;
+    }
+    const layer = value;
+    const layerType = String(layer.type ?? layer.kind ?? "").toLowerCase();
+    const assetId = layer.source?.assetId ?? layer.source?.asset_id ?? layer.assetId ?? layer.asset_id;
+    if (layerType.includes("audio") || audioAssetIds.has(assetId)) return true;
+    if (videoAssetIds.has(assetId) && Number.isFinite(layer.volume) && layer.volume > 0) return true;
+    if (layer.audio === true || layer.useAudio === true || layer.audioEnabled === true) return true;
+    for (const child of Object.values(layer)) if (child && typeof child === "object") pending.push(child);
+  }
+  return false;
+}
+
+/**
+ * Resolve the installed CLI's discriminated action union without baking in a
+ * Tesseract release's action list. Full field validation is performed by the
+ * official `project apply` command against that same runtime.
+ */
+export function assertTesseractNativeActions(actions, actionSchema) {
+  if (!actions?.length) return;
+  const mapping = actionSchema?.discriminator?.mapping;
+  const definitions = actionSchema?.$defs;
+  const unionRefs = new Set((actionSchema?.oneOf ?? []).map((entry) => entry?.$ref).filter((value) => typeof value === "string"));
+  if (actionSchema?.discriminator?.propertyName !== "type" || !mapping || typeof mapping !== "object" || Array.isArray(mapping) ||
+      !definitions || typeof definitions !== "object" || Array.isArray(definitions) || unionRefs.size === 0) {
+    throw new Error("installed Tesseract action schema has an unsupported shape; refusing native authoring");
+  }
+  for (const [index, action] of actions.entries()) {
+    const ref = mapping[action.type];
+    if (typeof ref !== "string" || !unionRefs.has(ref)) {
+      throw new Error(`native_edit.actions.${index}.type '${action.type}' is not supported by the installed Tesseract runtime`);
+    }
+    const match = /^#\/\$defs\/([^/]+)$/.exec(ref);
+    const definition = match ? definitions[match[1]] : undefined;
+    if (!definition || definition.type !== "object" || definition.properties?.type?.const !== action.type || !Array.isArray(definition.required)) {
+      throw new Error(`installed Tesseract action schema for '${action.type}' is incomplete; refusing native authoring`);
+    }
+  }
+}
+
+function isAbsolutePath(value) {
+  return value.startsWith("/") || /^[A-Za-z]:/.test(value);
 }
 
 export function buildTesseractMotionActions(manifest, options) {
@@ -473,10 +765,10 @@ export function assertTesseractInputDimensions(manifest, sourceInfo, dimensions 
   for (const [index, clip] of manifest.clips.entries()) {
     const media = sourceInfo.get(clip.src);
     if (!Number.isInteger(media?.width) || !Number.isInteger(media?.height) || media.width <= 0 || media.height <= 0) {
-      throw new Error(`clips.${index}.src video dimensions could not be confirmed; Tesseract 0.1.0 export requires each source clip to match ${dimensions.width}x${dimensions.height}`);
+      throw new Error(`clips.${index}.src video dimensions could not be confirmed; Tesseract export requires each source clip to match ${dimensions.width}x${dimensions.height}`);
     }
     if (media.width !== dimensions.width || media.height !== dimensions.height) {
-      throw new Error(`clips.${index}.src is ${media.width}x${media.height}; Tesseract 0.1.0 export preserves source dimensions and requires ${dimensions.width}x${dimensions.height}`);
+      throw new Error(`clips.${index}.src is ${media.width}x${media.height}; Tesseract export preserves source dimensions and requires ${dimensions.width}x${dimensions.height}`);
     }
   }
 }
@@ -768,8 +1060,21 @@ function addCue(cue, phase, layer, clipFrames, fps, addSegment) {
   }
 }
 
-function tesseractDimensions(aspect) {
-  return aspect === "16:9" ? { width: 1920, height: 1080 } : { width: 1080, height: 1920 };
+function tesseractDimensions(aspect, document) {
+  const dimensions = TESSERACT_CANVASES[aspect];
+  if (!dimensions) throw new Error(`unsupported Tesseract canvas aspect '${aspect}'`);
+  if (!document) {
+    if (aspect !== "16:9" && aspect !== "9:16") throw new Error(`${aspect} Tesseract canvases require an inline native_edit.document`);
+    return dimensions;
+  }
+  const canvas = document.dimensions;
+  if (!canvas || !Number.isInteger(canvas.width) || !Number.isInteger(canvas.height)) {
+    throw new Error("native_edit.document.dimensions must contain integer width and height");
+  }
+  if (canvas.width !== dimensions.width || canvas.height !== dimensions.height) {
+    throw new Error(`native_edit.document canvas must be ${dimensions.width}x${dimensions.height} for meta.aspect ${aspect}`);
+  }
+  return { width: canvas.width, height: canvas.height };
 }
 
 function buildSlidePositionAction({ compositionId, layerId, durationMs, fromX, toX, y, owner }) {

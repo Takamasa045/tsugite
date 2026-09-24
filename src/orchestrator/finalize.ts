@@ -13,6 +13,7 @@ import type { Project } from "../project/schema.js";
 import type { Issue } from "../types.js";
 import { readState } from "./state.js";
 import { sha256File } from "./render.js";
+import { verifyGate3SidecarApproval } from "./gate3Sidecars.js";
 import { executeFinalizeApply } from "./finalizeApplyRoute.js";
 import {
   finalizeJournalPath,
@@ -361,6 +362,15 @@ export async function finalizeCompletedProject(
     path: canonicalOutputPath
   });
 
+  const sidecarApproval = await verifyGate3SidecarApproval({
+    runDir,
+    expectedSidecarApprovalDigest: state.gates.gate_3.sidecar_approval_digest
+  });
+  if (!sidecarApproval.ok) {
+    return { ...empty, ok: false, issues: sidecarApproval.issues };
+  }
+  const sidecarApprovalDigest = sidecarApproval.sidecarApprovalDigest;
+
   // Person-consistency QA (optional): revalidate binding + report after final.mp4 identity check.
   // Gate 3 approved_input_digest remains final.mp4 sha256; expected person-QA digest is separate.
   const personQaFinalize = await revalidatePersonConsistencyOnFinalize({
@@ -439,6 +449,7 @@ export async function finalizeCompletedProject(
     runId,
     finalOutputDigest,
     gate3ApprovedInputDigest: state.gates.gate_3.approved_input_digest,
+    gate3SidecarApprovalDigest: sidecarApprovalDigest,
     retainedMedia,
     candidates: identities
   });
@@ -574,6 +585,7 @@ export async function finalizeCompletedProject(
     priorCleanup,
     state,
     finalOutputDigest,
+    sidecarApprovalDigest,
     launcherPlan,
     pinnedDirs,
     revalidatePinnedDirs,

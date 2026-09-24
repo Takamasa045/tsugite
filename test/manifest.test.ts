@@ -1,8 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { readJsonFile } from "../src/io.js";
+import { manifestSchema } from "../src/manifest/schema.js";
 import { validateManifest } from "../src/manifest/validate.js";
 
 describe("manifest validation", () => {
+  it("accepts Gate 1-bound generic outputs and rejects unsafe or duplicate paths", async () => {
+    const base = await readJsonFile("fixtures/manifests/minimal.valid.json") as Record<string, any>;
+    const nativeEdit = {
+      mode: "replace",
+      payload: { document: {} },
+      outputs: [
+        {
+          kind: "prores_mov",
+          path: "final-prores.mov",
+          duration_seconds: 10,
+          width: 3840,
+          height: 2160,
+          fps: 60,
+          video_codec: "prores",
+          alpha_required: false,
+          audio_required: true
+        }
+      ],
+      primary_output: { width: 3840, height: 2160, fps: 60, audio_required: true }
+    };
+    expect(manifestSchema.safeParse({ ...base, native_edit: nativeEdit }).success).toBe(true);
+    expect(manifestSchema.safeParse({ ...base, native_edit: { ...nativeEdit, outputs: [{ ...nativeEdit.outputs[0], path: "../outside.mov" }] } }).success).toBe(false);
+    expect(manifestSchema.safeParse({ ...base, native_edit: { ...nativeEdit, outputs: [nativeEdit.outputs[0], { ...nativeEdit.outputs[0], kind: "alpha_output" }] } }).success).toBe(false);
+  });
+
   it("accepts the minimal manifest contract", async () => {
     const manifest = await readJsonFile("fixtures/manifests/minimal.valid.json");
     const result = validateManifest(manifest);
@@ -37,6 +63,30 @@ describe("manifest validation", () => {
     expect(result.manifest?.speakers[0]?.poses.neutral).toBe("left-neutral");
     expect(result.manifest?.presentation?.preset).toBe("article-dialogue-16x9");
     expect(result.manifest?.captions[0]?.visual?.headline).toContain("answer");
+  });
+
+  it("bounds inline native authoring size and nesting depth", async () => {
+    const base = await readJsonFile("fixtures/manifests/minimal.valid.json") as Record<string, any>;
+    const deepValue: Record<string, unknown> = {};
+    let cursor: Record<string, unknown> = deepValue;
+    for (let index = 0; index < 66; index += 1) {
+      const next: Record<string, unknown> = {};
+      cursor.value = next;
+      cursor = next;
+    }
+    const tooDeep = manifestSchema.safeParse({
+      ...base,
+      native_edit: { mode: "replace", payload: { document: { dimensions: { width: 1920, height: 1080 }, duration: 6, composition: { layers: [] }, deepValue } } }
+    });
+    expect(tooDeep.success).toBe(false);
+    if (!tooDeep.success) expect(tooDeep.error.issues.map((issue) => issue.message)).toContain("native payload must stay within 64 levels and 200,000 values");
+
+    const tooLarge = manifestSchema.safeParse({
+      ...base,
+      native_edit: { mode: "replace", payload: { document: { payload: "x".repeat(4 * 1024 * 1024) } } }
+    });
+    expect(tooLarge.success).toBe(false);
+    if (!tooLarge.success) expect(tooLarge.error.issues.map((issue) => issue.message)).toContain("native_edit exceeds the 4 MiB inline data limit");
   });
 
   it("accepts backend-neutral presentation and shot motion direction", async () => {

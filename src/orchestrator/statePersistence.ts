@@ -25,6 +25,8 @@ const gateStateSchema = z.object({
   approved_input_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   // Optional for backward parsing of state written before person-QA binding digests.
   person_qa_approval_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  // Optional for backward parsing of state written before Gate 3 sidecar binding.
+  sidecar_approval_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   decision_source: z.union([z.literal("human"), z.literal("auto_qc")]).optional(),
   // Additive PO-5 production-control subject/decision digests (legacy fields unchanged).
   production_subject_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
@@ -100,6 +102,7 @@ export function gateSemanticFingerprint(state: RunState): string {
       decision_digest: g3.production_decision_digest ?? null,
       approval_binding_digest: g3.person_qa_approval_digest ?? null,
       person_qa_approval_digest: g3.person_qa_approval_digest ?? null,
+      sidecar_approval_digest: g3.sidecar_approval_digest ?? null,
       decision_source: g3.decision_source ?? null
     }
   });

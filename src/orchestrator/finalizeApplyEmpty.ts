@@ -52,6 +52,7 @@ export type EmptyApplySharedContext = {
   now?: string;
   promotionHooks?: Parameters<typeof promoteIfNeeded>[0]["promotionHooks"];
   revalidatePinnedDirs: () => Promise<Issue | undefined>;
+  revalidateLiveGate3: () => Promise<Issue | undefined>;
 };
 
 /**
@@ -74,7 +75,8 @@ export async function applyIdempotentEmptyAlreadyHome(
     stateUpdatedAt,
     launcherPlan,
     project,
-    base
+    base,
+    revalidateLiveGate3
   } = ctx;
 
   if (!(await isRegularFile(recordPath)) || !launcherPlan.alreadyHome) {
@@ -84,6 +86,16 @@ export async function applyIdempotentEmptyAlreadyHome(
   // Idempotent success: never rewrite an existing completion record as zero cleanup.
   // If prior partial progress exists with no remaining candidates, merge into record once.
   if (priorCleanup.deletedFiles > 0) {
+    const liveGate3Issue = await revalidateLiveGate3();
+    if (liveGate3Issue) {
+      return {
+        ...base,
+        ok: false,
+        deletedFiles: 0,
+        deletedBytes: 0,
+        issues: [liveGate3Issue]
+      };
+    }
     const recordPaths = resolveCompletionRecordPaths(
       projectRoot,
       recordPath,
@@ -156,7 +168,8 @@ export async function applyEmptyCandidatesPromotionAndRecord(
     projectSlug,
     now,
     promotionHooks,
-    revalidatePinnedDirs
+    revalidatePinnedDirs,
+    revalidateLiveGate3
   } = ctx;
 
   const emptyBoundary = await revalidatePinnedDirs();
@@ -180,6 +193,20 @@ export async function applyEmptyCandidatesPromotionAndRecord(
 
   const emptyPromotionTx = launcherHome.promotionTransaction;
   try {
+    const liveGate3Issue = await revalidateLiveGate3();
+    if (liveGate3Issue) {
+      const promotionIssues = await rollbackPromotionTransaction(emptyPromotionTx);
+      return {
+        ...base,
+        ok: false,
+        deletedFiles: priorCleanup.deletedFiles,
+        deletedBytes: priorCleanup.deletedBytes,
+        issues: [liveGate3Issue, ...promotionIssues],
+        promotedToLauncherHome: false,
+        launcherProjectRoot: launcherHome.destinationRoot,
+        launcherConfigPath: launcherHome.destinationConfigPath
+      };
+    }
     const recordPaths = resolveCompletionRecordPaths(
       projectRoot,
       recordPath,

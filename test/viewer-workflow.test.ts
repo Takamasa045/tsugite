@@ -72,6 +72,64 @@ function statusesAt(workflow: ViewerWorkflowData, time: number): Record<string, 
 }
 
 describe("createViewerWorkflow", () => {
+  it("shows approved and observed ProRes sidecar metadata in Gate 3 review details", () => {
+    const workflow = createViewerWorkflow(
+      project,
+      plan,
+      state("awaiting_gate_3", "approved", "approved", "awaiting_approval"),
+      {
+        reviewPresent: true,
+        gate2Qc: { ok: true },
+        gate3Qc: {
+          ok: true,
+          outputPath: "dist/viewer-fixture-run/final.mp4",
+          expected: { durationSeconds: 30, width: 3840, height: 2160, fps: 60, audioRequired: false },
+          actual: { durationSeconds: 30, width: 3840, height: 2160, fps: 60, hasAudio: false },
+          sidecars: [{
+            kind: "alpha_solo_prores_mov",
+            path: "final-prores-alpha.mov",
+            sha256: "a".repeat(64),
+            expected: {
+              durationSeconds: 12,
+              width: 3840,
+              height: 2160,
+              fps: 60,
+              videoCodec: "prores",
+              alphaRequired: true,
+              audioRequired: false
+            },
+            actual: {
+              durationSeconds: 12,
+              width: 3840,
+              height: 2160,
+              fps: 60,
+              codec: "prores",
+              pixelFormat: "yuva444p10le",
+              hasAlpha: true,
+              hasAudio: false
+            }
+          }]
+        }
+      }
+    );
+    const gate3 = workflow.nodes.find((node) => node.id === "gate-3");
+
+    expect(gate3?.details?.outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: "アルファ付きProRes MOV",
+        reference: "final-prores-alpha.mov",
+        facts: expect.arrayContaining([
+          expect.stringContaining("承認仕様: prores / 3840×2160 / 60fps"),
+          expect.stringContaining("実測: prores / 3840×2160 / 60fps"),
+          expect.stringContaining("alpha あり / 音声なし")
+        ])
+      })
+    ]));
+    expect(gate3?.details?.approval?.checkpoints).toContainEqual(
+      expect.stringContaining("final-prores-alpha.mov")
+    );
+  });
+
   it("creates a deterministic planned snapshot with a serial graph", () => {
     const first = createViewerWorkflow(project, plan);
     const second = createViewerWorkflow(project, plan);

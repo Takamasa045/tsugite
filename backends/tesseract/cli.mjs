@@ -1,17 +1,50 @@
 import crossSpawn from "cross-spawn";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, release as osRelease } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Synced from skills/tesseract-{motion,video}/references/cli-version.txt.
-export const TESSERACT_CLI_VERSION = "0.1.0";
+// Pinned to the official Tesseract v0.2.0 release and verified asset names.
+export const TESSERACT_CLI_VERSION = "0.2.0";
+export const TESSERACT_CLI_MIN_LINUX_GLIBC_VERSION = "2.35";
 export const TESSERACT_CLI_DEFAULT_TIMEOUT_MS = 120_000;
 export const TESSERACT_CLI_DEFAULT_MAX_BUFFER = 1024 * 1024;
 const TESSERACT_CLI_MAX_BUFFER = 4 * 1024 * 1024;
 const VERSION_CHECK_TIMEOUT_MS = 10_000;
 
 const spawnSync = crossSpawn.sync;
+
+function normalizeGlibcVersion(value) {
+  const match = String(value ?? "").trim().match(/^(?:glibc\s+)?(\d+)\.(\d+)(?:\.\d+)?(?:\s|$)/i);
+  return match ? `${Number(match[1])}.${Number(match[2])}` : null;
+}
+
+/** Detect the Linux libc version using Node's runtime report, then getconf. */
+export function detectTesseractGlibcVersion() {
+  try {
+    const reported = normalizeGlibcVersion(process.report?.getReport?.().header?.glibcVersionRuntime);
+    if (reported) return reported;
+  } catch {
+    // Fall through to getconf when Node's report API is unavailable.
+  }
+  try {
+    const result = spawnSync("getconf", ["GNU_LIBC_VERSION"], {
+      encoding: "utf8", timeout: 2_000, maxBuffer: 16 * 1024, windowsHide: true, shell: false
+    });
+    if (result.status === 0) return normalizeGlibcVersion(result.stdout);
+  } catch {
+    // Unknown libc versions are rejected by the host check below.
+  }
+  return null;
+}
+
+export function isTesseractLinuxGlibcSupported(version) {
+  const parsed = normalizeGlibcVersion(version);
+  if (!parsed) return false;
+  const [major, minor] = parsed.split(".").map(Number);
+  const [minimumMajor, minimumMinor] = TESSERACT_CLI_MIN_LINUX_GLIBC_VERSION.split(".").map(Number);
+  return major > minimumMajor || (major === minimumMajor && minor >= minimumMinor);
+}
 
 function environmentValue(env, name) {
   if (typeof env[name] === "string") return env[name];
@@ -26,6 +59,12 @@ function sanitizedCliEnv(platform, source) {
         "COMSPEC", "PATHEXT", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "NUMBER_OF_PROCESSORS",
         "LANG", "LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME"
       ]
+    : platform === "linux"
+      ? [
+          "PATH", "HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_COLLATE",
+          "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME", "SHELL", "DISPLAY", "WAYLAND_DISPLAY",
+          "VK_ICD_FILENAMES", "VK_DRIVER_FILES", "VK_LAYER_PATH", "MESA_VK_DEVICE_SELECT", "MESA_LOADER_DRIVER_OVERRIDE"
+        ]
     : [
         "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES",
         "LC_MONETARY", "LC_NUMERIC", "LC_TIME", "SHELL"
@@ -35,7 +74,7 @@ function sanitizedCliEnv(platform, source) {
     const value = environmentValue(source, name);
     if (typeof value === "string") env[name] = value;
   }
-  if (platform === "darwin") {
+  if (platform === "darwin" || platform === "linux") {
     if (!env.HOME) env.HOME = homedir();
   }
   return env;
@@ -55,39 +94,66 @@ function isRunnableFile(filePath, platform, exists = existsSync) {
   }
 }
 
-function supportedHost({ platform, arch, env }) {
+function supportedHost({ platform, arch, env, windowsRelease, glibcVersion }) {
   if (platform === "darwin") {
     if (arch === "arm64" || arch === "x64") return null;
     return {
       code: "unsupported_arch",
-      message: `Tesseract CLI 0.1.0 supports macOS arm64 and x86_64; this Node architecture is ${arch}.`
+      message: `Tesseract CLI ${TESSERACT_CLI_VERSION} supports macOS arm64 and x86_64; this Node architecture is ${arch}.`
     };
   }
   if (platform === "win32") {
+    const major = Number.parseInt(String(windowsRelease).split(".")[0], 10);
+    if (!Number.isFinite(major) || major < 10) {
+      return {
+        code: "unsupported_os_version",
+        message: `Tesseract CLI ${TESSERACT_CLI_VERSION} requires Windows 10 or later; detected ${windowsRelease || "unknown version"}.`
+      };
+    }
     const windowsArch = environmentValue(env, "PROCESSOR_ARCHITEW6432") ||
       environmentValue(env, "PROCESSOR_ARCHITECTURE");
     if (windowsArch?.toUpperCase() !== "AMD64") {
       return {
         code: "unsupported_arch",
-        message: `Tesseract CLI 0.1.0 supports 64-bit Windows (AMD64); detected ${windowsArch || "unknown architecture"}.`
+        message: `Tesseract CLI ${TESSERACT_CLI_VERSION} supports 64-bit Windows (AMD64); detected ${windowsArch || "unknown architecture"}.`
+      };
+    }
+    return null;
+  }
+  if (platform === "linux") {
+    if (arch !== "x64") {
+      return {
+        code: "unsupported_arch",
+        message: `Tesseract CLI ${TESSERACT_CLI_VERSION} supports Linux x86_64 only; detected ${arch}.`
+      };
+    }
+    const detectedGlibc = normalizeGlibcVersion(glibcVersion) ?? detectTesseractGlibcVersion();
+    if (!isTesseractLinuxGlibcSupported(detectedGlibc)) {
+      return {
+        code: "unsupported_libc",
+        message: `Tesseract CLI ${TESSERACT_CLI_VERSION} requires Linux x86_64 with glibc ${TESSERACT_CLI_MIN_LINUX_GLIBC_VERSION} or later; detected ${detectedGlibc ? `glibc ${detectedGlibc}` : "an unknown or unsupported libc"}.`
       };
     }
     return null;
   }
   return {
     code: "unsupported_host",
-    message: `Tesseract CLI 0.1.0 supports macOS and 64-bit Windows only; detected ${platform}.`
+    message: `Tesseract CLI ${TESSERACT_CLI_VERSION} supports macOS, 64-bit Windows, and Linux x86_64 with glibc ${TESSERACT_CLI_MIN_LINUX_GLIBC_VERSION}+; detected ${platform}.`
   };
 }
 
 function cliCandidates({ platform, env, home, pathValue, exists }) {
   const api = pathApi(platform);
   const names = platform === "win32" ? ["tsrct.cmd", "tsrct.exe", "tsrct"] : ["tsrct"];
+  const userHome = environmentValue(env, "HOME") || home || homedir();
+  const xdgDataHome = environmentValue(env, "XDG_DATA_HOME") || api.join(userHome, ".local", "share");
   const canonical = platform === "darwin"
-    ? api.join(environmentValue(env, "HOME") || home || homedir(), "Library", "Application Support", "Tesseract", "bin", "tsrct")
-    : environmentValue(env, "LOCALAPPDATA")
-      ? api.join(environmentValue(env, "LOCALAPPDATA"), "Tesseract", "bin", "tsrct.cmd")
-      : null;
+    ? api.join(userHome, "Library", "Application Support", "Tesseract", "bin", "tsrct")
+    : platform === "linux"
+      ? api.join(xdgDataHome, "Tesseract", "bin", "tsrct")
+      : environmentValue(env, "LOCALAPPDATA")
+        ? api.join(environmentValue(env, "LOCALAPPDATA"), "Tesseract", "bin", "tsrct.cmd")
+        : null;
   const pathEntries = (pathValue ?? environmentValue(env, "PATH") ?? "")
     .split(platform === "win32" ? ";" : ":")
     .filter(Boolean);
@@ -147,7 +213,13 @@ export function resolveTesseractCli(options = {}) {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
   const env = options.env ?? process.env;
-  const unsupported = supportedHost({ platform, arch, env });
+  const unsupported = supportedHost({
+    platform,
+    arch,
+    env,
+    windowsRelease: options.windowsRelease ?? osRelease(),
+    glibcVersion: options.glibcVersion
+  });
   if (unsupported) return { ok: false, ...unsupported };
 
   const candidates = cliCandidates({
