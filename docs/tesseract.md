@@ -8,7 +8,7 @@ Review the [current Tesseract terms](https://mirage.app/legal/tesseract-terms) a
 
 ## Pinned CLI and host support
 
-Tsugite pins Tesseract CLI **0.2.0**. The [official release](https://github.com/mirage-hq/Tesseract/releases/tag/v0.2.0) adds Linux support, export options including 4K and 60 fps, improved font support, and CLI usage telemetry. The source tree is pinned to 0.2.0, but this development host still has the older 0.1.0 binary; native 0.2.0 behavior described below is wired and mock-tested, not yet verified by a real 0.2.0 render.
+Tsugite pins Tesseract CLI **0.2.0**. The [official release](https://github.com/mirage-hq/Tesseract/releases/tag/v0.2.0) adds Linux support, export options including 4K and 60 fps, improved font support, and CLI usage telemetry. As of 2026-09-24, one real 0.2.0 render has been verified on this macOS host: the basic generated-layer route exported a single silent 1-second 1920×1080/30 H.264 clip. Tesseract needed Metal GPU access; the default restricted sandbox reported that no GPU adapter was available, while the same pipeline render succeeded with host GPU access. Preview/filmstrip, native document/action authoring, alternate canvases and export settings, ProRes, and alpha-solo remain unverified with 0.2.0.
 
 The official CLI supports Apple Silicon and Intel macOS, 64-bit Windows 10 or later, and Linux x86_64 with glibc 2.35 or later. Linux also requires Python 3, Bash, coreutils, and unzip for installation; at runtime it needs zlib, ALSA, libstdc++, a Vulkan loader, and a compatible Vulkan driver. Mesa lavapipe is a software-rendering option for headless systems. Other operating systems, architectures, and Linux libc implementations are unsupported.
 
@@ -164,7 +164,7 @@ Every requested MOV must have exactly one Gate 1-bound `native_edit.outputs` ent
 
 The document placeholder above is not a valid native document. Declare the full-composition MOV duration equal to `meta.target_duration_seconds`. Alpha-solo export can use the selected layer's active window and be shorter; enter its expected duration from the authored document instead of estimating it from the project duration. `primary_output.audio_required` is an exact stream expectation: `true` requires an audio stream and `false` requires none. The backend checks the exported files against their Gate 1 declarations, including ProRes codec, alpha-capable pixel format when requested, audio presence or absence, and duration within one frame plus 30 ms. Gate 3 independently probes and fingerprints each declared MOV and binds the sorted set to approval. Changing a MOV after approval invalidates Gate 3. The render report lists sidecars by kind and run-relative path; Gate 3 QC records their hashes and probe results.
 
-The renderer wiring and mocked export path are tested, but real ProRes and alpha-solo output have not yet been verified with an installed Tesseract 0.2.0 CLI. Treat the result as mock-tested until a real 0.2.0 export is checked on macOS.
+The renderer wiring and mocked export path are tested. The real 0.2.0 verification covers only the basic generated-layer MP4 path above; ProRes and alpha-solo outputs remain mock-tested and unverified with the installed CLI.
 
 Fast Edit is unsupported. The backend rejects top-level `manifest.transitions` (use reviewed `clips[].motion.transition_to_next` cues), speaker artwork, chapter cards, and styled caption speaker/pose/emphasis fields. Image files are not turned into composition layers by the generated-layer route; add them through `native_edit.assets` and reference them from a full schema-based native document. The backend also rejects unsupported motion presets such as `wipe`, `pan-left`, `pan-right`, and `parallax`, and rejects a descriptive-only `presentation.motion_design` summary without executable cues. These listed unsupported elements fail closed rather than being silently dropped or converted.
 
@@ -174,7 +174,11 @@ Text overlays require a font family/style accepted by Tesseract's font catalog, 
 
 The repository tests use fake CLI executables and a fake release archive. They cover host and version selection, argument passing, checksum failure, the explicit installer boundary, native document/action and font imports, asset-ID bindings, export options, and preview/filmstrip publication. Mock tests do not establish that a particular installed runtime accepts a schema or can render it.
 
-Real render verification used the official CLI 0.1.0 and host GPU access:
+On 2026-09-24, the official CLI 0.2.0 completed one real Tsugite render on this macOS host with Metal GPU access:
+
+- A basic generated-layer render used one local, silent 1-second H.264 source clip at 1920×1080/30 fps. It produced `final.mp4`, `final.tsrct`, and `render-report.json`; ffprobe confirmed a 1-second H.264 1920×1080/30 fps output with no audio, Gate 3 QC passed, and visual inspection confirmed the expected solid blue frame. This verifies only the basic MP4 route; it does not verify native documents/actions, fonts or text overlays, additional canvases/frame rates/resolutions, ProRes, alpha-solo, or the other optional 0.2.0 features described above. The restricted default sandbox failed to find a GPU adapter; rendering succeeded when Tesseract had host Metal GPU access.
+
+Earlier real-render verification used the official CLI 0.1.0 and host GPU access; these historical checks do not verify CLI 0.2.0:
 
 - A clip-only Tsugite backend render produced `final.tsrct`, `final.mp4`, and `render-report.json`. QA confirmed the native Video layer, asset ID, and `sourceRange`; ffprobe reported H.264 at 1080×1920, 30 fps, 30 frames, and 1 second, and full decode passed.
 - A combined fixture with an English title, English caption, and 440 Hz added audio track passed full decode. The 1-second MP4 was H.264 1080×1920/30 fps with AAC 48 kHz stereo. Visual QA confirmed the text was clear. Native inspection confirmed Text layer ids 3 and 4 using Inter / Regular over 0–1000 ms, Audio layer id 2 at volume 0.5 with matching source range, and report track count 1. The tone measured mean -27.1 dB and peak -23.9 dB, consistent with the configured 0.5 gain.
