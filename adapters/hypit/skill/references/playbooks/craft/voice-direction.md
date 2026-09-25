@@ -14,7 +14,7 @@ creator supplies context; still choose what this particular person sounds like. 
 voice" describes its relationship to the casting. Name the appealing sound chosen for that
 relationship so the voice model has a vocal character to realize.
 
-As in [Image direction](image-direction.md#compress-the-idea-into-decisive-anchors), use high-level
+As in [Image direction](image-direction.md#two-ideas-behind-every-sentence), use high-level
 language that carries sensory information, then make the decisive qualities specific. "Magnetic"
 states the desired appeal; a clear, youthful tone and nimble, teasing phrasing begin to express it.
 Pitch, vocal weight, brightness, softness or grain are casting choices, not interchangeable words
@@ -75,22 +75,25 @@ photo? Okay, now you've got my attention." A considered observation can suit the
 The line should make the intended manner useful to the thought, rather than merely name the product.
 Write the intended pronunciation for unfamiliar names in Script before using the line as a sample.
 
-Voice Design uses that line to establish the reusable voice. The finished passages receive their
-own dialogue and direction. [Voice and performance](voice-and-performance.md#give-a-recurring-person-one-accepted-voice)
-owns reference preparation, reuse and the choice between visible A-roll and independent speech;
-the selected model's package documentation owns its exact inputs.
+Voice Design turns that short line into a reusable Voice Reference. A speaking-video model can use
+it while performing the finished Script; a passage built around independent narration can use the
+same reference through Voice Clone. The casting line and the finished passage have different jobs.
+[Voice and performance](voice-and-performance.md#give-a-recurring-person-one-accepted-voice) owns
+reference preparation, reuse and that performance choice; the selected model's package documentation
+owns its exact inputs.
 
 ## Let one voice express different thoughts
 
 The reference carries vocal identity and demonstrates a manner of speaking. Each finished passage
 has its own reason to be spoken: draw someone in, challenge a claim, become delighted by an example,
-or deliver a confident verdict. Direct those attitudes in the video or independent speech request
-while keeping the same person recognizable. One accepted voice can express different thoughts;
-recurring identity does not require one fixed emotional state throughout the work.
+or deliver a confident verdict. Direct those attitudes through the video performance or the selected
+speech model's available inputs while keeping the same person recognizable. One accepted voice can
+express different thoughts; recurring identity does not require one fixed emotional state throughout
+the work.
 
 [Video direction](video-direction.md#direct-the-reason-for-an-action) connects that attitude to gaze,
-gesture and interaction. For independent speech, the speech request carries the delivery direction.
-Choose time from this intended performance using
+gesture and interaction. For independent speech, the Script and supported speech-model inputs shape
+delivery. Choose time from this intended performance using
 [Script measurement](../../creation/script-and-time.md#measure-before-choosing-durations).
 The pace estimate sizes the passage; the voice and performance direction give it character. Fast
 speech alone does not establish emphasis, changing attitude or expressive intonation.

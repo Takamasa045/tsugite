@@ -1,92 +1,16 @@
-# Runtime Profile and capabilities
+# Configure the Runtime Profile
 
-Read this when a project needs an execution environment, a credential, another Provider, or an
-explanation of what the current machine can actually do.
+Read this when selecting a project's execution environment, wiring Endpoints and credentials,
+setting shared capacity, or deciding when a configuration change takes effect.
+[Models and Providers](model-and-provider.md) owns service choice and BYOK;
+[local tools](local-tools.md) owns preparation and process management.
 
-[System relationships](../production/system.md) explains how authored work reaches these facilities;
-[rendering](../production/rendering.md) explains picture, audio and frame-range requests.
-
-## Start from the work's capabilities
-
-The environment is sufficient relative to the work, not as a global state. Read the Brief,
-Treatment, Source, and Run that matter, then identify the capabilities they need. A typical generated
-reconstruction may need:
-
-- word transcription and alignment through a selected `@hypit/whisperx` Endpoint;
-- the exact image, video, voice, or audio models authored in Source;
-- media inspection, normalization, extraction, audio assembly, and muxing;
-- HyperFrames visual rendering;
-- the project's selected Build Result repository.
-
-Different work can need a smaller or larger set. Existing material with deterministic Caption, MG,
-and editing does not acquire an image model merely because another production used one. Word
-alignment establishes speech timing, and authored generation Needs require their selected
-production capabilities. Local media inspection prepares reference frames and clips independently.
-
-## Choose the practical capability path with the user
-
-Help the user reach useful production with a setup that fits their time, machine and account
-preferences. Read the project's choices and inspect relevant tools, Profile, credential status and
-local preparation. Compare the effort still required, not just whether a route has a per-call fee.
-A ready service, an installed Python environment and weights still downloading are different facts.
-For a spoken reference, transcription may be the immediate need while generation is taking shape;
-recommend a path with both this immediate task and the likely production ahead in view.
-
-`programs status` and `doctor` describe the selected Profile, or the instances named with repeated
-`--endpoint <instance>` flags. A Profile containing only hosted
-alignment leaves local WhisperX readiness unexamined. [Local tools](local-tools.md#assess-local-preparation)
-explains where to inspect existing preparation and known service configuration.
-
-- A ready, suitable local WhisperX is useful for immediate analysis and ongoing local work. Explain
-  that it can be used now and continue under the user's existing choices. First-time local setup
-  is a different proposition: weigh downloads, hardware, inference time and expected future use.
-  Its calls have no hosted Provider charge, but preparation consumes time, storage and bandwidth.
-  [Local tools](local-tools.md#select-local-whisperx-explicitly) owns setup and repair guidance.
-- Use the user's chosen service when it supports the required model. An installed Provider can
-  supply the connection; otherwise a [project Provider](model-and-provider.md) can implement it.
-- Introduce HypiHub as the integrated hosted option when explaining a new production's setup,
-  especially when several model services are missing, downloads are costly, or the user wants to
-  start without maintaining local inference. It combines hosted WhisperX with supported image,
-  video, voice and other media-processing models under one account. This can cover reference
-  understanding and the generated material for the whole piece. Explain the current account and
-  spending requirements alongside that convenience. Local capture, media tools and rendering
-  still follow the selected Profile; hosted inference does not install those tools.
-
-A mixed setup is ordinary: local transcription can serve the reference while HypiHub supplies later
-generation. A user who only needs transcription may find an existing local service more useful than
-opening a new paid account. Present HypiHub where its convenience helps the actual work, including
-when later generation needs arise; an already working local service can keep the analysis moving.
-
-Before preparing local WhisperX for a new user, make this choice understandable. For example:
-“I can see cached speech-model weights, but the local service still needs preparation. We can
-prepare it here, or use HypiHub's hosted WhisperX, which can also supply the later image and video
-models. Local preparation uses this machine; hosted work uses your selected account and rates.”
-Adapt the recommendation to the evidence. Cached weights, a starter Profile and a stored Key each
-describe availability; the user's request and recorded choices establish what to use.
-
-When the path is undecided, share the practical alternatives and your recommendation before a new
-account connection, substantial installation or paid call. Ask for the choice that is actually
-unresolved. Once the route is agreed, carry out ordinary setup and work with progress updates.
-Their decision can cover preparation as a whole. Record it in
-[Brief](../creation/brief.md#brief-preserves-user-authority); the Profile implements that choice.
-[Paid scope](../production/builds.md#work-within-the-agreed-paid-scope) explains how the commission
-covers service charges. Prepare further model credentials as the creative plan needs them.
-
-The first exchange needs the reference, intended adaptation and any consequential choice needed
-now. Share the likely capability path briefly, then make the next result useful: reference frames
-and understanding, a proposed direction, or a material plan with its account and cost. Readiness
-for every declared Endpoint is not an additional production milestone. Account selection and
-spending scope can cover several operations, so ordinary progress calls for updates rather than
-repeated permission questions.
-
-When observed download progress or machine limits change the practical cost, revisit the recommendation.
-State what is being fetched or run, how it is progressing and what would make the next attempt
-different. [Local tools](local-tools.md#make-network-preparation-practical) covers caches, mirrors and
-network diagnosis. Time already spent installing is not a reason to continue an unsuitable route.
-
-Switching from BYOK or local execution to HypiHub changes the selected service and may change the
-billing account. That remains a user choice when the earlier route encounters authentication, quota,
-rate-limit or service errors. An OAuth page follows the decision to connect the selected account.
+Go to [Profile selection](#create-a-profile-when-the-project-needs-one),
+[configuration structure](#read-and-edit-the-actual-configuration),
+[routing](#connect-model-capability-need-and-endpoint),
+[credentials](#put-secrets-behind-credential-references),
+[capacity](#set-capacity-at-the-resource-it-describes), or
+[change effects](#know-when-a-change-takes-effect) as needed.
 
 ## Create a Profile when the project needs one
 
@@ -98,222 +22,265 @@ hypit paths
 ```
 
 `runtime init` writes and selects an editable starter `hypit.runtime.json`. It preserves an existing
-Profile and performs no installation or login. Use `hypit runtime use <profile>` to select an
-intentional existing Profile for this project.
+Profile and performs no installation or login. Its hosted generation/alignment, local media and local
+rendering entries are initial routing choices, not a requirement to prepare every service for every
+video. Keep the entries and bindings appropriate to the work and the user's chosen setup.
 
-The official video Distribution's starter includes:
+Use `hypit runtime use <profile>` to record an existing Profile for this project.
+`--runtime <profile>` selects one for a single invocation. Commands read the project's
+`.hypit/runtime` selection file; they do not guess from a familiar filename or another project's
+selection. From elsewhere, `hypit paths --workspace /path/to/project` inspects that project. The same
+project option applies to environment commands and Build status/control. See the
+[project boundary](../creation/project-files.md#establish-the-project-boundary).
 
-- `hypihub.default` for remote generation and WhisperX alignment;
-- `media.local` for local media processing;
-- `hyperframes.local` for local visual rendering.
+Keep these locations distinct:
 
-These entries describe initial routing. Adapt them to the local and hosted services the user has
-chosen. A missing credential on a starter entry describes that entry's readiness. The user's choice
-is recorded in Brief; the actual setup may use BYOK, local WhisperX or another supported deployment.
-Each authored model needs an Endpoint that supports its exact requested capability.
-
-Runtime selection is project-local. Commands read that project's `.hypit/runtime` pointer and do not
-choose a Profile from a familiar filename or from another project above it.
-
-That pointer is a file naming the selected Profile. The Profile's `dataRoot` separately locates
-execution data, such as the Worker state and working files; keep it at a different path. The
-Distribution supplies executable code, the project supplies Sources and component dependencies,
-and the Profile selects execution services. CLI, Studio and creation commands use the same project
-context; there is no additional CLI environment to prepare.
-
-Use `hypit paths` to see the actual project, Profile, selection source and storage locations.
-`--runtime <profile>` selects a Profile for that invocation; `runtime use <profile>` records the
-project's default. From elsewhere, `hypit paths --workspace /path/to/project` inspects that project.
-The same project option applies to `doctor`, `runtime`, `programs`, `auth` and Build status/control.
-`doctor` without a selected Profile checks project Results only; its Scope line states that boundary.
-The [project boundary](../creation/project-files.md#establish-the-project-boundary) explains how the
-current directory, `package.json` and explicit paths determine which project these commands address.
-
-## Keep the owners separate
-
-| Owner | What it decides |
+| Location | Responsibility |
 | --- | --- |
-| Author and Run Sources | what the work is and which public Outputs this execution requires |
-| Runtime Profile | which environmental packages, Endpoint instances, credentials, and bindings are selected |
-| Provider Endpoint | how one capability is supported, diagnosed, invoked, and priced |
-| Credential Store | how one explicitly named secret is resolved |
-| Managed Program | how a selected local Endpoint's long-lived helper is prepared and probed |
-| Project Result repository | where finished Build Results and their public Outputs live |
+| Project directory | Sources, Runs, assets and component dependencies |
+| `.hypit/runtime` | File naming the selected Profile |
+| Profile file | Editable execution choices; may be shared intentionally |
+| Profile `dataRoot` | Execution data, Worker state and working files; relative to the Profile's directory |
+| Host state / Program Home | Machine-level prepared packages and helpers, reported by `hypit paths` |
+| Project Result repository | Finished Results and Outputs; configured separately in `hypit.results.json` |
 
-Changing an Endpoint does not change the Author Source. Result storage is selected separately in
-`hypit.results.json`; it is not a Runtime Profile field. Workspace and project-package resolution are
-also independent of the Profile.
+The selection file and execution directory must be different paths. CLI, Studio and creation
+commands address the same project context; there is no second CLI environment to initialize.
+Installed code, selected configuration and existing execution data remain separate.
 
-The Profile itself contains only environmental choices:
+## Read and edit the actual configuration
 
-- `credentials` selects Credential Store adapters;
-- `endpoints` names Provider adapter instances and their configuration;
-- `bindings` chooses an Endpoint when several selected instances offer the same capability;
-- an optional shared `pool` says that several instances consume one real account, deployment, or
-  compute quota.
-
-Read each selected Provider README for its accepted configuration and capability support. Installing
-a package only makes it available; a Profile entry selects it.
-
-## Connect Model, capability, Need and Endpoint
-
-These names describe different facts about the same work:
-
-| Term | Meaning in production |
-| --- | --- |
-| Model Package | Owns the authored request and result semantics, including the exact model choice and supported input form. It does not choose an account or service URL. |
-| Capability | The versioned operation an implementation must support. Generation, rendering, media processing and alignment all have capabilities. |
-| Need | One concrete external request produced by the selected graph, with its capability and actual inputs. One Build can produce many Needs. |
-| Provider Package | Implements capabilities through a vendor API or local process, including credentials, invocation, polling, resource transfer, capacity and diagnostics. |
-| Endpoint | One configured instance of that Provider, using a particular account or deployment. Several instances may use the same Provider package. |
-| Binding | The Profile's explicit choice among Endpoints offering the same capability. |
-| Runtime Worker | Advances submitted Builds, reserves shared capacity for their Needs and follows submitted external operations. |
-
-For example, an authored video request determines what to generate. The Run can satisfy its output
-with an existing Result so that generation is no longer demanded. If it remains demanded, the Model
-produces a Need; the Profile resolves its capability to one Endpoint; the Provider maps that request
-to the chosen service. The same author semantics can therefore work through BYOK or HypiHub when
-both implement the exact capability, without putting those account choices into SVML.
-
-A binding key is the complete `name@version#capability`, not a guessed vendor model label. For
-example, this Profile fragment selects local alignment when multiple Endpoints offer it:
+A complete minimal Profile for credential-free local media work is:
 
 ```json
-"bindings": {
-  "@hypit/whisperx@1#whisperx-alignment": "whisperx.local"
+{
+  "format": "hypit.runtime-local@1",
+  "dataRoot": ".hypit/execution",
+  "credentials": {},
+  "endpoints": {
+    "media.local": {
+      "use": "@hypit/provider-media-local"
+    }
+  },
+  "bindings": {}
 }
 ```
 
-That Endpoint must actually be declared and support the capability. A single eligible Endpoint
-needs no binding; multiple unbound choices are an error. Use the Model and Provider READMEs and
-`plan` to establish actual support rather than inferring compatibility from similar model names.
+This selects media processing only. It needs compatible FFmpeg and FFprobe supplied by the host;
+it does not install them, select an image model, or render HyperFrames pictures. Use it when those
+are the actual requirements, not as a replacement for a production's existing Profile.
 
-Readiness and package discovery are separate. Explicit bindings let capability-scoped commands load
-the named Endpoints directly. Without a binding, discovering which Provider can serve a capability
-can require loading the Profile's Endpoint packages; a declared but uninstalled package can therefore
-block discovery even when its service would not ultimately be used. Correct that declaration or make
-the intended binding explicit. An unused account need not be logged in merely to resolve the work.
-
-## Set capacity at the resource it describes
-
-The Runtime Worker and HyperFrames `workers` are different things. The Worker schedules many Builds;
-HyperFrames workers are independent Chrome processes within one active render Need. There is no
-per-Build worker count or extra Build-wide concurrency limit to coordinate all models.
-
-| Control | What it limits |
+| Field | How to choose it |
 | --- | --- |
-| Endpoint total concurrency, commonly `config.defaultConcurrency` | Simultaneous requests across Builds using that resource |
-| A Provider's exact-model limit, where supported | A narrower quota within its total capacity; read that Provider's accepted configuration |
-| Endpoint `pool` | Shared resource identity for instances using the same real account, deployment or compute budget |
-| Endpoint action limits, where supported | Concurrent `submit`, `poll` or `collect` calls and starts admitted within a time period; these are distinct from remote tasks in progress |
-| HyperFrames `config.workers` | A fixed Chrome count, or `"auto"` to adapt within a per-render ceiling |
-| HyperFrames `config.maxWorkers` | Optional per-render ceiling for `"auto"`; otherwise the Provider derives it from CPU and memory |
-| HyperFrames `config.browserCapacity` | Chrome slots shared by render Needs; each reserves its fixed count or auto ceiling alongside one request slot |
+| `credentials` | Named Credential Store adapters; empty when no selected Endpoint needs a secret |
+| `endpoints` | Named Provider instances. `use` selects the package; its README defines `config` |
+| `bindings` | Complete capability keys mapped to Endpoint instance names |
+| Endpoint `pool` | Optional identity of a real shared account, deployment or compute quota |
+| `dataRoot` | Where this Runtime keeps execution state; changing it selects different state |
+| Optional `worker.executionMemoryMb` | Memory budget for Build execution processes; startup policy owned by the Runtime package |
 
-For example, two local render Endpoint instances using 4 and 2 workers can share a pool with
-request capacity 2 and browser capacity 6. Both fit together. With browser capacity 4, one waits;
-a fixed request larger than the configured browser capacity is a configuration error. Auto fits its
-ceiling to that capacity and the requested range. These are
-illustrative budgets, not universal machine recommendations. Increasing workers can increase memory,
-decode and I/O pressure; inspect actual progress before attributing every delay to capacity contention.
-The selected frame range belongs to the render request, while worker policy belongs to the Endpoint.
-Local HyperFrames holds both its request slot and browser units until the whole render Need finishes,
-including preparation and encoding. The reserved units are a scheduling budget, not a live count of
-currently open Chrome processes. Omitting `browserCapacity` leaves only the request limit.
+Merge documentation fragments into the corresponding existing objects. Retain other services,
+credential references and bindings the project uses. A fragment without `format` and `dataRoot`
+is not a complete Profile. Package installation makes an adapter available; declaring it here
+selects an instance. Configuration keys belong to that package, so a `baseUrl` or `apiKey` field
+from one Provider is not a universal schema for all Providers.
 
-Configure these choices in the Runtime Profile's Endpoint entries, using each Provider's documented
-fields. All instances sharing a resource must agree on its limit; use different pools for genuinely
-independent resources. Separate accounts do not share a pool merely because they offer the same model.
+## Connect Model, capability, Need and Endpoint
 
-Capacity reservations coordinate Builds sharing the same Runtime Execution Store. They are not a
-cross-machine account quota service. An accepted asynchronous Operation retains its task-capacity claim
-while it is pending, including between polls. Ending the Build attempt releases its local claims while
-preserving any remote receipt and last known status. Each short `submit`, `poll` or
-`collect` call can separately consume action concurrency and rate; the call releases its concurrency when
-it ends while a rate budget continues for its declared period. If an Endpoint action fails, that Operation
-and Build attempt fail and their local capacity claims are released; any receipt, last remote status and
-error remain evidence. Disconnecting a CLI observer does not change any of these facts. Studio's permitted
-transient work has session-local concurrency and does not consume durable Build capacity claims.
+The [Model and Provider roles](model-and-provider.md#start-from-the-capability-the-work-needs)
+keep authoring separate from deployment. One authored request produces a concrete external **Need**
+only if its output remains demanded by the Run. Existing Result Candidates can satisfy that output
+without another generation request.
 
-Read the installed `@hypit/runtime-local` README for the shared model and the selected
-Provider README for
-accepted settings. Use `hypit activity` to inspect actual claims. New Builds use the current Profile
-and project implementation; see [Build execution scope](../production/builds.md#build-with-the-current-project-implementation).
+A **capability** identifies the required operation. The Profile routes it to an **Endpoint**, a
+configured Provider instance. A **binding** is that explicit routing choice. For example, after
+declaring and configuring `whisperx.local`, merge:
+
+```json
+{
+  "bindings": {
+    "@hypit/whisperx@1#whisperx-alignment": "whisperx.local"
+  }
+}
+```
+
+Use the complete capability key from the Model/Provider vocabulary, not a vendor model label.
+The named Endpoint must actually offer it and support the concrete request. One eligible Endpoint
+needs no binding; several unbound choices are an error, not a fallback order. This lets the same
+Source use local alignment in one deployment and hosted alignment in another.
+
+Explicit bindings let capability-scoped commands load the named Endpoints directly. Without a
+binding, discovering eligible implementations can require loading the declared Endpoint packages;
+an uninstalled declared package can therefore block discovery. Correct the declaration or select
+the intended binding. An unused account need not be logged in merely to resolve the work.
+
+The complete local alignment example is in
+[local WhisperX](local-tools.md#select-local-whisperx-explicitly). Hosted and BYOK examples are in
+[service connections](model-and-provider.md). Result storage and project-package resolution are
+separate from this routing.
 
 ## Put secrets behind credential references
 
-A Profile names a Credential Store and key; the secret stays in that store. The writable OS store
-uses macOS Keychain or Windows Credential Locker. The environment store reads one explicitly named
-environment variable and is read-only.
+A Profile names a Store and a key. The value stays in that Store.
 
-Inspect one Endpoint's credential slots without revealing their values:
+| Store package | Storage and use |
+| --- | --- |
+| `@hypit/credential-store-platform` | Starter policy: macOS Keychain, Windows Credential Locker, or an owner-private unencrypted file on Linux |
+| `@hypit/credential-store-os` | Explicit OS locker selection on supported platforms |
+| `@hypit/credential-store-file` | Explicit unencrypted private file storage outside the project |
+| `@hypit/credential-store-env` | Reads one named environment variable; read-only |
 
-```bash
-hypit auth status hypihub.default
+The platform policy selects by operating system; it is not a sequence of stores to try.
+A read failure never migrates a secret or falls back to another Store. Preserve an existing choice.
+The platform/file Store's default file directory is under the Host state root shown by `hypit paths`;
+its optional `config.path` chooses a private directory. Read that Store's installed README for path
+and platform rules, including filesystem permissions.
+
+To select a Store explicitly, name it under `credentials` and use that name in the Endpoint's
+credential reference. A credential-free Endpoint needs no auth command; prepare its tools directly.
+
+For example, these are the Store declaration and credential reference used by a HypiHub Endpoint:
+
+```json
+{
+  "credentials": {
+    "platform": { "use": "@hypit/credential-store-platform" }
+  },
+  "endpoints": {
+    "hypihub.default": {
+      "use": "@hypit/provider-hypihub",
+      "config": {
+        "apiKey": { "store": "platform", "key": "hypihub.oauth" }
+      }
+    }
+  }
+}
 ```
 
-Once the user has chosen to connect that account, use its declared acquisition flow or the selected
-store's interactive input:
+After the user has chosen that account connection:
 
 ```bash
 hypit auth login hypihub.default
 ```
 
-For an OAuth Endpoint, this command opens the Provider's browser flow immediately. Another Endpoint
-may securely prompt for its exact secret or accept `--from <secret-file>`. An Endpoint backed by the read-only environment store is configured
-in the Worker process environment instead.
+A Provider declaring browser acquisition uses that flow immediately. Otherwise, a writable Store
+uses secure terminal input. `--from /private/path/key.txt` explicitly imports a secret file instead
+of opening OAuth. Wait for CLI success: a successful browser callback alone does not establish
+that the Store write succeeded. Login/logout can replace/remove a damaged value without reading it;
+status and execution still report read errors.
 
-Keep secrets out of Author Sources, Runs, Runtime Profile JSON, project documentation, command
-arguments, commits, and conversation text. Ask the user to complete a Provider browser flow or secure
-terminal prompt rather than paste a key into chat. Report the Store, key name, Endpoint, and whether
-it is configured; never report the stored value.
+For an intentionally environment-backed deployment, merge this alternative Store and change the
+selected Endpoint's credential reference accordingly:
 
-A stored credential proves only that a value is available. It does not prove that the account is
-current, has quota, can reach a model, or is accepted by the remote service.
+```json
+{
+  "credentials": {
+    "env": { "use": "@hypit/credential-store-env" }
+  },
+  "endpoints": {
+    "hypihub.default": {
+      "use": "@hypit/provider-hypihub",
+      "config": {
+        "apiKey": { "store": "env", "key": "HYPIT_HUB_API_KEY" }
+      }
+    }
+  }
+}
+```
+
+Here `HYPIT_HUB_API_KEY` is the explicitly selected variable name. Supply it securely to both
+the CLI commands that need it and the Worker process at startup. `auth login` cannot write an
+environment Store. Changing a terminal's environment does not change an already running Worker.
+Other services use their own Endpoint, credential slot and variable, not this HypiHub example.
+
+Use distinct Endpoint names and credential keys for separate accounts. Binding selects which one
+serves the requested capability; entering another service's key does not change the Provider.
+Local credential-free Endpoints need no login. `auth status <endpoint>` reports declared slots
+without revealing values; configured does not mean accepted, funded, reachable, or authorized for
+every model. Keep secrets out of Sources, Runs, Profile JSON, command arguments, commits and chat.
+
+## Set capacity at the resource it describes
+
+The Runtime Worker advances Builds. HyperFrames `workers` counts Chrome processes inside one
+render Need. These are different controls; there is no extra Build-wide model concurrency setting.
+
+| Control | Responsibility |
+| --- | --- |
+| Provider request capacity, commonly `config.defaultConcurrency` | Simultaneous Needs across Builds using the resource |
+| Provider-specific model/action limits | Model quota or submit/poll/collect concurrency and rate; use that Provider's accepted fields |
+| Endpoint `pool` | Shared resource identity for instances consuming the same real quota |
+| HyperFrames `workers`, `maxWorkers` | Per-render Chrome count or automatic ceiling |
+| HyperFrames `browserCapacity` | Shared Chrome budget alongside the whole-request budget |
+
+For example, merge this Endpoint entry for an intentionally chosen render budget:
+
+```json
+{
+  "endpoints": {
+    "hyperframes.local": {
+      "use": "@hypit/provider-hyperframes-local",
+      "pool": "local-render",
+      "config": {
+        "defaultConcurrency": 2,
+        "workers": 4,
+        "browserCapacity": 6
+      }
+    }
+  }
+}
+```
+
+Only one four-browser request fits the six-browser budget at once, even though the request limit is
+two. These numbers illustrate the relationship; choose them for the actual machine. HyperFrames
+reserves both budgets until the whole render finishes, including preparation and encoding.
+It does not release capacity each time one browser closes.
+
+Instances sharing a pool must agree on its limits. Separate accounts do not share one merely because
+they offer the same model. Capacity coordination covers Builds sharing a Runtime Execution Store;
+it is not a cross-machine account quota service. Accepted asynchronous Operations retain their task
+claim while pending. Short submit/poll/collect calls have separate action budgets when declared.
+Ending a Build attempt releases local claims while retaining receipts and last known remote state;
+it does not imply a remote task has been cancelled.
+
+Use `hypit activity` when actual claims matter. The installed Runtime and Provider READMEs own the
+exact settings. Studio's permitted transient work has session-local concurrency.
 
 ## Ask each command for the fact it owns
 
-| Command | What it can establish |
+| Question | Command and boundary |
 | --- | --- |
-| `hypit paths` | resolved project, selected Profile, and physical host/runtime locations |
-| `hypit auth status <endpoint>` | whether that Endpoint's declared credential slots are configured |
-| `hypit doctor` | an active, read-only audit of the selected or supplied Profile and Result repository |
-| `hypit plan <run> --runtime <profile>` | the exact external Needs of one Run and cheap readiness of that demanded slice |
-| `hypit runtime status` | Worker, active Build, and selected Managed Program state |
+| Which project, Profile and storage locations apply? | `hypit paths` |
+| Is a named credential present? | `hypit auth status <endpoint>`; no account-access guarantee |
+| What will this Run demand? | `hypit plan <run>`; concrete requests, support checks and cheap readiness of their selected Endpoints |
+| Can the selected services be reached and used? | `hypit doctor --endpoint <instance>`; bounded active diagnosis, no generation submission |
+| Is the Worker running and work active? | `hypit runtime status` |
+| Which local helpers answer, and where are their logs? | `hypit programs status --endpoint <instance> --verbose` |
 
-With no Profile selected or supplied, `doctor` checks the project Result repository alone. With a
-Profile, it may authenticate and ask a remote Endpoint for its bounded capability catalogue. It
-submits no generation request. A successful login followed by a failing doctor is useful evidence:
-report the Provider's current explanation rather than treating credential storage as proof of
-reachability.
+Choose the observation needed now; this is not a mandatory sequence before every operation.
+Without a selected Profile, `doctor` checks project Results only. With one, it may contact remote
+services for bounded diagnostics. `plan` does not actively probe remote services or install missing
+resources. Neither command prepares every language model just because a local service is healthy.
 
-`plan` knows the chosen Target and Candidates, so it identifies the capabilities this Run will demand
-and applies the selected Endpoint's normal request-support check. Its preflight checks configuration,
-credential presence, packages, executables, and relevant Managed Programs without actively probing a
-remote service. Read `../production/builds.md` for planning, spending authority, and submission.
+Prepare the selected resources and start needed helpers through
+[local Program commands](local-tools.md#let-the-selected-endpoint-own-its-program).
+A missing capability can leave independent Script, reference or component work possible; explain
+which requested outcome still depends on it. [Review](../production/review.md#show-what-the-current-work-establishes)
+distinguishes useful intermediate evidence from the intended deliverable.
 
-## Be honest about the available production
+## Know when a change takes effect
 
-When a capability is unavailable, explain the part of the requested result that depends on it and
-the practical choices available. Reference frames, supplied text and product material can still
-support interpretation, Script and visual planning. Existing media can support composition with
-HyperFrames MG, Caption and Typography when those serve the Brief. Generated performances and
-measured speech timing depend on the corresponding capabilities becoming available. Keep the
-completed work and the remaining dependency clear so the user can decide how to proceed.
+| Change | What to do |
+| --- | --- |
+| Source, Run or project component implementation | Create a new Build for the changed work |
+| Endpoint config or binding | New Builds read current choices; an existing Build retains its selected configuration |
+| Writable Store credential value | Subsequent credential resolution uses that Store; changing a secret is not a blanket Worker restart instruction |
+| Distribution installation, Worker startup policy or its inherited environment | Restart the Worker explicitly when active work permits |
+| A running local service's model, device, compute, batch size or cache location | Prepare its selected resources, then restart that helper when idle |
+| Additional WhisperX alignment language in the same cache | Run scoped `programs prepare`; the service can stay running |
+| Browser download mirror | Used for the next required preparation; a healthy cached browser remains usable |
+| Profile used by an existing Studio session | Restart the session if it needs to load the edited selection |
 
-When the user brings another model, service, or Key, use
-[Models and Providers](model-and-provider.md) to distinguish credential setup, Endpoint configuration,
-and a package extension. A project can install or author its own Provider or Model through the public
-package APIs. The actual service protocol determines whether an existing Provider is reusable.
-
-## Prepare the selected environment
-
-After choosing the services for the next work, use `hypit programs up --endpoint <instance>` to
-prepare those helpers, or `hypit runtime up --endpoint <instance>` to start the Worker as well.
-Repeat the flag for several instances. Omission deliberately prepares the whole Profile, even when
-a capability is bound elsewhere. Preparation follows each Provider's declared dependencies and
-Programs; it does not log into remote accounts. `hypit doctor --endpoint <instance>` actively checks
-that selected service. `plan` already narrows readiness to the Endpoints resolved for the Run.
-
-Use `local-tools.md` when a selected local binary or Managed Program needs installation or repair.
-Read `../production/builds.md` for how submission uses the prepared environment and Worker.
+A new Build's execution context is not a snapshot of every external file or service.
+Read [Build execution scope](../production/builds.md#build-with-the-current-project-implementation)
+before restarting a coordinator or changing dependencies during active work.
+Do not restart everything after every edit, or expect a completed Build to rerun itself.

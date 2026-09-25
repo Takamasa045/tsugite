@@ -3,13 +3,20 @@
 A compelling person speaks to the viewer. Their attitude carries the piece; Caption, evidence and MG
 help the viewer follow it. A ranking board is one possible companion, not a requirement of UGC.
 For that relationship, combine this page with [Ranking](ranking-listicle.md).
+When evolving demonstrations and MG carry much of the argument, use
+[Presenter-led visual explainers](presenter-led-explainer.md) for their relationship to that performance.
+This relationship follows the speaking performance, whether its footage is newly made or retained
+from a recording.
 
 ## One useful image can carry the whole performance
 
 Make a character-and-scene image with the presence, camera distance, posture and available graphic
-space the video needs. [Image direction](../craft/image-direction.md) owns that craft. A person placed
-slightly right can leave room for an icon on the left; a table or the direction of their seated body
-can make that composition feel inhabited. Choose it for this layout, not as a universal UGC pose.
+space the video needs. For a performance expected to stay mostly full-frame, its final aspect ratio
+is a useful starting point. Preserve the body and gesture room needed across its later uses;
+destination viewports can change around the same footage. [Image direction](../craft/image-direction.md)
+owns that craft. A person placed slightly right can leave room for an icon on the left; the image
+prompt describes the person and visible setting, while the icon belongs to its component. A table
+or the direction of their seated body can make that placement feel inhabited. Choose it for this work.
 
 For a reusable frontal speaking image, explicitly keep the face toward the lens, with no head tilt
 or rotation. A vivid attitude and an easy speaking gesture give this settled view life. The
@@ -58,9 +65,11 @@ See [Generated video direction](../craft/video-direction.md) for listeners, gest
 
 ## Let speech and graphics do different work
 
-Write natural stages in Script and measure each Segment before choosing a literal generation
-duration. A Segment can contain several edited shots, Caption Cue Breaks, graphic changes and
-speaking turns. Choose its boundaries and length from the performance it carries.
+Write natural stages in Script. For newly generated Takes, measure each Segment before choosing a
+literal generation duration. When the work retains recorded speech, its edited delivery supplies
+the actual duration; [media preparation](../../production/media.md) explains how to prepare and
+align it. A Segment can contain several edited shots, Caption Cue Breaks, graphic changes and
+speaking turns. Choose its boundaries from the performance it carries.
 
 Normalize the produced speaking media, align its own audio to its Segment, and assemble the
 SemanticTakes. Keep that performance's sound when B-roll covers its picture. Place evidence on

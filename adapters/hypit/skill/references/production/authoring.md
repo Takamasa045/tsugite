@@ -4,21 +4,23 @@ Read this when turning the current Treatment into Author Sources, Recipes, Runs,
 and Builds, or when revising an existing production.
 
 [Script and semantic time](../creation/script-and-time.md) explains target wording, Segments, Roles,
-Caption Cue handoffs and semantic anchors. [Source syntax](source-syntax.md) explains imports,
-references and the language around that Script.
+Caption Cue decisions and semantic relationships. [Script syntax](script-syntax.md) gives their exact
+forms; [Timing](timing.md) projects them into components. [Source syntax](source-syntax.md) explains
+imports and references.
 [Composing Tracks](tracks.md) connects the visual and audio roles; [Track authoring](track-authoring.md)
 and [Caption authoring](caption-authoring.md) explain creating a new project component for them.
 [Component design](component-design.md) explains shaping its behavior and controls around the work.
 [System relationships](system.md) connects these concepts to execution and Results;
-[media preparation](media.md) explains the values entering the timeline.
+[media preparation](media.md) explains material inputs. [Production navigation](index.md) locates
+specialized questions without requiring every page for every revision.
 
 ## Turn the Treatment into relationships
 
 Begin with the work the Treatment describes, not with a package inventory. Identify:
 
-- the Script passages and speaking roles, where the work has speech;
-- the performances and other material the work needs, and their placement on its complete Timeline;
-- the Caption, Typography, MG, Effect, and Audio systems that act with them;
+- the meaningful, performable Script passages and any speaking roles;
+- the performances placed on Timeline and the independent material supplied to other components;
+- the picture and sound contributions the work needs, including a simple full-frame performance;
 - the semantic relations that should follow words, phrases, pauses, or content events;
 - the genuinely clock-based events;
 - the final Film or other deliverables.
@@ -31,15 +33,23 @@ other layers will follow,
 [voice direction](../playbooks/craft/voice-direction.md) for casting and directing a character's voice,
 [voice and performance](../playbooks/craft/voice-and-performance.md) for A-roll and recurring voices,
 [B-roll](../playbooks/craft/b-roll.md) for coverage,
+[screen demonstrations](../playbooks/craft/screen-demonstrations.md) when an interface carries evidence or explanation,
 [Caption](../playbooks/craft/captions.md) for speech-linked text, and
-[graphic composition](../playbooks/craft/graphic-compositions.md) for MG and designed visual state.
+[graphic composition](../playbooks/craft/graphic-compositions.md) for designed visual hierarchy,
+with [motion graphics](../playbooks/craft/motion-graphics.md) for changes within it.
 These pages establish what the authored relationship should accomplish. Installed vocabulary then
 supplies the exact language for expressing it.
 
+For a performance-led work, including pure A-roll or short drama, prefer Script and semantic
+preparation even when the presentation is simple. Preserve the actual event relationships when
+additional Caption, sound or visual direction is introduced. A standalone asset edit can instead
+end at its requested media Output.
+
 Author those relationships explicitly. Script Selections and Moments carry meaning through placed
 performances into real time; authored positions locate independently timed events on the same Timeline.
-Track and Film elements arrange the resulting picture and sound. One Source
-carries the whole creative program; its cuts are relationships inside that program.
+Track and Film elements arrange the resulting picture and sound. One Author entry connects the
+work; imported Sources and project modules divide its meaningful responsibilities. A camera cut
+is not by itself a reason for another Source, Segment, component or Build.
 
 When a role first leads to an installed Surface in the current work, query its actual declaration
 before writing the element:
@@ -159,6 +169,9 @@ submitting the same paid media requests again. The following examples locate the
 | Current change | Keep through Candidates | Recompute or request |
 | --- | --- | --- |
 | Caption appearance, MG, an Effect or composition changes | Existing media and SemanticTakes whose Script identities and timing still apply | The changed visual systems and render |
+| Moment/Selection placement changes, with unchanged spoken tokens and Take identities | The accepted SemanticTakes and other material | Current Script references, their projections and presentation |
+| Cue grouping, word attributes or display-only Dual wording changes without changing speech tokens | The accepted SemanticTakes | The current CaptionDocument and its presentation |
+| Take placement or complete Timeline extent changes | The prepared local Takes | Timeline assembly, all affected projections and presentation |
 | Only some B-roll images must change | The existing performance, voice and all other still-useful media | The deliberately replaced images and their downstream composition |
 | The presenter changes while the spoken argument still fits | Unaffected B-roll, icons, music and other media that still serve the target | The new presenter images, affected performances, their normalization and semantic timing, and downstream composition |
 | A new product changes the demonstration or claims | Views and media whose content still fits the new Treatment | The affected product views, performance, Script-dependent timing and visual treatment |
@@ -169,6 +182,13 @@ Choose an Output upstream of the work being changed, with the same nominal Type 
 creative meaning. An unchanged SemanticTake can preserve both media and alignment. It is valid only
 while its Narrative, Segment, token and anchor identities and timing still describe the current
 Script and media. A Script edit does not automatically invalidate every Take; inspect what changed.
+Markers select existing token/Segment anchors. Moving a marker can therefore reuse accepted timing
+when those anchors and spoken tokens remain the same; no acoustic measurement is needed merely
+because a cue now follows another word. Changing spoken text, tokenization, Segment identity or the
+source performance requires a fresh judgment about the affected Take. Keep the media upstream when
+it still fits and let the required preparation recompute. No reuse selection automatically adapts an
+old Take to new speech.
+
 Do not satisfy a changed Track or final composition with its old rendered Output, which would hide
 the current edit. Type compatibility alone cannot establish that an old performance or timing still fits.
 
@@ -191,7 +211,8 @@ Runtime activity when reuse or active execution matters. Read the relevant diff 
 - Revise Script when words, Cue breaks, Selections, or Moments changed.
 - Revise Source or Recipe when composition, parameters, or authored timing relations changed.
 - Revise the Run when the demanded deliverable or selected Candidate changed.
-- Revise a project package when its reusable visual role or rendering behavior is wrong.
+- Revise a project package when its fixed or reusable behavior needs to change; an unexposed local
+  design detail can be edited there without creating a new parameter.
 - Revise a media request when the desired shot or the user's requested media has changed.
 
 Generated Result bytes are evidence and reusable inputs, not editable Source. A change that still

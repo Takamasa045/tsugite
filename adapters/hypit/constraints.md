@@ -3,7 +3,7 @@
 Hypit is an independent video Distribution, not a Tsugite generation clip
 adapter and not a Tsugite render backend.
 
-- Pin `@hypit/hypit@0.1.8`. Do not use the unscoped npm name `hypit` (404).
+- Pin `@hypit/hypit@0.2.13`. Do not use the unscoped npm name `hypit` (404).
 - Skill and executable have separate install channels.
 - `check` / `plan` do not submit a Build. They do load project `activation` JS.
 - `build` is unconditionally denied in Phase 1. No env or grant array unlocks it.

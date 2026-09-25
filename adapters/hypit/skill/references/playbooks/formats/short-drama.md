@@ -22,36 +22,39 @@ generated together without defining the story's scenes. [Script and time](../../
 owns measurement, while [generated video direction](../craft/video-direction.md#size-the-request-around-the-delivery)
 owns how the selected model's request range informs the performable passage.
 
-## Establish a small useful set of camera images
+## Establish the story's useful camera views
 
 Reference-conditioned generation is a strong starting point when the work depends on recognizable
-people, a shared world, staging or composition. Direct each image and Take in natural language for the
-current dramatic intention. Free direction suits the variety of dramatic scenes; a reusable Prompt
-Kit becomes useful when repeated productions reveal a stable prompt relationship worth preserving.
+people, a shared world, staging or composition. A key image can establish the character, a complete
+story view with the characters in their setting, or both. Direct images and Takes in natural language
+for the current dramatic intention. Free direction suits the variety of dramatic scenes; a reusable
+Prompt Kit becomes useful when repeated productions reveal a stable prompt relationship worth preserving.
 
-The first useful image can contain one person, several people, or the whole encounter. Start with the
-view that establishes the difficult facts:
+The first useful image can be a character reference or a view of the encounter itself. Build later
+views from the images that hold the facts they need:
 
-- a shared two-person image can establish the bodies, gaze axis and encounter before closer views;
-- one person's actual camera view can establish the place before a complementary view introduces the
-  other person;
+- a character image can carry identity into a view that establishes a new place and dramatic state;
+- a shared two-person view can establish the bodies, gaze axis and encounter before closer views;
+- one story view can carry a costume, prop or spatial relationship into the next;
 - a supplied image can serve directly when it already expresses the intended character and shot.
 
 Within one location, a small set of useful views can support many Takes. In a living-room dialogue,
-one view for each conversational side may preserve everything the edit needs; modest reframing,
-performance and natural cuts can happen in video. Another image becomes useful when a new view must
+one view for each conversational side may preserve everything the passage needs; modest reframing,
+performance and camera changes can happen in video. Another image becomes useful when a new view must
 establish an important fact, such as a changed relationship, decisive prop state or plot-bearing part
 of the space.
 
-A meaningfully new place, time or visual situation is usually worth establishing with a camera image
-that already contains the characters in that new world. It can connect the authoritative references
-needed for their identities, products, costumes or continuing prop state, while establishing the new
-setting and composition together. The resulting graph stays shallow because each edge carries a real
-creative dependency; the work itself determines the useful image count.
+Decide separately which views to establish and which dramatic action to generate together. One Take
+can move among several shots or places while key images establish the people, objects, composition
+or continuity that need explicit visual direction; one view can also guide several Takes. A new
+place merits an image when the story needs that particular view established, while other moves and
+cuts can develop within the video passage. The image graph follows those visual dependencies rather
+than the count of locations or edits.
 
 [Reference relationships](../craft/generated-dependencies.md) owns these image edges. The
 [two-person podcast](two-person-podcast.md) and [street interview](street-interview.md) show two
-different ways of establishing a conversational world.
+different ways of establishing a conversational world. [Video direction](../craft/video-direction.md#direct-camera-and-cuts-as-part-of-the-passage)
+owns the generated passage's shots and reference relationship.
 
 ## Let every camera see the same world differently
 
@@ -65,18 +68,18 @@ One camera can reveal the part of the place surrounding one character while anot
 different sector around their partner. [Image direction](../craft/image-direction.md#establish-the-place-with-a-few-details)
 owns this relationship between person, setting and view.
 
-## Let performance and editing carry the event
+## Let performance carry the event
 
 Action direction should preserve cause and attention: who initiates, who notices, what changes hands,
-what a reaction answers, and why the cut moves now. It can freely describe the behavior and edit the
-current passage needs. A glance, interruption, withheld response or turn away matters when it changes
-the dramatic relationship.
+what a reaction answers, and why attention or the camera moves now. It can describe the behavior and
+views the current passage needs. A glance, interruption, withheld response or turn away matters when
+it changes the dramatic relationship.
 
 Caption, typography, MG, effects and B-roll can sharpen that event without replacing its human spine.
 A text message can reveal information, an insert can prove what a character sees, and a graphic can
 make a payoff readable. Keep the A-roll performance and its sound meaningful even when another layer
 covers the picture.
 
-Review the finished work for dramatic causality as well as visual continuity: the viewer should know
-who is acting, what changed, and why the next shot or scene follows. A new short-drama form can combine
-these relationships differently while keeping that responsibility.
+Review the finished work for dramatic causality and coherent people, places and action: the viewer
+should know who is acting, what changed, and why the next view or scene follows. A new short-drama
+form can combine these relationships differently while keeping that responsibility.

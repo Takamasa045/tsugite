@@ -1,8 +1,8 @@
 # Reading and writing Source syntax
 
 Read this for the language around a production: imports, references, literal values, Recipes and
-Run choices. [Script and time](../creation/script-and-time.md) owns prose, Roles, Dual Text, Cue
-breaks, Selections and Moments. [Tracks](tracks.md) explains how those meanings drive picture and sound.
+Run choices. [Script syntax](script-syntax.md) owns prose, Roles, Dual Text, Cue breaks, display
+attributes and markers. [Timing](timing.md) explains how components consume those identities.
 [System relationships](system.md) explains authored values and computed Outputs.
 
 ## Three documents, three decisions
@@ -21,7 +21,7 @@ This small Author Source produces Text and Script values; it makes no media requ
   <import as="kit" source="./direction.svs"/>
 
   <script id="story">
-    <opening><HOST>Here is @proof the useful part @/proof.</opening>
+    <opening><HOST>Here is @{proof}the useful part.@{/proof}</opening>
   </script>
   <copy:Value id="direction">She leans in slightly, amused by her own observation.</copy:Value>
   <copy:Render id="prompt" template={kit.performance}>
@@ -71,7 +71,7 @@ declare their permitted attributes and children; Text has its own literal/templa
 structured Markup, use the receiving Surface's declared attributes, children, literals, Recipes and
 reference expressions, and escape `&`, `<`, `>`, `"`, and `'` as `&amp;`, `&lt;`, `&gt;`,
 `&quot;`, and `&apos;`; comments use `<!-- ... -->` outside raw bodies. Script owns the punctuation
-inside its raw body, as described in [Script and time](../creation/script-and-time.md).
+inside its raw body, as described in [Script syntax](script-syntax.md).
 
 ## Recipes are named values
 

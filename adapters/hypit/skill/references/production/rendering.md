@@ -3,8 +3,9 @@
 Read this when assembling the deliverable or rendering a frame interval for review. [Tracks](tracks.md)
 explains the contributing layers; [Runs](runs.md) explains selecting existing media for this execution.
 
-Composition chooses which pictures and sounds form the video and how they share space and time.
-Rendering evaluates that composition over a frame interval and produces the encoded media. The
+Components author the picture and sound contributions. Film assembles the selected contributions
+with Timeline and Canvas into a Composition. Rendering evaluates that composition over a frame
+interval and produces the encoded media. The
 same composition can therefore be inspected in Studio, rendered in part, or rendered as a whole.
 
 ## Assemble the picture and sound
@@ -27,7 +28,7 @@ With the named inputs already declared:
   <film:Track source={voice.audio}/>
   <film:Track source={coverage.visual}/>
   <film:Track source={captions.track}/>
-  <film:Track source={music.track}/>
+  <film:Track source={music.audio}/>
 </film:Film>
 <render:Video id="final" composition={main.composition} timeline={speech.timeline}/>
 ```
@@ -38,7 +39,9 @@ picture leaves the included performance audio audible. Layer order is authored i
 Presents, so moving these Film children does not reorder the picture.
 
 `main.composition` is the assembled work, usable in Studio. `final.video` asks for an encoded video.
-A compatible Composition from another component can also feed the render Surface.
+A compatible Composition from another component can also feed the render Surface. Pure A-roll may
+need only the Performance and Sound contributions, with Caption when wanted. Additional coverage
+and graphics in this excerpt illustrate optional independent contributions.
 
 ## Compose an authored animation
 
@@ -104,27 +107,31 @@ HyperFrames compiles the selected composition and renders its picture. Timeline 
 from the included AudioTracks, then picture and sound are muxed into the delivered file. A Runtime
 can bind these capabilities to different compatible Endpoints.
 
-For the local HyperFrames Provider, `workers` selects independent Chrome processes within one render.
-They share the staged document and decoded source frames, capture different parts of the selected
-interval, and produce one encoded result. Prefer `workers: "auto"` for ordinary local rendering;
-the Provider adjusts capture concurrency within its reserved ceiling using the current job's work.
-An explicit worker count preserves that deployment choice. `defaultConcurrency` limits simultaneous render Needs;
-optional `browserCapacity` budgets their combined browser reservations. These belong to the Runtime
-configuration; the Source keeps the same render declaration. [Runtime profiles](../environment/profile.md)
-explains shared capacity and inspecting the selected Provider's configuration. The local HyperFrames
-Provider supports range requests. A project Provider declares the request forms its deployment supports.
+Before the first local render, or when browser startup reports a missing executable, follow
+[browser preparation](../environment/local-tools.md#prepare-the-local-rendering-browser).
+That selected Provider owns browser installation and download configuration.
+
+The local HyperFrames Provider supports range requests and can capture different parts of one
+render with several browser workers. Browser selection, download settings and worker capacity
+belong to that Provider's Profile configuration. [Runtime profiles](../environment/profile.md)
+and the selected Provider's README own those choices; the Source retains the same render declaration.
+Another Provider declares the request forms its deployment supports.
 
 A short interval reduces frame capture and source-frame extraction, but still prepares the document's
 declared assets and validates typed Surfaces. Extra browsers help only while the machine can use them;
 preparation and final encoding contribute separately. Reusing media through the Run avoids generation work; it does
 not preserve a previous render's temporary preparation.
 
-For a local composition change, render the interval that shows the changed relationship and its
-handoffs. Keep accepted material selected in the Run, then render the complete deliverable when
-the composition is ready. Frame ranges reduce repeated work without changing the authored clock.
+For a local composition change, use [snapshot](snapshots.md) first to inspect the changed
+relationship and its handoffs in the current Studio programme. Keep accepted material selected in
+the Run. Range rendering supplies an encoded clip when that is needed; render the complete
+deliverable when the composition is ready.
 While rendering, communicate the current phase and meaningful progress. The Provider reports
 decoding, browser startup, capture, encoding and storage; `hypit logs <build-id>` preserves their
 timings and execution details when a slow or failed stage needs investigation.
+
+Image decode and declared-font loading failures stop capture with an error. Repair the named
+resource in its owning Source or component, then retry with accepted media retained in the Run.
 
 A local render timeout ends that execution attempt and releases capacity after its work has stopped.
 Its failure and already completed Outputs belong to the Build Result. Continue through a new Run

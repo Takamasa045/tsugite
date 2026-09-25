@@ -1,121 +1,94 @@
-# B-roll and semantic coverage
+# Material-led pictures and B-roll
 
-B-roll adds evidence, association, humor or another view over the passage that carries the speech.
-It can be a photograph, an illustration, a screenshot, generated motion or existing footage.
-Choose the material for what the viewer needs to understand, not from a rule that every noun needs
-its own video generation. Keep the speaking performance's sound when covering its picture.
+An image or video can carry a passage's visual answer: evidence for a claim, a place to inhabit, an
+action to understand, a contrast or a joke. B-roll is a common editorial use of that material while
+a performance carries the passage's words and time. The same materials can also lead the picture
+through a narrated explanation or a speech-free sequence. Choose their role from what the viewer
+needs to see, rather than from whether the source is a still, a moving clip or a person.
 
-## Let people live inside B-roll
+## Give the material a reason to appear
 
-B-roll is defined by what the picture contributes, not by whether a person appears in it. Creator-led
-social video commonly covers a speaking performance with the same person's life: working, studying,
-driving, exercising, travelling, using a product or reacting inside another situation. These shots can
-make the work feel inhabited and socially credible while remaining B-roll.
+Creator-led video often shows the speaker's life while their performed words continue: working,
+studying, travelling, using a product or reacting in another situation. Those pictures make the
+person and world more tangible. The person visible in a lifestyle image or silent clip may be the
+same person whose voice is heard; the placed performance still owns the words. A different passage
+may use a visible speaking Take whose own delivery carries the words. [Voice and performance](voice-and-performance.md)
+owns that distinction.
 
-A person visible while words are heard is not by itself evidence that the pictured clip produced those
-words. Read the whole passage: the picture may be a silent lifestyle action covering audio from the
-underlying A-roll, or it may be another visible speaking performance whose own delivery carries the
-line. Preserve those as separate sound and picture relationships. [Voice and performance](voice-and-performance.md)
-owns the choice of speech source.
+An image can hold a product fact while the speaker makes a claim. A moving demonstration can show
+the action that proves it. A screenshot can make an interface state readable. One well-chosen
+picture may carry the thought more clearly than a new shot for every noun. When the work needs new
+material, [image direction](image-direction.md) or [video direction](video-direction.md) owns its
+creation; this page owns why and how it appears in the work. When the screen itself carries the
+explanation or evidence, [screen demonstrations](screen-demonstrations.md) owns that directing choice.
 
-## Decide how closely the pictures follow the words
+## Choose the relationship to the thought
 
-**Exact correspondence** is useful when the reference or explanation depends on a particular image
-being present for a particular claim. Give each scene a Selection and its own media input. A short
-window can play just the needed beginning or authored source trim of a longer generated clip.
-The selected model's minimum generation length does not set a minimum display length.
+**Exact correspondence** serves a claim whose meaning depends on a particular picture being
+visible at that point. Give that image or clip the semantic Window the claim needs. A brief
+display can use part of a longer source; the generation request's duration does not set its
+display duration.
 
-**A montage over a thought** is useful when several scenes collectively communicate a habit, history
-or attitude. Several lifestyle images can feed one short B-roll request whose direction owns their
-scene order, while the result covers one broader Selection. Each noun need not land
-on a cut for the idea to read. This trades precise correspondence for a compact, lively sequence;
-it is not a substitute when reconstruction requires the original's exact correspondence.
+**A visual thought across several pictures** can convey a habit, history, process or attitude.
+The pictures may be separate Items or scenes inside one generated clip. Their changes can follow
+the argument's beats without assigning a cut to every spoken noun. When the reference's exact
+picture-to-claim correspondence matters, preserve that closer relationship instead.
 
-The B-roll Kit's `story` Text directs scene order and a few meaningful actions. Select compatible
-edit choices for that story. A multi-scene montage with cuts should not also ask for one uninterrupted
-shot; if each scene should be continuous internally, say that explicitly. Keep motion understated
-when posture, context and a small action already communicate the event.
+A generated multi-scene clip needs direction for scene order and meaningful actions. The
+`@hypit/seedance-kits/broll` Kit's `story` Text can express that relationship for Seedance; its
+package README owns the tested wording and edit choices. A direct image, an existing video or
+independently arranged media may serve the same visual purpose without that Kit.
 
-## Distinguish generated length, source sampling and display window
+## Compose material and performance in the same picture
 
-A Selection determines where an Item is active in the program. Its Recipe determines which source
-frames it samples there. They are separate decisions. `@hypit/media-track` owns exact playback and
-trim syntax; moving inputs are explicitly normalized before entering the Track.
+A still can fill the Canvas; a video can play beside a moving presenter; either can sit within a
+frame, crop, mask or designed border. The chosen picture can lead attention while the performance
+remains visible elsewhere, or it can occupy the whole view while that performance's Sound
+continues. Its location and paint order follow the composition, not its B-roll name.
 
-For the natural moving coverage discussed here, prefer one native-speed pass: `playback: once-start`.
-Give a montage enough room to finish when all its scenes matter. A Selection slightly longer than
-the actual clip is fine when returning to the underlying picture at the clip's end is intended.
-A shorter Selection deliberately cuts the clip off. Do not fill the extra time with a frozen tail,
-repetition or automatic retiming merely to occupy every frame of that Selection.
+For an independent picture, [Media presentation](../../production/media-presentation.md) supplies
+the image or prepared video, its Frame, appearance and playback. A still has a display Window
+without needing video conversion. [Performance](../../production/performance.md) presents footage
+already placed on the Timeline and retains its source position as its view changes. When material,
+presenter and graphics share layout or motion, a [project component](../../production/component-design.md)
+can own that visual behavior together. A border or animated frame is a presentation choice; it
+does not require a new kind of source material. [Spatial layout](../../production/spatial.md) owns
+the Canvas, Frames, fitting and crop that realize the chosen arrangement.
 
-- `once-start` plays from the beginning at native speed. A shorter window cuts the source off; a
-  longer window outlasts the material and can reveal what lies beneath.
-- `stretch` retimes the selected source range across the whole window. A shorter window compresses
-  all scenes; a longer one slows them. Very brief scenes may read as a flash even if sampled.
-- `hold-start` plays once, then freezes the last frame if the Window is longer. This frozen tail is
-  usually distracting in natural lifestyle coverage. Hold, loop and stretch belong to an explicitly
-  intended freeze, repetition or retiming effect, rather than the default treatment of these clips.
-- A durationless still has no playback or source trim. Its Item's window determines its presence;
-  authored spatial motion can move it without pretending it is generated video.
+A video's location sound or action sound can contribute to the mix when it helps the moment.
+Picture placement by itself does not replace the performed speech; [sound and mix](sound-mix.md)
+owns how those audible contributions meet.
 
-For example, take a five-second montage whose last scene starts at 3.5 seconds. If a window lasts
-three seconds, `once-start` never reaches that scene. A 5.2-second Window permits the entire clip to
-play at native speed, including the last scene's 1.5 seconds. For the remaining 0.2 seconds the clip
-no longer covers the picture beneath; it does not hold its last frame. These numbers illustrate
-the relationship, not a required montage duration or a fixed amount of extra room.
+## Let the picture enter and leave on its own terms
 
-## Let picture and speech hand over at different moments
+A picture answering a spoken claim can follow a Selection or Moment; a musical beat or physical
+action may call for authored time. Its visual Window need not start or end with a speaker's
+appearance. A partner may begin speaking while the last lifestyle picture stays up, then become
+visible later: the sound-picture handoff forms a J-cut. The placed Takes and Sound establish whose
+words are heard while the visual composition chooses when views change.
 
-A montage can stay up after its subject finishes speaking. A partner can start responding while the
-last lifestyle picture is still visible, with their camera returning later. This incoming voice
-before its picture forms a J-cut relationship and gives the montage room.
-The B-roll does not need to contain that speech: the Sound output included in Film continues beneath.
+Choose the end by the thought, action and time needed to read the picture. A still remains present
+through its Window; a moving source also has its own playback span. Let a clip finish when its
+last action matters, or cut it where the work gains the better beat. Holding, looping or retiming
+is another expressive choice, not a consequence of the Window being longer than the source.
+[Media presentation](../../production/media-presentation.md#keep-display-time-and-source-playback-distinct)
+owns those sampling modes.
 
-Choose the endpoint by the thought, reaction and visual reading time. Extending coverage across a
-Role turn is legal; a Selection can also cross a Segment boundary. Avoid cutting the final scene
-short just to make the visual endpoint coincide with the original speaker's last word.
+Adjacent pictures may meet at one semantic boundary, bridge the pause between words or intentionally
+expose another view. [Script marker affinities](../../production/script-syntax.md#bind-meaning-to-script-identities)
+owns the exact shared-boundary forms; [review](../../production/review.md#make-the-composition-work)
+locates an unintended flash or gap. Watch the actual result: a nominally continuous Window cannot
+make an exhausted source or transparent frame fill the picture.
 
-## Join adjacent coverage on the same boundary
+## When material leads the whole passage
 
-For separate clips that should cover a passage without briefly exposing the A-roll, both sides of
-each shared boundary must select the same instant. Default markers close on the previous word's end
-and open on the next word's start, leaving their intervening pause uncovered.
+A music-led montage, tactile process film or visual product explanation can make images and clips
+the main sequence. Choose cuts from the visual argument, physical action or musical phrase. A close
+view earns its change when it reveals what the wider view could not; a quiet contact or settling
+motion may deserve time to finish. [Sound and mix](sound-mix.md) owns how recorded, generated or
+separately authored sound supports that material.
 
-```text
-@coffee my coffee @/coffee ~@smoothie my smoothie @/smoothie
-```
-
-Here both sides meet at the end of “coffee”; the smoothie picture owns the pause. Alternatively:
-
-```text
-@coffee my coffee @/coffee~ @smoothie my smoothie @/smoothie
-```
-
-Both sides now meet at the start of the next “my”; the coffee picture owns the pause. Keep both
-sides left-affine or both right-affine at each join. `||` may also sit between those phrases, but it
-only authors Caption grouping and cannot close a visual gap. [Script and semantic time](../../creation/script-and-time.md#bind-meaning-to-script-identities)
-contains the complete marker grammar.
-
-These joins handle internal pauses. If coverage must also include lead-in or trailing silence,
-choose outer boundaries that cover those edges through the Track's actual timing vocabulary.
-Inspect media exhaustion, fades and component visibility too: touching windows alone cannot make
-an exhausted or transparent visual cover the frame. See [Frame coverage](frame-coverage.md).
-
-## When the pictures carry the whole passage
-
-The same media tools can form a music-led montage or a tactile process film with no underlying
-speaking picture. Then the images are the main sequence rather than coverage. Choose cuts from the
-visual argument, musical phrase or physical action; a fixed hook/detail/CTA shot count is not a
-requirement. Adjacent images should earn their change through a new view, information, attitude or
-rhythm. A closer crop can be a meaningful beat when it reveals something the wider shot did not.
-
-For quiet material or ASMR-like work, the contact point, texture, action and sound can carry attention.
-Keep the decisive action visible and let small changes finish; camera movement and extra cuts should
-serve that sensation. Synchronized generated sound, recorded sound or separately authored sound can
-each be appropriate. [Sound and mix](sound-mix.md) covers their relationship.
-
-For speech-free work, author timing from the visual, musical and action relationships. Independent
-Media Items can occupy chosen Windows. A named wordless Segment is useful when a real media passage
-should supply reusable start/end anchors; [media preparation](../../production/media.md#empty-segments-use-their-media-boundaries)
-explains that option. [Timeline](../../production/timeline.md) also supports graphics-only intervals
-and complete animation without media-backed Segments.
+The same [Timeline](../../production/timeline.md) holds performed Takes, gaps and directly authored
+intervals. Independent material can occupy any of them. A wordless performed passage can supply
+its own reusable media boundaries; a passage made entirely of pictures and graphics can use
+authored time. Neither requires a hidden speaking picture.

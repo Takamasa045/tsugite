@@ -88,7 +88,10 @@ Declare `bindings` for the actual author endpoints, then choose visible `inspect
 binding can follow a shared authored Frame or Style through `referenced`, or an SVS Recipe through
 `recipe`. Use `parameterReferences` for an entity's actual reference, when a derived entity points to a different authored object. Shared values retain their shared effect when edited.
 
-A Companion is a view of the author model, not a reason to expand it. When an Inspector adjustment
+A Companion presents the author model. A meaningful semantic event may deserve a timeline handle
+without turning every animation key into an Inspector field. Conversely, a visible number or
+qualitative setting inside drawing code need not become a public input. The
+[parameter boundary](component-design.md#expose-the-choices-the-work-needs) applies before choosing UI controls. When an Inspector adjustment
 is actually needed, bind it to a real Source input or domain event. A label inside a one-off renderer
 can remain an implementation detail until external control has a purpose. Useful child entities can
 live inside the same Track, and selection can be read-only. The
@@ -154,7 +157,7 @@ projection, `temporalLineageFor(context, item.id, "activation")` follows that ac
 use the real input name, such as `window`, `outer` or `activation`. `authoredChildFor` and
 `childEntities` connect domain child identities to their exact author origins.
 
-The [authored time form](studio.md#edit-the-owning-source-fact) determines the edit: a direct
+The [authored time form](timing.md#choose-what-a-later-edit-changes) determines the edit: a direct
 Selection changes its two Script anchors, a direct Moment changes one anchor, and a quoted clock
 expression changes its local time or offset. A projected frame alone does not establish that
 relationship. Several objects can consume the same Selection or Moment; changing it updates them

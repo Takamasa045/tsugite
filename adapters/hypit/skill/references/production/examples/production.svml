@@ -1,6 +1,5 @@
 <?svml using="@hypit/markup@1"?>
 <svml>
-  <import as="media-track" from="@hypit/media-track@1"/>
   <import as="sound" from="@hypit/sound@1"/>
   <import as="performance" from="@hypit/performance@1"/>
   <import from="@hypit/script@1"/>
@@ -16,9 +15,10 @@
   <import as="film" from="@hypit/film@1"/>
   <import as="render" from="@hypit/render-hyperframes@1"/>
   <import as="look" source="./look.svs"/>
+  <import as="kit" source="./direction.svs"/>
 
   <script id="story">
-    <opening><HOST>Here is @proof the useful part @/proof.</opening>
+    <opening><HOST>Here is @{proof}the useful part.@{/proof}</opening>
   </script>
   <space:Canvas id="canvas" width="720" height="1280"/>
   <program:Clock id="clock" frame-rate="30"/>
@@ -29,9 +29,13 @@
 
   <text:Value id="direction">
     A close, naturally lit phone-video view of a presenter in a workshop.
-    The presenter looks into the camera and says: Here is the useful part.
+    HOST is the presenter, speaking to the camera with relaxed confidence.
   </text:Value>
-  <seedance:TextVideo id="performance" model="mini" prompt={direction}
+  <text:Render id="prompt" template={kit.performance}>
+    <text:Set name="direction" text={direction}/>
+    <text:Set name="dialogue" text={story.segment.opening.dialogue}/>
+  </text:Render>
+  <seedance:TextVideo id="performance" model="mini" prompt={prompt}
     duration="5" aspect-ratio="9:16" generate-audio="true"/>
   <pipeline:Normalize id="performance-media" source={performance.video} clock={clock}
     video="primary-moving" audio="default" span-authority="video"/>

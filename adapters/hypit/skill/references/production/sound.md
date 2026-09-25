@@ -1,8 +1,7 @@
 # Presenting existing sound
 
 Use Sound to present audio from Takes already placed on the [Timeline](timeline.md). Use
-[Audio Track](tracks.md#sound-text-and-caption-answer-different-events) for independently supplied
-music and effects. Sound chooses how existing sources are heard; [Performance](performance.md)
+[Audio Track](audio-presentation.md) for independently supplied sound. Sound chooses how existing sources are heard; [Performance](performance.md)
 chooses how their pictures appear. Neither changes the Script or the Take placements.
 
 ## Broad treatment and local Uses

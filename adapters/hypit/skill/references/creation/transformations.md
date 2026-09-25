@@ -1,7 +1,7 @@
 # Transforming a reference into a target
 
-Read this when a user brings a reference and asks for their own version: their face, their product,
-a different story, or another audience. Several changes can belong to one creative intention.
+Read this when a user brings a reference and asks for their own version: another person, object,
+world, performance, story, or audience. Several changes can belong to one creative intention.
 
 Look at the supplied material and think about the reference together with the user's request. What
 makes the original compelling, and how can that appeal belong to this new person or product? Keep
@@ -46,14 +46,35 @@ Useful transformation lenses include:
 These lenses are prompts for thought, not fields to complete. Follow the relationships the actual work
 contains.
 
+## Reshape an event from footage
+
+Some adaptations are recognizable through an unfolding event rather than any one subject's pixels.
+A stylized direct-address performance, dance phrase, fight, moving camera view, or mishap seen by a
+fixed camera may depend on particular timing and physical relationships. These are useful places to
+look for temporal evidence: discover what carries the reference's appeal, from performed delivery
+and reaction to movement, contact, camera position and payoff.
+
+The target may change a person, object, setting, spoken words, sound, visual world, or several of
+these together. Changing the person is common; a narrow substitution may leave most other
+relationships intact. When a new body, object or story changes what an action means, reshape the
+action to serve the target's intention. Brief and Treatment hold the requested change and the new
+creative answer; the source footage remains evidence rather than a ready-made target timeline.
+
+In a comic speaking reference, an unusual camera angle may work together with role-played vocal
+phrasing, expression and gesture. Put the intended words in Script, choose whose voice belongs to
+the target, and direct how the visible performance delivers the joke. A supplied portrait establishes
+appearance, not the voice or delivery. [Voice direction](../playbooks/craft/voice-direction.md) owns
+casting; [video direction](../playbooks/craft/video-direction.md#let-footage-carry-temporal-behavior-that-matters)
+owns when a selected source excerpt should condition the new shot.
+
 ## "Make this with my face"
 
 Suppose the user supplies a portrait and a football Ranking video. The jokes concern the players, so
 the spoken argument and comic reveals may already suit the new presenter. Bring the user into the
 camera image with the reference's teasing confidence, useful framing, and room for the board. Keep
 the full [image craft](../playbooks/craft/image-direction.md), directing the supplied person's appeal
-and presence with the same care as an invented character. That image can carry all ordinary talking
-Takes and supply the person's other appearances.
+and presence with the same care as any leading performer in this work. That image can carry all
+ordinary talking Takes and supply the person's other appearances.
 
 A joke about the original presenter's appearance or personal story needs another look: decide how
 its setup and payoff fit the new casting and Brief. The new person may invite a different delivery or

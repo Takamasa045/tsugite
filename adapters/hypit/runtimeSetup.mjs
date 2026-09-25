@@ -24,7 +24,7 @@ const ADAPTER_ROOT = fileURLToPath(new URL(".", import.meta.url));
 /** Outer spawn bound. Official `runtime up` may install local packages for minutes. */
 export const LOCAL_RUNTIME_TIMEOUT_MS = 1_200_000;
 
-/** Official video Distribution starter local instances (@hypit/hypit@0.1.8). */
+/** Official video Distribution starter local instances (@hypit/hypit@0.2.13). */
 export const LOCAL_STARTER_ENDPOINT_NAMES = Object.freeze(["media.local", "hyperframes.local"]);
 
 const LOCAL_STARTER_USE = Object.freeze({

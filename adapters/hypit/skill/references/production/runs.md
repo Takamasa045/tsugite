@@ -42,7 +42,8 @@ not Run declarations.
 Replace `bld_...` with the actual Build id found through Results. The historical `output` is the
 name in that Result; the `satisfy output` is the current Author Output. Keeping this SemanticTake
 preserves both media and timing when its Script identities still fit. A changed Caption or MG can
-then recompute downstream.
+then recompute downstream. Marker and display-only edits may also preserve the Take; use the
+[reuse table](authoring.md#reuse-produced-work-explicitly) to distinguish them from changed speech or media.
 
 Each Run has one Author entry. Its Targets name public computed Outputs, such as `main.composition`
 for composition work, `final.video` for delivery, or an intermediate the work needs independently.
@@ -97,7 +98,9 @@ The resulting Candidate is named `product-hold.video`. Selecting it replaces the
 Media requests depend on the Script, direction, references and requested duration. Once those
 choices are ready and the commission covers their cost, a Run can target the prepared Takes while
 component and Recipe work continues. Shared decisions such as where a presenter leaves room for
-an overlay belong in Treatment and image direction; encode them in both the material and composition.
+an overlay belong in Treatment. Translate the material side into visible camera facts for image
+and video direction; pass the composition side as actual layout and event inputs. Independent
+requests can run while their downstream components are authored.
 
 The small [production Source](examples/production.svml), [Recipe](examples/look.svs),
 [material Run](examples/material.svrun) and [production Run](examples/production.svrun) illustrate

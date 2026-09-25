@@ -3,7 +3,7 @@
 No user reference video was supplied.
 
 Live check/plan uses a byte-verified copy of the pinned
-`@hypit/hypit@0.1.8` `examples/semantic-composition` tree under
+`@hypit/hypit@0.2.13` `examples/semantic-composition` tree under
 `.tsugite/tools/hypit-phase1-workspace/`, marked with
 `SYNTHETIC-FIXTURE.txt`.
 

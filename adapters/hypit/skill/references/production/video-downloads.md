@@ -23,8 +23,10 @@ it is separate from preparing material for a production's frame clock.
 
 ## Prepare the downloader
 
-The Hypit Distribution includes `@hypit/yt-dlp` and its locked Python dependency. `uv` prepares that
-dependency on first use. `ffmpeg` merges separate picture and sound streams, and `ffprobe` reads the
+Run `hypit media prepare-fetch` explicitly before the first fetch. It uses uv to prepare the
+Distribution's locked downloader and JavaScript solver, then reports the executable path. Reuse that
+environment for subsequent downloads. `media fetch` never installs dependencies, updates tools or
+acquires remote components; a missing environment reports the preparation command. `ffmpeg` merges separate picture and sound streams, and `ffprobe` reads the
 saved file. [Local tools](../environment/local-tools.md#supply-host-executables-at-machine-scope)
 covers these executables on macOS, Windows and Linux. The command runs directly, without a Runtime
 Profile, model credential or Build.

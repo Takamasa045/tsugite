@@ -1,6 +1,6 @@
 # PixVerse CanvasをTsugiteから操作する
 
-Tsugite内に公式PixVerse CLI **1.4.4** を任意導入し、Canvasの全コマンドを呼び出せる。グローバルの古いCLIには依存しない。版と依存関係は `adapters/pixverse/runtime/package.json` と `package-lock.json` に固定する。
+Tsugite内に公式PixVerse CLI **1.4.6** を任意導入し、Canvasの全コマンドを呼び出せる。グローバルの古いCLIには依存しない。版と依存関係は `adapters/pixverse/runtime/package.json` と `package-lock.json` に固定する。
 
 ## 導入と確認
 

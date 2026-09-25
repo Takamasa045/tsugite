@@ -111,6 +111,11 @@ pass, read the latest file. [Composition review](review.md) explains the judgmen
 
 ## Review before export
 
+For visual inspection, use [snapshot](snapshots.md) on this session first. It reads the current
+compiled programme and selected resources, captures exact original frames, and writes PNGs with
+optional grids. Studio remains the interactive view for playback, sound and editing.
+
+
 When the composition is substantially ready and the user can access it, open the current Run at
 `#comments` for discussion and introduce Comments and Studio together. Comments lets the user
 pause and leave direction at a time; Studio shows the timeline, component relationships and exposed
@@ -189,7 +194,8 @@ Provider permits for transient authoring, such as media inspection and normaliza
 files or produced Outputs through the Run for the material the view needs. If a required generation
 is still running, continue component work and open its resulting composition when the material is ready.
 
-[Runs](runs.md) explains selection and reuse. [Rendering](rendering.md) provides frame-range Builds
+[Runs](runs.md) explains selection and reuse. [Snapshots](snapshots.md) captures the current picture
+directly with `hypit snapshot --studio <this-studio-url>`. [Rendering](rendering.md) provides frame-range Builds
 for inspecting the composition as encoded media; choose the view that helps answer the current question.
 
 ## Edit the owning Source fact
@@ -212,37 +218,16 @@ through the selected Style. It edits the shared font declaration; its weight and
 available in the chosen family. A local font continues to use its exact file. A project component
 can offer its own font or preset choices through Companion fields.
 
-Dragging a direct Selection or Moment changes that identity in Script. Every Track consuming it
-then follows the changed relation. The authored time form determines what the gesture changes:
+Timeline's placed Takes and complete extent provide reference information. Edit their `at` and
+`end` declarations in Source when their placement should change. Presentation handles edit Uses
+or component events; they do not move Takes or adjust Canvas dimensions implicitly.
 
-| Time form | Timeline editing |
-| --- | --- |
-| `during={story.selection.proof}` | Move both boundaries by the same number of semantic stops; the duration can change. Trim either boundary independently. |
-| `at={story.moment.reveal}` on an event | Move its Moment anchor. |
-| `at={story.selection.proof} boundary="start"` or `boundary="end"` on an event | Move only that Selection boundary. |
-| `at={story.moment.reveal} for="8f"` | Move the Moment, or trim the trailing edge to change the duration. |
-| `until={story.moment.reveal} for="8f"` | Move the Moment, or trim the leading edge to change the duration. |
-| `at="2s" for="8f"` | Move the clock position, or trim the trailing duration; `until/for` works conversely. |
-| `instant="moment.cue"` or `instant="moment.cue + 2f"` with a bound Moment | Move the local offset while retaining the Moment; an omitted offset starts at zero. |
-| `start="..." end="..."` | Trim one endpoint's time expression, or move both by the same frame delta. Referenced Script markers stay in place. |
-
-A semantic stop is a distinct frame position occupied by word or structural boundaries. Select a
-semantic marker to see its exact anchors; when several share a frame, the Inspector offers the
-choices supported by its editable consumers. Word starts, word ends and structural boundaries
-are all eligible anchors; a pause can belong to
-either neighboring interval. Direct Segment/Program spans follow their structural boundaries
-without timeline dragging. The executed time authority determines the available gestures, and
-the Companion connects them to the component's entities and Source bindings.
-
-Clock-based dragging writes the changed value or offset in whole frames at the current frame rate.
-Unedited expressions retain their units: `2s` keeps its duration across frame-rate changes, while
-`60f` keeps its frame count. Direct semantic dragging changes the Script anchors instead.
-
-Script marker moves use the [same semantic affinities](../creation/script-and-time.md#bind-meaning-to-script-identities)
-as authored markers. Writeback normalizes ordinary same-line spacing while preserving line breaks,
-indentation, words, punctuation, pronunciation and display attributes. The resulting formatting
-becomes the next edit's starting point. A shared Selection or Moment remains one relationship:
-editing through any consumer updates its other consumers according to their own projections.
+Timing edits follow the authored relationship. A direct Selection or Moment edits that identity
+in Script; a quoted expression edits its local clock value or offset; a duration changes independently.
+[Timing and edit behavior](timing.md#choose-what-a-later-edit-changes) gives the complete forms,
+affinity choices and shared-consumer consequences. Marker moves preserve unrelated prose whitespace. With unchanged spoken tokens and identities,
+new marker references can use the existing Take's anchor times. [Reuse boundaries](authoring.md#reuse-produced-work-explicitly)
+explain when to retain prepared Takes and when to retain only their upstream media.
 
 A successful parameter or timeline edit saves the owning Source and recompiles the selected Run
 for the view. Rejected edits retain the accepted Source and values. Result renaming instead updates

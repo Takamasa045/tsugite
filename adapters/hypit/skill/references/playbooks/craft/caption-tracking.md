@@ -1,22 +1,35 @@
 # Caption above a moving head
 
-Use this when following a person's head adds character or keeps Caption clear of the image. The
-relationship uses external face measurements, authored head regions and Fine's existing
-placement input. The detector measures evidence; the author decides the Caption design.
+Read this when the user's reference visibly uses Caption that follows a speaking person's moving
+head, or the user asks for that treatment. Ordinary Caption uses its family's layout and Style
+placement; the presence of a face does not by itself call for head boxes. The optional measured or
+authored regions answer where this particular speaker's words should appear in the actual picture.
 
-## Produce the footage that will actually be measured
+## Resolve who, where and when
 
-Build the speaking media and an ordinary composition first, using fixed Caption if useful. Keep the
-Run's exact media and SemanticTake outputs available for reuse. A final-video Target can produce
-those dependencies.
+Script Role identifies who says the Cue. The intended view of that person in the final composition
+determines where the Cue follows them; GVI face-track ids do not establish identity. The speech and
+the directed Caption treatment determine when it appears. In ordinary turn-taking, the previous
+speaker's Caption hands off as the next speaker starts. Their face remaining visible is not a reason
+to keep their earlier words on screen.
 
-Measure footage whose timing and framing match the next composition. An existing rendered result
-can work when its graphics do not obstruct detection. A clean picture pass is useful when they do;
-it can reuse the same normalized Takes and layout. If measuring individual Takes instead, use their
-actual edited lengths and project their local frame positions into the final program. Do not measure
-an original raw file and silently assume its timestamps survive later trim, speed or crop changes.
+Measure whichever available picture lets those relationships be mapped accurately:
 
-## Obtain useful boxes outside Build
+- A supplied clip or prepared Take gives source-local positions that must follow its placement,
+  playback, crop and any moving view into the composition.
+- A composed view already contains its camera framing and program time, provided graphics do not
+  obscure the person being measured.
+
+Retain the relation between the measured source and its use. A source timestamp can change meaning
+after trim or retiming, and a face box can move after crop or reframing. A presenter shrinking into an
+inset needs positions that follow that actual transformation. When the same person appears in
+several views simultaneously, choose the view this Caption follows. Fine accepts one region per Role
+per frame; several simultaneous text placements need an explicitly authored presentation.
+
+Leave room for the complete Cue and nearby graphics. A correctly measured head can still be an
+awkward place to put a long phrase; the work may instead use ordinary Caption placement there.
+
+## Read face observations
 
 The worked method used Google Video Intelligence. Its face feature can return bounding boxes when
 `FACE_DETECTION` is requested with `includeBoundingBoxes` enabled; facial attributes are unnecessary
@@ -37,16 +50,18 @@ person identity: a cut can split one guest across several tracks, and one shared
 several people. Combine the fragments that visibly belong to the Role in final program time. Selecting
 the first or largest face alone can attach the guest's Caption to the interviewer.
 
-## Author one head region per final program frame
+## Map observations into the composition
 
 Transform the useful observations into ordinary project data, with these decisions explicit:
 
-- **Clock:** resample onto the Timeline's frame rate. A Take-local observation becomes global by
-  adding that Take's actual placement start, including any authored gap or overlap. Sequential
-  placement uses preceding prepared durations. Final-video measurements already use the global clock.
+- **Clock:** sample the observations on the Timeline's frame clock using the actual source playback
+  mapping. For a prepared Take on the same clock at native speed, add its actual placement start,
+  including any gap or overlap. Apply any source trim or rate change when measuring other footage.
+  Final-video measurements already use that rendered program's clock.
 - **Geometry:** convert detector edges to `[x, y, width, height]` using width `right - left` and height
   `bottom - top`. If measurement used another resolution, crop, inset or split-screen panel, map the
-  box through that actual placement before normalizing it to the final Canvas.
+  box through that actual placement before normalizing it to the final Canvas. Update this mapping
+  through a moving or resizing view; a single fixed rectangle cannot describe that movement.
 - **Head extent:** expand the face region to include the relevant hair, hat and desired clearance.
   For face `(x,y,w,h)`, authored padding fractions can produce
   `(x - pL*w, y - pT*h, w*(1+pL+pR), h*(1+pT+pB))`. Choose those fractions from the visible head;
@@ -54,15 +69,25 @@ Transform the useful observations into ordinary project data, with these decisio
 - **Missing observations:** make any interpolation or smoothing an explicit external preparation
   choice within a continuous shot and the same person. Inspect it, stop at cuts and occlusion, and
   write `null` when no usable region exists. Fine does not invent a missing box.
-- **Role visibility:** intersect the assembled head regions with the turns where that Role is intended
-  to own Caption, including only any lead or tail deliberately wanted at the boundary. Write `null`
-  through other speakers' turns and other intervals. This prevents a correctly detected face from
-  becoming placement evidence for Caption that does not belong to that person.
 
-The final array has exactly one box or `null` per program frame. Caption already follows the Role's
-spoken Cues; the region track supplies measured position and an explicit visibility boundary, not a
-second speech detector. Other composition choices, such as hiding that Role's Caption under B-roll,
-can use the same authored null regions or the appropriate Caption selection behavior.
+Each Role track's final array has exactly one box or `null` per program frame. Keep the actual array
+in a project Recipe such as `tracking.svs`. A project script can perform the transformations using
+explicit source, clock and geometry inputs. Changing the camera use can require remapping positions.
+
+## Place only the intended speaker's Caption
+
+Script and Caption already connect a Role's words to their timed Cue; the region input supplies the
+head position for the frames where this treatment follows them. A `null` region also hides that
+Role's Cue on that frame. Use the Cue's presentation window or `null` regions to end its appearance
+at the intended handoff, including when a Style's tail would otherwise leave the old words over the
+next speaker. When the person is absent, obscured or in another camera view, choose whether the
+Caption ends or uses an authored ordinary placement. Neither a detector track nor the mere presence
+of a listening face extends someone's speech.
+
+[Caption presentation](../../production/caption-presentation.md) owns Style coverage and hiding.
+A Role with no region track keeps ordinary Style placement; a `null` inside an existing track hides
+the Cue rather than switching placement automatically. A deliberate tracked-to-ordinary change can
+use explicit Caption Uses or separate Tracks with the same Script and Timeline.
 
 For example, this is a three-frame data-shape illustration, not a ready timeline for a real video:
 
@@ -75,10 +100,7 @@ heads.default {
 }
 ```
 
-Keep the actual array in a project Recipe such as `tracking.svs`. A small project script can make
-these transformations reproducible when needed, taking explicit media, clock and geometry inputs.
-
-## Connect the measured placement and render again
+## Connect the placement to Caption
 
 ```svml
 <space:RegionTimeline id="heads" within={vertical} recipe={tracking.heads.default}/>
@@ -90,14 +112,14 @@ these transformations reproducible when needed, taking explicit media, clock and
 
 The RegionTimeline's ids match Script Roles. Fine places a single-Role Cue at that region's top
 center; `anchor-x: center` and `anchor-y: bottom` put the Cue above it. The Style still owns its width,
-font and motion. A named Role track with `null` hides its Cue on that frame; a Role with no region
-track uses its ordinary Style position. This allows tracked guest Caption and fixed interviewer
-Caption together. The `@hypit/spatial` and `@hypit/caption-fine` READMEs own the exact data behavior.
+font and motion. Supplying `regions` requires every Cue on that Track to have one Script Role, even
+when that particular Role uses fixed placement. Author the relevant Role Cues in Script. The
+`@hypit/spatial` and `@hypit/caption-fine` READMEs own the exact data behavior.
 
-Select the existing media and alignment outputs in the Run as described in
-[production authoring](../../production/authoring.md#reuse-produced-work-explicitly), then inspect
-`hypit plan` before rebuilding. A Caption placement change should reuse the paid Takes. Review
-representative frames, camera cuts and the moving result for jitter, wrong-person jumps, hair/hat
-clearance, top-edge clipping and collisions with icons. Local frame-range rendering makes these
-iterations cheap. If media timing or placement changes, update the affected measurements rather
-than reusing stale coordinates.
+## Inspect the actual placement
+
+Use Studio or [snapshots](../../production/snapshots.md) to inspect the current picture around
+camera changes and speaker handoffs. Check the first and last frames of each tracked Cue, the whole
+Cue's clearance above hair or hats, top-edge clipping and collisions with graphics. Play the passage
+with speech to judge jitter, wrong-person jumps and reading rhythm. When source timing or visual
+presentation changes, remap the affected observations rather than carrying stale coordinates forward.

@@ -5,7 +5,8 @@ Design it with the taste of a director and the care of someone who will use it i
 A useful component makes a particular idea legible and keeps its behavior understandable within the
 production. Its author interface can be as small as the work requires.
 
-[Graphic composition](../playbooks/craft/graphic-compositions.md) owns visual hierarchy and motion;
+[Graphic composition](../playbooks/craft/graphic-compositions.md) owns visual hierarchy;
+[motion graphics](../playbooks/craft/motion-graphics.md) owns changes in the picture over time;
 [Track authoring](track-authoring.md) owns the implementation. A new Caption family also draws on
 [Caption craft](../playbooks/craft/captions.md) and [Caption authoring](caption-authoring.md).
 
@@ -48,6 +49,11 @@ that owner; reuse preserves a relationship across uses. These decisions serve di
 | Parameterization | The production needs an external choice: an asset, a spoken trigger, a placement or a setting the author will actually adjust. |
 | Reusable design | Actual uses share a relationship or treatment. Share that behavior and generalize only the variation those uses need. |
 
+An author input is not a requirement to publish a package or provide a Studio control. A shared
+internal function is not necessarily another Track. Numeric and qualitative choices use the same
+criterion: does an external dependency or a useful directing decision belong here? A color, mood,
+layout mode or easing name does not deserve a public parameter merely because it could vary.
+
 One-off effects can be independently organized with fixed designs. A future edit may appropriately
 change their implementation. Consider likely revisions to reveal tangled responsibilities or useful
 inputs, rather than treating every possible edit as a parameter to implement in advance. Even repeated
@@ -73,6 +79,11 @@ Use the work's revisions to check its boundaries: a change to one visual respons
 remain with its owner, while a shared change should flow through a shared dependency. When an edit
 requires reconstructing the same decision across several scenes, consolidate that decision's source.
 The aim is to make the relationship explicit, whether its owner is a fixed implementation or an author input.
+
+A useful revision question is: if delivery pauses before the result, which event should move and
+which local design should stay? Inspect the input that carries that event rather than counting how
+many parameters the component exposes. If the work needs a qualitatively different relationship,
+change its implementation or define a new component instead of accumulating speculative mode flags.
 
 Keep revisions local as the scene grows. Separate independently edited scene bodies, styling and
 frame evaluation into ordinary source modules while sharing their actual mechanics. A palette,
@@ -105,6 +116,9 @@ coordinated explainer scenes. Trace why a behavior has its owner, what drives it
 inputs a changed brief would replace. Their notes explain those choices; the scene lists are each
 production's design. In the explainer, scenes retain fixed internal details while Script events,
 Caption and presenter framing remain independently authored.
+For that whole-work relationship, read [Presenter-led visual explainers](../playbooks/formats/presenter-led-explainer.md).
+The [explainer's craft notes](https://github.com/hypit-ai/hypit/blob/main/examples/complex-explainer/productions/explainer/CRAFT-NOTES.md)
+trace concrete revisions back to their design decisions and source owners.
 
 ## Let meaning drive the behavior
 
@@ -118,6 +132,18 @@ authored time. Keep message content and its trigger together in Source; repeated
 have their own trigger. Use semantic examples first for speech-led roles, showing how a new performance
 preserves the relationship. [Authored animation](rendering.md#compose-an-authored-animation) covers
 the film clock when there is no performance.
+
+A semantic outer Window alone does not establish the timing of its internal events. In a drag-and-drop
+scene, selecting a picture, dropping it into an editor and revealing the result may answer three
+different phrases. Give those actions their own semantic inputs. Placing them at fixed seconds or
+at 20%, 50% and 80% of the outer Window preserves neither their identities nor their relationship
+to unevenly changed speech.
+
+The Surface can accept an outer Selection and separate Moments for those events, projecting each
+through Timeline. The implementation derives movement between the resulting events and keeps its
+pointer path, button geometry, click rebound and decoration local. A movement that simply unfolds
+inside one authored event interval may use normalized progress there; it needs no marker for every
+animation key. Meaningful event location and the designed duration/shape of motion are different choices.
 
 Choose the temporal input from what the component does. A picture covering an explanation occupies
 its Selection. An answer revealed on a word can remain visible after that word ends. A ranking item

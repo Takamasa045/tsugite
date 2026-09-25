@@ -1,3 +1,3 @@
-Pinned from https://github.com/hypit-ai/hypit/tree/v0.1.8/skills/hypit
-commit 012562c73aa9865c53cb7d835e56ccfd837a4b34 (66 files, including references/).
+Pinned from https://github.com/hypit-ai/hypit/tree/v0.2.13/skills/hypit
+commit 238fe97fcea37b7cc95e37ee6023f4a02c60bb0a (73 files, including references/).
 Does not authorize Builds.

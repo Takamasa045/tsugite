@@ -135,6 +135,15 @@ produced elsewhere remains a graph edge rather than being copied into a scalar b
 </svml>
 ```
 
+Save the template above as `phone-shot.svs`. For this example, `look.svs` can be:
+
+```svs
+<?svml using="@hypit/svs@1"?>
+<sheet version="1">
+  prompt.main { camera: handheld; }
+</sheet>
+```
+
 The optional Recipe supplies scalar properties consumed by the template. Template defaults apply
 first, Recipe values replace those defaults, and explicit `text:Param` children replace Recipe
 values. `text:Set` replaces one Text binding through a graph edge; `text:Append` adds another Text

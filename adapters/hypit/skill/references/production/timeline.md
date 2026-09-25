@@ -1,12 +1,15 @@
 # Placing Takes on the Timeline
 
 Use this when placing prepared Takes, leaving passages for MG, or creating a work without speech.
-[Media preparation](media.md) produces local SemanticTakes; [Script and time](../creation/script-and-time.md)
-owns Selection/Moment meaning, and [Tracks](tracks.md) explains presentation.
+[Media preparation](media.md) produces local SemanticTakes; [Script syntax](script-syntax.md)
+names Selection/Moment identities. [Timing](timing.md) projects them; [Tracks](tracks.md) explains presentation.
 
 A Timeline contains the complete time range and the Takes placed within it. Semantic anchors exist
-where those Takes supply them. For an event responding to speech, bind to its Selection or Moment;
-use authored time for independently directed rhythm. Both belong to this one Timeline.
+where those Takes supply them. Prefer this semantic organization for performance-led work, including
+pure A-roll and short drama without MG. A meaningful passage can span shots or speakers; its actual
+performance gives the authored words and boundaries time. For an event responding to speech, bind
+to its Selection or Moment; use authored time for independently directed rhythm. Both belong to this
+one Timeline.
 The project's reference `TIMELINE.md` records observations and their meaning; the production
 `time:Timeline` declaration places the new work's material. Reference times locate evidence, while
 production placements determine the rendered work.
@@ -34,6 +37,12 @@ Reordering Take declarations changes placements that depend on `previous.end`, i
 Seconds, milliseconds and frames must resolve to exact frames on the Clock. All complete Takes fit
 inside the authored extent. Take placement retains native speed and local semantic evidence.
 
+The current `time:Take source` accepts a SemanticTake, not an arbitrary image, video or audio file.
+Independent assets enter their own components with this Timeline as their time context. Each placed
+Segment and its token/anchor identities occur once in a Timeline. To show the same footage again as
+an independent replay, use Media; a separate performed Script occurrence has its own Segment.
+Timeline holds placed material and evidence; it publishes no picture or sound by itself.
+
 A gap contains no performance source. A wordless Segment instead has actual prepared media, as with
 someone dancing. MG can occupy either passage according to the intended picture. Pure MG needs no
 placeholder media or Script:
@@ -55,7 +64,7 @@ consume the same placed footage and projected event times. New display Windows p
 frame corresponding to the current Program time; moving a viewport does not restart playback.
 
 Overlapping Takes make both sources available. They do not prescribe a dissolve or choose a picture.
-Performance places its sampled layers in declaration order; for a coordinated blend or layout,
+The ordinary Performance Style places its sampled layers in declaration order; for a coordinated blend or layout,
 use a scene that owns that behavior. Simultaneous Caption Cues retain their spoken intervals; use
 Role-based styles or separate Caption presentations when their placement should differ.
 

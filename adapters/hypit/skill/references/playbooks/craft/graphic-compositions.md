@@ -3,6 +3,7 @@
 Read this for boards, comparisons, charts, titles, cards, diagrams and designed visual fields.
 Start with what the viewer should understand or feel. A graphic can explain, organize, set a tone,
 punctuate a joke or create delight; it does not have to justify itself as literal information alone.
+[Motion graphics](motion-graphics.md) owns how that picture changes over time.
 
 ## Compose an idea, not a stack of decorations
 
@@ -14,27 +15,41 @@ before the viewer reads the words.
 Coordinate the whole frame. A presenter's position can leave space for a board; the same accent can
 connect Caption, an answer icon, a question mark and a reveal flash. Treat palette, occupied area and
 brightness together. A large pale panel behind pale clothing can flatten the shot even when each
-element looks attractive alone. [Image direction](image-direction.md) explains planning that space
-into the source picture; [compositing](compositing.md) covers the layer relationships.
-
-Motion should make a change legible: arrival, replacement, accumulation, comparison, reaction or
-completion. Entry is not the whole design. Decide what remains after it, how later elements join,
-and how the system leaves the frame. A settled board may carry more meaning than its animation.
+element looks attractive alone. Work with the actual material's framing and movement; the next
+section explains how source direction and authored presentation can answer each other.
 
 Make the visual direction concrete before extending it across scenes. Translate a reference's vibe
 into a few shared choices: palette, type, edges, depth and motion character. A small representative
 passage can show those choices together with the actual footage. Carry the accepted direction into
 shared Recipes or project styling so a later change reaches the related components consistently.
 
-Let action demonstrate the claim. A rejected placement can show the object follow an attempted
-drag and visibly return. Keep a developing
-demonstration active while the speech explains it, with acceleration, contact and settling that
-make the relationship perceptible. Preserve continuing objects across phases when the argument
-continues through them.
-
 Give graphic text its own job: identify, compare or emphasize what the picture needs beyond Caption.
 When removing a redundant heading or label, recompose the remaining content and its spacing. The
 former text slot need not remain an unexplained hole; the demonstration should still feel complete.
+
+## Give material and graphics room together
+
+Keep the generated or recorded scene, its camera view and the final Canvas in view as distinct
+relationships. People interact with the people, props and setting in their scene. The camera frames
+that scene. Authored media views, Caption and graphics organize the final picture. A recorded sign
+can belong to the scene while an explanatory label belongs to a component.
+
+Plan the useful room for recurring graphics when directing new footage. Translate that need into
+camera facts: subject placement, visible body extent, gesture room, distance and background. Give
+the image model those picture requirements; the future MG, editorial text and explanation remain
+with their own components. [Image direction](image-direction.md#frame-the-image-for-what-it-will-become)
+owns the wording. Accepted footage supplies concrete framing to work with: adjust its view, the
+graphic or their shared arrangement according to what should remain legible.
+
+Decide which contribution leads now. A small moving face can command attention while a large quiet
+field supports it. Protect the mouth, meaningful gesture, product fact or text that carries this
+beat. Placement, source crop, occupied extent and paint order all affect the result;
+[Spatial layout](../../production/spatial.md) owns their geometry. The material's A-roll role gives
+it no reserved region or permanent place behind everything else.
+
+For a screen that carries the claim, [screen demonstrations](screen-demonstrations.md) owns the
+choice between captured evidence and an authored explanation. Its view shares the Canvas geometry
+and visual hierarchy of the surrounding composition.
 
 ## Put the right facts in editable structure
 
@@ -60,37 +75,11 @@ graphic role. Reconstruction preserves the useful recognizability and relationsh
 replace it with a new theme. Provenance alone does not make one image more visually truthful than
 another. Keep generated prompts and reference edges in Source so their creative intent stays editable.
 
-## Choose a component boundary around shared behavior
+## Carry the picture into the component
 
-A ranking board often deserves one component because its rows share layout, state and transitions.
-A label and an independent photo can remain peer Tracks. A composition may occupy the entire Canvas
-or only a corner; size does not decide the boundary, and a full-screen composition need not become
-one enormous component.
-
-Group elements when their shared layout, state or semantic behavior would otherwise have to be
-reimplemented across unrelated tags. Keep independently useful layers separate when ordinary
-composition already expresses the relationship. A new shared visual role can be a project component.
-[Component design](../../production/component-design.md) connects that visual idea to semantic behavior,
-useful author controls and its place in the actual composition.
-
-The component owns its visual behavior and design. Source and Recipe supply the content, media,
-events and directing choices that belong outside it. A one-off scene can retain its illustrative
-text, palette and detailed layout internally; a shared treatment can expose the variation its uses
-actually need. Independence gives a responsibility an owner, without requiring every design choice
-to become an input.
-
-## Expose meaningful control
-
-A useful Surface offers the content and relationships the production needs. Derive its inputs from
-the decisions the author will supply or revise: these may include content, placement, visibility,
-semantic events or a chosen treatment. For reuse, expose the variation shared uses demonstrate;
-internal geometry and animation can continue to realize a coherent fixed design.
-
-`preset` means content already present in the initial state of a component that supports it. It is
-not a substitute for a Style and not a generic timing escape. A reveal Window, a point activation
-and an outer lifetime are different controls. [Track authoring](../../production/track-authoring.md)
-explains their implementation.
-
-Judge the configured work at delivery size: the opening state, the changing state, the settled state
-and the exit. Check hierarchy, reading time, collisions and whether a sound or flash helps the event
-land. Improve the visual idea when polished animation still fails to make the relationship clear.
+A ranking board can share one visual owner when its rows move and retain state together; a label
+and independent photo can remain peers. That boundary follows behavior, not the size or beauty of
+the graphic. [Component design](../../production/component-design.md) owns the chosen boundary,
+external inputs and author controls. [Motion graphics](motion-graphics.md) owns the change the
+viewer experiences; [review](../../production/review.md#make-the-composition-work) tests how that
+change reads with the actual material.

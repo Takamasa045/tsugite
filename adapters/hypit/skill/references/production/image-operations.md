@@ -87,9 +87,9 @@ checks which Endpoint will serve this Source. A service advertising background r
 a matching Provider capability in the installed Distribution.
 
 For a speaking video cutout, the moving silhouette must be removed across the clip. This image
-operation supplies neither video matting nor a moving mask. [Compositing](../playbooks/craft/compositing.md#inset-cutout-and-flattened-composite-are-distinct-choices)
-explains the choice between a geometric inset, a still cutout and a live presenter cutout, including
-how the same A-roll performance keeps its semantic role.
+operation supplies neither video matting nor a moving mask. [Moving-media preparation](media.md#keep-original-and-processed-material-explicit)
+explains video matting, operation order, retained originals and the processed picture's subsequent use.
+[Spatial layout](spatial.md#shape-the-outer-frame) owns geometric clips such as circular insets.
 
 ## Keep operation and presentation distinct
 

@@ -2,7 +2,7 @@
 
 - Opt-in runtime only: `npm run editframe:install` (`npm ci --prefix backends/editframe/runtime`). Doctor and render must not run `npm install`, `npx`, or download FFmpeg/Playwright browsers.
 - Wrapper: `node backends/editframe/cli.mjs`. Allowed tokens are `--version` / `-V` / `-h` / `--help`, `preview`, and `render`. Cloud commands (`auth`, `sync`, `cloud-render`, `transcribe`, `webhook`, `process`) are rejected.
-- Pin `@editframe/cli@0.59.47`, `@editframe/elements@0.59.47`, `@editframe/vite-plugin@0.59.47`, `vite@8.2.2`, with a narrow `werift@0.24.4` override. Unscoped `editframe` is not the CLI.
+- Pin `@editframe/cli@0.60.11`, `@editframe/elements@0.60.11`, `@editframe/vite-plugin@0.60.11`, `vite@8.3.1`, with a narrow `werift@0.24.4` override. Unscoped `editframe` is not the CLI.
 - Child env always sets `EF_NO_TELEMETRY=1` and drops `EF_TOKEN`, `EF_HOST`, and `EF_RENDER_HOST`.
 - Local media is copied to a fresh `editframe-renders/<id>/public/media` directory and referenced as `/media/<generated-name>`. Do not emit `src="assets/..."`. Verify HTML `text/html` and media `video/*` from the owned 127.0.0.1 listener before `editframe render --url`.
 - Captions are plain timed `ef-text` from the manifest. whisper and `ef-captions` JSON are not required.

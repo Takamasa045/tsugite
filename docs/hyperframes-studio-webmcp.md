@@ -1,16 +1,15 @@
 # HyperFrames Studio WebMCP
 
-TsugiteのローカルHyperFrames Studioを、ブラウザ内のWebMCPツールで操作する任意の編集入口。依存は **0.8.24固定**。既存のmanifest・backend・Gateは維持する。
+TsugiteのローカルHyperFrames Studioを、ブラウザ内のWebMCPツールで操作する任意の編集入口。依存は **0.8.75固定**。既存のmanifest・backend・Gateは維持する。
 
-**現時点の対象範囲。** パッチ済み HyperFrames **0.8.24** を native Chrome **152** で開き、通常の `renderIndexHtml` authoring copy に対する初回 inspect → 文字/色編集 → 保存 → reload → 再 inspect/select → 別色の再編集 → 更新 PNG 2枚は、tracked smoke 3回で成功した。iframe 差し替えが失敗を起こす過程は未証明。motion、他ホスト、他OS、入れ子 composition は未検証のため実験的入口のまま。制作正本は直接編集しない。失敗を無視した書き込みやツール実装の差し替えはしない。パッチ前の inspect 失敗は[検証記録](reports/hyperframes-studio-webmcp-2026-09-10.md)の履歴を参照。本文はローカル検証を記録する。GitHub CI の現状は [PR #160 Checks](https://github.com/Takamasa045/tsugite/pull/160/checks) を参照。
+**現時点の対象範囲。** HyperFrames **0.8.75** を native Chrome **153** で開き、通常の `renderIndexHtml` authoring copy に対する初回 inspect → handle指定の文字/色編集 → 保存 → reload → 別色の再編集 → 更新 PNG 2枚は、2026-09-25の隔離fixture smokeで成功した。2枚のPNGで変更色をそれぞれ1558/1646画素確認し、Studio子孫プロセスの停止も確認した。motion、他ホスト、他OS、入れ子 composition は未検証のため実験的入口のまま。制作正本は直接編集しない。[旧版の検証記録](reports/hyperframes-studio-webmcp-2026-09-10.md)は履歴として残す。
 
 ## 対応版と境界
 
 - WebMCP導入は公式 [v0.8.21](https://github.com/heygen-com/hyperframes/releases/tag/v0.8.21)。[公式ガイド](https://github.com/heygen-com/hyperframes/blob/main/docs/guides/webmcp.mdx) の現行APIには、0.8.24以降の変更も含まれる。操作時はページが返すschemaを正本にする。
-- 2026-09-10に0.8.33を実Chrome 152で調査したところ、読み取りは成功したが、書き込みcallbackが未提供の第2引数から`signal`を取り出して例外になった。native WebMCPと公式polyfillの両方で再現。公式ソースでは0.8.25〜0.8.33に同じ必須引数があり、0.8.33の配信バンドルにも `execute:(e,{signal:n})` が残る。書き込み契約を壊さないため **0.8.24を固定**し、配信JSだけを `backends/hyperframes/apply-pinned-patches.mjs` でハッシュ拘束パッチする（[0.8.33の登録コード](https://github.com/heygen-com/hyperframes/blob/v0.8.33/packages/studio/src/webmcp/useStudioAgentTools.ts)、[0.8.24](https://github.com/heygen-com/hyperframes/blob/v0.8.24/packages/studio/src/webmcp/useStudioAgentTools.ts)）。上流forkや登録APIの差し替えは行わない。
-- Chromeが実際に読むのは `dist/studio/index.html` の `/assets/index-Bq3M0sjr.js` であり、`dist/studio/index.js` だけを直しても配信面は変わらない。パッチは配信バンドルの `ZD`（`asHtmlElement`）を、`instanceof defaultView.HTMLElement` から HTML 名前空間・同一 document・`isConnected` の受け入れへ置き換える。SVG・切り離し・別documentは拒否する。
-- **0.8.24の書き込み対象は現在の選択**。`studio_select`の後、別呼び出しの`studio_inspect`で`isCurrentSelection`を確認してから書く。書き込みに`handle`は渡さない。選択と書き込みの間に人や別エージェントが操作しない単独編集セッションで使う。複数ファイルに同じIDがある入れ子compositionは今回の検証対象外。
-- 現行ガイドの`refused / dispatched / saved / verified` receiptと明示handle書き込みは、この固定版の契約ではない。`ok: true`だけで保存完了とせず、実ファイル・inspect・再読み込み・画像を照合する。
+- 0.8.33では書き込みcallbackが失敗したため旧版を固定していた。0.8.75では実Chromeの隔離fixtureでhandle指定の書き込みを確認した。旧版のStudio配信JSパッチは不要になり、`backends/hyperframes/apply-pinned-patches.mjs`はCLIのZIP実装置換だけをハッシュ拘束で行う。
+- **0.8.75の書き込み対象は明示した`handle`**。`studio_look`から取得したhandleを`studio_inspect`で確認し、`studio_set_text`と`studio_set_style`の両方に渡す。`studio_select`が成功しても`isCurrentSelection`がfalseのことがあるため、選択状態を暗黙の書き込み対象にしない。複数ファイルに同じIDがある入れ子compositionは今回の検証対象外。
+- `ok: true`だけで保存完了とせず、実ファイル・inspect・再読み込み・画像を照合する。
 - HeyGen hosted cloud MCP（チャットから生成・renderするサービス）への接続設定は不要。ページ内ツールはStudioを開いたブラウザの機能。stdio/HTTP MCP serverのURLとして登録するものではない。
 - `run` / `render`、課金、Gate承認、公開はこの入口で許可されない。Studioのツール登録とホスト側のツール実行許可も別。
 
@@ -56,11 +55,11 @@ const scene = await call("studio_look");
 ```javascript
 await call("studio_select", { handle });
 const target = await call("studio_inspect", { handle });
-// isCurrentSelection、can.editText、textFieldsを確認する。
-await call("studio_set_text", { text: "変更後の文字" });
+// handle、can.editText、textFieldsを確認する。
+await call("studio_set_text", { handle, text: "変更後の文字" });
 await call("studio_inspect", { handle });
-// 別のstyle編集前にも選択・can.editStylesを確認する。
-await call("studio_set_style", { styles: { color: "#67e8f9" } });
+// 別のstyle編集前にもcan.editStylesを確認する。
+await call("studio_set_style", { handle, styles: { color: "#67e8f9" } });
 const frame = await call("studio_frame", { time: 2, settleMs: 1000 });
 // frame.urlのPNGを実際に開く。返されたURLだけでは画像確認にならない。
 ```
@@ -76,7 +75,7 @@ const frame = await call("studio_frame", { time: 2, settleMs: 1000 });
 
 styleの`rejected`やツールの拒否理由を確認し、保存停止・外部変更競合のbannerを解消するまで再送しない。motionは`studio_inspect`の`animationEditingBlocked`と実compositionのGSAP対応を確認する。TsugiteのローカルGSAP互換runtimeを公式GSAPの全編集対応とみなさない。
 
-0.8.24の画像は保存直後に古いrender cacheから返る場合がある。`settleMs`を1000〜5000msに増やして**画像取得だけ**を再試行し、実際の文字・色を確認してからreloadする。編集を再送しない。ファイル保存・PNG形式が正常でも、画像の内容が古ければ検証失敗とする。
+画像は保存直後に古いrender cacheから返る場合がある。`settleMs`を1000〜5000msに増やして**画像取得だけ**を再試行し、実際の文字・色を確認してからreloadする。編集を再送しない。ファイル保存・PNG形式が正常でも、画像の内容が古ければ検証失敗とする。
 
 ## 再現検証
 

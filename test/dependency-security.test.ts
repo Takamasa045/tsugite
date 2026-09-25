@@ -38,8 +38,8 @@ describe("dependency security contracts", () => {
     expect(manifest.devDependencies["@tsugite/hyperframes-in-memory-zip"]).toBe(
       "file:backends/hyperframes/in-memory-zip"
     );
-    expect(manifest.devDependencies.hyperframes).toBe("0.8.24");
-    expect(lockfile.packages["node_modules/hyperframes"]?.version).toBe("0.8.24");
+    expect(manifest.devDependencies.hyperframes).toBe("0.8.75");
+    expect(lockfile.packages["node_modules/hyperframes"]?.version).toBe("0.8.75");
     expect(lockfile.packages["node_modules/hyperframes"]?.dependencies?.["adm-zip"]).toBe("^0.6.0");
     expect(lockfile.packages["node_modules/fflate"]?.version).toBe("0.8.3");
     const aliased = Object.entries(lockfile.packages).filter(([path]) => path.endsWith("node_modules/adm-zip"));

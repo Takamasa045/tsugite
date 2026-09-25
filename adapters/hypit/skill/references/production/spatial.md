@@ -1,16 +1,23 @@
 # Spatial layout
 
 Read this when positioning or fitting media, text or a project component. Timing is explained in
-[Script and time](../creation/script-and-time.md); it is independent of these coordinates. Read
-[Compositing](../playbooks/craft/compositing.md#keep-physical-camera-and-editorial-space-distinct)
-when deciding the relationship among the generated scene, camera framing and later visual layers;
-this page owns their exact authoring geometry.
+[Timing](timing.md); it is independent of these coordinates. Read
+[component design](component-design.md) when deciding which content shares layout or motion;
+[image direction](../playbooks/craft/image-direction.md) owns the source camera view. This page owns
+the destination geometry, for Performance, independent Media and project scenes alike.
 
 ## Canvas, extent and destination
 
-The Canvas gives the final image's pixel dimensions. An IntrinsicExtent gives a source image's
-dimensions. A Frame gives the destination rectangle a consumer should occupy. A landscape image
-can therefore retain its real extent while appearing in a portrait composition.
+The Canvas gives the final image's pixel dimensions and coordinate basis. Introduce Frames and
+component scopes where they help organize the picture; they need not tile the canvas or remain
+separate rectangles. Components can overlap, share motion and own local trees. Canvas itself does
+not contain a central list of layers. Each rendered Present supplies its own paint order.
+
+An IntrinsicExtent gives a source image's actual dimensions. A Frame gives the destination rectangle
+a consumer should occupy. A landscape image can retain its real extent while appearing in a portrait
+composition. An A-roll source has no prescribed Frame or crop. For performance remaining mostly
+full-screen, its intended final aspect can guide source direction; later insets or splits remain
+presentation choices. Translate required source framing into visible camera facts before generation.
 
 ```svml
 <import as="space" from="@hypit/spatial@1"/>
@@ -47,7 +54,7 @@ commands. [Fonts and text](fonts-and-text.md) shows which Typography placement c
 
 ## Fit the source into the Frame
 
-Media Track separates two spatial roles:
+Media Track and the ordinary Performance Style share two spatial roles:
 
 - The **destination Frame** places the visual on the Canvas and supplies its outer shape.
 - The **fitted content rectangle** places the scaled source inside that Frame. Its size and position
@@ -69,7 +76,7 @@ Choose fitting through the component's appearance Recipe:
 - **cover** fills the destination and may crop the image;
 - **stretch** changes the source proportions to occupy the destination.
 
-The installed vocabulary also exposes `fit-width`, `fit-height`, `native` and `scale-down` when one
+The selected Media/Performance vocabulary also exposes `fit-width`, `fit-height`, `native` and `scale-down` when one
 dimension or the source's own pixel size should determine the scale. The default is centered
 `contain`. `fit: stretch` is spatial resizing; Media Track's `playback: stretch` is a separate choice
 about video speed.
@@ -167,8 +174,8 @@ coordinates the viewport with surrounding graphics can own the shared motion in 
 [component program](component-visuals.md#compose-video-and-graphics-in-one-browser-program), retaining
 source playback positions.
 
-[Tracks](tracks.md) explains the Media and Performance inputs and timing roles. Read their installed
-vocabulary for the complete appearance and motion fields.
+[Media presentation](media-presentation.md) and [Performance](performance.md) own their content and
+playback inputs. Read their installed vocabulary for the complete appearance and motion fields.
 
 ## Carry measured regions through the same geometry
 

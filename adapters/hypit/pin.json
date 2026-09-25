@@ -3,12 +3,11 @@
   "phase": "1-spike",
   "distribution": {
     "package": "@hypit/hypit",
-    "version": "0.1.8",
-    "npmTarball": "https://registry.npmjs.org/@hypit/hypit/-/hypit-0.1.8.tgz",
-    "npmIntegrity": "sha512-zPyXW+lEWezX2oQoop9TgRak9ByalqBJYJvJJXVWkiBaVoKvy4zomr466iL4ar2SGCLZRXE51dZoR/ShQhD8Fg==",
-    "githubRelease": "https://github.com/hypit-ai/hypit/releases/tag/v0.1.8",
-    "githubTarball": "https://github.com/hypit-ai/hypit/releases/download/v0.1.8/hypit-hypit-0.1.8.tgz",
-    "githubCommit": "012562c73aa9865c53cb7d835e56ccfd837a4b34",
+    "version": "0.2.13",
+    "npmTarball": "https://registry.npmjs.org/@hypit/hypit/-/hypit-0.2.13.tgz",
+    "npmIntegrity": "sha512-CIA4TZMfNPb8voEECyMjRmK9ApTtc9gZ7V83jc3GybzE4QNxEmplWunGqePvdM0WMWG5iiovsmkGiDYshVYI9g==",
+    "githubRelease": "https://github.com/hypit-ai/hypit/releases/tag/v0.2.13",
+    "githubCommit": "238fe97fcea37b7cc95e37ee6023f4a02c60bb0a",
     "homepage": "https://hypit.ai",
     "repository": "https://github.com/hypit-ai/hypit",
     "bin": "bin/hypit.mjs",
@@ -18,12 +17,12 @@
   },
   "skill": {
     "installCommand": "npx skills add hypit-ai/hypit -g",
-    "tree": "https://github.com/hypit-ai/hypit/tree/v0.1.8/skills/hypit",
-    "skillMd": "https://raw.githubusercontent.com/hypit-ai/hypit/v0.1.8/skills/hypit/SKILL.md",
-    "blobSha": "edfbd4333ad68395112b7d50e27973eb98801f6b",
+    "tree": "https://github.com/hypit-ai/hypit/tree/v0.2.13/skills/hypit",
+    "skillMd": "https://raw.githubusercontent.com/hypit-ai/hypit/v0.2.13/skills/hypit/SKILL.md",
+    "blobSha": "ef992149f75968d74215a14cd4bff8d8cce140d2",
     "isolatedCopy": "adapters/hypit/skill/",
-    "fileCount": 66,
-    "commit": "012562c73aa9865c53cb7d835e56ccfd837a4b34"
+    "fileCount": 73,
+    "commit": "238fe97fcea37b7cc95e37ee6023f4a02c60bb0a"
   },
   "docs": {
     "quickstart": "https://hypit.ai/quickstart/",

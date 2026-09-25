@@ -10,7 +10,7 @@ From the repository root, after a normal `npm ci`:
 npm run editframe:install
 ```
 
-This runs `npm ci --prefix backends/editframe/runtime` and pins `@editframe/cli@0.59.47`, `@editframe/elements@0.59.47`, `@editframe/vite-plugin@0.59.47`, and `vite@8.2.2`, with a narrow `werift@0.24.4` override. Unscoped `editframe@1.0.0` is a different package and is not the CLI.
+This runs `npm ci --prefix backends/editframe/runtime` and pins `@editframe/cli@0.60.11`, `@editframe/elements@0.60.11`, `@editframe/vite-plugin@0.60.11`, and `vite@8.3.1`, with a narrow `werift@0.24.4` override. Unscoped `editframe@1.0.0` is a different package and is not the CLI.
 
 Doctor and render do not install packages, download Playwright browsers, or fetch a bundled FFmpeg. The proven media path is static files under `public/media`. Native node-av / JIT transcode / WebRTC remain unverified and unused.
 
