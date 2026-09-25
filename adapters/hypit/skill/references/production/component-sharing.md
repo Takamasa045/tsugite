@@ -19,12 +19,38 @@ Keep the same name when distributing it. The Source import names its logical Mod
 <import as="score" from="@studio/score-strip@1"/>
 ```
 
-Here `1` is the Module interface version. The package manager separately records the npm release,
-such as `1.2.0`. A release that preserves that interface keeps the same Source import.
+Here `@1` names the logical Module ABI used by the Source. The package manager separately records
+the physical npm release, such as `1.2.0`. Updating that package release does not by itself change
+the logical import. Follow the package's actual published vocabulary for its author interface.
+
+## Publish for repeated distribution
+
+For stable reuse across projects, publish a versioned package under its owner's npm scope or private
+registry when that owner chooses distribution. For a public scoped package, the publication command is:
+
+```bash
+npm publish --access public
+```
+
+Consumers install the selected release with their usual package manager:
+
+```bash
+npm install --save-exact @studio/score-strip@1.2.0
+# or
+pnpm add --save-exact @studio/score-strip@1.2.0
+```
+
+The project lockfile records the installed dependency tree. Updates are explicit package-manager
+operations; Builds use the selected installed code. A missing package is an installation problem.
+Select the intended new release in the consumer project, inspect its changed vocabulary where
+relevant, check the actual Source/Run and review the changed behavior. New Builds load that selected
+implementation; restart an existing Studio session to load package-code changes. Reuse compatible
+media through Run Candidates while recomputing the component being revised. The package's own
+release notes describe any required author changes; no Build upgrades or migrates it automatically.
 
 ## Send a tarball to another person
 
-For a direct handoff, build the package and run `npm pack` in its directory. A TypeScript package
+For an explicit direct handoff or development check, build the package and run `npm pack` in its directory. A TypeScript package
 compiles to JavaScript; a JavaScript package may already have executable files. Its `prepack` script
 can perform the build. For example:
 
@@ -45,26 +71,6 @@ Keep the tarball with the project while its dependency points to that file, alon
 and the lockfile. Source imports select author contributions; Runtime Profile entries select Provider
 contributions. To send the next release, give it a new package version, create a new tarball, and
 install that file explicitly.
-
-## Publish for repeated distribution
-
-When the owner wants a registry release, publish the built package under their npm scope or private
-registry. For a public scoped package, the publication command is:
-
-```bash
-npm publish --access public
-```
-
-Consumers install the selected release with their usual package manager:
-
-```bash
-npm install @studio/score-strip@1.2.0
-# or
-pnpm add @studio/score-strip@1.2.0
-```
-
-The project lockfile records the installed dependency tree. Updates are explicit package-manager
-operations; Builds use the selected installed code. A missing package is an installation problem.
 
 ## Make a public release discoverable
 

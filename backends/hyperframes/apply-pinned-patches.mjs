@@ -1,5 +1,5 @@
 /**
- * Fail-closed, idempotent patches for the pinned HyperFrames 0.8.24 install.
+ * Fail-closed, idempotent patches for the pinned HyperFrames 0.8.75 install.
  * Does not rewrite upstream package.json or the lockfile. npm overrides handle
  * the adm-zip alias; this script only rewrites exact, hashed source bytes.
  */
@@ -9,36 +9,22 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const PATCH_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-export const PINNED_HYPERFRAMES_VERSION = "0.8.24";
+export const PINNED_HYPERFRAMES_VERSION = "0.8.75";
 
 export const PINNED_HYPERFRAMES_PATCHES = [
   {
-    id: "served-studio-html-guard",
-    relative: "node_modules/hyperframes/dist/studio/assets/index-Bq3M0sjr.js",
-    sha256: "08632acb78028449e8e01e1217108581d487615283af71179cc03f55c0110749",
-    from: "function ZD(t,e){var r;if(!e)return null;const n=(r=t.defaultView)==null?void 0:r.HTMLElement;return n&&e instanceof n?e:null}",
-    to: "function ZD(t,e){return!e||e.nodeType!==1||e.ownerDocument!==t||!e.isConnected||e.namespaceURI!==\"http://www.w3.org/1999/xhtml\"?null:e}"
-  },
-  {
-    id: "studio-index-html-guard",
-    relative: "node_modules/hyperframes/dist/studio/index.js",
-    sha256: "7459fed81c815288708d2bc7e0f2b25dc47c533c2d8cb0ad7863c84d56875f80",
-    from: "function asHtmlElement(doc, node) {\n  if (!node) return null;\n  const ctor = doc.defaultView?.HTMLElement;\n  return ctor && node instanceof ctor ? node : null;\n}",
-    to: "function asHtmlElement(doc, node) {\n  if (!node || node.nodeType !== 1) return null;\n  if (node.ownerDocument !== doc || !node.isConnected) return null;\n  if (node.namespaceURI !== \"http://www.w3.org/1999/xhtml\") return null;\n  return node;\n}"
-  },
-  {
     id: "cli-adm-zip-static-import",
     relative: "node_modules/hyperframes/dist/cli.js",
-    sha256: "e3ac2670128874500eeedaf561737273a31c79772168bc1cd9461ab452c064c9",
+    sha256: "0aef1219d027c4128abe2cc0d920414843267be80ec1d7b02e714f25d5d79ee0",
     from: "import AdmZip from \"adm-zip\";",
     to: "import AdmZip from \"@tsugite/hyperframes-in-memory-zip\";"
   },
   {
-    id: "cli-adm-zip-dynamic-import",
+    id: "cli-adm-zip-lottie-import",
     relative: "node_modules/hyperframes/dist/cli.js",
-    sha256: "e3ac2670128874500eeedaf561737273a31c79772168bc1cd9461ab452c064c9",
-    from: "(await import(\"adm-zip\"))",
-    to: "(await import(\"@tsugite/hyperframes-in-memory-zip\"))"
+    sha256: "0aef1219d027c4128abe2cc0d920414843267be80ec1d7b02e714f25d5d79ee0",
+    from: "import AdmZip2 from \"adm-zip\";",
+    to: "import AdmZip2 from \"@tsugite/hyperframes-in-memory-zip\";"
   }
 ];
 

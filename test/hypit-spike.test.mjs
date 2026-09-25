@@ -25,7 +25,7 @@ afterEach(() => {
 describe("Hypit Phase 1 pin and launcher", () => {
   it("pins the official npm Distribution, not the unscoped 404 name", () => {
     expect(HYPIT_PACKAGE).toBe("@hypit/hypit");
-    expect(HYPIT_VERSION).toBe("0.1.8");
+    expect(HYPIT_VERSION).toBe("0.2.13");
     expect(hypitEntry()).toContain("node_modules/@hypit/hypit/bin/hypit.mjs");
   });
 
@@ -169,7 +169,7 @@ describe("Hypit observation fingerprint is not an approval", () => {
 
   it("labels the fingerprint observation-only and changes when a file hash changes", () => {
     const base = {
-      distribution: { package: "@hypit/hypit", version: "0.1.8", entrySha256: "aaa" },
+      distribution: { package: "@hypit/hypit", version: "0.2.13", entrySha256: "aaa" },
       workspace: "/tmp/ws",
       files: [{ path: "main.svml", sha256: "s1", bytes: 1 }],
       runtime: { path: "hypit.runtime.json", sha256: "r1", bytes: 1 },
@@ -203,7 +203,7 @@ describe("Hypit agent bridge stays before build", () => {
 });
 
 describe("Hypit observe argv", () => {
-  it("builds official flags from the v0.1.8 help contract", () => {
+  it("builds official flags from the v0.2.13 help contract", () => {
     expect(buildObserveArgv("check", {
       source: "chat.svml",
       workspace: "/ws",
@@ -349,7 +349,7 @@ describe("live pinned Hypit CLI", () => {
   const entry = hypitEntry();
   const installed = existsSync(entry);
 
-  it("reports 0.1.8 from the isolated Distribution when installed", () => {
+  it("reports 0.2.13 from the isolated Distribution when installed", () => {
     if (!installed) {
       expect(hypitMissingMessage()).toContain("hypit:install");
       return;
@@ -359,6 +359,6 @@ describe("live pinned Hypit CLI", () => {
       env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "TSUGITE_HYPIT_GRANT"))
     });
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("0.1.8");
+    expect(result.stdout.trim()).toBe("0.2.13");
   });
 });

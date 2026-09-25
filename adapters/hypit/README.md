@@ -1,6 +1,6 @@
 # Hypit Phase 1 adapter
 
-Isolated pin of official `@hypit/hypit@0.1.8`. Not a pipeline backend.
+Isolated pin of official `@hypit/hypit@0.2.13`. Not a pipeline backend.
 
 Hypit runtime needs Node.js >=22.15.0 on the 22.x line. Tsugite core remains >=22.12 <23. Author resolves `codex` from parent absolute PATH entries only (`codex.exe` on Windows). `.cmd` / `.bat` wrappers are unsupported (`AUTHOR_AGENT_UNSUPPORTED`); launch is `shell:false`.
 

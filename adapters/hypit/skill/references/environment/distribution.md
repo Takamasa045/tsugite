@@ -1,29 +1,46 @@
-# Executable Distribution
+# Installations, updates and reuse
 
-Read this to locate, install, or update the executable Hypit Distribution after installing the Skill.
+Read this to find the Hypit already available, install a missing executable, update a selected
+installation, or continue a production without discarding its tools and material.
+[Services](model-and-provider.md) owns account and model access; [Profile](profile.md) owns execution
+selection; [local tools](local-tools.md) owns preparation after that selection.
+
+Go to [locating the executable](#find-the-installation-already-available),
+[installation](#install-the-executable-package), [reuse](#reuse-what-already-serves-the-production),
+or [updates](#let-the-installation-channel-own-updates) for the current question.
 
 ## Keep three lifecycles separate
 
-The installed Skill supplies production judgment. The executable Distribution supplies `hypit`,
-`hypit studio`, official packages, and Runtime hosts. A video project supplies the work's Sources,
-Runs, assets, local packages, Profile selection, and Results. They can live in unrelated locations
-and none is installed as a side effect of another. `npx skills add hypit-ai/hypit -g` installs the
-Skill's knowledge; the executable is the separate npm package `@hypit/hypit`.
+| Part | What it supplies | Where changes belong |
+| --- | --- | --- |
+| Hypit Skill | Production judgment and navigation | The Skill's own installation channel |
+| Executable Distribution, `@hypit/hypit` | CLI, Studio, Runtime and bundled packages | Its npm/release installation |
+| Video project | Sources, Runs, assets, project packages, selected Profile and Results | The project's files and package lock |
+
+An installed Skill does not install the executable. Installing the executable does not connect an
+account, supply model credits, or prepare every browser and model. Updating either does not itself
+rewrite a project's Sources or regenerate its Outputs.
+
+Work from the actual Agent environment: file access, command execution, service connectivity, and
+a way to return media or previews. In a remote environment, processes, files and localhost URLs belong
+to that host. Use its preview forwarding and persistent storage. A production does not need a
+contributor checkout merely because the Agent can read Hypit's source.
 
 ## Find the installation already available
 
-An available launcher can identify its version and physical locations:
+Use the relevant observations from the project directory:
 
 ```bash
-hypit --version
-hypit --help
+hypit version
 hypit paths
+hypit --help
 ```
 
-`paths` includes the active Distribution, project, and host locations. A missing Runtime Profile is
-a separate setup question from whether the executable is installed.
+`version` identifies the active executable and launcher without opening a Runtime.
+`paths` identifies the project, selected Profile, Distribution and host locations. A missing Profile
+is a configuration question, not evidence that Hypit needs reinstalling.
 
-If the shell cannot find `hypit`, inspect the project's and npm's global package records:
+If the shell cannot find the executable, inspect existing package records:
 
 ```bash
 npm ls @hypit/hypit --depth=0
@@ -31,63 +48,129 @@ npm ls --global @hypit/hypit --depth=0
 npm prefix --global
 ```
 
-A project installation can run through `npm exec --no -- hypit --version` and
-`npm exec --no -- hypit paths`; `--no` declines npm's offer to install a missing package. A global
-installation may need its executable directory added to the current shell's PATH: `<prefix>/bin`
-on POSIX systems, or the prefix itself on Windows. Use the existing installation or its known
-launcher, and retain the working command and location in project notes when useful for resuming.
+A project installation runs through `npm exec --no -- hypit version`; `--no` declines npm's offer to
+install a missing package. A global installation's executable directory is normally
+`<prefix>/bin` on POSIX or the prefix itself on Windows. Use the selected installation's launcher
+and inspect its reported version; a global command and a project-local command may select different
+releases. Record the useful command and location in project notes when resuming will need them.
 
 ## Install the executable package
 
-The usual machine-wide installation command for a published release is:
+For a machine-wide published installation:
 
 ```bash
 npm install --global @hypit/hypit
 ```
 
-A project can instead keep Hypit in its own dependencies and lockfile:
+For a project that deliberately keeps the executable in its dependencies:
 
 ```bash
 npm install --save-dev @hypit/hypit
-npm exec --no -- hypit --help
+npm exec --no -- hypit version
 ```
 
-Use the release version selected by the user or project when one is specified. If the selected
-registry reports a missing package or version, that release is unavailable there. An official release
-supplied as a tarball can be installed directly, for example
-`npm install --global /path/to/hypit-release.tgz`. Report the actual installation error when the
-release cannot be obtained.
+Use the project's chosen package manager and version when specified. Its package manifest and
+lockfile own physical versions. A supplied release tarball can also be installed through npm, for
+example `npm install --global /path/to/hypit-release.tgz`.
 
-If installation is slow or a registry mirror lacks the selected release, use
-[network preparation](local-tools.md#make-network-preparation-practical) to inspect the actual download
-source and choose a reachable route. Keep the requested version when changing registries.
+A registry's missing version is an availability fact for that registry. Preserve the chosen version
+when investigating a stale mirror or slow download; [network preparation](local-tools.md#make-network-preparation-practical)
+explains matching the remedy to the actual download. Verify the active launcher after installation,
+then continue with the capability needed by the work.
+
+## Reuse what already serves the production
+
+| Existing work | How to carry it forward |
+| --- | --- |
+| A suitable executable | Use it across projects; identify the active launcher before adding another installation |
+| A chosen service and stored credential | Reuse its explicit Profile selection and CredentialRef within the user's account choice |
+| Prepared local tools or model weights | Inspect the selected Provider's actual paths and configuration; reuse compatible resources there |
+| Project components and dependencies | Keep their package versions and lockfile; edit the project's own implementation where needed |
+| Generated or processed Outputs | Select them explicitly as Run Candidates so the next Build does not repeat that work |
+
+Host tools and prepared resources have their own locations; creating another video project does not
+require copying a Python environment or browser into it. An existing cache can reduce preparation
+without selecting a different model, language, account or browser.
+
+For cross-project component reuse, follow [component sharing](../production/component-sharing.md):
+keep project components with their project, or explicitly install an owner's versioned package when
+sharing is needed. Its ordinary package manifest and lockfile select the implementation. Update that
+dependency deliberately; a Hypit or Skill update does not upgrade every project's component packages.
+
+Preserve project assets, Results and current Run selections during an update. A newer executable is
+not a reason to regenerate accepted material. [Output reuse](../production/authoring.md#reuse-produced-work-explicitly)
+owns choosing compatible produced values, including useful Outputs from failed Builds.
+If a release changes authoring requirements, make the relevant project change explicitly from its
+documented meaning rather than guessing a migration or silently substituting another capability.
 
 ## Let the installation channel own updates
 
-The Distribution supplies local execution and HypiHub Providers, plus public SDKs and examples for
-project extensions. A service the user brings can use an installed or project-authored Provider;
-its absence from the official bundle is an extension question. Follow
-[Models and Providers](model-and-provider.md) for that connection. Installing the executable does
-not choose a service account or prepare every model that a production might eventually use.
+Check versions when a reported fix, missing capability, update request or release change matters to
+the work. Continue ordinary production on its selected versions; Build does not upgrade them.
 
-Install, update, and remove the Distribution through the same package or release channel. Updating
-it does not update an installed Skill or edit a video project. Updating the Skill does not replace the
-executable Distribution. After installation or an update, use the selected launcher for `--version`,
-`--help`, and `paths`, then continue with
-`profile.md` for the current project's capabilities and Runtime choices.
+```bash
+hypit version --check
+```
 
-The installed Distribution is the authority for exact Surface syntax. If a package or Surface named
-by the Skill is absent from `hypit vocabulary`, check package selection and the installed release.
-Explain whether the work needs an available package, a supported alternative or a Distribution update.
+This read-only query reports npm release information and its source. `--registry <url>` selects a
+registry for the check; `--json` gives structured output. Local `hypit version` and `--version`
+do not contact a registry. With an older executable lacking the command, use
+`npm view @hypit/hypit@latest version` through the project's configured registry.
 
-A contributor checkout can execute its own Distribution after its documented workspace setup, but it
-is a development arrangement, not an assumed location for ordinary production. Use one only when the
-user explicitly supplied or selected that checkout.
+A failed query leaves the remote release unknown. A different version can mean a newer checkout or
+a stale mirror. Read the relevant [release notes](https://github.com/hypit-ai/hypit/releases) and
+explain which installation and behavior would change.
 
-Optional upstream npm tools live under the Host package home reported by `paths`, with one installation
-per exact package version. Separate Distribution requirements can coexist there, while npm still shares
-its download cache. `hypit packages install <package@version>` reports `install.log`; inspect that file
-when a download appears stalled or fails. Installing an upstream tool does not start a service or
-restart an existing service. Project component edits are loaded by the next Build. See
-[Build execution](../production/builds.md#build-with-the-current-project-implementation) for Distribution
-bootstrap changes and service lifetimes.
+## Check and update the relevant installation
+
+When the chosen target is the latest published release, update the selected installation only:
+
+```bash
+npm install --global @hypit/hypit@latest
+```
+
+For the project-local development dependency shown above, run instead from that project:
+
+```bash
+npm install --save-dev @hypit/hypit@latest
+npm exec --no -- hypit version
+```
+
+Use an exact selected release instead of `latest` when the user or project pins one, and preserve
+the existing dependency kind and package-manager workflow. These are alternative installation scopes,
+not two steps to run together. Recheck the launcher the production will actually use.
+
+The Skill updates separately. For an installation managed by the
+[skills CLI](https://github.com/vercel-labs/skills#skills-update), inspect its installed records and
+current supported options. The following targets only the globally installed Hypit Skill:
+
+```bash
+npx skills list -g
+npx skills update hypit -g
+```
+
+For a project-scoped installation, use the installer's project scope (`-p` on `update`) from that
+project. A local checkout or another installer keeps its own update method. The update command is a
+mutation, not a read-only version check; preserve intentional local Skill edits before replacing them.
+Do not update unrelated skills as a side effect. Read the updated instructions from the installation
+the Agent actually uses; content already loaded in a conversation can still be the old text.
+
+The installed packages' vocabulary and README describe their available interfaces. If a newer Skill
+mentions an absent option, inspect the selected package and release. Explain the missing capability
+and the useful update or explicitly chosen alternative; do not pretend the option already exists.
+
+## Project changes and execution code
+
+Project component and Profile changes apply to a new Build through its execution context. Updating
+the Distribution or the environment inherited by an active Worker concerns that process's lifetime.
+Use [configuration changes](profile.md#know-when-a-change-takes-effect) before restarting it, and
+preserve active work and accepted Outputs.
+
+Optional upstream npm tools live in the Host package home reported by `paths`, per exact package
+version, with npm's ordinary download cache. Explicit preparation may acquire these declared
+dependencies. `hypit packages install <package@version>` addresses a reported exact dependency;
+its `install.log` explains progress and failure. Installing a dependency does not start a service.
+
+A contributor checkout is an explicit development choice. Use one when the user has selected it;
+ordinary production, project components and project Model/Provider extensions use the installed
+public interfaces.

@@ -40,7 +40,9 @@ visual relationships rather than the nesting of tags in Source.
 [visuals.ts](examples/visuals.ts) contains `renderCard`, a complete pure drawing function using
 `sealVisualTrack` from `@hypit/hypit/composition`. It receives a projected span and a resolved Frame,
 draws a colored box with exact-font text, and optionally fades in relative to the Present's start.
-Its colors, size, padding, layer and entrance duration are supplied by the caller.
+Its colors, size, padding, layer and entrance duration are supplied by the caller. These drawing-function
+arguments need not all become Surface parameters: the owning component can supply its fixed design
+and expose only the inputs the production needs.
 
 The root uses Canvas coordinates. The text child uses the root's local coordinates, so padding is
 added once. When a component computes child geometry in Canvas space, subtract the parent's origin
@@ -95,7 +97,7 @@ When a scene's video viewport and graphics share motion or layout, one component
 together. `browserProgram` from `@hypit/hypit/hyperframes` creates a `program` element's payload. Its HTML
 owns the local structure; CSS supplies layout, stacking, masks, filters and blending; optional
 `setup(root, data)` code returns `render(localFrame)`. This function sets the complete state at that
-frame. A range render may start in the middle, so compute state from the frame and authored inputs.
+frame synchronously. A range render may start in the middle, so compute state from the frame and authored inputs.
 
 Prepare stable structure in `setup`: locate elements, construct geometry and retain reusable drawing
 objects there. Paint static procedural textures once their resources are ready.
@@ -103,6 +105,11 @@ Let `render(localFrame)` update the state that changes with time. This supports 
 fast repeated capture and direct seeking. A program is sampled within its Present's lifetime;
 outside it, the renderer may retain the boundary pose. Re-entry and repeated active seeks must
 produce the complete requested state, including when an image became ready since the last call.
+
+Repeated browser-program instances share one document's HTML/SVG ID space even though their CSS
+is scoped. For SVG masks, gradients or filters, derive each required ID from `root.id` in `setup`
+and update its references together. The installed `@hypit/hyperframes` README owns the browser-program
+API and resource-loading behavior.
 
 For a depth or material effect, choose the representation that carries its visible behavior:
 CSS can tilt a panel, while a deforming textured surface may warrant mesh geometry and Canvas or
@@ -121,11 +128,18 @@ video sampling and font handling while participating in the program's HTML layou
 used by the program belong in its `artifacts` list; `hyperframesResourceUri` supplies their resource
 URLs. The rendering environment materializes those references.
 
-For a semantic performance, `projectTimelineMedia(semantic, window.span)` from
+For a placed performance, `projectTimelineMedia(timeline, window.span)` from
 `@hypit/hypit/timeline` returns each intersecting Take's prepared media, program span and source
-span. Subtract the outer Window's start to obtain Present-local video sampling intervals. Preserve
+span. Subtract the containing Present's start to obtain Present-local video sampling intervals
+(when that Present uses the outer Window as its span, subtract the Window start). Preserve
 the returned source offset: moving or reframing a video changes its presentation while playback
 continues from the same place. A separate Sound presentation can continue the existing audio in Film.
+
+Project each independently meaningful event before rendering. Convert its program frame to the
+containing Present's local frame once, then animate relative to that event. Keep source sampling
+based on the returned source span; neither the event's local offset nor the viewport's movement
+replaces it. [Component design](component-design.md#let-meaning-drive-the-behavior) distinguishes these
+inputs from internal motion details.
 
 A reusable scene might expose `during={story.selection.explanation}` for its lifetime and
 `reveal={story.moment.demonstrate}` for its layout change. The Surface projects these independently;

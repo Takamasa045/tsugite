@@ -1,15 +1,11 @@
 # Capturing websites and authored HTML
 
-Read this when a real interface, product page or locally authored graphic should become picture
-material in the video. `hypit capture` supplies browser capture from the installed Distribution;
-the project's scripts describe the actual page interactions.
-
-Choose the material from its role. A screenshot preserves wording and a visible state. A long page
-can become a controlled scroll through Media Track's Sampling. A recording preserves interaction
-and changing page content when those changes are part of the demonstration. A local HTML file can
-produce a static card or graphic. [Graphic composition](../playbooks/craft/graphic-compositions.md)
-explains when editable component state is useful, and
-[compositing](../playbooks/craft/compositing.md) explains the screen's place in the frame.
+Read this when a page, product interface or locally authored HTML should become captured picture
+material. [Screen demonstrations](../playbooks/craft/screen-demonstrations.md) owns what the screen
+must show and why; this page owns how to save that material. `hypit capture` supplies browser
+capture from the installed Distribution; the project's scripts describe the actual page interactions.
+A captured image or recording enters the composition through Media, while an editable demonstration
+can use a project component. [Spatial layout](spatial.md) owns fitting either into its destination.
 
 ## Save a page or region
 
@@ -71,11 +67,9 @@ argument to `screenshot` or `record` to capture it. Returning finishes open reco
 the browser. Completed captures survive a later script failure.
 
 For a scrolling demonstration, identify the container that actually scrolls; a gallery may move
-inside a fixed page. Frame the useful content at its intended viewing size and record from a useful
-start state through the action. Compare separated saved frames to confirm that the intended rows or
-states change. Crop and presentation can then be revised around this recording without repeating
-the capture. An authored diagram or simulated interaction whose motion must follow Script events
-belongs in an editable component; a recording supplies the real interface behavior being shown.
+inside a fixed page. Record the intended interaction and compare separated saved frames to confirm
+that the page's rows or states actually change. Crop and presentation can then be revised around
+this recording without repeating the capture.
 
 For local inputs beside the script, `new URL('../assets/card.html', import.meta.url).href` locates
 the file. Relative output paths follow the directory where the command runs. `args` contains the
@@ -87,7 +81,11 @@ path and actual dimensions, plus recorded duration and frame rate. Output paths 
 Use an installed compatible browser or prepare the package's tested browser once with
 `hypit capture install-browser`. Installation uses Puppeteer's browser cache and leaves existing
 browsers in place. [Network preparation](../environment/local-tools.md#make-network-preparation-practical)
-explains diagnosing a slow download. `--channel chrome` selects an installed Chrome;
+explains diagnosing a slow download. The package manifest owns the recommended version. For an explicit alternate selection, use
+`--browser-version <exact-version>` and `--browser-cache <directory>` on both preparation and capture.
+`install-browser --browser-download-base-url <url>` selects a compatible archive source for that
+installation only, with no source fallback. Capture never installs the missing browser.
+`--channel chrome` selects an installed Chrome;
 `--browser <executable>` selects another explicit compatible path. `--headed` opens a visible
 window. The script's `options.launch` accepts ordinary Puppeteer launch options, including a chosen
 `userDataDir` when a dedicated persistent browser profile is useful. CLI browser options override
@@ -109,6 +107,6 @@ placing it in the composition.
 Keep captures in project assets and record the source page and its purpose in the project notes.
 An image enters through `media:Image`; a recording enters through `media:Video` and the ordinary
 [normalization path](media.md). Place them with
-[Media Track](tracks.md#coverage-has-a-window-and-a-separate-playback-choice) and the Script's
+[Media presentation](media-presentation.md#keep-display-time-and-source-playback-distinct) and the Script's
 Selections or Moments as appropriate. Their visibility, crop, scroll and transitions belong to the
 composition, so those changes can reuse the captured file.

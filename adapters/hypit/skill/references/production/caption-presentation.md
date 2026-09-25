@@ -10,7 +10,7 @@ text and pronunciation associations. Each Use selects a complete Style inside a 
 
 ```svml
 <caption:Hidden id="hidden"/>
-<caption-fine:Track id="captions" document={story.caption} timeline={film.timeline}>
+<caption-fine:Track id="captions" document={story.caption} timeline={program.timeline}>
   <caption-fine:Use style={base-style}/>
   <caption-fine:Use role="GUEST" style={guest-style}/>
   <caption-fine:Use during={story.selection.answer} style={answer-style}/>
@@ -34,7 +34,7 @@ caption can use a project family with its own layout and behavior.
 | Explicit window | `start="8s" end="10s"` |
 | A particular speaker | Add `role="GUEST"` to any of these |
 
-[Performance timing](performance.md) explains the shared expressions and semantic references.
+[Timing](timing.md) owns the shared expressions and semantic references.
 Use semantic boundaries when the treatment follows what is being said. Absolute times remain useful
 for an explicitly timed presentation. A Role filters whose content is presented, independently of the
 window: it can cover several turns and does not change the Window shown in Studio.
@@ -48,7 +48,7 @@ to draw. Independent Caption Tracks can intentionally show multiple presentation
 ## A style change can happen inside a Cue
 
 ```text
-test1 || test2 @select test3 || test4 @/select
+test1 || test2 @{select} test3 || test4 @{/select}
 ```
 
 This contains three Cues: `test1`, `test2 test3`, and `test4`. The Selection starts before `test3`;

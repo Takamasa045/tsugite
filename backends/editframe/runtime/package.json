@@ -8,10 +8,10 @@
     "node": ">=22.12.0"
   },
   "dependencies": {
-    "@editframe/cli": "0.59.47",
-    "@editframe/elements": "0.59.47",
-    "@editframe/vite-plugin": "0.59.47",
-    "vite": "8.2.2"
+    "@editframe/cli": "0.60.11",
+    "@editframe/elements": "0.60.11",
+    "@editframe/vite-plugin": "0.60.11",
+    "vite": "8.3.1"
   },
   "overrides": {
     "werift": "0.24.4"

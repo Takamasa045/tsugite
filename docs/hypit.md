@@ -8,7 +8,7 @@ core（`src/`）には Hypit 固有コードを置かない。実装は `adapter
 
 Tsugite 本体は Node.js **22.12 以上 23 未満**。Hypit runtime（`npm run hypit:install` と `runtime init` / `runtime up`）は追加で **Node.js 22.15 以上**（22.x）が必要。22.12〜22.14 では engine 警告、または準備前検査 `HYPIT_NODE_UNSUPPORTED` で停止する。本体の最低版は上げない。
 
-## 公式ソース（2026-09-15 確認）
+## 公式ソース（2026-09-25 更新確認）
 
 | 対象 | URL |
 | --- | --- |
@@ -19,9 +19,9 @@ Tsugite 本体は Node.js **22.12 以上 23 未満**。Hypit runtime（`npm run 
 | Skill ガイド | https://hypit.ai/guide/skill/ |
 | Studio | https://hypit.ai/quickstart/preview/ |
 | GitHub | https://github.com/hypit-ai/hypit |
-| Release | https://github.com/hypit-ai/hypit/releases/tag/v0.1.8 |
+| Release | https://github.com/hypit-ai/hypit/releases/tag/v0.2.13 |
 
-実行ファイルは **`@hypit/hypit@0.1.8`**（GitHub commit `012562c73aa9865c53cb7d835e56ccfd837a4b34`）。Skill は `npx skills add hypit-ai/hypit -g`。隔離コピーは `adapters/hypit/skill/`。
+実行ファイルは **`@hypit/hypit@0.2.13`**（GitHub commit `238fe97fcea37b7cc95e37ee6023f4a02c60bb0a`）。Skill は `npx skills add hypit-ai/hypit -g`。隔離コピーは `adapters/hypit/skill/`。
 
 ## 本番ワークフロー
 
@@ -53,12 +53,13 @@ npm run hypit:production -- ui --production <durable-project>
 - 要求 3 件すべて local（`media.local` / `hyperframes.local`）、preflight 成功、provider 要求 0
 - 通常ランチャーから本番制作 UI を開ける
 - 計画前にローカル Runtime 準備を接続（固定 local endpoint、host-state は `productionRoot/.tsugite/hypit-host-state`）
+- 2026-09-25に0.2.13の隔離runtime導入、公式例のコンパイル、`check` / `plan` が成功
 
 未確認 / 未実施:
 
 - 人間の承認（Gate / approve-plan / approve-local-render）
 - 実 `hypit build`、MP4、成果物の受け取り
-- ディスク制約のため、この作業では約 260MiB の新規フル install は未検証。既存 store の再利用を前提にする
+- 0.2.13での本番Runtime起動・Build
 
 build 成功、完成動画、CI、git タグ、受け入れは主張しない。
 

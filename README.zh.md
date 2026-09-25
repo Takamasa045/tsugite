@@ -49,8 +49,8 @@ npm run setup:open  # 同时打开本地 launcher 时
 
 - [Premiere Pro](docs/premiere-pro.md)：macOS。`$premiere-editing` / `/premiere-editing`（剪辑、转场、音频、字幕、调色；本地 MCP）。
 - [After Effects](docs/after-effects.md)：macOS。`$after-effects-editing` / `/after-effects-editing`（官方 `DoScriptFile` helper：inspect / fixture / 标题 / 另存）。
-- [PixVerse Canvas](docs/pixverse-canvas.md)：固定官方 CLI 1.4.4，`npm run pixverse:install`。
-- [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md)：固定 0.8.24。Studio 编辑不写 pipeline manifest。
+- [PixVerse Canvas](docs/pixverse-canvas.md)：固定官方 CLI 1.4.6，`npm run pixverse:install`。
+- [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md)：固定 0.8.75。Studio 编辑不写 pipeline manifest。
 
 **生成与解析**
 

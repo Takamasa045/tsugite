@@ -6,10 +6,10 @@ import { fileURLToPath } from "node:url";
 export const RUNTIME_DIR = fileURLToPath(new URL("./runtime", import.meta.url));
 
 export const PINNED_RUNTIME = Object.freeze({
-  "@editframe/cli": "0.59.47",
-  "@editframe/elements": "0.59.47",
-  "@editframe/vite-plugin": "0.59.47",
-  vite: "8.2.2"
+  "@editframe/cli": "0.60.11",
+  "@editframe/elements": "0.60.11",
+  "@editframe/vite-plugin": "0.60.11",
+  vite: "8.3.1"
 });
 
 export function runtimeRoot() {

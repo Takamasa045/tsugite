@@ -22,23 +22,28 @@ not need a matching playbook before it can be understood or made.
 
 | Read | When the current question concerns |
 | --- | --- |
-| [Directing generated images](craft/image-direction.md) | phone-video capture, compelling people, camera relationships and settings; four-paragraph image direction and reference use |
+| [Directing generated images](craft/image-direction.md) | directing the picture a work needs, including people, places, products and icons; phone-video capture, casting, camera relationships and references |
 | [Directing a voice](craft/voice-direction.md) | casting an appealing voice, choosing its vocal character, writing Voice Design direction or selecting a sample line |
-| [Voice and performance](craft/voice-and-performance.md) | how performances supply local word timing, who is A-roll, recurring voice identity, visual A-roll presentations, or genuinely independent narration |
-| [Directing generated video](craft/video-direction.md) | choosing a generation relationship, directing visible performance or silent action, camera behavior, cuts, or request duration |
-| [Reference relationships](craft/generated-dependencies.md) | deciding which images or Takes should depend on which references |
-| [Visual continuity](craft/visual-continuity.md) | complementary camera views, gaze, prop state, or what must remain coherent through a cut |
-| [B-roll](craft/b-roll.md) | exact cue coverage versus montage, short display windows, source playback, J-cuts, or adjacent Selections |
-| [Frame coverage](craft/frame-coverage.md) | an unintended exposure, gap, crop or transition at a visual boundary |
+| [Voice and performance](craft/voice-and-performance.md) | what performance carries a passage, recurring voice identity, changing visual use of the same material, or genuinely independent narration |
+| [Directing generated video](craft/video-direction.md) | choosing a generation relationship, deciding when source footage should carry performed action or camera behavior, directing visible speech or silent action, cuts, subject-isolation footage or request duration |
+| [Reference relationships](craft/generated-dependencies.md) | what existing images or footage contribute to a new request: people, places, conversational views, continuing props and new-scene branches |
+| [Material-led pictures and B-roll](craft/b-roll.md) | what an image or video contributes to a passage; full-frame or framed views, exact evidence versus a visual thought, and picture/performance handoffs |
+| [Screen demonstrations](craft/screen-demonstrations.md) | what a website, app, terminal or editor must show; captured states and interactions versus authored explanations, and how viewers follow them |
 | [Caption](craft/captions.md) | speech-linked text, reading rhythm, Fine styles, or a new Caption family |
-| [Caption tracking](craft/caption-tracking.md) | measuring produced footage and placing Caption above a moving head without regenerating the media |
-| [Sound and mix](craft/sound-mix.md) | the relationship among speech, music, ambience, effects, loudness, ducking, and continuity |
-| [Graphic composition](craft/graphic-compositions.md) | visual hierarchy, boards, graphic state, editable structure, component boundaries or coordinated palette and reveals |
-| [Compositing](craft/compositing.md) | physical scene versus camera framing and editorial layers, overlays, picture-in-picture, cutouts, screen evidence, or live call layouts |
+| [Caption tracking](craft/caption-tracking.md) | the user's reference visibly uses head-following Caption or the user asks for it; matching face observations to Roles, picture placement and Cue time |
+| [Sound and mix](craft/sound-mix.md) | what existing material already sounds like, which music or effects the work needs, and how those sounds share time and attention |
+| [Graphic composition](craft/graphic-compositions.md) | attention and coexistence of material and graphics, source framing, boards, spatial hierarchy and coordinated palette |
+| [Motion graphics](craft/motion-graphics.md) | how graphics, effects and scenes change over time, carry objects through handoffs, establish a motion language and meet the performance |
 
 Read every craft whose question genuinely appears in the work, including questions discovered after
 a Studio preview or completed Result. Repeated use of the same craft does not require rereading it
 unless the decision has changed.
+
+For authoring those decisions, [Performance](../production/performance.md) presents current Timeline
+footage and [Media](../production/media-presentation.md) supplies independent pictures and playback.
+[Media preparation](../production/media.md#keep-original-and-processed-material-explicit) owns source
+processing, including transparency; [Spatial layout](../production/spatial.md) owns fitting and crop.
+These choices compose according to the intended use of the material.
 
 ## Examples
 
@@ -56,6 +61,7 @@ unless the decision has changed.
 | [Two-person podcast](formats/two-person-podcast.md) | complementary host views, conversational reactions, product interaction or lifestyle coverage |
 | [Street interview](formats/street-interview.md) | a motivated encounter, guest/interviewer/shared views, reveals or tracked Caption |
 | [Ranking and listicle](formats/ranking-listicle.md) | a persistent comparison or board whose state changes with the argument |
+| [Presenter-led visual explainer](formats/presenter-led-explainer.md) | spoken performance joining evolving demonstrations and MG, with the presenter moving between full-frame, inset and covered views |
 | [Narration-led work](formats/narration-led-demo.md) | independent narration organizing products, hands, screens, demonstrations, montage, or MG |
 
 A format page is useful when its relationships illuminate this work. It is not a category the

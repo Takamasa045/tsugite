@@ -24,7 +24,7 @@ export function prepareLabeledOfficialExample(repo = REPO, adapterRoot) {
   cpSync(source, workspace, { recursive: true });
   writeFileSync(join(workspace, "SYNTHETIC-FIXTURE.txt"), [
     "SYNTHETIC / OFFICIAL-EXAMPLE FIXTURE — NOT a user reference analysis.",
-    `Byte-copied from pinned @hypit/hypit@0.1.8 ${OFFICIAL_EXAMPLE_RELATIVE}.`,
+    `Byte-copied from pinned @hypit/hypit@0.2.13 ${OFFICIAL_EXAMPLE_RELATIVE}.`,
     "No input video was supplied for this Phase 1 spike.",
     ""
   ].join("\n"));

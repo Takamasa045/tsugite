@@ -143,7 +143,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     expect(result.up.ready).toBe(true);
     expect(result.up.worker).toBe("running");
     expect(result.pinned_runtime.package).toBe("@hypit/hypit");
-    expect(result.pinned_runtime.version).toBe("0.1.8");
+    expect(result.pinned_runtime.version).toBe("0.2.13");
     expect(result.host_state_mode).toBe("standalone-workspace");
     expect(result.production_root).toBeNull();
   });
@@ -388,7 +388,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     const workspace = tempWorkspace("missing-pin");
     const adapterRoot = tempWorkspace("adapter");
     writeFileSync(join(adapterRoot, "pin.json"), JSON.stringify({
-      distribution: { package: "@hypit/hypit", version: "0.1.8" }
+      distribution: { package: "@hypit/hypit", version: "0.2.13" }
     }));
     let spawns = 0;
     expect(() => prepare({

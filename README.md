@@ -66,8 +66,8 @@ These are **agent-operated external editors**. They are not a `pipeline render` 
 | --- | --- | --- | --- |
 | **Premiere Pro** | `$premiere-editing` (Claude Code: `/premiere-editing`) | macOS. Cuts, transitions, audio, captions, color; local MCP; on-screen verification | [Premiere Pro](docs/premiere-pro.md) |
 | **After Effects** | `$after-effects-editing` (Claude Code: `/after-effects-editing`) | macOS. Official local `DoScriptFile` helper: inspect, fixture, title layers, save-as. On-screen preview is a separate check | [After Effects](docs/after-effects.md) |
-| PixVerse Canvas | Official CLI 1.4.4, opt-in | `npm run pixverse:install`, then `npm run --silent pixverse -- canvas ...`. External Canvas entry, not a pipeline backend. Live Canvas mutation is not claimed by install checks | [PixVerse Canvas](docs/pixverse-canvas.md) |
-| HyperFrames Studio | Pinned 0.8.24 WebMCP | `npm run hyperframes:studio -- <composition-dir>` on an authoring copy. Inspect / text / style edit is verified on patched 0.8.24 + native Chrome 152. Motion authoring and other hosts are unverified. Studio edits do not update the pipeline manifest; a later `render` regenerates HTML | [Studio WebMCP](docs/hyperframes-studio-webmcp.md) |
+| PixVerse Canvas | Official CLI 1.4.6, opt-in | `npm run pixverse:install`, then `npm run --silent pixverse -- canvas ...`. External Canvas entry, not a pipeline backend. Live Canvas mutation is not claimed by install checks | [PixVerse Canvas](docs/pixverse-canvas.md) |
+| HyperFrames Studio | Pinned 0.8.75 WebMCP | `npm run hyperframes:studio -- <composition-dir>` on an authoring copy. Inspect / text / style edit is verified on 0.8.75 + native Chrome 153. Motion authoring and other hosts are unverified. Studio edits do not update the pipeline manifest; a later `render` regenerates HTML | [Studio WebMCP](docs/hyperframes-studio-webmcp.md) |
 
 ### Analyze local footage
 

@@ -3,6 +3,10 @@
 Read this when opening Studio, judging an encoded Result, or improving the layout, timing and
 expression of the new Film.
 
+For picture inspection, start with [Snapshots](snapshots.md) of the current Studio work or existing
+HTML. Single frames establish detail; continuous frame grids establish movement and handoffs.
+Use Studio playback to hear and feel the passage, and the exported file to judge encoded delivery.
+
 [Studio](studio.md) explains launch, session reuse, displayed information, Source writeback and
 project Companions. [Timestamped Comments](studio.md#revise-from-timestamped-comments) connects user
 feedback to the owning production facts. [Builds and Results](builds.md) explains retrieval and explicit Output reuse.
@@ -14,7 +18,9 @@ render and inspect that encoded deliverable as a separate step.
 
 ## Make the composition work
 
-Compose MG, Caption, B-roll, Typography and Effects around the directed material and existing Outputs.
+Watch the selected performance and its assembled picture and sound. In pure A-roll, judge whether
+speech, action, reactions, camera changes and pauses carry the intended passage. In a mixed work,
+judge the additional Caption, evidence and graphic relationships together with that performance.
 Watch their actual arrangement in Studio or a rendered Result: is the comparison clear, is the
 Caption readable, does the B-roll cover the intended explanation, and do entries and exits land on
 the right words or actions? Does a persistent object retain its identity and state through the
@@ -31,20 +37,33 @@ and semantic Outputs through layout and component revisions.
 
 Use the Run that selects the production's actual material. It binds the Author Source, Targets,
 files and earlier Results. Preserve the produced media and semantic Outputs as the composition
-changes. A focused Run can render the affected interval; Studio can open the same selected work
-for interactive playback and editing.
+changes. Studio opens the selected work for playback and editing; snapshot captures its current
+compiled picture directly. A focused Run serves a requested encoded interval.
 
 Judge the relationship that the evidence can establish. A component's own example can show its
 style and behavior. The actual production image establishes its framing and color; the produced
 video shows how moving faces and gestures interact with Caption and MG. Inspect those interactions
 with the material that will appear in the deliverable.
 
-## Separate legality from judgment
+## Show what the current work establishes
 
 `hypit check` can establish that the Source and graph are legal. Studio can establish what the
 configured composition displays. A completed Build can establish what the selected Endpoints actually
 produced. Creative review asks a different question: does this composition perform the
 Treatment and the useful relationships learned from the reference?
+
+Present intermediate work with its purpose, what it already realizes and the important work still
+needed for the Brief. A storyboard can settle framing; the produced performance establishes how
+a person actually moves and speaks. A working preview can support either discussion. Make its
+current scope clear so the user can give useful direction, and continue the remaining work within
+the agreed commission. [Service selection](../environment/model-and-provider.md#choose-the-practical-capability-path-with-the-user) owns unresolved service choices.
+
+Read missing behavior through its material and presentation together. For intended speech, listen to
+the selected Film: an available audio file establishes material, while admission and the chosen
+Sound or Audio contribution establish whether that material reaches the Film. For intended physical
+action, examine the footage itself as well as the viewport animation. Use
+[media admission](media.md), [sound presentation](sound.md) and [Film assembly](rendering.md)
+to complete those relationships. Silence or stillness can equally be intentional when they serve the Brief.
 
 Look at the complete Film at its intended delivery size as well as the components inside it. A component that looks
 attractive in isolation may still cover a face, compete with a Hook, arrive on the wrong word, or
@@ -59,15 +78,15 @@ location remains an open question.
 
 Use whichever view can answer the current question:
 
-- Once a numeric interval is known, a range render can inspect the corresponding frames of the same
-  HyperFrames program. The range may come from the playhead, authored clock time, or an existing
-  Result; HyperFrames does not need to know whether language helped the Agent locate it.
-  [Rendering](rendering.md#choose-a-render-interval-in-frames) gives the frame-bound syntax and the
-  relationship to upstream Candidate reuse.
+- Once frame positions are known, use [snapshot](snapshots.md) to inspect the existing programme
+  directly. Select individual states or continuous frames; keep the surrounding handoffs visible.
+  The locations can come from semantic events, the playhead or authored clock time.
 - On an encoded Result, focused media operations such as frames, cut, and tile can expose exact
   pixels, adjacent frames, or a short passage.
 - Open Studio when interactive playback, parameter editing or a component's Companion helps the
   current work. Seek or select semantic entities to inspect their place in the composition.
+- Use a [range render](rendering.md#choose-a-render-interval-in-frames) when the question requires
+  an encoded clip with sound, such as testing an export setting or delivering a passage.
 - Watch the whole deliverable when the question concerns Hook clarity, story movement, payoff,
   CTA, or how A-roll, B-roll, Caption, MG and Effects work together.
 
@@ -77,11 +96,14 @@ media supplies that evidence.
 
 Inspect the relationships that make the composition work:
 
+- **performance** — the selected footage actually contains the intended speech, action and reaction;
+  presentation motion does not substitute for missing action in the material;
 - **picture and coverage** — B-roll supports the passage and its display window carries the intended
   explanation or handoff;
 - **semantic timing and motion** — cuts, Caption Cues, MG states and Effects occur on the
-  intended word, phrase, pause, or clock event; entry, settling, active behavior and exit make the
-  intended emphasis and handoff perceptible;
+  intended word, phrase, pause, or clock event; inspect important internal events as well as the
+  outer interval. A scene that starts on the correct phrase can still reveal its result on the
+  wrong word. Entry, settling, active behavior and exit should make the intended handoff perceptible;
 - **shared layout** — a layout established for a passage remains coherent while its individual
   contents change; inspect the handoffs as well as the populated states, so replacing a card or
   ending a Selection does not accidentally release space the passage still needs;
@@ -96,6 +118,12 @@ For geometry, read three nested relationships: Canvas, outer Frame or background
 Check containment and capacity at each boundary, then judge optical alignment. Intentional crop,
 bleed, overlap, and asymmetric balance are part of the design when they help the work; measurements
 describe what happened and the picture decides whether it succeeds.
+
+At a visual handoff, inspect what is actually visible before, during and after the change. A return
+to the speaker may be intended; a one-frame flash of that picture between other views may not be.
+If the exposure is unintended, locate the owning cause: the active Window, source playback,
+transition opacity, component background lifetime or spatial crop. Several Frames or a designed
+background can form the intended picture without one full-frame source.
 
 Repeated appearances of one observed visual configuration can share a judgment. A visibly changed
 speaker, placement, Style, content shape, behavior, or surrounding composition supplies different

@@ -1,6 +1,7 @@
 # Writing a project Track
 
-Read this when a production needs new graphic structure, state or rendering behavior. Begin from
+Read this when a production needs new visual or audible structure, state or rendering behavior,
+including a scene that coordinates existing footage with independent content. Begin from
 what the viewer should perceive and what should follow a changed performance.
 [Component design](component-design.md) develops that idea into a useful author interface and a
 coherent treatment in the actual composition.
@@ -12,7 +13,9 @@ and project package ownership. [Caption authoring](caption-authoring.md) covers 
 Prefer semantic inputs when the component responds to the words or performance. A comparison can occupy
 a Selection; a verdict can trigger a Moment; the whole board can live for a Segment. Expose those
 choices on the Surface and pass their projected Windows or Instants to the implementation. This
-keeps the component useful when a new performance changes the pace. In an authored animation,
+keeps the component useful when a new performance changes the pace. Expose separately meaningful
+internal events as well as the outer lifetime. The [event-versus-animation boundary](component-design.md#let-meaning-drive-the-behavior)
+explains why a single semantic Window cannot replace several word-linked triggers. In an authored animation,
 content events carry their own reading rhythm. Their Instants and Windows enter the same component
 inputs; durations and frame offsets direct how a change unfolds.
 
@@ -63,8 +66,7 @@ content children with their own events and a picture drawn entirely in code.
 For a Window consumer, `during={story.selection.example}` can take both semantic boundaries.
 `at={story.moment.answer} for="8f"` starts a short effect at a Moment. An Instant consumer may accept
 `at={story.moment.answer}` with no duration because it owns a state transition. Read the actual
-Surface: identical-looking `at` attributes do not imply identical consumption. [Script and semantic
-time](../creation/script-and-time.md#bind-meaning-to-script-identities) describes the shared author
+Surface: identical-looking `at` attributes do not imply identical consumption. [Timing](timing.md) describes the shared author
 forms; the component chooses which of them fit its behavior.
 
 ## Separate lifetime, activation and persistent state
@@ -103,9 +105,10 @@ where content goes and how its intrinsic shape occupies that place. RegionTimeli
 per-frame regions in a chosen Canvas. These are distinct from Timeline, which owns the complete time range.
 
 Keep image dimensions, placement and crop transformations visible so a measured head or a reserved
-MG area maps into the actual composition. Do not hardcode a global 9:16 canvas, fixed speaker side,
-renderer viewport or detector into a reusable Track. A project's chosen dimensions and positions
-are ordinary Source and Recipe decisions.
+MG area maps into the actual composition. Take the production's Canvas and the placement inputs the role needs. Derive related internal
+geometry from their common owner. A project scene may keep a fixed layout and speaker arrangement;
+a reusable behavior exposes the variation its real uses require. Keep renderer viewport selection
+and any detector in their own execution or measurement boundary.
 
 ## Write the smallest component that expresses the role
 
@@ -192,7 +195,10 @@ schedule and temporal identities at their actual boundaries so the editor consum
 instead of reconstructing them from pixels.
 
 Give the component a concise README, public vocabulary, a meaningful visual example and a preview
-showing the state change. Verify the actual intended transition: an answer appears on its Moment,
+showing the state change. State each exposed event's meaning and which state persists after it.
+When several actions follow different phrases, check their separate anchors through a delivery with
+uneven spacing; stretching only the outer Window would conceal a wrongly fixed internal trigger.
+Verify the actual intended transition: an answer appears on its Moment,
 previous answers persist, future ones remain hidden, and the whole strip respects its outer Window.
 A designed still alone cannot establish that behavior. For stateful MG, a few meaningful frame
 checks around activation and exit are more useful than snapshots of every implementation detail.

@@ -25,15 +25,17 @@ to a Script Moment.
 
 ## Own the visual relationship
 
-Media can present ordinary footage; a scene component can coordinate footage with diagrams or other
-graphics. Fine and custom Caption families have the same relationship. Their shared input is the
+Performance presents placed footage; Media supplies independent pictures. A scene component can
+coordinate either with diagrams or other graphics. Fine and custom Caption families have the same relationship. Their shared input is the
 authored speech and its semantic timing; the implementation owns the spatial structure and motion.
 
 Start from what the viewer should understand or feel. A supporting phrase might establish the
 thought while its key word takes the emphasis. Design how they enter, share space, respond to speech
 and hand off to the next thought. That relationship suggests useful controls: the word's authored
-role, fonts, relative sizes, placement and motion. Put the work's choices in its Style/Recipe and
-the reusable arrangement in the renderer.
+role, fonts, relative sizes, placement and motion. Put the choices the production actually needs to direct in its Style/Recipe and the arrangement
+in the renderer. A qualitative mode and a numeric field need the same justification; fixed decorative
+details can remain local. [Component design](component-design.md#expose-the-choices-the-work-needs)
+owns that interface decision.
 
 The output remains an ordinary VisualTrack. Its Presents can own trees of text, boxes, images and
 other visual elements. When words and graphics share layout or motion, they can live in the same
@@ -51,11 +53,16 @@ Track Uses → resolved time windows, Styles and optional speaker filters
 complete Cues + Uses + family parameters → family schedule → VisualTrack
 ```
 
+Consume each display word's `separatorBefore` with its `text`; never rebuild wording by joining
+speech Tokens with spaces or guessing from a writing system. Suppress a separator at the start of
+a displayed Cue/line. Use the same authored boundaries in base glyphs, active layers and backgrounds.
+Separators are display content, not timed Tokens.
+
 Use `@hypit/hypit/caption` for content timing and Use coverage, and `@hypit/hypit/narrative` for
 Script document types. A family Track accepts `document`, `timeline` and ordered `Use` children:
 
 ```svml
-<keyword:Track id="captions" document={story.caption} timeline={film.timeline}>
+<keyword:Track id="captions" document={story.caption} timeline={program.timeline}>
   <keyword:Use style={base-style}/>
   <keyword:Use role="GUEST" style={guest-style}/>
   <keyword:Use during={story.selection.punchline} style={punchline-style}/>
@@ -90,11 +97,11 @@ is a separate operation. A narrow width should not silently rewrite the Script i
 If the family needs an additional grouping rule, give that rule explicit parameters and preserve the
 original word/unit associations in the schedule.
 
-Display Words follow the Script's writing system: a Han character is normally one Word, while an
-English word is normally one Word. Keep that timing granularity separate from a phrase's visual
-grouping. Compose adjacent Han characters without Latin word gaps, preserve punctuation with its
-word, and use the selected fonts' actual widths for layout. Exercise mixed-script names as well as
-plain English when the family will carry Chinese copy.
+Display Words reflect Script's lexical units: a Han character is normally one Word, while an
+English word is normally one Word. Keep that timing granularity separate from visual grouping.
+Use each word's authored `separatorBefore` and `text`, including attached punctuation; derive no gaps
+from the writing system. Measure with the selected fonts' actual widths. Exercise Chinese with an
+intentional space, Korean word spaces, and mixed numeric/Latin spellings when the family carries them.
 
 For speech-following emphasis, activate each complete unit from its projected start and end.
 A Cue-wide left-to-right progress bar follows elapsed time and text width, which is a different

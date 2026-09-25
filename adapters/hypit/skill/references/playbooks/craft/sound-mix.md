@@ -1,77 +1,70 @@
 # Sound and mix
 
-Read this when speech, music, ambience, and sound effects must work together across a passage or the
-complete Film. Voice identity and the source of spoken performance belong to
-`voice-and-performance.md`.
+Read this when deciding what the audience should hear across a passage or the complete Film, and
+how the work's existing sound relates to added music or effects. [Voice and performance](voice-and-performance.md)
+owns who performs the words and where that voice comes from.
 
-## Give each layer a dramatic job
+## Start with the sound the material already carries
 
-Treat the soundtrack as a composition of independently authored contributions:
+In speaking-video A-roll, the person's picture, words and voice belong to the same performed Take.
+Its sound continues at the current Timeline position while B-roll, graphics or a different view
+changes the picture. Audio-only A-roll likewise supplies performed speech, with its picture authored
+separately. A wordless performance may carry its own sound or be silent. Present the selected Take's
+audio through [Sound](../../production/sound.md) according to what this passage should actually play.
 
-- **speech** carries words, performance, and intelligibility;
-- **music** carries continuous pace, mood, tension, release, and structural change;
-- **ambience** gives places and edits a believable acoustic world;
-- **sound effects** answer discrete visible or editorial events.
+B-roll can be a still, a silent video, or video with useful source sound. Its visual role alone does
+not decide whether the audience hears that sound. A lifestyle shot might contribute a particular
+door, footstep or burst of laughter; a picture covering a presenter's explanation may contribute no
+audio at all. [Media](../../production/media-presentation.md#include-sound-deliberately) makes source
+audio an explicit choice, leaving the selected performance voice available beneath a silent picture.
 
-Choose sounds for what the new piece is doing: a reveal can earn a short accent, a comparison can
-share a recognizable motif, and a transition can carry the music into the next idea. Let the video's
-character guide the sound palette. The Treatment describes these choices; the Source expresses them
-with ordinary audio Resources and Tracks.
-An audio library, generated sound, recorded material, or an earlier accepted Output can all supply a
-layer; choose from the work's need rather than treating origin as an audible category.
+Listen to what the chosen material already contributes before adding sound. Music can carry pace,
+mood or a change of thought; a short effect can give contact, reveal or transition an audible edge.
+A sustained environmental sound can locate a place or connect cuts when the material itself does not.
+These describe jobs in the work, not separate layers to fill. Environment may already be audible in
+the performance; its duration alone does not make it a different kind of asset from an effect.
+Designed quiet can be just as expressive as an added sound.
 
-## Let speech organize the available space
+Hypit provides ways to prepare, place and mix audio, not a maintained stock collection of BGM,
+short effects or long environmental sounds. Choose or make the particular material the work calls
+for from supplied, recorded, generated or otherwise available sources and project Outputs. Treatment
+captures why it belongs; Source and the chosen components express its use.
 
-In a work with dialogue or narration, every required word should remain effortless to understand on
-ordinary phone and laptop speakers. Shape music, effects, and ambience around consonants, names,
-numbers, claims, punchlines, and the CTA. A louder layer is not automatically more exciting if it
-makes the argument disappear.
+## Shape what leads the ear
 
-Use level changes, fades, arrangement gaps, frequency balance, or ducking when the music should yield
-to speech. Let an intentional pause, reveal, or montage earn a fuller musical moment. When a passage
-has no speech, the other layers can occupy more space without implying that every silence needs to be
-filled.
+When speech carries the idea, let the important words be readily understood in the finished mix.
+Music and effects can yield around a name, number, claim, punchline or quiet reaction, then take
+more space in a pause or a passage led by action or music. Set that relationship through level,
+placement, fades, arrangement and the selected source, rather than assuming every moment needs the
+same balance. Normalization prepares a source; the audible balance is decided in the composition.
 
-Normalize each selected source into media the program can place, then author its audible level and
-span. Normalization prepares a source; it does not decide the creative balance or master the complete
-Film. Keep speech, music, ambience, and effect families independently inspectable until their
-relationship is understood.
+Give each added sound an expressive reason. A comparison can share a motif; a reveal may earn one
+precise accent. A tactile process may be better carried by its small contact sounds than by a large
+impact. Repeating an effect because another cut occurred can exhaust its meaning; variation is useful
+when the event's dramatic role changes. Let the piece's character guide the palette.
 
-## Attach sound to meaning
+## Attach sound to the event it answers
 
-Continuous music usually follows a structural passage or the whole program. Ambience follows the
-world and may bridge picture cuts that remain in one place. A sound effect follows the perceived
-event that gives it meaning: contact, arrival, state change, reveal, transition, or completion.
+A sound responding to spoken meaning can follow a Script Selection or Moment, so it moves with the
+accepted performance. A sound belonging to a component's own entrance, state change or handoff can
+follow that event within the component. Music or another independently directed event can occupy
+an authored span of the Film. Choose the time relationship from what makes the sound happen; the
+same visual and audible event can share a cause without being forced into separate timing schemes.
 
-Use Script Selections and Moments when the sound belongs to spoken meaning. Use clock time when the
-event is genuinely independent of speech. The final accepted speech alignment locates semantic
-events in the produced media; a measured reading duration is not a substitute for it.
+The owner follows that relationship. [Sound](../../production/sound.md) presents audio from placed
+Takes; [Audio Track](../../production/audio-presentation.md) places independent audio; Media or a
+project component can publish sound coupled to its own picture and events. Film includes the wanted
+audio contributions explicitly. These are composition choices, while the installed packages own
+their exact playback, trigger and gain syntax.
 
-Repeated visual states can share a coherent sound vocabulary. Variation is useful when the dramatic
-function changes, not merely because another asset is available.
+## Preserve continuity across picture changes
 
-Layer an impact, click or whoosh when their combination gives the event a useful character; adding
-every available effect to every cut quickly exhausts the listener. A tactile process can instead
-depend on delicate contact and material texture. Preserve those small sounds and match their onset
-to the visible action rather than burying them under a generic impact.
+A picture cut need not cut the acoustic world. Room tone can continue across views of one place,
+music can bind a montage, and a speaking Take can remain audible as another picture takes the frame.
+A change of place, speaker perspective or narrative state may instead call for an audible handoff
+even when the picture changes gently. Follow the listener's sense of the encounter.
 
-An independent sound can use an Audio Item at a Script Moment with a deliberate duration. A sound
-intrinsic to a Media Item or Sequence transition can use that component's enter, exit or Handoff
-trigger. The component owns that event relationship. [Tracks](../../production/tracks.md) gives a
-Clip example; `@hypit/audio-track` and `@hypit/media-track` own exact playback and trigger syntax.
-
-## Preserve continuity through edits
-
-Picture cuts do not necessarily imply acoustic cuts. Room tone can continue across coverage, music
-can bind a montage, and a speaking Take can remain audible while B-roll or MG changes the picture.
-Conversely, a change of place, speaker perspective, narrative state, or designed silence may deserve
-an audible transition even when the picture changes gently.
-
-Give speech its complete phrase and let effect tails finish naturally. Use fades and overlaps to
-carry the intended handoff. Keep the mix coherent across the piece: clear speech, a consistent sound
-palette, and emphasis reserved for the moments that deserve it.
-
-For an existing performed passage, [Sound](../../production/sound.md) supplies local Uses for gain,
-silence and source handoffs while retaining its playback position. A crossfade Style names the two
-sources it blends; the selected Window controls its duration. Independent music and effects keep
-their own Audio Tracks.
+Let speech, source action and effect tails meet in the rhythm the scene needs. Use silence, fades or
+overlaps where they make that handoff audible. Review the actual Film where these sounds coexist:
+the chosen voice remains clear when it carries meaning, an effect belongs to its event, and the
+soundtrack retains the work's intended character across the passage.

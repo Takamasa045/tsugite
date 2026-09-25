@@ -32,8 +32,8 @@ sharpen the question and recognize what the reference is doing.
 A motion's name is a starting point. Inspect its path, scale or opacity change, pace, overshoot or
 settling, and relationship to neighboring events when those make the effect distinctive. Likewise,
 understand a graphic's hierarchy, typography, palette and spacing through what the viewer must read
-first and compare next. Compression comes from identifying a coherent behavior that explains many
-frames. A dimmer copy during an exit may be one object's fade, for example; inspect the sequence to
+first and compare next. Identify the coherent behavior linking the observed frames, including the
+details that make its states and transitions work. A dimmer copy during an exit may be one object's fade, for example; inspect the sequence to
 understand the change.
 
 Whole-piece and close readings revise each other. An object that survives a camera cut belongs to a
@@ -74,11 +74,13 @@ surrounding argument, visible names and supplied context. Small transcription er
 with a clear understanding of what the passage means.
 
 Pass the reference's spoken language explicitly: `--language zh` for Chinese, `en` for English,
-or `es` for Spanish. A Chinese passage can contain English brands and names while still using `zh`.
+`es` for Spanish, or `ko` for Korean. Actual alignment support belongs to the selected service;
+for local execution, prepare that language's resources as described in
+[local tools](../environment/local-tools.md). A Chinese passage can contain English brands and names while still using `zh`.
 Its timed Chinese characters help locate a phrase precisely; group those characters into meaningful
 phrases when describing the reference and writing the new Script.
 
-[Environment selection](../environment/profile.md#choose-the-practical-capability-path-with-the-user)
+[Service selection](../environment/model-and-provider.md#choose-the-practical-capability-path-with-the-user)
 explains assessing local preparation and choosing the local or hosted path for this transcription.
 
 WhisperX's recognized spelling reflects the recognizer's interpretation of the audio. Coined words
@@ -97,6 +99,22 @@ The local `hypit media` commands expose the source at the scale needed:
 - `tile` and `tiles` arrange time-labeled frames for inspecting change, with optional word context;
 - `boundaries` locates abrupt visual changes worth inspecting;
 - `fetch` saves a supported video link locally.
+
+For a close reading of motion, `frames --every-frame` and `tiles --every-frame` retain every original
+frame in the selected interval. Each interval is decoded continuously once, then the images are
+paginated at the requested cell size. Actual source timestamps preserve variable-rate footage.
+Use `--ranges` with `tiles` to visit several intervals, and `--transcript` to read their word context.
+
+```bash
+hypit media tiles references/ad/source.mp4 --start 6.8 --end 8.4 --every-frame \
+  --columns 4 --rows 3 --cell 480 --transcript references/ad/transcript.json \
+  --to references/ad/evidence/list-motion
+```
+
+For the production being composed, [snapshot](../production/snapshots.md) captures its existing
+picture directly from Studio or compiled HTML. Align the comparison by the event's meaning and
+then inspect its concrete frames. Coarse and fine readings continue to inform each other: understand
+the whole work, establish the particular behavior, and revisit the whole explanation with that knowledge.
 
 Read grids along the developing explanation, using the transcript's phrases and word times as the
 preferred guide for spoken references. Pass `--transcript` to keep those words beside the frames;
@@ -199,9 +217,9 @@ The user's request determines how those relationships should live in the new pie
 person or product may change the argument, copy, number of examples, graphic content, placement and
 duration. Use [transformations](transformations.md) to think through that adaptation. Prefer
 Selections for meaningful spans and Moments for events in the target Script, and let the accepted
-performance establish their time. [Script and time](script-and-time.md) owns that authoring language.
+performance establish their time. [Script syntax](../production/script-syntax.md) owns that authoring language.
 
-For generated camera imagery, [image direction](../playbooks/craft/image-direction.md#compress-the-idea-into-decisive-anchors)
+For generated camera imagery, [image direction](../playbooks/craft/image-direction.md#two-ideas-behind-every-sentence)
 turns the observed appearance into a coherent styling and scene direction, with the decisive details
 the target needs. The reference notes retain the observations behind those choices.
 
@@ -221,6 +239,6 @@ Keep the current question, passages or systems still to examine, and next useful
 accounts when the reading changes. When resuming, read these files and reopen the source at the
 recorded locations. The user's goal remains in Brief and your new design in Treatment.
 
-When the intended adaptation depends on an action's exact movement or camera path, preserve a useful
-source excerpt as motion evidence for [reference-directed generation](../playbooks/craft/video-direction.md#let-footage-carry-motion-that-matters).
-The analysis explains what matters; the footage can carry that movement into the model request.
+When the intended adaptation depends on a performed, physical or camera relationship unfolding in
+time, preserve a useful source excerpt as temporal evidence for [reference-directed generation](../playbooks/craft/video-direction.md#let-footage-carry-temporal-behavior-that-matters).
+The analysis explains what matters; the footage can carry that behavior into the model request.

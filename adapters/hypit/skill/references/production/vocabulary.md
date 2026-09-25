@@ -44,9 +44,9 @@ package-local Fragment documentation for those inputs and exports.
 
 Read the model Surface's reference roles and per-input metadata as well as its prompt parameters.
 The prompt gives direction; the actual edges supply media and the declared facts needed to use it.
-For example, Seedance's `person-reference="true"` identifies a supplied image/video containing a
-person or generated human likeness; false describes a reference without it, and audio has no such
-visual field. Its installed README owns the exact Reference and frame-mode forms. The
+Seedance requires `person-reference="true|false"` on every image/video reference: true if the supplied
+material contains a person, false otherwise. Audio must omit it. Its installed README owns the required
+first/last-frame forms. The
 [Provider](../environment/model-and-provider.md) translates these facts into the selected service's
 media preparation without adding service instructions to the creative prompt.
 

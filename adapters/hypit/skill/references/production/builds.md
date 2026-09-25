@@ -35,6 +35,12 @@ reuse completed Outputs. A closed terminal or interrupted
 observation is distinct from a failed Provider request inside the Build. Finishing an incomplete
 Result is covered below and does not require regenerating media.
 
+Follow-up commands printed by the CLI retain the project and relevant Runtime. Preserve that scope
+when adapting a command. Watching with `--json` still reports coalesced progress on stderr while
+stdout carries the final JSON; read both channels when the terminal tool exposes them. Translate the
+reported work, relevant uncertainty and useful next action into a concise update for the user.
+The Runtime owns execution; a conversational update or a detached observer does not pause it.
+
 For a slow or failed stage, read its retained execution evidence:
 
 ```bash
@@ -168,8 +174,9 @@ Result label; it does not replace the Build id or alter Source identity.
 Build performs a cheap preflight and submits only when the selected deployment slice is ready. It
 does not install packages or start a missing Managed Program. When the environment has already been
 prepared and only the Worker is stopped, Build ensures that Worker becomes available. When
-preparation is missing, use `hypit runtime up` as described in `../environment/profile.md` and submit
-again after it succeeds.
+preparation is missing, prepare the selected Endpoint with `hypit programs prepare --endpoint <instance>`;
+use `programs up` if its helper also needs starting. [Local preparation](../environment/local-tools.md#let-the-selected-endpoint-own-its-program)
+explains their scope and the combined `runtime up` command. Submit again after the required preparation succeeds.
 
 The Worker owns execution after durable submission. `--follow` only observes it; closing or
 interrupting that terminal detaches the observer and leaves the Build running. Reattach with:
@@ -199,10 +206,10 @@ ends the attempt and preserves available remote receipts; it does not resubmit t
 When an action fails, the attempt ends and local reservations are released. Any last-observed remote
 status remains evidence, rather than a condition the old Build must resolve before the next attempt.
 
-Providers that expose `actionLimits` can separately limit asynchronous `submit`, `poll` and `collect`
-actions through `concurrency` and `rate: { limit, periodMs }`. These budgets share the Profile's pool.
-Task occupancy, overlapping network actions and starts permitted per time period are different quantities;
-`activity --verbose --json` exposes the actual resource claims. Provider-local documentation owns available settings.
+`activity --verbose --json` exposes actual resource claims when capacity explains a wait.
+Task occupancy, overlapping network actions and starts permitted per time period are different
+quantities. [Runtime profiles](../environment/profile.md) owns their configuration and selection;
+the selected Provider's documentation owns its available settings.
 
 ## Separate active work from Result outcome
 

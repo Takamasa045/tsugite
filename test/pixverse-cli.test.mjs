@@ -91,7 +91,7 @@ describe("PixVerse CLI request mapping", () => {
     });
   });
 
-  it("covers every create operation exposed by PixVerse CLI 1.4.4", () => {
+  it("covers every create operation exposed by PixVerse CLI 1.4.6", () => {
     expect(Object.keys(pixverseOperationContract)).toEqual([
       "video",
       "image",
@@ -107,12 +107,12 @@ describe("PixVerse CLI request mapping", () => {
     ]);
   });
 
-  it("pins official PixVerse CLI 1.4.4 in the opt-in runtime", async () => {
+  it("pins official PixVerse CLI 1.4.6 in the opt-in runtime", async () => {
     const pkg = JSON.parse(await readFile("adapters/pixverse/runtime/package.json", "utf8"));
     const lock = JSON.parse(await readFile("adapters/pixverse/runtime/package-lock.json", "utf8"));
-    expect(pkg.dependencies.pixverse).toBe("1.4.4");
-    expect(lock.packages["node_modules/pixverse"].version).toBe("1.4.4");
-    expect(lock.packages["node_modules/pixverse"].resolved).toContain("pixverse-1.4.4.tgz");
+    expect(pkg.dependencies.pixverse).toBe("1.4.6");
+    expect(lock.packages["node_modules/pixverse"].version).toBe("1.4.6");
+    expect(lock.packages["node_modules/pixverse"].resolved).toContain("pixverse-1.4.6.tgz");
   });
 
   it("forwards MiniMax H3 Max and GPT Image 2.5 model ids unchanged", () => {

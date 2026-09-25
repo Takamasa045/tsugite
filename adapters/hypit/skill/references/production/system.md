@@ -1,230 +1,169 @@
 # How a Hypit production fits together
 
-Read this for the relationships that connect authoring, media, composition and execution.
+Read this for the relationships among material, meaning, time, space, presentation and execution.
+[Production navigation](index.md) routes each current question to its detailed owner.
 
 > Give semantics to the timeline, rather than the timeline to semantics.
 >
 > Give layers to the canvas, rather than the canvas to layers.
 
-The work has a complete time range and a canvas. Add semantic attachments where events belong to
-speech, and introduce component boundaries where they express useful shared behavior. A silent
-ending can contain only graphics. A moving presenter and diagram can share one scene. Neither time
-nor space needs to be completely partitioned by the same kind of object.
+The work has a complete time range and a canvas. Attach events to their meaning in the performed
+work; introduce component boundaries where content shares useful layout, state or motion. Semantic
+coverage need not fill time, and visual components need not partition the canvas into fixed regions.
+The author decides which relationships the work needs. Hypit expresses and realizes them.
 
-SVML expresses what belongs together in a video: which media carries a passage, which picture
-supports an idea, and which words or events a Caption, graphic or sound follows. Those relationships
-let the production survive revision. When a performance becomes longer, a graphic attached to the
-same phrase can still appear with that phrase.
+## Materials acquire their roles through use
 
-Treat components as vocabulary you can use and extend. A comparison, a scrolling conversation or a
-presenter making room for a diagram can each have named content, events and behavior. Define the
-parts that make this work understandable and useful to change. Existing Media, Caption and other
-components can supply familiar behavior; a project component supplies a new role through the same
-interfaces. [Component design](component-design.md) explains how to find those boundaries.
+A supplied file, a generated Output and a reused Result can supply the same kind of material.
+An image has dimensions; moving media has local time and selected picture/audio streams. Transparency
+is a property of the prepared picture. A model reference, a performed passage and an independent
+illustration are uses of material, not separate file classes.
 
-For spoken work, semantic authoring is the preferred starting point, including a clone.
-Understand which idea, question, answer or action each layer serves. Express that relationship in
-the target's Script and components, then project it through the new media. For example, a product
-picture follows the explanation of its benefit and a graphic settles when the speaker gives the
-verdict. The reference's seconds locate evidence; the target's actual performance supplies its time.
+For a work carried by performance, including a short drama or an otherwise pure A-roll piece,
+prefer Script and semantic preparation. Script names meaningful, performable passages and events;
+the accepted performance supplies their actual time. This remains useful without MG: replacing a
+passage, revising dialogue, placing Caption or directing sound can preserve the same relationships.
+A Segment need not equal one camera shot or one speaker turn.
 
-## Materials meet composition at the Timeline
+In this spoken chain, A-roll is the performance carrying the Script passage. Its picture can fill
+the frame, move, disappear beneath evidence, or be absent in an audio-only performance. That role
+specifies neither a source aspect ratio nor a visual component type.
 
-```text
-Script + directed or supplied material
-                ↓ normalization and, for Script performance, semantic preparation
-         prepared material with local time
-                ↓ placement
-     Timeline: full extent, Takes and semantic anchors
-                ↓ selected content, event times and source playback positions
-       components → Film → rendered video
-```
+Material identity, performance role and current appearance answer different questions. One placed
+performance can supply several simultaneous views; a later replay of its source can have independent
+playback. Direct cuts and continuous movement are authored ways to change presentation. The Timeline
+keeps the performance's time, while each visual owner determines its use on the Canvas. A layout
+change can reuse the same accepted material and semantic evidence.
 
-Independent images, B-roll and music bring their own assets to their components. Caption also uses
-the Script's display text. The Timeline supplies their common time context; a Frame supplies spatial
-placement. The diagram describes relationships, not a serial production checklist: independent
-material requests and component implementation can progress together.
+A **SemanticTake** combines one Segment's prepared media with its local word and boundary positions.
+The current Timeline Take input is this value. Independent images, video inserts and music instead
+enter the components that use them; they do not need artificial Script passages. A wordless performed
+Segment has real media and its boundary times. A standalone material transformation can finish with
+the transformed asset. [Media preparation](media.md) explains these input relationships.
 
-Script names the work's Segments, words, Selections and Moments. A Segment identifies a passage;
-a Selection identifies a range within the Script; a Moment identifies a point. The author can refer
-to them before a performance has been generated.
+## One Timeline provides the work's time
 
-Once the media exists, normalization gives it a shared frame clock. A **SemanticTake** associates
-that media with one Script Segment and records its word and boundary positions in local frames.
-The **Timeline** places prepared Takes within the complete work. Their global word and boundary
-positions are local positions plus the Take's placement start. It can contain gaps or overlapping
-Takes, or no Takes at all. A pure MG work uses this same declaration with an authored end.
+The **Timeline** holds the complete range and placed Takes. A Take's placement translates its local
+positions into program time. Gaps, overlaps and a range with no Takes are valid. A code-authored ending
+can extend past the last performance; a wholly authored animation uses the same Timeline.
 
-[Timeline authoring](timeline.md) explains sequential defaults, relative and absolute placement,
-head/tail space and the unified component input.
+For an event that responds to a word or passage, retain the Script Moment or Selection. The component's
+Surface projects that reference through the actual Timeline to an Instant or Window. Independent
+rhythm can use authored clock positions, and motion can have its own duration. These all use the
+same program clock. [Timeline](timeline.md) owns placement; [Timing](timing.md) owns event expressions.
 
-In spoken work, the performance carrying the main Script is the A-roll. A single presenter, a
-conversation with several speakers, and an independent narration can each carry this spine.
-Covering the speaker with B-roll does not change whose words establish time. Timeline assembly places
-the relevant Takes and retains their source material. Performance or a project
-component presents the placed picture; Sound presents the placed audio. Film explicitly selects
-their contributions.
-The speaker can occupy a small circular inset or appear as a cutout above a full-screen demonstration.
-That speaking performance still supplies the SemanticTake. A-roll describes this semantic role;
-screen area and stacking belong to its visual presentation.
+Placed content is available before any presentation is selected. Timeline chooses no winning
+picture, transition or audible mix. An overlap supplies multiple sources; the presentation owns how
+they appear or sound. Independent Media, graphics and audio also use this Timeline to place events,
+including events attached to speech.
 
-This is how “show the proof while she explains the result” becomes a precise interval in the
-produced video. A wordless Segment works through the same relationship: its media supplies the
-span, with start and end boundaries and no spoken words to locate.
-A gap instead reserves time without a Take. Use Timeline placement and extent for such passages;
-their graphics can be authored directly.
+## One Canvas provides the work's space
 
-[Script and semantic time](../creation/script-and-time.md) explains the authoring forms.
-[Media preparation](media.md) explains normalization and constructing Takes.
+The **Canvas** supplies picture dimensions and coordinates. A Frame locates a destination; fitting
+maps a source's real extent into it. Components own their internal layout and motion. A presenter
+and diagram can share a scene, while an independent title remains a peer. Frames may overlap, nest,
+move or extend beyond the canvas.
 
-## Components turn those relationships into picture and sound
+Canvas is a geometry value, not a second asset store or a central layer tree. Each visual contribution
+publishes its own appearances and internal trees. A **Present** owns an appearance's lifetime and
+paint order; that order determines what covers what. [Spatial layout](spatial.md) owns geometry;
+[component design](component-design.md) owns useful visual scope.
 
-Choose content ownership as well as presentation:
+Time authority and visual scope are independent choices. One scene can follow several semantic
+events; separate components can share one Moment. Giving a scene the whole canvas does not require
+fixed-second choreography. Giving an image a semantic Window does not turn it into a Take.
 
-| Content relationship | Useful starting point |
-| --- | --- |
-| An independent image, video or surface with its own placement | Media |
-| Existing Timeline footage shown full frame, inset, hidden or moving | Performance |
-| Existing Timeline audio | Sound |
-| Independently supplied music and effects | Audio Track |
-| Independently authored text | Typography |
-| Existing Script words presented at their performed times | Caption |
-| A newly coordinated visual role with shared layout, state or motion | A project component |
+## Present existing content or supply independent content
 
-These are useful abstractions to compose and extend. A custom Performance Style can direct footage;
-a scene owning a presenter and diagram can expose their combined behavior. [Performance](performance.md)
-and [component design](component-design.md) explain those choices. [Sound](sound.md) applies local
-treatments to existing audio through the same Use model.
+Two content relationships recur in ordinary authoring:
 
-Content, Use and Style answer different questions: what is available, when a treatment applies,
-and what that treatment does. Performance, Sound and Caption share timed Uses: a broad Use sets
-the treatment, and later matching Uses replace it locally, including hidden or silent presentation.
-The original source playback and word timing continue beneath those choices. Independent Tracks
-can coexist when the work calls for simultaneous presentations. [Caption presentation](caption-presentation.md)
-explains how complete Cues retain their content while their styling changes.
+| Content | Present already authored content | Supply content for this contribution |
+| --- | --- | --- |
+| Picture | Performance obtains footage and source positions from Timeline. | Media receives images, prepared video or compositable surfaces. |
+| Sound | Sound obtains placed audio from Timeline. | Audio Track receives independent audio-bearing material. |
+| Text | Caption obtains Script display content and its performed timing. | Typography/Text receives independent writing. |
 
-Choose each relationship at the scale that makes it useful. Script describes what an event follows;
-Frames describe placement; a component owns shared layout, state and motion. The dependency graph
-says which values that work needs. These structures can differ: a Source element can produce several
-appearances, and one appearance can contain a whole scene of video and graphics.
+These are useful starting points. A project scene can combine placed footage, independent assets,
+text and projected events when they share behavior. The same video can carry a performance here and
+serve as an independent replay elsewhere. [Tracks](tracks.md) routes the actual presentation choices.
 
-A component gives an authored relationship its behavior. A ranking board can consume a phrase's
-Selection to animate an entry; a reveal, flash and sound can share one Moment. Each interprets the
-event according to its role. The board may keep the revealed answer visible after the entrance ends.
+Performance, Sound and Caption separate available content, timed **Uses**, and the **Style** applied
+by each Use. Later matching Uses replace the treatment locally; independent Tracks can coexist.
+The content retains its original timing under these choices. Each family owns its rendering and
+content-specific rules.
 
-Where placement, appearance or content need external direction, a component can accept a Frame,
-Style, text or images for those choices. This lets one behavior serve different uses. A one-off scene
-can instead keep its specific design local while receiving the media and semantic events it needs.
+Keep three times distinct: program time locates the appearance, source time identifies the media
+frame, and local animation time determines the presentation's state. A Take placed at second 5 is
+at source second 2 at program second 7, even if its viewport only becomes visible then. Performance
+and project scenes can consume this mapping directly. An independent Media Item instead declares
+its own source and playback policy. [Performance](performance.md) explains continuous presentation.
 
-Visual and audio components publish Tracks. A visual Track groups named appearances; each appearance
-owns its lifetime, paint order and internal element tree. A moving video and its diagram can form
-one scene, with independent Caption beside it. Media provides ordinary presentation, and a project
-component can own the shared behavior of a more specific scene. [Component design](component-design.md)
-explains that choice; [drawing a component](component-visuals.md) shows both structural elements and
-HTML/CSS programs with frame-driven behavior.
+An original and a cutout are explicit material choices. If the placed Take contains only the cutout
+picture, a presentation needing its original background must receive the retained original as an
+input. No Style can recover pixels absent from its material.
 
-The component's Surface can accept a Moment, Selection or direct time and use shared projection
-helpers to provide the resulting Instant or Window to its behavior. The author expresses the
-relationship in one place; the implementation handles its conversion to frames. When presenting
-speech media, its playback mapping also identifies the right Take and source frame. Moving its
-viewport can therefore leave the performance playing continuously.
+## Components express the relationship worth preserving
 
-A local HTML/CSS program can own the needed layout, state and motion while participating in the
-same composition as ordinary Media and Caption. It does not need to become an intermediate video.
-The scene's internal implementation can use further functions and parts without making each one a
-separate Track. This lets an author expose the useful controls and implement the rest locally.
+A component owns shared behavior. Its public inputs connect actual dependencies and useful directing
+choices: selected assets, important events, placement or a treatment that the work needs to vary.
+Decorative geometry and a fixed local design can remain in its implementation. A one-off scene is
+ordinary production work; reuse and cross-project distribution are separate decisions.
 
-Film assembles the wanted Tracks into a **Composition**, and rendering turns that composition into
-the delivered video. Including performance audio lets
-it continue under B-roll; a silent covering picture changes only the visible layer.
-A component coordinating graphics and sound can publish both contributions; Film selects each
-explicitly. Their shared event can preserve synchronization without making audio inclusion implicit.
+Critical internal events need their own semantic relationships when they answer different parts of
+the performance. Making only the scene's outer Window semantic does not keep several word-linked
+actions synchronized. Interpolation and local motion can then follow those events without exposing
+every number as a control. [Component design](component-design.md#let-meaning-drive-the-behavior)
+explains that boundary; [Track authoring](track-authoring.md) explains the public implementation path.
 
-[Tracks](tracks.md) explains the available roles. [Spatial layout](spatial.md) and
-[fonts and text](fonts-and-text.md) explain their shared inputs. A new role can be implemented as a
-[project component](track-authoring.md) and included through the same composition model.
+Visual components publish VisualTracks; audible contributions publish AudioTracks. Film explicitly
+selects the wanted contributions and combines them with Timeline and Canvas into a **Composition**.
+Including picture does not include sibling sound automatically. A whole scene can publish both
+outputs while keeping their assembly explicit. Source nesting, component scope, paint order and
+execution dependencies describe different relationships and need not have matching boundaries.
 
 ## Give each part the direction it can realize
 
-The Agent connects the complete design to the responsibilities of its parts. Treatment retains the
-creative reasoning; each production input expresses the choice its recipient should realize.
+The Agent keeps the complete creative intention and translates it into each part's effective inputs.
 
-| Recipient | Useful direction |
+| Recipient | Direction it can realize |
 | --- | --- |
-| Image generation | The intended picture: appearance, style, camera relationship, visible activity, setting and reference facts. |
-| Video generation | The performed passage: dialogue, attitude, audible and visible expression, actual interaction, camera behavior and cuts. |
-| Voice generation | The intended vocal character and delivery, with the wording and references appropriate to that request. |
-| Visual and audio components | The selected materials, content, layout, presentation, mix and authored events they should arrange. |
+| Image generation | Visible appearance, setting, camera relationship, activity and reference facts. |
+| Video generation | Dialogue, performance, physical interaction, camera behavior and intended cuts. |
+| Voice generation | Wording, vocal character, delivery and suitable voice references. |
+| Visual/audio components | Selected content, layout, events, treatments and mix. |
 
-A planned graphic may affect where the camera places a person. Give the image request that camera
-relationship and give the graphic component its own placement and events. This preserves the shared
-design through different inputs rather than copying the whole Treatment into each request.
-
-High-level language earns its place through the sensory or behavioral choices it communicates.
-Preserve recognizable styling and performable attitudes; resolve an uncertain action or a figurative
-idea into the output actually intended. [Image direction](../playbooks/craft/image-direction.md),
-[video direction](../playbooks/craft/video-direction.md) and
-[voice direction](../playbooks/craft/voice-direction.md) own those concrete judgments. The
-[Prompt Kit](prompt-kits.md) preserves useful wording and assembles the chosen direction.
+A planned diagram may call for a person framed on the right. Give the image request that visible
+camera relationship; give the diagram component its placement and events. Translate later MG or
+screen-writing needs into the picture facts the image model can produce. The full Treatment remains
+the director's context. [Image direction](../playbooks/craft/image-direction.md),
+[video direction](../playbooks/craft/video-direction.md), [voice direction](../playbooks/craft/voice-direction.md)
+and [Prompt Kits](prompt-kits.md) own those local decisions and templates.
 
 ## Source describes the work; Run selects this execution
 
-The Author Source connects the Script, media requests, components and deliverables. Recipes hold
-reusable authored choices such as Styles or prompt configurations. The connections form a dependency
-graph: completing the final video requires the values used to make it.
-The author graph describes those dependencies; the run graph incorporates this execution's selected
-Targets and Candidates. Visual grouping, paint order and execution dependency remain separate
-relationships: one scene can require several material requests, while one material can supply
-several appearances.
+The Author Source connects content, media requests, components and deliverables. Recipes provide
+authored values. A Run chooses public Outputs as **Targets** and can supply alternative **Candidates**,
+such as a file or an exact earlier Result Output. The selected dependencies determine what executes.
 
-These graphs have different jobs. The Author Graph offers the work's public Outputs and their
-default computations. The Run Graph supplies Targets and explicit alternative Candidates. Planning
-applies those choices, follows the selected dependencies and freezes one execution definition for
-the Build. Runtime advances that selected work; it does not reconsider Candidates or rediscover reuse.
+For a layout revision, keeping a compatible SemanticTake preserves the performance and alignment
+while the presentation recomputes. Keeping only its generated video lets normalization and alignment
+recompute too. Keeping the old Composition would also preserve the old layout. Choose the reuse
+boundary according to the current edit. [Authoring](authoring.md#reuse-produced-work-explicitly)
+owns that judgment; [Runs](runs.md) owns the syntax.
 
-A **Run** selects which public Outputs to complete through **Targets**, and can choose a different
-**Candidate** for an Output. That Candidate might be a supplied file, a prior Result, or a computation
-provided by a Run Fragment.
+A **Build** executes the selected work. Its **Result** retains completed public Outputs, including
+usable products completed before a later failure. A new Build uses prior work only through explicit
+selection. [Builds](builds.md) owns execution, recovery and retrieval.
 
-For a Caption revision, keep the existing SemanticTake and target the final video. The selected Take
-already supplies the performance and its timing; the changed Caption and downstream rendering remain
-work to do. This separates revising the video from repeating media generation. The Run records that
-reuse explicitly.
+## Runtime and Studio serve the authored work
 
-Selecting only the generated video instead leaves normalization and semantic preparation downstream.
-Selecting the Take keeps those prepared relationships too; selecting the final composition would
-also keep its earlier layout. Choose the boundary that preserves the material without preserving the
-thing being edited. A new named Output can reference existing bytes, including inside a composite
-value; a new Build does not by itself mean new media or another stored copy.
+External work is expressed as a Need. Model and processing packages define capabilities; Providers
+implement them through Endpoints selected by a Runtime Profile. Tools, credentials and capacity belong
+to those execution choices. [Environment](../environment/profile.md) owns setup; [rendering](rendering.md)
+owns requesting an encoded output from the Composition.
 
-A submitted execution is a **Build**. Its **Result** retains completed public Outputs for inspection,
-delivery and future selection, including useful Outputs completed before a later failure.
-Runtime maintains the running work; Result files keep its products available independently of that
-process. If an attempt fails, a new Run can select those products for a new Build. When changing the
-video, locate the owning choice—material direction, placement, presentation or execution selection—
-and preserve the other relationships that still serve the work.
-
-[Source syntax](source-syntax.md) explains declarations and references. [Runs](runs.md) explains
-selection and substitutes. [Builds and Results](builds.md) explains submission and retrieval.
-
-## Runtime supplies the execution facilities
-
-Some computations arrange values; others require media tools or external services. The latter
-produce a **Need** describing that work. A model package defines a request's meaning, and a Provider
-implements the corresponding capability through an Endpoint. The Runtime Profile selects the
-facilities, credentials and capacity used to execute it.
-
-For example, the Source declares the composition and requested render interval; the local
-HyperFrames Provider's configuration chooses its worker count. A production can keep its authored
-relationships while using the execution setup selected for it.
-
-[Runtime profiles](../environment/profile.md) explains those choices. [Rendering](rendering.md)
-explains whole and partial video outputs. [Studio](studio.md) provides interactive inspection and
-editing of the same authored work with its selected media.
-
-In Studio, a component's Companion makes its authored choices recognizable and editable. Content
-and Uses can occupy one Track with an internal Band; independent child objects can have their own
-lanes. A Style can supply its own controls through a parameter Companion. Editing a Use changes its
-application; editing a shared Style, Frame or Selection changes that shared source and its consumers.
-[Companion authoring](studio-companions.md) explains how project components supply these views and
-writeback relationships through the same public interfaces.
+Studio inspects the same selected Run. A package's Companion connects recognizable entities and
+useful controls to their actual authored facts. Editing a shared Style or semantic event affects
+its consumers; a local parameter changes its own owner. Studio does not require every internal
+detail to become editable. [Studio](studio.md) explains use and writeback;
+[Companion authoring](studio-companions.md) explains project integration.
