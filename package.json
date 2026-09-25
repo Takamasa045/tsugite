@@ -61,7 +61,7 @@
   },
   "devDependencies": {
     "@tsugite/hyperframes-in-memory-zip": "file:backends/hyperframes/in-memory-zip",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.6.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@typescript/native": "npm:typescript@^7.0.2",
