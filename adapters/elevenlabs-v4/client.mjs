@@ -59,7 +59,13 @@ export function selectElevenV4SpeechTool(tools, model) {
     if (!properties || schema.type !== "object") continue;
     if (!["text", "voice_id", "model_id"].every((field) => properties[field]?.type === "string")) continue;
     if ((schema.required ?? []).some((field) => !["text", "voice_id", "model_id"].includes(field))) continue;
-    if (Array.isArray(properties.model_id.enum) && !properties.model_id.enum.includes(model)) continue;
+    const modelSchema = properties.model_id;
+    if (Array.isArray(modelSchema.enum)) {
+      if (!modelSchema.enum.includes(model)) continue;
+    } else if (modelSchema.const !== model) {
+      continue;
+    }
+    if (modelSchema.const !== undefined && modelSchema.const !== model) continue;
     return name;
   }
   throw new ElevenV4Error("mcp_v4_speech_tool_unavailable", 20);

@@ -24,7 +24,7 @@ generation:
 
 この voice ID はユーザー指定の「いとぱんの声」です。通常のv4を使う場合は `model: eleven_v4` に変更できます。Eleven v4 Turbo とこの音声の組み合わせは、認証済み接続で未確認です。アダプターは単一話者、2,000文字以下、MP3の narration だけを扱います。複数話者、音声参照、追加パラメータ、他モデルへの自動切替は未対応です。
 
-送信前にMCPの `tools/list` で、`text`、`voice_id`、`model_id` を持つ音声ツールを確認します。ツールが指定モデルを受け付けないと宣言していれば送信せず停止します。ElevenLabsの[モデル資料](https://elevenlabs.io/docs/overview/models)はv4 Turboの利用経路をText to Dialogue WebSocketと案内しており、ホスト型MCPからのTurbo生成は未検証です。`pipeline models --config <project.yaml> --json` はローカル契約だけを確認して `provider-validation-required` を返します。
+送信前にMCPの `tools/list` で、`text`、`voice_id`、`model_id` を持つ音声ツールを確認します。`model_id` の `enum` または `const` で指定モデルへの対応が明示されていなければ、送信せず停止します。ElevenLabsの[モデル資料](https://elevenlabs.io/docs/overview/models)はv4 Turboの利用経路をText to Dialogue WebSocketと案内しており、ホスト型MCPからのTurbo生成は未検証です。`pipeline models --config <project.yaml> --json` はローカル契約だけを確認して `provider-validation-required` を返します。
 
 MCPから返るMP3データまたはElevenLabsドメインの短期ダウンロードURLをrun内に固定し、manifestの narration に入れます。外部リンクや想定外の形式は拒否します。結果が不明なMCP呼び出しは二重課金を避けるため自動再送しません。`estimated_credits: 0` と結果の `credits: 0` は料金を計測していない意味で、無料ではありません。
 

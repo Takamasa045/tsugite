@@ -197,6 +197,23 @@ describe("ElevenLabs Eleven v4 generation", () => {
     expect(selectElevenV4SpeechTool([speechTool(["eleven_v4"])], "eleven_v4")).toBe("text_to_speech");
   });
 
+  it("rejects speech tools without an explicit model declaration before sending", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-"));
+    const client = mockClient();
+    const unenumerated = speechTool();
+    unenumerated.inputSchema.properties.model_id = { type: "string" };
+    client.listTools.mockResolvedValue({ tools: [unenumerated] });
+    await expect(generateElevenV4({ request, run_dir: runDir }, { client }))
+      .rejects.toMatchObject({ code: "mcp_v4_speech_tool_unavailable" });
+    expect(client.callTool).not.toHaveBeenCalled();
+    expect(selectElevenV4SpeechTool([{ ...unenumerated, inputSchema: {
+      ...unenumerated.inputSchema,
+      properties: { ...unenumerated.inputSchema.properties, model_id: {
+        type: "string", const: request.model
+      } }
+    } }], request.model)).toBe("text_to_speech");
+  });
+
   it("rejects an untrusted download link in the MCP result", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-"));
     const client = mockClient();
