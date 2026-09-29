@@ -29,7 +29,7 @@ describe("dependency security contracts", () => {
       "adm-zip": "npm:fflate@0.8.3",
       "fast-uri": "3.1.7",
       hono: "4.13.7",
-      "ip-address": "10.4.0",
+      "ip-address": "10.5.1",
       postcss: "8.5.25",
       qs: "6.16.0",
       sharp: "0.35.4"
@@ -53,7 +53,7 @@ describe("dependency security contracts", () => {
     expect(lockfile.packages["node_modules/fast-uri"].version).toBe("3.1.7");
     expect(lockfile.packages["node_modules/qs"].version).toBe("6.16.0");
     expect(lockfile.packages["node_modules/hono"].version).toBe("4.13.7");
-    expect(lockfile.packages["node_modules/ip-address"].version).toBe("10.4.0");
+    expect(lockfile.packages["node_modules/ip-address"].version).toBe("10.5.1");
     expect(lockfile.packages["node_modules/postcss"].version).toBe("8.5.25");
     expect(lockfile.packages["node_modules/sharp"].version).toBe("0.35.4");
     expect(manifest.scripts["security:audit"]).toBe(
