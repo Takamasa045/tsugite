@@ -42,6 +42,11 @@ export type AgentHandoff = {
   auth_kind?: GenerationConnectionResolution["auth_kind"];
   execution_mode?: GenerationConnectionResolution["execution_mode"];
   connection_contract_digest?: string;
+  transfer?: {
+    input_scope: "request-metadata";
+    credential_env: string[];
+    timeout_ms: number;
+  };
   automatic_fallback?: false;
   kind: AdapterDefinition["kind"];
   class: AdapterDefinition["class"];
@@ -353,6 +358,13 @@ function createAgentHandoffs(
         : {}),
       kind: adapter.kind,
       class: adapter.class,
+      ...(adapter.network?.input_scope === "request-metadata"
+        ? { transfer: {
+            input_scope: adapter.network.input_scope,
+            credential_env: [...adapter.network.credential_env],
+            timeout_ms: adapter.network.timeout_ms
+          } }
+        : {}),
       outputs: project.generation.requests.map((request) => request.id),
       dry_run_estimate_available: adapter.dry_run_estimate,
       batch: adapter.batch,

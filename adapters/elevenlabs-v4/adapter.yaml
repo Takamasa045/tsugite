@@ -1,0 +1,29 @@
+name: elevenlabs-v4
+kind: cli
+class: generation
+offline: false
+network:
+  input_scope: request-metadata
+  timeout_ms: 120000
+  credential_env: [ELEVENLABS_MCP_ACCESS_TOKEN]
+dry_run_estimate: true
+batch: false
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "20": provider_unavailable
+  "30": credential_missing
+  "40": invalid_request
+model_preflight:
+  executable: node
+  args: ["adapters/elevenlabs-v4/preflight.mjs"]
+  input: stdin-json
+command:
+  executable: node
+  args: ["adapters/elevenlabs-v4/generate.mjs"]
+  input: stdin-json

@@ -173,20 +173,28 @@ connections:
         detail: "Phase C は durable job + mock transport まで。価格未確定の間は ready と表示しない。API key の値をチャットや成果物に貼らない。"
 
   - id: elevenlabs
-    display_name: ElevenLabs
+    display_name: ElevenLabs Eleven v4 / Turbo
     provider: elevenlabs
     transport: mcp
     auth_kind: subscription
-    implementation_status: available-to-add
+    implementation_status: integrated
+    adapter: elevenlabs-v4
+    execution_mode: pipeline-adapter
     capabilities:
       - audio.text-to-speech
       - audio.music
       - audio.sound-effects
       - audio.transcription
       - audio.dubbing
-    model_families: [elevenlabs]
-    route_note: "MCP接続と専用音声アダプターの追加後に自動実行できる。"
-    setup_checks: []
+    automated_capabilities:
+      - audio.text-to-speech
+    model_families: [eleven_v4, eleven_v4_turbo]
+    route_note: "ElevenLabsホスト型MCPへ音声テキストとvoice_idを送信する。Gate 1承認後のみ実行。料金はElevenLabs側で発生し、Tsugiteのcredits推定値0は無料を意味しない。"
+    setup_checks:
+      - type: environment
+        variable: ELEVENLABS_MCP_ACCESS_TOKEN
+      - type: manual
+        detail: "Gate 1前にEleven v4の利用権限・残高・料金と選択したvoice_idを確認する。"
 
   - id: hyperframes-media
     display_name: Hyperframes Media Use（ローカル接続）
