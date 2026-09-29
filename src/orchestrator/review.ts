@@ -224,6 +224,14 @@ export type ReviewDocument = {
   characters: ReviewCharacter[];
   storyboard: ReviewShot[];
   handoffs: ExecutionPlan["agent_handoffs"];
+  generation_audio_requests?: Array<{
+    id: string;
+    operation: string;
+    model?: string;
+    prompt: string;
+    audio_role?: string;
+    voice_id?: string;
+  }>;
   audio?: ExecutionPlan["audio"];
   prompt_guidance: NonNullable<ExecutionPlan["prompt_guidance"]>;
   /** Deterministic H3 compilations from the plan for Gate 1 human inspection. */
@@ -1439,6 +1447,18 @@ export function createReviewDocument(
     characters,
     storyboard,
     handoffs: plan.agent_handoffs,
+    ...(project.generation?.requests.some((request) => generationRequestOutputKind(request) === "audio")
+      ? { generation_audio_requests: project.generation.requests
+          .filter((request) => generationRequestOutputKind(request) === "audio")
+          .map((request) => ({
+            id: request.id,
+            operation: request.operation ?? "voice",
+            ...(request.model ? { model: request.model } : {}),
+            prompt: request.prompt,
+            ...(request.audio_role ? { audio_role: request.audio_role } : {}),
+            ...(typeof request.params.voice_id === "string" ? { voice_id: request.params.voice_id } : {})
+          })) }
+      : {}),
     ...(plan.audio ? { audio: plan.audio } : {}),
     prompt_guidance: plan.prompt_guidance ?? [],
     ...(plan.h3_compilations && plan.h3_compilations.length > 0
@@ -2532,7 +2552,10 @@ export function renderReviewHtml(document: ReviewDocument): string {
         const route = handoff.connection
           ? ` · ${escapeHtml(handoff.connection)}${handoff.transport ? ` via ${escapeHtml(handoff.transport.toUpperCase())}` : ""}${handoff.setup_status ? ` · SETUP: ${escapeHtml(handoff.setup_status.toUpperCase())}` : ""}`
           : "";
-        return `<li><b>${escapeHtml(handoff.phase)}</b> ${escapeHtml(handoff.adapter)}${route} · ${escapeHtml(handoff.execution)} · AUTO FALLBACK OFF</li>`;
+        const transfer = handoff.transfer
+          ? ` · NETWORK INPUT: ${escapeHtml(handoff.transfer.input_scope)} · CREDENTIAL ENV: ${escapeHtml(handoff.transfer.credential_env.join(", ") || "none")}`
+          : "";
+        return `<li><b>${escapeHtml(handoff.phase)}</b> ${escapeHtml(handoff.adapter)}${route} · ${escapeHtml(handoff.execution)}${transfer} · AUTO FALLBACK OFF</li>`;
       }).join("")
     : "<li>外部エージェントへの引き継ぎはありません。</li>";
   const analysis = renderAnalysisReview(document.analysis);
@@ -2546,6 +2569,12 @@ export function renderReviewHtml(document: ReviewDocument): string {
       <div class="section-heading"><div><p class="eyebrow">SOUND / TIMING</p><h2 id="audio-title">音響設計</h2></div><p>最終承認前にBGMと効果音の内容・タイミングを確認します。未解決時は停止し、別providerへの自動切り替えは行いません。</p></div>
       <div class="audio-policy"><dl><div><dt>ADAPTER</dt><dd>${escapeHtml(document.audio.adapter ?? "未選択")}</dd></div><div><dt>FALLBACK</dt><dd>${escapeHtml(document.audio.fallback)}</dd></div><div><dt>AUTO FALLBACK</dt><dd>${document.audio.automatic_fallback ? "ON" : "OFF"}</dd></div><div><dt>EXTERNAL ACCESS</dt><dd>${document.audio.external_permission_required ? "REVIEW REQUIRED" : "NONE"}</dd></div></dl>${document.audio.transfer ? `<p class="utility">NETWORK INPUT: ${escapeHtml(document.audio.transfer.input_scope)} / REQUIRED CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.credential_env.join(", ") || "none")} / OPTIONAL CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.optional_credential_env.join(", ") || "none")}</p>` : ""}</div>
       <div class="audio-tracks">${document.audio.bgm ? renderAudioTrack("BGM", document.audio.bgm) : ""}${document.audio.sfx.map((track) => renderAudioTrack("SFX", track)).join("")}</div>
+    </section>`
+    : "";
+  const generationAudioReview = document.generation_audio_requests?.length
+    ? `<section class="audio-section" aria-labelledby="generation-audio-title" data-testid="generation-audio-review">
+      <div class="section-heading"><div><p class="eyebrow">GENERATED SPEECH</p><h2 id="generation-audio-title">生成音声</h2></div><p>送信する文章・モデル・音声を確認してください。外部サービスの料金は推定creditsだけでは確認できません。</p></div>
+      <div class="audio-tracks">${document.generation_audio_requests.map((request) => `<div class="audio-policy"><h3>${escapeHtml(request.id)}</h3><p>${escapeHtml(request.operation)} · ${escapeHtml(request.model ?? "モデル未指定")} · ${escapeHtml(request.audio_role ?? "narration")}</p>${request.voice_id ? `<p>VOICE ID: ${escapeHtml(request.voice_id)}</p>` : ""}<pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(request.prompt)}</pre></div>`).join("")}</div>
     </section>`
     : "";
   const backgroundReview = document.background
@@ -2575,7 +2604,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     <header class="hero">
       <nav class="review-nav" aria-label="レビュー内ナビゲーション">
         <a class="wordmark" href="#main"><span class="joinery-mark" aria-hidden="true"><i></i><i></i></span><span class="wordmark-copy">TSUGITE<small>CREATIVE REVIEW</small></span></a>
-        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">H3プロンプト</a>` : ""}${document.video_prompt_plans?.length ? `<a href="#video-prompt-plans-title">V2プロンプト</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
+        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}${document.generation_audio_requests?.length ? `<a href="#generation-audio-title">生成音声</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">H3プロンプト</a>` : ""}${document.video_prompt_plans?.length ? `<a href="#video-prompt-plans-title">V2プロンプト</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
       </nav>
       <div class="hero-content">
         <div class="hero-joinery" aria-hidden="true"><span></span><i></i></div>
@@ -2596,6 +2625,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     ${compositionReview}
     ${backgroundReview}
     ${audioReview}
+    ${generationAudioReview}
     ${h3Review}
     ${videoPromptReview}
     ${productionControlShadow}

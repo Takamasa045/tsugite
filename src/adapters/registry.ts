@@ -146,10 +146,10 @@ const adapterSchema = z.object({
       path: ["network", "input_scope"]
     });
   }
-  if (adapter.class !== "audio" && adapter.network?.input_scope === "request-metadata") {
+  if (adapter.class === "analysis" && adapter.network?.input_scope === "request-metadata") {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "request-metadata network scope is valid only for audio adapters",
+      message: "request-metadata network scope is valid only for generation or audio adapters",
       path: ["network", "input_scope"]
     });
   }

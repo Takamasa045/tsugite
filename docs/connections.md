@@ -105,6 +105,10 @@ generation:
 
 既存の動画requestは`operation`省略時に`video`として扱う。参照素材は`first_frame`、`reference_images`、`input_images`、`input_video`、`input_videos`、`input_audios`でproject内の相対pathを指定し、実行前にrun directoryへ固定する。
 
+## ElevenLabs Eleven v4 / Turbo
+
+ElevenLabs の `eleven_v4` / `eleven_v4_turbo` 単一話者ナレーションは [Eleven v4 接続](elevenlabs-v4.md)を参照してください。`generation.connection: elevenlabs` は公式ホスト型MCPへ本文と voice ID を送信します。Gate 1 前の確認と実行時の承認は従来どおり必要です。
+
 ## 非課金のモデル互換性確認
 
 生成前に、projectが指定するモデルとparameterを次の読み取り専用コマンドで確認できる。
