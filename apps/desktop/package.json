@@ -27,7 +27,7 @@
     "@electron-forge/maker-dmg": "7.11.2",
     "@electron-forge/maker-squirrel": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
-    "@electron/asar": "3.4.1",
+    "@electron/asar": "4.3.0",
     "electron": "43.1.1",
     "playwright-core": "1.61.1"
   },
