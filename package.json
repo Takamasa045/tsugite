@@ -50,7 +50,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@remotion/bundler": "^4.0.528",
-    "@remotion/media": "^4.0.528",
+    "@remotion/media": "^4.0.529",
     "@remotion/renderer": "^4.0.528",
     "cross-spawn": "^7.0.6",
     "react": "^19.2.7",
