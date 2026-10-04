@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add the `kobo-launch-16x9` Remotion preset: a 30-second, 120 BPM kinetic-typography promo for the AI Agent Workshop (Online Kobo), built only from paper/ink/vermilion/indigo and ◯△□ shapes that morph through one shared radial parametrisation. Price, deadline, URL, and seat counts come from `presentation.copy`; review previews follow `timeline_offset_seconds`. It expects locally installed OFL fonts (Zen Kaku Gothic New, Shippori Mincho B1, Space Grotesk, JetBrains Mono, Anton) and falls back to system fonts.
+
 ## 0.17.0 - 2026-09-24
 
 - Upgrade the optional Tesseract backend to CLI 0.2.0. Add runtime-schema-shaped native document and supported action authoring, Gate 1-bound assets/fonts, six native canvases, 24/30/60 fps, 720p/1080p/4K MP4 controls, and preview/filmstrip artifacts before export.
