@@ -12,6 +12,7 @@ import {
 import { runCliAudioAdapter, type CliAudioResult } from "../adapters/cliAudio.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
 import type { Manifest } from "../manifest/schema.js";
+import { billingDigest, billingLabel, combineActualBilling, isBillingEvidence, type BillingEvidence } from "../../adapters/billing-contract.mjs";
 import { validateManifest } from "../manifest/validate.js";
 import {
   GATE_2_AUTO_PASS_POLICY,
@@ -80,6 +81,7 @@ export type LocalRunH3Artifacts = {
 };
 
 export type LocalRunResult = {
+  billing?: BillingEvidence;
   manifestPath: string;
   qcReportPath: string;
   runLogPath: string;
@@ -185,6 +187,7 @@ const gate2QcResumeSchema = z
   .passthrough();
 
 type ResumeMetrics = {
+  billing?: BillingEvidence;
   assetCount: number;
   actualCredits: number;
   approvalDigest: string;
@@ -320,6 +323,7 @@ export async function assembleLocalMediaRun(
       ...(edlPath ? { edlPath } : {}),
       assetCount: resumed.assetCount,
       actualCredits: resumed.actualCredits,
+      ...(resumed.billing ? { billing: resumed.billing } : {}),
       alreadyAssembled: true,
       gate2AutoPassed: false,
       gate2AutoPassBlockedReason: "already_assembled",
@@ -918,6 +922,7 @@ async function assembleGeneratedMediaRun(
       runLogPath,
       assetCount: resumed.assetCount,
       actualCredits: resumed.actualCredits,
+      ...(resumed.billing ? { billing: resumed.billing } : {}),
       alreadyAssembled: true,
       gate2AutoPassed: false,
       gate2AutoPassBlockedReason: "already_assembled",
@@ -1315,6 +1320,7 @@ async function assembleGeneratedMediaRun(
             : {})
         },
         credits: request.credits / generatedAssets.length,
+        ...(request.billing ? { billing: request.billing } : {}),
         ...(h3Artifact
           ? {
               h3: {
@@ -1333,6 +1339,8 @@ async function assembleGeneratedMediaRun(
   if (!generatedAudio.ok) return generatedAudio;
   assetCount += generatedAudio.assetCount;
   const actualCredits = generation.credits + generatedAudio.credits;
+  const billing = combineActualBilling(generation.requests.flatMap((request) => request.billing ? [request.billing] : []));
+  if (billing) assembled.billing = billing;
 
   await writeFile(manifestOutputPath, `${JSON.stringify(assembled, null, 2)}\n`);
   await writeGate2QcReport(assembled, manifestOutputPath, qcReportPath);
@@ -1378,6 +1386,7 @@ async function assembleGeneratedMediaRun(
     runLogPath,
     assetCount,
     actualCredits,
+    ...(billing ? { billing } : {}),
     alreadyAssembled: false,
     gate2AutoPassed: false,
     gate2AutoPassBlockedReason: "generation_run",
@@ -1924,6 +1933,9 @@ async function inspectAwaitingGate2Artifacts(input: {
     ? assembledManifest.manifest.provenance.reduce((sum, entry) => sum + (entry.credits ?? 0), 0)
     : 0;
   const expectedCredits = generationCredits + manifestAudioCredits(assembledManifest.manifest);
+  if (billingDigest(assembledManifest.manifest.billing ?? null) !== billingDigest(runLog.log.billing ?? null)) {
+    return { ok: false, issues: [{ code: "run.billing_inconsistent", message: "保存された料金実績がmanifestとrun logで一致しません。" }] };
+  }
   if (Math.abs(runLog.log.actualCredits - expectedCredits) > 1e-9) {
     return {
       ok: false,
@@ -2059,6 +2071,7 @@ async function inspectAwaitingGate2Artifacts(input: {
     issues: [],
     assetCount: assetReferences.length,
     actualCredits: runLog.log.actualCredits,
+    ...(runLog.log.billing ? { billing: runLog.log.billing } : {}),
     approvalDigest,
     ...(personQaApprovalBinding ? { personQaApprovalBinding } : {})
   };
@@ -2110,6 +2123,7 @@ async function readAndValidateRunLog(path: string): Promise<
       mode: string;
       assetCount: number;
       actualCredits: number;
+      billing?: BillingEvidence;
       inputDigest: string;
       edlKind?: "editorial" | "composition";
       edlDigest?: string;
@@ -2135,6 +2149,9 @@ async function readAndValidateRunLog(path: string): Promise<
     const legacyEditorialFormat = Boolean(editorialEdlDigest && !edlKindText && !edlDigest);
     const assetCount = Number(assetCountText);
     const actualCredits = Number(actualCreditsText);
+    const billingText = text.match(/^- billing_v1: (.+)$/m)?.[1];
+    const billing = billingText ? JSON.parse(billingText) as unknown : undefined;
+    if (billing !== undefined && !isBillingEvidence(billing)) throw new Error("billing_evidence_invalid");
 
     if (
       !runId ||
@@ -2162,6 +2179,7 @@ async function readAndValidateRunLog(path: string): Promise<
         mode,
         assetCount,
         actualCredits,
+        ...(billing ? { billing } : {}),
         inputDigest,
         ...(normalizedEdlKind ? { edlKind: normalizedEdlKind } : {}),
         ...(normalizedEdlDigest ? { edlDigest: normalizedEdlDigest } : {}),
@@ -2251,6 +2269,10 @@ async function writeRunLog(
     `- mode: ${input.mode}`,
     `- asset_count: ${input.assetCount}`,
     `- actual_credits: ${input.actualCredits}`,
+    ...(() => {
+      const billing = combineActualBilling(input.requests.flatMap((request) => request.billing ? [request.billing] : []));
+      return billing ? [`- billing_v1: ${JSON.stringify(billing)}`, `- billing_summary: ${billingLabel(billing, true)}`] : [];
+    })(),
     `- input_digest: ${input.inputDigest}`,
     ...(input.edlKind ? [`- edl_kind: ${input.edlKind}`] : []),
     ...(input.edlDigest ? [`- edl_digest: ${input.edlDigest}`] : []),

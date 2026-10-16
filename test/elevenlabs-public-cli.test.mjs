@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { billingDigest } from "../adapters/billing-contract.mjs";
 import { afterEach, describe, expect, it } from "vitest";
 
 const roots = [];
@@ -29,7 +30,7 @@ async function fixture() {
     generation: { connection: "elevenlabs", requests: [{ id: "narration", operation: "voice", output_kind: "audio", audio_role: "narration", model: "eleven_v4", prompt: "これは接続テストです。", params: { voice_id: "fixture-voice" } }] } };
   const config = join(projectRoot, "project.yaml"); await writeFile(config, JSON.stringify(project));
   const env = { PATH: process.env.PATH, HOME: root, TMPDIR: root, NODE_ENV: "test", NODE_OPTIONS: `--import=${resolve("test/fixtures/elevenlabs-public-cli-boundary.mjs")}`,
-    TSUGITE_CLI_FIXTURE_ROOT: root, TSUGITE_PROJECTS_HOME: join(root, "projects"), ELEVENLABS_MCP_ACCESS_TOKEN: "fixture-nonsecret" };
+    TSUGITE_CLI_FIXTURE_ROOT: root, TSUGITE_PROJECTS_HOME: join(root, "projects"), ELEVENLABS_MCP_ACCESS_TOKEN: "fixture-nonsecret", TSUGITE_ELEVENLABS_GRANT_EPOCH: "fixture-grant" };
   const cli = (command, ...args) => {
     const argv = ["bin/pipeline", command, "--config", config, "--json", ...args];
     // macOS denies external networking for the whole tree, including Chromium.
@@ -41,29 +42,36 @@ async function fixture() {
   const good = async (command, ...args) => { const r = await cli(command, ...args); expect(r.status, r.stderr || r.stdout).toBe(0); return JSON.parse(r.stdout); };
   const gate = (id, decision) => good("gate", "--gate", id, "--decision", decision, "--actor", "coordinator");
   const calls = async () => { try { return (await readFile(join(root, "calls.jsonl"), "utf8")).trim().split("\n").map(JSON.parse); } catch (e) { if (e.code === "ENOENT") return []; throw e; } };
-  return { root, projectRoot, project, config, cli, good, gate, calls, run: join(projectRoot, "dist", "voice-run"), save: () => writeFile(config, JSON.stringify(project)) };
+  const quote = () => good("quote", "--approve-transfer", "--actor", "coordinator");
+  return { root, projectRoot, project, config, cli, good, gate, quote, calls, environment: env, run: join(projectRoot, "dist", "voice-run"), save: () => writeFile(config, JSON.stringify(project)) };
 }
 const hash = async (path) => createHash("sha256").update(await readFile(path)).digest("hex");
 
 describe("public CLI narration Gate chain (offline transport, no Keychain)", () => {
   it("G01–G07: reviews, approves, submits once, resumes and renders through the public CLI", async () => {
     const f = await fixture();
-    await f.good("validate"); await f.good("plan");
+    await f.good("validate");
+    expect((await f.good("plan")).plan.billing.estimate).toMatchObject({ status: "unknown", credits: null, money: null });
+    await f.good("models"); await f.good("quote");
     expect((await f.cli("gate", "--gate", "gate-1", "--decision", "approve", "--actor", "coordinator")).status).toBe(1);
     await f.good("review");
     const review = await readFile(join(f.run, "review/review-data.json"), "utf8"); expect(review).toContain("voice-test");
+    expect(await readFile(join(f.run, "review/index.html"), "utf8")).toContain("生成料金: 未確認");
     const stateHash = () => hash(join(f.run, "state.json")).catch((e) => { if (e.code === "ENOENT") return null; throw e; });
     const before = await stateHash(); await f.good("run", "--dry-run"); expect(await stateHash()).toBe(before);
     expect(await f.calls()).toHaveLength(0);
     expect((await f.cli("run", "--actor", "coordinator")).status).toBe(1);
+    expect((await f.cli("gate", "--gate", "gate-1", "--decision", "approve", "--actor", "coordinator")).status).toBe(1);
+    await f.quote(); await f.good("review");
     await f.gate("gate-1", "approve");
     expect((await f.cli("run")).status).toBe(1);
     const run = await f.good("run", "--actor", "coordinator"); expect(run.state.status).toBe("awaiting_gate_2");
+    expect(run.billing.actual).toMatchObject({ status: "measured", credits: "16" });
     const manifest = JSON.parse(await readFile(join(f.run, "manifest.json"), "utf8"));
     expect(manifest.audio.narration).toHaveLength(1); expect(manifest.clips).toHaveLength(1);
     expect(await hash(join(f.run, manifest.clips[0].src))).toBe(await hash(join(f.projectRoot, "clip.mp4")));
     const assembled = await hash(join(f.run, "manifest.json")); const calls = await f.calls();
-    expect(calls.filter((v) => v.name === "creative_generate_speech")).toHaveLength(1);
+    expect(calls.filter((v) => v.name === "creative_generate_speech" && v.arguments.estimate_only === false)).toHaveLength(1);
     expect((await f.good("run", "--actor", "coordinator")).already_assembled).toBe(true);
     expect(await hash(join(f.run, "manifest.json"))).toBe(assembled); expect(await f.calls()).toEqual(calls);
     expect((await f.cli("render", "--actor", "coordinator")).status).toBe(1);
@@ -76,7 +84,7 @@ describe("public CLI narration Gate chain (offline transport, no Keychain)", () 
   }, 120_000);
 
   it("G02/G04/G08: rejects damaged review and changed request inputs without submission", async () => {
-    const f = await fixture(); await f.good("review");
+    const f = await fixture(); await f.quote(); await f.good("review");
     const path = join(f.run, "review/review-data.json"), original = await readFile(path);
     await writeFile(path, "{}"); expect((await f.cli("gate", "--gate", "gate-1", "--decision", "approve", "--actor", "coordinator")).status).toBe(1);
     const foreign = JSON.parse(original); foreign.slug = "another-project";
@@ -88,15 +96,15 @@ describe("public CLI narration Gate chain (offline transport, no Keychain)", () 
       await f.save(); expect((await f.cli("run", "--actor", "coordinator")).status).toBe(1);
       f.project.generation.requests[0] = previous; await f.save();
     }
-    expect(await f.calls()).toHaveLength(0);
+    expect((await f.calls()).filter((v) => v.name === "creative_generate_speech" && v.arguments.estimate_only === false)).toHaveLength(0);
   }, 60_000);
 
   it("G06/G08: serializes double execution and rejects changed QC and pinned media", async () => {
-    const f = await fixture(); await f.good("review"); await f.gate("gate-1", "approve");
+    const f = await fixture(); await f.quote(); await f.good("review"); await f.gate("gate-1", "approve");
     const results = await Promise.all([f.cli("run", "--actor", "coordinator"), f.cli("run", "--actor", "coordinator")]);
     expect(results.filter((r) => r.status === 0)).toHaveLength(1);
     expect(results.find((r) => r.status !== 0).stderr).toContain("locked");
-    expect((await f.calls()).filter((v) => v.name === "creative_generate_speech")).toHaveLength(1);
+    expect((await f.calls()).filter((v) => v.name === "creative_generate_speech" && v.arguments.estimate_only === false)).toHaveLength(1);
     const manifest = JSON.parse(await readFile(join(f.run, "manifest.json"), "utf8"));
     const pinned = join(f.run, manifest.audio.narration[0].src), bytes = await readFile(pinned);
     await writeFile(pinned, "damaged MP3");
@@ -104,6 +112,20 @@ describe("public CLI narration Gate chain (offline transport, no Keychain)", () 
     await writeFile(pinned, bytes); await f.gate("gate-2", "approve_all");
     await writeFile(pinned, "changed after approval");
     expect((await f.cli("render", "--actor", "coordinator")).status).toBe(1);
-    expect((await f.calls()).filter((v) => v.name === "creative_generate_speech")).toHaveLength(1);
+    expect((await f.calls()).filter((v) => v.name === "creative_generate_speech" && v.arguments.estimate_only === false)).toHaveLength(1);
+  }, 60_000);
+
+  it("G04: changed grant/profile or price cannot consume the old Gate approval", async () => {
+    const f = await fixture(); await f.quote(); await f.good("review"); await f.gate("gate-1", "approve");
+    for (const name of ["TSUGITE_ELEVENLABS_GRANT_EPOCH", "TSUGITE_ELEVENLABS_PROFILE_ID"]) {
+      const previous = f.environment[name]; f.environment[name] = "changed";
+      const run = await f.cli("run", "--actor", "coordinator"); expect(run.status).toBe(1); expect(run.stderr).toContain("billing_connection_changed");
+      if (previous === undefined) delete f.environment[name]; else f.environment[name] = previous;
+    }
+    const path = join(f.run, "billing-quotes.json"), cache = JSON.parse(await readFile(path, "utf8"));
+    const q = cache.entries[0].quote; q.limits.max_credits = "20";
+    const { quote_id, ...body } = q; q.quote_id = billingDigest(body); await writeFile(path, JSON.stringify(cache));
+    expect((await f.cli("run", "--actor", "coordinator")).status).toBe(1);
+    expect((await f.calls()).filter((v) => v.name === "creative_generate_speech" && v.arguments.estimate_only === false)).toHaveLength(0);
   }, 60_000);
 });

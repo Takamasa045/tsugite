@@ -1,7 +1,9 @@
 // Process-interruption fixture. No network or credential store is used.
 import * as fs from "node:fs/promises";
 import { join } from "node:path";
-import { generateElevenV4 } from "../../adapters/elevenlabs-v4/client.mjs";
+import { generateElevenV4 as generateWithRealBilling } from "../../adapters/elevenlabs-v4/client.mjs";
+import { fixturePermit } from "./elevenlabs-v4-authority.mjs";
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 import { creativeSpeechTool, creativeStatusTool, pending, completed } from "./elevenlabs-v4-mcp.mjs";
 const [root, trace, stopAt] = process.argv.slice(2);
 const request = { id: "durability-test", operation: "voice", model: "eleven_v4", prompt: "Connection test.", params: { voice_id: "fixture-voice" } };

@@ -28,6 +28,9 @@ for (const code of ["mcp_audio_invalid", "mcp_audio_missing", "mcp_audio_too_lar
   entries[code] = ["inspection", "accepted", "inspect_record", "生成結果を安全に採用できませんでした。再送せず検証記録を確認してください。"];
 }
 const keys = ["schema_version", "kind", "code", "phase", "submission_state", "recovery_action", "request_id"];
+for (const code of ["billing_quote_required", "billing_quote_invalid", "billing_quote_mismatch", "billing_quote_expired", "billing_limit_exceeded", "billing_connection_unverified", "billing_connection_changed", "billing_gate_required", "billing_transfer_approval_required", "billing_quote_unsupported", "billing_quote_failed", "billing_amount_invalid", "billing_currency_unknown", "billing_storage_invalid"]) {
+  entries[code] = ["billing", "not_submitted", "quote_and_review", "料金・接続・承認条件を確認できませんでした。生成は開始していません。見積を確認して再レビューしてください。"];
+}
 const safeId = (value) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 export function adapterErrorEnvelope(code, requestId) {
   if (!Object.hasOwn(entries, code)) code = "adapter_failed";

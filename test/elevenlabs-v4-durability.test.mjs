@@ -4,7 +4,10 @@ import { join, dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { createDurableSubmissionJournal } from "../adapters/elevenlabs-v4/durability.mjs";
-import { generateElevenV4 } from "../adapters/elevenlabs-v4/client.mjs";
+import { generateElevenV4 as generateWithRealBilling } from "../adapters/elevenlabs-v4/client.mjs";
+
+import { fixturePermit } from "./fixtures/elevenlabs-v4-authority.mjs";
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 
 const request = { id: "durability-test", operation: "voice", model: "eleven_v4", prompt: "Connection test.", params: { voice_id: "fixture-voice" } };
 const rootDir = async () => fs.realpath(await fs.mkdtemp(join(tmpdir(), "tsugite-eleven-durable-")));

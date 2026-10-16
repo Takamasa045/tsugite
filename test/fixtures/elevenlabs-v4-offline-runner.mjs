@@ -1,6 +1,8 @@
 // Test-only CLI shim: real generation logic with the remote MCP/fetch boundaries replaced.
 import { readFile, appendFile } from "node:fs/promises";
-import { generateElevenV4 } from "../../adapters/elevenlabs-v4/client.mjs";
+import { generateElevenV4 as generateWithRealBilling } from "../../adapters/elevenlabs-v4/client.mjs";
+import { fixturePermit } from "./elevenlabs-v4-authority.mjs";
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 import { creativeSpeechTool, creativeStatusTool, pending, completed } from "./elevenlabs-v4-mcp.mjs";
 let input = "";
 for await (const chunk of process.stdin) input += chunk;

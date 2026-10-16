@@ -10,7 +10,7 @@ const fixture = JSON.parse(await readFile(new URL("./fixtures/elevenlabs-oauth-d
 const CLIENT = "https://client.example/tsugite-elevenlabs.json";
 const freshTokens = { access_token: "fixture-access", refresh_token: "fixture-refresh", token_type: "Bearer", expires_in: 3600, scope: OAUTH.scopes };
 const record = (expires = 9999999) => ({ version: 1, issuer: OAUTH.issuer, resource: OAUTH.resource,
-  client_id: CLIENT, scope: OAUTH.scopes, expires_at: expires, tokens: { ...freshTokens } });
+  client_id: CLIENT, scope: OAUTH.scopes, grant_epoch: "fixture-grant", expires_at: expires, tokens: { ...freshTokens } });
 const reply = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
 function harness(changes = {}) {
   let callback;
@@ -111,6 +111,7 @@ describe("dedicated ElevenLabs OAuth binding (all credentials and OS operations 
       .toBe(auth.searchParams.get("code_challenge"));
     expect(h.store.save).toHaveBeenCalledTimes(1);
     expect(h.store.save.mock.calls[0][0].tokens.access_token).toBe("fixture-access");
+    expect(h.store.save.mock.calls[0][0].grant_epoch).toMatch(/^[a-f0-9-]{36}$/);
     expect(JSON.stringify(result)).not.toContain("fixture-");
     expect(h.close).toHaveBeenCalledTimes(1);
   });
@@ -204,6 +205,7 @@ describe("dedicated ElevenLabs OAuth binding (all credentials and OS operations 
     expect(params.get("refresh_token")).toBe("fixture-refresh");
     expect(params.get("resource")).toBe(OAUTH.resource);
     expect(h.store.save.mock.calls[0][0].tokens.refresh_token).toBe("fixture-refresh");
+    expect(h.store.save.mock.calls[0][0].grant_epoch).toBe("fixture-grant");
     expect(h.openBrowser).not.toHaveBeenCalled();
   });
 

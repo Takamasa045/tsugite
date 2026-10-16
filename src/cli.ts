@@ -120,6 +120,8 @@ import { isAuthoringProduction, type Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
 import { appendProjectFeedback } from "./feedback/index.js";
 import { openWorkflowViewer, writeWorkflowViewer } from "./viewer/artifact.js";
+import { billingApprovalDigest, loadGenerationBilling, quoteGeneration } from "./adapters/billing.js";
+import { assertNarrationQuote } from "../adapters/billing-contract.mjs";
 import {
   openWorkflowViewerLauncher,
   startWorkflowViewerLauncher
@@ -136,6 +138,7 @@ import {
 } from "./cli/commandCatalog.js";
 
 type ParsedArgs = {
+  approveTransfer?: boolean;
   command: string;
   helpTopic?: string;
   config?: string;
@@ -1032,6 +1035,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   const generationUnitSourceResolver = createProjectGenerationUnitSourceResolver(args.config);
   const validation = await validateProject(args.config, { generationUnitSourceResolver, prepareFastEdit: args.command === "analyze" || args.command === "fast-edit" });
+  if (validation.project && args.stateDir) {
+    const billing = await loadGenerationBilling(args.config, validation.project, validation.adapter, args.stateDir);
+    if (billing) validation.project.billing = billing;
+  }
   // Single trusted projection: durable pointer runtime_mode overrides YAML for pipeline bodies.
   // Bodies also accept explicit runtime_authority; never re-resolve YAML against pointer silently.
   const trustedProject = validation.project
@@ -1599,6 +1606,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
+  if (args.command === "quote") {
+    const requests = validation.project!.generation?.requests ?? [];
+    const transfer = requests.map((request) => ({ request_id: request.id, text: request.prompt, voice_id: request.params.voice_id,
+      model: request.model, generations_count: 1, character_count: Array.from(request.prompt).length }));
+    if (!args.approveTransfer) return output(args, 0, { ok: true, command: "quote", transfer, connection: validation.generationConnection?.id,
+      remote_called: false, generated: false, next_actions: ["内容を確認後、quote --approve-transfer --actor coordinator を明示実行してください。"] });
+    const issue = requireCoordinator(args);
+    if (issue) return output(args, 1, { ok: false, command: "quote", issues: [issue] });
+    const location = getStateLocation(args, validation.project!);
+    const result = await quoteGeneration(validation.project!, validation.adapter, join(location.stateDir, validation.project!.run_id ?? validation.project!.slug));
+    return output(args, result.ok ? 0 : 1, { ...result, command: "quote", generated: false });
+  }
+
   if (args.command === "fast-edit") {
     const issue = requireCoordinator(args);
     if (issue) return output(args, 1, {ok:false, command:args.command, issues:[issue]});
@@ -2085,6 +2105,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       edl_path: runResult.edlPath,
       asset_count: runResult.assetCount,
       actual_credits: runResult.actualCredits,
+      ...(runResult.billing ? { billing: runResult.billing } : {}),
       already_assembled: runResult.alreadyAssembled,
       gate_2_auto_passed: runResult.gate2AutoPassed,
       gate_2_auto_pass_blocked_reason: runResult.gate2AutoPassBlockedReason,
@@ -2314,6 +2335,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     reconcile: false,
     allowExternalAnalysis: false,
     confirmPaid: false,
+    approveTransfer: false,
     paths: [],
     issues: []
   };
@@ -2322,6 +2344,11 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (index === commandIndex) continue;
     const arg = argv[index];
     if (arg === "--json") continue;
+    if (arg === "--approve-transfer") {
+      if (isCommandOptionAllowed(parsed.command, arg)) parsed.approveTransfer = true;
+      else parsed.issues.push({ code: "cli.option_unsupported", message: `${arg} is not supported by '${parsed.command}'`, path: arg });
+      continue;
+    }
     if (arg === "--dry-run") {
       if (isCommandOptionAllowed(parsed.command, arg)) {
         parsed.dryRun = true;
@@ -3009,6 +3036,7 @@ function effectiveRuntimeMode(input: {
 }
 
 function shouldAcquireRunLock(args: ParsedArgs): boolean {
+  if (args.command === "quote" && args.approveTransfer) return args.actor === "coordinator";
   if (args.command === "review" || args.command === "review-preview" || args.command === "compose") return true;
   if (args.command === "finalize" && args.apply) return args.actor === "coordinator";
   if ((args.command === "run" && !args.dryRun) || args.command === "render") {
@@ -3046,6 +3074,14 @@ async function recordGate(
   let reviewDataPath: string | undefined;
   let reviewApprovalDigest: string | undefined;
   if (gate === "gate_1" && decision === "approved") {
+    if (adapter?.billing_policy === "quote-required") {
+      const billing = await loadGenerationBilling(args.config!, project, adapter, stateLocation.stateDir);
+      if (billing?.estimate.status !== "known" || !billing.estimate.quotes?.length) return { ok: false,
+        issues: [{ code: "billing.quote_required", message: "生成料金が未確認です。送信内容を確認し、明示的に見積を取得して再レビューしてください。" }] };
+      try { billing.estimate.quotes.forEach((quote, index) => assertNarrationQuote(quote, project.generation!.requests[index])); }
+      catch { return { ok: false, issues: [{ code: "billing.quote_expired", message: "見積が期限切れまたは制作条件と一致しません。新規生成は実行していません。" }] }; }
+      project.billing = billing;
+    }
     const review = await inspectGate1Review({
       configPath: args.config!,
       project,
@@ -3527,6 +3563,10 @@ async function recordGate(
       productionBinding,
       sidecarApprovalDigest
     );
+    if (gate === "gate_1" && decision === "approved") {
+      const billingDigest = billingApprovalDigest(project.billing);
+      if (billingDigest) nextState.gates.gate_1.billing_approval_digest = billingDigest;
+    }
   } catch (error) {
     return {
       ok: false,

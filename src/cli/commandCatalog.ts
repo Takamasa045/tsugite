@@ -17,6 +17,7 @@ export type CommandName =
   | "lock-block"
   | "validate"
   | "models"
+  | "quote"
   | "finalize"
   | "plan"
   | "analyze"
@@ -53,6 +54,7 @@ function defineOption(name: string, summary: string, value?: string): CommandOpt
 }
 
 const OPTIONS = {
+  approveTransfer: defineOption("--approve-transfer", "Approve sending the displayed narration text, voice and model to the selected provider for an estimate only."),
   config: defineOption("--config", "Path to the project configuration.", "<project.yaml>"),
   catalog: defineOption("--catalog", "Prompt guide catalog identifier.", "<catalog-id>"),
   model: defineOption("--model", "Model identifier used to filter guidance or connections.", "<model-id>"),
@@ -357,6 +359,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "read-only",
     options: [OPTIONS.config]
+  }),
+  defineCommand({
+    name: "quote",
+    summary: "Preview narration estimate data; explicitly send it only with --approve-transfer. Never generate.",
+    usage: "node bin/pipeline quote --config <project.yaml> [--approve-transfer --actor coordinator] [--json]",
+    requiresConfig: true,
+    safety: "approval-gated",
+    options: [OPTIONS.config, OPTIONS.approveTransfer, OPTIONS.actor, OPTIONS.stateDir]
   }),
   defineCommand({
     name: "finalize",

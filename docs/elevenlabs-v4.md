@@ -2,6 +2,8 @@
 
 `generation.connection: elevenlabs` は hosted MCP 用アダプターです。Gate 1承認後のCoordinator `run` が生成します。`validate`、`plan`、`review`、`models`、`run --dry-run` は生成しません。
 
+新規送信には、明示取得した有効な見積と、その見積を含むGate 1承認が必要です。価格unknownを0や無料として承認しません。
+
 `test/elevenlabs-public-cli.test.mjs` は公開CLIを別processで起動する無課金テストです。MCP/MP3通信とbearerのみfixtureにし、Gate・digest・保存・manifest/QC・Remotion renderを本番処理で通します。macOSでは子Chromeを含む外部通信をsandboxで禁止し、render用loopbackだけ許可します。本物のKeychainは使用しません。このfixtureの成功は実providerの課金・音質の検証とは別です。
 
 生成adapterの失敗はstderrのversion 1 JSON envelopeで返します。親は4KiB以内・既知code・固定phase/state/action・request一致を検査し、未知形式は汎用エラーにします。provider本文・signed URL・private pathは転記しません。`not_submitted`、受理済み`accepted`、送信結果`unknown`、確定失敗`failed`を区別し、envelopeだけを再送許可にはしません。signal終了・不完全な成功JSONは結果不明として再試行しません。`recovery_action`は安全な操作の分類で、実際の同一job復旧commandは次のreceipt実装で提供します。
@@ -35,6 +37,29 @@ generation:
 このvoice IDは既存のユーザー指定「いとぱん」の設定例です。現在の利用権・モデルとの組合せは未検証で、別IDへ自動置換しません。通常v4を明示的に選ぶ場合は `model: eleven_v4` とします。
 
 2026-10-15 UTCの認証済みCodex接続では `eleven_v4` が利用可能で、`eleven_v4_turbo` は提供スキーマにありません。`eleven_turbo_v2_5` は別モデルです。モデル資料のv4 Turboの存在をhosted MCP対応の証拠にせず、指定がなければ生成前に停止します。[公式モデル資料](https://elevenlabs.io/docs/overview/models)
+
+## 明示的な料金確認とGate承認
+
+```sh
+# 本文・声・モデル・文字数・数量のpreview。外部通信なし。
+node bin/pipeline quote --config path/to/project.yaml --json
+# 内容確認後、見積だけを明示取得。Gateや生成は実行しない。
+node bin/pipeline quote --config path/to/project.yaml --approve-transfer --actor coordinator --json
+node bin/pipeline review --config path/to/project.yaml --json
+# レビュー確認後、通常のGate 1 approveとCoordinator runへ進む。
+```
+
+実提供schemaで`estimate_only: true`と数量1が使える場合だけ呼びます。通常のplan/validate/review/models/dry-runから見積APIへ自動送信しません。provider上に非課金flowが作成される場合があります。schema非対応やTurbo非提供では停止し、別モデルに替えません。
+
+見積は取得後5分の**継手側の有効期限**を持ちます。providerがこの期間の価格を保証したという意味ではありません。本文・声・モデル・数量、provider schema、接続profile/grant epoch、credits/金額の上限をGate digestへ結合し、adapterも保存済みstateと照合します。quote・上限・接続の変更後は再レビューが必要です。上限は送信判断に使い、provider請求の技術的な上限固定や残高確認を保証しません。
+
+`billing.schema_version: 1`はunknown/unmeasuredをnull、実測0を`"0"`として区別します。creditsと金額はdecimal文字列です。確認済みのfiat単位はUSD/1 generationのみで、未確認通貨・不正単位・overflowは停止し、換算しません。fiat項目がない場合は金額未確認です。既存の数値`estimated_credits`/`actual_credits`は互換用に残し、新しい送信判断と表示にはbillingを使います。実績をmanifest/run logへ保存し、同じgeneration参照のimportを重複加算しません。
+
+`project.yaml`のroot `billing`は実行時情報の予約名です。YAMLやadapter入力JSONの自己申告から送信許可を作りません。
+
+専用Keychainではloginごとに非秘密`grant_epoch`を作り、通常refreshでは維持します。旧recordにepochがなければ読取り・probeは継続できますが、新規送信の見積には明示的な再接続が必要です。既存bearer環境では、管理者が非秘密の`TSUGITE_ELEVENLABS_GRANT_EPOCH`を明示し、grant差替え時に更新してください。任意の非秘密profile名は`TSUGITE_ELEVENLABS_PROFILE_ID`です。この方式は管理者の申告であり、workspaceやgrant同一性をAPIで自動検証したという表示はしません。token bytesをdigestやcacheへ保存しません。
+
+課金送信前のdurable journalには見積・承認参照と消費済み送信許可を記録し、利用額未確定を保持します。結果不明で予約を返したりjournalを消して再送したりしません。project全体の未解決処理検出と同一jobの取得再開はreceipt段階で拡張します。
 
 ## CLI認証と無課金診断
 

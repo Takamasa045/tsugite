@@ -113,3 +113,5 @@ Append-only format:
 2026-10-16 / paid submit前のjournal本体fsyncだけではcrash後に新規directory entryが失われ再送できる / file内容とdirectory entryの永続化を同一視した / 新規run/assetsの祖先directoryとjournal親directoryも同期し、失敗・未対応OSではsubmitを停止する。部分markerを削除せず、永続化モデルと実SIGKILLを別々に検証する / S0-Aの98件成功。PR185 review r4290171354への独立修正、追加課金なし
 
 2026-10-16 / 字幕なしの既存動画へ音声だけ追加する案件でreview成功後にGate 1がreview_invalidとなる / generation requestsの存在だけで動画storyboard分岐へ入り、audio requestを除くと空になった / 動画requestがある時だけそのstoryboardを使い、音声追加時は既存clipsをレビューする。公開CLI別processでreview→Gate→run→render→Gate 3まで検証する / 無課金fixtureで実Remotion render・改変拒否・二重実行拒否を確認
+
+2026-10-16 / 見積額と承認上限に同じmoney objectを使うと、上限変更が見積額も書き換え下限の境界検証を通した / 同じ値を別の監査事実として保持する際の参照alias / 見積と上限を独立copyにし、decimalの直前・一致・直後を実行条件で検査する。unknownと実測0を分け、期限・接続・quoteをGateへ結合する / S1-B無課金fixtureで検出・修正

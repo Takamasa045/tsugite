@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { isBillingEvidence } from "../../adapters/billing-contract.mjs";
 import { createHash } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import {
@@ -382,6 +383,9 @@ async function readOptionalRunLog(
   const generatedAt = text.match(/^- generated_at: (.+)$/m)?.[1]?.trim();
   const assetCount = Number(assetCountText);
   const actualCredits = Number(actualCreditsText);
+  const billingText = text.match(/^- billing_v1: (.+)$/m)?.[1];
+  const billing = billingText ? JSON.parse(billingText) as unknown : undefined;
+  if (billing !== undefined && !isBillingEvidence(billing)) throw new Error("billing evidence is invalid");
 
   if (runId !== expectedRunId) {
     throw new Error(`Run log run_id '${runId ?? "missing"}' does not match project run_id '${expectedRunId}'`);
@@ -412,6 +416,7 @@ async function readOptionalRunLog(
     mode,
     assetCount,
     actualCredits,
+    ...(billing ? { billing } : {}),
     inputDigest,
     ...(generatedAt ? { generatedAt } : {}),
     requests

@@ -37,6 +37,7 @@ let request;
 globalThis.fetch = async (input, options = {}) => {
   const url = typeof input === "string" ? input : input.url ?? String(input);
   if (url === "https://api.us.elevenlabs.io/v1/mcp") {
+    if (!/adapters\/elevenlabs-v4\/(?:quote|generate|probe)\.mjs$/.test(process.argv[1] ?? "")) denied("implicit-provider-call");
     if (options.method === "GET") return new Response(null, { status: 405 });
     const rpc = JSON.parse(options.body);
     if (rpc.method === "notifications/initialized") return new Response(null, { status: 202 });
@@ -47,9 +48,12 @@ globalThis.fetch = async (input, options = {}) => {
       const { name, arguments: args } = rpc.params;
       trace({ name, arguments: args });
       if (name === "creative_generate_speech") {
-        if (args.estimate_only !== false || args.generations_count !== 1 || args.model_id !== "eleven_v4") denied("unexpected-submit");
-        request = { model: args.model_id, prompt: args.prompt, params: { voice_id: args.voice_id } };
-        result = { content: [], structuredContent: pending };
+        if (args.generations_count !== 1 || args.model_id !== "eleven_v4") denied("unexpected-submit");
+        if (args.estimate_only === true) result = { content: [], structuredContent: { estimate: { credits: 16, price_cents: 0.3168, currency: "usd", generations_count: 1 }, flow_created: true } };
+        else if (args.estimate_only === false) {
+          request = { model: args.model_id, prompt: args.prompt, params: { voice_id: args.voice_id } };
+          result = { content: [], structuredContent: pending };
+        } else denied("unexpected-submit");
       } else if (name === "creative_get_flow_run_status" && request) result = { content: [], structuredContent: completed(request) };
       else denied("unexpected-tool");
     } else denied("unexpected-rpc");

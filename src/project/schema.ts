@@ -617,7 +617,10 @@ export const projectSchema = z
     }
   });
 
-export type Project = z.infer<typeof projectSchema>;
+export type Project = z.infer<typeof projectSchema> & {
+  /** Runtime-only projection from the adapter-owned local quote cache. YAML cannot supply it. */
+  billing?: import("../../adapters/billing-contract.mjs").BillingEvidence;
+};
 export type AuthoringProduction = z.infer<typeof authoringProductionSchema>;
 export type GenerationRequest = NonNullable<Project["generation"]>["requests"][number];
 

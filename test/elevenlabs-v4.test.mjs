@@ -3,13 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
-import { ElevenV4Error, generateElevenV4, importElevenV4Result, inspectElevenV4Capabilities, probeElevenV4, selectElevenV4SpeechTool, validateElevenV4Request } from "../adapters/elevenlabs-v4/client.mjs";
+import { ElevenV4Error, generateElevenV4 as generateWithRealBilling, importElevenV4Result, inspectElevenV4Capabilities, probeElevenV4, selectElevenV4SpeechTool, validateElevenV4Request } from "../adapters/elevenlabs-v4/client.mjs";
 import { loadAdapterDefinition } from "../src/adapters/registry.js";
 import { runCliGenerationAdapter } from "../src/adapters/cliGeneration.js";
 import { resolveGenerationConnection } from "../src/connections/registry.js";
 import { createPlan } from "../src/orchestrator/plan.js";
 import { createReviewDocument, renderReviewHtml } from "../src/orchestrator/review.js";
 import { manifestSchema } from "../src/manifest/schema.js";
+
+import { fixturePermit } from "./fixtures/elevenlabs-v4-authority.mjs";
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 
 const request = {
   id: "opening-voice",

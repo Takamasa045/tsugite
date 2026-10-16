@@ -87,6 +87,8 @@ const adapterSchema = z.object({
     })
     .optional(),
   dry_run_estimate: z.boolean(),
+  billing_policy: z.literal("quote-required").optional(),
+  quote: stdinJsonCommandSchema.optional(),
   batch: z.boolean(),
   credit_estimate: z
     .object({

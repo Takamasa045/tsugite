@@ -173,6 +173,7 @@ export type ViewerGate3QcEvidence = {
 };
 
 export type ViewerRunLogEvidence = {
+  billing?: import("../../adapters/billing-contract.mjs").BillingEvidence;
   runId: string;
   mode: string;
   assetCount: number;

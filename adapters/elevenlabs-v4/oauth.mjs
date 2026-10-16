@@ -1,4 +1,5 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { billingDigest, validateConnectionBinding } from "../billing-contract.mjs";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { isIP } from "node:net";
@@ -148,7 +149,8 @@ function validateRecord(record) {
     || !sameScopes(record.scope) || !sameScopes(record.tokens?.scope)
     || !secretString(record.tokens?.access_token) || typeof record.tokens.token_type !== "string" || record.tokens.token_type.toLowerCase() !== "bearer"
     || (record.tokens.refresh_token !== undefined && !secretString(record.tokens.refresh_token))
-    || !Number.isFinite(record.expires_at)) fail("oauth_keychain_record_invalid");
+    || !Number.isFinite(record.expires_at)
+    || (record.grant_epoch !== undefined && (typeof record.grant_epoch !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(record.grant_epoch)))) fail("oauth_keychain_record_invalid");
   clientMetadata(record.client_id);
   return record;
 }
@@ -159,6 +161,7 @@ function tokenRecord(tokens, clientId, now, previous) {
     || (tokens.scope !== undefined && !sameScopes(tokens.scope))) fail("oauth_token_response_rejected");
   return validateRecord({ version: 1, issuer: OAUTH.issuer, resource: OAUTH.resource,
     client_id: clientId, scope: OAUTH.scopes,
+    ...(previous ? (previous.grant_epoch ? { grant_epoch: previous.grant_epoch } : {}) : { grant_epoch: randomUUID() }),
     expires_at: now + tokens.expires_in * 1000,
     tokens: { ...tokens, scope: tokens.scope ?? OAUTH.scopes,
       ...(tokens.refresh_token === undefined && previous?.tokens.refresh_token ? { refresh_token: previous.tokens.refresh_token } : {}) } });
@@ -199,8 +202,31 @@ export async function elevenOAuthStatus(options = {}) {
   if (loaded === undefined) return { configured: false, storage: "macOS Keychain", service: OAUTH.keychainService };
   const record = validateRecord(loaded);
   return { configured: true, expired: record.expires_at <= (options.now ?? Date.now)(),
-    issuer: record.issuer, client_id: record.client_id, scopes: record.scope.split(" "),
+    issuer: record.issuer, client_id: record.client_id, scopes: record.scope.split(" "), grant_epoch: record.grant_epoch ?? null,
     storage: "macOS Keychain", service: OAUTH.keychainService, account: OAUTH.keychainAccount };
+}
+
+// Non-secret binding. Never hash access/refresh token bytes into an approval.
+export async function elevenCredentialBinding(options = {}) {
+  const environment = options.environment ?? process.env;
+  const selected = environment.ELEVENLABS_MCP_ACCESS_TOKEN;
+  let binding;
+  if (selected === OAUTH.selector) {
+    const loaded = await (options.store ?? createKeychainStore()).load();
+    if (loaded === undefined) fail("oauth_login_required");
+    const record = validateRecord(loaded);
+    binding = { connection: "elevenlabs", source: "keychain", profile_id: "tsugite-narration-us", grant_epoch: record.grant_epoch,
+      contract_digest: billingDigest({ issuer: record.issuer, resource: record.resource, scope: record.scope, client_id: record.client_id }) };
+  } else {
+    // Existing externally managed bearer stays supported. Its operator supplies
+    // a non-secret epoch and changes it whenever replacing that grant.
+    if (typeof selected !== "string" || !selected.trim()) fail("credential_missing");
+    binding = { connection: "elevenlabs", source: "operator-attested-environment",
+      profile_id: environment.TSUGITE_ELEVENLABS_PROFILE_ID ?? "environment",
+      grant_epoch: environment.TSUGITE_ELEVENLABS_GRANT_EPOCH,
+      contract_digest: billingDigest({ issuer: OAUTH.issuer, resource: OAUTH.resource, scope: OAUTH.scopes }) };
+  }
+  try { return validateConnectionBinding(binding); } catch { fail("billing_connection_unverified"); }
 }
 
 export function validateOAuthCallback(rawUrl, expectedState) {
@@ -284,7 +310,7 @@ export async function loginElevenOAuth(clientId, options = {}) {
       redirectUri: OAUTH.redirect, resource: new URL(OAUTH.resource), fetchFn: tokenFetch(options) });
     const record = tokenRecord(tokens, clientId, (options.now ?? Date.now)());
     await (options.store ?? createKeychainStore()).save(record);
-    return { authenticated: true, issuer: OAUTH.issuer, scopes: OAUTH.scopes.split(" "),
+    return { authenticated: true, issuer: OAUTH.issuer, scopes: OAUTH.scopes.split(" "), grant_epoch: record.grant_epoch,
       storage: "macOS Keychain", service: OAUTH.keychainService, account: OAUTH.keychainAccount };
   } catch (error) {
     if (error instanceof ElevenOAuthError) throw error;

@@ -1,4 +1,5 @@
 import type { ExecutionPlan } from "../orchestrator/plan.js";
+import { billingLabel } from "../../adapters/billing-contract.mjs";
 import type { GateId, RunState } from "../orchestrator/state.js";
 import { generationRequestMode, type Project } from "../project/schema.js";
 import type {
@@ -117,7 +118,9 @@ function gate1Details(context: DetailContext): ViewerWorkflowNodeDetails {
   const decision = gateDecision("gate_1", context, `${adapter}による素材生成を開始できる状態にしました。`);
   const models = unique(requests.flatMap((request) => request.model ? [request.model] : []));
   const modes = unique(requests.map((request) => inputModeLabel(generationRequestMode(request))));
-  const creditSummary = artifacts.runLog
+  const creditSummary = plan.billing
+    ? `${billingLabel(plan.billing)} / ${billingLabel(artifacts.runLog?.billing, true)}`
+    : artifacts.runLog
     ? `クレジット: 事前見積り${formatNumber(plan.estimated_credits)} / 実績${formatNumber(artifacts.runLog.actualCredits)}`
     : `事前見積りクレジット: ${formatNumber(plan.estimated_credits)}`;
   return {
@@ -159,9 +162,9 @@ function assemblyDetails({ project, plan, artifacts, status }: DetailContext): V
     ? [
         `素材数: ${runLog.assetCount}点`,
         `生成リクエスト: ${requestCount}件`,
-        `実績クレジット: ${formatNumber(runLog.actualCredits)}`
+        plan.billing ? billingLabel(runLog.billing, true) : `実績クレジット: ${formatNumber(runLog.actualCredits)}`
       ]
-    : [`生成予定: ${requestCount}件`, `見積りクレジット: ${formatNumber(plan.estimated_credits)}`];
+    : [`生成予定: ${requestCount}件`, plan.billing ? billingLabel(plan.billing) : `見積りクレジット: ${formatNumber(plan.estimated_credits)}`];
   const outcome = runLog
     ? `${adapter}への${requestCount}件の生成依頼を完了し、映像・画像・音声を合わせて${runLog.assetCount}点の素材を制作マニフェストへ統合しました。`
     : status === "running"

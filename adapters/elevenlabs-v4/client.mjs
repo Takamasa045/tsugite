@@ -4,7 +4,9 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client";
 // A literal '*' in this repository path breaks the SDK's wildcard package exports.
 import { StreamableHTTPClientTransport } from "../../node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
-import { ElevenOAuthError, OAUTH, keychainAccessToken } from "./oauth.mjs";
+import { ElevenOAuthError, OAUTH, keychainAccessToken, elevenCredentialBinding } from "./oauth.mjs";
+import { actualNarrationBilling, assertNarrationQuote, billingDigest, makeNarrationQuote, narrationRequestDigest, quoteBilling } from "../billing-contract.mjs";
+import { authorizeRunSubmission } from "../billing-store.mjs";
 import { SubmissionDurabilityError, assertSubmissionDurabilitySupported, createDurableSubmissionJournal } from "./durability.mjs";
 
 const MCP_ENDPOINT = "https://api.us.elevenlabs.io/v1/mcp";
@@ -108,6 +110,10 @@ function selectSpeechRoute(tools, model) {
   }
   return { name: selectLegacySpeechTool(tools, model), kind: "legacy" };
 }
+function speechRouteDigest(tools, route) {
+  return billingDigest({ speech: tools.find((tool) => tool.name === route.name)?.inputSchema,
+    status: tools.find((tool) => tool.name === route.statusTool)?.inputSchema, tool: route.name });
+}
 
 export function selectElevenV4SpeechTool(tools, model) {
   return selectSpeechRoute(tools, model).name;
@@ -189,6 +195,28 @@ export async function probeElevenV4(model, options = {}) {
   } finally {
     if (!options.client) await client?.close().catch(() => undefined);
   }
+}
+
+// Explicit transfer operation only. Ordinary discovery/planning never calls it.
+export async function quoteElevenV4(payload, options = {}) {
+  const request = validateElevenV4Request(payload?.request);
+  if (payload?.approve_transfer !== true) throw new ElevenV4Error("billing_transfer_approval_required", 40);
+  const token = await accessToken(options);
+  const binding = await (options.connectionBinding ?? (() => elevenCredentialBinding({ ...options.authOptions, environment: options.environment })))();
+  const client = options.client ?? await (options.connectMcp ?? connectMcp)(token);
+  try {
+    const tools = await listSpeechTools(client), route = selectSpeechRoute(tools, request.model);
+    const tool = tools.find((entry) => entry.name === route.name);
+    if (route.kind !== "creative" || !accepts(tool.inputSchema.properties.estimate_only, true)) throw new ElevenV4Error("billing_quote_unsupported", 20);
+    const response = await client.callTool({ name: route.name, arguments: {
+      context: "Estimate only one Tsugite narration after explicit transfer approval. Do not generate.",
+      prompt: request.text, voice_id: request.voiceId, model_id: request.model, generations_count: 1, estimate_only: true
+    } }, undefined, { timeout: 60_000 });
+    const body = resultBody(response);
+    if (body.session_ids?.length || body.generations?.length || body.summary?.generations_started) throw new ElevenV4Error("billing_quote_invalid", 20);
+    try { return makeNarrationQuote(payload.request, binding, body.estimate, (options.now ?? Date.now)(), speechRouteDigest(tools, route)); }
+    catch { throw new ElevenV4Error("billing_quote_invalid", 20); }
+  } finally { if (!options.client) await client.close().catch(() => undefined); }
 }
 
 async function connectMcp(token) {
@@ -360,25 +388,28 @@ function creativeAudio(body, request) {
   }
   const generation = body.generations[0];
   const media = body.media?.find((item) => item.generation_id === generation.id && item.kind === "audio");
-  if (generation.status !== "completed" || generation.model_id !== request.model
+  if (typeof generation.id !== "string" || !SAFE_VOICE_ID.test(generation.id)
+    || generation.status !== "completed" || generation.model_id !== request.model
     || generation.prompt !== request.text || media?.voice?.voice_id !== request.voiceId
     || typeof generation.content_url !== "string") {
     throw new ElevenV4Error("mcp_generation_request_mismatch", 20);
   }
   const price = generation.price;
-  const measured = Number.isFinite(price?.credits) && price.credits >= 0;
+  const billing = actualNarrationBilling(price, { flow_id: body.flow_id, session_ids: body.session_ids, generation_id: generation.id }, 1);
+  const measured = billing.actual.status === "measured";
   return {
     result: { structuredContent: { audio_url: generation.content_url } },
-    credits: measured ? price.credits : 0,
+    credits: measured ? Number(billing.actual.credits) : 0,
     metadata: {
       provider_billing: measured ? "measured" : "unmeasured",
       flow_id: body.flow_id, session_ids: body.session_ids, generation_id: generation.id,
-      ...(measured ? { price_cents: price.price_cents, currency: price.cost_fiat_currency } : {})
-    }
+      ...(billing.actual.money ? { price_cents: price.price_cents, currency: billing.actual.money.currency } : {})
+    },
+    billing
   };
 }
 
-async function pinResult(request, paths, result, options, billing = { credits: 0, metadata: { provider_billing: "unmeasured" } }) {
+async function pinResult(request, paths, result, options, billing = { credits: 0, metadata: { provider_billing: "unmeasured" }, billing: actualNarrationBilling(undefined, null, 1) }) {
   const audio = await readMcpAudio(result, options.fetchImpl ?? fetch);
   if (audio.length < 3 || audio.length > MAX_AUDIO_BYTES || !(
     audio.subarray(0, 3).toString("ascii") === "ID3"
@@ -393,6 +424,7 @@ async function pinResult(request, paths, result, options, billing = { credits: 0
   return {
     request_id: request.id, credits: billing.credits, clips: [], images: [],
     audio: [{ id: request.id, src: paths.destination, role: "narration", start: 0 }],
+    billing: billing.billing,
     metadata: { provider: "elevenlabs", model: request.model, transport: "mcp", ...billing.metadata }
   };
 }
@@ -405,6 +437,7 @@ export async function importElevenV4Result(payload, options = {}) {
   creativeIdentity(body);
   const billing = creativeAudio(body, request);
   billing.metadata.source = "imported-existing-generation";
+  billing.billing.operation.submission_count = 0;
   return pinResult(request, paths, billing.result, options, billing);
 }
 
@@ -425,16 +458,35 @@ export async function generateElevenV4(payload, options = {}) {
   const ownsClient = !options.client;
   try {
     client = options.client ?? await (options.connectMcp ?? connectMcp)(token);
-    const route = selectSpeechRoute(await listSpeechTools(client), request.model);
+    const tools = await listSpeechTools(client), route = selectSpeechRoute(tools, request.model);
+    let permit;
+    try {
+      permit = await (options.authorizeSubmission ?? (async () => {
+        const binding = await elevenCredentialBinding({ ...options.authOptions, environment: options.environment });
+        return authorizeRunSubmission(payload, binding, (options.now ?? Date.now)());
+      }))();
+      if (!permit?.quote || !/^[a-f0-9]{64}$/.test(permit.billing_approval_digest ?? "")
+        || !/^[a-f0-9]{64}$/.test(permit.gate_approval_digest ?? "")) throw new Error("billing_gate_required");
+      if (!options.authorizeSubmission && permit.quote.tool_contract_digest !== speechRouteDigest(tools, route)) throw new Error("billing_connection_changed");
+    } catch (error) {
+      throw new ElevenV4Error(/^billing_[a-z_]+$/.test(error?.message ?? "") ? error.message : "billing_quote_required", 40);
+    }
     try {
       journal = await createDurableSubmissionJournal(paths.realOutputDir, request.id,
-        { phase: "submitting", model: request.model, tool: route.name }, options);
+        { phase: "submitting", model: request.model, tool: route.name,
+          schema_version: 1, request_digest: narrationRequestDigest(payload.request),
+          operation: { submission_count: 1 }, liability_state: "unresolved",
+          billing_approval_digest: permit.billing_approval_digest, gate_approval_digest: permit.gate_approval_digest,
+          quote_id: permit.quote.quote_id, quote: permit.quote }, options);
     } catch (error) {
       if (error instanceof SubmissionDurabilityError) {
         throw new ElevenV4Error(error.code, error.code === "submission_already_exists_or_unwritable" ? 40 : 20);
       }
       throw new ElevenV4Error("submission_not_durable", 20);
     }
+    // Directory sync may have taken time. Recheck the exact expiry at submit.
+    try { assertNarrationQuote(permit.quote, payload.request, undefined, (options.now ?? Date.now)()); }
+    catch (error) { throw new ElevenV4Error(error.message, 40); }
     // A charged submission is never retried after an uncertain result.
     submitted = true;
     const result = await client.callTool({
@@ -448,6 +500,7 @@ export async function generateElevenV4(payload, options = {}) {
     if (route.kind === "creative") {
       const body = await awaitCreativeResult(result, client, route, options, journal);
       const billing = creativeAudio(body, request);
+      if (permit?.quote) billing.billing.estimate = quoteBilling([permit.quote]).estimate;
       return await pinResult(request, paths, billing.result, options, billing);
     }
     return await pinResult(request, paths, result, options);

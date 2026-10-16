@@ -7,6 +7,7 @@ import { toAdapterGenerationRequest, type GenerationRequest } from "../project/s
 import type { Issue, Result } from "../types.js";
 import type { AdapterDefinition } from "./registry.js";
 import { adapterErrorEnvelope, describeAdapterError, parseAdapterErrorEnvelope } from "../../adapters/error-envelope.mjs";
+import { isBillingEvidence, type BillingEvidence } from "../../adapters/billing-contract.mjs";
 
 const safeIdSchema = z
   .string()
@@ -46,6 +47,7 @@ const cliOutputSchema = z
   .object({
     request_id: safeIdSchema,
     credits: z.number().nonnegative().default(0),
+    billing: z.custom<BillingEvidence>(isBillingEvidence).optional(),
     clips: z.array(generatedClipSchema).default([]),
     images: z.array(generatedImageSchema).default([]),
     audio: z.array(generatedAudioSchema).default([]),
@@ -74,6 +76,7 @@ export type CliGenerationRequestResult = {
   request_id: string;
   attempts: number;
   credits: number;
+  billing?: BillingEvidence;
   clips: Array<z.infer<typeof generatedClipSchema>>;
   images: Array<z.infer<typeof generatedImageSchema>>;
   audio: Array<z.infer<typeof generatedAudioSchema>>;
@@ -205,6 +208,7 @@ function runRequest(
           request_id: parsed.output.request_id,
           attempts: attempt,
           credits: parsed.output.credits,
+          ...(parsed.output.billing ? { billing: parsed.output.billing } : {}),
           clips: parsed.output.clips,
           images: parsed.output.images,
           audio: parsed.output.audio,
