@@ -1,3 +1,5 @@
+import { withOAuthProfile, readRefreshIntent, createRefreshIntent, clearRefreshIntent, cacheProfileStatus, cachedProfileStatus } from "./profile.mjs";
+export { cachedProfileStatus };
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { billingDigest, validateConnectionBinding } from "../billing-contract.mjs";
 import { createServer } from "node:http";
@@ -149,6 +151,7 @@ function validateRecord(record) {
     || !sameScopes(record.scope) || !sameScopes(record.tokens?.scope)
     || !secretString(record.tokens?.access_token) || typeof record.tokens.token_type !== "string" || record.tokens.token_type.toLowerCase() !== "bearer"
     || (record.tokens.refresh_token !== undefined && !secretString(record.tokens.refresh_token))
+    || (record.credential_revision !== undefined && (typeof record.credential_revision !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(record.credential_revision)))
     || !Number.isFinite(record.expires_at)
     || (record.grant_epoch !== undefined && (typeof record.grant_epoch !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(record.grant_epoch)))) fail("oauth_keychain_record_invalid");
   clientMetadata(record.client_id);
@@ -159,7 +162,7 @@ function tokenRecord(tokens, clientId, now, previous) {
     || !Number.isFinite(tokens.expires_in) || tokens.expires_in <= 0
     || (tokens.refresh_token !== undefined && !secretString(tokens.refresh_token))
     || (tokens.scope !== undefined && !sameScopes(tokens.scope))) fail("oauth_token_response_rejected");
-  return validateRecord({ version: 1, issuer: OAUTH.issuer, resource: OAUTH.resource,
+  return validateRecord({ version: 1, credential_revision: randomUUID(), issuer: OAUTH.issuer, resource: OAUTH.resource,
     client_id: clientId, scope: OAUTH.scopes,
     ...(previous ? (previous.grant_epoch ? { grant_epoch: previous.grant_epoch } : {}) : { grant_epoch: randomUUID() }),
     expires_at: now + tokens.expires_in * 1000,
@@ -175,26 +178,63 @@ function tokenFetch(options) {
   };
 }
 
-export async function keychainAccessToken(options = {}) {
-  const store = options.store ?? createKeychainStore();
-  const loaded = await store.load();
-  if (loaded === undefined) fail("oauth_login_required");
-  const record = validateRecord(loaded);
-  const now = (options.now ?? Date.now)();
-  if (record.expires_at > now + 60_000) return record.tokens.access_token;
-  if (!record.tokens.refresh_token) fail("oauth_login_required");
-  const { metadata } = await discoverElevenOAuth(options);
-  try {
-    const tokens = await refreshAuthorization(new URL(OAUTH.issuer), { metadata,
-      clientInformation: { client_id: record.client_id }, refreshToken: record.tokens.refresh_token,
-      resource: new URL(OAUTH.resource), fetchFn: tokenFetch(options) });
-    const next = tokenRecord(tokens, record.client_id, now, record);
-    await store.save(next);
-    return next.tokens.access_token;
-  } catch (error) {
+function recordBinding(record) {
+  return { connection: "elevenlabs", source: "keychain", profile_id: "tsugite-narration-us", grant_epoch: record.grant_epoch,
+    contract_digest: billingDigest({ issuer: record.issuer, resource: record.resource, scope: record.scope, client_id: record.client_id }) };
+}
+async function profileOperation(options, action) {
+  if (!options.store && (options.platform ?? process.platform) !== "darwin") fail("oauth_keychain_unavailable");
+  try { return await withOAuthProfile(options, action); }
+  catch (error) {
     if (error instanceof ElevenOAuthError) throw error;
-    fail("oauth_refresh_failed");
+    fail(/^oauth_[a-z_]+$/.test(error?.message ?? "") ? error.message : "oauth_profile_invalid");
   }
+}
+export async function keychainCredentialSession(options = {}) {
+  return profileOperation(options, async root => {
+    const store = options.store ?? createKeychainStore(), loaded = await store.load();
+    if (loaded === undefined) fail("oauth_login_required");
+    let record = validateRecord(loaded);
+    const intent = await readRefreshIntent(root);
+    if (intent) {
+      if ((record.grant_epoch ?? null) === intent.grant_epoch && (record.credential_revision ?? null) === intent.credential_revision) fail("oauth_refresh_uncertain");
+      // A verified saved revision or new login supersedes the incomplete cleanup.
+      await clearRefreshIntent(root);
+    }
+    const now = (options.now ?? Date.now)();
+    if (record.expires_at <= now + 60_000) {
+      if (!record.tokens.refresh_token) fail("oauth_login_required");
+      const { metadata } = await discoverElevenOAuth(options);
+      await createRefreshIntent(root, record); // durable before a rotating refresh POST
+      try {
+        const tokens = await refreshAuthorization(new URL(OAUTH.issuer), { metadata,
+          clientInformation: { client_id: record.client_id }, refreshToken: record.tokens.refresh_token,
+          resource: new URL(OAUTH.resource), fetchFn: tokenFetch(options) });
+        const next = tokenRecord(tokens, record.client_id, now, record);
+        await store.save(next);
+        // Confirm the saved revision before discarding rotation uncertainty.
+        const saved = validateRecord(await store.load());
+        if (saved.credential_revision !== next.credential_revision || saved.grant_epoch !== next.grant_epoch) fail("oauth_keychain_failed");
+        await clearRefreshIntent(root); record = next;
+        await cacheProfileStatus(root, { configured: true, expires_at: record.expires_at, grant_epoch: record.grant_epoch ?? null });
+      } catch (error) {
+        if (error instanceof ElevenOAuthError) throw error;
+        fail("oauth_refresh_failed");
+      }
+    }
+    return { token: record.tokens.access_token, binding: recordBinding(record) };
+  });
+}
+export async function keychainAccessToken(options = {}) { return (await keychainCredentialSession(options)).token; }
+// Keep replacement login serialized through the paid request's acceptance boundary.
+export async function withElevenGrantBinding(binding, action, options = {}) {
+  if (binding?.source !== "keychain") return action();
+  return profileOperation(options, async root => {
+    const record = validateRecord(await (options.store ?? createKeychainStore()).load());
+    if (await readRefreshIntent(root)) fail("oauth_refresh_uncertain");
+    if (billingDigest(recordBinding(record)) !== billingDigest(binding)) fail("billing_connection_changed", 40);
+    return action();
+  });
 }
 
 export async function elevenOAuthStatus(options = {}) {
@@ -215,8 +255,7 @@ export async function elevenCredentialBinding(options = {}) {
     const loaded = await (options.store ?? createKeychainStore()).load();
     if (loaded === undefined) fail("oauth_login_required");
     const record = validateRecord(loaded);
-    binding = { connection: "elevenlabs", source: "keychain", profile_id: "tsugite-narration-us", grant_epoch: record.grant_epoch,
-      contract_digest: billingDigest({ issuer: record.issuer, resource: record.resource, scope: record.scope, client_id: record.client_id }) };
+    binding = recordBinding(record);
   } else {
     // Existing externally managed bearer stays supported. Its operator supplies
     // a non-secret epoch and changes it whenever replacing that grant.
@@ -255,11 +294,11 @@ export function validateCallbackRequest(request, state) {
   return validateOAuthCallback(request.url, state);
 }
 
-function loopbackReceiver(state) {
+export function loopbackReceiver(state, options = {}) {
   let resolveCode; let rejectCode; let server;
   const code = new Promise((resolve, reject) => { resolveCode = resolve; rejectCode = reject; });
   code.catch(() => {});
-  const timer = setTimeout(() => rejectCode(new ElevenOAuthError("oauth_callback_timeout")), 180_000);
+  const timer = setTimeout(() => rejectCode(new ElevenOAuthError("oauth_callback_timeout")), (options.timeoutMs ?? 180_000));
   server = createServer((request, response) => {
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
@@ -273,7 +312,7 @@ function loopbackReceiver(state) {
     }
   });
   const ready = new Promise((resolve, reject) => {
-    server.once("error", () => reject(new ElevenOAuthError("oauth_callback_listener_failed")));
+    server.once("error", error => reject(new ElevenOAuthError(error.code === "EADDRINUSE" ? "oauth_callback_port_in_use" : "oauth_callback_listener_failed")));
     server.listen(32145, "127.0.0.1", resolve);
   });
   return { ready, code, close: async () => { clearTimeout(timer); server.closeAllConnections(); if (server.listening) await new Promise((resolve) => server.close(resolve)); } };
@@ -309,7 +348,14 @@ export async function loginElevenOAuth(clientId, options = {}) {
       clientInformation: { client_id: clientId }, authorizationCode: code, codeVerifier,
       redirectUri: OAUTH.redirect, resource: new URL(OAUTH.resource), fetchFn: tokenFetch(options) });
     const record = tokenRecord(tokens, clientId, (options.now ?? Date.now)());
-    await (options.store ?? createKeychainStore()).save(record);
+    await profileOperation(options, async root => {
+      const store = options.store ?? createKeychainStore();
+      await store.save(record);
+      const saved = validateRecord(await store.load());
+      if (saved.credential_revision !== record.credential_revision || saved.grant_epoch !== record.grant_epoch) fail("oauth_keychain_failed");
+      await clearRefreshIntent(root);
+      await cacheProfileStatus(root, { configured: true, expires_at: record.expires_at, grant_epoch: record.grant_epoch });
+    });
     return { authenticated: true, issuer: OAUTH.issuer, scopes: OAUTH.scopes.split(" "), grant_epoch: record.grant_epoch,
       storage: "macOS Keychain", service: OAUTH.keychainService, account: OAUTH.keychainAccount };
   } catch (error) {

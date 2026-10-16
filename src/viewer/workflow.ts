@@ -103,6 +103,7 @@ export type CreateViewerWorkflowOptions = {
 };
 
 export type ViewerArtifactSnapshot = {
+  narrationStatus?: import("../adapters/narrationStatus.js").NarrationStatus;
   reviewPresent?: boolean;
   reviewHref?: string;
   gate2Qc?: ViewerGate2QcEvidence;

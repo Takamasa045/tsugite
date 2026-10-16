@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { sealReceipt, validateNarrationReceipt, validReceiptTransition } from "../receipt-protocol.mjs";
-import { billingDigest, narrationRequestDigest, quoteBilling } from "../billing-contract.mjs";
+import { narrationRequestDigest, quoteBilling } from "../billing-contract.mjs";
 import { syncDurableDirectory } from "./durability.mjs";
 export { loadReceiptHistory } from "../receipt-store.mjs";
 

@@ -119,3 +119,7 @@ Append-only format:
 ### 中断復旧は送信許可と分ける
 
 accepted IDだけでなく、照会/取得の消費予算と音声の候補hashを外部操作より先に永続化する。再開専用コマンドは新規submit入口へfallbackしない。部分成功の再利用では元Gate・request・媒体hashを再検証し、存在するだけのファイルを上書き/採用しない。旧journalの不足情報はunknownのまま保持する。
+
+### OAuth rotationの不確定状態を再起動で消さない
+
+同時refreshはprofile lock取得後に再読込する。rotation POSTの前に秘密を含まないintentを永続化し、secure storeへの保存を再読込で確認してから解除する。応答喪失・保存失敗で元のrefresh tokenを再送しない。Keychain tokenと非秘密bindingは同じsnapshotから取得し、grant入替えと新規送信の競合も同じlockで直列化する。

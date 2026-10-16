@@ -108,7 +108,7 @@ import {
   previewMigrationWithPointer,
   previewRollback
 } from "./productionControl/rc/index.js";
-import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
+import { connectionSelectionPrompt, listConnectionOptions, resolveGenerationConnection } from "./connections/registry.js";
 import {
   callRemoteTool,
   listAgentServices,
@@ -138,7 +138,13 @@ import {
 } from "./cli/commandCatalog.js";
 
 type ParsedArgs = {
+  connection?: string;
+  authAction?: string;
+  clientMetadataUrl?: string;
+  approveOauth?: boolean;
+  approveKeychain?: boolean;
   approveTransfer?: boolean;
+  auditOriginal?: boolean;
   command: string;
   helpTopic?: string;
   config?: string;
@@ -281,13 +287,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
   }
 
+  if (args.command === "auth") {
+    if (!args.connection || !["plan", "status", "login", "probe"].includes(args.authAction ?? "")) return output(args, 1, { ok: false, command: "auth", issues: [{ code: "auth.arguments_required", message: "--connection と --action plan|status|login|probe を指定してください。" }] });
+    if (args.authAction === "login") { const issue = requireCoordinator(args); if (issue) return output(args, 1, { ok: false, command: "auth", issues: [issue] }); }
+    try {
+      const connection = await resolveGenerationConnection(args.connection);
+      if (!connection || connection.execution_mode !== "pipeline-adapter") return output(args, 1, { ok: false, command: "auth", issues: [{ code: "auth.unsupported", message: "この接続の認証入口は用意されていません。" }] });
+      const { loadAdapterDefinition } = await import("./adapters/registry.js");
+      const { runAdapterAuth } = await import("./adapters/auth.js");
+      const result = runAdapterAuth(await loadAdapterDefinition(connection.adapter), { action: args.authAction,
+        ...(args.clientMetadataUrl ? { client_metadata_url: args.clientMetadataUrl } : {}), ...(args.model ? { model: args.model } : {}),
+        ...(args.approveOauth ? { approve_oauth: true } : {}), ...(args.approveKeychain ? { approve_keychain: true } : {}) });
+      return output(args, result.ok ? 0 : 1, { ...result, command: "auth", connection: connection.id, generated: false });
+    } catch { return output(args, 1, { ok: false, command: "auth", issues: [{ code: "auth.connection_unavailable", message: "指定した接続の認証入口を読み込めませんでした。" }] }); }
+  }
+
   if (args.command === "connections") {
     try {
       const query = {
         ...(args.model ? { model: args.model } : {}),
         ...(args.capability ? { capability: args.capability } : {})
       };
-      const connections = await listConnectionOptions(query);
+      const { withConnectionCaches } = await import("./adapters/auth.js");
+      const connections = await withConnectionCaches(await listConnectionOptions(query));
       return output(args, 0, {
         ok: true,
         command: "connections",
@@ -1586,9 +1608,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   if (args.command === "plan") {
+    const { readNarrationStatus } = await import("./adapters/narrationStatus.js");
+    const location = getStateLocation(args, validation.project!);
+    const narrationStatus = await readNarrationStatus(args.config!, validation.project!, validation.adapter, join(location.stateDir, validation.project!.run_id ?? validation.project!.slug));
     return output(args, 0, {
       ok: true,
       command: "plan",
+      ...(narrationStatus ? { narration_status: narrationStatus } : {}),
       plan: createPlan(
         trustedProject!,
         validation.manifest!,
@@ -1952,6 +1978,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       next_actions: ["同じ承認内容の既存処理を取得するには resume --apply --actor coordinator を実行してください。未送信の依頼は生成しません。"] });
   }
 
+  if (args.command === "resume" && args.apply && args.auditOriginal) {
+    const issue = requireCoordinator(args);
+    if (issue) return output(args, 1, { ok: false, command: "resume", issues: [issue] });
+    if (effectiveRuntimeMode({ runtime_authority: validation.runtime_authority, project: validation.project! }) !== "legacy" || !validation.adapter?.resume || validation.adapter.receipts?.protocol !== "narration-v1") return output(args, 1, { ok: false, command: "resume", issues: [{ code: "resume.unsupported", message: "この接続は元承認への監査取得に対応していません。" }] });
+    const { runCliGenerationAdapter } = await import("./adapters/cliGeneration.js");
+    const { combineActualBilling } = await import("../adapters/billing-contract.mjs");
+    const location = getStateLocation(args, validation.project!), runId = validation.project!.run_id ?? validation.project!.slug;
+    const result = runCliGenerationAdapter(validation.adapter, validation.project!.generation?.requests ?? [], { runId, runDir: join(location.stateDir, runId), resumeOnly: true, auditOriginal: true });
+    return output(args, result.ok ? 0 : 1, { ...result, command: "resume", audit_only: true, generated: false, adopted_into_current_revision: false,
+      ...(result.ok ? { billing: combineActualBilling(result.requests.flatMap(r => r.billing ? [r.billing] : [])) } : {}),
+      next_actions: ["取得結果は元run・元承認のreceiptに保存しました。現在のmanifest・QC・Gateは変更していません。"] });
+  }
+
   if (args.command === "run" || args.command === "resume") {
     const coordinatorIssue = requireCoordinator(args);
     if (coordinatorIssue) return output(args, 1, { ok: false, command: args.command, issues: [coordinatorIssue] });
@@ -1981,6 +2020,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    if (args.expectedApprovalDigest && stateResult.state.gates.gate_1.approved_input_digest !== args.expectedApprovalDigest) return output(args, 1, { ok: false, command: args.command, issues: [{ code: "gate.approval_card_stale", message: "表示後に承認が変わりました。案件を再読込して確認してください。" }] });
     const review = await inspectGate1Review({
       configPath: args.config!,
       project: validation.project!,
@@ -2065,6 +2105,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             message: error instanceof Error ? error.message : String(error)
           }]
         });
+      }
+    }
+
+    if (args.command === "resume") {
+      const { inspectGenerationReceipts } = await import("./adapters/receipts.js");
+      const runDir = join(stateResult.stateDir, stateResult.state.run_id), requests = trustedProject!.generation?.requests ?? [];
+      const projection = await inspectGenerationReceipts(validation.adapter, requests, runDir);
+      const remaining = projection.requests.filter(r => r.state === "not_submitted").map(r => r.request_id);
+      if (remaining.length) {
+        const { runCliGenerationAdapter } = await import("./adapters/cliGeneration.js");
+        const { combineActualBilling } = await import("../adapters/billing-contract.mjs");
+        const recovered = runCliGenerationAdapter(validation.adapter!, requests.filter(r => !remaining.includes(r.id)), { runId: stateResult.state.run_id, runDir, resumeOnly: true });
+        return output(args, recovered.ok ? 0 : 1, { ...recovered, command: "resume", partial_recovery: true, remaining_requests: remaining,
+          ...(recovered.ok ? { billing: combineActualBilling(recovered.requests.flatMap(r => r.billing ? [r.billing] : [])) } : {}),
+          generated: false, state: stateResult.state, next_actions: ["未送信の依頼は生成していません。新規生成には有効な見積と同じGate承認を確認してください。"] });
       }
     }
 
@@ -2354,6 +2409,16 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (index === commandIndex) continue;
     const arg = argv[index];
     if (arg === "--json") continue;
+    if (arg === "--audit-original") {
+      if (isCommandOptionAllowed(parsed.command, arg)) parsed.auditOriginal = true;
+      else parsed.issues.push({ code: "cli.option_unsupported", message: `${arg} is not supported by '${parsed.command}'`, path: arg });
+      continue;
+    }
+    if (arg === "--approve-oauth" || arg === "--approve-keychain") {
+      if (isCommandOptionAllowed(parsed.command, arg)) { if (arg === "--approve-oauth") parsed.approveOauth = true; else parsed.approveKeychain = true; }
+      else parsed.issues.push({ code: "cli.option_unsupported", message: `${arg} is not supported by '${parsed.command}'`, path: arg });
+      continue;
+    }
     if (arg === "--approve-transfer") {
       if (isCommandOptionAllowed(parsed.command, arg)) parsed.approveTransfer = true;
       else parsed.issues.push({ code: "cli.option_unsupported", message: `${arg} is not supported by '${parsed.command}'`, path: arg });
@@ -2459,8 +2524,11 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "decisionsFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
+      keyof Pick<ParsedArgs, "connection" | "authAction" | "clientMetadataUrl" | "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "decisionsFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
     > = {
+      "--connection": "connection",
+      "--action": "authAction",
+      "--client-metadata-url": "clientMetadataUrl",
       "--config": "config",
       "--actor": "actor",
       "--gate": "gate",

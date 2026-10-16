@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { link, lstat, mkdir, open, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, open, realpath, unlink } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client";
 // A literal '*' in this repository path breaks the SDK's wildcard package exports.
 import { StreamableHTTPClientTransport } from "../../node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
-import { ElevenOAuthError, OAUTH, keychainAccessToken, elevenCredentialBinding } from "./oauth.mjs";
+import { ElevenOAuthError, OAUTH, keychainAccessToken, keychainCredentialSession, withElevenGrantBinding, elevenCredentialBinding } from "./oauth.mjs";
 import { actualNarrationBilling, assertNarrationQuote, billingDigest, makeNarrationQuote, narrationRequestDigest, quoteBilling } from "../billing-contract.mjs";
 import { authorizeRunSubmission, readBoundedRunJson, readRunBillingContext } from "../billing-store.mjs";
 import { ProcessLockError, withProcessLock } from "../process-lock.mjs";
@@ -188,6 +188,14 @@ async function accessToken(options) {
   return token;
 }
 
+async function credentialSession(options) {
+  if ((options.environment ?? process.env).ELEVENLABS_MCP_ACCESS_TOKEN === OAUTH.selector) {
+    try { return await keychainCredentialSession(options.authOptions); }
+    catch (error) { throw new ElevenV4Error(error instanceof ElevenOAuthError ? error.code : "oauth_credential_unavailable", 30); }
+  }
+  return { token: await accessToken(options), binding: await (options.connectionBinding ?? (() => elevenCredentialBinding({ ...options.authOptions, environment: options.environment })))() };
+}
+
 export async function probeElevenV4(model, options = {}) {
   if (!MODELS.has(model)) throw new ElevenV4Error("unsupported_operation_or_model", 40);
   const token = await accessToken(options);
@@ -207,8 +215,7 @@ export async function probeElevenV4(model, options = {}) {
 export async function quoteElevenV4(payload, options = {}) {
   const request = validateElevenV4Request(payload?.request);
   if (payload?.approve_transfer !== true) throw new ElevenV4Error("billing_transfer_approval_required", 40);
-  const token = await accessToken(options);
-  const binding = await (options.connectionBinding ?? (() => elevenCredentialBinding({ ...options.authOptions, environment: options.environment })))();
+  const { token, binding } = await credentialSession(options);
   const client = options.client ?? await (options.connectMcp ?? connectMcp)(token);
   try {
     const tools = await listSpeechTools(client), route = selectSpeechRoute(tools, request.model);
@@ -554,7 +561,11 @@ async function processNarrationRun(payload, options) {
   try {
     return await withProcessLock(paths.realOutputDir, `${request.id}.recovery.lock`, async () => {
       const receipt = await loadReceiptHistory(paths.realOutputDir, request, options);
-      if (receipt) return resumeRecordedElevenV4(payload, request, paths, receipt, options);
+      if (receipt) {
+        const output = await resumeRecordedElevenV4(payload, request, paths, receipt, options);
+        if (options.resumeOnly && payload.audit_original === true) output.metadata = { ...output.metadata, audit_original_approval: true, origin_approval_digest: receipt.gate_approval_digest };
+        return output;
+      }
       if (options.resumeOnly) throw new ElevenV4Error("resume_no_submission", 40);
       try { await lstat(paths.destination); throw new ElevenV4Error("output_already_exists", 40); }
       catch (error) { if (error?.code !== "ENOENT") throw error; }
@@ -590,7 +601,7 @@ async function resumeRecordedElevenV4(payload, request, paths, receipt, options)
   validateNarrationReceipt(receipt, request);
   if (receipt.run_id !== payload.run_id) throw new ElevenV4Error("receipt_approval_mismatch", 40);
   if (options.authorizeRecovery) await options.authorizeRecovery(receipt);
-  else if (receipt.source === "generated") {
+  else if (receipt.source === "generated" && !(options.resumeOnly && payload.audit_original === true)) {
     const state = await readBoundedRunJson(payload.run_dir, "state.json"), gate = state.gates?.gate_1;
     if (state.run_id !== payload.run_id || gate?.status !== "approved" || gate.approved_input_digest !== receipt.gate_approval_digest
       || gate.billing_approval_digest !== receipt.billing_approval_digest) throw new ElevenV4Error("receipt_approval_mismatch", 40);
@@ -662,7 +673,8 @@ async function resumeRecordedElevenV4(payload, request, paths, receipt, options)
 }
 
 async function submitNewElevenV4(payload, request, paths, options) {
-  const token = await accessToken(options);
+  const credentials = options.authorizeSubmission ? { token: await accessToken(options) } : await credentialSession(options);
+  const token = credentials.token;
   let client;
   let journal;
   let writer;
@@ -675,8 +687,7 @@ async function submitNewElevenV4(payload, request, paths, options) {
     let permit;
     try {
       permit = await (options.authorizeSubmission ?? (async () => {
-        const binding = await elevenCredentialBinding({ ...options.authOptions, environment: options.environment });
-        return authorizeRunSubmission(payload, binding, (options.now ?? Date.now)());
+        return authorizeRunSubmission(payload, credentials.binding, (options.now ?? Date.now)());
       }))();
       if (!permit?.quote || !/^[a-f0-9]{64}$/.test(permit.billing_approval_digest ?? "")
         || !/^[a-f0-9]{64}$/.test(permit.gate_approval_digest ?? "")) throw new Error("billing_gate_required");
@@ -708,15 +719,20 @@ async function submitNewElevenV4(payload, request, paths, options) {
     try { assertNarrationQuote(permit.quote, payload.request, undefined, (options.now ?? Date.now)()); }
     catch (error) { throw new ElevenV4Error(error.message, 40); }
     // A charged submission is never retried after an uncertain result.
-    submitted = true;
-    const result = await client.callTool({
+    const submit = async () => {
+      try { assertNarrationQuote(permit.quote, payload.request, undefined, (options.now ?? Date.now)()); }
+      catch (error) { throw new ElevenV4Error(error.message, 40); }
+      submitted = true;
+      return client.callTool({
       name: route.name,
       arguments: route.kind === "creative" ? {
         context: "Generate exactly one Gate 1 approved Tsugite narration.",
         prompt: request.text, voice_id: request.voiceId, model_id: request.model,
         generations_count: 1, estimate_only: false
       } : { text: request.text, voice_id: request.voiceId, model_id: request.model }
-    }, undefined, { timeout: 120_000 });
+      }, undefined, { timeout: 120_000 });
+    };
+    const result = options.authorizeSubmission ? await submit() : await withElevenGrantBinding(permit.quote.connection_binding, submit, options.authOptions);
     if (route.kind === "creative") {
       const body = await awaitCreativeResult(result, client, route, options, writer);
       const billing = creativeAudio(body, request);
@@ -735,6 +751,7 @@ async function submitNewElevenV4(payload, request, paths, options) {
       try { await writer.publish({ state: "failed" }); } catch { throw new ElevenV4Error("mcp_outcome_unknown", 20); }
     }
     if (error instanceof ElevenV4Error) throw error;
+    if (error instanceof ElevenOAuthError) throw new ElevenV4Error(error.code, error.exitCode);
     if (/^(receipt|project|billing)_[a-z_]+$/.test(error?.message ?? "")) throw new ElevenV4Error(error.message, 20);
     throw new ElevenV4Error(submitted ? "mcp_outcome_unknown" : "mcp_discovery_failed", 20);
   } finally {

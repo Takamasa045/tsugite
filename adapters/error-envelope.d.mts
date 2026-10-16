@@ -8,5 +8,5 @@ export type AdapterErrorEnvelope = {
   request_id?: string;
 };
 export function adapterErrorEnvelope(code: string, requestId?: string): AdapterErrorEnvelope;
-export function parseAdapterErrorEnvelope(text: string, requestId: string): AdapterErrorEnvelope | undefined;
+export function parseAdapterErrorEnvelope(text: string, requestId?: string): AdapterErrorEnvelope | undefined;
 export function describeAdapterError(code: string): string;

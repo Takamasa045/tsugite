@@ -1,11 +1,17 @@
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OAUTH, clientMetadata, discoverElevenOAuth, planElevenOAuth, createKeychainStore,
   keychainAccessToken, elevenOAuthStatus, validateOAuthCallback, validateCallbackRequest, loginElevenOAuth } from "../adapters/elevenlabs-v4/oauth.mjs";
 import { probeElevenV4 } from "../adapters/elevenlabs-v4/client.mjs";
 import { creativeSpeechTool, creativeStatusTool } from "./fixtures/elevenlabs-v4-mcp.mjs";
+const roots = [];
+const profileDirectory = () => { const root = mkdtempSync(join(tmpdir(), "tsugite-oauth-unit-")); roots.push(root); return root; };
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const fixture = JSON.parse(await readFile(new URL("./fixtures/elevenlabs-oauth-discovery.json", import.meta.url), "utf8"));
 const CLIENT = "https://client.example/tsugite-elevenlabs.json";
 const freshTokens = { access_token: "fixture-access", refresh_token: "fixture-refresh", token_type: "Bearer", expires_in: 3600, scope: OAUTH.scopes };
@@ -16,6 +22,7 @@ function harness(changes = {}) {
   let callback;
   const received = new Promise((resolve) => { callback = resolve; });
   const store = { load: vi.fn(async () => undefined), save: vi.fn(async () => {}) };
+  store.save.mockImplementation(async record => { store.load.mockResolvedValue(record); });
   const close = vi.fn(async () => {});
   let authorizationUrl;
   const fetchImpl = vi.fn(async (url, init) => {
@@ -35,7 +42,7 @@ function harness(changes = {}) {
     callback({ callbackUrl: OAUTH.redirect + "?" + query });
   });
   return { store, close, fetchImpl, openBrowser, get authorizationUrl() { return authorizationUrl; },
-    options: { platform: "darwin", store, fetchImpl, openBrowser, now: () => 1000,
+    options: { profileDirectory: profileDirectory(), platform: "darwin", store, fetchImpl, openBrowser, now: () => 1000,
       receiver: () => ({ ready: Promise.resolve(), code: received, close }),
       allowAuthorization: true, allowKeychainWrite: true } };
 }
@@ -87,7 +94,7 @@ describe("dedicated ElevenLabs OAuth binding (all credentials and OS operations 
     const r = spawnSync(process.execPath, ["adapters/elevenlabs-v4/auth.mjs", "login"], { encoding: "utf8" });
     expect(r.status).toBe(40);
     expect(r.stdout).toBe("");
-    expect(r.stderr).toBe("ElevenLabs OAuth: oauth_execution_approval_required\n");
+    expect(JSON.parse(r.stderr)).toMatchObject({ code: "oauth_execution_approval_required" });
   });
 
   it("binds PKCE, state, issuer, resource, public client and exactly the approved scopes", async () => {
@@ -225,7 +232,7 @@ describe("dedicated ElevenLabs OAuth binding (all credentials and OS operations 
     const client = { listTools: vi.fn(async () => ({ tools: [creativeSpeechTool, creativeStatusTool] })), close: vi.fn(async () => {}) };
     const connectMcp = vi.fn(async () => client);
     const result = await probeElevenV4("eleven_v4", { environment: { ELEVENLABS_MCP_ACCESS_TOKEN: OAUTH.selector },
-      authOptions: { store: { load: async () => record() }, now: () => 1000 }, connectMcp });
+      authOptions: { profileDirectory: profileDirectory(), store: { load: async () => record() }, now: () => 1000 }, connectMcp });
     expect(connectMcp).toHaveBeenCalledWith("fixture-access");
     expect(result.adapter_compatible).toBe(true);
     expect(JSON.stringify(result)).not.toContain("fixture-access");

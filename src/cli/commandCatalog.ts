@@ -4,6 +4,7 @@ export type CommandName =
   | "doctor"
   | "guides"
   | "story-guides"
+  | "auth"
   | "connections"
   | "services"
   | "service-tools"
@@ -219,6 +220,22 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: false,
     safety: "read-only",
     options: [OPTIONS.request, OPTIONS.duration]
+  }),
+  defineCommand({
+    name: "auth",
+    summary: "Connection plan uses public GET only; status reads the declared secure store without refresh; probe lists tools; login opens a browser and saves only with both approvals. Built-in Keychain storage supports macOS only. Never generates or substitutes a client metadata URL.",
+    usage: "node bin/pipeline auth --connection <id> --action <plan|status|login|probe> [--model <model>] [--client-metadata-url <https-url>] [--approve-oauth --approve-keychain --actor coordinator] [--json]",
+    requiresConfig: false,
+    safety: "approval-gated",
+    options: [
+      { name: "--connection", value: "<id>", summary: "Explicit connection to configure." },
+      { name: "--action", value: "<action>", summary: "plan, status, login, or probe." },
+      OPTIONS.model,
+      { name: "--client-metadata-url", value: "<https-url>", summary: "Maintainer-approved dedicated public client metadata document." },
+      { name: "--approve-oauth", summary: "Approve browser authorization with the fixed scopes." },
+      { name: "--approve-keychain", summary: "Approve dedicated macOS Keychain storage." },
+      OPTIONS.actor
+    ]
   }),
   defineCommand({
     name: "connections",
@@ -451,10 +468,10 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
   defineCommand({
     name: "resume",
     summary: "Inspect local narration receipts; --apply as coordinator retrieves only existing jobs and rebuilds QC. Never starts generation.",
-    usage: "node bin/pipeline resume --config <project.yaml> [--apply --actor coordinator] [--state-dir <directory>] [--json]",
+    usage: "node bin/pipeline resume --config <project.yaml> [--apply [--audit-original] --actor coordinator] [--state-dir <directory>] [--json]",
     requiresConfig: true,
     safety: "approval-gated",
-    options: [OPTIONS.config, OPTIONS.apply, OPTIONS.actor, OPTIONS.stateDir]
+    options: [OPTIONS.config, OPTIONS.apply, { name: "--audit-original", summary: "Retrieve only to the original receipt after approval changes; never update manifest/QC/Gates. Request content must match." }, OPTIONS.actor, OPTIONS.stateDir]
   }),
   defineCommand({
     name: "gate",

@@ -95,6 +95,7 @@ export type CliGenerationOptions = {
   runId: string;
   runDir: string;
   resumeOnly?: boolean;
+  auditOriginal?: boolean;
 };
 
 export function runCliGenerationAdapter(
@@ -182,7 +183,7 @@ function runRequest(
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const result = spawnCommandSync(command.executable, command.args, {
       cwd: process.cwd(),
-      input: `${JSON.stringify({ request: toAdapterGenerationRequest(request), run_id: options.runId, run_dir: options.runDir })}\n`,
+      input: `${JSON.stringify({ request: toAdapterGenerationRequest(request), run_id: options.runId, run_dir: options.runDir, ...(options.resumeOnly && options.auditOriginal ? { audit_original: true } : {}) })}\n`,
       encoding: "utf8",
       maxBuffer: 1024 * 1024 * 20
     });

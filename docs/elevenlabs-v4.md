@@ -209,3 +209,73 @@ only when that proof matches; symlinks, partial JSON, mismatched bytes and unkno
 legacy records fail closed. Repeated import/resume records historical source
 billing and zero new submissions. Existing source assets are reused only when
 hashes match and are never overwritten during partial assembly.
+
+## Public connection setup
+
+```sh
+node bin/pipeline help auth
+node bin/pipeline auth --connection elevenlabs --action plan --json
+node bin/pipeline auth --connection elevenlabs --action status --json
+node bin/pipeline auth --connection elevenlabs --action probe --model eleven_v4 --json
+# Only after explicitly approving authorization and secure storage:
+node bin/pipeline auth --connection elevenlabs --action login --client-metadata-url <maintainer-approved-https-document> --approve-oauth --approve-keychain --actor coordinator --json
+```
+
+`plan` uses public GET discovery only and reads no credentials. `status` explicitly
+reads the dedicated Keychain record without refreshing or saving. `probe` connects
+and lists schemas; it generates nothing and may refresh an existing selected grant.
+`login` requires both approvals before discovery/browser/listener/Keychain effects.
+The original adapter-level auth entry remains available and uses the same action
+implementation and bounded error schema. Client metadata is never silently replaced:
+a maintained dedicated CIMD document must be chosen explicitly. A user need not
+publish a new website; distribution/ownership of a shared product URL remains a
+maintainer decision. Issuer, resource, callback and the two scopes remain pinned.
+
+Refresh takes a profile process lock and reloads the record after acquiring it.
+A durable **non-secret** refresh intent precedes the rotating-token POST. If its
+outcome or the verified Keychain save is uncertain, the next invocation stops
+instead of replaying the old refresh token. A successful verified revision or a
+new explicitly approved login can supersede the intent. Token and grant binding
+are captured from one snapshot; the grant is checked under the same profile lock
+through the new paid request's acceptance boundary. Normal refresh preserves the
+grant epoch; replacement login changes it. Locks/cache/intents contain no tokens.
+A crash during an incomplete lock reclaim can conservatively require inspection.
+
+Connection lists and the canvas read only a non-secret cache written after a
+successful login/refresh. They do not read Keychain, refresh, or probe. A missing
+cache means **unverified**, not disconnected or ready. `status` is the explicit
+fresh read. Displayed receipt state and next actions are a shared local read model;
+the adapter and locked CLI still check the actual approval before execution.
+
+When an approval has changed but the request's text/model/voice are identical,
+`resume --apply --audit-original --actor coordinator` retrieves only to the
+original run/receipt. It does not update the current manifest, QC or Gates and
+cannot adopt that result into the new revision. The ordinary resume path continues
+to require the original approval. Changed request content fails closed even in
+audit mode; the original specification must be recovered explicitly, not inferred.
+
+## Supported and verified scope
+
+| Capability | macOS | Linux | Windows |
+|---|---|---|---|
+| Dedicated OAuth Keychain storage | Implemented, fixture/process tests | Unsupported; no plaintext fallback | Unsupported; no plaintext fallback |
+| Existing operator-managed bearer | Supported; epoch attestation required for new quote | Supported; epoch attestation required | Read-only discovery/preview only for this adapter |
+| New paid submission durability | Real directory fsync + process/fault tests | CI filesystem/process tests | Fails closed |
+| Local receipt preview / shared status | Supported | Supported | Supported |
+| Durable resume/apply | Supported, original approval or explicit audit-only mode | Supported with existing bearer | Fails closed while directory sync is unsupported |
+
+Hosted authenticated `tools/list` and one dedicated-profile generation were
+verified before this brushup. The observed schema declared `eleven_v4`; it did
+**not** declare `eleven_v4_turbo`. This implementation never substitutes another
+model. The present brushup adds offline transport, actual child-process/public
+Gate-chain tests, real small MP3/Remotion inspection, process interruption and
+bounded persistence fixtures. It makes no additional live paid API call or new
+OAuth authorization. Process-kill tests and the persistence model are not proof
+of an actual host power-loss test.
+
+The UI provides a normal 2D status/approval card, keyboard-operable recovery,
+announced errors with focus, and no regeneration control for unknown records.
+DOM tests cover these controls; manual screen-reader and subjective listening
+checks remain separate. Codec/hash/volume/ASR checks cannot establish that a human
+has listened. Gate 2 asks for listening; Gate 3, completion/cleanup, and publication
+remain separate decisions.

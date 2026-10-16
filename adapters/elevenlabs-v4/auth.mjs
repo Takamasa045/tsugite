@@ -1,4 +1,6 @@
-import { ElevenOAuthError, OAUTH, clientMetadata, planElevenOAuth, loginElevenOAuth, elevenOAuthStatus } from "./oauth.mjs";
+import { executeAuthAction } from "./auth-api.mjs";
+import { adapterErrorEnvelope } from "../error-envelope.mjs";
+import { ElevenOAuthError, clientMetadata } from "./oauth.mjs";
 
 try {
   const [command, ...args] = process.argv.slice(2);
@@ -21,15 +23,14 @@ try {
   let result;
   if (command === "metadata" && !allowAuthorization && !allowKeychainWrite) result = clientMetadata(clientId);
   else if ((command === "plan" || command === "discover") && !allowAuthorization && !allowKeychainWrite) {
-    result = await planElevenOAuth(clientId);
-  } else if (command === "status" && args.length === 0) result = await elevenOAuthStatus();
+    result = await executeAuthAction({ action: "plan", ...(clientId ? { client_metadata_url: clientId } : {}) });
+  } else if (command === "status" && args.length === 0) result = await executeAuthAction({ action: "status" });
   else if (command === "login") {
-    result = await loginElevenOAuth(clientId, { allowAuthorization, allowKeychainWrite });
-    result.connection_selector = `ELEVENLABS_MCP_ACCESS_TOKEN=${OAUTH.selector}`;
+    result = await executeAuthAction({ action: "login", client_metadata_url: clientId, approve_oauth: allowAuthorization, approve_keychain: allowKeychainWrite });
   } else throw new ElevenOAuthError("oauth_arguments_invalid", 40);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 } catch (error) {
   const failure = error instanceof ElevenOAuthError ? error : new ElevenOAuthError("oauth_operation_failed");
-  process.stderr.write(`ElevenLabs OAuth: ${failure.code}\n`);
+  process.stderr.write(`${JSON.stringify(adapterErrorEnvelope(failure.code))}\n`);
   process.exitCode = failure.exitCode;
 }

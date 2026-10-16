@@ -138,15 +138,17 @@ function gate1Details(context: DetailContext): ViewerWorkflowNodeDetails {
       label: "素材生成の開始判断",
       description: "外部生成サービスへ制作指示を送り、クレジットを消費してよいかという判断結果です。",
       reference: "gate-1.result",
-      facts: [decision.decision]
+      facts: [decision.decision, ...(artifacts.narrationStatus ? [artifacts.narrationStatus.reason, artifacts.narrationStatus.next_action.label] : [])]
     }],
     approval: {
-      subject: `${adapter}で${requestCount}本の映像素材を生成する制作方針と、外部サービス実行によるクレジット消費`,
+      subject: plan.billing ? `${adapter}で${requestCount}件の素材を生成する制作方針と、外部サービス実行によるクレジット消費` : `${adapter}で${requestCount}本の映像素材を生成する制作方針と、外部サービス実行によるクレジット消費`,
       checkpoints: [
         `完成予定は${seconds(plan.target_duration_seconds)}、生成予定は${requestCount}本`,
         `使用モデル: ${models.length ? models.join("、") : "未指定"}`,
         `生成方法: ${modes.length ? modes.join("、") : "未指定"}`,
         creditSummary,
+        ...(plan.billing ? requests.map(request => `音声条件: ${request.prompt} / 声 ${request.params.voice_id ?? "未指定"} / モデル ${request.model ?? "未指定"} / 数量1 / ${Array.from(request.prompt).length}文字 / 接続 ${project.generation?.connection ?? "未指定"}`) : []),
+        ...(plan.billing ? ["承認上限は送信判断の上限です。providerの最終請求額を固定する保証ではありません。"] : []),
         "プロンプトと参照素材が、企画意図・人物・衣装・画面方向の一貫性を満たしていること"
       ],
       ...decision
@@ -173,7 +175,7 @@ function assemblyDetails({ project, plan, artifacts, status }: DetailContext): V
   return {
     purpose: "承認済みの方針に沿って素材を生成・収集し、編集で使える一式にまとめる工程です。",
     activity: `${adapter}への各カットの生成指示、戻った素材の命名・配置、制作マニフェストへの統合`,
-    outcome,
+    outcome: artifacts.narrationStatus?.reason ?? outcome,
     inputs: [{
       label: "承認済みの制作方針",
       description: "Gate 1で、人が外部生成の内容とクレジット消費を認めた判断です。",
@@ -385,6 +387,7 @@ function gate2Checkpoints(
     ...(qc?.assetKinds ? [`内訳: 映像${qc.assetKinds.clip}本・画像${qc.assetKinds.image}枚・音声${qc.assetKinds.audio}本`] : []),
     `構成尺${formatNumber(totalDuration)}秒は、目標${formatNumber(targetDuration)}秒との差が${formatNumber(Math.abs(durationDelta))}秒で許容範囲内`,
     "すべての映像・画像・音声を読み込め、破損や不足がないこと",
+    "技術QAの合格と人による音声の聴取確認は別です。読み・音量・内容・声を聴いて判断してください。",
     "各映像の尺・解像度・fpsが制作マニフェストの指定と一致すること",
     qc?.ok === false ? `自動検査で${qc.issues?.length ?? 0}件の問題あり` : "自動検査の問題: 0件"
   ];

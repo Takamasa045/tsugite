@@ -2,6 +2,7 @@ import { billingDigest, isBillingEvidence, narrationRequestDigest, assertNarrati
 
 export const RECEIPT_LIMITS = Object.freeze({ polls: 30, wait_ms: 120_000, refreshes: 3, downloads: 3 });
 const id = (value) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
+const opaqueId = value => typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const digest = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const exactKeys = (value, keys) => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every((key) => keys.includes(key));
 export function sealReceipt(body) {
@@ -31,11 +32,11 @@ export function validateNarrationReceipt(value, request) {
     || ![budgets.polls_used, budgets.wait_ms_used, budgets.refreshes_used, budgets.downloads_used].every((v) => Number.isInteger(v) && v >= 0)
     || budgets.polls_used > RECEIPT_LIMITS.polls || budgets.wait_ms_used > RECEIPT_LIMITS.wait_ms
     || budgets.refreshes_used > RECEIPT_LIMITS.refreshes || budgets.downloads_used > RECEIPT_LIMITS.downloads) throw new Error("receipt_invalid");
-  if (value.job !== null && (!exactKeys(value.job, ["flow_id", "session_ids"]) || !id(value.job.flow_id)
-    || !Array.isArray(value.job.session_ids) || value.job.session_ids.length !== 1 || !id(value.job.session_ids[0]))) throw new Error("receipt_invalid");
+  if (value.job !== null && (!exactKeys(value.job, ["flow_id", "session_ids"]) || !opaqueId(value.job.flow_id)
+    || !Array.isArray(value.job.session_ids) || value.job.session_ids.length !== 1 || !opaqueId(value.job.session_ids[0]))) throw new Error("receipt_invalid");
   if (value.transport_kind === "creative" && ["accepted", "succeeded", "pinned"].includes(value.state) && value.job === null) throw new Error("receipt_invalid");
   if (value.result !== null && (!exactKeys(value.result, ["generation_id", "model", "voice_id"])
-    || !id(value.result.generation_id) || !["eleven_v4", "eleven_v4_turbo"].includes(value.result.model) || !id(value.result.voice_id))) throw new Error("receipt_invalid");
+    || !opaqueId(value.result.generation_id) || !id(value.result.model) || !opaqueId(value.result.voice_id))) throw new Error("receipt_invalid");
   if (value.transport_kind === "creative" && ["succeeded", "pinned"].includes(value.state) && value.result === null) throw new Error("receipt_invalid");
   if (value.asset !== null && (!exactKeys(value.asset, ["relative_path", "temporary_name", "sha256", "byte_size", "duration_seconds"])
     || value.asset.relative_path !== `${value.request_id}.mp3` || !digest(value.asset.sha256)
@@ -64,6 +65,7 @@ export function receiptPublicState(receipt) {
   };
   const [submission_state, recovery_action] = states[receipt.state];
   return { request_id: receipt.request_id, state: receipt.state, submission_state, recovery_action,
+    gate_approval_digest: receipt.gate_approval_digest, billing: { ...receipt.billing, operation: { submission_count: 0 } },
     checked_at: receipt.updated_at, budgets: receipt.budgets, source_generation_ref: receipt.billing.actual.source_generation_ref,
     new_submission_allowed: false };
 }

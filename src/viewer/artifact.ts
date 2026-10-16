@@ -181,12 +181,15 @@ export async function writeWorkflowViewer(
   ]);
   const projectRoot = dirname(resolve(options.configPath));
   const activeMissionTree = await loadActiveMissionTreeProjection(projectRoot, options.project);
+  const { readNarrationStatus, loadProjectGenerationAdapter } = await import("../adapters/narrationStatus.js");
+  const narrationStatus = await readNarrationStatus(options.configPath, options.project, await loadProjectGenerationAdapter(options.project), runDir);
   const workflow = createViewerWorkflow(
     options.project,
     options.plan,
     state,
     {
       ...evidence,
+      ...(narrationStatus ? { narrationStatus } : {}),
       ...(reviewHref ? { reviewHref } : {}),
       ...(previews.length > 0 ? { previews } : {})
     },

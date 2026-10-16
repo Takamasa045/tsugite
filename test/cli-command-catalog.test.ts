@@ -13,6 +13,7 @@ const expectedOptions = {
   doctor: ["--config"],
   guides: ["--catalog", "--model", "--input-mode"],
   "story-guides": ["--request", "--duration"],
+  auth: ["--connection", "--action", "--model", "--client-metadata-url", "--approve-oauth", "--approve-keychain", "--actor"],
   connections: ["--model", "--capability"],
   services: [],
   "service-tools": ["--service"],
@@ -78,7 +79,7 @@ const expectedOptions = {
   review: ["--config", "--output", "--state-dir", "--open"],
   "review-preview": ["--config", "--actor", "--shot", "--output", "--state-dir"],
   run: ["--config", "--dry-run", "--actor", "--state-dir"],
-  resume: ["--config", "--apply", "--actor", "--state-dir"],
+  resume: ["--config", "--apply", "--audit-original", "--actor", "--state-dir"],
   gate: [
     "--config",
     "--actor",

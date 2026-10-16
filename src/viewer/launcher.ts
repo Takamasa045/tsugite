@@ -1072,7 +1072,7 @@ export async function startWorkflowViewerLauncher(
     const method = request.method ?? "GET";
     const mutationRequest = method === "POST" && (
       /^\/api\/projects\/[^/]+\/generation-connection$/.test(requestUrl.pathname)
-      || /^\/api\/projects\/[^/]+\/generate$/.test(requestUrl.pathname)
+      || /^\/api\/projects\/[^/]+\/(?:generate|resume)$/.test(requestUrl.pathname)
       || /^\/api\/projects\/[^/]+\/rename$/.test(requestUrl.pathname)
       || (allowProjectActions && /^\/api\/projects\/[^/]+\/action$/.test(requestUrl.pathname))
       || /^\/api\/feedback\/[^/]+\/promotion-decision$/.test(requestUrl.pathname)
@@ -1086,7 +1086,7 @@ export async function startWorkflowViewerLauncher(
       || /^\/api\/projects\/[^/]+\/finalize\/preview$/.test(requestUrl.pathname)
     );
     const interruptibleMutation = method === "POST"
-      && /^\/api\/projects\/[^/]+\/generate$/.test(requestUrl.pathname);
+      && /^\/api\/projects\/[^/]+\/(?:generate|resume)$/.test(requestUrl.pathname);
     // Maintenance previews need auth but must not hold the blocking mutex.
     const nonBlockingMutation = method === "POST" && (
       requestUrl.pathname === "/api/maintenance/worktrees/preview"
@@ -1255,7 +1255,8 @@ export async function startWorkflowViewerLauncher(
       }
       const generation = record.project.generation;
       const audio = record.project.audio;
-      const connectionOptions = await listConnectionOptions();
+      const { withConnectionCaches } = await import("../adapters/auth.js");
+      const connectionOptions = await withConnectionCaches(await listConnectionOptions());
       const connectionIds = [generation?.connection, audio?.connection].filter(
         (id): id is string => Boolean(id)
       );
@@ -1265,6 +1266,7 @@ export async function startWorkflowViewerLauncher(
           && (connection.model_policy === "runtime" || connectionIds.includes(connection.id))
           && connection.automated_capabilities.some((capability) => /^(?:image|video|audio)\./.test(capability)))
         .map((connection) => ({
+          ...(connection.connectionStatus ? { connectionStatus: connection.connectionStatus } : {}),
           id: connection.id,
           displayName: connection.display_name,
           transport: connection.transport,
@@ -1276,6 +1278,9 @@ export async function startWorkflowViewerLauncher(
           setupStatus: connection.setup.status,
           executionMode: connectionExecutionMode(connection)
         }));
+      const { readNarrationStatus, loadProjectGenerationAdapter } = await import("../adapters/narrationStatus.js");
+      const adapter = await loadProjectGenerationAdapter(record.project);
+      const narrationStatus = await readNarrationStatus(record.configPath, record.project, adapter, join(dirname(record.configPath), record.project.dist_dir, record.public.runId));
       sendJson(response, 200, {
         ok: true,
         canvas: {
@@ -1294,6 +1299,9 @@ export async function startWorkflowViewerLauncher(
             requests: (generation?.requests ?? []).map((request) => ({
               id: request.id,
               prompt: request.prompt,
+              voiceId: typeof request.params.voice_id === "string" ? request.params.voice_id : undefined,
+              characterCount: Array.from(request.prompt).length,
+              quantity: 1,
               model: request.model,
               operation: request.operation ?? "video",
               outputKind: generationRequestOutputKind(request),
@@ -1331,6 +1339,7 @@ export async function startWorkflowViewerLauncher(
                 ]
               }
             : undefined,
+          ...(narrationStatus ? { narrationStatus } : {}),
           connections: connectionSummaries,
           issues: record.public.issues
         }
@@ -1520,7 +1529,7 @@ export async function startWorkflowViewerLauncher(
       return;
     }
 
-    const generationRunMatch = /^\/api\/projects\/([^/]+)\/generate$/.exec(requestUrl.pathname);
+    const generationRunMatch = /^\/api\/projects\/([^/]+)\/(generate|resume)$/.exec(requestUrl.pathname);
     if (method === "POST" && generationRunMatch) {
       if (request.headers.origin !== launcherOrigin || request.headers["x-tsugite-token"] !== token) {
         sendJson(response, 403, {
@@ -1560,11 +1569,30 @@ export async function startWorkflowViewerLauncher(
         sendProjectChanged(response);
         return;
       }
+      const resumeOnly = generationRunMatch[2] === "resume";
+      const { loadProjectGenerationAdapter } = await import("../adapters/narrationStatus.js");
+      const selectedAdapter = await loadProjectGenerationAdapter(record.project);
+      let expectedApprovalDigest: string | undefined;
+      if (selectedAdapter?.receipts || resumeOnly) {
+        const { readNarrationStatus } = await import("../adapters/narrationStatus.js");
+        const current = await readNarrationStatus(record.configPath, record.project, selectedAdapter, join(dirname(record.configPath), record.project.dist_dir, record.public.runId));
+        try {
+          const input = z.object({ approval_digest: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(await readJsonRequest(request, 1000));
+          expectedApprovalDigest = input.approval_digest;
+        } catch { sendJson(response, 409, { ok: false, issue: { code: "gate.approval_card_stale", message: "承認カードを再読込して確認してください。" } }); return; }
+        if (!current || current.approval_digest !== expectedApprovalDigest || !(resumeOnly ? current.can_resume : current.can_generate)) {
+          sendJson(response, 409, { ok: false, issue: { code: "generation.action_unavailable", message: current?.reason ?? "この接続の再開には対応していません。" } }); return;
+        }
+      }
+      if (!await matchesProjectIdentity(record.configPath, record.identity)) { sendProjectChanged(response); return; }
+      // Recheck after async receipt/body reads: two tabs may have passed the early check.
+      if (generating.has(projectId)) { sendJson(response, 409, { ok: false, issue: { code: "generation.in_progress", message: "This project is already processing media" } }); return; }
       generating.add(projectId);
       try {
-        const payload = options.runGeneration
-          ? await options.runGeneration(record.configPath)
-          : await runProjectGeneration(record.configPath);
+        const payload = resumeOnly
+          ? await runProjectGeneration(record.configPath, true, expectedApprovalDigest)
+          : options.runGeneration ? await options.runGeneration(record.configPath)
+          : await runProjectGeneration(record.configPath, false, expectedApprovalDigest);
         await reloadProjects();
         sendJson(response, 200, { ok: true, result: payload });
       } catch (error) {
@@ -4903,14 +4931,15 @@ async function writeProjectDisplayName(
   }
 }
 
-async function runProjectGeneration(configPath: string): Promise<unknown> {
+async function runProjectGeneration(configPath: string, resumeOnly = false, expectedApprovalDigest?: string): Promise<unknown> {
   const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
   const result = await promisify(execFile)(process.execPath, [
     "--import", "tsx", "src/cli.ts",
-    "run", "--config", configPath,
+    ...(resumeOnly ? ["resume", "--apply"] : ["run"]), "--config", configPath,
     "--actor", "coordinator", "--json"
   ], {
     cwd: repoRoot,
+    env: { ...process.env, ...(expectedApprovalDigest ? { [LAUNCHER_EXPECTED_APPROVAL_DIGEST_ENV]: expectedApprovalDigest } : {}) },
     timeout: 60 * 60 * 1000,
     maxBuffer: 1024 * 1024 * 20
   });

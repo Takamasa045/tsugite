@@ -102,6 +102,17 @@ describe("durable narration receipts / same-job recovery", () => {
     await expect(resumeElevenV4(f.payload, { ...f.options, authorizeRecovery: undefined })).rejects.toThrow("receipt_approval_mismatch");
     expect(f.submits()).toBe(1);
   });
+  it("R11 audits a same-request accepted result to the original receipt without adopting a new approval", async () => {
+    const f = await fixture();
+    await expect(generateElevenV4(f.payload, { ...f.options, onReceipt: async state => { if (state === "accepted") throw new Error("stop"); } })).rejects.toThrow();
+    const statePath = join(f.root, "state.json"), changedState = JSON.stringify({ run_id: "run", gates: { gate_1: { status: "approved", approved_input_digest: "b".repeat(64) } } });
+    await fs.writeFile(statePath, changedState);
+    const output = await resumeElevenV4({ ...f.payload, audit_original: true }, { ...f.options, authorizeRecovery: undefined });
+    expect(output.metadata).toMatchObject({ audit_original_approval: true, origin_approval_digest: "a".repeat(64) });
+    expect((await f.receipt()).gate_approval_digest).toBe("a".repeat(64)); expect(await fs.readFile(statePath, "utf8")).toBe(changedState);
+    expect(output.billing.operation.submission_count).toBe(0); expect(f.submits()).toBe(1);
+    await expect(resumeElevenV4(f.payload, { ...f.options, authorizeRecovery: undefined })).rejects.toThrow("receipt_approval_mismatch");
+  });
   it("imports and reuses historical generation with zero submissions and no MCP calls", async () => {
     const f = await fixture(), payload = { ...f.payload, result: { structuredContent: completed(request) } };
     const imported = await importElevenV4Result(payload, f.options), reused = await importElevenV4Result(payload, f.options);

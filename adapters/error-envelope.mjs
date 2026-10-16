@@ -40,6 +40,12 @@ for (const code of ["receipt_asset_missing", "receipt_asset_invalid", "receipt_a
 entries.submission_busy = ["recovery", "unknown", "inspect_record", "この音声で別の処理が実行中です。実行中の処理を確認してください。"];
 entries.resume_no_submission = ["recovery", "not_submitted", "review_request", "再開できる送信記録がありません。新規生成は開始していません。"];
 entries.mcp_status_tool_unavailable = ["poll", "accepted", "inspect_record", "受理済み処理の照会schemaを確認できません。別モデルへ替えず、接続契約を確認してください。"];
+for (const code of ["oauth_arguments_invalid", "oauth_execution_approval_required", "oauth_client_metadata_url_required", "oauth_client_metadata_mismatch", "oauth_discovery_failed", "oauth_login_failed", "oauth_operation_failed", "oauth_callback_rejected", "oauth_token_endpoint_rejected", "oauth_profile_invalid", "oauth_callback_listener_failed", "oauth_browser_failed"]) entries[code] = ["authentication", "not_submitted", "connect", "接続条件・明示承認・専用のclient metadataを確認してください。生成は開始していません。"];
+entries.oauth_refresh_uncertain = ["authentication", "not_submitted", "inspect_record", "前回の接続更新が確定していません。古いrefresh tokenを再送せず停止しました。接続記録を確認し、必要なら明示的に再接続してください。"];
+entries.oauth_profile_busy = ["authentication", "not_submitted", "check_connection", "別の接続操作が実行中です。完了してから再試行してください。"];
+entries.oauth_callback_port_in_use = ["authentication", "not_submitted", "check_connection", "接続用の待受portが使用中です。別の接続操作を完了してから再試行してください。無関係な処理は終了しません。"];
+entries.oauth_callback_timeout = ["authentication", "not_submitted", "connect", "接続の待機時間が終了しました。生成は開始していません。必要なら接続操作をやり直してください。"];
+entries.oauth_authorization_denied = ["authentication", "not_submitted", "connect", "接続がキャンセルされました。生成は開始していません。"];
 const safeId = (value) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 export function adapterErrorEnvelope(code, requestId) {
   if (!Object.hasOwn(entries, code)) code = "adapter_failed";

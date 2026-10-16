@@ -138,6 +138,14 @@ describe("public CLI narration Gate chain (offline transport, no Keychain)", () 
     const preview = await f.good("resume"); expect(preview.preview.requests[0].state).toBe("accepted");
     expect(await f.calls()).toEqual(before);
     expect((await f.cli("resume", "--apply")).status).toBe(1);
+    const changed = JSON.parse(runningState); changed.gates.gate_1.approved_input_digest = 'b'.repeat(64);
+    await writeFile(join(f.run, "state.json"), JSON.stringify(changed));
+    const changedHash = await hash(join(f.run, "state.json"));
+    const audited = await f.good("resume", "--apply", "--audit-original", "--actor", "coordinator");
+    expect(audited).toMatchObject({ audit_only: true, adopted_into_current_revision: false, generated: false });
+    expect(await hash(join(f.run, "state.json"))).toBe(changedHash);
+    expect((await f.cli("resume", "--apply", "--actor", "coordinator")).status).toBe(1);
+    await writeFile(join(f.run, "state.json"), runningState);
     const resumed = await f.good("resume", "--apply", "--actor", "coordinator");
     expect(resumed.state.status).toBe("awaiting_gate_2");
     expect(resumed.billing.operation.submission_count).toBe(0);
@@ -164,6 +172,11 @@ describe("public CLI narration Gate chain (offline transport, no Keychain)", () 
     expect((await f.cli("run", "--actor", "coordinator")).status).toBe(1);
     const firstPath = join(f.run, "assets/elevenlabs-v4/narration.mp3"), firstHash = await hash(firstPath);
     const before = await f.calls(), submissionCount = before.filter(v => v.name === "creative_generate_speech" && !v.arguments.estimate_only).length;
+    if (condition === "unsubmitted") {
+      const recovered = await f.good("resume", "--apply", "--actor", "coordinator");
+      expect(recovered).toMatchObject({ partial_recovery: true, remaining_requests: ["narration-2"], generated: false });
+      expect(recovered.billing.operation.submission_count).toBe(0);
+    }
     const retried = await f.cli("run", "--actor", "coordinator");
     expect(retried.status).toBe(condition === "unknown" ? 1 : 0);
     expect(await hash(firstPath)).toBe(firstHash);
