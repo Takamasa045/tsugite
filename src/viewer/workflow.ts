@@ -103,6 +103,7 @@ export type CreateViewerWorkflowOptions = {
 };
 
 export type ViewerArtifactSnapshot = {
+  narrationStatus?: import("../adapters/narrationStatus.js").NarrationStatus;
   reviewPresent?: boolean;
   reviewHref?: string;
   gate2Qc?: ViewerGate2QcEvidence;
@@ -173,6 +174,7 @@ export type ViewerGate3QcEvidence = {
 };
 
 export type ViewerRunLogEvidence = {
+  billing?: import("../../adapters/billing-contract.mjs").BillingEvidence;
   runId: string;
   mode: string;
   assetCount: number;

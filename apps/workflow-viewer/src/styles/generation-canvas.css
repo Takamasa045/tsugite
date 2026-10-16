@@ -366,3 +366,16 @@
 @media (prefers-reduced-motion: reduce) {
   .generation-node { transition: none; }
 }
+
+.generation-canvas-narration-status {
+  background: var(--canvas-panel);
+  border: 1px solid var(--canvas-border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin: 0 0 1rem;
+}
+.generation-canvas-narration-status h3 { margin-top: 0; }
+.generation-canvas-narration-status p, .generation-canvas-narration-status dd { overflow-wrap: anywhere; }
+.generation-canvas-narration-status code { display: block; overflow-wrap: anywhere; white-space: normal; margin: .75rem 0; }
+.generation-canvas-narration-status button { margin-top: .75rem; padding: .65rem 1rem; }
+.generation-canvas-narration-status button:focus-visible, .generation-canvas-action-message:focus { outline: 2px solid currentColor; outline-offset: 4px; }

@@ -30,6 +30,7 @@ export type GateState = {
    * Production-control subjects are additive fields below and never replace this.
    */
   approved_input_digest?: string;
+  billing_approval_digest?: string;
   /**
    * Optional person-QA approval digest bound at Gate 2/3 approve time.
    * Gate 3 keeps approved_input_digest as sha256(final.mp4); this field stores the

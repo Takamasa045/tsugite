@@ -2,6 +2,7 @@ import { loadFastEdit } from "../fastEdit/artifacts.js";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { loadAdapterDefinition, type AdapterDefinition } from "../adapters/registry.js";
+import { loadGenerationBilling } from "../adapters/billing.js";
 import {
   loadProjectPromptGuides,
   type PromptGuide
@@ -663,6 +664,8 @@ export async function validateProject(
     };
   }
 
+  const billing = await loadGenerationBilling(configPath, project, adapter);
+  if (billing) project.billing = billing;
   return {
     ok: true,
     issues: [],

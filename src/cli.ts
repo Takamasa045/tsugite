@@ -108,7 +108,7 @@ import {
   previewMigrationWithPointer,
   previewRollback
 } from "./productionControl/rc/index.js";
-import { connectionSelectionPrompt, listConnectionOptions } from "./connections/registry.js";
+import { connectionSelectionPrompt, listConnectionOptions, resolveGenerationConnection } from "./connections/registry.js";
 import {
   callRemoteTool,
   listAgentServices,
@@ -120,6 +120,8 @@ import { isAuthoringProduction, type Project } from "./project/schema.js";
 import { PipelineError, type Issue, type Result } from "./types.js";
 import { appendProjectFeedback } from "./feedback/index.js";
 import { openWorkflowViewer, writeWorkflowViewer } from "./viewer/artifact.js";
+import { billingApprovalDigest, loadGenerationBilling, quoteGeneration } from "./adapters/billing.js";
+import { assertNarrationQuote } from "../adapters/billing-contract.mjs";
 import {
   openWorkflowViewerLauncher,
   startWorkflowViewerLauncher
@@ -136,6 +138,13 @@ import {
 } from "./cli/commandCatalog.js";
 
 type ParsedArgs = {
+  connection?: string;
+  authAction?: string;
+  clientMetadataUrl?: string;
+  approveOauth?: boolean;
+  approveKeychain?: boolean;
+  approveTransfer?: boolean;
+  auditOriginal?: boolean;
   command: string;
   helpTopic?: string;
   config?: string;
@@ -278,13 +287,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
   }
 
+  if (args.command === "auth") {
+    if (!args.connection || !["plan", "status", "login", "probe"].includes(args.authAction ?? "")) return output(args, 1, { ok: false, command: "auth", issues: [{ code: "auth.arguments_required", message: "--connection と --action plan|status|login|probe を指定してください。" }] });
+    if (args.authAction === "login") { const issue = requireCoordinator(args); if (issue) return output(args, 1, { ok: false, command: "auth", issues: [issue] }); }
+    try {
+      const connection = await resolveGenerationConnection(args.connection);
+      if (!connection || connection.execution_mode !== "pipeline-adapter") return output(args, 1, { ok: false, command: "auth", issues: [{ code: "auth.unsupported", message: "この接続の認証入口は用意されていません。" }] });
+      const { loadAdapterDefinition } = await import("./adapters/registry.js");
+      const { runAdapterAuth } = await import("./adapters/auth.js");
+      const result = runAdapterAuth(await loadAdapterDefinition(connection.adapter), { action: args.authAction,
+        ...(args.clientMetadataUrl ? { client_metadata_url: args.clientMetadataUrl } : {}), ...(args.model ? { model: args.model } : {}),
+        ...(args.approveOauth ? { approve_oauth: true } : {}), ...(args.approveKeychain ? { approve_keychain: true } : {}) });
+      return output(args, result.ok ? 0 : 1, { ...result, command: "auth", connection: connection.id, generated: false });
+    } catch { return output(args, 1, { ok: false, command: "auth", issues: [{ code: "auth.connection_unavailable", message: "指定した接続の認証入口を読み込めませんでした。" }] }); }
+  }
+
   if (args.command === "connections") {
     try {
       const query = {
         ...(args.model ? { model: args.model } : {}),
         ...(args.capability ? { capability: args.capability } : {})
       };
-      const connections = await listConnectionOptions(query);
+      const { withConnectionCaches } = await import("./adapters/auth.js");
+      const connections = await withConnectionCaches(await listConnectionOptions(query));
       return output(args, 0, {
         ok: true,
         command: "connections",
@@ -1032,6 +1057,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   const generationUnitSourceResolver = createProjectGenerationUnitSourceResolver(args.config);
   const validation = await validateProject(args.config, { generationUnitSourceResolver, prepareFastEdit: args.command === "analyze" || args.command === "fast-edit" });
+  if (validation.project && args.stateDir) {
+    const billing = await loadGenerationBilling(args.config, validation.project, validation.adapter, args.stateDir);
+    if (billing) validation.project.billing = billing;
+  }
   // Single trusted projection: durable pointer runtime_mode overrides YAML for pipeline bodies.
   // Bodies also accept explicit runtime_authority; never re-resolve YAML against pointer silently.
   const trustedProject = validation.project
@@ -1579,9 +1608,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   if (args.command === "plan") {
+    const { readNarrationStatus } = await import("./adapters/narrationStatus.js");
+    const location = getStateLocation(args, validation.project!);
+    const narrationStatus = await readNarrationStatus(args.config!, validation.project!, validation.adapter, join(location.stateDir, validation.project!.run_id ?? validation.project!.slug));
     return output(args, 0, {
       ok: true,
       command: "plan",
+      ...(narrationStatus ? { narration_status: narrationStatus } : {}),
       plan: createPlan(
         trustedProject!,
         validation.manifest!,
@@ -1597,6 +1630,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         validation.runtime_authority
       )
     });
+  }
+
+  if (args.command === "quote") {
+    const requests = validation.project!.generation?.requests ?? [];
+    const transfer = requests.map((request) => ({ request_id: request.id, text: request.prompt, voice_id: request.params.voice_id,
+      model: request.model, generations_count: 1, character_count: Array.from(request.prompt).length }));
+    if (!args.approveTransfer) return output(args, 0, { ok: true, command: "quote", transfer, connection: validation.generationConnection?.id,
+      remote_called: false, generated: false, next_actions: ["内容を確認後、quote --approve-transfer --actor coordinator を明示実行してください。"] });
+    const issue = requireCoordinator(args);
+    if (issue) return output(args, 1, { ok: false, command: "quote", issues: [issue] });
+    const location = getStateLocation(args, validation.project!);
+    const result = await quoteGeneration(validation.project!, validation.adapter, join(location.stateDir, validation.project!.run_id ?? validation.project!.slug), args.config!);
+    return output(args, result.ok ? 0 : 1, { ...result, command: "quote", generated: false });
   }
 
   if (args.command === "fast-edit") {
@@ -1924,16 +1970,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
-  if (args.command === "run") {
+  if (args.command === "resume" && !args.apply) {
+    const { inspectGenerationReceipts } = await import("./adapters/receipts.js");
+    const location = getStateLocation(args, validation.project!);
+    const preview = await inspectGenerationReceipts(validation.adapter, validation.project!.generation?.requests ?? [], join(location.stateDir, validation.project!.run_id ?? validation.project!.slug));
+    return output(args, 0, { ok: true, command: "resume", preview, generated: false,
+      next_actions: ["同じ承認内容の既存処理を取得するには resume --apply --actor coordinator を実行してください。未送信の依頼は生成しません。"] });
+  }
+
+  if (args.command === "resume" && args.apply && args.auditOriginal) {
+    const issue = requireCoordinator(args);
+    if (issue) return output(args, 1, { ok: false, command: "resume", issues: [issue] });
+    if (effectiveRuntimeMode({ runtime_authority: validation.runtime_authority, project: validation.project! }) !== "legacy" || !validation.adapter?.resume || validation.adapter.receipts?.protocol !== "narration-v1") return output(args, 1, { ok: false, command: "resume", issues: [{ code: "resume.unsupported", message: "この接続は元承認への監査取得に対応していません。" }] });
+    const { runCliGenerationAdapter } = await import("./adapters/cliGeneration.js");
+    const { combineActualBilling } = await import("../adapters/billing-contract.mjs");
+    const location = getStateLocation(args, validation.project!), runId = validation.project!.run_id ?? validation.project!.slug;
+    const result = runCliGenerationAdapter(validation.adapter, validation.project!.generation?.requests ?? [], { runId, runDir: join(location.stateDir, runId), resumeOnly: true, auditOriginal: true });
+    return output(args, result.ok ? 0 : 1, { ...result, command: "resume", audit_only: true, generated: false, adopted_into_current_revision: false,
+      ...(result.ok ? { billing: combineActualBilling(result.requests.flatMap(r => r.billing ? [r.billing] : [])) } : {}),
+      next_actions: ["取得結果は元run・元承認のreceiptに保存しました。現在のmanifest・QC・Gateは変更していません。"] });
+  }
+
+  if (args.command === "run" || args.command === "resume") {
     const coordinatorIssue = requireCoordinator(args);
-    if (coordinatorIssue) return output(args, 1, { ok: false, command: "run", issues: [coordinatorIssue] });
+    if (coordinatorIssue) return output(args, 1, { ok: false, command: args.command, issues: [coordinatorIssue] });
     if (effectiveRuntimeMode({
       runtime_authority: validation.runtime_authority,
       project: validation.project!
     }) === "shadow") {
       return output(args, 1, {
         ok: false,
-        command: "run",
+        command: args.command,
         issues: [{
           code: "run.shadow_denies_effect",
           message: "shadow mode forbids non-dry-run run effect entry"
@@ -1941,17 +2008,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    if (args.command === "resume" && (effectiveRuntimeMode({ runtime_authority: validation.runtime_authority, project: validation.project! }) !== "legacy" || !validation.adapter?.resume)) return output(args, 1, { ok: false, command: args.command, issues: [{ code: "resume.unsupported", message: "この接続・実行モードは既存ジョブ専用の再開に対応していません。新規生成への切替えは行いません。" }] });
     const stateResult = await loadState(args, validation.project!, { allowMissing: true });
-    if (!stateResult.ok) return output(args, 1, { ok: false, command: "run", issues: stateResult.issues });
+    if (!stateResult.ok) return output(args, 1, { ok: false, command: args.command, issues: stateResult.issues });
 
     if (!stateResult.state || stateResult.state.gates.gate_1.status !== "approved") {
       return output(args, 1, {
         ok: false,
-        command: "run",
+        command: args.command,
         issues: [{ code: "run.requires_gate_1_approval", message: "Gate 1 must be approved before run" }]
       });
     }
 
+    if (args.expectedApprovalDigest && stateResult.state.gates.gate_1.approved_input_digest !== args.expectedApprovalDigest) return output(args, 1, { ok: false, command: args.command, issues: [{ code: "gate.approval_card_stale", message: "表示後に承認が変わりました。案件を再読込して確認してください。" }] });
     const review = await inspectGate1Review({
       configPath: args.config!,
       project: validation.project!,
@@ -1960,12 +2029,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       runtime_authority: validation.runtime_authority
     });
     if (!review.ok) {
-      return output(args, 1, { ok: false, command: "run", issues: review.issues });
+      return output(args, 1, { ok: false, command: args.command, issues: review.issues });
     }
     if (stateResult.state.gates.gate_1.approved_input_digest !== review.approvalDigest) {
       return output(args, 1, {
         ok: false,
-        command: "run",
+        command: args.command,
         issues: [{ code: "gate.review_changed", message: "Gate 1 approval does not match the current review and input artifacts" }]
       });
     }
@@ -1988,7 +2057,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!g1.production_subject_digest || !g1.production_decision_digest) {
         return output(args, 1, {
           ok: false,
-          command: "run",
+          command: args.command,
           issues: [{
             code: "gate.production_subject_missing",
             message: "active run requires Gate 1 production_subject_digest and production_decision_digest"
@@ -2014,7 +2083,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           stateResult.state = phaseCheck.cascadedState;
           return output(args, 1, {
             ok: false,
-            command: "run",
+            command: args.command,
             issues: [{
               code: "gate.production_subject_stale",
               message: phaseCheck.error.message
@@ -2030,7 +2099,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       } catch (error) {
         return output(args, 1, {
           ok: false,
-          command: "run",
+          command: args.command,
           issues: [{
             code: "gate.production_subject_stale",
             message: error instanceof Error ? error.message : String(error)
@@ -2039,7 +2108,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
+    if (args.command === "resume") {
+      const { inspectGenerationReceipts } = await import("./adapters/receipts.js");
+      const runDir = join(stateResult.stateDir, stateResult.state.run_id), requests = trustedProject!.generation?.requests ?? [];
+      const projection = await inspectGenerationReceipts(validation.adapter, requests, runDir);
+      const remaining = projection.requests.filter(r => r.state === "not_submitted").map(r => r.request_id);
+      if (remaining.length) {
+        const { runCliGenerationAdapter } = await import("./adapters/cliGeneration.js");
+        const { combineActualBilling } = await import("../adapters/billing-contract.mjs");
+        const recovered = runCliGenerationAdapter(validation.adapter!, requests.filter(r => !remaining.includes(r.id)), { runId: stateResult.state.run_id, runDir, resumeOnly: true });
+        return output(args, recovered.ok ? 0 : 1, { ...recovered, command: "resume", partial_recovery: true, remaining_requests: remaining,
+          ...(recovered.ok ? { billing: combineActualBilling(recovered.requests.flatMap(r => r.billing ? [r.billing] : [])) } : {}),
+          generated: false, state: stateResult.state, next_actions: ["未送信の依頼は生成していません。新規生成には有効な見積と同じGate承認を確認してください。"] });
+      }
+    }
+
     const runResult = await assembleLocalMediaRun(trustedProject!, validation.manifest!, {
+      resumeOnly: args.command === "resume",
       configPath: resolve(args.config!),
       manifestPath: resolve(dirname(resolve(args.config!)), trustedProject!.manifest),
       stateDir: stateResult.stateDir,
@@ -2077,7 +2162,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }, validation.adapter, validation.audioAdapter);
     return output(args, runResult.ok ? 0 : 1, {
       ok: runResult.ok,
-      command: "run",
+      command: args.command,
       issues: runResult.issues,
       manifest_path: runResult.manifestPath,
       qc_report_path: runResult.qcReportPath,
@@ -2085,6 +2170,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       edl_path: runResult.edlPath,
       asset_count: runResult.assetCount,
       actual_credits: runResult.actualCredits,
+      ...(runResult.billing ? { billing: runResult.billing } : {}),
       already_assembled: runResult.alreadyAssembled,
       gate_2_auto_passed: runResult.gate2AutoPassed,
       gate_2_auto_pass_blocked_reason: runResult.gate2AutoPassBlockedReason,
@@ -2314,6 +2400,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     reconcile: false,
     allowExternalAnalysis: false,
     confirmPaid: false,
+    approveTransfer: false,
     paths: [],
     issues: []
   };
@@ -2322,6 +2409,21 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (index === commandIndex) continue;
     const arg = argv[index];
     if (arg === "--json") continue;
+    if (arg === "--audit-original") {
+      if (isCommandOptionAllowed(parsed.command, arg)) parsed.auditOriginal = true;
+      else parsed.issues.push({ code: "cli.option_unsupported", message: `${arg} is not supported by '${parsed.command}'`, path: arg });
+      continue;
+    }
+    if (arg === "--approve-oauth" || arg === "--approve-keychain") {
+      if (isCommandOptionAllowed(parsed.command, arg)) { if (arg === "--approve-oauth") parsed.approveOauth = true; else parsed.approveKeychain = true; }
+      else parsed.issues.push({ code: "cli.option_unsupported", message: `${arg} is not supported by '${parsed.command}'`, path: arg });
+      continue;
+    }
+    if (arg === "--approve-transfer") {
+      if (isCommandOptionAllowed(parsed.command, arg)) parsed.approveTransfer = true;
+      else parsed.issues.push({ code: "cli.option_unsupported", message: `${arg} is not supported by '${parsed.command}'`, path: arg });
+      continue;
+    }
     if (arg === "--dry-run") {
       if (isCommandOptionAllowed(parsed.command, arg)) {
         parsed.dryRun = true;
@@ -2422,8 +2524,11 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "decisionsFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
+      keyof Pick<ParsedArgs, "connection" | "authAction" | "clientMetadataUrl" | "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "decisionsFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
     > = {
+      "--connection": "connection",
+      "--action": "authAction",
+      "--client-metadata-url": "clientMetadataUrl",
       "--config": "config",
       "--actor": "actor",
       "--gate": "gate",
@@ -3009,12 +3114,13 @@ function effectiveRuntimeMode(input: {
 }
 
 function shouldAcquireRunLock(args: ParsedArgs): boolean {
+  if (args.command === "quote" && args.approveTransfer) return args.actor === "coordinator";
   if (args.command === "review" || args.command === "review-preview" || args.command === "compose") return true;
   if (args.command === "finalize" && args.apply) return args.actor === "coordinator";
   if ((args.command === "run" && !args.dryRun) || args.command === "render") {
     return args.actor === "coordinator";
   }
-  if (args.command === "recover" && args.apply) {
+  if ((args.command === "recover" || args.command === "resume") && args.apply) {
     return args.actor === "coordinator";
   }
   if (args.command !== "gate" || args.actor !== "coordinator") return false;
@@ -3046,6 +3152,14 @@ async function recordGate(
   let reviewDataPath: string | undefined;
   let reviewApprovalDigest: string | undefined;
   if (gate === "gate_1" && decision === "approved") {
+    if (adapter?.billing_policy === "quote-required") {
+      const billing = await loadGenerationBilling(args.config!, project, adapter, stateLocation.stateDir);
+      if (billing?.estimate.status !== "known" || !billing.estimate.quotes?.length) return { ok: false,
+        issues: [{ code: "billing.quote_required", message: "生成料金が未確認です。送信内容を確認し、明示的に見積を取得して再レビューしてください。" }] };
+      try { billing.estimate.quotes.forEach((quote, index) => assertNarrationQuote(quote, project.generation!.requests[index])); }
+      catch { return { ok: false, issues: [{ code: "billing.quote_expired", message: "見積が期限切れまたは制作条件と一致しません。新規生成は実行していません。" }] }; }
+      project.billing = billing;
+    }
     const review = await inspectGate1Review({
       configPath: args.config!,
       project,
@@ -3527,6 +3641,10 @@ async function recordGate(
       productionBinding,
       sidecarApprovalDigest
     );
+    if (gate === "gate_1" && decision === "approved") {
+      const billingDigest = billingApprovalDigest(project.billing);
+      if (billingDigest) nextState.gates.gate_1.billing_approval_digest = billingDigest;
+    }
   } catch (error) {
     return {
       ok: false,

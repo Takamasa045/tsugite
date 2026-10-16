@@ -105,3 +105,21 @@ Append-only format:
 - MP4/ffprobe/audio/duration success does not prove timed overlays. Editframe 0.59.47 exports a cloned timegroup; `addFrameTask` and instance method overrides are not copied. Use the SDK's copied `onFrame` property and resolve descendants through its `element` argument. Verify late beats and transition frames, not only time zero.
 - HyperFrames extracted video composition does not preserve every CSS video filter. Bake the common color treatment into local, run-owned source derivatives before native compositing; retain the original Manifest and source audio.
 - Editframe native HTML-in-Canvas capture can retain stale pixels during transparent transitions and produce unstable vertical frames. Use an opaque root and the official foreign-object capture path; compare transition-boundary frames and OCR every caption before claiming parity.
+
+2026-10-16 / narration生成runが既存動画を保持したままコピーせず、Gate 2で動画欠落とrun logのasset件数不一致になった / generation経路がvideo差替えを前提とし音声追加時の保持timelineを固定していなかった / audio・image生成で残るclipsをrun内へpinし、子adapterからmanifest/QC/stateと再開まで一続きに検証する / elevenlabs-v4-orchestrator fixtureと実生成済み音声のimportで確認。provider認証済み完全E2Eとは区別
+
+2026-10-16 / native connectorから投影した生成本数schemaのnumberとhosted MCPのintegerが異なり認証済みprobeが失敗した / mockだけで接続互換を確定した / hosted tools/listを専用認証で読み取り、実schema fixtureを保持する。integer/numberと1本の数値境界を検査し、モデルenumは推測しない / 専用OAuth・Keychain・無課金tools/listでv4互換を確認、Turboなし。追加生成なし
+
+2026-10-16 / paid submit前のjournal本体fsyncだけではcrash後に新規directory entryが失われ再送できる / file内容とdirectory entryの永続化を同一視した / 新規run/assetsの祖先directoryとjournal親directoryも同期し、失敗・未対応OSではsubmitを停止する。部分markerを削除せず、永続化モデルと実SIGKILLを別々に検証する / S0-Aの98件成功。PR185 review r4290171354への独立修正、追加課金なし
+
+2026-10-16 / 字幕なしの既存動画へ音声だけ追加する案件でreview成功後にGate 1がreview_invalidとなる / generation requestsの存在だけで動画storyboard分岐へ入り、audio requestを除くと空になった / 動画requestがある時だけそのstoryboardを使い、音声追加時は既存clipsをレビューする。公開CLI別processでreview→Gate→run→render→Gate 3まで検証する / 無課金fixtureで実Remotion render・改変拒否・二重実行拒否を確認
+
+2026-10-16 / 見積額と承認上限に同じmoney objectを使うと、上限変更が見積額も書き換え下限の境界検証を通した / 同じ値を別の監査事実として保持する際の参照alias / 見積と上限を独立copyにし、decimalの直前・一致・直後を実行条件で検査する。unknownと実測0を分け、期限・接続・quoteをGateへ結合する / S1-B無課金fixtureで検出・修正
+
+### 中断復旧は送信許可と分ける
+
+accepted IDだけでなく、照会/取得の消費予算と音声の候補hashを外部操作より先に永続化する。再開専用コマンドは新規submit入口へfallbackしない。部分成功の再利用では元Gate・request・媒体hashを再検証し、存在するだけのファイルを上書き/採用しない。旧journalの不足情報はunknownのまま保持する。
+
+### OAuth rotationの不確定状態を再起動で消さない
+
+同時refreshはprofile lock取得後に再読込する。rotation POSTの前に秘密を含まないintentを永続化し、secure storeへの保存を再読込で確認してから解除する。応答喪失・保存失敗で元のrefresh tokenを再送しない。Keychain tokenと非秘密bindingは同じsnapshotから取得し、grant入替えと新規送信の競合も同じlockで直列化する。

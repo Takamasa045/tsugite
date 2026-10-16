@@ -2,6 +2,7 @@ export type Issue = {
   code: string;
   message: string;
   path?: string;
+  adapter_error?: import("../adapters/error-envelope.mjs").AdapterErrorEnvelope;
 };
 
 export type Result<T> =

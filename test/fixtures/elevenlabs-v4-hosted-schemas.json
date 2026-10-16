@@ -1,0 +1,95 @@
+{
+  "source": "Authenticated read-only tools/list at https://api.us.elevenlabs.io/v1/mcp",
+  "observed_at": "2026-10-16T00:40:57.513Z",
+  "tools": [
+    {
+      "name": "creative_generate_speech",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "Pick the voice that fits what the user described — their own words about the speaker, the language, the mood, the medium — from creative_list_voices. When they gave no hint at all, still pick one: a clear, natural, general-purpose voice. Do not ask them to choose first; the result renders with a voice switcher they can use to change it, and each change keeps the earlier takes. A voice_id only ever comes from creative_list_voices or the user — never from memory or invention."
+          },
+          "view_state_id": {
+            "type": "string",
+            "description": "Set by the speech view when the user switches voice — never set this yourself. It files the new generation into that view as another take, next to the ones already there. An id that is not a speech view of this workspace simply starts a fresh one."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "What to generate."
+          },
+          "flow_id": {
+            "type": "string",
+            "description": "The flow to act on, as returned by creative_create_flow or creative_generate_in_flow. Omit it for a one-off generation and a new flow is created. Always pass it when this generation will be combined with another: nodes on different flows cannot be connected, so allocate one with creative_create_flow up front and reuse it."
+          },
+          "model_id": {
+            "type": "string",
+            "enum": [
+              "eleven_flash_v2_5",
+              "eleven_multilingual_v2",
+              "eleven_turbo_v2_5",
+              "eleven_v3",
+              "eleven_v4"
+            ],
+            "description": "The model to generate with. Use eleven_v4 unless the user asks for something specific. Go looking for a different one when the request implies something the default may not do — a specific resolution or aspect, rendered text, a long duration, a named style or a named provider. creative_get_flow_node_types lists what this workspace can actually run; creative_get_model_guide explains how to prompt one. Pick by what the request needs: eleven_v4 for inline audio direction tags such as [whispering] or [laughs softly]."
+          },
+          "generations_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4,
+            "default": 4,
+            "description": "How many variations to produce, so the user can pick. Defaults to 4 so the user can pick from several options — keep it at 4 unless the user asks for a specific number. Costs scale with the count."
+          },
+          "estimate_only": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return the credit cost and any blocking node errors without generating anything. Worth doing before a long video or several variations, so the user can approve the spend first."
+          },
+          "context": {
+            "type": "string",
+            "description": "Why are you calling this tool? Briefly describe the user's goal."
+          }
+        },
+        "required": [
+          "prompt",
+          "model_id",
+          "voice_id",
+          "context"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "creative_get_flow_run_status",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "flow_id": {
+            "type": "string",
+            "description": "The flow to act on, as returned by creative_create_flow or creative_generate_in_flow. Omit it for a one-off generation and a new flow is created. Always pass it when this generation will be combined with another: nodes on different flows cannot be connected, so allocate one with creative_create_flow up front and reuse it."
+          },
+          "session_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "description": "The session_ids returned when the run started. A run of several variations reports one session per variation; pass them all so the status covers the whole run."
+          },
+          "context": {
+            "type": "string",
+            "description": "Why are you calling this tool? Briefly describe the user's goal."
+          }
+        },
+        "required": [
+          "flow_id",
+          "session_ids",
+          "context"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

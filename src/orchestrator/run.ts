@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { constants, createReadStream } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { loadBackendCapabilities } from "../backends/capabilities.js";
@@ -12,6 +12,7 @@ import {
 import { runCliAudioAdapter, type CliAudioResult } from "../adapters/cliAudio.js";
 import type { AdapterDefinition } from "../adapters/registry.js";
 import type { Manifest } from "../manifest/schema.js";
+import { billingDigest, billingLabel, combineActualBilling, isBillingEvidence, type BillingEvidence } from "../../adapters/billing-contract.mjs";
 import { validateManifest } from "../manifest/validate.js";
 import {
   GATE_2_AUTO_PASS_POLICY,
@@ -80,6 +81,7 @@ export type LocalRunH3Artifacts = {
 };
 
 export type LocalRunResult = {
+  billing?: BillingEvidence;
   manifestPath: string;
   qcReportPath: string;
   runLogPath: string;
@@ -96,6 +98,7 @@ export type LocalRunResult = {
 };
 
 type AssembleOptions = {
+  resumeOnly?: boolean;
   configPath?: string;
   manifestPath: string;
   stateDir: string;
@@ -185,6 +188,7 @@ const gate2QcResumeSchema = z
   .passthrough();
 
 type ResumeMetrics = {
+  billing?: BillingEvidence;
   assetCount: number;
   actualCredits: number;
   approvalDigest: string;
@@ -205,6 +209,7 @@ export async function assembleLocalMediaRun(
   adapter?: AdapterDefinition,
   audioAdapter?: AdapterDefinition
 ): Promise<Result<LocalRunResult>> {
+  if (options.resumeOnly && (orchestrationModeFromAuthority(options.runtime_authority, project) === "active" || !adapter?.resume)) return { ok: false, issues: [{ code: "run.adapter_resume_unsupported", message: "existing-job recovery requires a declared legacy CLI resume command; active mode has its own recovery path" }] };
   const isAwaitingGate2Resume = options.state.status === "awaiting_gate_2"
     && options.state.gates.gate_2.status === "awaiting_approval";
   if (project.audio && hasNativeReplacementDocument(manifest)) {
@@ -320,6 +325,7 @@ export async function assembleLocalMediaRun(
       ...(edlPath ? { edlPath } : {}),
       assetCount: resumed.assetCount,
       actualCredits: resumed.actualCredits,
+      ...(resumed.billing ? { billing: resumed.billing } : {}),
       alreadyAssembled: true,
       gate2AutoPassed: false,
       gate2AutoPassBlockedReason: "already_assembled",
@@ -918,6 +924,7 @@ async function assembleGeneratedMediaRun(
       runLogPath,
       assetCount: resumed.assetCount,
       actualCredits: resumed.actualCredits,
+      ...(resumed.billing ? { billing: resumed.billing } : {}),
       alreadyAssembled: true,
       gate2AutoPassed: false,
       gate2AutoPassBlockedReason: "already_assembled",
@@ -989,6 +996,18 @@ async function assembleGeneratedMediaRun(
   let assetCount = 0;
 
   const manifestDir = dirname(options.manifestPath);
+  // Audio/image generation retains the source timeline. Pin its clips just as
+  // local assembly does so Gate 2 and resume inspect the same run-owned assets.
+  const copiedClips = new Map<string, string>();
+  for (const [index, clip] of assembled.clips.entries()) {
+    let relativePath = copiedClips.get(clip.src);
+    if (!relativePath) {
+      relativePath = (await copyAsset(clip.src, manifestDir, runDir, "assets/clips", index, clip.id)).relativePath;
+      copiedClips.set(clip.src, relativePath);
+    }
+    clip.src = relativePath;
+    assetCount += 1;
+  }
   for (const [index, image] of assembled.images.entries()) {
     const copied = await copyAsset(image.src, manifestDir, runDir, "assets/images", index, image.id);
     image.src = copied.relativePath;
@@ -1161,7 +1180,7 @@ async function assembleGeneratedMediaRun(
     });
   } else {
     // Adapter sees the pinned, H3-compiled execution fields (prompt/op/assets).
-    generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });
+    generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir, resumeOnly: options.resumeOnly });
   }
   if (!generation.ok) return generation;
 
@@ -1303,6 +1322,7 @@ async function assembleGeneratedMediaRun(
             : {})
         },
         credits: request.credits / generatedAssets.length,
+        ...(request.billing ? { billing: request.billing } : {}),
         ...(h3Artifact
           ? {
               h3: {
@@ -1321,6 +1341,8 @@ async function assembleGeneratedMediaRun(
   if (!generatedAudio.ok) return generatedAudio;
   assetCount += generatedAudio.assetCount;
   const actualCredits = generation.credits + generatedAudio.credits;
+  const billing = combineActualBilling(generation.requests.flatMap((request) => request.billing ? [request.billing] : []));
+  if (billing) assembled.billing = billing;
 
   await writeFile(manifestOutputPath, `${JSON.stringify(assembled, null, 2)}\n`);
   await writeGate2QcReport(assembled, manifestOutputPath, qcReportPath);
@@ -1366,6 +1388,7 @@ async function assembleGeneratedMediaRun(
     runLogPath,
     assetCount,
     actualCredits,
+    ...(billing ? { billing } : {}),
     alreadyAssembled: false,
     gate2AutoPassed: false,
     gate2AutoPassBlockedReason: "generation_run",
@@ -1639,8 +1662,22 @@ async function copyAsset(
   const relativePath = toPortablePath(join(relativeTargetDir, targetName));
   const targetPath = join(runDir, relativePath);
 
-  await mkdir(dirname(targetPath), { recursive: true });
-  await copyFile(sourcePath, targetPath);
+  if ((await lstat(runDir)).isSymbolicLink()) throw new Error("run asset directory must not be a symlink");
+  let safeDirectory = await realpath(runDir);
+  for (const part of relativeTargetDir.split("/")) {
+    safeDirectory = join(safeDirectory, part);
+    try { await mkdir(safeDirectory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+    const info = await lstat(safeDirectory);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("run asset directory must not be a symlink");
+  }
+  try { await copyFile(sourcePath, targetPath, constants.COPYFILE_EXCL); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const existing = await lstat(targetPath);
+    if (!existing.isFile() || existing.isSymbolicLink() || await sha256File(sourcePath) !== await sha256File(targetPath)) {
+      throw new Error("existing run asset differs from the approved source; retained without overwrite");
+    }
+  }
   if (await sha256File(sourcePath) !== await sha256File(targetPath)) {
     throw new Error(`source asset changed while it was being copied: ${src}`);
   }
@@ -1912,6 +1949,9 @@ async function inspectAwaitingGate2Artifacts(input: {
     ? assembledManifest.manifest.provenance.reduce((sum, entry) => sum + (entry.credits ?? 0), 0)
     : 0;
   const expectedCredits = generationCredits + manifestAudioCredits(assembledManifest.manifest);
+  if (billingDigest(assembledManifest.manifest.billing ?? null) !== billingDigest(runLog.log.billing ?? null)) {
+    return { ok: false, issues: [{ code: "run.billing_inconsistent", message: "保存された料金実績がmanifestとrun logで一致しません。" }] };
+  }
   if (Math.abs(runLog.log.actualCredits - expectedCredits) > 1e-9) {
     return {
       ok: false,
@@ -2047,6 +2087,7 @@ async function inspectAwaitingGate2Artifacts(input: {
     issues: [],
     assetCount: assetReferences.length,
     actualCredits: runLog.log.actualCredits,
+    ...(runLog.log.billing ? { billing: runLog.log.billing } : {}),
     approvalDigest,
     ...(personQaApprovalBinding ? { personQaApprovalBinding } : {})
   };
@@ -2098,6 +2139,7 @@ async function readAndValidateRunLog(path: string): Promise<
       mode: string;
       assetCount: number;
       actualCredits: number;
+      billing?: BillingEvidence;
       inputDigest: string;
       edlKind?: "editorial" | "composition";
       edlDigest?: string;
@@ -2123,6 +2165,9 @@ async function readAndValidateRunLog(path: string): Promise<
     const legacyEditorialFormat = Boolean(editorialEdlDigest && !edlKindText && !edlDigest);
     const assetCount = Number(assetCountText);
     const actualCredits = Number(actualCreditsText);
+    const billingText = text.match(/^- billing_v1: (.+)$/m)?.[1];
+    const billing = billingText ? JSON.parse(billingText) as unknown : undefined;
+    if (billing !== undefined && !isBillingEvidence(billing)) throw new Error("billing_evidence_invalid");
 
     if (
       !runId ||
@@ -2150,6 +2195,7 @@ async function readAndValidateRunLog(path: string): Promise<
         mode,
         assetCount,
         actualCredits,
+        ...(billing ? { billing } : {}),
         inputDigest,
         ...(normalizedEdlKind ? { edlKind: normalizedEdlKind } : {}),
         ...(normalizedEdlDigest ? { edlDigest: normalizedEdlDigest } : {}),
@@ -2239,6 +2285,10 @@ async function writeRunLog(
     `- mode: ${input.mode}`,
     `- asset_count: ${input.assetCount}`,
     `- actual_credits: ${input.actualCredits}`,
+    ...(() => {
+      const billing = combineActualBilling(input.requests.flatMap((request) => request.billing ? [request.billing] : []));
+      return billing ? [`- billing_v1: ${JSON.stringify(billing)}`, `- billing_summary: ${billingLabel(billing, true)}`] : [];
+    })(),
     `- input_digest: ${input.inputDigest}`,
     ...(input.edlKind ? [`- edl_kind: ${input.edlKind}`] : []),
     ...(input.edlDigest ? [`- edl_digest: ${input.edlDigest}`] : []),

@@ -6,6 +6,8 @@ import type { Manifest } from "../manifest/schema.js";
 import { toAdapterGenerationRequest, type GenerationRequest } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import type { AdapterDefinition } from "./registry.js";
+import { adapterErrorEnvelope, describeAdapterError, parseAdapterErrorEnvelope } from "../../adapters/error-envelope.mjs";
+import { isBillingEvidence, type BillingEvidence } from "../../adapters/billing-contract.mjs";
 
 const safeIdSchema = z
   .string()
@@ -45,6 +47,7 @@ const cliOutputSchema = z
   .object({
     request_id: safeIdSchema,
     credits: z.number().nonnegative().default(0),
+    billing: z.custom<BillingEvidence>(isBillingEvidence).optional(),
     clips: z.array(generatedClipSchema).default([]),
     images: z.array(generatedImageSchema).default([]),
     audio: z.array(generatedAudioSchema).default([]),
@@ -73,6 +76,7 @@ export type CliGenerationRequestResult = {
   request_id: string;
   attempts: number;
   credits: number;
+  billing?: BillingEvidence;
   clips: Array<z.infer<typeof generatedClipSchema>>;
   images: Array<z.infer<typeof generatedImageSchema>>;
   audio: Array<z.infer<typeof generatedAudioSchema>>;
@@ -90,6 +94,8 @@ export type CliGenerationResult = {
 export type CliGenerationOptions = {
   runId: string;
   runDir: string;
+  resumeOnly?: boolean;
+  auditOriginal?: boolean;
 };
 
 export function runCliGenerationAdapter(
@@ -104,6 +110,7 @@ export function runCliGenerationAdapter(
     };
   }
 
+  if (options.resumeOnly && !adapter.resume) return { ok: false, issues: [{ code: "run.adapter_resume_unsupported", message: "this adapter does not declare an existing-job recovery command" }] };
   if (!adapter.command) {
     return {
       ok: false,
@@ -169,27 +176,33 @@ function runRequest(
   request: GenerationRequest,
   options: CliGenerationOptions
 ): Result<{ request: CliGenerationRequestResult }> {
-  const maxAttempts = Math.max(1, adapter.retry.max_attempts + 1);
+  const command = options.resumeOnly ? adapter.resume! : adapter.command!;
+  const maxAttempts = options.resumeOnly ? 1 : Math.max(1, adapter.retry.max_attempts + 1);
   let lastIssue: Issue | undefined;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const result = spawnCommandSync(adapter.command!.executable, adapter.command!.args, {
+    const result = spawnCommandSync(command.executable, command.args, {
       cwd: process.cwd(),
-      input: `${JSON.stringify({ request: toAdapterGenerationRequest(request), run_id: options.runId, run_dir: options.runDir })}\n`,
+      input: `${JSON.stringify({ request: toAdapterGenerationRequest(request), run_id: options.runId, run_dir: options.runDir, ...(options.resumeOnly && options.auditOriginal ? { audit_original: true } : {}) })}\n`,
       encoding: "utf8",
       maxBuffer: 1024 * 1024 * 20
     });
 
     if (result.error) {
+      const envelope = adapterErrorEnvelope("adapter_failed", request.id);
       return {
         ok: false,
-        issues: [{ code: "run.adapter_spawn_failed", message: "adapter command could not be started" }]
+        issues: [{ code: "run.adapter_spawn_failed", message: "adapter command could not be started or its outcome is unknown", adapter_error: envelope }]
       };
+    }
+    if (result.status === null || result.signal) {
+      const envelope = adapterErrorEnvelope("adapter_failed", request.id);
+      return { ok: false, issues: [{ code: "run.adapter_outcome_unknown", message: describeAdapterError(envelope.code), adapter_error: envelope }] };
     }
 
     if (result.status === 0) {
       const parsed = parseCliOutput(result.stdout, request.id);
-      if (!parsed.ok) return parsed;
+      if (!parsed.ok) return { ...parsed, issues: parsed.issues.map((issue) => ({ ...issue, adapter_error: adapterErrorEnvelope("adapter_failed", request.id) })) };
       const outputValidation = validateCliOutput(parsed.output, request.id, options.runDir);
       if (!outputValidation.ok) return outputValidation;
       return {
@@ -199,6 +212,7 @@ function runRequest(
           request_id: parsed.output.request_id,
           attempts: attempt,
           credits: parsed.output.credits,
+          ...(parsed.output.billing ? { billing: parsed.output.billing } : {}),
           clips: parsed.output.clips,
           images: parsed.output.images,
           audio: parsed.output.audio,
@@ -209,13 +223,16 @@ function runRequest(
 
     const status = result.status ?? 1;
     const mapped = adapter.exit_code_map[String(status)] ?? "failed";
+    const envelope = parseAdapterErrorEnvelope(result.stderr, request.id);
     lastIssue = {
-      code: `run.adapter_exit.${mapped}`,
-      message: adapterErrorMessage(),
+      code: envelope ? `run.adapter.${envelope.code}` : `run.adapter_exit.${mapped}`,
+      message: envelope ? describeAdapterError(envelope.code) : adapterErrorMessage(),
+      ...(envelope ? { adapter_error: envelope } : {}),
       path: `generation.requests.${request.id}`
     };
 
-    if (!adapter.retry.retryable_exit_codes.includes(status) || attempt === maxAttempts) {
+    // An envelope explains a failure; it is never authority to resubmit.
+    if (envelope || !adapter.retry.retryable_exit_codes.includes(status) || attempt === maxAttempts) {
       return { ok: false, issues: [lastIssue] };
     }
   }
@@ -361,13 +378,13 @@ function parseCliOutput(stdout: string, requestId: string): Result<{ output: z.i
       };
     }
     return { ok: true, issues: [], output: parsed.data };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
       issues: [
         {
           code: "run.adapter_output_json",
-          message: error instanceof Error ? error.message : String(error),
+          message: "adapter output is incomplete or invalid JSON; submission outcome must be checked",
           path: `generation.requests.${requestId}`
         }
       ]

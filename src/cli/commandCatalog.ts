@@ -4,6 +4,7 @@ export type CommandName =
   | "doctor"
   | "guides"
   | "story-guides"
+  | "auth"
   | "connections"
   | "services"
   | "service-tools"
@@ -17,6 +18,7 @@ export type CommandName =
   | "lock-block"
   | "validate"
   | "models"
+  | "quote"
   | "finalize"
   | "plan"
   | "analyze"
@@ -25,6 +27,7 @@ export type CommandName =
   | "viewer"
   | "review"
   | "review-preview"
+  | "resume"
   | "run"
   | "gate"
   | "render"
@@ -53,6 +56,7 @@ function defineOption(name: string, summary: string, value?: string): CommandOpt
 }
 
 const OPTIONS = {
+  approveTransfer: defineOption("--approve-transfer", "Approve sending the displayed narration text, voice and model to the selected provider for an estimate only."),
   config: defineOption("--config", "Path to the project configuration.", "<project.yaml>"),
   catalog: defineOption("--catalog", "Prompt guide catalog identifier.", "<catalog-id>"),
   model: defineOption("--model", "Model identifier used to filter guidance or connections.", "<model-id>"),
@@ -218,6 +222,22 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     options: [OPTIONS.request, OPTIONS.duration]
   }),
   defineCommand({
+    name: "auth",
+    summary: "Connection plan uses public GET only; status reads the declared secure store without refresh; probe lists tools; login opens a browser and saves only with both approvals. Built-in Keychain storage supports macOS only. Never generates or substitutes a client metadata URL.",
+    usage: "node bin/pipeline auth --connection <id> --action <plan|status|login|probe> [--model <model>] [--client-metadata-url <https-url>] [--approve-oauth --approve-keychain --actor coordinator] [--json]",
+    requiresConfig: false,
+    safety: "approval-gated",
+    options: [
+      { name: "--connection", value: "<id>", summary: "Explicit connection to configure." },
+      { name: "--action", value: "<action>", summary: "plan, status, login, or probe." },
+      OPTIONS.model,
+      { name: "--client-metadata-url", value: "<https-url>", summary: "Maintainer-approved dedicated public client metadata document." },
+      { name: "--approve-oauth", summary: "Approve browser authorization with the fixed scopes." },
+      { name: "--approve-keychain", summary: "Approve dedicated macOS Keychain storage." },
+      OPTIONS.actor
+    ]
+  }),
+  defineCommand({
     name: "connections",
     summary: "Inspect compatible generation connection profiles.",
     usage: "node bin/pipeline connections [--model <model-id>] [--capability <capability>] [--json]",
@@ -359,6 +379,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     options: [OPTIONS.config]
   }),
   defineCommand({
+    name: "quote",
+    summary: "Preview narration estimate data; explicitly send it only with --approve-transfer. Never generate.",
+    usage: "node bin/pipeline quote --config <project.yaml> [--approve-transfer --actor coordinator] [--json]",
+    requiresConfig: true,
+    safety: "approval-gated",
+    options: [OPTIONS.config, OPTIONS.approveTransfer, OPTIONS.actor, OPTIONS.stateDir]
+  }),
+  defineCommand({
     name: "finalize",
     summary: "Preview or apply completion-only cleanup for superseded media.",
     usage: "node bin/pipeline finalize --config <project.yaml> [--state-dir <project.dist_dir>] [--apply --actor coordinator --expected-plan-digest <plan_digest> [--expected-production-completion-digest <digest>]] [--json]",
@@ -436,6 +464,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "approval-gated",
     options: [OPTIONS.config, OPTIONS.dryRun, OPTIONS.actor, OPTIONS.stateDir]
+  }),
+  defineCommand({
+    name: "resume",
+    summary: "Inspect local narration receipts; --apply as coordinator retrieves only existing jobs and rebuilds QC. Never starts generation.",
+    usage: "node bin/pipeline resume --config <project.yaml> [--apply [--audit-original] --actor coordinator] [--state-dir <directory>] [--json]",
+    requiresConfig: true,
+    safety: "approval-gated",
+    options: [OPTIONS.config, OPTIONS.apply, { name: "--audit-original", summary: "Retrieve only to the original receipt after approval changes; never update manifest/QC/Gates. Request content must match." }, OPTIONS.actor, OPTIONS.stateDir]
   }),
   defineCommand({
     name: "gate",

@@ -90,7 +90,10 @@ function cli(args: string[], cwd: string) {
   return spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, TSUGITE_PROJECTS_HOME: join(cwd, "launcher-projects") }
+    env: {
+      ...process.env, TSUGITE_PROJECTS_HOME: join(cwd, "launcher-projects"),
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${new URL("./helpers/catalogReviewClockPreload.mjs", import.meta.url).href}`
+    }
   });
 }
 

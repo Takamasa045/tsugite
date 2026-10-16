@@ -25,6 +25,7 @@ import {
   type ResolvedRuntimeAuthority
 } from "../productionControl/runtimeAuthority.js";
 import { PipelineError } from "../types.js";
+import { unknownBilling, type BillingEvidence } from "../../adapters/billing-contract.mjs";
 
 export type PlanStep = {
   name: string;
@@ -64,6 +65,7 @@ export type ExecutionPlan = {
   target_duration_seconds: number;
   total_clip_duration_seconds: number;
   estimated_credits: number;
+  billing?: BillingEvidence;
   clips: Array<{
     id: string;
     duration: number;
@@ -134,7 +136,10 @@ export function createPlan(
   const totalClipDuration = manifest.native_edit?.mode === "replace"
     ? manifest.meta.target_duration_seconds
     : manifest.clips.reduce((sum, clip) => sum + clip.duration, 0);
-  const estimatedCredits = estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
+  const billing = project.billing ?? (adapter?.billing_policy === "quote-required" ? unknownBilling() : undefined);
+  const estimatedCredits = billing?.estimate.status === "known" && billing.estimate.credits !== null
+    ? Number(billing.estimate.credits)
+    : estimateCredits(project, manifest, adapter, analysisAdapter, audioAdapter);
   const agentHandoffs = createAgentHandoffs(
     project,
     adapter,
@@ -156,6 +161,7 @@ export function createPlan(
     target_duration_seconds: manifest.meta.target_duration_seconds,
     total_clip_duration_seconds: totalClipDuration,
     estimated_credits: estimatedCredits,
+    ...(billing ? { billing } : {}),
     clips: manifest.clips.map((clip) => ({
       id: clip.id,
       duration: clip.duration,

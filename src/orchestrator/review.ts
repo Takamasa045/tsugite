@@ -4,6 +4,7 @@ import { createReadStream, type Stats } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { billingLabel } from "../../adapters/billing-contract.mjs";
 import type { Manifest } from "../manifest/schema.js";
 import {
   resolveGenerationConnection,
@@ -203,6 +204,7 @@ export type ReviewCompositionProposal = {
 };
 
 export type ReviewDocument = {
+  billing?: import("../../adapters/billing-contract.mjs").BillingEvidence;
   fast_edit?: Manifest["fast_edit"];
   schema_version: 1 | 2 | 3;
   run_id: string;
@@ -602,6 +604,9 @@ export async function inspectGate1Review(options: {
       }
     }
     const document = data as ReviewDocument;
+    if (digest(document.billing ?? null) !== digest(options.project.billing ?? null)) {
+      return { ok: false, issues: [{ code: "gate.billing_changed", message: "見積または接続条件がレビュー時から変わりました。再レビューして承認してください。" }], reviewPath, dataPath };
+    }
     const currentConnections = await resolveReviewConnectionSnapshots(options.project);
     if (!currentConnections.ok) {
       return { ok: false, issues: currentConnections.issues, reviewPath, dataPath };
@@ -1427,6 +1432,7 @@ export function createReviewDocument(
 
   return {
     schema_version: project.composition ? 3 : project.analysis ? 2 : 1,
+    ...(plan.billing ? { billing: plan.billing } : {}),
     run_id: project.run_id ?? project.slug,
     slug: project.slug,
     summary: {
@@ -1650,9 +1656,11 @@ function createFallbackStoryboard(
   manifest: Manifest,
   images: Map<string, Manifest["images"][number]>
 ): ReviewShot[] {
-  if ((project.generation?.requests.length ?? 0) > 0) {
+  const videoRequests = (project.generation?.requests ?? [])
+    .filter((request) => generationRequestOutputKind(request) === "video");
+  if (videoRequests.length > 0) {
     let cursor = 0;
-    return project.generation!.requests.filter((request) => generationRequestOutputKind(request) === "video").map((request, index) => {
+    return videoRequests.map((request, index) => {
       const start = cursor;
       const duration = generationRequestDurationSeconds(request);
       cursor += duration;
@@ -2575,6 +2583,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
     ? `<section class="audio-section" aria-labelledby="generation-audio-title" data-testid="generation-audio-review">
       <div class="section-heading"><div><p class="eyebrow">GENERATED SPEECH</p><h2 id="generation-audio-title">生成音声</h2></div><p>送信する文章・モデル・音声を確認してください。外部サービスの料金は推定creditsだけでは確認できません。</p></div>
       <div class="audio-tracks">${document.generation_audio_requests.map((request) => `<div class="audio-policy"><h3>${escapeHtml(request.id)}</h3><p>${escapeHtml(request.operation)} · ${escapeHtml(request.model ?? "モデル未指定")} · ${escapeHtml(request.audio_role ?? "narration")}</p>${request.voice_id ? `<p>VOICE ID: ${escapeHtml(request.voice_id)}</p>` : ""}<pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(request.prompt)}</pre></div>`).join("")}</div>
+      ${document.billing ? `<div class="audio-policy" data-testid="narration-billing"><h3>${escapeHtml(billingLabel(document.billing))}</h3><p>数量: 各リクエスト1本。見積は本文・声・モデル・接続・上限と結合します。</p>${document.billing.estimate.quotes?.map((quote) => `<dl><div><dt>送信判断の上限</dt><dd>${escapeHtml(quote.limits.max_credits)} credits${quote.limits.max_money ? ` / ${escapeHtml(quote.limits.max_money.amount)} ${escapeHtml(quote.limits.max_money.currency)}` : " / 金額未確認"}</dd></div><div><dt>有効期限</dt><dd>${escapeHtml(quote.expires_at)}（取得後5分の継手側期限）</dd></div><div><dt>接続</dt><dd>${escapeHtml(quote.connection_binding.profile_id)} / ${escapeHtml(quote.connection_binding.source)}</dd></div></dl>`).join("") ?? "<p>送信前に明示的な見積取得が必要です。</p>"}<p>この上限は送信可否の判断値です。providerの請求自体を上限固定する保証ではありません。残高も未確認です。</p></div>` : ""}
     </section>`
     : "";
   const backgroundReview = document.background
@@ -2615,7 +2624,7 @@ export function renderReviewHtml(document: ReviewDocument): string {
         <div><dt>目標尺</dt><dd>${formatSeconds(document.summary.target_duration_seconds)}</dd></div>
         <div><dt>絵コンテ尺</dt><dd>${formatSeconds(document.summary.storyboard_duration_seconds)}</dd></div>
         <div><dt>画面比率</dt><dd>${escapeHtml(document.summary.aspect)}</dd></div>
-        <div><dt>推定credits</dt><dd>${formatNumber(document.summary.estimated_credits)}</dd></div>
+        <div><dt>${document.billing ? "生成料金" : "推定credits"}</dt><dd>${document.billing ? escapeHtml(billingLabel(document.billing)) : formatNumber(document.summary.estimated_credits)}</dd></div>
         <div><dt>編集backend</dt><dd>${escapeHtml(document.summary.backend)}</dd></div>
       </dl>
     </header>

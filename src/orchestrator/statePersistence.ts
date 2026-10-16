@@ -23,6 +23,7 @@ const gateStateSchema = z.object({
   ]),
   updated_at: z.string().optional(),
   approved_input_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  billing_approval_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   // Optional for backward parsing of state written before person-QA binding digests.
   person_qa_approval_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   // Optional for backward parsing of state written before Gate 3 sidecar binding.

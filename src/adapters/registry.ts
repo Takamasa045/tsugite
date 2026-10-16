@@ -87,6 +87,11 @@ const adapterSchema = z.object({
     })
     .optional(),
   dry_run_estimate: z.boolean(),
+  billing_policy: z.literal("quote-required").optional(),
+  quote: stdinJsonCommandSchema.optional(),
+  auth: stdinJsonCommandSchema.optional(),
+  resume: stdinJsonCommandSchema.optional(),
+  receipts: z.object({ protocol: z.literal("narration-v1"), directory: z.string().regex(/^assets\/[A-Za-z0-9._-]+$/) }).strict().optional(),
   batch: z.boolean(),
   credit_estimate: z
     .object({

@@ -30,6 +30,9 @@ export interface GenerationCanvasProject {
 interface CanvasGenerationRequest {
   id: string
   prompt: string
+  voiceId?: string
+  characterCount?: number
+  quantity?: number
   model?: string
   operation?: string
   outputKind?: 'video' | 'image' | 'audio'
@@ -49,6 +52,7 @@ interface CanvasAudioTrack {
 }
 
 interface CanvasConnection {
+  connectionStatus?: { configured: boolean | null; checked_at: string | null; expired?: boolean; cache_only: boolean }
   id: string
   displayName: string
   transport: string
@@ -61,7 +65,22 @@ interface CanvasConnection {
   executionMode?: 'pipeline-adapter' | 'agent-handoff'
 }
 
+interface NarrationStatus {
+  schema_version: 1
+  state: string
+  reason: string
+  next_action: { id: string; label: string; command?: string }
+  can_generate: boolean
+  can_resume: boolean
+  approval_digest: string | null
+  actual_label: string
+  billing_label: string
+  quote_expires_at: string | null
+  submission_increment: 0 | null
+  requests: Array<{ request_id: string; state: string; checked_at?: string; budgets?: { polls_used: number; wait_ms_used: number; refreshes_used: number; downloads_used: number } }>
+}
 interface CanvasData {
+  narrationStatus?: NarrationStatus
   project: GenerationCanvasProject
   generation: {
     connection?: string
@@ -352,6 +371,8 @@ export function GenerationCanvas({
   const [reloadKey, setReloadKey] = useState(0)
   const [zoom, setZoom] = useState(INITIAL_ZOOM)
   const [offset, setOffset] = useState({ x: 24, y: 30 })
+  const messageRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => { if (actionState === 'error') messageRef.current?.focus() }, [actionState, actionMessage])
   const nodesRef = useRef(nodes)
   const panDrag = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null)
   const nodeDrag = useRef<{ pointerId: number; id: string; x: number; y: number; originX: number; originY: number } | null>(null)
@@ -398,9 +419,9 @@ export function GenerationCanvas({
   const connectionCount = selected
     ? edges.filter((edge) => edge.from === selected.id || edge.to === selected.id).length
     : 0
-  const activeConnectionId = selected?.kind === 'audio'
-    ? canvas?.audio?.connection
-    : canvas?.generation.connection ?? canvas?.audio?.connection
+  const selectedRequest = canvas?.generation.requests.find(request => request.id === selected?.id)
+  const activeConnectionId = selectedRequest ? canvas?.generation.connection
+    : selected?.kind === 'audio' ? canvas?.audio?.connection : canvas?.generation.connection ?? canvas?.audio?.connection
   const activeConnection = canvas?.connections?.find((connection) => connection.id === activeConnectionId)
   const comparisonConnection = canvas?.connections?.find((connection) => connection.id === comparisonConnectionId)
 
@@ -521,13 +542,14 @@ export function GenerationCanvas({
 
   const generateProject = async () => {
     if (!canvas || !activeConnection) return
-    if (!window.confirm(`${activeConnection.displayName}で外部生成を開始します。契約クレジットが消費されます。続行しますか？`)) return
+    if (!window.confirm(`${activeConnection.displayName}で外部生成を開始します。${canvas.narrationStatus?.billing_label ?? "契約クレジットが消費されます"}。承認済みの本文・声・モデルを送信します。続行しますか？`)) return
     setActionState('generating')
-    setActionMessage('生成を開始しました。完了までこの画面を開いたままお待ちください。')
+    setActionMessage('生成の受理を確認しています。画面を閉じた後も、保存された処理記録から状態を確認できます。')
     try {
       const response = await fetcher(`/api/projects/${encodeURIComponent(canvas.project.id)}/generate`, {
         method: 'POST',
-        headers: { accept: 'application/json', 'x-tsugite-token': launcherToken() },
+        headers: { accept: 'application/json', 'content-type': 'application/json', 'x-tsugite-token': launcherToken() },
+        ...(canvas.narrationStatus ? { body: JSON.stringify({ approval_digest: canvas.narrationStatus.approval_digest }) } : {}),
       })
       const payload = await response.json() as { ok?: boolean; issue?: { message?: string } }
       if (!response.ok || payload.ok !== true) throw new Error(payload.issue?.message ?? '生成を完了できませんでした')
@@ -538,6 +560,22 @@ export function GenerationCanvas({
       setActionState('error')
       setActionMessage(error instanceof Error ? error.message : '生成を完了できませんでした')
     }
+  }
+
+  const resumeProject = async () => {
+    if (!canvas?.narrationStatus?.can_resume || loadState !== 'ready') return
+    setActionState('generating')
+    setActionMessage('同じ処理の結果を確認・取得しています。新規生成は開始しません。')
+    try {
+      const response = await fetcher(`/api/projects/${encodeURIComponent(canvas.project.id)}/resume`, {
+        method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', 'x-tsugite-token': launcherToken() },
+        body: JSON.stringify({ approval_digest: canvas.narrationStatus.approval_digest }),
+      })
+      const payload = await response.json() as { ok?: boolean; issue?: { message?: string } }
+      if (!response.ok || payload.ok !== true) throw new Error(payload.issue?.message ?? '同じ処理の結果を確認できませんでした')
+      setActionState('success'); setActionMessage('既存の処理記録を確認しました。新規生成は0件です。')
+    } catch (error) { setActionState('error'); setActionMessage(error instanceof Error ? error.message : '結果を確認できませんでした') }
+    finally { setReloadKey(current => current + 1) }
   }
 
   const preflightModels = async () => {
@@ -616,6 +654,25 @@ export function GenerationCanvas({
         </label>
       </header>
 
+      {canvas?.narrationStatus && (
+        <section aria-label="音声の状態と次の操作" className="generation-canvas-narration-status">
+          <h3>次の操作: {canvas.narrationStatus.next_action.label}</h3>
+          <p role="status">{canvas.narrationStatus.reason}</p>
+          <p><strong>{canvas.narrationStatus.billing_label}</strong>{canvas.narrationStatus.submission_increment === 0 ? ' / 今回の取得: 新規送信0件' : ''}</p>
+          <p>{canvas.narrationStatus.actual_label}</p>
+          {canvas.narrationStatus.quote_expires_at && <p>見積の有効期限: {canvas.narrationStatus.quote_expires_at}</p>}
+          <p>承認上限は送信可否の判断値です。providerの最終請求額を固定する保証ではありません。</p>
+          <dl>{canvas.generation.requests.filter(request => request.outputKind === 'audio').map(request => (
+            <div key={request.id}><dt>{request.id} / 数量{request.quantity ?? 1} / {request.characterCount ?? Array.from(request.prompt).length}文字</dt>
+              <dd>{request.prompt}</dd><dd>声: {request.voiceId ?? '未指定'} / モデル: {request.model ?? '未指定'} / 接続: {canvas.generation.connection ?? '未選択'}</dd></div>
+          ))}</dl>
+          <ul>{canvas.narrationStatus.requests.map(request => <li key={request.request_id}>{request.request_id}: {request.state}{request.checked_at ? ` / 記録更新 ${request.checked_at}` : ''}{request.budgets ? ` / 照会 ${request.budgets.polls_used}回・待機 ${request.budgets.wait_ms_used / 1000}秒・再取得 ${request.budgets.downloads_used}回` : ''}</li>)}</ul>
+          {canvas.narrationStatus.next_action.command && <code>{canvas.narrationStatus.next_action.command}</code>}
+          {canvas.narrationStatus.next_action.id === 'resume' && <button disabled={!canvas.narrationStatus.can_resume || actionState === 'generating' || loadState !== 'ready'} onClick={() => void resumeProject()} type="button">{canvas.narrationStatus.next_action.label}</button>}
+          {canvas.narrationStatus.can_generate && <button disabled={actionState === 'generating' || loadState !== 'ready'} onClick={() => void generateProject()} type="button">{canvas.narrationStatus.next_action.label}</button>}
+          <p>技術QAと聴取確認は別です。Gate 2で読み・内容・声・音量を聴いて確認してください。公開は別の操作です。</p>
+        </section>
+      )}
       <div className="generation-canvas-workbench">
         <div className="generation-canvas-main">
           <div aria-label="キャンバス操作" className="generation-canvas-toolbar">
@@ -695,6 +752,7 @@ export function GenerationCanvas({
             <div className="generation-canvas-capabilities">
               <strong>{activeConnection.displayName}</strong>
               <span>{activeConnection.authKind === 'subscription' ? 'サブスク接続' : activeConnection.authKind} · {activeConnection.transport.toUpperCase()}</span>
+              {activeConnection.connectionStatus && <p>保存済み接続情報: {activeConnection.connectionStatus.configured === true ? (activeConnection.connectionStatus.expired ? '期限切れ（明示操作時に更新）' : '設定あり') : '未確認'} / 最終確認: {activeConnection.connectionStatus.checked_at ?? '未確認'}。この一覧は認証情報を読み出さず、更新しません。</p>}
               <dl>
                 <div><dt>サービス対応</dt><dd>{capabilityFamilies(activeConnection.capabilities).join('・')}</dd></div>
                 <div><dt>Tsugite自動化済み</dt><dd>{capabilityFamilies(activeConnection.automatedCapabilities).join('・') || '未接続'}</dd></div>
@@ -760,24 +818,25 @@ export function GenerationCanvas({
             </>
           ) : <p className="generation-canvas-inspector-empty">表示する生成工程を選んでください。</p>}
           {canvas?.issues[0] && <div className="generation-canvas-issue"><AlertTriangle aria-hidden="true" size={16} /><span><strong>案件設定を確認</strong>{canvas.issues[0].message}</span></div>}
-          {actionMessage && <p aria-live="polite" className={`generation-canvas-action-message is-${actionState}`}>{actionMessage}</p>}
+          {actionMessage && <p ref={messageRef} tabIndex={-1} role={actionState === 'error' ? 'alert' : 'status'} aria-live={actionState === 'error' ? 'assertive' : 'polite'} className={`generation-canvas-action-message is-${actionState}`}>{actionMessage}</p>}
           <button
             className="generation-canvas-model-preflight"
             disabled={!activeConnection || actionState === 'checking' || actionState === 'generating'}
             onClick={() => void preflightModels()}
             type="button"
           ><Workflow aria-hidden="true" size={16} />{actionState === 'checking' ? 'モデル確認中…' : 'モデル互換性を確認（非課金）'}</button>
-          <button
+          {!canvas?.narrationStatus && <button
             className="generation-canvas-generate"
             disabled={
-              canvas?.project.status !== 'running'
+              loadState !== 'ready'
+              || canvas?.project.status !== 'running'
               || activeConnection?.executionMode !== 'pipeline-adapter'
               || activeConnection?.setupStatus === 'needs-setup'
               || actionState === 'generating'
             }
             onClick={() => void generateProject()}
             type="button"
-          ><Sparkles aria-hidden="true" size={16} />{actionState === 'generating' ? '生成中…' : 'Gate 1承認済みの設定で生成'}</button>
+          ><Sparkles aria-hidden="true" size={16} />{actionState === 'generating' ? '生成中…' : 'Gate 1承認済みの設定で生成'}</button>}
         </aside>
       </div>
     </section>

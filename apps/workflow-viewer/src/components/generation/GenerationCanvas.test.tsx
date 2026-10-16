@@ -235,4 +235,53 @@ describe('GenerationCanvas', () => {
     await user.click(screen.getByRole('button', { name: '表示をリセット' }))
     expect(screen.getByRole('status', { name: 'キャンバス倍率' })).toHaveTextContent('62%')
   })
+  function narrationFetcher(state: string, action = 'inspect_record', canGenerate = false) {
+    const payload = structuredClone(canvasResponse)
+    payload.canvas.project.status = 'running'
+    payload.canvas.generation.connection = 'elevenlabs'
+    payload.canvas.generation.adapter = 'elevenlabs-v4'
+    const canvas = { ...payload.canvas, generation: { ...payload.canvas.generation, requests: [{ id: 'narration', prompt: 'これは接続テストです。', model: 'eleven_v4', voiceId: 'fixture-voice', characterCount: 12, quantity: 1, outputKind: 'audio', inputMode: 'text-to-video', hasFirstFrame: false, referenceImageCount: 0 }] },
+      connections: [{ id: 'elevenlabs', displayName: 'ElevenLabs', transport: 'cli', authKind: 'subscription', capabilities: ['audio.text-to-speech'], automatedCapabilities: ['audio.text-to-speech'], executionMode: 'pipeline-adapter', setupStatus: 'ready' }],
+      narrationStatus: { schema_version: 1, state, reason: state === 'inspect' ? '送信結果が不明です。元の記録を確認してください。' : '同じ処理を確認します。', next_action: { id: action, label: action === 'resume' ? '同じ処理の結果を取得' : action === 'generate' ? '承認した音声を生成' : '元の処理記録を確認' }, can_generate: canGenerate, can_resume: action === 'resume', approval_digest: 'a'.repeat(64), billing_label: '生成料金: 未確認', actual_label: '利用額: 未確認', quote_expires_at: null, submission_increment: action === 'resume' ? 0 : null, requests: [{ request_id: 'narration', state }] } }
+    return vi.fn().mockImplementation((url: string) => Promise.resolve({ ok: true, json: async () => url.endsWith('/resume') ? { ok: true } : { ok: true, canvas } }))
+  }
+
+  it('unknownは再生成を表示せず、本文・声・モデル・料金未確認を2Dカードに表示する', async () => {
+    const fetcher = narrationFetcher('inspect')
+    render(<GenerationCanvas fetcher={fetcher} projects={projects} selectedProjectId="project-alpha" />)
+    expect(await screen.findByRole('region', { name: '音声の状態と次の操作' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '次の操作: 元の処理記録を確認' })).toBeVisible()
+    expect(screen.getByText('生成料金: 未確認')).toBeVisible()
+    expect(screen.getByText(/声: fixture-voice/)).toBeVisible()
+    expect(screen.queryByRole('button', { name: /生成$/ })).not.toBeInTheDocument()
+    expect(fetcher.mock.calls.every(([url]) => !String(url).endsWith('/generate'))).toBe(true)
+  })
+
+  it('acceptedの操作は同一ジョブのresumeだけを呼び、承認カードdigestを渡す', async () => {
+    const user = userEvent.setup(), fetcher = narrationFetcher('retrieve', 'resume')
+    render(<GenerationCanvas fetcher={fetcher} projects={projects} selectedProjectId="project-alpha" />)
+    await user.click(await screen.findByRole('button', { name: '同じ処理の結果を取得' }))
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/projects/project-alpha/resume', expect.objectContaining({ method: 'POST', body: JSON.stringify({ approval_digest: 'a'.repeat(64) }) })))
+    expect(fetcher.mock.calls.every(([url]) => !String(url).endsWith('/generate'))).toBe(true)
+    expect(await screen.findByText('既存の処理記録を確認しました。新規生成は0件です。')).toBeVisible()
+  })
+
+  it('音声リクエストもgenerationの接続を使い、技術QAと聴取を分けて案内する', async () => {
+    render(<GenerationCanvas fetcher={narrationFetcher('ready', 'generate', true)} projects={projects} selectedProjectId="project-alpha" />)
+    expect(await screen.findByRole('button', { name: '承認した音声を生成' })).toBeEnabled()
+    expect(screen.getAllByText('ElevenLabs')[0]).toBeVisible()
+    expect(screen.getByText(/技術QAと聴取確認は別/)).toBeVisible()
+  })
+
+  it('取得エラーを通知し、その説明へkeyboard focusを移す', async () => {
+    const user = userEvent.setup(), base = narrationFetcher('retrieve', 'resume')
+    const fetcher = vi.fn().mockImplementation((url: string, options: RequestInit) => url.endsWith('/resume')
+      ? Promise.resolve({ ok: false, json: async () => ({ ok: false, issue: { message: '同じ結果の取得を確認してください。' } }) }) : base(url, options))
+    render(<GenerationCanvas fetcher={fetcher} projects={projects} selectedProjectId="project-alpha" />)
+    await user.click(await screen.findByRole('button', { name: '同じ処理の結果を取得' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('同じ結果の取得を確認してください。')
+    await waitFor(() => expect(alert).toHaveFocus())
+  })
+
 })
