@@ -61,6 +61,7 @@ const expectedOptions = {
   ],
   validate: ["--config"],
   models: ["--config"],
+  quote: ["--config", "--approve-transfer", "--actor", "--state-dir"],
   finalize: [
     "--config",
     "--state-dir",
@@ -123,6 +124,7 @@ const configCommands = new Set([
   "lock-block",
   "validate",
   "models",
+  "quote",
   "finalize",
   "plan",
   "analyze",
