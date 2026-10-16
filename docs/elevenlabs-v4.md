@@ -4,6 +4,8 @@
 
 `test/elevenlabs-public-cli.test.mjs` は公開CLIを別processで起動する無課金テストです。MCP/MP3通信とbearerのみfixtureにし、Gate・digest・保存・manifest/QC・Remotion renderを本番処理で通します。macOSでは子Chromeを含む外部通信をsandboxで禁止し、render用loopbackだけ許可します。本物のKeychainは使用しません。このfixtureの成功は実providerの課金・音質の検証とは別です。
 
+生成adapterの失敗はstderrのversion 1 JSON envelopeで返します。親は4KiB以内・既知code・固定phase/state/action・request一致を検査し、未知形式は汎用エラーにします。provider本文・signed URL・private pathは転記しません。`not_submitted`、受理済み`accepted`、送信結果`unknown`、確定失敗`failed`を区別し、envelopeだけを再送許可にはしません。signal終了・不完全な成功JSONは結果不明として再試行しません。`recovery_action`は安全な操作の分類で、実際の同一job復旧commandは次のreceipt実装で提供します。
+
 ## 対応する呼び出し
 
 - 単一話者、2,000文字以下、MP3 narration。追加parameter、参照音声、複数話者、別モデルへの自動切替は未対応。

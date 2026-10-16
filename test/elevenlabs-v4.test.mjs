@@ -239,7 +239,8 @@ describe("ElevenLabs Eleven v4 generation", () => {
       const result = runCliGenerationAdapter(adapter, [request], { runId: "driver-fixture", runDir });
       expect(result).toMatchObject({
         ok: false,
-        issues: [{ code: "run.adapter_exit.credential_missing", path: `generation.requests.${request.id}` }]
+        issues: [{ code: "run.adapter.credential_missing", path: `generation.requests.${request.id}`,
+          adapter_error: { schema_version: 1, phase: "authentication", submission_state: "not_submitted", recovery_action: "connect" } }]
       });
       expect(await readdir(join(runDir, "assets", "elevenlabs-v4"))).toEqual([]);
     } finally {

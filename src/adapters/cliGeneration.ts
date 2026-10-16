@@ -6,6 +6,7 @@ import type { Manifest } from "../manifest/schema.js";
 import { toAdapterGenerationRequest, type GenerationRequest } from "../project/schema.js";
 import type { Issue, Result } from "../types.js";
 import type { AdapterDefinition } from "./registry.js";
+import { adapterErrorEnvelope, describeAdapterError, parseAdapterErrorEnvelope } from "../../adapters/error-envelope.mjs";
 
 const safeIdSchema = z
   .string()
@@ -181,15 +182,20 @@ function runRequest(
     });
 
     if (result.error) {
+      const envelope = adapterErrorEnvelope("adapter_failed", request.id);
       return {
         ok: false,
-        issues: [{ code: "run.adapter_spawn_failed", message: "adapter command could not be started" }]
+        issues: [{ code: "run.adapter_spawn_failed", message: "adapter command could not be started or its outcome is unknown", adapter_error: envelope }]
       };
+    }
+    if (result.status === null || result.signal) {
+      const envelope = adapterErrorEnvelope("adapter_failed", request.id);
+      return { ok: false, issues: [{ code: "run.adapter_outcome_unknown", message: describeAdapterError(envelope.code), adapter_error: envelope }] };
     }
 
     if (result.status === 0) {
       const parsed = parseCliOutput(result.stdout, request.id);
-      if (!parsed.ok) return parsed;
+      if (!parsed.ok) return { ...parsed, issues: parsed.issues.map((issue) => ({ ...issue, adapter_error: adapterErrorEnvelope("adapter_failed", request.id) })) };
       const outputValidation = validateCliOutput(parsed.output, request.id, options.runDir);
       if (!outputValidation.ok) return outputValidation;
       return {
@@ -209,13 +215,16 @@ function runRequest(
 
     const status = result.status ?? 1;
     const mapped = adapter.exit_code_map[String(status)] ?? "failed";
+    const envelope = parseAdapterErrorEnvelope(result.stderr, request.id);
     lastIssue = {
-      code: `run.adapter_exit.${mapped}`,
-      message: adapterErrorMessage(),
+      code: envelope ? `run.adapter.${envelope.code}` : `run.adapter_exit.${mapped}`,
+      message: envelope ? describeAdapterError(envelope.code) : adapterErrorMessage(),
+      ...(envelope ? { adapter_error: envelope } : {}),
       path: `generation.requests.${request.id}`
     };
 
-    if (!adapter.retry.retryable_exit_codes.includes(status) || attempt === maxAttempts) {
+    // An envelope explains a failure; it is never authority to resubmit.
+    if (envelope || !adapter.retry.retryable_exit_codes.includes(status) || attempt === maxAttempts) {
       return { ok: false, issues: [lastIssue] };
     }
   }
@@ -361,13 +370,13 @@ function parseCliOutput(stdout: string, requestId: string): Result<{ output: z.i
       };
     }
     return { ok: true, issues: [], output: parsed.data };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
       issues: [
         {
           code: "run.adapter_output_json",
-          message: error instanceof Error ? error.message : String(error),
+          message: "adapter output is incomplete or invalid JSON; submission outcome must be checked",
           path: `generation.requests.${requestId}`
         }
       ]

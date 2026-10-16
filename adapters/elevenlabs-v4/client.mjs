@@ -256,10 +256,15 @@ async function readMcpAudio(result, fetchImpl) {
     if (!response.body) throw new ElevenV4Error("mcp_audio_invalid", 20);
     const chunks = [];
     let size = 0;
-    for await (const chunk of response.body) {
-      size += chunk.byteLength;
-      if (size > MAX_AUDIO_BYTES) throw new ElevenV4Error("mcp_audio_too_large", 20);
-      chunks.push(Buffer.from(chunk));
+    try {
+      for await (const chunk of response.body) {
+        size += chunk.byteLength;
+        if (size > MAX_AUDIO_BYTES) throw new ElevenV4Error("mcp_audio_too_large", 20);
+        chunks.push(Buffer.from(chunk));
+      }
+    } catch (error) {
+      if (error instanceof ElevenV4Error) throw error;
+      throw new ElevenV4Error("mcp_audio_download_failed", 20);
     }
     return Buffer.concat(chunks);
   }
@@ -338,10 +343,14 @@ async function awaitCreativeResult(initial, client, route, options, journal) {
     const seconds = Number.isFinite(body.poll_after_seconds) ? body.poll_after_seconds : 3;
     const ms = Math.min(10, Math.max(1, seconds)) * 1000;
     await (options.sleep ?? ((delay) => new Promise((resolve) => setTimeout(resolve, delay))))(ms);
-    body = resultBody(await client.callTool({
-      name: route.statusTool,
-      arguments: { context: "Wait for the approved Tsugite narration without starting another generation.", ...identity }
-    }, undefined, { timeout: Math.min(20_000, Math.max(1, deadline - Date.now())) }));
+    let status;
+    try {
+      status = await client.callTool({
+        name: route.statusTool,
+        arguments: { context: "Wait for the approved Tsugite narration without starting another generation.", ...identity }
+      }, undefined, { timeout: Math.min(20_000, Math.max(1, deadline - Date.now())) });
+    } catch { throw new ElevenV4Error("mcp_status_failed", 20); }
+    body = resultBody(status);
   }
 }
 
