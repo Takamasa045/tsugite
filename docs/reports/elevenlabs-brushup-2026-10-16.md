@@ -19,7 +19,7 @@ brushup.
 - S1 `0e6c050`, `4a6b304`: bounded safe errors, unknown pricing, explicit quote and
   exact request/profile/epoch/schema/expiry/limit binding to Gate 1.
 - S2 `5abe426`: versioned receipts, same-job recovery and partial-run reuse.
-- S3: public auth, process-safe refresh/rotation uncertainty, shared status/cards,
+- S3 `3488341`: public auth, process-safe refresh/rotation uncertainty, shared status/cards,
   stale/double execution guards, and original-approval audit retrieval.
 
 ## Evidence and limits
@@ -50,7 +50,18 @@ artifact remain the live evidence; ASR/codec/volume checks do not prove listenin
 - `5abe426`: all 2,493 root tests passed; branch coverage 74.31% missed the existing
   74.4% threshold. Site and Windows passed. Direct read-model/auth/main regression
   tests were added; thresholds and detectors remain unchanged.
-- Final S3 CI/review outcome will be recorded after the pushed head completes.
+- `3488341`: all mandatory jobs passed, run
+  https://github.com/Takamasa045/tsugite/actions/runs/38853330186
+  Root: **2,523 passed / 7 existing skipped**; coverage statements 82.68%, branches
+  **74.55%** (required 74.4%), functions 89.69%, lines 85.41%.
+  Viewer: **520 passed**; coverage statements 86.35%, branches 81.13%, functions
+  91.4%, lines 89.71%; typecheck passed. Windows also passed root/Viewer builds,
+  audit and smoke. Root production/full audits reported zero vulnerabilities.
+
+Review inspection found only the original `r4290171354`, now outdated after the
+independent directory durability fix. GitHub still records it as unresolved;
+reviewer re-approval/resolve has not been received. No self-resolve, reply, review
+bypass or merge was performed. The PR remains open for normal review.
 
 Local full coverage was interrupted by ENOSPC earlier; it is not counted as a
 successful check. Later local heavy installs/builds/coverage were suppressed to
