@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import { ArtifactStore } from "../src/productionControl/artifactStore.js";
 import { sha256Canonical } from "../src/integrity/canonical.js";
 import {
@@ -102,6 +103,7 @@ function budgetArtifactBody(input: {
 }
 
 describe("T05 execution-authoritative pinned prompt budget", () => {
+  useCatalogReviewClock();
   it("adopts a zero-asset plain-prompt planning bundle via genuine execution budget evidence and one-shot lease", async () => {
     const { model, connection, adapter, route } = await v6Route();
     const compiled = compileVideoPromptIrV2(standalonePlainPrompt(), {

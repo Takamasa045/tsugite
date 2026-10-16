@@ -5,6 +5,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import { durableTempRoot } from "../src/platform/path.js";
 import {
   ProductionDispatcher,
@@ -2824,6 +2825,7 @@ describe("PO-5 live subject recompute blocks tampered durable evidence", () => {
 });
 
 describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)", () => {
+  useCatalogReviewClock();
   it("proves active GateBundle, Gate1, full binding, T05 adopt via execution budget loader, one-shot same-FD stub, pin; second consume 0; provider 0", {
     timeout: 20_000
   }, async () => {
@@ -2909,7 +2911,7 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         connection_capability_digest: connection.digest,
         adapter_dialect_capability: adapter.capability
       });
-      expect(compiled.ok).toBe(true);
+      expect(compiled.ok, JSON.stringify(compiled)).toBe(true);
       if (!compiled.ok) return;
 
       const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-po5-exit-e2e-")));
@@ -3370,7 +3372,7 @@ describe("PO-5 Exit E2E fixture-only (live orchestrator active run call graph)",
         connection_capability_digest: connection.digest,
         adapter_dialect_capability: adapterCap.capability
       });
-      expect(compiled.ok).toBe(true);
+      expect(compiled.ok, JSON.stringify(compiled)).toBe(true);
       if (!compiled.ok) return;
 
       // Artifact planning store is under a non-canonical subdir; the mandatory
