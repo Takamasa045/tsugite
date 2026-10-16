@@ -43,6 +43,9 @@ jobs:
           sudo apt-get install --no-install-recommends -y ffmpeg
       - run: npm ci
       - run: npm --prefix apps/workflow-viewer ci
+      # Install the test renderer before the public CLI fixture denies network.
+      - name: Prepare local render browser
+        run: node --input-type=module -e "import { ensureBrowser } from '@remotion/renderer'; await ensureBrowser();"
       - run: npm run check
       # Root check excludes apps/**; keep Viewer unit/coverage required on Ubuntu.
       - run: npm run viewer:check
