@@ -109,3 +109,5 @@ Append-only format:
 2026-10-16 / narration生成runが既存動画を保持したままコピーせず、Gate 2で動画欠落とrun logのasset件数不一致になった / generation経路がvideo差替えを前提とし音声追加時の保持timelineを固定していなかった / audio・image生成で残るclipsをrun内へpinし、子adapterからmanifest/QC/stateと再開まで一続きに検証する / elevenlabs-v4-orchestrator fixtureと実生成済み音声のimportで確認。provider認証済み完全E2Eとは区別
 
 2026-10-16 / native connectorから投影した生成本数schemaのnumberとhosted MCPのintegerが異なり認証済みprobeが失敗した / mockだけで接続互換を確定した / hosted tools/listを専用認証で読み取り、実schema fixtureを保持する。integer/numberと1本の数値境界を検査し、モデルenumは推測しない / 専用OAuth・Keychain・無課金tools/listでv4互換を確認、Turboなし。追加生成なし
+
+2026-10-16 / paid submit前のjournal本体fsyncだけではcrash後に新規directory entryが失われ再送できる / file内容とdirectory entryの永続化を同一視した / 新規run/assetsの祖先directoryとjournal親directoryも同期し、失敗・未対応OSではsubmitを停止する。部分markerを削除せず、永続化モデルと実SIGKILLを別々に検証する / S0-Aの98件成功。PR185 review r4290171354への独立修正、追加課金なし

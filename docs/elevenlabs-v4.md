@@ -10,6 +10,8 @@
 - 新 `creative_generate_speech` は `prompt`・`context`・`voice_id`・`model_id` を使い、`generations_count: 1`、`estimate_only: false` を明示します。互換な `creative_get_flow_run_status` も送信前に必要です。
 - 生成は1回だけ。返されたflow/sessionを限定して完了まで照会し、1音声のmodel・本文・voiceを照合して取得します。結果不明、失敗、待機期限超過では生成を再送しません。
 - 送信前にrun内へ `.submission.jsonl` を排他的作成し、受理後のflow/session IDを追記します。同じrequestの再実行も停止します。ログにはOAuth tokenや短期URLを保存しません。journalを削除して再送することを通常の復旧手順にしないでください。
+- 新規送信はmacOS/Linuxでdirectory fsyncが成功する場合だけ対応します。新しく作ったrun/assetsの祖先directory、journal本体、journalの親directoryを順に同期してから送信し、途中の失敗では送信しません。空・部分書込のjournalも残します。Windowsなど同等の永続化を確認していない環境では `submission_durability_unsupported` で停止します。
+- 回帰テストは同期順序・失敗注入・別process競合・filesystem永続化モデル・実SIGKILL・OSのdirectory fsyncを区別します。SIGKILLによる再送防止の検証は、任意の電源断やstorage故障に対するexactly-onceの保証ではありません。
 - MP3またはElevenLabsドメインのURLを受け付けます。実接続で確認したGoogle Storageの `xi-backend/database/workspace/.../content_generation/.../.../content.mp3` も限定的に許可します。他bucket、redirect、想定外形式、過大な応答を拒否します。
 
 ```yaml

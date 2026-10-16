@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { link, lstat, mkdir, open, realpath, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, realpath, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client";
 // A literal '*' in this repository path breaks the SDK's wildcard package exports.
 import { StreamableHTTPClientTransport } from "../../node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
 import { ElevenOAuthError, OAUTH, keychainAccessToken } from "./oauth.mjs";
+import { SubmissionDurabilityError, assertSubmissionDurabilitySupported, createDurableSubmissionJournal } from "./durability.mjs";
 
 const MCP_ENDPOINT = "https://api.us.elevenlabs.io/v1/mcp";
 const MODELS = new Set(["eleven_v4", "eleven_v4_turbo"]);
@@ -265,7 +266,7 @@ async function readMcpAudio(result, fetchImpl) {
   throw new ElevenV4Error("mcp_audio_missing", 20);
 }
 
-async function prepareDestination(runDir, request) {
+async function prepareDestination(runDir, request, options = {}) {
   if (typeof runDir !== "string" || !isAbsolute(runDir)) {
     throw new ElevenV4Error("invalid_run_directory", 40);
   }
@@ -273,7 +274,12 @@ async function prepareDestination(runDir, request) {
     throw new ElevenV4Error("invalid_run_directory", 40);
   });
   const outputDir = join(root, "assets", "elevenlabs-v4");
-  await mkdir(outputDir, { recursive: true });
+  for (const path of [join(root, "assets"), outputDir]) {
+    try { await (options.filesystem?.mkdir ?? mkdir)(path, { mode: 0o700 }); }
+    catch (error) { if (error?.code !== "EEXIST") throw error; }
+    const info = await lstat(path);
+    if (info.isSymbolicLink() || !info.isDirectory()) throw new ElevenV4Error("unsafe_output_directory", 40);
+  }
   const realOutputDir = await realpath(outputDir);
   const fromRoot = relative(root, realOutputDir);
   if (!fromRoot || fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
@@ -395,7 +401,14 @@ export async function importElevenV4Result(payload, options = {}) {
 
 export async function generateElevenV4(payload, options = {}) {
   const request = validateElevenV4Request(payload?.request);
-  const paths = await prepareDestination(payload?.run_dir, request);
+  try { assertSubmissionDurabilitySupported(options.platform); }
+  catch (error) { throw new ElevenV4Error(error.code, 20); }
+  let paths;
+  try { paths = await prepareDestination(payload?.run_dir, request, options); }
+  catch (error) {
+    if (error instanceof ElevenV4Error) throw error;
+    throw new ElevenV4Error("submission_not_durable", 20);
+  }
   const token = await accessToken(options);
   let client;
   let journal;
@@ -405,10 +418,14 @@ export async function generateElevenV4(payload, options = {}) {
     client = options.client ?? await (options.connectMcp ?? connectMcp)(token);
     const route = selectSpeechRoute(await listSpeechTools(client), request.model);
     try {
-      journal = await open(join(paths.realOutputDir, `${request.id}.submission.jsonl`), "wx", 0o600);
-      await journal.writeFile(`${JSON.stringify({ phase: "submitting", model: request.model, tool: route.name })}\n`);
-      await journal.sync();
-    } catch { throw new ElevenV4Error("submission_already_exists_or_unwritable", 40); }
+      journal = await createDurableSubmissionJournal(paths.realOutputDir, request.id,
+        { phase: "submitting", model: request.model, tool: route.name }, options);
+    } catch (error) {
+      if (error instanceof SubmissionDurabilityError) {
+        throw new ElevenV4Error(error.code, error.code === "submission_already_exists_or_unwritable" ? 40 : 20);
+      }
+      throw new ElevenV4Error("submission_not_durable", 20);
+    }
     // A charged submission is never retried after an uncertain result.
     submitted = true;
     const result = await client.callTool({
