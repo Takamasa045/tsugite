@@ -105,3 +105,7 @@ Append-only format:
 - MP4/ffprobe/audio/duration success does not prove timed overlays. Editframe 0.59.47 exports a cloned timegroup; `addFrameTask` and instance method overrides are not copied. Use the SDK's copied `onFrame` property and resolve descendants through its `element` argument. Verify late beats and transition frames, not only time zero.
 - HyperFrames extracted video composition does not preserve every CSS video filter. Bake the common color treatment into local, run-owned source derivatives before native compositing; retain the original Manifest and source audio.
 - Editframe native HTML-in-Canvas capture can retain stale pixels during transparent transitions and produce unstable vertical frames. Use an opaque root and the official foreign-object capture path; compare transition-boundary frames and OCR every caption before claiming parity.
+
+2026-10-16 / narration生成runが既存動画を保持したままコピーせず、Gate 2で動画欠落とrun logのasset件数不一致になった / generation経路がvideo差替えを前提とし音声追加時の保持timelineを固定していなかった / audio・image生成で残るclipsをrun内へpinし、子adapterからmanifest/QC/stateと再開まで一続きに検証する / elevenlabs-v4-orchestrator fixtureと実生成済み音声のimportで確認。provider認証済み完全E2Eとは区別
+
+2026-10-16 / native connectorから投影した生成本数schemaのnumberとhosted MCPのintegerが異なり認証済みprobeが失敗した / mockだけで接続互換を確定した / hosted tools/listを専用認証で読み取り、実schema fixtureを保持する。integer/numberと1本の数値境界を検査し、モデルenumは推測しない / 専用OAuth・Keychain・無課金tools/listでv4互換を確認、Turboなし。追加生成なし

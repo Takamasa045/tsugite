@@ -1,10 +1,11 @@
-import { copyFile, mkdtemp, mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
-import { ElevenV4Error, generateElevenV4, selectElevenV4SpeechTool, validateElevenV4Request } from "../adapters/elevenlabs-v4/client.mjs";
+import { ElevenV4Error, generateElevenV4, importElevenV4Result, inspectElevenV4Capabilities, probeElevenV4, selectElevenV4SpeechTool, validateElevenV4Request } from "../adapters/elevenlabs-v4/client.mjs";
 import { loadAdapterDefinition } from "../src/adapters/registry.js";
+import { runCliGenerationAdapter } from "../src/adapters/cliGeneration.js";
 import { resolveGenerationConnection } from "../src/connections/registry.js";
 import { createPlan } from "../src/orchestrator/plan.js";
 import { createReviewDocument, renderReviewHtml } from "../src/orchestrator/review.js";
@@ -45,7 +46,207 @@ function mockClient() {
   };
 }
 
+import { creativeSpeechTool, creativeStatusTool, pending, completed } from "./fixtures/elevenlabs-v4-mcp.mjs";
+
 describe("ElevenLabs Eleven v4 generation", () => {
+  it("accepts the authenticated hosted integer schema and rejects a mandatory extra variation", async () => {
+    const { tools } = JSON.parse(await readFile(new URL("./fixtures/elevenlabs-v4-hosted-schemas.json", import.meta.url), "utf8"));
+    const client = mockClient();
+    client.listTools.mockResolvedValue({ tools });
+    expect(await probeElevenV4("eleven_v4", { client }))
+      .toMatchObject({ adapter_compatible: true, selected_tool: "creative_generate_speech", generated: false });
+    expect(await probeElevenV4("eleven_v4_turbo", { client }))
+      .toMatchObject({ requested_model_declared: false, adapter_compatible: false });
+    for (const range of [{ minimum: 2 }, { maximum: 0 }, { exclusiveMinimum: 1 }, { exclusiveMaximum: 1 }]) {
+      const changed = structuredClone(tools);
+      Object.assign(changed[0].inputSchema.properties.generations_count, range);
+      expect(inspectElevenV4Capabilities(changed, "eleven_v4").adapter_compatible).toBe(false);
+    }
+    expect(client.callTool).not.toHaveBeenCalled();
+  });
+
+  it("runs exactly one creative generation, polls only that session, and pins measured MP3 output", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-async-"));
+    const normal = { ...request, model: "eleven_v4" };
+    const client = mockClient();
+    client.listTools.mockResolvedValue({ tools: [creativeSpeechTool, creativeStatusTool] });
+    client.callTool.mockResolvedValueOnce({ content: [{ type: "text", text: JSON.stringify(pending) }] })
+      .mockResolvedValueOnce({ structuredContent: pending })
+      .mockResolvedValueOnce({ structuredContent: completed(normal) });
+    const fetchImpl = vi.fn(async () => new Response(mp3, { headers: { "content-type": "audio/mpeg" } }));
+    const result = await generateElevenV4({ request: normal, run_dir: runDir }, { client, fetchImpl, sleep: async () => {} });
+    expect(client.callTool.mock.calls.map(([call]) => call.name))
+      .toEqual(["creative_generate_speech", "creative_get_flow_run_status", "creative_get_flow_run_status"]);
+    expect(client.callTool.mock.calls[0][0].arguments).toMatchObject({
+      model_id: "eleven_v4", prompt: normal.prompt, voice_id: normal.params.voice_id,
+      generations_count: 1, estimate_only: false
+    });
+    expect(client.callTool.mock.calls[1][0].arguments).toMatchObject({ flow_id: pending.flow_id, session_ids: pending.session_ids });
+    expect(result).toMatchObject({ credits: 16, metadata: { model: "eleven_v4", provider_billing: "measured", generation_id: "fixture-generation" } });
+    expect(await readFile(result.audio[0].src)).toEqual(mp3);
+    const journal = await readFile(join(runDir, "assets/elevenlabs-v4", `${request.id}.submission.jsonl`), "utf8");
+    expect(journal).toContain('"phase":"accepted"');
+    expect(journal).not.toContain("https:");
+    expect(inspectElevenV4Capabilities([creativeSpeechTool, creativeStatusTool], "eleven_v4"))
+      .toMatchObject({ adapter_compatible: true, selected_tool: "creative_generate_speech" });
+  });
+
+  it("refuses Turbo before any submission even when creative v4 is available", async () => {
+    const client = mockClient();
+    client.listTools.mockResolvedValue({ tools: [creativeSpeechTool, creativeStatusTool] });
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-turbo-"));
+    await expect(generateElevenV4({ request, run_dir: runDir }, { client }))
+      .rejects.toMatchObject({ code: "mcp_v4_speech_tool_unavailable" });
+    expect(client.callTool).not.toHaveBeenCalled();
+  });
+
+  it("never resubmits a still pending or uncertain generation, including a later invocation", async () => {
+    const normal = { ...request, model: "eleven_v4" };
+    const client = mockClient();
+    client.listTools.mockResolvedValue({ tools: [creativeSpeechTool, creativeStatusTool] });
+    client.callTool.mockResolvedValue({ structuredContent: pending });
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-pending-"));
+    const payload = { request: normal, run_dir: runDir };
+    await expect(generateElevenV4(payload, { client, sleep: async () => {} }))
+      .rejects.toMatchObject({ code: "mcp_generation_pending" });
+    expect(client.callTool.mock.calls.filter(([call]) => call.name === "creative_generate_speech")).toHaveLength(1);
+    await expect(generateElevenV4(payload, { client }))
+      .rejects.toMatchObject({ code: "submission_already_exists_or_unwritable" });
+    expect(client.callTool.mock.calls.filter(([call]) => call.name === "creative_generate_speech")).toHaveLength(1);
+  });
+
+  it("rejects a provider failure or changed flow identity without repeating generation", async () => {
+    for (const changed of [{ has_failures: true }, { flow_id: "another-flow" }, { session_ids: ["another-session"] }]) {
+      const client = mockClient();
+      client.listTools.mockResolvedValue({ tools: [creativeSpeechTool, creativeStatusTool] });
+      client.callTool.mockResolvedValueOnce({ structuredContent: pending })
+        .mockResolvedValueOnce({ structuredContent: { ...pending, ...changed } });
+      const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-failed-"));
+      await expect(generateElevenV4({ request: { ...request, model: "eleven_v4" }, run_dir: runDir }, {
+        client, sleep: async () => {}
+      })).rejects.toBeInstanceOf(ElevenV4Error);
+      expect(client.callTool).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("imports an existing completed result without credentials or MCP calls, validating its binding", async () => {
+    const normal = { ...request, model: "eleven_v4" };
+    const result = { structuredContent: completed(normal) };
+    const fetchImpl = vi.fn(async () => new Response(mp3, { headers: { "content-type": "audio/mpeg" } }));
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-import-"));
+    const imported = await importElevenV4Result({ request: normal, run_dir: runDir, result }, { fetchImpl });
+    expect(imported).toMatchObject({ credits: 16, metadata: { source: "imported-existing-generation" } });
+    expect(await readFile(imported.audio[0].src)).toEqual(mp3);
+    for (const changed of [{ model: "eleven_v4_turbo" }, { prompt: "different text" }, { params: { voice_id: "another-voice" } }]) {
+      const otherDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-import-reject-"));
+      await expect(importElevenV4Result({ request: { ...normal, ...changed }, run_dir: otherDir, result }, { fetchImpl }))
+        .rejects.toMatchObject({ code: "mcp_generation_request_mismatch" });
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects unrelated GCS buckets instead of trusting every storage.googleapis.com URL", async () => {
+    const normal = { ...request, model: "eleven_v4" };
+    const body = completed(normal);
+    body.generations[0].content_url = "https://storage.googleapis.com/arbitrary/private.mp3";
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-storage-reject-"));
+    const fetchImpl = vi.fn();
+    await expect(importElevenV4Result({ request: normal, run_dir: runDir, result: { structuredContent: body } }, { fetchImpl }))
+      .rejects.toMatchObject({ code: "mcp_audio_url_untrusted" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("diagnoses the connected creative contract without confusing v4 with Turbo v2.5", async () => {
+    const client = mockClient();
+    client.listTools.mockResolvedValue({ tools: [creativeSpeechTool] });
+    const turbo = await probeElevenV4("eleven_v4_turbo", { client });
+    expect(turbo).toMatchObject({ requested_model_declared: false, adapter_compatible: false, generated: false });
+    expect(turbo.speech_tools[0]).toMatchObject({ name: "creative_generate_speech", text_parameter: "prompt" });
+    expect(inspectElevenV4Capabilities([creativeSpeechTool], "eleven_v4"))
+      .toMatchObject({ requested_model_declared: true, adapter_compatible: false });
+    expect(client.callTool).not.toHaveBeenCalled();
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-"));
+    await expect(generateElevenV4({ request: { ...request, model: "eleven_v4" }, run_dir: runDir }, { client }))
+      .rejects.toMatchObject({ code: "mcp_v4_speech_tool_unavailable" });
+    expect(client.callTool).not.toHaveBeenCalled();
+  });
+
+  it("probes every discovery page and closes its own client without calling a tool", async () => {
+    const client = mockClient();
+    client.close = vi.fn(async () => {});
+    client.listTools.mockResolvedValueOnce({ tools: [], nextCursor: "next" })
+      .mockResolvedValueOnce({ tools: [speechTool()] });
+    const result = await probeElevenV4(request.model, {
+      connectMcp: async () => client, environment: { ELEVENLABS_MCP_ACCESS_TOKEN: "fixture-secret" }
+    });
+    expect(result).toMatchObject({ adapter_compatible: true, selected_tool: "text_to_speech", generated: false });
+    expect(client.listTools.mock.calls[1][0]).toEqual({ cursor: "next" });
+    expect(client.callTool).not.toHaveBeenCalled();
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result)).not.toContain("fixture-secret");
+  });
+
+  it("finds a supported speech tool after the first page before a single submission", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-"));
+    const client = mockClient();
+    client.listTools.mockResolvedValueOnce({ tools: [], nextCursor: "next" })
+      .mockResolvedValueOnce({ tools: [speechTool()] });
+    await generateElevenV4({ request, run_dir: runDir }, { client });
+    expect(client.listTools).toHaveBeenCalledTimes(2);
+    expect(client.callTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed on looping discovery cursors without any submission", async () => {
+    const client = mockClient();
+    client.listTools.mockResolvedValue({ tools: [speechTool()], nextCursor: "loop" });
+    await expect(probeElevenV4(request.model, { client }))
+      .rejects.toMatchObject({ code: "mcp_discovery_failed" });
+    expect(client.listTools).toHaveBeenCalledTimes(2);
+    expect(client.callTool).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes read-only discovery failure from an uncertain charged submission", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-"));
+    const client = mockClient();
+    client.listTools.mockRejectedValue(new Error("private provider response"));
+    await expect(generateElevenV4({ request, run_dir: runDir }, { client }))
+      .rejects.toMatchObject({ code: "mcp_discovery_failed" });
+    expect(client.callTool).not.toHaveBeenCalled();
+    await expect(probeElevenV4(request.model, { client }))
+      .rejects.toMatchObject({ message: "mcp_discovery_failed" });
+  });
+
+  it("requires an existing credential for the standalone probe and rejects extra arguments", () => {
+    const env = { ...process.env, ELEVENLABS_MCP_ACCESS_TOKEN: "" };
+    const missing = spawnSync(process.execPath, ["adapters/elevenlabs-v4/probe.mjs", request.model], {
+      encoding: "utf8", env
+    });
+    expect(missing.status).toBe(30);
+    expect(missing.stderr).toBe("ElevenLabs v4 probe: credential_missing\n");
+    expect(missing.stdout).toBe("");
+    const extra = spawnSync(process.execPath, ["adapters/elevenlabs-v4/probe.mjs", request.model, "extra"], {
+      encoding: "utf8", env
+    });
+    expect(extra.status).toBe(40);
+    expect(extra.stderr).toBe("ElevenLabs v4 probe: model_argument_required\n");
+  });
+
+  it("propagates missing credentials through the real CLI generation driver without a provider call", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-driver-"));
+    const adapter = await loadAdapterDefinition("elevenlabs-v4");
+    vi.stubEnv("ELEVENLABS_MCP_ACCESS_TOKEN", "");
+    try {
+      const result = runCliGenerationAdapter(adapter, [request], { runId: "driver-fixture", runDir });
+      expect(result).toMatchObject({
+        ok: false,
+        issues: [{ code: "run.adapter_exit.credential_missing", path: `generation.requests.${request.id}` }]
+      });
+      expect(await readdir(join(runDir, "assets", "elevenlabs-v4"))).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("registers the v4 and Turbo MCP connection and declares the prompt transfer", async () => {
     const adapter = await loadAdapterDefinition("elevenlabs-v4");
     const connection = await resolveGenerationConnection("elevenlabs", undefined, {

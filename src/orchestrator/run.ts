@@ -989,6 +989,18 @@ async function assembleGeneratedMediaRun(
   let assetCount = 0;
 
   const manifestDir = dirname(options.manifestPath);
+  // Audio/image generation retains the source timeline. Pin its clips just as
+  // local assembly does so Gate 2 and resume inspect the same run-owned assets.
+  const copiedClips = new Map<string, string>();
+  for (const [index, clip] of assembled.clips.entries()) {
+    let relativePath = copiedClips.get(clip.src);
+    if (!relativePath) {
+      relativePath = (await copyAsset(clip.src, manifestDir, runDir, "assets/clips", index, clip.id)).relativePath;
+      copiedClips.set(clip.src, relativePath);
+    }
+    clip.src = relativePath;
+    assetCount += 1;
+  }
   for (const [index, image] of assembled.images.entries()) {
     const copied = await copyAsset(image.src, manifestDir, runDir, "assets/images", index, image.id);
     image.src = copied.relativePath;

@@ -4,7 +4,7 @@ class: generation
 offline: false
 network:
   input_scope: request-metadata
-  timeout_ms: 120000
+  timeout_ms: 300000
   credential_env: [ELEVENLABS_MCP_ACCESS_TOKEN]
 dry_run_estimate: true
 batch: false
