@@ -2,6 +2,8 @@
 
 `generation.connection: elevenlabs` は hosted MCP 用アダプターです。Gate 1承認後のCoordinator `run` が生成します。`validate`、`plan`、`review`、`models`、`run --dry-run` は生成しません。
 
+`test/elevenlabs-public-cli.test.mjs` は公開CLIを別processで起動する無課金テストです。MCP/MP3通信とbearerのみfixtureにし、Gate・digest・保存・manifest/QC・Remotion renderを本番処理で通します。macOSでは子Chromeを含む外部通信をsandboxで禁止し、render用loopbackだけ許可します。本物のKeychainは使用しません。このfixtureの成功は実providerの課金・音質の検証とは別です。
+
 ## 対応する呼び出し
 
 - 単一話者、2,000文字以下、MP3 narration。追加parameter、参照音声、複数話者、別モデルへの自動切替は未対応。

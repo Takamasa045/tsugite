@@ -1650,9 +1650,11 @@ function createFallbackStoryboard(
   manifest: Manifest,
   images: Map<string, Manifest["images"][number]>
 ): ReviewShot[] {
-  if ((project.generation?.requests.length ?? 0) > 0) {
+  const videoRequests = (project.generation?.requests ?? [])
+    .filter((request) => generationRequestOutputKind(request) === "video");
+  if (videoRequests.length > 0) {
     let cursor = 0;
-    return project.generation!.requests.filter((request) => generationRequestOutputKind(request) === "video").map((request, index) => {
+    return videoRequests.map((request, index) => {
       const start = cursor;
       const duration = generationRequestDurationSeconds(request);
       cursor += duration;
