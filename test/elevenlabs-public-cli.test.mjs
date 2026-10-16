@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile, copyFile, rm, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, copyFile, rm, realpath, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -128,4 +128,49 @@ describe("public CLI narration Gate chain (offline transport, no Keychain)", () 
     expect((await f.cli("run", "--actor", "coordinator")).status).toBe(1);
     expect((await f.calls()).filter((v) => v.name === "creative_generate_speech" && v.arguments.estimate_only === false)).toHaveLength(0);
   }, 60_000);
+  it("G09/R01/R05: previews locally and resumes the same accepted job through the public CLI", async () => {
+    const f = await fixture(); await f.quote(); await f.good("review"); await f.gate("gate-1", "approve");
+    const runningState = await readFile(join(f.run, "state.json"));
+    f.environment.TSUGITE_FIXTURE_STATUS_FAILURE = "once";
+    const stopped = await f.cli("run", "--actor", "coordinator"); expect(stopped.status).toBe(1);
+    const before = await f.calls();
+    expect(before.filter(v => v.name === "creative_generate_speech" && !v.arguments.estimate_only)).toHaveLength(1);
+    const preview = await f.good("resume"); expect(preview.preview.requests[0].state).toBe("accepted");
+    expect(await f.calls()).toEqual(before);
+    expect((await f.cli("resume", "--apply")).status).toBe(1);
+    const resumed = await f.good("resume", "--apply", "--actor", "coordinator");
+    expect(resumed.state.status).toBe("awaiting_gate_2");
+    expect(resumed.billing.operation.submission_count).toBe(0);
+    expect(resumed.billing.actual.credits).toBe("16");
+    const manifest = JSON.parse(await readFile(join(f.run, "manifest.json"))), mediaHash = await hash(join(f.run, manifest.audio.narration[0].src));
+    const calls = await f.calls();
+    expect(calls.filter(v => v.name === "creative_generate_speech" && !v.arguments.estimate_only)).toHaveLength(1);
+    expect(calls.filter(v => v.name === "creative_get_flow_run_status").every(v => v.arguments.flow_id === "fixture-flow" && v.arguments.session_ids[0] === "fixture-session")).toBe(true);
+    // Model a crash after media/receipt pin but before manifest/QC/state publication.
+    await writeFile(join(f.run, "state.json"), runningState);
+    await unlink(join(f.run, "manifest.json")); await unlink(join(f.run, "gate2-qc.json"));
+    const rebuilt = await f.good("resume", "--apply", "--actor", "coordinator");
+    expect(rebuilt.billing.operation.submission_count).toBe(0);
+    expect(await hash(join(f.run, manifest.audio.narration[0].src))).toBe(mediaHash);
+    expect(await f.calls()).toEqual(calls);
+    await f.gate("gate-2", "approve_all");
+  }, 60_000);
+
+  it.each(["unsubmitted", "accepted", "unknown"])("R07: reuses the first request when the second is %s", async condition => {
+    const f = await fixture(), second = { ...structuredClone(f.project.generation.requests[0]), id: "narration-2", prompt: "Second connection test." };
+    f.project.generation.requests.push(second); await f.save();
+    await f.quote(); await f.good("review"); await f.gate("gate-1", "approve");
+    f.environment.TSUGITE_FIXTURE_SECOND_FAILURE = condition;
+    expect((await f.cli("run", "--actor", "coordinator")).status).toBe(1);
+    const firstPath = join(f.run, "assets/elevenlabs-v4/narration.mp3"), firstHash = await hash(firstPath);
+    const before = await f.calls(), submissionCount = before.filter(v => v.name === "creative_generate_speech" && !v.arguments.estimate_only).length;
+    const retried = await f.cli("run", "--actor", "coordinator");
+    expect(retried.status).toBe(condition === "unknown" ? 1 : 0);
+    expect(await hash(firstPath)).toBe(firstHash);
+    const after = await f.calls(), submissions = after.filter(v => v.name === "creative_generate_speech" && !v.arguments.estimate_only);
+    expect(submissions).toHaveLength(condition === "unsubmitted" ? submissionCount + 1 : submissionCount);
+    expect(submissions.filter(v => v.arguments.prompt === f.project.generation.requests[0].prompt)).toHaveLength(1);
+    if (condition !== "unknown") expect(JSON.parse(retried.stdout).state.status).toBe("awaiting_gate_2");
+  }, 60_000);
+
 });

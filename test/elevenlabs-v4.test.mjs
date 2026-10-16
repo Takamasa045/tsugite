@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
-import { ElevenV4Error, generateElevenV4 as generateWithRealBilling, importElevenV4Result, inspectElevenV4Capabilities, probeElevenV4, selectElevenV4SpeechTool, validateElevenV4Request } from "../adapters/elevenlabs-v4/client.mjs";
+import { ElevenV4Error, generateElevenV4 as generateWithRealBilling, importElevenV4Result as importWithRealInspection, inspectElevenV4Capabilities, probeElevenV4, selectElevenV4SpeechTool, validateElevenV4Request } from "../adapters/elevenlabs-v4/client.mjs";
 import { loadAdapterDefinition } from "../src/adapters/registry.js";
 import { runCliGenerationAdapter } from "../src/adapters/cliGeneration.js";
 import { resolveGenerationConnection } from "../src/connections/registry.js";
@@ -12,7 +12,8 @@ import { createReviewDocument, renderReviewHtml } from "../src/orchestrator/revi
 import { manifestSchema } from "../src/manifest/schema.js";
 
 import { fixturePermit } from "./fixtures/elevenlabs-v4-authority.mjs";
-const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
+const importElevenV4Result = (payload, options = {}) => importWithRealInspection(payload, { inspectAudio: async () => ({ duration_seconds: 1 }), ...options });
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling({ run_id: "fixture-run", ...payload }, { authorizeRecovery: async () => {}, inspectAudio: async () => ({ duration_seconds: 1 }), authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 
 const request = {
   id: "opening-voice",
@@ -111,10 +112,10 @@ describe("ElevenLabs Eleven v4 generation", () => {
     const runDir = await mkdtemp(join(tmpdir(), "tsugite-eleven-v4-pending-"));
     const payload = { request: normal, run_dir: runDir };
     await expect(generateElevenV4(payload, { client, sleep: async () => {} }))
-      .rejects.toMatchObject({ code: "mcp_generation_pending" });
+      .rejects.toMatchObject({ code: "receipt_poll_budget_exhausted" });
     expect(client.callTool.mock.calls.filter(([call]) => call.name === "creative_generate_speech")).toHaveLength(1);
     await expect(generateElevenV4(payload, { client }))
-      .rejects.toMatchObject({ code: "submission_already_exists_or_unwritable" });
+      .rejects.toMatchObject({ code: "receipt_poll_budget_exhausted" });
     expect(client.callTool.mock.calls.filter(([call]) => call.name === "creative_generate_speech")).toHaveLength(1);
   });
 

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { copyFile, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { constants, createReadStream } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { loadBackendCapabilities } from "../backends/capabilities.js";
@@ -98,6 +98,7 @@ export type LocalRunResult = {
 };
 
 type AssembleOptions = {
+  resumeOnly?: boolean;
   configPath?: string;
   manifestPath: string;
   stateDir: string;
@@ -208,6 +209,7 @@ export async function assembleLocalMediaRun(
   adapter?: AdapterDefinition,
   audioAdapter?: AdapterDefinition
 ): Promise<Result<LocalRunResult>> {
+  if (options.resumeOnly && (orchestrationModeFromAuthority(options.runtime_authority, project) === "active" || !adapter?.resume)) return { ok: false, issues: [{ code: "run.adapter_resume_unsupported", message: "existing-job recovery requires a declared legacy CLI resume command; active mode has its own recovery path" }] };
   const isAwaitingGate2Resume = options.state.status === "awaiting_gate_2"
     && options.state.gates.gate_2.status === "awaiting_approval";
   if (project.audio && hasNativeReplacementDocument(manifest)) {
@@ -1178,7 +1180,7 @@ async function assembleGeneratedMediaRun(
     });
   } else {
     // Adapter sees the pinned, H3-compiled execution fields (prompt/op/assets).
-    generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir });
+    generation = runCliGenerationAdapter(adapter, pinned.requests, { runId, runDir, resumeOnly: options.resumeOnly });
   }
   if (!generation.ok) return generation;
 
@@ -1660,8 +1662,22 @@ async function copyAsset(
   const relativePath = toPortablePath(join(relativeTargetDir, targetName));
   const targetPath = join(runDir, relativePath);
 
-  await mkdir(dirname(targetPath), { recursive: true });
-  await copyFile(sourcePath, targetPath);
+  if ((await lstat(runDir)).isSymbolicLink()) throw new Error("run asset directory must not be a symlink");
+  let safeDirectory = await realpath(runDir);
+  for (const part of relativeTargetDir.split("/")) {
+    safeDirectory = join(safeDirectory, part);
+    try { await mkdir(safeDirectory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+    const info = await lstat(safeDirectory);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("run asset directory must not be a symlink");
+  }
+  try { await copyFile(sourcePath, targetPath, constants.COPYFILE_EXCL); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const existing = await lstat(targetPath);
+    if (!existing.isFile() || existing.isSymbolicLink() || await sha256File(sourcePath) !== await sha256File(targetPath)) {
+      throw new Error("existing run asset differs from the approved source; retained without overwrite");
+    }
+  }
   if (await sha256File(sourcePath) !== await sha256File(targetPath)) {
     throw new Error(`source asset changed while it was being copied: ${src}`);
   }

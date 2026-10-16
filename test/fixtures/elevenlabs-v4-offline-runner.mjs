@@ -2,7 +2,7 @@
 import { readFile, appendFile } from "node:fs/promises";
 import { generateElevenV4 as generateWithRealBilling } from "../../adapters/elevenlabs-v4/client.mjs";
 import { fixturePermit } from "./elevenlabs-v4-authority.mjs";
-const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling({ run_id: "fixture-run", ...payload }, { authorizeRecovery: async () => {}, authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 import { creativeSpeechTool, creativeStatusTool, pending, completed } from "./elevenlabs-v4-mcp.mjs";
 let input = "";
 for await (const chunk of process.stdin) input += chunk;

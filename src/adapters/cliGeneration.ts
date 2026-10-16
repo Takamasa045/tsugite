@@ -94,6 +94,7 @@ export type CliGenerationResult = {
 export type CliGenerationOptions = {
   runId: string;
   runDir: string;
+  resumeOnly?: boolean;
 };
 
 export function runCliGenerationAdapter(
@@ -108,6 +109,7 @@ export function runCliGenerationAdapter(
     };
   }
 
+  if (options.resumeOnly && !adapter.resume) return { ok: false, issues: [{ code: "run.adapter_resume_unsupported", message: "this adapter does not declare an existing-job recovery command" }] };
   if (!adapter.command) {
     return {
       ok: false,
@@ -173,11 +175,12 @@ function runRequest(
   request: GenerationRequest,
   options: CliGenerationOptions
 ): Result<{ request: CliGenerationRequestResult }> {
-  const maxAttempts = Math.max(1, adapter.retry.max_attempts + 1);
+  const command = options.resumeOnly ? adapter.resume! : adapter.command!;
+  const maxAttempts = options.resumeOnly ? 1 : Math.max(1, adapter.retry.max_attempts + 1);
   let lastIssue: Issue | undefined;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const result = spawnCommandSync(adapter.command!.executable, adapter.command!.args, {
+    const result = spawnCommandSync(command.executable, command.args, {
       cwd: process.cwd(),
       input: `${JSON.stringify({ request: toAdapterGenerationRequest(request), run_id: options.runId, run_dir: options.runDir })}\n`,
       encoding: "utf8",

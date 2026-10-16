@@ -9,7 +9,7 @@ import { loadAdapterDefinition } from "../src/adapters/registry.js";
 import { generateElevenV4 as generateWithRealBilling } from "../adapters/elevenlabs-v4/client.mjs";
 import { creativeSpeechTool, creativeStatusTool, pending, completed } from "./fixtures/elevenlabs-v4-mcp.mjs";
 import { fixturePermit } from "./fixtures/elevenlabs-v4-authority.mjs";
-const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling({ run_id: "fixture-run", ...payload }, { authorizeRecovery: async () => {}, inspectAudio: async () => ({ duration_seconds: 1 }), authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 const roots = [];
 afterEach(async () => { for (const p of roots.splice(0)) await rm(p, { recursive: true, force: true }); });
 const secret = "fixture-private-token AUTHCODE https://storage.example/content?signature=secret /Users/private/work";

@@ -21,6 +21,10 @@ async function syncDirectory(path, fs) {
     await handle.sync();
   } finally { await handle.close(); }
 }
+export async function syncDurableDirectory(path, options = {}) {
+  assertSubmissionDurabilitySupported(options.platform);
+  await syncDirectory(path, options.filesystem ?? filesystem);
+}
 
 // The caller may have just created the run root as well as assets/. Persist
 // every ancestor entry instead of assuming an existing directory is durable.

@@ -165,3 +165,47 @@ node adapters/elevenlabs-v4/import-result.mjs /absolute/private/completed-result
 専用OAuthで生成した2本目も同じローカルASRで本文一致、ffmpeg decode成功、平均-19.1dB・最大-2.7dB。主観的な聴感検証は同様に未実施です。別承認の2回を合計すると32 credits / US$0.006336で、意図しない重複送信はありません。私的なLibrary識別子・音声ファイル・認証情報・短期URLは公開リポジトリに含めません。
 
 音声生成runでは既存の動画もrun内へ固定し、manifest・QC・run logのasset件数を一致させます。Gate 2は自動通過せず、人間の確認を待ちます。
+
+## Durable receipts and existing-job recovery
+
+New adapter-owned `*.receipt.json` v1 files are projections of the permanent
+`*.submission.jsonl` v2 journal. Every accepted identity, poll/download budget,
+verified MP3 hash/size/duration and billing update is fsynced before the next
+external action. The journal remains present for older CLI versions. Old or
+incomplete markers remain unknown; missing IDs are never inferred.
+
+```sh
+node bin/pipeline resume --config projects/example/project.yaml --json
+node bin/pipeline resume --config projects/example/project.yaml --apply --actor coordinator --json
+```
+
+Preview reads local records only. Apply checks the original Gate 1 review and
+uses the adapter's separate resume command: it can poll/download the same
+flow/session and rebuild manifest/QC, but cannot submit a new generation. It
+rejects active-mode and adapters without this declared capability. A normal
+`run` may continue a partially completed set: pinned requests are hash/codec
+verified and reused, accepted requests resume the same job, unknown requests
+stop, and unsubmitted requests still need a current quote and unchanged Gate.
+Changed approval/request content cannot silently adopt an earlier generation.
+
+The cumulative per-request limits survive restarts: 30 polls, 120 seconds of
+scheduled polling wait, three completed-result status refreshes and three
+download attempts. Each status RPC has its own 20-second timeout; 120 seconds
+is a wait budget, not a bound on total wall time. Exhaustion requires inspection,
+never a fresh generation or a reset by restarting the CLI. Completed results may
+refresh an expired download URL from the same job; signed URLs are not saved.
+
+Before a new paid submit, a Gate-bound local project context locates
+`.tsugite/elevenlabs-submissions/<request-digest>.json`. Unresolved entries block
+new run IDs in the same project. A resolved prior entry requires both a new
+quote and a new Gate approval to regenerate; its history is retained. This is a
+local safeguard, not provider idempotency or a distributed lock across copies
+whose project metadata was removed. New submissions from old quote caches
+without a project context require a new quote/review.
+
+Receipt pinning uses a fsynced temporary file, real MP3 codec/duration inspection,
+and a durable candidate hash before linking the output. An orphan file is reused
+only when that proof matches; symlinks, partial JSON, mismatched bytes and unknown
+legacy records fail closed. Repeated import/resume records historical source
+billing and zero new submissions. Existing source assets are reused only when
+hashes match and are never overwritten during partial assembly.

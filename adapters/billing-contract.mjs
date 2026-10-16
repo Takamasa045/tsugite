@@ -115,7 +115,8 @@ export function isBillingEvidence(value) {
     if (value.actual.status === "measured" && value.actual.credits === null) return false;
     if (value.estimate.status === "known" && value.estimate.credits === null) return false;
     if (value.estimate.status === "unknown" && (value.estimate.credits !== null || value.estimate.money !== null)) return false;
-    if (Object.keys(value.estimate).some((key) => !["status", "credits", "money", "reason", "quotes", "source", "provider_billing_cap_enforced"].includes(key))
+    if (Object.keys(value.estimate).some((key) => !["status", "credits", "money", "reason", "quotes", "source", "provider_billing_cap_enforced", "context_digest"].includes(key))
+      || (value.estimate.context_digest !== undefined && !/^[a-f0-9]{64}$/.test(value.estimate.context_digest))
       || (value.estimate.reason !== undefined && !/^[a-z_]{1,80}$/.test(value.estimate.reason))
       || (value.estimate.source !== undefined && value.estimate.source !== "hosted-estimate-only")
       || (value.estimate.provider_billing_cap_enforced !== undefined && value.estimate.provider_billing_cap_enforced !== false)) return false;

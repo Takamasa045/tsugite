@@ -26,6 +26,7 @@ export type CommandName =
   | "viewer"
   | "review"
   | "review-preview"
+  | "resume"
   | "run"
   | "gate"
   | "render"
@@ -446,6 +447,14 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
     requiresConfig: true,
     safety: "approval-gated",
     options: [OPTIONS.config, OPTIONS.dryRun, OPTIONS.actor, OPTIONS.stateDir]
+  }),
+  defineCommand({
+    name: "resume",
+    summary: "Inspect local narration receipts; --apply as coordinator retrieves only existing jobs and rebuilds QC. Never starts generation.",
+    usage: "node bin/pipeline resume --config <project.yaml> [--apply --actor coordinator] [--state-dir <directory>] [--json]",
+    requiresConfig: true,
+    safety: "approval-gated",
+    options: [OPTIONS.config, OPTIONS.apply, OPTIONS.actor, OPTIONS.stateDir]
   }),
   defineCommand({
     name: "gate",

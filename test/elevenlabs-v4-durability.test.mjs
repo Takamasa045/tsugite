@@ -7,7 +7,7 @@ import { createDurableSubmissionJournal } from "../adapters/elevenlabs-v4/durabi
 import { generateElevenV4 as generateWithRealBilling } from "../adapters/elevenlabs-v4/client.mjs";
 
 import { fixturePermit } from "./fixtures/elevenlabs-v4-authority.mjs";
-const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling({ run_id: "fixture-run", ...payload }, { authorizeRecovery: async () => {}, inspectAudio: async () => ({ duration_seconds: 1 }), authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 
 const request = { id: "durability-test", operation: "voice", model: "eleven_v4", prompt: "Connection test.", params: { voice_id: "fixture-voice" } };
 const rootDir = async () => fs.realpath(await fs.mkdtemp(join(tmpdir(), "tsugite-eleven-durable-")));
@@ -91,7 +91,7 @@ describe("ElevenLabs paid submission durability", () => {
     expect(api.callTool).not.toHaveBeenCalled();
     if (["marker-write","file-sync","containing-directory-sync"].includes(phase)) {
       expect((await fs.stat(join(output,request.id+".submission.jsonl"))).isFile()).toBe(true);
-      await expect(generateElevenV4({ request, run_dir: root }, { client: api })).rejects.toMatchObject({ code: "submission_already_exists_or_unwritable" });
+      await expect(generateElevenV4({ request, run_dir: root }, { client: api })).rejects.toMatchObject({ code: "receipt_unknown" });
       expect(api.callTool).not.toHaveBeenCalled();
     }
   });
@@ -100,7 +100,7 @@ describe("ElevenLabs paid submission durability", () => {
     for (const content of ["", "{", '{"phase":"submitting"}\n']) {
       const root = await rootDir();const output = join(root,"assets","elevenlabs-v4");await fs.mkdir(output,{recursive:true});
       const path=join(output,request.id+".submission.jsonl");await fs.writeFile(path,content);const api=client();
-      await expect(generateElevenV4({request,run_dir:root},{client:api})).rejects.toMatchObject({code:"submission_already_exists_or_unwritable"});
+      await expect(generateElevenV4({request,run_dir:root},{client:api})).rejects.toMatchObject({code:content.startsWith('{"phase"') ? "receipt_legacy_unknown" : "receipt_unknown"});
       expect(await fs.readFile(path,"utf8")).toBe(content);expect(api.callTool).not.toHaveBeenCalled();
     }
   });
@@ -113,18 +113,21 @@ describe("ElevenLabs paid submission durability", () => {
 
   it("allows at most one submission from two independent processes", async () => {
     const root=await rootDir();const trace=join(root,"submit.log");const a=startChild(root,trace);const b=startChild(root,trace);
-    const results=await Promise.all([a.exited,b.exited]);expect(results.filter(r=>r.code===0)).toHaveLength(1);
+    const results=await Promise.all([a.exited,b.exited]);expect(results.filter(r=>r.code===0).length).toBeGreaterThanOrEqual(1);
+    expect(results.every(r=>r.code===0 || r.output.includes("submission_busy"))).toBe(true);
     expect((await fs.readFile(trace,"utf8")).trim().split("\n")).toEqual(["submit"]);
   },20000);
 
-  it.each(["before-submit","accepted-before-record","accepted-after-record","download"])("never adds a submission after SIGKILL at %s", async phase => {
+  it.each(["before-submit","accepted-before-record","accepted-after-record","download","linked"])("never adds a submission after SIGKILL at %s", async phase => {
     const root=await rootDir();const trace=join(root,"submit.log");const stopped=startChild(root,trace,phase);
     try { expect(await stopped.ready).toEqual({phase}); }
     finally { stopped.child.kill("SIGKILL"); }
     expect((await stopped.exited).signal).toBe("SIGKILL");
     const before=await fs.readFile(trace,"utf8").catch(()=>"");const restarted=await startChild(root,trace).exited;
-    expect(restarted.code).toBe(40);expect(await fs.readFile(trace,"utf8").catch(()=>"")).toBe(before);
-    expect(restarted.output).toContain("submission_already_exists_or_unwritable");
+    expect(await fs.readFile(trace,"utf8").catch(()=>"")).toBe(before);
+    if (["before-submit", "accepted-before-record"].includes(phase)) {
+      expect(restarted.code).toBe(20); expect(restarted.output).toContain("receipt_unknown");
+    } else { expect(restarted.code).toBe(0); expect(JSON.parse(restarted.output)).toMatchObject({ ok: true, submissions: 0 }); }
   },20000);
 
   it("persists every directory entry in a power-loss model while file-only fsync loses the old marker", async () => {

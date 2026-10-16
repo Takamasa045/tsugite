@@ -16,6 +16,11 @@ const binding = await elevenCredentialBinding({ environment });
 const estimate = { credits: 17, price_cents: 0.1234, currency: "usd", generations_count: 1 };
 const now = Date.parse("2026-10-16T00:00:00.000Z");
 const quote = () => makeNarrationQuote(request, binding, estimate, now);
+async function fixtureContext(root) {
+  const context = { schema_version: 1, kind: "tsugite.billing-context", project_root: root, project_slug: "fixture" };
+  await writeFile(join(root, "billing-context.json"), JSON.stringify(context));
+  return billingDigest(context);
+}
 const resign = (q) => { const { quote_id, ...body } = q; return { ...body, quote_id: billingDigest(body) }; };
 describe("narration billing evidence and quote binding", () => {
   it("does not accept runtime billing evidence from project YAML", async () => {
@@ -86,10 +91,11 @@ describe("narration billing evidence and quote binding", () => {
   it("requires the on-disk Gate binding and never accepts permission from input JSON", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "tsugite-billing-guard-"))); roots.push(root);
     const q = makeNarrationQuote(request, binding, estimate), entries = [{ request_id: request.id, quote: q }];
-    await writeFile(join(root, "billing-quotes.json"), JSON.stringify({ schema_version: 1, entries }));
+    const context_digest = await fixtureContext(root);
+    await writeFile(join(root, "billing-quotes.json"), JSON.stringify({ schema_version: 1, entries, context_digest }));
     const payload = { request, run_id: "run", run_dir: root, approved: true };
     await expect(authorizeRunSubmission(payload, binding)).rejects.toThrow();
-    const digest = billingDigest({ schema_version: 1, quotes: [q] });
+    const digest = billingDigest({ schema_version: 1, quotes: [q], context_digest });
     await writeFile(join(root, "state.json"), JSON.stringify({ run_id: "run", gates: { gate_1: { status: "approved", decision_source: "human", approved_input_digest: "a".repeat(64), billing_approval_digest: digest } } }));
     expect((await authorizeRunSubmission(payload, binding)).quote).toEqual(q);
     await expect(authorizeRunSubmission({ ...payload, run_id: "other-run" }, binding)).rejects.toThrow("billing_gate_required");
@@ -102,8 +108,9 @@ describe("narration billing evidence and quote binding", () => {
     const speech = structuredClone(creativeSpeechTool);
     const client = { listTools: async () => ({ tools: [speech, creativeStatusTool] }), callTool: vi.fn(async () => ({ structuredContent: { estimate } })) };
     const q = await quoteElevenV4({ request, approve_transfer: true }, { client, environment });
-    await writeFile(join(root, "billing-quotes.json"), JSON.stringify({ schema_version: 1, entries: [{ request_id: request.id, quote: q }] }));
-    await writeFile(join(root, "state.json"), JSON.stringify({ run_id: "run", gates: { gate_1: { status: "approved", decision_source: "human", approved_input_digest: "a".repeat(64), billing_approval_digest: billingDigest({ schema_version: 1, quotes: [q] }) } } }));
+    const context_digest = await fixtureContext(root);
+    await writeFile(join(root, "billing-quotes.json"), JSON.stringify({ schema_version: 1, entries: [{ request_id: request.id, quote: q }], context_digest }));
+    await writeFile(join(root, "state.json"), JSON.stringify({ run_id: "run", gates: { gate_1: { status: "approved", decision_source: "human", approved_input_digest: "a".repeat(64), billing_approval_digest: billingDigest({ schema_version: 1, quotes: [q], context_digest }) } } }));
     speech.inputSchema.properties.context.description = "changed provider contract";
     await expect(generateElevenV4({ request, run_id: "run", run_dir: root }, { client, environment })).rejects.toThrow("billing_connection_changed");
     expect(client.callTool).toHaveBeenCalledTimes(1);

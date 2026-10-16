@@ -1,13 +1,19 @@
-import { randomUUID } from "node:crypto";
-import { link, lstat, mkdir, realpath, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { link, lstat, mkdir, open, readFile, realpath, unlink, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client";
 // A literal '*' in this repository path breaks the SDK's wildcard package exports.
 import { StreamableHTTPClientTransport } from "../../node_modules/@modelcontextprotocol/sdk/dist/esm/client/streamableHttp.js";
 import { ElevenOAuthError, OAUTH, keychainAccessToken, elevenCredentialBinding } from "./oauth.mjs";
 import { actualNarrationBilling, assertNarrationQuote, billingDigest, makeNarrationQuote, narrationRequestDigest, quoteBilling } from "../billing-contract.mjs";
-import { authorizeRunSubmission } from "../billing-store.mjs";
-import { SubmissionDurabilityError, assertSubmissionDurabilitySupported, createDurableSubmissionJournal } from "./durability.mjs";
+import { authorizeRunSubmission, readBoundedRunJson, readRunBillingContext } from "../billing-store.mjs";
+import { ProcessLockError, withProcessLock } from "../process-lock.mjs";
+import { RECEIPT_LIMITS, sealReceipt, validateNarrationReceipt } from "../receipt-protocol.mjs";
+import { durableReceiptWrite, initialGeneratedReceipt, loadReceiptHistory, openReceiptJournal, receiptWriter } from "./receipts.mjs";
+import { claimProjectSubmission, existingProjectIndex, updateProjectSubmission } from "./submission-index.mjs";
+import { SubmissionDurabilityError, assertSubmissionDurabilitySupported, createDurableSubmissionJournal, syncDurableDirectory } from "./durability.mjs";
 
 const MCP_ENDPOINT = "https://api.us.elevenlabs.io/v1/mcp";
 const MODELS = new Set(["eleven_v4", "eleven_v4_turbo"]);
@@ -26,7 +32,7 @@ export class ElevenV4Error extends Error {
 }
 
 export function validateElevenV4Request(request) {
-  if (!request || typeof request !== "object" || !SAFE_ID.test(request.id ?? "")) {
+  if (!request || typeof request !== "object" || !SAFE_ID.test(request.id ?? "") || request.id.length > 128) {
     throw new ElevenV4Error("invalid_request_id", 40);
   }
   if (request.operation !== "voice" || !MODELS.has(request.model)) {
@@ -323,7 +329,7 @@ async function prepareDestination(runDir, request, options = {}) {
     if (error?.code === "ENOENT") return false;
     throw new ElevenV4Error("output_inspection_failed", 20);
   })) {
-    throw new ElevenV4Error("output_already_exists", 40);
+    if (!options.allowExistingOutput) throw new ElevenV4Error("output_already_exists", 40);
   }
 
   return { destination, realOutputDir };
@@ -356,27 +362,29 @@ function creativeIdentity(body) {
   return { flow_id: body.flow_id, session_ids: body.session_ids };
 }
 
-async function awaitCreativeResult(initial, client, route, options, journal) {
+async function awaitCreativeResult(initial, client, route, options, writer) {
   let body = resultBody(initial);
   const identity = creativeIdentity(body);
-  await journal.writeFile(`${JSON.stringify({ phase: "accepted", ...identity })}\n`);
-  const deadline = Date.now() + 120_000;
-  for (let poll = 0; poll <= 30; poll += 1) {
+  if (writer.current.job === null) await writer.publish({ state: "accepted", job: identity });
+  else if (billingDigest(writer.current.job) !== billingDigest(identity)) throw new ElevenV4Error("mcp_generation_identity_invalid", 20);
+  for (;;) {
     if ((body.flow_id !== undefined && body.flow_id !== identity.flow_id)
       || (body.session_ids !== undefined && JSON.stringify(body.session_ids) !== JSON.stringify(identity.session_ids))) {
       throw new ElevenV4Error("mcp_generation_identity_invalid", 20);
     }
     if (body.all_completed === true) return { ...body, ...identity };
-    if (poll === 30 || Date.now() >= deadline) throw new ElevenV4Error("mcp_generation_pending", 20);
     const seconds = Number.isFinite(body.poll_after_seconds) ? body.poll_after_seconds : 3;
     const ms = Math.min(10, Math.max(1, seconds)) * 1000;
+    const budget = writer.current.budgets;
+    if (budget.polls_used >= RECEIPT_LIMITS.polls || budget.wait_ms_used + ms > RECEIPT_LIMITS.wait_ms) throw new ElevenV4Error("receipt_poll_budget_exhausted", 20);
+    await writer.publish({ budgets: { ...budget, polls_used: budget.polls_used + 1, wait_ms_used: budget.wait_ms_used + ms } });
     await (options.sleep ?? ((delay) => new Promise((resolve) => setTimeout(resolve, delay))))(ms);
     let status;
     try {
       status = await client.callTool({
         name: route.statusTool,
         arguments: { context: "Wait for the approved Tsugite narration without starting another generation.", ...identity }
-      }, undefined, { timeout: Math.min(20_000, Math.max(1, deadline - Date.now())) });
+      }, undefined, { timeout: 20_000 });
     } catch { throw new ElevenV4Error("mcp_status_failed", 20); }
     body = resultBody(status);
   }
@@ -409,51 +417,256 @@ function creativeAudio(body, request) {
   };
 }
 
-async function pinResult(request, paths, result, options, billing = { credits: 0, metadata: { provider_billing: "unmeasured" }, billing: actualNarrationBilling(undefined, null, 1) }) {
-  const audio = await readMcpAudio(result, options.fetchImpl ?? fetch);
-  if (audio.length < 3 || audio.length > MAX_AUDIO_BYTES || !(
-    audio.subarray(0, 3).toString("ascii") === "ID3"
-    || (audio[0] === 0xff && (audio[1] & 0xe0) === 0xe0)
-  )) throw new ElevenV4Error("mcp_audio_invalid", 20);
-  const temporary = join(paths.realOutputDir, `.${request.id}.${randomUUID()}.tmp`);
+function mp3Header(audio) {
+  return audio.length >= 3 && audio.length <= MAX_AUDIO_BYTES && (audio.subarray(0, 3).toString("ascii") === "ID3" || (audio[0] === 0xff && (audio[1] & 0xe0) === 0xe0));
+}
+async function inspectAudioFile(path, options) {
+  let duration;
+  if (options.inspectAudio) duration = (await options.inspectAudio(path))?.duration_seconds;
+  else {
+    const result = spawnSync("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name:format=duration", "-of", "json", path],
+      { encoding: "utf8", timeout: 10_000, maxBuffer: 100_000 });
+    try {
+      if (result.error || result.status !== 0) throw new Error();
+      const body = JSON.parse(result.stdout);
+      if (body.streams?.[0]?.codec_name !== "mp3") throw new Error();
+      duration = Number(body.format?.duration);
+    } catch { throw new ElevenV4Error("output_inspection_failed", 20); }
+  }
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 3600) throw new ElevenV4Error("output_inspection_failed", 20);
+  return duration;
+}
+async function verifyReceiptAsset(path, asset, options) {
+  let info;
+  try { info = await lstat(path); } catch (error) { if (error?.code === "ENOENT") return false; throw new ElevenV4Error("receipt_asset_invalid", 20); }
+  if (!info.isFile() || info.isSymbolicLink() || info.size !== asset.byte_size || info.size > MAX_AUDIO_BYTES) throw new ElevenV4Error("receipt_asset_mismatch", 20);
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let audio;
   try {
-    await writeFile(temporary, audio, { flag: "wx" });
-    await link(temporary, paths.destination);
-  } catch { throw new ElevenV4Error("output_write_failed", 20); }
-  finally { await unlink(temporary).catch(() => undefined); }
+    const actual = await handle.stat();
+    if (actual.ino !== info.ino || actual.dev !== info.dev || actual.size !== info.size) throw new ElevenV4Error("receipt_asset_mismatch", 20);
+    audio = await handle.readFile();
+  } finally { await handle.close(); }
+  if (audio.length !== asset.byte_size || !mp3Header(audio) || createHash("sha256").update(audio).digest("hex") !== asset.sha256) throw new ElevenV4Error("receipt_asset_mismatch", 20);
+  await inspectAudioFile(path, options);
+  return true;
+}
+function narrationOutput(request, paths, billing, resumed = false, receipt) {
+  const evidence = structuredClone(billing.billing);
+  if (resumed) evidence.operation.submission_count = 0;
   return {
     request_id: request.id, credits: billing.credits, clips: [], images: [],
-    audio: [{ id: request.id, src: paths.destination, role: "narration", start: 0 }],
-    billing: billing.billing,
-    metadata: { provider: "elevenlabs", model: request.model, transport: "mcp", ...billing.metadata }
+    audio: [{ id: request.id, src: paths.destination, role: "narration", start: 0 }], billing: evidence,
+    metadata: { provider: "elevenlabs", model: request.model, transport: "mcp", ...billing.metadata,
+      ...(resumed ? { source: "resumed-existing-generation" } : {}), ...(receipt ? { receipt_digest: receipt.digest } : {}) }
   };
+}
+async function pinResult(request, paths, result, options, billing = { credits: 0, metadata: { provider_billing: "unmeasured" }, billing: actualNarrationBilling(undefined, null, 1) }, writer) {
+  const audio = await readMcpAudio(result, options.fetchImpl ?? fetch);
+  if (!mp3Header(audio)) throw new ElevenV4Error("mcp_audio_invalid", 20);
+  const temporaryName = `.${request.id}.${randomUUID()}.tmp`, temporary = join(paths.realOutputDir, temporaryName);
+  const filesystem = { open, link, unlink, ...options.filesystem };
+  try {
+    const handle = await filesystem.open(temporary, "wx", 0o600);
+    try { await handle.writeFile(audio); await handle.sync(); } finally { await handle.close(); }
+    const duration = await inspectAudioFile(temporary, options);
+    const candidate = { relative_path: `${request.id}.mp3`, temporary_name: temporaryName,
+      sha256: createHash("sha256").update(audio).digest("hex"), byte_size: audio.length, duration_seconds: duration };
+    if (writer) {
+      const saved = writer.current.asset;
+      if (saved && (saved.sha256 !== candidate.sha256 || saved.byte_size !== candidate.byte_size)) throw new ElevenV4Error("receipt_asset_mismatch", 20);
+      if (!saved) await writer.publish({ asset: candidate });
+      await options.onPinStage?.("candidate");
+    }
+    try { await filesystem.link(temporary, paths.destination); }
+    catch (error) {
+      if (error?.code !== "EEXIST" || !writer?.current.asset || !await verifyReceiptAsset(paths.destination, writer.current.asset, options)) throw new ElevenV4Error("output_write_failed", 20);
+    }
+    await syncDurableDirectory(paths.realOutputDir, options);
+    await options.onPinStage?.("linked");
+    if (writer) await writer.publish({ state: "pinned" });
+    return narrationOutput(request, paths, billing, false, writer?.current);
+  } catch (error) {
+    if (error instanceof ElevenV4Error) throw error;
+    throw new ElevenV4Error("output_write_failed", 20);
+  } finally { await filesystem.unlink(temporary).catch(() => undefined); }
+}
+async function downloadAndPin(request, paths, result, options, billing, writer) {
+  const budget = writer.current.budgets;
+  if (budget.downloads_used >= RECEIPT_LIMITS.downloads) throw new ElevenV4Error("receipt_download_budget_exhausted", 20);
+  await writer.publish({ budgets: { ...budget, downloads_used: budget.downloads_used + 1 } });
+  return pinResult(request, paths, result, options, billing, writer);
 }
 
 // Reuse a completed result; this entry point cannot call MCP or generate again.
 export async function importElevenV4Result(payload, options = {}) {
   const request = validateElevenV4Request(payload?.request);
-  const paths = await prepareDestination(payload?.run_dir, request);
-  const body = resultBody(payload?.result);
-  creativeIdentity(body);
-  const billing = creativeAudio(body, request);
-  billing.metadata.source = "imported-existing-generation";
-  billing.billing.operation.submission_count = 0;
-  return pinResult(request, paths, billing.result, options, billing);
+  const paths = await prepareDestination(payload?.run_dir, request, { ...options, allowExistingOutput: true });
+  return withProcessLock(paths.realOutputDir, `${request.id}.recovery.lock`, async () => {
+    const prior = await loadReceiptHistory(paths.realOutputDir, request);
+    if (prior) {
+      if (prior.source !== "imported") throw new ElevenV4Error("receipt_approval_mismatch", 40);
+      // Import never uses MCP. Reuse is limited to a locally proven pinned asset.
+      const journal = await openReceiptJournal(paths.realOutputDir, request.id);
+      const writer = receiptWriter(paths.realOutputDir, request, journal, prior, options);
+      try {
+        if (!await reuseCandidate(paths, writer, options)) throw new ElevenV4Error("receipt_asset_missing", 20);
+        if (writer.current.state !== "pinned") await writer.publish({ state: "pinned" });
+        return outputFromReceipt(request, paths, writer.current);
+      } finally { await journal.close(); }
+    }
+    const body = resultBody(payload?.result), job = creativeIdentity(body), billing = creativeAudio(body, request);
+    billing.metadata.source = "imported-existing-generation"; billing.billing.operation.submission_count = 0;
+    const initial = sealReceipt({ schema_version: 1, kind: "tsugite.narration-receipt", source: "imported", transport_kind: "creative",
+      request_id: request.id, request_digest: narrationRequestDigest(payload.request), run_id: payload.run_id ?? "imported",
+      gate_approval_digest: null, billing_approval_digest: null, quote: null, state: "succeeded", job,
+      budgets: { polls_used: 0, wait_ms_used: 0, refreshes_used: 0, downloads_used: 0 }, billing: billing.billing,
+      asset: null, result: { generation_id: body.generations[0].id, model: request.model, voice_id: request.voiceId },
+      sequence: 0, previous_digest: null, updated_at: new Date().toISOString() });
+    validateNarrationReceipt(initial, payload.request);
+    const journal = await createDurableSubmissionJournal(paths.realOutputDir, request.id, { schema_version: 2, phase: "imported", receipt: initial }, options);
+    try {
+      await durableReceiptWrite(paths.realOutputDir, request.id, initial, options);
+      const writer = receiptWriter(paths.realOutputDir, request, journal, initial, options);
+      return await downloadAndPin(request, paths, billing.result, options, billing, writer);
+    } finally { await journal.close(); }
+  }, options.lockOptions);
 }
 
 export async function generateElevenV4(payload, options = {}) {
+  return processNarrationRun(payload, options);
+}
+
+export async function resumeElevenV4(payload, options = {}) {
+  return processNarrationRun(payload, { ...options, resumeOnly: true });
+}
+
+async function processNarrationRun(payload, options) {
   const request = validateElevenV4Request(payload?.request);
   try { assertSubmissionDurabilitySupported(options.platform); }
   catch (error) { throw new ElevenV4Error(error.code, 20); }
   let paths;
-  try { paths = await prepareDestination(payload?.run_dir, request, options); }
+  try { paths = await prepareDestination(payload?.run_dir, request, { ...options, allowExistingOutput: true }); }
   catch (error) {
     if (error instanceof ElevenV4Error) throw error;
     throw new ElevenV4Error("submission_not_durable", 20);
   }
+  try {
+    return await withProcessLock(paths.realOutputDir, `${request.id}.recovery.lock`, async () => {
+      const receipt = await loadReceiptHistory(paths.realOutputDir, request, options);
+      if (receipt) return resumeRecordedElevenV4(payload, request, paths, receipt, options);
+      if (options.resumeOnly) throw new ElevenV4Error("resume_no_submission", 40);
+      try { await lstat(paths.destination); throw new ElevenV4Error("output_already_exists", 40); }
+      catch (error) { if (error?.code !== "ENOENT") throw error; }
+      try { await lstat(join(paths.realOutputDir, `${request.id}.receipt.json`)); throw new ElevenV4Error("receipt_unknown", 20); }
+      catch (error) { if (error?.code !== "ENOENT") throw error; }
+      return submitNewElevenV4(payload, request, paths, options);
+    }, options.lockOptions);
+  } catch (error) {
+    if (error instanceof ElevenV4Error) throw error;
+    if (error instanceof ProcessLockError) throw new ElevenV4Error("submission_busy", 20);
+    throw new ElevenV4Error(/^(receipt|project|billing)_[a-z_]+$/.test(error?.message ?? "") ? error.message : "receipt_unknown", 20);
+  }
+}
+
+async function reuseCandidate(paths, writer, options) {
+  const asset = writer.current.asset;
+  if (!asset) return false;
+  if (await verifyReceiptAsset(paths.destination, asset, options)) return true;
+  const temporary = join(paths.realOutputDir, asset.temporary_name);
+  if (!await verifyReceiptAsset(temporary, asset, options)) return false;
+  try { await link(temporary, paths.destination); }
+  catch (error) { if (error?.code !== "EEXIST" || !await verifyReceiptAsset(paths.destination, asset, options)) throw new ElevenV4Error("receipt_asset_mismatch", 20); }
+  await syncDurableDirectory(paths.realOutputDir, options);
+  await unlink(temporary).catch(() => undefined);
+  return true;
+}
+function outputFromReceipt(request, paths, receipt) {
+  const billing = { credits: receipt.billing.actual.credits === null ? 0 : Number(receipt.billing.actual.credits), billing: receipt.billing,
+    metadata: { provider_billing: receipt.billing.actual.status, ...(receipt.job ?? {}), ...(receipt.result ? { generation_id: receipt.result.generation_id } : {}) } };
+  return narrationOutput(request, paths, billing, true, receipt);
+}
+async function resumeRecordedElevenV4(payload, request, paths, receipt, options) {
+  validateNarrationReceipt(receipt, request);
+  if (receipt.run_id !== payload.run_id) throw new ElevenV4Error("receipt_approval_mismatch", 40);
+  if (options.authorizeRecovery) await options.authorizeRecovery(receipt);
+  else if (receipt.source === "generated") {
+    const state = await readBoundedRunJson(payload.run_dir, "state.json"), gate = state.gates?.gate_1;
+    if (state.run_id !== payload.run_id || gate?.status !== "approved" || gate.approved_input_digest !== receipt.gate_approval_digest
+      || gate.billing_approval_digest !== receipt.billing_approval_digest) throw new ElevenV4Error("receipt_approval_mismatch", 40);
+  }
+  if (receipt.state === "submitting") throw new ElevenV4Error("receipt_unknown", 20);
+  if (receipt.state === "failed") throw new ElevenV4Error("mcp_generation_failed", 20);
+  let index;
+  if (receipt.project_context_digest) {
+    const context = await readRunBillingContext(payload.run_dir);
+    if (context.digest !== receipt.project_context_digest) throw new ElevenV4Error("receipt_approval_mismatch", 40);
+    index = await existingProjectIndex(payload, receipt, context.context, options);
+  }
+  const journal = await openReceiptJournal(paths.realOutputDir, request.id);
+  let client;
+  const ownsClient = !options.client;
+  const writer = receiptWriter(paths.realOutputDir, request, journal, receipt, {
+    ...options, afterReceiptPersist: (next) => updateProjectSubmission(index, next, options)
+  });
+  try {
+    // An orphan is adopted only after matching the durable candidate proof.
+    if (await reuseCandidate(paths, writer, options)) {
+      if (writer.current.state !== "pinned") await writer.publish({ state: "pinned" });
+      else await updateProjectSubmission(index, writer.current, options);
+      return outputFromReceipt(request, paths, writer.current);
+    }
+    if (writer.current.transport_kind !== "creative" || !writer.current.job) throw new ElevenV4Error("receipt_asset_missing", 20);
+    if (writer.current.budgets.downloads_used >= RECEIPT_LIMITS.downloads) throw new ElevenV4Error("receipt_download_budget_exhausted", 20);
+    const token = await accessToken(options);
+    client = options.client ?? await (options.connectMcp ?? connectMcp)(token);
+    const tools = await listSpeechTools(client), status = tools.find((tool) => tool.name === "creative_get_flow_run_status");
+    if (!matchesTool(status, { context: "string", flow_id: "string", session_ids: "array" })
+      || status.inputSchema.properties.session_ids.items?.type !== "string") throw new ElevenV4Error("mcp_status_tool_unavailable", 20);
+    let body;
+    if (writer.current.state === "accepted") {
+      body = await awaitCreativeResult({ structuredContent: { ...writer.current.job, all_completed: false, poll_after_seconds: 1 } },
+        client, { statusTool: status.name }, options, writer);
+    } else {
+      const budget = writer.current.budgets;
+      if (budget.refreshes_used >= RECEIPT_LIMITS.refreshes) throw new ElevenV4Error("receipt_refresh_budget_exhausted", 20);
+      await writer.publish({ budgets: { ...budget, refreshes_used: budget.refreshes_used + 1 } });
+      let response;
+      try { response = await client.callTool({ name: status.name, arguments: {
+        context: "Refresh the download for the same accepted narration. Do not generate.", ...writer.current.job
+      } }, undefined, { timeout: 20_000 }); }
+      catch { throw new ElevenV4Error("mcp_status_failed", 20); }
+      body = resultBody(response);
+      if (billingDigest(creativeIdentity(body)) !== billingDigest(writer.current.job)) throw new ElevenV4Error("mcp_generation_identity_invalid", 20);
+    }
+    const billing = creativeAudio(body, request);
+    if (writer.current.result && billing.metadata.generation_id !== writer.current.result.generation_id) throw new ElevenV4Error("mcp_generation_identity_invalid", 20);
+    billing.billing.estimate = writer.current.billing.estimate;
+    billing.billing.operation.submission_count = writer.current.billing.operation.submission_count;
+    const previous = writer.current.billing.actual, next = billing.billing.actual;
+    if ((previous.credits !== null && previous.credits !== next.credits)
+      || (previous.money !== null && billingDigest(previous.money) !== billingDigest(next.money))
+      || (previous.source_generation_ref !== null && previous.source_generation_ref !== next.source_generation_ref)) throw new ElevenV4Error("receipt_billing_mismatch", 20);
+    await writer.publish({ state: writer.current.state === "pinned" ? "pinned" : "succeeded", billing: billing.billing,
+      result: { generation_id: body.generations[0].id, model: request.model, voice_id: request.voiceId } });
+    await downloadAndPin(request, paths, billing.result, options, billing, writer);
+    return outputFromReceipt(request, paths, writer.current);
+  } catch (error) {
+    if (error?.code === "mcp_generation_failed" && writer.current.state === "accepted") await writer.publish({ state: "failed" });
+    if (error instanceof ElevenV4Error) throw error;
+    throw new ElevenV4Error(/^receipt_[a-z_]+$/.test(error?.message ?? "") ? error.message : "receipt_unknown", 20);
+  } finally {
+    await journal.close().catch(() => undefined);
+    if (ownsClient) await client?.close().catch(() => undefined);
+  }
+}
+
+async function submitNewElevenV4(payload, request, paths, options) {
   const token = await accessToken(options);
   let client;
   let journal;
+  let writer;
+  let index;
   let submitted = false;
   const ownsClient = !options.client;
   try {
@@ -471,10 +684,13 @@ export async function generateElevenV4(payload, options = {}) {
     } catch (error) {
       throw new ElevenV4Error(/^billing_[a-z_]+$/.test(error?.message ?? "") ? error.message : "billing_quote_required", 40);
     }
+    if (!options.authorizeSubmission) index = await claimProjectSubmission(payload, permit, options);
+    const initial = initialGeneratedReceipt(payload, permit, route);
+    validateNarrationReceipt(initial, request);
     try {
       journal = await createDurableSubmissionJournal(paths.realOutputDir, request.id,
         { phase: "submitting", model: request.model, tool: route.name,
-          schema_version: 1, request_digest: narrationRequestDigest(payload.request),
+          schema_version: 2, receipt: initial, request_digest: narrationRequestDigest(payload.request),
           operation: { submission_count: 1 }, liability_state: "unresolved",
           billing_approval_digest: permit.billing_approval_digest, gate_approval_digest: permit.gate_approval_digest,
           quote_id: permit.quote.quote_id, quote: permit.quote }, options);
@@ -484,6 +700,10 @@ export async function generateElevenV4(payload, options = {}) {
       }
       throw new ElevenV4Error("submission_not_durable", 20);
     }
+    await durableReceiptWrite(paths.realOutputDir, request.id, initial, options);
+    writer = receiptWriter(paths.realOutputDir, request, journal, initial, {
+      ...options, afterReceiptPersist: (receipt) => updateProjectSubmission(index, receipt, options)
+    });
     // Directory sync may have taken time. Recheck the exact expiry at submit.
     try { assertNarrationQuote(permit.quote, payload.request, undefined, (options.now ?? Date.now)()); }
     catch (error) { throw new ElevenV4Error(error.message, 40); }
@@ -498,14 +718,24 @@ export async function generateElevenV4(payload, options = {}) {
       } : { text: request.text, voice_id: request.voiceId, model_id: request.model }
     }, undefined, { timeout: 120_000 });
     if (route.kind === "creative") {
-      const body = await awaitCreativeResult(result, client, route, options, journal);
+      const body = await awaitCreativeResult(result, client, route, options, writer);
       const billing = creativeAudio(body, request);
       if (permit?.quote) billing.billing.estimate = quoteBilling([permit.quote]).estimate;
-      return await pinResult(request, paths, billing.result, options, billing);
+      await writer.publish({ state: "succeeded", billing: billing.billing,
+        result: { generation_id: body.generations[0].id, model: request.model, voice_id: request.voiceId } });
+      return await downloadAndPin(request, paths, billing.result, options, billing, writer);
     }
-    return await pinResult(request, paths, result, options);
+    const billing = { credits: 0, metadata: { provider_billing: "unmeasured" }, billing: actualNarrationBilling(undefined, null, 1) };
+    billing.billing.estimate = quoteBilling([permit.quote]).estimate;
+    await writer.publish({ state: "succeeded", billing: billing.billing });
+    return await downloadAndPin(request, paths, result, options, billing, writer);
   } catch (error) {
+    if (submitted && writer?.current.state === "submitting" && error?.code === "mcp_generation_failed") throw new ElevenV4Error("mcp_outcome_unknown", 20);
+    if (error?.code === "mcp_generation_failed" && writer?.current.state === "accepted") {
+      try { await writer.publish({ state: "failed" }); } catch { throw new ElevenV4Error("mcp_outcome_unknown", 20); }
+    }
     if (error instanceof ElevenV4Error) throw error;
+    if (/^(receipt|project|billing)_[a-z_]+$/.test(error?.message ?? "")) throw new ElevenV4Error(error.message, 20);
     throw new ElevenV4Error(submitted ? "mcp_outcome_unknown" : "mcp_discovery_failed", 20);
   } finally {
     await journal?.close().catch(() => undefined);

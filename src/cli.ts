@@ -1615,7 +1615,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const issue = requireCoordinator(args);
     if (issue) return output(args, 1, { ok: false, command: "quote", issues: [issue] });
     const location = getStateLocation(args, validation.project!);
-    const result = await quoteGeneration(validation.project!, validation.adapter, join(location.stateDir, validation.project!.run_id ?? validation.project!.slug));
+    const result = await quoteGeneration(validation.project!, validation.adapter, join(location.stateDir, validation.project!.run_id ?? validation.project!.slug), args.config!);
     return output(args, result.ok ? 0 : 1, { ...result, command: "quote", generated: false });
   }
 
@@ -1944,16 +1944,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
   }
 
-  if (args.command === "run") {
+  if (args.command === "resume" && !args.apply) {
+    const { inspectGenerationReceipts } = await import("./adapters/receipts.js");
+    const location = getStateLocation(args, validation.project!);
+    const preview = await inspectGenerationReceipts(validation.adapter, validation.project!.generation?.requests ?? [], join(location.stateDir, validation.project!.run_id ?? validation.project!.slug));
+    return output(args, 0, { ok: true, command: "resume", preview, generated: false,
+      next_actions: ["同じ承認内容の既存処理を取得するには resume --apply --actor coordinator を実行してください。未送信の依頼は生成しません。"] });
+  }
+
+  if (args.command === "run" || args.command === "resume") {
     const coordinatorIssue = requireCoordinator(args);
-    if (coordinatorIssue) return output(args, 1, { ok: false, command: "run", issues: [coordinatorIssue] });
+    if (coordinatorIssue) return output(args, 1, { ok: false, command: args.command, issues: [coordinatorIssue] });
     if (effectiveRuntimeMode({
       runtime_authority: validation.runtime_authority,
       project: validation.project!
     }) === "shadow") {
       return output(args, 1, {
         ok: false,
-        command: "run",
+        command: args.command,
         issues: [{
           code: "run.shadow_denies_effect",
           message: "shadow mode forbids non-dry-run run effect entry"
@@ -1961,13 +1969,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    if (args.command === "resume" && (effectiveRuntimeMode({ runtime_authority: validation.runtime_authority, project: validation.project! }) !== "legacy" || !validation.adapter?.resume)) return output(args, 1, { ok: false, command: args.command, issues: [{ code: "resume.unsupported", message: "この接続・実行モードは既存ジョブ専用の再開に対応していません。新規生成への切替えは行いません。" }] });
     const stateResult = await loadState(args, validation.project!, { allowMissing: true });
-    if (!stateResult.ok) return output(args, 1, { ok: false, command: "run", issues: stateResult.issues });
+    if (!stateResult.ok) return output(args, 1, { ok: false, command: args.command, issues: stateResult.issues });
 
     if (!stateResult.state || stateResult.state.gates.gate_1.status !== "approved") {
       return output(args, 1, {
         ok: false,
-        command: "run",
+        command: args.command,
         issues: [{ code: "run.requires_gate_1_approval", message: "Gate 1 must be approved before run" }]
       });
     }
@@ -1980,12 +1989,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       runtime_authority: validation.runtime_authority
     });
     if (!review.ok) {
-      return output(args, 1, { ok: false, command: "run", issues: review.issues });
+      return output(args, 1, { ok: false, command: args.command, issues: review.issues });
     }
     if (stateResult.state.gates.gate_1.approved_input_digest !== review.approvalDigest) {
       return output(args, 1, {
         ok: false,
-        command: "run",
+        command: args.command,
         issues: [{ code: "gate.review_changed", message: "Gate 1 approval does not match the current review and input artifacts" }]
       });
     }
@@ -2008,7 +2017,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!g1.production_subject_digest || !g1.production_decision_digest) {
         return output(args, 1, {
           ok: false,
-          command: "run",
+          command: args.command,
           issues: [{
             code: "gate.production_subject_missing",
             message: "active run requires Gate 1 production_subject_digest and production_decision_digest"
@@ -2034,7 +2043,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           stateResult.state = phaseCheck.cascadedState;
           return output(args, 1, {
             ok: false,
-            command: "run",
+            command: args.command,
             issues: [{
               code: "gate.production_subject_stale",
               message: phaseCheck.error.message
@@ -2050,7 +2059,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       } catch (error) {
         return output(args, 1, {
           ok: false,
-          command: "run",
+          command: args.command,
           issues: [{
             code: "gate.production_subject_stale",
             message: error instanceof Error ? error.message : String(error)
@@ -2060,6 +2069,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const runResult = await assembleLocalMediaRun(trustedProject!, validation.manifest!, {
+      resumeOnly: args.command === "resume",
       configPath: resolve(args.config!),
       manifestPath: resolve(dirname(resolve(args.config!)), trustedProject!.manifest),
       stateDir: stateResult.stateDir,
@@ -2097,7 +2107,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }, validation.adapter, validation.audioAdapter);
     return output(args, runResult.ok ? 0 : 1, {
       ok: runResult.ok,
-      command: "run",
+      command: args.command,
       issues: runResult.issues,
       manifest_path: runResult.manifestPath,
       qc_report_path: runResult.qcReportPath,
@@ -3042,7 +3052,7 @@ function shouldAcquireRunLock(args: ParsedArgs): boolean {
   if ((args.command === "run" && !args.dryRun) || args.command === "render") {
     return args.actor === "coordinator";
   }
-  if (args.command === "recover" && args.apply) {
+  if ((args.command === "recover" || args.command === "resume") && args.apply) {
     return args.actor === "coordinator";
   }
   if (args.command !== "gate" || args.actor !== "coordinator") return false;

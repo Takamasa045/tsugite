@@ -78,6 +78,7 @@ const expectedOptions = {
   review: ["--config", "--output", "--state-dir", "--open"],
   "review-preview": ["--config", "--actor", "--shot", "--output", "--state-dir"],
   run: ["--config", "--dry-run", "--actor", "--state-dir"],
+  resume: ["--config", "--apply", "--actor", "--state-dir"],
   gate: [
     "--config",
     "--actor",
@@ -134,6 +135,7 @@ const configCommands = new Set([
   "review",
   "review-preview",
   "run",
+  "resume",
   "gate",
   "render",
   "recover",

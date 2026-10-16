@@ -31,6 +31,15 @@ const keys = ["schema_version", "kind", "code", "phase", "submission_state", "re
 for (const code of ["billing_quote_required", "billing_quote_invalid", "billing_quote_mismatch", "billing_quote_expired", "billing_limit_exceeded", "billing_connection_unverified", "billing_connection_changed", "billing_gate_required", "billing_transfer_approval_required", "billing_quote_unsupported", "billing_quote_failed", "billing_amount_invalid", "billing_currency_unknown", "billing_storage_invalid"]) {
   entries[code] = ["billing", "not_submitted", "quote_and_review", "料金・接続・承認条件を確認できませんでした。生成は開始していません。見積を確認して再レビューしてください。"];
 }
+for (const code of ["billing_context_required", "billing_context_invalid"]) entries[code] = ["billing", "not_submitted", "quote_and_review", "見積の対象projectを確認できません。新規生成は開始していません。見積とレビューを確認してください。"];
+for (const code of ["receipt_unknown", "receipt_legacy_unknown", "receipt_invalid", "receipt_request_mismatch", "receipt_approval_mismatch", "receipt_billing_mismatch", "project_submission_unresolved", "project_authorization_used", "project_index_invalid"]) {
+  entries[code] = ["recovery", "unknown", "inspect_record", "既存の送信記録を安全に照合できないか、未解決の処理があります。料金が発生している可能性があるため再送せず、元の記録を確認してください。"];
+}
+for (const code of ["receipt_poll_budget_exhausted", "receipt_refresh_budget_exhausted", "receipt_download_budget_exhausted"]) entries[code] = ["recovery", "accepted", "inspect_record", "同じ処理の照会・取得予算の上限に達しました。再起動しても予算は戻りません。生成を再送せずproviderの記録を確認してください。"];
+for (const code of ["receipt_asset_missing", "receipt_asset_invalid", "receipt_asset_mismatch"]) entries[code] = ["inspection", "accepted", "inspect_record", "保存音声が永続記録と一致しません。上書きや再生成をせず検証記録を確認してください。"];
+entries.submission_busy = ["recovery", "unknown", "inspect_record", "この音声で別の処理が実行中です。実行中の処理を確認してください。"];
+entries.resume_no_submission = ["recovery", "not_submitted", "review_request", "再開できる送信記録がありません。新規生成は開始していません。"];
+entries.mcp_status_tool_unavailable = ["poll", "accepted", "inspect_record", "受理済み処理の照会schemaを確認できません。別モデルへ替えず、接続契約を確認してください。"];
 const safeId = (value) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 export function adapterErrorEnvelope(code, requestId) {
   if (!Object.hasOwn(entries, code)) code = "adapter_failed";

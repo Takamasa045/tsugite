@@ -9,7 +9,7 @@ export type NarrationQuote = {
 export type BillingEvidence = {
   schema_version: 1;
   estimate: { status: "known" | "unknown" | "not_applicable"; credits: string | null; money: Money | null; reason?: string;
-    quotes?: NarrationQuote[]; source?: string; provider_billing_cap_enforced?: false };
+    quotes?: NarrationQuote[]; source?: string; provider_billing_cap_enforced?: false; context_digest?: string };
   actual: { status: "measured" | "unmeasured"; credits: string | null; money: Money | null; source_generation_ref: string | null };
   operation: { submission_count: number };
 };

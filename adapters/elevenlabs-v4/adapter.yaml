@@ -12,6 +12,13 @@ quote:
   executable: node
   args: ["adapters/elevenlabs-v4/quote.mjs"]
   input: stdin-json
+resume:
+  executable: node
+  args: ["adapters/elevenlabs-v4/resume.mjs"]
+  input: stdin-json
+receipts:
+  protocol: narration-v1
+  directory: assets/elevenlabs-v4
 batch: false
 credit_estimate:
   per_request: 0

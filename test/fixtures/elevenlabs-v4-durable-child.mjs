@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { join } from "node:path";
 import { generateElevenV4 as generateWithRealBilling } from "../../adapters/elevenlabs-v4/client.mjs";
 import { fixturePermit } from "./elevenlabs-v4-authority.mjs";
-const generateElevenV4 = (payload, options = {}) => generateWithRealBilling(payload, { authorizeSubmission: async () => fixturePermit(payload.request), ...options });
+const generateElevenV4 = (payload, options = {}) => generateWithRealBilling({ run_id: "fixture-run", ...payload }, { authorizeRecovery: async () => {}, inspectAudio: async () => ({ duration_seconds: 1 }), authorizeSubmission: async () => fixturePermit(payload.request), ...options });
 import { creativeSpeechTool, creativeStatusTool, pending, completed } from "./elevenlabs-v4-mcp.mjs";
 const [root, trace, stopAt] = process.argv.slice(2);
 const request = { id: "durability-test", operation: "voice", model: "eleven_v4", prompt: "Connection test.", params: { voice_id: "fixture-voice" } };
@@ -27,7 +27,7 @@ const filesystem = {
       },
       writeFile: async (data) => {
         await handle.writeFile(data);
-        if (String(data).includes('"phase":"accepted"')) await checkpoint("accepted-after-record");
+
       }
     };
   }
@@ -44,9 +44,10 @@ const client = {
   }
 };
 try {
-  await generateElevenV4({ request, run_dir: root }, { client, filesystem, sleep: async () => {},
+  const result = await generateElevenV4({ request, run_dir: root }, { onReceipt: async state => { if(state === "accepted") await checkpoint("accepted-after-record"); }, client, filesystem, sleep: async () => {},
+    onPinStage: async phase => { if (phase === "linked") await checkpoint("linked"); },
     fetchImpl: async () => { await checkpoint("download"); return new Response(Buffer.from("ID3fixture"), { headers: { "content-type": "audio/mpeg" } }); } });
-  console.log(JSON.stringify({ ok: true }));
+  console.log(JSON.stringify({ ok: true, submissions: result.billing.operation.submission_count }));
 } catch (error) {
   console.log(JSON.stringify({ ok: false, code: error.code }));
   process.exitCode = error.exitCode ?? 1;
