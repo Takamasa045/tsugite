@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import {
   applyMigration,
   applyRollback,
@@ -1465,6 +1466,7 @@ describe("PO-8 structural branch coverage (observer/mode/readiness)", () => {
 });
 
 describe("PO-8 round7 EB1 video-prompt authority real entry", () => {
+  useCatalogReviewClock();
   it("CLI migrate→native V2 with YAML mode omit/disabled→validate→plan→review→inspect (pointer sole SoT)", async () => {
     const { copyFile } = await import("node:fs/promises");
     const { inspectGate1Review } = await import("../src/orchestrator/review.js");

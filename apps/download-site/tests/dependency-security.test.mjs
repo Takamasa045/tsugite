@@ -18,8 +18,9 @@ const EXPECTED_OVERRIDES = {
   nanoid: "3.3.18",
   "postcss": "8.5.25",
   "react-server-dom-webpack": "19.2.8",
-  "sharp": "0.35.4",
-  "undici": "7.29.0",
+  "sharp": "0.35.5",
+  "source-map-js": "1.2.2",
+  "undici": "7.30.1",
 };
 
 async function readJson(name) {
@@ -32,15 +33,15 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
     readJson("package-lock.json"),
   ]);
 
-  assert.equal(manifest.dependencies.next, "^16.3.4");
-  assert.equal(manifest.devDependencies["eslint-config-next"], "^16.3.4");
+  assert.equal(manifest.dependencies.next, "^16.4.2");
+  assert.equal(manifest.devDependencies["eslint-config-next"], "^16.4.2");
   assert.equal(manifest.devDependencies.vinext, "0.0.45");
   assert.deepEqual(manifest.overrides, EXPECTED_OVERRIDES);
   assert.equal(
     manifest.scripts["security:audit"],
     "node scripts/security-audit.mjs",
   );
-  assert.equal(lockfile.packages["node_modules/next"].version, "16.3.4");
+  assert.equal(lockfile.packages["node_modules/next"].version, "16.4.2");
   assert.equal(lockfile.packages["node_modules/@babel/core"].version, "7.29.7");
   assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "5.0.9");
   assert.equal(lockfile.packages["node_modules/minimatch"].version, "10.2.5");
@@ -52,8 +53,9 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   assert.equal(lockfile.packages["node_modules/nanoid"].version, "3.3.18");
   assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.25");
   assert.equal(lockfile.packages["node_modules/next/node_modules/postcss"], undefined);
-  assert.equal(lockfile.packages["node_modules/sharp"].version, "0.35.4");
-  assert.equal(lockfile.packages["node_modules/undici"].version, "7.29.0");
+  assert.equal(lockfile.packages["node_modules/sharp"].version, "0.35.5");
+  assert.equal(lockfile.packages["node_modules/source-map-js"].version, "1.2.2");
+  assert.equal(lockfile.packages["node_modules/undici"].version, "7.30.1");
   assert.equal(lockfile.packages["node_modules/vinext"].version, "0.0.45");
   assert.equal(lockfile.packages["node_modules/image-size"], undefined);
   // No unpatched brace-expansion leftovers after the global override.
@@ -96,8 +98,8 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   );
   assert.ok(sharpPlatformPackages.length >= 10);
   assert.ok(libvipsPackages.length >= 8);
-  assert.ok(sharpPlatformPackages.every(([, entry]) => entry.version === "0.35.4"));
-  assert.ok(libvipsPackages.every(([, entry]) => entry.version === "1.3.3"));
+  assert.ok(sharpPlatformPackages.every(([, entry]) => entry.version === "0.35.5"));
+  assert.ok(libvipsPackages.every(([, entry]) => entry.version === "1.3.4"));
 });
 
 test("keeps the patched PostCSS, URI, YAML, glob, and image paths operational", async () => {

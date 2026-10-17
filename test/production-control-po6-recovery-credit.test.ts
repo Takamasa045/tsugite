@@ -6,6 +6,7 @@ import { fork } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import { durableTempRoot } from "../src/platform/path.js";
 import {
   ProductionDispatcher,
@@ -2664,6 +2665,7 @@ describe("PO-6 activeRecovery controller branch paths", () => {
 });
 
 describe("PO-6 fixture E2E active recovery call graph", () => {
+  useCatalogReviewClock();
   it("runActivePaidRegeneration: paid machine+T05; commit; second exhaust; quarantine restart", {
     timeout: 60_000
   }, async () => {

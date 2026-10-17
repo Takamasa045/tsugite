@@ -27,12 +27,15 @@ describe("dependency security contracts", () => {
     expect(manifest.overrides).toMatchObject({
       "@hono/node-server": "2.0.11",
       "adm-zip": "npm:fflate@0.8.3",
-      "fast-uri": "3.1.7",
+      "fast-uri": "3.1.8",
       hono: "4.13.7",
-      "ip-address": "10.5.1",
+      "ip-address": "10.7.4",
       postcss: "8.5.25",
+      "postcss-selector-parser": "7.1.6",
+      "proxy-addr": "2.0.8",
       qs: "6.16.0",
-      sharp: "0.35.4"
+      sharp: "0.35.5",
+      "source-map-js": "1.2.2"
     });
     expect(manifest.scripts.postinstall).toBe("node backends/hyperframes/apply-pinned-patches.mjs");
     expect(manifest.devDependencies["@tsugite/hyperframes-in-memory-zip"]).toBe(
@@ -50,12 +53,16 @@ describe("dependency security contracts", () => {
       expect(String(entry.resolved ?? "")).toMatch(/fflate/);
     }
     expect(lockfile.packages["node_modules/@hono/node-server"].version).toBe("2.0.11");
-    expect(lockfile.packages["node_modules/fast-uri"].version).toBe("3.1.7");
+    expect(lockfile.packages["node_modules/@modelcontextprotocol/sdk"].version).toBe("1.32.1");
+    expect(lockfile.packages["node_modules/fast-uri"].version).toBe("3.1.8");
     expect(lockfile.packages["node_modules/qs"].version).toBe("6.16.0");
     expect(lockfile.packages["node_modules/hono"].version).toBe("4.13.7");
-    expect(lockfile.packages["node_modules/ip-address"].version).toBe("10.5.1");
+    expect(lockfile.packages["node_modules/ip-address"].version).toBe("10.7.4");
     expect(lockfile.packages["node_modules/postcss"].version).toBe("8.5.25");
-    expect(lockfile.packages["node_modules/sharp"].version).toBe("0.35.4");
+    expect(lockfile.packages["node_modules/postcss-selector-parser"].version).toBe("7.1.6");
+    expect(lockfile.packages["node_modules/proxy-addr"].version).toBe("2.0.8");
+    expect(lockfile.packages["node_modules/source-map-js"].version).toBe("1.2.2");
+    expect(lockfile.packages["node_modules/sharp"].version).toBe("0.35.5");
     expect(manifest.scripts["security:audit"]).toBe(
       "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate"
     );
