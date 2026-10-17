@@ -7,6 +7,7 @@ Append-only format:
 2026-10-17 / CI branches 74.31% < 74.4% on a feature PR / main sat on the threshold so new fail-closed branches dropped below it / keep the 74.4% gate and add adapter/doctor branch tests for uncovered reject paths instead of lowering the number / documented
 2026-10-17 / VPD-K001 after catalog review_after 2026-10-10 / in-process tests used wall-clock Date and CLI spawn did not inherit vitest fake timers / pin Date with useCatalogReviewClock and NODE_OPTIONS --import catalogReviewClockPreload.mjs for CLI children; do not lower freshness rules / documented
 2026-10-17 / Dependabot undici update_files failed 6x for /apps/download-site with empty GITHUB_REGISTRIES_PROXY / override pinned vulnerable 7.29.0 while miniflare still resolved 7.28.0/7.29.0; no private npm registry is configured / bump the download-site undici override to patched 7.x manually; omit GitHub Packages registries for public npmjs.org / documented
+2026-10-17 / CI check/windows-smoke failed on root security:audit after coverage was green / GHSA on MCP SDK 1.30.x, fast-uri 3.1.7, ip-address <=10.7.0, proxy-addr, source-map-js, postcss-selector-parser / bump the production SDK and keep patched overrides; do not lower audit-level / documented
 
 2026-09-25 / HyperFrames 0.8.75 で旧Studio smokeの選択確認が失敗した / `studio_select`成功後も`isCurrentSelection`がfalseで、書き込みschemaは明示`handle`必須へ変化 / 更新時は実ページが返すschemaを読み、fixtureでhandle指定の文字・色変更、保存、reload、PNG内容まで照合する / Chrome 153の隔離fixtureで確認
 
