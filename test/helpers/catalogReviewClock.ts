@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, vi } from "vitest";
+import { CATALOG_REVIEW_CLOCK } from "./catalogReviewInstant.mjs";
 
 /**
  * knowledge/video-models/minimax-h3/prompt-guide.yaml uses review_after: 2026-09-07.
- * Pin wall-clock Date only (not setTimeout) to a UTC instant before that catalog
- * deadline so fixture contracts stay fresh. Freshness comparison itself is unchanged.
+ * PixVerse V6 / C1 and Kling 3.0 profiles use 2026-10-10. Pin wall-clock Date only
+ * (not setTimeout) to a UTC instant before those catalog deadlines so fixture
+ * contracts stay fresh. Freshness comparison itself is unchanged.
  */
-export const CATALOG_REVIEW_CLOCK = "2026-09-01T00:00:00.000Z";
+export { CATALOG_REVIEW_CLOCK };
 
 export function pinCatalogReviewClock(): void {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -23,4 +25,8 @@ export function useCatalogReviewClock(): void {
   afterEach(() => {
     restoreCatalogReviewClock();
   });
+}
+
+export function catalogReviewClockPreloadHref(): string {
+  return new URL("./catalogReviewClockPreload.mjs", import.meta.url).href;
 }

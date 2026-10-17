@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
-import { useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
+import { catalogReviewClockPreloadHref, useCatalogReviewClock } from "./helpers/catalogReviewClock.js";
 import {
   assertCompilationBundleAssets,
   compileVideoPromptIrV2,
@@ -90,7 +90,12 @@ function cli(args: string[], cwd: string) {
   return spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
-    env: { ...process.env, TSUGITE_PROJECTS_HOME: join(cwd, "launcher-projects") }
+    env: {
+      ...process.env,
+      NODE_ENV: "test",
+      TSUGITE_PROJECTS_HOME: join(cwd, "launcher-projects"),
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${catalogReviewClockPreloadHref()}`
+    }
   });
 }
 

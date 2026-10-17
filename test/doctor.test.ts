@@ -70,6 +70,67 @@ describe("environment doctor", () => {
     );
   });
 
+  it("gives platform-specific Node and FFmpeg install guidance", async () => {
+    const windows = await inspectEnvironment(undefined, {
+      platform: "win32",
+      nodeVersion: "v21.0.0",
+      commandExists: async () => false
+    });
+    expect(windows.checks).toContainEqual(expect.objectContaining({
+      name: "node",
+      ok: false,
+      remediation: expect.stringMatching(/winget|reopen the terminal/i)
+    }));
+    expect(windows.checks).toContainEqual(expect.objectContaining({
+      name: "ffmpeg",
+      ok: false,
+      remediation: expect.stringContaining("winget install --id Gyan.FFmpeg")
+    }));
+
+    const darwin = await inspectEnvironment(undefined, {
+      platform: "darwin",
+      commandExists: async (command) => command !== "ffmpeg"
+    });
+    expect(darwin.checks).toContainEqual(expect.objectContaining({
+      name: "ffmpeg",
+      ok: false,
+      remediation: expect.stringContaining("brew install ffmpeg")
+    }));
+
+    const linux = await inspectEnvironment(undefined, {
+      platform: "linux",
+      commandExists: async (command) => command !== "ffprobe"
+    });
+    expect(linux.checks).toContainEqual(expect.objectContaining({
+      name: "ffprobe",
+      ok: false,
+      remediation: expect.stringContaining("sudo apt-get")
+    }));
+
+    const other = await inspectEnvironment(undefined, {
+      platform: "freebsd",
+      commandExists: async (command) => command !== "ffmpeg"
+    });
+    expect(other.checks).toContainEqual(expect.objectContaining({
+      name: "ffmpeg",
+      ok: false,
+      remediation: expect.stringContaining("add it to PATH")
+    }));
+  });
+
+  it("keeps npm ready when the probed version has no leading major", async () => {
+    const report = await inspectEnvironment(undefined, {
+      commandExists: async () => true,
+      probeCommand: async (command) =>
+        command[0] === "npm" ? { ok: true, version: "not-a-version" } : { ok: true, version: "test" }
+    });
+    expect(report.checks).toContainEqual(expect.objectContaining({
+      name: "npm",
+      ok: true,
+      version: "not-a-version"
+    }));
+  });
+
   it("fails closed when npm is older than the supported major version", async () => {
     const report = await inspectEnvironment(undefined, {
       commandExists: async () => true,

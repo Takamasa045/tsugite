@@ -4,6 +4,10 @@ Append-only format:
 
 `YYYY-MM-DD / symptom / cause / rule / status`
 
+2026-10-17 / CI branches 74.31% < 74.4% on a feature PR / main sat on the threshold so new fail-closed branches dropped below it / keep the 74.4% gate and add adapter/doctor branch tests for uncovered reject paths instead of lowering the number / documented
+2026-10-17 / VPD-K001 after catalog review_after 2026-10-10 / in-process tests used wall-clock Date and CLI spawn did not inherit vitest fake timers / pin Date with useCatalogReviewClock and NODE_OPTIONS --import catalogReviewClockPreload.mjs for CLI children; do not lower freshness rules / documented
+2026-10-17 / Dependabot undici update_files failed 6x for /apps/download-site with empty GITHUB_REGISTRIES_PROXY / override pinned vulnerable 7.29.0 while miniflare still resolved 7.28.0/7.29.0; no private npm registry is configured / bump the download-site undici override to patched 7.x manually; omit GitHub Packages registries for public npmjs.org / documented
+
 2026-09-25 / HyperFrames 0.8.75 で旧Studio smokeの選択確認が失敗した / `studio_select`成功後も`isCurrentSelection`がfalseで、書き込みschemaは明示`handle`必須へ変化 / 更新時は実ページが返すschemaを読み、fixtureでhandle指定の文字・色変更、保存、reload、PNG内容まで照合する / Chrome 153の隔離fixtureで確認
 
 2026-09-16 / 同一plan再承認のretryが dispatch already claimed になる / sha256Canonical が created_at を省略し submission intent digest が衝突する / 新規 intent だけ optional の attempt_identity を canonical digest に含め、legacy には default しない。pending/unknown は従来どおり spawn を止め、既存 claim は消さない / 進行中

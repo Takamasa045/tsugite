@@ -1,9 +1,12 @@
 name: CI
 
+# Push CI only on the default branch so feature-branch pushes do not double-run
+# with pull_request. Cancel superseded in-progress runs for the same PR or ref.
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

@@ -1,4 +1,11 @@
 version: 2
+# Public registry.npmjs.org only. Do not add a GitHub Packages
+# (npm.pkg.github.com) registries block: this repo has no private npm
+# packages, and an empty GITHUB_REGISTRIES_PROXY is the host warning when no
+# private registries are declared. That warning is not the download-site
+# undici update_files failure; miniflare still resolves undici 7.28.0/7.29.0
+# while advisories require >= 7.29.1, so keep the patched override in
+# apps/download-site/package.json and bump it manually when Dependabot cannot.
 updates:
   - package-ecosystem: npm
     directory: /
