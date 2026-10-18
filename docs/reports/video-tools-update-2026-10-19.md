@@ -35,10 +35,13 @@ was installed with its official checksum-verified installer, retaining 0.2.0.
 
 ## Verification
 
-- Root `npm run check`: **2,403 passed, 2 skipped**, 163 test files passed and
+- Isolated worktree `npm run check`: **2,403 passed, 2 skipped**, 163 test files passed and
   one skipped. Coverage: statements 82.79%, branches 74.68%, functions 89.77%,
   lines 85.47%. The final platform-forwarding adjustment additionally passed
   its 26 provider/Doctor/lifecycle checks.
+- The final primary checkout, including the preserved private changes, passed
+  `npm run check`: **2,408 passed, 2 skipped**, 164 files passed and one skipped.
+  Coverage: statements 82.78%, branches 74.68%, functions 89.68%, lines 85.46%.
 - v2 `npm --prefix v2 run check`: **76 passed, zero skipped**, with actual
   Remotion, HyperFrames and Whisper selected. External IP networking was denied
   by macOS; loopback and local Unix sockets were allowed for isolated browsers.
@@ -49,6 +52,9 @@ was installed with its official checksum-verified installer, retaining 0.2.0.
   pixel parity (maximum RGB MAE below the existing threshold of 12), and identical
   decoded PCM that differs from the source because of generated local SFX. Six
   contact sheets were visually inspected. No QA tolerance was relaxed.
+  HyperFrames was re-rendered and the six-output OCR/pixel/audio comparison
+  repeated after 0.8.173 appeared during the task; unchanged Remotion/Editframe
+  outputs were retained byte-for-byte.
 - Editframe's real integration test and boundary/unit suite passed **36 tests**;
   its real integration test was repeated after the MCP override. This test uses
   real owned-process inspection, so it runs outside macOS's setuid-`ps`-blocking
