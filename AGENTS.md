@@ -4,7 +4,7 @@
 
 ## 適用範囲と入口
 
-`tsugite.yaml` または明示的な v2 依頼では、[v2 Skill](v2/skills/tsugite/SKILL.md) を読み、正規repository rootの `npm run v2 -- <command>` を使う。承認はv2確認ページだけ。v2はalphaであり、実課金受入・第三者試用を完了扱いにしない。既存の `project.yaml` 案件は以下のv1制作SkillとGateで継続し、自動移行しない。秘密情報・外部送信・課金の安全境界は両方に適用する。
+`tsugite.yaml` または明示的な v2 依頼では、[v2 Skill](v2/skills/tsugite/SKILL.md) を読み、正規repository rootの `npm run --silent v2 -- <command>` を使う。`--silent` はJSON/MCPのstdoutへnpm見出しを混ぜないために必要。承認はv2確認ページだけ。v2はalphaであり、実課金受入・第三者試用を完了扱いにしない。既存の `project.yaml` 案件は以下のv1制作SkillとGateで継続し、自動移行しない。秘密情報・外部送信・課金の安全境界は両方に適用する。
 
 Tsugite は `project.yaml` を入口とする、承認付き動画制作パイプライン。対象ディレクトリの追加指示も確認する。
 
