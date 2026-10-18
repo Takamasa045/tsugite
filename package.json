@@ -58,7 +58,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "remotion": "4.0.535",
-    "yaml": "^2.8.0",
+    "yaml": "2.9.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
