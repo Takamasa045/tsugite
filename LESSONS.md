@@ -110,3 +110,8 @@ Append-only format:
 - MP4/ffprobe/audio/duration success does not prove timed overlays. Editframe 0.59.47 exports a cloned timegroup; `addFrameTask` and instance method overrides are not copied. Use the SDK's copied `onFrame` property and resolve descendants through its `element` argument. Verify late beats and transition frames, not only time zero.
 - HyperFrames extracted video composition does not preserve every CSS video filter. Bake the common color treatment into local, run-owned source derivatives before native compositing; retain the original Manifest and source audio.
 - Editframe native HTML-in-Canvas capture can retain stale pixels during transparent transitions and produce unstable vertical frames. Use an opaque root and the official foreign-object capture path; compare transition-boundary frames and OCR every caption before claiming parity.
+
+## Isolated v2 verification (2026-10-18)
+
+- A shared node_modules symlink does not prove a worktree's lockfile is installed. Record expected and actual package versions before classifying a full-check failure; never patch shared dependencies to repair another worktree's result. The v2 branch expects HyperFrames 0.8.75 while the primary checkout's shared installation is 0.8.24.
+- A fetch implementation can normalize or replace Host. For adversarial Host/rebinding tests, use a raw HTTP client so the test actually sends the requested header; assert the server's rejection without weakening its Host check.
