@@ -96,14 +96,12 @@ if (process.platform !== "win32") {
       await chmod(helper, 0o644);
     }
 
-    await new Promise((resolve, reject) => {
-      config.packagerConfig.beforeAsar[0](
-        buildPath,
-        "43.1.1",
-        process.platform,
-        process.arch,
-        (error) => error ? reject(error) : resolve()
-      );
+    const { runHooks } = await import(new URL("./hooks.js", import.meta.resolve("@electron/packager")));
+    await runHooks(config.packagerConfig.beforeAsar, {
+      buildPath,
+      electronVersion: "44.7.2",
+      platform: process.platform,
+      arch: process.arch
     });
 
     for (const helper of helpers) assert.notEqual((await stat(helper)).mode & 0o111, 0);
@@ -150,4 +148,15 @@ test("Desktop CI keeps packaging manual and developer-only", async () => {
     /- name: Verify packaged workspace recovery\r?\n\s+run: npm --prefix apps\/desktop run test:packaged-workspace/
   );
   assert.doesNotMatch(workflow, /actions\/upload-artifact|out\/make|retention-days/);
+});
+
+test("Forge beforeAsar uses the installed packager options contract on Windows", async () => {
+  const { default: config } = await import("../forge.config.mjs");
+  const { runHooks } = await import(new URL("./hooks.js", import.meta.resolve("@electron/packager")));
+  await runHooks(config.packagerConfig.beforeAsar, {
+    buildPath: "unused-for-windows",
+    electronVersion: "44.7.2",
+    platform: "win32",
+    arch: "x64"
+  });
 });
