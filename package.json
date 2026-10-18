@@ -9,7 +9,8 @@
     "npm": ">=10"
   },
   "bin": {
-    "pipeline": "./bin/pipeline"
+    "pipeline": "./bin/pipeline",
+    "tsugite": "./v2/bin/tsugite.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -45,29 +46,30 @@
     "hypit:spike": "node adapters/hypit/spike.mjs",
     "hypit:production": "node adapters/hypit/productionCli.mjs",
     "editframe:examples:install": "node scripts/editframe-examples.mjs install",
-    "editframe:examples": "node scripts/editframe-examples.mjs start"
+    "editframe:examples": "node scripts/editframe-examples.mjs start",
+    "v2": "node v2/bin/tsugite.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "@remotion/bundler": "^4.0.528",
-    "@remotion/media": "^4.0.528",
-    "@remotion/renderer": "^4.0.528",
+    "@remotion/bundler": "4.0.535",
+    "@remotion/media": "4.0.535",
+    "@remotion/renderer": "4.0.535",
     "cross-spawn": "^7.0.6",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "remotion": "^4.0.528",
-    "yaml": "^2.8.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "remotion": "4.0.535",
+    "yaml": "2.9.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tsugite/hyperframes-in-memory-zip": "file:backends/hyperframes/in-memory-zip",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@types/react-dom": "^19.2.7",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitest/coverage-v8": "^4.1.11",
     "hyperframes": "0.8.75",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^4.1.11"
   },
