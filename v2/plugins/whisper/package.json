@@ -1,0 +1,1 @@
+{"name":"tsugite-plugin-whisper","version":"2.0.0-alpha.1","type":"module","license":"MIT","tsugite":{"apiVersion":1,"id":"whisper","capabilities":["analysis"],"network":false,"tier":"labs","entry":"index.mjs","mock":"mock.mjs","constraints":"constraints.md"}}

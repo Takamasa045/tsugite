@@ -1,0 +1,48 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {fixture,settings,page} from './helpers.mjs';
+import {plan,make,exportVideo,currentPlan,state} from '../src/core.mjs';
+import {write,fileHash} from '../src/files.mjs';
+import {addPlugin} from '../src/plugins.mjs';
+import {command,probe} from '../plugins/local/index.mjs';
+import {migrate} from '../src/migrate.mjs';
+const plugins=fileURLToPath(new URL('../plugins/',import.meta.url));
+const tone=async(file)=>command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','3',file]);
+async function render(t,root){await plan(root);const ui=await page(t,root);assert.equal((await ui.submit('approve',{stage:'plan'})).status,303);await make(root);await ui.refresh();if((await ui.submit('approve',{stage:'clips'})).status!==303)throw new Error('Clips approval failed');return exportVideo(root);}
+test('audio mix, trims, SRT and portrait reframing produce audible captioned MP4',async t=>{
+  const {root}=await fixture(t);await tone(path.join(root,'assets/tone.wav'));await write(root,'assets/titles.srt','1\n00:00:00,200 --> 00:00:01,800\nCAPTION TEST\n');
+  await write(root,'taste/checks.json',[{kind:'max_bgm_start',value:0.5}]);
+  await settings(root,{length:'2s',use:[{path:'assets/intro.mp4',start:0.5,seconds:2}],audio:[{path:'assets/tone.wav',start:0.1,seconds:1.8,volume:0.2,kind:'bgm'}],captions:'assets/titles.srt',format:'16:9'});
+  const output=await render(t,root);assert.equal(output.width,640);assert.equal(output.height,360);assert.equal((await probe(path.join(root,'out/final.mp4'))).hasAudio,true);
+  const {stderr}=await command('ffmpeg',['-i',path.join(root,'out/final.mp4'),'-af','volumedetect','-f','null','-']);assert.doesNotMatch(stderr,/mean_volume: -inf/);assert.match(stderr,/mean_volume: -\d+/);
+  assert.equal((await probe(path.join(root,'out/final.mp4'))).hasCaptions,true);
+  const {stdout:extracted}=await command('ffmpeg',['-v','error','-i',path.join(root,'out/final.mp4'),'-map','0:s:0','-f','srt','-']);assert.match(extracted,/CAPTION TEST/);
+  const ui=await page(t,root),vtt=await fetch(ui.url+'captions.vtt',{headers:{Cookie:ui.cookie}});assert.match(await vtt.text(),/CAPTION TEST/);assert.match(ui.html,/approved timeline schedule/);
+  if(process.env.TSUGITE_TEST_EVIDENCE){await fs.mkdir(process.env.TSUGITE_TEST_EVIDENCE,{recursive:true});await fs.copyFile(path.join(root,'out/final.mp4'),path.join(process.env.TSUGITE_TEST_EVIDENCE,'audio-captions.mp4'));}
+});
+test('burned captions are preflighted against the actual FFmpeg build',async t=>{
+  const {root}=await fixture(t);await settings(root,{caption_mode:'burn',captions:[{start:0,end:1,text:'BURN TEST'}]});
+  const {stdout}=await command('ffmpeg',['-hide_banner','-filters']);
+  if(!/\bsubtitles\s/.test(stdout))await assert.rejects(plan(root),/requires FFmpeg with libass/);
+  else {const result=await render(t,root);assert.ok(result.seconds>0);}
+});
+test('audio/subtitle modification invalidates plan and unsafe media inputs fail',async t=>{
+  const {root}=await fixture(t);await tone(path.join(root,'assets/tone.wav'));await settings(root,{audio:[{path:'assets/tone.wav'}],captions:[{start:0,end:1,text:'safe'}]});await plan(root);
+  await fs.appendFile(path.join(root,'assets/tone.wav'),'changed');await assert.rejects(currentPlan(root),/no longer matches/);
+  await settings(root,{audio:[{path:'../escape.wav'}]});await assert.rejects(plan(root),/assets/);
+  await settings(root,{audio:[],captions:[{start:1,end:0,text:'invalid'}]});await assert.rejects(plan(root),/caption end/);
+});
+test('service video and narration mocks run with zero provider credits and are content bound',async t=>{
+  const {root}=await fixture(t);await addPlugin(root,path.join(plugins,'pixverse'));await addPlugin(root,path.join(plugins,'elevenlabs'));
+  await settings(root,{length:'8s',execution:'mock',make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5},{id:'voice',with:'elevenlabs',kind:'audio',prompt:'mock voice',seconds:3,options:{voice_id:'fixture-voice'}}]});
+  const result=await render(t,root);assert.equal(result.hasAudio,true);assert.equal((await state(root)).ledger.entries.reduce((s,e)=>s+e.actual,0),0);assert.equal(Object.values((await state(root)).jobs).length,2);
+  await settings(root,{execution:'offline'});await assert.rejects(plan(root),/Network plugins are disabled/);
+});
+test('v1 migration copies unequal trims, audio and plain captions without altering sources',async t=>{
+  const {root,home}=await fixture(t);await tone(path.join(root,'assets/tone.wav'));
+  await write(root,'project.yaml','name: v1 copy\nmanifest: manifest.json\n');await write(root,'manifest.json',{meta:{aspect:'9:16',fps:24},clips:[{id:'a',src:'assets/intro.mp4',in:0.5,out:1.5,duration:1,audio:false},{id:'b',src:'assets/intro.mp4',in:0,out:2,duration:2,audio:false}],audio:{bgm:[{src:'assets/tone.wav',start:0,end:3,volume:0.2}],narration:[],sfx:[]},captions:[{start:0.1,end:1,text:'migrated'}]});
+  const before=await fileHash(root,'assets/intro.mp4'),dest=path.join(home,'migrated');await migrate(root,dest);await plan(dest);assert.equal((await currentPlan(dest)).plan.timeline.clips[0].start,0.5);await render(t,dest);assert.equal(await fileHash(root,'assets/intro.mp4'),before);
+});

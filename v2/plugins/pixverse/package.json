@@ -1,0 +1,24 @@
+{
+  "name": "tsugite-plugin-pixverse",
+  "version": "2.0.0-alpha.1",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test.mjs"
+  },
+  "tsugite": {
+    "apiVersion": 1,
+    "id": "pixverse",
+    "capabilities": [
+      "source"
+    ],
+    "mediaKinds": [
+      "video"
+    ],
+    "network": true,
+    "tier": "labs",
+    "entry": "index.mjs",
+    "mock": "mock.mjs",
+    "constraints": "constraints.md"
+  }
+}

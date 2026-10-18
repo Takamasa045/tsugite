@@ -6,6 +6,11 @@ Tsugite is a local video-production workshop. It carries assets, production logs
 
 Source version **0.17.0**. Public Desktop installers have ended; everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher for inspection. See the [changelog](CHANGELOG.md).
 
+The independent [継手 / Tsugite v2 alpha](v2/README.md) adds a small, installable
+CLI with page-only checks, per-service budgets and portable preferences. Existing
+v1 commands and active productions stay on v1. The alpha's paid-service and
+independent-user acceptance gates remain open.
+
 **Start here:** [Easy start](#easiest-way-to-start) · [What you can do](#what-you-can-do) · [Production flow](#safe-production-flow) · [Commands](#commands)
 
 ## What it is

@@ -9,6 +9,7 @@
 - **誤字・表示用説明・リンクだけの変更**では、差分・参照先・記載コマンドを確認する。Skill を触る場合はメタデータと発動条件も確認する。この条件に限り `/tsugite-verify` でも全体チェックは不要。
 - **承認境界・実行手順・Skill の振る舞い・設定・スクリプトに影響する変更**は、拡張子が Markdown でも関連テスト → `npm run check` を実行する。分類に迷う変更やユーザーが全体検証を指定した場合も全体チェックを行う。
 - Viewer 変更がある場合は `npm run viewer:check` と `npm run viewer:build` を追加する。root のテストは `apps/**` を除外するため、各 app の検証を root の成功で代用しない。
+- 独立した `v2/` の変更では `npm --prefix v2 run check` と無課金CLIの smoke を追加する。root のv1テストは `v2/**` も除外し、v2や隔離した互換ソースのテストを混在させない。v2の成功でroot検証を代用しない。
 - CI の必須チェックは [.github/workflows/ci.yml](../.github/workflows/ci.yml) と [desktop.yml](../.github/workflows/desktop.yml) を参照する。ローカルの対象別検証と CI の実行結果は区別する。
 - CLI / project 契約の実動作証拠には [verify-tsugite](../.agents/skills/verify-tsugite/SKILL.md) を使う。macOS の network-deny helper が自動実行するのは Doctor と validate の一本だけ。plan・review・Viewer・生成の検証済みとは扱わない。
 - 依存導入や `security:audit` はネットワークを使う。コマンド名だけで安全と判断せず、実装・実行環境・既存承認を確認する。検証用の project は隔離し、durable `projects/` を書き換えない。

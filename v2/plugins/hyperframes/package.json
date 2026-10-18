@@ -1,0 +1,18 @@
+{
+  "name": "tsugite-plugin-hyperframes",
+  "version": "2.0.0-alpha.1",
+  "type": "module",
+  "license": "MIT",
+  "tsugite": {
+    "apiVersion": 1,
+    "id": "hyperframes",
+    "capabilities": [
+      "renderer"
+    ],
+    "network": false,
+    "tier": "labs",
+    "entry": "index.mjs",
+    "mock": "mock.mjs",
+    "constraints": "constraints.md"
+  }
+}
