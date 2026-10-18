@@ -13,13 +13,13 @@ test("Electron and Forge stay build-time dependencies at the pinned versions", a
   const mainSource = await readFile(new URL("src/main.mjs", desktopRoot), "utf8");
 
   assert.equal(manifest.main, "src/main.mjs");
-  assert.equal(manifest.devDependencies.electron, "43.1.1");
-  assert.equal(manifest.devDependencies["playwright-core"], "1.61.1");
-  assert.equal(manifest.devDependencies["@electron-forge/cli"], "7.11.2");
+  assert.equal(manifest.devDependencies.electron, "44.7.2");
+  assert.equal(manifest.devDependencies["playwright-core"], "1.64.1");
+  assert.equal(manifest.devDependencies["@electron-forge/cli"], "8.0.1");
   assert.equal(manifest.dependencies?.electron, undefined);
   assert.match(manifest.dependencies["node-pty"], /^\^\d+\.\d+\.\d+$/);
   assert.equal(manifest.devDependencies?.["node-pty"], undefined);
-  assert.equal(manifest.overrides.tar, "7.5.20");
+  assert.equal(manifest.overrides.tar, "7.5.22");
   assert.equal(manifest.overrides.tmp, "0.2.7");
   assert.match(manifest.scripts["build:runtime"], /^node scripts\/clean-generated\.mjs && .*prepare-runtime$/);
   assert.doesNotMatch(manifest.scripts["build:runtime"], /--install/);
@@ -53,7 +53,7 @@ test("Viewer keeps terminal rendering dependencies in its runtime manifest", asy
   assert.equal(manifest.devDependencies?.["@xterm/addon-fit"], undefined);
 });
 
-test("Forge makes macOS ZIP/DMG and Windows Squirrel with an external runtime", async () => {
+test("Forge keeps developer macOS ZIP and Windows Squirrel with an external runtime", async () => {
   const { default: config } = await import("../forge.config.mjs");
 
   assert.deepEqual(config.packagerConfig.asar, {
@@ -75,7 +75,7 @@ test("Forge makes macOS ZIP/DMG and Windows Squirrel with an external runtime", 
 
   const makers = new Map(config.makers.map((maker) => [maker.name, maker]));
   assert.deepEqual(makers.get("@electron-forge/maker-zip").platforms, ["darwin"]);
-  assert.deepEqual(makers.get("@electron-forge/maker-dmg").platforms, ["darwin"]);
+  assert.equal(makers.has("@electron-forge/maker-dmg"), false);
   assert.deepEqual(makers.get("@electron-forge/maker-squirrel").platforms, ["win32"]);
 
   assert.equal(JSON.stringify(config).includes("password"), false);
@@ -96,14 +96,12 @@ if (process.platform !== "win32") {
       await chmod(helper, 0o644);
     }
 
-    await new Promise((resolve, reject) => {
-      config.packagerConfig.beforeAsar[0](
-        buildPath,
-        "43.1.1",
-        process.platform,
-        process.arch,
-        (error) => error ? reject(error) : resolve()
-      );
+    const { runHooks } = await import(new URL("./hooks.js", import.meta.resolve("@electron/packager")));
+    await runHooks(config.packagerConfig.beforeAsar, {
+      buildPath,
+      electronVersion: "44.7.2",
+      platform: process.platform,
+      arch: process.arch
     });
 
     for (const helper of helpers) assert.notEqual((await stat(helper)).mode & 0o111, 0);
@@ -150,4 +148,15 @@ test("Desktop CI keeps packaging manual and developer-only", async () => {
     /- name: Verify packaged workspace recovery\r?\n\s+run: npm --prefix apps\/desktop run test:packaged-workspace/
   );
   assert.doesNotMatch(workflow, /actions\/upload-artifact|out\/make|retention-days/);
+});
+
+test("Forge beforeAsar uses the installed packager options contract on Windows", async () => {
+  const { default: config } = await import("../forge.config.mjs");
+  const { runHooks } = await import(new URL("./hooks.js", import.meta.resolve("@electron/packager")));
+  await runHooks(config.packagerConfig.beforeAsar, {
+    buildPath: "unused-for-windows",
+    electronVersion: "44.7.2",
+    platform: "win32",
+    arch: "x64"
+  });
 });

@@ -16,7 +16,7 @@ function runAudit(args, required) {
     if (result.status === 0) return true;
     if (attempt === ATTEMPTS) {
       if (required) process.exit(result.status === null ? 1 : result.status);
-      console.warn(`optional npm audit ${args.join(" ")} skipped after registry timeout or 503`);
+      console.warn(`optional npm audit ${args.join(" ")} failed (findings or registry error); inspect the output above`);
       return false;
     }
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RETRY_WAIT_MS);

@@ -43,16 +43,15 @@ function ignoreOutsideAppAllowlist(path) {
   return !appSourceFiles.has(normalized);
 }
 
-function ensureNodePtyHelperPermissions(buildPath, _electronVersion, platform, arch, callback) {
+async function ensureNodePtyHelperPermissions({ buildPath, platform, arch }) {
   if (platform === "win32") {
-    callback();
     return;
   }
   const helpers = [
     join(buildPath, "node_modules", "node-pty", "build", "Release", "spawn-helper"),
     join(buildPath, "node_modules", "node-pty", "prebuilds", `${platform}-${arch}`, "spawn-helper")
   ];
-  Promise.all(helpers.map((helper) => chmod(helper, 0o755))).then(() => callback(), callback);
+  await Promise.all(helpers.map((helper) => chmod(helper, 0o755)));
 }
 
 const packagerConfig = {
@@ -93,11 +92,6 @@ export default {
       name: "@electron-forge/maker-zip",
       platforms: ["darwin"],
       config: {}
-    },
-    {
-      name: "@electron-forge/maker-dmg",
-      platforms: ["darwin"],
-      config: { format: "ULFO" }
     },
     {
       name: "@electron-forge/maker-squirrel",

@@ -13,7 +13,7 @@ npm run lint
 npm run security:audit
 ```
 
-`security:audit` はproduction依存と開発依存の両方を検査し、moderate以上の既知脆弱性があれば失敗します。Next、Cloudflare、ESLint系の上流が安全版へ追従するまでは、検証済みの推移依存を`overrides`で固定します。
+`security:audit` はproduction依存のmoderate以上で失敗します。開発依存の全体監査は既存の任意チェックとして警告を出します。警告は監査成功を意味しません。2026-10-18時点の未修正braces系の開発依存8件は[PR整理記録](../../docs/reports/pr-queue-resolution-2026-10-18.md)を参照してください。Next、Cloudflare、ESLint系の上流が安全版へ追従するまでは、検証済みの推移依存を`overrides`で固定します。
 
 CTAは正式版のGitHub Releaseとリポジトリだけを参照します。`releases/download`、DMG、EXEなどの直接ダウンロードURLを追加しないでください。
 
