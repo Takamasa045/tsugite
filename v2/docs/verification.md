@@ -1,13 +1,33 @@
 # Local verification — 2026-10-18
 
+## Phase-three verification
+
+**73 passed, 0 failed/skipped**, under external-network denial (loopback only).
+This includes actual local HyperFrames and Whisper, existing-browser Remotion,
+fake-HTTP service transport/approval/secret-redaction tests, real 18-card Fast
+Edit/SFX, editable Fast Edit migration, labs source separation and locked
+character/native-data archives. HyperFrames
+caption visibility was also checked on a decoded frame; looping BGM and SFX
+passed audio inspection. Existing vendor config writes were denied. Whisper
+recognized the bundled public JFK speech using an existing local model/CPU;
+no binary/model download occurred. Live paid provider acceptance has not run.
+
+A freshly packed tarball was installed outside the repository with a separate
+empty npm configuration and only its public YAML dependency. The installed CLI
+and packaged review page then completed a 6.021322s 360×640 sample under network
+denial, all checks approved by fixture forms, with an empty credit ledger. The
+optional MCP SDK was intentionally omitted in this clean core-install trial.
+The 30-second synthetic 720p demo was rendered and visually inspected locally;
+release upload is a separate, authorized step.
+
 ## Continued implementation checkpoint
 
-Current durable worktree:
-`/Users/takamasa/Projects/開発/tsugite/.work/tsugite-v2-worktree`, branch
+Current durable development worktree:
+`.work/tsugite-v2-worktree`, branch
 `codex/tsugite-v2`. The earlier temporary worktree below was moved intact;
 the foundation commit is `9c8baaf`. No v1 sources or productions were edited.
 
-The expanded v2 check has **53 passed, 0 failed, 0 skipped**, including real
+The phase-two v2 check had **53 passed, 0 failed, 0 skipped**, including real
 Remotion video/audio/caption export using existing local peer packages and an
 explicit existing browser. No browser/runtime download or cloud call ran.
 New tests cover sound mixing, subtitle extraction/WebVTT, trims/reframing,
@@ -33,9 +53,8 @@ locally npm-packed Fast Edit archive was installed into an isolated project.
 No registry network acceptance or clean registry install is claimed. Package
 dry-run excludes node_modules, evidence, test outputs and production media.
 
-Still unverified: actual Windows/Linux runs and independent-user trials,
-HyperFrames real v2 rendering, real local Whisper transcription and all live
-source-provider transports/credit accounting. Default FFmpeg on this host lacks
+At that phase-two checkpoint, Windows/Linux, independent-user trials,
+HyperFrames, Whisper and service transports still awaited further work. Default FFmpeg on this host lacks
 libass, so burn-in mode correctly fails preflight; soft MP4 captions work.
 The optional full FFmpeg binary on this host has a missing library and was not
 repaired. No public release, paid generation or credentials change occurred.

@@ -55,7 +55,7 @@ tsugite plugin add elevenlabs
 ```
 
 These copy bundled standalone packages into this project without npm/network
-operations. They are labs contracts, not verified upstream API transports.
+operations. Their explicit synthetic mode remains zero-cost. Official HTTP transports now have synthetic protocol tests; paid acceptance is unverified.
 Set `execution: mock` explicitly to create test patterns or sine-wave audio:
 
 ```yaml
@@ -75,8 +75,8 @@ make:
 ```
 
 No key, account or live request is used. Mock quotes and settlements are zero;
-the page says MOCK. A real service entry is disabled even when called directly.
-Supported fixture duration/options belong to each package's contract, not core.
+the page says MOCK. Live mode requires an enabled private connection and reviewed plan; see [connections](connections.md).
+Supported duration/options belong to each package, not core.
 They are not a promise of current upstream model capabilities or pricing.
 Real provider credit maxima must eventually be explicit in that service's own
 unit; no exchange rate or pooled budget is inferred.
@@ -90,12 +90,12 @@ package versions and browser identity are included in the plan. Real local
 video, audio and caption output has been tested on this Mac, without cloud
 rendering or browser download. This does not establish a user's license status.
 
-`plugin add hyperframes` installs a labs HTML adapter. Only `execution: mock` is
-enabled by core; real 0.8.24 CLI behavior and telemetry remain unverified for v2.
-Its real entry requires explicitly selected existing CLI, GSAP and browser paths
-and never runs npx/install/upgrade/auth/cloud. No feedback or publication command
-is sent. The framework's composition/CLI Skills informed the HTML contract;
-they do not replace Tsugite's confirmation checks.
+`plugin add hyperframes` installs an optional local HTML adapter. Existing
+0.8.24 CLI, GSAP and browser paths are selected explicitly. Real Mac export through
+the v2 checks passed with visible timed captions, looping BGM and SFX under
+external-network denial. Telemetry/update checks are disabled; no install,
+upgrade, auth, cloud or feedback command runs. Runtime/browser identities are
+bound to the plan. See its constraints for host/version limits.
 
 ## Local analysis, editing and reusable packs
 
@@ -113,13 +113,20 @@ tsugite plugin skill --to /explicit/client/skills
 
 Whisper's real mode uses an already installed whisper.cpp CLI selected with
 `TSUGITE_WHISPER` and `--model /existing/model.bin`. No model is downloaded.
-Real model transcription has not been verified on this host. Mock SRT is visibly
+Real CPU transcription with an existing large-v3-turbo model has been verified on this Mac under network denial. Mock SRT is visibly
 synthetic. Existing output files are not overwritten.
 
 Fast Edit takes JSON `{version:1,format:"9:16",segments:[{path:"assets/a.mp4",
 start:0.5,end:2,audio:false}]}`. It returns an explicit project proposal and never
-applies it, renders or approves. Full media bounds are checked when you use the
-proposal in tsugite.yaml and plan it.
+applies or approves it. Full media bounds are checked when you use the proposal
+in tsugite.yaml and plan it. Add a version-1 `fast_edit` decision object to select
+the optional Fast Edit renderer: timed words/beats, 18 cards, emphasis, transitions,
+text effects, zoom, SFX and global style/progress/color/energy become the explicit
+`renderer_options` shown in the plan. It requires the Remotion peer packages and
+an existing browser. Real 18-card output is verified locally. Use
+`npm --prefix .tsugite/plugins/fast-edit install --ignore-scripts --package-lock=false`
+to install its declared peers without modifying the approved plugin files, then
+plan again. Review the [Remotion license guidance](plugins.md) first.
 
 Template packs share timing slots/captions without embedding media, provider
 requests or approvals. Import fills slots with sample media; replace those slots
@@ -137,6 +144,20 @@ The chosen regular project-local MP4 is copied and verified, including source
 audio and an existing plain subtitle track. The new project still requires fresh
 plan, clips and final checks. This preserves the original; it cannot recover the
 old editable native graph from its rendered video.
+
+Add `--archive-v1` to either migration mode to preserve bounded project-local
+media and native/character metadata in `assets/legacy-v1/`. Character snapshots
+retain `character-lock.json` and its verified, co-located files. Traversal,
+symlinks, remote references, oversized media and altered snapshot hashes fail.
+Credential/approval fields are omitted, and original config/state/keys are never
+copied. The archive is explicitly non-executable; the active v2 project uses
+supported editable fields or the selected rendered final. Raw native graphs
+remain data for their corresponding experimental editor, never an implicit
+runtime capability. Failed migrations leave partial new copies for inspection.
+
+Experimental v1 components can be exported non-destructively into separate local
+labs packages; see [labs source separation](https://github.com/Takamasa045/tsugite/tree/main/v2/labs). Those packages
+advertise source inspection only until their runtime adapter is reviewed.
 
 ## Manual reconciliation
 

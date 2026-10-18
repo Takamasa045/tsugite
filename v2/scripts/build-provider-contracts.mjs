@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const home=fileURLToPath(new URL('../plugins/',import.meta.url));
+// Historical bootstrap: never overwrite hand-maintained protocol adapters.
+for(const id of ['pixverse','kling','elevenlabs']){try{await fs.access(path.join(home,id,'transport.mjs'));throw new Error('Protocol packages already exist; edit them directly instead of regenerating');}catch(error){if(error.code!=='ENOENT')throw error;}}
 const definitions=[
   {id:'pixverse',kind:'video',durations:[3,5,10],reference:'https://platform.pixverse.ai/'},
   {id:'kling',kind:'video',durations:[5,10],reference:'https://app.klingai.com/global/dev/document-api'},

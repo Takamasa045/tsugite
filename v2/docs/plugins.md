@@ -49,7 +49,7 @@ Only the output paths assigned by the core should be written.
 
 The `analysis` capability implements zero-credit `analyze({input,model,scratch})`.
 Use `plugin analyze` for local Whisper or a Fast Edit proposal. Whisper requires
-an existing model and CLI; its real transcript output is not yet verified here.
+an existing model and CLI; real CPU transcript output is verified on one Mac with an existing model.
 No runtime dependency installation is attempted; the standalone scaffold uses
 only Node builtins. Its real and mock implementations copy the first input into
 the assigned output; use a matching duration. Its generated test checks output
@@ -61,14 +61,15 @@ All newly installed packages are labeled community or labs. This project does
 not require an "official" namespace or vendor endorsement. Real-render evidence
 and passing mock tests are required before expanding the default installed set.
 The local renderer and optional Remotion renderer have v2 real-render evidence
-on this Mac. HyperFrames and the service sources have contract/mock evidence
-only. They are not defaults. Use `execution: mock` explicitly for synthetic
-service footage/audio and the unverified HyperFrames mock; the page labels it.
+on this Mac. HyperFrames also has real local audio/caption export evidence. Service sources
+have synthetic HTTP protocol tests with paid acceptance still unverified. They
+are not defaults. Use `execution: mock` explicitly for synthetic
+service footage/audio; the page labels it.
 
 ## Other renderers and Remotion licensing
 
 The optional Remotion package has a local real-render fixture; HyperFrames has
-an HTML adapter and mock with the real runtime still disabled in core. This
+an optional real local adapter plus a mock. This
 does not establish licensing eligibility. Remotion is source-available under its
 own license.
 Eligibility depends on entity/team headcount and use case, not only how many

@@ -7,7 +7,16 @@ import {fixture,settings,page} from './helpers.mjs';
 import {plan,make,exportVideo} from '../src/core.mjs';
 import {addPlugin} from '../src/plugins.mjs';
 import {document} from '../plugins/hyperframes/index.mjs';
-import {command} from '../plugins/local/index.mjs';
+import {command,probe} from '../plugins/local/index.mjs';
+import hyperframes from '../plugins/hyperframes/index.mjs';
+test('existing HyperFrames runtime exports real sound and timed captions',{skip:!process.env.TSUGITE_HYPERFRAMES||!process.env.TSUGITE_GSAP||!process.env.TSUGITE_BROWSER},async t=>{
+  const {root,home}=await fixture(t),scratch=path.join(home,'hf-scratch'),output=path.join(home,'hyperframes.mp4');await fs.mkdir(scratch);
+  const tone=path.join(root,'assets/tone.wav');await command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','1',tone]);
+  await addPlugin(root,fileURLToPath(new URL('../plugins/hyperframes/',import.meta.url)));
+  await settings(root,{length:'2s',export:'hyperframes',audio:[{path:'assets/tone.wav',start:0,seconds:2,volume:0.2,loop:true,kind:'bgm'},{path:'assets/tone.wav',start:0.5,seconds:0.5,volume:0.1,kind:'sfx'}],captions:[{start:0,end:2,text:'HYPERFRAMES TEST'}]});await plan(root);const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});await make(root);const media=await exportVideo(root),final=path.join(root,'out/final.mp4');assert.ok(Math.abs(media.seconds-2)<0.15);assert.equal(media.width,360);assert.equal(media.hasAudio,true);
+  const {stderr}=await command('ffmpeg',['-ss','1.3','-i',final,'-t','0.4','-af','volumedetect','-f','null','-']);assert.match(stderr,/mean_volume: -\d+/);assert.doesNotMatch(stderr,/mean_volume: -inf/);
+  if(process.env.TSUGITE_TEST_EVIDENCE){await fs.mkdir(process.env.TSUGITE_TEST_EVIDENCE,{recursive:true});await fs.copyFile(final,path.join(process.env.TSUGITE_TEST_EVIDENCE,'hyperframes.mp4'));await fs.writeFile(path.join(process.env.TSUGITE_TEST_EVIDENCE,'hyperframes-runtime.json'),JSON.stringify(await hyperframes.runtime(),null,2));}
+});
 test('optional Remotion renderer consumes the same timeline without cloud execution',{skip:!process.env.TSUGITE_BROWSER},async t=>{
   const {root}=await fixture(t),directory=fileURLToPath(new URL('../plugins/remotion/',import.meta.url));
   await addPlugin(root,directory);

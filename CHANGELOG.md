@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 2.0.0-alpha.1 - 2026-10-18 (independent v2 package)
+
+- Add `v2/` as an independent npm-format package and CLI. The v1 source package stays at 0.17.0; active productions, commands and data remain compatible.
+- Implement plan/clips/final checks in one local confirmation page, content-bound invalidation, atomic per-service credit reservations, uncertain-job reconciliation, private preferences/packs, MCP and a short Agent Skill.
+- Verify account-free sample installation and export, sound/captions/trims, existing-browser Remotion and HyperFrames, local CPU Whisper and 18-card Fast Edit. Add editable Fast Edit migration, explicit final copies and locked legacy-data archives.
+- Add documented PixVerse/Kling/ElevenLabs HTTP transports with synthetic protocol tests. No paid acceptance or credential change is claimed. Separate 11 experimental compatibility source packages without moving v1 work.
+- This is an **alpha source release**, with a reviewed local-install tarball and synthetic demo. It is not formal v2 acceptance or npm registry publication. Three independent novice trials, paid-service acceptance, maintainers and labs remote relocation remain open.
+
 ## 0.17.0 - 2026-09-24
 
 - Upgrade the optional Tesseract backend to CLI 0.2.0. Add runtime-schema-shaped native document and supported action authoring, Gate 1-bound assets/fonts, six native canvases, 24/30/60 fps, 720p/1080p/4K MP4 controls, and preview/filmstrip artifacts before export.

@@ -21,7 +21,7 @@ export async function config(root) {
   const bytes = await read(root, 'tsugite.yaml');
   const c = parse(bytes, { maxAliasCount: 0 });
   if (!c || typeof c !== 'object' || Array.isArray(c)) fail('Invalid tsugite.yaml');
-  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps'];
+  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options'];
   for (const key of Object.keys(c)) if (!allowed.includes(key)) fail('Unknown project field: ' + key);
   if (c.version !== undefined && c.version !== 2) fail('Expected project version 2');
   if (typeof c.name !== 'string' || !c.name.trim() || c.name.length > 200) fail('Project needs a name');
@@ -32,7 +32,7 @@ export async function config(root) {
   c.use ??= []; c.make ??= []; c.budget ??= {}; c.knowledge ??= [];
   if (!Array.isArray(c.use) || !Array.isArray(c.make) || !Array.isArray(c.knowledge) || c.use.length + c.make.length === 0 || c.use.length + c.make.length > 100) fail('Use 1–100 clips');
   validateBudget(c.budget); pluginID(c.export);
-  if(!['offline','mock'].includes(c.execution??'offline'))fail('Only offline or mock execution is enabled');
+  if(!['offline','mock','live'].includes(c.execution??'offline'))fail('Unsupported execution mode');
   if(!Number.isInteger(c.fps??24)||(c.fps??24)<1||(c.fps??24)>60)fail('FPS must be an integer from 1 to 60');
   if(!['soft','burn'].includes(c.caption_mode??'soft'))fail('Invalid caption mode');
   if (c.checks && (Object.keys(c.checks).some(x => x !== 'auto_clips') || typeof c.checks.auto_clips !== 'boolean')) fail('Invalid checks settings');
@@ -57,15 +57,18 @@ async function buildPlan(root) {
   if (!renderer.manifest.capabilities.includes('renderer')) fail('Plugin cannot render');
   plugins[c.export] = renderer.manifest;
   if(renderer.implementation.runtime)plugins[c.export]={...renderer.manifest,runtime:await renderer.implementation.runtime()};
-  for (const task of c.make) {
-    const { manifest, implementation } = await plugin(root, task.with, true,{mode:c.execution});
+  for (const configuredTask of c.make) {
+    const { manifest, implementation } = await plugin(root, configuredTask.with, true,{mode:c.execution});
+    const task=implementation.normalize?await implementation.normalize(structuredClone(configuredTask),{format:c.format,defaults:manifest.settings.defaults}):configuredTask;
+    const {options:configuredOptions,...configuredFields}=configuredTask,{options:resolvedOptions,...resolvedFields}=task??{};
+    if(json(configuredFields)!==json(resolvedFields))fail('Plugin normalization may only fill source options');
     if (!manifest.capabilities.includes('source') || typeof implementation.make !== 'function') fail('Plugin cannot make clips');
     if(manifest.mediaKinds&&!manifest.mediaKinds.includes(task.kind??'video'))fail('Plugin cannot make requested media kind');
     const quote = await implementation.quote(structuredClone(task));
     if(c.execution==='mock'&&quote.credits!==0)fail('Mock plugins must quote zero credits');
     units(quote.credits); pluginID(quote.service);
     plugins[task.with] = manifest;
-    const identity = hash(json({ task, plugin: manifest.digest,mode:c.execution??'offline', attempt: retries[task.id] ?? 0 }));
+    const identity = hash(json({ task, plugin: manifest.digest,settings:manifest.settings,mode:c.execution??'offline', attempt: retries[task.id] ?? 0 }));
     tasks.push({ ...task, quote, key: identity });
   }
   const clips=arrange(inputs,tasks,c.length);
@@ -78,6 +81,7 @@ async function buildPlan(root) {
   for (const file of c.knowledge) knowledge.push({ path: file, text: await read(root, file) });
   const plan = { version: 2, configHash, name: c.name, format: c.format, seconds: c.length, renderer: c.export, execution:c.execution??'offline',plugins, inputs, tasks, timeline: { version: 1, format: c.format, seconds: c.length,fps:c.fps??24, clips,audio,captions:subtitle.entries },subtitleSource:subtitle.source, budget: c.budget, checks: c.checks ?? {}, taste: await taste(root), knowledge };
   plan.timeline.captionMode=c.caption_mode??'soft';
+  if(c.renderer_options!==undefined){if(!renderer.implementation.supportsOptions)fail('Renderer does not accept renderer_options');plan.timeline.rendererOptions=structuredClone(c.renderer_options);}
   if(renderer.implementation.validate)await renderer.implementation.validate(plan.timeline);
   const s = await state(root);
   reserve(s.ledger, tasks.map(t => ({ id: t.key, ...t.quote })), c.budget);

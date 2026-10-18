@@ -16,6 +16,8 @@ export const help = `継手 / Tsugite v2 alpha
 Usage: tsugite <command> [--project directory] [--json]
 
   init <directory> [--from-v1 directory]   Create an offline sample or copy v1
+  init <directory> --from-v1 dir --flatten file [--archive-v1]
+                                          Copy a final and preserve legacy data safely
   init <directory> --template file        Fill portable timing slots with sample media
   init --pack file                       Export a timing template without media
   check [--status]                        Check environment / current workflow
@@ -33,7 +35,7 @@ Usage: tsugite <command> [--project directory] [--json]
 
 Transport: tsugite mcp (stdio, current project only)
 Checks are approved only in the confirmation page. No CLI approval flag exists.
-No paid/network plugins are enabled in this alpha.
+Offline/mock runs need no service account. Live runs require explicit private connections.
 `;
 
 export async function dispatch(command, args = [], root = process.cwd()) {
@@ -56,7 +58,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (!argv.length || argv.includes('--help')) { process.stdout.write(help); return; }
   const command = argv[0], options = { project:{type:'string'}, json:{type:'boolean'} };
   const perCommand = {
-    init:{'from-v1':{type:'string'},flatten:{type:'string'},template:{type:'string'},pack:{type:'string'}}, check:{status:{type:'boolean'}},
+    init:{'from-v1':{type:'string'},flatten:{type:'string'},'archive-v1':{type:'boolean'},template:{type:'string'},pack:{type:'string'}}, check:{status:{type:'boolean'}},
     plan:{'no-review':{type:'boolean'},'no-open':{type:'boolean'},review:{type:'boolean'},port:{type:'string'}},
     make:{}, export:{}, note:{group:{type:'string'},global:{type:'boolean'},pack:{type:'string'},import:{type:'string'}}, clean:{},
     plugin:{id:{type:'string'},to:{type:'string'},mock:{type:'boolean'},model:{type:'string'},output:{type:'string'}}, mcp:{}
@@ -71,11 +73,12 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (command === 'init') {
     if(values.flatten&&!values['from-v1'])fail('--flatten needs an explicitly selected v1 project');
+    if(values['archive-v1']&&!values['from-v1'])fail('--archive-v1 needs an explicitly selected v1 project');
     if([values['from-v1'],values.template,values.pack].filter(Boolean).length>1)fail('Choose one init mode');
     if(values.pack){if(positionals.length)fail('Template export does not take a directory');await fs.writeFile(path.resolve(root,values.pack),json(await template(root)),{flag:'wx',mode:0o600});result={exported:true};}
     else {
       if (positionals.length !== 1) fail('init needs a new directory');const dest = path.resolve(root,positionals[0]);
-      result = values['from-v1'] ? await migrate(path.resolve(root,values['from-v1']),dest,{flatten:values.flatten}) : values.template ? await initTemplate(dest,JSON.parse(await fs.readFile(path.resolve(root,values.template),'utf8'))) : await init(dest);
+      result = values['from-v1'] ? await migrate(path.resolve(root,values['from-v1']),dest,{flatten:values.flatten,archive:values['archive-v1']}) : values.template ? await initTemplate(dest,JSON.parse(await fs.readFile(path.resolve(root,values.template),'utf8'))) : await init(dest);
     }
   } else if (command === 'note') {
     if ([values.pack,values.import,positionals.length>0].filter(Boolean).length !== 1) fail('Choose note text, --pack or --import');

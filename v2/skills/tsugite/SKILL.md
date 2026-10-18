@@ -30,7 +30,7 @@ reservation remains committed until its actual outcome is reconciled.
 Budgets map service IDs to their own credit limits. Never convert, sum or transfer
 unrelated service credits. A plugin manifest does not sandbox the plugin's code.
 Review plugin licenses and code before installation. Live network/paid entries
-remain disabled. `execution: mock` explicitly selects synthetic zero-cost service
+require explicit private connections and a page-approved plan. `execution: mock` selects synthetic zero-cost service
 mocks and the confirmation page labels them. Never describe mocks as vendor output.
 
 The confirmation page prevents accidental operation. It cannot isolate an agent

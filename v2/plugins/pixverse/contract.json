@@ -2,13 +2,25 @@
   "id": "pixverse",
   "kind": "video",
   "durations": [
+    1,
+    2,
     3,
+    4,
     5,
-    10
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
   ],
   "reference": "https://platform.pixverse.ai/",
   "apiVersion": 1,
-  "liveEnabled": false,
+  "liveEnabled": true,
   "creditPolicy": "explicit per-service maximum; no inferred exchange rates",
-  "verification": "offline contract and synthetic mock only"
+  "verification": "official protocol implementation; synthetic HTTP fixtures; live paid acceptance not performed"
 }

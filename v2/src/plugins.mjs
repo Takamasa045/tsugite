@@ -2,8 +2,19 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readJSON, read, write, inside, treeHash, fail } from './files.mjs';
+import {pluginSettings} from './settings.mjs';
 const builtin = fileURLToPath(new URL('../plugins/local/', import.meta.url));
 export async function bundledPlugin(id){pluginID(id);const directory=fileURLToPath(new URL(`../plugins/${id}/`,import.meta.url));try{await fs.access(path.join(directory,'package.json'));return directory;}catch{return null;}}
+export async function migrationExtension(value,seconds){
+  const found=[];for(const id of await fs.readdir(fileURLToPath(new URL('../plugins/',import.meta.url)))){
+    const directory=await bundledPlugin(id);if(!directory)continue;const pkg=await readJSON(directory,'package.json'),field=pkg.tsugite?.legacyField;
+    if(typeof field!=='string'||!Object.hasOwn(value,field))continue;
+    const manifest=await inspectPlugin(directory),{default:implementation}=await import(pathToFileURL(await inside(directory,manifest.entry)).href);
+    if(!manifest.capabilities.includes('renderer')||typeof implementation.migrateLegacy!=='function')fail('Invalid bundled migration contract');
+    found.push({plugin:id,options:await implementation.migrateLegacy(structuredClone(value[field]),seconds)});
+  }
+  if(found.length>1)fail('Multiple legacy renderer extensions require explicit conversion');return found[0]??null;
+}
 export const pluginID = value => { if (typeof value !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(value)) fail('Invalid plugin id'); return value; };
 export async function inspectPlugin(directory) {
   const pkg = await readJSON(directory, 'package.json'), m = pkg.tsugite;
@@ -20,13 +31,19 @@ export async function plugin(root, id, execute = false,{mode='offline'} = {}) {
   const registry = await readJSON(root, '.tsugite/plugins.json', {});
   const directory = id === 'local' ? builtin : await inside(root, `.tsugite/plugins/${id}`);
   if (id !== 'local' && !Object.hasOwn(registry,id)) fail('Plugin not installed: ' + id);
-  const manifest = await inspectPlugin(directory);
+  const manifest = {...await inspectPlugin(directory),settings:await pluginSettings(id)};
   if (manifest.id !== id || (id !== 'local' && registry[id] !== manifest.digest)) fail('Plugin changed; reinstall and replan');
-  // alpha deliberately has no live provider path. Manifests do not sandbox code.
-  if (manifest.network && mode!=='mock' && execute) fail('Network plugins are disabled in this offline alpha');
+  // Live use requires explicit connection selection. Manifests do not sandbox code.
+  if (manifest.network && !['mock','live'].includes(mode) && execute) fail('Network plugins are disabled in offline mode');
+  if(manifest.network&&mode==='live'&&manifest.settings.connection?.enabled!==true)fail('Select and enable this connection in private global config before live planning');
   if (!execute) return { manifest };
   const module = await import(pathToFileURL(await inside(directory, mode==='mock'?manifest.mock:manifest.entry)).href + '?v=' + manifest.digest);
-  const implementation = module.default;
+  let implementation = module.default;
+  if(mode==='live'&&manifest.network){
+    if(typeof implementation?.connect!=='function')fail('Plugin has no live connection contract');
+    const connection=manifest.settings.connection;
+    implementation=implementation.connect({baseURL:connection.base_url,origins:connection.download_origins,credential:()=>{const value=process.env[connection.credential_env];if(!value)fail('Selected credential environment variable is unavailable');return value;}});
+  }
   if (!implementation || typeof implementation.quote !== 'function') fail('Plugin missing quote');
   return { manifest, implementation };
 }

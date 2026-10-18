@@ -68,10 +68,14 @@ records the receipt hash and settles once. Failed settled jobs can request a new
 attempt and plan; uncertain jobs cannot retry. This is a manual ledger correction,
 not proof of a live provider response. Crash locks still require owned-process
 inspection; no forced stale-lock takeover is offered. Do not edit state casually.
-This alpha disables real entry points of declared network plugins and permits only zero-credit
-renderers. Nonzero source quotes are tested using local mock credits, never a
-paid service. Explicit mock mode loads a package's zero-cost mock, with synthetic media clearly
-labeled. Real transports still need provider idempotency/reconciliation tests.
+Live source entry points require an explicitly enabled private connection and
+a plan approved in the page. Credential values are resolved only at execution.
+Only zero-credit renderers are accepted. Transport tests use synthetic HTTP and
+local mock credits; actual paid acceptance is unverified. Explicit mock mode
+loads synthetic zero-cost implementations and is labeled in the page. Remote
+billing is not forced by a local quote: unknown charges remain reserved pending
+page reconciliation. See [connections](connections.md) for the exact protocol
+subset, recovery and credit-unit limits.
 
 ## Clean
 

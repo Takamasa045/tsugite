@@ -3,10 +3,27 @@
 Let an agent prepare your video, review the plan before it runs, and keep your
 preferences for the next one. The offline sample needs no account or API key.
 
+[Watch the 30-second demo](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.1/demo-30s.mp4)
+· [Zero-credit gallery](docs/gallery.md)
+
 **Local alpha:** sound, captions, local editing, optional Remotion rendering and
-source-plugin mocks work; live paid execution and the broader
+source-plugin mocks work. Documented HTTP transports have synthetic fixture tests; live paid acceptance and the broader
 v1 feature set are still tracked in [requirements](docs/requirements.md). This
-package has not been published. Existing v1 productions continue unchanged.
+package is not published to the npm registry. Existing v1 productions continue unchanged.
+
+Download the alpha tarball from the [source releases](https://github.com/Takamasa045/tsugite/releases).
+Install without cloning or replacing your global tools:
+
+```sh
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.1.tgz
+node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
+node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
+```
+
+Keep that plan process open, approve in its page, then use the same binary with
+`make --project ./my-video` and `export --project ./my-video`. This release remains
+an alpha; [readiness](docs/local-readiness.md) separates local evidence from
+external acceptance.
 
 ## Try the offline sample
 
@@ -69,7 +86,7 @@ The `local` source plugin can also make synthetic fixture footage. Installed
 source plugins add `make` entries with id, with, prompt and seconds. Budgets are
 maps such as `budget: {service-a: 20, service-b: 100}`. These are separate credit
 limits; there is no cross-service total, exchange rate or inferred billing account.
-The alpha rejects declared network plugins. Install only trusted local code.
+Offline mode rejects declared network plugins. Live mode requires an explicitly enabled private connection and page-approved plan; see [connections](docs/connections.md). Install only trusted local code.
 
 Everything stays in the video folder: `assets/`, `taste/`, `out/`, and generated
 plans, approvals, jobs and budget history in `.tsugite/`. Common preferences can

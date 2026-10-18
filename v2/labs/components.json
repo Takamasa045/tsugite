@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "sourceCommit": "890270e4221bafcaa2287f720bae26698bcf88c5",
+  "components": {
+    "tesseract": ["backends/tesseract/", "backends/outputDimensions.mjs", "docs/tesseract.md"],
+    "editframe": ["backends/editframe/", "backends/fastEditScene.mjs", "backends/fastEditMedia.mjs", "backends/fastEditAudio.mjs", "adapters/editframe/", "docs/editframe.md"],
+    "hypit": ["adapters/hypit/", "docs/hypit.md"],
+    "topview": ["adapters/topview/"],
+    "minimax": ["adapters/minimax/"],
+    "premiere": [".agents/skills/premiere-editing/", "docs/premiere-pro.md"],
+    "after-effects": [".agents/skills/after-effects-editing/", "docs/after-effects.md"],
+    "pixverse-canvas": ["docs/pixverse-canvas.md", "adapters/pixverse/pixverseCli.mjs"],
+    "hyperframes-studio": ["docs/hyperframes-studio-webmcp.md", "backends/hyperframes/verify-studio.mjs"],
+    "viewer-3d": ["apps/workflow-viewer/src/components/scene/", "apps/workflow-viewer/src/components/character/"],
+    "character-shitate": ["src/characters/", "src/integrations/shitate.ts", "docs/shitate.md", "docs/characters.md"]
+  }
+}

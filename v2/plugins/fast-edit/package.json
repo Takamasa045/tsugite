@@ -1,1 +1,28 @@
-{"name":"tsugite-plugin-fast-edit","version":"2.0.0-alpha.1","type":"module","license":"MIT","tsugite":{"apiVersion":1,"id":"fast-edit","capabilities":["analysis"],"network":false,"tier":"community","entry":"index.mjs","mock":"mock.mjs","constraints":"constraints.md"}}
+{
+  "name": "tsugite-plugin-fast-edit",
+  "version": "2.0.0-alpha.1",
+  "type": "module",
+  "license": "MIT",
+  "tsugite": {
+    "apiVersion": 1,
+    "id": "fast-edit",
+    "capabilities": [
+      "analysis",
+      "renderer"
+    ],
+    "network": false,
+    "tier": "community",
+    "entry": "index.mjs",
+    "mock": "mock.mjs",
+    "constraints": "constraints.md",
+    "legacyField": "fast_edit"
+  },
+  "peerDependencies": {
+    "@remotion/bundler": "4.0.512",
+    "@remotion/renderer": "4.0.512",
+    "@remotion/media": "4.0.512",
+    "remotion": "4.0.512",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  }
+}

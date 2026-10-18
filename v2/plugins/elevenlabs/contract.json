@@ -4,7 +4,7 @@
   "durations": null,
   "reference": "https://elevenlabs.io/docs/api-reference/text-to-speech/convert",
   "apiVersion": 1,
-  "liveEnabled": false,
+  "liveEnabled": true,
   "creditPolicy": "explicit per-service maximum; no inferred exchange rates",
-  "verification": "offline contract and synthetic mock only"
+  "verification": "official protocol implementation; synthetic HTTP fixtures; live paid acceptance not performed"
 }
