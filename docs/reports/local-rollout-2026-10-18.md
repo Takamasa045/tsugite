@@ -76,3 +76,17 @@ in private local evidence and the source-release report. A clean candidate
 worktree or successful remote CI alone is not proof that primary was updated.
 The v2 tracker remains 73/90 done: live paid-service acceptance, independent
 novice trials and the remaining labs/governance/adoption conditions stay open.
+
+## Applied result and refreshed queue
+
+PR #212 and the coordinated runtime PR #213 were merged normally after CI. The primary checkout was advanced to `fb4932e`, retaining seven dirty tracked source files and 22 untracked source files in a private backup. Fresh repository, Viewer and v2 installs match the lockfiles. Root/Viewer builds passed. The primary `npm run --silent v2` entry completed init/check/plan/make/export in an isolated synthetic fixture: 6.021 seconds, 360×640, audio present and no ledger entries. This is software verification, not human approval of a production. The local Launcher returned HTTP 200 and discovered 78 projects; a separate new offline onboarding sample is waiting for its human plan check. No production media was moved.
+
+After version verification, six remaining superseded PRs (#104, #122, #139, #147, #148, #161) were closed. Dependabot had already closed the other six replaced updates (#177, #180, #189, #195, #196, #201). It also regrouped four major updates (#188, #197, #199, #200) into three new major-review requests. The refreshed paginated API contains **20 open PRs**: 17 of the original 34 and three new requests. This count is a dated observation, not a promise that the bot queue will stop changing.
+
+| New PR | Reviewed scope and CI | Disposition |
+|---|---|---|
+| [#214](https://github.com/Takamasa045/tsugite/pull/214) | Desktop Electron 44, Forge 8, asar 4; three CI jobs passed | Retain for separate Desktop major migration: ESM/Node minimum and installer acceptance need explicit validation |
+| [#215](https://github.com/Takamasa045/tsugite/pull/215) | Download-site Node types 26, ESLint 10, TypeScript 7, vinext 1.2.0; download-site CI failed | Retain: retired-site major migration and failing site validation |
+| [#216](https://github.com/Takamasa045/tsugite/pull/216) | Viewer Vitest/coverage 5, TypeScript 7, jsdom 30, jest-dom 7; root and Windows checks failed | Retain: paired major migration has not passed integration; production keeps verified Vitest/coverage 4.1.11 |
+
+The primary checkout also exposed nested worktree copies to Vitest discovery (1,981 candidate files). The normal and coverage commands now explicitly exclude `.work/**` and `.claude/worktrees/**`, with a real discovery regression fixture. Working copies are preserved. A first whole-suite invocation in the restricted runner failed with loopback-listen EPERM; the same suite passed with the local execution permission required by its HTTP/browser fixtures: 2,393 passed, two skipped, no failures, with branch coverage 74.68%. Corrected primary discovery reports 165 files and zero nested-worktree matches.
