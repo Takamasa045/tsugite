@@ -5,14 +5,19 @@ import { parseArgs } from 'node:util';
 import { init, plan, make, exportVideo, environment, status, cleanPreview } from './core.mjs';
 import { review } from './review.mjs';
 import { addNote, pack, importPack, tasteHome } from './taste.mjs';
-import { addPlugin, newPlugin, plugin } from './plugins.mjs';
+import { addPlugin, newPlugin, plugin,bundledPlugin } from './plugins.mjs';
 import { locked, json, readJSON, write, fail } from './files.mjs';
 import { migrate } from './migrate.mjs';
+import {template,initTemplate,installSkill,addKnowledge} from './packs.mjs';
+import {analyze} from './analysis.mjs';
+import {addArchive,acquireNpm} from './acquire.mjs';
 
 export const help = `継手 / Tsugite v2 alpha
 Usage: tsugite <command> [--project directory] [--json]
 
   init <directory> [--from-v1 directory]   Create an offline sample or copy v1
+  init <directory> --template file        Fill portable timing slots with sample media
+  init --pack file                       Export a timing template without media
   check [--status]                        Check environment / current workflow
   plan [--no-review] [--no-open]           Plan and open local confirmation page
   make                                   Make clips after plan approval
@@ -21,6 +26,10 @@ Usage: tsugite <command> [--project directory] [--json]
   note --pack file | --import file        Export / import a taste pack
   clean                                  Preview old generated files
   plugin list | new <dir> --id <id> | add <local-package-dir>
+  plugin add <bundled-name|directory|archive.tgz|npm:package@exact-version>
+  plugin analyze <id> assets/input [--mock] [--model local-model] [--output assets/captions.srt]
+  plugin knowledge story|prompt-director|file.md
+  plugin skill --to <client-skills-directory>
 
 Transport: tsugite mcp (stdio, current project only)
 Checks are approved only in the confirmation page. No CLI approval flag exists.
@@ -47,10 +56,10 @@ export async function main(argv = process.argv.slice(2)) {
   if (!argv.length || argv.includes('--help')) { process.stdout.write(help); return; }
   const command = argv[0], options = { project:{type:'string'}, json:{type:'boolean'} };
   const perCommand = {
-    init:{'from-v1':{type:'string'}}, check:{status:{type:'boolean'}},
+    init:{'from-v1':{type:'string'},flatten:{type:'string'},template:{type:'string'},pack:{type:'string'}}, check:{status:{type:'boolean'}},
     plan:{'no-review':{type:'boolean'},'no-open':{type:'boolean'},review:{type:'boolean'},port:{type:'string'}},
     make:{}, export:{}, note:{group:{type:'string'},global:{type:'boolean'},pack:{type:'string'},import:{type:'string'}}, clean:{},
-    plugin:{id:{type:'string'}}, mcp:{}
+    plugin:{id:{type:'string'},to:{type:'string'},mock:{type:'boolean'},model:{type:'string'},output:{type:'string'}}, mcp:{}
   };
   if (!Object.hasOwn(perCommand,command)) fail('Unknown command');
   const {values,positionals} = parseArgs({ args:argv.slice(1), options:{...options,...perCommand[command]},allowPositionals:true,strict:true });
@@ -61,9 +70,13 @@ export async function main(argv = process.argv.slice(2)) {
     const { startMcp } = await import('./mcp.mjs'); await startMcp(root); return;
   }
   if (command === 'init') {
-    if (positionals.length !== 1) fail('init needs a new directory');
-    const dest = path.resolve(root,positionals[0]);
-    result = values['from-v1'] ? await migrate(path.resolve(root,values['from-v1']),dest) : await init(dest);
+    if(values.flatten&&!values['from-v1'])fail('--flatten needs an explicitly selected v1 project');
+    if([values['from-v1'],values.template,values.pack].filter(Boolean).length>1)fail('Choose one init mode');
+    if(values.pack){if(positionals.length)fail('Template export does not take a directory');await fs.writeFile(path.resolve(root,values.pack),json(await template(root)),{flag:'wx',mode:0o600});result={exported:true};}
+    else {
+      if (positionals.length !== 1) fail('init needs a new directory');const dest = path.resolve(root,positionals[0]);
+      result = values['from-v1'] ? await migrate(path.resolve(root,values['from-v1']),dest,{flatten:values.flatten}) : values.template ? await initTemplate(dest,JSON.parse(await fs.readFile(path.resolve(root,values.template),'utf8'))) : await init(dest);
+    }
   } else if (command === 'note') {
     if ([values.pack,values.import,positionals.length>0].filter(Boolean).length !== 1) fail('Choose note text, --pack or --import');
     let target = root;
@@ -80,8 +93,15 @@ export async function main(argv = process.argv.slice(2)) {
       const registry = await readJSON(root,'.tsugite/plugins.json',{});
       result = await Promise.all(['local',...Object.keys(registry)].map(async id => (await plugin(root,id)).manifest));
     } else if (sub === 'new' && positionals.length === 2 && values.id) result = await newPlugin(path.resolve(root,value),values.id);
-    else if (sub === 'add' && positionals.length === 2) result = await locked(root,()=>addPlugin(root,path.resolve(root,value)));
-    else fail('Use plugin list | new directory --id id | add local-directory');
+    else if (sub === 'add' && positionals.length === 2) {
+      if(value.startsWith('npm:'))result=await locked(root,()=>acquireNpm(root,value.slice(4)));
+      else if(value.endsWith('.tgz'))result=await locked(root,()=>addArchive(root,path.resolve(root,value)));
+      else {const source=!value.includes('/')&&!value.includes('\\')?await bundledPlugin(value):null;result=await locked(root,()=>addPlugin(root,source??path.resolve(root,value)));}
+    }
+    else if(sub==='skill'&&positionals.length===1&&values.to)result=await installSkill(path.resolve(root,values.to));
+    else if(sub==='knowledge'&&positionals.length===2)result=await addKnowledge(root,/^[a-z][a-z0-9-]{0,63}$/.test(value)?value:path.resolve(root,value));
+    else if(sub==='analyze'&&positionals.length===3)result=await analyze(root,value,positionals[2],{mock:values.mock,model:values.model,output:values.output});
+    else fail('Use plugin list | new | add | skill --to directory | analyze id assets/input [--mock]');
   } else {
     if (positionals.length) fail('Unexpected positional arguments');
     result = await dispatch(command === 'check' && values.status ? 'status' : command,[],root);

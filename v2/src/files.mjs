@@ -11,6 +11,9 @@ export const exists = async p => { try { await fs.lstat(p); return true; } catch
 // This is accidental/path-input protection, not isolation from the OS account.
 export async function inside(root, relative) {
   if (typeof relative !== 'string' || !relative || relative.includes('\\') || relative.includes('\0') || path.isAbsolute(relative) || relative.split('/').some(p => p === '..' || p === '.')) fail('Unsafe project path');
+  // Apply portable rules on every host so archives approved on macOS cannot
+  // become drive paths, NTFS alternate streams or device names on Windows.
+  if (relative.split('/').some(p => /[:<>"|?*\x01-\x1f]/.test(p) || /[. ]$/.test(p) || /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³]|conin\$|conout\$)(?:\.|$)/i.test(p))) fail('Unsafe portable project path');
   const base = await fs.realpath(root);
   const target = path.resolve(base, relative);
   if (!target.startsWith(base + path.sep)) fail('Path escapes project');

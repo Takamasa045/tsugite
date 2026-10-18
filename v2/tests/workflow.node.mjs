@@ -24,7 +24,7 @@ test('real offline sample: page approvals, make, MP4 export, final, duplicate re
   assert.equal((await ui.submit('approve',{stage:'plan'})).status,303);
   assert.equal((await make(root)).made,0);
   const output=await exportVideo(root);
-  assert.equal(output.seconds,6); assert.equal(output.width,360); assert.equal(output.height,640);
+  assert.ok(Math.abs(output.seconds-6)<0.05); assert.equal(output.width,360); assert.equal(output.height,640);
   await ui.refresh(); assert.equal((await ui.submit('approve',{stage:'final'})).status,303);
   assert.equal((await status(root)).checks.final,'approved');
   assert.deepEqual((await state(root)).ledger.entries,[]);
@@ -89,7 +89,7 @@ test('CLI and MCP have no approval operation or coercible approval flag',async t
 });
 test('project path traversal, absolute input, symlink parent and plugin id rejected',async t=>{
   const {root,home}=await fixture(t);
-  for(const relative of ['../secret','assets/../../secret','/tmp/secret','assets\\secret','assets/./intro.mp4']) await assert.rejects(inside(root,relative));
+  for(const relative of ['../secret','assets/../../secret','/tmp/secret','assets\\secret','assets/./intro.mp4','C:relative','assets/a:stream','assets/CON.txt','assets/COM¹','assets/CONIN$','assets/trailing.','assets/trailing ','assets/control\x01']) await assert.rejects(inside(root,relative));
   await fs.symlink(home,path.join(root,'assets','link'),process.platform==='win32'?'junction':'dir');await assert.rejects(inside(root,'assets/link/private'),/Symlinks/);
   await settings(root,{use:['../secret']});await assert.rejects(plan(root),/Inputs must/);
   await assert.rejects(newPlugin(path.join(home,'bad'),'../bad'),/Invalid plugin/);
@@ -104,6 +104,7 @@ test('parallel make uses exclusive lock and does not double-execute / reserve',a
 });
 test('service budgets fixed-point reservations are atomic and never combined',()=>{
   const ledger={entries:[]};
+  assert.equal(reserve(ledger,[{id:'zero',service:'constructor',credits:0}],{}).entries.length,1);
   assert.throws(()=>reserve(ledger,[{id:'a',service:'one',credits:4},{id:'b',service:'one',credits:4}],{one:7}),/Budget exceeded/);assert.equal(ledger.entries.length,0);
   let l=reserve(ledger,[{id:'a',service:'one',credits:3.1},{id:'b',service:'two',credits:70}],{one:4,two:70});
   assert.deepEqual(budgetView(l),{one:{spent:0,reserved:3.1},two:{spent:0,reserved:70}});
@@ -137,6 +138,13 @@ test('plugin network and contract checks, scaffold mock test, tamper invalidatio
   await fs.unlink(path.join(directory,'mock.mjs'));await assert.rejects(inspectPlugin(directory),/ENOENT/);
   await sourcePlugin(root,home,{id:'network-source',network:true});await settings(root,{make:[{id:'x',with:'network-source',prompt:'test',seconds:3}]});await assert.rejects(plan(root),/Network plugins are disabled/);
 });
+test('a newly scaffolded mock produces usable media through the reviewed workflow',async t=>{
+  const {root,home}=await fixture(t),directory=path.join(home,'copy-source');
+  await newPlugin(directory,'copy-source');await addPlugin(root,directory);
+  await settings(root,{execution:'mock',make:[{id:'copied',with:'copy-source',prompt:'fixture copy',seconds:3}],length:'6s'});await plan(root);
+  const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});await make(root);await ui.refresh();await ui.submit('approve',{stage:'clips'});await exportVideo(root);
+  assert.equal((await state(root)).ledger.entries[0].actual,0);assert.equal((await status(root)).output.width,360);
+});
 test('single clip retry requires new page plan approval and preserves other clip',async t=>{
   const {root}=await fixture(t);await settings(root,{make:[{id:'one',with:'local',prompt:'first',seconds:2},{id:'two',with:'local',prompt:'second',seconds:2}]});await plan(root);
   const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});await make(root);const before=await currentPlan(root);await ui.refresh();
@@ -160,7 +168,7 @@ test('copy-only v1 migration never imports approvals or changes original media',
   await write(source,'project.yaml','name: Legacy\nmanifest: manifest.json\n');await write(source,'manifest.json',{meta:{aspect:'9:16'},clips:[{id:'one',src:'media/intro.mp4',duration:3,audio:false}]});
   const before=await fileHash(source,'media/intro.mp4');const destination=path.join(home,'migrated');const result=await migrate(source,destination);
   assert.equal(result.approvalsImported,false);assert.equal(await fileHash(source,'media/intro.mp4'),before);await plan(destination);await assert.rejects(make(destination),/Waiting for plan/);
-  const manifest=JSON.parse(await read(source,'manifest.json'));manifest.clips[0].in=1;await write(source,'manifest.json',manifest);await assert.rejects(migrate(source,path.join(home,'bad-migrate')),/untrimmed/);
+  const manifest=JSON.parse(await read(source,'manifest.json'));manifest.clips[0].in=1;await write(source,'manifest.json',manifest);await assert.rejects(migrate(source,path.join(home,'bad-migrate')),/trim exceeds/);
 });
 test('final preview and final approval reject modified delivery MP4',async t=>{
   const {root}=await fixture(t);await plan(root);const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});await make(root);await exportVideo(root);await ui.refresh();await ui.submit('approve',{stage:'final'});

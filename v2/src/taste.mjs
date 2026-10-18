@@ -4,6 +4,12 @@ import path from 'node:path';
 import { read, readJSON, write, exists, fail, hash } from './files.mjs';
 export const tasteHome = () => path.resolve(process.env.TSUGITE_HOME || path.join(os.homedir(), '.tsugite'));
 const normalize = text => text.normalize('NFKC').toLowerCase().replace(/[\p{P}\p{Z}\s]/gu, '');
+function fingerprint(text){
+  const words=text.normalize('NFKC').toLowerCase().match(/[a-z]+|\d+(?:\.\d+)?/g);
+  if(!words||/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text))return normalize(text);
+  const stop=new Set(['please','the','a','an','is','are','be','should','keep','make','it']);
+  return words.filter(word=>!stop.has(word)).map(word=>word.length>4?word.replace(/(ing|er|s)$/,''):word).sort().join(' ');
+}
 export async function taste(root) {
   const local = await readJSON(root, 'taste/notes.json', []);
   const global = path.resolve(root) === tasteHome() ? [] : await readJSON(tasteHome(),'taste/notes.json',[]);
@@ -13,21 +19,24 @@ export async function taste(root) {
     try { globalRules = await read(tasteHome(), 'taste/rules.md'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   }
   const checks=[...await readJSON(root,'taste/checks.json',[]),...await readJSON(tasteHome(),'taste/checks.json',[])];
-  for(const check of checks) if(!check || !['max_duration','min_width','min_height'].includes(check.kind) || !Number.isFinite(check.value) || check.value<0)fail('Invalid machine-checkable taste condition');
+  for(const check of checks) if(!check || !['max_duration','min_width','min_height','max_bgm_start'].includes(check.kind) || !Number.isFinite(check.value) || check.value<0)fail('Invalid machine-checkable taste condition');
   return { notes: local.map(x => ({ text: x.text, key: x.key, stage: x.stage })), globalNotes: global.map(x=>({text:x.text,key:x.key,stage:x.stage})), rules, globalRules,checks };
 }
-export function evaluateChecks(preferences,output) {
+export function evaluateChecks(preferences,output,timeline={}) {
   if(!output || output.status!=='done')return [];
   return preferences.checks.map(check=>{
-    const actual=check.kind==='max_duration'?output.seconds:check.kind==='min_width'?output.width:output.height;
-    return {...check,actual,passed:check.kind==='max_duration'?actual<=check.value:actual>=check.value};
+    const bgm=(timeline.audio??[]).filter(track=>track.kind==='bgm'&&track.volume>0).map(track=>track.start);
+    const actual=check.kind==='max_duration'?output.seconds:check.kind==='min_width'?output.width:check.kind==='max_bgm_start'?(bgm.length?Math.min(...bgm):null):output.height;
+    return {...check,actual,source:check.kind==='max_bgm_start'?'approved timeline schedule':'rendered media',passed:actual!==null&&(check.kind==='max_duration'||check.kind==='max_bgm_start'?actual<=check.value:actual>=check.value)};
   });
 }
 export async function addNote(root, text, group) {
   if (typeof text !== 'string' || !text.trim() || text.length > 2000 || /[\r\n]/.test(text)) fail('Note must be a single line of 1–2000 characters');
   const notes = await readJSON(root, 'taste/notes.json', []);
-  // Explicit group supports human semantic grouping without sending text to a model.
-  const key = hash(normalize(group || text));
+  // Conservative local wording normalization; numeric values and negation stay.
+  // Explicit groups let the human handle concepts beyond lexical similarity.
+  const literal=hash(normalize(group||text)),matching=group?notes.find(n=>hash(normalize(n.text))===literal):notes.slice(-200).find(n=>fingerprint(n.text)===fingerprint(text));
+  const key=matching?.key??literal;
   notes.push({ text: text.trim(), key, stage: 'observation', at: new Date().toISOString() });
   if (notes.filter(x => x.key === key).length >= 3) for (const n of notes.filter(x => x.key === key)) if (n.stage !== 'rule') n.stage = 'habit';
   await write(root, 'taste/notes.json', notes);

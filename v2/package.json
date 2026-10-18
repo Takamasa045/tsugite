@@ -5,11 +5,12 @@
   "type": "module",
   "license": "MIT",
   "bin": { "tsugite": "bin/tsugite.mjs" },
-  "files": ["bin", "src", "plugins", "skills", "docs", "README.md", "LICENSE"],
+  "files": ["bin", "src", "plugins", "packs", "skills", "docs", "README.md", "LICENSE"],
   "engines": { "node": ">=22.12" },
   "scripts": {
-    "test": "node --test tests/*.node.mjs",
+    "test": "node --test tests/*.node.mjs plugins/*/test.mjs",
     "test:offline": "node scripts/offline-smoke.mjs",
+    "test:extended": "node scripts/expanded-smoke.mjs",
     "check": "node --check src/core.mjs && node --check src/review.mjs && npm test"
   },
   "dependencies": { "yaml": "2.9.0" },

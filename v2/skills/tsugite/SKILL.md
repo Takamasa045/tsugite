@@ -29,14 +29,28 @@ reservation remains committed until its actual outcome is reconciled.
 
 Budgets map service IDs to their own credit limits. Never convert, sum or transfer
 unrelated service credits. A plugin manifest does not sandbox the plugin's code.
-Review plugin licenses and code before installation. The current alpha accepts
-local offline plugins only; network/paid integrations are not implemented.
+Review plugin licenses and code before installation. Live network/paid entries
+remain disabled. `execution: mock` explicitly selects synthetic zero-cost service
+mocks and the confirmation page labels them. Never describe mocks as vendor output.
 
 The confirmation page prevents accidental operation. It cannot isolate an agent
 running under the same OS account. Do not promise otherwise. Do not publish,
 send material externally, change credentials, or spend credits without explicit
-authorization. Preserve v1 production projects; `init --from-v1` only copies the
-limited supported silent local-clip subset and never imports approvals.
+authorization. Preserve v1 production projects; `init --from-v1` copies supported
+local media/trims/audio/plain captions and never imports approvals or credentials.
+Native, animated and character constructs require explicit conversion.
+
+For local sound/captions, specify source trims and audio tracks in tsugite.yaml.
+SRT or inline captions use MP4 text tracks by default; `caption_mode: burn` needs
+a libass-enabled FFmpeg. Optional Remotion needs its tested peers and an existing
+browser, with runtime identity bound to the plan. No browser is downloaded.
+Use `plugin analyze` for zero-credit local Whisper or Fast Edit proposals; never
+treat a proposal or mock transcript as an applied/approved final edit.
+Use `init --pack` / `init --template` for timing templates, `plugin knowledge` for
+local guide snapshots, and `plugin skill --to` for explicit client installation.
+Uncertain reservations may be reconciled only by the human's page action after
+checking a normalized local receipt. Do not fabricate receipts or settle them for
+the user. A new failed-job attempt requires a new reviewed plan.
 
 For MCP clients, start `tsugite mcp` with cwd fixed to the video folder. Available
 tools: check, status, plan, make, export, note, clean. The server uses the same

@@ -1,0 +1,1 @@
+{"name":"tsugite-plugin-fast-edit","version":"2.0.0-alpha.1","type":"module","license":"MIT","tsugite":{"apiVersion":1,"id":"fast-edit","capabilities":["analysis"],"network":false,"tier":"community","entry":"index.mjs","mock":"mock.mjs","constraints":"constraints.md"}}

@@ -1,0 +1,14 @@
+{
+  "id": "pixverse",
+  "kind": "video",
+  "durations": [
+    3,
+    5,
+    10
+  ],
+  "reference": "https://platform.pixverse.ai/",
+  "apiVersion": 1,
+  "liveEnabled": false,
+  "creditPolicy": "explicit per-service maximum; no inferred exchange rates",
+  "verification": "offline contract and synthetic mock only"
+}

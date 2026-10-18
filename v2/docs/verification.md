@@ -1,5 +1,50 @@
 # Local verification — 2026-10-18
 
+## Continued implementation checkpoint
+
+Current durable worktree:
+`/Users/takamasa/Projects/開発/tsugite/.work/tsugite-v2-worktree`, branch
+`codex/tsugite-v2`. The earlier temporary worktree below was moved intact;
+the foundation commit is `9c8baaf`. No v1 sources or productions were edited.
+
+The expanded v2 check has **53 passed, 0 failed, 0 skipped**, including real
+Remotion video/audio/caption export using existing local peer packages and an
+explicit existing browser. No browser/runtime download or cloud call ran.
+New tests cover sound mixing, subtitle extraction/WebVTT, trims/reframing,
+source mocks, page-only receipt settlement, durable provider job identity,
+packs/knowledge/Skill install, native-v1 final-copy migration, preservation of
+untracked outputs, registry identity/tar validation and usable scaffold output.
+
+The expanded real CLI smoke ran with external networking denied by macOS,
+allowing loopback only. Its **20 successful steps** use explicit synthetic
+service mocks and a run-owned fixture. It produced **8.021322 seconds,
+360×640, with sound and subtitles**, and two ledger entries settled at **zero**
+credits. Automated fixture form submissions are not human production approval.
+Output SHA-256:
+`1afd66dc3c4ea83b6e16e56d598a085746f0bc612e938d0abef2d339812ada46`.
+
+Proof JSON, current check log and copied MP4 are retained in ignored
+`v2/evidence/phase2/`. That folder also holds the baseline comparison: the v1
+HyperFrames failure reproduces at untouched base `890270e` and v1 source paths
+are unchanged. The existing shared dependency installation is preserved.
+
+Live registry acquisition has mocked command/hostile archive tests; a real
+locally npm-packed Fast Edit archive was installed into an isolated project.
+No registry network acceptance or clean registry install is claimed. Package
+dry-run excludes node_modules, evidence, test outputs and production media.
+
+Still unverified: actual Windows/Linux runs and independent-user trials,
+HyperFrames real v2 rendering, real local Whisper transcription and all live
+source-provider transports/credit accounting. Default FFmpeg on this host lacks
+libass, so burn-in mode correctly fails preflight; soft MP4 captions work.
+The optional full FFmpeg binary on this host has a missing library and was not
+repaired. No public release, paid generation or credentials change occurred.
+
+The following phase-one report is retained as historical evidence; its
+23-test count and temporary path do not describe the latest checkpoint.
+
+## Phase-one report
+
 This is an alpha implementation report, not approval of a real production or
 completion of all v2 requirements. Worktree `/tmp/tsugite-v2`, branch
 `codex/tsugite-v2`, based on `origin/main` at `890270e`. Primary checkout remains

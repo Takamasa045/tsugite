@@ -18,7 +18,7 @@ export function reserve(ledger, requests, budget) {
   const next = structuredClone(ledger);
   for (const service of new Set(next.entries.map(x=>x.service))) {
     const used = next.entries.filter(x=>x.service===service).reduce((s,x)=>s+units(x.status==='settled'?x.actual:x.credits),0);
-    if (used > units(budget[service] ?? 0)) fail('Budget is below committed credits for ' + service);
+    if (used > units(Object.hasOwn(budget,service)?budget[service]:0)) fail('Budget is below committed credits for ' + service);
   }
   for (const request of requests) {
     const previous = next.entries.find(x => x.id === request.id);
@@ -29,7 +29,7 @@ export function reserve(ledger, requests, budget) {
     units(request.credits);
     if (request.credits > 0 && !Object.hasOwn(budget, request.service)) fail('No budget for service ' + request.service);
     const committed = next.entries.filter(x => x.service === request.service).reduce((sum, x) => sum + units(x.status === 'settled' ? x.actual : x.credits), 0);
-    if (committed + units(request.credits) > units(budget[request.service] ?? 0)) fail('Budget exceeded for ' + request.service);
+    if (committed + units(request.credits) > units(Object.hasOwn(budget,request.service)?budget[request.service]:0)) fail('Budget exceeded for ' + request.service);
     next.entries.push({ ...request, status: 'reserved' });
   }
   return next;

@@ -3,7 +3,8 @@
 Let an agent prepare your video, review the plan before it runs, and keep your
 preferences for the next one. The offline sample needs no account or API key.
 
-**Local alpha:** the sample and safety tests work; paid providers and the broader
+**Local alpha:** sound, captions, local editing, optional Remotion rendering and
+source-plugin mocks work; live paid execution and the broader
 v1 feature set are still tracked in [requirements](docs/requirements.md). This
 package has not been published. Existing v1 productions continue unchanged.
 
@@ -87,7 +88,8 @@ into project trash. It never irreversibly deletes originals.
 `note --pack taste.json` creates a shareable pack; `note --import taste.json`
 imports suggestions without automatically approving rules. `note --group "same
 idea" "similar wording"` lets you group related observations explicitly. Three
-matching observations become a habit. After final approval, the page offers one
+matching observations become a habit. Common English wording is grouped locally
+without sending preferences to a model; explicit groups handle other paraphrases. After final approval, the page offers one
 promotion decision; accepted rules go into `taste/rules.md`. Global habits are
 promoted into the common taste folder. After final review you can record whether
 a rule helped or missed; two consecutive misses offer explicit retirement.
@@ -95,19 +97,20 @@ a rule helped or missed; two consecutive misses offer explicit retirement.
 Optional `taste/checks.json` conditions such as
 `[{"kind":"max_duration","value":6},{"kind":"min_width","value":360}]`
 automatically inspect final video metadata. These are advisory preference checks,
-displayed in the page and saved with final approval. Audio/BGM conditions need
-an audio-capable plugin and are not implemented in the silent sample renderer.
+displayed in the page and saved with final approval. `max_bgm_start` checks the approved timeline schedule separately from measured
+media metadata; it is not an acoustic classifier of the final mix.
 
 Use `tsugite mcp` as an MCP stdio server with cwd set to a video folder, or install
 the short [Agent Skill](skills/tsugite/SKILL.md) in your client's normal skills
 directory. MCP tools use the same dispatcher as the CLI and have no approval tool.
-For Claude Code/Codex, a one-command distribution package is still a follow-up;
-copying this one Skill is supported now.
+Use `tsugite plugin skill --to /your/client/skills` for either Claude Code or
+Codex. It installs one Skill and refuses to overwrite an existing one.
 
-`init ./copy --from-v1 /path/to/legacy-project` conservatively copies silent,
-untrimmed local clips. Audio, captions, trims and generated v1 projects are
-rejected with a conversion explanation. The original files, approvals and keys
-are never moved or imported.
+`init ./copy --from-v1 /path/to/legacy-project` copies local clips (including
+unequal trims and requested source sound), existing audio and plain timed
+captions. Native/animated/character constructs are rejected with a conversion
+explanation. The original files stay in place; approvals and keys are never
+imported. See [extended workflows](docs/phase-two.md).
 
 ## Safety, extensions and verification
 
@@ -115,6 +118,9 @@ The page prevents accidental approval; it does not isolate an agent with the
 same OS privileges. There is no CLI approval flag. Changed settings, plan bytes,
 assets, plugin content or preference context invalidate approvals. Uncertain jobs
 retain their entire credit reservation and cannot be retried automatically.
+The page can reconcile a local normalized receipt after you verify the outcome;
+failed settled jobs require a new reviewed plan before retry. Existing untracked
+or modified `out/final.mp4` files are preserved instead of overwritten.
 
 See [architecture](docs/architecture.md) for recovery and trust limits,
 [plugin SDK and license guidance](docs/plugins.md), and the exhaustive

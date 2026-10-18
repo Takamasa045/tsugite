@@ -8,7 +8,10 @@ import { parse,stringify } from 'yaml';
 export async function fixture(t) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(),'tsugite-v2-test-'));
   const root = path.join(home,'project');
+  const previousTasteHome=process.env.TSUGITE_HOME;
+  process.env.TSUGITE_HOME=path.join(home,'private-home');
   t.after(()=>fs.rm(home,{recursive:true,force:true}));
+  t.after(()=>{if(previousTasteHome===undefined)delete process.env.TSUGITE_HOME;else process.env.TSUGITE_HOME=previousTasteHome;});
   await init(root); return {root,home};
 }
 export async function settings(root,update) {

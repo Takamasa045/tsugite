@@ -1,0 +1,13 @@
+{
+  "id": "kling",
+  "kind": "video",
+  "durations": [
+    5,
+    10
+  ],
+  "reference": "https://app.klingai.com/global/dev/document-api",
+  "apiVersion": 1,
+  "liveEnabled": false,
+  "creditPolicy": "explicit per-service maximum; no inferred exchange rates",
+  "verification": "offline contract and synthetic mock only"
+}

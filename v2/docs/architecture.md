@@ -62,10 +62,16 @@ retain the entire reservation as uncertain; automatic retries/refunds are denied
 
 Inspect `operation.lock`'s PID, job and provider evidence before any manual crash
 recovery. There is intentionally no `--force` or silent stale-lock takeover.
-Recovery/reconciliation UI is a tracked follow-up; do not edit state casually.
-This alpha disables declared network plugins and permits only zero-credit
+The confirmation page can apply a normalized local receipt after a human checks
+the actual outcome. It verifies the task/service/job identity and maximum,
+records the receipt hash and settles once. Failed settled jobs can request a new
+attempt and plan; uncertain jobs cannot retry. This is a manual ledger correction,
+not proof of a live provider response. Crash locks still require owned-process
+inspection; no forced stale-lock takeover is offered. Do not edit state casually.
+This alpha disables real entry points of declared network plugins and permits only zero-credit
 renderers. Nonzero source quotes are tested using local mock credits, never a
-paid service. Real providers need provider idempotency and reconciliation tests.
+paid service. Explicit mock mode loads a package's zero-cost mock, with synthetic media clearly
+labeled. Real transports still need provider idempotency/reconciliation tests.
 
 ## Clean
 

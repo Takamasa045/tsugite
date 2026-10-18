@@ -37,4 +37,21 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm run test:offline
+      - run: npm run test:extended
       - run: npm pack --dry-run
+  remotion-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: npm --prefix v2 ci --ignore-scripts
+      - run: npm --prefix v2/plugins/remotion install --ignore-scripts
+      - run: test -x /usr/bin/google-chrome
+      - run: node --test v2/tests/renderers.node.mjs
+        env:
+          TSUGITE_BROWSER: /usr/bin/google-chrome
+          TSUGITE_RENDERER_PEERS: ${{ github.workspace }}/v2/plugins/remotion/node_modules
