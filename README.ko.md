@@ -50,7 +50,7 @@ npm run setup:open  # launcher도 열 때
 - [Premiere Pro](docs/premiere-pro.md): macOS. `$premiere-editing` / `/premiere-editing` (컷, 전환, 오디오, 자막, 색; 로컬 MCP).
 - [After Effects](docs/after-effects.md): macOS. `$after-effects-editing` / `/after-effects-editing` (공식 `DoScriptFile` helper: inspect / fixture / 타이틀 / 다른 이름으로 저장).
 - [PixVerse Canvas](docs/pixverse-canvas.md): 공식 CLI 1.4.9 고정, `npm run pixverse:install`.
-- [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md): 0.8.172 고정. Studio 편집은 pipeline manifest를 쓰지 않습니다.
+- [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md): 0.8.173 고정. Studio 편집은 pipeline manifest를 쓰지 않습니다.
 
 **생성과 분석**
 

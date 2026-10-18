@@ -20,7 +20,7 @@ const hfRequire = createRequire(packagePath);
 const { default: puppeteer } = await import(hfRequire.resolve("puppeteer-core"));
 const sharp = hfRequire("sharp");
 const version = JSON.parse(await readFile(packagePath, "utf8")).version;
-assert.equal(version, "0.8.172", "Revalidate the Studio contract before changing the pinned version");
+assert.equal(version, "0.8.173", "Revalidate the Studio contract before changing the pinned version");
 const chrome = process.env.PUPPETEER_EXECUTABLE_PATH;
 assert(chrome, "Set PUPPETEER_EXECUTABLE_PATH to an installed Chrome 152+ executable; no browser is downloaded.");
 const out = join(root, "dist/verification/hyperframes-webmcp-fixes", new Date().toISOString().replace(/[:.]/g, "-"));
@@ -200,6 +200,12 @@ try {
   });
   report.browser = await browser.version();
   page = await browser.newPage();
+  await page.setRequestInterception(true);
+  page.on("request", (request) => {
+    const value = request.url();
+    if (/^(data|blob):/.test(value) || new URL(value).origin === origin) void request.continue();
+    else void request.abort("blockedbyclient");
+  });
   await page.setViewport({ width: 1440, height: 1000 });
   await page.evaluateOnNewDocument(() => { window.__nativeWebMCP = typeof document.modelContext?.getTools === "function"; });
   const served = [];

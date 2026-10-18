@@ -8,7 +8,7 @@ import {
   applyPinnedHyperframesPatches, sha256Text
 } from "../backends/hyperframes/apply-pinned-patches.mjs";
 
-describe("hyperframes 0.8.172 integration", () => {
+describe("hyperframes 0.8.173 integration", () => {
   it("keeps PATCH_ROOT independent of process cwd", () => {
     expect(PATCH_ROOT.replace(/\/$/, "")).toBe(join(import.meta.dirname, ".."));
     const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
@@ -37,7 +37,7 @@ describe("hyperframes 0.8.172 integration", () => {
 
   it("documents handle-targeted Studio writes", async () => {
     const guide = await readFile(join(PATCH_ROOT, "docs/hyperframes-studio-webmcp.md"), "utf8");
-    expect(guide).toContain("0.8.172");
+    expect(guide).toContain("0.8.173");
     expect(guide).toContain('studio_set_text", { handle, text:');
     expect(guide).toContain('studio_set_style", { handle, styles:');
   });
@@ -54,7 +54,7 @@ describe("hyperframes 0.8.172 integration", () => {
       await writeFile(manifest, JSON.stringify({ name: "hyperframes", version: "0.8.74" }));
       await writeFile(source, original);
       await expect(applyPinnedHyperframesPatches(fixture, { patches: [patch] }))
-        .rejects.toThrow(/not the pinned 0.8.172/);
+        .rejects.toThrow(/not the pinned 0.8.173/);
       await writeFile(manifest, JSON.stringify({ name: "hyperframes", version: PINNED_HYPERFRAMES_VERSION }));
       await writeFile(source, `tampered${selected.from}`);
       await expect(applyPinnedHyperframesPatches(fixture, { patches: [patch] }))

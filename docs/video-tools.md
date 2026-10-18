@@ -7,7 +7,7 @@ npm `latest` tags or upstream releases on 2026-10-19 (JST).
 | Tool | Selected version | Scope |
 | --- | --- | --- |
 | Remotion, Bundler, Renderer, Media | 4.0.536 | Repository, v2 Remotion and Fast Edit peers |
-| HyperFrames | 0.8.172 | Repository renderer/Studio and v2 labs renderer |
+| HyperFrames | 0.8.173 | Repository renderer/Studio and v2 labs renderer |
 | GSAP | 3.15.0 | Local development/runtime fixture |
 | PixVerse CLI | 1.4.9 | Opt-in runtime; Canvas and pipeline use the same pin |
 | Kling CLI (`@klingai/cli-global`) | 0.2.3 | Opt-in runtime; explicit `KLING_CLI` remains respected |

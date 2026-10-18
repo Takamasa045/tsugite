@@ -1,5 +1,5 @@
 /**
- * Fail-closed, idempotent patches for the pinned HyperFrames 0.8.172 install.
+ * Fail-closed, idempotent patches for the pinned HyperFrames 0.8.173 install.
  * Does not rewrite upstream package.json or the lockfile. npm overrides handle
  * the adm-zip alias; this script only rewrites exact, hashed source bytes.
  */
@@ -9,13 +9,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const PATCH_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-export const PINNED_HYPERFRAMES_VERSION = "0.8.172";
+export const PINNED_HYPERFRAMES_VERSION = "0.8.173";
 
 export const PINNED_HYPERFRAMES_PATCHES = [
   {
     id: "cli-adm-zip-static-import",
-    relative: "node_modules/hyperframes/dist/capture-IC2QJMMQ.js",
-    sha256: "377f51f2ce225e78988f2aff63f4087561ce408d0aeb6e5e9f1cce816b76f351",
+    relative: "node_modules/hyperframes/dist/capture-B5Y45EWD.js",
+    sha256: "f75b8b30cd1c80f8fa35f0fda3d12157a4d3bd84b8a7a656838e492d2fd6a53d",
     from: "import AdmZip from \"adm-zip\";",
     to: "import AdmZip from \"@tsugite/hyperframes-in-memory-zip\";"
   },

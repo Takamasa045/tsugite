@@ -12,7 +12,7 @@ import hyperframes from '../plugins/hyperframes/index.mjs';
 test('HyperFrames review identity includes lazy runtime chunks and rejects symlinks',async t=>{
   const {home}=await fixture(t),directory=path.join(home,'hyperframes'),cli=path.join(directory,'bin/hyperframes.mjs'),gsap=path.join(home,'gsap.js'),browser=path.join(home,'browser');
   await fs.mkdir(path.dirname(cli),{recursive:true});await fs.mkdir(path.join(directory,'dist'));
-  await fs.writeFile(path.join(directory,'package.json'),JSON.stringify({name:'hyperframes',version:'0.8.172'}));
+  await fs.writeFile(path.join(directory,'package.json'),JSON.stringify({name:'hyperframes',version:'0.8.173'}));
   for(const file of [cli,gsap,browser,path.join(directory,'dist/cli.js'),path.join(directory,'dist/lazy.js')])await fs.writeFile(file,'original');
   const keys=['TSUGITE_HYPERFRAMES','TSUGITE_GSAP','TSUGITE_BROWSER'],previous=keys.map(key=>process.env[key]);
   try{

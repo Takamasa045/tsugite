@@ -53,7 +53,7 @@ was installed with its official checksum-verified installer, retaining 0.2.0.
   its real integration test was repeated after the MCP override. This test uses
   real owned-process inspection, so it runs outside macOS's setuid-`ps`-blocking
   sandbox; the capture browser itself rejects external requests.
-- HyperFrames 0.8.172 + Chrome 155 Studio: text/color save, reload, a second edit,
+- HyperFrames 0.8.173 + Chrome 155 Studio: text/color save, reload, a second edit,
   decoded PNG colors (1,558 cyan and 1,646 orange pixels), and process cleanup
   passed using synthetic authoring copies.
 - Tesseract 0.4.0: real, silent, blue 1-second H.264 1920×1080/30 output,
