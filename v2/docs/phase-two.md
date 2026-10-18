@@ -150,7 +150,10 @@ media and native/character metadata in `assets/legacy-v1/`. Character snapshots
 retain `character-lock.json` and its verified, co-located files. Traversal,
 symlinks, remote references, oversized media and altered snapshot hashes fail.
 Credential/approval fields are omitted, and original config/state/keys are never
-copied. The archive is explicitly non-executable; the active v2 project uses
+copied. Structured credential-name filtering covers manifests/referenced JSON;
+it is not a general detector for secrets embedded in arbitrary prose or media.
+Select only reviewed production data for archiving. The archive is explicitly
+non-executable; the active v2 project uses
 supported editable fields or the selected rendered final. Raw native graphs
 remain data for their corresponding experimental editor, never an implicit
 runtime capability. Failed migrations leave partial new copies for inspection.

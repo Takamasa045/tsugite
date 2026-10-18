@@ -7,7 +7,7 @@ release. The videos are alpha examples, not independent-user acceptance trials.
 
 ## First video, no account
 
-[![Synthetic local sample](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.1/sample-preview.png)](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.1/sample.mp4)
+[![Synthetic local sample](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/sample-preview.png)](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/sample.mp4)
 
 `init → plan → confirmation page → make → export` produces a six-second vertical
 sample. The release tarball was installed outside the repository for this trial;
@@ -15,7 +15,7 @@ all checks were submitted by a fixture harness and its credit ledger stayed empt
 
 ## Fast Edit: eighteen cards
 
-[![Fast Edit cards](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.1/fast-edit-preview.png)](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.1/fast-edit-18-cards.mp4)
+[![Fast Edit cards](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/fast-edit-preview.png)](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/fast-edit-18-cards.mp4)
 
 Timed words and reviewed editing decisions drive cards, word emphasis, text
 effects, transitions, zoom, progress and deterministic local SFX. The optional
@@ -24,7 +24,7 @@ See [extended workflows](phase-two.md) for the decision format and installation.
 
 ## Thirty-second walkthrough
 
-[Watch the demo](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.1/demo-30s.mp4).
+[Watch the demo](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/demo-30s.mp4).
 It illustrates the six steps with synthetic footage and an alpha label. It is
 not a recording of a paid service or a human trial.
 

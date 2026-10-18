@@ -1,6 +1,6 @@
 {
   "name": "tsugite-plugin-remotion",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0-alpha.2",
   "type": "module",
   "license": "MIT",
   "peerDependencies": {

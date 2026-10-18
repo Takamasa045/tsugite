@@ -1,6 +1,33 @@
 # Local verification — 2026-10-18
 
-## Public alpha delivery
+## Dependency refresh after alpha.1
+
+Alpha.2 local check: **75 passed, zero failed/skipped**, with the existing real
+Remotion, HyperFrames, Whisper and Fast Edit runtimes under external-network
+denial. Review findings from PR #203 were reproduced before fixing: dummy
+access/refresh/client/AWS credential aliases leaked into an archived manifest;
+Remotion soft captions had no subtitle stream; burn preview added default VTT.
+Regression tests now cover nested aliases in manifests/referenced JSON, generic
+non-secret errors, extractable soft subtitles, unchanged black pixels, visible
+burn pixels and no second preview track. The same caption mode now applies
+to HyperFrames and Fast Edit. No real leaked credentials were detected.
+
+The independent v2 audit, performed after alpha.1 publication, reported four
+vulnerable optional-dependency packages. The root v1 audit had not covered this
+lockfile. Alpha.2 pins MCP SDK 1.32.1 and refreshes the isolated lock; its full
+production/optional dependency audit reports zero advisories. A required Linux
+v2 CI audit now prevents release checks from silently omitting that package.
+The real MCP stdio handshake also checks the package/server version.
+
+The [SDK advisory](https://github.com/advisories/GHSA-6qxp-vccf-f47h) concerns its
+HTTP OAuth client; Tsugite exposes a stdio server and does not use that flow.
+The proxy-addr/fast-uri/ip-address transitive advisories are resolved as well.
+This scope distinction does not justify retaining known vulnerable versions.
+No credentials were changed. Alpha.1 is marked superseded; its original tag
+and assets remain intact. Alpha.2 publication and exact results are recorded
+on its release page after execution.
+
+## Public alpha.1 delivery (historical)
 
 [PR #203](https://github.com/Takamasa045/tsugite/pull/203) merged to main at
 `73f00cf02ebe41cba51af9de41e85abebaebc781`. Its tree is identical to the reviewed

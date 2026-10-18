@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.0.0-alpha.2 - 2026-10-18 (independent v2 package)
+
+- Upgrade the optional MCP SDK to 1.32.1 and refresh its dependency lock after a separate v2 audit reported four vulnerable packages in alpha.1. Add required v2 dependency audit in CI; the root v1 audit does not cover this independent package.
+- Omit common nested credential-field aliases from archived manifests and reject referenced JSON with those fields. Keep the inspected JSON hash bound to the subsequent copy; migration errors never echo the dummy credential values.
+- Honor soft/burn captions in Remotion, HyperFrames and Fast Edit: mux soft subtitles without drawing their pixels, draw burn overlays once and omit the confirmation page's external VTT in burn mode. Verify real subtitle extraction, black-frame pixels and page markup.
+- Preserve the alpha.1 source tag/assets as historical evidence, mark its release superseded and provide a new tarball/version. No credential changes or paid operations are involved.
+
 ## 2.0.0-alpha.1 - 2026-10-18 (independent v2 package)
 
 - Add `v2/` as an independent npm-format package and CLI. The v1 source package stays at 0.17.0; active productions, commands and data remain compatible.

@@ -1,6 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {inside,read,fileHash,write,fail,hash} from './files.mjs';
+// Normalize common snake/kebab/camel/acronym spellings before inspecting every
+// nesting level. This filters credential fields, not secrets in arbitrary prose.
+function credentialField(name){
+  const words=name.normalize('NFKC').replace(/([A-Z]+)([A-Z][a-z])/g,'$1_$2').replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase().replace(/[^a-z0-9]+/g,'_');
+  return /(?:^|_)(?:api_?key|(?:access|refresh|session|id|bearer|oauth)_?token|token|secret|password|passwd|credentials?|auth(?:orization)?|private_?key|access_?key(?:_?id)?)(?:_|$)/.test(words);
+}
 // Data preservation only: archived editor graphs are never executed or made
 // authoritative plans. The selected v1 config/keys/state/approvals stay behind.
 export async function archiveLegacy(source,destination,manifestPath){
@@ -9,12 +15,13 @@ export async function archiveLegacy(source,destination,manifestPath){
     const absolute=await inside(source,value),stat=await fs.stat(absolute);if(!stat.isFile())fail('Legacy archive references must be regular files');if(stat.size>512*1024*1024||files.size>=100&&!files.has(value))fail('Legacy archive exceeds media limits');
     if(files.has(value))return files.get(value).path;
     const extension=path.extname(value);if(!/^\.[a-zA-Z0-9]{1,12}$/.test(extension))fail('Unsupported legacy asset extension');const relative='assets/legacy-v1/source/'+value;
+    let inspectedHash;
     if(extension.toLowerCase()==='.json'){
       if(stat.size>2000000)fail('Legacy JSON asset exceeds archive limit');
-      const inspect=value=>{if(value&&typeof value==='object')for(const [key,item] of Object.entries(value)){if(/^(?:api_?key|token|secret|password|credential[s]?|auth(?:orization)?)$/i.test(key))fail('Credential fields cannot be copied in a legacy JSON asset');inspect(item);}};
-      inspect(JSON.parse(await read(source,value)));
+      const inspect=value=>{if(value&&typeof value==='object')for(const [key,item] of Object.entries(value)){if(credentialField(key))fail('Credential fields cannot be copied in a legacy JSON asset');inspect(item);}};
+      const raw=await read(source,value);inspectedHash=hash(raw);inspect(JSON.parse(raw));
     }
-    files.set(value,{source:value,path:relative,bytes:stat.size,hash:await fileHash(source,value)});
+    files.set(value,{source:value,path:relative,bytes:stat.size,hash:inspectedHash??await fileHash(source,value)});
     if(path.basename(value)==='character-lock.json'){
       const lock=JSON.parse(await read(source,value));if(lock.schema_version!==1||!Array.isArray(lock.files)||!lock.files.length||lock.files.length>100)fail('Invalid character snapshot lock');
       for(const item of lock.files){if(typeof item.path!=='string'||!item.path||typeof item.sha256!=='string'||!/^[a-f0-9]{64}$/.test(item.sha256))fail('Invalid character snapshot file identity');const parent=path.posix.dirname(value),nested=(parent==='.'?'':parent+'/')+item.path;await inside(source,nested);if(await fileHash(source,nested)!==item.sha256)fail('Character snapshot hash does not match lock');await queue(nested);}
@@ -23,7 +30,7 @@ export async function archiveLegacy(source,destination,manifestPath){
   }
   async function collect(value,key='',trail=''){
     if(Array.isArray(value))return Promise.all(value.map((item,i)=>collect(item,key,trail+'/'+i)));
-    if(value&&typeof value==='object'){const result=Object.create(null);for(const [name,item] of Object.entries(value)){if(/^(?:api_?key|token|secret|password|credential[s]?|auth(?:orization)?|approvals?|execution_state|run_log)$/i.test(name)){omitted.push(trail+'/'+name);continue;}result[name]=await collect(item,name,trail+'/'+name);}return result;}
+    if(value&&typeof value==='object'){const result=Object.create(null);for(const [name,item] of Object.entries(value)){if(credentialField(name)||/^(?:approvals?|execution_state|run_log)$/i.test(name)){omitted.push(trail+'/'+name);continue;}result[name]=await collect(item,name,trail+'/'+name);}return result;}
     if(typeof value==='string'&&/(?:src|path|file|url|uri)$/i.test(key)&&value){
       if(/^[a-z][a-z0-9+.-]*:/i.test(value))fail('Legacy archive only accepts project-local references');
       const absolute=await inside(source,value);let stat;try{stat=await fs.stat(absolute);}catch(error){if(error.code==='ENOENT'){omitted.push(trail);return '[unresolved local reference omitted]';}throw error;}

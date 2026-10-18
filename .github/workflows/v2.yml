@@ -37,6 +37,8 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ffmpeg --yes --no-progress
       - run: npm ci --ignore-scripts
+      - run: npm run security:audit
+        if: runner.os == 'Linux'
       - run: npm run check
       - run: npm run test:offline
       - run: npm run test:extended

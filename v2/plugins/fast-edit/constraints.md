@@ -16,7 +16,9 @@ helper are adapted from Tsugite v1 under MIT (LICENSE included); no v1 core impo
 is used. Existing v1 Fast Edit decisions migrate through a declared plugin hook.
 
 The real renderer uses the same explicitly installed Remotion peers and existing
-browser as the optional Remotion package; its license conditions apply. No peers
+browser. Plain timeline captions support selectable `soft` tracks or `burn`
+overlays; the designed Fast Edit word/card graphics remain part of the picture.
+Its Remotion license conditions apply. No peers
 or browser are downloaded automatically. Real 18-card/SFX output was verified on
 one Mac under network denial. The zero-cost mock produces clearly labeled fixture
 media and does not claim the real effects. Other native editor graphs can be

@@ -1,18 +1,36 @@
 {
   "name": "tsugite",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0-alpha.2",
   "description": "Human-reviewed, budgeted video workflows — 継手",
   "type": "module",
   "license": "MIT",
-  "bin": { "tsugite": "bin/tsugite.mjs" },
-  "files": ["bin", "src", "plugins", "packs", "skills", "docs", "README.md", "LICENSE"],
-  "engines": { "node": ">=22.12" },
+  "bin": {
+    "tsugite": "bin/tsugite.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "plugins",
+    "packs",
+    "skills",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "test": "node --test tests/*.node.mjs plugins/*/test.mjs",
     "test:offline": "node scripts/offline-smoke.mjs",
     "test:extended": "node scripts/expanded-smoke.mjs",
-    "check": "node --check src/core.mjs && node --check src/review.mjs && npm test"
+    "check": "node --check src/core.mjs && node --check src/review.mjs && npm test",
+    "security:audit": "npm audit --omit=dev"
   },
-  "dependencies": { "yaml": "2.9.0" },
-  "optionalDependencies": { "@modelcontextprotocol/sdk": "1.30.0" }
+  "dependencies": {
+    "yaml": "2.9.0"
+  },
+  "optionalDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
+  }
 }

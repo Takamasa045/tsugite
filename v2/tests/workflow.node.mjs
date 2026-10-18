@@ -180,6 +180,7 @@ test('real MCP stdio handshake exposes no approval tool and uses current CLI pro
   const transport=new StdioClientTransport({command:process.execPath,args:[path.resolve('bin/tsugite.mjs'),'mcp','--project',root],stderr:'pipe'});
   const client=new Client({name:'tsugite-test',version:'1.0.0'});t.after(()=>client.close());
   await client.connect(transport);
+  assert.equal(client.getServerVersion().version,JSON.parse(await fs.readFile('package.json','utf8')).version);
   const tools=(await client.listTools()).tools.map(x=>x.name);assert.deepEqual(tools,workflowTools);
   assert.equal((await client.callTool({name:'plan',arguments:{}})).isError,undefined);
   assert.equal((await client.callTool({name:'make',arguments:{}})).isError,true);

@@ -1,5 +1,12 @@
 # Development checkpoint — alpha readiness
 
+Alpha.2 fixes the three reproduced archive/caption review findings and passes
+75 local tests with no failures/skips. It refreshes the optional MCP dependency graph after a separate v2 audit
+found four advisory packages in alpha.1. The fresh graph has zero advisories;
+required v2 audit and MCP-version checks have been added. Alpha.1 is superseded
+without changing its tag/assets. Current install/demo links select alpha.2;
+its publication result is recorded on the release page after execution.
+
 The [alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1)
 is now published from main merge `73f00cf` through PR #203. All seven assets were
 downloaded anonymously and matched SHA-256. Three-OS offline CI and the separate
