@@ -140,3 +140,4 @@ Append-only format:
 - 分割されたruntimeは入口ファイルだけでなく実行chunkも計画へ結び付ける。固定ハッシュは公式ソースとコンパイラを確認してから更新し、改変拒否の検証を維持する。
 - Chrome WebMCPの引数契約は実ブラウザと公式APIで確認する。Chrome 155ではRegisteredToolとオブジェクトを渡し、入力をJSON文字列化しない。
 - packは対象パッケージの実ディレクトリで実行し、JSONのname/version/filesを照合する。`--prefix`やJSON配列の仮定だけで公開対象を判定しない。
+- durable `projects/`にも過去のworktreeやテストが保存されうる。rootの通常/coverage両runnerで制作ディレクトリを明示除外し、アーカイブを削除せず検索契約をfixtureで検証する。

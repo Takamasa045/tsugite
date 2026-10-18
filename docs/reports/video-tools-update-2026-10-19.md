@@ -74,6 +74,10 @@ ignored `verification/evidence/verify-tsugite/` directory. Private runtime/sourc
 backups are excluded from the change. Media and host-specific logs are not
 committed.
 
+The primary checkout also contains durable project archives with historical test
+files. Root normal/coverage discovery now excludes `projects/**` explicitly,
+with a regression fixture; no archived production data was removed.
+
 ## Limits
 
 Local macOS evidence does not certify Windows/Linux native runtimes, Adobe apps,

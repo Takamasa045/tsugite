@@ -39,7 +39,7 @@ describe('installed production dependency families',()=>{
   it('keeps repository test discovery outside nested worktree copies',async()=>{
     const directory=await mkdtemp(join(tmpdir(),'tsugite-test-discovery-'));
     try{
-      for(const file of['test/main.test.mjs','.work/copy/test/extra.test.mjs','.claude/worktrees/copy/test/extra.test.mjs']){await mkdir(resolve(directory,file,'..'),{recursive:true});await writeFile(join(directory,file),'');}
+      for(const file of['test/main.test.mjs','.work/copy/test/extra.test.mjs','.claude/worktrees/copy/test/extra.test.mjs','projects/.worktree-archives/copy/test/extra.test.mjs']){await mkdir(resolve(directory,file,'..'),{recursive:true});await writeFile(join(directory,file),'');}
       const manifest=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
       for(const script of['test','test:coverage']){
         const exclude=[...manifest.scripts[script].matchAll(/--exclude="([^"]+)"/g)].map(m=>'--exclude='+m[1]);
