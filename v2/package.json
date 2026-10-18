@@ -13,6 +13,6 @@
     "test:extended": "node scripts/expanded-smoke.mjs",
     "check": "node --check src/core.mjs && node --check src/review.mjs && npm test"
   },
-  "dependencies": { "yaml": "2.9.0" },
-  "optionalDependencies": { "@modelcontextprotocol/sdk": "1.30.0" }
+  "dependencies": { "yaml": "2.9.1" },
+  "optionalDependencies": { "@modelcontextprotocol/sdk": "1.32.1" }
 }
