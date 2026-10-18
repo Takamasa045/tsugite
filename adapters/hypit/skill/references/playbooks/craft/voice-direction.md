@@ -94,6 +94,6 @@ the work.
 [Video direction](video-direction.md#direct-the-reason-for-an-action) connects that attitude to gaze,
 gesture and interaction. For independent speech, the Script and supported speech-model inputs shape
 delivery. Choose time from this intended performance using
-[Script measurement](../../creation/script-and-time.md#measure-before-choosing-durations).
+[Speech-duration estimation](../../creation/script-and-time.md#estimate-before-choosing-durations).
 The pace estimate sizes the passage; the voice and performance direction give it character. Fast
 speech alone does not establish emphasis, changing attitude or expressive intonation.

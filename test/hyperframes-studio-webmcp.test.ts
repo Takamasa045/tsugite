@@ -8,7 +8,7 @@ import {
   applyPinnedHyperframesPatches, sha256Text
 } from "../backends/hyperframes/apply-pinned-patches.mjs";
 
-describe("hyperframes 0.8.75 integration", () => {
+describe("hyperframes 0.8.172 integration", () => {
   it("keeps PATCH_ROOT independent of process cwd", () => {
     expect(PATCH_ROOT.replace(/\/$/, "")).toBe(join(import.meta.dirname, ".."));
     const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
@@ -25,8 +25,8 @@ describe("hyperframes 0.8.75 integration", () => {
     expect(PINNED_HYPERFRAMES_PATCHES.map((patch) => patch.id)).toEqual([
       "cli-adm-zip-static-import", "cli-adm-zip-lottie-import"
     ]);
-    const cli = await readFile(join(PATCH_ROOT, PINNED_HYPERFRAMES_PATCHES[0].relative), "utf8");
     for (const patch of PINNED_HYPERFRAMES_PATCHES) {
+      const cli = await readFile(join(PATCH_ROOT, patch.relative), "utf8");
       expect(cli).toContain(patch.to);
       expect(cli).not.toContain(patch.from);
     }
@@ -37,7 +37,7 @@ describe("hyperframes 0.8.75 integration", () => {
 
   it("documents handle-targeted Studio writes", async () => {
     const guide = await readFile(join(PATCH_ROOT, "docs/hyperframes-studio-webmcp.md"), "utf8");
-    expect(guide).toContain("0.8.75");
+    expect(guide).toContain("0.8.172");
     expect(guide).toContain('studio_set_text", { handle, text:');
     expect(guide).toContain('studio_set_style", { handle, styles:');
   });
@@ -54,7 +54,7 @@ describe("hyperframes 0.8.75 integration", () => {
       await writeFile(manifest, JSON.stringify({ name: "hyperframes", version: "0.8.74" }));
       await writeFile(source, original);
       await expect(applyPinnedHyperframesPatches(fixture, { patches: [patch] }))
-        .rejects.toThrow(/not the pinned 0.8.75/);
+        .rejects.toThrow(/not the pinned 0.8.172/);
       await writeFile(manifest, JSON.stringify({ name: "hyperframes", version: PINNED_HYPERFRAMES_VERSION }));
       await writeFile(source, `tampered${selected.from}`);
       await expect(applyPinnedHyperframesPatches(fixture, { patches: [patch] }))

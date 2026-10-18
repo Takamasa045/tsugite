@@ -1,4 +1,5 @@
 import crossSpawn from "cross-spawn";
+import { pixverseCommand } from "./runtimePath.mjs";
 import { resolve } from "node:path";
 
 const spawnSync = crossSpawn.sync;
@@ -30,7 +31,7 @@ export function runPixverseMedia(input, options = {}) {
   };
   const runDir = resolve(payload.run_dir);
   const outputDir = resolve(runDir, "generated", request.id);
-  const pixverse = process.env.PIXVERSE_CLI || "pixverse";
+  const pixverse = options.command ?? pixverseCommand();
   const operation = request.operation || "video";
   const contract = pixverseOperationContract[operation];
   if (!contract) throw new AdapterError(`unsupported PixVerse create operation '${operation}'`, INVALID_REQUEST);
@@ -169,11 +170,12 @@ export function buildPixverseCreateArgs(request, runId) {
 export function preflightPixverseRequest(request, options = {}) {
   const operation = request.operation || "video";
   const createArgs = buildPixverseCreateArgs(request, "model-preflight");
-  const runCommand = options.runCommand ?? ((executable, args) => spawnSync(executable, args, {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    maxBuffer: MAX_OUTPUT
-  }));
+  const runCommand = options.runCommand ?? ((_executable, args) => {
+    const command = pixverseCommand();
+    return spawnSync(command.executable, [...command.prefix, ...args], {
+      cwd: process.cwd(), encoding: "utf8", maxBuffer: MAX_OUTPUT
+    });
+  });
   const pixverse = process.env.PIXVERSE_CLI || "pixverse";
   const version = runCommand(pixverse, ["--version"]);
   if (version.error || version.status !== 0) {
@@ -310,8 +312,8 @@ function parsePayload(input) {
   return input;
 }
 
-function runJsonCommand(executable, args) {
-  const result = spawnSync(executable, args, {
+function runJsonCommand(command, args) {
+  const result = spawnSync(command.executable, [...command.prefix, ...args], {
     cwd: process.cwd(),
     encoding: "utf8",
     maxBuffer: MAX_OUTPUT

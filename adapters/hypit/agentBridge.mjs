@@ -44,7 +44,7 @@ export function authorProjectPrompt(input) {
     "You are a coding agent with the official Hypit Skill (full references tree).",
     `Skill root: ${input.skillRoot ?? join(input.workspace, ".agents", "skills", "hypit")}`,
     `Installed Hypit CLI (use this exact Node entry, do not search PATH): ${hypitBin}`,
-    "Example: node <that path> check main.svml --workspace <workspace> --json",
+    "Example: node <that path> check main.svml --project <workspace> --json",
     "Work only inside the independent workspace named below. It is the only writable source root.",
     "Do not call hypit build, hypit runtime up, hypit programs up, hypit auth login, hypit transcribe, or hypit studio.",
     "Do not start provider processes or spend credits.",

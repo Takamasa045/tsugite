@@ -867,8 +867,8 @@ export async function planProduction(productionRoot, options = {}) {
       const runCli = options.runCli ?? runProductionHypit;
       const collectBinding = options.collectExecutionBinding ?? collectExecutionBinding;
       const env = { cwd: state.workspace, workspace: state.workspace, childEnv: childEnvFor(productionRoot, options.env) };
-      const check = runCli(["check", "main.svml", "--workspace", state.workspace, "--json"], env);
-      const plan = runCli(["plan", "build.svrun", "--workspace", state.workspace, "--json"], env);
+      const check = runCli(["check", "main.svml", "--project", state.workspace, "--json"], env);
+      const plan = runCli(["plan", "build.svrun", "--project", state.workspace, "--json"], env);
       let planJson;
       try { planJson = parseJsonOutput(plan.stdout); } catch { planJson = undefined; }
       state.check = { status: check.status, stdout: check.stdout, stderr: check.stderr };
@@ -991,7 +991,7 @@ export function requestBuild(productionRoot, options = {}) {
       return state;
     }
 
-    const argv = ["build", "build.svrun", "--workspace", state.workspace, "--json"];
+    const argv = ["build", "build.svrun", "--project", state.workspace, "--json"];
     const adapterRoot = options.adapterRoot ?? ADAPTER_ROOT;
     const live = collectLiveBinding(state, argv, adapterRoot);
     state.run = persistAuthoringSubmissionIntent(state.run, {
@@ -1052,12 +1052,12 @@ export function inspectProduction(productionRoot, options = {}) {
     const buildId = currentBuildId;
     if (!buildId) throw new Error("no real build_id to inspect");
     const runCli = options.runCli ?? runProductionHypit;
-    const status = runCli(["status", buildId, "--workspace", state.workspace, "--json"], {
+    const status = runCli(["status", buildId, "--project", state.workspace, "--json"], {
       cwd: state.workspace,
       workspace: state.workspace,
       childEnv: childEnvFor(productionRoot, options.env)
     });
-    const inspect = runCli(["inspect", buildId, "--workspace", state.workspace, "--json"], {
+    const inspect = runCli(["inspect", buildId, "--project", state.workspace, "--json"], {
       cwd: state.workspace,
       workspace: state.workspace,
       childEnv: childEnvFor(productionRoot, options.env)
@@ -1104,7 +1104,7 @@ export function exportProduction(productionRoot, options = {}) {
     assertContainedExportPath(state.workspace, dest);
     const runCli = options.runCli ?? runProductionHypit;
     const result = runCli([
-      "get", buildId, "--output", output, "--to", dest, "--workspace", state.workspace, "--json"
+      "get", buildId, "--output", output, "--to", dest, "--project", state.workspace, "--json"
     ], {
       cwd: state.workspace,
       workspace: state.workspace,

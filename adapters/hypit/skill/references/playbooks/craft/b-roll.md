@@ -12,7 +12,7 @@ Creator-led video often shows the speaker's life while their performed words con
 studying, travelling, using a product or reacting in another situation. Those pictures make the
 person and world more tangible. The person visible in a lifestyle image or silent clip may be the
 same person whose voice is heard; the placed performance still owns the words. A different passage
-may use a visible speaking Take whose own delivery carries the words. [Voice and performance](voice-and-performance.md)
+may use a visible speaking performance whose own delivery carries the words. [Voice and performance](voice-and-performance.md)
 owns that distinction.
 
 An image can hold a product fact while the speaker makes a claim. A moving demonstration can show
@@ -30,7 +30,7 @@ display can use part of a longer source; the generation request's duration does 
 display duration.
 
 **A visual thought across several pictures** can convey a habit, history, process or attitude.
-The pictures may be separate Items or scenes inside one generated clip. Their changes can follow
+The pictures may be separate Clips or scenes inside one generated clip. Their changes can follow
 the argument's beats without assigning a cut to every spoken noun. When the reference's exact
 picture-to-claim correspondence matters, preserve that closer relationship instead.
 
@@ -43,13 +43,13 @@ independently arranged media may serve the same visual purpose without that Kit.
 
 A still can fill the Canvas; a video can play beside a moving presenter; either can sit within a
 frame, crop, mask or designed border. The chosen picture can lead attention while the performance
-remains visible elsewhere, or it can occupy the whole view while that performance's Sound
+remains visible elsewhere, or it can occupy the whole view while that performance's audio
 continues. Its location and paint order follow the composition, not its B-roll name.
 
-For an independent picture, [Media presentation](../../production/media-presentation.md) supplies
+For an independent picture, [Visual Clip authoring](../../production/visual-clips.md) supplies
 the image or prepared video, its Frame, appearance and playback. A still has a display Window
-without needing video conversion. [Performance](../../production/performance.md) presents footage
-already placed on the Timeline and retains its source position as its view changes. When material,
+without needing video conversion. A project component can retain a time-bearing source's position
+while its view changes. When material,
 presenter and graphics share layout or motion, a [project component](../../production/component-design.md)
 can own that visual behavior together. A border or animated frame is a presentation choice; it
 does not require a new kind of source material. [Spatial layout](../../production/spatial.md) owns
@@ -64,14 +64,14 @@ owns how those audible contributions meet.
 A picture answering a spoken claim can follow a Selection or Moment; a musical beat or physical
 action may call for authored time. Its visual Window need not start or end with a speaker's
 appearance. A partner may begin speaking while the last lifestyle picture stays up, then become
-visible later: the sound-picture handoff forms a J-cut. The placed Takes and Sound establish whose
+visible later: the sound-picture handoff forms a J-cut. An Audio Clip establishes whose
 words are heard while the visual composition chooses when views change.
 
 Choose the end by the thought, action and time needed to read the picture. A still remains present
 through its Window; a moving source also has its own playback span. Let a clip finish when its
 last action matters, or cut it where the work gains the better beat. Holding, looping or retiming
 is another expressive choice, not a consequence of the Window being longer than the source.
-[Media presentation](../../production/media-presentation.md#keep-display-time-and-source-playback-distinct)
+[Visual Clip authoring](../../production/visual-clips.md#keep-destination-time-and-source-sampling-distinct)
 owns those sampling modes.
 
 Adjacent pictures may meet at one semantic boundary, bridge the pause between words or intentionally
@@ -88,7 +88,7 @@ view earns its change when it reveals what the wider view could not; a quiet con
 motion may deserve time to finish. [Sound and mix](sound-mix.md) owns how recorded, generated or
 separately authored sound supports that material.
 
-The same [Timeline](../../production/timeline.md) holds performed Takes, gaps and directly authored
-intervals. Independent material can occupy any of them. A wordless performed passage can supply
+The same [Timeline](../../production/timeline.md) resolves placed local domains, gaps and directly authored
+intervals without holding media. Independent material can occupy any of them. A wordless performed passage can supply
 its own reusable media boundaries; a passage made entirely of pictures and graphics can use
 authored time. Neither requires a hidden speaking picture.

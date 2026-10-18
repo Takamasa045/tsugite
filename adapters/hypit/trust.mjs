@@ -19,7 +19,7 @@ export const OFFICIAL_PACKAGE_SOURCES = Object.freeze([
 ]);
 export const PHASE1_CHECK_SOURCE = "chat.svml";
 export const PHASE1_PLAN_SOURCE = "chat.svrun";
-export const PHASE1_ALLOWED_FLAGS = Object.freeze(["--workspace", "--json", "--no-color"]);
+export const PHASE1_ALLOWED_FLAGS = Object.freeze(["--project", "--json", "--no-color"]);
 export const PHASE1_DENIED_OVERRIDES = Object.freeze([
   "--package-root",
   "--runtime",
@@ -117,7 +117,7 @@ function flagName(item) {
 }
 
 /**
- * Exact Phase 1 check/plan argv: one official basename, required --workspace,
+ * Exact Phase 1 check/plan argv: one official basename, required --project,
  * optional --json/--no-color, no root/runtime/package overrides anywhere.
  */
 export function parsePhase1CheckPlanArgv(argv) {
@@ -139,16 +139,16 @@ export function parsePhase1CheckPlanArgv(argv) {
       if (!PHASE1_ALLOWED_FLAGS.includes(name)) {
         throw untrusted(`Phase 1 check/plan refuse flag ${name}`);
       }
-      if (name === "--workspace") {
+      if (name === "--project") {
         if (item.includes("=")) {
-          throw untrusted("Phase 1 --workspace must be a separate argument");
+          throw untrusted("Phase 1 --project must be a separate argument");
         }
         const value = argv[index + 1];
         if (typeof value !== "string" || value.startsWith("-")) {
-          throw untrusted("Phase 1 --workspace requires a path");
+          throw untrusted("Phase 1 --project requires a path");
         }
         if (workspace !== undefined) {
-          throw untrusted("Phase 1 --workspace may appear once");
+          throw untrusted("Phase 1 --project may appear once");
         }
         workspace = value;
         index += 1;
@@ -170,7 +170,7 @@ export function assertPhase1ObserveTarget(argv, cwd, adapterRoot = ADAPTER_ROOT,
     throw untrusted(`Phase 1 ${parsed.command} requires exactly one source: ${expectedName}`);
   }
   if (parsed.workspace === undefined) {
-    throw untrusted("Phase 1 check/plan require --workspace <prepared-official-copy>");
+    throw untrusted("Phase 1 check/plan require --project <prepared-official-copy>");
   }
   const workspace = assertExactPhase1Workspace(parsed.workspace, repo);
   const sourceArg = parsed.positionals[0];

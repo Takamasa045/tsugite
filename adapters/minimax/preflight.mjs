@@ -13,6 +13,8 @@ import {
   preflightMinimaxConnection,
   resolveMinimaxProviderModel
 } from "./minimaxCli.mjs";
+import { fileURLToPath } from "node:url";
+const localCli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -27,7 +29,7 @@ function readStdin() {
 function commandExists(command) {
   return new Promise((resolve) => {
     import("node:child_process").then(({ spawn }) => {
-      const child = spawn(command, ["--version"], { stdio: "ignore" });
+      const child = spawn(process.execPath, [localCli, "--version"], { stdio: "ignore" });
       child.on("error", () => resolve(false));
       child.on("exit", (code) => resolve(code === 0 || code === null));
     }).catch(() => resolve(false));
@@ -38,7 +40,7 @@ async function resolveVersion() {
   try {
     const { spawn } = await import("node:child_process");
     return await new Promise((resolve) => {
-      const child = spawn("mmx", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(process.execPath, [localCli, "--version"], { stdio: ["ignore", "pipe", "pipe"] });
       let out = "";
       child.stdout.on("data", (chunk) => {
         out += String(chunk);

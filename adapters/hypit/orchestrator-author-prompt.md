@@ -4,15 +4,15 @@ Launch this in a **separate** coding-agent session that already has the
 official Hypit Skill. Do not nest subagents under the implementation
 session. Do not treat this as sandbox isolation.
 
-Skill pin: GitHub `hypit-ai/hypit` tag `v0.2.13`
+Skill pin: GitHub `hypit-ai/hypit` tag `v0.3.1`
 `skills/hypit/SKILL.md`. Official install: `npx skills add hypit-ai/hypit -g`.
 Isolated snapshot: `adapters/hypit/skill/SKILL.md` (SKILL.md only).
 
-Executable: repository-pinned `@hypit/hypit@0.2.13`.
+Executable: repository-pinned `@hypit/hypit@0.3.1`.
 
 ```sh
 npm run hypit:install
-npm run --silent hypit -- --version   # expect 0.2.13
+npm run --silent hypit -- --version   # expect 0.3.1
 ```
 
 The gated launcher **unconditionally** refuses `build` and other

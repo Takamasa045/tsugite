@@ -39,8 +39,8 @@ Read every craft whose question genuinely appears in the work, including questio
 a Studio preview or completed Result. Repeated use of the same craft does not require rereading it
 unless the decision has changed.
 
-For authoring those decisions, [Performance](../production/performance.md) presents current Timeline
-footage and [Media](../production/media-presentation.md) supplies independent pictures and playback.
+For authoring those decisions, [Visual Clips](../production/visual-clips.md) place footage and
+independent pictures with explicit playback.
 [Media preparation](../production/media.md#keep-original-and-processed-material-explicit) owns source
 processing, including transparency; [Spatial layout](../production/spatial.md) owns fitting and crop.
 These choices compose according to the intended use of the material.

@@ -1,67 +1,47 @@
-# Choosing and composing contributions
+# Choose and compose picture and sound
 
-Read this to choose how content enters the picture or sound. [System](system.md) explains the
-relationships; [media preparation](media.md), [Timing](timing.md) and [spatial layout](spatial.md)
-own the shared inputs. A new shared behavior belongs in a [project component](component-design.md).
+Read this to decide how content enters the finished picture or mix. [System](system.md) explains the
+whole model; [media preparation](media.md), [timing](timing.md) and [spatial layout](spatial.md) own
+shared inputs.
 
-## Choose by content relationship
+## Choose by relationship
 
-| Content relationship | Useful starting point | Published contribution |
+| Relationship | Starting point | Output |
 | --- | --- | --- |
-| Present footage already placed on Timeline | [Performance](performance.md) | `.visual` |
-| Supply an independent image, prepared video or compositable surface | [Media](media-presentation.md) | `.visual`, optional `.audio` |
-| Present audio already placed on Timeline | [Sound](sound.md) | `.audio` |
-| Supply independent audio-bearing material | [Audio Track](audio-presentation.md) | `.audio` |
-| Present Script's display words at their performed times | [Caption](caption-presentation.md) | Fine publishes `.track` |
-| Supply a title, label or other independent writing | [Typography/Text](fonts-and-text.md) | Package-owned; Typography publishes `.track` |
-| Coordinate content through a new layout, state or motion | [Project component](track-authoring.md) | Its declared VisualTrack and/or AudioTrack outputs |
+| Place an image, normalized video or surface | [Visual Clip](visual-clips.md) | VisualTrack |
+| Place speech, music, narration, ambience or effects | [Audio Clip](audio-clips.md) | AudioTrack |
+| Present Script display words at resolved Cue times | [Caption](caption-presentation.md) | package-owned VisualTrack |
+| Supply independent writing | [Typography/Text](fonts-and-text.md) | package-owned VisualTrack |
+| Coordinate continuing sources, transitions, ducking, layout or state | [Project component](track-authoring.md) | declared VisualTrack and/or AudioTrack |
 
-The table routes common relationships; it does not define a closed list of visual roles. A board,
-effect or whole scene is a component whose behavior owns its inputs and outputs. Images, text and
-video can share one scene. Film receives their ordinary visual and audio contributions.
+These are starting points, not a catalogue of visual roles. Images, text and video can share a scene
+when they share behavior.
 
-## Present a performance without reauthoring its playback
+## Use synchronized media through independent occurrences
 
-For pure A-roll as well as mixed work, place prepared SemanticTakes on the [Timeline](timeline.md),
-then use Performance and Sound for the picture and audio the work needs. A broad Style can cover the
-whole program; local Uses change its treatment. Caption independently joins Script display content
-to that same timing. A performance need not remain visible to supply speech and semantic events.
+Normalization can establish picture and sound streams on one local domain. Timeline may use its
+Extent, while Visual and Audio Clips independently pair the media with an absolute Window:
 
-An audio-only Take supplies no picture. A wordless performed Take can supply material and Segment
-boundaries. A gap has no Take. These facts remain independent of graphics occupying that interval.
-Independent material can also occupy the full canvas; size and transparency do not decide its role.
+```text
+normalized media + Window + visual sampling -> Visual Clip -> VisualTrack
+normalized media + Window + audio sampling  -> Audio Clip  -> AudioTrack
+```
 
-A new scene can consume `projectTimelineMedia` to keep placed footage at its current source frame
-while coordinating it with other content. [Performance](performance.md) explains Styles;
-[component visuals](component-visuals.md#compose-video-and-graphics-in-one-browser-program) explains
-owning a larger scene. Media receives separately supplied material when that is the intended use.
+This supports A-roll without coupling picture and sound. The picture can be covered or reframed
+while speech continues; audio-only and picture-only material need only their real contribution.
 
-## Let events and shared behavior determine organization
+## Let shared behavior determine scope
 
-A Media picture can cover a Selection, a sound can follow a Moment, and a board can retain its answer
-after a reveal. All use the same Timeline, with timing forms supported by their own Surfaces.
-[Timing](timing.md) owns those forms; [Track authoring](track-authoring.md#keep-selection-projection-and-consumption-distinct)
-owns implementing their projection and consumption.
+A picture can occupy a projected Selection, a sound can follow a Moment, and a board can retain its
+answer after a reveal. Components receive the resolved absolute values they need. Shared motion or
+state can justify one component; independent contributions can remain peers while using the same
+event.
 
-An outer Window describes a component's lifetime. Internal events can have their own semantic
-triggers, and the resulting state may persist. A scene's single lifetime does not justify moving all
-its meaningful events to fixed percentages of that Window. Use the [component design principles](component-design.md#let-meaning-drive-the-behavior)
-to separate event relationships from local animation.
+## Assemble the intended film
 
-Shared movement or state can justify a shared component. Independent contributions may stay peers
-while consuming the same Moment. A Track is not required for each asset, each Script Segment or each
-rectangle, and creating a component does not require publishing a package outside the project.
+Film receives Canvas, Timeline and each selected visual/audio output. Components establish appearance
+and paint order. Include picture and sound explicitly, and select one intended route for each audible
+source.
 
-## Assemble the intended contributions
-
-Film receives Canvas, Timeline and each selected visual/audio output. Timeline establishes the
-complete extent; components establish appearances and their paint order. Include sibling audio
-explicitly when wanted. A silent covering picture leaves the selected voice audible; selecting the
-same voice through multiple audio contributions can duplicate it.
-
-Film child order does not move a picture to the front. Each Present has its authored stacking and
-its internal element tree. An internal transform, mask or transition can keep related content
-together while independent Presents overlap it according to their own stacking.
-
-[Rendering](rendering.md#assemble-the-picture-and-sound) shows assembly and full/range delivery.
-[Review](review.md) judges the selected work, including performance, boundaries and the complete mix.
+[Rendering](rendering.md#assemble-the-picture-and-sound) shows Film assembly and delivery.
+[Review](review.md) judges the resulting picture, performance and complete mix.

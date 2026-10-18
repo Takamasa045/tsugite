@@ -20,7 +20,7 @@ const hfRequire = createRequire(packagePath);
 const { default: puppeteer } = await import(hfRequire.resolve("puppeteer-core"));
 const sharp = hfRequire("sharp");
 const version = JSON.parse(await readFile(packagePath, "utf8")).version;
-assert.equal(version, "0.8.75", "Revalidate the Studio contract before changing the pinned version");
+assert.equal(version, "0.8.172", "Revalidate the Studio contract before changing the pinned version");
 const chrome = process.env.PUPPETEER_EXECUTABLE_PATH;
 assert(chrome, "Set PUPPETEER_EXECUTABLE_PATH to an installed Chrome 152+ executable; no browser is downloaded.");
 const out = join(root, "dist/verification/hyperframes-webmcp-fixes", new Date().toISOString().replace(/[:.]/g, "-"));
@@ -49,7 +49,7 @@ let spawnError;
 const child = spawn(process.execPath, [
   join(root, "node_modules/hyperframes/bin/hyperframes.mjs"), "preview", fixture,
   "--foreground", "--force-new", "--no-open", "--no-proxy", "--port", String(port)
-], { cwd: root, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" });
+], { cwd: root, env: { ...process.env, DO_NOT_TRACK: "1", HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_NO_AUTO_INSTALL: "1" }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" });
 child.on("error", (error) => { spawnError = error; });
 for (const stream of [child.stdout, child.stderr]) {
   stream.on("data", (data) => { logs = (logs + data).slice(-64 * 1024); });
@@ -63,7 +63,8 @@ async function call(page, name, input = {}) {
     const mc = document.modelContext;
     const tool = (await mc.getTools()).find((entry) => entry.name === name);
     if (!tool) throw new Error(`Missing tool: ${name}`);
-    return JSON.parse(await mc.executeTool(tool, JSON.stringify(input)));
+    const result = await mc.executeTool(tool, input);
+    return typeof result === "string" ? JSON.parse(result) : result;
   }, { name, input });
   report.calls.push({ phase: report.phase, name, input, result });
   assert.equal(result.ok, true, `${name}: ${JSON.stringify(result)}`);

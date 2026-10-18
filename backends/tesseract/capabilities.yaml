@@ -33,10 +33,10 @@ checks:
       command: ["node", "backends/tesseract/cli.mjs", "--version"]
       capture_version: false
       remediation:
-        default: "Review the official Tesseract v0.2.0 terms, run npm run tesseract:install, then rerun doctor."
-        darwin: "Review the official Tesseract v0.2.0 terms, run npm run tesseract:install, then rerun doctor."
-        win32: "Review the official Tesseract v0.2.0 terms, run npm run tesseract:install, then rerun doctor."
-        linux: "Use Linux x86_64 with glibc 2.35 or later and Vulkan runtime support; review the v0.2.0 terms, run npm run tesseract:install, then rerun doctor."
+        default: "Review the official Tesseract v0.4.0 terms, run npm run tesseract:install, then rerun doctor."
+        darwin: "Review the official Tesseract v0.4.0 terms, run npm run tesseract:install, then rerun doctor."
+        win32: "Review the official Tesseract v0.4.0 terms, run npm run tesseract:install, then rerun doctor."
+        linux: "Use Linux x86_64 with glibc 2.35 or later and Vulkan runtime support; review the v0.4.0 terms, run npm run tesseract:install, then rerun doctor."
   render_preflight:
     - name: tool:tesseract
       command: ["node", "backends/tesseract/cli.mjs", "--version"]

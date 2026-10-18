@@ -151,7 +151,7 @@ export function renderViteConfig({ port, compositionDir, runtimeRoot }) {
   const runtime = canonicalPath(runtimeRoot);
   return `import path from "node:path";
 import { defineConfig } from "vite";
-import { vitePluginEditframe } from "@editframe/vite-plugin";
+import { vitePluginEditframe } from "@editframe/vite-plugin/advanced";
 
 export default defineConfig({
   root: ${JSON.stringify(root)},

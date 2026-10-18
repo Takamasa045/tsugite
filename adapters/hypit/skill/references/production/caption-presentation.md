@@ -4,19 +4,23 @@ Read this to apply subtitle treatments, change them during a passage, or hide th
 [Caption craft](../playbooks/craft/captions.md) owns visual direction;
 [Caption authoring](caption-authoring.md) explains creating a new family.
 
-**Script organizes content; Use organizes presentation in time.** `||` determines which words belong
-together. The Track joins `document={story.caption}` to the placed `timeline`, preserving displayed
-text and pronunciation associations. Each Use selects a complete Style inside a time window.
+**Script authors Words, Units and Cues; the family presents those Cues; Use organizes presentation
+in time.** `||` ends the current authored Cue. An upstream adapter resolves every document Unit's timing once; the
+Track consumes that flat `CaptionTiming` without knowing whether it came from Narrative, SRT/VTT or
+authored absolute time. Each Use selects a complete Style inside an already resolved time window.
 
 ```svml
 <caption:Hidden id="hidden"/>
-<caption-fine:Track id="captions" document={story.caption} timeline={program.timeline}>
+<narrative-caption:Timing id="story-captions" document={story.caption}
+  binding={story.caption-binding} projection={story-time}/>
+<time:Window id="impact-window" timeline={program.timeline} from="12s" for="2s"/>
+<caption-fine:Caption id="captions" document={story.caption} timing={story-captions} timeline={program.timeline} within={canvas.bounds}>
   <caption-fine:Use style={base-style}/>
   <caption-fine:Use role="GUEST" style={guest-style}/>
-  <caption-fine:Use during={story.selection.answer} style={answer-style}/>
-  <caption-fine:Use during={story.selection.demonstration} style={hidden}/>
-  <caption-fine:Use at={story.moment.key} for="2s" style={impact-style}/>
-</caption-fine:Track>
+  <caption-fine:Use during={answer-window} style={answer-style}/>
+  <caption-fine:Use during={demonstration-window} style={hidden}/>
+  <caption-fine:Use during={impact-window} style={impact-style}/>
+</caption-fine:Caption>
 ```
 
 Styles are declared by the chosen family. Fine Styles take a Recipe and exact fonts. A new structural
@@ -27,11 +31,11 @@ caption can use a project family with its own layout and behavior.
 | Intent | Use |
 | --- | --- |
 | A treatment across the whole Timeline | `style={base}` with no time attributes |
-| Follow a semantic passage | `during={story.selection.answer}` |
-| Follow a placed Segment | `during={story.segment.answer}` |
-| Start at a meaningful word, for a fixed duration | `at={story.moment.key} for="2s"` |
-| End at a meaningful event | `until={story.moment.key} for="12f"` |
-| Explicit window | `start="8s" end="10s"` |
+| Follow a semantic passage | Project it once, then `during={answer-window}` |
+| Follow a placed Segment | Project it once, then `during={answer-window}` |
+| Start at a meaningful word, for a fixed duration | Project it once, then use the resolved Window |
+| End at a meaningful event | Declare a named Window from that event, then consume it |
+| Explicit window | Declare it once with `time:Window`, then `during={named-window}` |
 | A particular speaker | Add `role="GUEST"` to any of these |
 
 [Timing](timing.md) owns the shared expressions and semantic references.
@@ -43,7 +47,7 @@ The last matching Use in Source order wins locally. Each match replaces the whol
 are not merged. A hidden Use clears this Track's subtitle presentation throughout that window,
 including neighboring Cue lead/tail. Later Uses can restore a smaller interval. Audio and content
 stay unchanged. With no matching Use, nothing is drawn. With no subtitle content, a Use has nothing
-to draw. Independent Caption Tracks can intentionally show multiple presentations at the same time.
+to draw. Independent Caption components can intentionally show multiple presentations at the same time.
 
 ## A style change can happen inside a Cue
 
@@ -61,6 +65,8 @@ not restart the Cue's animation clock. Changing only one word's visual role is a
 choice: Fine provides current/trail unit emphasis, while a custom family can interpret authored word
 attributes for structural layouts. Display/pronunciation units remain complete.
 
-In Studio, the content row shows Cues and the Uses row shows authored windows. Select a Use to edit
-its time or referenced Style. Moving the Use does not move `||`. Inspect the resulting placement,
-handoffs and emphasis alongside the other visuals while reusing the existing media.
+In Studio, Caption's timeline row shows Cue Items. Presentation Uses remain Inspector objects rather
+than draggable timeline ranges: their referenced Style or Recipe can be edited there, while their
+Scope and Role explain which Cues they affect. Changing `||` changes Cue structure; changing a Use
+does not. Inspect the resulting placement, handoffs and emphasis alongside the other visuals while
+reusing the existing media.

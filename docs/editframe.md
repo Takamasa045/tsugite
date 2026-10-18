@@ -10,7 +10,9 @@ From the repository root, after a normal `npm ci`:
 npm run editframe:install
 ```
 
-This runs `npm ci --prefix backends/editframe/runtime` and pins `@editframe/cli@0.60.11`, `@editframe/elements@0.60.11`, `@editframe/vite-plugin@0.60.11`, and `vite@8.3.1`, with a narrow `werift@0.24.4` override. Unscoped `editframe@1.0.0` is a different package and is not the CLI.
+This runs `npm ci --prefix backends/editframe/runtime` and pins `@editframe/cli@0.60.34`, `@editframe/elements@0.60.34`, `@editframe/vite-plugin@0.60.34`, the matching `@editframe/api`, `@editframe/assets`, `@editframe/dev-server` packages, `puppeteer-core@25.10.0` and `vite@8.3.1`. The old native-bridge CLI contract is not used for the HTML backend. Unscoped `editframe@1.0.0` is a different package and is not the CLI.
+
+The current CLI targets a separately installed native bridge. Tsugite captures this HTML backend through the current Elements SDK with `seekForRender`, an existing local Chrome, and FFmpeg; the Vite integration uses the official `@editframe/vite-plugin/advanced` entry. Set `CHROME_PATH` to an existing browser when needed. External browser requests and hosted CLI selectors are rejected.
 
 Doctor and render do not install packages, download Playwright browsers, or fetch a bundled FFmpeg. The proven media path is static files under `public/media`. Native node-av / JIT transcode / WebRTC remain unverified and unused.
 
@@ -37,4 +39,6 @@ npm run editframe -- --version
 npm run editframe -- render --help
 ```
 
-Allowed: version/help/preview/render. Cloud subcommands are rejected. Child processes get `EF_NO_TELEMETRY=1` and do not inherit `EF_TOKEN` / `EF_HOST` / `EF_RENDER_HOST`.
+Allowed: version/help/preview/render. Cloud subcommands are rejected. Child processes get `EF_NO_TELEMETRY=1` and do not inherit `EF_TOKEN` / `EF_HOST` / `EF_RENDER_HOST` / `EDITFRAME_TOKEN`.
+
+The optional runtime overrides the transitive MCP SDK to 1.32.1; 0.60.34 ships an older vulnerable SDK. Source installation and rendering do not validate license eligibility; review the upstream SDK license before use.

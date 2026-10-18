@@ -4,8 +4,8 @@ import { homedir, release as osRelease } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Pinned to the official Tesseract v0.2.0 release and verified asset names.
-export const TESSERACT_CLI_VERSION = "0.2.0";
+// Pinned to the official Tesseract v0.4.0 release and verified asset names.
+export const TESSERACT_CLI_VERSION = "0.4.0";
 export const TESSERACT_CLI_MIN_LINUX_GLIBC_VERSION = "2.35";
 export const TESSERACT_CLI_DEFAULT_TIMEOUT_MS = 120_000;
 export const TESSERACT_CLI_DEFAULT_MAX_BUFFER = 1024 * 1024;

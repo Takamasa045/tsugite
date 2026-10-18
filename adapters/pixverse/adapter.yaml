@@ -48,10 +48,10 @@ checks:
   setup:
     - type: command
       name: provider:pixverse
-      command: ["pixverse", "--version"]
+      command: ["node", "adapters/pixverse/check.mjs"]
       capture_version: true
       remediation:
-        default: "Install the PixVerse CLI with `npm install -g pixverse@latest`, then rerun doctor."
+        default: "Run npm run pixverse:install for the pinned official PixVerse CLI, then rerun doctor."
     - type: manual
       name: provider-auth:pixverse
       blocking: false

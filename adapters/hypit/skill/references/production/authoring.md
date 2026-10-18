@@ -40,10 +40,10 @@ with [motion graphics](../playbooks/craft/motion-graphics.md) for changes within
 These pages establish what the authored relationship should accomplish. Installed vocabulary then
 supplies the exact language for expressing it.
 
-For a performance-led work, including pure A-roll or short drama, prefer Script and semantic
-preparation even when the presentation is simple. Preserve the actual event relationships when
-additional Caption, sound or visual direction is introduced. A standalone asset edit can instead
-end at its requested media Output.
+For a performance-led work, including pure A-roll or short drama, keep the intended passages in
+Script and let accepted media establish their actual extent. Add semantic preparation when Caption,
+sound or visual relationships need positions inside that performance. A standalone asset edit can
+instead end at its requested media Output.
 
 Author those relationships explicitly. Script Selections and Moments carry meaning through placed
 performances into real time; authored positions locate independently timed events on the same Timeline.
@@ -105,13 +105,14 @@ imports select author vocabulary; Runtime configuration selects external facilit
 
 A Target marks where this Run asks the graph to become real. For ordinary commissioned production,
 the demanded Output is usually the finished video, and the Build produces its required media
-dependencies through the same graph. A public image, Take, audio item, or other intermediate Output
+dependencies through the same graph. A public image, prepared video, audio item, or other intermediate Output
 is also a normal Target when the user requested that deliverable or the work genuinely needs it
 independently now.
 
 Every public Author Output that completes while satisfying the demanded Target is stored in that
-Build Result and can be inspected or reused later. Derived public Outputs such as a SemanticTake
-therefore remain available when a downstream Target caused them to complete.
+Build Result and can be inspected or reused later. Derived public Outputs such as normalized media,
+a local temporal domain or alignment evidence therefore remain available when a downstream Target
+caused them to complete.
 
 The Author Graph supplies primary Candidates. A Run may explicitly select another compatible
 Candidate for a Logical Output:
@@ -168,32 +169,32 @@ submitting the same paid media requests again. The following examples locate the
 
 | Current change | Keep through Candidates | Recompute or request |
 | --- | --- | --- |
-| Caption appearance, MG, an Effect or composition changes | Existing media and SemanticTakes whose Script identities and timing still apply | The changed visual systems and render |
-| Moment/Selection placement changes, with unchanged spoken tokens and Take identities | The accepted SemanticTakes and other material | Current Script references, their projections and presentation |
-| Cue grouping, word attributes or display-only Dual wording changes without changing speech tokens | The accepted SemanticTakes | The current CaptionDocument and its presentation |
-| Take placement or complete Timeline extent changes | The prepared local Takes | Timeline assembly, all affected projections and presentation |
+| Caption appearance, MG, an Effect or composition changes | Existing normalized media, local domains and alignment evidence that still apply | The changed visual systems and render |
+| Moment/Selection placement changes, with unchanged spoken tokens and alignment identities | The accepted media, local domains and alignment evidence | Current Script references, their projections and presentation |
+| Cue grouping, word attributes or display-only Dual wording changes without changing speech tokens | The accepted media, local domains and alignment evidence | The current CaptionDocument and its presentation |
+| Temporal placement or complete Timeline extent changes | The normalized media, local domains and alignment evidence | Timeline assembly, all affected projections, media occurrences and presentation |
 | Only some B-roll images must change | The existing performance, voice and all other still-useful media | The deliberately replaced images and their downstream composition |
 | The presenter changes while the spoken argument still fits | Unaffected B-roll, icons, music and other media that still serve the target | The new presenter images, affected performances, their normalization and semantic timing, and downstream composition |
 | A new product changes the demonstration or claims | Views and media whose content still fits the new Treatment | The affected product views, performance, Script-dependent timing and visual treatment |
 | The same video needs different normalization or semantic timing | Its generated video Output, or normalized media when that still applies | The affected normalization or alignment and downstream consumers |
-| New spoken wording requires a new performance | Unaffected Takes and other still-useful inputs | The changed performance and the timing derived from it |
+| New spoken wording requires a new performance | Unaffected media and other still-useful inputs | The changed performance and the timing derived from it |
 
 Choose an Output upstream of the work being changed, with the same nominal Type and the intended
-creative meaning. An unchanged SemanticTake can preserve both media and alignment. It is valid only
-while its Narrative, Segment, token and anchor identities and timing still describe the current
-Script and media. A Script edit does not automatically invalidate every Take; inspect what changed.
-Markers select existing token/Segment anchors. Moving a marker can therefore reuse accepted timing
-when those anchors and spoken tokens remain the same; no acoustic measurement is needed merely
-because a cue now follows another word. Changing spoken text, tokenization, Segment identity or the
-source performance requires a fresh judgment about the affected Take. Keep the media upstream when
-it still fits and let the required preparation recompute. No reuse selection automatically adapts an
-old Take to new speech.
+creative meaning. Media, its local temporal domain and its NarrativeAlignment are independent reusable
+facts; retain exactly the ones that still apply. Alignment evidence is valid only while its Narrative,
+Segment, token and anchor identities and timing still describe the current Script and media. A Script
+edit does not automatically invalidate all media or alignment; inspect what changed. Markers select
+existing token/Segment anchors. Moving a marker can therefore reuse accepted alignment when those
+anchors and spoken tokens remain the same; no acoustic measurement is needed merely because a cue now
+follows another word. Changing spoken text, tokenization, Segment identity or the source performance
+requires a fresh judgment about the affected alignment. Keep upstream media when it still fits and let
+only the required preparation recompute. No reuse selection silently adapts old evidence to new speech.
 
 Do not satisfy a changed Track or final composition with its old rendered Output, which would hide
 the current edit. Type compatibility alone cannot establish that an old performance or timing still fits.
 
 After a person or product swap, review existing Candidate selections against the new target. A Run
-that still selects the old presenter's Take will keep that person on screen even after the image
+that still selects the old presenter's video will keep that person on screen even after the image
 prompt changes. Preserve unrelated work while selecting or generating the media the adaptation needs.
 
 For example, correcting three wrong B-roll selections means replacing those selections while keeping
@@ -208,7 +209,7 @@ relevant parts of its Brief and Treatment and the affected Source, Recipe or Run
 Runtime activity when reuse or active execution matters. Read the relevant diff and preserve unrelated work.
 
 - Revise Treatment when the creative design changed.
-- Revise Script when words, Cue breaks, Selections, or Moments changed.
+- Revise Script when words, Cue membership, Selections, or Moments changed.
 - Revise Source or Recipe when composition, parameters, or authored timing relations changed.
 - Revise the Run when the demanded deliverable or selected Candidate changed.
 - Revise a project package when its fixed or reusable behavior needs to change; an unexposed local

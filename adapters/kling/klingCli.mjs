@@ -1,4 +1,5 @@
 import crossSpawn from "cross-spawn";
+import { klingCommand } from "./runtimePath.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 
@@ -51,8 +52,8 @@ export function buildKlingCreateArgs(request) {
 export async function runKlingMedia(input) {
   const payload = parsePayload(input);
   const request = payload.request;
-  const executable = process.env.KLING_CLI || "kling";
-  const result = spawnSync(executable, buildKlingCreateArgs(request), {
+  const command = klingCommand();
+  const result = spawnSync(command.executable, [...command.prefix, ...buildKlingCreateArgs(request)], {
     cwd: process.cwd(), encoding: "utf8", maxBuffer: MAX_OUTPUT
   });
   if (result.error) throw new AdapterError(result.error.message, TRANSIENT);

@@ -1,14 +1,14 @@
 # HyperFrames Studio WebMCP
 
-TsugiteのローカルHyperFrames Studioを、ブラウザ内のWebMCPツールで操作する任意の編集入口。依存は **0.8.75固定**。既存のmanifest・backend・Gateは維持する。
+TsugiteのローカルHyperFrames Studioを、ブラウザ内のWebMCPツールで操作する任意の編集入口。依存は **0.8.172固定**。既存のmanifest・backend・Gateは維持する。
 
-**現時点の対象範囲。** HyperFrames **0.8.75** を native Chrome **153** で開き、通常の `renderIndexHtml` authoring copy に対する初回 inspect → handle指定の文字/色編集 → 保存 → reload → 別色の再編集 → 更新 PNG 2枚は、2026-09-25の隔離fixture smokeで成功した。2枚のPNGで変更色をそれぞれ1558/1646画素確認し、Studio子孫プロセスの停止も確認した。motion、他ホスト、他OS、入れ子 composition は未検証のため実験的入口のまま。制作正本は直接編集しない。[旧版の検証記録](reports/hyperframes-studio-webmcp-2026-09-10.md)は履歴として残す。
+**現時点の対象範囲。** HyperFrames **0.8.172** を native Chrome **155** で開き、通常の `renderIndexHtml` authoring copy に対する初回 inspect → handle指定の文字/色編集 → 保存 → reload → 別色の再編集 → 更新 PNG 2枚は、2026-10-19（JST）の隔離fixture smokeで成功した。2枚のPNGで変更色をそれぞれ1558/1646画素確認し、Studio子孫プロセスの停止も確認した。motion、他ホスト、他OS、入れ子 composition は未検証のため実験的入口のまま。制作正本は直接編集しない。[旧版の検証記録](reports/hyperframes-studio-webmcp-2026-09-10.md)は履歴として残す。
 
 ## 対応版と境界
 
 - WebMCP導入は公式 [v0.8.21](https://github.com/heygen-com/hyperframes/releases/tag/v0.8.21)。[公式ガイド](https://github.com/heygen-com/hyperframes/blob/main/docs/guides/webmcp.mdx) の現行APIには、0.8.24以降の変更も含まれる。操作時はページが返すschemaを正本にする。
-- 0.8.33では書き込みcallbackが失敗したため旧版を固定していた。0.8.75では実Chromeの隔離fixtureでhandle指定の書き込みを確認した。旧版のStudio配信JSパッチは不要になり、`backends/hyperframes/apply-pinned-patches.mjs`はCLIのZIP実装置換だけをハッシュ拘束で行う。
-- **0.8.75の書き込み対象は明示した`handle`**。`studio_look`から取得したhandleを`studio_inspect`で確認し、`studio_set_text`と`studio_set_style`の両方に渡す。`studio_select`が成功しても`isCurrentSelection`がfalseのことがあるため、選択状態を暗黙の書き込み対象にしない。複数ファイルに同じIDがある入れ子compositionは今回の検証対象外。
+- 0.8.33では書き込みcallbackが失敗したため旧版を固定していた。0.8.172では実Chromeの隔離fixtureでhandle指定の書き込みを確認した。旧版のStudio配信JSパッチは不要になり、`backends/hyperframes/apply-pinned-patches.mjs`はCLIのZIP実装置換だけをハッシュ拘束で行う。
+- **0.8.172の書き込み対象は明示した`handle`**。`studio_look`から取得したhandleを`studio_inspect`で確認し、`studio_set_text`と`studio_set_style`の両方に渡す。`studio_select`が成功しても`isCurrentSelection`がfalseのことがあるため、選択状態を暗黙の書き込み対象にしない。複数ファイルに同じIDがある入れ子compositionは今回の検証対象外。
 - `ok: true`だけで保存完了とせず、実ファイル・inspect・再読み込み・画像を照合する。
 - HeyGen hosted cloud MCP（チャットから生成・renderするサービス）への接続設定は不要。ページ内ツールはStudioを開いたブラウザの機能。stdio/HTTP MCP serverのURLとして登録するものではない。
 - `run` / `render`、課金、Gate承認、公開はこの入口で許可されない。Studioのツール登録とホスト側のツール実行許可も別。
@@ -42,7 +42,8 @@ console.table(tools.map(({ name, inputSchema }) => ({ name, inputSchema })));
 async function call(name, input = {}) {
   const tool = (await mc.getTools()).find((entry) => entry.name === name);
   if (!tool) throw new Error(`Tool unavailable: ${name}`);
-  const result = JSON.parse(await mc.executeTool(tool, JSON.stringify(input)));
+  const raw = await mc.executeTool(tool, input);
+  const result = typeof raw === "string" ? JSON.parse(raw) : raw;
   if (!result.ok) throw new Error(JSON.stringify(result));
   return result;
 }
@@ -64,7 +65,7 @@ const frame = await call("studio_frame", { time: 2, settleMs: 1000 });
 // frame.urlのPNGを実際に開く。返されたURLだけでは画像確認にならない。
 ```
 
-`executeTool`の引数は**発見したRegisteredToolとJSON文字列**。`(name, object)`ではない。ホスト専用WebMCPツールを使う場合は、そのホストのschemaに従う。
+`executeTool`の引数は**発見したRegisteredToolとJavaScriptオブジェクト**（[Chrome公式API](https://developer.chrome.com/docs/ai/webmcp/imperative-api)）。入力をJSON文字列にするとChrome 155では拒否される。ホスト専用WebMCPツールを使う場合は、そのホストのschemaに従う。
 
 | 範囲 | ツール |
 | --- | --- |

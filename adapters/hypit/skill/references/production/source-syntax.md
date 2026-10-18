@@ -1,7 +1,7 @@
 # Reading and writing Source syntax
 
 Read this for the language around a production: imports, references, literal values, Recipes and
-Run choices. [Script syntax](script-syntax.md) owns prose, Roles, Dual Text, Cue breaks, display
+Run choices. [Script syntax](script-syntax.md) owns prose, Roles, Dual Text, authored Cues, display
 attributes and markers. [Timing](timing.md) explains how components consume those identities.
 [System relationships](system.md) explains authored values and computed Outputs.
 
@@ -56,7 +56,12 @@ Output paths are package vocabulary, not inferred from the element's tag:
 - an imported `media:Image id="logo"` publishes `{logo}`;
 - `gpt:Image id="portrait"` publishes `{portrait.image}`;
 - `pipeline:Normalize id="prepared"` publishes `{prepared.media}`;
-- `time:Timeline id="speech"` publishes `{speech.timeline}`. Performance and Sound separately publish the picture and sound contributions selected in Film.
+- `time:Timeline id="speech"` publishes `{speech.timeline}`;
+- `typo:Flow id="title"` publishes `{title.occurrence}` and `{title.visual}`;
+- `visual:Track id="picture"` publishes `{picture.visual}` and `{picture.program}`;
+- `audio:Track id="mix"` publishes `{mix.audio}`.
+
+Visual and Audio Tracks separately publish the picture and sound contributions selected in Film.
 
 Inspect `hypit vocabulary` for the actual Surface's exports and use the published path it reports.
 Public bindings can be authored Records or realizable Logical Outputs. Script,
@@ -76,7 +81,7 @@ inside its raw body, as described in [Script syntax](script-syntax.md).
 ## Recipes are named values
 
 ```svs
-<?svml using="@hypit/svs@1"?>
+<?svml using="@hypit/recipe@1"?>
 <sheet version="1">
   media.cover {
     fit: cover;
@@ -140,7 +145,7 @@ axes can be added when they express reusable direction; `@hypit/text` owns that 
 For the Text example saved as `main.svml`, beside `direction.svs`:
 
 ```svml
-<?svml using="@hypit/run-markup@1"?>
+<?svml using="@hypit/markup/run@1"?>
 <svrun version="1">
   <author source="./main.svml"/>
   <target output="prompt"/>
@@ -153,8 +158,9 @@ are not executed.
 
 To reuse a prior Output, declare a `build-record` Candidate and select it with `satisfy`; the prior
 Result name and the current Logical Output name can differ. A raw MP4 file is a Blob Artifact, not
-an aligned SemanticTake. Select Candidates by their real nominal Type and creative meaning, retaining
-normalization or alignment where still needed. [Runs](runs.md) explains complete Candidate forms,
+normalized media or alignment evidence. Select Candidates by their real nominal Type and creative
+meaning, retaining normalization, local temporal-domain recovery or alignment where still needed.
+[Runs](runs.md) explains complete Candidate forms,
 Fragment inputs and exports; [Authoring](authoring.md) owns the creative reuse decisions;
 the installed Fragment package owns its own input and export names.
 

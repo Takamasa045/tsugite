@@ -55,7 +55,7 @@ export function buildObserveArgv(action, options = {}) {
   const argv = [action];
   if (options.source) argv.push(options.source);
   if (options.buildId) argv.push(options.buildId);
-  if (options.workspace) argv.push("--workspace", options.workspace);
+  if (options.workspace) argv.push("--project", options.workspace);
   if (options.runtime) argv.push("--runtime", options.runtime);
   if (options.assetRoot) argv.push("--asset-root", options.assetRoot);
   if (options.output) argv.push("--output", options.output);

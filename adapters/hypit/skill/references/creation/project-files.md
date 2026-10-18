@@ -20,7 +20,7 @@ Keep discovery tied to the question being answered:
 | --- | --- |
 | An executable or prepared local service | `hypit paths`, package-manager records, the selected Profile and Provider-documented tool locations |
 | Surface syntax or reusable behavior | Installed vocabulary, the owning package's documentation and a relevant component example |
-| This production's inputs and completed work | Supplied files, its notes, Sources, Runs and selected Result repository, including explicitly linked shared assets |
+| This production's inputs and completed work | Supplied files, its notes, Sources, Runs and project Result history, including explicitly linked shared assets |
 
 Follow a path beyond the project when a supplied location, recorded dependency or documented tool
 location explains its purpose. A nearby project with a similar name or subject does not establish
@@ -43,26 +43,28 @@ can later hold the project's component dependencies:
   "name": "workshop-video",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "hypit": { "project": true }
 }
 ```
 
-The CLI uses the nearest `package.json` above the command's working directory, or that directory
-itself when none exists. Passing a Source or Runtime path does not select a different project.
+The CLI searches upward for a `package.json` whose `hypit.project` field is `true`. It does not turn
+the nearest component package or an arbitrary working directory into a project. Passing a Source or
+Runtime path does not select a different project.
 Sources can live below the root, with file and Source imports relative to the declaring file.
 
 | Boundary | When to set it explicitly |
 | --- | --- |
-| `--workspace <directory>` | Choose the project root for Sources, Runtime selection, project packages and Results when running from another directory |
+| `--project <directory>` | Choose the project root for Sources, Runtime selection, project packages and Results when running from another directory |
 | `--asset-root <directory>` | Admit assets stored elsewhere while keeping Source imports in their workspace |
 | `--package-root <directory>` | Resolve project packages from another installation location |
 
-Relative command-line paths start at the shell's current directory. `--workspace` selects the project
+Relative command-line paths start at the shell's current directory. `--project` selects the project
 without rebasing the Run, Source or `--runtime` argument. For example, from outside a project:
 
 ```bash
-hypit paths --workspace /path/to/video-project
-hypit studio --run /path/to/video-project/build.svrun --workspace /path/to/video-project
+hypit paths --project /path/to/video-project
+hypit studio --run /path/to/video-project/build.svrun --project /path/to/video-project
 ```
 
 `paths` shows the resolved project and where its Runtime selection came from. Source imports and asset
@@ -70,8 +72,10 @@ references inside files remain relative to their declaring file.
 
 For example, `hypit check authors/main.svml --asset-root /path/to/shared-media` admits intentionally
 referenced shared media. Keep the same relevant boundaries for subsequent commands. An ordinary
-project uses its own package installation; reserved `@hypit/*` packages come from the selected
-Distribution. [Distribution](../environment/distribution.md) explains locating that executable,
+project uses its own package installation. Embedded Core comes from the selected Distribution;
+product-selected default packages are ordinary dependencies installed with it. Independently
+distributed project packages, including `@hypit/*` packages, remain ordinary project dependencies.
+[Distribution](../environment/distribution.md) explains locating that executable,
 and [component vocabulary](../production/vocabulary.md#let-ordinary-package-management-own-distribution)
 explains installing project packages.
 
@@ -184,15 +188,15 @@ authored work and the produced values that its Runs select:
 - project component source or installed-release dependencies, `package.json`, its lockfile and any
   tarballs referenced by `file:` dependencies;
 - the completed Results used by `build-record` Candidates, including their media and Composite value
-  documents, plus the project Result repository selection;
+  documents;
 - the intended Runtime configuration, with account access configured on the receiving machine through
   its own Credential Store.
 
 For the default filesystem repository, preserving `.hypit/results/` intact with the project is the
 straightforward handoff. Include the hidden directory and keep its date/Build subdirectories. Some
 Results forward an Output to its original owning Build, so copying only the latest Build directory
-can omit media still in use. A custom filesystem or S3 repository needs the corresponding files or
-access and an explicit destination selection; changing `hypit.results.json` does not move them.
+can omit media still in use. Archive or migrate completed Results explicitly when they should live
+outside the project.
 
 External input files remain live dependencies, including when referenced inside structured Outputs.
 The Node workspace records their resolved file addresses. When moving to another machine, provide
@@ -209,8 +213,9 @@ Runtime's execution state.
 `hypit get` is useful when handing over a particular output. Exported image/video/audio files can be
 selected as file Candidates. A Composite export contains `value.json` and its resource files for
 inspection and transport; that document uses the Result value format, whereas a Run `<value>` accepts
-a StoredValue wrapper. To retain a SemanticTake's structured reuse, keep its Result available and use
-`build-record`. [Builds and Results](../production/builds.md) explains repository selection and export.
+a StoredValue wrapper. To retain structured normalized media, local-domain or alignment reuse, keep
+its Result available and select each required Output with `build-record`. [Builds and Results](../production/builds.md)
+explains Result reuse and export.
 
 ## Resume from present facts
 

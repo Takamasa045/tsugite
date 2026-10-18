@@ -13,6 +13,13 @@ describe('installed production dependency families',()=>{
     const selected=versions(await lock('.'),['remotion','@remotion/bundler','@remotion/renderer','@remotion/media']);
     expect(selected.every(Boolean)).toBe(true);expect(new Set(selected).size).toBe(1);
   });
+  it('keeps the independently installable v2 Remotion peers aligned with the repository runtime',async()=>{
+    const installed=await lock('.');
+    for(const id of ['remotion','fast-edit']){
+      const plugin=JSON.parse(await readFile(resolve(root,'v2/plugins/'+id+'/package.json'),'utf8'));
+      for(const [name,version] of Object.entries(plugin.peerDependencies))expect(installed['node_modules/'+name]?.version,name).toBe(version);
+    }
+  });
   it('keeps React and React DOM paired in the renderer and local Viewer',async()=>{
     for(const folder of['.','apps/workflow-viewer']){const selected=versions(await lock(folder),['react','react-dom']);expect(selected.every(Boolean)).toBe(true);expect(new Set(selected).size).toBe(1);}
   });

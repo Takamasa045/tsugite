@@ -2,6 +2,7 @@ import { prepareFastEditMedia } from "../fastEditMedia.mjs";
 import { mixFastEditAudio } from "../fastEditAudio.mjs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { assertDirectory, assertNoSymlinkBetween, assertRegularFile, mkdirOwned, writeSafeFile } from "./confine.mjs";
 import {
@@ -169,7 +170,7 @@ async function main() {
   const renderHandle = spawnOwned(
     [
       process.execPath,
-      runtime.cliPath,
+      fileURLToPath(new URL("./cli.mjs", import.meta.url)),
       "render",
       "--url",
       `http://127.0.0.1:${port}/index.html`,
@@ -206,7 +207,7 @@ async function main() {
     });
   }
 
-  await mixFastEditAudio(manifest, input.runDir, input.outputPath);
+  await mixFastEditAudio(manifest, input.runDir, input.outputPath, { includeSourceAudio: true });
   const metadata = probeRenderedMedia(input.outputPath);
   if (!metadata.ok) {
     await writeFailureResult(input, manifest, {

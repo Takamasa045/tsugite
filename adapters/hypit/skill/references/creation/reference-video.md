@@ -5,7 +5,7 @@ from. The useful result is a timecode-level semantic reading: what the piece com
 its exact audiovisual choices make that communication work.
 
 For a reference supplied as a link, [video download](../production/video-downloads.md) explains
-`hypit media fetch`, its local preparation and the saved source file used by the tools below.
+`hypit download`, its explicit preparation and the saved source file used by the tools below.
 
 ## Read the whole through its details
 

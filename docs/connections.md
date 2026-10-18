@@ -45,11 +45,11 @@ node bin/pipeline connections --model "Seedance 2.0" --capability video.image-to
 
 `pixverse`接続は、インストール済みPixVerse CLIが公開する `create video / image / transition / voice / music / extend / modify / upscale / reference / motion-control / template` をgeneration requestから扱う。Gemini、Kling、Grok、MiniMax等のモデル名をTsugiteの固定allowlistで制限せず、CLIの検証結果を正本にする。
 
-`kling-direct`接続は、Kling CLIの `text_to_image / image_to_image / text_to_video / image_to_video` を扱う。利用可能モデルとモデル別パラメータは `kling who_am_i` の実行時宣言が正本である。
+`kling-direct`接続は、`npm run kling:install` で固定導入する公式 `@klingai/cli-global@0.2.3` を使います。明示した `KLING_CLI` は維持し、自動で接続先や認証を切り替えません。Kling CLIの `text_to_image / image_to_image / text_to_video / image_to_video` を扱う。利用可能モデルとモデル別パラメータは `kling who_am_i` の実行時宣言が正本である。
 
 ## MiniMax direct（Phase A: preflight-only）
 
-`minimax-direct` は MiniMax 公式 CLI `mmx`（>= 1.0.19）への接続枠です。**PixVerse 経由の MiniMax-H3 とは別 connection** です。混ぜないでください。
+`minimax-direct` は MiniMax 公式 CLI `mmx`（必要条件 >= 1.0.19、固定導入版 1.0.28）への接続枠です。`npm run minimax:install` でリポジトリ内に導入し、`npm run --silent minimax -- --version` で確認します。接続のpreflightもこの固定版を使います。**PixVerse 経由の MiniMax-H3 とは別 connection** です。混ぜないでください。
 
 | 項目 | 契約 |
 |---|---|
@@ -187,4 +187,4 @@ subscription/API keyを使うintegrated connectionは、environmentまたはmanu
 
 ### PixVerse Canvas
 
-公式CLI 1.4.6をリポジトリ内へ固定導入して、Canvasのproject / graph / node / patch / dispatchを操作できる。[導入・操作・承認境界](pixverse-canvas.md)を参照。入口は `npm run --silent pixverse -- canvas ...`。従来の生成adapterと独立した外部操作入口である。
+公式CLI 1.4.9をリポジトリ内へ固定導入して、Canvasのproject / graph / node / patch / dispatchを操作できる。[導入・操作・承認境界](pixverse-canvas.md)を参照。入口は `npm run --silent pixverse -- canvas ...`。従来の生成adapterと独立した外部操作入口である。

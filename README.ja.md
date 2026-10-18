@@ -12,6 +12,8 @@ AI動画を作って終わりにせず、素材、制作ログ、判断、好み
 
 生成サービス、ローカル素材、編集バックエンドを単一の **manifest** 契約で接続し、制作計画、承認、QA、ログを案件ごとに残します。Gitやターミナルに詳しくなくても、安全境界を確認しながらCodex、Claude Codeなどの対応コーディングエージェントへ初回準備を任せられます。
 
+連携CLI・動画エンジンの版と導入方法は[動画ツールの更新一覧](docs/video-tools.md)を参照してください。
+
 ## できること
 
 用途から入口を選んでください。任意ツールは Gate や `run` / `render` の代わりにはなりません。
@@ -64,8 +66,8 @@ MiniMax direct / MiniMax HTTP は **preflight-only** のまま、送信可能と
 | --- | --- | --- | --- |
 | **Premiere Pro** | `$premiere-editing`（Claude Code: `/premiere-editing`） | macOS。カット、トランジション、音声、字幕、色。ローカル MCP と画面確認 | [Premiere Pro](docs/premiere-pro.md) |
 | **After Effects** | `$after-effects-editing`（Claude Code: `/after-effects-editing`） | macOS。公式ローカル `DoScriptFile` helper で inspect / fixture / タイトル追加 / 別名保存。画面上の文字と再生は別確認 | [After Effects](docs/after-effects.md) |
-| PixVerse Canvas | 公式 CLI 1.4.6（任意導入） | `npm run pixverse:install` のあと `npm run --silent pixverse -- canvas ...`。外部 Canvas 入口であり pipeline backend ではない。導入確認だけでは live な Canvas 変更を主張しない | [PixVerse Canvas](docs/pixverse-canvas.md) |
-| HyperFrames Studio | 固定 0.8.75 の WebMCP | `npm run hyperframes:studio -- <composition-dir>` で authoring copy を開く。0.8.75 + native Chrome 153 で inspect / 文字・色編集まで実測。motion や他ホストは未検証。Studio 編集は pipeline manifest を更新せず、後続の `render` が HTML を再生成する | [Studio WebMCP](docs/hyperframes-studio-webmcp.md) |
+| PixVerse Canvas | 公式 CLI 1.4.9（任意導入） | `npm run pixverse:install` のあと `npm run --silent pixverse -- canvas ...`。外部 Canvas 入口であり pipeline backend ではない。導入確認だけでは live な Canvas 変更を主張しない | [PixVerse Canvas](docs/pixverse-canvas.md) |
+| HyperFrames Studio | 固定 0.8.172 の WebMCP | `npm run hyperframes:studio -- <composition-dir>` で authoring copy を開く。0.8.172 + native Chrome 155 で inspect / 文字・色編集まで実測。motion や他ホストは未検証。Studio 編集は pipeline manifest を更新せず、後続の `render` が HTML を再生成する | [Studio WebMCP](docs/hyperframes-studio-webmcp.md) |
 
 ### 手元の映像を解析する
 

@@ -59,13 +59,15 @@ these together. Changing the person is common; a narrow substitution may leave m
 relationships intact. When a new body, object or story changes what an action means, reshape the
 action to serve the target's intention. Brief and Treatment hold the requested change and the new
 creative answer; the source footage remains evidence rather than a ready-made target timeline.
+That evidence may remain observational, or a selected excerpt may become an actual generation input
+when the target must preserve or transfer its temporal behavior. These are different decisions.
 
 In a comic speaking reference, an unusual camera angle may work together with role-played vocal
 phrasing, expression and gesture. Put the intended words in Script, choose whose voice belongs to
 the target, and direct how the visible performance delivers the joke. A supplied portrait establishes
 appearance, not the voice or delivery. [Voice direction](../playbooks/craft/voice-direction.md) owns
 casting; [video direction](../playbooks/craft/video-direction.md#let-footage-carry-temporal-behavior-that-matters)
-owns when a selected source excerpt should condition the new shot.
+owns when and how a selected source excerpt should condition the new shot.
 
 ## "Make this with my face"
 
@@ -74,7 +76,7 @@ the spoken argument and comic reveals may already suit the new presenter. Bring 
 camera image with the reference's teasing confidence, useful framing, and room for the board. Keep
 the full [image craft](../playbooks/craft/image-direction.md), directing the supplied person's appeal
 and presence with the same care as any leading performer in this work. That image can carry all
-ordinary talking Takes and supply the person's other appearances.
+ordinary talking clips and supply the person's other appearances.
 
 A joke about the original presenter's appearance or personal story needs another look: decide how
 its setup and payoff fit the new casting and Brief. The new person may invite a different delivery or
@@ -113,7 +115,7 @@ asset came from. The normal task is to create the target media.
 
 External references become essential when public world knowledge cannot determine exact identity:
 the user, a private or obscure product, a proprietary interface, an exact Logo or data display. An
-accepted generated image, Take, or sound can then become authority for later work.
+accepted generated image, video or sound can then become authority for later work.
 
 Prefer reference-conditioned video generation when identity, art direction, composition, or product
 continuity matters. The input guides the shot without having to appear as its literal first or last

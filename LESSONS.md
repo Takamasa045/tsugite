@@ -133,3 +133,10 @@ Append-only format:
 
 - 2026-10-18 / Sandboxed npm pack failed while writing the default home cache / npm suggested changing cache ownership even though the task only needed a writable cache / Use a task-owned temporary npm cache, keep user/global configuration unchanged, and check pack exit status before parsing metadata or starting an install / verified with the source-only alpha package
 - 2026-10-18 / Forge 8 passed old source tests but would fail packaging / The packager switched hooks from callbacks to a single options object; the old test repeated the obsolete call contract / Test the installed upstream hook runner during major upgrades, then migrate to the options/Promise contract and check platform branches before merge / regression reproduced and fixed
+
+## 2026-10-19: 動画ツール更新の互換確認
+
+- 依存の版だけでなく、独立v2プラグインのpeer指定、実CLIのhelp、ローカルSDKの入口を照合する。SDK分割・CLI引数変更・native bridge化は合成fixtureのcheck/plan/renderで確認し、既存Productionを自動変換しない。
+- 分割されたruntimeは入口ファイルだけでなく実行chunkも計画へ結び付ける。固定ハッシュは公式ソースとコンパイラを確認してから更新し、改変拒否の検証を維持する。
+- Chrome WebMCPの引数契約は実ブラウザと公式APIで確認する。Chrome 155ではRegisteredToolとオブジェクトを渡し、入力をJSON文字列化しない。
+- packは対象パッケージの実ディレクトリで実行し、JSONのname/version/filesを照合する。`--prefix`やJSON配列の仮定だけで公開対象を判定しない。

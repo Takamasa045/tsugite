@@ -107,6 +107,6 @@ placing it in the composition.
 Keep captures in project assets and record the source page and its purpose in the project notes.
 An image enters through `media:Image`; a recording enters through `media:Video` and the ordinary
 [normalization path](media.md). Place them with
-[Media presentation](media-presentation.md#keep-display-time-and-source-playback-distinct) and the Script's
+[Visual Clips](visual-clips.md#keep-destination-time-and-source-sampling-distinct) and the Script's
 Selections or Moments as appropriate. Their visibility, crop, scroll and transitions belong to the
 composition, so those changes can reuse the captured file.

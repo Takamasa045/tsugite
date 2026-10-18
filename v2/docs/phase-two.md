@@ -91,7 +91,7 @@ video, audio and caption output has been tested on this Mac, without cloud
 rendering or browser download. This does not establish a user's license status.
 
 `plugin add hyperframes` installs an optional local HTML adapter. Existing
-0.8.24 CLI, GSAP and browser paths are selected explicitly. Real Mac export through
+0.8.172 CLI, GSAP and browser paths are selected explicitly. Real Mac export through
 the v2 checks passed with visible timed captions, looping BGM and SFX under
 external-network denial. Telemetry/update checks are disabled; no install,
 upgrade, auth, cloud or feedback command runs. Runtime/browser identities are

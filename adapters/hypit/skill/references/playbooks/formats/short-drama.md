@@ -12,21 +12,21 @@ meaning, an action creates a consequence, or a reveal changes what the viewer un
 silence, reaction and physical business can all carry that movement.
 
 A Segment is a performable dramatic passage, not a required camera shot or speaker turn. One Segment
-can contain several people and cuts; several generated Takes can also reuse the same camera views when
+can contain several people and cuts; several generated clips can also reuse the same camera views when
 the passage is better produced in parts. Choose the shape that lets the intended action and exchange
 remain legible.
 
-Measure the Script to understand speaking density, then leave the time that the intended pause,
+Estimate the Script's duration to understand speaking density, then leave the time that the intended pause,
 reaction and action need. The selected video model's supported request lengths constrain what can be
-generated together without defining the story's scenes. [Script and time](../../creation/script-and-time.md#measure-before-choosing-durations)
-owns measurement, while [generated video direction](../craft/video-direction.md#size-the-request-around-the-delivery)
+generated together without defining the story's scenes. [Script and time](../../creation/script-and-time.md#estimate-before-choosing-durations)
+owns estimation, while [generated video direction](../craft/video-direction.md#size-the-request-around-the-delivery)
 owns how the selected model's request range informs the performable passage.
 
 ## Establish the story's useful camera views
 
 Reference-conditioned generation is a strong starting point when the work depends on recognizable
 people, a shared world, staging or composition. A key image can establish the character, a complete
-story view with the characters in their setting, or both. Direct images and Takes in natural language
+story view with the characters in their setting, or both. Direct images and video passages in natural language
 for the current dramatic intention. Free direction suits the variety of dramatic scenes; a reusable
 Prompt Kit becomes useful when repeated productions reveal a stable prompt relationship worth preserving.
 
@@ -38,15 +38,15 @@ views from the images that hold the facts they need:
 - one story view can carry a costume, prop or spatial relationship into the next;
 - a supplied image can serve directly when it already expresses the intended character and shot.
 
-Within one location, a small set of useful views can support many Takes. In a living-room dialogue,
+Within one location, a small set of useful views can support many generated clips. In a living-room dialogue,
 one view for each conversational side may preserve everything the passage needs; modest reframing,
 performance and camera changes can happen in video. Another image becomes useful when a new view must
 establish an important fact, such as a changed relationship, decisive prop state or plot-bearing part
 of the space.
 
-Decide separately which views to establish and which dramatic action to generate together. One Take
+Decide separately which views to establish and which dramatic action to generate together. One generated clip
 can move among several shots or places while key images establish the people, objects, composition
-or continuity that need explicit visual direction; one view can also guide several Takes. A new
+or continuity that need explicit visual direction; one view can also guide several generated clips. A new
 place merits an image when the story needs that particular view established, while other moves and
 cuts can develop within the video passage. The image graph follows those visual dependencies rather
 than the count of locations or edits.

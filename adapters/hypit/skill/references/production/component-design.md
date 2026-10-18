@@ -29,7 +29,7 @@ authored identity while its state develops. Let shared behavior define the unit.
 A performance moving from full screen into a side viewport and a diagram filling the released space
 can share one component. It owns their relative layout, overlap, masking and coordinated motion.
 A-roll supplies the performed passage; visual ownership follows the behavior being designed.
-Existing footage can use [Performance Styles](performance.md); independent assets use Media. A
+Existing footage and independent assets can both use [Visual Clips](visual-clips.md). A
 one-off scene is a useful component too. Caption and independent overlays can remain separate.
 
 Decompose a scene further where its parts have meaningful independent responsibilities. Keep
@@ -105,10 +105,11 @@ relationship among words and graphics. Both consume Script wording and semantic 
 behavior can keep these visuals together; [Caption authoring](caption-authoring.md) explains the
 specialized text inputs and the same freedom to compose.
 
-Give a reusable scene the prepared performance, its outer Window and the Moment that changes its
-layout through the Timeline and shared temporal projections. Replacing a product or rewriting the
-Script then changes content and semantic anchors while preserving the behavior. The final frame
-positions come from the placed Takes.
+Give a reusable scene explicit normalized media sources, their exact absolute Windows, its outer
+Window and the Moment that changes
+its layout through the Timeline and shared temporal projections. Replacing a product or rewriting the
+Script then changes content and semantic anchors while preserving the behavior. Source sampling comes
+from each source Window; final geometry comes from the component's explicit picture-plane Frames.
 
 The repository's [video examples](https://github.com/hypit-ai/hypit/tree/main/examples) show different
 applications: a persistent ranking board, related podcast views, a shared interview encounter and
@@ -123,8 +124,9 @@ trace concrete revisions back to their design decisions and source owners.
 ## Let meaning drive the behavior
 
 Prefer Script Selections, Moments and Segments for events that respond to the argument or performance.
-The Surface projects them through the accepted Timeline; the component consumes the resulting
-Windows or Instants. A different delivery can then move the event while preserving its purpose.
+An upstream Narrative Projection reveals them as named absolute Windows or Instants; the component
+consumes those values without knowing their semantic source. A different delivery can then move the
+event while preserving its purpose.
 Explicit time remains useful for an authored lead, a short entrance or another clock-based decision.
 In a pure MG piece, name the events that carry its meaning and direct their reading rhythm. A useful
 component accepts resolved Instants or Windows so the same reveal can follow a Script Moment or an
@@ -139,8 +141,9 @@ different phrases. Give those actions their own semantic inputs. Placing them at
 at 20%, 50% and 80% of the outer Window preserves neither their identities nor their relationship
 to unevenly changed speech.
 
-The Surface can accept an outer Selection and separate Moments for those events, projecting each
-through Timeline. The implementation derives movement between the resulting events and keeps its
+The component can accept an outer Window and separate Instants for those events. Source obtains them
+from the appropriate projector or direct time declarations. The implementation derives movement
+between the resulting events and keeps its
 pointer path, button geometry, click rebound and decoration local. A movement that simply unfolds
 inside one authored event interval may use normalized progress there; it needs no marker for every
 animation key. Meaningful event location and the designed duration/shape of motion are different choices.
@@ -212,6 +215,7 @@ adjustments the user needs, such as Caption position and color, through the exis
 An empty parameter panel alone is no reason to widen the component interface.
 [Companion authoring](studio-companions.md) owns those bindings.
 
-For an existing example, read the installed `@hypit/ranking` README and the part of its implementation
-that answers the current question. It connects semantic reveals, settled state, layout and editor
-entities. Carry the relevant relationship into the project component's own design.
+If the current project deliberately installed `@hypit/ranking`, its README is one example of
+semantic reveals, settled state, layout and editor Items. Do not assume that optional package is
+part of the Distribution or install it merely to begin a component. Carry only a relationship that
+answers the current video's need into the project component's own design.

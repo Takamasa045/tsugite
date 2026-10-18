@@ -22,7 +22,7 @@ The [worked image directions](../craft/examples/conversation-images.md#street-in
 show how little the derived prompts need to add once the shared image is doing its job.
 
 `street-interview-v1` uses this supplied set: interviewer A, guest B, shared view, then the two voices
-in A/B order. All ordinary Takes reuse it. Its three-view limit is the design of this Kit, not a
+in A/B order. All ordinary generated clips reuse it. Its three-view limit is the design of this Kit, not a
 restriction on every street interview or on Hypit. The interviewer keeps the microphone and moves
 it toward whoever speaks; extending it to the guest is not handing over ownership.
 
@@ -33,7 +33,7 @@ can stay in the shared view; disbelief or an emotionally important challenge ear
 close view. This directs attention rather than alternating cameras on a timer.
 
 Action can specify cuts between the Kit's supplied setups. Several questions and answers fit in one
-Segment and one generated Take. Keep the chosen framing behavior within each setup and let the cut
+Segment and one generated clip. Keep the chosen framing behavior within each setup and let the cut
 move directly to the next; an invented travel shot between cameras changes the scene's grammar.
 
 ## Give the encounter a before and an after
@@ -59,7 +59,7 @@ interested and spontaneous rather than theatrical; he continues to hold and posi
 
 On the final passage, a short additional direction can return to her close view and let her begin
 turning away after the punchline. The opening and ending actions belong to those actual passages;
-intermediate Takes carry the behavior of their own exchange.
+intermediate clips carry the behavior of their own exchange.
 
 For the middle, give a few readable gestures a purpose: amused certainty, a compact shrug, a glance
 that registers a surprising answer. Avoid exaggerated emotion, constant motion and exact numerical
