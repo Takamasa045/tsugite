@@ -1,5 +1,14 @@
 # Development checkpoint — alpha readiness
 
+The [alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1)
+is now published from main merge `73f00cf` through PR #203. All seven assets were
+downloaded anonymously and matched SHA-256. Three-OS offline CI and the separate
+real Remotion lane passed; existing v1 CI and Viewer also passed with a fresh
+pinned install. The tracker records 73 done, seven partial and ten external
+requirements. No formal v2, paid-service or independent-user acceptance is claimed.
+
+The following local checkpoint is retained as development history.
+
 The full v2 migration is not declared complete. Work continues on
 `codex/tsugite-v2` in the durable `.work/tsugite-v2-worktree`; the foundation is
 saved at local commit `9c8baaf`, with the next checkpoint at `fbaa6f6`.

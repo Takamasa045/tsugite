@@ -152,5 +152,6 @@ npm pack --dry-run        # inspect the independent distribution boundary
 
 The test harness programmatically submits confirmation forms only in its own
 fixtures. These are software tests, not human production approvals. macOS,
-Windows and Linux CI is defined separately; a local macOS pass is not evidence
-that the other operating systems have passed.
+Windows and Linux CI, plus a separate Ubuntu real Remotion lane, passed for the
+alpha. See [verification](docs/verification.md) for exact test counts, optional
+runtime skips and the separate local all-runtime evidence.

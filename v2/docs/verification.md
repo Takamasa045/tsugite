@@ -1,5 +1,38 @@
 # Local verification — 2026-10-18
 
+## Public alpha delivery
+
+[PR #203](https://github.com/Takamasa045/tsugite/pull/203) merged to main at
+`73f00cf02ebe41cba51af9de41e85abebaebc781`. Its tree is identical to the reviewed
+head `d7a55b1`. The annotated `v2.0.0-alpha.1` tag targets that merge; the
+[public prerelease](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1)
+published at 2026-10-18 12:11:03 UTC. This is not npm registry publication.
+
+- [Three-OS v2 CI](https://github.com/Takamasa045/tsugite/actions/runs/39125766734):
+  all matrix lanes passed check, offline/extended CLI smoke and package audit.
+  Each ran 69 tests with four optional-runtime skips. The separate Ubuntu real
+  Remotion lane passed three tests, with one HyperFrames runtime skip. These
+  runner limits differ from the local all-runtime 73-pass/zero-skip evidence.
+- [Existing v1 CI](https://github.com/Takamasa045/tsugite/actions/runs/39125766606):
+  2,382 tests passed, seven environment-dependent skips, zero failures; Viewer
+  516 passed. Required builds, fixture CLI checks and security audit passed.
+  This fresh pinned install resolves the local shared-install version mismatch
+  documented below without changing that local installation.
+- The release tarball was clean-installed again with empty npm settings and
+  core dependencies only. Under external-network denial it produced a
+  6.021322s 360×640 video with audio, all three fixture checks approved and an
+  empty ledger. Sample SHA-256:
+  `820b93123dfe3e3a6fcdbd3216f30feee40b758e3e2dff1f0eb9dc954301b000`.
+- All seven release assets were downloaded without authentication and their
+  byte counts and SHA-256 values matched. `SHA256SUMS` covers the six tarball,
+  synthetic video and preview files. Tarball SHA-256:
+  `3bdef65023ac4fab387b52e15e7e166df569a840a8aeebea2bd525af836fa023`.
+
+Only reviewed synthetic fixtures are distributed; raw private logs, model
+weights and production material remain excluded. Live paid acceptance and
+independent novice trials remain unperformed. Earlier checkpoints below are
+historical and must not override this delivery record.
+
 ## Phase-three verification
 
 **73 passed, 0 failed/skipped**, under external-network denial (loopback only).
@@ -133,7 +166,7 @@ operations and successful scratch cleanup. Evidence remains at
 `verification/evidence/verify-tsugite/20261018t103906743z-f32c75/` in the worktree.
 It does not verify v2 planning or page behavior; those have the separate tests above.
 
-## Not verified or released
+## Phase-one limits (historical)
 
 No paid/live generation, provider accounts, credential changes, npm publication,
 GitHub push/PR, external sharing or production-data edits occurred. macOS is the
