@@ -87,10 +87,10 @@ product roadmap or proof of paid integrations.
 | A05 | One-command Claude Code/Codex installer | done | plugin skill --to explicit-client-skills; works for normal Claude Code/Codex Skill directories without overwrite |
 | A06 | Unified review/viewer confirmation page | done | One localhost page serves all three checks |
 | D01 | Independent npm package, clone-free installation | done | Local tarball clean-installed outside repo with public YAML dependency, then packaged CLI/page completed a 6-second zero-credit sample; no npm publication |
-| D02 | macOS/Windows/Linux CI every update | partial | Dedicated matrix defined; remote runs not performed |
+| D02 | macOS/Windows/Linux CI every update | done | All three OS lanes passed check, offline/extended CLI smoke and pack; separate Ubuntu real Remotion lane passed; [run 39125766734](https://github.com/Takamasa045/tsugite/actions/runs/39125766734) |
 | D03 | Templates, taste and knowledge packs shareable separately | done | Versioned timing template import/export, taste JSON and local Markdown knowledge packs |
-| D04 | Site gallery with examples | partial | Gallery prepared on the existing public project GitHub site with synthetic examples; authorized main/release-asset publication pending |
-| D05 | README first screen value + 30-second demo | partial | Readable synthetic 30-second 720p demo rendered and decoded locally; authorized release-asset delivery pending |
+| D04 | Site gallery with examples | done | [Gallery](gallery.md) merged to existing public GitHub project; all example assets downloaded anonymously and SHA-256 verified |
+| D05 | README first screen value + 30-second demo | done | Synthetic 30-second 720p demo published in [alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1), downloaded and verified |
 | D06 | At least five good-first-issues | partial | Five scoped starter issue drafts with acceptance criteria in contribution-backlog.md; no GitHub issue creation authorized/performed |
 | D07 | Monthly grouped dependency maintenance, few dependencies | done | YAML-only core + optional MCP SDK; monthly grouped /v2 policy, v1 entries unchanged |
 | D08 | Author governs; plugin maintainers assigned | external | Actual maintainer assignment required before release |
@@ -116,7 +116,7 @@ product roadmap or proof of paid integrations.
 
 Locally implementable code and reproducible evidence are in this alpha.
 The remaining partial rows refer to actual paid service acceptance, independent
-users/OS CI, public delivery or author/maintainer decisions. The experiments
+users or author/maintainer decisions. The experiments
 remain explicitly v1 compatibility sources; their inventory is not a promise
 of new v2-native execution. See [local readiness](local-readiness.md) for each
 external requirement and the precise supported boundary.
@@ -130,4 +130,8 @@ implemented conservative local matching and explicit grouping never upload notes
 Do not call this a formal complete v2 or mark independent-user gates passed.
 A reviewed alpha source release is authorized, with no paid generation, new
 account, credentials change or destructive v1 migration. Actual push/CI/tag/asset
-results will be recorded only after read-back.
+results are recorded only after read-back. PR #203 merged at `73f00cf`, and
+`v2.0.0-alpha.1` is a public prerelease at that commit. All seven release assets
+were downloaded without authentication and matched their SHA-256 values.
+Current totals: **73 done, 7 partial, 10 external** (90 requirements). This does
+not turn the remaining acceptance gates into completed implementation claims.

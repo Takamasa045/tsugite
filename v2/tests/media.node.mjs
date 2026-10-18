@@ -27,7 +27,7 @@ test('burned captions are preflighted against the actual FFmpeg build',async t=>
   const {root}=await fixture(t);await settings(root,{caption_mode:'burn',captions:[{start:0,end:1,text:'BURN TEST'}]});
   const {stdout}=await command('ffmpeg',['-hide_banner','-filters']);
   if(!/\bsubtitles\s/.test(stdout))await assert.rejects(plan(root),/requires FFmpeg with libass/);
-  else {const result=await render(t,root);assert.ok(result.seconds>0);}
+  else {const result=await render(t,root);assert.ok(result.seconds>0);const ui=await page(t,root);assert.doesNotMatch(ui.html,/<track\b/);assert.equal(result.hasCaptions,false);}
 });
 test('audio/subtitle modification invalidates plan and unsafe media inputs fail',async t=>{
   const {root}=await fixture(t);await tone(path.join(root,'assets/tone.wav'));await settings(root,{audio:[{path:'assets/tone.wav'}],captions:[{start:0,end:1,text:'safe'}]});await plan(root);

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {muxSoftCaptions} from './subtitles.mjs';
 export default {
   quote:()=>({service:'remotion',credits:0}),
   async runtime(){
@@ -28,6 +29,7 @@ export default {
     const inputProps={timeline,audioNames:audio.map((file,i)=>`audio-${i}${path.extname(file)}`)};
     const composition=await selectComposition({serveUrl,id:'Tsugite',inputProps,browserExecutable:browser});
     await renderMedia({serveUrl,composition,inputProps,browserExecutable:browser,codec:'h264',outputLocation:output,concurrency:1,logLevel:'error'});
+    await muxSoftCaptions({timeline,output,scratch});
     return {credits:0};
   }
 };

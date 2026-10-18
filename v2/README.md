@@ -3,7 +3,7 @@
 Let an agent prepare your video, review the plan before it runs, and keep your
 preferences for the next one. The offline sample needs no account or API key.
 
-[Watch the 30-second demo](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.1/demo-30s.mp4)
+[Watch the 30-second demo](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/demo-30s.mp4)
 · [Zero-credit gallery](docs/gallery.md)
 
 **Local alpha:** sound, captions, local editing, optional Remotion rendering and
@@ -15,7 +15,7 @@ Download the alpha tarball from the [source releases](https://github.com/Takamas
 Install without cloning or replacing your global tools:
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.1.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.2.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
 ```
@@ -152,5 +152,6 @@ npm pack --dry-run        # inspect the independent distribution boundary
 
 The test harness programmatically submits confirmation forms only in its own
 fixtures. These are software tests, not human production approvals. macOS,
-Windows and Linux CI is defined separately; a local macOS pass is not evidence
-that the other operating systems have passed.
+Windows and Linux CI, plus a separate Ubuntu real Remotion lane, passed for the
+alpha. See [verification](docs/verification.md) for exact test counts, optional
+runtime skips and the separate local all-runtime evidence.
