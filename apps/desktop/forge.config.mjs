@@ -95,11 +95,6 @@ export default {
       config: {}
     },
     {
-      name: "@electron-forge/maker-dmg",
-      platforms: ["darwin"],
-      config: { format: "ULFO" }
-    },
-    {
       name: "@electron-forge/maker-squirrel",
       platforms: ["win32"],
       config: squirrelConfig

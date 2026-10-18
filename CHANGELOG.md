@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve and integrate the `kobo-launch-16x9` Remotion preset with configurable copy and timeline-offset previews; registered preset rendering is checked with the current shared root.
+
 ## 2.0.0-alpha.3 - 2026-10-18 (local repository rollout)
 
 - Expose the independent v2 CLI through the normal repository entry (`npm run v2 -- ...`) and agent routing; retain existing v1 production commands. Include the reviewed YAML 2.9.1 patch.

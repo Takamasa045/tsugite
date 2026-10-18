@@ -10,9 +10,9 @@ const require = createRequire(import.meta.url);
 
 const EXPECTED_OVERRIDES = {
   "@babel/core": "7.29.7",
-  "brace-expansion": "5.0.9",
+  "brace-expansion": "5.0.12",
   "minimatch": "10.2.5",
-  "fast-uri": "3.1.7",
+  "fast-uri": "3.1.8",
   "js-yaml": "4.3.2",
   "fflate@0.7.4": "0.7.5",
   nanoid: "3.3.18",
@@ -43,12 +43,12 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   );
   assert.equal(lockfile.packages["node_modules/next"].version, "16.4.2");
   assert.equal(lockfile.packages["node_modules/@babel/core"].version, "7.29.7");
-  assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "5.0.9");
+  assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "5.0.12");
   assert.equal(lockfile.packages["node_modules/minimatch"].version, "10.2.5");
   assert.equal(lockfile.packages["node_modules/react"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.2.8");
   assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
-  assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.7");
+  assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.8");
   assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.2");
   assert.equal(lockfile.packages["node_modules/nanoid"].version, "3.3.18");
   assert.equal(lockfile.packages["node_modules/postcss"].version, "8.5.25");
@@ -61,7 +61,7 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   // No unpatched brace-expansion leftovers after the global override.
   for (const [path, entry] of Object.entries(lockfile.packages)) {
     if (path.endsWith("node_modules/brace-expansion")) {
-      assert.equal(entry.version, "5.0.9", path);
+      assert.equal(entry.version, "5.0.12", path);
     }
     if (path.endsWith("node_modules/nanoid")) {
       assert.equal(entry.version, "3.3.18", path);

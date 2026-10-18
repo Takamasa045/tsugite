@@ -3,19 +3,18 @@
 Let an agent prepare your video, review the plan before it runs, and keep your
 preferences for the next one. The offline sample needs no account or API key.
 
-[Watch the 30-second demo](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.3/demo-30s.mp4)
-· [Zero-credit gallery](docs/gallery.md)
+[Install and try locally](docs/install.md) · [Local example workflows](docs/gallery.md)
 
 **Local alpha:** sound, captions, local editing, optional Remotion rendering and
 source-plugin mocks work. Documented HTTP transports have synthetic fixture tests; live paid acceptance and the broader
 v1 feature set are still tracked in [requirements](docs/requirements.md). This
 package is not published to the npm registry. Existing v1 productions continue unchanged.
 
-Download the alpha tarball from the [source releases](https://github.com/Takamasa045/tsugite/releases).
+Download the alpha tarball and SHA256SUMS from the [source-only alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.4). This release uploads no demo videos or images.
 Install without cloning or replacing your global tools:
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.3.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.4.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
 ```

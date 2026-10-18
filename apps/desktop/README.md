@@ -6,6 +6,8 @@ Electron で Tsugite のローカルランチャーを開く Desktop shell で�
 
 ## Development
 
+The development-only Desktop toolchain uses Electron 44 / Forge 8 and requires Node.js 22.13 or newer in the 22.x line. It stays separate from the normal CLI/Viewer workflow; updating it does not restore public installer distribution.
+
 repository root から実行します。
 
 ```sh
@@ -34,3 +36,5 @@ GitHub ActionsのDesktop workflowは手動実行だけです。dependency audit�
 package runtime は `process.resourcesPath/runtime/tsugite/` と `process.resourcesPath/runtime/viewer/` に配置します。実行コードは runtime root を cwd とし、workspace の config は absolute path で渡します。
 
 `projects/`、private `templates/`、`media/`、`output/`、`tmp/`、`.env` は runtime に含めません。公開可能なメタデータだけを置く `bundled-templates/` は runtime に含め、workspaceの同名テンプレートがあればそちらを優先します。package test は runtime allowlist とこれらの禁止 path を検査します。
+
+Developer packaging keeps macOS ZIP and Windows Squirrel. The unused DMG maker is removed: its image-size dependency has an unresolved vulnerable API chain, and public installer distribution has already ended. No signing or installer publishing is enabled.

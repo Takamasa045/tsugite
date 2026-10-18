@@ -130,3 +130,5 @@ Append-only format:
 - Related dependency families must be tested together: Remotion runtime modules, React/React DOM, and Vitest/coverage. Old green PR checks on a branch behind main do not prove the combined current runtime. Record one disposition for every queued PR, and close replacement requests only after verified target versions land.
 
 - A primary checkout can contain nested worktree copies that a test glob discovers despite Git ignore. The deployment audit found 1,981 candidate files, including .work and .claude/worktrees copies. Exclude those source-copy roots explicitly, verify both normal/coverage discovery with a real nested fixture, and preserve the working data instead of deleting copies to make checks pass.
+
+- 2026-10-18 / Sandboxed npm pack failed while writing the default home cache / npm suggested changing cache ownership even though the task only needed a writable cache / Use a task-owned temporary npm cache, keep user/global configuration unchanged, and check pack exit status before parsing metadata or starting an install / verified with the source-only alpha package
