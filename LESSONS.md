@@ -128,3 +128,5 @@ Append-only format:
 
 - A merged PR/tag is not proof that the primary local runtime was updated. Check the actual checkout, dependency identity, build and normal entry before reporting deployment. Preserve dirty source with a private backup and a reviewed three-way merge; retain existing runtimes before replacing repository-local dependencies. Never include private projects or credentials in the release.
 - Related dependency families must be tested together: Remotion runtime modules, React/React DOM, and Vitest/coverage. Old green PR checks on a branch behind main do not prove the combined current runtime. Record one disposition for every queued PR, and close replacement requests only after verified target versions land.
+
+- A primary checkout can contain nested worktree copies that a test glob discovers despite Git ignore. The deployment audit found 1,981 candidate files, including .work and .claude/worktrees copies. Exclude those source-copy roots explicitly, verify both normal/coverage discovery with a real nested fixture, and preserve the working data instead of deleting copies to make checks pass.
