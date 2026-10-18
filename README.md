@@ -11,6 +11,12 @@ CLI with page-only checks, per-service budgets and portable preferences. Existin
 v1 commands and active productions stay on v1. The alpha's paid-service and
 independent-user acceptance gates remain open.
 
+From this repository, use `npm run v2 -- --help`, then `npm run v2 -- init
+./projects/my-video-v2` and `npm run v2 -- plan --project ./projects/my-video-v2 --no-open`. Keep the
+process running and open its printed confirmation URL. Only after page approval,
+run `make` and `export` through the same entry. Node.js and FFmpeg are required;
+the account-free sample uses no provider credits. See [v2 usage](v2/README.md).
+
 **Start here:** [Easy start](#easiest-way-to-start) · [What you can do](#what-you-can-do) · [Production flow](#safe-production-flow) · [Commands](#commands)
 
 ## What it is

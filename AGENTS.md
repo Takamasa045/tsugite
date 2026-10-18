@@ -4,6 +4,8 @@
 
 ## 適用範囲と入口
 
+`tsugite.yaml` または明示的な v2 依頼では、[v2 Skill](v2/skills/tsugite/SKILL.md) を読み、正規repository rootの `npm run v2 -- <command>` を使う。承認はv2確認ページだけ。v2はalphaであり、実課金受入・第三者試用を完了扱いにしない。既存の `project.yaml` 案件は以下のv1制作SkillとGateで継続し、自動移行しない。秘密情報・外部送信・課金の安全境界は両方に適用する。
+
 Tsugite は `project.yaml` を入口とする、承認付き動画制作パイプライン。対象ディレクトリの追加指示も確認する。
 
 - **コード・文書の変更**：編集前と完了時は [開発・検証と作業場所](docs/development-workflow.md) を読む。`git status --short --branch` / `git worktree list` で作業場所を選ぶ。既存の未コミット変更を保持する。

@@ -123,3 +123,8 @@ Append-only format:
 - A provider trace ID is not an idempotency guarantee, and request-level credits may be preliminary. Persist async identity before polling, never repeat ambiguous submissions automatically, retain unknown charges, and distinguish synthetic protocol evidence from actual billing acceptance.
 - Copying legacy JSON through an ordinary object can discard a literal `__proto__` data field. Use a data dictionary, verify every copied media/character-lock hash and keep archived native graphs non-executable; neither archived approvals nor source credentials can become v2 authority.
 - Git-ignored compatibility/evidence directories can still match a test runner's file glob. Exclude the independent v2 tree explicitly from the v1 runner and verify discovery; preserve the exported fixture sources rather than deleting them just to make a check pass.
+
+## Applying a source release locally (2026-10-18)
+
+- A merged PR/tag is not proof that the primary local runtime was updated. Check the actual checkout, dependency identity, build and normal entry before reporting deployment. Preserve dirty source with a private backup and a reviewed three-way merge; retain existing runtimes before replacing repository-local dependencies. Never include private projects or credentials in the release.
+- Related dependency families must be tested together: Remotion runtime modules, React/React DOM, and Vitest/coverage. Old green PR checks on a branch behind main do not prove the combined current runtime. Record one disposition for every queued PR, and close replacement requests only after verified target versions land.

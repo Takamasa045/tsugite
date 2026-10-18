@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.0.0-alpha.3 - 2026-10-18 (local repository rollout)
+
+- Expose the independent v2 CLI through the normal repository entry (`npm run v2 -- ...`) and agent routing; retain existing v1 production commands. Include the reviewed YAML 2.9.1 patch.
+- Align Remotion modules at 4.0.535, React/DOM at 19.2.8 and the Viewer Vitest/coverage pair at 4.1.11. Add dependency-family regression checks, Viewer audit CI and monthly grouped version updates.
+- Audit all 34 open PRs and record per-PR integration/retention decisions. Preserve primary dirty work and prior local runtime during rollout; exact installed startup evidence is separate from source publication. This remains a v2 alpha with live-service and independent-user acceptance open.
+
 ## 2.0.0-alpha.2 - 2026-10-18 (independent v2 package)
 
 - Upgrade the optional MCP SDK to 1.32.1 and refresh its dependency lock after a separate v2 audit reported four vulnerable packages in alpha.1. Add required v2 dependency audit in CI; the root v1 audit does not cover this independent package.
