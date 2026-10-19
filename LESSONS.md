@@ -133,3 +133,15 @@ Append-only format:
 
 - 2026-10-18 / Sandboxed npm pack failed while writing the default home cache / npm suggested changing cache ownership even though the task only needed a writable cache / Use a task-owned temporary npm cache, keep user/global configuration unchanged, and check pack exit status before parsing metadata or starting an install / verified with the source-only alpha package
 - 2026-10-18 / Forge 8 passed old source tests but would fail packaging / The packager switched hooks from callbacks to a single options object; the old test repeated the obsolete call contract / Test the installed upstream hook runner during major upgrades, then migrate to the options/Promise contract and check platform branches before merge / regression reproduced and fixed
+
+## 2026-10-19: 制作ガイドの音声QA
+
+- FFmpegの`volumedetect`は完全な無音PCMでも約-91dBの有限値を返す。有限の音量値だけで音声ありと判定せず、実際に復号したPCMも検査する。計測と聴音記録は別に残し、未視聴・未聴音をQA完了にしない。無音ナレーションを実書き出しする回帰テストで確認する。
+
+- 品質検査の採取位置は、元素材の先頭だけでなく実際の再生区間と対応づける。ループは素材の先頭へ折り返す時刻を含め、音声は予定された遅い開始位置も含む試写全体を確認する。
+- ソフト字幕は画像の目視だけで存在を確認できない。字幕を維持する計画では実MP4の字幕ストリームも必須検査し、欠落した書き出しをQA通過にしない。
+
+- ループの検査は映像だけで終えず、音声も素材末尾から先頭へ折り返して採取する。素材長と同じoffsetと末尾付近のoffsetを実メディアで検証する。
+- 観察レポートは、観察を記録した画像・音声の実ファイルとハッシュを保持する。同じ出力の再測定で新しい証拠を作っても、旧パスの観察と混在させない。
+
+- 証拠ファイルだけでなく、必要な証拠の一覧を含むレポート全体も生成時のハッシュで固定する。現在ポインタ・明示指定の過去レポート・選択後の再利用・観察付き品質レビューの各入口で改変を検出し、項目削除で確認数を減らせないことを検証する。
