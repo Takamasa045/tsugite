@@ -4,7 +4,7 @@
 
 계획 → 소재 → 완성 영상을 사람과 함께 확인하면서 진행하고, 이번에 고친 점을 다음 영상에 이어 갑니다. Tsugite는 내 PC에서 도는 영상 공방입니다.
 
-전체 진입점은 [日本語 README](README.ja.md)와 [English README](README.md)가 정본입니다. 이전 README의 기술 설명은 [docs/reference.ja.md](docs/reference.ja.md)와 [docs/reference.md](docs/reference.md)에 있습니다. 저장소 소프트웨어 버전은 **0.17.0**입니다.
+전체 진입점은 [日本語 README](README.ja.md)와 [English README](README.md)가 정본입니다. 이전 README의 기술 설명은 [docs/reference.ja.md](docs/reference.ja.md)와 [docs/reference.md](docs/reference.md)에 있습니다. 저장소 소프트웨어 버전은 **0.18.0**입니다.
 
 ## 누구에게
 
@@ -78,7 +78,7 @@ Codex나 Claude Code에 자기 언어로 부탁해 영상을 만드는 사람을
 
 - 이전 README의 기술 설명: [docs/reference.ja.md](docs/reference.ja.md) · [docs/reference.md](docs/reference.md)
 - Windows: [Windows 네이티브 가이드](docs/windows.md)
-- 버전: 저장소 본체 `0.17.0`. [변경 기록](CHANGELOG.md)
+- 버전: 저장소 본체 `0.18.0`. [변경 기록](CHANGELOG.md)
 - v2 alpha(개발 중): [개요](v2/README.md) · [6초 환경 확인](docs/onboarding/first-video.ja.md) · [용도로 고르기](docs/onboarding/see-and-choose.ja.md)
 - 개발: [CONTRIBUTING.md](CONTRIBUTING.md)
 - `npm run check`는 `src/` statements / functions / lines ≥ 80%, branches ≥ **74.4%**를 강제합니다 (Production Orchestration 이후 유지값. 75% 복원은 남은 빚). `npm run security:audit`는 production dependency tree와 전체 development tree를 각각 검사하고, moderate 이상의 advisory가 있으면 실패합니다.

@@ -110,6 +110,6 @@ docs/onboarding/setup-contract.ja.mdの安全境界を守って、
 
 - 以前の README の内容：[技術リファレンス](docs/reference.ja.md)
 - Windows：[Windowsネイティブ利用ガイド](docs/windows.md)
-- 版：リポジトリ本体 `0.17.0`。[変更履歴](CHANGELOG.md)
+- 版：リポジトリ本体 `0.18.0`。[変更履歴](CHANGELOG.md)
 - v2 alpha（開発中）：[概要](v2/README.md) · [6秒で環境確認](docs/onboarding/first-video.ja.md) · [用途から選ぶ](docs/onboarding/see-and-choose.ja.md)
 - 開発：[CONTRIBUTING.md](CONTRIBUTING.md)

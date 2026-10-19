@@ -4,7 +4,7 @@
 
 旧見出しの移動表は [readme-heading-map.md](guide/readme-heading-map.md) にあります。
 
-Desktop アプリの一般配布は終了しています。日常の入口は GitHub のこのリポジトリと、Codex / Claude Code などのローカルエージェント、確認用のブラウザランチャーです。版番号はリポジトリ本体 `0.17.0` と、独立した v2 `2.0.0-alpha.5` を別に管理しています。
+Desktop アプリの一般配布は終了しています。日常の入口は GitHub のこのリポジトリと、Codex / Claude Code などのローカルエージェント、確認用のブラウザランチャーです。版番号はリポジトリ本体 `0.18.0` と、独立した v2 `2.0.0-alpha.5` を別に管理しています。
 
 [日本語](../README.ja.md) | [English](../README.md) | [中文](../README.zh.md) | [한국어](../README.ko.md)
 
@@ -78,7 +78,7 @@ npm run --silent v2 -- plan --project ./projects/my-first-v2-video
 | このリポジトリを取得済み | [リポジトリから試す手順](onboarding/first-video.ja.md#すでにリポジトリが手元にある場合)。手元だけの追加更新がある場合は、GitHubのmainや公開済みalpha.5と同じ内容とは限りません。 |
 | `project.yaml`の既存案件を続ける | 下の[v1の機能と詳しい使い方](#v1の機能と詳しい使い方)。既存案件をv2へ自動移行しません。 |
 
-ファイル名が`tsugite.yaml`ならv2、`project.yaml`なら従来のv1です。リポジトリ本体の版番号`0.17.0`と、独立したv2の`2.0.0-alpha.5`は別に管理されています。v2の版番号が同じでも、手元の追加更新と公開済み配布ファイルの内容が同じとは限りません。
+ファイル名が`tsugite.yaml`ならv2、`project.yaml`なら従来のv1です。リポジトリ本体の版番号`0.18.0`と、独立したv2の`2.0.0-alpha.5`は別に管理されています。v2の版番号が同じでも、手元の追加更新と公開済み配布ファイルの内容が同じとは限りません。
 
 ### 目的別の案内
 
