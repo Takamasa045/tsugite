@@ -206,3 +206,24 @@ test('looped clip and track audio evidence includes the wrap and exact-end offse
     assert.equal(audio.silent, false, 'wrapped sample contains tone from the source beginning');
   }
 });
+
+test('current and historical material reports reject removed frame evidence', async t => {
+  for (const historical of [false, true]) {
+    const { root } = await fixture(t), first = await inspectGuidance(root);
+    if (historical) await inspectGuidance(root);
+    const tampered = await readJSON(root, first.report); tampered.sources[0].frames = tampered.sources[0].frames.slice(0, 1);
+    await write(root, first.report, tampered); await choice(root, { ...first, sources: tampered.sources });
+    await assert.rejects(selectGuidance(root, 'assets/guide-choice.json'), /inspection report changed/i);
+  }
+});
+test('selected material inspection remains hash-bound', async t => {
+  const local = await selected(t), inspected = await readJSON(local.root, local.inspected.report);
+  inspected.sources[0].frames = inspected.sources[0].frames.slice(0, 1); await write(local.root, local.inspected.report, inspected);
+  await assert.rejects(previewGuidance(local.root), /inspection report changed/i);
+});
+test('quality review reports reject removed frame evidence', async t => {
+  const { root } = await rendered(t), first = await reviewGuidance(root), tampered = await readJSON(root, first.report);
+  tampered.output.frames = tampered.output.frames.slice(0, 1); await write(root, first.report, tampered);
+  await write(root, 'assets/reduced-review.json', { version: 1, outputSha256: first.output.sha256, frames: tampered.output.frames.map(f => ({ path: f.path, sha256: f.sha256, observation: 'Only one frame; must not silently reduce required evidence.' })), audio: { status: 'not-listened', observation: 'Muted fixture.' } });
+  await assert.rejects(reviewGuidance(root, 'assets/reduced-review.json'), /quality report changed/i);
+});

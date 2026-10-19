@@ -26,7 +26,9 @@ the actual source), and extract short WAV samples where
 source audio or configured tracks are used. Audio samples also follow looped
 playback, including offsets at the exact end of a source, and stay within the
 selected playback duration. No transcription or semantic vision
-judgment is performed. The bounded helper supports up to eight clips, eight
+judgment is performed. Each material report stores its generated SHA-256 in a
+sidecar and the current pointer. Selecting an explicitly named older report also
+checks its recorded digest; a selection retains that digest for preview/review. The bounded helper supports up to eight clips, eight
 tracks and 512 MiB of regular media. It rejects traversal and project symlinks.
 
 Open every returned `sources[].frames[].path` relative to the video folder.
@@ -143,6 +145,11 @@ and writes new actual output frames and the entire opening's audio (up to ten
 seconds). This includes narration or music starting after the first three seconds.
 The first report has `visual.status: pending` and
 `readyForHumanFinalReview: false`; measurements alone cannot finish visual QA.
+
+The current quality-report pointer also stores the report digest, so removing
+required frames from the JSON cannot reduce the observations needed. These
+checks detect changed files; they do not isolate a process with the same OS
+account, which can rewrite both evidence and digests.
 
 Observation reports retain the exact hash-verified output frame and audio files
 that were inspected; fresh technical measurements still verify the same export.

@@ -22,6 +22,11 @@ async function boundedJSON(root, relative) {
   if (!stat.isFile() || stat.size > 65536) fail('Guide request must be a regular JSON file of at most 64 KiB');
   return JSON.parse(await fs.readFile(target, 'utf8'));
 }
+async function verifiedReport(root, relative, digest, label) {
+  const bytes = await read(root, relative);
+  if (!/^[a-f0-9]{64}$/.test(digest ?? '') || hash(bytes) !== digest) fail(label + ' report changed; create evidence again');
+  return JSON.parse(bytes);
+}
 async function pack() { const bytes = await fs.readFile(packFile); return { ...JSON.parse(bytes), digest: hash(bytes) }; }
 async function localProject(root) {
   const value = await config(root);
@@ -104,7 +109,9 @@ export async function inspectGuidance(root) {
     if (await fileHash(root, 'tsugite.yaml') !== configHash) fail('Project changed during inspection');
     const report = { version: 1, kind: 'material-inspection', id, configHash, sources, audio, semanticReview: 'pending', listening: 'pending', credits: 0 };
     const reportPath = directory + '/report.json';
-    await write(root, reportPath, report); await write(root, home + '/current-inspection.json', { report: reportPath });
+    const reportHash = hash(json(report));
+    await write(root, reportPath, report); await write(root, reportPath + '.sha256', reportHash + '\n');
+    await write(root, home + '/current-inspection.json', { report: reportPath, sha256: reportHash });
     return { report: reportPath, ...report, next: 'Open the actual sampled frames, listen where needed, then record observations in assets/guide-choice.json. Nothing is approved.' };
   });
 }
@@ -142,7 +149,7 @@ async function selection(root) {
   const current = await readJSON(root, home + '/current-selection.json');
   const value = await readJSON(root, current.report);
   if (value.kind !== 'guide-selection' || await fileHash(root, current.report) !== current.sha256 || await fileHash(root, 'tsugite.yaml') !== value.configHash || await fileHash(root, value.knowledge) !== value.knowledgeHash || (await pack()).digest !== value.packDigest) fail('Guide selection changed; inspect and select again');
-  const inspected = await readJSON(root, value.inspection); await sourceUnchanged(root, inspected);
+  const inspected = await verifiedReport(root, value.inspection, value.inspectionHash, 'Material inspection'); await sourceUnchanged(root, inspected);
   if (value.privateGuide) {
     const fresh = await privateGuidance(value.privateGuide.file, value.preset);
     if (fresh.profileHash !== value.privateGuide.profileHash || fresh.sourceHash !== value.privateGuide.sourceHash) fail('Private guidance changed; select again');
@@ -157,9 +164,12 @@ export async function selectGuidance(root, request, { privateGuide } = {}) {
     if (choice.version !== 1 || !text(choice.intent) || !['talk', 'montage', 'music'].includes(choice.purpose) || !['auto', 'clean', 'explain', 'rhythm'].includes(choice.preset ?? 'auto')) fail('Invalid guide choice');
     keys(choice.overrides, ['captions', 'music'], 'guide overrides');
     if (!['none', 'keep'].includes(choice.overrides.captions) || !['none', 'keep'].includes(choice.overrides.music)) fail('Choose explicit caption and added-music policies');
-    const inspectedPath = choice.inspection ?? (await readJSON(root, home + '/current-inspection.json')).report;
+    const current = await readJSON(root, home + '/current-inspection.json');
+    const inspectedPath = choice.inspection ?? current.report;
     if (!inspectedPath.startsWith(home + '/inspections/') || !inspectedPath.endsWith('/report.json')) fail('Invalid inspection path');
-    const inspected = await readJSON(root, inspectedPath), { c, configHash } = await localProject(root);
+    const inspectionHash = (await read(root, inspectedPath + '.sha256')).trim();
+    if (inspectedPath === current.report && inspectionHash !== current.sha256) fail('Material inspection report changed; inspect again');
+    const inspected = await verifiedReport(root, inspectedPath, inspectionHash, 'Material inspection'), { c, configHash } = await localProject(root);
     if (inspected.kind !== 'material-inspection' || inspected.configHash !== configHash) fail('Material inspection is stale');
     await sourceUnchanged(root, inspected);
     const frameNotes = observations(choice.frames, inspected.sources.flatMap(s => s.frames), 'material review');
@@ -180,7 +190,7 @@ export async function selectGuidance(root, request, { privateGuide } = {}) {
     await write(root, home + `/history/${id}.yaml`, await read(root, 'tsugite.yaml'));
     await write(root, knowledge, notes);
     await write(root, 'tsugite.yaml', stringify(c));
-    const report = { version: 1, kind: 'guide-selection', id, inspection: inspectedPath, preset, purpose: choice.purpose, intent: choice.intent, overrides: effective, frameObservations: frameNotes, audioObservation: audio, packDigest: rules.digest, privateGuide: privateSnapshot, knowledge, knowledgeHash: await fileHash(root, knowledge), configHash: await fileHash(root, 'tsugite.yaml'), approvals: 'not-granted' };
+    const report = { version: 1, kind: 'guide-selection', id, inspection: inspectedPath, inspectionHash, preset, purpose: choice.purpose, intent: choice.intent, overrides: effective, frameObservations: frameNotes, audioObservation: audio, packDigest: rules.digest, privateGuide: privateSnapshot, knowledge, knowledgeHash: await fileHash(root, knowledge), configHash: await fileHash(root, 'tsugite.yaml'), approvals: 'not-granted' };
     const reportPath = `${home}/selections/${id}.json`;
     await write(root, reportPath, report); await write(root, home + '/current-selection.json', { report: reportPath, sha256: await fileHash(root, reportPath) });
     return { selection: reportPath, preset, overrides: effective, privateGuidanceUsed: !!privateSnapshot, knowledge, visualReview: 'reported', listening: audio.status, next: 'Prepare an opening preview, then plan it and wait for the human confirmation page. Presets do not synthesize edits automatically.' };
@@ -240,7 +250,7 @@ export async function reviewGuidance(root, request) {
       const value = await boundedJSON(root, request); keys(value, ['version', 'outputSha256', 'frames', 'audio'], 'quality observations');
       const last = await readJSON(root, home + '/current-review.json', null);
       if (!last) fail('Create the quality evidence first, then inspect its frames');
-      const evidence = await readJSON(root, last.report);
+      const evidence = await verifiedReport(root, last.report, last.sha256, 'Quality');
       if (value.version !== 1 || value.outputSha256 !== measured.sha256 || evidence.output.sha256 !== measured.sha256 || evidence.selection !== selected.id) fail('Quality observations are stale');
       for (const frame of evidence.output.frames) if (await fileHash(root, frame.path) !== frame.sha256) fail('Quality evidence changed');
       if (evidence.audio && await fileHash(root, evidence.audio.path) !== evidence.audio.sha256) fail('Quality audio evidence changed');
@@ -252,7 +262,7 @@ export async function reviewGuidance(root, request) {
     if (measured.sha256 !== rendered.hash || await fileHash(root, output) !== rendered.hash) fail('Output changed during quality review');
     const ready = Object.values(technical).every(Boolean) && !!frameNotes && (!intendedSound || heard.status === 'listened');
     const report = { version: 1, kind: 'opening-quality-review', selection: selected.id, preview: preview.project, output: reviewedOutput, audio: reviewedAudio, technical, visual: { status: frameNotes ? 'reported-reviewed' : 'pending', observations: frameNotes, coverage: 'sampled frames only; not a full watch' }, listening: heard, readyForHumanFinalReview: ready, finalApproval: 'not-granted', credits: 0 };
-    const reportPath = reportDirectory + '/report.json'; await write(root, reportPath, report); await write(root, home + '/current-review.json', { report: reportPath });
+    const reportPath = reportDirectory + '/report.json'; await write(root, reportPath, report); await write(root, home + '/current-review.json', { report: reportPath, sha256: hash(json(report)) });
     return { report: reportPath, ...report, next: ready ? 'Human should watch the actual preview and decide in its confirmation page. Full export still needs its own current plan.' : 'Inspect the actual output frames and sound, then record observations; unfinished checks remain pending.' };
   });
 }
