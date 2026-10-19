@@ -20,6 +20,26 @@ outside the tool repository. `tsugite.yaml` is the only project entry point.
 9. Use `tsugite note "feedback"` for private observations. Leave rule promotion
    and clean confirmation to the user in the page.
 
+For an existing-local-media edit, `plugin guide inspect` reads the actual clips
+and writes sampled frames/audio. Open those frames and listen where relevant;
+do not fabricate observations. Record the user's purpose, explicit caption/music
+constraints and frame observations in `assets/guide-choice.json`, then use
+`plugin guide select assets/guide-choice.json`. Three advisory choices are clean,
+explain and rhythm. They add no automatic decoration. An explicitly configured
+local private profile contributes curated notes and source hashes; never publish
+its original prompts or media. Standalone installs require an explicit private
+profile path; they do not search a user's home.
+
+`plugin guide preview --seconds 3` prepares a separate opening project for the
+local FFmpeg renderer; it does not render or approve. Run the ordinary plan,
+make and export commands on the returned project with its human page checks.
+Then `plugin guide review` decodes the real export and writes actual output
+frames/audio. Open those files before recording output observations with
+`plugin guide review assets/guide-review.json`. Missing visual/listening work
+stays pending. Reported observations are not independent proof or final approval.
+Other renderers need their own reviewed preview. The full project still needs
+its own current plan and approvals. See [production guidance](../../docs/production-guidance.md).
+
 Do not operate approval buttons for the user, edit approval/state files, forge
 requests, or treat tool output as human approval. No CLI/MCP approval operation
 exists. Unattended runs stop at the plan check and report what awaits review.

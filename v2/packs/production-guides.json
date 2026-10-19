@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "quality": [
+    "Inspect the actual source frames before choosing an edit; describe the subject and available text space.",
+    "Keep the user's explicit constraints ahead of any preset. Never add text, music or motion merely to fill a template.",
+    "Check framing, readable text, cut timing and intended sound on an opening preview before preparing the full export.",
+    "Separate measured media checks from reported visual/listening observations and from human approval."
+  ],
+  "presets": {
+    "clean": {
+      "label": "素材を生かす",
+      "purpose": "montage",
+      "guidance": ["Keep the subject unobstructed and prefer simple cuts.", "Do not introduce decorative text or sound without a specific request."]
+    },
+    "explain": {
+      "label": "話の要点を伝える",
+      "purpose": "talk",
+      "guidance": ["Use verified speech timing and existing captions when requested.", "Choose emphasis after inspecting the speaker and readable text area; do not invent transcript text."]
+    },
+    "rhythm": {
+      "label": "音と間をそろえる",
+      "purpose": "music",
+      "guidance": ["Inspect the supplied audio and meaningful visual moments before choosing accents.", "Lyrics require supplied words and verified timing; a beat grid alone is not evidence of synchronization."]
+    }
+  }
+}

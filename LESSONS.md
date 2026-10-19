@@ -133,3 +133,7 @@ Append-only format:
 
 - 2026-10-18 / Sandboxed npm pack failed while writing the default home cache / npm suggested changing cache ownership even though the task only needed a writable cache / Use a task-owned temporary npm cache, keep user/global configuration unchanged, and check pack exit status before parsing metadata or starting an install / verified with the source-only alpha package
 - 2026-10-18 / Forge 8 passed old source tests but would fail packaging / The packager switched hooks from callbacks to a single options object; the old test repeated the obsolete call contract / Test the installed upstream hook runner during major upgrades, then migrate to the options/Promise contract and check platform branches before merge / regression reproduced and fixed
+
+## 2026-10-19: 制作ガイドの音声QA
+
+- FFmpegの`volumedetect`は完全な無音PCMでも約-91dBの有限値を返す。有限の音量値だけで音声ありと判定せず、実際に復号したPCMも検査する。計測と聴音記録は別に残し、未視聴・未聴音をQA完了にしない。無音ナレーションを実書き出しする回帰テストで確認する。
