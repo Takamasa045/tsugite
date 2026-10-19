@@ -11,7 +11,7 @@ checks and never submit test approvals to real projects.
 
 Independent 10-minute trials use the
 [trial kit](onboarding/trial-kit.ja.md) and the
-[v2 trial report](../../.github/ISSUE_TEMPLATE/v2-trial-report.yml) form.
+[v2 trial report form](https://github.com/Takamasa045/tsugite/issues/new?template=v2-trial-report.yml).
 CI success is not a user trial.
 
 ## 1. Test the sample with a first-time Windows user

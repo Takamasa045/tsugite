@@ -26,6 +26,13 @@ test('missing connection consent, raw secrets and nested defaults fail closed',a
   for(const defaults of [{api_key:'do-not-log'},{model:{secret:'do-not-log'}}]){await write(process.env.TSUGITE_HOME,'config.json',{version:1,plugins:{pixverse:{defaults}}});await assert.rejects(pluginSettings('pixverse'),e=>!e.message.includes('do-not-log'));}
   await fs.writeFile(path.join(process.env.TSUGITE_HOME,'config.json'),'do-not-log private malformed content');await assert.rejects(pluginSettings('pixverse'),e=>!e.message.includes('do-not-log'));
 });
+test('mock planning applies private defaults through the mock normalize export',async t=>{
+  const {root}=await fixture(t);await addPlugin(root,await bundledPlugin('pixverse'));
+  await fs.mkdir(process.env.TSUGITE_HOME,{recursive:true});
+  await write(process.env.TSUGITE_HOME,'config.json',{version:1,plugins:{pixverse:{defaults:{quality:'540p'}}}});
+  await settings(root,{execution:'mock',make:[{id:'shot',with:'pixverse',prompt:'fixture request',seconds:3}]});
+  const planned=await plan(root);assert.equal(planned.plan.tasks[0].options.quality,'540p');assert.equal(planned.plan.tasks[0].options.aspect,'9:16');assert.equal(planned.plan.tasks[0].quote.credits,0);
+});
 test('live quotes fail closed for missing maxima, low ceilings and missing budgets',async t=>{
   const {root,home}=await fixture(t);await addPlugin(root,await bundledPlugin('pixverse'));await addPlugin(root,await bundledPlugin('elevenlabs'));
   await connection(home);

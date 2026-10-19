@@ -3,6 +3,8 @@ const task={prompt:'synthetic contract fixture',seconds:5,kind:'video',options:{
 test('mock quote and fail-closed live entry',async()=>{assert.equal(mock.quote(task).credits,0);assert.equal(mock.quote(task).mock,true);await assert.rejects(live.make(),/disabled/);});
 test('unknown receipts never imply refunds',()=>{assert.equal(reconcile({provider_job_id:'fixture',status:'failed'}).releaseReservation,false);assert.equal(reconcile({provider_job_id:'fixture',status:'failed',credits_charged:0}).releaseReservation,true);});
 test('request, payload and quote reject invalid estimates without a provider call',()=>{
+  assert.equal(typeof mock.normalize,'function');
+  assert.equal(mock.normalize(task,{format:'9:16',defaults:{quality:'540p'}}).options.quality,'540p');
   assert.equal(normalize(task).options.model,'v6');
   assert.equal(live.quote({...task,options:{quality:'360p'}}).credits,25);
   assert.equal(live.quote({...task,options:{quality:'360p'}}).estimate,25);

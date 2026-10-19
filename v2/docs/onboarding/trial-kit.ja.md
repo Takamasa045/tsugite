@@ -99,7 +99,7 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs export --project ./my-
 
 ## 結果の送り方
 
-GitHub の issue ひな型 [v2 trial report](../../../.github/ISSUE_TEMPLATE/v2-trial-report.yml) を使います。公開 issue を自分で作れない場合は、記録シートをメンテナへ渡し、メンテナが同じ項目で issue を作ります。
+GitHub の [v2 trial report フォーム](https://github.com/Takamasa045/tsugite/issues/new?template=v2-trial-report.yml) から送ります。ひな型の定義は [v2-trial-report.yml](../../../.github/ISSUE_TEMPLATE/v2-trial-report.yml) です。公開 issue を自分で作れない場合は、記録シートをメンテナへ渡し、メンテナが同じ項目で issue を作ります。
 
 - ラベルの目安: `v2` / `trial`（メンテナが付与してよい）
 - 動画・スクリーンショットに私有メディアやパスが写らないこと
