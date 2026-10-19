@@ -1,7 +1,6 @@
 # Inspect, choose, preview and review
 
-**Repository-checkout implementation.** This addition is not in the fixed
-alpha.4 archive. Use a checkout containing `plugin guide`. It extends `plugin`, keeping the eight workflow commands
+**Included in alpha.5 and the repository checkout.** Use `plugin guide`. It extends `plugin`, keeping the eight workflow commands
 and the existing confirmation-page approval path. It performs no model call,
 provider request, install, account change or automatic approval.
 
@@ -13,7 +12,15 @@ write its observations. The code records those as **reported observations**.
 
 ## 1. Inspect the actual source
 
-From the repository root, with an existing v2 video folder:
+With a local alpha.5 installation and an existing v2 video folder:
+
+```sh
+node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plugin guide inspect --project ./my-video
+```
+
+For the later examples, replace `npm run --silent v2 --` with that installed
+binary command when using the tarball. Private profiles require an explicit
+`--private-guide` path in standalone installs. From the repository root:
 
 ```sh
 npm run --silent v2 -- plugin guide inspect --project ./projects/my-video

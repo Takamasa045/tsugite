@@ -3,18 +3,31 @@
 Let an agent prepare your video, review the plan before it runs, and keep your
 preferences for the next one. The offline sample needs no account or API key.
 
-[Install and try locally](docs/install.md) · [Local example workflows](docs/gallery.md)
+[日本語の入口](README.ja.md) · [Install and try locally](docs/install.md) · [Local example workflows](docs/gallery.md)
+
+Start with an edit you can finish:
+
+- Shorten a talking clip using a chosen source interval and verified captions.
+- Arrange a few local clips into one video with explicit trims and sound.
+- Revise caption/music choices and keep preference notes for the next plan.
+
+The [production guide](docs/production-guidance.md) connects actual source
+inspection, three advisory choices, a separate opening preview and output QA.
+Explicit no-caption/no-added-music instructions win. Guides do not automatically
+decorate footage. Existing [synthetic samples](docs/gallery.md) show functions;
+quality or time gains over a normal AI request have not been established.
+The six-second sample below checks installation.
 
 **Local alpha:** sound, captions, local editing, optional Remotion rendering and
 source-plugin mocks work. Documented HTTP transports have synthetic fixture tests; live paid acceptance and the broader
 v1 feature set are still tracked in [requirements](docs/requirements.md). This
 package is not published to the npm registry. Existing v1 productions continue unchanged.
 
-Download the alpha tarball and SHA256SUMS from the [source-only alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.4). This release uploads no demo videos or images.
+Download the alpha tarball and SHA256SUMS from the [source-only alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5). This release uploads no demo videos or images.
 Install without cloning or replacing your global tools:
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.4.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.5.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
 ```

@@ -2,9 +2,9 @@
 
 [日本語・はじめての方はこちら](README.ja.md#はじめての方はこちら) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-**日本語で始める：** [最初に試す用途と公開デモ](docs/onboarding/see-and-choose.ja.md) → [必要な準備・最初の一歩](README.ja.md#はじめての方はこちら)。6秒サンプルは環境確認用です。公開済みalpha.4と手元のリポジトリの手順を分けて案内しています。
+**日本語で始める：** [最初に試す用途と公開デモ](docs/onboarding/see-and-choose.ja.md) → [必要な準備・最初の一歩](README.ja.md#はじめての方はこちら)。6秒サンプルは環境確認用です。公開済みalpha.5と手元のリポジトリの手順を分けて案内しています。
 
-English reference continues below. The published alpha.4 archive is a fixed release; later repository or private local changes are separate. The first-video guide distinguishes these installation paths.
+English reference continues below. The published alpha.5 archive is a fixed release; later repository or private local changes are separate. The first-video guide distinguishes these installation paths.
 
 Tsugite is a local video-production workshop. It carries assets, production logs, decisions, and preferences forward instead of treating each AI video as a disposable result.
 
@@ -12,7 +12,7 @@ Start with a short talking clip, two or three local shots to arrange, or a revis
 
 See the existing [18-second Fast Edit feature sample](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/fast-edit-18-cards.mp4) or [30-second workflow explainer](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/demo-30s.mp4). These older alpha.2 assets use synthetic footage. They are neither real talking-head before/after examples nor evidence that one workflow produces better work. The six-second sample below checks installation.
 
-The source-checkout [production-guidance flow](v2/docs/production-guidance.md) connects actual media inspection, three advisory choices, a separately reviewed opening preview and output QA. Explicit user constraints win; selecting a guide does not automatically decorate a video. This addition is not in the fixed published alpha.4 archive; use the repository checkout.
+The alpha.5 [production-guidance flow](v2/docs/production-guidance.md) connects actual media inspection, three advisory choices, a separately reviewed opening preview and output QA. Explicit user constraints win; selecting a guide does not automatically decorate a video. It is included in the alpha.5 archive and the repository checkout. Earlier fixed archives remain unchanged.
 
 Source version **0.17.0**. Public Desktop installers have ended; everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher for inspection. See the [changelog](CHANGELOG.md).
 

@@ -4,6 +4,13 @@
 
 - Preserve and integrate the `kobo-launch-16x9` Remotion preset with configurable copy and timeline-offset previews; registered preset rendering is checked with the current shared root.
 
+## 2.0.0-alpha.5 - 2026-10-19 (independent v2 distribution)
+
+- Include the reviewed production-guidance CLI, generic three-choice pack and source/output QA from PR #220 in the installable v2 archive. Verify late/looped audio, looped frame sampling, required soft-caption streams, exact observed-file identity and complete report digests.
+- Ship English/Japanese use-case entry points and the Japanese first-video/comparison guides in the standalone package. Update installation links and MCP version to alpha.5. Earlier alpha archives remain unchanged.
+- Keep the established GitHub tarball + SHA256SUMS distribution; no npm registry publication or desktop installer. Independent novice trials and live paid/billing acceptance remain open, so this is a prerelease. The separate local tool updates and all private prompts/media are excluded.
+- The v2 tarball excludes the optional v1 Editframe runtime affected by High advisory #131. That unresolved dependency remains in the repository source archive; v2 distribution audits and source-archive limitations are documented separately.
+
 ## 2.0.0-alpha.3 - 2026-10-18 (local repository rollout)
 
 - Expose the independent v2 CLI through the normal repository entry (`npm run v2 -- ...`) and agent routing; retain existing v1 production commands. Include the reviewed YAML 2.9.1 patch.

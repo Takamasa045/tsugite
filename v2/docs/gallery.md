@@ -2,7 +2,7 @@
 
 Start with files you own, review the plan, and export locally. These examples
 use synthetic test footage and generated local tones; no provider was charged.
-The alpha.4 source-only release includes no videos or images. Earlier alpha.2
+The alpha.5 source-only release includes no videos or images. Earlier alpha.2
 assets remain available below; do not install that older version to watch them. Create examples locally
 with the commands below; these are software fixtures, not independent-user
 acceptance trials.
