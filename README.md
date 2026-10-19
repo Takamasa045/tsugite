@@ -1,8 +1,18 @@
 # Tsugite
 
-[English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
+[日本語・はじめての方はこちら](README.ja.md#はじめての方はこちら) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
+
+**日本語で始める：** [最初に試す用途と公開デモ](docs/onboarding/see-and-choose.ja.md) → [必要な準備・最初の一歩](README.ja.md#はじめての方はこちら)。6秒サンプルは環境確認用です。公開済みalpha.4と手元のリポジトリの手順を分けて案内しています。
+
+English reference continues below. The published alpha.4 archive is a fixed release; later repository or private local changes are separate. The first-video guide distinguishes these installation paths.
 
 Tsugite is a local video-production workshop. It carries assets, production logs, decisions, and preferences forward instead of treating each AI video as a disposable result.
+
+Start with a short talking clip, two or three local shots to arrange, or a revision such as “fewer captions.” Tsugite keeps the selected inputs, editing settings, reviewed plans and preferences together; an AI agent can also edit without it. Comparative quality and time savings have not been established.
+
+See the existing [18-second Fast Edit feature sample](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/fast-edit-18-cards.mp4) or [30-second workflow explainer](https://github.com/Takamasa045/tsugite/releases/download/v2.0.0-alpha.2/demo-30s.mp4). These older alpha.2 assets use synthetic footage. They are neither real talking-head before/after examples nor evidence that one workflow produces better work. The six-second sample below checks installation.
+
+The source-checkout [production-guidance flow](v2/docs/production-guidance.md) connects actual media inspection, three advisory choices, a separately reviewed opening preview and output QA. Explicit user constraints win; selecting a guide does not automatically decorate a video. This addition is not in the fixed published alpha.4 archive; use the repository checkout.
 
 Source version **0.17.0**. Public Desktop installers have ended; everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher for inspection. See the [changelog](CHANGELOG.md).
 
@@ -66,7 +76,7 @@ These are `edit.backend` renderers. The same manifest / EDL contract feeds them.
 | Remotion | Default local renderer, captions, presentation presets | `edit.backend: remotion` |
 | HyperFrames | Local renderer plus official `media-use` BGM / SFX | [HyperFrames audio](docs/hyperframes-audio.md) |
 | Editframe | Optional **macOS** local renderer and preview. Install with `npm run editframe:install`, then `edit.backend: editframe`. Preview uses an authoring copy. WebMCP and disk-save APIs are unverified | [Editframe](docs/editframe.md) |
-| Tesseract | Optional local backend using official CLI 0.2.0. One 1-second 1920×1080/30 silent H.264 render is verified with Metal GPU access; preview/filmstrip, native authoring, and ProRes/alpha-solo remain unverified. Fast Edit is unsupported | [Tesseract](docs/tesseract.md) |
+| Tesseract | Optional local backend using official CLI 0.4.0. One 1-second 1920×1080/30 silent H.264 render is verified with Metal GPU access; preview/filmstrip, native authoring, and ProRes/alpha-solo remain unverified. Fast Edit is unsupported | [Tesseract](docs/tesseract.md) |
 | **Jev Fast Edit v1** | Same strict, backend-neutral edit intent on Remotion, HyperFrames, and Editframe (cards, captions, transitions, zoom, SFX, 16:9 and 9:16). Needs local-whisper word timestamps first. Select only with `edit.backend` plus `edit.fast_edit`. Not a new renderer | [Fast Edit](docs/fast-edit.md) |
 
 Also in this path: Gate-bound editorial EDL (retimes selected cuts, captions, and chapters without changing source files), first-class image assets and speaker / pose metadata, and guarded presentation presets. Query installed presets with `node bin/pipeline presets --backend remotion --json` instead of typing an unverified ID.

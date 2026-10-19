@@ -840,9 +840,30 @@ function selectImportedFontFace(stdout, requestedFamily, requestedStyle) {
   return { fontFamily: selected.fontFamily, fontStyle: selected.fontStyle };
 }
 
+function normalizeImportedFontFace(face, fallback = {}) {
+  const fontFamily = (typeof face.fontFamily === "string" && face.fontFamily)
+    ? face.fontFamily
+    : (typeof face.familyName === "string" && face.familyName)
+      ? face.familyName
+      : (typeof fallback.fontFamily === "string" ? fallback.fontFamily : undefined);
+  const fontStyle = (typeof face.fontStyle === "string" && face.fontStyle)
+    ? face.fontStyle
+    : (typeof face.styleName === "string" && face.styleName)
+      ? face.styleName
+      : (typeof fallback.fontStyle === "string" ? fallback.fontStyle : undefined);
+  return { fontFamily, fontStyle };
+}
+
 function parseImportedFontFaces(stdout, requestedFamily, requestedStyle) {
   const data = parseJsonOutput(stdout, "project import-font");
-  const faces = Array.isArray(data.faces) ? data.faces : (typeof data.fontFamily === "string" && typeof data.fontStyle === "string" ? [data] : []);
+  const topLevel = {
+    fontFamily: typeof data.fontFamily === "string" ? data.fontFamily : undefined,
+    fontStyle: typeof data.fontStyle === "string" ? data.fontStyle : undefined
+  };
+  const rawFaces = Array.isArray(data.faces) && data.faces.length > 0
+    ? data.faces
+    : (topLevel.fontFamily && topLevel.fontStyle ? [data] : []);
+  const faces = rawFaces.map((face) => normalizeImportedFontFace(face, topLevel));
   if (faces.length === 0 || faces.some((face) => typeof face.fontFamily !== "string" || !face.fontFamily || typeof face.fontStyle !== "string" || !face.fontStyle)) {
     throw new Error("project import-font did not return complete fontFamily/fontStyle metadata");
   }

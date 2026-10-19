@@ -9,6 +9,7 @@
 Tsugite は `project.yaml` を入口とする、承認付き動画制作パイプライン。対象ディレクトリの追加指示も確認する。
 
 - **コード・文書の変更**：編集前と完了時は [開発・検証と作業場所](docs/development-workflow.md) を読む。`git status --short --branch` / `git worktree list` で作業場所を選ぶ。既存の未コミット変更を保持する。
+- **Jevの質問設計・判定を使う機能の開発**：[TypeSafeの使い分け](docs/typesafe-development.md) を読み、利用可能な `typesafe-ai` Skill と公式資料を設計の参考にする。既存のJev MCP・Fast Editの実行経路・制作Gateを維持する。
 - **動画projectの検証・計画・制作・レビュー・QA・完成整理**：[制作 Skill](.agents/skills/tsugite/SKILL.md) を完全に読み、その作業に該当する参照先へ進む。コード修正や誤字修正だけを理由に制作フローを始めない。
 - **CLI の実動作検証（隔離した検証用fixture）**：[verify-tsugite](.agents/skills/verify-tsugite/SKILL.md)。[Cursor 版](.cursor/skills/verify-tsugite-manual/SKILL.md) は別の手動 feature 手順で、対象範囲・隔離・証拠形式が異なる。自動検証は `verify-tsugite`、手動検証は `verify-tsugite-manual` として選ぶ。
 - **初回セットアップと doctor 成功後**：次の実質的な提案の前に [学び自動化の初回確認](docs/automations/learning-promotion-review.md#初回セットアップ後の確認) を一度行う。登録は明示的な選択後のみ、常設 schedule は一つ、通知は選んだ host 標準のみ。辞退後は同じ初回設定中に再質問しない。

@@ -1,0 +1,28 @@
+slug: google-dialogue-voice
+name: Google Gemini TTS 会話音声
+run_id: google-dialogue-voice-run
+manifest: manifest.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: google-gemini-tts
+  connection: google-gemini-tts
+  requests:
+    - id: dialogue
+      operation: voice
+      output_kind: audio
+      audio_role: narration
+      model: gemini-3.8-flash-tts
+      prompt: |-
+        A: おはよう。今日は何を作る？
+        B: 短い動画を作ろう。
+      params:
+        speakers:
+          - speaker: A
+            voice: Kore
+          - speaker: B
+            voice: Puck
+        turn_styles:
+          - warm and curious
+          - relaxed and friendly

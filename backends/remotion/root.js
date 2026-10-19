@@ -13,6 +13,7 @@ import {
 import { CinematicImpactCaptions } from "./cinematicImpactCaptions.js";
 import { beatVideoScale, LyricKineticCaptions } from "./lyricKineticCaptions.js";
 import { PromoPunchCaptions } from "./promoPunchCaptions.js";
+import { HutBrushCaptions } from "./hutBrushCaptions.js";
 import {
   captionContainerLayout,
   captionTextLayout,
@@ -155,6 +156,12 @@ function Timeline({ manifest }) {
         : captionStyle === "promo-punch"
         ? React.createElement(PromoPunchCaptions, {
             key: "captions-promo-punch",
+            captions: manifest.captions ?? [],
+            fps
+          })
+        : captionStyle === "hut-brush"
+        ? React.createElement(HutBrushCaptions, {
+            key: "captions-hut-brush",
             captions: manifest.captions ?? [],
             fps
           })

@@ -1,6 +1,6 @@
 export function resolveCaptionStyle(manifest) {
   const style = manifest?.meta?.caption_style;
-  if (style === "cinematic-impact" || style === "lyric-kinetic" || style === "promo-punch") return style;
+  if (style === "cinematic-impact" || style === "lyric-kinetic" || style === "promo-punch" || style === "hut-brush") return style;
   return "standard";
 }
 

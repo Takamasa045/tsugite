@@ -231,6 +231,28 @@ connections:
     route_note: "Fish Audio API用の専用アダプターを追加するための登録枠。"
     setup_checks: []
 
+  - id: google-gemini-tts
+    aliases: [gemini-tts-direct]
+    display_name: Google Gemini TTS直契約
+    provider: google
+    transport: api
+    auth_kind: api-key
+    implementation_status: integrated
+    adapter: google-gemini-tts
+    execution_mode: pipeline-adapter
+    capabilities:
+      - audio.text-to-speech
+    automated_capabilities:
+      - audio.text-to-speech
+    model_policy: catalog
+    model_families: [gemini-3.8-flash-tts, gemini-3.8-flash-lite-tts]
+    route_note: "Gemini APIキーでGoogleへ直接送信する。音声生成はGoogle側の課金対象で、Tsugite creditsは料金を表さない。"
+    setup_checks:
+      - type: environment
+        variable: GEMINI_API_KEY
+      - type: manual
+        detail: "Gemini APIの対象モデル、請求先、上限・料金をGate 1前に確認する。"
+
   - id: vidu-direct
     display_name: Vidu API
     provider: vidu
