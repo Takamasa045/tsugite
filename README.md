@@ -57,7 +57,7 @@ Short examples. The full catalog is [Ways to ask](docs/guide/requests.md).
 
 ## Nothing proceeds without you
 
-A person stops the work three times. Nothing continues until you say OK. Generation and export follow the same rule.
+A person stops the work three times. Nothing continues until you say OK. Generation and export follow the same rule. The only exception is a production that opts into `gates.gate_2.auto_pass: qc_ok_no_new_assets`. Footage check (Gate 2) may then pass without a person's OK only when credits, new assets, and QC issues are all 0. Billing or new footage always stops it.
 
 1. **Plan check (Gate 1)** — May we follow this plan? The launcher offers “Open Gate 1 review”.
 2. **Footage check (Gate 2)** — Are these assets acceptable?

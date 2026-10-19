@@ -25,7 +25,27 @@ const READMES = [
   }
 ] as const;
 
-const DOC_ROOTS = ["README.ja.md", "README.md", "docs/guide", "docs/reference.md", "docs/reference.ja.md"] as const;
+const DOC_ROOTS = [
+  "README.ja.md",
+  "README.md",
+  "README.zh.md",
+  "README.ko.md",
+  "docs/guide",
+  "docs/reference.md",
+  "docs/reference.ja.md",
+  "docs/onboarding",
+  "v2/docs/onboarding"
+] as const;
+
+const GATE_2_AUTO_PASS = "gates.gate_2.auto_pass: qc_ok_no_new_assets";
+const GATE_DOCS = [
+  "README.ja.md",
+  "README.md",
+  "README.zh.md",
+  "README.ko.md",
+  "docs/guide/glossary.ja.md",
+  "docs/guide/glossary.md"
+] as const;
 
 describe("README onboarding contract", () => {
   it("keeps Japanese and English READMEs short enough for a 30-second scan", async () => {
@@ -72,17 +92,46 @@ describe("README onboarding contract", () => {
     const files = await collectMarkdownFiles(DOC_ROOTS);
     expect(files.length).toBeGreaterThan(3);
     const missing: string[] = [];
+    const missingAnchors: string[] = [];
+    const headingCache = new Map<string, Set<string>>();
     for (const file of files) {
       const text = await readFile(file, "utf8");
       for (const target of markdownLinkTargets(stripFencedCode(text))) {
         if (shouldSkipLink(target)) continue;
-        const resolved = resolveMarkdownTarget(file, target);
+        const [pathPart, fragment] = splitLinkTarget(target);
+        const resolved = pathPart.length === 0
+          ? resolve(file)
+          : resolveMarkdownTarget(file, pathPart);
         if (!resolved || !existsSync(resolved)) {
           missing.push(`${file} -> ${target}`);
+          continue;
+        }
+        if (!fragment || !resolved.endsWith(".md")) continue;
+        let headings = headingCache.get(resolved);
+        if (!headings) {
+          headings = headingIds(await readFile(resolved, "utf8"));
+          headingCache.set(resolved, headings);
+        }
+        if (!headings.has(decodeFragment(fragment))) {
+          missingAnchors.push(`${file} -> ${target}`);
         }
       }
     }
     expect(missing, missing.join("\n")).toEqual([]);
+    expect(missingAnchors, missingAnchors.join("\n")).toEqual([]);
+  });
+
+  it("names the Gate 2 auto-pass exception in the human-stop copy", async () => {
+    for (const path of GATE_DOCS) {
+      const text = await readFile(path, "utf8");
+      expect(text, path).toContain(GATE_2_AUTO_PASS);
+    }
+  });
+
+  it("points the v2 first-video learn-more link at the root Japanese README heading", async () => {
+    const text = await readFile("v2/docs/onboarding/first-video.ja.md", "utf8");
+    expect(text).toContain("../../../README.ja.md#もっと詳しく");
+    expect(text).not.toMatch(/\]\(\s*\.\.\/\.\.\/README\.ja\.md#もっと詳しく\s*\)/);
   });
 
   it("requires a README screenshot only after a real guide image exists", async () => {
@@ -195,7 +244,42 @@ function markdownImageAlts(text: string): string[] {
 }
 
 function shouldSkipLink(target: string): boolean {
-  return /^(https?:|mailto:|data:)/i.test(target) || target.startsWith("#") || target.length === 0;
+  return /^(https?:|mailto:|data:)/i.test(target) || target.length === 0;
+}
+
+function splitLinkTarget(target: string): [string, string | undefined] {
+  const hash = target.indexOf("#");
+  if (hash < 0) return [target, undefined];
+  return [target.slice(0, hash), target.slice(hash + 1)];
+}
+
+function decodeFragment(fragment: string): string {
+  try {
+    return decodeURIComponent(fragment);
+  } catch {
+    return fragment;
+  }
+}
+
+function headingIds(markdown: string): Set<string> {
+  const ids = new Set<string>();
+  const seen = new Map<string, number>();
+  for (const line of markdown.split("\n")) {
+    if (!/^#{1,6} /.test(line)) continue;
+    const base = githubHeadingSlug(line.replace(/^#+\s+/, "").trim());
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    ids.add(count === 0 ? base : `${base}-${count}`);
+  }
+  return ids;
+}
+
+function githubHeadingSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{Nd}\p{Pc}\s-]/gu, "")
+    .trim()
+    .replace(/\s+/g, "-");
 }
 
 function resolveMarkdownTarget(fromFile: string, target: string): string | undefined {
