@@ -4,6 +4,7 @@
 
 - Make the Gate 1 review decision panel a read-only agent prompt (承認 / ここを直したい / 中止) and fold `bin/pipeline gate` commands into a “詳しい人向け” details block. Use `project.yaml` `name` as the page title, and replace visitor-facing labels such as 推定credits / 編集backend / 構成ワイヤー with 予想される生成費用 / 編集エンジン / 仮の構成図. Motion and composition copy now tell people to ask the agent instead of naming YAML keys.
 - Add a zero-credit `examples/storyboard-local` sample with storyboard stills, a character sheet, captions, and motion so the review page is not an empty warning list. `examples/quickstart-local` is unchanged.
+- Ask every Gate with the same four-part prompt in the Tsugite Skill (見るところ / かかる費用 / OK したら次に何が起きるか / 選べる3つ). Keep the Gate 2 `auto_pass` exception exact.
 - Name the opt-in Gate 2 auto-pass exception in the human-stop README and glossary copy, and retarget the v2 first-video “もっと詳しく” link to the root README heading.
 - Add a real local-launcher screenshot of the sample production 「はじめての継手」 to the first three README headings, and rewrite the Chinese and Korean READMEs as ja/en-aligned summaries. Coverage (`branches ≥ **74.4%**`) and `npm run security:audit` contract strings stay; download-site is unchanged.
 - Ask one “open the launcher?” question at the end of the first-time setup report, and run existing `setup:open` only after yes.

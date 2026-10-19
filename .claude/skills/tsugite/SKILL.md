@@ -5,7 +5,7 @@ description: Tsugiteの動画projectを検証・構成・制作・Gateレビュ�
 
 # Tsugite for Claude Code
 
-作業に入る前に、共通の正本 `../../../.agents/skills/tsugite/SKILL.md` を完全に読み込み、その手順と承認境界に従う。
+作業に入る前に、共通の正本 `../../../.agents/skills/tsugite/SKILL.md` を完全に読み込み、その手順と承認境界に従う。Gate では正本の **Gate Decision Prompt** と同じ形（見るところ／かかる費用／OK したら次に何が起きるか／選べる3つ）で聞く。
 
 引数がある場合は対象project、creative brief、または依頼の補足として扱う。
 

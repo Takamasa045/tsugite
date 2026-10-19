@@ -38,10 +38,42 @@ When the user speaks in natural language (not YAML), translate their intent into
 6. Run `bin/pipeline validate --config <project.yaml> --json`. Resolve any `LOCK-E001` before Gate 1. Treat `identity.subject_unlocked` as a plan warning to report in plain language: fixed prose approval alone does **not** clear it. Set `locked: true` only after the user has visually confirmed identity across multi-condition or multi-shot generation results (or explicitly accepts residual risk for a low-stakes run).
 7. Run `bin/pipeline plan --config <project.yaml> --json` and inspect every `prompt_guidance` status before finalizing prompts.
 8. For a multi-source composition project, run `analyze` and then `compose` as Coordinator. Compare the proposals in `review`, set exactly one `edit.composition.proposal_id`, and regenerate `review`; an unselected or stale proposal is not eligible for Gate 1 approval.
-9. Run `bin/pipeline review --config <project.yaml> --open --json`, inspect the storyboard HTML and `review-data.json`, including the motion/animation plan and production conditions, then stop at Gate 1. Ask for the Gate 1 decision exactly once, after those checks, with approve / revise / abort; do not present an earlier Gate 1 prompt during planning or review preparation.
+9. Run `bin/pipeline review --config <project.yaml> --open --json`, inspect the storyboard HTML and `review-data.json`, including the motion/animation plan and production conditions, then stop at Gate 1. Ask for the Gate 1 decision exactly once, after those checks, using the Gate Decision Prompt; do not present an earlier Gate 1 prompt during planning or review preparation.
 10. Run generation or render commands only after explicit approval.
-11. Before Gate 2 approval, inspect `gate2-qc.json`; use `approve_all` only when the report and artifacts are acceptable. When the project opted in with `gates.gate_2.auto_pass: qc_ok_no_new_assets` and `run` returned `gate_2_auto_passed: true`, do not ask for a Gate 2 decision; instead report the evidence that allowed it (QC issues, actual credits, newly generated asset count) and that the state moved to `rendering`. The state moving to `rendering` does not start a render: `render` still runs only as an explicitly approved command. When `run` returns `gate_2_auto_passed: false`, report `gate_2_auto_pass_blocked_reason` and ask for the Gate 2 decision as usual.
-12. Before Gate 3 approval, inspect `render-report.json`, `gate3-qc.json`, and the final artifact.
+11. Before Gate 2 approval, inspect `gate2-qc.json` and ask using the Gate Decision Prompt. Use `approve_all` only when the report and artifacts are acceptable. When the project opted in with `gates.gate_2.auto_pass: qc_ok_no_new_assets` and `run` returned `gate_2_auto_passed: true`, do not ask for a Gate 2 decision; instead report the evidence that allowed it (QC issues, actual credits, newly generated asset count) and that the state moved to `rendering`. The state moving to `rendering` does not start a render: `render` still runs only as an explicitly approved command. When `run` returns `gate_2_auto_passed: false`, report `gate_2_auto_pass_blocked_reason` and ask for the Gate 2 decision as usual using the Gate Decision Prompt.
+12. Before Gate 3 approval, inspect `render-report.json`, `gate3-qc.json`, and the final artifact, then ask using the Gate Decision Prompt.
+
+## Gate Decision Prompt
+
+Ask every Gate in the same four-part shape, in the user's language, after that Gate's evidence is ready. Do not invent a fourth choice. Do not present a Gate prompt earlier than the Gate itself.
+
+1. **見るところ** — what to look at now (review page / QC / final artifact).
+2. **かかる費用** — expected or already spent generation cost. Say 0 when no generation will run.
+3. **OK したら次に何が起きるか** — the next approved command and what it does. It still needs explicit approval.
+4. **選べる3つ** — 承認 / 修正 / 中止. For Gate 1 say 承認 / ここを直したい：〜 / 中止. For Gate 2 the machine labels are `approve_all` / `revise` / `abort`.
+
+### Gate 1
+
+- 見るところ: `dist/<run-id>/review/index.html` and `review-data.json` (storyboard, motion, characters, production conditions).
+- かかる費用: plan `estimated_credits` and any connection status.
+- OK したら次に何が起きるか: Coordinator `run` (generation or assembly). `render` does not start.
+- 選べる3つ: 承認 / ここを直したい：〜 / 中止.
+
+### Gate 2
+
+- 見るところ: `gate2-qc.json` and assembled artifacts.
+- かかる費用: actual credits consumed by `run`.
+- OK したら次に何が起きるか: state may move to `rendering`, but `render` still runs only as an explicitly approved command.
+- 選べる3つ: `approve_all` / `revise` / `abort`. `retry_specific` is unavailable; revise re-plans the whole run.
+
+**auto_pass exception:** When the project opted in with `gates.gate_2.auto_pass: qc_ok_no_new_assets` and `run` returned `gate_2_auto_passed: true`, do not ask for a Gate 2 decision. Report the evidence (QC issues = 0, actual credits = 0, newly generated assets = 0) and that the state moved to `rendering`. One QC issue always stops the run; credits above 0 never auto-pass; a generation project can never opt in. When `run` returns `gate_2_auto_passed: false`, report `gate_2_auto_pass_blocked_reason` and ask for the Gate 2 decision as usual.
+
+### Gate 3
+
+- 見るところ: `render-report.json`, `gate3-qc.json`, and the final artifact.
+- かかる費用: already spent; `re-render` is Gate 3-only and keeps Gate 1 / Gate 2.
+- OK したら次に何が起きるか: the selected video can later be declared complete. `finalize` is not implied by Gate 3 approval.
+- 選べる3つ: 承認 / 修正 / 中止.
 13. When the user explicitly declares the selected video complete, record the canonical output, QA proof, and a closeout retrospective covering failures, improvements, and next-run lessons (explicitly record when there were no failures). Append each failure to the project `feedback.jsonl`; append reusable rules to `LESSONS.md`. Check prior feedback by the same failure key and prior lessons by matching symptom and cause: if it recurs, record it as `recurring` and assess it as a promotion candidate. Create a pending promotion proposal only when its target, change summary, and verification plan are concrete; never modify shared rules without human approval. Include the recording and promotion-candidate result in the completion report, then preview `bin/pipeline finalize --config <project.yaml> --json`, copy `plan_digest` from that JSON, and apply only as Coordinator with `bin/pipeline finalize --config <project.yaml> --apply --actor coordinator --expected-plan-digest <plan_digest> --json` when the retained run and deletion scope match the completed project. Optional `--state-dir` must equal `project.dist_dir` only. After apply, confirm `launcher_visible` / `launcher_project_root` (durable main `projects/` home); feature-worktree-only projects must be promoted there so the launcher lists them and worktree cleanup cannot erase the only copy.
 
 ## Native Editing
