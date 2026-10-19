@@ -16,6 +16,30 @@ describe("Tsugite agent skill configuration", () => {
     expect(skill).toContain("finalize");
     expect(skill).toContain("LESSONS.md");
     expect(skill).toContain("Ask for the Gate 1 decision exactly once");
+    expect(skill).toContain("## Gate Decision Prompt");
+    expect(skill).toContain("見るところ");
+    expect(skill).toContain("かかる費用");
+    expect(skill).toContain("OK したら次に何が起きるか");
+    expect(skill).toContain("選べる3つ");
+    expect(skill).toContain("承認 / 修正 / 中止");
+    expect(skill).toContain("gates.gate_2.auto_pass: qc_ok_no_new_assets");
+    expect(skill).toContain("gate_2_auto_passed: true");
+    expect(skill).toContain("do not ask for a Gate 2 decision");
+    expect(skill).toContain("QC issues = 0, actual credits = 0, newly generated assets = 0");
+    expect(skill).toContain("a generation project can never opt in");
+    expect(skill).toContain("gate_2_auto_pass_blocked_reason");
+    expect(skill).toContain("retry_specific");
+  });
+
+  it("keeps Gate Decision Prompt wording in the Claude Code pointer skill", async () => {
+    const skill = (await readFile(resolve(ROOT, ".claude/skills/tsugite/SKILL.md"), "utf8")).replaceAll("\r\n", "\n");
+
+    expect(skill).toContain("Gate Decision Prompt");
+    expect(skill).toContain("見るところ");
+    expect(skill).toContain("かかる費用");
+    expect(skill).toContain("OK したら次に何が起きるか");
+    expect(skill).toContain("選べる3つ");
+    expect(skill).not.toContain("## Required Flow");
   });
 
   it("provides Codex UI metadata with an explicit skill invocation", async () => {

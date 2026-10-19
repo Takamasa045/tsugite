@@ -344,10 +344,10 @@ const COMMANDS: readonly CommandSpec[] = Object.freeze([
   }),
   defineCommand({
     name: "validate",
-    summary: "Validate a project, manifest, adapters, and safety constraints.",
+    summary: "Validate a project, manifest, adapters, and safety constraints. Also registers the project on the launcher shelf (directory link under projects home).",
     usage: "node bin/pipeline validate --config <project.yaml> [--json]",
     requiresConfig: true,
-    safety: "read-only",
+    safety: "local-write",
     options: [OPTIONS.config]
   }),
   defineCommand({

@@ -66,7 +66,7 @@ node bin/pipeline --help --json
 node bin/pipeline help validate --json
 ```
 
-`npm ci` is required (`bin/pipeline` loads `src/cli.ts` via `tsx`). `--help --json` must exit 0 and list commands including `doctor`, `validate`, `plan`, `review`, `viewer-launcher`. Safety: `doctor` / `validate` / `plan` are `read-only`; `review` and `viewer-launcher` are `local-write`; `run` / `render` / `gate` are `approval-gated`.
+`npm ci` is required (`bin/pipeline` loads `src/cli.ts` via `tsx`). `--help --json` must exit 0 and list commands including `doctor`, `validate`, `plan`, `review`, `viewer-launcher`. Safety: `doctor` / `plan` are `read-only`; `validate` / `review` / `viewer-launcher` are `local-write`; `run` / `render` / `gate` are `approval-gated`. `validate` does not change Gate state, but it does register the project on the launcher shelf.
 
 Optional read-only bootstrap probe (does not install system packages or spend credits):
 

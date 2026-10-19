@@ -183,6 +183,8 @@ describe("CLI command catalog", () => {
     expect(getCommandHelp("validate")?.usage).toBe(
       "node bin/pipeline validate --config <project.yaml> [--json]"
     );
+    expect(getCommandHelp("validate")?.safety).toBe("local-write");
+    expect(getCommandHelp("validate")?.summary).toContain("launcher shelf");
     expect(getCommandHelp("missing")).toBeUndefined();
     expect(isKnownCommand("validate")).toBe(true);
     expect(isKnownCommand("validte")).toBe(false);
