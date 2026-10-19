@@ -21,7 +21,8 @@ npm run --silent v2 -- plugin guide inspect --project ./projects/my-video
 
 The video folder needs a valid `tsugite.yaml` with local `use` clips. Generation
 tasks are rejected. FFmpeg/FFprobe read the actual files, extract three PNG frames
-per clip over its selected source range, and extract short WAV samples where
+per clip over its selected playback range (mapping looped positions back into
+the actual source), and extract short WAV samples where
 source audio or configured tracks are used. No transcription or semantic vision
 judgment is performed. The bounded helper supports up to eight clips, eight
 tracks and 512 MiB of regular media. It rejects traversal and project symlinks.
@@ -135,8 +136,10 @@ npm run --silent v2 -- plugin guide review --project ./projects/my-video
 
 It requires an actual export matching the preview's current plan/state and
 output hash. It fully decodes the MP4, measures duration/dimensions, checks the
-additional subtitle policy and intended sound, and writes new actual output
-frames and an audio sample. The first report has `visual.status: pending` and
+additional subtitle policy, required soft-caption streams and intended sound,
+and writes new actual output frames and the entire opening's audio (up to ten
+seconds). This includes narration or music starting after the first three seconds.
+The first report has `visual.status: pending` and
 `readyForHumanFinalReview: false`; measurements alone cannot finish visual QA.
 
 Open the actual output frames and listen to intended sound. Record

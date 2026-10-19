@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { fixture, settings, page } from './helpers.mjs';
 import { inspectGuidance, selectGuidance, previewGuidance, reviewGuidance } from '../src/guidance.mjs';
-import { plan, make, exportVideo, status } from '../src/core.mjs';
+import { plan, make, exportVideo, status, currentPlan } from '../src/core.mjs';
 import { read, readJSON, write, fileHash } from '../src/files.mjs';
 import { command } from '../plugins/local/index.mjs';
 
@@ -23,8 +23,8 @@ async function selected(t, overrides, projectSettings) {
   await choice(value.root, inspected, overrides); const result = await selectGuidance(value.root, 'assets/guide-choice.json');
   return { ...value, inspected, result };
 }
-async function rendered(t) {
-  const value = await selected(t), preview = await previewGuidance(value.root, 2), project = path.join(value.root, preview.project);
+async function rendered(t, overrides, projectSettings) {
+  const value = await selected(t, overrides, projectSettings), preview = await previewGuidance(value.root, 2), project = path.join(value.root, preview.project);
   await plan(project); const ui = await page(t, project);
   await assert.rejects(make(project), /Waiting for plan check/);
   await ui.submit('approve', { stage: 'plan' }); await make(project);
@@ -155,4 +155,40 @@ test('real silent PCM does not pass the intended narration check even with a fin
   await plan(project); const ui = await page(t, project); await ui.submit('approve', { stage: 'plan' }); await make(project); await ui.refresh(); await ui.submit('approve', { stage: 'clips' }); await exportVideo(project);
   const report = await reviewGuidance(root);
   assert.equal(report.audio.silent, true); assert.equal(report.technical.intendedSoundPresent, false); assert.equal(report.readyForHumanFinalReview, false);
+});
+test('late narration in a ten-second opening is inspected beyond the first three seconds', async t => {
+  const { root } = await fixture(t);
+  await command('ffmpeg', ['-nostdin','-v','error','-f','lavfi','-i','sine=frequency=660:duration=1','-c:a','pcm_s16le',path.join(root,'assets/late.wav')]);
+  await settings(root, { length: 10, audio: [{ path: 'assets/late.wav', kind: 'narration', start: 5, seconds: 1 }] });
+  const inspected = await inspectGuidance(root); await choice(root, inspected); await selectGuidance(root, 'assets/guide-choice.json');
+  const preview = await previewGuidance(root, 10), project = path.join(root, preview.project);
+  await plan(project); const ui = await page(t, project); await ui.submit('approve', { stage: 'plan' }); await make(project); await ui.refresh(); await ui.submit('approve', { stage: 'clips' }); await exportVideo(project);
+  const report = await reviewGuidance(root);
+  assert.equal(report.technical.intendedSoundPresent, true); assert.equal(report.audio.silent, false);
+  assert.equal(report.readyForHumanFinalReview, false); assert.equal(report.listening.status, 'not-listened');
+});
+test('missing planned soft subtitle track cannot pass output quality review', async t => {
+  const { root, project } = await rendered(t, { intent: 'Keep verified subtitles.', overrides: { captions: 'keep', music: 'none' } }, { captions: [{ start: 0, end: 1.5, text: 'Verified caption' }] });
+  const { digest } = await currentPlan(project), state = await readJSON(project, '.tsugite/state.json');
+  await command('ffmpeg', ['-nostdin','-v','error','-i',path.join(project,'out/final.mp4'),'-map','0:v:0','-map','0:a:0','-c','copy','-sn',path.join(project,'out/missing-subs.mp4')]);
+  // Owned fixture only: simulate a renderer that registers a bad subtitle-free
+  // export as successful. The QA must inspect the actual media independently.
+  const bytes = await fs.readFile(path.join(project, 'out/missing-subs.mp4'));
+  await fs.writeFile(path.join(project, 'out/final.mp4'), bytes); await fs.writeFile(path.join(project, state.renders[digest].path), bytes);
+  state.renders[digest].hash = await fileHash(project, 'out/final.mp4'); await write(project, '.tsugite/state.json', state);
+  const first = await reviewGuidance(root); assert.equal(first.output.metadata.hasCaptions, false);
+  await write(root, 'assets/missing-subs-review.json', { version: 1, outputSha256: first.output.sha256, frames: first.output.frames.map(f => ({ path: f.path, sha256: f.sha256, observation: 'Fixture frame report; soft subtitle visibility requires stream inspection.' })), audio: { status: 'not-listened', observation: 'Muted fixture.' } });
+  const reviewed = await reviewGuidance(root, 'assets/missing-subs-review.json');
+  assert.equal(reviewed.readyForHumanFinalReview, false); assert.equal(Object.values(reviewed.technical).every(Boolean), false);
+});
+test('looped ranges inspect real frames after wrapping to the beginning of the source', async t => {
+  const { root } = await fixture(t);
+  await command('ffmpeg', ['-nostdin','-v','error','-f','lavfi','-i','color=blue:s=64x64:r=10:d=5','-f','lavfi','-i','color=red:s=64x64:r=10:d=5','-filter_complex','[0:v][1:v]concat=n=2:v=1:a=0','-c:v','libx264','-pix_fmt','yuv420p','-threads','2',path.join(root,'assets/loop.mp4')]);
+  await settings(root, { length: 6, format: '1:1', use: [{ path: 'assets/loop.mp4', start: 9, seconds: 6, loop: true }] });
+  const report = await inspectGuidance(root), frames = report.sources[0].frames, colors = [];
+  for (const frame of frames) {
+    const { stdout } = await command('ffmpeg', ['-nostdin','-v','error','-i',path.join(root,frame.path),'-vf','scale=1:1','-frames:v','1','-f','rawvideo','-pix_fmt','rgb24','-'], { encoding: 'buffer' }); colors.push([...stdout]);
+  }
+  assert.ok(colors[0][0] > 200 && colors[0][2] < 20, 'first frame is in the red source tail');
+  assert.ok(colors.slice(1).every(c => c[2] > 200 && c[0] < 20), 'later frames show the blue material after the loop');
 });

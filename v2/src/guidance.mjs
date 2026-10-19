@@ -30,32 +30,34 @@ async function localProject(root) {
   return value;
 }
 const ffInput = ['-protocol_whitelist', 'file,pipe', '-format_whitelist', 'mov,matroska,webm,avi,mpegts,wav,mp3,flac,ogg'];
-async function capture(root, relative, directory, label, start = 0, seconds) {
+async function capture(root, relative, directory, label, start = 0, seconds, loop = false) {
   const source = await inside(root, relative), before = await fileHash(root, relative), metadata = await probe(source);
-  const duration = Math.min(seconds ?? metadata.seconds, metadata.seconds - start);
+  const duration = loop ? seconds ?? metadata.seconds : Math.min(seconds ?? metadata.seconds, metadata.seconds - start);
   if (!(duration > 0)) fail('No source frames in selected range');
   const frames = [];
   for (const [index, fraction] of [0, 0.5, 0.9].entries()) {
-    const time = start + Math.min(duration * fraction, Math.max(0, duration - 0.04));
+    const timelineOffset = Math.min(duration * fraction, Math.max(0, duration - 0.04));
+    const time = loop ? (start + timelineOffset) % metadata.seconds : start + timelineOffset;
     const file = `${directory}/${label}-${index}.png`, target = await inside(root, file);
     await command('ffmpeg', ['-nostdin', '-v', 'error', '-n', ...ffInput, '-ss', String(time), '-i', source, '-frames:v', '1', '-vf', 'scale=640:640:force_original_aspect_ratio=decrease', '-threads', '1', target]);
     const signature = await fs.readFile(target);
     if (!signature.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) fail('Frame extraction did not produce a PNG');
-    frames.push({ path: file, sha256: hash(signature), seconds: time });
+    frames.push({ path: file, sha256: hash(signature), seconds: time, timelineOffset });
   }
   if (await fileHash(root, relative) !== before) fail('Media changed during guide inspection');
-  return { path: relative, sha256: before, start, inspectedSeconds: duration, metadata, frames };
+  return { path: relative, sha256: before, start, inspectedSeconds: duration, loop, metadata, frames };
 }
-async function audioEvidence(root, relative, directory, label, start = 0) {
+async function audioEvidence(root, relative, directory, label, start = 0, seconds = 3) {
   const source = await inside(root, relative), metadata = await probe(source, 'audio');
-  const file = `${directory}/${label}.wav`;
-  await command('ffmpeg', ['-nostdin', '-v', 'error', '-n', ...ffInput, '-ss', String(start), '-i', source, '-map', '0:a:0', '-t', String(Math.min(3, metadata.seconds - start)), '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', await inside(root, file)]);
+  const file = `${directory}/${label}.wav`, duration = Math.min(seconds, metadata.seconds - start);
+  if (!(duration > 0) || duration > 10) fail('Invalid bounded audio inspection range');
+  await command('ffmpeg', ['-nostdin', '-v', 'error', '-n', ...ffInput, '-ss', String(start), '-i', source, '-map', '0:a:0', '-t', String(duration), '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', await inside(root, file)]);
   const { stderr, stdout } = await command('ffmpeg', ['-nostdin', '-hide_banner', ...ffInput, '-i', await inside(root, file), '-af', 'volumedetect', '-f', 's16le', '-'], { encoding: 'buffer' });
   const peak = stderr.toString('utf8').match(/max_volume:\s*(-?inf|[-\d.]+) dB/)?.[1];
   if (!peak) fail('Audio measurement failed');
   // volumedetect reports a finite ~-91 dB floor for all-zero s16 samples.
   // Inspect decoded PCM instead of treating that number as audible sound.
-  return { path: file, sha256: await fileHash(root, file), source: relative, maxDb: peak === '-inf' ? null : Number(peak), silent: stdout.length > 0 && stdout.every(byte => byte === 0), listening: 'not-listened' };
+  return { path: file, sha256: await fileHash(root, file), source: relative, start, seconds: duration, maxDb: peak === '-inf' ? null : Number(peak), silent: stdout.length > 0 && stdout.every(byte => byte === 0), listening: 'not-listened' };
 }
 async function sourceUnchanged(root, inspection) {
   for (const source of inspection.sources) {
@@ -94,8 +96,9 @@ export async function inspectGuidance(root) {
     await fs.mkdir(await inside(root, directory), { recursive: true });
     const sources = [], audio = [];
     for (const [i, clip] of clips.entries()) {
-      sources.push(await capture(root, clip.path, directory, 'clip-' + i, clip.start, clip.seconds));
-      if (clip.audio) audio.push({ ...await audioEvidence(root, clip.path, directory, 'clip-audio-' + i, clip.start), sourceSha256: clip.hash });
+      sources.push(await capture(root, clip.path, directory, 'clip-' + i, clip.start, clip.seconds, clip.loop));
+      const audioStart = clip.loop ? clip.start % sources[i].metadata.seconds : clip.start;
+      if (clip.audio) audio.push({ ...await audioEvidence(root, clip.path, directory, 'clip-audio-' + i, audioStart), sourceSha256: clip.hash });
     }
     for (const [i, track] of tracks.entries()) audio.push({ ...await audioEvidence(root, track.path, directory, 'track-' + i, track.offset), sourceSha256: track.hash });
     if (await fileHash(root, 'tsugite.yaml') !== configHash) fail('Project changed during inspection');
@@ -221,14 +224,15 @@ export async function reviewGuidance(root, request) {
     const directory = await inside(root, preview.project);
     if (await fileHash(directory, 'tsugite.yaml') !== preview.previewConfigHash) fail('Preview settings changed; prepare again');
     const { plan: p, digest } = await currentPlan(directory), s = await state(directory), rendered = s.renders[digest];
+    if (p.seconds > 10) fail('Opening quality review is limited to ten seconds');
     if (rendered?.status !== 'done' || await fileHash(directory, 'out/final.mp4') !== rendered.hash) fail('Export the page-approved opening preview before quality review');
     const id = randomUUID(), reportDirectory = `${home}/reviews/${id}`; await fs.mkdir(await inside(root, reportDirectory), { recursive: true });
     const output = preview.project + '/out/final.mp4', measured = await capture(root, output, reportDirectory, 'output');
     await command('ffmpeg', ['-nostdin', '-v', 'error', ...ffInput, '-i', await inside(root, output), '-f', 'null', '-']);
-    const audio = measured.metadata.hasAudio ? await audioEvidence(root, output, reportDirectory, 'output-audio') : null;
+    const audio = measured.metadata.hasAudio ? await audioEvidence(root, output, reportDirectory, 'output-audio', 0, p.seconds) : null;
     const intendedSound = p.timeline.clips.some(c => c.audio && c.volume > 0) || p.timeline.audio.some(a => a.volume > 0);
     const target = p.format === '9:16' ? [360,640] : p.format === '1:1' ? [640,640] : [640,360];
-    const technical = { decoded: true, duration: Math.abs(measured.metadata.seconds - p.seconds) <= 0.15, dimensions: measured.metadata.width === target[0] && measured.metadata.height === target[1], noUnexpectedSubtitleTrack: selected.overrides.captions !== 'none' || !measured.metadata.hasCaptions, intendedSoundPresent: !intendedSound || !!audio && !audio.silent };
+    const technical = { decoded: true, duration: Math.abs(measured.metadata.seconds - p.seconds) <= 0.15, dimensions: measured.metadata.width === target[0] && measured.metadata.height === target[1], noUnexpectedSubtitleTrack: selected.overrides.captions !== 'none' || !measured.metadata.hasCaptions, expectedSubtitleTrack: !p.timeline.captions.length || p.timeline.captionMode === 'burn' || measured.metadata.hasCaptions, intendedSoundPresent: !intendedSound || !!audio && !audio.silent };
     let frameNotes = null, heard = { status: 'not-listened', observation: 'Listening has not been reported.' };
     if (request) {
       if (!request.startsWith('assets/')) fail('Quality observations must be in assets/');
