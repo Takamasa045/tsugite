@@ -1,0 +1,7 @@
+slug: storyboard-local
+name: 絵コンテ見本
+run_id: storyboard-local-run
+manifest: manifest.json
+dist_dir: dist
+edit:
+  backend: remotion
