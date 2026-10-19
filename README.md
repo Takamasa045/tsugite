@@ -1,6 +1,10 @@
 # Tsugite
 
-[English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
+[日本語・はじめての方はこちら](README.ja.md#はじめての方はこちら) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
+
+**日本語で始める：** [できること・必要な準備・最初の一歩](README.ja.md#はじめての方はこちら) → [6秒の無課金サンプルを作る](docs/onboarding/first-video.ja.md)。公開済みalpha.4と手元のリポジトリの手順を分けて案内しています。
+
+English reference continues below. The published alpha.4 archive is a fixed release; later repository or private local changes are separate. The first-video guide distinguishes these installation paths.
 
 Tsugite is a local video-production workshop. It carries assets, production logs, decisions, and preferences forward instead of treating each AI video as a disposable result.
 
