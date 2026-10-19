@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Clarify that v1 is 0.18.0 (the alpha.1 note that v1 stayed at 0.17.0 is historical), record independent HyperFrames pins (v1 0.8.75, v2 adapter 0.8.24), and point current v2 docs at alpha.5. Add an owner-facing v1→v2 migration decision record at `v2/docs/migration-plan.ja.md`. Docs only; no runtime, version, or release change.
+
 ## 0.18.0 - 2026-10-19
 
 - Reorganize the Japanese and English READMEs for non-engineer onboarding and move the previous technical sections to `docs/reference.ja.md` and `docs/reference.md`.
@@ -39,7 +41,7 @@
 
 ## 2.0.0-alpha.1 - 2026-10-18 (independent v2 package)
 
-- Add `v2/` as an independent npm-format package and CLI. The v1 source package stays at 0.17.0; active productions, commands and data remain compatible.
+- Add `v2/` as an independent npm-format package and CLI. At this alpha the v1 source package remained 0.17.0 (v1 later released as 0.18.0); active productions, commands and data remain compatible.
 - Implement plan/clips/final checks in one local confirmation page, content-bound invalidation, atomic per-service credit reservations, uncertain-job reconciliation, private preferences/packs, MCP and a short Agent Skill.
 - Verify account-free sample installation and export, sound/captions/trims, existing-browser Remotion and HyperFrames, local CPU Whisper and 18-card Fast Edit. Add editable Fast Edit migration, explicit final copies and locked legacy-data archives.
 - Add documented PixVerse/Kling/ElevenLabs HTTP transports with synthetic protocol tests. No paid acceptance or credential change is claimed. Separate 11 experimental compatibility source packages without moving v1 work.

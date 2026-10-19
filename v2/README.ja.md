@@ -37,3 +37,10 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs export --project ./my-
 素材・完成の確認も同じページで行います。エージェントへ承認操作を任せないでください。同じOS権限のプロセスから完全に隔離する仕組みではありません。サービスごとのクレジットは合算しません。設定・素材の変更後は再計画と再承認が必要です。既存v1のproject.yaml案件をこの手順で置き換えないでください。
 
 配布tarballは独立したv2だけを含みます。GitHubの自動生成Source code一式には任意v1 Editframeの未解決High依存アラート#131も含まれます。[配布範囲と注意](docs/release-alpha5.md)を確認してください。
+
+## 詳しい文書
+
+- [対応範囲](docs/requirements.md)
+- [v1からv2への移行判断（推奨案）](docs/migration-plan.ja.md)
+- [プラグインとライセンス](docs/plugins.md)
+- [alpha.5の配布範囲](docs/release-alpha5.md)
