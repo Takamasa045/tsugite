@@ -1,6 +1,6 @@
 {
   "name": "tsugite",
-  "version": "2.0.0-alpha.4",
+  "version": "2.0.0-alpha.5",
   "description": "Human-reviewed, budgeted video workflows — 継手",
   "type": "module",
   "license": "MIT",
@@ -15,6 +15,7 @@
     "skills",
     "docs",
     "README.md",
+    "README.ja.md",
     "LICENSE"
   ],
   "engines": {
