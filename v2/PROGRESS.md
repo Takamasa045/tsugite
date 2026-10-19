@@ -26,8 +26,9 @@ HyperFrames pins are independent and must not be collapsed:
 An earlier local note that a shared install held 0.8.24 while a worktree
 expected 0.8.75 describes a past environment, not the current source pins.
 
-Owner-facing migration options (not decided) are in
+Owner-facing migration decisions (adopted 2026-10-19) are in
 [v1→v2 migration decision record](docs/migration-plan.ja.md).
+Paid acceptance is last; Kling may need prepaid credits.
 
 The following dated checkpoints are retained as development history. They must
 not override the alpha.5 release record.

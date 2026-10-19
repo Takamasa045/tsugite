@@ -224,4 +224,5 @@ npm run --silent v2 -- export --project ./projects/my-first-v2-video
 - [追加プラグインの対応範囲と導入](../plugins.md)
 - [v2の実装・未実装一覧](../requirements.md)
 - [追加プラグインとライセンス](../plugins.md)
+- [第三者3人の試用キット](trial-kit.ja.md)
 - [従来のv1セットアップ依頼文](https://github.com/Takamasa045/tsugite/blob/v2.0.0-alpha.5/docs/onboarding/codex-setup-prompt.ja.md)
