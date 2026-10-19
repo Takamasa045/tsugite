@@ -253,7 +253,42 @@ describe("creative review", () => {
     });
     expect(review.warnings).toContain("動き・アニメーション設計が未指定です。最終確認前に、全体方針またはカット別モーションを確認してください。");
     expect(html).toContain("個別モーションは未指定です");
+    expect(html).toContain("エージェントに「動きをつけて」と頼むと");
+    expect(html).not.toContain("visual.motion");
+    expect(html).not.toContain("clip.motion");
     expect(html).not.toContain('data-motion-preset="undefined"');
+  });
+
+  it("uses the project display name when the presentation has no title", () => {
+    const project = { ...sampleProject(), name: "はじめての継手", slug: "my-first-tsugite" };
+    const manifest = sampleManifest();
+    delete manifest.presentation!.title;
+
+    const review = createReviewDocument(project, manifest, createPlan(project, manifest));
+    const html = renderReviewHtml(review);
+
+    expect(review.summary.title).toBe("はじめての継手");
+    expect(html).toContain("<h1>はじめての継手</h1>");
+    expect(html).not.toContain("<h1>my-first-tsugite</h1>");
+  });
+
+  it("guides the Gate 1 decision in plain language and hides commands behind details", () => {
+    const html = renderReviewHtml(
+      createReviewDocument(sampleProject(), sampleManifest(), createPlan(sampleProject(), sampleManifest()))
+    );
+
+    expect(html).toContain("予想される生成費用");
+    expect(html).toContain("編集エンジン");
+    expect(html).not.toContain("推定credits");
+    expect(html).not.toContain("編集backend");
+    expect(html).toContain("エージェントに「承認」「ここを直したい：〜」「中止」と伝えてください");
+    expect(html).toContain("<details class=\"decision-commands\">");
+    expect(html).toContain("詳しい人向け：コマンド");
+    expect(html).toContain("承認して進む");
+    expect(html).toContain("bin/pipeline gate");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain('type="submit"');
+    expect(html.indexOf("詳しい人向け：コマンド")).toBeLessThan(html.indexOf("bin/pipeline gate"));
   });
 
   it("uses a matching clip motion plan when a caption does not override it", () => {
@@ -675,7 +710,8 @@ describe("creative review", () => {
     expect(html).toContain("assets/001-musuhi.png");
     expect(html).toContain("assets/002-room-background.png");
     expect(html).toContain('data-testid="background-review"');
-    expect(html).not.toContain('aria-label="まず、問いを置くの構成ワイヤー"');
+    expect(html).not.toContain('aria-label="まず、問いを置くの仮の構成図"');
+    expect(html).not.toContain("構成ワイヤー");
     expect(html).not.toContain("&lt;project.yaml&gt;");
     await expect(stat(join(outputDir, "assets/001-musuhi.png"))).resolves.toBeDefined();
     await expect(stat(join(outputDir, "assets/002-unreferenced.png"))).rejects.toThrow();
