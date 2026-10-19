@@ -32,21 +32,27 @@ describe("Windows support contract", () => {
   });
 
   it("links English and Japanese setup docs to the PowerShell guide", async () => {
-    const [english, japanese, chinese, korean, windowsGuide] = await Promise.all([
+    const [english, japanese, chinese, korean, windowsGuide, referenceEn, referenceJa] = await Promise.all([
       readFile("README.md", "utf8"),
       readFile("README.ja.md", "utf8"),
       readFile("README.zh.md", "utf8"),
       readFile("README.ko.md", "utf8"),
-      readFile("docs/windows.md", "utf8")
+      readFile("docs/windows.md", "utf8"),
+      readFile("docs/reference.md", "utf8"),
+      readFile("docs/reference.ja.md", "utf8")
     ]);
 
     expect(english).toContain("docs/windows.md");
     expect(japanese).toContain("docs/windows.md");
-    expect(english).toContain("80% statements, functions, and lines, plus 74.4% branches");
-    expect(japanese).toContain("statements / functions / linesが80%以上、branchesが74.4%以上");
+    expect(english).toContain("docs/reference.md");
+    expect(japanese).toContain("docs/reference.ja.md");
+    expect(referenceEn).toContain("80% statements, functions, and lines, plus 74.4% branches");
+    expect(referenceJa).toContain("statements / functions / linesが80%以上、branchesが74.4%以上");
     expect(chinese).toContain("branches ≥ **74.4%**");
     expect(korean).toContain("branches ≥ **74.4%**");
-    for (const readme of [english, japanese, chinese, korean]) {
+    expect(referenceEn).toContain("npm run security:audit");
+    expect(referenceJa).toContain("npm run security:audit");
+    for (const readme of [chinese, korean]) {
       expect(readme).toContain("npm run security:audit");
     }
     expect(windowsGuide).toContain("PowerShell");
@@ -55,14 +61,14 @@ describe("Windows support contract", () => {
   });
 
   it("keeps the distributed local-analysis example on the cross-platform CLI entrypoint", async () => {
-    const [example, japanese] = await Promise.all([
+    const [example, referenceJa] = await Promise.all([
       readFile("examples/local-analysis/README.md", "utf8"),
-      readFile("README.ja.md", "utf8")
+      readFile("docs/reference.ja.md", "utf8")
     ]);
 
     for (const command of ["doctor", "validate", "plan", "analyze"]) {
       expect(example).toContain(`node bin/pipeline ${command}`);
-      expect(japanese).toContain(`node bin/pipeline ${command}`);
+      expect(referenceJa).toContain(`node bin/pipeline ${command}`);
     }
     expect(example).not.toMatch(/^bin\/pipeline /m);
   });

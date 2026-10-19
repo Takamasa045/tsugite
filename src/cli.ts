@@ -134,6 +134,7 @@ import {
   suggestCommands,
   type CommandSpec
 } from "./cli/commandCatalog.js";
+import { formatHuman } from "./cli/formatHuman.js";
 
 type ParsedArgs = {
   command: string;
@@ -3783,9 +3784,6 @@ function output(args: ParsedArgs, status: number, payload: unknown): number {
   return status;
 }
 
-function formatHuman(payload: unknown): string {
-  return JSON.stringify(payload, null, 2);
-}
 
 if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
   const status = await main();

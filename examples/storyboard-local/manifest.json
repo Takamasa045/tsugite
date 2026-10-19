@@ -1,0 +1,170 @@
+{
+  "meta": {
+    "aspect": "16:9",
+    "fps": 30,
+    "target_duration_seconds": 2,
+    "slug": "storyboard-local"
+  },
+  "clips": [
+    {
+      "id": "clip-001",
+      "src": "media/clip-001.mp4",
+      "in": 0,
+      "out": 1,
+      "duration": 1,
+      "fps": 30,
+      "resolution": {
+        "width": 320,
+        "height": 180
+      },
+      "audio": false
+    },
+    {
+      "id": "clip-002",
+      "src": "media/clip-002.mp4",
+      "in": 0,
+      "out": 1,
+      "duration": 1,
+      "fps": 30,
+      "resolution": {
+        "width": 320,
+        "height": 180
+      },
+      "audio": false
+    }
+  ],
+  "images": [
+    {
+      "id": "hikari-neutral",
+      "src": "media/hikari-neutral.png",
+      "alt": "ひかりの正面"
+    },
+    {
+      "id": "hikari-wave",
+      "src": "media/hikari-wave.png",
+      "alt": "ひかりが手を振る"
+    },
+    {
+      "id": "shot-garden",
+      "src": "media/shot-garden.png",
+      "alt": "朝の庭。ひかりが立っている"
+    },
+    {
+      "id": "shot-wave",
+      "src": "media/shot-wave.png",
+      "alt": "ひかりが手を振るクローズ"
+    }
+  ],
+  "speakers": [
+    {
+      "id": "hikari",
+      "display_name": "ひかり",
+      "side": "left",
+      "accent": "#2f7a7e",
+      "poses": {
+        "neutral": "hikari-neutral",
+        "wave": "hikari-wave"
+      }
+    }
+  ],
+  "presentation": {
+    "preset": "passthrough-16x9",
+    "title": "絵コンテ見本",
+    "draft": false,
+    "motion_design": {
+      "summary": "朝の庭で、ひかりが静かに現れて手を振る",
+      "pacing": "1秒ずつ、動きは短く一度だけ",
+      "principles": [
+        "一度に動かす主役は一人",
+        "字幕が読める速さを保つ"
+      ]
+    }
+  },
+  "audio": {
+    "bgm": [],
+    "narration": [],
+    "sfx": []
+  },
+  "captions": [
+    {
+      "id": "s01",
+      "speaker": "hikari",
+      "text": "おはよう",
+      "start": 0,
+      "end": 1,
+      "pose": "neutral",
+      "emphasis": ["おはよう"],
+      "visual": {
+        "image_id": "shot-garden",
+        "kicker": "1",
+        "headline": "朝の庭",
+        "badges": ["導入"],
+        "motion": {
+          "entrance": {
+            "preset": "fade",
+            "label": "庭が現れる",
+            "description": "朝の庭を短くフェードインして止める",
+            "target": "frame",
+            "duration_seconds": 0.4,
+            "easing": "ease-out"
+          }
+        }
+      }
+    },
+    {
+      "id": "s02",
+      "speaker": "hikari",
+      "text": "いってきます",
+      "start": 1,
+      "end": 2,
+      "pose": "wave",
+      "emphasis": ["いってきます"],
+      "visual": {
+        "image_id": "shot-wave",
+        "kicker": "2",
+        "headline": "手を振る",
+        "badges": ["結び"],
+        "motion": {
+          "emphasis": {
+            "preset": "pulse",
+            "label": "手を一度振る",
+            "description": "手を振る瞬間だけ小さく弾ませる",
+            "target": "keyword",
+            "duration_seconds": 0.3,
+            "easing": "ease-in-out"
+          },
+          "transition_to_next": {
+            "preset": "fade",
+            "label": "余韻で閉じる",
+            "description": "最後の1拍で画面を静かに落とす",
+            "target": "frame",
+            "duration_seconds": 0.25
+          }
+        }
+      }
+    }
+  ],
+  "chapters": [
+    {
+      "title": "朝のあいさつ",
+      "start": 0,
+      "end": 2
+    }
+  ],
+  "provenance": [
+    {
+      "clip_id": "clip-001",
+      "engine": "local",
+      "model": "bundled-fixture",
+      "params": {},
+      "credits": 0
+    },
+    {
+      "clip_id": "clip-002",
+      "engine": "local",
+      "model": "bundled-fixture",
+      "params": {},
+      "credits": 0
+    }
+  ]
+}

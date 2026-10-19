@@ -2,92 +2,83 @@
 
 [English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-Tsugite는 로컬 영상 공방입니다. 각 AI 영상을 일회성 결과로 두지 않고, 소재·제작 로그·판단·취향을 다음 제작으로 이어갑니다.
+계획 → 소재 → 완성 영상을 사람과 함께 확인하면서 진행하고, 이번에 고친 점을 다음 영상에 이어 갑니다. Tsugite는 내 PC에서 도는 영상 공방입니다.
 
-전체 진입점, 안전 경계, 명령은 [English README](README.md)와 [日本語 README](README.ja.md)가 정본입니다. 이 페이지는 현재 제품 위치의 요약만 둡니다. 저장소 소프트웨어 버전은 **0.17.0**입니다.
+전체 진입점은 [日本語 README](README.ja.md)와 [English README](README.md)가 정본입니다. 이전 README의 기술 설명은 [docs/reference.ja.md](docs/reference.ja.md)와 [docs/reference.md](docs/reference.md)에 있습니다. 저장소 소프트웨어 버전은 **0.17.0**입니다.
 
-## 가장 쉬운 시작
+## 누구에게
+
+이런 때에 씁니다.
+
+- 같은 설명을 매번 처음부터 다시 쓰고 싶지 않을 때.
+- 생성 서비스 과금은 내용을 본 뒤에 결정하고 싶을 때.
+- 지난번에 고친 점(도입 길이, 자막 양)이 다음 영상에서 사라지고 싶지 않을 때.
+
+Codex나 Claude Code에 자기 언어로 부탁해 영상을 만드는 사람을 위한 도구입니다. Git이나 터미널을 먼저 배울 필요는 없습니다.
+
+## 시작하기
+
+명령을 직접 입력할 필요는 없습니다.
 
 1. Codex에서 빈 폴더를 열거나, 그 폴더에서 Claude Code를 시작합니다.
-2. [공식 setup 요청문](docs/onboarding/codex-setup-prompt.ja.md)을 에이전트에 붙여넣습니다.
-3. 읽기 전용 환경 확인부터 하고, 시스템 설치 전에는 승인을 기다립니다.
-4. 실제로 필요한 시스템 변경만 승인합니다.
+2. [공식 setup 요청문](docs/onboarding/codex-setup-prompt.ja.md)을 에이전트에 붙여넣습니다. 정본은 일본어입니다.
+3. 보고를 읽고, 실제로 변경이 필요할 때만 「OK」라고 합니다.
 
-`git clone`이나 npm 명령을 직접 입력할 필요는 없습니다. 공식 Bootstrap은 저장소 의존성, 무과금 샘플, `doctor`, `validate`, `plan`만 자동화합니다. 시스템 패키지, PATH, 외부 로그인, secret, 과금, `run` / `render`, Gate, commit, push, 공개는 하지 않습니다.
+공식 Bootstrap은 저장소 의존성, 무과금 샘플, `doctor`, `validate`, `plan`만 합니다. 시스템 소프트웨어 설치, 외부 로그인, 키 설정, 과금, `run` / `render`, Gate 변경, commit, push는 하지 않습니다.
 
-이미 클론한 저장소에서는:
+보고 마지막에 「런처를 열까요?」를 한 가지만 묻습니다. 「예」라고 답할 때만 기존 `setup:open`을 실행합니다. 답이 없거나 「아니요」이면 열지 않습니다.
 
-```sh
-npm run setup:check
-npm run setup
-npm run setup:open  # launcher도 열 때
-```
+## 끝나면 보이는 것
 
-## 안전한 흐름
+![로컬 런처. 목록에 샘플 제작 「はじめての継手」가 보인다](docs/guide/assets/launcher-my-first-tsugite.webp)
 
-각 영상 작업은 자체 `project.yaml`을 가집니다. 복사 가능한 예제는 `examples/`, 사용자 작업은 git에서 무시되는 `projects/`입니다.
+공식 setup은 무과금 샘플 「はじめての継手」를 `projects/my-first-tsugite/`에 두고, 환경 확인(`doctor`), 내용 검증(`validate`), 계획(`plan`)까지 진행합니다. 이 시점에는 과금·로그인·생성이 없습니다. 런처는 마지막 질문에 「예」라고 답할 때까지 열리지 않습니다.
 
-1. project와 manifest를 검증합니다.
-2. 계획을 만듭니다.
-3. Gate 1에서 사람 승인을 기다립니다.
-4. Coordinator 승인 후에만 생성 또는 조립을 실행합니다.
-5. Gate 2에서 출력 QA를 합니다.
-6. Gate 2 승인 후에만 render합니다.
-7. Gate 3에서 최종 영상 QA를 합니다.
+런처를 여는 것만으로는 생성도 내보내기도, 확인 대기 중인 내용 변경도 하지 않습니다.
 
-명시적 사람 승인 없이 non-dry-run `run` / `render`를 실행하지 마세요. Gate 3는 `re-render`를 지원하며 Gate 1 / 2 승인을 유지합니다. Gate 2 `retry_specific`은 **미구현이며 1.0에도 넣지 않습니다**. 전체 재계획은 `revise`를 쓰세요. MiniMax direct / MiniMax HTTP는 preflight-only이며 전송 가능으로 표시하지 않습니다.
+## 이렇게 부탁할 수 있습니다
 
-## 현재 범위
+짧은 예입니다. 전체 목록은 일본어 [頼み方カタログ](docs/guide/requests.ja.md)와 영어 [Ways to ask](docs/guide/requests.md)입니다.
 
-**파이프라인 안 편집 (`edit.backend`)**
+- 30초 세로형 SNS 광고의 **구성만** 원한다(생성은 하지 않는다).
+- 가지고 있는 세미나 영상을 밖으로 보내지 않고 장 나누기와 요약만 원한다.
+- 같은 캐릭터로 소개 영상을 만든다. 모습과 목소리를 먼저 쉬운 글로 확인한다.
+- 지난번에 고친 「도입 0.5초에 BGM」을 다음에도 지킨다.
+- Premiere Pro로 열어 컷만 고친다(macOS).
 
-- Remotion / HyperFrames.
-- 선택적 macOS [Editframe](docs/editframe.md) backend: `npm run editframe:install`.
-- [Jev Fast Edit v1](docs/fast-edit.md): Remotion / HyperFrames / Editframe에서 같은 backend 중립 의도(카드, 자막, 전환, 줌, SFX, 16:9와 9:16). 새 renderer가 아닙니다.
+## 당신이 멈추기 전에는 나아가지 않습니다
 
-**파이프라인 밖 편집 (`pipeline render` backend가 아님)**
+앞으로 가기 전에 사람이 세 번 멈출 수 있습니다. OK할 때까지 다음으로 가지 않습니다. 생성과 내보내기도 같습니다. 유일한 예외는 안건이 `gates.gate_2.auto_pass: qc_ok_no_new_assets`를 고른 때입니다. 과금·새 소재·품질 지적이 모두 0이면 소재 확인(Gate 2)은 사람 OK 없이 통과합니다. 과금이나 새 소재가 나오면 반드시 멈춥니다.
 
-- [Premiere Pro](docs/premiere-pro.md): macOS. `$premiere-editing` / `/premiere-editing` (컷, 전환, 오디오, 자막, 색; 로컬 MCP).
-- [After Effects](docs/after-effects.md): macOS. `$after-effects-editing` / `/after-effects-editing` (공식 `DoScriptFile` helper: inspect / fixture / 타이틀 / 다른 이름으로 저장).
-- [PixVerse Canvas](docs/pixverse-canvas.md): 공식 CLI 1.4.9 고정, `npm run pixverse:install`.
-- [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md): 0.8.173 고정. Studio 편집은 pipeline manifest를 쓰지 않습니다.
+1. **계획 확인(Gate 1)** — 이 계획으로 진행해도 되는가. 런처에는 「Gate 1 確認画面を開く」가 나옵니다.
+2. **소재 확인(Gate 2)** — 이 소재로 괜찮은가.
+3. **완성 확인(Gate 3)** — 이 완성 영상으로 괜찮은가.
 
-**생성과 분석**
+공식 setup은 부족한 소프트웨어 설치, 로그인, API 키, 과금, `run`, `render`, Gate 판단, commit, push를 자동으로 하지 않습니다. 경계는 [초회 셋업 계약](docs/onboarding/setup-contract.ja.md)입니다.
 
-- PixVerse / Kling CLI, TopView skill CLI, 선택적 Hermes.
-- 출처가 있는 PixVerse / Kling / Seedance prompt catalog (존재 ≠ 실행 가능).
-- 34개 이야기 틀과 35개 영상 문법 story guides.
-- API-free `analyze`, 선택적 로컬 Whisper, 다중 소스 `compose`.
-- 생성 `connections`와 분리된 공개 read-only Remote MCP **Agent Service Registry**.
+## 쓸수록 「내 공방」이 됩니다
 
-**그 외**
+첫 영상에서 「도입이 길다」고 고친 점은 취향·배움으로 기록할 수 있습니다. 같은 지적이 이어지면 학습 중이 되고, 승인한 항목만 템플릿이나 규칙 후보가 됩니다.
 
-- Gate에 묶인 EDL, Gate 2 / Gate 3 QC.
-- Coordinator와 Gate 승인이 필요한 `run` / `render`.
-- `127.0.0.1`만 바인드하는 브라우저 launcher와 읽기 전용 3D Viewer.
-- 선택적 [Hypit](docs/hypit.md) 제작(render backend가 아니며 Gate 대체도 아님).
+승인은 반영 작업을 해도 된다는 허가입니다. prompt·템플릿·규칙을 자동으로 바꾸지는 않습니다. 상태는 기록(observed) → 학습 중(recurring) → 반영됨(promoted) → 효과 확인됨(verified)입니다.
 
-Desktop 앱의 일반 배포는 종료되었습니다. 일상 진입점은 GitHub 소스 + Codex / Claude Code + 로컬 브라우저 launcher입니다. Electron 소스는 개발·회귀 검증용으로만 남습니다.
+## 자주 나오는 말
 
-```sh
-npm --prefix apps/workflow-viewer ci
-npm run viewer:open
-```
+전체는 일본어 [用語集](docs/guide/glossary.ja.md)와 영어 [glossary](docs/guide/glossary.md)입니다. 처음 나올 때는 「쉬운 말(정식 이름)」입니다.
 
-## 설치
+| 화면이나 대화에서 보는 말 | 뜻 |
+| --- | --- |
+| 제작 안건(`project.yaml`) | 영상 한 편의 폴더와 설정 |
+| 계획 확인(Gate 1) / 소재 확인(Gate 2) / 완성 확인(Gate 3) | 사람이 OK할 때까지 다음으로 가지 않는 확인. 런처에는 「確認待ち」가 나옵니다 |
+| 소재 목록(manifest) | 쓰는 영상·소리·자막 일람 |
+| 생성(`run`) / 내보내기(`render`) | 생성은 서비스에 따라 과금. 내보내기는 로컬·무과금이지만 시간이 걸릴 수 있다. 둘 다 승인 후에만 |
+| 취향·배움(feedback) | 고친 점의 기록. 승인해도 자동 반영하지 않는다 |
 
-Git, Node.js 22.12 이상의 22.x LTS, npm 10 이상, `ffprobe`를 포함한 FFmpeg가 필요합니다. 선택적 Hypit runtime은 추가로 Node.js 22.15+(22.x)가 필요합니다. Windows PowerShell 진입점은 [`docs/windows.md`](docs/windows.md)를 보세요. `npm ci`는 Remotion과 HyperFrames를 저장소 안에 설치합니다. `npm ci --omit=dev`는 쓰지 마세요.
+## 더 알아보기
 
-```sh
-npm ci
-npm run check
-node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
-```
-
-`npm run check`는 `src/` statements / functions / lines ≥ 80%, branches ≥ **74.4%**를 강제합니다 (Production Orchestration 이후 유지값. 75% 복원은 남은 빚). `npm run security:audit`는 production dependency tree와 전체 development tree를 각각 검사하고, moderate 이상의 advisory가 있으면 실패합니다.
-
-## 성장 루프와 저장소 규칙
-
-일회성 취향은 `projects/<job>/notes.md`에 둡니다. 재사용 스타일은 `examples/` 또는 `templates/`로, 기계 검사 가능한 문제는 constraints / validate / doctor로 올립니다. 판단형 규칙은 `LESSONS.md`에 먼저 쓰고, 사람 승인 후에 skill / AGENTS.md / CLAUDE.md로 승격합니다. core는 벤더 중립을 유지합니다.
-
-공개 계약 변경은 README, `manifest/schema.md`, `docs/requirements.md`에 남깁니다. 현재 소프트웨어 버전은 **0.17.0**입니다. 1.0은 여전히 live provider/billing 증거와 packaged Desktop UAT가 필요하고, Windows smoke는 GitHub Actions에서 확인했습니다.
+- 이전 README의 기술 설명: [docs/reference.ja.md](docs/reference.ja.md) · [docs/reference.md](docs/reference.md)
+- Windows: [Windows 네이티브 가이드](docs/windows.md)
+- 버전: 저장소 본체 `0.17.0`. [변경 기록](CHANGELOG.md)
+- v2 alpha(개발 중): [개요](v2/README.md) · [6초 환경 확인](docs/onboarding/first-video.ja.md) · [용도로 고르기](docs/onboarding/see-and-choose.ja.md)
+- 개발: [CONTRIBUTING.md](CONTRIBUTING.md)
+- `npm run check`는 `src/` statements / functions / lines ≥ 80%, branches ≥ **74.4%**를 강제합니다 (Production Orchestration 이후 유지값. 75% 복원은 남은 빚). `npm run security:audit`는 production dependency tree와 전체 development tree를 각각 검사하고, moderate 이상의 advisory가 있으면 실패합니다.

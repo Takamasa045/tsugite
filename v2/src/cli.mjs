@@ -32,6 +32,8 @@ Usage: tsugite <command> [--project directory] [--json]
   plugin analyze <id> assets/input [--mock] [--model local-model] [--output assets/captions.srt]
   plugin knowledge story|prompt-director|file.md
   plugin skill --to <client-skills-directory>
+  plugin guide inspect | select assets/choice.json [--private-guide file.json]
+  plugin guide preview [--seconds 3] | review [assets/observations.json]
 
 Transport: tsugite mcp (stdio, current project only)
 Checks are approved only in the confirmation page. No CLI approval flag exists.
@@ -61,7 +63,7 @@ export async function main(argv = process.argv.slice(2)) {
     init:{'from-v1':{type:'string'},flatten:{type:'string'},'archive-v1':{type:'boolean'},template:{type:'string'},pack:{type:'string'}}, check:{status:{type:'boolean'}},
     plan:{'no-review':{type:'boolean'},'no-open':{type:'boolean'},review:{type:'boolean'},port:{type:'string'}},
     make:{}, export:{}, note:{group:{type:'string'},global:{type:'boolean'},pack:{type:'string'},import:{type:'string'}}, clean:{},
-    plugin:{id:{type:'string'},to:{type:'string'},mock:{type:'boolean'},model:{type:'string'},output:{type:'string'}}, mcp:{}
+    plugin:{id:{type:'string'},to:{type:'string'},mock:{type:'boolean'},model:{type:'string'},output:{type:'string'},seconds:{type:'string'},'private-guide':{type:'string'}}, mcp:{}
   };
   if (!Object.hasOwn(perCommand,command)) fail('Unknown command');
   const {values,positionals} = parseArgs({ args:argv.slice(1), options:{...options,...perCommand[command]},allowPositionals:true,strict:true });
@@ -92,7 +94,18 @@ export async function main(argv = process.argv.slice(2)) {
     else { if(positionals.length !== 1) fail('Quote the note text'); result = await locked(target,()=>addNote(target,positionals[0],values.group)); }
   } else if (command === 'plugin') {
     const [sub,value] = positionals;
-    if (sub === 'list' && positionals.length === 1) {
+    if(sub!=='guide'&&('seconds' in values||'private-guide' in values))fail('Guidance options require plugin guide');
+    if (sub === 'guide') {
+      const [operation,request]=positionals.slice(1);
+      const allowed=operation==='select'?['private-guide']:operation==='preview'?['seconds']:[];
+      if(Object.keys(values).some(k=>!['project','json',...allowed].includes(k)))fail('Unsupported guide option');
+      const guide=await import('./guidance.mjs');
+      if(operation==='inspect'&&positionals.length===2)result=await guide.inspectGuidance(root);
+      else if(operation==='select'&&positionals.length===3)result=await guide.selectGuidance(root,request,{privateGuide:values['private-guide']?path.resolve(values['private-guide']):undefined});
+      else if(operation==='preview'&&positionals.length===2)result=await guide.previewGuidance(root,values.seconds===undefined?3:Number(values.seconds));
+      else if(operation==='review'&&[2,3].includes(positionals.length))result=await guide.reviewGuidance(root,request);
+      else fail('Use plugin guide inspect | select assets/choice.json | preview | review [assets/observations.json]');
+    } else if (sub === 'list' && positionals.length === 1) {
       const registry = await readJSON(root,'.tsugite/plugins.json',{});
       result = await Promise.all(['local',...Object.keys(registry)].map(async id => (await plugin(root,id)).manifest));
     } else if (sub === 'new' && positionals.length === 2 && values.id) result = await newPlugin(path.resolve(root,value),values.id);
