@@ -4,7 +4,7 @@
 
 Tsugite 是本地影像工房：它把素材、制作日志、判断和偏好接到下一次制作，而不是把每次 AI 视频当成一次性结果。
 
-完整入口、安全边界和命令以 [English README](README.md) 与 [日本語 README](README.ja.md) 为正本。本页只保留当前产品位置的摘要。仓库软件版本是 **0.17.0**。
+完整入口以 [日本語 README](README.ja.md) 与 [English README](README.md) 为正本。以前 README 中的技术说明见 [docs/reference.ja.md](docs/reference.ja.md) 与 [docs/reference.md](docs/reference.md)。本页只保留当前产品位置的摘要。仓库软件版本是 **0.17.0**。
 
 ## 最简单的开始方式
 

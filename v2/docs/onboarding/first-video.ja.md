@@ -6,7 +6,7 @@
 
 最初は追加の動画ツールを入れず、このサンプルで操作を確かめます。実際の生成サービスの品質や接続を試すものではありません。エージェント自体の利用料金は別です。
 
-[READMEに戻る](../../README.ja.md#はじめての方はこちら) · [困ったとき](#困ったとき) · [英語の導入手順](../install.md)
+[READMEに戻る](../../README.ja.md) · [困ったとき](#困ったとき) · [英語の導入手順](../install.md)
 
 ## どこから始める？
 
@@ -218,7 +218,7 @@ npm run --silent v2 -- export --project ./projects/my-first-v2-video
 
 ## 詳しい案内
 
-- [日本語README：目的別の入口](../../README.ja.md#目的別の案内)
+- [日本語README：もっと詳しく](../../README.ja.md#もっと詳しく)
 - [v2の英語READMEとコマンド](../../README.md)
 - [公開alpha.5時点の導入手順](https://github.com/Takamasa045/tsugite/blob/v2.0.0-alpha.5/v2/docs/install.md)
 - [追加プラグインの対応範囲と導入](../plugins.md)

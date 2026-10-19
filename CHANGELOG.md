@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reorganize the Japanese and English READMEs for non-engineer onboarding and move the previous technical sections to `docs/reference.ja.md` and `docs/reference.md`.
 - Preserve and integrate the `kobo-launch-16x9` Remotion preset with configurable copy and timeline-offset previews; registered preset rendering is checked with the current shared root.
 
 ## 2.0.0-alpha.5 - 2026-10-19 (independent v2 distribution)

@@ -4,7 +4,7 @@
 
 Tsugite는 로컬 영상 공방입니다. 각 AI 영상을 일회성 결과로 두지 않고, 소재·제작 로그·판단·취향을 다음 제작으로 이어갑니다.
 
-전체 진입점, 안전 경계, 명령은 [English README](README.md)와 [日本語 README](README.ja.md)가 정본입니다. 이 페이지는 현재 제품 위치의 요약만 둡니다. 저장소 소프트웨어 버전은 **0.17.0**입니다.
+전체 진입점은 [日本語 README](README.ja.md)와 [English README](README.md)가 정본입니다. 이전 README의 기술 설명은 [docs/reference.ja.md](docs/reference.ja.md)와 [docs/reference.md](docs/reference.md)에 있습니다. 이 페이지는 현재 제품 위치의 요약만 둡니다. 저장소 소프트웨어 버전은 **0.17.0**입니다.
 
 ## 가장 쉬운 시작
 
