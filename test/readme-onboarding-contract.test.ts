@@ -94,11 +94,15 @@ describe("README onboarding contract", () => {
         expect(images, `${readme.path} Phase 1 has no screenshot files, so README must not embed images`).toEqual([]);
         continue;
       }
-      const prefixImages = markdownImages(stripFencedCode(contentThroughNthH2(text, 3)));
+      const prefix = stripFencedCode(contentThroughNthH2(text, 3));
+      const prefixImages = markdownImages(prefix);
       expect(prefixImages.length, `${readme.path} Phase 2 needs one screenshot in the first three ## sections`).toBeGreaterThanOrEqual(1);
-      for (const image of prefixImages) {
+      const alts = markdownImageAlts(prefix);
+      expect(alts.length, `${readme.path} screenshot alt count`).toBe(prefixImages.length);
+      for (const [index, image] of prefixImages.entries()) {
         const resolved = resolveMarkdownTarget(readme.path, image);
         expect(resolved && existsSync(resolved), `${readme.path} -> ${image}`).toBe(true);
+        expect(alts[index]?.trim().length, `${readme.path} screenshot needs alt text`).toBeGreaterThan(0);
       }
     }
   });
@@ -179,6 +183,15 @@ function markdownImages(text: string): string[] {
     targets.push(match[1]);
   }
   return targets;
+}
+
+function markdownImageAlts(text: string): string[] {
+  const alts: string[] = [];
+  const pattern = /!\[((?:[^\]]|\\])*)\]\(\s*<?[^>\s)]+(?:\s+(?:"[^"]*"|'[^']*'))?>?\s*\)/g;
+  for (const match of text.matchAll(pattern)) {
+    alts.push(match[1] ?? "");
+  }
+  return alts;
 }
 
 function shouldSkipLink(target: string): boolean {

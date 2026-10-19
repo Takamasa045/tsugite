@@ -39,6 +39,8 @@ The canonical copy-ready Japanese request is [Codex・Claude Codeなどで使う
 
 ## What you'll see
 
+![Local launcher after setup, with the sample production はじめての継手 in the list](docs/guide/assets/launcher-my-first-tsugite.webp)
+
 Official setup copies the zero-credit sample production 「はじめての継手」 into `projects/my-first-tsugite/`, then runs environment check (`doctor`), validation (`validate`), and planning (`plan`). At that point there is no billing, login, or generation. The launcher stays closed until you answer yes to the final question.
 
 “Open the launcher?” → yes runs the existing `setup:open` and shows 「はじめての継手」 in the production list. Opening it does not generate, export, or change a waiting check.

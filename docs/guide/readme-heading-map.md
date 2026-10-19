@@ -2,6 +2,8 @@
 
 Previous README headings now live in the new READMEs, `docs/reference.ja.md`, `docs/reference.md`, or an existing doc. Bodies were moved without rewriting; only relative links were adjusted for the new path.
 
+Phase 2 adds one real launcher screenshot (`docs/guide/assets/launcher-my-first-tsugite.webp`) inside the first three `##` headings of `README.ja.md` and `README.md`. Phase 4 rewrites `README.zh.md` / `README.ko.md` as ja/en-aligned summaries with canonical links; technical catalogs stay in the reference pages. `apps/download-site` is unchanged.
+
 ## README.ja.md (as of 2026-10-19, `06c156f`)
 
 | Previous heading | Destination |
