@@ -46,6 +46,19 @@ test('HyperFrames contract uses timed local media and escapes caption text',()=>
   assert.match(html,/data-composition-id="tsugite"/);assert.match(html,/data-duration="3"/);assert.match(html,/gsap.timeline\(\{paused:true\}\)/);assert.doesNotMatch(html,/<script>alert/);assert.doesNotMatch(html,/https?:/);
   assert.match(html,/&lt;script&gt;alert/);assert.doesNotMatch(document({...timeline,captionMode:'soft'},[]),/id="caption-0"|&lt;script&gt;alert/);
 });
+test('Remotion synthetic mock plans without peers or a browser',async t=>{
+  const {root}=await fixture(t);await addPlugin(root,fileURLToPath(new URL('../plugins/remotion/',import.meta.url)));
+  const previous=process.env.TSUGITE_BROWSER;delete process.env.TSUGITE_BROWSER;
+  t.after(()=>{if(previous===undefined)delete process.env.TSUGITE_BROWSER;else process.env.TSUGITE_BROWSER=previous;});
+  await settings(root,{length:'1s',export:'remotion',execution:'mock'});await plan(root);
+  const ui=await page(t,root);assert.match(ui.html,/MOCK: synthetic/);await ui.submit('approve',{stage:'plan'});await make(root);const result=await exportVideo(root);assert.ok(Math.abs(result.seconds-1)<0.15);
+});
+test('Remotion live planning fails closed without peers or an absolute browser',async t=>{
+  const {root}=await fixture(t);await addPlugin(root,fileURLToPath(new URL('../plugins/remotion/',import.meta.url)));
+  const previous=process.env.TSUGITE_BROWSER;delete process.env.TSUGITE_BROWSER;
+  t.after(()=>{if(previous===undefined)delete process.env.TSUGITE_BROWSER;else process.env.TSUGITE_BROWSER=previous;});
+  await settings(root,{export:'remotion'});await assert.rejects(plan(root),/peer packages|TSUGITE_BROWSER/);
+});
 test('HyperFrames synthetic mock renders without enabling the unverified runtime',async t=>{
   const {root}=await fixture(t);await addPlugin(root,fileURLToPath(new URL('../plugins/hyperframes/',import.meta.url)));await settings(root,{length:'1s',export:'hyperframes',execution:'mock'});await plan(root);
   const ui=await page(t,root);assert.match(ui.html,/MOCK: synthetic/);await ui.submit('approve',{stage:'plan'});await make(root);const result=await exportVideo(root);assert.ok(Math.abs(result.seconds-1)<0.15);

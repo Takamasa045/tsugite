@@ -41,6 +41,7 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs export --project ./my-
 ## 詳しい文書
 
 - [対応範囲](docs/requirements.md)
-- [v1からv2への移行判断（推奨案）](docs/migration-plan.ja.md)
+- [v1からv2への移行判断](docs/migration-plan.ja.md)
+- [第三者試用キット](docs/onboarding/trial-kit.ja.md)
 - [プラグインとライセンス](docs/plugins.md)
 - [alpha.5の配布範囲](docs/release-alpha5.md)
