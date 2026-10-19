@@ -155,7 +155,7 @@ See [architecture](docs/architecture.md) for recovery and trust limits,
 [plugin SDK and license guidance](docs/plugins.md), the exhaustive
 [requirement tracker](docs/requirements.md) for remaining work, and the
 owner-facing [v1→v2 migration decision record](docs/migration-plan.ja.md)
-(recommended options; not decided).
+(2026-10-19: recommended split adopted; paid acceptance last).
 
 ```sh
 cd /path/to/tsugite/v2

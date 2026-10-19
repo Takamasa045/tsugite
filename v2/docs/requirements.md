@@ -121,7 +121,11 @@ remain explicitly v1 compatibility sources; their inventory is not a promise
 of new v2-native execution. See [local readiness](local-readiness.md) for each
 external requirement and the precise supported boundary.
 The owner-facing [v1→v2 migration decision record](migration-plan.ja.md)
-lists a recommended five-step order; those options are not decided.
+records the 2026-10-19 decision: the recommended feature split is adopted,
+paid acceptance is last (lowest-credit service first; Kling may need prepaid
+credits), and execution order is 1 → 3 → 4 → 5 → 2. Remaining owner choices
+are the three testers and which issues to publish, the v2 default cutover,
+and v1 wind-down.
 
 The registry acquisition command has synthetic hostile-output tests and real
 local npm-archive installation evidence; independent community package review
