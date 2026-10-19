@@ -1,6 +1,6 @@
 # Pipeline validate
 
-A user can check that a `project.yaml` plus its local `manifest.json` and media files are consistent before planning. `validate` is catalogued as `read-only` for the project/manifest, but the CLI still registers the project on the durable launcher shelf (directory link when the project is outside that home). For a valid local-media job the user sees `"ok": true`, an empty or non-blocking `issues` list, and `launcher_visible` / `launcher_project_root` so the launcher can list the draft.
+A user can check that a `project.yaml` plus its local `manifest.json` and media files are consistent before planning. `validate` is catalogued as `local-write` because a successful run also registers the project on the durable launcher shelf (directory link when the project is outside that home). It does not change Gate state. For a valid local-media job the user sees `"ok": true`, an empty or non-blocking `issues` list, and `launcher_visible` / `launcher_project_root` so the launcher can list the draft.
 
 ## Sub-features
 
@@ -38,7 +38,7 @@ Observable result: exit 0, stdout JSON `"ok": true`, `"command": "validate"`, `i
 
 ## Gotchas
 
-- **Shelf side effect:** without `TSUGITE_PROJECTS_HOME`, a successful validate of a fixture outside `projects/` creates `projects/<slug>` as a directory symlink. That is why isolation is mandatory even though the command’s catalog safety is `read-only`.
+- **Shelf side effect:** without `TSUGITE_PROJECTS_HOME`, a successful validate of a fixture outside `projects/` creates `projects/<slug>` as a directory symlink. Isolation is mandatory because catalog safety is `local-write`.
 - Asset `src` must stay inside the project asset root (`src/manifest/assets.ts`). Do not point the isolated manifest at `../../../../fixtures/media/…`.
 - `fixtures/projects/local-valid.yaml` is a **generation** fixture (`adapter: pixverse`). Do not use it as the default user-facing local-media proof.
 - `launcher_visible` false with `ok` false means shelf registration failed (lock/boundary). Stop; do not retry against durable `projects/`.

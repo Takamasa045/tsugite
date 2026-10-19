@@ -33,7 +33,8 @@ describe("pipeline CLI", () => {
     expect(parsed.commands).toContainEqual(expect.objectContaining({
       name: "validate",
       requires_config: true,
-      safety: "read-only"
+      safety: "local-write",
+      summary: expect.stringContaining("launcher shelf")
     }));
     expect(parsed.commands).toContainEqual(expect.objectContaining({
       name: "run",
@@ -63,6 +64,7 @@ describe("pipeline CLI", () => {
         name: "validate",
       usage: "node bin/pipeline validate --config <project.yaml> [--json]",
         requires_config: true,
+        safety: "local-write",
         options: expect.arrayContaining([
           expect.objectContaining({ name: "--config", value: "<project.yaml>" })
         ])
