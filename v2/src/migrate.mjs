@@ -18,11 +18,12 @@ export async function migrate(source, destination,{flatten,archive=false}={}) {
     await fs.copyFile(input,await inside(destination,'assets/original-final.mp4'));
     if(await fileHash(destination,'assets/original-final.mp4')!==digest||await fileHash(source,flatten)!==digest)fail('Source changed during flattened migration');
     const format=metadata.width===metadata.height?'1:1':metadata.width>metadata.height?'16:9':'9:16';
+    const warnings=copyWarnings(config,'local',true);
     await write(destination,'tsugite.yaml',stringify({version:2,name:config.name||config.slug||'Migrated final',format,length:metadata.seconds,use:[{path:'assets/original-final.mp4',seconds:metadata.seconds,audio:metadata.hasAudio}],captions,export:'local',budget:{}}));
-    await write(destination,'.tsugite/migration.json',{version:2,mode:'explicit-final-snapshot',source:flatten,hash:digest,originalPreserved:true,approvalsImported:false,warnings:copyWarnings(config,'local',true)});
+    await write(destination,'.tsugite/migration.json',{version:2,mode:'explicit-final-snapshot',source:flatten,hash:digest,originalPreserved:true,approvalsImported:false,warnings});
     const preserved=archive?await archiveLegacy(source,destination,config.manifest||'manifest.json'):null;
     if(preserved)await write(destination,'.tsugite/legacy-archive.json',preserved);
-    return {project:destination,copied:1,flattened:true,sourceUntouched:true,approvalsImported:false,legacyArchive:preserved};
+    return {project:destination,copied:1,flattened:true,sourceUntouched:true,approvalsImported:false,legacyArchive:preserved,warnings};
   }
   const manifest = JSON.parse(await read(source, config.manifest || 'manifest.json'));
   if (!Array.isArray(manifest.clips) || !manifest.clips.length) fail('Migration needs local clips');
@@ -63,12 +64,13 @@ export async function migrate(source, destination,{flatten,archive=false}={}) {
   await fs.mkdir(destination, { recursive: false });
   await fs.mkdir(await inside(destination, 'assets'));
   for (let i=0; i<media.length; i++) {const file=media[i];file.destination??=`assets/clip-${i}.mp4`;await fs.copyFile(file.src, await inside(destination,file.destination));if(await fileHash(destination,file.destination)!==file.hash||await fileHash(source,file.original)!==file.hash)fail('Source changed during migration copy');}
+  const warnings=copyWarnings(config,extension?.plugin??'local',false);
   await write(destination, 'tsugite.yaml', stringify({ version:2, name:config.name || config.slug || path.basename(source), format:manifest.meta.aspect, length:total,fps:manifest.meta.fps??24,use,audio,captions, export:extension?.plugin??'local',...(extension?{renderer_options:extension.options}:{}),budget:{} }));
   if(extension)await addPlugin(destination,await bundledPlugin(extension.plugin));
-  await write(destination, '.tsugite/migration.json', { version:2, copied:media.map(({original,hash,destination}) => ({source:original,destination,hash})), warnings:copyWarnings(config,extension?.plugin??'local',false) });
+  await write(destination, '.tsugite/migration.json', { version:2, copied:media.map(({original,hash,destination}) => ({source:original,destination,hash})), warnings });
   const preserved=archive?await archiveLegacy(source,destination,config.manifest||'manifest.json'):null;
   if(preserved)await write(destination,'.tsugite/legacy-archive.json',preserved);
-  return { project:destination, copied:media.length, approvalsImported:false, sourceUntouched:true,legacyArchive:preserved };
+  return { project:destination, copied:media.length, approvalsImported:false, sourceUntouched:true,legacyArchive:preserved,warnings };
 }
 
 function copyWarnings(config,exportPlugin,flattened){

@@ -143,9 +143,11 @@ chosen client directory and refuse to overwrite existing Skills.
 
 Normal `init new-video --from-v1 /existing/v1` copies supported editable fields.
 v1 `edit.backend` (including Remotion) and `generation` / paid audio adapters
-are not imported as v2 plugins or `make` tasks. Fast Edit decisions still
-migrate through the declared renderer hook. A Remotion-backed v1 project
-therefore becomes a local-export copy of its clips unless `--flatten` is used.
+are not imported as v2 plugins or `make` tasks. The same warnings are written to
+`.tsugite/migration.json` and returned in the `init --from-v1` JSON result.
+Fast Edit decisions still migrate through the declared renderer hook. A
+Remotion-backed v1 project therefore becomes a local-export copy of its clips
+unless `--flatten` is used.
 For an unsupported native/animated/character graph, explicitly select an existing
 render instead: `init new-video --from-v1 /existing/v1 --flatten out/final.mp4`.
 The chosen regular project-local MP4 is copied and verified, including source

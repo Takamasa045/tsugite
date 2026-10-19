@@ -168,7 +168,7 @@ test('copy-only v1 migration never imports approvals or changes original media',
   await fs.copyFile(path.join(root,'assets/intro.mp4'),path.join(source,'media','intro.mp4'));
   await write(source,'project.yaml','name: Legacy\nmanifest: manifest.json\n');await write(source,'manifest.json',{meta:{aspect:'9:16'},clips:[{id:'one',src:'media/intro.mp4',duration:3,audio:false}]});
   const before=await fileHash(source,'media/intro.mp4');const destination=path.join(home,'migrated');const result=await migrate(source,destination);
-  assert.equal(result.approvalsImported,false);assert.equal(await fileHash(source,'media/intro.mp4'),before);await plan(destination);await assert.rejects(make(destination),/Waiting for plan/);
+  assert.equal(result.approvalsImported,false);assert.ok(result.warnings.some(w=>/approvals, credentials/.test(w)));assert.equal(await fileHash(source,'media/intro.mp4'),before);await plan(destination);await assert.rejects(make(destination),/Waiting for plan/);
   const manifest=JSON.parse(await read(source,'manifest.json'));manifest.clips[0].in=1;await write(source,'manifest.json',manifest);await assert.rejects(migrate(source,path.join(home,'bad-migrate')),/trim exceeds/);
 });
 test('v1 Remotion backend and generation settings are not imported as plugins',async t=>{
@@ -176,9 +176,9 @@ test('v1 Remotion backend and generation settings are not imported as plugins',a
   await fs.copyFile(path.join(root,'assets/intro.mp4'),path.join(source,'media','intro.mp4'));
   await write(source,'project.yaml','name: Legacy Remotion\nmanifest: manifest.json\nedit:\n  backend: remotion\ngeneration:\n  adapter: pixverse\n  connection: pixverse\naudio:\n  adapter: elevenlabs\n  connection: elevenlabs\n');
   await write(source,'manifest.json',{meta:{aspect:'9:16'},clips:[{id:'one',src:'media/intro.mp4',duration:3,audio:false}]});
-  const destination=path.join(home,'copied');await migrate(source,destination);
+  const destination=path.join(home,'copied');const result=await migrate(source,destination);
   const project=parse(await read(destination,'tsugite.yaml'));assert.equal(project.export,'local');assert.deepEqual(project.budget,{});assert.equal(project.make,undefined);
-  const record=await readJSON(destination,'.tsugite/migration.json');assert.match(record.warnings.join('\n'),/edit.backend is not imported/);assert.match(record.warnings.join('\n'),/generation adapters/);
+  const record=await readJSON(destination,'.tsugite/migration.json');assert.deepEqual(result.warnings,record.warnings);assert.match(result.warnings.join('\n'),/edit.backend is not imported/);assert.match(result.warnings.join('\n'),/generation adapters/);
   await assert.rejects(fs.access(path.join(destination,'.tsugite/plugins/remotion')),{code:'ENOENT'});
 });
 test('final preview and final approval reject modified delivery MP4',async t=>{

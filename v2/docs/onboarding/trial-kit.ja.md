@@ -39,25 +39,25 @@ ffmpeg -hide_banner -encoders
 作業フォルダは新しく、空のものを使います。リポジトリの `projects/` には書きません。
 
 1. [alpha.5 の Assets](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) から `tsugite-2.0.0-alpha.5.tgz` と `SHA256SUMS` を保存する。
-2. 照合する。
+2. 照合する。`SHA256SUMS` に tarball 以外の行がある場合、未取得ファイルで失敗します。取得した tarball の行だけを照合します（いまの alpha.5 は tarball 1行です）。
 
 macOS:
 
 ```sh
-shasum -a 256 -c SHA256SUMS
+grep 'tsugite-2.0.0-alpha.5.tgz$' SHA256SUMS | shasum -a 256 -c
 ```
 
 Linux:
 
 ```sh
-sha256sum -c SHA256SUMS
+grep 'tsugite-2.0.0-alpha.5.tgz$' SHA256SUMS | sha256sum -c
 ```
 
 Windows PowerShell:
 
 ```powershell
 Get-FileHash .\tsugite-2.0.0-alpha.5.tgz -Algorithm SHA256
-Get-Content .\SHA256SUMS
+Select-String -Path .\SHA256SUMS -Pattern 'tsugite-2.0.0-alpha.5.tgz$'
 ```
 
 3. 導入してサンプルを作る。
