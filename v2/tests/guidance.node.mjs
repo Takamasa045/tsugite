@@ -104,6 +104,8 @@ test('real exported preview QA remains pending without frame observations and ne
   // A failed observation attempt must not move the current-review pointer.
   await write(root, 'assets/guide-review.json', observations); const reviewed = await reviewGuidance(root, 'assets/guide-review.json');
   assert.equal(reviewed.readyForHumanFinalReview, true); assert.equal(reviewed.visual.status, 'reported-reviewed'); assert.equal(reviewed.finalApproval, 'not-granted');
+  assert.deepEqual(reviewed.visual.observations.map(o => o.path), reviewed.output.frames.map(f => f.path));
+  assert.deepEqual(reviewed.output.frames, first.output.frames);
   assert.notEqual((await status(project)).checks.final, 'approved');
   assert.deepEqual((await readJSON(project, '.tsugite/state.json')).ledger.entries, []);
   await fs.appendFile(path.join(project, 'out/final.mp4'), 'tampered'); await assert.rejects(reviewGuidance(root), /page-approved opening preview/);
@@ -191,4 +193,16 @@ test('looped ranges inspect real frames after wrapping to the beginning of the s
   }
   assert.ok(colors[0][0] > 200 && colors[0][2] < 20, 'first frame is in the red source tail');
   assert.ok(colors.slice(1).every(c => c[2] > 200 && c[0] < 20), 'later frames show the blue material after the loop');
+});
+
+test('looped clip and track audio evidence includes the wrap and exact-end offsets', async t => {
+  const { root } = await fixture(t);
+  await command('ffmpeg', ['-nostdin','-v','error','-f','lavfi','-i','color=blue:s=64x64:r=10:d=10','-f','lavfi','-i','sine=frequency=440:duration=10','-af',"volume=0:enable='gte(t,9)'",'-c:v','libx264','-c:a','pcm_s16le','-threads','2',path.join(root,'assets/loop-audio.mkv')]);
+  await settings(root, { length: 2, use: [{ path: 'assets/loop-audio.mkv', start: 9.9, seconds: 2, loop: true, audio: true }], audio: [{ path: 'assets/loop-audio.mkv', offset: 10, seconds: 2, loop: true, kind: 'narration' }] });
+  const report = await inspectGuidance(root); assert.equal(report.audio.length, 2);
+  for (const audio of report.audio) {
+    const { stdout } = await command('ffprobe', ['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',path.join(root,audio.path)]);
+    assert.ok(Math.abs(Number(stdout) - 2) < 0.04, 'sample includes the full selected two-second playback');
+    assert.equal(audio.silent, false, 'wrapped sample contains tone from the source beginning');
+  }
 });

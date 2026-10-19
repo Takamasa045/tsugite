@@ -47,17 +47,18 @@ async function capture(root, relative, directory, label, start = 0, seconds, loo
   if (await fileHash(root, relative) !== before) fail('Media changed during guide inspection');
   return { path: relative, sha256: before, start, inspectedSeconds: duration, loop, metadata, frames };
 }
-async function audioEvidence(root, relative, directory, label, start = 0, seconds = 3) {
+async function audioEvidence(root, relative, directory, label, start = 0, seconds = 3, loop = false) {
   const source = await inside(root, relative), metadata = await probe(source, 'audio');
-  const file = `${directory}/${label}.wav`, duration = Math.min(seconds, metadata.seconds - start);
+  const file = `${directory}/${label}.wav`, sourceStart = loop ? start % metadata.seconds : start;
+  const duration = loop ? seconds : Math.min(seconds, metadata.seconds - sourceStart);
   if (!(duration > 0) || duration > 10) fail('Invalid bounded audio inspection range');
-  await command('ffmpeg', ['-nostdin', '-v', 'error', '-n', ...ffInput, '-ss', String(start), '-i', source, '-map', '0:a:0', '-t', String(duration), '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', await inside(root, file)]);
+  await command('ffmpeg', ['-nostdin', '-v', 'error', '-n', ...ffInput, ...(loop ? ['-stream_loop', '-1'] : []), '-ss', String(sourceStart), '-i', source, '-map', '0:a:0', '-t', String(duration), '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', await inside(root, file)]);
   const { stderr, stdout } = await command('ffmpeg', ['-nostdin', '-hide_banner', ...ffInput, '-i', await inside(root, file), '-af', 'volumedetect', '-f', 's16le', '-'], { encoding: 'buffer' });
   const peak = stderr.toString('utf8').match(/max_volume:\s*(-?inf|[-\d.]+) dB/)?.[1];
   if (!peak) fail('Audio measurement failed');
   // volumedetect reports a finite ~-91 dB floor for all-zero s16 samples.
   // Inspect decoded PCM instead of treating that number as audible sound.
-  return { path: file, sha256: await fileHash(root, file), source: relative, start, seconds: duration, maxDb: peak === '-inf' ? null : Number(peak), silent: stdout.length > 0 && stdout.every(byte => byte === 0), listening: 'not-listened' };
+  return { path: file, sha256: await fileHash(root, file), source: relative, start: sourceStart, loop, seconds: duration, maxDb: peak === '-inf' ? null : Number(peak), silent: stdout.length > 0 && stdout.every(byte => byte === 0), listening: 'not-listened' };
 }
 async function sourceUnchanged(root, inspection) {
   for (const source of inspection.sources) {
@@ -97,10 +98,9 @@ export async function inspectGuidance(root) {
     const sources = [], audio = [];
     for (const [i, clip] of clips.entries()) {
       sources.push(await capture(root, clip.path, directory, 'clip-' + i, clip.start, clip.seconds, clip.loop));
-      const audioStart = clip.loop ? clip.start % sources[i].metadata.seconds : clip.start;
-      if (clip.audio) audio.push({ ...await audioEvidence(root, clip.path, directory, 'clip-audio-' + i, audioStart), sourceSha256: clip.hash });
+      if (clip.audio) audio.push({ ...await audioEvidence(root, clip.path, directory, 'clip-audio-' + i, clip.start, Math.min(3, clip.seconds), clip.loop), sourceSha256: clip.hash });
     }
-    for (const [i, track] of tracks.entries()) audio.push({ ...await audioEvidence(root, track.path, directory, 'track-' + i, track.offset), sourceSha256: track.hash });
+    for (const [i, track] of tracks.entries()) audio.push({ ...await audioEvidence(root, track.path, directory, 'track-' + i, track.offset, Math.min(3, track.seconds), track.loop), sourceSha256: track.hash });
     if (await fileHash(root, 'tsugite.yaml') !== configHash) fail('Project changed during inspection');
     const report = { version: 1, kind: 'material-inspection', id, configHash, sources, audio, semanticReview: 'pending', listening: 'pending', credits: 0 };
     const reportPath = directory + '/report.json';
@@ -233,6 +233,7 @@ export async function reviewGuidance(root, request) {
     const intendedSound = p.timeline.clips.some(c => c.audio && c.volume > 0) || p.timeline.audio.some(a => a.volume > 0);
     const target = p.format === '9:16' ? [360,640] : p.format === '1:1' ? [640,640] : [640,360];
     const technical = { decoded: true, duration: Math.abs(measured.metadata.seconds - p.seconds) <= 0.15, dimensions: measured.metadata.width === target[0] && measured.metadata.height === target[1], noUnexpectedSubtitleTrack: selected.overrides.captions !== 'none' || !measured.metadata.hasCaptions, expectedSubtitleTrack: !p.timeline.captions.length || p.timeline.captionMode === 'burn' || measured.metadata.hasCaptions, intendedSoundPresent: !intendedSound || !!audio && !audio.silent };
+    let reviewedOutput = measured, reviewedAudio = audio;
     let frameNotes = null, heard = { status: 'not-listened', observation: 'Listening has not been reported.' };
     if (request) {
       if (!request.startsWith('assets/')) fail('Quality observations must be in assets/');
@@ -244,10 +245,13 @@ export async function reviewGuidance(root, request) {
       for (const frame of evidence.output.frames) if (await fileHash(root, frame.path) !== frame.sha256) fail('Quality evidence changed');
       if (evidence.audio && await fileHash(root, evidence.audio.path) !== evidence.audio.sha256) fail('Quality audio evidence changed');
       frameNotes = observations(value.frames, evidence.output.frames, 'output review'); heard = listening(value.audio);
+      // Keep the exact verified files the observations refer to. Fresh decode
+      // and technical measurements above still verify this same output hash.
+      reviewedOutput = evidence.output; reviewedAudio = evidence.audio;
     }
     if (measured.sha256 !== rendered.hash || await fileHash(root, output) !== rendered.hash) fail('Output changed during quality review');
     const ready = Object.values(technical).every(Boolean) && !!frameNotes && (!intendedSound || heard.status === 'listened');
-    const report = { version: 1, kind: 'opening-quality-review', selection: selected.id, preview: preview.project, output: measured, audio, technical, visual: { status: frameNotes ? 'reported-reviewed' : 'pending', observations: frameNotes, coverage: 'sampled frames only; not a full watch' }, listening: heard, readyForHumanFinalReview: ready, finalApproval: 'not-granted', credits: 0 };
+    const report = { version: 1, kind: 'opening-quality-review', selection: selected.id, preview: preview.project, output: reviewedOutput, audio: reviewedAudio, technical, visual: { status: frameNotes ? 'reported-reviewed' : 'pending', observations: frameNotes, coverage: 'sampled frames only; not a full watch' }, listening: heard, readyForHumanFinalReview: ready, finalApproval: 'not-granted', credits: 0 };
     const reportPath = reportDirectory + '/report.json'; await write(root, reportPath, report); await write(root, home + '/current-review.json', { report: reportPath });
     return { report: reportPath, ...report, next: ready ? 'Human should watch the actual preview and decide in its confirmation page. Full export still needs its own current plan.' : 'Inspect the actual output frames and sound, then record observations; unfinished checks remain pending.' };
   });
