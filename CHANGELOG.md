@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Ask one “open the launcher?” question at the end of the first-time setup report, and run existing `setup:open` only after yes.
 - Reorganize the Japanese and English READMEs for non-engineer onboarding and move the previous technical sections to `docs/reference.ja.md` and `docs/reference.md`.
 - Preserve and integrate the `kobo-launch-16x9` Remotion preset with configurable copy and timeline-offset previews; registered preset rendering is checked with the current shared root.
 

@@ -31,15 +31,17 @@ inside this empty folder.
 Start with read-only environment checks and wait for my approval before any system installation.
 After cloning, use the official setup:check and setup commands through doctor, validate, and plan for the zero-credit sample.
 Do not overwrite existing files, log in, configure secrets, spend credits, run generation, render, approve Gates, commit, or push.
+At the end of your report, ask exactly one question: "Open the launcher?"
+Run setup:open only if I answer yes. If I say no or do not answer, do not open the launcher.
 ```
 
 The canonical copy-ready Japanese request is [Codex・Claude Codeなどで使う Tsugiteセットアップ依頼文](docs/onboarding/codex-setup-prompt.ja.md).
 
 ## What you'll see
 
-Official setup copies the zero-credit sample production 「はじめての継手」 into `projects/my-first-tsugite/`, then runs environment check (`doctor`), validation (`validate`), and planning (`plan`). At that point there is no billing, login, or generation. The launcher stays closed unless you ask to open it.
+Official setup copies the zero-credit sample production 「はじめての継手」 into `projects/my-first-tsugite/`, then runs environment check (`doctor`), validation (`validate`), and planning (`plan`). At that point there is no billing, login, or generation. The launcher stays closed until you answer yes to the final question.
 
-Ask to “open the launcher” and the production list shows 「はじめての継手」. Opening it does not generate, export, or change a waiting check.
+“Open the launcher?” → yes runs the existing `setup:open` and shows 「はじめての継手」 in the production list. Opening it does not generate, export, or change a waiting check.
 
 ## Ways to ask
 
