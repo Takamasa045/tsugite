@@ -21,6 +21,29 @@ describe("bootstrap repository contract", () => {
     expect(documentedPrompt).toBe(prompt.trim());
   });
 
+  it("keeps the README.ja paste-in request identical to the copy-ready prompt", async () => {
+    const readme = await readFile("README.ja.md", "utf8");
+    const prompt = await readFile("prompts/setup-tsugite-ja.txt", "utf8");
+    const readmePrompt = /```text\n([\s\S]*?)\n```/.exec(readme)?.[1];
+
+    expect(readmePrompt).toBe(prompt.trim());
+  });
+
+  it("asks one launcher question and opens only with setup:open after yes", async () => {
+    const prompt = await readFile("prompts/setup-tsugite-ja.txt", "utf8");
+    const englishReadme = await readFile("README.md", "utf8");
+    const englishPrompt = /```text\n([\s\S]*?)\n```/.exec(englishReadme)?.[1] ?? "";
+
+    expect(prompt).toContain("ランチャーを開きますか？");
+    expect(prompt).toContain("setup:open");
+    expect(prompt).toContain("「はい」と答えられたときだけ");
+    expect(prompt).toContain("ランチャーを開かないでください");
+    expect(englishPrompt).toContain("Open the launcher?");
+    expect(englishPrompt).toContain("setup:open");
+    expect(englishPrompt).toMatch(/only if I answer yes/i);
+    expect(englishPrompt).toMatch(/do not open the launcher/i);
+  });
+
   it("documents every approval boundary enforced by bootstrap", async () => {
     const contract = await readFile("docs/onboarding/setup-contract.ja.md", "utf8");
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Name the opt-in Gate 2 auto-pass exception in the human-stop README and glossary copy, and retarget the v2 first-video “もっと詳しく” link to the root README heading.
+- Add a real local-launcher screenshot of the sample production 「はじめての継手」 to the first three README headings, and rewrite the Chinese and Korean READMEs as ja/en-aligned summaries. Coverage (`branches ≥ **74.4%**`) and `npm run security:audit` contract strings stay; download-site is unchanged.
+- Ask one “open the launcher?” question at the end of the first-time setup report, and run existing `setup:open` only after yes.
+- Reorganize the Japanese and English READMEs for non-engineer onboarding and move the previous technical sections to `docs/reference.ja.md` and `docs/reference.md`.
 - Preserve and integrate the `kobo-launch-16x9` Remotion preset with configurable copy and timeline-offset previews; registered preset rendering is checked with the current shared root.
 
 ## 2.0.0-alpha.5 - 2026-10-19 (independent v2 distribution)

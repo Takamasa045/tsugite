@@ -2,92 +2,83 @@
 
 [English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-Tsugite 是本地影像工房：它把素材、制作日志、判断和偏好接到下一次制作，而不是把每次 AI 视频当成一次性结果。
+把计划、素材、完成视频的确认交给人，并把这一次改过的点接到下一支片子。Tsugite 是在自己电脑上跑的影像工房。
 
-完整入口、安全边界和命令以 [English README](README.md) 与 [日本語 README](README.ja.md) 为正本。本页只保留当前产品位置的摘要。仓库软件版本是 **0.17.0**。
+完整入口以 [日本語 README](README.ja.md) 与 [English README](README.md) 为正本。以前 README 中的技术说明见 [docs/reference.ja.md](docs/reference.ja.md) 与 [docs/reference.md](docs/reference.md)。仓库软件版本是 **0.17.0**。
 
-## 最简单的开始方式
+## 适合谁
+
+在这些时候用：
+
+- 不想每次都把同一份说明从头再说一遍。
+- 生成服务的计费，想先看过内容再决定。
+- 不想让上次改过的点（片头长度、字幕多少）在下一支片子里消失。
+
+面向用 Codex 或 Claude Code、用自己的语言拜托做视频的人。不必先学会 Git 或终端。
+
+## 开始方式
+
+不必自己输入命令。
 
 1. 在 Codex 打开空文件夹，或在该文件夹启动 Claude Code。
-2. 把[官方 setup 请求](docs/onboarding/codex-setup-prompt.ja.md)贴给代理。
-3. 先做只读环境检查，系统安装前等待你的批准。
-4. 只批准实际需要的系统变更。
+2. 把[官方 setup 请求](docs/onboarding/codex-setup-prompt.ja.md)贴给代理。正本是日文。
+3. 阅读报告，只在真正需要变更时说「OK」。
 
-你不必自己输入 `git clone` 或 npm 命令。官方 Bootstrap 只做仓库内依赖、零额度示例、`doctor`、`validate`、`plan`。它不会安装系统软件、改 PATH、登录外部服务、配置密钥、消耗额度、执行 `run` / `render`、改 Gate、commit、push 或发布。
+官方 Bootstrap 只做仓库内依赖、零额度示例、`doctor`、`validate`、`plan`。它不会安装系统软件、登录外部服务、配置密钥、消耗额度、执行 `run` / `render`、改 Gate、commit 或 push。
 
-已克隆仓库时：
+报告最后会问一句「要打开 launcher 吗？」。只有回答「是」才运行已有的 `setup:open`。没回答或说「否」时不要打开。
 
-```sh
-npm run setup:check
-npm run setup
-npm run setup:open  # 同时打开本地 launcher 时
-```
+## 完成后会看到什么
 
-## 安全流程
+![本地 launcher。列表里是示例制作「はじめての継手」](docs/guide/assets/launcher-my-first-tsugite.webp)
 
-每个视频任务有自己的 `project.yaml`。复制用示例在 `examples/`，用户工作在 git 忽略的 `projects/`。
+官方 setup 会把零额度示例「はじめての継手」放到 `projects/my-first-tsugite/`，然后做环境确认（`doctor`）、内容验证（`validate`）、计划（`plan`）。此时没有计费、登录或生成。launcher 在最后一问得到「是」之前不会打开。
 
-1. 验证 project 和 manifest。
-2. 创建计划。
-3. 在 Gate 1 等待人工审批。
-4. 只有 Coordinator 审批后才生成或组装。
-5. 在 Gate 2 做输出 QA。
-6. 只有 Gate 2 审批后才 render。
-7. 在 Gate 3 做最终视频 QA。
+打开 launcher 本身不会生成、导出，也不会改动确认等待中的内容。
 
-没有明确的人工审批时，不要执行非 dry-run 的 `run` 或 `render`。Gate 3 支持 `re-render`，并保留 Gate 1 / 2 审批。Gate 2 的 `retry_specific` **未实现，也不纳入 1.0**；完整重规划请用 `revise`。MiniMax direct / MiniMax HTTP 保持 preflight-only，不得显示为可发送。
+## 可以这样拜托
 
-## 当前范围
+短例。完整目录见日文 [頼み方カタログ](docs/guide/requests.ja.md) 与英文 [Ways to ask](docs/guide/requests.md)。
 
-**流水线内编辑（`edit.backend`）**
+- 只要 30 秒竖屏广告的**结构**（先不生成）。
+- 手头的讲座视频不外传，只要章节和摘要。
+- 同一角色做介绍片。先用平常的话确认外观和声音。
+- 上次改过的「片头 0.5 秒就出 BGM」下一支也要守住。
+- 用 Premiere Pro 打开，只改一刀（macOS）。
 
-- Remotion / HyperFrames。
-- 可选的 macOS [Editframe](docs/editframe.md) backend：`npm run editframe:install`。
-- [Jev Fast Edit v1](docs/fast-edit.md)：同一套 backend 中立意图，覆盖 Remotion / HyperFrames / Editframe（卡片、字幕、转场、缩放、SFX、16:9 与 9:16）。不是新的 renderer。
+## 没有你点头就不会继续
 
-**流水线外编辑（不是 `pipeline render` backend）**
+往前走之前，人可以停三次。你 OK 之前不会继续。生成和导出也一样。唯一例外是案件选择了 `gates.gate_2.auto_pass: qc_ok_no_new_assets`。计费、新素材、质量指摘都是 0 时，素材确认（Gate 2）可以不经人的 OK 通过。计费或出现新素材时一定会停。
 
-- [Premiere Pro](docs/premiere-pro.md)：macOS。`$premiere-editing` / `/premiere-editing`（剪辑、转场、音频、字幕、调色；本地 MCP）。
-- [After Effects](docs/after-effects.md)：macOS。`$after-effects-editing` / `/after-effects-editing`（官方 `DoScriptFile` helper：inspect / fixture / 标题 / 另存）。
-- [PixVerse Canvas](docs/pixverse-canvas.md)：固定官方 CLI 1.4.6，`npm run pixverse:install`。
-- [HyperFrames Studio WebMCP](docs/hyperframes-studio-webmcp.md)：固定 0.8.75。Studio 编辑不写 pipeline manifest。
+1. **计划确认（Gate 1）** — 可以按这个计划走吗？launcher 上会看到「Gate 1 確認画面を開く」。
+2. **素材确认（Gate 2）** — 这些素材可以吗？
+3. **完成确认（Gate 3）** — 这支完成视频可以吗？
 
-**生成与解析**
+官方 setup 不会自行安装系统软件、登录、设置 API 密钥、消耗额度、执行 `run` / `render`、替你做 Gate 判断、commit 或 push。边界见 [初回セットアップ契約](docs/onboarding/setup-contract.ja.md)。
 
-- PixVerse / Kling CLI、TopView skill CLI、可选 Hermes。
-- 带出处的 PixVerse / Kling / Seedance prompt catalog（存在 ≠ 可执行）。
-- 34 种故事框架与 35 条影像文法的 story guides。
-- API-free 的 `analyze`、可选本地 Whisper、多源 `compose`。
-- 与生成 `connections` 分离的公开 read-only Remote MCP **Agent Service Registry**。
+## 用得越久越像自己的工房
 
-**其他**
+第一支片子里「片头太长」这类修改，可以记成偏好与学习。同样的话反复出现会进入学习中，只有你批准的项目才可能成为模板或规则的候选。
 
-- Gate 约束的 EDL、Gate 2 / Gate 3 QC。
-- 需要 Coordinator 与 Gate 审批的 `run` / `render`。
-- 仅绑定 `127.0.0.1` 的浏览器 launcher 与只读 3D Viewer。
-- 可选 [Hypit](docs/hypit.md) 制作（不是 render backend，也不是 Gate 替代）。
+批准只是允许之后去做反映工作。它不会自动改写 prompt、模板或规则。状态是记录（observed）→ 学习中（recurring）→ 已反映（promoted）→ 已确认效果（verified）。
 
-Desktop 应用的一般分发已结束。日常入口是 GitHub 源码 + Codex / Claude Code + 本地浏览器 launcher。Electron 源码仅用于开发与回归测试。
+## 常看到的词
 
-```sh
-npm --prefix apps/workflow-viewer ci
-npm run viewer:open
-```
+完整列表见日文 [用語集](docs/guide/glossary.ja.md) 与英文 [glossary](docs/guide/glossary.md)。第一次出现用「平常的说法（正式名）」。
 
-## 安装
+| 画面或对话里看到的词 | 意思 |
+| --- | --- |
+| 制作案件（`project.yaml`） | 一支视频的文件夹和设定 |
+| 计划确认（Gate 1） / 素材确认（Gate 2） / 完成确认（Gate 3） | 人 OK 之前不会继续。launcher 上会看到「確認待ち」 |
+| 素材列表（manifest） | 用到的影像、声音、字幕一览 |
+| 生成（`run`） / 导出（`render`） | 生成可能向服务计费。导出在本地、不计费但可能较久。两者都只在批准之后 |
+| 偏好与学习（feedback） | 改过的点的记录。批准也不会自动反映 |
 
-需要 Git、Node.js 22.12 以上的 22.x LTS、npm 10 以上，以及包含 `ffprobe` 的 FFmpeg。可选 Hypit runtime 额外需要 Node.js 22.15+（22.x）。Windows PowerShell 入口见 [`docs/windows.md`](docs/windows.md)。`npm ci` 会在仓库内安装 Remotion 和 HyperFrames；不要使用 `npm ci --omit=dev`。
+## 了解更多
 
-```sh
-npm ci
-npm run check
-node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
-```
-
-`npm run check` 强制 `src/` 的 statements / functions / lines ≥ 80%，branches ≥ **74.4%**（Production Orchestration 后的保持值；恢复 75% 仍是债务）。`npm run security:audit` 会分别检查 production 依赖树和完整开发依赖树，发现 moderate 或更高 advisory 即失败。
-
-## 成长循环与仓库规则
-
-一次性偏好留在 `projects/<job>/notes.md`。可复用风格进入 `examples/` 或 `templates/`。可机器检查的问题进入 constraints / validate / doctor。判断型规则先写入 `LESSONS.md`，经人批准后再升到 skill / AGENTS.md / CLAUDE.md。core 必须保持厂商中立。
-
-公开契约变更写入 README、`manifest/schema.md`、`docs/requirements.md`。当前软件版本是 **0.17.0**。1.0 仍要求 live provider/billing 证据与 packaged Desktop UAT；Windows smoke 已在 GitHub Actions 上验证。
+- 以前 README 的技术说明：[docs/reference.ja.md](docs/reference.ja.md) · [docs/reference.md](docs/reference.md)
+- Windows：[Windows 原生指南](docs/windows.md)
+- 版本：仓库本体 `0.17.0`。[变更记录](CHANGELOG.md)
+- v2 alpha（开发中）：[概要](v2/README.md) · [6 秒环境确认](docs/onboarding/first-video.ja.md) · [按用途选择](docs/onboarding/see-and-choose.ja.md)
+- 开发：[CONTRIBUTING.md](CONTRIBUTING.md)
+- `npm run check` 强制 `src/` 的 statements / functions / lines ≥ 80%，branches ≥ **74.4%**（Production Orchestration 后的保持值；恢复 75% 仍是债务）。`npm run security:audit` 会分别检查 production 依赖树和完整开发依赖树，发现 moderate 或更高 advisory 即失败。
