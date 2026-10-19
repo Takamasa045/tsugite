@@ -150,6 +150,16 @@ describe("README onboarding contract", () => {
     }
   });
 
+  it("keeps the Japanese で in v2で対応 and has no Unicode replacement characters", async () => {
+    const files = [MIGRATION_PLAN, ...MIGRATION_PLAN_LINKS, "v2/PROGRESS.md", "v2/docs/contribution-backlog.md", "v2/docs/local-readiness.md"];
+    for (const path of files) {
+      const text = await readFile(path, "utf8");
+      expect(text, path).not.toContain("\uFFFD");
+    }
+    const plan = await readFile(MIGRATION_PLAN, "utf8");
+    expect(plan).toMatch(/v2で対応/);
+  });
+
   it("points the v2 first-video learn-more link at the root Japanese README heading", async () => {
     const text = await readFile("v2/docs/onboarding/first-video.ja.md", "utf8");
     expect(text).toContain("../../../README.ja.md#もっと詳しく");
