@@ -152,8 +152,10 @@ failed settled jobs require a new reviewed plan before retry. Existing untracked
 or modified `out/final.mp4` files are preserved instead of overwritten.
 
 See [architecture](docs/architecture.md) for recovery and trust limits,
-[plugin SDK and license guidance](docs/plugins.md), and the exhaustive
-[requirement tracker](docs/requirements.md) for remaining work.
+[plugin SDK and license guidance](docs/plugins.md), the exhaustive
+[requirement tracker](docs/requirements.md) for remaining work, and the
+owner-facing [v1→v2 migration decision record](docs/migration-plan.ja.md)
+(recommended options; not decided).
 
 ```sh
 cd /path/to/tsugite/v2

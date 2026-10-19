@@ -6,10 +6,14 @@ Fast Edit decisions and safe copy/archive migration have direct local evidence.
 Service protocol code has synthetic HTTP evidence and explicit live opt-in;
 actual paid acceptance has not happened. These are different evidence classes.
 
-The [alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1)
-is public. The three-OS CI matrix, separate Ubuntu Remotion lane and existing v1
-required CI passed. Gallery/demo/tarball links were anonymously downloaded and
-verified against SHA-256. See the [verification record](verification.md).
+The current [alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
+is public. The first public prerelease was
+[alpha.1](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1).
+The three-OS CI matrix, separate Ubuntu Remotion lane and existing v1
+required CI passed for the published alphas. Gallery/demo/tarball links were
+anonymously downloaded and verified against SHA-256. See the
+[verification record](verification.md) and
+[alpha.5 distribution](release-alpha5.md).
 
 The experimental components have a non-destructive source-separation/export
 tool and 11 independent compatibility packages with integrity inspections. They

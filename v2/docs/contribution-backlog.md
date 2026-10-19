@@ -1,9 +1,12 @@
 # Contribution issues prepared for review
 
-These are local issue drafts, not published GitHub issues or assigned work.
-Before release, a maintainer can select at least five and post them explicitly.
-Each can be developed with synthetic media and no provider credentials. Preserve
-the confirmation-page checks and never submit test approvals to real projects.
+These are **six** local issue drafts, not published GitHub issues or assigned
+work. Draft 2 is largely covered by the alpha.5 Japanese entry; treat it as
+done for a first Japanese walkthrough. **Five** drafts remain as unpublished
+candidates (1, 3, 4, 5, and 6). Before release, a maintainer can select at
+least five and post them explicitly. Each remaining draft can be developed
+with synthetic media and no provider credentials. Preserve the
+confirmation-page checks and never submit test approvals to real projects.
 
 ## 1. Test the sample with a first-time Windows user
 
@@ -18,11 +21,20 @@ fix. CI execution alone does not meet the user-trial condition.
 
 ## 2. Add a translated quick-start without duplicating safety rules
 
+**Status (alpha.5):** largely done. The standalone package already ships
+[`v2/README.ja.md`](../README.ja.md), [first-video](onboarding/first-video.ja.md)
+and [see-and-choose](onboarding/see-and-choose.ja.md). The eight commands, two
+terminals and service-specific budgets remain detailed in the English README.
+Do not open a new starter issue for a full Japanese quick-start unless a
+maintainer still wants a Japanese-only command walkthrough. Any leftover is a
+small completeness check, not this original draft.
+
 Suggested labels: `good first issue`, `documentation`, `translation`.
 
-Add a Japanese quick-start linked to the English-first README. Cover the eight
-commands, two terminals, service-specific budgets and page-only checks. Link
-to the canonical recovery/license sections rather than inventing new promises.
+Original scope (kept for history): add a Japanese quick-start linked to the
+English-first README. Cover the eight commands, two terminals, service-specific
+budgets and page-only checks. Link to the canonical recovery/license sections
+rather than inventing new promises.
 Acceptance: commands checked against the offline sample, no CLI approval flag
 or same-OS isolation claim, and a readable first-time-user walkthrough.
 

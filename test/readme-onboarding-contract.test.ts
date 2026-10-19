@@ -34,7 +34,21 @@ const DOC_ROOTS = [
   "docs/reference.md",
   "docs/reference.ja.md",
   "docs/onboarding",
-  "v2/docs/onboarding"
+  "v2/README.md",
+  "v2/README.ja.md",
+  "v2/docs/onboarding",
+  "v2/docs/requirements.md",
+  "v2/docs/local-readiness.md",
+  "v2/docs/contribution-backlog.md",
+  "v2/docs/migration-plan.ja.md",
+  "v2/docs/release-alpha5.md"
+] as const;
+
+const MIGRATION_PLAN = "v2/docs/migration-plan.ja.md";
+const MIGRATION_PLAN_LINKS = [
+  "v2/README.md",
+  "v2/README.ja.md",
+  "v2/docs/requirements.md"
 ] as const;
 
 const GATE_2_AUTO_PASS = "gates.gate_2.auto_pass: qc_ok_no_new_assets";
@@ -125,6 +139,14 @@ describe("README onboarding contract", () => {
     for (const path of GATE_DOCS) {
       const text = await readFile(path, "utf8");
       expect(text, path).toContain(GATE_2_AUTO_PASS);
+    }
+  });
+
+  it("links the owner-facing v1-to-v2 migration decision record", async () => {
+    expect(existsSync(MIGRATION_PLAN), MIGRATION_PLAN).toBe(true);
+    for (const path of MIGRATION_PLAN_LINKS) {
+      const text = await readFile(path, "utf8");
+      expect(text, path).toMatch(/migration-plan\.ja\.md/);
     }
   });
 
