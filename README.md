@@ -1,6 +1,10 @@
 # Tsugite
 
-[English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
+[日本語・はじめての方はこちら](README.ja.md#はじめての方はこちら) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
+
+**日本語で始める：** [できること・必要な準備・最初の一歩](README.ja.md#はじめての方はこちら) → [6秒の無課金サンプルを作る](docs/onboarding/first-video.ja.md)。公開済みalpha.4と最新ローカル版の手順を分けて案内しています。
+
+English reference continues below. The recent [connected-tool updates](docs/video-tools.md) are local checkout changes; the published alpha.4 archive remains unchanged.
 
 Tsugite is a local video-production workshop. It carries assets, production logs, decisions, and preferences forward instead of treating each AI video as a disposable result.
 
@@ -66,7 +70,7 @@ These are `edit.backend` renderers. The same manifest / EDL contract feeds them.
 | Remotion | Default local renderer, captions, presentation presets | `edit.backend: remotion` |
 | HyperFrames | Local renderer plus official `media-use` BGM / SFX | [HyperFrames audio](docs/hyperframes-audio.md) |
 | Editframe | Optional **macOS** local renderer and preview. Install with `npm run editframe:install`, then `edit.backend: editframe`. Preview uses an authoring copy. WebMCP and disk-save APIs are unverified | [Editframe](docs/editframe.md) |
-| Tesseract | Optional local backend using official CLI 0.2.0. One 1-second 1920×1080/30 silent H.264 render is verified with Metal GPU access; preview/filmstrip, native authoring, and ProRes/alpha-solo remain unverified. Fast Edit is unsupported | [Tesseract](docs/tesseract.md) |
+| Tesseract | Optional local backend using official CLI 0.4.0. One 1-second 1920×1080/30 silent H.264 render is verified with Metal GPU access; preview/filmstrip, native authoring, and ProRes/alpha-solo remain unverified. Fast Edit is unsupported | [Tesseract](docs/tesseract.md) |
 | **Jev Fast Edit v1** | Same strict, backend-neutral edit intent on Remotion, HyperFrames, and Editframe (cards, captions, transitions, zoom, SFX, 16:9 and 9:16). Needs local-whisper word timestamps first. Select only with `edit.backend` plus `edit.fast_edit`. Not a new renderer | [Fast Edit](docs/fast-edit.md) |
 
 Also in this path: Gate-bound editorial EDL (retimes selected cuts, captions, and chapters without changing source files), first-class image assets and speaker / pose metadata, and guarded presentation presets. Query installed presets with `node bin/pipeline presets --backend remotion --json` instead of typing an unverified ID.

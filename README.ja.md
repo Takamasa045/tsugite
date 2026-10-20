@@ -1,18 +1,73 @@
-# Tsugite
+# 継手 / Tsugite
 
-[English](README.md) | [日本語](README.ja.md) | [中文](README.zh.md) | [한국어](README.ko.md)
+[日本語](README.ja.md) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-AI動画を作って終わりにせず、素材、制作ログ、判断、好みを次の制作へ継いでいくローカル動画制作工房です。
+**動画づくりをAIに手伝ってもらい、実行前の計画とできあがりを自分で確認するための道具です。** 素材・制作記録・好みを手元に残し、次の動画に引き継げます。
 
-ソース版 **0.17.0**。Desktopアプリの一般配布は終了しています。日常の入口は GitHub のソースを Codex / Claude Code などで開き、確認には `127.0.0.1` のブラウザランチャーを使います。変更履歴は [CHANGELOG](CHANGELOG.md) です。
+## はじめての方はこちら
 
-**まず見るところ:** [一番簡単な始め方](#一番簡単な始め方) · [できること](#できること) · [安全な制作フロー](#安全な制作フロー) · [コマンド](#コマンド)
+**まずは、アカウントやAPIキーを使わない6秒のサンプル動画を1本作ってみてください。** 練習用の映像をパソコン内で作るので、動画生成サービスのクレジットは消費しません。AIが依頼文から新しい映像を生成する体験とは異なります。
 
-## どんな問題を解決するか
+### 何ができる？
 
-生成サービス、ローカル素材、編集バックエンドを単一の **manifest** 契約で接続し、制作計画、承認、QA、ログを案件ごとに残します。Gitやターミナルに詳しくなくても、安全境界を確認しながらCodex、Claude Codeなどの対応コーディングエージェントへ初回準備を任せられます。
+- 手元の動画を使い、カット・音声・字幕を設定してMP4に書き出す。
+- AIエージェントに準備を頼み、**計画 → 素材 → 完成動画**を確認して進める。
+- 「冒頭を短くしたい」などの好みを記録して、次の計画に引き継ぐ。
 
-連携CLI・動画エンジンの版と導入方法は[動画ツールの更新一覧](docs/video-tools.md)を参照してください。
+外部の動画生成サービスやRemotion・HyperFramesなどの追加ツールは、必要になってから選べます。最初のサンプルには不要です。v2は開発途中の**アルファ版**で、実課金サービスの受け入れ確認と第三者による初回利用テストは完了していません。
+
+### 用意するもの
+
+- パソコンと、ファイル操作・コマンド実行ができる環境。
+- **Node.js 22.12以上の22.xとnpm 10以上**、**FFmpeg・FFprobe**。FFmpegは`libx264`対応が必要です。これらは動画処理を動かすためのソフトです。
+- 操作を任せるなら、ローカルのフォルダを扱える**Codex・Claude Codeなど**。ブラウザのチャットだけではパソコン内の準備は実行できません。
+
+ソフトの取得と初回の依存導入にはインターネット接続が必要です。準備後のサンプル制作はオフラインで動きます。エージェント自体の利用料金は別です。Desktopアプリの一般配布は終了しているため、インストーラーを探す必要はありません。
+
+### 最初の一歩
+
+**まだ導入していない方：** [日本語のはじめてガイド](docs/onboarding/first-video.ja.md)を開いてください。公開済みalpha.4の取得から、確認画面での操作、MP4の保存先まで順番に説明しています。ターミナル（コマンドを入力する画面）の操作を任せたい場合は、同じガイドの[エージェントへの依頼文](docs/onboarding/first-video.ja.md#エージェントに準備を頼む場合)を使えます。
+
+**すでにこのリポジトリを開いている方：** [ローカル版で試す手順](docs/onboarding/first-video.ja.md#すでにリポジトリが手元にある場合)へ進んでください。準備済みなら、リポジトリ直下のターミナルで次から始めます。
+
+```sh
+npm run --silent v2 -- init ./projects/my-first-v2-video
+npm run --silent v2 -- check --project ./projects/my-first-v2-video
+npm run --silent v2 -- plan --project ./projects/my-first-v2-video
+```
+
+`my-first-v2-video`は新しく作る動画のフォルダ名です。同名フォルダがある場合は別名を使います。表示された確認ページで計画を読み、**Approve plan（計画を承認）**を自分で押します。その後の書き出し手順はガイドに続きます。承認は確認ページで行い、エージェントには代行させません。
+
+### 自分の動画では、どう頼む？
+
+最初のサンプルを試したあと、素材の保存場所と希望をエージェントに伝えます。
+
+> 手元の「商品紹介.mp4」を使って、縦長の15秒動画を作りたいです。最初の5秒を短くまとめ、最後に商品名を字幕で出してください。まず素材と対応範囲を確認し、計画を作って確認ページで止めてください。外部サービスには送信しないでください。
+
+エージェントが設定を準備し、人が確認して実行する流れです。好みメモを書くだけで、完成動画が自動修正されるわけではありません。[ほかの依頼例と困ったときの対処](docs/onboarding/first-video.ja.md#サンプルの次に頼めること)も参照してください。
+
+### どの版の案内？
+
+| 手元の状態 | 使う案内 |
+| --- | --- |
+| 新しく試す／公開ファイルから導入する | [v2 alpha.4の日本語手順](docs/onboarding/first-video.ja.md)。npmでの一般公開はしていません。 |
+| このパソコンの最新ローカル版を使う | [リポジトリから試す手順](docs/onboarding/first-video.ja.md#すでにリポジトリが手元にある場合)。直近の[動画ツール更新](docs/video-tools.md)はローカルに反映済みで、公開済みalpha.4には含まれません。 |
+| `project.yaml`の既存案件を続ける | 下の[v1の機能と詳しい使い方](#v1の機能と詳しい使い方)。既存案件をv2へ自動移行しません。 |
+
+ファイル名が`tsugite.yaml`ならv2、`project.yaml`なら従来のv1です。リポジトリ本体の版番号`0.17.0`と、独立したv2の`2.0.0-alpha.4`は別に管理されています。v2の版番号が同じでも、手元の追加更新と公開済み配布ファイルの内容が同じとは限りません。
+
+### 目的別の案内
+
+- **まず1本作る：** [日本語のはじめてガイド](docs/onboarding/first-video.ja.md)
+- **動かない：** [困ったとき](docs/onboarding/first-video.ja.md#困ったとき)
+- **v2の詳しい仕様：** [英語README](v2/README.md) · [英語の導入手順](v2/docs/install.md) · [対応状況](v2/docs/requirements.md)
+- **追加ツールを使う：** [連携ツールの版・導入・検証範囲](docs/video-tools.md)
+- **既存v1を使う：** [v1セットアップ](#一番簡単な始め方) · [コマンド](#コマンド) · [変更履歴](CHANGELOG.md)
+- **開発する：** [CONTRIBUTING](CONTRIBUTING.md) · [開発と検証](docs/development-workflow.md)
+
+## v1の機能と詳しい使い方
+
+ここからは主に従来の`project.yaml`案件向けです。v2の`tsugite.yaml`とは設定とコマンドが異なります。以下の**Gate**は実行前後に人が判断する確認段階、**manifest**は素材や編集内容をまとめた制作データです。
 
 ## できること
 
@@ -53,7 +108,7 @@ MiniMax direct / MiniMax HTTP は **preflight-only** のまま、送信可能と
 | Remotion | 既定のローカル renderer。字幕、presentation preset | `edit.backend: remotion` |
 | HyperFrames | ローカル renderer と公式 `media-use` の BGM / SFX | [HyperFrames音声](docs/hyperframes-audio.md) |
 | Editframe | 任意の **macOS** ローカル renderer と preview。`npm run editframe:install` のあと `edit.backend: editframe`。preview は authoring copy。WebMCP と disk-save API は未検証 | [Editframe](docs/editframe.md) |
-| Tesseract | 公式 CLI 0.2.0 を使う任意のローカル backend。ネイティブ文書/操作、6種のcanvas、24/30/60fps、720p/1080p/4K MP4、preview/filmstrip、macOS ProRes/alpha-solo出力に対応。0.2.0実機renderは未検証。Fast Edit は未対応 | [Tesseract](docs/tesseract.md) |
+| Tesseract | 公式 CLI 0.4.0 を使う任意のローカル backend。ローカルで1秒・1920×1080/30fpsの無音H.264書き出しを検証済み。native authoring、preview/filmstrip、ProRes/alpha-soloは未検証。Fast Edit は未対応 | [Tesseract](docs/tesseract.md) |
 | **Jev Fast Edit v1** | Remotion / HyperFrames / Editframe で同じ backend 中立の編集意図（カード、字幕、トランジション、ズーム、SFX、16:9 と 9:16）。先に local-whisper の単語タイムスタンプが必要。選ぶのは `edit.backend` と `edit.fast_edit` だけ。新しい renderer ではない | [Fast Edit](docs/fast-edit.md) |
 
 この経路には、Gate 拘束の editorial EDL（元素材を変えずにカット・字幕・章を再タイミングする）、画像素材と話者 / pose、presentation preset も含まれます。preset ID は手入力せず `node bin/pipeline presets --backend remotion --json` の一覧から選びます。
@@ -95,6 +150,8 @@ MiniMax direct / MiniMax HTTP は **preflight-only** のまま、送信可能と
 | Hermes | 任意の analysis handoff adapter | [Optional Adapters](docs/optional-adapters.md) |
 
 ## 一番簡単な始め方
+
+この節の`setup`は**従来のv1用**です。初めてv2を試す場合は[日本語のはじめてガイド](docs/onboarding/first-video.ja.md)へ進んでください。
 
 1. Codexで空の作業フォルダを開くか、そのフォルダでClaude Codeを起動します。ローカルファイルとシェルコマンドを扱えるほかのコーディングエージェントでも利用できます。
 2. 下の短いセットアップ依頼文を、利用中のエージェントへ貼り付けます。
