@@ -27,12 +27,12 @@ import {
 } from "./processGroup.mjs";
 import { ensureRuntimeModuleLink, missingRuntimeMessage, resolveEditframeCli } from "./runtimePath.mjs";
 import { resolveOutputDimensions } from "../outputDimensions.mjs";
+import { renderTimeoutMs } from "./renderTimeout.mjs";
 
 const EXIT_VALIDATION_FAILED = 10;
 const EXIT_TRANSIENT_EXTERNAL_FAILURE = 20;
 const EXIT_MISSING_DEPENDENCY = 30;
 const EXIT_INVALID_REQUEST = 40;
-const RENDER_TIMEOUT_MS = 90_000;
 const MIN_OUTPUT_BYTES = 1000;
 
 class RunnerError extends Error {
@@ -185,7 +185,7 @@ async function main() {
   owned.push(renderHandle);
   let code;
   try {
-    code = await waitExit(renderHandle, RENDER_TIMEOUT_MS);
+    code = await waitExit(renderHandle, renderTimeoutMs(manifest));
   } catch (error) {
     throw new RunnerError(
       `Editframe render timed out or failed to start: ${error instanceof Error ? error.message : String(error)}`,
