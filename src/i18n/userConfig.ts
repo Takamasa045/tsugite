@@ -9,8 +9,9 @@ export type UserConfigReadOptions = {
 };
 
 function configHome(options: UserConfigReadOptions): string {
-  const env = options.env ?? process.env;
   const home = options.homeDir ?? homedir();
+  // Pinning homeDir isolates from ambient XDG unless the caller also passed env.
+  const env = options.env ?? (options.homeDir ? {} : process.env);
   const xdg = env.XDG_CONFIG_HOME?.trim();
   return xdg && isAbsolute(xdg) ? xdg : join(home, ".config");
 }

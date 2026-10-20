@@ -147,6 +147,11 @@ describe("language resolution", () => {
     const home = await mkdtemp(join(tmpdir(), "tsugite-i18n-file-"));
     await mkdir(join(home, ".config"), { recursive: true });
     await writeFile(join(home, ".config", "tsugite"), "lang: ja\n", "utf8");
+    expect(readUserConfigLang({ homeDir: home, env: {} })).toBe("ja");
+    expect(readUserConfigLang({
+      homeDir: home,
+      env: { XDG_CONFIG_HOME: "/tmp/tsugite-missing-xdg" }
+    })).toBeUndefined();
     expect(readUserConfigLang({ homeDir: home })).toBe("ja");
   });
 });
