@@ -157,7 +157,7 @@ describe("language resolution", () => {
 });
 
 describe("project.yaml lang", () => {
-  it("accepts optional ja or en and rejects other values", () => {
+  it("accepts optional ja or en and ignores unsupported values", () => {
     const base = {
       slug: "i18n-project",
       name: "言語検証",
@@ -167,7 +167,18 @@ describe("project.yaml lang", () => {
     expect(projectSchema.safeParse(base).success).toBe(true);
     expect(projectSchema.safeParse({ ...base, lang: "en" }).success).toBe(true);
     expect(projectSchema.safeParse({ ...base, lang: "ja" }).success).toBe(true);
-    expect(projectSchema.safeParse({ ...base, lang: "fr" }).success).toBe(false);
+
+    const ignored = projectSchema.safeParse({ ...base, lang: "fr" });
+    expect(ignored.success).toBe(true);
+    if (ignored.success) expect(ignored.data.lang).toBeUndefined();
+
+    const regional = projectSchema.safeParse({ ...base, lang: "en-US" });
+    expect(regional.success).toBe(true);
+    if (regional.success) expect(regional.data.lang).toBe("en");
+
+    const nonString = projectSchema.safeParse({ ...base, lang: 1 });
+    expect(nonString.success).toBe(true);
+    if (nonString.success) expect(nonString.data.lang).toBeUndefined();
   });
 });
 

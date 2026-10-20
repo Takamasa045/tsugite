@@ -1,4 +1,5 @@
 import { fastEditConfigSchema } from "../fastEdit/schema.js";
+import { normalizeLanguage } from "../i18n/index.js";
 import { z } from "zod";
 import { win32 } from "node:path";
 import { h3CreativeIrSchema, videoCreativeIrSchema } from "../h3/schema.js";
@@ -409,8 +410,15 @@ export const projectSchema = z
     slug: safeIdSchema,
     /** 人向け表示名（日本語）。必須。slug / フォルダ名とは別に持つ。 */
     name: projectDisplayNameSchema,
-    /** Optional UI language. Absent keeps Japanese (ja). */
-    lang: z.enum(["ja", "en"]).optional(),
+    /**
+     * Optional UI language. Absent keeps Japanese (ja).
+     * Unsupported values (e.g. `lang: fr`) are ignored so the project still loads;
+     * language resolution then falls through to the next source / ja.
+     */
+    lang: z.preprocess(
+      (value) => (value === undefined ? undefined : normalizeLanguage(value)),
+      z.enum(["ja", "en"]).optional()
+    ),
     run_id: safeIdSchema.optional(),
     /** Unused historical pointer is allowed for authoring productions. */
     manifest: manifestPathSchema,
