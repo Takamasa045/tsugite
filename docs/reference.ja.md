@@ -133,7 +133,7 @@ MiniMax direct / MiniMax HTTP は **preflight-only** のまま、送信可能と
 | Remotion | 既定のローカル renderer。字幕、presentation preset | `edit.backend: remotion` |
 | HyperFrames | ローカル renderer と公式 `media-use` の BGM / SFX | [HyperFrames音声](hyperframes-audio.md) |
 | Editframe | 任意の **macOS** ローカル renderer と preview。`npm run editframe:install` のあと `edit.backend: editframe`。preview は authoring copy。WebMCP と disk-save API は未検証 | [Editframe](editframe.md) |
-| Tesseract | 公式 CLI 0.2.0 を使う任意のローカル backend。ネイティブ文書/操作、6種のcanvas、24/30/60fps、720p/1080p/4K MP4、preview/filmstrip、macOS ProRes/alpha-solo出力に対応。0.2.0実機renderは未検証。Fast Edit は未対応 | [Tesseract](tesseract.md) |
+| Tesseract | 公式 CLI 0.4.0 を使う任意のローカル backend。ローカルで1秒・1920×1080/30fpsの無音H.264書き出しを検証済み。native authoring、preview/filmstrip、ProRes/alpha-soloは未検証。Fast Edit は未対応 | [Tesseract](tesseract.md) |
 | **Jev Fast Edit v1** | Remotion / HyperFrames / Editframe で同じ backend 中立の編集意図（カード、字幕、トランジション、ズーム、SFX、16:9 と 9:16）。先に local-whisper の単語タイムスタンプが必要。選ぶのは `edit.backend` と `edit.fast_edit` だけ。新しい renderer ではない | [Fast Edit](fast-edit.md) |
 
 この経路には、Gate 拘束の editorial EDL（元素材を変えずにカット・字幕・章を再タイミングする）、画像素材と話者 / pose、presentation preset も含まれます。preset ID は手入力せず `node bin/pipeline presets --backend remotion --json` の一覧から選びます。
