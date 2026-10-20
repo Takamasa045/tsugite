@@ -409,6 +409,8 @@ export const projectSchema = z
     slug: safeIdSchema,
     /** 人向け表示名（日本語）。必須。slug / フォルダ名とは別に持つ。 */
     name: projectDisplayNameSchema,
+    /** Optional UI language. Absent keeps Japanese (ja). */
+    lang: z.enum(["ja", "en"]).optional(),
     run_id: safeIdSchema.optional(),
     /** Unused historical pointer is allowed for authoring productions. */
     manifest: manifestPathSchema,

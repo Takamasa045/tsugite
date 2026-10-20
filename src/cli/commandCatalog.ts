@@ -183,6 +183,7 @@ const OPTIONS = {
 
 export const GLOBAL_OPTIONS: readonly CommandOptionSpec[] = Object.freeze([
   defineOption("--json", "Emit stable machine-readable JSON."),
+  defineOption("--lang", "UI language. Default ja.", "<ja|en>"),
   defineOption("--help", "Show help for the selected command.")
 ]);
 
