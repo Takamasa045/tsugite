@@ -21,7 +21,16 @@
       "duration_mismatch": "Storyboard duration {storyboard} does not match the target duration {target}.",
       "unmatched_requests": "Generation requests whose IDs do not match the storyboard: {ids}",
       "analysis_missing": "Analysis artifacts are missing or inconsistent. Final approval cannot proceed.",
-      "connection_status": "Connection '{connection}' is {status}. Confirm login, permission, and remaining credits before final approval."
+      "connection_status": "Connection '{connection}' is {status}. Confirm login, permission, and remaining credits before final approval.",
+      "monotony_prefix": "[Monotony]",
+      "duration_low_variance": "Shot durations are nearly even (shortest {min} / longest {max}{cv_note}). Cluster shorter cuts before the highlight and avoid even splitting.",
+      "duration_cv_note": ", low variance",
+      "camera_repeat": "The same camera family “{camera}” repeats {count} times in a row. Keep one vector per shot, but change framing or motion between adjacent shots.",
+      "static_run": "{count} consecutive shots are static / none. Insert a push/pull or a one-vector move to avoid a static run.",
+      "missing_early_hook": "No short hook cut or hook role was found within the first {seconds}. Shorten the intro and lead with value, a question, or a highlight.",
+      "iteration_prefix": "[Iteration]",
+      "iteration_multi_block": "request '{id}' changed {changed} prompt blocks vs previous generation (threshold {threshold}); change one block at a time",
+      "iteration_retry_saturation": "request '{id}' reached generation ordinal {ordinal} (threshold {threshold}); consider splitting or simplifying the shot"
     },
     "motion": {
       "summary_partial": "Per-shot motion is specified, but the overall motion plan is unspecified.",

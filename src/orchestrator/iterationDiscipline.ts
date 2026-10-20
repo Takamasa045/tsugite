@@ -3,10 +3,14 @@
  * Deterministic comparison of lineage block digests and generation ordinals.
  */
 
+import { createTranslator, type TranslateParams } from "../i18n/index.js";
 import {
   countChangedBlocks,
   type PromptBlockDigests
 } from "../videoPromptDirector/blockDigests.js";
+
+type Translator = (key: string, params?: TranslateParams) => string;
+const ja = createTranslator("ja");
 
 export const ITERATION_MULTI_BLOCK_CHANGE_CODE = "iteration.multi_block_change";
 export const ITERATION_RETRY_SATURATION_CODE = "iteration.retry_saturation";
@@ -23,6 +27,7 @@ export type IterationFinding = {
     | typeof ITERATION_RETRY_SATURATION_CODE;
   message: string;
   severity: "warning";
+  params: TranslateParams;
 };
 
 export type LintIterationDisciplineOptions = {
@@ -54,23 +59,31 @@ export function lintIterationDiscipline(
   if (previous && previous.request_id === current.request_id) {
     const changed = countChangedBlocks(previous.block_digests, current.block_digests);
     if (changed >= multiBlockThreshold) {
+      const params = {
+        id: current.request_id,
+        changed,
+        threshold: multiBlockThreshold
+      };
       findings.push({
         code: ITERATION_MULTI_BLOCK_CHANGE_CODE,
         severity: "warning",
-        message:
-          `request '${current.request_id}' changed ${changed} prompt blocks vs previous generation `
-          + `(threshold ${multiBlockThreshold}); change one block at a time`
+        params,
+        message: ja("review.warn.iteration_multi_block", params)
       });
     }
   }
 
   if (current.generation_ordinal >= retrySaturationThreshold) {
+    const params = {
+      id: current.request_id,
+      ordinal: current.generation_ordinal,
+      threshold: retrySaturationThreshold
+    };
     findings.push({
       code: ITERATION_RETRY_SATURATION_CODE,
       severity: "warning",
-      message:
-        `request '${current.request_id}' reached generation ordinal ${current.generation_ordinal} `
-        + `(threshold ${retrySaturationThreshold}); consider splitting or simplifying the shot`
+      params,
+      message: ja("review.warn.iteration_retry_saturation", params)
     });
   }
 
@@ -79,7 +92,13 @@ export function lintIterationDiscipline(
 }
 
 export function iterationFindingsToWarningMessages(
-  findings: readonly IterationFinding[]
+  findings: readonly IterationFinding[],
+  tr: Translator = ja
 ): string[] {
-  return findings.map((finding) => `[イテレーション] ${finding.message}`);
+  return findings.map((item) => {
+    const body = item.code === ITERATION_MULTI_BLOCK_CHANGE_CODE
+      ? tr("review.warn.iteration_multi_block", item.params)
+      : tr("review.warn.iteration_retry_saturation", item.params);
+    return `${tr("review.warn.iteration_prefix")} ${body}`;
+  });
 }

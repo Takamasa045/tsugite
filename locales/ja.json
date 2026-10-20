@@ -21,7 +21,16 @@
       "duration_mismatch": "絵コンテ尺 {storyboard} と目標尺 {target} が一致していません。",
       "unmatched_requests": "絵コンテとIDが一致しない生成リクエスト: {ids}",
       "analysis_missing": "解析成果物が未生成または不整合です。最終承認には進めません。",
-      "connection_status": "接続 '{connection}' の状態は {status} です。最終承認前にログイン、利用権限、残クレジットを確認してください。"
+      "connection_status": "接続 '{connection}' の状態は {status} です。最終承認前にログイン、利用権限、残クレジットを確認してください。",
+      "monotony_prefix": "[単調さ]",
+      "duration_low_variance": "ショット尺がほぼ均等です（最短 {min} / 最長 {max}{cv_note}）。見せ場前に短カットを密集させ、均等割りを避けてください。",
+      "duration_cv_note": "、ばらつき小",
+      "camera_repeat": "同じカメラ系統「{camera}」が{count}連続しています。1ショット1ベクトルを保ちつつ、隣接ショットで画角や動きを変えてください。",
+      "static_run": "カメラが static / none のショットが{count}連続しています。寄り/引きや1ベクトルの動きを挟み、単調な固定画を避けてください。",
+      "missing_early_hook": "冒頭{seconds}以内にフックとなる短いカットや役割が見つかりません。導入を短くし、価値・問い・見どころを先に出してください。",
+      "iteration_prefix": "[イテレーション]",
+      "iteration_multi_block": "request '{id}' changed {changed} prompt blocks vs previous generation (threshold {threshold}); change one block at a time",
+      "iteration_retry_saturation": "request '{id}' reached generation ordinal {ordinal} (threshold {threshold}); consider splitting or simplifying the shot"
     },
     "motion": {
       "summary_partial": "カット別の動きは指定されていますが、映像全体のモーション方針は未指定です。",

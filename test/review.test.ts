@@ -1024,6 +1024,41 @@ describe("creative review", () => {
     expect(renderReviewHtml(document)).toBe(html);
   });
 
+  it("translates dynamic Gate 1 warnings when lang is en", () => {
+    const project: Project = {
+      ...sampleProject(),
+      generation: {
+        adapter: "mock-cli",
+        requests: [
+          { id: "a", prompt: "one", duration: 4, params: {} },
+          { id: "b", prompt: "two", duration: 4, params: {} },
+          { id: "c", prompt: "three", duration: 4, params: {} }
+        ]
+      }
+    };
+    const manifest = sampleManifest();
+    manifest.meta.target_duration_seconds = 20;
+    manifest.presentation!.background_image_id = "missing-background";
+    const document = createReviewDocument(
+      project,
+      manifest,
+      createPlan(project, manifest),
+      undefined,
+      undefined,
+      undefined,
+      "en"
+    );
+    expect(document.warnings).toContain("This proposal is marked as a draft.");
+    expect(document.warnings).toContain("Background image ID missing-background was not found in manifest.images.");
+    expect(document.warnings).toContain("Storyboard duration 10s does not match the target duration 20s.");
+    expect(document.warnings.some((warning) => warning.startsWith("[Monotony]"))).toBe(true);
+    expect(document.warnings).toContain(
+      "[Monotony] Shot durations are nearly even (shortest 4s / longest 4s, low variance). Cluster shorter cuts before the highlight and avoid even splitting."
+    );
+    expect(document.warnings.join("\n")).not.toContain("[単調さ]");
+    expect(document.warnings.join("\n")).not.toContain("背景画像ID");
+  });
+
   it("re-renders English HTML from review-data that includes lang", () => {
     const document = createReviewDocument(
       sampleProject(),

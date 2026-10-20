@@ -1436,7 +1436,7 @@ export function createReviewDocument(
   const monotonyShots = monotonyShotsFromVisualCuts(project, manifest);
   if (monotonyShots) {
     warnings.push(
-      ...monotonyFindingsToWarningMessages(lintShotlistMonotony(monotonyShots))
+      ...monotonyFindingsToWarningMessages(lintShotlistMonotony(monotonyShots), tr)
     );
   }
 
@@ -1445,7 +1445,7 @@ export function createReviewDocument(
   for (const snap of iterationSnaps) {
     // Without prior history, only retry_saturation (ordinal) can fire; multi_block needs previous.
     warnings.push(
-      ...iterationFindingsToWarningMessages(lintIterationDiscipline(snap, undefined))
+      ...iterationFindingsToWarningMessages(lintIterationDiscipline(snap, undefined), tr)
     );
   }
 

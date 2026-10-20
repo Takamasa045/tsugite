@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createTranslator } from "../src/i18n/index.js";
 import {
   lintShotlistMonotony,
   monotonyFindingsToWarningMessages
@@ -73,14 +74,37 @@ describe("lintShotlistMonotony", () => {
   });
 
   it("formats warning messages for review", () => {
+    const findings = lintShotlistMonotony([
+      { start: 0, duration: 4, camera: "zoom", title: "A" },
+      { start: 4, duration: 4, camera: "zoom", title: "B" },
+      { start: 8, duration: 4, camera: "zoom", title: "C" }
+    ]);
+    const messages = monotonyFindingsToWarningMessages(findings);
+    expect(messages).toEqual([
+      "[単調さ] ショット尺がほぼ均等です（最短 4秒 / 最長 4秒、ばらつき小）。見せ場前に短カットを密集させ、均等割りを避けてください。",
+      "[単調さ] 同じカメラ系統「push-zoom」が3連続しています。1ショット1ベクトルを保ちつつ、隣接ショットで画角や動きを変えてください。",
+      "[単調さ] 冒頭2秒以内にフックとなる短いカットや役割が見つかりません。導入を短くし、価値・問い・見どころを先に出してください。"
+    ]);
+    expect(findings.map((item) => item.message)).toEqual([
+      "ショット尺がほぼ均等です（最短 4秒 / 最長 4秒、ばらつき小）。見せ場前に短カットを密集させ、均等割りを避けてください。",
+      "同じカメラ系統「push-zoom」が3連続しています。1ショット1ベクトルを保ちつつ、隣接ショットで画角や動きを変えてください。",
+      "冒頭2秒以内にフックとなる短いカットや役割が見つかりません。導入を短くし、価値・問い・見どころを先に出してください。"
+    ]);
+  });
+
+  it("formats English warning messages when a translator is passed", () => {
     const messages = monotonyFindingsToWarningMessages(
       lintShotlistMonotony([
         { start: 0, duration: 4, camera: "zoom", title: "A" },
         { start: 4, duration: 4, camera: "zoom", title: "B" },
         { start: 8, duration: 4, camera: "zoom", title: "C" }
-      ])
+      ]),
+      createTranslator("en")
     );
-    expect(messages.length).toBeGreaterThan(0);
-    expect(messages.every((message) => message.startsWith("[単調さ]"))).toBe(true);
+    expect(messages).toEqual([
+      "[Monotony] Shot durations are nearly even (shortest 4s / longest 4s, low variance). Cluster shorter cuts before the highlight and avoid even splitting.",
+      "[Monotony] The same camera family “push-zoom” repeats 3 times in a row. Keep one vector per shot, but change framing or motion between adjacent shots.",
+      "[Monotony] No short hook cut or hook role was found within the first 2s. Shorten the intro and lead with value, a question, or a highlight."
+    ]);
   });
 });

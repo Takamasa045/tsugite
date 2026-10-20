@@ -2,6 +2,7 @@
  * Phase E: iteration multi_block + retry_saturation pure lint.
  */
 import { describe, expect, it } from "vitest";
+import { createTranslator } from "../src/i18n/index.js";
 import {
   ITERATION_MULTI_BLOCK_CHANGE_CODE,
   ITERATION_RETRY_SATURATION_CODE,
@@ -106,7 +107,14 @@ describe("Phase E iteration discipline", () => {
       snap("shot-a", 9, { a: "x", b: "y" })
     );
     const messages = iterationFindingsToWarningMessages(findings);
-    expect(messages.every((message) => message.startsWith("[イテレーション]"))).toBe(true);
+    expect(messages).toEqual([
+      "[イテレーション] request 'shot-a' changed 2 prompt blocks vs previous generation (threshold 2); change one block at a time",
+      "[イテレーション] request 'shot-a' reached generation ordinal 10 (threshold 10); consider splitting or simplifying the shot"
+    ]);
+    expect(iterationFindingsToWarningMessages(findings, createTranslator("en"))).toEqual([
+      "[Iteration] request 'shot-a' changed 2 prompt blocks vs previous generation (threshold 2); change one block at a time",
+      "[Iteration] request 'shot-a' reached generation ordinal 10 (threshold 10); consider splitting or simplifying the shot"
+    ]);
   });
 
   it("compile lineage includes block_digests", async () => {
