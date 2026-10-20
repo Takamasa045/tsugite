@@ -30,7 +30,7 @@ maintainer decision; a machine fixture cannot honestly complete them:
 | U07, S01 | Three independent novice trials on the three OSs, including human timing; kit in [trial-kit.ja.md](onboarding/trial-kit.ja.md) |
 | B04, P08, P10 | Actual service request/status/final billing and account credit-unit acceptance; paid generation is postponed to the end, lowest-credit service first; Kling may need prepaid credits |
 | P13, P14, P15 | Review/maintain the separated experiments and choose a new labs remote; the current authorization names the existing repository only |
-| D06, D08 | Select/publish contribution issues and assign actual maintainers; five publish-ready good-first-issue drafts plus the trial report form are prepared |
+| D08 | Assign actual maintainers; the trial report form is prepared (D06 is done: #228–#232 are published) |
 | M02, M07, S05 | v1 support duration/branch policy, fork-user notice and the new-production cutover after independent acceptance |
 | M06, S02, S03, S04 | Independent phase gates and post-release adoption/maintenance metrics |
 
