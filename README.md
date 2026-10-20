@@ -45,6 +45,24 @@ Official setup copies the zero-credit sample production 「はじめての継手
 
 “Open the launcher?” → yes runs the existing `setup:open` and shows 「はじめての継手」 in the production list. Opening it does not generate, export, or change a waiting check.
 
+## Quick start
+
+Stable **v1** (`0.18.0`). If you already have this repository and want to type commands yourself: install once, then walk the bundled storyboard sample through validation (`validate`) → planning (`plan`) → the confirmation page (`review` HTML). No billing, no external API, no export (`render`). The browser does not open by itself.
+
+```sh
+npm ci
+export TSUGITE_PROJECTS_HOME=/tmp/tsugite-quickstart
+mkdir -p "$TSUGITE_PROJECTS_HOME"
+cp -R examples/storyboard-local "$TSUGITE_PROJECTS_HOME/storyboard-local"
+node bin/pipeline validate --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
+node bin/pipeline plan --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
+node bin/pipeline review --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
+```
+
+The last command prints `確認画面: …（開くには --open）`. Open that path yourself. Add `--open` only if you want the browser opened. `TSUGITE_PROJECTS_HOME` keeps this copy off the real `projects/` shelf.
+
+Need Node.js 22.12 or newer in the 22.x line, npm 10 or newer, and FFmpeg including `ffprobe`. Longer walkthrough: [first video](docs/onboarding/first-video.ja.md). v2 is alpha; try it from [v2/README](v2/README.md) only if you want the in-progress path.
+
 ## Ways to ask
 
 Short examples. The full catalog is [Ways to ask](docs/guide/requests.md).
