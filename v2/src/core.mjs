@@ -8,6 +8,7 @@ import { plugin, pluginID } from './plugins.mjs';
 import { taste } from './taste.mjs';
 import {inputClips,audioTracks,captions,arrange} from './timeline.mjs';
 import { sample, probe, command } from '../plugins/local/index.mjs';
+import { normalizeLanguage } from './i18n.mjs';
 
 const stateFile = '.tsugite/state.json';
 const initialState = { version: 1, ledger: { entries: [] }, jobs: {}, renders: {}, events: [] };
@@ -21,8 +22,13 @@ export async function config(root) {
   const bytes = await read(root, 'tsugite.yaml');
   const c = parse(bytes, { maxAliasCount: 0 });
   if (!c || typeof c !== 'object' || Array.isArray(c)) fail('Invalid tsugite.yaml');
-  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options'];
+  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options','lang'];
   for (const key of Object.keys(c)) if (!allowed.includes(key)) fail('Unknown project field: ' + key);
+  if (c.lang !== undefined) {
+    const language = normalizeLanguage(c.lang);
+    if (language) c.lang = language;
+    else delete c.lang;
+  }
   if (c.version !== undefined && c.version !== 2) fail('Expected project version 2');
   if (typeof c.name !== 'string' || !c.name.trim() || c.name.length > 200) fail('Project needs a name');
   if (!['9:16','16:9','1:1'].includes(c.format)) fail('Unsupported format');
