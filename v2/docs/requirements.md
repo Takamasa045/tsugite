@@ -91,7 +91,7 @@ product roadmap or proof of paid integrations.
 | D03 | Templates, taste and knowledge packs shareable separately | done | Versioned timing template import/export, taste JSON and local Markdown knowledge packs |
 | D04 | Site gallery with examples | done | [Gallery](gallery.md) merged to existing public GitHub project; all example assets downloaded anonymously and SHA-256 verified |
 | D05 | README first screen value + 30-second demo | done | Synthetic 30-second 720p demo published in [alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1), downloaded and verified |
-| D06 | At least five good-first-issues | partial | Publish-ready drafts in contribution-backlog.md; draft 2 (Japanese quick-start) is done as of alpha.5. Five unpublished good-first-issue candidates remain (1, 3, 4, 5, 7). No GitHub issue creation authorized/performed |
+| D06 | At least five good-first-issues | done | Five `good first issue` issues published on 2026-10-20 with owner approval: #228–#232 (drafts 1, 3, 4, 5, 7 in contribution-backlog.md). Draft 2 (Japanese quick-start) is done as of alpha.5 |
 | D07 | Monthly grouped dependency maintenance, few dependencies | done | YAML-only core + optional MCP SDK; monthly grouped /v2 policy, v1 entries unchanged |
 | D08 | Author governs; plugin maintainers assigned | external | Actual maintainer assignment required before release |
 | M01 | v1 maintained during transition; active projects finish on v1 | done | Worktree isolation and untouched v1 sources/data |

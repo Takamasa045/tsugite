@@ -1,11 +1,15 @@
 # Contribution issues prepared for review
 
-These are local issue drafts, not published GitHub issues or assigned work.
-Draft 2 is done for a first Japanese walkthrough (alpha.5). **Five** unpublished
-`good first issue` candidates remain (1, 3, 4, 5, and 7). Draft 6 is a
-`help wanted` follow-up, not a novice starter. Before release, a maintainer
-can select at least five and post them explicitly. Do not create GitHub
-issues from this file unless the owner asks. Each remaining draft uses
+These drafts are now published as GitHub `good first issue` issues
+(2026-10-20): drafts 1, 3, 4, 5 and 7 are
+[#228](https://github.com/Takamasa045/tsugite/issues/228),
+[#229](https://github.com/Takamasa045/tsugite/issues/229),
+[#230](https://github.com/Takamasa045/tsugite/issues/230),
+[#231](https://github.com/Takamasa045/tsugite/issues/231) and
+[#232](https://github.com/Takamasa045/tsugite/issues/232). Draft 2 is done for a
+first Japanese walkthrough (alpha.5). Draft 6 is a `help wanted` follow-up, not
+a novice starter, and is not published. The GitHub issues are the place to
+discuss and claim work; this file keeps the original scope. Each draft uses
 synthetic media and no provider credentials. Preserve the confirmation-page
 checks and never submit test approvals to real projects.
 
@@ -15,6 +19,8 @@ Independent 10-minute trials use the
 CI success is not a user trial.
 
 ## 1. Test the sample with a first-time Windows user
+
+**Published:** [#228](https://github.com/Takamasa045/tsugite/issues/228)
 
 **Publish title:** `docs: first-time Windows trial of the alpha.5 sample`
 
@@ -55,6 +61,8 @@ service-specific budgets and page-only checks.
 
 ## 3. Improve accessible confirmation-page status messages
 
+**Published:** [#229](https://github.com/Takamasa045/tsugite/issues/229)
+
 **Publish title:** `a11y: keyboard-check confirmation-page status copy`
 
 Suggested labels: `good first issue`, `accessibility`, `ui`, `v2`.
@@ -78,6 +86,8 @@ writing approvals into real projects.
 
 ## 4. Supply an additional portable timing template
 
+**Published:** [#230](https://github.com/Takamasa045/tsugite/issues/230)
+
 **Publish title:** `templates: add a short unequal-clip timing pack`
 
 Suggested labels: `good first issue`, `templates`, `v2`.
@@ -99,6 +109,8 @@ footage, unequal clip lengths and plain captions.
 v1 `edit.backend`.
 
 ## 5. Expand plain subtitle edge-case coverage
+
+**Published:** [#231](https://github.com/Takamasa045/tsugite/issues/231)
 
 **Publish title:** `captions: cover Unicode, empty cue, and boundary times`
 
@@ -145,6 +157,8 @@ uploading transcripts.
 
 ## 7. Add a Japanese eight-command cheat-sheet that links safety rules
 
+**Published:** [#232](https://github.com/Takamasa045/tsugite/issues/232)
+
 **Publish title:** `docs: Japanese cheat-sheet for the eight v2 commands`
 
 Suggested labels: `good first issue`, `documentation`, `translation`, `v2`.
@@ -172,8 +186,7 @@ changing Gate or credit behavior.
 ## Release decisions still owned by the author
 
 Actual maintainer assignments, the v1 support duration/branch policy, the labs
-repository location, public issue creation, gallery hosting and npm publication
+repository location, gallery hosting and npm publication
 remain pending. Fork allowance preserves each upstream license. The local
 implementation and issue drafts do not authorize those external operations.
-Who runs the three OS trials, and which five issues are posted, stays an
-owner choice. Stage 2 paid acceptance stays last.
+Who runs the three OS trials stays an owner choice. Stage 2 paid acceptance stays last.
