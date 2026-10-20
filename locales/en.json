@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "language_name": "English",
+    "product": "Tsugite"
+  },
+  "cli": {
+    "lang_summary": "UI language (ja or en)",
+    "lang_unsupported": "Unsupported language. Use ja or en."
+  }
+}

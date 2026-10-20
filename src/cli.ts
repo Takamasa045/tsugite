@@ -135,12 +135,15 @@ import {
   type CommandSpec
 } from "./cli/commandCatalog.js";
 import { formatHuman } from "./cli/formatHuman.js";
+import { nextNonGlobalIndex } from "./i18n/cliLang.js";
+import { normalizeLanguage } from "./i18n/index.js";
 
 type ParsedArgs = {
   command: string;
   helpTopic?: string;
   config?: string;
   json: boolean;
+  lang?: string;
   dryRun: boolean;
   actor?: string;
   gate?: string;
@@ -2285,13 +2288,44 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
+function parseLangOption(argv: string[]): { lang?: string; issues: Issue[] } {
+  const issues: Issue[] = [];
+  let lang: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== "--lang") continue;
+    const value = argv[index + 1];
+    if (!value || value.startsWith("-")) {
+      issues.push({
+        code: "cli.option_value_missing",
+        message: "--lang requires a value",
+        path: "--lang"
+      });
+      continue;
+    }
+    const normalized = normalizeLanguage(value);
+    if (!normalized) {
+      issues.push({
+        code: "cli.lang_unsupported",
+        message: "unsupported language; use ja or en",
+        path: "--lang"
+      });
+    } else {
+      lang = normalized;
+    }
+    index += 1;
+  }
+  return { ...(lang ? { lang } : {}), issues };
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const helpRequest = parseHelpRequest(argv);
   if (helpRequest) {
+    const langOption = parseLangOption(argv);
     return {
       command: "help",
       ...(helpRequest.topic ? { helpTopic: helpRequest.topic } : {}),
       json: argv.includes("--json"),
+      ...(langOption.lang ? { lang: langOption.lang } : {}),
       dryRun: false,
       open: false,
       apply: false,
@@ -2300,11 +2334,11 @@ function parseArgs(argv: string[]): ParsedArgs {
       allowExternalAnalysis: false,
       confirmPaid: false,
       paths: [],
-      issues: helpRequest.issues
+      issues: [...helpRequest.issues, ...langOption.issues]
     };
   }
 
-  const commandIndex = argv.findIndex((arg) => arg !== "--json");
+  const commandIndex = nextNonGlobalIndex(argv);
   const parsed: ParsedArgs = {
     command: commandIndex >= 0 ? argv[commandIndex] : "",
     json: argv.includes("--json"),
@@ -2423,8 +2457,9 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const valueOptions: Record<
       string,
-      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "decisionsFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node">
+      keyof Pick<ParsedArgs, "config" | "actor" | "gate" | "decision" | "stateDir" | "catalog" | "model" | "capability" | "inputMode" | "output" | "shot" | "request" | "duration" | "shitateRoot" | "character" | "runId" | "anchor" | "requestId" | "speakerId" | "displayName" | "side" | "accent" | "fromManifest" | "speaker" | "subject" | "field" | "text" | "textFile" | "decisionsFile" | "projectsDir" | "port" | "backend" | "key" | "category" | "signal" | "stage" | "summary" | "evidence" | "promotionKind" | "target" | "proposalSummary" | "verification" | "proposalWorkflow" | "proposalRunId" | "proposalSource" | "expectedPlanDigest" | "expectedProductionCompletionDigest" | "personQaDecision" | "personQaReason" | "service" | "tool" | "argumentsJson" | "recovery" | "errorCode" | "node" | "lang">
     > = {
+      "--lang": "lang",
       "--config": "config",
       "--actor": "actor",
       "--gate": "gate",
@@ -2509,13 +2544,26 @@ function parseArgs(argv: string[]): ParsedArgs {
     parsed.issues.push({ code: "cli.option_unknown", message: `unknown option '${arg}'`, path: arg });
   }
 
+  if (parsed.lang) {
+    const normalized = normalizeLanguage(parsed.lang);
+    if (!normalized) {
+      parsed.issues.push({
+        code: "cli.lang_unsupported",
+        message: "unsupported language; use ja or en",
+        path: "--lang"
+      });
+    } else {
+      parsed.lang = normalized;
+    }
+  }
+
   return parsed;
 }
 
 type HelpRequest = { topic?: string; issues: Issue[] };
 
 function parseHelpRequest(argv: string[]): HelpRequest | undefined {
-  const firstCommandIndex = argv.findIndex((arg) => arg !== "--json");
+  const firstCommandIndex = nextNonGlobalIndex(argv);
   const explicitHelpIndex = argv[firstCommandIndex] === "help" ? firstCommandIndex : -1;
   const helpOptionIndex = argv.findIndex((arg) => arg === "--help" || arg === "-h");
   if (explicitHelpIndex < 0 && helpOptionIndex < 0) return undefined;
@@ -2530,6 +2578,11 @@ function parseExplicitHelpRequest(argv: string[], explicitHelpIndex: number): He
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--json" || index === explicitHelpIndex) continue;
+    if (arg === "--lang") {
+      const possibleValue = argv[index + 1];
+      if (possibleValue && !possibleValue.startsWith("-")) index += 1;
+      continue;
+    }
 
     if (arg.startsWith("-")) {
       issues.push(unsupportedHelpOption(arg));
@@ -2545,7 +2598,7 @@ function parseExplicitHelpRequest(argv: string[], explicitHelpIndex: number): He
 }
 
 function parseCommandHelpRequest(argv: string[], helpOptionIndex: number): HelpRequest {
-  const firstCommandIndex = argv.findIndex((arg) => arg !== "--json");
+  const firstCommandIndex = nextNonGlobalIndex(argv);
   let topicIndex = firstCommandIndex >= 0 &&
     firstCommandIndex !== helpOptionIndex &&
     !argv[firstCommandIndex].startsWith("-")
@@ -2555,6 +2608,11 @@ function parseCommandHelpRequest(argv: string[], helpOptionIndex: number): HelpR
     for (let index = helpOptionIndex + 1; index < argv.length; index += 1) {
       const arg = argv[index];
       if (arg === "--json") continue;
+      if (arg === "--lang") {
+        const possibleValue = argv[index + 1];
+        if (possibleValue && !possibleValue.startsWith("-")) index += 1;
+        continue;
+      }
       if (arg.startsWith("-")) break;
       topicIndex = index;
       break;
@@ -2572,6 +2630,11 @@ function parseCommandHelpRequest(argv: string[], helpOptionIndex: number): HelpR
       arg === "-h" ||
       index === topicIndex
     ) continue;
+    if (arg === "--lang") {
+      const possibleValue = argv[index + 1];
+      if (possibleValue && !possibleValue.startsWith("-")) index += 1;
+      continue;
+    }
 
     if (arg.startsWith("-")) {
       if (topic && !command) {

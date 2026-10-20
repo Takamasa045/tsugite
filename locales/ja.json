@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "language_name": "日本語",
+    "product": "継手"
+  },
+  "cli": {
+    "lang_summary": "表示言語（ja または en）",
+    "lang_unsupported": "未対応の言語です。ja または en を指定してください。"
+  }
+}

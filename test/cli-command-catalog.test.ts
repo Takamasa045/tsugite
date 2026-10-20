@@ -171,10 +171,11 @@ describe("CLI command catalog", () => {
   });
 
   it("defines global help and JSON options for every known command", () => {
-    expect(GLOBAL_OPTIONS.map(({ name }) => name)).toEqual(["--json", "--help"]);
+    expect(GLOBAL_OPTIONS.map(({ name }) => name)).toEqual(["--json", "--lang", "--help"]);
 
     for (const command of listCommandHelp()) {
       expect(isCommandOptionAllowed(command.name, "--json")).toBe(true);
+      expect(isCommandOptionAllowed(command.name, "--lang")).toBe(true);
       expect(isCommandOptionAllowed(command.name, "--help")).toBe(true);
     }
   });
