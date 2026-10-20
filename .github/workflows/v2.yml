@@ -84,7 +84,9 @@ jobs:
       - run: npm --prefix v2 ci --ignore-scripts
       - run: npm --prefix v2/plugins/remotion install --ignore-scripts
       - run: test -x /usr/bin/google-chrome
-      - run: node --test v2/tests/renderers.node.mjs
+      # Remotion leaves Chrome/esbuild handles after a successful render; force
+      # the runner to exit so the job is not cancelled by timeout-minutes.
+      - run: node --test --test-force-exit v2/tests/renderers.node.mjs
         env:
           TSUGITE_BROWSER: /usr/bin/google-chrome
           TSUGITE_RENDERER_PEERS: ${{ github.workspace }}/v2/plugins/remotion/node_modules
