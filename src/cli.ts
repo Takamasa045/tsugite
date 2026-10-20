@@ -1752,7 +1752,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         plan,
         outputDir: args.output,
         stateDir: args.stateDir,
-        runtime_authority: validation.runtime_authority
+        runtime_authority: validation.runtime_authority,
+        lang: args.lang
       });
       if (args.open) {
         try {
@@ -1836,7 +1837,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         plan,
         outputDir: args.output,
         stateDir: args.stateDir,
-        runtime_authority: validation.runtime_authority
+        runtime_authority: validation.runtime_authority,
+        lang: args.lang
       });
       return output(args, 0, {
         ok: true,
