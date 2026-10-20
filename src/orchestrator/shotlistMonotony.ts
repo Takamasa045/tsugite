@@ -3,6 +3,8 @@
  * Gate を自動承認/拒否せず、警告文だけを返す。
  */
 
+import { createTranslator, type TranslateParams } from "../i18n/index.js";
+
 export type ShotlistMonotonyShot = {
   id?: string;
   start: number;
@@ -25,6 +27,7 @@ export type ShotlistMonotonyFinding = {
     | "shotlist.missing_early_hook";
   message: string;
   severity: "warning";
+  params: TranslateParams;
 };
 
 export type LintShotlistMonotonyOptions = {
@@ -42,6 +45,8 @@ export type LintShotlistMonotonyOptions = {
   minShotsForDuration?: number;
 };
 
+type Translator = (key: string, params?: TranslateParams) => string;
+
 const DEFAULTS = {
   durationRangeRatioMax: 0.12,
   durationCvMax: 0.1,
@@ -50,6 +55,49 @@ const DEFAULTS = {
   earlyHookSeconds: 2,
   minShotsForDuration: 3
 } as const;
+
+const ja = createTranslator("ja");
+
+function formatMonotonySeconds(value: number, tr: Translator): string {
+  const rounded = Math.round(value * 10) / 10;
+  const display = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return tr("review.format.seconds", { value: display });
+}
+
+function monotonyFindingMessage(
+  code: ShotlistMonotonyFinding["code"],
+  params: TranslateParams,
+  tr: Translator
+): string {
+  if (code === "shotlist.duration_low_variance") {
+    return tr("review.warn.duration_low_variance", {
+      min: formatMonotonySeconds(Number(params.min), tr),
+      max: formatMonotonySeconds(Number(params.max), tr),
+      cv_note: params.lowCv ? tr("review.warn.duration_cv_note") : ""
+    });
+  }
+  if (code === "shotlist.camera_repeat") {
+    return tr("review.warn.camera_repeat", { camera: params.camera, count: params.count });
+  }
+  if (code === "shotlist.static_run") {
+    return tr("review.warn.static_run", { count: params.count });
+  }
+  return tr("review.warn.missing_early_hook", {
+    seconds: formatMonotonySeconds(Number(params.seconds), tr)
+  });
+}
+
+function finding(
+  code: ShotlistMonotonyFinding["code"],
+  params: TranslateParams
+): ShotlistMonotonyFinding {
+  return {
+    code,
+    severity: "warning",
+    params,
+    message: monotonyFindingMessage(code, params, ja)
+  };
+}
 
 export function lintShotlistMonotony(
   shots: readonly ShotlistMonotonyShot[],
@@ -79,14 +127,11 @@ export function lintShotlistMonotony(
       const lowRange = mean > 0 && (max - min) / mean < durationRangeRatioMax;
       const lowCv = mean > 0 && cv < durationCvMax;
       if (lowRange || lowCv) {
-        findings.push({
-          code: "shotlist.duration_low_variance",
-          severity: "warning",
-          message:
-            `ショット尺がほぼ均等です（最短 ${formatSeconds(min)} / 最長 ${formatSeconds(max)}`
-            + `${lowCv ? `、ばらつき小` : ""}）。`
-            + "見せ場前に短カットを密集させ、均等割りを避けてください。"
-        });
+        findings.push(finding("shotlist.duration_low_variance", {
+          min,
+          max,
+          lowCv: lowCv ? 1 : 0
+        }));
       }
     }
   }
@@ -108,13 +153,10 @@ export function lintShotlistMonotony(
         run = 1;
       }
       if (run === cameraRepeatThreshold) {
-        findings.push({
-          code: "shotlist.camera_repeat",
-          severity: "warning",
-          message:
-            `同じカメラ系統「${camera}」が${cameraRepeatThreshold}連続しています。`
-            + "1ショット1ベクトルを保ちつつ、隣接ショットで画角や動きを変えてください。"
-        });
+        findings.push(finding("shotlist.camera_repeat", {
+          camera,
+          count: cameraRepeatThreshold
+        }));
         break;
       }
     }
@@ -128,13 +170,7 @@ export function lintShotlistMonotony(
       if (camera === "static") {
         run += 1;
         if (run === staticRunThreshold) {
-          findings.push({
-            code: "shotlist.static_run",
-            severity: "warning",
-            message:
-              `カメラが static / none のショットが${staticRunThreshold}連続しています。`
-              + "寄り/引きや1ベクトルの動きを挟み、単調な固定画を避けてください。"
-          });
+          findings.push(finding("shotlist.static_run", { count: staticRunThreshold }));
           break;
         }
       } else {
@@ -157,13 +193,7 @@ export function lintShotlistMonotony(
       return shot.duration <= earlyHookSeconds + 1e-9 || end <= earlyHookSeconds + 1e-9;
     });
     if (!hasEarlyHook) {
-      findings.push({
-        code: "shotlist.missing_early_hook",
-        severity: "warning",
-        message:
-          `冒頭${formatSeconds(earlyHookSeconds)}以内にフックとなる短いカットや役割が見つかりません。`
-          + "導入を短くし、価値・問い・見どころを先に出してください。"
-      });
+      findings.push(finding("shotlist.missing_early_hook", { seconds: earlyHookSeconds }));
     }
   }
 
@@ -171,9 +201,12 @@ export function lintShotlistMonotony(
 }
 
 export function monotonyFindingsToWarningMessages(
-  findings: readonly ShotlistMonotonyFinding[]
+  findings: readonly ShotlistMonotonyFinding[],
+  tr: Translator = ja
 ): string[] {
-  return findings.map((finding) => `[単調さ] ${finding.message}`);
+  return findings.map((item) =>
+    `${tr("review.warn.monotony_prefix")} ${monotonyFindingMessage(item.code, item.params, tr)}`
+  );
 }
 
 /** カメラ表記を系統に正規化（zoom/push など近縁を同一視）。 */
@@ -205,9 +238,4 @@ function looksLikeHook(shot: ShotlistMonotonyShot): boolean {
     .join(" ")
     .toLowerCase();
   return /(hook|フック|掴み|問い|衝撃|冒頭|見どころ)/i.test(haystack);
-}
-
-function formatSeconds(value: number): string {
-  const rounded = Math.round(value * 10) / 10;
-  return Number.isInteger(rounded) ? `${rounded}秒` : `${rounded.toFixed(1)}秒`;
 }
