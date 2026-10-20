@@ -1,0 +1,29 @@
+slug: google-dialogue-h3-video
+name: Gemini会話音声からMiniMax H3動画
+run_id: google-dialogue-h3-video-run
+manifest: manifest.json
+dist_dir: dist
+edit:
+  backend: remotion
+generation:
+  adapter: pixverse
+  connection: pixverse
+  requests:
+    - id: dialogue-shot
+      operation: reference
+      input_mode: reference
+      model: minimax-h3
+      duration: 10
+      aspect: "16:9"
+      prompt: >-
+        AとBが向かい合って自然に会話する。Aは最初の声、Bは次の声。
+        参照画像で人物の外見を保ち、参照音声の会話の間とリズムに合わせて表情と口の動きを作る。
+        カメラは二人を見せるミディアムショット。追加の台詞やBGMは入れない。
+      input_images:
+        - media/speaker-a.png
+        - media/speaker-b.png
+      input_audios:
+        - media/dialogue.wav
+      params:
+        quality: 768p
+        audio: false

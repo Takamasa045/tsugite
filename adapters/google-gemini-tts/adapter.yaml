@@ -1,0 +1,35 @@
+name: google-gemini-tts
+kind: cli
+class: generation
+offline: false
+network:
+  input_scope: source-media
+  timeout_ms: 120000
+  credential_env: [GEMINI_API_KEY]
+dry_run_estimate: true
+batch: false
+credit_estimate:
+  per_request: 0
+  per_second: 0
+retry:
+  max_attempts: 0
+  retryable_exit_codes: []
+exit_code_map:
+  "0": ok
+  "40": invalid_request
+  "50": provider_error
+checks:
+  setup:
+    - type: environment
+      name: provider-auth:google-gemini-tts
+      variable: GEMINI_API_KEY
+      remediation:
+        default: "Set GEMINI_API_KEY in the process environment. Never put the key in project.yaml or chat."
+command:
+  executable: node
+  args: ["adapters/google-gemini-tts/generate.mjs"]
+  input: stdin-json
+model_preflight:
+  executable: node
+  args: ["adapters/google-gemini-tts/preflight.mjs"]
+  input: stdin-json
