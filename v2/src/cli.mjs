@@ -11,35 +11,15 @@ import { migrate } from './migrate.mjs';
 import {template,initTemplate,installSkill,addKnowledge} from './packs.mjs';
 import {analyze} from './analysis.mjs';
 import {addArchive,acquireNpm} from './acquire.mjs';
+import { parse } from 'yaml';
+import {
+  extractLangOption,
+  normalizeLanguage,
+  resolveLanguageFromEnvironment,
+  t
+} from './i18n.mjs';
 
-export const help = `継手 / Tsugite v2 alpha
-Usage: tsugite <command> [--project directory] [--json]
-
-  init <directory> [--from-v1 directory]   Create an offline sample or copy v1
-  init <directory> --from-v1 dir --flatten file [--archive-v1]
-                                          Copy a final and preserve legacy data safely
-  init <directory> --template file        Fill portable timing slots with sample media
-  init --pack file                       Export a timing template without media
-  check [--status]                        Check environment / current workflow
-  plan [--no-review] [--open] [--no-open]  Plan and print local confirmation URL
-  make                                   Make clips after plan approval
-  export                                 Export after clips approval
-  note <text> [--group text] [--global]    Save a private taste observation
-  note --pack file | --import file        Export / import a taste pack
-  clean                                  Preview old generated files
-  plugin list | new <dir> --id <id> | add <local-package-dir>
-  plugin add <bundled-name|directory|archive.tgz|npm:package@exact-version>
-  plugin analyze <id> assets/input [--mock] [--model local-model] [--output assets/captions.srt]
-  plugin knowledge story|prompt-director|file.md
-  plugin skill --to <client-skills-directory>
-  plugin guide inspect | select assets/choice.json [--private-guide file.json]
-  plugin guide preview [--seconds 3] | review [assets/observations.json]
-
-Transport: tsugite mcp (stdio, current project only)
-Checks are approved only in the confirmation page. No CLI approval flag exists.
-plan does not open a browser unless --open is given. --no-open is deprecated and ignored.
-Offline/mock runs need no service account. Live runs require explicit private connections.
-`
+export const help = t('cli.help');
 
 export async function dispatch(command, args = [], root = process.cwd()) {
   // Shared command dispatcher is the sole mutation path for CLI and MCP.
@@ -59,9 +39,18 @@ export const browser = {
     const child = spawn(executable,args,{stdio:'ignore',windowsHide:true}); child.on('error',()=>{}); child.unref();
   }
 };
+function resolveCliLanguage(cliLang, projectLang) {
+  if (cliLang !== undefined && !normalizeLanguage(cliLang)) fail(t('cli.lang_unsupported'));
+  return resolveLanguageFromEnvironment({ cliLang, projectLang }).language;
+}
+
 export async function main(argv = process.argv.slice(2)) {
-  if (!argv.length || argv.includes('--help')) { process.stdout.write(help); return; }
-  const command = argv[0], options = { project:{type:'string'}, json:{type:'boolean'} };
+  const extracted = extractLangOption(argv);
+  if (!extracted.argv.length || extracted.argv.includes('--help')) {
+    process.stdout.write(t('cli.help', undefined, resolveCliLanguage(extracted.lang)));
+    return;
+  }
+  const command = extracted.argv[0], options = { project:{type:'string'}, json:{type:'boolean'} };
   const perCommand = {
     init:{'from-v1':{type:'string'},flatten:{type:'string'},'archive-v1':{type:'boolean'},template:{type:'string'},pack:{type:'string'}}, check:{status:{type:'boolean'}},
     plan:{'no-review':{type:'boolean'},open:{type:'boolean'},'no-open':{type:'boolean'},review:{type:'boolean'},port:{type:'string'}},
@@ -69,8 +58,14 @@ export async function main(argv = process.argv.slice(2)) {
     plugin:{id:{type:'string'},to:{type:'string'},mock:{type:'boolean'},model:{type:'string'},output:{type:'string'},seconds:{type:'string'},'private-guide':{type:'string'}}, mcp:{}
   };
   if (!Object.hasOwn(perCommand,command)) fail('Unknown command');
-  const {values,positionals} = parseArgs({ args:argv.slice(1), options:{...options,...perCommand[command]},allowPositionals:true,strict:true });
+  const {values,positionals} = parseArgs({ args:extracted.argv.slice(1), options:{...options,...perCommand[command]},allowPositionals:true,strict:true });
   const root = await fs.realpath(path.resolve(values.project || process.cwd()));
+  let projectLang;
+  try {
+    const parsed = parse(await fs.readFile(path.join(root, 'tsugite.yaml'), 'utf8'), { maxAliasCount: 0 });
+    projectLang = typeof parsed?.lang === 'string' ? parsed.lang : undefined;
+  } catch {}
+  const language = resolveCliLanguage(extracted.lang, projectLang);
   let result;
   if (command === 'mcp') {
     if (positionals.length) fail('Unexpected arguments');
@@ -128,10 +123,10 @@ export async function main(argv = process.argv.slice(2)) {
   if (command === 'plan' && !values['no-review']) {
     const port = values.port === undefined ? 0 : Number(values.port);
     if (!Number.isInteger(port) || port < 0 || port > 65535) fail('Invalid port');
-    const page = await review(root,{port});
+    const page = await review(root,{port, lang: extracted.lang});
     process.stdout.write(json({ok:true,...result,url:page.url,opened:Boolean(values.open)}));
     if (values.open) browser.open(page.url);
-    else process.stderr.write(`確認画面: ${page.url} （開くには --open）\n`);
+    else process.stderr.write(t('cli.path_notice', { url: page.url }, language));
     const close = () => { page.server.close(); page.server.closeAllConnections(); };
     process.once('SIGINT',close); process.once('SIGTERM',close);
     return page;

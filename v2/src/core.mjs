@@ -21,8 +21,9 @@ export async function config(root) {
   const bytes = await read(root, 'tsugite.yaml');
   const c = parse(bytes, { maxAliasCount: 0 });
   if (!c || typeof c !== 'object' || Array.isArray(c)) fail('Invalid tsugite.yaml');
-  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options'];
+  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options','lang'];
   for (const key of Object.keys(c)) if (!allowed.includes(key)) fail('Unknown project field: ' + key);
+  if (c.lang !== undefined && !['ja','en'].includes(c.lang)) fail('Unsupported language. Use ja or en.');
   if (c.version !== undefined && c.version !== 2) fail('Expected project version 2');
   if (typeof c.name !== 'string' || !c.name.trim() || c.name.length > 200) fail('Project needs a name');
   if (!['9:16','16:9','1:1'].includes(c.format)) fail('Unsupported format');
