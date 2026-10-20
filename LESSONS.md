@@ -104,12 +104,20 @@ Append-only format:
 2026-09-10 / Studio inspect がプレビューに data-hf-id があるのに no element matches handle を返した / 配信 HTML は /assets/index-*.js を読み、asHtmlElement が instanceof defaultView.HTMLElement を必須にする。dist/studio/index.js だけの修正は配信面に届かない / 配信バンドルをバージョン+sha256+出現回数で fail-closed パッチし、受け入れは HTML 名前空間・同一 document・isConnected に限る。ツール差し替えと ID 事前付与は使わない / documented
 2026-09-10 / HyperFrames の adm-zip に修正版がなく root 全依存 audit が落ちた / 公開 package.json や lock から依存宣言を消すと npm install で戻る / `overrides.adm-zip` を `npm:fflate@0.8.3` にし、installed package.json の name/version と lock の resolved を検査する。ZIP API は in-memory adapter へ CLI import をパッチし、展開は選んだ entry だけにする / documented
 2026-09-10 / central-directory の uncompressedSize を小さく偽ると inflate 後の長さ検査の前に大域確保が起きる / 宣言値は攻撃者が書ける / Node zlib inflateRawSync の maxOutputLength で出力上限を課し、CRC と宣言長は成功後に照合する。偽サイズの DEFLATE 回帰を必須にする / documented
+2026-09-17 / Editframe `render --width/--height` が unknown option で即死した / CLIはtimegroup寸法だけを見る / width/heightフラグは渡さず、ルートTimegroupを1080×1920で固定する / documented
+2026-09-17 / 9:16 Editframe試作が左上に潰れ、グラデも文字も欠けた / `@tailwindcss/vite` なしで absolute/inset/flex に依存した / 公式サンプル同等のTailwindプラグインを入れ、重要配置はインラインstyleにする / documented
+2026-09-17 / 公式レター切り抜きが左右欠け、同名JPEG差し替えが古い画のまま出た / ef-imageはobject-fitを守らず、ファイル名キャッシュが残る / 切り抜きは別名ファイル+CSS background contain。カバーで左寄せロゴを切らない / documented
+2026-09-17 / 9:16告知の下が大きく空き、ユーザーが余白を指摘した / 見出しを中段固定のtop値だけに置き、画面下まで伸ばさなかった / 2026-07-16と同系統。9:16はtop/bottomを固定したflexで埋め、初回QA静止画で下部空きを見てから再レンダーする / recurring・昇格候補
+2026-09-17 / ElevenLabs Creative Scribe MCPは全文とspoken_durationだけ返し単語時刻が無い / REST STTのwords配列やtimestamps_granularityをCreative transcribe_audioが公開しない。再実行は二重課金 / 歌詞時計が要るときはScribeテキストを正本照合に使い、時刻はforced alignmentかローカルword timestampsを公式歌詞へ載せる。transcribe_audioは一度だけ / observed
+2026-09-17 / Hypitのgrapheme Sequenceを歌詞98塊へ一斉適用したら HyperFrames が capturing frames でタイムアウト / 単位アニメは文字数×塊数でキャプチャが重くなる / タイプ感は clip-right の開きを主にし、graphemeは短い数塊だけ。end-indexは実文字数と一致させる / observed
 
 ## Fast Edit native parity (2026-09-20)
 
 - MP4/ffprobe/audio/duration success does not prove timed overlays. Editframe 0.59.47 exports a cloned timegroup; `addFrameTask` and instance method overrides are not copied. Use the SDK's copied `onFrame` property and resolve descendants through its `element` argument. Verify late beats and transition frames, not only time zero.
 - HyperFrames extracted video composition does not preserve every CSS video filter. Bake the common color treatment into local, run-owned source derivatives before native compositing; retain the original Manifest and source audio.
 - Editframe native HTML-in-Canvas capture can retain stale pixels during transparent transitions and produce unstable vertical frames. Use an opaque root and the official foreign-object capture path; compare transition-boundary frames and OCR every caption before claiming parity.
+
+2026-09-24 / 完成済みMVへ追加した導入だけ明るく、正本へ切り替わる6秒で急に暗く見えた / 新しい導入に正本v27の色調・周辺減光・粒子などの仕上げを適用せず、技術QCと離れた代表フレームだけで合格にした / 正本の前後へ映像を加えるときは仕上げ処理を導入にも適用し、完成ファイルの接続直前・直後と連続フレームを目視確認する。音は別に確認し、issue 0を視覚品質の代用にしない / r5の接続前後とGate3 QCで確認・observed、共有ルールへの昇格なし
 
 ## Isolated v2 verification (2026-10-18)
 
