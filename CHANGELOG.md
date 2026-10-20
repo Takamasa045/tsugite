@@ -4,17 +4,22 @@
 
 - Update video tooling to Remotion 4.0.536, HyperFrames 0.8.173, GSAP 3.15.0, PixVerse CLI 1.4.9, Kling CLI 0.2.3, MiniMax CLI 1.0.28, Editframe 0.60.34, Hypit 0.3.1 and Tesseract 0.4.0. Align v2 renderer peers and bind split HyperFrames runtime files to reviewed plans.
 - Preserve local rendering with the current Editframe SDK/advanced Vite API, adapt Hypit SDK and CLI contracts, keep provider CLI pins effective in execution/Doctor, and retain page-only approvals and service-specific budgets.
+- Clarify that v1 is 0.18.0 (the alpha.1 note that v1 stayed at 0.17.0 is historical), record the HyperFrames pins (both v1 and the v2 adapter now pin 0.8.173 after the tooling update above), and point current v2 docs at alpha.5. Add an owner-facing v1→v2 migration decision record at `v2/docs/migration-plan.ja.md`. Docs only; no runtime, version, or release change.
 
+## 0.18.0 - 2026-10-19
+
+- Reorganize the Japanese and English READMEs for non-engineer onboarding and move the previous technical sections to `docs/reference.ja.md` and `docs/reference.md`.
+- Add a real local-launcher screenshot of the sample production 「はじめての継手」 to the first three README headings, and rewrite the Chinese and Korean READMEs as ja/en-aligned summaries. Coverage (`branches ≥ **74.4%**`) and `npm run security:audit` contract strings stay; download-site is unchanged.
+- Ask one “open the launcher?” question at the end of the first-time setup report, and run existing `setup:open` only after yes.
+- Name the opt-in Gate 2 auto-pass exception in the human-stop README and glossary copy, and retarget the v2 first-video “もっと詳しく” link to the root README heading.
 - Make the Gate 1 review decision panel a read-only agent prompt (承認 / ここを直したい / 中止) and fold `bin/pipeline gate` commands into a “詳しい人向け” details block. Use `project.yaml` `name` as the page title, and replace visitor-facing labels such as 推定credits / 編集backend / 構成ワイヤー with 予想される生成費用 / 編集エンジン / 仮の構成図. Motion and composition copy now tell people to ask the agent instead of naming YAML keys.
 - Add a zero-credit `examples/storyboard-local` sample with storyboard stills, a character sheet, captions, and motion so the review page is not an empty warning list. `examples/quickstart-local` is unchanged.
 - Ask every Gate with the same four-part prompt in the Tsugite Skill (見るところ / かかる費用 / OK したら次に何が起きるか / 選べる3つ). Keep the Gate 2 `auto_pass` exception exact.
 - Classify `validate` help as `local-write` and mention launcher-shelf registration. Behavior is unchanged: it still does not change Gate state.
 - Print a Japanese check-mark summary for `validate` / `plan` / `review` / `doctor` when `--json` is omitted. `--json` output is unchanged. Common ENOENT and schema “Invalid input” errors are wrapped in plain Japanese.
-- Name the opt-in Gate 2 auto-pass exception in the human-stop README and glossary copy, and retarget the v2 first-video “もっと詳しく” link to the root README heading.
-- Add a real local-launcher screenshot of the sample production 「はじめての継手」 to the first three README headings, and rewrite the Chinese and Korean READMEs as ja/en-aligned summaries. Coverage (`branches ≥ **74.4%**`) and `npm run security:audit` contract strings stay; download-site is unchanged.
-- Ask one “open the launcher?” question at the end of the first-time setup report, and run existing `setup:open` only after yes.
-- Reorganize the Japanese and English READMEs for non-engineer onboarding and move the previous technical sections to `docs/reference.ja.md` and `docs/reference.md`.
 - Preserve and integrate the `kobo-launch-16x9` Remotion preset with configurable copy and timeline-offset previews; registered preset rendering is checked with the current shared root.
+- Record other post-0.17.0 v1 work still on this source: optional ElevenLabs v4 Turbo MCP narration with explicit MCP model support before speech, updated pinned video integrations, Tesseract render-verification notes, and the 74.4% branch coverage / download-site audit pins.
+- Independent v2 remains `2.0.0-alpha.5` and is not part of this bump. This is a source-only release. Desktop distribution and npm publication are not included.
 
 ## 2.0.0-alpha.5 - 2026-10-19 (independent v2 distribution)
 
@@ -38,7 +43,7 @@
 
 ## 2.0.0-alpha.1 - 2026-10-18 (independent v2 package)
 
-- Add `v2/` as an independent npm-format package and CLI. The v1 source package stays at 0.17.0; active productions, commands and data remain compatible.
+- Add `v2/` as an independent npm-format package and CLI. At this alpha the v1 source package remained 0.17.0 (v1 later released as 0.18.0); active productions, commands and data remain compatible.
 - Implement plan/clips/final checks in one local confirmation page, content-bound invalidation, atomic per-service credit reservations, uncertain-job reconciliation, private preferences/packs, MCP and a short Agent Skill.
 - Verify account-free sample installation and export, sound/captions/trims, existing-browser Remotion and HyperFrames, local CPU Whisper and 18-card Fast Edit. Add editable Fast Edit migration, explicit final copies and locked legacy-data archives.
 - Add documented PixVerse/Kling/ElevenLabs HTTP transports with synthetic protocol tests. No paid acceptance or credential change is claimed. Separate 11 experimental compatibility source packages without moving v1 work.

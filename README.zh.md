@@ -4,7 +4,7 @@
 
 把计划、素材、完成视频的确认交给人，并把这一次改过的点接到下一支片子。Tsugite 是在自己电脑上跑的影像工房。
 
-完整入口以 [日本語 README](README.ja.md) 与 [English README](README.md) 为正本。以前 README 中的技术说明见 [docs/reference.ja.md](docs/reference.ja.md) 与 [docs/reference.md](docs/reference.md)。仓库软件版本是 **0.17.0**。
+完整入口以 [日本語 README](README.ja.md) 与 [English README](README.md) 为正本。以前 README 中的技术说明见 [docs/reference.ja.md](docs/reference.ja.md) 与 [docs/reference.md](docs/reference.md)。仓库软件版本是 **0.18.0**。
 
 ## 适合谁
 
@@ -78,7 +78,7 @@
 
 - 以前 README 的技术说明：[docs/reference.ja.md](docs/reference.ja.md) · [docs/reference.md](docs/reference.md)
 - Windows：[Windows 原生指南](docs/windows.md)
-- 版本：仓库本体 `0.17.0`。[变更记录](CHANGELOG.md)
+- 版本：仓库本体 `0.18.0`。[变更记录](CHANGELOG.md)
 - v2 alpha（开发中）：[概要](v2/README.md) · [6 秒环境确认](docs/onboarding/first-video.ja.md) · [按用途选择](docs/onboarding/see-and-choose.ja.md)
 - 开发：[CONTRIBUTING.md](CONTRIBUTING.md)
 - `npm run check` 强制 `src/` 的 statements / functions / lines ≥ 80%，branches ≥ **74.4%**（Production Orchestration 后的保持值；恢复 75% 仍是债务）。`npm run security:audit` 会分别检查 production 依赖树和完整开发依赖树，发现 moderate 或更高 advisory 即失败。

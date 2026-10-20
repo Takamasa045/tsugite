@@ -3,6 +3,9 @@
   "version": "2.0.0-alpha.2",
   "type": "module",
   "license": "MIT",
+  "scripts": {
+    "test": "node --test test.mjs"
+  },
   "peerDependencies": {
     "@remotion/bundler": "4.0.536",
     "@remotion/renderer": "4.0.536",

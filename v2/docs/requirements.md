@@ -71,7 +71,7 @@ product roadmap or proof of paid integrations.
 | P04 | plugin add named npm package | done | Exact npm package/version acquisition without lifecycle scripts; bounded tar validation and identity matching; mocked registry tests plus a real local npm archive; registry network acceptance unverified |
 | P05 | Community/labs labels, optional official namespace | done | No vendor endorsement assumed; no official requirement |
 | P06 | Remotion renderer with accurate license notice | done | Independent optional renderer; real audio/caption MP4 fixture on Mac; tested peers/browser pinned in plan; accurate license guidance |
-| P07 | HyperFrames renderer with music/SFX | done | Real HyperFrames 0.8.24 in the v2 checked workflow, timed captions, looping BGM and SFX under external-network denial; existing dependencies unchanged |
+| P07 | HyperFrames renderer with music/SFX | done | Real HyperFrames **0.8.24** in the v2 adapter (`v2/plugins/hyperframes`; version enforced in `index.mjs`), timed captions, looping BGM and SFX under external-network denial. Independent of the v1 root pin **0.8.75** (`package.json`, `backends/hyperframes`). Existing v1 dependencies unchanged |
 | P08 | PixVerse/Kling source plugins | partial | Official current PixVerse V6 and Kling 3.0 HTTP transports, defaults, identity recovery and synthetic protocol tests implemented; actual paid acceptance pending |
 | P09 | Local media analysis/Whisper | done | Real existing whisper.cpp/large-v3-turbo model CPU transcript under network denial; binary/model digests retained |
 | P10 | ElevenLabs narration | partial | Official timestamped TTS HTTP transport, local WAV conversion and synthetic tests implemented; actual paid voice/credit acceptance pending |
@@ -91,7 +91,7 @@ product roadmap or proof of paid integrations.
 | D03 | Templates, taste and knowledge packs shareable separately | done | Versioned timing template import/export, taste JSON and local Markdown knowledge packs |
 | D04 | Site gallery with examples | done | [Gallery](gallery.md) merged to existing public GitHub project; all example assets downloaded anonymously and SHA-256 verified |
 | D05 | README first screen value + 30-second demo | done | Synthetic 30-second 720p demo published in [alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1), downloaded and verified |
-| D06 | At least five good-first-issues | partial | Five scoped starter issue drafts with acceptance criteria in contribution-backlog.md; no GitHub issue creation authorized/performed |
+| D06 | At least five good-first-issues | partial | Publish-ready drafts in contribution-backlog.md; draft 2 (Japanese quick-start) is done as of alpha.5. Five unpublished good-first-issue candidates remain (1, 3, 4, 5, 7). No GitHub issue creation authorized/performed |
 | D07 | Monthly grouped dependency maintenance, few dependencies | done | YAML-only core + optional MCP SDK; monthly grouped /v2 policy, v1 entries unchanged |
 | D08 | Author governs; plugin maintainers assigned | external | Actual maintainer assignment required before release |
 | M01 | v1 maintained during transition; active projects finish on v1 | done | Worktree isolation and untouched v1 sources/data |
@@ -101,7 +101,7 @@ product roadmap or proof of paid integrations.
 | M05 | Replace finalize digest ceremony with clean preview + page | done | Preview-hash-bound reversible trash move |
 | M06 | Four phases/14 weeks, independent-user gate each phase | external | Foundation only; no real-user gate claimed |
 | M07 | Start new productions on v2 only after phase two | external | Alpha is for isolated trials; v1 productions unchanged |
-| S01 | Three non-author novice trials on three OSs in ten minutes | external | Requires actual people/OSs; matrix is not a user trial |
+| S01 | Three non-author novice trials on three OSs in ten minutes | external | Requires actual people/OSs; matrix is not a user trial. Prep kit is onboarding/trial-kit.ja.md; paid acceptance remains last |
 | S02 | 20 non-author videos within three months | external | Post-release metric |
 | S03 | Three community plugins within three months | external | Post-release metric |
 | S04 | One monthly dependency-update PR | external | Post-release policy; v1 bots not modified |
@@ -120,6 +120,12 @@ users or author/maintainer decisions. The experiments
 remain explicitly v1 compatibility sources; their inventory is not a promise
 of new v2-native execution. See [local readiness](local-readiness.md) for each
 external requirement and the precise supported boundary.
+The owner-facing [v1→v2 migration decision record](migration-plan.ja.md)
+records the 2026-10-19 decision: the recommended feature split is adopted,
+paid acceptance is last (lowest-credit service first; Kling may need prepaid
+credits), and execution order is 1 → 3 → 4 → 5 → 2. Remaining owner choices
+are the three testers and which issues to publish, the v2 default cutover,
+and v1 wind-down.
 
 The registry acquisition command has synthetic hostile-output tests and real
 local npm-archive installation evidence; independent community package review

@@ -39,8 +39,10 @@ The local renderer always writes a consistent audio stream; omitted sound is
 silence. Audio tracks can be BGM, narration or SFX and are volume-limited in mix.
 
 `soft` stores timed text in an MP4 subtitle track and serves WebVTT in the review
-page. Player subtitle support varies; enable the track in your player. `burn`
-requires FFmpeg's libass filter and fails at planning if missing. Set
+page. Player subtitle support varies; enable the track in your player. Local and
+fixture-mock `burn` requires FFmpeg's libass filter and fails at planning if
+missing. Live Remotion `burn` is drawn in the composition and does not use
+libass. Set
 `TSUGITE_FFMPEG`/`TSUGITE_FFPROBE` to existing compatible binaries if needed.
 This task does not install or repair system media software. AAC/container timing
 can include about one audio frame of padding; final duration is checked with a
@@ -91,7 +93,9 @@ video, audio and caption output has been tested on this Mac, without cloud
 rendering or browser download. This does not establish a user's license status.
 
 `plugin add hyperframes` installs an optional local HTML adapter. Existing
-0.8.173 CLI, GSAP and browser paths are selected explicitly. Real Mac export through
+0.8.173 CLI, GSAP and browser paths are selected explicitly (this is the v2
+adapter pin in `v2/plugins/hyperframes`; the v1 root also pins 0.8.173).
+Real Mac export through
 the v2 checks passed with visible timed captions, looping BGM and SFX under
 external-network denial. Telemetry/update checks are disabled; no install,
 upgrade, auth, cloud or feedback command runs. Runtime/browser identities are
@@ -138,6 +142,12 @@ chosen client directory and refuse to overwrite existing Skills.
 ## Copying a complex v1 project
 
 Normal `init new-video --from-v1 /existing/v1` copies supported editable fields.
+v1 `edit.backend` (including Remotion) and `generation` / paid audio adapters
+are not imported as v2 plugins or `make` tasks. The same warnings are written to
+`.tsugite/migration.json` and returned in the `init --from-v1` JSON result.
+Fast Edit decisions still migrate through the declared renderer hook. A
+Remotion-backed v1 project therefore becomes a local-export copy of its clips
+unless `--flatten` is used.
 For an unsupported native/animated/character graph, explicitly select an existing
 render instead: `init new-video --from-v1 /existing/v1 --flatten out/final.mp4`.
 The chosen regular project-local MP4 is copied and verified, including source

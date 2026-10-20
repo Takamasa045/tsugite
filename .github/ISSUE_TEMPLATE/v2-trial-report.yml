@@ -1,0 +1,92 @@
+name: v2 trial report
+description: Report a 10-minute alpha.5 first-result trial. Do not include credentials, private media, or personal paths.
+title: "v2-trial: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form after following the [v2 trial kit](https://github.com/Takamasa045/tsugite/blob/main/v2/docs/onboarding/trial-kit.ja.md).
+        Do not include credentials, private media, home paths, names, emails, or company names.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      description: One tester per OS is the intended matrix.
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: os_version
+    attributes:
+      label: OS version
+      description: For example macOS 15.1, Windows 11, Ubuntu 24.04. No machine name.
+      placeholder: Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: node_npm
+    attributes:
+      label: Node.js and npm versions
+      description: Output of node --version and npm --version.
+      placeholder: v22.14.0 / 10.9.2
+    validations:
+      required: true
+  - type: input
+    id: ffmpeg
+    attributes:
+      label: FFmpeg version and libx264
+      description: Confirm libx264 is present. Do not paste a full encoder dump.
+      placeholder: 7.x, libx264 yes
+    validations:
+      required: true
+  - type: input
+    id: minutes
+    attributes:
+      label: Minutes to first playable final.mp4
+      description: Exclude time spent reading the confirmation page. Include download, install, init, check, plan, make, and export.
+      placeholder: "8"
+    validations:
+      required: true
+  - type: dropdown
+    id: within_ten
+    attributes:
+      label: Was the first result within 10 minutes?
+      options:
+        - "Yes"
+        - "No"
+    validations:
+      required: true
+  - type: textarea
+    id: stuck
+    attributes:
+      label: First stuck point
+      description: Name the trial-kit step and what you saw. Redact paths. Do not attach private media.
+      placeholder: Step 4, confirmation page did not open. Error was...
+    validations:
+      required: true
+  - type: dropdown
+    id: page_opened
+    attributes:
+      label: Did the confirmation page open?
+      options:
+        - "Yes"
+        - "No"
+    validations:
+      required: true
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Which copy did you use?
+      options:
+        - Public alpha.5 tarball
+        - Local repository checkout
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Redacted notes
+      description: Optional. Commands and error text only, with paths shortened.

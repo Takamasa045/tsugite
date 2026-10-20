@@ -1,4 +1,16 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import mock from './mock.mjs';import live,{reconcile} from './index.mjs';
+import {test} from 'node:test';import assert from 'node:assert/strict';import mock from './mock.mjs';import live,{request,normalize,reconcile} from './index.mjs';
 const task={prompt:'synthetic contract fixture',seconds:3,kind:'audio',options:{voice_id:'fixture-voice'}};
-test('mock quote and fail-closed live entry',async()=>{assert.equal(mock.quote(task).credits,0);await assert.rejects(live.make(),/disabled/);});
+test('mock quote and fail-closed live entry',async()=>{assert.equal(mock.quote(task).credits,0);assert.equal(mock.quote(task).mock,true);await assert.rejects(live.make(),/disabled/);});
 test('unknown receipts never imply refunds',()=>{assert.equal(reconcile({provider_job_id:'fixture',status:'failed'}).releaseReservation,false);assert.equal(reconcile({provider_job_id:'fixture',status:'failed',credits_charged:0}).releaseReservation,true);});
+test('voice, payload and live quote require explicit maxima without a provider call',()=>{
+  assert.equal(typeof mock.normalize,'function');
+  assert.equal(mock.normalize({prompt:'spoken',seconds:3,kind:'audio',options:{}},{defaults:{voice_id:'default-voice'}}).options.voice_id,'default-voice');
+  assert.equal(normalize(task).options.model,'eleven_multilingual_v2');
+  assert.equal(live.quote({...task,options:{...task.options,max_credits:4}}).credits,4);
+  assert.throws(()=>live.quote(task),/explicit positive provider credit maximum/);
+  assert.throws(()=>live.quote({...task,options:{...task.options,max_credits:0}}),/explicit positive provider credit maximum/);
+  assert.throws(()=>request({prompt:'spoken',seconds:3,kind:'audio',options:{}}),/voice_id/);
+  assert.throws(()=>normalize({prompt:'spoken',seconds:3,kind:'audio',options:{voice_id:'../voice'}}),/Select a voice/);
+  assert.throws(()=>request({...task,options:{...task.options,api_key:'do-not-store'}}),/credentials never belong/);
+  assert.throws(()=>mock.quote({prompt:'spoken',seconds:3,kind:'audio',options:{voice_id:'../voice'}}),/Select a voice/);
+});

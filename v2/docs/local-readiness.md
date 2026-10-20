@@ -6,10 +6,14 @@ Fast Edit decisions and safe copy/archive migration have direct local evidence.
 Service protocol code has synthetic HTTP evidence and explicit live opt-in;
 actual paid acceptance has not happened. These are different evidence classes.
 
-The [alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1)
-is public. The three-OS CI matrix, separate Ubuntu Remotion lane and existing v1
-required CI passed. Gallery/demo/tarball links were anonymously downloaded and
-verified against SHA-256. See the [verification record](verification.md).
+The current [alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
+is public. The first public prerelease was
+[alpha.1](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1).
+The three-OS CI matrix, separate Ubuntu Remotion lane and existing v1
+required CI passed for the published alphas. Gallery/demo/tarball links were
+anonymously downloaded and verified against SHA-256. See the
+[verification record](verification.md) and
+[alpha.5 distribution](release-alpha5.md).
 
 The experimental components have a non-destructive source-separation/export
 tool and 11 independent compatibility packages with integrity inspections. They
@@ -23,10 +27,10 @@ maintainer decision; a machine fixture cannot honestly complete them:
 
 | Requirement IDs | Remaining acceptance / decision |
 |---|---|
-| U07, S01 | Three independent novice trials on the three OSs, including human timing |
-| B04, P08, P10 | Actual service request/status/final billing and account credit-unit acceptance; paid generation is outside this task |
+| U07, S01 | Three independent novice trials on the three OSs, including human timing; kit in [trial-kit.ja.md](onboarding/trial-kit.ja.md) |
+| B04, P08, P10 | Actual service request/status/final billing and account credit-unit acceptance; paid generation is postponed to the end, lowest-credit service first; Kling may need prepaid credits |
 | P13, P14, P15 | Review/maintain the separated experiments and choose a new labs remote; the current authorization names the existing repository only |
-| D06, D08 | Select/publish contribution issues and assign actual maintainers; local issue drafts are prepared |
+| D06, D08 | Select/publish contribution issues and assign actual maintainers; five publish-ready good-first-issue drafts plus the trial report form are prepared |
 | M02, M07, S05 | v1 support duration/branch policy, fork-user notice and the new-production cutover after independent acceptance |
 | M06, S02, S03, S04 | Independent phase gates and post-release adoption/maintenance metrics |
 

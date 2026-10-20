@@ -7,7 +7,8 @@ export default {
   async runtime(){
     const packages={};
     for(const name of ['remotion','@remotion/bundler','@remotion/renderer','@remotion/media','react','react-dom']){
-      let directory=path.dirname(fileURLToPath(import.meta.resolve(name))),found=false;
+      let directory,found=false;
+      try{directory=path.dirname(fileURLToPath(import.meta.resolve(name)));}catch{throw new Error('Install matching Remotion peer packages before planning');}
       while(directory!==path.dirname(directory)){
         try{const pkg=JSON.parse(await fs.readFile(path.join(directory,'package.json'),'utf8'));if(pkg.name===name){packages[name]=pkg.version;found=true;break;}}catch{}
         directory=path.dirname(directory);
