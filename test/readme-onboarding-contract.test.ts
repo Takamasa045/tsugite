@@ -90,6 +90,24 @@ describe("README onboarding contract", () => {
     }
   });
 
+  it("documents an isolated v1 CLI quick start through the confirmation page", async () => {
+    for (const readme of READMES) {
+      const text = await readFile(readme.path, "utf8");
+      const heading = readme.path === "README.md" ? "## Quick start" : "## クイックスタート";
+      const section = sectionByHeading(text, heading);
+      expect(section, readme.path).toContain("TSUGITE_PROJECTS_HOME");
+      expect(section, readme.path).toContain("$env:TSUGITE_PROJECTS_HOME");
+      expect(section, readme.path).toContain("examples/storyboard-local");
+      expect(section, readme.path).toContain("node bin/pipeline validate");
+      expect(section, readme.path).toContain("node bin/pipeline plan");
+      expect(section, readme.path).toContain("node bin/pipeline review");
+      expect(section, readme.path).toContain("--open");
+      expect(section, readme.path).toMatch(/docs\/reference(?:\.ja)?\.md/);
+      expect(section, readme.path).toContain("v2/README.md");
+      expect(section, readme.path).not.toContain("docs/onboarding/first-video.ja.md");
+    }
+  });
+
   it("hides pipeline jargon until after the start heading, except parenthetical official names", async () => {
     for (const readme of READMES) {
       const text = await readFile(readme.path, "utf8");

@@ -81,7 +81,7 @@
   "overrides": {
     "@hono/node-server": "2.0.11",
     "fast-uri": "3.1.8",
-    "hono": "4.13.7",
+    "hono": "4.13.13",
     "ip-address": "10.7.4",
     "postcss": "8.5.25",
     "postcss-selector-parser": "7.1.6",
@@ -90,6 +90,7 @@
     "sharp": "0.35.5",
     "source-map-js": "1.2.2",
     "nanoid": "3.3.18",
+    "vite": "8.1.6",
     "adm-zip": "npm:fflate@0.8.3"
   }
 }
