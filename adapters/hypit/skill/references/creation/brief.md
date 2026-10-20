@@ -75,7 +75,7 @@ one dominant reference. These are different sources of creative evidence.
 The spoken wording becomes authoritative only in the Author Source's `<script>`. During drafting, copy
 may live in `drafts/`; once adopted, move it into Source and stop maintaining a second full transcript
 in Brief or Treatment. Brief can preserve mandatory claims or exact user-supplied phrases. Treatment
-can describe what each passage must accomplish. Source owns the actual words, roles, Cue breaks,
+can describe what each passage must accomplish. Source owns the actual words, roles, Cues,
 Selections, and Moments.
 
 ## Revise the owner of the changed fact

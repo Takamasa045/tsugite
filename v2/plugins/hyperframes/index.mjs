@@ -4,12 +4,26 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createHash} from 'node:crypto';
 import {muxSoftCaptions} from './subtitles.mjs';
+// Current HyperFrames splits the executable into lazy-loaded chunks. Bind all
+// runtime files to the reviewed plan, rather than just its small entry module.
+async function runtimeDigest(directory){
+  const hash=createHash('sha256');
+  async function visit(relative=''){
+    for(const entry of (await fs.readdir(path.join(directory,relative),{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name))){
+      const name=path.join(relative,entry.name),file=path.join(directory,name);
+      if(entry.isSymbolicLink())throw new Error('HyperFrames runtime must not contain symlinks');
+      if(entry.isDirectory())await visit(name);
+      else if(entry.isFile()){hash.update(name.split(path.sep).join('/')+'\0');hash.update(await fs.readFile(file));hash.update('\0');}
+    }
+  }
+  await visit();return hash.digest('hex');
+}
 export async function runtime(){
   const cli=process.env.TSUGITE_HYPERFRAMES,gsap=process.env.TSUGITE_GSAP,browser=process.env.TSUGITE_BROWSER;
   for(const file of [cli,gsap,browser])if(!file||!path.isAbsolute(file)||!(await fs.stat(file)).isFile())throw new Error('Select existing HyperFrames CLI, GSAP and browser explicitly; no downloads are attempted');
-  const pkg=JSON.parse(await fs.readFile(path.resolve(path.dirname(cli),'../package.json'),'utf8'));if(pkg.name!=='hyperframes'||pkg.version!=='0.8.24')throw new Error('This adapter requires verified HyperFrames 0.8.24');
+  const pkg=JSON.parse(await fs.readFile(path.resolve(path.dirname(cli),'../package.json'),'utf8'));if(pkg.name!=='hyperframes'||pkg.version!=='0.8.173')throw new Error('This adapter requires verified HyperFrames 0.8.173');
   const digest=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex'),binary=await fs.stat(browser);
-  return {version:pkg.version,cliSha256:await digest(cli),runtimeSha256:await digest(path.resolve(path.dirname(cli),'../dist/cli.js')),gsapSha256:await digest(gsap),browser:{path:await fs.realpath(browser),bytes:binary.size,modified:binary.mtimeMs}};
+  return {version:pkg.version,cliSha256:await digest(cli),runtimeSha256:await runtimeDigest(path.resolve(path.dirname(cli),'../dist')),gsapSha256:await digest(gsap),browser:{path:await fs.realpath(browser),bytes:binary.size,modified:binary.mtimeMs}};
 }
 const escape=value=>String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 export function document(timeline,audioNames){
@@ -25,8 +39,8 @@ export default {runtime,quote:()=>({service:'hyperframes',credits:0}),async rend
   await runtime();
   const cli=process.env.TSUGITE_HYPERFRAMES,gsap=process.env.TSUGITE_GSAP,browser=process.env.TSUGITE_BROWSER;
   for(const file of [cli,gsap,browser]){if(!file||!path.isAbsolute(file))throw new Error('Select existing HyperFrames CLI, GSAP and browser explicitly; no downloads are attempted');await fs.access(file);}
-  const run=promisify(execFile),env={...process.env,HYPERFRAMES_BROWSER_PATH:browser,DO_NOT_TRACK:'1',HYPERFRAMES_NO_TELEMETRY:'1',HYPERFRAMES_NO_UPDATE_CHECK:'1',HYPERFRAMES_EXTRACT_CACHE_DIR:path.join(scratch,'extract-cache')};
-  const version=await run(process.execPath,[cli,'--version'],{env});if(version.stdout.trim().replace(/^v/,'')!=='0.8.24')throw new Error('This contract targets HyperFrames 0.8.24; verify another runtime separately');
+  const run=promisify(execFile),env={...process.env,HYPERFRAMES_BROWSER_PATH:browser,DO_NOT_TRACK:'1',HYPERFRAMES_NO_TELEMETRY:'1',HYPERFRAMES_NO_UPDATE_CHECK:'1',HYPERFRAMES_NO_AUTO_INSTALL:'1',HYPERFRAMES_EXTRACT_CACHE_DIR:path.join(scratch,'extract-cache')};
+  const version=await run(process.execPath,[cli,'--version'],{env});if(version.stdout.trim().replace(/^v/,'')!=='0.8.173')throw new Error('This contract targets HyperFrames 0.8.173; verify another runtime separately');
   for(let i=0;i<inputs.length;i++)await fs.copyFile(inputs[i],path.join(scratch,`clip-${i}.mp4`));
   const names=audio.map((file,i)=>`audio-${i}${path.extname(file)}`);for(let i=0;i<audio.length;i++)await fs.copyFile(audio[i],path.join(scratch,names[i]));
   await fs.copyFile(gsap,path.join(scratch,'gsap.min.js'));await fs.writeFile(path.join(scratch,'index.html'),document(timeline,names));

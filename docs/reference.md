@@ -82,7 +82,7 @@ These are `edit.backend` renderers. The same manifest / EDL contract feeds them.
 | Remotion | Default local renderer, captions, presentation presets | `edit.backend: remotion` |
 | HyperFrames | Local renderer plus official `media-use` BGM / SFX | [HyperFrames audio](hyperframes-audio.md) |
 | Editframe | Optional **macOS** local renderer and preview. Install with `npm run editframe:install`, then `edit.backend: editframe`. Preview uses an authoring copy. WebMCP and disk-save APIs are unverified | [Editframe](editframe.md) |
-| Tesseract | Optional local backend using official CLI 0.2.0. One 1-second 1920×1080/30 silent H.264 render is verified with Metal GPU access; preview/filmstrip, native authoring, and ProRes/alpha-solo remain unverified. Fast Edit is unsupported | [Tesseract](tesseract.md) |
+| Tesseract | Optional local backend using official CLI 0.4.0. One 1-second 1920×1080/30 silent H.264 render is verified with Metal GPU access; preview/filmstrip, native authoring, and ProRes/alpha-solo remain unverified. Fast Edit is unsupported | [Tesseract](tesseract.md) |
 | **Jev Fast Edit v1** | Same strict, backend-neutral edit intent on Remotion, HyperFrames, and Editframe (cards, captions, transitions, zoom, SFX, 16:9 and 9:16). Needs local-whisper word timestamps first. Select only with `edit.backend` plus `edit.fast_edit`. Not a new renderer | [Fast Edit](fast-edit.md) |
 
 Also in this path: Gate-bound editorial EDL (retimes selected cuts, captions, and chapters without changing source files), first-class image assets and speaker / pose metadata, and guarded presentation presets. Query installed presets with `node bin/pipeline presets --backend remotion --json` instead of typing an unverified ID.
@@ -95,8 +95,8 @@ These are **agent-operated external editors**. They are not a `pipeline render` 
 | --- | --- | --- | --- |
 | **Premiere Pro** | `$premiere-editing` (Claude Code: `/premiere-editing`) | macOS. Cuts, transitions, audio, captions, color; local MCP; on-screen verification | [Premiere Pro](premiere-pro.md) |
 | **After Effects** | `$after-effects-editing` (Claude Code: `/after-effects-editing`) | macOS. Official local `DoScriptFile` helper: inspect, fixture, title layers, save-as. On-screen preview is a separate check | [After Effects](after-effects.md) |
-| PixVerse Canvas | Official CLI 1.4.6, opt-in | `npm run pixverse:install`, then `npm run --silent pixverse -- canvas ...`. External Canvas entry, not a pipeline backend. Live Canvas mutation is not claimed by install checks | [PixVerse Canvas](pixverse-canvas.md) |
-| HyperFrames Studio | Pinned 0.8.75 WebMCP | `npm run hyperframes:studio -- <composition-dir>` on an authoring copy. Inspect / text / style edit is verified on 0.8.75 + native Chrome 153. Motion authoring and other hosts are unverified. Studio edits do not update the pipeline manifest; a later `render` regenerates HTML | [Studio WebMCP](hyperframes-studio-webmcp.md) |
+| PixVerse Canvas | Official CLI 1.4.9, opt-in | `npm run pixverse:install`, then `npm run --silent pixverse -- canvas ...`. External Canvas entry, not a pipeline backend. Live Canvas mutation is not claimed by install checks | [PixVerse Canvas](pixverse-canvas.md) |
+| HyperFrames Studio | Pinned 0.8.173 WebMCP | `npm run hyperframes:studio -- <composition-dir>` on an authoring copy. Inspect / text / style edit is verified on 0.8.173 + native Chrome 155. Motion authoring and other hosts are unverified. Studio edits do not update the pipeline manifest; a later `render` regenerates HTML | [Studio WebMCP](hyperframes-studio-webmcp.md) |
 
 ### Analyze local footage
 

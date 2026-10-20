@@ -6,9 +6,13 @@ import { fileURLToPath } from "node:url";
 export const RUNTIME_DIR = fileURLToPath(new URL("./runtime", import.meta.url));
 
 export const PINNED_RUNTIME = Object.freeze({
-  "@editframe/cli": "0.60.11",
-  "@editframe/elements": "0.60.11",
-  "@editframe/vite-plugin": "0.60.11",
+  "@editframe/cli": "0.60.34",
+  "@editframe/elements": "0.60.34",
+  "@editframe/vite-plugin": "0.60.34",
+  "@editframe/api": "0.60.34",
+  "@editframe/assets": "0.60.34",
+  "@editframe/dev-server": "0.60.34",
+  "puppeteer-core": "25.10.0",
   vite: "8.3.1"
 });
 
@@ -39,19 +43,16 @@ export function resolveEditframeCli() {
   const cliPath = join(cliDir, "dist", "index.js");
   const viteBin = join(viteDir, "bin", "vite.js");
   const viteModulePath = join(viteDir, "dist", "node", "index.js");
-  const pluginPath = join(pluginDir, "dist", "index.js");
+  const pluginPath = join(pluginDir, "dist", "advanced.js");
   const elementsPath = join(elementsDir, "dist", "index.js");
   const elementsCss = join(elementsDir, "dist", "style.css");
-  const required = [cliPath, viteBin, viteModulePath, pluginPath, elementsPath, elementsCss];
+  const puppeteerPath = join(root, "node_modules", "puppeteer-core", "lib", "puppeteer", "puppeteer-core.js");
+  const required = [cliPath, viteBin, viteModulePath, pluginPath, elementsPath, elementsCss, puppeteerPath];
   if (required.some((path) => !existsSync(path))) {
     return { ok: false, root, message: missingRuntimeMessage() };
   }
-  const versions = {
-    "@editframe/cli": readVersion(join(cliDir, "package.json")),
-    "@editframe/elements": readVersion(join(elementsDir, "package.json")),
-    "@editframe/vite-plugin": readVersion(join(pluginDir, "package.json")),
-    vite: readVersion(join(viteDir, "package.json"))
-  };
+  const versions = Object.fromEntries(Object.keys(PINNED_RUNTIME).map(name =>
+    [name, readVersion(join(root, "node_modules", name, "package.json"))]));
   const mismatched = Object.entries(PINNED_RUNTIME).filter(([name, pinned]) => versions[name] !== pinned);
   if (mismatched.length > 0) {
     return {
@@ -72,6 +73,7 @@ export function resolveEditframeCli() {
     pluginPath,
     elementsPath,
     elementsCss,
+    puppeteerPath,
     versions
   };
 }

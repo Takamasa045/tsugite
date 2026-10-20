@@ -8,7 +8,7 @@ core（`src/`）には Hypit 固有コードを置かない。実装は `adapter
 
 Tsugite 本体は Node.js **22.12 以上 23 未満**。Hypit runtime（`npm run hypit:install` と `runtime init` / `runtime up`）は追加で **Node.js 22.15 以上**（22.x）が必要。22.12〜22.14 では engine 警告、または準備前検査 `HYPIT_NODE_UNSUPPORTED` で停止する。本体の最低版は上げない。
 
-## 公式ソース（2026-09-25 更新確認）
+## 公式ソース（2026-10-19 JST 更新確認）
 
 | 対象 | URL |
 | --- | --- |
@@ -19,9 +19,11 @@ Tsugite 本体は Node.js **22.12 以上 23 未満**。Hypit runtime（`npm run 
 | Skill ガイド | https://hypit.ai/guide/skill/ |
 | Studio | https://hypit.ai/quickstart/preview/ |
 | GitHub | https://github.com/hypit-ai/hypit |
-| Release | https://github.com/hypit-ai/hypit/releases/tag/v0.2.13 |
+| Release | https://github.com/hypit-ai/hypit/releases/tag/v0.3.1 |
 
-実行ファイルは **`@hypit/hypit@0.2.13`**（GitHub commit `238fe97fcea37b7cc95e37ee6023f4a02c60bb0a`）。Skill は `npx skills add hypit-ai/hypit -g`。隔離コピーは `adapters/hypit/skill/`。
+実行ファイルは **`@hypit/hypit@0.3.1`**（GitHub commit `8efbac03ed10929b0f4a3c79fe2b3f77b6479daf`）。Skill は `npx skills add hypit-ai/hypit -g`。隔離コピーは `adapters/hypit/skill/`。
+
+0.3.1は動画SDKを独立パッケージへ分離した。[公式移行ガイド](https://github.com/hypit-ai/hypit/blob/v0.3.1/migrations/0.3.1.md)に従い、既存Productionを自動変換しない。合成の公式exampleをコンパイルする際だけ、隔離コピー内のworkspace依存を選択したDistributionのSDKへ結びつける。
 
 ## 本番ワークフロー
 
@@ -67,7 +69,7 @@ build 成功、完成動画、CI、git タグ、受け入れは主張しない�
 
 `npm run hypit` は公式 example 固定の観測用。本番 CLI ではない。**build は無条件拒否**。`TSUGITE_HYPIT_GRANT` では解除できない。
 
-許可: `--version`、`--help`、固定プロファイルの `check` / `plan`、`measure`、`paths`、`doctor`、`builds` / `history` / `inspect` / `logs` / `status`（`--watch` なし）、`vocabulary`、`auth status`、`runtime status|logs`、`packages status`。
+許可: `--version`、`--help`、固定プロファイルの `check` / `plan`、`paths`、`doctor`、`builds` / `history` / `inspect` / `logs` / `status`（`--watch` なし）、`vocabulary`、`auth status`、`runtime status|logs`。
 
 `check` / `plan` の許可 argv は公式 example の `chat.svml` / `chat.svrun` と固定 workspace だけ。spawn 前に公式 bytes と `expected-build.json` を照合する。
 

@@ -62,7 +62,7 @@ When new performances are generated for someone who also appears in visible A-ro
 Reference can condition both the visible performance and independent narration. The work then
 changes sound-picture relationship without changing who is speaking.
 
-`../../creation/script-and-time.md` owns measurement and alignment. One accepted narration
+`../../creation/script-and-time.md` owns duration estimation and alignment. One accepted narration
 performance can carry many picture changes; their semantic relations follow that performance without
 forcing new speech seams.
 

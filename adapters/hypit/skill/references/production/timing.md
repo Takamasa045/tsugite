@@ -1,96 +1,73 @@
-# Timing authored relationships
+# Author timing relationships
 
-Read this when deciding when a component acts or what moving it in Studio should change.
-[Script syntax](script-syntax.md) names speech relationships; [Timeline](timeline.md) places prepared
-Takes and declares the complete work. This page owns the common author-facing time forms.
-The consuming package's vocabulary declares which forms its Surface actually supports.
+Read this when deciding when a component exists or acts. [Script syntax](script-syntax.md) names
+Narrative relationships; [Timeline](timeline.md) constructs the finite absolute domain. Components
+consume absolute Instants and Windows.
 
-## Choose time from the relationship
+## Choose the time source that matches the event
 
-For speech-led work, bind a reveal to the Moment it answers and a covering picture to the Selection
-it explains. The accepted SemanticTake locates those identities in its media; Timeline placement
-carries them into the whole work. Rewording or changing the performance can then preserve what the
-picture follows. Reference timecodes document observations, not the new performance's timing.
+Use Narrative time when a picture or event should follow meaning as wording or performance changes.
+Use direct Timeline time when it should follow the film clock. Both choices resolve to the same
+absolute value types.
 
-Authored animation can instead place messages or state changes on a clock and give them an intended
-reading rhythm. It needs no invented Script or media-backed Segment. A spoken Moment can also trigger
-a component whose internal animation uses authored durations. The trigger, its offset and the length
-of its response are separate decisions; one video can use all of them.
+`semantic:Projection` maps aligned local evidence into Timeline. Independent declarations explicitly
+choose it when revealing the semantic values this production asks to reuse:
 
-## Express an Instant or Window
+```svml
+<semantic:Projection id="story-time" narrative={story} timeline={film.timeline}>
+  <semantic:Map alignment={speech.alignment} domain={speech-media.domain} window={film.speech}/>
+</semantic:Projection>
+<semantic:Window id="proof" projection={story-time} during={story.selection.proof}/>
+<semantic:Instant id="claim" projection={story-time} at={story.moment.claim}/>
+<semantic:Instant id="answer-end" projection={story-time}
+  at={story.segment.answer} boundary="end"/>
+```
 
-Surfaces that expose Hypit's shared temporal vocabulary accept the forms appropriate to their role.
-A Window occupies an interval:
+Components then use `proof`, `claim` and `answer-end` as ordinary
+Window and Instant values.
 
-| Form | Result |
-| --- | --- |
-| `during="program"` | The complete program Window. |
-| `during={story.segment.hook}` | The Segment's Window. |
-| `during={story.selection.proof}` | The Selection's Window, including its authored affinities. |
-| `at={story.moment.claim} for="8f"` | A Window beginning at a Moment and lasting eight frames. |
-| `at="2s" for="12f"` | A Window beginning two seconds into the film and lasting twelve frames. |
-| `until={story.moment.claim} for="250ms"` | A 250 ms Window ending at a Moment. |
-| `start="program.start" end="moment.cue" moment={story.moment.claim}` | A Window composed from two explicit endpoints. |
+## Declare, then consume
 
-Each Window uses one complete form. Explicit endpoint expressions can use `program.start`,
-`program.end`, `selection.start`, `selection.end`, `segment.start`, `segment.end`, or `moment.cue`,
-with the corresponding semantic reference supplied alongside it. They can also use a clock position
-such as `1.5s` or an offset such as `selection.start - 2f`. Frames and milliseconds are integers;
-seconds may be fractional.
-
-An Instant names one point:
+Timeline authoring and domain projectors produce named values. Components only consume them:
 
 | Form | Result |
 | --- | --- |
-| `at={story.moment.claim}` | The authored Moment. |
-| `at="2s"` or `at="12f"` | A point on the film clock, in seconds or frames. |
-| `at={story.selection.proof} boundary="start"` | The Selection's chosen boundary. |
-| `at={story.segment.hook} boundary="end"` | The Segment's chosen boundary. |
-| `instant="program.start + 8f"` | An explicit clock expression. |
-| `instant="moment.cue + 12f" moment={story.moment.claim}` | Twelve frames after the Moment, following it when the delivery changes. |
+| `<time:Window id="beat" timeline={film.timeline} from="2s" for="12f"/>` | A named absolute Window |
+| `<time:Window id="answer" timeline={film.timeline} from={claim} until={answer-end}/>` | A named Window between projected Instants |
+| `during={proof}` | Consume a projected Window |
+| `during={beat}` | Consume a directly authored Window |
 
-`at="12f"` locates an event; `for="12f"` gives an interval its length. Frames use the selected
-film clock. Semantic projection keeps the event's Script identity alongside its resolved frame,
-so its authored relationship remains available for later changes.
+Window declarations supply exactly two of `from`, `until` and `for`. `for` can also reference a
+TemporalExtent, including generated media duration. The complete film is already named as
+`film.window`.
 
-A particular Surface may deliberately expose only some of these forms. Its vocabulary reports the
-attributes it actually accepts; the shared spelling does not grant every component every temporal
-behavior.
+## Instant forms
+
+| Form | Result |
+| --- | --- |
+| `at={claim}` | A projected event |
+| `<time:Instant id="cut" timeline={film.timeline} at="2s"/>` | A named direct clock event |
+| `<time:Instant id="credits" timeline={film.timeline} at="timeline.end-12f"/>` | A named event relative to the Timeline boundary |
+| `<time:Instant id="after-claim" timeline={film.timeline} at={claim} offset="+5f"/>` | A separate absolute offset from a resolved event |
+| `at={cut}` | Consume the named event |
+
+The component decides what the event changes and whether that state persists.
+
+## Name shared values
+
+Name even a single-use absolute value outside the consuming component. Put it in Timeline when it
+helps determine film extent; otherwise use a standalone declaration against the completed Timeline.
+Publish a projected value when its domain identity matters to the production.
 
 ## Choose what a later edit changes
 
-Dragging a direct Selection or Moment changes that identity in Script. Every Track consuming it
-then follows the changed relation. The authored time form determines what the gesture changes:
+The authored value determines the editing relationship:
 
-| Time form | Timeline editing |
-| --- | --- |
-| `during={story.selection.proof}` | Move both boundaries by the same number of semantic stops; the duration can change. Trim either boundary independently. |
-| `at={story.moment.reveal}` on an event | Move its Moment anchor. |
-| `at={story.selection.proof} boundary="start"` or `boundary="end"` on an event | Move only that Selection boundary. |
-| `at={story.moment.reveal} for="8f"` | Move the Moment, or trim the trailing edge to change the duration. |
-| `until={story.moment.reveal} for="8f"` | Move the Moment, or trim the leading edge to change the duration. |
-| `at="2s" for="8f"` | Move the clock position, or trim the trailing duration; `until/for` works conversely. |
-| `instant="moment.cue"` or `instant="moment.cue + 2f"` with a bound Moment | Move the local offset while retaining the Moment; an omitted offset starts at zero. |
-| `start="..." end="..."` | Trim one endpoint's time expression, or move both by the same frame delta. Referenced Script markers stay in place. |
+- editing a direct literal changes that literal;
+- editing a named Timeline value changes its Timeline declaration;
+- editing a Narrative-produced value changes the mapping or Narrative source that produced it;
+- editing a reused value changes its producer and all consumers follow after recompilation.
 
-A semantic stop is a distinct frame position occupied by word or structural boundaries. Select a
-semantic marker to see its exact anchors; when several share a frame, the Inspector offers the
-choices supported by its editable consumers. Word starts, word ends and structural boundaries
-are all eligible anchors; a pause can belong to
-either neighboring interval. Direct Segment/Program spans follow their structural boundaries
-without timeline dragging. The executed time authority determines the available gestures, and
-the Companion connects them to the component's entities and Source bindings.
-
-Clock-based dragging writes the changed value or offset in whole frames at the current frame rate.
-Unedited expressions retain their units: `2s` keeps its duration across frame-rate changes, while
-`60f` keeps its frame count. Direct semantic dragging changes the Script anchors instead.
-
-Script marker moves use the [same semantic affinities](script-syntax.md#bind-meaning-to-script-identities)
-as authored markers. Writeback removes and inserts the moved markers while preserving unrelated
-source whitespace, words, punctuation, pronunciation and display attributes. A shared Selection or Moment remains one relationship:
-editing through any consumer updates its other consumers according to their own projections.
-
-A component's Companion exposes the gestures it can write back to the authoring source.
-[Studio](studio.md) explains the editing interface; [Track authoring](track-authoring.md) explains
-using the shared temporal helpers in a project component. The installed `@hypit/temporal-markup`
-package owns exact parsing, projection and write-target APIs.
+Studio can display any resolved value. It offers source editing only where the package declares a
+meaningful author relation. Keep semantic relationships, absolute offsets and response duration as
+separate decisions.

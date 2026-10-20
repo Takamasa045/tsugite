@@ -2,6 +2,7 @@ import { prepareFastEditMedia } from "../fastEditMedia.mjs";
 import { mixFastEditAudio } from "../fastEditAudio.mjs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { assertDirectory, assertNoSymlinkBetween, assertRegularFile, mkdirOwned, writeSafeFile } from "./confine.mjs";
 import {
@@ -26,12 +27,12 @@ import {
 } from "./processGroup.mjs";
 import { ensureRuntimeModuleLink, missingRuntimeMessage, resolveEditframeCli } from "./runtimePath.mjs";
 import { resolveOutputDimensions } from "../outputDimensions.mjs";
+import { renderTimeoutMs } from "./renderTimeout.mjs";
 
 const EXIT_VALIDATION_FAILED = 10;
 const EXIT_TRANSIENT_EXTERNAL_FAILURE = 20;
 const EXIT_MISSING_DEPENDENCY = 30;
 const EXIT_INVALID_REQUEST = 40;
-const RENDER_TIMEOUT_MS = 90_000;
 const MIN_OUTPUT_BYTES = 1000;
 
 class RunnerError extends Error {
@@ -169,7 +170,7 @@ async function main() {
   const renderHandle = spawnOwned(
     [
       process.execPath,
-      runtime.cliPath,
+      fileURLToPath(new URL("./cli.mjs", import.meta.url)),
       "render",
       "--url",
       `http://127.0.0.1:${port}/index.html`,
@@ -184,7 +185,7 @@ async function main() {
   owned.push(renderHandle);
   let code;
   try {
-    code = await waitExit(renderHandle, RENDER_TIMEOUT_MS);
+    code = await waitExit(renderHandle, renderTimeoutMs(manifest));
   } catch (error) {
     throw new RunnerError(
       `Editframe render timed out or failed to start: ${error instanceof Error ? error.message : String(error)}`,
@@ -206,7 +207,7 @@ async function main() {
     });
   }
 
-  await mixFastEditAudio(manifest, input.runDir, input.outputPath);
+  await mixFastEditAudio(manifest, input.runDir, input.outputPath, { includeSourceAudio: true });
   const metadata = probeRenderedMedia(input.outputPath);
   if (!metadata.ok) {
     await writeFailureResult(input, manifest, {

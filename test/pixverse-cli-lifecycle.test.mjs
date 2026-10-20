@@ -22,7 +22,7 @@ describe("PixVerse CLI media lifecycle", () => {
       else throw new Error(`Unexpected command: ${executable}`);
       return { status: 0, stdout: JSON.stringify(output), stderr: "" };
     });
-    const result = runPixverseMedia({ run_id: "test", run_dir: "/tmp/pixverse-lifecycle", request: { id: "media", operation, prompt: "test", params: { workspace_id: 0 } } });
+    const result = runPixverseMedia({ run_id: "test", run_dir: "/tmp/pixverse-lifecycle", request: { id: "media", operation, prompt: "test", params: { workspace_id: 0 } } }, { command: { executable: "pixverse", prefix: [] } });
     expect(result.metadata.task_ids).toEqual(["101", "102"]);
     expect(result.credits).toBe(6);
     expect(type === "image" ? result.images : result.audio).toHaveLength(2);

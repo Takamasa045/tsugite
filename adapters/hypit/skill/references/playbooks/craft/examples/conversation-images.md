@@ -215,4 +215,4 @@ the views needed, state what each parent preserves, and connect authoritative re
 production needs exact private or factual identity.
 The podcast branches change camera, prop state or daily situation for different reasons. The
 interview branches change attention while keeping a shared encounter. Neither graph asks for a
-chain of generated video end frames, and neither requires redrawing all materials for every Take.
+chain of generated video end frames, and neither requires redrawing all materials for every generated clip.

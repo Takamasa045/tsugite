@@ -13,6 +13,13 @@ describe('installed production dependency families',()=>{
     const selected=versions(await lock('.'),['remotion','@remotion/bundler','@remotion/renderer','@remotion/media']);
     expect(selected.every(Boolean)).toBe(true);expect(new Set(selected).size).toBe(1);
   });
+  it('keeps the independently installable v2 Remotion peers aligned with the repository runtime',async()=>{
+    const installed=await lock('.');
+    for(const id of ['remotion','fast-edit']){
+      const plugin=JSON.parse(await readFile(resolve(root,'v2/plugins/'+id+'/package.json'),'utf8'));
+      for(const [name,version] of Object.entries(plugin.peerDependencies))expect(installed['node_modules/'+name]?.version,name).toBe(version);
+    }
+  });
   it('keeps React and React DOM paired in the renderer and local Viewer',async()=>{
     for(const folder of['.','apps/workflow-viewer']){const selected=versions(await lock(folder),['react','react-dom']);expect(selected.every(Boolean)).toBe(true);expect(new Set(selected).size).toBe(1);}
   });
@@ -32,7 +39,7 @@ describe('installed production dependency families',()=>{
   it('keeps repository test discovery outside nested worktree copies',async()=>{
     const directory=await mkdtemp(join(tmpdir(),'tsugite-test-discovery-'));
     try{
-      for(const file of['test/main.test.mjs','.work/copy/test/extra.test.mjs','.claude/worktrees/copy/test/extra.test.mjs']){await mkdir(resolve(directory,file,'..'),{recursive:true});await writeFile(join(directory,file),'');}
+      for(const file of['test/main.test.mjs','.work/copy/test/extra.test.mjs','.claude/worktrees/copy/test/extra.test.mjs','projects/.worktree-archives/copy/test/extra.test.mjs']){await mkdir(resolve(directory,file,'..'),{recursive:true});await writeFile(join(directory,file),'');}
       const manifest=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
       for(const script of['test','test:coverage']){
         const exclude=[...manifest.scripts[script].matchAll(/--exclude="([^"]+)"/g)].map(m=>'--exclude='+m[1]);

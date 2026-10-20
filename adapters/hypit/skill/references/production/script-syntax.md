@@ -5,10 +5,10 @@ spaces, Caption grouping and semantic markers. [Script and semantic time](../cre
 owns the creative decisions; [Source syntax](source-syntax.md) owns imports and graph references;
 [Timing](timing.md) explains how components use the resulting identities.
 
-These are the current 0.2 author forms. Package releases and logical Module ABIs are different:
-`@hypit/script@1` remains the import. A syntax error calls for an explicit correction to the source;
-do not reinterpret old bare markers or remove authored spaces to make an inherited example work.
-The installed Script package owns the parser and exact diagnostics.
+These are the author forms owned by the installed Script package. Package releases and logical Module
+ABIs are different: `@hypit/script@1` is the logical import. Correct a syntax error in the Source
+rather than changing authored wording or spaces. The installed package owns the parser and exact
+diagnostics.
 
 ## Keep the languages distinct
 
@@ -18,7 +18,7 @@ The installed Script package owns the parser and exact diagnostics.
 | Script prose | `@{reveal!}` | A semantic Moment; contributes no displayed or spoken text. |
 | Script prose | `clear{emphasis}` | An attribute on the preceding display word. |
 | A model's prompt text | `@image1` | That model's reference notation, when its Kit declares it. |
-| A temporal attribute | `instant="moment.cue + 8f"` | The component's explicit time expression. |
+| An absolute-time declaration | `<time:Instant id="cue" timeline={film.timeline} at={claim}/>` | A named Instant produced from an already resolved value. |
 
 Braces and at-signs have no global substitution rule. The receiving Surface owns its body's grammar.
 
@@ -45,7 +45,7 @@ A Script contains one or more uniquely named Segments matching `[a-z][a-z0-9_-]{
 carries a wordless passage. A Role Cue is a bare turn marker: the next Role Cue begins the next turn,
 and closing the Segment ends the final turn
 and resets its Role. When a Segment uses Roles, place the first Role before that Segment's first
-spoken text. One Segment can contain several Role turns without requiring several generated Takes. A bare tag
+spoken text. One Segment can contain several Role turns without requiring several generated clips. A bare tag
 inside a Segment is a Role Cue by context, not by capitalization: `<host>`, `<主持人>` and
 `<진행자>` can name speakers. The label directs the request through dialogue; it selects no voice
 or character asset by itself.
@@ -53,7 +53,7 @@ or character asset by itself.
 Dual Text can contain several visible or spoken words on either side; its display side feeds Caption
 and its spoken side feeds pronunciation. An empty display side intentionally omits those spoken words
 from Caption while keeping them in the Narrative and semantic timing. Selections and Moments can be
-placed on the spoken side because that side owns the speech anchors. Place Cue Breaks around the
+placed on the spoken side because that side owns the speech anchors. End a Cue before or after the
 complete Dual Text unit, not inside it. Attributes for a displayed Dual Text word belong on the
 display side before the pipe. Inside that display side, use `\@` when the visible text itself needs an
 at-sign.
@@ -104,7 +104,7 @@ escaping described in [Source syntax](../production/source-syntax.md).
 Script derives speech tokens from words and numbers. Punctuation remains attached to the displayed
 word it belongs with and does not create another speech time unit. CJK prose commonly contributes
 one Han, Hiragana or Katakana character per lexical unit; compounds, decimal numbers and the spoken
-side of Dual Text preserve their own lexical structure. This is why Cue breaks, word attributes and
+side of Dual Text preserve their own lexical structure. This is why Cue boundaries, word attributes and
 semantic markers attach to complete authored units instead of punctuation or visual line positions.
 Character-level timing does not call for character-sized Cues: use `||` for meaningful reading
 phrases. [Caption craft](../playbooks/craft/captions.md#language-changes-the-reading-unit) explains
@@ -146,10 +146,10 @@ One Script publishes the full Narrative and the narrow views needed by the rest 
 | Reference | What it carries |
 | --- | --- |
 | `{story}` | The complete authored Narrative. |
-| `{story.segment.hook}` | The `hook` Segment as a NarrativeExcerpt for one SemanticTake. |
+| `{story.segment.hook}` | The `hook` Segment as a NarrativeSegmentRef for generation, alignment or another semantic consumer. |
 | `{story.segment.hook.dialogue}` | Role-aware dialogue using the spoken side of Dual Text, suitable for a speaking performance request. |
-| `{story.segment.hook.speech}` | Pronunciation-only Text, suitable for `hypit measure` or independent speech. |
-| `{story.caption}` | Display Words, Alignment Units, attributes, Roles, and authored Cue Breaks for Caption. |
+| `{story.segment.hook.speech}` | Pronunciation-only Text, suitable for `hypit estimate` or independent speech. |
+| `{story.caption}` | Display Words, Alignment Units, attributes, Roles, and authored Cues for Caption. |
 | `{story.selection.proof}` | The named semantic range. |
 | `{story.moment.claim}` | The named semantic point. |
 
@@ -171,7 +171,7 @@ GUEST: That looks much easier.
 
 Pass that Text to the speaking prompt. In action direction, relate HOST and GUEST to the supplied
 character views and voices. The selected [Prompt Kit](prompt-kits.md) owns its reference
-order; [podcast direction](../playbooks/formats/two-person-podcast.md#direct-conversation-inside-a-take)
+order; [podcast direction](../playbooks/formats/two-person-podcast.md#direct-conversation-inside-a-generated-clip)
 shows how those roles and references form one performed exchange.
 
 These are projections of one authored Script, not copies to maintain. The performance request,

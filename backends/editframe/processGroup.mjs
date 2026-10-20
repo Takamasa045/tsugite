@@ -15,6 +15,7 @@ export function childEnv(base = process.env) {
   delete env.EF_TOKEN;
   delete env.EF_HOST;
   delete env.EF_RENDER_HOST;
+  delete env.EDITFRAME_TOKEN;
   return env;
 }
 

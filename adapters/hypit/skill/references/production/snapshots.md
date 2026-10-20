@@ -2,7 +2,7 @@
 
 Use `hypit snapshot` first when the question concerns an existing production's visible state,
 layout or motion sequence. It captures selected frames of the current picture through the
-Profile's `render-frames` Endpoint. Studio playback supplies motion with sound; an encoded video
+Profile's `rasterize-frames` Endpoint. Studio playback supplies motion with sound; an encoded video
 supplies evidence about the delivered file. Choose the view that establishes the relationship.
 
 ## Capture the work already open in Studio
@@ -21,28 +21,28 @@ hypit snapshot --studio http://localhost:5191 \
   --grid 4x3 --cell 480 --to evidence/comparison-motion
 ```
 
-Use the address of the existing Studio session and frames located in that programme. The examples
+Use the address of the existing Studio session and frames located in its current `HtmlProgram`. The examples
 demonstrate the options. Locate meaningful events through Script, Timeline or the Studio playhead;
 pass their resulting frame positions to the observation command. Frame selection does not change
 the authored timing relationship.
 
-Studio supplies its already compiled `HyperframesDocument` and the material selected by the Run.
+Studio supplies its already compiled `HtmlProgram` and the material selected by the Run.
 This preserves declared fonts, images, video sampling, transparent Surfaces and resources used
-inside a component's browser program. The command sends one immediate request, keeping the original
-programme clock and component-local clocks. It writes images directly into the chosen directory.
+inside a component's HTML visual. The command sends one immediate request, keeping the original
+`HtmlProgram` clock and component-local clocks. It writes images directly into the chosen directory.
 There is no new Build, material generation or video encoding in this call.
 
-Use `--runtime <profile>` and `--workspace <project>` when the invocation needs an explicit selection;
+Use `--runtime <profile>` and `--project <project>` when the invocation needs an explicit selection;
 otherwise run in the project that already selected its Profile. The command names the selected
 Endpoint before execution. If several Endpoints offer frame capture, select one with the Profile's
-`@hypit/render-hyperframes@1#render-frames` binding. Browser preparation remains with that Provider:
+`@hypit/html-program@1#rasterize-frames` binding. Browser preparation remains with that Provider:
 [local tools](../environment/local-tools.md#prepare-the-local-rendering-browser).
 
 ## Read frames at the scale the question needs
 
 - `--at-frame` chooses one frame or a strictly increasing list of frames.
 - A range includes `--start-frame` and excludes `--end-frame-exclusive`. `--step-frames 1` retains
-  every frame. Frame indices start at zero on the original programme clock.
+  every frame. Frame indices start at zero on that `HtmlProgram` clock.
 - Every selected frame is saved as a full-size PNG. Open one for typography, edges and geometry.
 - `--grid columnsxrows` adds paginated contact sheets. `--cell` chooses the width of each picture;
   labels sit below it and give its original frame index and time. The full-size PNGs remain available.
@@ -55,7 +55,7 @@ to hear and feel how the observed states work together.
 
 ## Existing HTML and source video
 
-An already materialized HyperFrames HTML file can also be the input:
+An already materialized HTML renderer HTML file can also be the input:
 
 ```bash
 hypit snapshot ./picture/index.html --at-frame 240 --to evidence/html-detail
@@ -64,7 +64,7 @@ hypit snapshot ./picture/index.html --at-frame 240 --to evidence/html-detail
 The HTML carries its compiled frame clock and frame-sampling declarations. Its directly referenced
 media and fonts travel with the request; scripts and styles are inline. An HTML URL is accepted too.
 For a current Studio work, prefer `--studio`: its compiled document also retains resource declarations
-inside JavaScript data and the full typed Surface input. Snapshot is a programme-frame operation;
+inside JavaScript data and the full typed Surface input. Snapshot is an `HtmlProgram` frame operation;
 [browser capture](browser-capture.md) owns screenshots of ordinary websites and applications.
 
 For an existing source video or encoded Result, use the media commands. Native-frame extraction

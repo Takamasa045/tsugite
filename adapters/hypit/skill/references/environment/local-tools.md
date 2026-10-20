@@ -79,7 +79,7 @@ uv --version
 
 On Linux, use the distribution package manager or the current official installation method for the
 same executables. Keep these machine tools outside the video project. `hypit paths` reports the shared
-Program and npm package homes used by selected Runtime adapters.
+Runtime and Program state locations used by selected Runtime adapters.
 
 ### Configure local media tools
 
@@ -91,7 +91,7 @@ actual paths into the selected Endpoint. For example, replace these illustrative
 {
   "endpoints": {
     "media.local": {
-      "use": "@hypit/provider-media-local",
+      "use": "@hypit/media-local",
       "config": {
         "ffmpegPath": "/opt/media/bin/ffmpeg",
         "ffprobePath": "/opt/media/bin/ffprobe"
@@ -104,7 +104,7 @@ actual paths into the selected Endpoint. For example, replace these illustrative
 These Provider paths resolve relative to the Runtime `dataRoot` when they are not absolute.
 Use forward slashes or JSON-escaped backslashes for Windows paths. The selected media Program
 probes its executables; `programs prepare` does not install system FFmpeg through a package manager.
-Hypit's local HyperFrames Provider also accepts `ffmpegPath` and `ffprobePath`: configure that
+Hypit's local HTML renderer Provider also accepts `ffmpegPath` and `ffprobePath`: configure that
 Endpoint as well if it needs custom paths. Configuration does not propagate from `media.local`
 to an unrelated Endpoint.
 
@@ -156,15 +156,15 @@ entry point by hand. Contributor/operator commands in a service README are for d
 packaged service, not for creating a second project-local installation.
 
 Other tools keep their own entry points. [Video downloading](../production/video-downloads.md)
-uses explicit `hypit media prepare-fetch` followed by `media fetch`, without a Runtime Profile or
+uses explicit `hypit download prepare` followed by `hypit download`, without a Runtime Profile or
 Build. [Image operations](../production/image-operations.md) can use the local OpenCV Provider;
 its README owns the managed Python environment and optional `pythonExecutable` selection. These
 tools follow the same separation of preparation and use without inventing a Profile for every utility.
 
 ## Prepare the local rendering browser
 
-The selected HyperFrames Provider owns the browser used for rendering. Read the installed
-`@hypit/provider-hyperframes-local` README for the configuration supported by that installation;
+The selected HTML renderer Provider owns the browser used for rendering. Read the installed
+`@hypit/provider-html-local` README for the configuration supported by that installation;
 a newer Skill does not add options to an older executable. [Distribution updates](distribution.md#check-and-update-the-relevant-installation)
 explains how to check and update the relevant installation when a needed option is absent.
 
@@ -183,8 +183,8 @@ The normal declaration needs no browser version copied into every project:
 ```json
 {
   "endpoints": {
-    "hyperframes.local": {
-      "use": "@hypit/provider-hyperframes-local"
+    "html.local": {
+      "use": "@hypit/provider-html-local"
     }
   }
 }
@@ -341,7 +341,7 @@ Mirrors address particular download clients and hosts:
 | Python runtime | uv's `UV_PYTHON_INSTALL_MIRROR` selects a compatible Python-distribution mirror. A PyPI mirror does not supply Python itself. An already compatible installed Python may avoid this download. |
 | Hugging Face weights | `HF_ENDPOINT` selects a compatible Hub endpoint; `HF_HOME` / `HF_HUB_CACHE` select reusable cache locations. A model's redirected weight host and its language-alignment download must also be reachable. |
 | NLTK sentence data | If preparation reports `NLTK_ALLOW_PROXIED_URLOPEN`, the downloader needs an explicit trust decision for the configured proxy. For a trusted proxy, set that native variable to `1` only on the preparation command; do not switch it on automatically or change inference. |
-| HyperFrames browser | The selected Provider owns the archive source; follow [browser preparation](#prepare-the-local-rendering-browser) and its installed README. |
+| HTML renderer browser | The selected Provider owns the archive source; follow [browser preparation](#prepare-the-local-rendering-browser) and its installed README. |
 | FFmpeg and other binaries | Use the selected package manager's binary-download settings or a compatible official prebuilt installation. An npm/PyPI mirror does not generally redirect these downloads. Homebrew bottles and GitHub release assets have their own sources. |
 
 Make a route change explicit: explain the blocked download, the proposed source and which command
@@ -393,10 +393,9 @@ metadata successfully may still redirect large files to another host; diagnose t
 ## Repair from the narrowest evidence
 
 - A missing executable belongs to host installation and `PATH`.
-- A package dependency declared by a selected adapter belongs to scoped `programs prepare` /
-  `programs up`; `runtime up` also starts the Worker. A separately reported exact optional npm
-  dependency uses `hypit packages install <package@version>`, as explained in
-  [Distribution](distribution.md).
+- An npm dependency declared by a selected adapter belongs to the package manager and lockfile of
+  the Distribution or project that installed that adapter. `programs prepare` / `programs up` prepare
+  only Provider-declared runtime materials; `runtime up` also starts the Worker.
 - A down or mismatched Managed Program belongs to its Provider configuration, Program status, and
   service log.
 - A healthy local Program with a rejected request belongs to the Provider's support or request error,

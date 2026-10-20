@@ -47,7 +47,7 @@
 | Remotionの案件専用モーション・キャラ構成 | （上の62件に含まれる） | `init --from-v1` は受け付けない。完成動画のコピー（`--flatten`）か、元データの保管（`--archive-v1`）だけ | **v1 に残す** | 構成グラフをv2へ直に移す機能はない。無理に変換すると編集できなくなる | [`v2/src/migrate.mjs`](../src/migrate.mjs)、[移行手順](phase-two.md#copying-a-complex-v1-project) |
 | PixVerse | 20 | HTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **v2 で対応** | 件数が多い。段階2の有料確認の主対象 | [`v2/plugins/pixverse`](../plugins/pixverse/constraints.md)、[要件 P08](requirements.md) |
 | ElevenLabs | 14 | 音声のHTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **v2 で対応** | 件数が多い。段階2の有料確認の主対象 | [`v2/plugins/elevenlabs`](../plugins/elevenlabs/constraints.md)、[要件 P10](requirements.md) |
-| HyperFrames | 8 | v2側は **0.8.24** 固定の実験プラグイン。実機の音・字幕書き出し証拠あり。v1本体の固定は **0.8.75** で別 | **実験枠（labs）のまま** | 版がv1と揃っていない。既定に上げる前に版の扱いを決める必要がある | [`v2/plugins/hyperframes`](../plugins/hyperframes/constraints.md)、v1は root `package.json` の 0.8.75 |
+| HyperFrames | 8 | v2側は **0.8.173** 固定の実験プラグイン。実機の音・字幕書き出し証拠は旧版0.8.24で取得。v1本体も **0.8.173** 固定 | **実験枠（labs）のまま** | 版はv1と揃ったが、0.8.173での実機書き出し証拠を取り直す必要がある | [`v2/plugins/hyperframes`](../plugins/hyperframes/constraints.md)、v1は root `package.json` の 0.8.173 |
 | MiniMax | 8 | v2の実行プラグインはない。v1由来の実験ソースとして分離済み | **実験枠（labs）のまま** | 件数はあるが、v2に実行経路がない。段階1で無理に新プラグインを増やさない | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
 | Editframe | 6 | v2の実行プラグインはない。v1の任意ランタイム。配布tarballには入れていない | **実験枠（labs）のまま** | 未解決のHigh依存アラートがある。v2配布物からは外してある | [alpha.5配布](release-alpha5.md) の GitHub Dependabot [#131](https://github.com/Takamasa045/tsugite/security/dependabot/131)、[実験枠の一覧](../labs/README.md) |
 | Hypit | 3 | v2のレンダラーではない。v1の制作入口を実験ソースとして分離 | **実験枠（labs）のまま** | 件数が少なく、v2の書き出し器ではない | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
@@ -78,4 +78,4 @@
 
 - 手元の案件数は所有者提供です。リポジトリでは再集計していません。
 - v2のテスト件数は、この文書のために再実行していません。以前の記録は [verification.md](verification.md) と [alpha.5リリース](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)（当時のローカルv2: 88件成功、任意ランタイムskip 5）に日付付きで残しています。
-- 一部の古いメモにあった HyperFrames 0.8.173 は、いまのリポジトリ（`package.json` と pin ファイル）にはありません。v1は 0.8.75、v2アダプターは 0.8.24 です。
+- HyperFrames は v1・v2アダプターとも 0.8.173 に固定しました（`package.json` と pin ファイル）。以前の 0.8.75 / 0.8.24 の記述は旧版です。

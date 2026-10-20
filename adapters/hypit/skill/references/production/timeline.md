@@ -1,74 +1,73 @@
-# Placing Takes on the Timeline
+# Construct the program Timeline
 
-Use this when placing prepared Takes, leaving passages for MG, or creating a work without speech.
-[Media preparation](media.md) produces local SemanticTakes; [Script syntax](script-syntax.md)
-names Selection/Moment identities. [Timing](timing.md) projects them; [Tracks](tracks.md) explains presentation.
+Read this when deciding complete duration or naming absolute Instants and Windows. [Media
+preparation](media.md) publishes local domains and Extents; [Timing](timing.md) explains direct and
+projected values; [Visual](visual-clips.md) and [Audio](audio-clips.md) place media in the resolved work.
 
-A Timeline contains the complete time range and the Takes placed within it. Semantic anchors exist
-where those Takes supply them. Prefer this semantic organization for performance-led work, including
-pure A-roll and short drama without MG. A meaningful passage can span shots or speakers; its actual
-performance gives the authored words and boundaries time. For an event responding to speech, bind
-to its Selection or Moment; use authored time for independently directed rhythm. Both belong to this
-one Timeline.
-The project's reference `TIMELINE.md` records observations and their meaning; the production
-`time:Timeline` declaration places the new work's material. Reference times locate evidence, while
-production placements determine the rendered work.
+Timeline is the work's finite absolute frame domain. Its author declaration is an acyclic graph of
+Instant and Window expressions with one required `end`.
 
 ```svml
 <import as="time" from="@hypit/timeline-author@1"/>
 <time:Clock id="clock" frame-rate="30"/>
-<time:Timeline id="program" clock={clock} end="content.end+2s">
-  <time:Take source={opening.take} at="2s"/>
-  <time:Take source={explanation.take} at="previous.end+3s"/>
-  <time:Take source={closing.take} at="previous.end-12f"/>
+<time:Timeline id="program" clock={clock}
+  end="latest(answer.end,outro.end)">
+  <time:Window id="opening" from="start" for={opening-media.extent}/>
+  <time:Window id="answer" from="opening.end" for={answer-media.extent}/>
+  <time:Instant id="claim" at="answer.end-12f"/>
+  <time:Window id="outro" from="claim" for="3s"/>
 </time:Timeline>
 ```
 
-First omitted `at` means zero; later omitted `at` means the preceding Take's end. Omitted Timeline
-`end` means the latest end of all Takes. Ordinary sequential assembly therefore needs only the
-Clock and Take references. Material lengths resolve when preparation finishes; generation can run
-concurrently while these placement relations wait for their inputs.
+Each named declaration publishes an ordinary value: `program.opening` is a Window,
+`program.opening.start` and `.end` are boundary Instants, and `program.claim` is an Instant.
+`program.window`, `.start` and `.end` describe the complete Timeline.
 
-`previous.end` refers to the preceding declaration. `content.end` is the maximum of all placed
-ends, even when the latest-ending Take is not the last declaration. Absolute positions such as `20s`
-work too. `end="30s"` reserves a fixed complete duration; `end="content.end+2s"` reserves a tail.
-Reordering Take declarations changes placements that depend on `previous.end`, including omitted
-`at` values, and can therefore move later dependent Takes.
-Seconds, milliseconds and frames must resolve to exact frames on the Clock. All complete Takes fit
-inside the authored extent. Take placement retains native speed and local semantic evidence.
+A Window supplies exactly two of `from`, `until` and `for`. `for` accepts an exact frame, millisecond
+or second duration, or a typed Extent. Point expressions can use `start`, the resolved `end`, literal
+positions, named Instants, Window boundaries, exact offsets, `earliest(...)` and `latest(...)`.
 
-The current `time:Take source` accepts a SemanticTake, not an arbitrary image, video or audio file.
-Independent assets enter their own components with this Timeline as their time context. Each placed
-Segment and its token/anchor identities occur once in a Timeline. To show the same footage again as
-an independent replay, use Media; a separate performed Script occurrence has its own Segment.
-Timeline holds placed material and evidence; it publishes no picture or sound by itself.
-
-A gap contains no performance source. A wordless Segment instead has actual prepared media, as with
-someone dancing. MG can occupy either passage according to the intended picture. Pure MG needs no
-placeholder media or Script:
+Dependencies determine evaluation, so declarations can refer forward. Use `latest(...)` when several
+branches can determine complete duration. A wholly authored animation can simply declare:
 
 ```svml
 <time:Timeline id="animation" clock={clock} end="30s"/>
 ```
 
-The output `.timeline` supplies Film and component contexts through `timeline={program.timeline}`.
-Component Surfaces, Fragments and Producers use that same Timeline; shared temporal helpers
-project both literal times and Script references against it.
-Timeline exports only `.timeline`. [Sound](sound.md) presents its existing audio and supplies an
-AudioTrack to Film. Its ordinary Style chooses the last declared active audio source; a project
-Style can explicitly mix sources. Material remains available independently of its presentation.
+## Let resolved material determine duration
 
-[Performance](performance.md) obtains existing footage from the Timeline. Ordinary Media Items take their own
-assets. Caption obtains existing words, while Typography takes authored text. A custom scene can
-consume the same placed footage and projected event times. New display Windows preserve the source
-frame corresponding to the current Program time; moving a viewport does not restart playback.
+Generated speech or video can publish its Extent after the Source has been written. A Window consumes
+that Extent, and any dependent boundary resolves through ordinary graph evaluation:
 
-Overlapping Takes make both sources available. They do not prescribe a dissolve or choose a picture.
-The ordinary Performance Style places its sampled layers in declaration order; for a coordinated blend or layout,
-use a scene that owns that behavior. Simultaneous Caption Cues retain their spoken intervals; use
-Role-based styles or separate Caption presentations when their placement should differ.
+```svml
+<time:Window id="speech" from="start" for={speech-media.extent}/>
+```
 
-Caption also receives a Script-derived CaptionDocument: the document supplies display text and cue
-structure, while Timeline supplies placed timing. Independent B-roll and music receive Timeline for
-placement and their own assets for content; semantic preparation is needed for a performed Script,
-not for every asset used in a composition.
+Keep dependencies acyclic: a generation request that depends on Timeline end cannot also determine
+that same end. Unknown references, empty Windows, values outside the final range and a non-positive
+end are author errors.
+
+## Project local evidence after Timeline resolves
+
+Map one complete local domain to one equal-length Window when its self-contained evidence needs an
+absolute position. Narrative projection uses this relation to publish requested Script Selections,
+Moments or boundaries:
+
+```text
+NarrativeAlignment + LocalDomain + Window -> absolute Instants / Windows
+```
+
+This mapping preserves the local endpoints at native speed. Prepare trims, retiming or other altered
+media before projecting evidence whose endpoints must remain meaningful.
+
+Visual and Audio placement is a separate decision:
+
+```text
+SynchronizedMedia + Window -> visual / audio occurrence
+```
+
+Put a named Instant or Window inside Timeline when it participates in the construction DAG. After the
+Timeline resolves, standalone time declarations and domain projectors can publish additional named
+values against it. Components consume those values, including single-use ones, through ordinary
+references. The project `TIMELINE.md` can retain human observations and their meaning; Source
+constructs the executable Timeline.

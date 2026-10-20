@@ -39,8 +39,8 @@ export function synthesizeSfx(kind, seconds = 0.32, sampleRate = 48000) {
   }
   return wav;
 }
-export async function mixFastEditAudio(manifest, runDir, outputPath) {
-  if (!manifest.fast_edit) return;
+export async function mixFastEditAudio(manifest, runDir, outputPath, options = {}) {
+  if (!manifest.fast_edit && !(options.includeSourceAudio && manifest.clips.some(clip => clip.audio))) return;
   const root = await realpath(runDir);
   const asset = async (p) => {
     if (typeof p !== "string" || isAbsolute(p) || /^[a-z]+:/i.test(p))
@@ -98,7 +98,7 @@ export async function mixFastEditAudio(manifest, runDir, outputPath) {
         sources.push(`[a${input}]`);
         input++;
       }
-    for (const beat of manifest.fast_edit.beats)
+    for (const beat of manifest.fast_edit?.beats ?? [])
       if (beat.edit.sfx !== "none") {
         const path = join(work, `${beat.id}.wav`);
         await writeFile(path, synthesizeSfx(beat.edit.sfx));

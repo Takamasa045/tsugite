@@ -29,7 +29,7 @@ video. Keep the entries and bindings appropriate to the work and the user's chos
 Use `hypit runtime use <profile>` to record an existing Profile for this project.
 `--runtime <profile>` selects one for a single invocation. Commands read the project's
 `.hypit/runtime` selection file; they do not guess from a familiar filename or another project's
-selection. From elsewhere, `hypit paths --workspace /path/to/project` inspects that project. The same
+selection. From elsewhere, `hypit paths --project /path/to/project` inspects that project. The same
 project option applies to environment commands and Build status/control. See the
 [project boundary](../creation/project-files.md#establish-the-project-boundary).
 
@@ -42,7 +42,7 @@ Keep these locations distinct:
 | Profile file | Editable execution choices; may be shared intentionally |
 | Profile `dataRoot` | Execution data, Worker state and working files; relative to the Profile's directory |
 | Host state / Program Home | Machine-level prepared packages and helpers, reported by `hypit paths` |
-| Project Result repository | Finished Results and Outputs; configured separately in `hypit.results.json` |
+| Project `.hypit/results` | Finished Results and Outputs owned by this project |
 
 The selection file and execution directory must be different paths. CLI, Studio and creation
 commands address the same project context; there is no second CLI environment to initialize.
@@ -59,7 +59,7 @@ A complete minimal Profile for credential-free local media work is:
   "credentials": {},
   "endpoints": {
     "media.local": {
-      "use": "@hypit/provider-media-local"
+      "use": "@hypit/media-local"
     }
   },
   "bindings": {}
@@ -67,7 +67,7 @@ A complete minimal Profile for credential-free local media work is:
 ```
 
 This selects media processing only. It needs compatible FFmpeg and FFprobe supplied by the host;
-it does not install them, select an image model, or render HyperFrames pictures. Use it when those
+it does not install them, select an image model, or render HTML renderer pictures. Use it when those
 are the actual requirements, not as a replacement for a production's existing Profile.
 
 | Field | How to choose it |
@@ -125,14 +125,12 @@ A Profile names a Store and a key. The value stays in that Store.
 
 | Store package | Storage and use |
 | --- | --- |
-| `@hypit/credential-store-platform` | Starter policy: macOS Keychain, Windows Credential Locker, or an owner-private unencrypted file on Linux |
-| `@hypit/credential-store-os` | Explicit OS locker selection on supported platforms |
-| `@hypit/credential-store-file` | Explicit unencrypted private file storage outside the project |
+| `@hypit/credential-store-local` | Writable local credentials: macOS Keychain, Windows Credential Locker, or an owner-private file on Linux; set `backend: "file"` to choose files explicitly |
 | `@hypit/credential-store-env` | Reads one named environment variable; read-only |
 
-The platform policy selects by operating system; it is not a sequence of stores to try.
+The local Store selects by operating system; it is not a sequence of stores to try.
 A read failure never migrates a secret or falls back to another Store. Preserve an existing choice.
-The platform/file Store's default file directory is under the Host state root shown by `hypit paths`;
+The local Store's default file directory is under the Host state root shown by `hypit paths`;
 its optional `config.path` chooses a private directory. Read that Store's installed README for path
 and platform rules, including filesystem permissions.
 
@@ -144,13 +142,13 @@ For example, these are the Store declaration and credential reference used by a 
 ```json
 {
   "credentials": {
-    "platform": { "use": "@hypit/credential-store-platform" }
+    "local": { "use": "@hypit/credential-store-local" }
   },
   "endpoints": {
     "hypihub.default": {
       "use": "@hypit/provider-hypihub",
       "config": {
-        "apiKey": { "store": "platform", "key": "hypihub.oauth" }
+        "apiKey": { "store": "local", "key": "hypihub.oauth" }
       }
     }
   }
@@ -201,7 +199,7 @@ every model. Keep secrets out of Sources, Runs, Profile JSON, command arguments,
 
 ## Set capacity at the resource it describes
 
-The Runtime Worker advances Builds. HyperFrames `workers` counts Chrome processes inside one
+The Runtime Worker advances Builds. HTML renderer `workers` counts Chrome processes inside one
 render Need. These are different controls; there is no extra Build-wide model concurrency setting.
 
 | Control | Responsibility |
@@ -209,16 +207,16 @@ render Need. These are different controls; there is no extra Build-wide model co
 | Provider request capacity, commonly `config.defaultConcurrency` | Simultaneous Needs across Builds using the resource |
 | Provider-specific model/action limits | Model quota or submit/poll/collect concurrency and rate; use that Provider's accepted fields |
 | Endpoint `pool` | Shared resource identity for instances consuming the same real quota |
-| HyperFrames `workers`, `maxWorkers` | Per-render Chrome count or automatic ceiling |
-| HyperFrames `browserCapacity` | Shared Chrome budget alongside the whole-request budget |
+| HTML renderer `workers`, `maxWorkers` | Per-render Chrome count or automatic ceiling |
+| HTML renderer `browserCapacity` | Shared Chrome budget alongside the whole-request budget |
 
 For example, merge this Endpoint entry for an intentionally chosen render budget:
 
 ```json
 {
   "endpoints": {
-    "hyperframes.local": {
-      "use": "@hypit/provider-hyperframes-local",
+    "html.local": {
+      "use": "@hypit/provider-html-local",
       "pool": "local-render",
       "config": {
         "defaultConcurrency": 2,
@@ -231,7 +229,7 @@ For example, merge this Endpoint entry for an intentionally chosen render budget
 ```
 
 Only one four-browser request fits the six-browser budget at once, even though the request limit is
-two. These numbers illustrate the relationship; choose them for the actual machine. HyperFrames
+two. These numbers illustrate the relationship; choose them for the actual machine. HTML renderer
 reserves both budgets until the whole render finishes, including preparation and encoding.
 It does not release capacity each time one browser closes.
 

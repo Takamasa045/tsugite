@@ -21,7 +21,7 @@ The first host view can also meet a product image in another request. In that pi
 
 ## Give each new picture the references it needs
 
-A useful first camera image can establish person and place together. It may show one person, several people or the whole encounter. When another view needs that world, carry its atmosphere, palette, materials and spatial relationships into the view the new camera should see. Several Takes can then use the resulting images.
+A useful first camera image can establish person and place together. It may show one person, several people or the whole encounter. When another view needs that world, carry its atmosphere, palette, materials and spatial relationships into the view the new camera should see. Several video requests can then use the resulting images.
 
 A new location can begin with a camera image that already places the people in that setting. Their established views can supply identity or styling; a product or continuing prop can supply its form and state. The new picture establishes the location and composition together, while the prior images carry the facts that persist across the move. A character reference can also carry identity directly into video direction when the new place does not need its own key image.
 
@@ -35,4 +35,4 @@ Keep useful prompts and source images with the project when later views may need
 
 ## Carry the shared world into motion
 
-The image graph records visual facts to carry forward, not the video work's shot order or request boundaries. One camera image may guide a passage with several views or multiple Takes in the same world; several images may contribute different facts to one request. A video excerpt can carry performed action or camera behavior that a still cannot show; [video direction](video-direction.md#let-footage-carry-temporal-behavior-that-matters) owns those input choices and the requested action. [Voice and performance](voice-and-performance.md) and [B-roll](b-roll.md) own the resulting footage's roles in the work.
+The image graph records visual facts to carry forward, not the video work's shot order or request boundaries. One camera image may guide a passage with several views or multiple generated clips in the same world; several images may contribute different facts to one request. A video excerpt can carry performed action or camera behavior that a still cannot show; [video direction](video-direction.md#let-footage-carry-temporal-behavior-that-matters) owns those input choices and the requested action. [Voice and performance](voice-and-performance.md) and [B-roll](b-roll.md) own the resulting footage's roles in the work.

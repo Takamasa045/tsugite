@@ -86,6 +86,7 @@ The full list is the [glossary](docs/guide/glossary.md). First use is “plain w
 ## Learn more
 
 - Previous README material: [technical reference](docs/reference.md)
+- Integrated CLI and video engine versions: [video tools](docs/video-tools.md)
 - Windows: [native Windows and PowerShell guide](docs/windows.md)
 - Version: repository source `0.18.0`. [Changelog](CHANGELOG.md)
 - v2 alpha (in development): [overview](v2/README.md) · [six-second environment check](docs/onboarding/first-video.ja.md) · [pick a use](docs/onboarding/see-and-choose.ja.md)

@@ -7,15 +7,16 @@ A Run says what this execution should complete and which existing or alternative
 use. A **Target** names a deliverable Output. A **Candidate** supplies an Output needed along the
 way. The selected dependencies determine the work that remains.
 
-For example, changing a title can keep the performance and its timing while producing a new final
-video. The Source describes the changed title; the Run keeps the produced Take.
+For example, changing a title can keep the produced performance media, its local temporal domain and
+its alignment evidence while producing a new final video. The Source describes the changed title;
+the Run keeps those independent completed Outputs.
 
 One Run uses these author-facing declarations:
 
 | Declaration | Role |
 | --- | --- |
 | `<author source="./main.svml"/>` | Select the Run's one Author entry. |
-| `<import as="media" from="@hypit/media-pipeline@1"/>` | Make one installed Run Fragment library available. |
+| `<import as="media" from="@hypit/media-operations@1"/>` | Make one installed Run Fragment library available. |
 | `<target output="final.video"/>` | Demand one public Author Output; several Targets may be declared. |
 | `<file .../>` | Admit one project file as a typed zero-input Candidate. |
 | `<build-record .../>` | Admit one exact public Output from one earlier Build Result. |
@@ -30,19 +31,24 @@ not Run declarations.
 ## Select the Output that the current work needs
 
 ```svrun
-<?svml using="@hypit/run-markup@1"?>
+<?svml using="@hypit/markup/run@1"?>
 <svrun version="1">
   <author source="./production.svml"/>
   <target output="final.video"/>
-  <build-record id="kept-take" build="bld_..." output="opening-semantic.take"/>
-  <satisfy output="opening-semantic.take" candidate="kept-take"/>
+  <build-record id="kept-media" build="bld_..." output="opening-normalized.media"/>
+  <build-record id="kept-domain" build="bld_..." output="opening-normalized.domain"/>
+  <build-record id="kept-alignment" build="bld_..." output="opening-alignment.alignment"/>
+  <satisfy output="opening-normalized.media" candidate="kept-media"/>
+  <satisfy output="opening-normalized.domain" candidate="kept-domain"/>
+  <satisfy output="opening-alignment.alignment" candidate="kept-alignment"/>
 </svrun>
 ```
 
-Replace `bld_...` with the actual Build id found through Results. The historical `output` is the
-name in that Result; the `satisfy output` is the current Author Output. Keeping this SemanticTake
-preserves both media and timing when its Script identities still fit. A changed Caption or MG can
-then recompute downstream. Marker and display-only edits may also preserve the Take; use the
+Replace `bld_...` with the actual Build id found through Results. The `output` from the earlier Result is the
+name in that Result; the `satisfy output` is the current Author Output. These selections preserve
+media, its duration and its NarrativeAlignment without pretending they are one compound object.
+A changed Caption or MG can then recompute downstream. Marker and display-only edits may also
+preserve the alignment; use the
 [reuse table](authoring.md#reuse-produced-work-explicitly) to distinguish them from changed speech or media.
 
 Each Run has one Author entry. Its Targets name public computed Outputs, such as `main.composition`
@@ -54,23 +60,23 @@ The selected graph includes the dependencies needed to complete those Outputs.
 A file can replace a byte-producing Output:
 
 ```svrun
-<file id="supplied-performance" type="@hypit/artifact@1#BlobArtifact"
+<file id="supplied-performance" type="@hypit/blob@1#Blob"
   from="./assets/performance.mp4" media-type="video/mp4"/>
 <satisfy output="performance.video" candidate="supplied-performance"/>
 ```
 
 Here the file replaces the generated video bytes. Normalization and alignment still follow it.
-Selecting a completed SemanticTake instead preserves its media, Script association and timing
-together. Choose the Output whose meaning matches what should stay; the receiving Type identifies
-which kind of value fits that position.
+Selecting completed normalized media, local-domain and alignment Outputs preserves those facts
+without preserving their later Timeline placement or Visual/Audio Clip use. Choose the Outputs whose meaning
+matches what should stay; the receiving Type identifies which kind of value fits each position.
 
 ## Use a Fragment when a Candidate needs computation
 
 A Run Fragment connects computations that produce a Candidate. For example, an authored still image
-can become a timed video through Media Pipeline's ordinary `still-video` Fragment:
+can become a timed video through Media Operations's ordinary `still-video` Fragment:
 
 ```svrun
-<import as="media" from="@hypit/media-pipeline@1"/>
+<import as="media" from="@hypit/media-operations@1"/>
 <fragment id="product-hold" using="media:still-video">
   <input name="duration" value="5"/>
   <input name="clock" from="clock"/>
@@ -80,7 +86,7 @@ can become a timed video through Media Pipeline's ordinary `still-video` Fragmen
 <satisfy output="product-clip.video" candidate="product-hold.video"/>
 ```
 
-Here `product-layout` is an Author value of Type `@hypit/media-pipeline@1#StillVideoLayout`,
+Here `product-layout` is an Author value of Type `@hypit/media-operations@1#StillVideoLayout`,
 containing `{"weights":[1]}`; `product-image` is an authored image Blob. The package README owns the
 Fragment's exact inputs. [Media](media.md#give-a-still-a-duration-when-that-is-its-role) shows the
 simpler `StillVideo` Surface for authoring this directly in the Source.
@@ -96,7 +102,7 @@ The resulting Candidate is named `product-hold.video`. Selecting it replaces the
 ## Generate material while composing
 
 Media requests depend on the Script, direction, references and requested duration. Once those
-choices are ready and the commission covers their cost, a Run can target the prepared Takes while
+choices are ready and the commission covers their cost, a Run can target the prepared material while
 component and Recipe work continues. Shared decisions such as where a presenter leaves room for
 an overlay belong in Treatment. Translate the material side into visible camera facts for image
 and video direction; pass the composition side as actual layout and event inputs. Independent
@@ -107,15 +113,16 @@ The small [production Source](examples/production.svml), [Recipe](examples/look.
 these execution choices. Copy them together into a project. The simple performance request shows
 system wiring; the work's actual casting, references and direction come from its Treatment and Craft.
 
-`material.svrun` targets `opening-semantic.take`. While it runs, the author can work on the title and
-its placement. Once the Take completes, select it with `build-record` in the production Run so that
-rendering uses the produced performance and its word timing. If material is already available, use
-it directly. Choose Targets according to the dependencies the current work needs.
+`material.svrun` targets the opening alignment, which also demands normalization and the local domain.
+While it runs, the author can work on the title and its placement. Once those Outputs complete, select
+the media, domain and alignment with `build-record` in the production Run so rendering uses the produced
+performance and its word timing. If material is already available, use it directly. Choose Targets
+according to the dependencies the current work needs.
 
 For a focused composition change, [detail.svrun](examples/detail.svrun) targets frames 30–90 from the
-same Source and reuses that Take. Replace its example Build id with the actual Result id. The new
+same Source and reuses those prepared Outputs. Replace its example Build id with the actual Result id. The new
 Build evaluates the changed composition and selected render interval. The final Run can reuse the
-same Take for full delivery.
+same material and evidence for full delivery.
 
 [Rendering](rendering.md#choose-a-render-interval-in-frames) explains frame ranges and reuse;
 [Review](review.md) explains judging the actual arrangement. [Studio](studio.md) provides an

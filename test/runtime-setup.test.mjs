@@ -35,8 +35,8 @@ const OFFICIAL_STARTER = {
         apiKey: { store: "os", key: "hypihub.oauth" }
       }
     },
-    "media.local": { use: "@hypit/provider-media-local" },
-    "hyperframes.local": { use: "@hypit/provider-hyperframes-local" }
+    "media.local": { use: "@hypit/media-local" },
+    "html.local": { use: "@hypit/provider-html-local" }
   }
 };
 
@@ -85,17 +85,17 @@ function upJson(overrides = {}) {
 
 describe("prepareLocalRuntime argv contract", () => {
   it("pins official local endpoint names and never omits --endpoint", () => {
-    expect(LOCAL_STARTER_ENDPOINT_NAMES).toEqual(["media.local", "hyperframes.local"]);
+    expect(LOCAL_STARTER_ENDPOINT_NAMES).toEqual(["media.local", "html.local"]);
     const argv = localRuntimeUpArgv("/tmp/ws");
     expect(argv).toEqual([
-      "runtime", "up", "--workspace", "/tmp/ws",
-      "--endpoint", "media.local", "--endpoint", "hyperframes.local",
+      "runtime", "up", "--project", "/tmp/ws",
+      "--endpoint", "media.local", "--endpoint", "html.local",
       "--json", "--no-color"
     ]);
     expect(argv).not.toContain("hypihub.default");
     expect(argv.filter((item) => item === "--endpoint")).toHaveLength(2);
     expect(localRuntimeInitArgv("/tmp/ws")).toEqual([
-      "runtime", "init", "--workspace", "/tmp/ws", "--json", "--no-color"
+      "runtime", "init", "--project", "/tmp/ws", "--json", "--no-color"
     ]);
     expect(LOCAL_RUNTIME_TIMEOUT_MS).toBe(1_200_000);
     expect(PRODUCTION_WORKSPACE_NAME).toBe("hypit-workspace");
@@ -143,7 +143,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     expect(result.up.ready).toBe(true);
     expect(result.up.worker).toBe("running");
     expect(result.pinned_runtime.package).toBe("@hypit/hypit");
-    expect(result.pinned_runtime.version).toBe("0.2.13");
+    expect(result.pinned_runtime.version).toBe("0.3.1");
     expect(result.host_state_mode).toBe("standalone-workspace");
     expect(result.production_root).toBeNull();
   });
@@ -213,14 +213,14 @@ describe("prepareLocalRuntime trust and isolation", () => {
     expect(readFileSync(join(workspace, "hypit.runtime.json")).equals(before)).toBe(true);
   });
 
-  it("refuses custom executable paths on hyperframes.local without rewriting", () => {
+  it("refuses custom executable paths on html.local without rewriting", () => {
     const workspace = tempWorkspace("custom-bin");
     const profile = {
       ...OFFICIAL_STARTER,
       endpoints: {
         ...OFFICIAL_STARTER.endpoints,
-        "hyperframes.local": {
-          use: "@hypit/provider-hyperframes-local",
+        "html.local": {
+          use: "@hypit/provider-html-local",
           config: { hyperframesCliPath: "/tmp/evil-cli" }
         }
       }
@@ -247,9 +247,9 @@ describe("prepareLocalRuntime trust and isolation", () => {
       format: "hypit.runtime-local@1",
       dataRoot: ".hypit/runtimes/local",
       endpoints: {
-        "media.local": { use: "@hypit/provider-media-local", config: { defaultConcurrency: 2 } },
-        "hyperframes.local": {
-          use: "@hypit/provider-hyperframes-local",
+        "media.local": { use: "@hypit/media-local", config: { defaultConcurrency: 2 } },
+        "html.local": {
+          use: "@hypit/provider-html-local",
           config: { workers: 2, defaultConcurrency: 1 }
         }
       }
@@ -259,7 +259,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
       spawnCli: (argv) => {
         expect(argv[1]).toBe("up");
         expect(argv).toContain("media.local");
-        expect(argv).toContain("hyperframes.local");
+        expect(argv).toContain("html.local");
         expect(argv).not.toContain("hypihub.default");
         return { status: 0, stdout: upJson(), stderr: "" };
       }
@@ -388,7 +388,7 @@ describe("prepareLocalRuntime trust and isolation", () => {
     const workspace = tempWorkspace("missing-pin");
     const adapterRoot = tempWorkspace("adapter");
     writeFileSync(join(adapterRoot, "pin.json"), JSON.stringify({
-      distribution: { package: "@hypit/hypit", version: "0.2.13" }
+      distribution: { package: "@hypit/hypit", version: "0.3.1" }
     }));
     let spawns = 0;
     expect(() => prepare({
@@ -557,11 +557,11 @@ describe("inspectTrustedLocalStarterEndpoints", () => {
       format: "hypit.runtime-local@1",
       dataRoot: ".hypit/runtimes/local",
       endpoints: {
-        "media.local": { use: "@hypit/provider-media-local" }
+        "media.local": { use: "@hypit/media-local" }
       }
     }, workspace);
     expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/hyperframes\.local/);
+    expect(result.reason).toMatch(/html\.local/);
   });
 });
 

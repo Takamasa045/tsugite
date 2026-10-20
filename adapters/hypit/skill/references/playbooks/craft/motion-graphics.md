@@ -39,11 +39,11 @@ only the outer panels changes less than the audience may think, while removing a
 the remaining layout to be recomposed. The film's Treatment owns its particular palette, ornament
 and attitude.
 
-Work with source media as part of that language. A moving viewport changes how an existing Take is
-seen; it does not change the Take's performed time. An independently moving image, a drawn border
+Work with source media as part of that language. A moving viewport changes how time-bearing source footage is
+seen; it does not change its performed time. An independently moving image, a drawn border
 and a caption may share a moment without having the same visual owner. When footage and graphics
-must move as one scene, their shared geometry can be directed together. [Performance](../../production/performance.md)
-owns the current Timeline footage, and [component design](../../production/component-design.md)
+must move as one scene, their shared geometry can be directed together. [Visual Clip](../../production/visual-clips.md)
+owns time-bearing footage, and [component design](../../production/component-design.md)
 owns the implementation boundary.
 
 ## Give events and movement different jobs

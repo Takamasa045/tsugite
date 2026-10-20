@@ -10,10 +10,11 @@ and project package ownership. [Caption authoring](caption-authoring.md) covers 
 
 ## Start with the author-visible behavior
 
-Prefer semantic inputs when the component responds to the words or performance. A comparison can occupy
-a Selection; a verdict can trigger a Moment; the whole board can live for a Segment. Expose those
-choices on the Surface and pass their projected Windows or Instants to the implementation. This
-keeps the component useful when a new performance changes the pace. Expose separately meaningful
+Prefer domain-produced time when the component responds to words or performance. A Narrative
+projector can turn a comparison Selection into a Window, a verdict Moment into an Instant, and a
+Segment into a board lifetime. Expose ordinary absolute values on the component Surface and pass
+them to the implementation. This keeps the component useful when a new performance changes the
+pace without coupling it to Narrative. Expose separately meaningful
 internal events as well as the outer lifetime. The [event-versus-animation boundary](component-design.md#let-meaning-drive-the-behavior)
 explains why a single semantic Window cannot replace several word-linked triggers. In an authored animation,
 content events carry their own reading rhythm. Their Instants and Windows enter the same component
@@ -27,54 +28,54 @@ the component more usefully than a long list of decorative parameters.
 This existing answer-strip vocabulary illustrates a concrete choice:
 
 ```svml
-<emoji:Track id="answers" timeline={speech.timeline} canvas={canvas}
-  style={answer-style} placeholder={question-icon} during="program">
+<emoji:EmojiReveal id="answers" timeline={speech.timeline} within={canvas.bounds}
+  style={answer-style} placeholder={question-icon} during={speech.window}>
   <emoji:Item id="known" icon={known-icon} preset="true"/>
-  <emoji:Item id="surprise" icon={answer-icon} at={story.moment.reveal}/>
-</emoji:Track>
+  <emoji:Item id="surprise" icon={answer-icon} at={reveal}/>
+</emoji:EmojiReveal>
 ```
 
 Its outer Window owns visibility; source order owns slots; preset answers exist at the beginning;
-each Moment changes only its slot and the answer persists. A chart or scoreboard can instead own
+each activation Instant changes only its slot and the answer persists. A chart or scoreboard can instead own
 repeated updates or simultaneous events.
 
-## Keep selection, projection and consumption distinct
+## Keep selection projection and consumption distinct
 
-Script names meaning: a Selection, Segment or Moment. The Timeline supplies where that
-event falls after its prepared media is placed. The consuming component's Surface lowers its authored timing
-form into a projection subgraph, which resolves an Instant or Window in the program's frame space.
-The component's own Fragment and Producers then decide what to do with that value.
+Script names Narrative meaning: a Selection, Segment or Moment. `@hypit/narrative-temporal`
+combines Alignment, its local domain and an equal-length Window and publishes requested absolute Instants or Windows. The
+component's Surface accepts those values, and its Fragment and
+Producers decide what to do with them.
 
 ```text
-Script Selection / Segment / Moment + Timeline
-                         ↓ component Surface creates projection
+Narrative relationship + Alignment + LocalDomain + Window
+                         ↓ Narrative projector
                 Timeline + Window / Instant
-                         ↓ component Fragment / Producer consumption
+                         ↓ generic component consumption
               media occupancy, graphic state, sound or effect
 ```
 
-This separation lets one Moment drive an answer reveal, a short sound and a flash. Each consumer
-receives its own appropriate projection, but all refer to the same authored event. Changed speech
-moves the event without asking each component to search for a word or inspect the Script parser.
+This separation lets one projected Instant drive an answer reveal, a short sound and a flash.
+Consumers can share that one value. Changed speech moves the upstream event without asking each
+component to search for a word, carry a projector or inspect the Script parser.
 
-Use `resolveTemporalContext` from `@hypit/hypit/temporal-markup` to resolve the component's
+Use `resolveTemporalContext` from `@hypit/temporal/markup` to resolve the component's
 `timeline` input. Pass that same Timeline to its Fragment and Producers, alongside projected
-Instants/Windows. A component can combine literal times and word-bound events without switching time
-models. The installed `examples/semantic-composition/packages/chat-scene` demonstrates repeated
+Instants/Windows. A component can combine directly authored and domain-produced named values without switching
+time models. The installed `examples/semantic-composition/packages/chat-scene` demonstrates repeated
 content children with their own events and a picture drawn entirely in code.
 
-For a Window consumer, `during={story.selection.example}` can take both semantic boundaries.
-`at={story.moment.answer} for="8f"` starts a short effect at a Moment. An Instant consumer may accept
-`at={story.moment.answer}` with no duration because it owns a state transition. Read the actual
-Surface: identical-looking `at` attributes do not imply identical consumption. [Timing](timing.md) describes the shared author
-forms; the component chooses which of them fit its behavior.
+For a Window consumer, `during={example}` reuses a projected interval. To start a short
+effect at an Instant, first declare a named Window from that Instant, then pass it through `during`.
+An Instant consumer may accept `at={answer}` because it owns a state transition. Read the
+actual Surface: Window and Instant consumers deliberately expose different reference vocabulary.
+[Timing](timing.md) describes the shared forms.
 
 ## Separate lifetime, activation and persistent state
 
 For a board that stays on screen, author its outer Window independently of individual reveals.
 Then decide what its children mean:
 
-- an Item window may mean “draw only during this interval,” as with ordinary Media;
+- an Item window may mean “draw only during this interval,” as with an ordinary Clip;
 - an activation window may stage an item's entrance and movement, after which it remains in a board;
 - a Moment may replace a question mark with an answer that persists until the outer Window ends;
 - a preset item may already occupy the initial state and need no reveal trigger.
@@ -87,11 +88,14 @@ The interview's project emoji strip illustrates this design: one outer Window, o
 items, a placeholder asset and one icon per answer. Each Moment changes its own slot. The Track does
 not decide when the spoken answer occurred; it consumes the already projected event.
 
-## Use the Timeline's existing placement model
+## Use absolute time with explicit media inputs
 
-The [Timeline](timeline.md) places intact prepared Takes at native speed. Sequential placement,
-head/interior/tail space and simultaneous Takes share the same data type. A project scene consumes
-its range, media samples and semantic events through ordinary projection helpers.
+The [Timeline](timeline.md) resolves Instants and Windows from literal or typed Extents. A domain
+projector may translate a complete local domain through an equal-length Window, then publish ordinary
+absolute values and discard that relation. Media is not bound to this projection; a Visual or Audio
+Clip declares its own ordinary media occurrence with an absolute Window. Sequential ranges,
+head/interior/tail space and simultaneous branches remain temporal relationships. A project scene
+consumes the Timeline, media and the Instants or Windows its behavior actually needs.
 
 A different material operation, such as trimming or retiming a performance, changes the local media
 and its preparation. A display operation, such as crossfading two available sources, belongs to the
@@ -100,35 +104,39 @@ and a material change establishes truthful local evidence.
 
 ## Make spatial decisions equally explicit
 
-CanvasSpace identifies the coordinate system. SpatialFrame, anchors, extents and fitting describe
-where content goes and how its intrinsic shape occupies that place. RegionTimeline supplies authored
-per-frame regions in a chosen Canvas. These are distinct from Timeline, which owns the complete time range.
+Canvas identifies the final raster viewport. SpatialFrame, anchors, extents and fitting describe
+where content goes and how its intrinsic shape occupies that place. Region Evidence supplies authored
+per-frame regions already resolved in the program picture plane. These are distinct from Timeline,
+which owns the complete time range.
 
 Keep image dimensions, placement and crop transformations visible so a measured head or a reserved
-MG area maps into the actual composition. Take the production's Canvas and the placement inputs the role needs. Derive related internal
-geometry from their common owner. A project scene may keep a fixed layout and speaker arrangement;
+MG area maps into the actual composition. Take the production's Canvas and the placement inputs the
+role needs. Derive related internal geometry from their common owner. A project scene may keep a fixed layout and speaker arrangement;
 a reusable behavior exposes the variation its real uses require. Keep renderer viewport selection
 and any detector in their own execution or measurement boundary.
 
 ## Write the smallest component that expresses the role
 
 Declare the new package in the project's `packages/` and ordinary package configuration. Read the
-installed `@hypit/hypit/author-kit` README for the public package boundary and inspect a close installed sibling for
+installed `@hypit/hypit/author`, `producer`, `admission` and `markup` READMEs for the public package boundaries and inspect a close installed sibling for
 the relevant implementation, rather than depending on a monorepo example directory being present.
-`@hypit/interview-emoji-reveal` demonstrates persistent Moment-driven state; `@hypit/ranking`
-demonstrates reveal Windows and settled rows; `@hypit/media-track` demonstrates occupancy and Handoffs.
+When already selected by a project, `@hypit/interview-emoji-reveal` demonstrates persistent
+Moment-driven state and `@hypit/ranking` demonstrates reveal Windows and settled rows.
+`@hypit/visual-track` is the default example for ordinary Clip occurrences with independent Window,
+Frame, fit and source-time relations. Optional examples are evidence, not prerequisites.
 
-Ranking provides a complete example in the installed Distribution. Its `packages/ranking/README.md`
-links the relevant files: `surface.ts` projects authored time, `fragment.ts` connects typed inputs,
-`schedule.ts` computes reveal and settled spans, `render.ts` draws them, and
-`packages/ranking-studio/src/index.ts` turns the same program into editor entities. Follow the part
-that answers the current question. A new component may use fewer operations or different state.
+Ranking's repository README links its implementation: `surface.ts` resolves authored time references,
+`fragment.ts` connects typed inputs, `schedule.ts` computes reveal and settled spans, `render.ts`
+draws them, and `studio.ts` turns the same program into editor Items. Read it only when that
+example is relevant and available; a new project component may use fewer operations or different state.
 
-The Surface exposes author intent and lowers its supported temporal forms through shared projection
-helpers such as `createTemporalWindowProjection` and `createTemporalInstantProjection`. The Fragment
-wires those projections, the shared Timeline/Canvas and authored values into the component's
-Producers. The Producer consumes the resulting time and geometry and owns the visual/state behavior;
-Studio consumes that published meaning for presentation and editing.
+The Surface exposes author intent and resolves absolute temporal inputs through
+`resolveTemporalWindowReference` or `resolveTemporalInstantReference`. The Fragment wires the
+completed value, the shared Timeline, explicit placement Frames and authored values into the
+component's Producers. Timeline authoring, Narrative, beat or other domain packages publish those
+values upstream; the component does not construct an anonymous value or inspect its origin. The
+Producer owns the visual/state behavior, while Studio follows the graph back to the value's actual
+declaration for editing.
 
 Wire supplied media, Script content and event references through Source. Expose other content or
 treatment in Source or Recipe where the work needs those choices. A one-off component can own fixed
@@ -146,25 +154,25 @@ The useful pieces of a project package are:
 | Surface | Validate authored attributes and children, resolve typed references, emit inert Records, Components and Fragments |
 | Fragment | Wire the finite computation graph and publish outputs |
 | Producer | Compute the immutable state or render program from declared inputs |
-| Activation | Register the Manifest, deterministic handlers and Markup facets with their matching Host ABI |
+| Activation | Register the Manifest, deterministic handlers and Markup facets with their matching Facet ABI |
 | Vocabulary and preview | Explain the role and show a recognizable, configured example |
-| Optional Studio Companion | Project meaningful editor entities, real parameter bindings and temporal lineage without changing video rendering |
+| Optional Studio Companion | Project meaningful editor Items, real parameter bindings and temporal lineage without changing video rendering |
 
 Resolve the Track's `timeline` through `resolveTemporalContext` and wire `context.timeline.ref`
-directly to its Timeline input. Words and source footage are available where prepared Takes provide
-them. The visual Producer consumes Timeline and projected times, not Script syntax.
+directly to its Timeline input. Source footage is supplied explicitly through media inputs. The
+visual Producer consumes Timeline, explicit media and absolute time values.
 
-For each Window, call `createTemporalWindowProjection`; for an event, use
-`createTemporalInstantProjection`. Pass the resolved context, the child element
-and `resolveReference`. Preserve all returned `records`, `components` and `fragments`, and wire the
-returned `ref` into the domain Fragment. The common `at` accepts a Moment or an authored duration
-from program start. Selection and Segment boundaries use `boundary="start"` or `boundary="end"`.
-A Moment needs the semantic context that locates its Script anchor.
+For each Window input, call `resolveTemporalWindowReference`; for an event, use
+`resolveTemporalInstantReference`. Pass the child element and `resolveReference`, then wire the
+returned `ref` into the domain Fragment. Window consumers use `during`; Instant consumers use `at`.
+Both attributes reference completed temporal values. Timeline-authoring and domain packages own
+declarations; a Narrative package must publish its selected boundary first.
 
-Keep each child's `subjectId` meaningful to the component while qualifying graph ids by its owning
-Track, so multiple instances can coexist. A finite create/append/finalize graph supports any authored
-number of messages or cards with ordinary fixed Producer ports. The exact helpers and vocabulary
-live in `@hypit/hypit/temporal-markup`; the `@example/chat-scene` package demonstrates authored and semantic events on one Timeline.
+Keep each child's `subjectId` meaningful for inspection while qualifying graph ids by its owning
+Track, so multiple instances can coexist. Do not use it to reject a deliberately shared Window. A
+finite create/append/finalize graph supports any authored number of messages or cards with ordinary
+fixed Producer ports. The exact helpers and vocabulary
+live in `@hypit/temporal/markup`; the `@example/chat-scene` package demonstrates authored and semantic events on one Timeline.
 
 A scene may publish computed event times when another component needs them, just as it publishes a
 Track. This shares pre-render data. When the author already specifies a common trigger, consumers
@@ -175,7 +183,7 @@ draw nothing; inside it, each slot shows its preset/activated answer or its plac
 entrance motion relative to that slot's activation frame. Deriving state directly from declared inputs
 and the requested frame keeps Studio scrubbing and partial or concurrent rendering deterministic.
 
-Emit the public VisualTrack representation through `@hypit/hypit/composition` and `@hypit/hypit/visual-ir`.
+Emit the public VisualTrack representation through `@hypit/composition`.
 [Component visuals](component-visuals.md) explains Presents, element trees, local animation,
 prepared surfaces and a complete drawing function. [Spatial layout](spatial.md) explains incoming
 Frames, and [Fonts and text](fonts-and-text.md) explains font resources.
@@ -183,13 +191,13 @@ Pass asset references and exact font data through declared inputs. A visual Prod
 files, call GVI, run ffmpeg or choose a Provider. If an external preparation operation is needed,
 represent it separately through its capability; its result becomes another input.
 
-A component-owned sound can be a peer AudioTrack output; alternatively the Source can place a sound
+A component-owned sound can be a peer Audio Track output; alternatively the Source can place a sound
 on the same Moment. Neither choice requires a Track to inspect another Track's private state.
 Document which Outputs are public, including useful deterministic program values for inspection.
 
 ## Verify the behavior the component introduced
 
-When the new role needs its own timeline presentation or Inspector, read
+When the new role needs its own timeline Items or Inspector, read
 [Companion authoring](studio-companions.md). Expose the domain
 schedule and temporal identities at their actual boundaries so the editor consumes them directly
 instead of reconstructing them from pixels.
@@ -205,11 +213,11 @@ checks around activation and exit are more useful than snapshots of every implem
 Also check a second instance, a differently sized Frame and direct seeking into the middle when
 those exercise the new behavior.
 
-## A reusable performance presentation
+## A reusable relation spanning Clips
 
-When the behavior presents existing Timeline footage, [Performance Styles](performance.md) offer
-an occurrence model with broad and local Uses. A Style binds a typed fragment's additional inputs;
-each Use supplies Timeline, Canvas and its original Window. The fragment exports a VisualTrack.
-This supports project-owned HTML behavior and explicit extra events or material without introducing
-a new Track protocol. A larger scene that coordinates footage and independent graphics can remain
-its own component. Both paths use the same rendering capabilities.
+When behavior spans several source occurrences, make that relation the component's own vocabulary.
+A continuing Presenter may own explicit Source and Use children; a crossfade may own outgoing and
+incoming roles; a slideshow may own its replacement policy. The component receives Timeline, Frames,
+media and events through normal typed inputs and publishes an ordinary VisualTrack. Its package owns
+the local grammar for that relation, while a larger scene coordinating footage and graphics can remain
+one project component. Both paths use the same rendering capabilities.

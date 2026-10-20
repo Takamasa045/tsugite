@@ -12,6 +12,7 @@ const EXIT_TRANSIENT_EXTERNAL_FAILURE = 20;
 const EXIT_MISSING_DEPENDENCY = 30;
 const EXIT_INVALID_REQUEST = 40;
 const MAX_OUTPUT = 1024 * 1024 * 10;
+const hyperframesEnv = () => ({ ...process.env, DO_NOT_TRACK: "1", HYPERFRAMES_NO_TELEMETRY: "1", HYPERFRAMES_NO_UPDATE_CHECK: "1", HYPERFRAMES_NO_AUTO_INSTALL: "1" });
 
 const HYPERFRAMES_LINT_COMMAND = ["npx", "hyperframes", "lint", "--json"];
 const HYPERFRAMES_SAFE_LINT_COMMAND = ["npx", "--no-install", "hyperframes", "lint", "--json"];
@@ -206,6 +207,7 @@ function isExternalAssetPath(value) {
 
 function checkHyperFramesDependency(runDir) {
   const result = spawnSync(HYPERFRAMES_VERSION_COMMAND[0], HYPERFRAMES_VERSION_COMMAND.slice(1), {
+    env: hyperframesEnv(),
     cwd: runDir,
     encoding: "utf8",
     maxBuffer: MAX_OUTPUT
@@ -235,6 +237,7 @@ function checkHyperFramesDependency(runDir) {
 
 function runHyperFramesLint(runDir) {
   const result = spawnSync(HYPERFRAMES_SAFE_LINT_COMMAND[0], HYPERFRAMES_SAFE_LINT_COMMAND.slice(1), {
+    env: hyperframesEnv(),
     cwd: runDir,
     encoding: "utf8",
     maxBuffer: MAX_OUTPUT
@@ -268,6 +271,7 @@ function runHyperFramesRender(runDir, outputPath, fps) {
     "standard"
   ];
   const result = spawnSync(command[0], command.slice(1), {
+    env: hyperframesEnv(),
     cwd: runDir,
     encoding: "utf8",
     maxBuffer: MAX_OUTPUT

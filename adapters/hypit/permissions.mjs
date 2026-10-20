@@ -14,7 +14,6 @@ export const PHASE1_OBSERVE_COMMANDS = Object.freeze([
   "inspect",
   "logs",
   "status",
-  "measure",
   "vocabulary",
   "help"
 ]);

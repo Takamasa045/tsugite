@@ -208,11 +208,11 @@ describe("environment doctor", () => {
   });
 
   it.each([
-    { adapterName: "pixverse", provider: "pixverse", label: "pixverse", remediation: /PixVerse CLI.*install|install.*PixVerse CLI/i },
-    { adapterName: "kling", provider: "kling", label: "kling", remediation: /Kling CLI.*install|install.*Kling CLI/i }
+    { adapterName: "pixverse", provider: "node", probe: ["node", "adapters/pixverse/check.mjs"], label: "pixverse", remediation: /pixverse:install/i },
+    { adapterName: "kling", provider: "node", probe: ["node", "adapters/kling/cli.mjs", "--version"], label: "kling", remediation: /kling:install/i }
   ])(
-    "checks the dedicated $provider provider CLI for the $adapterName adapter with a non-charging version probe",
-    async ({ adapterName, provider, label, remediation }) => {
+    "checks the pinned $label provider CLI for the $adapterName adapter with a non-charging version probe",
+    async ({ adapterName, provider, probe, label, remediation }) => {
       const configPath = await projectUsingAdapter(adapterName);
       const checkedCommands: string[] = [];
       const probedCommands: string[][] = [];
@@ -220,16 +220,17 @@ describe("environment doctor", () => {
       const report = await inspectEnvironment(configPath, {
         commandExists: async (command) => {
           checkedCommands.push(command);
-          return command !== provider;
+          return true;
         },
         probeCommand: async (command) => {
           probedCommands.push([...command]);
-          return { ok: true, version: `${provider} 1.2.3` };
+          return { ok: JSON.stringify(command) !== JSON.stringify(probe), version: `${provider} 1.2.3` };
         }
       });
 
       expect(report.ok).toBe(false);
       expect(checkedCommands).toContain(provider);
+      expect(probedCommands).toContainEqual(probe);
       expect(probedCommands).not.toContainEqual(expect.arrayContaining(["create", "video"]));
       expect(report.checks).toContainEqual(
         expect.objectContaining({
@@ -252,7 +253,7 @@ describe("environment doctor", () => {
     });
 
     expect(report.ok).toBe(true);
-    expect(probedCommands).toContainEqual(["pixverse", "--version"]);
+    expect(probedCommands).toContainEqual(["node", "adapters/pixverse/check.mjs"]);
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         name: "provider:pixverse (pixverse)",

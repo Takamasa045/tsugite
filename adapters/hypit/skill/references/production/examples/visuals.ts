@@ -1,13 +1,13 @@
-import { sealVisualTrack } from "@hypit/hypit/composition";
-import type { FrameSpan } from "@hypit/hypit/composition";
-import type { FontArtifactRef } from "@hypit/hypit/media";
-import type { ProgramSpace } from "@hypit/hypit/program-space";
-import { VISUAL_IR_V1 } from "@hypit/hypit/visual-ir";
+import { sealVisualTrack } from "@hypit/composition";
+import type { FrameSpan } from "@hypit/composition";
+import type { FontArtifactRef } from "@hypit/media";
+import type { Timeline } from "@hypit/timeline";
+import { VISUAL_IR_V1 } from "@hypit/composition";
 
 // The caller supplies its projected Window, resolved Frame and selected font faces.
 export function renderCard(input: {
   id: string;
-  space: ProgramSpace;
+  timeline: Timeline;
   span: FrameSpan;
   frame: { x: number; y: number; width: number; height: number };
   text: string;
@@ -24,13 +24,14 @@ export function renderCard(input: {
   const entranceEnd = Math.min(input.entranceFrames, length - 1);
   return sealVisualTrack({
     id: input.id,
-    programSpaceId: input.space.id,
+    timelineId: input.timeline.id,
     visualIr: VISUAL_IR_V1,
     presents: [{
       id: `${input.id}-present`,
       subjectId: input.id,
       span: input.span,
-      stacking: { order: input.layer, tieBreak: input.id },
+      order: 0,
+      z: input.layer,
       elements: [{
         kind: "box", id: root, order: 0,
         style: [

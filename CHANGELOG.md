@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Clarify that v1 is 0.18.0 (the alpha.1 note that v1 stayed at 0.17.0 is historical), record independent HyperFrames pins (v1 0.8.75, v2 adapter 0.8.24), and point current v2 docs at alpha.5. Add an owner-facing v1→v2 migration decision record at `v2/docs/migration-plan.ja.md`. Docs only; no runtime, version, or release change.
+- Update video tooling to Remotion 4.0.536, HyperFrames 0.8.173, GSAP 3.15.0, PixVerse CLI 1.4.9, Kling CLI 0.2.3, MiniMax CLI 1.0.28, Editframe 0.60.34, Hypit 0.3.1 and Tesseract 0.4.0. Align v2 renderer peers and bind split HyperFrames runtime files to reviewed plans.
+- Preserve local rendering with the current Editframe SDK/advanced Vite API, adapt Hypit SDK and CLI contracts, keep provider CLI pins effective in execution/Doctor, and retain page-only approvals and service-specific budgets.
+- Clarify that v1 is 0.18.0 (the alpha.1 note that v1 stayed at 0.17.0 is historical), record the HyperFrames pins (both v1 and the v2 adapter now pin 0.8.173 after the tooling update above), and point current v2 docs at alpha.5. Add an owner-facing v1→v2 migration decision record at `v2/docs/migration-plan.ja.md`. Docs only; no runtime, version, or release change.
 
 ## 0.18.0 - 2026-10-19
 

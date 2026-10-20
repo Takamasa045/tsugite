@@ -24,13 +24,13 @@ or rotation. A vivid attitude and an easy speaking gesture give this settled vie
 to addressing the viewer; the generated performance can move and react within the encounter.
 
 Cast the person's vocal appeal with [Voice direction](../craft/voice-direction.md).
-Use that same image and the person's recurring voice reference for every ordinary talking Take.
-Each Take can return to the same useful visual premise and contribute another piece of the edited
+Use that same image and the person's recurring voice reference for every ordinary talking clip.
+Each clip can return to the same useful visual premise and contribute another piece of the edited
 performance.
 
 Natural cuts are part of the desired result. A small change in pose between passages can make the
 video feel like a creator's edited recording. Stable character-and-scene references can support each
-Take independently because this work wants edited speech rather than an unbroken simulated recording.
+clip independently because this work wants edited speech rather than an unbroken simulated recording.
 
 ## Use the tested Speaker Kit when its shape fits
 
@@ -65,14 +65,15 @@ See [Generated video direction](../craft/video-direction.md) for listeners, gest
 
 ## Let speech and graphics do different work
 
-Write natural stages in Script. For newly generated Takes, measure each Segment before choosing a
+Write natural stages in Script. For newly generated clips, estimate each Segment before choosing a
 literal generation duration. When the work retains recorded speech, its edited delivery supplies
 the actual duration; [media preparation](../../production/media.md) explains how to prepare and
-align it. A Segment can contain several edited shots, Caption Cue Breaks, graphic changes and
+align it. A Segment can contain several edited shots, Caption Cue separators, graphic changes and
 speaking turns. Choose its boundaries from the performance it carries.
 
-Normalize the produced speaking media, align its own audio to its Segment, and assemble the
-SemanticTakes. Keep that performance's sound when B-roll covers its picture. Place evidence on
+Normalize the produced speaking media, align its own audio to its Segment, construct its equal-length
+Timeline Window, and project that alignment through the local domain/Window relation. Keep that performance's sound
+when B-roll covers its picture. Place evidence on
 Selections and reveals on the component's declared timing inputs. A persistent board can continue
 through a cut while the current portrait, evidence image and Caption change.
 

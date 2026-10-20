@@ -8,15 +8,17 @@ or whether an off-screen passage continues an A-roll performance or uses indepen
 
 A Segment is one authored passage in the Script. Before production it has identity and meaning but no
 seconds. A-roll names the performance carrying that passage. Its prepared media supplies duration;
-spoken words acquire local timing through semantic preparation. Visible performance can carry
+spoken words can acquire local timing through semantic preparation when the composition needs their
+positions. Visible performance can carry
 picture and sound together; audio-only performance carries the passage while other contributions
 supply its picture.
 
-Timeline assembly places the prepared Take within the complete work, ordinarily after the previous
-Take, or at an authored position.
+Timeline construction uses the prepared media's Extent to create an absolute Window within the
+complete work, ordinarily after the previous passage, or at an authored position.
 The work can also contain graphics-only passages before, between or after those performances.
-[Timeline authoring](../../production/timeline.md) owns the exact
-SemanticTake assembly and projection mechanism.
+[Timeline authoring](../../production/timeline.md) owns the exact temporal DAG;
+[semantic projection](../../production/timing.md) maps separate NarrativeAlignment evidence through
+its complete local domain and equal-length Window.
 
 For spoken work, ask **who is speaking this Segment?** The selected visible performance carries
 words, mouth movement, gesture, gaze, delivery, picture, and sound together.
@@ -27,33 +29,35 @@ how many semantic clocks exist.
 A recurring presenter, podcast speaker, interview participant, or dramatic character continues to
 own their own lines even while another picture covers them. Visual handoffs, coverage, Caption, MG,
 and Effects are authored against the time that performance established. If an edit changes the
-performance's actual length, prepare and align the edited media before assembly.
+performance's actual length, prepare the edited media before assembly and realign it when those
+dependent layers use semantic timing.
 
 A wordless Segment can identify a real performed passage, such as a dance or reaction. Its prepared
-media supplies start/end boundaries without spoken words. A graphics-only interval can instead
-occupy the Timeline directly, with no Take. Choose from the content the passage actually uses.
+media supplies a local domain without spoken words. A graphics-only interval can instead contribute
+an authored Span to Timeline with no media. Choose from the content the passage actually uses.
 
 ## Keep the performance role separate from the picture
 
 A-roll identifies a performance's role in the work. Its accepted material, Script relationship and
-Timeline placement persist while the author changes its visual use. The picture can lead the frame,
+Timeline Window persist while the author changes its visual use. The picture can lead the frame,
 share space, appear more than once, become part of a diagram or leave the picture entirely. A large
 app recording can lead attention while a small presenter supplies the passage's words and timing.
-Several such changes can happen within one Take; a visual treatment can also continue across Takes.
+Several such changes can happen within one source Window; a visual treatment can also continue
+across several sources.
 
 The covering B-roll may even show the same person doing a silent lifestyle action. Seeing a person
-while hearing words does not by itself make that picture the speaking Take or create a new speech
-source. Sound presents the placed performance's audio, while the visual contribution chooses what
-to show. The same source clip can also serve as an independently timed replay or example elsewhere.
+while hearing words does not by itself make that picture the speaking source or create a new speech
+source. An Audio Clip plays the explicitly declared performance audio, while a Visual Clip
+chooses what to show. The same source clip can also serve as an independently timed replay or example elsewhere.
 Its role follows that use; size, crop, transparency and the presence of a face do not establish it.
 
-Follow the relationship the picture needs: [Performance](../../production/performance.md) and project
-scenes can present the current Timeline footage; [Media](../../production/media-presentation.md)
-receives independently supplied material and playback choices. A change of emphasis can be a direct
+Follow the relationship the picture needs: a [Visual Clip](../../production/visual-clips.md) places
+one source occurrence, while a project scene can coordinate several materials and events. A change
+of emphasis can be a direct
 cut, a held arrangement or a continuous motion. Decide from the idea and viewing rhythm. For a
 continuous move, retain the source playback position while directing the viewport's motion; for a
 direct cut, make the two intended states meet at the chosen event. Speech remains independently
-connected through [Sound](../../production/sound.md).
+connected through an [Audio Clip](../../production/audio-clips.md).
 
 The [presenter-led explainer guide](../formats/presenter-led-explainer.md) develops the whole-work
 relationship among performance, demonstration and graphics. [Graphic composition](graphic-compositions.md) owns
@@ -62,27 +66,28 @@ their visual hierarchy, and [Spatial layout](../../production/spatial.md) owns g
 ## Let neighboring A-roll performances keep their time
 
 The usual A-roll assembly places Segment performances one after another without consuming either
-side of their duration. This fits how the work is authored: `hypit measure` helps size each request so
+side of their duration. This fits how the work is authored: `hypit estimate` helps size each request so
 its words, delivery and action belong naturally in that generated passage, and speaking video models
-normally use the requested clip to perform the line. Asking one Take to remain silent for a synthetic
+normally use the requested clip to perform the line. Asking one generated clip to remain silent for a synthetic
 half-second handle at its beginning or end works against both that sizing and the model's performance.
 
-A duration-consuming crossfade between neighboring A-roll Takes can eat into the word windows that
+A duration-consuming crossfade between neighboring A-roll clips can eat into the word windows that
 each performance established. The result may contain simultaneous speech at a boundary and weaken
 the listening rhythm. For ordinary creator speech, podcast turns, interviews and short drama, this
-makes a direct join between the prepared Segment Takes a practical starting point. Visual coverage
+makes a direct join between the prepared Segment performances a practical starting point. Visual coverage
 and effects can still cross that seam without changing the underlying speech time.
 
-Deliberate interruption, overlapping dialogue or musical phrasing can use the Timeline's explicit
-Take positions. [Timeline authoring](../../production/timeline.md) supports gaps and overlaps directly.
+Deliberate interruption, overlapping dialogue or musical phrasing can use explicit Window positions.
+[Timeline authoring](../../production/timeline.md) supports gaps and overlaps directly.
 The sources retain their local timing; a crossfade or other coordinated picture treatment belongs
-to the visual component owning that behavior. Sequential placement remains the concise ordinary
+to the visual component owning that behavior. Sequential Window construction remains the concise ordinary
 choice for creator speech.
 
 ## Give a recurring person one accepted voice
 
 When the intended work retains a person's recorded delivery, prepare that passage and align its
-actual sound to Script; its picture, if retained, is available to Performance. A supplied recording
+actual sound to Script when downstream relationships need word or boundary positions; its picture,
+if retained, is available to Visual Clip. A supplied recording
 may instead guide a new performance or provide a short Voice Reference. Voice Design can make such
 a reference when a new performance needs one and none was supplied; Voice Clone can then perform
 independently narrated lines from Script. The intended use of the recording, not its mere presence,
@@ -125,14 +130,14 @@ visible A-roll      audio-only A-roll
 ```
 
 An A-roll-capable video model receives the short reference and the actual Script while generating
-the person's visible speaking Take. Voice Clone receives the same reference and the passage's Script
+the person's visible speaking clip. Voice Clone receives the same reference and the passage's Script
 when the work needs independent speech; it generates that passage's audio, whose length follows the
 passage and the selected speech model's request limits rather than the short reference's duration.
 These are two uses of one ordinary Resource, not two voice identities.
 
 A work may combine them. A host can perform visible A-roll and later narrate a passage that has no
 underlying on-camera performance; using the same Voice Reference makes both sound like the same
-person. Another passage covered by B-roll may still be audio from the A-roll Take beneath it. Decide
+person. Another passage covered by B-roll may still be audio from the A-roll performance beneath it. Decide
 from the passage's expressive construction, not from whether the face happens to be visible at that
 instant.
 
@@ -147,8 +152,10 @@ Audio-only A-roll is useful when a Segment is constructed without an on-camera s
 performance: a desktop point-of-view demonstration, a narration-led montage, a pure MG explanation,
 or a product-explanation passage inside an otherwise presenter-led work. Voice Clone
 uses the person's existing Voice Reference and the Segment's actual Script to produce that passage.
-The resulting audio-only SemanticTake carries the A-roll role even though it contributes no picture;
-Media Track, Typography, MG, or another visual Track supplies what the viewer sees.
+The resulting audio is normalized like any other performed media and aligned when Caption or another
+semantic consumer needs positions inside it. An Audio Clip
+Source pairs that ordinary media with its exact Window while Visual Clips, Typography, MG, or another visual Track supplies what the
+viewer sees; no compound audio-only semantic object is required.
 
 Choose audio-only A-roll because the passage itself is independently narrated, not merely because
 B-roll or graphics happen to hide a visible performance. Use Voice Design to establish the person's
@@ -190,7 +197,7 @@ with animated steps, labels and panels:
   while the paper composition supplies its picture. This is an independent-narration-led module.
 - When a ranking host says a brief “Top one: the product” over a paper reveal and then appears on
   camera to continue the same judgment, the host's performance normally owns the whole passage. The
-  paper reveal is MG coverage over that A-roll, and the sound remains the host Take's sound.
+  paper reveal is MG coverage over that A-roll, and the sound remains the host performance's sound.
 
 Duration can support the reading but does not decide it. Ask what carries the argument, attitude and
 progression, and whether an on-camera performance exists whose words naturally continue through the
@@ -209,8 +216,8 @@ other relationships.
 
 ## Give real performance real semantic time
 
-`../../creation/script-and-time.md` owns measurement, literal duration, and alignment. Once the
-accepted performance has semantic time, its dependent layers follow the delivery that really
+`../../creation/script-and-time.md` owns duration estimation, literal duration, and alignment. When
+the accepted performance has semantic timing, its dependent layers follow the delivery that really
 happened.
 
 ## Carry the character through the performance

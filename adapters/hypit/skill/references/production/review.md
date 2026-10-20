@@ -58,11 +58,11 @@ a person actually moves and speaks. A working preview can support either discuss
 current scope clear so the user can give useful direction, and continue the remaining work within
 the agreed commission. [Service selection](../environment/model-and-provider.md#choose-the-practical-capability-path-with-the-user) owns unresolved service choices.
 
-Read missing behavior through its material and presentation together. For intended speech, listen to
+Read missing behavior through its material and use together. For intended speech, listen to
 the selected Film: an available audio file establishes material, while admission and the chosen
-Sound or Audio contribution establish whether that material reaches the Film. For intended physical
+Audio contribution establish whether that material reaches the Film. For intended physical
 action, examine the footage itself as well as the viewport animation. Use
-[media admission](media.md), [sound presentation](sound.md) and [Film assembly](rendering.md)
+[media admission](media.md), [Audio Clips](audio-clips.md) and [Film assembly](rendering.md)
 to complete those relationships. Silence or stillness can equally be intentional when they serve the Brief.
 
 Look at the complete Film at its intended delivery size as well as the components inside it. A component that looks
@@ -78,13 +78,13 @@ location remains an open question.
 
 Use whichever view can answer the current question:
 
-- Once frame positions are known, use [snapshot](snapshots.md) to inspect the existing programme
+- Once frame positions are known, use [snapshot](snapshots.md) to inspect the existing `HtmlProgram`
   directly. Select individual states or continuous frames; keep the surrounding handoffs visible.
   The locations can come from semantic events, the playhead or authored clock time.
 - On an encoded Result, focused media operations such as frames, cut, and tile can expose exact
   pixels, adjacent frames, or a short passage.
 - Open Studio when interactive playback, parameter editing or a component's Companion helps the
-  current work. Seek or select semantic entities to inspect their place in the composition.
+  current work. Seek projected domain evidence or select Track Items to inspect their place in the composition.
 - Use a [range render](rendering.md#choose-a-render-interval-in-frames) when the question requires
   an encoded clip with sound, such as testing an export setting or delivering a passage.
 - Watch the whole deliverable when the question concerns Hook clarity, story movement, payoff,
@@ -97,7 +97,7 @@ media supplies that evidence.
 Inspect the relationships that make the composition work:
 
 - **performance** — the selected footage actually contains the intended speech, action and reaction;
-  presentation motion does not substitute for missing action in the material;
+  Clip or component motion does not substitute for missing action in the material;
 - **picture and coverage** — B-roll supports the passage and its display window carries the intended
   explanation or handoff;
 - **semantic timing and motion** — cuts, Caption Cues, MG states and Effects occur on the
@@ -155,7 +155,7 @@ which of those choices belong in this piece.
 | What the review reveals | Where the correction belongs |
 | --- | --- |
 | The intended story, shot logic, or visual system is wrong | `TREATMENT.md` |
-| Words, speakers, Cue breaks, Selections, or Moments are wrong | the Author Source's Script |
+| Words, speakers, Cue membership, Selections, or Moments are wrong | the Author Source's Script |
 | Composition, authored parameters, or semantic/clock relation is wrong | Author Source or Recipe |
 | The wrong file or earlier Output is selected | Run Source |
 | A reusable visual role cannot express or render its intended design | the project Author Package |

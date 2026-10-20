@@ -15,7 +15,7 @@ to keep their earlier words on screen.
 
 Measure whichever available picture lets those relationships be mapped accurately:
 
-- A supplied clip or prepared Take gives source-local positions that must follow its placement,
+- A supplied or prepared clip gives source-local positions that must follow its placement,
   playback, crop and any moving view into the composition.
 - A composed view already contains its camera framing and program time, provided graphics do not
   obscure the person being measured.
@@ -37,7 +37,7 @@ for this placement task. Use the installed tool or the provider's
 [face-detection example](https://docs.cloud.google.com/video-intelligence/docs/samples/video-detect-faces)
 for actual invocation and existing authorization for any paid request. Another suitable detector or
 manual measurement can supply the same authored data. The stable Hypit input is the resulting
-RegionTimeline, so detector invocation can remain an external, project-side preparation step.
+Region Evidence, so detector invocation can remain an external, project-side preparation step.
 
 GVI's timestamped boxes are observations, not Script Roles or ready-to-use Hypit head tracks. Its
 [response schema](https://docs.cloud.google.com/video-intelligence/docs/reference/rest/v1/AnnotateVideoResponse#TimestampedObject)
@@ -55,7 +55,7 @@ the first or largest face alone can attach the guest's Caption to the interviewe
 Transform the useful observations into ordinary project data, with these decisions explicit:
 
 - **Clock:** sample the observations on the Timeline's frame clock using the actual source playback
-  mapping. For a prepared Take on the same clock at native speed, add its actual placement start,
+  mapping. For prepared media on the same clock at native speed, add its actual placement start,
   including any gap or overlap. Apply any source trim or rate change when measuring other footage.
   Final-video measurements already use that rendered program's clock.
 - **Geometry:** convert detector edges to `[x, y, width, height]` using width `right - left` and height
@@ -85,7 +85,7 @@ Caption ends or uses an authored ordinary placement. Neither a detector track no
 of a listening face extends someone's speech.
 
 [Caption presentation](../../production/caption-presentation.md) owns Style coverage and hiding.
-A Role with no region track keeps ordinary Style placement; a `null` inside an existing track hides
+A Role with no region evidence keeps ordinary Style placement; a `null` inside an existing series hides
 the Cue rather than switching placement automatically. A deliberate tracked-to-ordinary change can
 use explicit Caption Uses or separate Tracks with the same Script and Timeline.
 
@@ -93,8 +93,7 @@ For example, this is a three-frame data-shape illustration, not a ready timeline
 
 ```svs
 heads.default {
-  frame-count: 3;
-  tracks: [
+  series: [
     {"id":"GUEST","regions":[[0.12,0.09,0.20,0.26],null,[0.13,0.10,0.20,0.26]]}
   ];
 }
@@ -103,18 +102,20 @@ heads.default {
 ## Connect the placement to Caption
 
 ```svml
-<space:RegionTimeline id="heads" within={vertical} recipe={tracking.heads.default}/>
-<caption-fine:Track id="captions" document={story.caption}
-  timeline={speech.timeline} regions={heads}>
+<import as="region" from="@hypit/region-evidence@1"/>
+<region:Evidence id="heads" within={vertical.bounds} timeline={speech.timeline}
+  recipe={tracking.heads.default}/>
+<caption-fine:Caption id="captions" document={story.caption} timing={story-captions}
+  timeline={speech.timeline} within={vertical.bounds} regions={heads}>
   <caption-fine:Use style={caption-style}/>
-</caption-fine:Track>
+</caption-fine:Caption>
 ```
 
-The RegionTimeline's ids match Script Roles. Fine places a single-Role Cue at that region's top
+The Region Evidence series ids match Script Roles. Fine places a single-Role Cue at that region's top
 center; `anchor-x: center` and `anchor-y: bottom` put the Cue above it. The Style still owns its width,
 font and motion. Supplying `regions` requires every Cue on that Track to have one Script Role, even
 when that particular Role uses fixed placement. Author the relevant Role Cues in Script. The
-`@hypit/spatial` and `@hypit/caption-fine` READMEs own the exact data behavior.
+`@hypit/region-evidence` and `@hypit/caption-fine` READMEs own the exact data behavior.
 
 ## Inspect the actual placement
 

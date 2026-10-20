@@ -6,17 +6,17 @@ owns who performs the words and where that voice comes from.
 
 ## Start with the sound the material already carries
 
-In speaking-video A-roll, the person's picture, words and voice belong to the same performed Take.
+In speaking-video A-roll, the person's picture, words and voice belong to the same performed media.
 Its sound continues at the current Timeline position while B-roll, graphics or a different view
 changes the picture. Audio-only A-roll likewise supplies performed speech, with its picture authored
-separately. A wordless performance may carry its own sound or be silent. Present the selected Take's
-audio through [Sound](../../production/sound.md) according to what this passage should actually play.
+separately. A wordless performance may carry its own sound or be silent. Present the selected source's
+audio through [Audio Clip](../../production/audio-clips.md) according to what this passage should actually play.
 
 B-roll can be a still, a silent video, or video with useful source sound. Its visual role alone does
 not decide whether the audience hears that sound. A lifestyle shot might contribute a particular
 door, footstep or burst of laughter; a picture covering a presenter's explanation may contribute no
-audio at all. [Media](../../production/media-presentation.md#include-sound-deliberately) makes source
-audio an explicit choice, leaving the selected performance voice available beneath a silent picture.
+audio at all. [Audio Clip](../../production/audio-clips.md) makes source audio an explicit
+choice, leaving the selected performance voice available beneath a silent picture.
 
 Listen to what the chosen material already contributes before adding sound. Music can carry pace,
 mood or a change of thought; a short effect can give contact, reveal or transition an audible edge.
@@ -51,16 +51,16 @@ follow that event within the component. Music or another independently directed 
 an authored span of the Film. Choose the time relationship from what makes the sound happen; the
 same visual and audible event can share a cause without being forced into separate timing schemes.
 
-The owner follows that relationship. [Sound](../../production/sound.md) presents audio from placed
-Takes; [Audio Track](../../production/audio-presentation.md) places independent audio; Media or a
-project component can publish sound coupled to its own picture and events. Film includes the wanted
+The owner follows that relationship. [Audio Clip](../../production/audio-clips.md) presents
+time-bearing source audio; [Audio Clips](../../production/audio-clips.md) place independent audio;
+a project component can publish audio coupled to its own picture and events. Film includes the wanted
 audio contributions explicitly. These are composition choices, while the installed packages own
 their exact playback, trigger and gain syntax.
 
 ## Preserve continuity across picture changes
 
 A picture cut need not cut the acoustic world. Room tone can continue across views of one place,
-music can bind a montage, and a speaking Take can remain audible as another picture takes the frame.
+music can bind a montage, and a speaking performance can remain audible as another picture takes the frame.
 A change of place, speaker perspective or narrative state may instead call for an audible handoff
 even when the picture changes gently. Follow the listener's sense of the encounter.
 

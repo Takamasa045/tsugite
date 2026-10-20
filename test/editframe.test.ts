@@ -717,6 +717,10 @@ describe("editframe runtime resolver", () => {
       await writeFile(join(fake, "node_modules", "@editframe", name, "package.json"), JSON.stringify({ name: `@editframe/${name}`, version: "0.0.1" }));
     }
     await writeFile(join(fake, "node_modules", "@editframe", "elements", "dist", "style.css"), "/* css */");
+    await writeFile(join(fake, "node_modules", "@editframe", "vite-plugin", "dist", "advanced.js"), "export {}\n");
+    const puppeteerDir = join(fake, "node_modules", "puppeteer-core", "lib", "puppeteer");
+    await mkdir(puppeteerDir, { recursive: true });
+    await writeFile(join(puppeteerDir, "puppeteer-core.js"), "export {}\n");
     const viteDir = join(fake, "node_modules", "vite", "bin");
     await mkdir(viteDir, { recursive: true });
     await writeFile(join(viteDir, "vite.js"), "export {}\n");

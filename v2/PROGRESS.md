@@ -18,10 +18,10 @@ This checkpoint does **not** re-run the test suites. Dated counts stay in
 (local v2: 88 passed, five optional-runtime skips; local root: 2,397 passed,
 two skipped). Do not treat those numbers as a fresh run of this docs change.
 
-HyperFrames pins are independent and must not be collapsed:
+HyperFrames pins are tracked separately (both currently 0.8.173):
 
-- v1 root: **0.8.75** (`package.json`, `backends/hyperframes/apply-pinned-patches.mjs`)
-- v2 adapter: **0.8.24** (`v2/plugins/hyperframes`; version enforced in `index.mjs`)
+- v1 root: **0.8.173** (`package.json`, `backends/hyperframes/apply-pinned-patches.mjs`)
+- v2 adapter: **0.8.173** (`v2/plugins/hyperframes`; version enforced in `index.mjs`)
 
 An earlier local note that a shared install held 0.8.24 while a worktree
 expected 0.8.75 describes a past environment, not the current source pins.

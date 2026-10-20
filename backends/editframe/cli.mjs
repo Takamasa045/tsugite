@@ -38,7 +38,7 @@ function assertLoopbackUrl(raw) {
   } catch {
     return { ok: false, reason: "Editframe --url is invalid" };
   }
-  if (parsed.protocol !== "http:" || (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost")) {
+  if (parsed.protocol !== "http:" || (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") || parsed.username || parsed.password) {
     return { ok: false, reason: "Editframe --url must be an http loopback URL" };
   }
   return { ok: true };
@@ -46,6 +46,9 @@ function assertLoopbackUrl(raw) {
 
 export function inspectCliArgs(argv) {
   const tokens = argv.filter((token) => token.length > 0);
+  if (tokens.some(token => ["--endpoint", "--project-id", "--input"].some(flag => token === flag || token.startsWith(flag + "=")))) {
+    return { ok: false, reason: "Hosted Editframe selectors are not allowed in the local backend" };
+  }
   const command = tokens.find((token) => !token.startsWith("-")) ?? "";
   if (DENIED_COMMANDS.has(command) || (command && !ALLOWED_COMMANDS.has(command))) {
     return { ok: false, reason: `Editframe command '${command || tokens[0]}' is not allowed` };
@@ -74,6 +77,13 @@ async function main(argv) {
     return;
   }
   const runtime = resolveEditframeCli();
+  if (inspection.command === "render" && collectUrlFlags(argv).length) {
+    try {
+      const { runLocalCapture } = await import("./renderLocal.mjs");
+      await runLocalCapture(argv.slice(1));
+    } catch (error) { console.error(error.message); process.exitCode = 1; }
+    return;
+  }
   if (!runtime.ok) {
     console.error(runtime.message ?? missingRuntimeMessage());
     process.exitCode = 1;

@@ -4,29 +4,28 @@ Read this when positioning or fitting media, text or a project component. Timing
 [Timing](timing.md); it is independent of these coordinates. Read
 [component design](component-design.md) when deciding which content shares layout or motion;
 [image direction](../playbooks/craft/image-direction.md) owns the source camera view. This page owns
-the destination geometry, for Performance, independent Media and project scenes alike.
+the destination geometry for Visual Clips and project scenes alike.
 
 ## Canvas, extent and destination
 
-The Canvas gives the final image's pixel dimensions and coordinate basis. Introduce Frames and
+The Canvas gives the final image's pixel dimensions. The shared `@1` picture-plane convention gives
+the coordinate basis. Introduce Frames and
 component scopes where they help organize the picture; they need not tile the canvas or remain
-separate rectangles. Components can overlap, share motion and own local trees. Canvas itself does
-not contain a central list of layers. Each rendered Present supplies its own paint order.
+separate rectangles. Components can overlap, share motion and own local trees. Each visual
+contribution publishes Presents with its own paint order.
 
 An IntrinsicExtent gives a source image's actual dimensions. A Frame gives the destination rectangle
 a consumer should occupy. A landscape image can retain its real extent while appearing in a portrait
 composition. An A-roll source has no prescribed Frame or crop. For performance remaining mostly
 full-screen, its intended final aspect can guide source direction; later insets or splits remain
-presentation choices. Translate required source framing into visible camera facts before generation.
+visual placement choices. Translate required source framing into visible camera facts before generation.
 
 ```svml
 <import as="space" from="@hypit/spatial@1"/>
 
 <space:Canvas id="canvas" width="1080" height="1920"/>
 <space:Extent id="photo-size" width="1600" height="1200"/>
-<space:Frame id="full" within={canvas}
-  left="0%" top="0%" right="100%" bottom="100%"/>
-<space:Frame id="content" within={full}
+<space:Frame id="content" within={canvas.bounds}
   left="6%" top="8%" right="94%" bottom="90%"/>
 ```
 
@@ -52,40 +51,59 @@ parent when that is the intended composition.
 For text, `space:Point` supplies a pixel position and `space:Path` supplies authored Move/Line/curve
 commands. [Fonts and text](fonts-and-text.md) shows which Typography placement consumes each.
 
-## Fit the source into the Frame
+## Map a source plane and treat its Frame
 
-Media Track and the ordinary Performance Style share two spatial roles:
+Visual Clips keep three different spatial facts separate:
 
-- The **destination Frame** places the visual on the Canvas and supplies its outer shape.
-- The **fitted content rectangle** places the scaled source inside that Frame. Its size and position
-  come from the source's real Extent and the appearance Recipe's fit and alignment choices.
+- The source's **IntrinsicExtent** bounds its own local pixel plane.
+- A **SpatialMap2D** maps positions from that local plane into the program picture plane.
+- The destination **Frame** owns the Clip's outer treatment and clipping boundary.
 
-Supply the destination Frame and the source's actual dimensions. A still image needs an Extent;
-prepared moving media already carries its dimensions. The component calculates the content rectangle.
-Border and padding reduce the area used for fitting inside the outer Frame. This inset is derived
-from those settings, rather than requiring another authored Frame.
+Ordinary `fit` controls derive the SpatialMap2D after the source Extent and Clip Frame are both
+known. The resolved Visual Program keeps
+that mapping, not a parallel fitted rectangle. A still image therefore needs an Extent; prepared
+moving media and compositable Surfaces already carry their dimensions. Border and padding produce a
+deterministic inset used by the fit calculation, rather than another independently authored Frame.
 
 For example, with no border or padding, a `1600 × 900` image fitted into a `600 × 600` Frame becomes
 `600 × 337.5` under `contain`, leaving room above and below when centered. Under `cover`, it becomes
 about `1066.7 × 600`; a frame clip shows the middle square. Moving the destination moves the whole
-presentation; changing content alignment changes which part of that image occupies the square.
+Clip; changing content alignment changes which part of that image occupies the square.
 
-Choose fitting through the component's appearance Recipe:
+Choose ordinary fitting directly on the Clip:
 
 - **contain** keeps the complete image visible and may leave space around it;
 - **cover** fills the destination and may crop the image;
 - **stretch** changes the source proportions to occupy the destination.
 
-The selected Media/Performance vocabulary also exposes `fit-width`, `fit-height`, `native` and `scale-down` when one
+The Visual Track vocabulary also exposes `fit-width`, `fit-height`, `native` and `scale-down` when one
 dimension or the source's own pixel size should determine the scale. The default is centered
-`contain`. `fit: stretch` is spatial resizing; Media Track's `playback: stretch` is a separate choice
-about video speed.
+`contain`. `fit: stretch` changes only spatial sizing. Timed-source sampling is the independent
+partial relation documented in [Visual Clips](visual-clips.md); it is never inferred from spatial fit.
+
+When fit vocabulary is too narrow, author the mapping itself and pass it with `mapping`. This is the
+open spatial escape hatch; it can rotate, skew, reflect or place a source outside its Clip Frame.
+The matrix maps source-local pixels directly into program-picture pixels:
+
+```svml
+<space:Map id="turned" xx="0" xy="-0.5" yx="0.5" yy="0" tx="920" ty="180"/>
+
+<visual:Track id="graphic" timeline={program.timeline}>
+  <visual:Clip image={poster} extent={poster-size} during={program.title}
+    frame={layout.full} z="20" mapping={turned}/>
+</visual:Track>
+```
+
+The equations are `x' = xx*x + xy*y + tx` and `y' = yx*x + yy*y + ty`. An explicit mapping is
+already in program coordinates, so it is mutually exclusive with the fit and alignment attributes.
+The Frame still owns clipping, border, padding, shadow and whole-Clip motion; it does not rewrite the
+mapping. Project components may construct the same `SpatialMap2D` through the public package API.
 
 ## Align the picture inside its destination
 
-The fit aligns a point on the scaled picture with a point in the fitting area:
+The fit shorthand aligns a point on the scaled source with a point in the fitting area:
 
-| Control in the appearance Recipe | Meaning |
+| Direct Clip control | Meaning |
 | --- | --- |
 | `frame-x`, `frame-y` | The destination alignment point, from `0` to `1` across the fitting area's width and height |
 | `content-x`, `content-y` | The point on the scaled source that meets it, also from `0` to `1` |
@@ -103,30 +121,28 @@ the actual subject and composition; these coordinates express your crop choice.
 
 ## Shape the outer frame
 
-Clipping, border, padding, shadow and frame paint belong to the outer Frame. The shared appearance
+Clipping, border, padding, shadow and frame paint belong to the outer Frame. The optional treatment
 Recipe uses `clip: frame` for a rectangular clip, `clip: rounded` with a pixel `radius` for rounded
 corners, or `clip: none` to show overflow. A radius takes effect with the rounded clip.
 
-Here is a circular presenter inset; the named Canvas, SemanticTake and imported namespaces are
+Here is a circular presenter inset; the normalized media, local domain and imported namespaces are
 already available:
 
 ```svml
-<space:AnchoredFrame id="presenter-frame" within={canvas}
+<space:AnchoredFrame id="presenter-frame" within={canvas.bounds}
   x="94%" y="94%" width="320px" height="320px" anchor="bottom-right"/>
 <time:Clock id="clock" frame-rate="30"/>
-<time:Timeline id="speech" clock={clock}>
-  <time:Take source={opening.take}/>
+<time:Timeline id="speech" clock={clock} end="opening.end">
+  <time:Window id="opening" from="start" for={opening-media.extent}/>
 </time:Timeline>
-<performance:Style id="presenter-style" frame={presenter-frame} appearance={look.presenter}/>
-  <performance:Track id="presenter" timeline={speech.timeline} canvas={canvas}>
-    <performance:Use style={presenter-style} during="program"/>
-  </performance:Track>
+<visual:Track id="presenter" timeline={speech.timeline}>
+  <visual:Clip id="opening" media={opening-media.media} during={speech.opening}
+    frame={presenter-frame} z="20" fit="cover" treatment={look.presenter}/>
+</visual:Track>
 ```
 
 ```svs
 look.presenter {
-  stack-order: 20;
-  fit: cover;
   clip: rounded;
   radius: 160;
   border-width: 3;
@@ -149,40 +165,37 @@ the frame's paint and decoration have their own appearance.
 
 ## Move the frame or move its contents
 
-A lifecycle `motion` Recipe moves or fades the complete framed presentation, including its border
-and paint. `Sampling` children pan, zoom or rotate the fitted picture under that frame. Use Sampling
+A typed `Motion` moves or fades the complete framed occurrence, including its border and paint.
+`Sampling` children pan, zoom or rotate the mapped picture under that frame. Use Sampling
 for a moving crop or a slow push-in while a card's outline stays still:
 
 ```svml
-<media:Item media={prepared.media} during={story.selection.detail}
-  frame={detail-frame} appearance={look.detail}>
-  <media:Sampling at="start" zoom="1"/>
-  <media:Sampling at="end" zoom="1.08" y="-18"/>
-</media:Item>
+<visual:Clip media={prepared.media} during={detail}
+  frame={detail-frame} z="20" fit="cover" treatment={look.detail}>
+  <visual:Sampling at="start" zoom="1"/>
+  <visual:Sampling at="end" zoom="1.08" y="-18"/>
+</visual:Clip>
 ```
 
-This excerpt belongs inside Media Track, with prepared media, a Selection, Frame and Recipe already
-available. Sampling fields apply to a direct-source Item or Member, or a sampled Layer.
+This excerpt belongs inside a Visual Track, with prepared media, a resolved Window, Frame and Recipe already
+available. Sampling fields apply to the Clip's sampled source.
 `x` and `y` are pixel offsets, `rotate` is in
 degrees, and `at` follows the source unit's active span from `start` to `end`, with percentages for
-intermediate keys. Sampling acts after the static fit; its movement can expose space inside the
+intermediate keys. Sampling acts after the resolved static mapping; its movement can expose space inside the
 Frame. Choose the crop and motion together for the intended coverage.
 
-[Performance](performance.md) applies fixed or custom Styles to existing Timeline footage. A moving
-Style retains the original Use Window across partial coverage and Take boundaries. A scene that
+[Visual Track](visual-clips.md) places explicit footage through Clips and owns their source-time
+inputs. Read its installed vocabulary for complete appearance and motion fields. A scene that
 coordinates the viewport with surrounding graphics can own the shared motion in its
-[component program](component-visuals.md#compose-video-and-graphics-in-one-browser-program), retaining
-source playback positions.
+[component program](component-visuals.md#compose-video-and-graphics-in-one-html-visual).
 
-[Media presentation](media-presentation.md) and [Performance](performance.md) own their content and
-playback inputs. Read their installed vocabulary for the complete appearance and motion fields.
+## Carry measured regions through explicit peer evidence
 
-## Carry measured regions through the same geometry
-
-RegionTimeline contains already measured boxes indexed by program frame. Its recipe uses normalized
-`[x, y, width, height]` boxes and `null` for absent measurements, converted against the chosen Canvas.
-Take-local measurements need their actual program offsets. Reframed or cropped footage needs the
-corresponding spatial transform before its boxes can position text correctly.
+Region Evidence contains already prepared boxes indexed by Timeline Frame. It is not part of static
+Spatial geometry. Its Recipe uses normalized `[x, y, width, height]` boxes and `null` for absent
+measurements, resolved inside an explicit Frame. Source-local measurements need their actual time
+placement and the source-to-picture mapping used by the actual visual occurrence before they can
+position text correctly.
 
 [Caption tracking](../playbooks/craft/caption-tracking.md) explains producing and applying head
 regions. In a new component's visual element tree, child positions are relative to their parent;

@@ -46,6 +46,6 @@ while deciding what the presenter, Caption and other graphics contribute beside 
 owns the animation around or within an authored demonstration.
 
 [Browser capture](../../production/browser-capture.md) owns saving a real page or recording,
-[Media presentation](../../production/media-presentation.md) owns its playback and crop, and
+[Media presentation](../../production/visual-clips.md) owns its playback and crop, and
 [component design](../../production/component-design.md) owns an editable screen scene. Choose the
 realization that serves this passage's screen role.

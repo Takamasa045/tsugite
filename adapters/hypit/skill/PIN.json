@@ -1,6 +1,6 @@
 {
-  "tag": "v0.2.13",
-  "commit": "238fe97fcea37b7cc95e37ee6023f4a02c60bb0a",
-  "source": "https://github.com/hypit-ai/hypit/tree/v0.2.13/skills/hypit",
-  "fileCount": 73
+  "tag": "v0.3.1",
+  "commit": "8efbac03ed10929b0f4a3c79fe2b3f77b6479daf",
+  "source": "https://github.com/hypit-ai/hypit/tree/v0.3.1/skills/hypit",
+  "fileCount": 71
 }

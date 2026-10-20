@@ -73,16 +73,16 @@ describe("Tesseract explicit installer", () => {
       .toMatchObject({ ok: false, code: "unsupported_libc" });
   });
 
-  it("builds exact URLs from the official 0.2.0 pin and release asset names", () => {
+  it("builds exact URLs from the official 0.4.0 pin and release asset names", () => {
     expect(tesseractReleaseUrls("darwin-arm64")).toEqual({
-      archiveName: "tesseract-0.2.0-darwin-arm64.zip",
-      archiveUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.2.0/tesseract-0.2.0-darwin-arm64.zip",
-      checksumUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.2.0/tesseract-0.2.0-darwin-arm64.zip.sha256"
+      archiveName: "tesseract-0.4.0-darwin-arm64.zip",
+      archiveUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.4.0/tesseract-0.4.0-darwin-arm64.zip",
+      checksumUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.4.0/tesseract-0.4.0-darwin-arm64.zip.sha256"
     });
     expect(tesseractReleaseUrls("linux-x86_64")).toEqual({
-      archiveName: "tesseract-0.2.0-linux-x86_64.zip",
-      archiveUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.2.0/tesseract-0.2.0-linux-x86_64.zip",
-      checksumUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.2.0/tesseract-0.2.0-linux-x86_64.zip.sha256"
+      archiveName: "tesseract-0.4.0-linux-x86_64.zip",
+      archiveUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.4.0/tesseract-0.4.0-linux-x86_64.zip",
+      checksumUrl: "https://github.com/mirage-hq/tesseract/releases/download/v0.4.0/tesseract-0.4.0-linux-x86_64.zip.sha256"
     });
     expect(() => tesseractReleaseUrls("linux-arm64")).toThrow(/Unsupported Tesseract release asset/);
     expect(() => tesseractReleaseUrls("darwin-arm64", "latest")).toThrow(/official skill pin/);
@@ -156,7 +156,7 @@ describe("Tesseract explicit installer", () => {
       logger
     });
 
-    expect(result).toMatchObject({ ok: true, version: "0.2.0", asset: "darwin-arm64" });
+    expect(result).toMatchObject({ ok: true, version: "0.4.0", asset: "darwin-arm64" });
     expect(requested.map((entry) => entry.url)).toEqual([urls.archiveUrl, urls.checksumUrl]);
     expect(requested.every(({ options }) => options.headers.Authorization === undefined)).toBe(true);
     expect(commandCalls.map(({ command }) => command)).toEqual(["ditto", "bash", result.cliPath]);
@@ -246,7 +246,7 @@ describe("Tesseract explicit installer", () => {
       if (command === "powershell.exe" && args.includes("-Command")) {
         const extractDir = options.env.TSUGITE_TESSERACT_EXTRACT_PATH;
         const installer = path.join(extractDir, "fixture-release", "install.ps1");
-        expect(options.env.TSUGITE_TESSERACT_ARCHIVE_PATH).toContain("tesseract-0.2.0-windows-x86_64.zip");
+        expect(options.env.TSUGITE_TESSERACT_ARCHIVE_PATH).toContain("tesseract-0.4.0-windows-x86_64.zip");
         mkdirSync(path.dirname(installer), { recursive: true });
         writeFileSync(installer, "# fake official Windows installer; intentionally not executed");
         return { status: 0, stdout: "", stderr: "" };
@@ -317,7 +317,7 @@ describe("Tesseract explicit installer", () => {
       expect(options.env).not.toHaveProperty("TESSERACT_API_KEY");
       if (command === "unzip") {
         expect(args[0]).toBe("-q");
-        expect(args[1]).toContain("tesseract-0.2.0-linux-x86_64.zip");
+        expect(args[1]).toContain("tesseract-0.4.0-linux-x86_64.zip");
         const extractDir = args[3];
         const installer = path.join(extractDir, "fixture-release", "install.sh");
         mkdirSync(path.dirname(installer), { recursive: true });

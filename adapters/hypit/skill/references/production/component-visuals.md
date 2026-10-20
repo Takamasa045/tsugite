@@ -38,7 +38,7 @@ visual relationships rather than the nesting of tags in Source.
 ## A working drawing function
 
 [visuals.ts](examples/visuals.ts) contains `renderCard`, a complete pure drawing function using
-`sealVisualTrack` from `@hypit/hypit/composition`. It receives a projected span and a resolved Frame,
+`sealVisualTrack` from `@hypit/composition`. It receives a projected span and a resolved Frame,
 draws a colored box with exact-font text, and optionally fades in relative to the Present's start.
 Its colors, size, padding, layer and entrance duration are supplied by the caller. These drawing-function
 arguments need not all become Surface parameters: the owning component can supply its fixed design
@@ -47,16 +47,16 @@ and expose only the inputs the production needs.
 The root uses Canvas coordinates. The text child uses the root's local coordinates, so padding is
 added once. When a component computes child geometry in Canvas space, subtract the parent's origin
 before writing child `left` and `top`.
-Element `order` values are distinct within the Present; `stacking.order` separately places that
-whole Present among the composition's other appearances.
+Present `order` is local to its owning Visual Track, while `z` places that Present in the final Film
+paint order. Element `order` is local again to the containing Present.
 
 The function is the drawing part of a package. Connect it to a Producer with matching typed inputs,
 then publish the Track through the Fragment and Surface as described in
 [Track authoring](track-authoring.md#connect-the-implementation-at-its-real-boundaries). Surface outputs
 map the Fragment's export name to a public Source name such as `answers.track`.
 
-Use `programSpaceFrameCount` from `@hypit/hypit/program-space` for the full program's frame count and
-`assertVisualTrackIdentity(track, space)` to check a produced Track against that space. Direct seeking
+Use `timelineFrameCount` from `@hypit/timeline` for the full Timeline's frame count and
+`assertVisualTrackIdentity(track, timeline)` to check a produced Track against it. Direct seeking
 and range rendering evaluate the same declared keyframes at the requested frame.
 
 ## Elements, fonts and other assets
@@ -73,7 +73,7 @@ hypit vocabulary --visual text
 Visual styles and Motion use the installed CSS-shaped property vocabulary; query the relevant visual
 shapes above for their supported values. Motion uses frame-indexed keyframes. Media sampling separately
 describes which source frame to show at each part of a Present; it is needed for timed video playback,
-trims, loops and holds. Existing Media Track is useful when that is the whole role.
+trims, loops and holds. A Visual Clip is useful when that is the whole role.
 
 Carry asset and font references through declared inputs. Source assets can be resolved at the
 Surface's asset boundary; generated media remains a graph reference until its Producer runs.
@@ -91,10 +91,10 @@ For an effect that transforms an image, pass that image as an explicit input to 
 preparation. For a local mask, own the mask and content in the same element tree. These relationships
 make the required materials available both in Studio and in a render of any selected interval.
 
-## Compose video and graphics in one browser program
+## Compose video and graphics in one HTML visual
 
 When a scene's video viewport and graphics share motion or layout, one component can draw them
-together. `browserProgram` from `@hypit/hypit/hyperframes` creates a `program` element's payload. Its HTML
+together. `htmlVisual` from `@hypit/html-program` creates a `program` element's payload. Its HTML
 owns the local structure; CSS supplies layout, stacking, masks, filters and blending; optional
 `setup(root, data)` code returns `render(localFrame)`. This function sets the complete state at that
 frame synchronously. A range render may start in the middle, so compute state from the frame and authored inputs.
@@ -102,13 +102,13 @@ frame synchronously. A range render may start in the middle, so compute state fr
 Prepare stable structure in `setup`: locate elements, construct geometry and retain reusable drawing
 objects there. Paint static procedural textures once their resources are ready.
 Let `render(localFrame)` update the state that changes with time. This supports both
-fast repeated capture and direct seeking. A program is sampled within its Present's lifetime;
+fast repeated capture and direct seeking. An HTML visual is sampled within its Present's lifetime;
 outside it, the renderer may retain the boundary pose. Re-entry and repeated active seeks must
 produce the complete requested state, including when an image became ready since the last call.
 
-Repeated browser-program instances share one document's HTML/SVG ID space even though their CSS
+Repeated `HtmlVisual` instances share one document's HTML/SVG ID space even though their CSS
 is scoped. For SVG masks, gradients or filters, derive each required ID from `root.id` in `setup`
-and update its references together. The installed `@hypit/hyperframes` README owns the browser-program
+and update its references together. The installed `@hypit/html-program` README owns the `HtmlVisual`
 API and resource-loading behavior.
 
 For a depth or material effect, choose the representation that carries its visible behavior:
@@ -125,15 +125,14 @@ as peer Presents. These are ordinary composition choices within the same renderi
 Use ordinary typed children for prepared video, images and exact-font text. A `{{child-id}}` slot in
 the HTML places each direct child exactly once. These children retain their declared resources,
 video sampling and font handling while participating in the program's HTML layout. Extra artifacts
-used by the program belong in its `artifacts` list; `hyperframesResourceUri` supplies their resource
+used by the program belong in its `artifacts` list; `htmlProgramResourceUri` supplies their resource
 URLs. The rendering environment materializes those references.
 
-For a placed performance, `projectTimelineMedia(timeline, window.span)` from
-`@hypit/hypit/timeline` returns each intersecting Take's prepared media, program span and source
-span. Subtract the containing Present's start to obtain Present-local video sampling intervals
-(when that Present uses the outer Window as its span, subtract the Window start). Preserve
-the returned source offset: moving or reframing a video changes its presentation while playback
-continues from the same place. A separate Sound presentation can continue the existing audio in Film.
+For time-bearing footage, give the component ordinary normalized media, the absolute Window it needs
+and an explicit sampling choice. Intersect that Window with the containing Present, then derive the
+matching source-frame span from the authored sampling relation. Subtract the Present's start to obtain
+Present-local video sampling intervals. Moving or reframing a video does not itself choose or restart
+playback. The same media can independently feed a peer Audio Clip when the Film should retain its sound.
 
 Project each independently meaningful event before rendering. Convert its program frame to the
 containing Present's local frame once, then animate relative to that event. Keep source sampling
@@ -141,12 +140,11 @@ based on the returned source span; neither the event's local offset nor the view
 replaces it. [Component design](component-design.md#let-meaning-drive-the-behavior) distinguishes these
 inputs from internal motion details.
 
-A reusable scene might expose `during={story.selection.explanation}` for its lifetime and
-`reveal={story.moment.demonstrate}` for its layout change. The Surface projects these independently;
-the Producer receives a Window and an Instant. The installed Distribution's
+A reusable scene might expose `during={explanation}` for its lifetime and
+`reveal={demonstrate}` for its layout change. An upstream Narrative projector publishes
+these independently; the Producer receives a Window and an Instant. The installed Distribution's
 `examples/semantic-composition/packages/responsive-explainer` shows this complete package: video
 moves from full screen to a side viewport while a diagram enters, with Caption available as a peer.
 
-The program format belongs to the renderer package. `hypit.browser-program@1` runs in the
-HyperFrames browser; another renderer implements the formats it supports. Core still schedules
-ordinary Needs and has no knowledge of scenes, video windows or browser layout.
+The HTML visual format belongs to the renderer package. `hypit.html-visual@1` runs in the
+HTML renderer browser; another renderer implements the formats it supports.

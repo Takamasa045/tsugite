@@ -3,12 +3,14 @@
   "note": "Local tsc of pinned official @example/chat-scene src. Not an approval. Phase 1 check/plan spawn requires these exact activation bytes.",
   "files": {
     "packages/chat-scene/dist/activation.js": {
-      "sha256": "8d41b704f92647248b9bc0400ac0e4ea9733db3c9677569bb30da8769a596b47",
-      "bytes": 9720
+      "sha256": "f6b0fb119ed7f7375f599556d577e040003900d597cb339f47735c4249df9c09",
+      "bytes": 9464
     },
     "packages/chat-scene/dist/render.js": {
-      "sha256": "0a47239824c8fe92df685127d35f9d293385eefd8b43359391498ad77af5f10c",
-      "bytes": 4863
+      "sha256": "79b1bdb822f2e26582d44f6b5593c7a54bb4e5c99b14413a8a61bec992234e20",
+      "bytes": 4893
     }
-  }
+  },
+  "distribution": "@hypit/hypit@0.3.1",
+  "compiler": "typescript@5.9.3"
 }

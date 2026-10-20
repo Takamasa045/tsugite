@@ -24,12 +24,12 @@ const ADAPTER_ROOT = fileURLToPath(new URL(".", import.meta.url));
 /** Outer spawn bound. Official `runtime up` may install local packages for minutes. */
 export const LOCAL_RUNTIME_TIMEOUT_MS = 1_200_000;
 
-/** Official video Distribution starter local instances (@hypit/hypit@0.2.13). */
-export const LOCAL_STARTER_ENDPOINT_NAMES = Object.freeze(["media.local", "hyperframes.local"]);
+/** Official video Distribution starter local instances (@hypit/hypit@0.3.1). */
+export const LOCAL_STARTER_ENDPOINT_NAMES = Object.freeze(["media.local", "html.local"]);
 
 const LOCAL_STARTER_USE = Object.freeze({
-  "media.local": "@hypit/provider-media-local",
-  "hyperframes.local": "@hypit/provider-hyperframes-local"
+  "media.local": "@hypit/media-local",
+  "html.local": "@hypit/provider-html-local"
 });
 
 const MEDIA_LOCAL_CONFIG_KEYS = new Set(["defaultConcurrency", "processTimeoutMs", "maxProbeOutputBytes"]);
@@ -174,19 +174,19 @@ function assertNoForbiddenOptions(options) {
 }
 
 export function localRuntimeInitArgv(workspace) {
-  return ["runtime", "init", "--workspace", workspace, "--json", "--no-color"];
+  return ["runtime", "init", "--project", workspace, "--json", "--no-color"];
 }
 
 export function localRuntimeUpArgv(workspace) {
   return [
     "runtime",
     "up",
-    "--workspace",
+    "--project",
     workspace,
     "--endpoint",
     "media.local",
     "--endpoint",
-    "hyperframes.local",
+    "html.local",
     "--json",
     "--no-color"
   ];
@@ -239,7 +239,7 @@ function inspectLocalConfig(name, config) {
       return `${name} config ${key} is not part of the official local starter`;
     }
   }
-  if (name === "hyperframes.local") {
+  if (name === "html.local") {
     if (config.workers !== undefined && config.workers !== "auto") {
       const invalid = inspectPositiveInteger(config.workers, `${name} workers`);
       if (invalid) return invalid;
@@ -278,7 +278,7 @@ function inspectOneLocalEndpoint(name, spec) {
 }
 
 /**
- * Names alone are not trust. media.local / hyperframes.local must match the
+ * Names alone are not trust. media.local / html.local must match the
  * official local starter packages and local-only config. Does not rewrite.
  */
 export function inspectTrustedLocalStarterEndpoints(profile, workspaceReal) {
@@ -501,7 +501,7 @@ function profileFacts(selection, workspaceReal) {
 }
 
 /**
- * Prepare official local media.local and hyperframes.local for one workspace.
+ * Prepare official local media.local and html.local for one workspace.
  * Caller cannot supply commands, endpoints, or stateHome. Production callers
  * pass productionRoot so host state matches orchestrator childEnvFor.
  * Readiness is only the official CLI machine view.

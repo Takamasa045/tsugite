@@ -19,7 +19,7 @@ Query the likely package owners:
 ```bash
 hypit vocabulary
 hypit vocabulary @hypit/caption-fine
-hypit vocabulary @hypit/media-pipeline --tag StillVideo
+hypit vocabulary @hypit/media-operations --tag StillVideo
 hypit vocabulary --visual text
 ```
 
@@ -79,14 +79,17 @@ Keep the boundary useful:
 - Runtime Profiles own external execution and credentials;
 - Provider packages implement media tools and external services.
 
-Read the installed `@hypit/hypit/author-kit` README for the public package boundary and a relevant component
+Read the installed `@hypit/hypit/producer`, `admission`, `author` and `markup` READMEs for the public package boundaries and a relevant component
 for an implementation example. Give the new package its own Module identity and use the project
-owner's scope; the selected Distribution owns the reserved `@hypit/*` namespace.
+owner's scope; `@hypit/*` is the Hypit project's publishing namespace, not a scope for project packages.
 
-TypeScript imports use public SDK paths such as `@hypit/hypit/author-kit`, `@hypit/hypit/composition`,
-`@hypit/hypit/text`, `@hypit/hypit/caption` or `@hypit/hypit/studio-adapter`. Source imports instead name logical Modules,
-such as `@hypit/caption@1`. When learning from installed official source, translate its internal
-workspace imports to the corresponding public SDK paths in the project package.
+TypeScript imports use public SDK paths such as `@hypit/hypit/author`, `@hypit/hypit/producer`,
+`@hypit/hypit/admission`, `@hypit/hypit/markup`, `@hypit/composition`,
+`@hypit/hypit/text` or `@hypit/caption`; Studio Companions use the independent
+`@hypit/studio-companion` package. Source imports instead name logical Modules,
+such as `@hypit/caption@1`. Declare the domain packages you import as ordinary dependencies;
+declare compatibility with the Hypit and Companion host APIs through peer dependencies. When learning
+from language-internal source, translate its private workspace imports to public Hypit SDK paths.
 
 Describe the Surface's role, attributes and outputs with a small valid example so a future author
 can select it. A visual preview makes its appearance recognizable; Studio shows the actual
@@ -98,7 +101,7 @@ For existing Track composition, read [Tracks](tracks.md). For a new Track,
 state, preset content and peer visual/audio outputs. [Caption authoring](caption-authoring.md) covers
 a new speech-text family without rebuilding its transcript or timing.
 
-[Studio and Companions](studio.md) covers timeline presentation and Inspector editing for the new
+[Studio and Companions](studio.md) covers timeline Items and Inspector editing for the new
 component.
 
 [Component visuals](component-visuals.md) explains the actual Track and element representation,
@@ -108,8 +111,10 @@ with a drawing example. [System relationships](system.md) places it in the compl
 
 The project's package manager installs and versions components. Hypit loads only packages selected
 by Source or Run imports and their declared dependencies. Project packages resolve from the project;
-reserved `@hypit/*` packages come from the selected Distribution. It does not scan the dependency
-tree for possible components.
+embedded Core comes from the selected Distribution, while its product-selected default packages are
+ordinary dependencies installed with it. Independently published project packages—including
+`@hypit/*` packages—follow ordinary project-first package resolution.
+Hypit does not scan the dependency tree for possible components.
 
 Keep a new component project-local while it serves this work. If its owner later wants to use it
 across projects, send a versioned tarball or publish an npm/private-registry release and pin it in the

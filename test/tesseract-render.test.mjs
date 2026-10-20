@@ -582,7 +582,7 @@ describe("Tesseract render validation", () => {
       backendOptions: { font_path: "assets/fonts/Inter.ttf" }
     }, {
       platform: "darwin",
-      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.2.0" }),
+      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.4.0" }),
       runCli: async (_cliPath, args) => {
         cliCalls.push([...args]);
         const command = args.slice(0, 2).join(" ");
@@ -711,7 +711,7 @@ describe("Tesseract render validation", () => {
       runDir, manifestPath, outputPath, reportPath, projectRoot, backendOptions: {}
     }, {
       platform: "darwin",
-      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.2.0" }),
+      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.4.0" }),
       runCli: async (_cliPath, args) => {
         cliCalls.push([...args]);
         const command = args.slice(0, 2).join(" ");
@@ -903,7 +903,7 @@ describe("Tesseract render validation", () => {
     const emptyDocument = { duration: 1, composition: { id: "main", width: 1920, height: 1080, layers: [] } };
     await expect(renderTesseract({ runDir, manifestPath, outputPath, reportPath, projectRoot, backendOptions: {} }, {
       platform: "darwin",
-      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.2.0" }),
+      resolveCli: async () => ({ ok: true, cliPath: "/fake/tsrct", version: "0.4.0" }),
       runCli: async (_cliPath, args) => {
         const command = args.slice(0, 2).join(" ");
         if (command === "project schema") return { status: 0, stdout: JSON.stringify(documentSchema), stderr: "" };

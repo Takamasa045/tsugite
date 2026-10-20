@@ -8,7 +8,7 @@ Review the [current Tesseract terms](https://mirage.app/legal/tesseract-terms) a
 
 ## Pinned CLI and host support
 
-Tsugite pins Tesseract CLI **0.2.0**. The [official release](https://github.com/mirage-hq/Tesseract/releases/tag/v0.2.0) adds Linux support, export options including 4K and 60 fps, improved font support, and CLI usage telemetry. As of 2026-09-24, one real 0.2.0 render has been verified on this macOS host: the basic generated-layer route exported a single silent 1-second 1920×1080/30 H.264 clip. Tesseract needed Metal GPU access; the default restricted sandbox reported that no GPU adapter was available, while the same pipeline render succeeded with host GPU access. Preview/filmstrip, native document/action authoring, alternate canvases and export settings, ProRes, and alpha-solo remain unverified with 0.2.0.
+Tsugite pins Tesseract CLI **0.4.0** ([official release](https://github.com/mirage-hq/Tesseract/releases/tag/v0.4.0)). On 2026-10-19 (JST), the synthetic 1-second 1920×1080/30 H.264 path passed on this Mac with networking denied and telemetry disabled only in its private test HOME. The editable project and report were produced too. Other 0.4.0 features remain unverified; the 0.2.0 evidence below is historical. The [official release](https://github.com/mirage-hq/Tesseract/releases/tag/v0.2.0) adds Linux support, export options including 4K and 60 fps, improved font support, and CLI usage telemetry. As of 2026-09-24, one real 0.2.0 render has been verified on this macOS host: the basic generated-layer route exported a single silent 1-second 1920×1080/30 H.264 clip. Tesseract needed Metal GPU access; the default restricted sandbox reported that no GPU adapter was available, while the same pipeline render succeeded with host GPU access. Preview/filmstrip, native document/action authoring, alternate canvases and export settings, ProRes, and alpha-solo remain unverified with 0.2.0.
 
 The official CLI supports Apple Silicon and Intel macOS, 64-bit Windows 10 or later, and Linux x86_64 with glibc 2.35 or later. Linux also requires Python 3, Bash, coreutils, and unzip for installation; at runtime it needs zlib, ALSA, libstdc++, a Vulkan loader, and a compatible Vulkan driver. Mesa lavapipe is a software-rendering option for headless systems. Other operating systems, architectures, and Linux libc implementations are unsupported.
 
@@ -24,7 +24,7 @@ After reviewing the release terms, run this explicit command from the Tsugite re
 npm run tesseract:install
 ```
 
-The command downloads the exact 0.2.0 ZIP and `.sha256` sidecar for the detected host from the public GitHub release, verifies the archive hash, extracts into a temporary directory, and invokes the matching upstream `install.sh` or `install.ps1`. It then runs `tsrct --version` and requires the exact 0.2.0 pin. The temporary download and extracted files are removed afterward. A download or hash failure stops before extraction and installation.
+The command downloads the exact 0.4.0 ZIP and `.sha256` sidecar for the detected host from the public GitHub release, verifies the archive hash, extracts into a temporary directory, and invokes the matching upstream `install.sh` or `install.ps1`. It then runs `tsrct --version` and requires the exact 0.4.0 pin. The temporary download and extracted files are removed afterward. A download or hash failure stops before extraction and installation.
 
 This is an opt-in command. `npm ci`, `doctor`, and `render` do not install Tesseract. The Tsugite setup wrapper adds no credentials or cloud setup and forwards only the small set of system environment variables needed by the official installer. It sends no project files or media. The upstream installer is run unchanged.
 
@@ -42,7 +42,7 @@ Doctor checks the same version probe used by the backend:
 node backends/tesseract/cli.mjs --version
 ```
 
-The resolver checks the documented per-user install location first, then the executable on `PATH`. It rejects unsupported hosts, a missing command, and any CLI version other than 0.2.0. A missing CLI reports `npm run tesseract:install` as remediation; it never installs automatically.
+The resolver checks the documented per-user install location first, then the executable on `PATH`. It rejects unsupported hosts, a missing command, and any CLI version other than 0.4.0. A missing CLI reports `npm run tesseract:install` as remediation; it never installs automatically.
 
 Official install locations are:
 

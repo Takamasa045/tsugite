@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Phase 1 spike. Live CLI: version/help/paths/measure/check/plan.
+ * Phase 1 spike. Live CLI: version/help/paths/check/plan.
  * Build, runtime up, auth login, transcribe, pricing, and packages install
  * are unconditionally refused. Observation fingerprints are not approvals.
  */
@@ -89,7 +89,6 @@ if (version.status !== 0 || version.stdout.trim() !== HYPIT_VERSION) {
 run("help", buildObserveArgv("help"));
 run("help-plan", buildObserveArgv("help", { topic: "plan" }));
 run("help-build", buildObserveArgv("help", { topic: "build" }));
-const measure = run("measure", ["measure", "--text", "Are we ready to launch?", "--json"]);
 
 let workspace;
 try {
@@ -159,7 +158,6 @@ const observation = observePlanFingerprint({
 report.observation = observation;
 save("plan-observation.json", observation);
 
-if (measure.status !== 0) report.gaps.push("measure exited non-zero; see measure.log");
 if (!check || check.status !== 0) report.gaps.push("check exited non-zero or did not run; see check.log");
 if (!plan || plan.status !== 0) report.gaps.push("plan exited non-zero or did not run; see plan.log");
 
@@ -173,7 +171,6 @@ process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 const failed = report.gaps.length > 0
   || version.status !== 0
   || version.stdout.trim() !== HYPIT_VERSION
-  || measure.status !== 0
   || check?.status !== 0
   || plan?.status !== 0;
 if (failed) process.exitCode = 1;

@@ -9,6 +9,20 @@ import {addPlugin} from '../src/plugins.mjs';
 import {document} from '../plugins/hyperframes/index.mjs';
 import {command,probe} from '../plugins/local/index.mjs';
 import hyperframes from '../plugins/hyperframes/index.mjs';
+test('HyperFrames review identity includes lazy runtime chunks and rejects symlinks',async t=>{
+  const {home}=await fixture(t),directory=path.join(home,'hyperframes'),cli=path.join(directory,'bin/hyperframes.mjs'),gsap=path.join(home,'gsap.js'),browser=path.join(home,'browser');
+  await fs.mkdir(path.dirname(cli),{recursive:true});await fs.mkdir(path.join(directory,'dist'));
+  await fs.writeFile(path.join(directory,'package.json'),JSON.stringify({name:'hyperframes',version:'0.8.173'}));
+  for(const file of [cli,gsap,browser,path.join(directory,'dist/cli.js'),path.join(directory,'dist/lazy.js')])await fs.writeFile(file,'original');
+  const keys=['TSUGITE_HYPERFRAMES','TSUGITE_GSAP','TSUGITE_BROWSER'],previous=keys.map(key=>process.env[key]);
+  try{
+    keys.forEach((key,i)=>{process.env[key]=[cli,gsap,browser][i];});
+    const before=await hyperframes.runtime();await fs.writeFile(path.join(directory,'dist/lazy.js'),'changed');
+    assert.notEqual((await hyperframes.runtime()).runtimeSha256,before.runtimeSha256);
+    await fs.symlink(gsap,path.join(directory,'dist/linked.js'));
+    await assert.rejects(hyperframes.runtime(),/symlinks/);
+  }finally{keys.forEach((key,i)=>{if(previous[i]===undefined)delete process.env[key];else process.env[key]=previous[i];});}
+});
 test('existing HyperFrames runtime exports real sound and timed captions',{skip:!process.env.TSUGITE_HYPERFRAMES||!process.env.TSUGITE_GSAP||!process.env.TSUGITE_BROWSER},async t=>{
   const {root,home}=await fixture(t),scratch=path.join(home,'hf-scratch'),output=path.join(home,'hyperframes.mp4');await fs.mkdir(scratch);
   const tone=path.join(root,'assets/tone.wav');await command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','1',tone]);
