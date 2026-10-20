@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 import { fail } from './files.mjs';
 
 export const SUPPORTED_LANGUAGES = ['en', 'ja'];
+// Keep v2's current English review HTML / CLI help unless lang is resolved to ja.
 export const DEFAULT_LANGUAGE = 'en';
 
 const LOCALES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'locales');
